@@ -12,6 +12,9 @@ Never commit:
 
 Use local `.env` files only for development and keep them ignored by git.
 
+`.env.example` may include empty variable names such as `FINAM_SECRET_TOKEN`,
+`FINAM_ACCOUNT_ID`, and `FINAM_SYMBOL`; it must never include real values.
+
 ## Logging
 
 Logs may include:
@@ -28,6 +31,9 @@ Logs must not include:
 - raw JWT;
 - full personal account identifiers unless explicitly required for local-only diagnostics.
 
+Operator CLI probes should prefer redacted response shapes and key lists over
+full broker payloads until an explicit export workflow is added.
+
 ## Live trading guard
 
 Order-emitting functionality must require:
@@ -38,4 +44,3 @@ Order-emitting functionality must require:
 - readiness = live-ready;
 - operator pause not active;
 - idempotent client order id.
-

@@ -1,9 +1,10 @@
 //! Finam Trade API adapter surface.
 //!
-//! M0 intentionally exposes configuration and capability declarations only.
-//! Network clients and order placement will be added after read-only API
-//! characterization.
+//! The first implementation slice is deliberately read-only. Order placement is
+//! added only after auth, account, reference data, market data, and
+//! reconciliation behavior are characterized.
 
+use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,7 +60,10 @@ pub struct FinamRestClient {
 impl FinamRestClient {
     pub fn new(config: FinamConfig) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .https_only(true)
+                .build()
+                .expect("reqwest client configuration must be valid"),
             config,
         }
     }
@@ -87,6 +91,231 @@ impl FinamRestClient {
             .await?;
         decode_response(response).await
     }
+
+    pub async fn account(
+        &self,
+        token: &str,
+        account_id: &str,
+    ) -> Result<serde_json::Value, FinamError> {
+        let url = self.rest_url(&["v1", "accounts", account_id])?;
+        self.get_json(token, url).await
+    }
+
+    pub async fn account_trades(
+        &self,
+        token: &str,
+        account_id: &str,
+        query: HistoryQuery<'_>,
+    ) -> Result<serde_json::Value, FinamError> {
+        let mut url = self.rest_url(&["v1", "accounts", account_id, "trades"])?;
+        query.append_to_url(&mut url);
+        self.get_json(token, url).await
+    }
+
+    pub async fn account_transactions(
+        &self,
+        token: &str,
+        account_id: &str,
+        query: HistoryQuery<'_>,
+    ) -> Result<serde_json::Value, FinamError> {
+        let mut url = self.rest_url(&["v1", "accounts", account_id, "transactions"])?;
+        query.append_to_url(&mut url);
+        self.get_json(token, url).await
+    }
+
+    pub async fn account_orders(
+        &self,
+        token: &str,
+        account_id: &str,
+    ) -> Result<serde_json::Value, FinamError> {
+        let url = self.rest_url(&["v1", "accounts", account_id, "orders"])?;
+        self.get_json(token, url).await
+    }
+
+    pub async fn account_order(
+        &self,
+        token: &str,
+        account_id: &str,
+        order_id: &str,
+    ) -> Result<serde_json::Value, FinamError> {
+        let url = self.rest_url(&["v1", "accounts", account_id, "orders", order_id])?;
+        self.get_json(token, url).await
+    }
+
+    pub async fn assets(&self, token: &str) -> Result<serde_json::Value, FinamError> {
+        let url = self.rest_url(&["v1", "assets"])?;
+        self.get_json(token, url).await
+    }
+
+    pub async fn all_assets(
+        &self,
+        token: &str,
+        query: AllAssetsQuery<'_>,
+    ) -> Result<serde_json::Value, FinamError> {
+        let mut url = self.rest_url(&["v1", "assets", "all"])?;
+        query.append_to_url(&mut url);
+        self.get_json(token, url).await
+    }
+
+    pub async fn clock(&self, token: &str) -> Result<serde_json::Value, FinamError> {
+        let url = self.rest_url(&["v1", "assets", "clock"])?;
+        self.get_json(token, url).await
+    }
+
+    pub async fn exchanges(&self, token: &str) -> Result<serde_json::Value, FinamError> {
+        let url = self.rest_url(&["v1", "assets", "exchanges"])?;
+        self.get_json(token, url).await
+    }
+
+    pub async fn asset(
+        &self,
+        token: &str,
+        symbol: &str,
+        account_id: Option<&str>,
+    ) -> Result<serde_json::Value, FinamError> {
+        let mut url = self.rest_url(&["v1", "assets", symbol])?;
+        append_optional_query(&mut url, "account_id", account_id);
+        self.get_json(token, url).await
+    }
+
+    pub async fn asset_params(
+        &self,
+        token: &str,
+        symbol: &str,
+        account_id: Option<&str>,
+    ) -> Result<serde_json::Value, FinamError> {
+        let mut url = self.rest_url(&["v1", "assets", symbol, "params"])?;
+        append_optional_query(&mut url, "account_id", account_id);
+        self.get_json(token, url).await
+    }
+
+    pub async fn asset_schedule(
+        &self,
+        token: &str,
+        symbol: &str,
+    ) -> Result<serde_json::Value, FinamError> {
+        let url = self.rest_url(&["v1", "assets", symbol, "schedule"])?;
+        self.get_json(token, url).await
+    }
+
+    pub async fn bars(
+        &self,
+        token: &str,
+        symbol: &str,
+        query: BarsQuery<'_>,
+    ) -> Result<serde_json::Value, FinamError> {
+        let mut url = self.rest_url(&["v1", "instruments", symbol, "bars"])?;
+        query.append_to_url(&mut url);
+        self.get_json(token, url).await
+    }
+
+    pub async fn last_quote(
+        &self,
+        token: &str,
+        symbol: &str,
+    ) -> Result<serde_json::Value, FinamError> {
+        let url = self.rest_url(&["v1", "instruments", symbol, "quotes", "latest"])?;
+        self.get_json(token, url).await
+    }
+
+    pub async fn latest_trades(
+        &self,
+        token: &str,
+        symbol: &str,
+    ) -> Result<serde_json::Value, FinamError> {
+        let url = self.rest_url(&["v1", "instruments", symbol, "trades", "latest"])?;
+        self.get_json(token, url).await
+    }
+
+    fn rest_url(&self, segments: &[&str]) -> Result<reqwest::Url, FinamError> {
+        let base = format!("{}/", self.config.rest_base_url.trim_end_matches('/'));
+        let mut url = reqwest::Url::parse(&base).map_err(|error| FinamError::InvalidBaseUrl {
+            base_url: self.config.rest_base_url.clone(),
+            error: error.to_string(),
+        })?;
+        {
+            let mut path_segments =
+                url.path_segments_mut()
+                    .map_err(|_| FinamError::InvalidBaseUrl {
+                        base_url: self.config.rest_base_url.clone(),
+                        error: "base URL cannot be a base for path segments".to_string(),
+                    })?;
+            path_segments.clear();
+            path_segments.extend(segments.iter().copied());
+        }
+        Ok(url)
+    }
+
+    async fn get_json(
+        &self,
+        token: &str,
+        url: reqwest::Url,
+    ) -> Result<serde_json::Value, FinamError> {
+        if token.is_empty() {
+            return Err(FinamError::MissingToken);
+        }
+        let response = self
+            .http
+            .get(url)
+            .header(AUTHORIZATION, token)
+            .send()
+            .await?;
+        decode_response(response).await
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HistoryQuery<'a> {
+    pub limit: Option<u32>,
+    pub start_time: Option<&'a str>,
+    pub end_time: Option<&'a str>,
+}
+
+impl HistoryQuery<'_> {
+    fn append_to_url(self, url: &mut reqwest::Url) {
+        append_optional_u32_query(url, "limit", self.limit);
+        append_optional_query(url, "interval.start_time", self.start_time);
+        append_optional_query(url, "interval.end_time", self.end_time);
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AllAssetsQuery<'a> {
+    pub cursor: Option<&'a str>,
+    pub only_active: Option<bool>,
+    pub only_disabled: Option<bool>,
+}
+
+impl AllAssetsQuery<'_> {
+    fn append_to_url(self, url: &mut reqwest::Url) {
+        append_optional_query(url, "cursor", self.cursor);
+        append_optional_bool_query(url, "only_active", self.only_active);
+        append_optional_bool_query(url, "only_disabled", self.only_disabled);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BarsQuery<'a> {
+    pub timeframe: &'a str,
+    pub start_time: Option<&'a str>,
+    pub end_time: Option<&'a str>,
+}
+
+impl<'a> BarsQuery<'a> {
+    pub fn new(timeframe: &'a str) -> Self {
+        Self {
+            timeframe,
+            start_time: None,
+            end_time: None,
+        }
+    }
+
+    fn append_to_url(self, url: &mut reqwest::Url) {
+        url.query_pairs_mut()
+            .append_pair("timeframe", self.timeframe);
+        append_optional_query(url, "interval.start_time", self.start_time);
+        append_optional_query(url, "interval.end_time", self.end_time);
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -110,8 +339,31 @@ pub struct AuthResponse {
 pub enum FinamError {
     #[error("finam http error: {0}")]
     Http(#[from] reqwest::Error),
+    #[error("finam REST base URL is invalid ({base_url}): {error}")]
+    InvalidBaseUrl { base_url: String, error: String },
+    #[error("finam JWT/access token is missing")]
+    MissingToken,
     #[error("finam api returned HTTP {status}: {body}")]
     Api { status: u16, body: String },
+}
+
+fn append_optional_query(url: &mut reqwest::Url, key: &str, value: Option<&str>) {
+    if let Some(value) = value {
+        url.query_pairs_mut().append_pair(key, value);
+    }
+}
+
+fn append_optional_u32_query(url: &mut reqwest::Url, key: &str, value: Option<u32>) {
+    if let Some(value) = value {
+        url.query_pairs_mut().append_pair(key, &value.to_string());
+    }
+}
+
+fn append_optional_bool_query(url: &mut reqwest::Url, key: &str, value: Option<bool>) {
+    if let Some(value) = value {
+        url.query_pairs_mut()
+            .append_pair(key, if value { "true" } else { "false" });
+    }
 }
 
 async fn decode_response<T: for<'de> Deserialize<'de>>(
@@ -126,4 +378,41 @@ async fn decode_response<T: for<'de> Deserialize<'de>>(
         });
     }
     Ok(response.json::<T>().await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rest_url_encodes_path_segments() {
+        let client = FinamRestClient::new(FinamConfig {
+            rest_base_url: "https://api.finam.ru".to_string(),
+            ..FinamConfig::default()
+        });
+
+        let url = client
+            .rest_url(&["v1", "assets", "SBER@MISX", "params"])
+            .expect("valid url");
+
+        assert_eq!(
+            url.as_str(),
+            "https://api.finam.ru/v1/assets/SBER@MISX/params"
+        );
+    }
+
+    #[test]
+    fn history_query_uses_finam_interval_keys() {
+        let mut url = reqwest::Url::parse("https://api.finam.ru/v1/accounts/A/trades").unwrap();
+        HistoryQuery {
+            limit: Some(1000),
+            start_time: Some("2026-06-01T00:00:00Z"),
+            end_time: Some("2026-06-27T23:59:59Z"),
+        }
+        .append_to_url(&mut url);
+
+        assert!(url.as_str().contains("limit=1000"));
+        assert!(url.as_str().contains("interval.start_time="));
+        assert!(url.as_str().contains("interval.end_time="));
+    }
 }

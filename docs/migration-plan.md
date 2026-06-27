@@ -33,6 +33,7 @@ Exit criteria:
 - Transactions.
 - Asset params and schedules for RI, IMOEXF, USDRUBF.
 - CLI export to JSON/CSV.
+- Redacted CLI probe for account/reference/history checks without live order actions.
 
 Exit criteria:
 
@@ -40,6 +41,7 @@ Exit criteria:
 - We can verify account flatness/readiness without placing orders.
 - We can validate symbol, tick, lot, expiration, and schedule before any live mode.
 - API maintenance and market schedule are represented in readiness.
+- Read-only CLI does not print secret/JWT or emit order actions.
 
 ## M2 — streaming/shadow
 

@@ -30,6 +30,17 @@ No live trading functionality should be enabled until:
 - explicit operator approval is recorded for order-emitting mode.
 - stop/SLTP/bracket features are disabled for Phase 1.
 
+Useful local probes:
+
+```bash
+cargo run -p broker-cli -- finam-info
+FINAM_SECRET_TOKEN=... cargo run -p broker-cli -- finam-auth-check
+FINAM_SECRET_TOKEN=... cargo run -p broker-cli -- finam-readonly-check
+```
+
+`finam-readonly-check` is diagnostics-only: it does not place, cancel, replace,
+or modify orders.
+
 See:
 
 - [Architecture](docs/architecture.md)

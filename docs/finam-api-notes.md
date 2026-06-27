@@ -165,3 +165,25 @@ FINAM_SECRET_TOKEN=... cargo run -p broker-cli -- finam-auth-check
 ```
 
 The command prints only HTTP/auth shape and JWT length, not the JWT itself.
+
+Read-only surface added for M1:
+
+```bash
+FINAM_SECRET_TOKEN=... \
+FINAM_ACCOUNT_ID=... \
+FINAM_SYMBOL='TICKER@MIC' \
+cargo run -p broker-cli -- finam-readonly-check \
+  --start-time 2026-06-01T00:00:00Z \
+  --end-time 2026-06-27T23:59:59Z \
+  --limit 1000
+```
+
+The read-only probe calls only diagnostics/reference/history endpoints:
+
+- token details;
+- clock, exchanges, assets, first page of active `all_assets`;
+- optional account, account orders, trades, transactions;
+- optional asset, asset params, schedule, last quote, latest trades, bars.
+
+It prints redacted JSON shape/keys instead of raw JWT or full broker payloads.
+It does not place, cancel, replace, or modify orders.
