@@ -1,7 +1,7 @@
 use anyhow::Result;
 use broker_finam::{
-    AllAssetsQuery, BarsQuery, FinamApiCapabilities, FinamConfig, FinamRestClient,
-    GatewayEnabledFeatures, HistoryQuery, SecretToken,
+    AllAssetsQuery, BarsQuery, FinamApiCapabilities, FinamAuthManager, FinamConfig,
+    FinamRestClient, GatewayEnabledFeatures, HistoryQuery, SecretToken,
 };
 use clap::{Parser, Subcommand};
 use std::collections::BTreeSet;
@@ -73,17 +73,18 @@ async fn main() -> Result<()> {
         Command::AuthCheck { secret_env } => {
             let secret = SecretToken::new(std::env::var(&secret_env)?);
             let client = FinamRestClient::try_new(FinamConfig::default())?;
-            match client.auth(&secret).await {
-                Ok(auth) => {
+            let auth_manager = FinamAuthManager::new(client.clone(), secret);
+            match auth_manager.access_token().await {
+                Ok(token) => {
                     println!(
                         "{}",
                         serde_json::to_string_pretty(&serde_json::json!({
                             "auth_http": 200,
-                            "jwt_present": !auth.token.is_empty(),
-                            "jwt_len": auth.token.len(),
+                            "jwt_present": !token.is_empty(),
+                            "jwt_len": token.len(),
                         }))?
                     );
-                    match client.token_details(&auth.token).await {
+                    match client.token_details(&token).await {
                         Ok(details) => {
                             let detail_keys = details
                                 .as_object()
@@ -132,14 +133,15 @@ async fn main() -> Result<()> {
             let mut records = Vec::new();
             let secret = SecretToken::new(std::env::var(&secret_env)?);
             let client = FinamRestClient::try_new(FinamConfig::default())?;
-            match client.auth(&secret).await {
-                Ok(auth) => {
+            let auth_manager = FinamAuthManager::new(client.clone(), secret);
+            match auth_manager.access_token().await {
+                Ok(token) => {
                     emit_record(
                         &mut records,
                         serde_json::json!({
                             "auth_http": 200,
-                            "jwt_present": !auth.token.is_empty(),
-                            "jwt_len": auth.token.len(),
+                            "jwt_present": !token.is_empty(),
+                            "jwt_len": token.len(),
                             "live_trading_enabled": false,
                         }),
                     )?;
@@ -147,29 +149,25 @@ async fn main() -> Result<()> {
                     emit_probe_result(
                         &mut records,
                         "token_details",
-                        client.token_details(&auth.token).await.as_ref(),
+                        client.token_details(&token).await.as_ref(),
                     )?;
-                    emit_probe_result(
-                        &mut records,
-                        "clock",
-                        client.clock(&auth.token).await.as_ref(),
-                    )?;
+                    emit_probe_result(&mut records, "clock", client.clock(&token).await.as_ref())?;
                     emit_probe_result(
                         &mut records,
                         "exchanges",
-                        client.exchanges(&auth.token).await.as_ref(),
+                        client.exchanges(&token).await.as_ref(),
                     )?;
                     emit_probe_result(
                         &mut records,
                         "assets",
-                        client.assets(&auth.token).await.as_ref(),
+                        client.assets(&token).await.as_ref(),
                     )?;
                     emit_probe_result(
                         &mut records,
                         "all_assets_active_first_page",
                         client
                             .all_assets(
-                                &auth.token,
+                                &token,
                                 AllAssetsQuery {
                                     only_active: Some(true),
                                     ..AllAssetsQuery::default()
@@ -188,21 +186,18 @@ async fn main() -> Result<()> {
                         emit_probe_result(
                             &mut records,
                             "account",
-                            client.account(&auth.token, account_id).await.as_ref(),
+                            client.account(&token, account_id).await.as_ref(),
                         )?;
                         emit_probe_result(
                             &mut records,
                             "account_orders",
-                            client
-                                .account_orders(&auth.token, account_id)
-                                .await
-                                .as_ref(),
+                            client.account_orders(&token, account_id).await.as_ref(),
                         )?;
                         emit_probe_result(
                             &mut records,
                             "account_trades",
                             client
-                                .account_trades(&auth.token, account_id, history_query)
+                                .account_trades(&token, account_id, history_query)
                                 .await
                                 .as_ref(),
                         )?;
@@ -210,7 +205,7 @@ async fn main() -> Result<()> {
                             &mut records,
                             "account_transactions",
                             client
-                                .account_transactions(&auth.token, account_id, history_query)
+                                .account_transactions(&token, account_id, history_query)
                                 .await
                                 .as_ref(),
                         )?;
@@ -226,7 +221,7 @@ async fn main() -> Result<()> {
                             &mut records,
                             "asset",
                             client
-                                .asset(&auth.token, symbol, account_id.as_deref())
+                                .asset(&token, symbol, account_id.as_deref())
                                 .await
                                 .as_ref(),
                         )?;
@@ -234,29 +229,29 @@ async fn main() -> Result<()> {
                             &mut records,
                             "asset_params",
                             client
-                                .asset_params(&auth.token, symbol, account_id.as_deref())
+                                .asset_params(&token, symbol, account_id.as_deref())
                                 .await
                                 .as_ref(),
                         )?;
                         emit_probe_result(
                             &mut records,
                             "asset_schedule",
-                            client.asset_schedule(&auth.token, symbol).await.as_ref(),
+                            client.asset_schedule(&token, symbol).await.as_ref(),
                         )?;
                         emit_probe_result(
                             &mut records,
                             "last_quote",
-                            client.last_quote(&auth.token, symbol).await.as_ref(),
+                            client.last_quote(&token, symbol).await.as_ref(),
                         )?;
                         emit_probe_result(
                             &mut records,
                             "latest_trades",
-                            client.latest_trades(&auth.token, symbol).await.as_ref(),
+                            client.latest_trades(&token, symbol).await.as_ref(),
                         )?;
                         emit_probe_result(
                             &mut records,
                             "bars",
-                            client.bars(&auth.token, symbol, bars_query).await.as_ref(),
+                            client.bars(&token, symbol, bars_query).await.as_ref(),
                         )?;
                     }
                 }

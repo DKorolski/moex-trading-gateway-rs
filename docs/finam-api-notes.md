@@ -210,6 +210,8 @@ Implementation notes from the first review:
   leakage by default;
 - FINAM errors expose a structured `FinamErrorKind` for retry/backoff/readiness
   decisions without parsing redacted strings;
+- read-only CLI obtains JWTs through `FinamAuthManager`, which caches the token
+  and refreshes before the public 15-minute lifetime expires;
 - REST client requests have a bounded timeout, default 10 seconds;
 - `auth()` and `token_details()` use the same `rest_url()` path builder as other
   REST endpoints;

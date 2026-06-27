@@ -6,9 +6,12 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::time::Duration;
+use std::sync::{Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_JWT_TTL: Duration = Duration::from_secs(15 * 60);
+const DEFAULT_JWT_RENEW_BEFORE: Duration = Duration::from_secs(2 * 60);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FinamConfig {
@@ -304,6 +307,159 @@ impl FinamRestClient {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FinamAuthPolicy {
+    pub token_ttl: Duration,
+    pub renew_before: Duration,
+}
+
+impl Default for FinamAuthPolicy {
+    fn default() -> Self {
+        Self {
+            token_ttl: DEFAULT_JWT_TTL,
+            renew_before: DEFAULT_JWT_RENEW_BEFORE,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct AccessTokenLease {
+    token: AccessToken,
+    issued_at: Instant,
+    refresh_after: Instant,
+    expires_at: Instant,
+}
+
+impl AccessTokenLease {
+    pub fn new(token: AccessToken, issued_at: Instant, policy: FinamAuthPolicy) -> Self {
+        let expires_at = issued_at + policy.token_ttl;
+        let candidate_refresh_after = expires_at
+            .checked_sub(policy.renew_before)
+            .unwrap_or(issued_at);
+        let refresh_after = if candidate_refresh_after < issued_at {
+            issued_at
+        } else {
+            candidate_refresh_after
+        };
+        Self {
+            token,
+            issued_at,
+            refresh_after,
+            expires_at,
+        }
+    }
+
+    pub fn token(&self) -> &AccessToken {
+        &self.token
+    }
+
+    pub fn issued_at(&self) -> Instant {
+        self.issued_at
+    }
+
+    pub fn refresh_after(&self) -> Instant {
+        self.refresh_after
+    }
+
+    pub fn expires_at(&self) -> Instant {
+        self.expires_at
+    }
+
+    pub fn should_refresh(&self, now: Instant) -> bool {
+        now >= self.refresh_after
+    }
+}
+
+impl std::fmt::Debug for AccessTokenLease {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AccessTokenLease")
+            .field("token_present", &!self.token.is_empty())
+            .field("token_len", &self.token.len())
+            .field("issued_at", &self.issued_at)
+            .field("refresh_after", &self.refresh_after)
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
+pub struct FinamAuthManager {
+    client: FinamRestClient,
+    secret: SecretToken,
+    policy: FinamAuthPolicy,
+    cached_lease: Mutex<Option<AccessTokenLease>>,
+}
+
+impl FinamAuthManager {
+    pub fn new(client: FinamRestClient, secret: SecretToken) -> Self {
+        Self::with_policy(client, secret, FinamAuthPolicy::default())
+    }
+
+    pub fn with_policy(
+        client: FinamRestClient,
+        secret: SecretToken,
+        policy: FinamAuthPolicy,
+    ) -> Self {
+        Self {
+            client,
+            secret,
+            policy,
+            cached_lease: Mutex::new(None),
+        }
+    }
+
+    pub async fn access_token(&self) -> Result<AccessToken, FinamError> {
+        let now = Instant::now();
+        if let Some(token) = {
+            let cache = self.lock_cached_lease()?;
+            cache
+                .as_ref()
+                .filter(|lease| !lease.should_refresh(now))
+                .map(|lease| lease.token().clone())
+        } {
+            return Ok(token);
+        }
+
+        let auth = self.client.auth(&self.secret).await?;
+        let lease = AccessTokenLease::new(auth.token, now, self.policy);
+        let token = lease.token().clone();
+        *self.lock_cached_lease()? = Some(lease);
+        Ok(token)
+    }
+
+    pub fn clear_cache(&self) -> Result<(), FinamError> {
+        *self.lock_cached_lease()? = None;
+        Ok(())
+    }
+
+    fn lock_cached_lease(&self) -> Result<MutexGuard<'_, Option<AccessTokenLease>>, FinamError> {
+        self.cached_lease
+            .lock()
+            .map_err(|_| FinamError::InternalState {
+                message: "auth cache mutex poisoned",
+            })
+    }
+}
+
+impl std::fmt::Debug for FinamAuthManager {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("FinamAuthManager")
+            .field("client", &self.client)
+            .field("secret", &self.secret)
+            .field("policy", &self.policy)
+            .field(
+                "cached_lease_present",
+                &self
+                    .cached_lease
+                    .lock()
+                    .map(|cache| cache.is_some())
+                    .unwrap_or(false),
+            )
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct HistoryQuery<'a> {
     pub limit: Option<u32>,
@@ -501,6 +657,7 @@ pub enum FinamErrorKind {
     ApiClient,
     ApiServer,
     ApiUnexpectedStatus,
+    InternalState,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -511,6 +668,8 @@ pub enum FinamError {
     InvalidBaseUrl { base_url: String, error: String },
     #[error("finam JWT/access token is missing")]
     MissingToken,
+    #[error("finam internal state error: {message}")]
+    InternalState { message: &'static str },
     #[error(
         "finam api returned HTTP {status}: body_kind={body_kind:?}, body_keys={body_keys:?}, body_len={body_len}, body_sha256={body_sha256}"
     )]
@@ -531,6 +690,7 @@ impl FinamError {
             FinamError::Http(_) => FinamErrorKind::TransportHttp,
             FinamError::InvalidBaseUrl { .. } => FinamErrorKind::InvalidConfiguration,
             FinamError::MissingToken => FinamErrorKind::MissingToken,
+            FinamError::InternalState { .. } => FinamErrorKind::InternalState,
             FinamError::Api { status, .. } => match *status {
                 400 => FinamErrorKind::ApiBadRequest,
                 401 => FinamErrorKind::ApiAuthentication,
@@ -680,6 +840,36 @@ mod tests {
 
         assert!(!format!("{token:?}").contains("secret-jwt-value"));
         assert!(!format!("{token}").contains("secret-jwt-value"));
+    }
+
+    #[test]
+    fn access_token_lease_refreshes_before_expiration() {
+        let issued_at = Instant::now();
+        let policy = FinamAuthPolicy {
+            token_ttl: Duration::from_secs(900),
+            renew_before: Duration::from_secs(120),
+        };
+        let lease = AccessTokenLease::new(AccessToken::new("secret-jwt-value"), issued_at, policy);
+
+        assert_eq!(lease.issued_at(), issued_at);
+        assert_eq!(lease.expires_at(), issued_at + Duration::from_secs(900));
+        assert_eq!(lease.refresh_after(), issued_at + Duration::from_secs(780));
+        assert!(!lease.should_refresh(issued_at + Duration::from_secs(779)));
+        assert!(lease.should_refresh(issued_at + Duration::from_secs(780)));
+        assert!(!format!("{lease:?}").contains("secret-jwt-value"));
+    }
+
+    #[test]
+    fn access_token_lease_refresh_floor_is_issue_time() {
+        let issued_at = Instant::now();
+        let policy = FinamAuthPolicy {
+            token_ttl: Duration::from_secs(30),
+            renew_before: Duration::from_secs(120),
+        };
+        let lease = AccessTokenLease::new(AccessToken::new("secret-jwt-value"), issued_at, policy);
+
+        assert_eq!(lease.refresh_after(), issued_at);
+        assert!(lease.should_refresh(issued_at));
     }
 
     #[test]

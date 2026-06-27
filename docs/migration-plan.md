@@ -118,7 +118,6 @@ Exit criteria:
 
 - Typed DTOs/mappers for token details, accounts, orders, trades, transactions,
   asset params, schedules, and bars.
-- `FinamAuthManager` with proactive JWT renewal.
 - Fixture recording mode for read-only responses with bounded redacted JSON
   shape metadata.
 - Durable `StrategyRequestId -> ClientOrderId -> BrokerOrderId` mapping store.

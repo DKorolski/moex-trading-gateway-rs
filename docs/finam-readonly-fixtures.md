@@ -45,6 +45,9 @@ Allowed:
 - saving redacted shape fixtures under `tmp/`;
 - using redacted fixtures to implement typed DTOs/mappers.
 
+Both CLI checks obtain JWTs through `FinamAuthManager`; this keeps the renewal
+boundary in place while M1 remains read-only.
+
 Not allowed yet:
 
 - Redis gateway lifecycle;
