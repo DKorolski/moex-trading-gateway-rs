@@ -44,6 +44,9 @@ Exit criteria:
 - Read-only CLI does not print secret/JWT or emit order actions.
 - REST Authorization uses `Bearer <jwt>`.
 - Secret/JWT structs do not expose raw values through `Debug`.
+- REST API error bodies are redacted by default and identified by body shape and
+  SHA-256 hash.
+- REST requests have bounded timeout.
 - FINAM API capabilities are split from gateway-enabled features.
 - CI runs fmt/test/clippy.
 
@@ -114,6 +117,23 @@ Exit criteria:
 - Typed DTOs/mappers for token details, accounts, orders, trades, transactions,
   asset params, schedules, and bars.
 - `FinamAuthManager` with proactive JWT renewal.
-- Structured `FinamErrorKind` with redacted native error body/fingerprint.
+- Structured `FinamErrorKind` categories on top of the existing redacted native
+  error fingerprint.
 - Fixture recording mode for read-only responses with redaction.
 - Durable `StrategyRequestId -> ClientOrderId -> BrokerOrderId` mapping store.
+
+## Allowed after M1.2 safety patch
+
+- Run `finam-auth-check` with the real secret token.
+- Run `finam-readonly-check` with real `account_id` and `symbol`.
+- Save redacted response shapes/fixtures.
+- Start typed DTO/mappers from real FINAM responses.
+
+Still not allowed:
+
+- Redis gateway lifecycle;
+- command consumer / ACK lifecycle;
+- order placement or cancel;
+- runtime adaptation;
+- live micro;
+- Stop/SLTP/bracket work beyond API research.

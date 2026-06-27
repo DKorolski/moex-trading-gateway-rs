@@ -196,6 +196,12 @@ Implementation notes from the first review:
 
 - request/response structs containing secret/JWT values must not derive raw
   `Debug`; `AuthResponse` has redacted debug output;
+- JWT is represented as an `AccessToken` newtype with redacted `Debug` and
+  `Display`;
+- non-2xx REST error bodies are redacted by default: the error keeps HTTP
+  status, JSON body kind, top-level JSON keys, body length, and SHA-256 hash,
+  but not the raw body;
+- REST client requests have a bounded timeout, default 10 seconds;
 - FINAM API capabilities are separate from gateway-enabled features;
 - Phase 1 enabled features keep live orders, stops, SLTP, and brackets disabled;
 - raw `serde_json::Value` is acceptable only for the shape probe. Typed DTOs and

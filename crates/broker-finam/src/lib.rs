@@ -5,6 +5,10 @@
 //! reconciliation behavior are characterized.
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::time::Duration;
+
+const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FinamConfig {
@@ -13,6 +17,7 @@ pub struct FinamConfig {
     pub websocket_endpoint: String,
     pub source_app_id: Option<String>,
     pub prefer_http2: bool,
+    pub request_timeout_ms: u64,
 }
 
 impl Default for FinamConfig {
@@ -23,6 +28,7 @@ impl Default for FinamConfig {
             websocket_endpoint: "wss://api.finam.ru/ws".to_string(),
             source_app_id: None,
             prefer_http2: true,
+            request_timeout_ms: DEFAULT_REQUEST_TIMEOUT.as_millis() as u64,
         }
     }
 }
@@ -81,7 +87,9 @@ pub struct FinamRestClient {
 
 impl FinamRestClient {
     pub fn new(config: FinamConfig) -> Self {
-        let mut builder = reqwest::Client::builder().https_only(true);
+        let mut builder = reqwest::Client::builder()
+            .https_only(true)
+            .timeout(Duration::from_millis(config.request_timeout_ms.max(1)));
         if config.prefer_http2 {
             builder = builder.http2_adaptive_window(true);
         }
@@ -106,12 +114,17 @@ impl FinamRestClient {
         decode_response(response).await
     }
 
-    pub async fn token_details(&self, token: &str) -> Result<serde_json::Value, FinamError> {
+    pub async fn token_details(
+        &self,
+        token: &AccessToken,
+    ) -> Result<serde_json::Value, FinamError> {
         let url = format!("{}/v1/sessions/details", self.config.rest_base_url);
         let response = self
             .http
             .post(url)
-            .json(&TokenDetailsRequest { token })
+            .json(&TokenDetailsRequest {
+                token: token.as_str(),
+            })
             .send()
             .await?;
         decode_response(response).await
@@ -119,7 +132,7 @@ impl FinamRestClient {
 
     pub async fn account(
         &self,
-        token: &str,
+        token: &AccessToken,
         account_id: &str,
     ) -> Result<serde_json::Value, FinamError> {
         let url = self.rest_url(&["v1", "accounts", account_id])?;
@@ -128,7 +141,7 @@ impl FinamRestClient {
 
     pub async fn account_trades(
         &self,
-        token: &str,
+        token: &AccessToken,
         account_id: &str,
         query: HistoryQuery<'_>,
     ) -> Result<serde_json::Value, FinamError> {
@@ -139,7 +152,7 @@ impl FinamRestClient {
 
     pub async fn account_transactions(
         &self,
-        token: &str,
+        token: &AccessToken,
         account_id: &str,
         query: HistoryQuery<'_>,
     ) -> Result<serde_json::Value, FinamError> {
@@ -150,7 +163,7 @@ impl FinamRestClient {
 
     pub async fn account_orders(
         &self,
-        token: &str,
+        token: &AccessToken,
         account_id: &str,
     ) -> Result<serde_json::Value, FinamError> {
         let url = self.rest_url(&["v1", "accounts", account_id, "orders"])?;
@@ -159,7 +172,7 @@ impl FinamRestClient {
 
     pub async fn account_order(
         &self,
-        token: &str,
+        token: &AccessToken,
         account_id: &str,
         order_id: &str,
     ) -> Result<serde_json::Value, FinamError> {
@@ -167,14 +180,14 @@ impl FinamRestClient {
         self.get_json(token, url).await
     }
 
-    pub async fn assets(&self, token: &str) -> Result<serde_json::Value, FinamError> {
+    pub async fn assets(&self, token: &AccessToken) -> Result<serde_json::Value, FinamError> {
         let url = self.rest_url(&["v1", "assets"])?;
         self.get_json(token, url).await
     }
 
     pub async fn all_assets(
         &self,
-        token: &str,
+        token: &AccessToken,
         query: AllAssetsQuery<'_>,
     ) -> Result<serde_json::Value, FinamError> {
         let mut url = self.rest_url(&["v1", "assets", "all"])?;
@@ -182,19 +195,19 @@ impl FinamRestClient {
         self.get_json(token, url).await
     }
 
-    pub async fn clock(&self, token: &str) -> Result<serde_json::Value, FinamError> {
+    pub async fn clock(&self, token: &AccessToken) -> Result<serde_json::Value, FinamError> {
         let url = self.rest_url(&["v1", "assets", "clock"])?;
         self.get_json(token, url).await
     }
 
-    pub async fn exchanges(&self, token: &str) -> Result<serde_json::Value, FinamError> {
+    pub async fn exchanges(&self, token: &AccessToken) -> Result<serde_json::Value, FinamError> {
         let url = self.rest_url(&["v1", "assets", "exchanges"])?;
         self.get_json(token, url).await
     }
 
     pub async fn asset(
         &self,
-        token: &str,
+        token: &AccessToken,
         symbol: &str,
         account_id: Option<&str>,
     ) -> Result<serde_json::Value, FinamError> {
@@ -205,7 +218,7 @@ impl FinamRestClient {
 
     pub async fn asset_params(
         &self,
-        token: &str,
+        token: &AccessToken,
         symbol: &str,
         account_id: Option<&str>,
     ) -> Result<serde_json::Value, FinamError> {
@@ -216,7 +229,7 @@ impl FinamRestClient {
 
     pub async fn asset_schedule(
         &self,
-        token: &str,
+        token: &AccessToken,
         symbol: &str,
     ) -> Result<serde_json::Value, FinamError> {
         let url = self.rest_url(&["v1", "assets", symbol, "schedule"])?;
@@ -225,7 +238,7 @@ impl FinamRestClient {
 
     pub async fn bars(
         &self,
-        token: &str,
+        token: &AccessToken,
         symbol: &str,
         query: BarsQuery<'_>,
     ) -> Result<serde_json::Value, FinamError> {
@@ -236,7 +249,7 @@ impl FinamRestClient {
 
     pub async fn last_quote(
         &self,
-        token: &str,
+        token: &AccessToken,
         symbol: &str,
     ) -> Result<serde_json::Value, FinamError> {
         let url = self.rest_url(&["v1", "instruments", symbol, "quotes", "latest"])?;
@@ -245,7 +258,7 @@ impl FinamRestClient {
 
     pub async fn latest_trades(
         &self,
-        token: &str,
+        token: &AccessToken,
         symbol: &str,
     ) -> Result<serde_json::Value, FinamError> {
         let url = self.rest_url(&["v1", "instruments", symbol, "trades", "latest"])?;
@@ -273,13 +286,18 @@ impl FinamRestClient {
 
     async fn get_json(
         &self,
-        token: &str,
+        token: &AccessToken,
         url: reqwest::Url,
     ) -> Result<serde_json::Value, FinamError> {
         if token.is_empty() {
             return Err(FinamError::MissingToken);
         }
-        let response = self.http.get(url).bearer_auth(token).send().await?;
+        let response = self
+            .http
+            .get(url)
+            .bearer_auth(token.as_str())
+            .send()
+            .await?;
         decode_response(response).await
     }
 }
@@ -352,7 +370,7 @@ struct TokenDetailsRequest<'a> {
 
 #[derive(Clone, Deserialize)]
 pub struct AuthResponse {
-    pub token: String,
+    pub token: AccessToken,
 }
 
 impl std::fmt::Debug for AuthResponse {
@@ -365,6 +383,58 @@ impl std::fmt::Debug for AuthResponse {
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AccessToken(String);
+
+impl AccessToken {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl std::ops::Deref for AccessToken {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_str()
+    }
+}
+
+impl AsRef<str> for AccessToken {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl std::fmt::Debug for AccessToken {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AccessToken")
+            .field("present", &!self.is_empty())
+            .field("len", &self.len())
+            .finish()
+    }
+}
+
+impl std::fmt::Display for AccessToken {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "<redacted access token len={}>", self.len())
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum FinamError {
     #[error("finam http error: {0}")]
@@ -373,8 +443,16 @@ pub enum FinamError {
     InvalidBaseUrl { base_url: String, error: String },
     #[error("finam JWT/access token is missing")]
     MissingToken,
-    #[error("finam api returned HTTP {status}: {body}")]
-    Api { status: u16, body: String },
+    #[error(
+        "finam api returned HTTP {status}: body_kind={body_kind:?}, body_keys={body_keys:?}, body_len={body_len}, body_sha256={body_sha256}"
+    )]
+    Api {
+        status: u16,
+        body_kind: Option<String>,
+        body_keys: Vec<String>,
+        body_len: usize,
+        body_sha256: String,
+    },
 }
 
 fn append_optional_query(url: &mut reqwest::Url, key: &str, value: Option<&str>) {
@@ -402,12 +480,57 @@ async fn decode_response<T: for<'de> Deserialize<'de>>(
     let status = response.status();
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
+        let redacted = redact_api_body(&body);
         return Err(FinamError::Api {
             status: status.as_u16(),
-            body,
+            body_kind: redacted.kind,
+            body_keys: redacted.keys,
+            body_len: redacted.len,
+            body_sha256: redacted.sha256,
         });
     }
     Ok(response.json::<T>().await?)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RedactedApiBody {
+    kind: Option<String>,
+    keys: Vec<String>,
+    len: usize,
+    sha256: String,
+}
+
+fn redact_api_body(body: &str) -> RedactedApiBody {
+    let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
+    let (kind, keys) = match parsed.as_ref() {
+        Some(serde_json::Value::Object(object)) => (
+            Some("object".to_string()),
+            object.keys().cloned().collect::<Vec<_>>(),
+        ),
+        Some(serde_json::Value::Array(_)) => (Some("array".to_string()), Vec::new()),
+        Some(serde_json::Value::String(_)) => (Some("string".to_string()), Vec::new()),
+        Some(serde_json::Value::Number(_)) => (Some("number".to_string()), Vec::new()),
+        Some(serde_json::Value::Bool(_)) => (Some("bool".to_string()), Vec::new()),
+        Some(serde_json::Value::Null) => (Some("null".to_string()), Vec::new()),
+        None => (None, Vec::new()),
+    };
+
+    RedactedApiBody {
+        kind,
+        keys,
+        len: body.len(),
+        sha256: sha256_hex(body.as_bytes()),
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write;
+        write!(&mut output, "{byte:02x}").expect("writing to string cannot fail");
+    }
+    output
 }
 
 #[cfg(test)]
@@ -434,7 +557,7 @@ mod tests {
     #[test]
     fn auth_response_debug_is_redacted() {
         let response = AuthResponse {
-            token: "secret-jwt-value".to_string(),
+            token: AccessToken::new("secret-jwt-value"),
         };
 
         let debug = format!("{response:?}");
@@ -442,6 +565,36 @@ mod tests {
         assert!(debug.contains("token_present"));
         assert!(debug.contains("token_len"));
         assert!(!debug.contains("secret-jwt-value"));
+    }
+
+    #[test]
+    fn access_token_debug_and_display_are_redacted() {
+        let token = AccessToken::new("secret-jwt-value");
+
+        assert!(!format!("{token:?}").contains("secret-jwt-value"));
+        assert!(!format!("{token}").contains("secret-jwt-value"));
+    }
+
+    #[test]
+    fn api_body_redaction_keeps_shape_and_hash_but_not_raw_values() {
+        let body = r#"{"message":"account 123 rejected","code":"NOPE"}"#;
+
+        let redacted = redact_api_body(body);
+        let display = FinamError::Api {
+            status: 400,
+            body_kind: redacted.kind,
+            body_keys: redacted.keys,
+            body_len: redacted.len,
+            body_sha256: redacted.sha256,
+        }
+        .to_string();
+
+        assert!(display.contains("HTTP 400"));
+        assert!(display.contains("message"));
+        assert!(display.contains("code"));
+        assert!(display.contains("body_sha256="));
+        assert!(!display.contains("account 123"));
+        assert!(!display.contains("NOPE"));
     }
 
     #[test]
