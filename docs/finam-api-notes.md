@@ -208,6 +208,8 @@ Implementation notes from the first review:
   but not the raw body;
 - CLI output uses redacted error presentation for transport errors, avoiding URL
   leakage by default;
+- FINAM errors expose a structured `FinamErrorKind` for retry/backoff/readiness
+  decisions without parsing redacted strings;
 - REST client requests have a bounded timeout, default 10 seconds;
 - `auth()` and `token_details()` use the same `rest_url()` path builder as other
   REST endpoints;

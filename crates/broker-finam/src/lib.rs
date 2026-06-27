@@ -483,6 +483,26 @@ impl std::fmt::Display for SecretToken {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FinamErrorKind {
+    TransportTimeout,
+    TransportConnect,
+    TransportHttp,
+    InvalidConfiguration,
+    MissingToken,
+    ApiBadRequest,
+    ApiAuthentication,
+    ApiAuthorization,
+    ApiNotFound,
+    ApiConflict,
+    ApiRateLimited,
+    ApiTimeout,
+    ApiClient,
+    ApiServer,
+    ApiUnexpectedStatus,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum FinamError {
     #[error("finam http error: {0}")]
@@ -504,11 +524,34 @@ pub enum FinamError {
 }
 
 impl FinamError {
+    pub fn kind(&self) -> FinamErrorKind {
+        match self {
+            FinamError::Http(error) if error.is_timeout() => FinamErrorKind::TransportTimeout,
+            FinamError::Http(error) if error.is_connect() => FinamErrorKind::TransportConnect,
+            FinamError::Http(_) => FinamErrorKind::TransportHttp,
+            FinamError::InvalidBaseUrl { .. } => FinamErrorKind::InvalidConfiguration,
+            FinamError::MissingToken => FinamErrorKind::MissingToken,
+            FinamError::Api { status, .. } => match *status {
+                400 => FinamErrorKind::ApiBadRequest,
+                401 => FinamErrorKind::ApiAuthentication,
+                403 => FinamErrorKind::ApiAuthorization,
+                404 => FinamErrorKind::ApiNotFound,
+                408 => FinamErrorKind::ApiTimeout,
+                409 => FinamErrorKind::ApiConflict,
+                429 => FinamErrorKind::ApiRateLimited,
+                status if (400..=499).contains(&status) => FinamErrorKind::ApiClient,
+                status if (500..=599).contains(&status) => FinamErrorKind::ApiServer,
+                _ => FinamErrorKind::ApiUnexpectedStatus,
+            },
+        }
+    }
+
     pub fn to_redacted_string(&self) -> String {
         match self {
             FinamError::Http(error) => {
                 format!(
-                    "finam http error: is_timeout={}, is_connect={}, status={:?}",
+                    "finam http error: kind={:?}, is_timeout={}, is_connect={}, status={:?}",
+                    self.kind(),
                     error.is_timeout(),
                     error.is_connect(),
                     error.status().map(|status| status.as_u16())
@@ -652,15 +695,16 @@ mod tests {
         let body = r#"{"message":"account 123 rejected","code":"NOPE"}"#;
 
         let redacted = redact_api_body(body);
-        let display = FinamError::Api {
+        let error = FinamError::Api {
             status: 400,
             body_kind: redacted.kind,
             body_keys: redacted.keys,
             body_len: redacted.len,
             body_sha256: redacted.sha256,
-        }
-        .to_string();
+        };
+        let display = error.to_string();
 
+        assert_eq!(error.kind(), FinamErrorKind::ApiBadRequest);
         assert!(display.contains("HTTP 400"));
         assert!(display.contains("message"));
         assert!(display.contains("code"));
@@ -682,5 +726,23 @@ mod tests {
         assert!(url.as_str().contains("limit=1000"));
         assert!(url.as_str().contains("interval.start_time="));
         assert!(url.as_str().contains("interval.end_time="));
+    }
+
+    #[test]
+    fn api_error_kind_is_based_on_status_class() {
+        let error = |status| FinamError::Api {
+            status,
+            body_kind: None,
+            body_keys: Vec::new(),
+            body_len: 0,
+            body_sha256: sha256_hex(b""),
+        };
+
+        assert_eq!(error(401).kind(), FinamErrorKind::ApiAuthentication);
+        assert_eq!(error(403).kind(), FinamErrorKind::ApiAuthorization);
+        assert_eq!(error(404).kind(), FinamErrorKind::ApiNotFound);
+        assert_eq!(error(429).kind(), FinamErrorKind::ApiRateLimited);
+        assert_eq!(error(422).kind(), FinamErrorKind::ApiClient);
+        assert_eq!(error(503).kind(), FinamErrorKind::ApiServer);
     }
 }

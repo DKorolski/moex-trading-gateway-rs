@@ -29,7 +29,7 @@ The fixture format is `finam-readonly-redacted-v1`. Records contain:
 
 - probe name;
 - success/failure flag;
-- redacted transport/API error description, if any;
+- structured error kind and redacted transport/API error description, if any;
 - JSON shape metadata for successful responses.
 
 The JSON shape keeps object field names, array lengths, item kinds, and a

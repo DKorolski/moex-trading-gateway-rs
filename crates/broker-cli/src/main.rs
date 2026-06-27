@@ -101,6 +101,7 @@ async fn main() -> Result<()> {
                             println!(
                                 "{}",
                                 serde_json::to_string_pretty(&serde_json::json!({
+                                    "details_error_kind": error.kind(),
                                     "details_error": error.to_redacted_string(),
                                 }))?
                             );
@@ -111,6 +112,7 @@ async fn main() -> Result<()> {
                     println!(
                         "{}",
                         serde_json::to_string_pretty(&serde_json::json!({
+                            "auth_error_kind": error.kind(),
                             "auth_error": error.to_redacted_string(),
                         }))?
                     );
@@ -262,6 +264,7 @@ async fn main() -> Result<()> {
                     emit_record(
                         &mut records,
                         serde_json::json!({
+                            "auth_error_kind": error.kind(),
                             "auth_error": error.to_redacted_string(),
                             "live_trading_enabled": false,
                         }),
@@ -290,6 +293,7 @@ fn emit_probe_result(
         Err(error) => serde_json::json!({
             "probe": name,
             "ok": false,
+            "error_kind": error.kind(),
             "error": error.to_redacted_string(),
         }),
     };
