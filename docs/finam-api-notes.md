@@ -204,8 +204,8 @@ Implementation notes from the first review:
 - FINAM secret-token input is represented as `SecretToken` with redacted
   `Debug` and `Display`;
 - non-2xx REST error bodies are redacted by default: the error keeps HTTP
-  status, JSON body kind, top-level JSON keys, body length, and SHA-256 hash,
-  but not the raw body;
+  status, JSON body kind, sanitized top-level JSON key metadata, body length,
+  and SHA-256 hash, but not the raw body;
 - CLI output uses redacted error presentation for transport errors, avoiding URL
   leakage by default;
 - FINAM errors expose a structured `FinamErrorKind` for retry/backoff/readiness

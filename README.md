@@ -44,7 +44,7 @@ FINAM_SECRET_TOKEN=... cargo run -p broker-cli -- finam-readonly-check
 `finam-readonly-check` is diagnostics-only: it does not place, cancel, replace,
 or modify orders. Add `--output tmp/finam-readonly-redacted.json` to save the
 same redacted records as a fixture for DTO/mapper work. The fixture keeps
-bounded JSON shape metadata only, not scalar broker values.
+bounded JSON shape metadata only, not scalar broker values or dynamic raw keys.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`.

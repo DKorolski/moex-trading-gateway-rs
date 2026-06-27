@@ -1,7 +1,8 @@
 use anyhow::Result;
 use broker_finam::{
-    AllAssetsQuery, BarsQuery, FinamApiCapabilities, FinamAuthManager, FinamConfig,
-    FinamRestClient, GatewayEnabledFeatures, HistoryQuery, SecretToken,
+    redact_json_key_for_diagnostics, AllAssetsQuery, BarsQuery, FinamApiCapabilities,
+    FinamAuthManager, FinamConfig, FinamRestClient, GatewayEnabledFeatures, HistoryQuery,
+    SecretToken,
 };
 use clap::{Parser, Subcommand};
 use std::collections::BTreeSet;
@@ -323,7 +324,10 @@ fn json_shape(value: &serde_json::Value) -> serde_json::Value {
 fn json_shape_at(value: &serde_json::Value, depth: usize) -> serde_json::Value {
     match value {
         serde_json::Value::Object(object) => {
-            let keys = object.keys().cloned().collect::<Vec<_>>();
+            let keys = object
+                .keys()
+                .map(|key| redact_json_key_for_diagnostics(key))
+                .collect::<Vec<_>>();
             if depth >= JSON_SHAPE_MAX_DEPTH {
                 return serde_json::json!({
                     "kind": "object",
@@ -334,8 +338,13 @@ fn json_shape_at(value: &serde_json::Value, depth: usize) -> serde_json::Value {
 
             let fields = object
                 .iter()
-                .map(|(key, value)| (key.clone(), json_shape_at(value, depth + 1)))
-                .collect::<serde_json::Map<_, _>>();
+                .map(|(key, value)| {
+                    serde_json::json!({
+                        "key": redact_json_key_for_diagnostics(key),
+                        "shape": json_shape_at(value, depth + 1),
+                    })
+                })
+                .collect::<Vec<_>>();
 
             serde_json::json!({
                 "kind": "object",
@@ -438,5 +447,38 @@ mod tests {
 
         assert!(rendered.contains("truncated"));
         assert!(!rendered.contains("do-not-leak"));
+    }
+
+    #[test]
+    fn json_shape_does_not_leak_dynamic_object_keys() {
+        let payload = serde_json::json!({
+            "7502T0U": {
+                "status": "active"
+            },
+            "ORDER-123456": {
+                "price": 123.45
+            },
+            "SBER@MISX": {
+                "lot": 1
+            },
+            "account_id": "ACC-SECRET"
+        });
+
+        let shape = json_shape(&payload);
+        let rendered = serde_json::to_string(&shape).expect("shape serializes");
+
+        assert!(rendered.contains("dynamic"));
+        assert!(rendered.contains("schema_field"));
+        assert!(rendered.contains("sha256"));
+        assert!(rendered.contains("account_id"));
+        assert!(rendered.contains("status"));
+        assert!(rendered.contains("price"));
+        assert!(rendered.contains("lot"));
+        assert!(!rendered.contains("7502T0U"));
+        assert!(!rendered.contains("ORDER-123456"));
+        assert!(!rendered.contains("SBER@MISX"));
+        assert!(!rendered.contains("ACC-SECRET"));
+        assert!(!rendered.contains("active"));
+        assert!(!rendered.contains("123.45"));
     }
 }

@@ -32,9 +32,11 @@ The fixture format is `finam-readonly-redacted-v1`. Records contain:
 - structured error kind and redacted transport/API error description, if any;
 - JSON shape metadata for successful responses.
 
-The JSON shape keeps object field names, array lengths, item kinds, and a
-bounded first-item shape. It does not keep scalar values such as account ids,
-order ids, prices, JWTs, comments, or broker-native error text.
+The JSON shape keeps safe schema-like object field names, array lengths, item
+kinds, and a bounded first-item shape. Dynamic/map-like object keys are redacted
+to key kind, key length, and SHA-256 fingerprint. The fixture does not keep
+scalar values such as account ids, order ids, prices, JWTs, comments, broker
+symbols used as map keys, or broker-native error text.
 
 ## Current safety gates
 

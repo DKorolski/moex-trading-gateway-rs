@@ -82,6 +82,54 @@ impl Default for GatewayEnabledFeatures {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RedactedJsonKeyKind {
+    SchemaField,
+    Dynamic,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RedactedJsonKey {
+    pub key_kind: RedactedJsonKeyKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub len: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+}
+
+pub fn redact_json_key_for_diagnostics(key: &str) -> RedactedJsonKey {
+    if is_safe_schema_field_name(key) {
+        RedactedJsonKey {
+            key_kind: RedactedJsonKeyKind::SchemaField,
+            name: Some(key.to_string()),
+            len: key.len(),
+            sha256: None,
+        }
+    } else {
+        RedactedJsonKey {
+            key_kind: RedactedJsonKeyKind::Dynamic,
+            name: None,
+            len: key.len(),
+            sha256: Some(sha256_hex(key.as_bytes())),
+        }
+    }
+}
+
+fn is_safe_schema_field_name(key: &str) -> bool {
+    if key.is_empty() || key.len() > 64 {
+        return false;
+    }
+
+    let mut chars = key.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_lowercase()
+        && chars.all(|character| character.is_ascii_alphanumeric() || character == '_')
+}
+
 #[derive(Debug, Clone)]
 pub struct FinamRestClient {
     http: reqwest::Client,
@@ -676,7 +724,7 @@ pub enum FinamError {
     Api {
         status: u16,
         body_kind: Option<String>,
-        body_keys: Vec<String>,
+        body_keys: Vec<RedactedJsonKey>,
         body_len: usize,
         body_sha256: String,
     },
@@ -762,7 +810,7 @@ async fn decode_response<T: for<'de> Deserialize<'de>>(
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RedactedApiBody {
     kind: Option<String>,
-    keys: Vec<String>,
+    keys: Vec<RedactedJsonKey>,
     len: usize,
     sha256: String,
 }
@@ -772,7 +820,10 @@ fn redact_api_body(body: &str) -> RedactedApiBody {
     let (kind, keys) = match parsed.as_ref() {
         Some(serde_json::Value::Object(object)) => (
             Some("object".to_string()),
-            object.keys().cloned().collect::<Vec<_>>(),
+            object
+                .keys()
+                .map(|key| redact_json_key_for_diagnostics(key))
+                .collect::<Vec<_>>(),
         ),
         Some(serde_json::Value::Array(_)) => (Some("array".to_string()), Vec::new()),
         Some(serde_json::Value::String(_)) => (Some("string".to_string()), Vec::new()),
@@ -881,6 +932,24 @@ mod tests {
     }
 
     #[test]
+    fn json_key_redaction_keeps_schema_names_only() {
+        let schema_key = redact_json_key_for_diagnostics("account_id");
+        let dynamic_account_key = redact_json_key_for_diagnostics("7502T0U");
+        let dynamic_order_key = redact_json_key_for_diagnostics("ORDER-123456");
+        let dynamic_symbol_key = redact_json_key_for_diagnostics("SBER@MISX");
+
+        assert_eq!(schema_key.key_kind, RedactedJsonKeyKind::SchemaField);
+        assert_eq!(schema_key.name.as_deref(), Some("account_id"));
+        assert!(schema_key.sha256.is_none());
+
+        for redacted in [dynamic_account_key, dynamic_order_key, dynamic_symbol_key] {
+            assert_eq!(redacted.key_kind, RedactedJsonKeyKind::Dynamic);
+            assert!(redacted.name.is_none());
+            assert!(redacted.sha256.is_some());
+        }
+    }
+
+    #[test]
     fn api_body_redaction_keeps_shape_and_hash_but_not_raw_values() {
         let body = r#"{"message":"account 123 rejected","code":"NOPE"}"#;
 
@@ -901,6 +970,20 @@ mod tests {
         assert!(display.contains("body_sha256="));
         assert!(!display.contains("account 123"));
         assert!(!display.contains("NOPE"));
+    }
+
+    #[test]
+    fn api_body_redaction_does_not_leak_dynamic_keys() {
+        let body = r#"{"7502T0U":{"message":"account rejected"},"message":"bad request"}"#;
+
+        let redacted = redact_api_body(body);
+        let rendered = serde_json::to_string(&redacted.keys).expect("keys serialize");
+
+        assert!(rendered.contains("schema_field"));
+        assert!(rendered.contains("dynamic"));
+        assert!(rendered.contains("sha256"));
+        assert!(rendered.contains("message"));
+        assert!(!rendered.contains("7502T0U"));
     }
 
     #[test]
