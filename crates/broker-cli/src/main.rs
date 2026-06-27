@@ -4,6 +4,7 @@ use broker_finam::{
     GatewayEnabledFeatures, HistoryQuery, SecretToken,
 };
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 #[command(version, about = "MOEX broker gateway operator CLI")]
@@ -48,6 +49,9 @@ enum Command {
         /// Query limit for account trades/transactions probes.
         #[arg(long, default_value_t = 10)]
         limit: u32,
+        /// Optional file path for saving redacted probe records as JSON.
+        #[arg(long)]
+        output: Option<PathBuf>,
     },
 }
 
@@ -118,26 +122,45 @@ async fn main() -> Result<()> {
             start_time,
             end_time,
             limit,
+            output,
         } => {
+            let mut records = Vec::new();
             let secret = SecretToken::new(std::env::var(&secret_env)?);
             let client = FinamRestClient::try_new(FinamConfig::default())?;
             match client.auth(&secret).await {
                 Ok(auth) => {
-                    print_json(serde_json::json!({
-                        "auth_http": 200,
-                        "jwt_present": !auth.token.is_empty(),
-                        "jwt_len": auth.token.len(),
-                        "live_trading_enabled": false,
-                    }))?;
+                    emit_record(
+                        &mut records,
+                        serde_json::json!({
+                            "auth_http": 200,
+                            "jwt_present": !auth.token.is_empty(),
+                            "jwt_len": auth.token.len(),
+                            "live_trading_enabled": false,
+                        }),
+                    )?;
 
-                    print_probe_result(
+                    emit_probe_result(
+                        &mut records,
                         "token_details",
                         client.token_details(&auth.token).await.as_ref(),
                     )?;
-                    print_probe_result("clock", client.clock(&auth.token).await.as_ref())?;
-                    print_probe_result("exchanges", client.exchanges(&auth.token).await.as_ref())?;
-                    print_probe_result("assets", client.assets(&auth.token).await.as_ref())?;
-                    print_probe_result(
+                    emit_probe_result(
+                        &mut records,
+                        "clock",
+                        client.clock(&auth.token).await.as_ref(),
+                    )?;
+                    emit_probe_result(
+                        &mut records,
+                        "exchanges",
+                        client.exchanges(&auth.token).await.as_ref(),
+                    )?;
+                    emit_probe_result(
+                        &mut records,
+                        "assets",
+                        client.assets(&auth.token).await.as_ref(),
+                    )?;
+                    emit_probe_result(
+                        &mut records,
                         "all_assets_active_first_page",
                         client
                             .all_assets(
@@ -157,25 +180,29 @@ async fn main() -> Result<()> {
                             start_time: start_time.as_deref(),
                             end_time: end_time.as_deref(),
                         };
-                        print_probe_result(
+                        emit_probe_result(
+                            &mut records,
                             "account",
                             client.account(&auth.token, account_id).await.as_ref(),
                         )?;
-                        print_probe_result(
+                        emit_probe_result(
+                            &mut records,
                             "account_orders",
                             client
                                 .account_orders(&auth.token, account_id)
                                 .await
                                 .as_ref(),
                         )?;
-                        print_probe_result(
+                        emit_probe_result(
+                            &mut records,
                             "account_trades",
                             client
                                 .account_trades(&auth.token, account_id, history_query)
                                 .await
                                 .as_ref(),
                         )?;
-                        print_probe_result(
+                        emit_probe_result(
+                            &mut records,
                             "account_transactions",
                             client
                                 .account_transactions(&auth.token, account_id, history_query)
@@ -190,51 +217,64 @@ async fn main() -> Result<()> {
                             start_time: start_time.as_deref(),
                             end_time: end_time.as_deref(),
                         };
-                        print_probe_result(
+                        emit_probe_result(
+                            &mut records,
                             "asset",
                             client
                                 .asset(&auth.token, symbol, account_id.as_deref())
                                 .await
                                 .as_ref(),
                         )?;
-                        print_probe_result(
+                        emit_probe_result(
+                            &mut records,
                             "asset_params",
                             client
                                 .asset_params(&auth.token, symbol, account_id.as_deref())
                                 .await
                                 .as_ref(),
                         )?;
-                        print_probe_result(
+                        emit_probe_result(
+                            &mut records,
                             "asset_schedule",
                             client.asset_schedule(&auth.token, symbol).await.as_ref(),
                         )?;
-                        print_probe_result(
+                        emit_probe_result(
+                            &mut records,
                             "last_quote",
                             client.last_quote(&auth.token, symbol).await.as_ref(),
                         )?;
-                        print_probe_result(
+                        emit_probe_result(
+                            &mut records,
                             "latest_trades",
                             client.latest_trades(&auth.token, symbol).await.as_ref(),
                         )?;
-                        print_probe_result(
+                        emit_probe_result(
+                            &mut records,
                             "bars",
                             client.bars(&auth.token, symbol, bars_query).await.as_ref(),
                         )?;
                     }
                 }
                 Err(error) => {
-                    print_json(serde_json::json!({
-                        "auth_error": error.to_redacted_string(),
-                        "live_trading_enabled": false,
-                    }))?;
+                    emit_record(
+                        &mut records,
+                        serde_json::json!({
+                            "auth_error": error.to_redacted_string(),
+                            "live_trading_enabled": false,
+                        }),
+                    )?;
                 }
+            }
+            if let Some(output) = output {
+                write_redacted_fixture(output, &records)?;
             }
         }
     }
     Ok(())
 }
 
-fn print_probe_result(
+fn emit_probe_result(
+    records: &mut Vec<serde_json::Value>,
     name: &str,
     result: Result<&serde_json::Value, &broker_finam::FinamError>,
 ) -> Result<()> {
@@ -250,7 +290,22 @@ fn print_probe_result(
             "error": error.to_redacted_string(),
         }),
     };
-    print_json(payload)
+    emit_record(records, payload)
+}
+
+fn emit_record(records: &mut Vec<serde_json::Value>, value: serde_json::Value) -> Result<()> {
+    print_json(value.clone())?;
+    records.push(value);
+    Ok(())
+}
+
+fn write_redacted_fixture(path: PathBuf, records: &[serde_json::Value]) -> Result<()> {
+    let payload = serde_json::json!({
+        "fixture_kind": "finam-readonly-redacted-v1",
+        "records": records,
+    });
+    std::fs::write(path, serde_json::to_string_pretty(&payload)?)?;
+    Ok(())
 }
 
 fn json_shape(value: &serde_json::Value) -> serde_json::Value {

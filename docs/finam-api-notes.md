@@ -179,7 +179,8 @@ FINAM_SYMBOL='TICKER@MIC' \
 cargo run -p broker-cli -- finam-readonly-check \
   --start-time 2026-06-01T00:00:00Z \
   --end-time 2026-06-27T23:59:59Z \
-  --limit 1000
+  --limit 1000 \
+  --output tmp/finam-readonly-redacted.json
 ```
 
 The read-only probe calls only diagnostics/reference/history endpoints:
@@ -191,6 +192,8 @@ The read-only probe calls only diagnostics/reference/history endpoints:
 
 It prints redacted JSON shape/keys instead of raw JWT or full broker payloads.
 It does not place, cancel, replace, or modify orders.
+When `--output` is provided, it saves only those redacted records in fixture
+format `finam-readonly-redacted-v1`.
 
 Implementation notes from the first review:
 
