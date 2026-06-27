@@ -4,7 +4,6 @@
 //! added only after auth, account, reference data, market data, and
 //! reconciliation behavior are characterized.
 
-use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -13,6 +12,7 @@ pub struct FinamConfig {
     pub grpc_endpoint: String,
     pub websocket_endpoint: String,
     pub source_app_id: Option<String>,
+    pub prefer_http2: bool,
 }
 
 impl Default for FinamConfig {
@@ -22,12 +22,13 @@ impl Default for FinamConfig {
             grpc_endpoint: "https://api.finam.ru:443".to_string(),
             websocket_endpoint: "wss://api.finam.ru/ws".to_string(),
             source_app_id: None,
+            prefer_http2: true,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FinamCapabilities {
+pub struct FinamApiCapabilities {
     pub rest_auth: bool,
     pub rest_account_trades: bool,
     pub rest_orders: bool,
@@ -37,7 +38,7 @@ pub struct FinamCapabilities {
     pub websocket_market_data: bool,
 }
 
-impl Default for FinamCapabilities {
+impl Default for FinamApiCapabilities {
     fn default() -> Self {
         Self {
             rest_auth: true,
@@ -51,6 +52,27 @@ impl Default for FinamCapabilities {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayEnabledFeatures {
+    pub enable_readonly_probe: bool,
+    pub enable_live_orders: bool,
+    pub enable_stop_orders: bool,
+    pub enable_sltp_orders: bool,
+    pub enable_brackets: bool,
+}
+
+impl Default for GatewayEnabledFeatures {
+    fn default() -> Self {
+        Self {
+            enable_readonly_probe: true,
+            enable_live_orders: false,
+            enable_stop_orders: false,
+            enable_sltp_orders: false,
+            enable_brackets: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FinamRestClient {
     http: reqwest::Client,
@@ -59,9 +81,12 @@ pub struct FinamRestClient {
 
 impl FinamRestClient {
     pub fn new(config: FinamConfig) -> Self {
+        let mut builder = reqwest::Client::builder().https_only(true);
+        if config.prefer_http2 {
+            builder = builder.http2_adaptive_window(true);
+        }
         Self {
-            http: reqwest::Client::builder()
-                .https_only(true)
+            http: builder
                 .build()
                 .expect("reqwest client configuration must be valid"),
             config,
@@ -254,12 +279,7 @@ impl FinamRestClient {
         if token.is_empty() {
             return Err(FinamError::MissingToken);
         }
-        let response = self
-            .http
-            .get(url)
-            .header(AUTHORIZATION, token)
-            .send()
-            .await?;
+        let response = self.http.get(url).bearer_auth(token).send().await?;
         decode_response(response).await
     }
 }
@@ -318,21 +338,31 @@ impl<'a> BarsQuery<'a> {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct AuthRequest<'a> {
     secret: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_app_id: Option<&'a str>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct TokenDetailsRequest<'a> {
     token: &'a str,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct AuthResponse {
     pub token: String,
+}
+
+impl std::fmt::Debug for AuthResponse {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AuthResponse")
+            .field("token_present", &!self.token.is_empty())
+            .field("token_len", &self.token.len())
+            .finish()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -399,6 +429,19 @@ mod tests {
             url.as_str(),
             "https://api.finam.ru/v1/assets/SBER@MISX/params"
         );
+    }
+
+    #[test]
+    fn auth_response_debug_is_redacted() {
+        let response = AuthResponse {
+            token: "secret-jwt-value".to_string(),
+        };
+
+        let debug = format!("{response:?}");
+
+        assert!(debug.contains("token_present"));
+        assert!(debug.contains("token_len"));
+        assert!(!debug.contains("secret-jwt-value"));
     }
 
     #[test]

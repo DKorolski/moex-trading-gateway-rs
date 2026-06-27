@@ -93,3 +93,7 @@ The adapter must tolerate:
 ACK is not a fill. `CommandAck::Accepted` only means that the command path accepted or submitted the request. Final order state and fills come from order/trade events and reconciliation.
 
 Phase 1 supports only MARKET/LIMIT/CANCEL. Stop, SLTP, and bracket semantics are disabled until separate FINAM contract tests prove their lifecycle.
+
+The Phase 1 command enum intentionally exposes no SLTP command. FINAM SLTP stays
+an API-research topic until a dedicated lifecycle contract and rejection tests
+exist.

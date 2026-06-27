@@ -42,6 +42,10 @@ Exit criteria:
 - We can validate symbol, tick, lot, expiration, and schedule before any live mode.
 - API maintenance and market schedule are represented in readiness.
 - Read-only CLI does not print secret/JWT or emit order actions.
+- REST Authorization uses `Bearer <jwt>`.
+- Secret/JWT structs do not expose raw values through `Debug`.
+- FINAM API capabilities are split from gateway-enabled features.
+- CI runs fmt/test/clippy.
 
 ## M2 — streaming/shadow
 
@@ -104,3 +108,12 @@ Exit criteria:
 - Unknown broker order/trade status is ignored or panics.
 - Stop/SLTP/bracket is enabled before dedicated FINAM contract tests.
 - Place-order timeout can retry before reconciliation by `client_order_id`.
+
+## Review-fix backlog before Redis gateway
+
+- Typed DTOs/mappers for token details, accounts, orders, trades, transactions,
+  asset params, schedules, and bars.
+- `FinamAuthManager` with proactive JWT renewal.
+- Structured `FinamErrorKind` with redacted native error body/fingerprint.
+- Fixture recording mode for read-only responses with redaction.
+- Durable `StrategyRequestId -> ClientOrderId -> BrokerOrderId` mapping store.

@@ -34,6 +34,10 @@ Logs must not include:
 Operator CLI probes should prefer redacted response shapes and key lists over
 full broker payloads until an explicit export workflow is added.
 
+Rust structs containing secret or JWT values must not derive raw `Debug`.
+If a debug implementation is required, it must expose only presence/length or a
+non-reversible fingerprint.
+
 ## Live trading guard
 
 Order-emitting functionality must require:

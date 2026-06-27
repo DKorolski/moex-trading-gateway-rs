@@ -32,7 +32,7 @@ pub enum TimeInForce {
     ImmediateOrCancel,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OrderStatus {
     New,
     Working,
@@ -41,7 +41,7 @@ pub enum OrderStatus {
     Canceled,
     Rejected,
     Expired,
-    Unknown,
+    Unknown(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

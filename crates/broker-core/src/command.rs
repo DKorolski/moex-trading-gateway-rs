@@ -3,18 +3,19 @@ use serde::{Deserialize, Serialize};
 use crate::account::AccountId;
 use crate::ids::{BrokerOrderId, ClientOrderId, StrategyRequestId};
 use crate::instrument::{InstrumentId, Price, Quantity};
-use crate::order::{OrderSide, OrderType, StopKind, TimeInForce};
+use crate::order::{OrderSide, OrderType, TimeInForce};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BrokerCommand {
     PlaceOrder(PlaceOrder),
-    PlaceSltpOrder(PlaceSltpOrder),
     CancelOrder(CancelOrder),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlaceOrder {
     pub request_id: StrategyRequestId,
+    pub created_ts: chrono::DateTime<chrono::Utc>,
+    pub ttl_ms: Option<u64>,
     pub account_id: AccountId,
     pub client_order_id: ClientOrderId,
     pub instrument: InstrumentId,
@@ -27,23 +28,10 @@ pub struct PlaceOrder {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PlaceSltpOrder {
-    pub request_id: StrategyRequestId,
-    pub account_id: AccountId,
-    pub client_order_id: ClientOrderId,
-    pub instrument: InstrumentId,
-    pub side: OrderSide,
-    pub stop_kind: StopKind,
-    pub qty: Quantity,
-    pub stop_price: Price,
-    pub limit_price: Option<Price>,
-    pub valid_before: TimeInForce,
-    pub comment: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelOrder {
     pub request_id: StrategyRequestId,
+    pub created_ts: chrono::DateTime<chrono::Utc>,
+    pub ttl_ms: Option<u64>,
     pub account_id: AccountId,
     pub order_id: BrokerOrderId,
     pub client_order_id: Option<ClientOrderId>,
@@ -62,7 +50,12 @@ pub struct CommandAck {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CommandAckStatus {
     Accepted,
+    Submitted,
+    Duplicate,
+    Expired,
+    Recovered,
     Rejected,
+    Error,
     Timeout,
-    Unknown,
+    UnknownPending,
 }

@@ -166,6 +166,10 @@ FINAM_SECRET_TOKEN=... cargo run -p broker-cli -- finam-auth-check
 
 The command prints only HTTP/auth shape and JWT length, not the JWT itself.
 
+REST read-only calls use `Authorization: Bearer <jwt>`. WebSocket auth is kept
+separate because FINAM async docs allow token placement in headers or
+subscription payloads depending on subscription type.
+
 Read-only surface added for M1:
 
 ```bash
@@ -187,3 +191,12 @@ The read-only probe calls only diagnostics/reference/history endpoints:
 
 It prints redacted JSON shape/keys instead of raw JWT or full broker payloads.
 It does not place, cancel, replace, or modify orders.
+
+Implementation notes from the first review:
+
+- request/response structs containing secret/JWT values must not derive raw
+  `Debug`; `AuthResponse` has redacted debug output;
+- FINAM API capabilities are separate from gateway-enabled features;
+- Phase 1 enabled features keep live orders, stops, SLTP, and brackets disabled;
+- raw `serde_json::Value` is acceptable only for the shape probe. Typed DTOs and
+  mappers are required before Redis gateway/readiness work.

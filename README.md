@@ -8,7 +8,7 @@ The first target adapter is Finam Trade API. The project is developed with gatew
 
 - `broker-core`: normalized contracts for orders, trades, positions, market data, subscriptions, readiness, and command acks.
 - `broker-finam`: Finam adapter surface. M0 is read-only/stubbed; live order placement is out of scope until contracts and read-only reconciliation are validated.
-- `broker-cli`: operator-facing diagnostics such as version, auth check, positions, orders, trades, and exports.
+- `broker-cli`: operator-facing diagnostics for endpoint defaults, auth checks, and redacted read-only probes. Full exports are a later M1 task.
 
 ## Milestones
 
@@ -24,6 +24,7 @@ The first target adapter is Finam Trade API. The project is developed with gatew
 No live trading functionality should be enabled until:
 
 - read-only Finam behavior is characterized;
+- REST requests use `Authorization: Bearer <jwt>` and do not log raw tokens;
 - broker-truth reconciliation works;
 - account/position/order/trade streams are normalized;
 - secret handling and logging policy are audited;
@@ -40,6 +41,9 @@ FINAM_SECRET_TOKEN=... cargo run -p broker-cli -- finam-readonly-check
 
 `finam-readonly-check` is diagnostics-only: it does not place, cancel, replace,
 or modify orders.
+
+CI runs `cargo fmt --all --check`, `cargo test --all`, and
+`cargo clippy --workspace --all-targets -- -D warnings`.
 
 See:
 

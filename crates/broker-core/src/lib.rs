@@ -17,7 +17,7 @@ pub mod time;
 
 pub use account::{AccountId, PortfolioSnapshot, Position};
 pub use broker::BrokerKind;
-pub use command::{BrokerCommand, CancelOrder, CommandAck, PlaceOrder, PlaceSltpOrder};
+pub use command::{BrokerCommand, CancelOrder, CommandAck, PlaceOrder};
 pub use envelope::{Envelope, MessageType, SCHEMA_VERSION};
 pub use event::{BrokerEvent, MarketDataEvent};
 pub use ids::{

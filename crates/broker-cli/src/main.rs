@@ -1,6 +1,7 @@
 use anyhow::Result;
 use broker_finam::{
-    AllAssetsQuery, BarsQuery, FinamCapabilities, FinamConfig, FinamRestClient, HistoryQuery,
+    AllAssetsQuery, BarsQuery, FinamApiCapabilities, FinamConfig, FinamRestClient,
+    GatewayEnabledFeatures, HistoryQuery,
 };
 use clap::{Parser, Subcommand};
 
@@ -57,8 +58,8 @@ async fn main() -> Result<()> {
         Command::Info => {
             let payload = serde_json::json!({
                 "config": FinamConfig::default(),
-                "capabilities": FinamCapabilities::default(),
-                "live_trading_enabled": false,
+                "api_capabilities": FinamApiCapabilities::default(),
+                "enabled_features": GatewayEnabledFeatures::default(),
             });
             println!("{}", serde_json::to_string_pretty(&payload)?);
         }
