@@ -121,7 +121,8 @@ Exit criteria:
 - `FinamAuthManager` with proactive JWT renewal.
 - Structured `FinamErrorKind` categories on top of the existing redacted native
   error fingerprint.
-- Fixture recording mode for read-only responses with redaction.
+- Fixture recording mode for read-only responses with bounded redacted JSON
+  shape metadata.
 - Durable `StrategyRequestId -> ClientOrderId -> BrokerOrderId` mapping store.
 
 ## Allowed after M1.2 safety patch

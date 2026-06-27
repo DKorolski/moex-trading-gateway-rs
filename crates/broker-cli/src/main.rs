@@ -4,7 +4,10 @@ use broker_finam::{
     GatewayEnabledFeatures, HistoryQuery, SecretToken,
 };
 use clap::{Parser, Subcommand};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
+
+const JSON_SHAPE_MAX_DEPTH: usize = 4;
 
 #[derive(Debug, Parser)]
 #[command(version, about = "MOEX broker gateway operator CLI")]
@@ -300,8 +303,14 @@ fn emit_record(records: &mut Vec<serde_json::Value>, value: serde_json::Value) -
 }
 
 fn write_redacted_fixture(path: PathBuf, records: &[serde_json::Value]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
     let payload = serde_json::json!({
         "fixture_kind": "finam-readonly-redacted-v1",
+        "shape_max_depth": JSON_SHAPE_MAX_DEPTH,
         "records": records,
     });
     std::fs::write(path, serde_json::to_string_pretty(&payload)?)?;
@@ -309,15 +318,47 @@ fn write_redacted_fixture(path: PathBuf, records: &[serde_json::Value]) -> Resul
 }
 
 fn json_shape(value: &serde_json::Value) -> serde_json::Value {
+    json_shape_at(value, 0)
+}
+
+fn json_shape_at(value: &serde_json::Value, depth: usize) -> serde_json::Value {
     match value {
-        serde_json::Value::Object(object) => serde_json::json!({
-            "kind": "object",
-            "keys": object.keys().cloned().collect::<Vec<_>>(),
-        }),
-        serde_json::Value::Array(items) => serde_json::json!({
-            "kind": "array",
-            "len": items.len(),
-        }),
+        serde_json::Value::Object(object) => {
+            let keys = object.keys().cloned().collect::<Vec<_>>();
+            if depth >= JSON_SHAPE_MAX_DEPTH {
+                return serde_json::json!({
+                    "kind": "object",
+                    "keys": keys,
+                    "truncated": true,
+                });
+            }
+
+            let fields = object
+                .iter()
+                .map(|(key, value)| (key.clone(), json_shape_at(value, depth + 1)))
+                .collect::<serde_json::Map<_, _>>();
+
+            serde_json::json!({
+                "kind": "object",
+                "keys": keys,
+                "fields": fields,
+            })
+        }
+        serde_json::Value::Array(items) => {
+            let item_kinds = items
+                .iter()
+                .map(json_kind)
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            let first_item_shape = items.first().map(|item| json_shape_at(item, depth + 1));
+            serde_json::json!({
+                "kind": "array",
+                "len": items.len(),
+                "item_kinds": item_kinds,
+                "first_item_shape": first_item_shape,
+            })
+        }
         serde_json::Value::String(_) => serde_json::json!({ "kind": "string" }),
         serde_json::Value::Number(_) => serde_json::json!({ "kind": "number" }),
         serde_json::Value::Bool(_) => serde_json::json!({ "kind": "bool" }),
@@ -325,7 +366,78 @@ fn json_shape(value: &serde_json::Value) -> serde_json::Value {
     }
 }
 
+fn json_kind(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Object(_) => "object",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::Bool(_) => "bool",
+        serde_json::Value::Null => "null",
+    }
+}
+
 fn print_json(value: serde_json::Value) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn json_shape_keeps_nested_structure_without_scalar_values() {
+        let payload = serde_json::json!({
+            "account_id": "ACC-SECRET",
+            "orders": [
+                {
+                    "order_id": "ORDER-SECRET",
+                    "status": "filled",
+                    "price": 123.45,
+                    "nested": {
+                        "comment": "do-not-leak"
+                    }
+                }
+            ]
+        });
+
+        let shape = json_shape(&payload);
+        let rendered = serde_json::to_string(&shape).expect("shape serializes");
+
+        assert!(rendered.contains("account_id"));
+        assert!(rendered.contains("orders"));
+        assert!(rendered.contains("order_id"));
+        assert!(rendered.contains("status"));
+        assert!(rendered.contains("price"));
+        assert!(rendered.contains("nested"));
+        assert!(!rendered.contains("ACC-SECRET"));
+        assert!(!rendered.contains("ORDER-SECRET"));
+        assert!(!rendered.contains("filled"));
+        assert!(!rendered.contains("123.45"));
+        assert!(!rendered.contains("do-not-leak"));
+    }
+
+    #[test]
+    fn json_shape_truncates_deep_objects() {
+        let payload = serde_json::json!({
+            "l1": {
+                "l2": {
+                    "l3": {
+                        "l4": {
+                            "l5": {
+                                "secret": "do-not-leak"
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let shape = json_shape(&payload);
+        let rendered = serde_json::to_string(&shape).expect("shape serializes");
+
+        assert!(rendered.contains("truncated"));
+        assert!(!rendered.contains("do-not-leak"));
+    }
 }
