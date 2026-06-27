@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/broker-core",
+    "crates/broker-finam",
+    "crates/broker-cli",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/DKorolski/moex-trading-gateway-rs"
+rust-version = "1.80"
+
+[workspace.dependencies]
+anyhow = "1"
+async-trait = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+rust_decimal = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["serde", "v5"] }
+
