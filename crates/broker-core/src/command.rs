@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::account::AccountId;
+use crate::ids::{BrokerOrderId, ClientOrderId, StrategyRequestId};
 use crate::instrument::{InstrumentId, Price, Quantity};
-use crate::order::{ClientOrderId, OrderId, OrderSide, OrderType, StopKind, TimeInForce};
+use crate::order::{OrderSide, OrderType, StopKind, TimeInForce};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BrokerCommand {
@@ -13,6 +14,7 @@ pub enum BrokerCommand {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlaceOrder {
+    pub request_id: StrategyRequestId,
     pub account_id: AccountId,
     pub client_order_id: ClientOrderId,
     pub instrument: InstrumentId,
@@ -26,6 +28,7 @@ pub struct PlaceOrder {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlaceSltpOrder {
+    pub request_id: StrategyRequestId,
     pub account_id: AccountId,
     pub client_order_id: ClientOrderId,
     pub instrument: InstrumentId,
@@ -40,15 +43,17 @@ pub struct PlaceSltpOrder {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelOrder {
+    pub request_id: StrategyRequestId,
     pub account_id: AccountId,
-    pub order_id: OrderId,
+    pub order_id: BrokerOrderId,
     pub client_order_id: Option<ClientOrderId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommandAck {
+    pub request_id: StrategyRequestId,
     pub client_order_id: Option<ClientOrderId>,
-    pub order_id: Option<OrderId>,
+    pub broker_order_id: Option<BrokerOrderId>,
     pub status: CommandAckStatus,
     pub reason: Option<String>,
     pub received_ts: chrono::DateTime<chrono::Utc>,

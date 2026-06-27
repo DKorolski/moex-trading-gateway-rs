@@ -1,13 +1,11 @@
 use serde::{Deserialize, Serialize};
 
 use crate::account::AccountId;
+use crate::ids::{BrokerOrderId, BrokerTradeId, ClientOrderId};
 use crate::instrument::{InstrumentId, Money, Price, Quantity};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct OrderId(pub String);
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ClientOrderId(pub String);
+pub type OrderId = BrokerOrderId;
+pub type TradeId = BrokerTradeId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OrderSide {
@@ -73,7 +71,7 @@ pub struct Order {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Trade {
     pub account_id: AccountId,
-    pub trade_id: String,
+    pub trade_id: TradeId,
     pub order_id: Option<OrderId>,
     pub client_order_id: Option<ClientOrderId>,
     pub instrument: InstrumentId,

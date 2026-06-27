@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+use crate::ids::BrokerAccountId;
 use crate::instrument::{InstrumentId, Money, Price, Quantity};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct AccountId(pub String);
+pub type AccountId = BrokerAccountId;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Position {

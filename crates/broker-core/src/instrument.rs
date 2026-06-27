@@ -1,6 +1,14 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
+use crate::broker::BrokerKind;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct InternalSymbol(pub String);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct BrokerSymbol(pub String);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct InstrumentId {
     /// Broker-neutral symbol, for example `IMOEXF`, `RTS-9.26`, or `USDRUBF`.
@@ -34,6 +42,24 @@ pub struct Instrument {
     pub price_step: Price,
     pub step_value: Money,
     pub currency: String,
+    pub is_tradable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InstrumentMapEntry {
+    pub internal_symbol: InternalSymbol,
+    pub broker: BrokerKind,
+    pub broker_symbol: BrokerSymbol,
+    pub exchange: Exchange,
+    pub market: Market,
+    pub price_step: Price,
+    pub qty_step: Quantity,
+    pub lot_size: Quantity,
+    pub min_qty: Quantity,
+    pub step_value: Money,
+    pub currency: String,
+    pub schedule_id: String,
+    pub expiration_date: Option<chrono::NaiveDate>,
     pub is_tradable: bool,
 }
 
