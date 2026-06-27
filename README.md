@@ -26,6 +26,7 @@ No live trading functionality should be enabled until:
 - read-only Finam behavior is characterized;
 - REST requests use `Authorization: Bearer <jwt>` and do not log raw tokens;
 - REST API errors are redacted by default;
+- token types do not expose secret/JWT values through debug/display/JSON export;
 - broker-truth reconciliation works;
 - account/position/order/trade streams are normalized;
 - secret handling and logging policy are audited;

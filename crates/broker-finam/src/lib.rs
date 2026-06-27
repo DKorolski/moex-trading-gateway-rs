@@ -87,29 +87,31 @@ pub struct FinamRestClient {
 
 impl FinamRestClient {
     pub fn new(config: FinamConfig) -> Self {
+        Self::try_new(config).expect("reqwest client configuration must be valid")
+    }
+
+    pub fn try_new(config: FinamConfig) -> Result<Self, FinamError> {
         let mut builder = reqwest::Client::builder()
             .https_only(true)
             .timeout(Duration::from_millis(config.request_timeout_ms.max(1)));
         if config.prefer_http2 {
             builder = builder.http2_adaptive_window(true);
         }
-        Self {
-            http: builder
-                .build()
-                .expect("reqwest client configuration must be valid"),
+        Ok(Self {
+            http: builder.build()?,
             config,
-        }
+        })
     }
 
-    pub async fn auth(&self, secret: &str) -> Result<AuthResponse, FinamError> {
+    pub async fn auth(&self, secret: &SecretToken) -> Result<AuthResponse, FinamError> {
         let mut request = AuthRequest {
-            secret,
+            secret: secret.as_str(),
             source_app_id: None,
         };
         if let Some(source_app_id) = self.config.source_app_id.as_deref() {
             request.source_app_id = Some(source_app_id);
         }
-        let url = format!("{}/v1/sessions", self.config.rest_base_url);
+        let url = self.rest_url(&["v1", "sessions"])?;
         let response = self.http.post(url).json(&request).send().await?;
         decode_response(response).await
     }
@@ -118,7 +120,7 @@ impl FinamRestClient {
         &self,
         token: &AccessToken,
     ) -> Result<serde_json::Value, FinamError> {
-        let url = format!("{}/v1/sessions/details", self.config.rest_base_url);
+        let url = self.rest_url(&["v1", "sessions", "details"])?;
         let response = self
             .http
             .post(url)
@@ -383,7 +385,16 @@ impl std::fmt::Debug for AuthResponse {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// FINAM JWT/access token.
+///
+/// This type intentionally does not implement `Serialize`, so accidental JSON
+/// export of a live JWT fails at compile time:
+///
+/// ```compile_fail
+/// let token = broker_finam::AccessToken::new("jwt");
+/// let _ = serde_json::to_string(&token).unwrap();
+/// ```
+#[derive(Clone, PartialEq, Eq, Deserialize)]
 #[serde(transparent)]
 pub struct AccessToken(String);
 
@@ -435,6 +446,43 @@ impl std::fmt::Display for AccessToken {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub struct SecretToken(String);
+
+impl SecretToken {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl std::fmt::Debug for SecretToken {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SecretToken")
+            .field("present", &!self.is_empty())
+            .field("len", &self.len())
+            .finish()
+    }
+}
+
+impl std::fmt::Display for SecretToken {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "<redacted secret token len={}>", self.len())
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum FinamError {
     #[error("finam http error: {0}")]
@@ -453,6 +501,22 @@ pub enum FinamError {
         body_len: usize,
         body_sha256: String,
     },
+}
+
+impl FinamError {
+    pub fn to_redacted_string(&self) -> String {
+        match self {
+            FinamError::Http(error) => {
+                format!(
+                    "finam http error: is_timeout={}, is_connect={}, status={:?}",
+                    error.is_timeout(),
+                    error.is_connect(),
+                    error.status().map(|status| status.as_u16())
+                )
+            }
+            _ => self.to_string(),
+        }
+    }
 }
 
 fn append_optional_query(url: &mut reqwest::Url, key: &str, value: Option<&str>) {
@@ -573,6 +637,14 @@ mod tests {
 
         assert!(!format!("{token:?}").contains("secret-jwt-value"));
         assert!(!format!("{token}").contains("secret-jwt-value"));
+    }
+
+    #[test]
+    fn secret_token_debug_and_display_are_redacted() {
+        let token = SecretToken::new("secret-token-value");
+
+        assert!(!format!("{token:?}").contains("secret-token-value"));
+        assert!(!format!("{token}").contains("secret-token-value"));
     }
 
     #[test]

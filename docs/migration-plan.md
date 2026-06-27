@@ -46,6 +46,8 @@ Exit criteria:
 - Secret/JWT structs do not expose raw values through `Debug`.
 - REST API error bodies are redacted by default and identified by body shape and
   SHA-256 hash.
+- CLI transport errors use redacted presentation by default.
+- `AccessToken` is not JSON-serializable; `SecretToken` is redacted.
 - REST requests have bounded timeout.
 - FINAM API capabilities are split from gateway-enabled features.
 - CI runs fmt/test/clippy.

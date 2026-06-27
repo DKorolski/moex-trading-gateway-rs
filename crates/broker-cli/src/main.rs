@@ -1,7 +1,7 @@
 use anyhow::Result;
 use broker_finam::{
     AllAssetsQuery, BarsQuery, FinamApiCapabilities, FinamConfig, FinamRestClient,
-    GatewayEnabledFeatures, HistoryQuery,
+    GatewayEnabledFeatures, HistoryQuery, SecretToken,
 };
 use clap::{Parser, Subcommand};
 
@@ -64,8 +64,8 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&payload)?);
         }
         Command::AuthCheck { secret_env } => {
-            let secret = std::env::var(&secret_env)?;
-            let client = FinamRestClient::new(FinamConfig::default());
+            let secret = SecretToken::new(std::env::var(&secret_env)?);
+            let client = FinamRestClient::try_new(FinamConfig::default())?;
             match client.auth(&secret).await {
                 Ok(auth) => {
                     println!(
@@ -94,7 +94,7 @@ async fn main() -> Result<()> {
                             println!(
                                 "{}",
                                 serde_json::to_string_pretty(&serde_json::json!({
-                                    "details_error": error.to_string(),
+                                    "details_error": error.to_redacted_string(),
                                 }))?
                             );
                         }
@@ -104,7 +104,7 @@ async fn main() -> Result<()> {
                     println!(
                         "{}",
                         serde_json::to_string_pretty(&serde_json::json!({
-                            "auth_error": error.to_string(),
+                            "auth_error": error.to_redacted_string(),
                         }))?
                     );
                 }
@@ -119,8 +119,8 @@ async fn main() -> Result<()> {
             end_time,
             limit,
         } => {
-            let secret = std::env::var(&secret_env)?;
-            let client = FinamRestClient::new(FinamConfig::default());
+            let secret = SecretToken::new(std::env::var(&secret_env)?);
+            let client = FinamRestClient::try_new(FinamConfig::default())?;
             match client.auth(&secret).await {
                 Ok(auth) => {
                     print_json(serde_json::json!({
@@ -224,7 +224,7 @@ async fn main() -> Result<()> {
                 }
                 Err(error) => {
                     print_json(serde_json::json!({
-                        "auth_error": error.to_string(),
+                        "auth_error": error.to_redacted_string(),
                         "live_trading_enabled": false,
                     }))?;
                 }
@@ -247,7 +247,7 @@ fn print_probe_result(
         Err(error) => serde_json::json!({
             "probe": name,
             "ok": false,
-            "error": error.to_string(),
+            "error": error.to_redacted_string(),
         }),
     };
     print_json(payload)

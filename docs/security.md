@@ -38,10 +38,17 @@ Rust structs containing secret or JWT values must not derive raw `Debug`.
 If a debug implementation is required, it must expose only presence/length or a
 non-reversible fingerprint.
 
+Secret-bearing token types must not implement `Serialize` unless the
+implementation is explicitly redacted. Use `SecretToken` for the FINAM portal
+secret and `AccessToken` for JWT/access tokens.
+
 Broker HTTP error bodies must not be printed by default. Store and print only
 redacted metadata such as HTTP status, JSON shape, top-level keys, body length,
 and non-reversible hash. Raw response capture requires an explicit local-only
 debug/export workflow.
+
+Transport errors must be presented through a redacted formatter before CLI
+output or external sharing, because raw HTTP client errors may include URLs.
 
 ## Live trading guard
 

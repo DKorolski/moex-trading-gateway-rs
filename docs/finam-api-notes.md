@@ -197,11 +197,17 @@ Implementation notes from the first review:
 - request/response structs containing secret/JWT values must not derive raw
   `Debug`; `AuthResponse` has redacted debug output;
 - JWT is represented as an `AccessToken` newtype with redacted `Debug` and
-  `Display`;
+  `Display`; it intentionally does not implement `Serialize`;
+- FINAM secret-token input is represented as `SecretToken` with redacted
+  `Debug` and `Display`;
 - non-2xx REST error bodies are redacted by default: the error keeps HTTP
   status, JSON body kind, top-level JSON keys, body length, and SHA-256 hash,
   but not the raw body;
+- CLI output uses redacted error presentation for transport errors, avoiding URL
+  leakage by default;
 - REST client requests have a bounded timeout, default 10 seconds;
+- `auth()` and `token_details()` use the same `rest_url()` path builder as other
+  REST endpoints;
 - FINAM API capabilities are separate from gateway-enabled features;
 - Phase 1 enabled features keep live orders, stops, SLTP, and brackets disabled;
 - raw `serde_json::Value` is acceptable only for the shape probe. Typed DTOs and
