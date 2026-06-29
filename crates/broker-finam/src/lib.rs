@@ -9,6 +9,11 @@ use sha2::{Digest, Sha256};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
+pub mod dto;
+pub mod mapper;
+pub use dto::*;
+pub use mapper::*;
+
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_JWT_TTL: Duration = Duration::from_secs(15 * 60);
 const DEFAULT_JWT_RENEW_BEFORE: Duration = Duration::from_secs(2 * 60);
@@ -183,6 +188,22 @@ impl FinamRestClient {
         decode_response(response).await
     }
 
+    pub async fn token_details_typed(
+        &self,
+        token: &AccessToken,
+    ) -> Result<dto::TokenDetailsResponse, FinamError> {
+        let url = self.rest_url(&["v1", "sessions", "details"])?;
+        let response = self
+            .http
+            .post(url)
+            .json(&TokenDetailsRequest {
+                token: token.as_str(),
+            })
+            .send()
+            .await?;
+        decode_response(response).await
+    }
+
     pub async fn account(
         &self,
         token: &AccessToken,
@@ -190,6 +211,15 @@ impl FinamRestClient {
     ) -> Result<serde_json::Value, FinamError> {
         let url = self.rest_url(&["v1", "accounts", account_id])?;
         self.get_json(token, url).await
+    }
+
+    pub async fn account_typed(
+        &self,
+        token: &AccessToken,
+        account_id: &str,
+    ) -> Result<dto::AccountResponse, FinamError> {
+        let url = self.rest_url(&["v1", "accounts", account_id])?;
+        self.get_typed(token, url).await
     }
 
     pub async fn account_trades(
@@ -203,6 +233,17 @@ impl FinamRestClient {
         self.get_json(token, url).await
     }
 
+    pub async fn account_trades_typed(
+        &self,
+        token: &AccessToken,
+        account_id: &str,
+        query: HistoryQuery<'_>,
+    ) -> Result<dto::AccountTradesResponse, FinamError> {
+        let mut url = self.rest_url(&["v1", "accounts", account_id, "trades"])?;
+        query.append_to_url(&mut url);
+        self.get_typed(token, url).await
+    }
+
     pub async fn account_transactions(
         &self,
         token: &AccessToken,
@@ -214,6 +255,17 @@ impl FinamRestClient {
         self.get_json(token, url).await
     }
 
+    pub async fn account_transactions_typed(
+        &self,
+        token: &AccessToken,
+        account_id: &str,
+        query: HistoryQuery<'_>,
+    ) -> Result<dto::AccountTransactionsResponse, FinamError> {
+        let mut url = self.rest_url(&["v1", "accounts", account_id, "transactions"])?;
+        query.append_to_url(&mut url);
+        self.get_typed(token, url).await
+    }
+
     pub async fn account_orders(
         &self,
         token: &AccessToken,
@@ -221,6 +273,15 @@ impl FinamRestClient {
     ) -> Result<serde_json::Value, FinamError> {
         let url = self.rest_url(&["v1", "accounts", account_id, "orders"])?;
         self.get_json(token, url).await
+    }
+
+    pub async fn account_orders_typed(
+        &self,
+        token: &AccessToken,
+        account_id: &str,
+    ) -> Result<dto::AccountOrdersResponse, FinamError> {
+        let url = self.rest_url(&["v1", "accounts", account_id, "orders"])?;
+        self.get_typed(token, url).await
     }
 
     pub async fn account_order(
@@ -233,9 +294,27 @@ impl FinamRestClient {
         self.get_json(token, url).await
     }
 
+    pub async fn account_order_typed(
+        &self,
+        token: &AccessToken,
+        account_id: &str,
+        order_id: &str,
+    ) -> Result<dto::OrderState, FinamError> {
+        let url = self.rest_url(&["v1", "accounts", account_id, "orders", order_id])?;
+        self.get_typed(token, url).await
+    }
+
     pub async fn assets(&self, token: &AccessToken) -> Result<serde_json::Value, FinamError> {
         let url = self.rest_url(&["v1", "assets"])?;
         self.get_json(token, url).await
+    }
+
+    pub async fn assets_typed(
+        &self,
+        token: &AccessToken,
+    ) -> Result<dto::AssetsResponse, FinamError> {
+        let url = self.rest_url(&["v1", "assets"])?;
+        self.get_typed(token, url).await
     }
 
     pub async fn all_assets(
@@ -248,6 +327,16 @@ impl FinamRestClient {
         self.get_json(token, url).await
     }
 
+    pub async fn all_assets_typed(
+        &self,
+        token: &AccessToken,
+        query: AllAssetsQuery<'_>,
+    ) -> Result<dto::AllAssetsResponse, FinamError> {
+        let mut url = self.rest_url(&["v1", "assets", "all"])?;
+        query.append_to_url(&mut url);
+        self.get_typed(token, url).await
+    }
+
     pub async fn clock(&self, token: &AccessToken) -> Result<serde_json::Value, FinamError> {
         let url = self.rest_url(&["v1", "assets", "clock"])?;
         self.get_json(token, url).await
@@ -256,6 +345,14 @@ impl FinamRestClient {
     pub async fn exchanges(&self, token: &AccessToken) -> Result<serde_json::Value, FinamError> {
         let url = self.rest_url(&["v1", "exchanges"])?;
         self.get_json(token, url).await
+    }
+
+    pub async fn exchanges_typed(
+        &self,
+        token: &AccessToken,
+    ) -> Result<dto::ExchangesResponse, FinamError> {
+        let url = self.rest_url(&["v1", "exchanges"])?;
+        self.get_typed(token, url).await
     }
 
     pub async fn asset(
@@ -269,6 +366,17 @@ impl FinamRestClient {
         self.get_json(token, url).await
     }
 
+    pub async fn asset_typed(
+        &self,
+        token: &AccessToken,
+        symbol: &str,
+        account_id: Option<&str>,
+    ) -> Result<dto::AssetResponse, FinamError> {
+        let mut url = self.rest_url(&["v1", "assets", symbol])?;
+        append_optional_query(&mut url, "account_id", account_id);
+        self.get_typed(token, url).await
+    }
+
     pub async fn asset_params(
         &self,
         token: &AccessToken,
@@ -280,6 +388,17 @@ impl FinamRestClient {
         self.get_json(token, url).await
     }
 
+    pub async fn asset_params_typed(
+        &self,
+        token: &AccessToken,
+        symbol: &str,
+        account_id: Option<&str>,
+    ) -> Result<dto::AssetParamsResponse, FinamError> {
+        let mut url = self.rest_url(&["v1", "assets", symbol, "params"])?;
+        append_optional_query(&mut url, "account_id", account_id);
+        self.get_typed(token, url).await
+    }
+
     pub async fn asset_schedule(
         &self,
         token: &AccessToken,
@@ -287,6 +406,15 @@ impl FinamRestClient {
     ) -> Result<serde_json::Value, FinamError> {
         let url = self.rest_url(&["v1", "assets", symbol, "schedule"])?;
         self.get_json(token, url).await
+    }
+
+    pub async fn asset_schedule_typed(
+        &self,
+        token: &AccessToken,
+        symbol: &str,
+    ) -> Result<dto::AssetScheduleResponse, FinamError> {
+        let url = self.rest_url(&["v1", "assets", symbol, "schedule"])?;
+        self.get_typed(token, url).await
     }
 
     pub async fn bars(
@@ -300,6 +428,17 @@ impl FinamRestClient {
         self.get_json(token, url).await
     }
 
+    pub async fn bars_typed(
+        &self,
+        token: &AccessToken,
+        symbol: &str,
+        query: BarsQuery<'_>,
+    ) -> Result<dto::BarsResponse, FinamError> {
+        let mut url = self.rest_url(&["v1", "instruments", symbol, "bars"])?;
+        query.append_to_url(&mut url);
+        self.get_typed(token, url).await
+    }
+
     pub async fn last_quote(
         &self,
         token: &AccessToken,
@@ -309,6 +448,15 @@ impl FinamRestClient {
         self.get_json(token, url).await
     }
 
+    pub async fn last_quote_typed(
+        &self,
+        token: &AccessToken,
+        symbol: &str,
+    ) -> Result<dto::LastQuoteResponse, FinamError> {
+        let url = self.rest_url(&["v1", "instruments", symbol, "quotes", "latest"])?;
+        self.get_typed(token, url).await
+    }
+
     pub async fn latest_trades(
         &self,
         token: &AccessToken,
@@ -316,6 +464,15 @@ impl FinamRestClient {
     ) -> Result<serde_json::Value, FinamError> {
         let url = self.rest_url(&["v1", "instruments", symbol, "trades", "latest"])?;
         self.get_json(token, url).await
+    }
+
+    pub async fn latest_trades_typed(
+        &self,
+        token: &AccessToken,
+        symbol: &str,
+    ) -> Result<dto::LatestTradesResponse, FinamError> {
+        let url = self.rest_url(&["v1", "instruments", symbol, "trades", "latest"])?;
+        self.get_typed(token, url).await
     }
 
     fn rest_url(&self, segments: &[&str]) -> Result<reqwest::Url, FinamError> {
@@ -342,6 +499,23 @@ impl FinamRestClient {
         token: &AccessToken,
         url: reqwest::Url,
     ) -> Result<serde_json::Value, FinamError> {
+        if token.is_empty() {
+            return Err(FinamError::MissingToken);
+        }
+        let response = self
+            .http
+            .get(url)
+            .bearer_auth(token.as_str())
+            .send()
+            .await?;
+        decode_response(response).await
+    }
+
+    async fn get_typed<T: for<'de> Deserialize<'de>>(
+        &self,
+        token: &AccessToken,
+        url: reqwest::Url,
+    ) -> Result<T, FinamError> {
         if token.is_empty() {
             return Err(FinamError::MissingToken);
         }
@@ -705,6 +879,7 @@ pub enum FinamErrorKind {
     ApiClient,
     ApiServer,
     ApiUnexpectedStatus,
+    Decode,
     InternalState,
 }
 
@@ -718,6 +893,8 @@ pub enum FinamError {
     MissingToken,
     #[error("finam internal state error: {message}")]
     InternalState { message: &'static str },
+    #[error("finam response decode error: status={status:?}")]
+    Decode { status: Option<u16> },
     #[error(
         "finam api returned HTTP {status}: body_kind={body_kind:?}, body_keys={body_keys:?}, body_len={body_len}, body_sha256={body_sha256}"
     )]
@@ -739,6 +916,7 @@ impl FinamError {
             FinamError::InvalidBaseUrl { .. } => FinamErrorKind::InvalidConfiguration,
             FinamError::MissingToken => FinamErrorKind::MissingToken,
             FinamError::InternalState { .. } => FinamErrorKind::InternalState,
+            FinamError::Decode { .. } => FinamErrorKind::Decode,
             FinamError::Api { status, .. } => match *status {
                 400 => FinamErrorKind::ApiBadRequest,
                 401 => FinamErrorKind::ApiAuthentication,
@@ -765,6 +943,7 @@ impl FinamError {
                     error.status().map(|status| status.as_u16())
                 )
             }
+            FinamError::Decode { .. } => self.to_string(),
             _ => self.to_string(),
         }
     }
@@ -804,7 +983,12 @@ async fn decode_response<T: for<'de> Deserialize<'de>>(
             body_sha256: redacted.sha256,
         });
     }
-    Ok(response.json::<T>().await?)
+    response
+        .json::<T>()
+        .await
+        .map_err(|error| FinamError::Decode {
+            status: error.status().map(|status| status.as_u16()),
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

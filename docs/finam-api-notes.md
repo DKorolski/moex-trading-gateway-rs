@@ -211,6 +211,8 @@ Implementation notes from the first review:
   leakage by default;
 - FINAM errors expose a structured `FinamErrorKind` for retry/backoff/readiness
   decisions without parsing redacted strings;
+- response JSON decode failures use `FinamErrorKind::Decode`, not transport
+  HTTP classification;
 - read-only CLI obtains JWTs through `FinamAuthManager`, which caches the token
   and refreshes before the public 15-minute lifetime expires;
 - REST client requests have a bounded timeout, default 10 seconds;
@@ -220,3 +222,24 @@ Implementation notes from the first review:
 - Phase 1 enabled features keep live orders, stops, SLTP, and brackets disabled;
 - raw `serde_json::Value` is acceptable only for the shape probe. Typed DTOs and
   mappers are required before Redis gateway/readiness work.
+
+## 2026-06-29 real read-only characterization
+
+Real local FINAM auth and read-only probes were run with a git-ignored `.env`.
+No raw secret, JWT, account payload, or order payload was committed.
+
+Observed:
+
+- auth succeeds and returns JWT;
+- account endpoint is reachable and reports an active union account;
+- account positions shape was empty during the probe;
+- account orders shape included one canceled IMOEXF limit order;
+- account trades and transactions require an interval; with interval they
+  returned typed shapes successfully;
+- the correct FINAM symbol for IMOEXF is `IMOEXF@RTSX`;
+- `IMOEXF@MOEX` returns not found;
+- `GET /v1/exchanges` is the working exchanges endpoint;
+- M1 bars with `TIME_FRAME_M1` must use a short interval; a 2026-06-26 to
+  2026-06-29 interval succeeded for `IMOEXF@RTSX`.
+
+The redacted shape fixture remains local under `tmp/` and is git-ignored.

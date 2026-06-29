@@ -50,6 +50,9 @@ Exit criteria:
 - `AccessToken` is not JSON-serializable; `SecretToken` is redacted.
 - REST requests have bounded timeout.
 - FINAM API capabilities are split from gateway-enabled features.
+- Read-only DTO/mappers exist for token details, account snapshot, orders,
+  trades, transactions, assets, schedules, quotes, latest trades, and bars.
+- JSON decode failures are separated from transport errors.
 - CI runs fmt/test/clippy.
 
 ## M2 — streaming/shadow
@@ -116,11 +119,10 @@ Exit criteria:
 
 ## Review-fix backlog before Redis gateway
 
-- Typed DTOs/mappers for token details, accounts, orders, trades, transactions,
-  asset params, schedules, and bars.
 - Fixture recording mode for read-only responses with bounded redacted JSON
   shape metadata.
 - Durable `StrategyRequestId -> ClientOrderId -> BrokerOrderId` mapping store.
+- Fixture-based typed DTO tests from checked-in sanitized fixtures.
 
 ## Allowed after M1.2 safety patch
 
