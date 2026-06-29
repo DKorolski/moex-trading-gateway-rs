@@ -112,6 +112,27 @@ M2b explicitly not allowed:
 - Live micro.
 - Stop/SLTP/bracket.
 
+M2c allowed scope:
+
+- `finam-gateway-shadow-loop` periodic read-only runner.
+- Interval config and optional safety `max_iterations`.
+- Graceful shutdown with stopped health/readiness publication.
+- Degraded health/readiness publication on shadow iteration failure.
+- Readiness published after snapshots and read-only market-data publication.
+- Redis stream retention/MAXLEN policy.
+- Optional Redis CI integration smoke.
+- Shadow runner summary metrics.
+
+M2c explicitly not allowed:
+
+- POST/DELETE order endpoints.
+- Live order placement or cancel.
+- Command stream consumer for real trading.
+- Real order ACK lifecycle.
+- Runtime adaptation.
+- Live micro.
+- Stop/SLTP/bracket.
+
 Exit criteria:
 
 - Stream events reconcile with REST snapshots.

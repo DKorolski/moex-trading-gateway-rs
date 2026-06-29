@@ -43,6 +43,7 @@ pub struct RedisStreamConfig {
     pub portfolio_stream: String,
     pub order_snapshot_stream: String,
     pub market_data_stream: String,
+    pub retention: RedisRetentionConfig,
 }
 
 impl Default for RedisStreamConfig {
@@ -54,6 +55,28 @@ impl Default for RedisStreamConfig {
             portfolio_stream: "finam:portfolio".to_string(),
             order_snapshot_stream: "finam:orders:snapshot".to_string(),
             market_data_stream: "finam:market-data".to_string(),
+            retention: RedisRetentionConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RedisRetentionConfig {
+    pub health_maxlen: Option<usize>,
+    pub readiness_maxlen: Option<usize>,
+    pub portfolio_maxlen: Option<usize>,
+    pub order_snapshot_maxlen: Option<usize>,
+    pub market_data_maxlen: Option<usize>,
+}
+
+impl Default for RedisRetentionConfig {
+    fn default() -> Self {
+        Self {
+            health_maxlen: Some(1_000),
+            readiness_maxlen: Some(1_000),
+            portfolio_maxlen: Some(1_000),
+            order_snapshot_maxlen: Some(1_000),
+            market_data_maxlen: Some(10_000),
         }
     }
 }
@@ -146,6 +169,7 @@ pub trait RedisStreamSink: Send + Sync {
         &self,
         stream: &str,
         value: &T,
+        maxlen: Option<usize>,
     ) -> Result<(), GatewayError>;
 }
 
@@ -171,17 +195,20 @@ impl RedisStreamSink for InMemoryRedisStreamSink {
         &self,
         stream: &str,
         value: &T,
+        maxlen: Option<usize>,
     ) -> Result<(), GatewayError> {
         let payload = serde_json::to_string(value)?;
-        self.entries
+        let mut entries = self
+            .entries
             .lock()
             .map_err(|_| GatewayError::InternalState {
                 message: "in-memory redis sink mutex poisoned",
-            })?
-            .push(RedisStreamEntry {
-                stream: stream.to_string(),
-                payload,
-            });
+            })?;
+        entries.push(RedisStreamEntry {
+            stream: stream.to_string(),
+            payload,
+        });
+        trim_in_memory_stream(&mut entries, stream, normalized_maxlen(maxlen));
         Ok(())
     }
 }
@@ -209,17 +236,43 @@ impl RedisStreamSink for RedisConnectionStreamSink {
         &self,
         stream: &str,
         value: &T,
+        maxlen: Option<usize>,
     ) -> Result<(), GatewayError> {
         let payload = serde_json::to_string(value)?;
         let mut manager = self.manager.clone();
-        let _message_id: String = redis::cmd("XADD")
-            .arg(stream)
+        let mut command = redis::cmd("XADD");
+        command.arg(stream);
+        if let Some(maxlen) = normalized_maxlen(maxlen) {
+            command.arg("MAXLEN").arg("~").arg(maxlen);
+        }
+        let _message_id: String = command
             .arg("*")
             .arg("payload")
             .arg(payload)
             .query_async(&mut manager)
             .await?;
         Ok(())
+    }
+}
+
+fn normalized_maxlen(maxlen: Option<usize>) -> Option<usize> {
+    maxlen.filter(|value| *value > 0)
+}
+
+fn trim_in_memory_stream(entries: &mut Vec<RedisStreamEntry>, stream: &str, maxlen: Option<usize>) {
+    let Some(maxlen) = maxlen else {
+        return;
+    };
+    while entries
+        .iter()
+        .filter(|entry| entry.stream == stream)
+        .count()
+        > maxlen
+    {
+        let Some(index) = entries.iter().position(|entry| entry.stream == stream) else {
+            return;
+        };
+        entries.remove(index);
     }
 }
 
@@ -273,6 +326,7 @@ where
             &self.config.redis.health_stream,
             MessageType::Health,
             health,
+            self.config.redis.retention.health_maxlen,
         )
         .await
     }
@@ -287,6 +341,7 @@ where
             &self.config.redis.readiness_stream,
             MessageType::Readiness,
             readiness,
+            self.config.redis.retention.readiness_maxlen,
         )
         .await
     }
@@ -304,6 +359,7 @@ where
             &self.config.redis.portfolio_stream,
             MessageType::PortfolioSnapshot,
             snapshot,
+            self.config.redis.retention.portfolio_maxlen,
         )
         .await
     }
@@ -321,6 +377,7 @@ where
             &self.config.redis.order_snapshot_stream,
             MessageType::OrderSnapshot,
             snapshot,
+            self.config.redis.retention.order_snapshot_maxlen,
         )
         .await
     }
@@ -338,6 +395,7 @@ where
             &self.config.redis.market_data_stream,
             MessageType::MarketData,
             event,
+            self.config.redis.retention.market_data_maxlen,
         )
         .await
     }
@@ -408,9 +466,10 @@ where
         stream: &str,
         msg_type: MessageType,
         payload: T,
+        maxlen: Option<usize>,
     ) -> Result<(), GatewayError> {
         let envelope = Envelope::new(self.config.source.clone(), msg_type, payload);
-        self.sink.publish_json(stream, &envelope).await
+        self.sink.publish_json(stream, &envelope, maxlen).await
     }
 }
 
@@ -451,6 +510,42 @@ pub fn default_readonly_health(config: &GatewayConfig) -> GatewayHealth {
         redis_configured: !config.redis.url.is_empty(),
         command_consumer_enabled: config.features.command_consumer_enabled,
         order_placement_enabled: config.features.order_placement_enabled,
+    }
+}
+
+pub fn degraded_health(config: &GatewayConfig) -> GatewayHealth {
+    GatewayHealth {
+        status: GatewayHealthStatus::Degraded,
+        checked_ts: Utc::now(),
+        redis_configured: !config.redis.url.is_empty(),
+        command_consumer_enabled: config.features.command_consumer_enabled,
+        order_placement_enabled: config.features.order_placement_enabled,
+    }
+}
+
+pub fn stopped_health(config: &GatewayConfig) -> GatewayHealth {
+    GatewayHealth {
+        status: GatewayHealthStatus::Stopped,
+        checked_ts: Utc::now(),
+        redis_configured: !config.redis.url.is_empty(),
+        command_consumer_enabled: config.features.command_consumer_enabled,
+        order_placement_enabled: config.features.order_placement_enabled,
+    }
+}
+
+pub fn degraded_readiness(reason: ReadinessReason) -> BrokerReadiness {
+    BrokerReadiness {
+        phase: ReadinessPhase::Degraded,
+        reasons: vec![reason],
+        checked_ts: Utc::now(),
+    }
+}
+
+pub fn stopped_readiness() -> BrokerReadiness {
+    BrokerReadiness {
+        phase: ReadinessPhase::Stopped,
+        reasons: vec![ReadinessReason::OperatorPaused],
+        checked_ts: Utc::now(),
     }
 }
 
@@ -578,6 +673,42 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].stream, "finam:market-data");
         assert!(entries[0].payload.contains("\"msg_type\":\"MarketData\""));
+    }
+
+    #[tokio::test]
+    async fn applies_in_memory_stream_retention_per_stream() {
+        let sink = InMemoryRedisStreamSink::default();
+        let mut config = GatewayConfig::default();
+        config.redis.retention.health_maxlen = Some(2);
+        let gateway = FinamGateway::new(config, sink.clone());
+
+        gateway
+            .publish_health(default_readonly_health(gateway.config()))
+            .await
+            .expect("health 1");
+        gateway
+            .publish_health(default_readonly_health(gateway.config()))
+            .await
+            .expect("health 2");
+        gateway
+            .publish_health(default_readonly_health(gateway.config()))
+            .await
+            .expect("health 3");
+
+        let entries = sink.entries().expect("entries");
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().all(|entry| entry.stream == "finam:health"));
+    }
+
+    #[test]
+    fn degraded_and_stopped_readiness_are_not_live_ready() {
+        let degraded = degraded_readiness(ReadinessReason::RedisUnavailable);
+        assert_eq!(degraded.phase, ReadinessPhase::Degraded);
+        assert_eq!(degraded.reasons, vec![ReadinessReason::RedisUnavailable]);
+
+        let stopped = stopped_readiness();
+        assert_eq!(stopped.phase, ReadinessPhase::Stopped);
+        assert_eq!(stopped.reasons, vec![ReadinessReason::OperatorPaused]);
     }
 
     #[test]

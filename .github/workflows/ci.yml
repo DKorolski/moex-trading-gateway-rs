@@ -27,3 +27,27 @@ jobs:
 
       - name: Cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+  redis-smoke:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Redis shadow smoke
+        run: scripts/redis_shadow_smoke.sh

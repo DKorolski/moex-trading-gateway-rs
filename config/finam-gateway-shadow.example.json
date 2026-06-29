@@ -4,11 +4,21 @@
   "account_id": "ACC_TEST_0001",
   "symbol": "TICKER@MIC",
   "timeframe": "TIME_FRAME_M1",
+  "bars_lookback_minutes": 60,
+  "interval_seconds": 30,
+  "max_iterations": 1,
   "streams": {
     "health": "broker.health",
     "readiness": "broker.readiness",
     "portfolio": "broker.portfolio.snapshot",
     "orders_snapshot": "broker.orders.snapshot",
     "market_data": "broker.market_data"
+  },
+  "retention": {
+    "health_maxlen": 1000,
+    "readiness_maxlen": 1000,
+    "portfolio_maxlen": 1000,
+    "order_snapshot_maxlen": 1000,
+    "market_data_maxlen": 10000
   }
 }

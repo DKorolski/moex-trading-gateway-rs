@@ -61,11 +61,18 @@ M2b adds executable shadow-mode commands without enabling live orders:
 cargo run -p broker-cli -- finam-gateway-shadow-once \
   --config config/finam-gateway-shadow.example.json
 
+cargo run -p broker-cli -- finam-gateway-shadow-loop \
+  --config config/finam-gateway-shadow.example.json \
+  --max-iterations 3
+
 scripts/redis_shadow_smoke.sh
 ```
 
 The example config uses synthetic account/symbol placeholders. Put real FINAM
 inputs only in local `.env` or an ignored local config file.
+The periodic loop remains shadow/read-only: it refreshes health/readiness,
+publishes degraded/stopped states, and applies Redis stream retention, but it
+does not consume commands or emit broker order actions.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`.

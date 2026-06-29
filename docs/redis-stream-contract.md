@@ -1,14 +1,15 @@
 # Redis stream contract
 
-M2b uses Redis Streams only for shadow/read-only publication. It does not define
+M2b/M2c use Redis Streams only for shadow/read-only publication. They do not define
 or enable an order command stream.
 
 ## Payload shape
 
-Every gateway publication uses one Redis stream entry with a single field:
+Every gateway publication uses one Redis stream entry with a single field. M2c
+may include approximate `MAXLEN` trimming:
 
 ```text
-XADD <stream> * payload <json>
+XADD <stream> [MAXLEN ~ <n>] * payload <json>
 ```
 
 The `payload` value is a JSON `broker-core::Envelope<T>`:
@@ -51,7 +52,7 @@ broker.market_data
 
 See `config/finam-gateway-shadow.example.json` for a safe synthetic example.
 
-## Message types in M2b
+## Message types in M2b/M2c
 
 Allowed:
 
@@ -61,7 +62,7 @@ Allowed:
 - `Readiness`;
 - `MarketData`.
 
-Not allowed in M2b:
+Not allowed in M2b/M2c:
 
 - command consumer streams;
 - command ACK lifecycle for real orders;
@@ -70,16 +71,27 @@ Not allowed in M2b:
 
 ## Publication order
 
-`finam-gateway-shadow-once` publishes:
+`finam-gateway-shadow-once` and each `finam-gateway-shadow-loop` iteration
+publish:
 
 1. health;
 2. portfolio snapshot;
 3. order snapshot;
-4. readiness;
-5. market data events from read-only quote/bars endpoints.
+4. market data events from read-only quote/bars endpoints;
+5. readiness.
 
-Readiness is intentionally published after broker-truth snapshots. In M2b the
-readiness phase may reach `Reconciliation`, but it must not become `LiveReady`.
+Readiness is intentionally published last, after broker-truth snapshots and
+market-data publication. In M2b/M2c the readiness phase may reach
+`Reconciliation`, but it must not become `LiveReady`.
+
+If a shadow-loop iteration fails after Redis is available, the runner attempts
+to publish:
+
+- `GatewayHealthStatus::Degraded`;
+- `ReadinessPhase::Degraded`;
+- the best broker-neutral `ReadinessReason` for the failed stage.
+
+On graceful loop shutdown, the runner publishes stopped health/readiness.
 
 ## Redis smoke
 
@@ -103,5 +115,16 @@ entry back with `XREVRANGE` and verifies `schema_version = 2`.
 
 ## Retention policy
 
-No `MAXLEN` trimming is applied in M2b. Retention/maxlen policy must be decided
-before always-on runner or runtime bridge rollout.
+M2c defaults use approximate Redis stream trimming:
+
+```text
+health: 1000
+readiness: 1000
+portfolio snapshots: 1000
+order snapshots: 1000
+market data: 10000
+```
+
+These values are configurable through `config/finam-gateway-shadow.example.json`.
+Set a value to `0` only in local experiments if unbounded retention is
+intentionally required.
