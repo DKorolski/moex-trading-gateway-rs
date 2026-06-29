@@ -50,6 +50,10 @@ Allowed:
 Both CLI checks obtain JWTs through `FinamAuthManager`; this keeps the renewal
 boundary in place while M1 remains read-only.
 
+Do not include the whole `tmp/` directory in review handoffs. If fixture
+evidence is needed, manually inspect and approve a specific redacted fixture and
+send that file separately.
+
 Not allowed yet:
 
 - Redis gateway lifecycle;

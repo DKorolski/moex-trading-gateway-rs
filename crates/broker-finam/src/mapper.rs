@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use broker_core::account::{CashPosition, PortfolioSnapshot};
+use broker_core::account::{CashPosition, PortfolioSnapshot, Position};
 use broker_core::event::{Bar as CoreBar, LatestMarketTrade, Quote as CoreQuote};
 use broker_core::ids::{BrokerAccountId, BrokerOrderId, BrokerTradeId, ClientOrderId};
 use broker_core::instrument::{Exchange, InstrumentId, Market, Money};
@@ -15,6 +15,14 @@ use crate::dto;
 pub struct RedactedScalarValue {
     pub len: usize,
     pub sha256: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OrderSnapshotClass {
+    Active,
+    Terminal,
+    BlockingUnknown,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -74,6 +82,41 @@ pub fn map_order_status(native: &str) -> OrderStatus {
         "ORDER_STATUS_EXPIRED" => OrderStatus::Expired,
         value => OrderStatus::Unknown(value.to_string()),
     }
+}
+
+pub fn classify_order_status(status: &OrderStatus) -> OrderSnapshotClass {
+    match status {
+        OrderStatus::New | OrderStatus::Working | OrderStatus::PartiallyFilled => {
+            OrderSnapshotClass::Active
+        }
+        OrderStatus::Filled
+        | OrderStatus::Canceled
+        | OrderStatus::Rejected
+        | OrderStatus::Expired => OrderSnapshotClass::Terminal,
+        OrderStatus::Unknown(_) => OrderSnapshotClass::BlockingUnknown,
+    }
+}
+
+pub fn classify_native_order_status(native: &str) -> OrderSnapshotClass {
+    classify_order_status(&map_order_status(native))
+}
+
+pub fn has_blocking_unknown_order_statuses(orders: &[Order]) -> bool {
+    orders
+        .iter()
+        .any(|order| classify_order_status(&order.status) == OrderSnapshotClass::BlockingUnknown)
+}
+
+pub fn active_orders(orders: &[Order]) -> impl Iterator<Item = &Order> {
+    orders
+        .iter()
+        .filter(|order| classify_order_status(&order.status) == OrderSnapshotClass::Active)
+}
+
+pub fn terminal_orders(orders: &[Order]) -> impl Iterator<Item = &Order> {
+    orders
+        .iter()
+        .filter(|order| classify_order_status(&order.status) == OrderSnapshotClass::Terminal)
 }
 
 pub fn decimal_value(
@@ -137,13 +180,54 @@ pub fn map_portfolio_snapshot(
             })
         })
         .collect::<Result<Vec<_>, FinamMapperError>>()?;
+    let positions = account
+        .positions
+        .iter()
+        .map(|position| map_account_position(&account.account_id, position))
+        .collect::<Result<Vec<_>, FinamMapperError>>()?;
 
     Ok(PortfolioSnapshot {
         account_id: BrokerAccountId::new(account.account_id.clone()),
-        positions: Vec::new(),
+        positions,
         cash,
         source_ts: None,
         received_ts,
+    })
+}
+
+pub fn map_account_position(
+    account_id: &str,
+    position: &dto::AccountPosition,
+) -> Result<Position, FinamMapperError> {
+    let symbol = position
+        .symbol
+        .as_deref()
+        .ok_or(FinamMapperError::MissingField {
+            field: "position.symbol",
+        })?;
+    let qty = required_decimal(
+        "position.quantity",
+        position.quantity.as_ref().or(position.balance.as_ref()),
+    )?;
+    let avg_price = optional_decimal(
+        "position.average_price",
+        position
+            .average_price
+            .as_ref()
+            .or(position.avg_price.as_ref()),
+    )?;
+    let unrealized_pnl = optional_decimal(
+        "position.unrealized_profit",
+        position.unrealized_profit.as_ref(),
+    )?;
+
+    Ok(Position {
+        account_id: BrokerAccountId::new(account_id),
+        instrument: instrument_id_from_symbol(symbol, position.asset_type.as_deref()),
+        qty,
+        avg_price,
+        unrealized_pnl,
+        source_ts: None,
     })
 }
 
@@ -381,6 +465,30 @@ mod tests {
     }
 
     #[test]
+    fn classifies_order_status_for_snapshot_readiness() {
+        assert_eq!(
+            classify_native_order_status("ORDER_STATUS_ACTIVE"),
+            OrderSnapshotClass::Active
+        );
+        assert_eq!(
+            classify_native_order_status("ORDER_STATUS_PARTIALLY_FILLED"),
+            OrderSnapshotClass::Active
+        );
+        assert_eq!(
+            classify_native_order_status("ORDER_STATUS_CANCELED"),
+            OrderSnapshotClass::Terminal
+        );
+        assert_eq!(
+            classify_native_order_status("ORDER_STATUS_REJECTED"),
+            OrderSnapshotClass::Terminal
+        );
+        assert_eq!(
+            classify_native_order_status("BROKER_NEW_STATUS"),
+            OrderSnapshotClass::BlockingUnknown
+        );
+    }
+
+    #[test]
     fn mapper_errors_redact_raw_values() {
         let error = map_side("SECRET_NATIVE_SIDE").expect_err("unsupported");
         let display = error.to_string();
@@ -500,5 +608,39 @@ mod tests {
         assert!(snapshot.positions.is_empty());
         assert_eq!(snapshot.cash[0].currency, "RUB");
         assert_eq!(snapshot.cash[0].amount, Decimal::new(6000, 0));
+    }
+
+    #[test]
+    fn maps_non_flat_account_position_into_snapshot() {
+        let account: dto::AccountResponse = serde_json::from_value(serde_json::json!({
+            "account_id": "1909892",
+            "cash": [
+                {"currency_code": "RUB", "units": "1000", "nanos": 0}
+            ],
+            "positions": [
+                {
+                    "symbol": "IMOEXF@RTSX",
+                    "asset_type": "FUTURES",
+                    "quantity": {"value": "2"},
+                    "average_price": {"value": "5000.5"},
+                    "unrealized_profit": {"value": "-12.5"}
+                }
+            ],
+            "status": "ACCOUNT_ACTIVE",
+            "type": "UNION"
+        }))
+        .expect("account dto");
+        let received_ts = parse_timestamp("test", "2026-06-29T09:10:01Z").expect("timestamp");
+
+        let snapshot = map_portfolio_snapshot(&account, received_ts).expect("snapshot");
+
+        assert_eq!(snapshot.positions.len(), 1);
+        let position = &snapshot.positions[0];
+        assert_eq!(position.account_id.as_str(), "1909892");
+        assert_eq!(position.instrument.symbol, "IMOEXF");
+        assert_eq!(position.instrument.market, Market::Futures);
+        assert_eq!(position.qty, Decimal::new(2, 0));
+        assert_eq!(position.avg_price, Some(Decimal::new(50005, 1)));
+        assert_eq!(position.unrealized_pnl, Some(Decimal::new(-125, 1)));
     }
 }

@@ -58,6 +58,7 @@ See:
 - [Broker contract](docs/broker-contract.md)
 - [Finam API notes](docs/finam-api-notes.md)
 - [Finam read-only fixtures](docs/finam-readonly-fixtures.md)
+- [Handoff packaging](docs/handoff.md)
 - [Migration plan](docs/migration-plan.md)
 - [Migration decision](docs/migration-decision-2026-06-27.md)
 - [Security policy](docs/security.md)

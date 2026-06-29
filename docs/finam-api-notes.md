@@ -256,6 +256,8 @@ Observed:
 - typed DTO/mappers were validated with `finam-typed-readonly-check` against
   token details, exchanges, assets, account, orders, trades, transactions,
   asset params, schedule, quote, latest trades, and bars;
+- typed smoke classifies order snapshots into active, terminal, and
+  blocking-unknown status groups;
 - broker/manual `client_order_id` values longer than the core FINAM-safe
   20-character id are tolerated in read-only order mapping by leaving
   core `client_order_id` empty for that record;
@@ -264,5 +266,10 @@ Observed:
 - `GET /v1/exchanges` is the working exchanges endpoint;
 - M1 bars with `TIME_FRAME_M1` must use a short interval; a 2026-06-26 to
   2026-06-29 interval succeeded for `IMOEXF@RTSX`.
+
+Bar timestamp convention remains unproven. The current mapper treats
+`bar.timestamp` as `open_ts` and derives `close_ts = open_ts + timeframe`, but
+runtime/live bar consumption must wait for a golden test proving FINAM's
+timestamp convention across normal bars and session gaps.
 
 The redacted shape fixture remains local under `tmp/` and is git-ignored.

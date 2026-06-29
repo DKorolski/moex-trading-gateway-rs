@@ -52,7 +52,12 @@ Exit criteria:
 - FINAM API capabilities are split from gateway-enabled features.
 - Read-only DTO/mappers exist for token details, account snapshot, orders,
   trades, transactions, assets, schedules, quotes, latest trades, and bars.
+- Account position mapping exists and synthetic non-flat snapshots are covered.
+- Order snapshot statuses are classified as active, terminal, or
+  blocking-unknown before readiness work.
 - JSON decode failures are separated from transport errors.
+- Unknown FINAM bar timeframe values are rejected instead of producing
+  zero-length bars.
 - CI runs fmt/test/clippy.
 
 ## M2 — streaming/shadow
@@ -112,7 +117,7 @@ Exit criteria:
 - `client_order_id` is missing, longer than 20 characters, or not persisted.
 - Broker-truth snapshots are optional before live readiness.
 - Instrument mapping/schedule is hardcoded or unvalidated.
-- Historical/live bar timestamp convention is not proven.
+- Historical/live bar timestamp convention is not proven by golden tests.
 - Unknown broker order/trade status is ignored or panics.
 - Stop/SLTP/bracket is enabled before dedicated FINAM contract tests.
 - Place-order timeout can retry before reconciliation by `client_order_id`.
@@ -123,6 +128,8 @@ Exit criteria:
   shape metadata.
 - Durable `StrategyRequestId -> ClientOrderId -> BrokerOrderId` mapping store.
 - Fixture-based typed DTO tests from checked-in sanitized fixtures.
+- Golden test proving FINAM bar timestamp convention around normal bars and
+  session gaps.
 
 ## Allowed after M1.2 safety patch
 

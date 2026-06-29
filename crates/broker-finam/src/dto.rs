@@ -66,11 +66,13 @@ pub struct PortfolioMarginCall {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AccountPosition {
-    pub symbol: Option<String>,
-    pub quantity: Option<DecimalValue>,
-    pub balance: Option<DecimalValue>,
+    pub asset_type: Option<String>,
     pub average_price: Option<DecimalValue>,
+    pub avg_price: Option<DecimalValue>,
+    pub balance: Option<DecimalValue>,
     pub current_price: Option<DecimalValue>,
+    pub quantity: Option<DecimalValue>,
+    pub symbol: Option<String>,
     pub unrealized_profit: Option<DecimalValue>,
 }
 

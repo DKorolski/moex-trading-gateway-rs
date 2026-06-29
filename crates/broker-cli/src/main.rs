@@ -1,9 +1,10 @@
 use anyhow::Result;
 use broker_finam::{
-    map_account_trade, map_bar, map_latest_market_trade, map_order_state, map_portfolio_snapshot,
-    map_quote, redact_json_key_for_diagnostics, AllAssetsQuery, BarsQuery, FinamApiCapabilities,
-    FinamAuthManager, FinamConfig, FinamMapperError, FinamRestClient, GatewayEnabledFeatures,
-    HistoryQuery, SecretToken,
+    active_orders, has_blocking_unknown_order_statuses, map_account_trade, map_bar,
+    map_latest_market_trade, map_order_state, map_portfolio_snapshot, map_quote,
+    redact_json_key_for_diagnostics, terminal_orders, AllAssetsQuery, BarsQuery,
+    FinamApiCapabilities, FinamAuthManager, FinamConfig, FinamMapperError, FinamRestClient,
+    GatewayEnabledFeatures, HistoryQuery, SecretToken,
 };
 use chrono::Utc;
 use clap::{Parser, Subcommand};
@@ -406,16 +407,18 @@ async fn main() -> Result<()> {
                             "account_orders_typed",
                             client.account_orders_typed(&token, account_id).await,
                             |orders| {
-                                let mapped_count = orders
+                                let mapped_orders = orders
                                     .orders
                                     .iter()
                                     .map(|order| map_order_state(order, Utc::now()))
                                     .collect::<std::result::Result<Vec<_>, _>>()
-                                    .map_err(mapper_anyhow)?
-                                    .len();
+                                    .map_err(mapper_anyhow)?;
                                 Ok(serde_json::json!({
                                     "orders_count": orders.orders.len(),
-                                    "mapped_orders_count": mapped_count,
+                                    "mapped_orders_count": mapped_orders.len(),
+                                    "active_orders_count": active_orders(&mapped_orders).count(),
+                                    "terminal_orders_count": terminal_orders(&mapped_orders).count(),
+                                    "blocking_unknown_status_present": has_blocking_unknown_order_statuses(&mapped_orders),
                                 }))
                             },
                         )?;
@@ -537,17 +540,18 @@ async fn main() -> Result<()> {
                             "bars_typed",
                             client.bars_typed(&token, symbol, bars_query).await,
                             |bars| {
+                                let timeframe_sec = timeframe_seconds(&timeframe)?;
                                 let mapped_count = bars
                                     .bars
                                     .iter()
-                                    .map(|bar| map_bar(symbol, bar, timeframe_seconds(&timeframe)))
+                                    .map(|bar| map_bar(symbol, bar, timeframe_sec))
                                     .collect::<std::result::Result<Vec<_>, _>>()
                                     .map_err(mapper_anyhow)?
                                     .len();
                                 Ok(serde_json::json!({
                                     "bars_count": bars.bars.len(),
                                     "mapped_bars_count": mapped_count,
-                                    "timeframe_sec": timeframe_seconds(&timeframe),
+                                    "timeframe_sec": timeframe_sec,
                                 }))
                             },
                         )?;
@@ -660,16 +664,18 @@ fn mapper_anyhow(error: FinamMapperError) -> anyhow::Error {
     anyhow::anyhow!(error.to_string())
 }
 
-fn timeframe_seconds(timeframe: &str) -> u32 {
+fn timeframe_seconds(timeframe: &str) -> Result<u32> {
     match timeframe {
-        "TIME_FRAME_M1" => 60,
-        "TIME_FRAME_M5" => 5 * 60,
-        "TIME_FRAME_M10" => 10 * 60,
-        "TIME_FRAME_M15" => 15 * 60,
-        "TIME_FRAME_M30" => 30 * 60,
-        "TIME_FRAME_H1" => 60 * 60,
-        "TIME_FRAME_D" => 24 * 60 * 60,
-        _ => 0,
+        "TIME_FRAME_M1" => Ok(60),
+        "TIME_FRAME_M5" => Ok(5 * 60),
+        "TIME_FRAME_M10" => Ok(10 * 60),
+        "TIME_FRAME_M15" => Ok(15 * 60),
+        "TIME_FRAME_M30" => Ok(30 * 60),
+        "TIME_FRAME_H1" => Ok(60 * 60),
+        "TIME_FRAME_D" => Ok(24 * 60 * 60),
+        value => Err(anyhow::anyhow!(
+            "unsupported FINAM timeframe for typed bar mapping: {value}"
+        )),
     }
 }
 
@@ -836,5 +842,11 @@ mod tests {
         assert!(!rendered.contains("ACC-SECRET"));
         assert!(!rendered.contains("active"));
         assert!(!rendered.contains("123.45"));
+    }
+
+    #[test]
+    fn timeframe_seconds_rejects_unknown_timeframe() {
+        assert_eq!(timeframe_seconds("TIME_FRAME_M1").expect("m1"), 60);
+        assert!(timeframe_seconds("TIME_FRAME_UNKNOWN").is_err());
     }
 }
