@@ -55,6 +55,9 @@ Exit criteria:
 - Account position mapping exists and synthetic non-flat snapshots are covered.
 - Order snapshot statuses are classified as active, terminal, or
   blocking-unknown before readiness work.
+- Broker-native client order ids that cannot fit the FINAM-safe core
+  `ClientOrderId` limit keep a redacted fingerprint for reconciliation
+  diagnostics.
 - JSON decode failures are separated from transport errors.
 - Unknown FINAM bar timeframe values are rejected instead of producing
   zero-length bars.

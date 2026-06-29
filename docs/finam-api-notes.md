@@ -260,7 +260,8 @@ Observed:
   blocking-unknown status groups;
 - broker/manual `client_order_id` values longer than the core FINAM-safe
   20-character id are tolerated in read-only order mapping by leaving
-  core `client_order_id` empty for that record;
+  core `client_order_id` empty for that record while preserving a redacted
+  broker-native fingerprint;
 - the correct FINAM symbol for IMOEXF is `IMOEXF@RTSX`;
 - `IMOEXF@MOEX` returns not found;
 - `GET /v1/exchanges` is the working exchanges endpoint;

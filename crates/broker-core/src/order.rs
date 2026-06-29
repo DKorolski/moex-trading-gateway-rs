@@ -50,11 +50,18 @@ pub enum StopKind {
     TakeProfit,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RedactedValueFingerprint {
+    pub len: usize,
+    pub sha256: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Order {
     pub account_id: AccountId,
     pub order_id: Option<OrderId>,
     pub client_order_id: Option<ClientOrderId>,
+    pub broker_client_order_id_fingerprint: Option<RedactedValueFingerprint>,
     pub instrument: InstrumentId,
     pub side: OrderSide,
     pub order_type: OrderType,
@@ -74,6 +81,7 @@ pub struct Trade {
     pub trade_id: TradeId,
     pub order_id: Option<OrderId>,
     pub client_order_id: Option<ClientOrderId>,
+    pub broker_client_order_id_fingerprint: Option<RedactedValueFingerprint>,
     pub instrument: InstrumentId,
     pub side: OrderSide,
     pub qty: Quantity,

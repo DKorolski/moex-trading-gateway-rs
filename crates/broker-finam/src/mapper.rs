@@ -4,7 +4,9 @@ use broker_core::account::{CashPosition, PortfolioSnapshot, Position};
 use broker_core::event::{Bar as CoreBar, LatestMarketTrade, Quote as CoreQuote};
 use broker_core::ids::{BrokerAccountId, BrokerOrderId, BrokerTradeId, ClientOrderId};
 use broker_core::instrument::{Exchange, InstrumentId, Market, Money};
-use broker_core::order::{Order, OrderSide, OrderStatus, OrderType, Trade};
+use broker_core::order::{
+    Order, OrderSide, OrderStatus, OrderType, RedactedValueFingerprint, Trade,
+};
 use chrono::{DateTime, Duration, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -47,6 +49,8 @@ pub enum FinamMapperError {
         value_len: usize,
         value_sha256: String,
     },
+    #[error("finam mapper invalid timeframe: timeframe_sec must be greater than zero")]
+    InvalidTimeframe,
 }
 
 pub fn map_side(native: &str) -> Result<OrderSide, FinamMapperError> {
@@ -259,6 +263,11 @@ pub fn map_order_state(
             .client_order_id
             .as_deref()
             .and_then(map_client_order_id_if_core_safe),
+        broker_client_order_id_fingerprint: order
+            .order
+            .client_order_id
+            .as_deref()
+            .map(redact_core_value),
         instrument: instrument_id_from_symbol(&order.order.symbol, None),
         side: map_side(&order.order.side)?,
         order_type: map_order_type(&order.order.order_type)?,
@@ -326,6 +335,7 @@ pub fn map_account_trade(
             .client_order_id
             .as_deref()
             .and_then(map_client_order_id_if_core_safe),
+        broker_client_order_id_fingerprint: trade.client_order_id.as_deref().map(redact_core_value),
         instrument: instrument_id_from_symbol(symbol, None),
         side: map_side(side)?,
         qty: required_decimal(
@@ -349,6 +359,9 @@ pub fn map_bar(
     bar: &dto::Bar,
     timeframe_sec: u32,
 ) -> Result<CoreBar, FinamMapperError> {
+    if timeframe_sec == 0 {
+        return Err(FinamMapperError::InvalidTimeframe);
+    }
     let open_ts = parse_timestamp("bar.timestamp", &bar.timestamp)?;
     Ok(CoreBar {
         instrument: instrument_id_from_symbol(symbol, None),
@@ -441,6 +454,13 @@ fn redact_scalar_value(value: &str) -> RedactedScalarValue {
     }
 }
 
+fn redact_core_value(value: &str) -> RedactedValueFingerprint {
+    RedactedValueFingerprint {
+        len: value.len(),
+        sha256: crate::sha256_hex(value.as_bytes()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,7 +523,7 @@ mod tests {
             "executed_quantity": {"value": "0"},
             "initial_quantity": {"value": "1"},
             "order": {
-                "account_id": "1909892",
+                "account_id": "ACC_TEST_0001",
                 "client_order_id": "ABC123",
                 "comment": "manual test",
                 "legs": [],
@@ -525,7 +545,7 @@ mod tests {
         let received_ts = parse_timestamp("test", "2026-06-29T09:10:01Z").expect("timestamp");
         let mapped = map_order_state(&order, received_ts).expect("mapped order");
 
-        assert_eq!(mapped.account_id.as_str(), "1909892");
+        assert_eq!(mapped.account_id.as_str(), "ACC_TEST_0001");
         assert_eq!(mapped.instrument.symbol, "IMOEXF");
         assert_eq!(
             mapped.instrument.venue_symbol.as_deref(),
@@ -537,6 +557,13 @@ mod tests {
         assert_eq!(mapped.qty, Decimal::ONE);
         assert_eq!(mapped.filled_qty, Decimal::ZERO);
         assert_eq!(mapped.limit_price, Some(Decimal::new(10005, 1)));
+        assert_eq!(
+            mapped
+                .broker_client_order_id_fingerprint
+                .as_ref()
+                .map(|fp| fp.len),
+            Some("ABC123".len())
+        );
     }
 
     #[test]
@@ -545,7 +572,7 @@ mod tests {
             "executed_quantity": {"value": "0"},
             "initial_quantity": {"value": "1"},
             "order": {
-                "account_id": "1909892",
+                "account_id": "ACC_TEST_0001",
                 "client_order_id": "THIS-CLIENT-ORDER-ID-IS-TOO-LONG",
                 "legs": [],
                 "quantity": {"value": "1"},
@@ -561,6 +588,11 @@ mod tests {
         let mapped = map_order_state(&order, received_ts).expect("mapped order");
 
         assert!(mapped.client_order_id.is_none());
+        let fingerprint = mapped
+            .broker_client_order_id_fingerprint
+            .expect("broker-native id fingerprint");
+        assert_eq!(fingerprint.len, "THIS-CLIENT-ORDER-ID-IS-TOO-LONG".len());
+        assert_eq!(fingerprint.sha256.len(), 64);
     }
 
     #[test]
@@ -589,9 +621,32 @@ mod tests {
     }
 
     #[test]
+    fn map_bar_rejects_zero_timeframe() {
+        let bar = dto::Bar {
+            open: dto::DecimalValue {
+                value: "100".into(),
+            },
+            high: dto::DecimalValue {
+                value: "105".into(),
+            },
+            low: dto::DecimalValue { value: "99".into() },
+            close: dto::DecimalValue {
+                value: "101".into(),
+            },
+            volume: dto::DecimalValue { value: "10".into() },
+            timestamp: "2026-06-29T09:10:00Z".into(),
+        };
+
+        assert_eq!(
+            map_bar("IMOEXF@RTSX", &bar, 0).expect_err("zero timeframe"),
+            FinamMapperError::InvalidTimeframe
+        );
+    }
+
+    #[test]
     fn maps_empty_account_snapshot_cash() {
         let account: dto::AccountResponse = serde_json::from_value(serde_json::json!({
-            "account_id": "1909892",
+            "account_id": "ACC_TEST_0001",
             "cash": [
                 {"currency_code": "RUB", "units": "6000", "nanos": 0}
             ],
@@ -604,7 +659,7 @@ mod tests {
 
         let snapshot = map_portfolio_snapshot(&account, received_ts).expect("snapshot");
 
-        assert_eq!(snapshot.account_id.as_str(), "1909892");
+        assert_eq!(snapshot.account_id.as_str(), "ACC_TEST_0001");
         assert!(snapshot.positions.is_empty());
         assert_eq!(snapshot.cash[0].currency, "RUB");
         assert_eq!(snapshot.cash[0].amount, Decimal::new(6000, 0));
@@ -613,7 +668,7 @@ mod tests {
     #[test]
     fn maps_non_flat_account_position_into_snapshot() {
         let account: dto::AccountResponse = serde_json::from_value(serde_json::json!({
-            "account_id": "1909892",
+            "account_id": "ACC_TEST_0001",
             "cash": [
                 {"currency_code": "RUB", "units": "1000", "nanos": 0}
             ],
@@ -636,7 +691,7 @@ mod tests {
 
         assert_eq!(snapshot.positions.len(), 1);
         let position = &snapshot.positions[0];
-        assert_eq!(position.account_id.as_str(), "1909892");
+        assert_eq!(position.account_id.as_str(), "ACC_TEST_0001");
         assert_eq!(position.instrument.symbol, "IMOEXF");
         assert_eq!(position.instrument.market, Market::Futures);
         assert_eq!(position.qty, Decimal::new(2, 0));
