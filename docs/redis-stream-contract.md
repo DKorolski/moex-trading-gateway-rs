@@ -27,6 +27,13 @@ The `payload` value is a JSON `broker-core::Envelope<T>`:
 The envelope is broker-neutral even when the publisher is FINAM-specific.
 Runtime consumers must validate `schema_version = 2` before using the payload.
 
+Market-data payloads include `source_kind`:
+
+- `HistoricalPoll` for REST/history bar polling;
+- `ReadOnlyPoll` for REST/latest quote or trade polling;
+- `LiveStream` reserved for future streaming feeds;
+- `Recovery` reserved for future recovery/replay flows.
+
 ## Stream names
 
 The source defaults remain FINAM-namespaced for local safety:
@@ -93,6 +100,23 @@ to publish:
 
 On graceful loop shutdown, the runner publishes stopped health/readiness.
 
+## Historical bar watermark
+
+`finam-gateway-shadow-loop` keeps an in-process watermark for historical bars
+keyed by:
+
+```text
+venue_symbol|timeframe|open_ts
+```
+
+Within one process, repeated polling of the same lookback window does not
+publish duplicate historical bar events. The loop reports `bars_deduped_count`
+and cumulative `deduped_bar_count` in its summary metrics.
+
+This is still shadow-mode only. Before runtime bridge consumption, decide
+whether dedupe remains producer-side, consumer-side, or both, and whether the
+watermark must become durable.
+
 ## Redis smoke
 
 Local Redis round-trip smoke:
@@ -110,8 +134,12 @@ cargo run -p broker-cli -- finam-gateway-redis-smoke \
 ```
 
 The smoke publishes a synthetic `Health` envelope through the same
-`RedisConnectionStreamSink` used by the shadow runner, then reads the latest
-entry back with `XREVRANGE` and verifies `schema_version = 2`.
+`RedisConnectionStreamSink` used by the shadow runner. It then:
+
+- reads the latest entry back with `XREVRANGE`;
+- reads a consumer-style entry with `XREAD`;
+- decodes the payload as typed `Envelope<GatewayHealth>`;
+- verifies `schema_version = 2` and `msg_type = Health`.
 
 ## Retention policy
 

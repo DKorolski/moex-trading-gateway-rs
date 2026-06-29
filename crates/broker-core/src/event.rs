@@ -23,9 +23,21 @@ pub enum MarketDataEvent {
     LatestTrade(LatestMarketTrade),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum MarketDataSourceKind {
+    #[default]
+    Unknown,
+    HistoricalPoll,
+    ReadOnlyPoll,
+    LiveStream,
+    Recovery,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Bar {
     pub instrument: InstrumentId,
+    #[serde(default)]
+    pub source_kind: MarketDataSourceKind,
     pub timeframe_sec: u32,
     pub open_ts: chrono::DateTime<chrono::Utc>,
     pub close_ts: chrono::DateTime<chrono::Utc>,
@@ -40,6 +52,8 @@ pub struct Bar {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Quote {
     pub instrument: InstrumentId,
+    #[serde(default)]
+    pub source_kind: MarketDataSourceKind,
     pub bid: Option<Price>,
     pub ask: Option<Price>,
     pub last: Option<Price>,
@@ -50,6 +64,8 @@ pub struct Quote {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OrderBook {
     pub instrument: InstrumentId,
+    #[serde(default)]
+    pub source_kind: MarketDataSourceKind,
     pub bids: Vec<OrderBookLevel>,
     pub asks: Vec<OrderBookLevel>,
     pub source_ts: Option<chrono::DateTime<chrono::Utc>>,
@@ -65,6 +81,8 @@ pub struct OrderBookLevel {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LatestMarketTrade {
     pub instrument: InstrumentId,
+    #[serde(default)]
+    pub source_kind: MarketDataSourceKind,
     pub price: Price,
     pub qty: Quantity,
     pub source_ts: chrono::DateTime<chrono::Utc>,

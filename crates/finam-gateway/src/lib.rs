@@ -1,9 +1,10 @@
-//! FINAM gateway skeleton for M2a read-only/shadow mode.
+//! FINAM gateway primitives for M2 read-only/shadow mode.
 //!
 //! This crate intentionally does not contain order placement, cancel, ACK
-//! lifecycle, stop/SLTP, bracket, or runtime adaptation. It only prepares the
+//! lifecycle, stop/SLTP, bracket, or runtime adaptation. It prepares the
 //! Redis/shadow publication boundary for health, readiness, broker-truth
-//! snapshots, and read-only market data.
+//! snapshots, read-only market data, retention, and degraded/stopped status
+//! reporting.
 
 use std::sync::{Arc, Mutex};
 
@@ -565,7 +566,7 @@ fn command_client_order_id(command: &BrokerCommand) -> Option<broker_core::Clien
 
 #[cfg(test)]
 mod tests {
-    use broker_core::event::{MarketDataEvent, Quote};
+    use broker_core::event::{MarketDataEvent, MarketDataSourceKind, Quote};
     use broker_core::ids::{ClientOrderId, StrategyRequestId};
     use broker_core::instrument::{Exchange, InstrumentId, Market};
     use broker_core::order::{OrderSide, OrderType, TimeInForce};
@@ -660,6 +661,7 @@ mod tests {
         gateway
             .publish_market_data_event(MarketDataEvent::Quote(Quote {
                 instrument: sample_instrument(),
+                source_kind: MarketDataSourceKind::ReadOnlyPoll,
                 bid: None,
                 ask: None,
                 last: Some(Decimal::new(5000, 0)),

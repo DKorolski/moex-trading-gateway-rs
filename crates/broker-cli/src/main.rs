@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use broker_core::{MarketDataEvent, ReadinessReason};
+use broker_core::{Envelope, MarketDataEvent, MessageType, ReadinessReason};
 use broker_finam::{
     active_orders, has_blocking_unknown_order_statuses, map_account_trade, map_bar,
     map_latest_market_trade, map_order_state, map_portfolio_snapshot, map_quote,
@@ -14,10 +14,11 @@ use finam_gateway::{
     stopped_health, stopped_readiness, FinamGateway, GatewayConfig, GatewayFeatureSet,
     ReadonlySnapshotSummary, RedisConnectionStreamSink, RedisRetentionConfig, RedisStreamConfig,
 };
-use redis::streams::StreamRangeReply;
+use redis::streams::{StreamRangeReply, StreamReadReply};
 use serde::Deserialize;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::{Duration as StdDuration, Instant};
 
 const JSON_SHAPE_MAX_DEPTH: usize = 4;
@@ -794,6 +795,22 @@ struct GatewayShadowRuntime {
     client: FinamRestClient,
     auth_manager: FinamAuthManager,
     gateway: FinamGateway<RedisConnectionStreamSink>,
+    bar_watermark: Mutex<HashSet<String>>,
+    metrics: Mutex<ShadowMetrics>,
+}
+
+#[derive(Default, Clone)]
+struct ShadowMetrics {
+    success_count: u64,
+    failure_count: u64,
+    consecutive_failures: u64,
+    last_success_ts: Option<chrono::DateTime<Utc>>,
+    last_failure_ts: Option<chrono::DateTime<Utc>>,
+    published_health_count: u64,
+    published_readiness_count: u64,
+    published_snapshot_count: u64,
+    published_market_data_count: u64,
+    deduped_bar_count: u64,
 }
 
 struct ShadowIterationReport {
@@ -804,6 +821,7 @@ struct ShadowIterationReport {
     readiness_reasons: Vec<String>,
     quote_published: bool,
     bars_published_count: usize,
+    bars_deduped_count: usize,
     timeframe_sec: u32,
 }
 
@@ -853,10 +871,12 @@ async fn run_gateway_shadow_once(args: GatewayShadowOnceArgs) -> Result<()> {
     let runtime = setup_gateway_shadow_runtime(args).await?;
     match run_gateway_shadow_iteration(&runtime, 1).await {
         Ok(report) => {
+            record_shadow_success(&runtime, &report);
             print_json(shadow_iteration_json("once", &runtime, &report))?;
             Ok(())
         }
         Err(error) => {
+            record_shadow_failure(&runtime);
             publish_degraded_state(&runtime.gateway, error.reason.clone(), error.stage).await?;
             print_json(shadow_failure_json("once", &error, 1))?;
             Err(anyhow::anyhow!(
@@ -879,10 +899,12 @@ async fn run_gateway_shadow_loop(args: GatewayShadowOnceArgs) -> Result<()> {
         match run_gateway_shadow_iteration(&runtime, iteration).await {
             Ok(report) => {
                 success_count += 1;
+                record_shadow_success(&runtime, &report);
                 print_json(shadow_iteration_json("loop", &runtime, &report))?;
             }
             Err(error) => {
                 failure_count += 1;
+                record_shadow_failure(&runtime);
                 publish_degraded_state(&runtime.gateway, error.reason.clone(), error.stage).await?;
                 print_json(shadow_failure_json("loop", &error, iteration))?;
             }
@@ -950,6 +972,8 @@ async fn setup_gateway_shadow_runtime(args: GatewayShadowOnceArgs) -> Result<Gat
         client,
         auth_manager,
         gateway,
+        bar_watermark: Mutex::new(HashSet::new()),
+        metrics: Mutex::new(ShadowMetrics::default()),
     })
 }
 
@@ -1007,7 +1031,9 @@ async fn run_gateway_shadow_iteration(
     let timeframe_sec = timeframe_seconds(&runtime.resolved.timeframe).map_err(|error| {
         ShadowIterationError::new("timeframe", ReadinessReason::MarketDataNotLive, error)
     })?;
-    let mut market_data_events = vec![MarketDataEvent::Quote(mapped_quote)];
+    let quote_event = MarketDataEvent::Quote(mapped_quote);
+    let mut bar_events = Vec::new();
+    let mut bars_deduped_count = 0usize;
     for bar in &bars.bars {
         let mapped_bar =
             map_bar(&runtime.resolved.symbol, bar, timeframe_sec).map_err(|error| {
@@ -1017,7 +1043,12 @@ async fn run_gateway_shadow_iteration(
                     mapper_anyhow(error),
                 )
             })?;
-        market_data_events.push(MarketDataEvent::Bar(mapped_bar));
+        let watermark_key = historical_bar_watermark_key(&runtime.resolved.timeframe, &mapped_bar);
+        if is_bar_watermark_known(runtime, &watermark_key) {
+            bars_deduped_count += 1;
+        } else {
+            bar_events.push((watermark_key, MarketDataEvent::Bar(mapped_bar)));
+        }
     }
 
     let received_ts = Utc::now();
@@ -1035,7 +1066,19 @@ async fn run_gateway_shadow_iteration(
         .map_err(|error| {
             ShadowIterationError::new("snapshot_publish", snapshot_error_reason(&error), error)
         })?;
-    for event in market_data_events {
+    runtime
+        .gateway
+        .publish_market_data_event(quote_event)
+        .await
+        .map_err(|error| {
+            ShadowIterationError::new(
+                "market_data_publish",
+                ReadinessReason::RedisUnavailable,
+                error,
+            )
+        })?;
+    let mut bars_published_count = 0usize;
+    for (watermark_key, event) in bar_events {
         runtime
             .gateway
             .publish_market_data_event(event)
@@ -1047,6 +1090,8 @@ async fn run_gateway_shadow_iteration(
                     error,
                 )
             })?;
+        mark_bar_watermark(runtime, watermark_key);
+        bars_published_count += 1;
     }
     let readiness = readiness_from_readonly_summary(&summary);
     runtime
@@ -1072,7 +1117,8 @@ async fn run_gateway_shadow_iteration(
             .map(|reason| format!("{reason:?}"))
             .collect(),
         quote_published: true,
-        bars_published_count: bars.bars.len(),
+        bars_published_count,
+        bars_deduped_count,
         timeframe_sec,
     })
 }
@@ -1112,8 +1158,12 @@ fn shadow_iteration_json(
         "market_data": {
             "quote_published": report.quote_published,
             "bars_published_count": report.bars_published_count,
+            "bars_deduped_count": report.bars_deduped_count,
             "timeframe_sec": report.timeframe_sec,
-        }
+            "bar_source_kind": "HistoricalPoll",
+            "quote_source_kind": "ReadOnlyPoll",
+        },
+        "metrics": shadow_metrics_json(&snapshot_shadow_metrics(runtime)),
     })
 }
 
@@ -1204,6 +1254,80 @@ fn shadow_bars_window(config: &ResolvedGatewayShadowConfig) -> (String, String) 
     (start_time, end_time)
 }
 
+fn historical_bar_watermark_key(timeframe: &str, bar: &broker_core::event::Bar) -> String {
+    let symbol = bar
+        .instrument
+        .venue_symbol
+        .as_deref()
+        .unwrap_or(&bar.instrument.symbol);
+    format!("{symbol}|{timeframe}|{}", bar.open_ts.to_rfc3339())
+}
+
+fn is_bar_watermark_known(runtime: &GatewayShadowRuntime, key: &str) -> bool {
+    runtime
+        .bar_watermark
+        .lock()
+        .expect("bar watermark mutex not poisoned")
+        .contains(key)
+}
+
+fn mark_bar_watermark(runtime: &GatewayShadowRuntime, key: String) {
+    runtime
+        .bar_watermark
+        .lock()
+        .expect("bar watermark mutex not poisoned")
+        .insert(key);
+}
+
+fn record_shadow_success(runtime: &GatewayShadowRuntime, report: &ShadowIterationReport) {
+    let mut metrics = runtime
+        .metrics
+        .lock()
+        .expect("shadow metrics mutex not poisoned");
+    metrics.success_count += 1;
+    metrics.consecutive_failures = 0;
+    metrics.last_success_ts = Some(Utc::now());
+    metrics.published_health_count += 1;
+    metrics.published_readiness_count += 1;
+    metrics.published_snapshot_count += 2;
+    metrics.published_market_data_count +=
+        u64::from(report.quote_published) + report.bars_published_count as u64;
+    metrics.deduped_bar_count += report.bars_deduped_count as u64;
+}
+
+fn record_shadow_failure(runtime: &GatewayShadowRuntime) {
+    let mut metrics = runtime
+        .metrics
+        .lock()
+        .expect("shadow metrics mutex not poisoned");
+    metrics.failure_count += 1;
+    metrics.consecutive_failures += 1;
+    metrics.last_failure_ts = Some(Utc::now());
+}
+
+fn snapshot_shadow_metrics(runtime: &GatewayShadowRuntime) -> ShadowMetrics {
+    runtime
+        .metrics
+        .lock()
+        .expect("shadow metrics mutex not poisoned")
+        .clone()
+}
+
+fn shadow_metrics_json(metrics: &ShadowMetrics) -> serde_json::Value {
+    serde_json::json!({
+        "success_count": metrics.success_count,
+        "failure_count": metrics.failure_count,
+        "consecutive_failures": metrics.consecutive_failures,
+        "last_success_ts": metrics.last_success_ts.map(|value| value.to_rfc3339()),
+        "last_failure_ts": metrics.last_failure_ts.map(|value| value.to_rfc3339()),
+        "published_health_count": metrics.published_health_count,
+        "published_readiness_count": metrics.published_readiness_count,
+        "published_snapshot_count": metrics.published_snapshot_count,
+        "published_market_data_count": metrics.published_market_data_count,
+        "deduped_bar_count": metrics.deduped_bar_count,
+    })
+}
+
 async fn run_gateway_redis_smoke(redis_url: String, stream: String) -> Result<()> {
     let mut gateway_config = GatewayConfig {
         features: GatewayFeatureSet::default(),
@@ -1265,11 +1389,43 @@ async fn run_gateway_redis_smoke(redis_url: String, stream: String) -> Result<()
     anyhow::ensure!(schema_version == 2, "Redis smoke schema_version mismatch");
     anyhow::ensure!(msg_type == "Health", "Redis smoke msg_type mismatch");
 
+    let read_reply: StreamReadReply = redis::cmd("XREAD")
+        .arg("COUNT")
+        .arg(1)
+        .arg("STREAMS")
+        .arg(&stream)
+        .arg("0-0")
+        .query_async(&mut manager)
+        .await
+        .context("Redis smoke XREAD failed")?;
+    let read_entry = read_reply
+        .keys
+        .iter()
+        .find(|key| key.key == stream)
+        .and_then(|key| key.ids.first())
+        .context("Redis smoke XREAD did not return a stream entry")?;
+    let read_payload: String = read_entry
+        .get("payload")
+        .context("Redis smoke XREAD entry does not contain payload field")?;
+    let typed_envelope: Envelope<finam_gateway::GatewayHealth> =
+        serde_json::from_str(&read_payload)
+            .context("Redis smoke XREAD payload does not decode as GatewayHealth envelope")?;
+    anyhow::ensure!(
+        typed_envelope.schema_version == 2,
+        "Redis smoke typed envelope schema_version mismatch"
+    );
+    anyhow::ensure!(
+        typed_envelope.msg_type == MessageType::Health,
+        "Redis smoke typed envelope msg_type mismatch"
+    );
+
     print_json(serde_json::json!({
         "redis_smoke": true,
         "live_trading_enabled": false,
         "stream": stream,
         "entry_id_present": !latest.id.is_empty(),
+        "xread_entry_id_present": !read_entry.id.is_empty(),
+        "typed_decode": "GatewayHealth",
         "schema_version": schema_version,
         "msg_type": msg_type,
         "payload_len": payload.len(),
@@ -1593,10 +1749,10 @@ mod tests {
     #[test]
     fn json_shape_keeps_nested_structure_without_scalar_values() {
         let payload = serde_json::json!({
-            "account_id": "ACC-SECRET",
+            "account_id": "ACC_DYNAMIC_TEST_001",
             "orders": [
                 {
-                    "order_id": "ORDER-SECRET",
+                    "order_id": "ORDER_DYNAMIC_TEST_001",
                     "status": "filled",
                     "price": 123.45,
                     "nested": {
@@ -1615,8 +1771,8 @@ mod tests {
         assert!(rendered.contains("status"));
         assert!(rendered.contains("price"));
         assert!(rendered.contains("nested"));
-        assert!(!rendered.contains("ACC-SECRET"));
-        assert!(!rendered.contains("ORDER-SECRET"));
+        assert!(!rendered.contains("ACC_DYNAMIC_TEST_001"));
+        assert!(!rendered.contains("ORDER_DYNAMIC_TEST_001"));
         assert!(!rendered.contains("filled"));
         assert!(!rendered.contains("123.45"));
         assert!(!rendered.contains("do-not-leak"));
@@ -1648,16 +1804,16 @@ mod tests {
     #[test]
     fn json_shape_does_not_leak_dynamic_object_keys() {
         let payload = serde_json::json!({
-            "7502T0U": {
+            "ACC_DYNAMIC_TEST_001": {
                 "status": "active"
             },
-            "ORDER-123456": {
+            "ORDER_DYNAMIC_TEST_001": {
                 "price": 123.45
             },
-            "SBER@MISX": {
+            "SYNTH@TEST": {
                 "lot": 1
             },
-            "account_id": "ACC-SECRET"
+            "account_id": "ACC_DYNAMIC_TEST_002"
         });
 
         let shape = json_shape(&payload);
@@ -1670,10 +1826,10 @@ mod tests {
         assert!(rendered.contains("status"));
         assert!(rendered.contains("price"));
         assert!(rendered.contains("lot"));
-        assert!(!rendered.contains("7502T0U"));
-        assert!(!rendered.contains("ORDER-123456"));
-        assert!(!rendered.contains("SBER@MISX"));
-        assert!(!rendered.contains("ACC-SECRET"));
+        assert!(!rendered.contains("ACC_DYNAMIC_TEST_001"));
+        assert!(!rendered.contains("ORDER_DYNAMIC_TEST_001"));
+        assert!(!rendered.contains("SYNTH@TEST"));
+        assert!(!rendered.contains("ACC_DYNAMIC_TEST_002"));
         assert!(!rendered.contains("active"));
         assert!(!rendered.contains("123.45"));
     }

@@ -1047,12 +1047,12 @@ mod tests {
         });
 
         let url = client
-            .rest_url(&["v1", "assets", "SBER@MISX", "params"])
+            .rest_url(&["v1", "assets", "SYNTH@TEST", "params"])
             .expect("valid url");
 
         assert_eq!(
             url.as_str(),
-            "https://api.finam.ru/v1/assets/SBER@MISX/params"
+            "https://api.finam.ru/v1/assets/SYNTH@TEST/params"
         );
     }
 
@@ -1118,9 +1118,9 @@ mod tests {
     #[test]
     fn json_key_redaction_keeps_schema_names_only() {
         let schema_key = redact_json_key_for_diagnostics("account_id");
-        let dynamic_account_key = redact_json_key_for_diagnostics("7502T0U");
-        let dynamic_order_key = redact_json_key_for_diagnostics("ORDER-123456");
-        let dynamic_symbol_key = redact_json_key_for_diagnostics("SBER@MISX");
+        let dynamic_account_key = redact_json_key_for_diagnostics("ACC_DYNAMIC_TEST_001");
+        let dynamic_order_key = redact_json_key_for_diagnostics("ORDER_DYNAMIC_TEST_001");
+        let dynamic_symbol_key = redact_json_key_for_diagnostics("SYNTH@TEST");
 
         assert_eq!(schema_key.key_kind, RedactedJsonKeyKind::SchemaField);
         assert_eq!(schema_key.name.as_deref(), Some("account_id"));
@@ -1158,7 +1158,8 @@ mod tests {
 
     #[test]
     fn api_body_redaction_does_not_leak_dynamic_keys() {
-        let body = r#"{"7502T0U":{"message":"account rejected"},"message":"bad request"}"#;
+        let body =
+            r#"{"ACC_DYNAMIC_TEST_001":{"message":"account rejected"},"message":"bad request"}"#;
 
         let redacted = redact_api_body(body);
         let rendered = serde_json::to_string(&redacted.keys).expect("keys serialize");
@@ -1167,7 +1168,7 @@ mod tests {
         assert!(rendered.contains("dynamic"));
         assert!(rendered.contains("sha256"));
         assert!(rendered.contains("message"));
-        assert!(!rendered.contains("7502T0U"));
+        assert!(!rendered.contains("ACC_DYNAMIC_TEST_001"));
     }
 
     #[test]

@@ -50,6 +50,14 @@ debug/export workflow.
 Transport errors must be presented through a redacted formatter before CLI
 output or external sharing, because raw HTTP client errors may include URLs.
 
+## Handoff content scan
+
+`scripts/make_handoff_archive.sh` refuses to build an external handoff archive
+if tracked or local included files contain known live-like portfolio/account
+literals, FINAM token prefixes, or JWT-like strings. Synthetic examples should
+use names such as `ACC_TEST_0001`, `ACC_DYNAMIC_TEST_001`,
+`ORDER_DYNAMIC_TEST_001`, and `SYNTH@TEST`.
+
 ## Live trading guard
 
 Order-emitting functionality must require:

@@ -73,6 +73,9 @@ inputs only in local `.env` or an ignored local config file.
 The periodic loop remains shadow/read-only: it refreshes health/readiness,
 publishes degraded/stopped states, and applies Redis stream retention, but it
 does not consume commands or emit broker order actions.
+M2d adds shadow hardening only: historical-bar watermark/dedupe, market-data
+source kind, typed Redis XREAD smoke, handoff content scanning, and draft active
+order startup policy.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`.
@@ -80,6 +83,7 @@ CI runs `cargo fmt --all --check`, `cargo test --all`, and
 See:
 
 - [Architecture](docs/architecture.md)
+- [Active orders startup policy draft](docs/active-orders-startup-policy.md)
 - [Broker contract](docs/broker-contract.md)
 - [Finam API notes](docs/finam-api-notes.md)
 - [Finam read-only fixtures](docs/finam-readonly-fixtures.md)

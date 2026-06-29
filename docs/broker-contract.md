@@ -47,6 +47,10 @@ Each event should preserve:
 - broker-native id where available;
 - normalized symbol and optional venue-native symbol.
 
+Market-data events also carry `source_kind` so downstream consumers can
+distinguish historical/read-only polling, future live streams, and recovery
+replay without relying on stream names.
+
 ## Readiness contract
 
 Order-emitting systems can trade only when:

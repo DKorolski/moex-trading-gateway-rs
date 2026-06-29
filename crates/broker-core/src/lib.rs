@@ -19,7 +19,7 @@ pub use account::{AccountId, PortfolioSnapshot, Position};
 pub use broker::BrokerKind;
 pub use command::{BrokerCommand, CancelOrder, CommandAck, PlaceOrder};
 pub use envelope::{Envelope, MessageType, SCHEMA_VERSION};
-pub use event::{BrokerEvent, MarketDataEvent};
+pub use event::{BrokerEvent, MarketDataEvent, MarketDataSourceKind};
 pub use ids::{
     BrokerAccountId, BrokerOrderId, BrokerTradeId, ClientOrderId, ClientOrderIdError,
     StrategyRequestId, CLIENT_ORDER_ID_MAX_LEN,

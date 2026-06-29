@@ -133,6 +133,31 @@ M2c explicitly not allowed:
 - Live micro.
 - Stop/SLTP/bracket.
 
+M2d allowed scope:
+
+- Remove portfolio-like literals from tests/docs.
+- Handoff archive content scan for live-like account ids, token prefixes, and
+  JWT-like strings.
+- In-process watermark/dedupe for historical bar publication.
+- Market-data `source_kind` in broker-neutral contracts.
+- Redis consumer-side smoke with `XREAD` and typed envelope decode.
+- Shadow metrics for success/failure timestamps, consecutive failures, and
+  published/deduped counts.
+- Active-orders startup policy draft.
+- Crate/docs update for M2c/M2d.
+
+M2d explicitly not allowed:
+
+- POST/DELETE order endpoints.
+- Live order placement or cancel.
+- Command stream consumer for real trading.
+- Real order ACK lifecycle.
+- Durable request/client/broker id store.
+- Runtime adaptation.
+- `LiveReady` publication.
+- Live micro.
+- Stop/SLTP/bracket.
+
 Exit criteria:
 
 - Stream events reconcile with REST snapshots.

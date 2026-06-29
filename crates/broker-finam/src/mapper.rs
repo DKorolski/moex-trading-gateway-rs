@@ -1,7 +1,9 @@
 use std::str::FromStr;
 
 use broker_core::account::{CashPosition, PortfolioSnapshot, Position};
-use broker_core::event::{Bar as CoreBar, LatestMarketTrade, Quote as CoreQuote};
+use broker_core::event::{
+    Bar as CoreBar, LatestMarketTrade, MarketDataSourceKind, Quote as CoreQuote,
+};
 use broker_core::ids::{BrokerAccountId, BrokerOrderId, BrokerTradeId, ClientOrderId};
 use broker_core::instrument::{Exchange, InstrumentId, Market, Money};
 use broker_core::order::{
@@ -289,6 +291,7 @@ pub fn map_latest_market_trade(
 ) -> Result<LatestMarketTrade, FinamMapperError> {
     Ok(LatestMarketTrade {
         instrument: instrument_id_from_symbol(symbol, None),
+        source_kind: MarketDataSourceKind::ReadOnlyPoll,
         price: decimal_value("latest_trade.price", &trade.price)?,
         qty: decimal_value("latest_trade.size", &trade.size)?,
         source_ts: parse_timestamp("latest_trade.timestamp", &trade.timestamp)?,
@@ -365,6 +368,7 @@ pub fn map_bar(
     let open_ts = parse_timestamp("bar.timestamp", &bar.timestamp)?;
     Ok(CoreBar {
         instrument: instrument_id_from_symbol(symbol, None),
+        source_kind: MarketDataSourceKind::HistoricalPoll,
         timeframe_sec,
         open_ts,
         close_ts: open_ts + Duration::seconds(i64::from(timeframe_sec)),
@@ -383,6 +387,7 @@ pub fn map_quote(
 ) -> Result<CoreQuote, FinamMapperError> {
     Ok(CoreQuote {
         instrument: instrument_id_from_symbol(&quote.symbol, None),
+        source_kind: MarketDataSourceKind::ReadOnlyPoll,
         bid: optional_decimal("quote.bid", quote.quote.bid.as_ref())?,
         ask: optional_decimal("quote.ask", quote.quote.ask.as_ref())?,
         last: optional_decimal("quote.last", quote.quote.last.as_ref())?,
@@ -615,6 +620,7 @@ mod tests {
         let mapped = map_bar("IMOEXF@RTSX", &bar, 60).expect("mapped bar");
 
         assert_eq!(mapped.instrument.symbol, "IMOEXF");
+        assert_eq!(mapped.source_kind, MarketDataSourceKind::HistoricalPoll);
         assert_eq!(mapped.timeframe_sec, 60);
         assert_eq!(mapped.close_ts, mapped.open_ts + Duration::seconds(60));
         assert!(mapped.is_final);
