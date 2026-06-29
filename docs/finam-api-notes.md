@@ -196,6 +196,23 @@ It does not place, cancel, replace, or modify orders.
 When `--output` is provided, it saves only those redacted records in fixture
 format `finam-readonly-redacted-v1`.
 
+Typed read-only smoke added for M1.4:
+
+```bash
+FINAM_SECRET_TOKEN=... \
+FINAM_ACCOUNT_ID=... \
+FINAM_SYMBOL='IMOEXF@RTSX' \
+cargo run -p broker-cli -- finam-typed-readonly-check \
+  --start-time 2026-06-26T00:00:00Z \
+  --end-time 2026-06-29T23:59:59Z \
+  --limit 10 \
+  --output tmp/finam-typed-readonly-redacted.json
+```
+
+The typed smoke validates DTO decoding and mapper conversion to broker-core for
+read-only account, order, trade, quote, latest trade, and bar data. It emits
+counts and boolean flags only; it does not print raw account/order/trade values.
+
 Implementation notes from the first review:
 
 - request/response structs containing secret/JWT values must not derive raw
@@ -236,6 +253,12 @@ Observed:
 - account orders shape included one canceled IMOEXF limit order;
 - account trades and transactions require an interval; with interval they
   returned typed shapes successfully;
+- typed DTO/mappers were validated with `finam-typed-readonly-check` against
+  token details, exchanges, assets, account, orders, trades, transactions,
+  asset params, schedule, quote, latest trades, and bars;
+- broker/manual `client_order_id` values longer than the core FINAM-safe
+  20-character id are tolerated in read-only order mapping by leaving
+  core `client_order_id` empty for that record;
 - the correct FINAM symbol for IMOEXF is `IMOEXF@RTSX`;
 - `IMOEXF@MOEX` returns not found;
 - `GET /v1/exchanges` is the working exchanges endpoint;

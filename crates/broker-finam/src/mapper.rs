@@ -39,8 +39,6 @@ pub enum FinamMapperError {
         value_len: usize,
         value_sha256: String,
     },
-    #[error("finam mapper invalid client_order_id: {reason}")]
-    InvalidClientOrderId { reason: String },
 }
 
 pub fn map_side(native: &str) -> Result<OrderSide, FinamMapperError> {
@@ -176,8 +174,7 @@ pub fn map_order_state(
             .order
             .client_order_id
             .as_deref()
-            .map(map_client_order_id)
-            .transpose()?,
+            .and_then(map_client_order_id_if_core_safe),
         instrument: instrument_id_from_symbol(&order.order.symbol, None),
         side: map_side(&order.order.side)?,
         order_type: map_order_type(&order.order.order_type)?,
@@ -244,8 +241,7 @@ pub fn map_account_trade(
         client_order_id: trade
             .client_order_id
             .as_deref()
-            .map(map_client_order_id)
-            .transpose()?,
+            .and_then(map_client_order_id_if_core_safe),
         instrument: instrument_id_from_symbol(symbol, None),
         side: map_side(side)?,
         qty: required_decimal(
@@ -323,10 +319,8 @@ fn parse_decimal(field: &'static str, value: &str) -> Result<Decimal, FinamMappe
     Decimal::from_str(value).map_err(|_| invalid_decimal(field, value))
 }
 
-fn map_client_order_id(value: &str) -> Result<ClientOrderId, FinamMapperError> {
-    ClientOrderId::new(value).map_err(|error| FinamMapperError::InvalidClientOrderId {
-        reason: error.to_string(),
-    })
+fn map_client_order_id_if_core_safe(value: &str) -> Option<ClientOrderId> {
+    ClientOrderId::new(value).ok()
 }
 
 fn invalid_decimal(field: &'static str, value: &str) -> FinamMapperError {
@@ -435,6 +429,30 @@ mod tests {
         assert_eq!(mapped.qty, Decimal::ONE);
         assert_eq!(mapped.filled_qty, Decimal::ZERO);
         assert_eq!(mapped.limit_price, Some(Decimal::new(10005, 1)));
+    }
+
+    #[test]
+    fn long_broker_client_order_id_does_not_block_readonly_order_mapping() {
+        let order: dto::OrderState = serde_json::from_value(serde_json::json!({
+            "executed_quantity": {"value": "0"},
+            "initial_quantity": {"value": "1"},
+            "order": {
+                "account_id": "1909892",
+                "client_order_id": "THIS-CLIENT-ORDER-ID-IS-TOO-LONG",
+                "legs": [],
+                "quantity": {"value": "1"},
+                "side": "SIDE_BUY",
+                "symbol": "IMOEXF@RTSX",
+                "type": "ORDER_TYPE_LIMIT"
+            },
+            "status": "ORDER_STATUS_CANCELED"
+        }))
+        .expect("order dto");
+
+        let received_ts = parse_timestamp("test", "2026-06-29T09:10:01Z").expect("timestamp");
+        let mapped = map_order_state(&order, received_ts).expect("mapped order");
+
+        assert!(mapped.client_order_id.is_none());
     }
 
     #[test]

@@ -1,9 +1,11 @@
 use anyhow::Result;
 use broker_finam::{
-    redact_json_key_for_diagnostics, AllAssetsQuery, BarsQuery, FinamApiCapabilities,
-    FinamAuthManager, FinamConfig, FinamRestClient, GatewayEnabledFeatures, HistoryQuery,
-    SecretToken,
+    map_account_trade, map_bar, map_latest_market_trade, map_order_state, map_portfolio_snapshot,
+    map_quote, redact_json_key_for_diagnostics, AllAssetsQuery, BarsQuery, FinamApiCapabilities,
+    FinamAuthManager, FinamConfig, FinamMapperError, FinamRestClient, GatewayEnabledFeatures,
+    HistoryQuery, SecretToken,
 };
+use chrono::Utc;
 use clap::{Parser, Subcommand};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -54,6 +56,34 @@ enum Command {
         #[arg(long, default_value_t = 10)]
         limit: u32,
         /// Optional file path for saving redacted probe records as JSON.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    /// Run typed DTO and mapper smoke checks. Does not place or cancel orders.
+    #[command(name = "finam-typed-readonly-check")]
+    TypedReadonlyCheck {
+        /// Environment variable that contains the Finam secret token.
+        #[arg(long, default_value = "FINAM_SECRET_TOKEN")]
+        secret_env: String,
+        /// Optional Finam account id for account/orders/trades/transactions checks.
+        #[arg(long, env = "FINAM_ACCOUNT_ID")]
+        account_id: Option<String>,
+        /// Optional venue symbol, for example TICKER@MIC, for asset/bars checks.
+        #[arg(long, env = "FINAM_SYMBOL")]
+        symbol: Option<String>,
+        /// Bars timeframe value accepted by Finam REST, for example TIME_FRAME_M1.
+        #[arg(long, default_value = "TIME_FRAME_M1")]
+        timeframe: String,
+        /// Optional inclusive start time, RFC3339, for history/bars checks.
+        #[arg(long)]
+        start_time: Option<String>,
+        /// Optional exclusive end time, RFC3339, for history/bars checks.
+        #[arg(long)]
+        end_time: Option<String>,
+        /// Query limit for account trades/transactions probes.
+        #[arg(long, default_value_t = 10)]
+        limit: u32,
+        /// Optional file path for saving typed redacted probe records as JSON.
         #[arg(long)]
         output: Option<PathBuf>,
     },
@@ -271,6 +301,274 @@ async fn main() -> Result<()> {
                 write_redacted_fixture(output, &records)?;
             }
         }
+        Command::TypedReadonlyCheck {
+            secret_env,
+            account_id,
+            symbol,
+            timeframe,
+            start_time,
+            end_time,
+            limit,
+            output,
+        } => {
+            let mut records = Vec::new();
+            let secret = SecretToken::new(std::env::var(&secret_env)?);
+            let client = FinamRestClient::try_new(FinamConfig::default())?;
+            let auth_manager = FinamAuthManager::new(client.clone(), secret);
+            match auth_manager.access_token().await {
+                Ok(token) => {
+                    emit_record(
+                        &mut records,
+                        serde_json::json!({
+                            "auth_http": 200,
+                            "jwt_present": !token.is_empty(),
+                            "jwt_len": token.len(),
+                            "live_trading_enabled": false,
+                            "typed_probe": true,
+                        }),
+                    )?;
+
+                    emit_typed_result(
+                        &mut records,
+                        "token_details_typed",
+                        client.token_details_typed(&token).await,
+                        |details| {
+                            Ok(serde_json::json!({
+                                "accounts_count": details.account_ids.len(),
+                                "md_permissions_count": details.md_permissions.len(),
+                                "readonly_present": details.readonly.is_some(),
+                            }))
+                        },
+                    )?;
+                    emit_typed_result(
+                        &mut records,
+                        "exchanges_typed",
+                        client.exchanges_typed(&token).await,
+                        |exchanges| {
+                            Ok(serde_json::json!({
+                                "exchanges_count": exchanges.exchanges.len(),
+                            }))
+                        },
+                    )?;
+                    emit_typed_result(
+                        &mut records,
+                        "assets_typed",
+                        client.assets_typed(&token).await,
+                        |assets| {
+                            Ok(serde_json::json!({
+                                "assets_count": assets.assets.len(),
+                            }))
+                        },
+                    )?;
+                    emit_typed_result(
+                        &mut records,
+                        "all_assets_typed",
+                        client
+                            .all_assets_typed(
+                                &token,
+                                AllAssetsQuery {
+                                    only_active: Some(true),
+                                    ..AllAssetsQuery::default()
+                                },
+                            )
+                            .await,
+                        |assets| {
+                            Ok(serde_json::json!({
+                                "assets_count": assets.assets.len(),
+                                "next_cursor_present": assets.next_cursor.is_some(),
+                            }))
+                        },
+                    )?;
+
+                    if let Some(account_id) = account_id.as_deref() {
+                        let history_query = HistoryQuery {
+                            limit: Some(limit),
+                            start_time: start_time.as_deref(),
+                            end_time: end_time.as_deref(),
+                        };
+                        emit_typed_result(
+                            &mut records,
+                            "account_typed",
+                            client.account_typed(&token, account_id).await,
+                            |account| {
+                                let snapshot = map_portfolio_snapshot(&account, Utc::now())
+                                    .map_err(mapper_anyhow)?;
+                                Ok(serde_json::json!({
+                                    "cash_count": snapshot.cash.len(),
+                                    "positions_count": snapshot.positions.len(),
+                                    "status_present": account.status.is_some(),
+                                    "type_present": account.account_type.is_some(),
+                                }))
+                            },
+                        )?;
+                        emit_typed_result(
+                            &mut records,
+                            "account_orders_typed",
+                            client.account_orders_typed(&token, account_id).await,
+                            |orders| {
+                                let mapped_count = orders
+                                    .orders
+                                    .iter()
+                                    .map(|order| map_order_state(order, Utc::now()))
+                                    .collect::<std::result::Result<Vec<_>, _>>()
+                                    .map_err(mapper_anyhow)?
+                                    .len();
+                                Ok(serde_json::json!({
+                                    "orders_count": orders.orders.len(),
+                                    "mapped_orders_count": mapped_count,
+                                }))
+                            },
+                        )?;
+                        emit_typed_result(
+                            &mut records,
+                            "account_trades_typed",
+                            client
+                                .account_trades_typed(&token, account_id, history_query)
+                                .await,
+                            |trades| {
+                                let mapped_count = trades
+                                    .trades
+                                    .iter()
+                                    .map(|trade| map_account_trade(account_id, trade, Utc::now()))
+                                    .collect::<std::result::Result<Vec<_>, _>>()
+                                    .map_err(mapper_anyhow)?
+                                    .len();
+                                Ok(serde_json::json!({
+                                    "trades_count": trades.trades.len(),
+                                    "mapped_trades_count": mapped_count,
+                                }))
+                            },
+                        )?;
+                        emit_typed_result(
+                            &mut records,
+                            "account_transactions_typed",
+                            client
+                                .account_transactions_typed(&token, account_id, history_query)
+                                .await,
+                            |transactions| {
+                                Ok(serde_json::json!({
+                                    "transactions_count": transactions.transactions.len(),
+                                }))
+                            },
+                        )?;
+                    }
+
+                    if let Some(symbol) = symbol.as_deref() {
+                        let bars_query = BarsQuery {
+                            timeframe: &timeframe,
+                            start_time: start_time.as_deref(),
+                            end_time: end_time.as_deref(),
+                        };
+                        emit_typed_result(
+                            &mut records,
+                            "asset_typed",
+                            client
+                                .asset_typed(&token, symbol, account_id.as_deref())
+                                .await,
+                            |asset| {
+                                Ok(serde_json::json!({
+                                    "asset_type_present": asset.asset_type.is_some(),
+                                    "future_details_present": asset.future_details.is_some(),
+                                    "lot_size_present": asset.lot_size.is_some(),
+                                    "min_step_present": asset.min_step.is_some(),
+                                }))
+                            },
+                        )?;
+                        emit_typed_result(
+                            &mut records,
+                            "asset_params_typed",
+                            client
+                                .asset_params_typed(&token, symbol, account_id.as_deref())
+                                .await,
+                            |params| {
+                                Ok(serde_json::json!({
+                                    "is_tradable": params.is_tradable,
+                                    "tradeable": params.tradeable,
+                                    "long_initial_margin_present": params.long_initial_margin.is_some(),
+                                    "short_initial_margin_present": params.short_initial_margin.is_some(),
+                                }))
+                            },
+                        )?;
+                        emit_typed_result(
+                            &mut records,
+                            "asset_schedule_typed",
+                            client.asset_schedule_typed(&token, symbol).await,
+                            |schedule| {
+                                Ok(serde_json::json!({
+                                    "sessions_count": schedule.sessions.len(),
+                                }))
+                            },
+                        )?;
+                        emit_typed_result(
+                            &mut records,
+                            "last_quote_typed",
+                            client.last_quote_typed(&token, symbol).await,
+                            |quote| {
+                                let mapped =
+                                    map_quote(&quote, Utc::now()).map_err(mapper_anyhow)?;
+                                Ok(serde_json::json!({
+                                    "bid_present": mapped.bid.is_some(),
+                                    "ask_present": mapped.ask.is_some(),
+                                    "last_present": mapped.last.is_some(),
+                                    "source_ts_present": mapped.source_ts.is_some(),
+                                }))
+                            },
+                        )?;
+                        emit_typed_result(
+                            &mut records,
+                            "latest_trades_typed",
+                            client.latest_trades_typed(&token, symbol).await,
+                            |trades| {
+                                let mapped_count = trades
+                                    .trades
+                                    .iter()
+                                    .map(|trade| map_latest_market_trade(symbol, trade, Utc::now()))
+                                    .collect::<std::result::Result<Vec<_>, _>>()
+                                    .map_err(mapper_anyhow)?
+                                    .len();
+                                Ok(serde_json::json!({
+                                    "trades_count": trades.trades.len(),
+                                    "mapped_trades_count": mapped_count,
+                                }))
+                            },
+                        )?;
+                        emit_typed_result(
+                            &mut records,
+                            "bars_typed",
+                            client.bars_typed(&token, symbol, bars_query).await,
+                            |bars| {
+                                let mapped_count = bars
+                                    .bars
+                                    .iter()
+                                    .map(|bar| map_bar(symbol, bar, timeframe_seconds(&timeframe)))
+                                    .collect::<std::result::Result<Vec<_>, _>>()
+                                    .map_err(mapper_anyhow)?
+                                    .len();
+                                Ok(serde_json::json!({
+                                    "bars_count": bars.bars.len(),
+                                    "mapped_bars_count": mapped_count,
+                                    "timeframe_sec": timeframe_seconds(&timeframe),
+                                }))
+                            },
+                        )?;
+                    }
+                }
+                Err(error) => {
+                    emit_record(
+                        &mut records,
+                        serde_json::json!({
+                            "auth_error_kind": error.kind(),
+                            "auth_error": error.to_redacted_string(),
+                            "live_trading_enabled": false,
+                            "typed_probe": true,
+                        }),
+                    )?;
+                }
+            }
+            if let Some(output) = output {
+                write_records_fixture(output, "finam-typed-readonly-redacted-v1", &records)?;
+            }
+        }
     }
     Ok(())
 }
@@ -296,6 +594,39 @@ fn emit_probe_result(
     emit_record(records, payload)
 }
 
+fn emit_typed_result<T, F>(
+    records: &mut Vec<serde_json::Value>,
+    name: &str,
+    result: std::result::Result<T, broker_finam::FinamError>,
+    summarize: F,
+) -> Result<()>
+where
+    F: FnOnce(T) -> Result<serde_json::Value>,
+{
+    let payload = match result {
+        Ok(value) => match summarize(value) {
+            Ok(summary) => serde_json::json!({
+                "probe": name,
+                "ok": true,
+                "summary": summary,
+            }),
+            Err(error) => serde_json::json!({
+                "probe": name,
+                "ok": false,
+                "error_kind": "mapper_error",
+                "error": error.to_string(),
+            }),
+        },
+        Err(error) => serde_json::json!({
+            "probe": name,
+            "ok": false,
+            "error_kind": error.kind(),
+            "error": error.to_redacted_string(),
+        }),
+    };
+    emit_record(records, payload)
+}
+
 fn emit_record(records: &mut Vec<serde_json::Value>, value: serde_json::Value) -> Result<()> {
     print_json(value.clone())?;
     records.push(value);
@@ -303,18 +634,43 @@ fn emit_record(records: &mut Vec<serde_json::Value>, value: serde_json::Value) -
 }
 
 fn write_redacted_fixture(path: PathBuf, records: &[serde_json::Value]) -> Result<()> {
+    write_records_fixture(path, "finam-readonly-redacted-v1", records)
+}
+
+fn write_records_fixture(
+    path: PathBuf,
+    fixture_kind: &str,
+    records: &[serde_json::Value],
+) -> Result<()> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)?;
         }
     }
     let payload = serde_json::json!({
-        "fixture_kind": "finam-readonly-redacted-v1",
+        "fixture_kind": fixture_kind,
         "shape_max_depth": JSON_SHAPE_MAX_DEPTH,
         "records": records,
     });
     std::fs::write(path, serde_json::to_string_pretty(&payload)?)?;
     Ok(())
+}
+
+fn mapper_anyhow(error: FinamMapperError) -> anyhow::Error {
+    anyhow::anyhow!(error.to_string())
+}
+
+fn timeframe_seconds(timeframe: &str) -> u32 {
+    match timeframe {
+        "TIME_FRAME_M1" => 60,
+        "TIME_FRAME_M5" => 5 * 60,
+        "TIME_FRAME_M10" => 10 * 60,
+        "TIME_FRAME_M15" => 15 * 60,
+        "TIME_FRAME_M30" => 30 * 60,
+        "TIME_FRAME_H1" => 60 * 60,
+        "TIME_FRAME_D" => 24 * 60 * 60,
+        _ => 0,
+    }
 }
 
 fn json_shape(value: &serde_json::Value) -> serde_json::Value {

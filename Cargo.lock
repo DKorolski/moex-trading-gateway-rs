@@ -170,6 +170,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "broker-finam",
+ "chrono",
  "clap",
  "serde_json",
  "tokio",

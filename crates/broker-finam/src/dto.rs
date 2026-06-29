@@ -24,6 +24,13 @@ pub struct DecimalValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DecimalLike {
+    Value(DecimalValue),
+    String(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MoneyAmount {
     pub currency_code: String,
     pub units: String,
@@ -178,7 +185,7 @@ pub struct AssetResponse {
     pub isin: Option<String>,
     pub lot_size: Option<DecimalValue>,
     pub mic: Option<String>,
-    pub min_step: Option<DecimalValue>,
+    pub min_step: Option<DecimalLike>,
     pub name: Option<String>,
     pub quote_currency: Option<String>,
     pub ticker: Option<String>,
@@ -188,29 +195,36 @@ pub struct AssetResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FutureDetails {
+    pub contract_size: Option<DecimalValue>,
     pub expiration_date: Option<String>,
     pub first_trade_date: Option<String>,
     pub last_trade_date: Option<String>,
     pub lot_size: Option<DecimalValue>,
-    pub min_step: Option<DecimalValue>,
-    pub step_price: Option<DecimalValue>,
+    pub min_step: Option<DecimalLike>,
+    pub step_price: Option<DecimalLike>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AssetParamsResponse {
     pub account_id: Option<String>,
     pub is_tradable: Option<bool>,
-    pub long_collateral: Option<DecimalValue>,
-    pub long_initial_margin: Option<DecimalValue>,
+    pub long_collateral: Option<MoneyAmount>,
+    pub long_initial_margin: Option<MoneyAmount>,
     pub long_risk_rate: Option<DecimalValue>,
-    pub longable: Option<bool>,
+    pub longable: Option<AvailabilityFlag>,
     pub price_type: Option<String>,
-    pub short_collateral: Option<DecimalValue>,
-    pub short_initial_margin: Option<DecimalValue>,
+    pub short_collateral: Option<MoneyAmount>,
+    pub short_initial_margin: Option<MoneyAmount>,
     pub short_risk_rate: Option<DecimalValue>,
-    pub shortable: Option<bool>,
+    pub shortable: Option<AvailabilityFlag>,
     pub symbol: String,
     pub tradeable: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AvailabilityFlag {
+    pub halted_days: Option<i64>,
+    pub value: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

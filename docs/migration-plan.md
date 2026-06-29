@@ -128,6 +128,7 @@ Exit criteria:
 
 - Run `finam-auth-check` with the real secret token.
 - Run `finam-readonly-check` with real `account_id` and `symbol`.
+- Run `finam-typed-readonly-check` with real `account_id` and `symbol`.
 - Save redacted response shapes/fixtures via `--output`.
 - Start typed DTO/mappers from real FINAM responses.
 
