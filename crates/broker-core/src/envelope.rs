@@ -25,10 +25,12 @@ impl<T> Envelope<T> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MessageType {
+    Health,
     Command,
     CommandAck,
     MarketData,
     Order,
+    OrderSnapshot,
     Trade,
     Position,
     PortfolioSnapshot,

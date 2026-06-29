@@ -54,11 +54,14 @@ Do not include the whole `tmp/` directory in review handoffs. If fixture
 evidence is needed, manually inspect and approve a specific redacted fixture and
 send that file separately.
 
-Not allowed yet:
+Not allowed as part of fixture/probe work:
 
-- Redis gateway lifecycle;
 - command consumer or ACK lifecycle;
 - order placement/cancel;
 - runtime adaptation;
 - live micro;
 - stop/SLTP/bracket work beyond API research.
+
+M2a may use these read-only DTOs and redacted shape assumptions to publish
+shadow Redis health/readiness and broker-truth snapshots, but it must not enable
+order commands or live trading behavior.

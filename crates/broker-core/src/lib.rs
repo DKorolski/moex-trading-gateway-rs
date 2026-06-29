@@ -29,7 +29,8 @@ pub use instrument::{
     Money, Price, Quantity,
 };
 pub use order::{
-    Order, OrderId, OrderSide, OrderStatus, OrderType, StopKind, TimeInForce, Trade, TradeId,
+    Order, OrderId, OrderSide, OrderStatus, OrderType, RedactedValueFingerprint, StopKind,
+    TimeInForce, Trade, TradeId,
 };
 pub use readiness::{BrokerReadiness, ReadinessPhase, ReadinessReason};
 pub use subscription::{SubscriptionIntent, SubscriptionKind, SubscriptionState};

@@ -8,6 +8,7 @@ The first target adapter is Finam Trade API. The project is developed with gatew
 
 - `broker-core`: normalized contracts for orders, trades, positions, market data, subscriptions, readiness, and command acks.
 - `broker-finam`: Finam adapter surface. M0 is read-only/stubbed; live order placement is out of scope until contracts and read-only reconciliation are validated.
+- `finam-gateway`: FINAM shadow gateway boundary for Redis health/readiness, broker-truth snapshots, and read-only market data publication. Command consumption and live order endpoints stay disabled in M2a.
 - `broker-cli`: operator-facing diagnostics for endpoint defaults, auth checks, and redacted read-only probes. Full exports are a later M1 task.
 
 ## Milestones
@@ -48,6 +49,11 @@ same redacted records as a fixture for DTO/mapper work. The fixture keeps
 bounded JSON shape metadata only, not scalar broker values or dynamic raw keys.
 `finam-typed-readonly-check` validates typed DTO decoding and core mappers while
 still emitting only redacted counts/flags.
+
+M2a starts the Redis/shadow gateway skeleton only. It may publish health,
+readiness, portfolio snapshots, order snapshots, and read-only market data
+events, but order command consumption, order placement/cancel, ACK lifecycle,
+runtime adaptation, and stop/SLTP/bracket features remain disabled.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`.

@@ -14,6 +14,9 @@ broker-runtime-bridge       broker-reconciliation
 broker-core contracts  <-------------+
           ^
           |
+finam-gateway shadow/read-only publisher
+          ^
+          |
 broker-finam adapter
 broker-tbank adapter later
 broker-alor-legacy read-only/reference later
@@ -26,6 +29,7 @@ broker-alor-legacy read-only/reference later
 3. `broker-core` owns normalized contracts only.
 4. Read-only and reconciliation come before order-emitting functionality.
 5. Every order-emitting mode must be gated by explicit readiness and operator configuration.
+6. M2a gateway publication is shadow/read-only: Redis health/readiness and broker-truth snapshots are allowed, while command consumers and live order endpoints remain disabled.
 
 ## Why not port the Alor gateway directly
 
@@ -43,4 +47,3 @@ It should not carry forward:
 - Alor-specific order replay assumptions;
 - Alor-specific stop-order cleanup semantics;
 - legacy portfolio/config hacks.
-

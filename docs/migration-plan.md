@@ -73,6 +73,25 @@ Exit criteria:
 - Broker-protocol v2 Redis streams.
 - Snapshots published before readiness.
 
+M2a allowed scope:
+
+- `finam-gateway` / broker-gateway skeleton.
+- Redis connection boundary and stream sink abstraction.
+- Publish health/readiness.
+- Publish account, position, and order snapshots from read-only broker truth.
+- Read-only reconciliation loop skeleton.
+- Market data events from read-only/historical paths.
+- Order command consumer absent or `FeatureDisabled`.
+
+M2a explicitly not allowed:
+
+- POST/DELETE order endpoints.
+- Live order placement or cancel.
+- ACK lifecycle for real orders.
+- Runtime adaptation.
+- Live micro.
+- Stop/SLTP/bracket.
+
 Exit criteria:
 
 - Stream events reconcile with REST snapshots.
@@ -142,9 +161,13 @@ Exit criteria:
 - Save redacted response shapes/fixtures via `--output`.
 - Start typed DTO/mappers from real FINAM responses.
 
-Still not allowed:
+Allowed after M1.5 acceptance:
 
-- Redis gateway lifecycle;
+- Start M2a Redis/shadow gateway skeleton only.
+- Keep live-order and runtime work gated behind later review.
+
+Still not allowed before M2/M3 approval:
+
 - command consumer / ACK lifecycle;
 - order placement or cancel;
 - runtime adaptation;
