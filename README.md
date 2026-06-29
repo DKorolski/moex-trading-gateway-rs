@@ -81,6 +81,11 @@ contract: broker-native order comments are redacted from neutral snapshots,
 typed decode coverage is expanded for all allowed shadow payloads, final loop
 summaries include cumulative metrics, and bar-finality/durable-dedupe policy is
 documented before any runtime consumer is attached.
+M2f adds only a dry runtime-bridge consumer contract: typed decode and
+schema/msg-type validation for the allowed shadow streams, consumer-side
+historical-bar dedupe, redacted order-snapshot validation, DLQ classification,
+and consumer metrics. It still does not run strategies or consume order
+commands.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`.
@@ -97,4 +102,5 @@ See:
 - [Migration plan](docs/migration-plan.md)
 - [Migration decision](docs/migration-decision-2026-06-27.md)
 - [Redis stream contract](docs/redis-stream-contract.md)
+- [Runtime bridge dry contract](docs/runtime-bridge-dry-contract.md)
 - [Security policy](docs/security.md)

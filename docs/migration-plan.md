@@ -182,6 +182,35 @@ M2e explicitly not allowed:
 - Live micro.
 - Stop/SLTP/bracket.
 
+M2f allowed scope:
+
+- Dry broker-neutral stream consumer contract for already-published shadow
+  streams.
+- Typed decode for health, readiness, portfolio snapshot, order snapshot, and
+  market data envelopes.
+- `schema_version` and `msg_type` validation before typed payload use.
+- Consumer-side historical-bar dedupe/idempotency by
+  `(source, venue_symbol, timeframe, open_ts)`.
+- Redacted `OrderSnapshot` validation that sends raw-comment violations to DLQ.
+- DLQ/dead-letter classification for unknown streams, invalid JSON, schema
+  mismatch, message-type mismatch, typed-decode failure, unsupported message
+  type, and raw-comment violations.
+- Consumer metrics for entries, accepted payloads, duplicate bars, DLQ count,
+  and per-payload-kind counts.
+- Removal of auto-derived `Debug` for CLI command args.
+
+M2f explicitly not allowed:
+
+- POST/DELETE order endpoints.
+- Live order placement or cancel.
+- Command stream consumer for real trading.
+- Real order ACK lifecycle.
+- Durable request/client/broker id store in the order path.
+- Strategy runtime adaptation or strategy invocation.
+- `LiveReady` publication.
+- Live micro.
+- Stop/SLTP/bracket.
+
 Exit criteria:
 
 - Stream events reconcile with REST snapshots.

@@ -23,14 +23,14 @@ use std::time::{Duration as StdDuration, Instant};
 
 const JSON_SHAPE_MAX_DEPTH: usize = 4;
 
-#[derive(Debug, Parser)]
+#[derive(Parser)]
 #[command(version, about = "MOEX broker gateway operator CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Subcommand)]
 enum Command {
     /// Print compiled-in Finam endpoint defaults and capability assumptions.
     #[command(name = "finam-info")]

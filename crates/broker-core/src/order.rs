@@ -70,8 +70,9 @@ pub struct Order {
     pub filled_qty: Quantity,
     pub limit_price: Option<Price>,
     pub stop_price: Option<Price>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment_fingerprint: Option<RedactedValueFingerprint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
     pub source_ts: Option<chrono::DateTime<chrono::Utc>>,
     pub received_ts: chrono::DateTime<chrono::Utc>,

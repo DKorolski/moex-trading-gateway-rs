@@ -38,6 +38,8 @@ Order snapshot payloads must not expose raw broker-native comments. A mapped
 order can carry `comment_fingerprint` with length and SHA-256 when a comment was
 present, but `comment` is cleared before broker-neutral snapshot publication.
 Runtime consumers must treat raw comments as unavailable in Redis streams.
+The M2f dry consumer rejects any externally supplied `OrderSnapshot` payload
+that still contains a raw `comment` value.
 
 ## Stream names
 
@@ -170,6 +172,54 @@ typed envelopes:
 
 Command, command-ACK, placement, cancel, stop, SLTP, and bracket payloads remain
 outside the allowed M2 stream contract.
+
+## Dry runtime bridge consumer contract
+
+M2f introduces a dry consumer contract in `finam-gateway` but does not attach it
+to the strategy runtime. The dry consumer accepts stream entries in the same
+shape a Redis `XREAD`/`XREADGROUP` reader would produce:
+
+```text
+stream
+entry_id
+payload
+```
+
+For each entry it:
+
+1. maps the stream name to the expected `MessageType`;
+2. parses the payload as JSON without exposing raw payload in errors;
+3. validates `schema_version = 2`;
+4. validates that envelope `msg_type` matches the stream;
+5. typed-decodes the envelope payload;
+6. rejects raw order comments in `OrderSnapshot`;
+7. dedupes historical bars by `(source, venue_symbol, timeframe, open_ts)`;
+8. emits either `Accepted`, `DuplicateBar`, or `DeadLetter`.
+
+Dead-letter reasons are classified without storing raw payload text:
+
+- unknown stream;
+- invalid JSON;
+- missing schema version;
+- unsupported schema version;
+- missing message type;
+- unsupported message type;
+- message type mismatch for the stream;
+- typed decode failure;
+- raw order comment present.
+
+The dry consumer metrics are:
+
+- entries seen;
+- accepted count;
+- duplicate bar count;
+- DLQ count;
+- per-payload-kind counts for health, readiness, portfolio snapshot, order
+  snapshot, and market data.
+
+This is still not a live runtime bridge. It does not publish `LiveReady`, does
+not consume command streams, does not produce command ACKs, and does not call
+strategies.
 
 ## Retention policy
 

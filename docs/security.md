@@ -69,6 +69,13 @@ Redis snapshots must redact raw comments by default and may expose only a
 non-reversible `comment_fingerprint`. Raw comment export requires a separate
 local-only broker-truth/debug workflow.
 
+Runtime-bridge DLQ records must not store raw Redis payload text. Store only
+stream name, entry id, reason class, payload length, and optional future
+non-reversible fingerprints.
+
+CLI command argument containers should not derive auto `Debug`, because account
+ids and venue symbols can be supplied as args or environment-derived values.
+
 ## Live trading guard
 
 Order-emitting functionality must require:

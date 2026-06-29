@@ -4,19 +4,22 @@
 //! lifecycle, stop/SLTP, bracket, or runtime adaptation. It prepares the
 //! Redis/shadow publication boundary for health, readiness, broker-truth
 //! snapshots, read-only market data, retention, and degraded/stopped status
-//! reporting.
+//! reporting, plus a dry runtime-bridge consumer contract for typed decode and
+//! idempotency validation.
 
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use broker_core::account::PortfolioSnapshot;
 use broker_core::command::{BrokerCommand, CommandAck, CommandAckStatus};
-use broker_core::envelope::{Envelope, MessageType};
+use broker_core::envelope::{Envelope, MessageType, SCHEMA_VERSION};
 use broker_core::event::MarketDataEvent;
 use broker_core::ids::StrategyRequestId;
 use broker_core::order::Order;
 use broker_core::readiness::{BrokerReadiness, ReadinessPhase, ReadinessReason};
 use chrono::{DateTime, Utc};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,6 +167,179 @@ pub struct RedisStreamEntry {
     pub payload: String,
 }
 
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeBridgeStreamEntry {
+    pub stream: String,
+    pub entry_id: String,
+    pub payload: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RuntimeBridgePayloadKind {
+    Health,
+    Readiness,
+    PortfolioSnapshot,
+    OrderSnapshot,
+    MarketData,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RuntimeBridgeDlqReason {
+    UnknownStream,
+    InvalidJson,
+    MissingSchemaVersion,
+    UnsupportedSchemaVersion { expected: u16, actual: u64 },
+    MissingMessageType,
+    UnsupportedMessageType,
+    MessageTypeMismatch { expected: MessageType },
+    TypedDecodeFailed,
+    RawOrderCommentPresent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeBridgeDeadLetter {
+    pub stream: String,
+    pub entry_id: String,
+    pub reason: RuntimeBridgeDlqReason,
+    pub payload_len: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RuntimeBridgeConsumeOutcome {
+    Accepted {
+        kind: RuntimeBridgePayloadKind,
+        entry_id: String,
+    },
+    DuplicateBar {
+        entry_id: String,
+        bar_key: String,
+    },
+    DeadLetter(RuntimeBridgeDeadLetter),
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeBridgeConsumerMetrics {
+    pub entries_seen: u64,
+    pub accepted_count: u64,
+    pub duplicate_bar_count: u64,
+    pub dlq_count: u64,
+    pub health_count: u64,
+    pub readiness_count: u64,
+    pub portfolio_snapshot_count: u64,
+    pub order_snapshot_count: u64,
+    pub market_data_count: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeBridgeDryConsumer {
+    config: RedisStreamConfig,
+    seen_bar_keys: HashSet<String>,
+    metrics: RuntimeBridgeConsumerMetrics,
+}
+
+impl RuntimeBridgeDryConsumer {
+    pub fn new(config: RedisStreamConfig) -> Self {
+        Self {
+            config,
+            seen_bar_keys: HashSet::new(),
+            metrics: RuntimeBridgeConsumerMetrics::default(),
+        }
+    }
+
+    pub fn from_gateway_config(config: &GatewayConfig) -> Self {
+        Self::new(config.redis.clone())
+    }
+
+    pub fn metrics(&self) -> &RuntimeBridgeConsumerMetrics {
+        &self.metrics
+    }
+
+    pub fn consume_entry(
+        &mut self,
+        entry: RuntimeBridgeStreamEntry,
+    ) -> RuntimeBridgeConsumeOutcome {
+        self.metrics.entries_seen += 1;
+        match self.try_consume_entry(&entry) {
+            Ok(RuntimeBridgeConsumeOutcome::Accepted { kind, entry_id }) => {
+                self.metrics.accepted_count += 1;
+                self.record_kind(kind);
+                RuntimeBridgeConsumeOutcome::Accepted { kind, entry_id }
+            }
+            Ok(RuntimeBridgeConsumeOutcome::DuplicateBar { entry_id, bar_key }) => {
+                self.metrics.duplicate_bar_count += 1;
+                RuntimeBridgeConsumeOutcome::DuplicateBar { entry_id, bar_key }
+            }
+            Ok(RuntimeBridgeConsumeOutcome::DeadLetter(dead_letter)) => {
+                self.metrics.dlq_count += 1;
+                RuntimeBridgeConsumeOutcome::DeadLetter(dead_letter)
+            }
+            Err(reason) => {
+                self.metrics.dlq_count += 1;
+                RuntimeBridgeConsumeOutcome::DeadLetter(dead_letter(&entry, reason))
+            }
+        }
+    }
+
+    fn try_consume_entry(
+        &mut self,
+        entry: &RuntimeBridgeStreamEntry,
+    ) -> Result<RuntimeBridgeConsumeOutcome, RuntimeBridgeDlqReason> {
+        let expected = expected_message_type_for_stream(&self.config, &entry.stream)
+            .ok_or(RuntimeBridgeDlqReason::UnknownStream)?;
+        let envelope_value: serde_json::Value = serde_json::from_str(&entry.payload)
+            .map_err(|_| RuntimeBridgeDlqReason::InvalidJson)?;
+        validate_envelope_header(&envelope_value, &expected)?;
+
+        match expected {
+            MessageType::Health => {
+                decode_envelope::<GatewayHealth>(&entry.payload)?;
+                Ok(accepted(RuntimeBridgePayloadKind::Health, entry))
+            }
+            MessageType::Readiness => {
+                decode_envelope::<BrokerReadiness>(&entry.payload)?;
+                Ok(accepted(RuntimeBridgePayloadKind::Readiness, entry))
+            }
+            MessageType::PortfolioSnapshot => {
+                decode_envelope::<PortfolioSnapshot>(&entry.payload)?;
+                Ok(accepted(RuntimeBridgePayloadKind::PortfolioSnapshot, entry))
+            }
+            MessageType::OrderSnapshot => {
+                let envelope = decode_envelope::<OrderSnapshot>(&entry.payload)?;
+                if order_snapshot_has_raw_comments(&envelope.payload) {
+                    return Err(RuntimeBridgeDlqReason::RawOrderCommentPresent);
+                }
+                Ok(accepted(RuntimeBridgePayloadKind::OrderSnapshot, entry))
+            }
+            MessageType::MarketData => {
+                let envelope = decode_envelope::<MarketDataEvent>(&entry.payload)?;
+                if let MarketDataEvent::Bar(bar) = &envelope.payload {
+                    let bar_key = runtime_bridge_bar_key(&envelope.source, bar);
+                    if !self.seen_bar_keys.insert(bar_key.clone()) {
+                        return Ok(RuntimeBridgeConsumeOutcome::DuplicateBar {
+                            entry_id: entry.entry_id.clone(),
+                            bar_key,
+                        });
+                    }
+                }
+                Ok(accepted(RuntimeBridgePayloadKind::MarketData, entry))
+            }
+            _ => Err(RuntimeBridgeDlqReason::UnsupportedMessageType),
+        }
+    }
+
+    fn record_kind(&mut self, kind: RuntimeBridgePayloadKind) {
+        match kind {
+            RuntimeBridgePayloadKind::Health => self.metrics.health_count += 1,
+            RuntimeBridgePayloadKind::Readiness => self.metrics.readiness_count += 1,
+            RuntimeBridgePayloadKind::PortfolioSnapshot => {
+                self.metrics.portfolio_snapshot_count += 1;
+            }
+            RuntimeBridgePayloadKind::OrderSnapshot => self.metrics.order_snapshot_count += 1,
+            RuntimeBridgePayloadKind::MarketData => self.metrics.market_data_count += 1,
+        }
+    }
+}
+
 #[async_trait]
 pub trait RedisStreamSink: Send + Sync {
     async fn publish_json<T: Serialize + Send + Sync>(
@@ -277,6 +453,112 @@ fn trim_in_memory_stream(entries: &mut Vec<RedisStreamEntry>, stream: &str, maxl
     }
 }
 
+fn expected_message_type_for_stream(
+    config: &RedisStreamConfig,
+    stream: &str,
+) -> Option<MessageType> {
+    if stream == config.health_stream {
+        Some(MessageType::Health)
+    } else if stream == config.readiness_stream {
+        Some(MessageType::Readiness)
+    } else if stream == config.portfolio_stream {
+        Some(MessageType::PortfolioSnapshot)
+    } else if stream == config.order_snapshot_stream {
+        Some(MessageType::OrderSnapshot)
+    } else if stream == config.market_data_stream {
+        Some(MessageType::MarketData)
+    } else {
+        None
+    }
+}
+
+fn validate_envelope_header(
+    value: &serde_json::Value,
+    expected: &MessageType,
+) -> Result<(), RuntimeBridgeDlqReason> {
+    let schema_version = value
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or(RuntimeBridgeDlqReason::MissingSchemaVersion)?;
+    if schema_version != u64::from(SCHEMA_VERSION) {
+        return Err(RuntimeBridgeDlqReason::UnsupportedSchemaVersion {
+            expected: SCHEMA_VERSION,
+            actual: schema_version,
+        });
+    }
+
+    let msg_type = value
+        .get("msg_type")
+        .and_then(serde_json::Value::as_str)
+        .ok_or(RuntimeBridgeDlqReason::MissingMessageType)?;
+    let Some(actual) = parse_known_message_type(msg_type) else {
+        return Err(RuntimeBridgeDlqReason::UnsupportedMessageType);
+    };
+    if &actual != expected {
+        return Err(RuntimeBridgeDlqReason::MessageTypeMismatch {
+            expected: expected.clone(),
+        });
+    }
+    Ok(())
+}
+
+fn parse_known_message_type(value: &str) -> Option<MessageType> {
+    match value {
+        "Health" => Some(MessageType::Health),
+        "Readiness" => Some(MessageType::Readiness),
+        "PortfolioSnapshot" => Some(MessageType::PortfolioSnapshot),
+        "OrderSnapshot" => Some(MessageType::OrderSnapshot),
+        "MarketData" => Some(MessageType::MarketData),
+        _ => None,
+    }
+}
+
+fn decode_envelope<T>(payload: &str) -> Result<Envelope<T>, RuntimeBridgeDlqReason>
+where
+    T: DeserializeOwned,
+{
+    serde_json::from_str(payload).map_err(|_| RuntimeBridgeDlqReason::TypedDecodeFailed)
+}
+
+fn accepted(
+    kind: RuntimeBridgePayloadKind,
+    entry: &RuntimeBridgeStreamEntry,
+) -> RuntimeBridgeConsumeOutcome {
+    RuntimeBridgeConsumeOutcome::Accepted {
+        kind,
+        entry_id: entry.entry_id.clone(),
+    }
+}
+
+fn dead_letter(
+    entry: &RuntimeBridgeStreamEntry,
+    reason: RuntimeBridgeDlqReason,
+) -> RuntimeBridgeDeadLetter {
+    RuntimeBridgeDeadLetter {
+        stream: entry.stream.clone(),
+        entry_id: entry.entry_id.clone(),
+        reason,
+        payload_len: entry.payload.len(),
+    }
+}
+
+fn order_snapshot_has_raw_comments(snapshot: &OrderSnapshot) -> bool {
+    snapshot.orders.iter().any(|order| order.comment.is_some())
+}
+
+fn runtime_bridge_bar_key(source: &str, bar: &broker_core::event::Bar) -> String {
+    let symbol = bar
+        .instrument
+        .venue_symbol
+        .as_deref()
+        .unwrap_or(&bar.instrument.symbol);
+    format!(
+        "{source}|{symbol}|{}|{}",
+        bar.timeframe_sec,
+        bar.open_ts.to_rfc3339()
+    )
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum GatewayError {
     #[error("gateway serialization error: {0}")]
@@ -367,13 +649,14 @@ where
 
     pub async fn publish_order_snapshot(
         &self,
-        snapshot: OrderSnapshot,
+        mut snapshot: OrderSnapshot,
     ) -> Result<(), GatewayError> {
         if !self.config.features.publish_snapshots {
             return Err(GatewayError::FeatureDisabled {
                 feature: "publish_snapshots",
             });
         }
+        redact_order_snapshot_comments(&mut snapshot.orders);
         self.publish_envelope(
             &self.config.redis.order_snapshot_stream,
             MessageType::OrderSnapshot,
@@ -574,10 +857,10 @@ fn command_client_order_id(command: &BrokerCommand) -> Option<broker_core::Clien
 #[cfg(test)]
 mod tests {
     use broker_core::account::PortfolioSnapshot;
-    use broker_core::event::{MarketDataEvent, MarketDataSourceKind, Quote};
+    use broker_core::event::{Bar, MarketDataEvent, MarketDataSourceKind, Quote};
     use broker_core::ids::{ClientOrderId, StrategyRequestId};
     use broker_core::instrument::{Exchange, InstrumentId, Market};
-    use broker_core::order::{OrderSide, OrderType, TimeInForce};
+    use broker_core::order::{Order, OrderSide, OrderStatus, OrderType, TimeInForce};
     use chrono::TimeZone;
     use rust_decimal::Decimal;
     use serde::de::DeserializeOwned;
@@ -737,6 +1020,91 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn publish_order_snapshot_redacts_comments_at_gateway_boundary() {
+        let sink = InMemoryRedisStreamSink::default();
+        let gateway = FinamGateway::new(GatewayConfig::default(), sink.clone());
+        let snapshot = OrderSnapshot {
+            orders: vec![sample_order_with_comment(Some(
+                "raw gateway comment must not leak",
+            ))],
+            active_orders_count: 1,
+            terminal_orders_count: 0,
+            blocking_unknown_status_present: false,
+            received_ts: Utc::now(),
+        };
+
+        gateway
+            .publish_order_snapshot(snapshot)
+            .await
+            .expect("order snapshot published");
+
+        let entries = sink.entries().expect("entries");
+        let order_snapshot: Envelope<OrderSnapshot> = decode_stream_payload(
+            &entries,
+            "finam:orders:snapshot",
+            MessageType::OrderSnapshot,
+        );
+        assert!(order_snapshot.payload.orders[0].comment.is_none());
+        assert!(!entries[0]
+            .payload
+            .contains("raw gateway comment must not leak"));
+    }
+
+    #[tokio::test]
+    async fn runtime_bridge_dry_consumer_accepts_allowed_shadow_streams() {
+        let sink = InMemoryRedisStreamSink::default();
+        let config = GatewayConfig::default();
+        let gateway = FinamGateway::new(config.clone(), sink.clone());
+
+        gateway
+            .publish_health(default_readonly_health(gateway.config()))
+            .await
+            .expect("health published");
+        gateway
+            .publish_readonly_snapshots(&sample_account(), &sample_orders(), Utc::now())
+            .await
+            .expect("snapshots published");
+        gateway
+            .publish_market_data_event(MarketDataEvent::Quote(Quote {
+                instrument: sample_instrument(),
+                source_kind: MarketDataSourceKind::ReadOnlyPoll,
+                bid: None,
+                ask: None,
+                last: Some(Decimal::new(5000, 0)),
+                source_ts: None,
+                received_ts: Utc::now(),
+            }))
+            .await
+            .expect("market data published");
+        gateway
+            .publish_readiness(BrokerReadiness {
+                phase: ReadinessPhase::Reconciliation,
+                reasons: vec![ReadinessReason::OperatorLiveArmMissing],
+                checked_ts: Utc::now(),
+            })
+            .await
+            .expect("readiness published");
+
+        let mut consumer = RuntimeBridgeDryConsumer::from_gateway_config(&config);
+        let outcomes = runtime_entries(sink.entries().expect("entries"))
+            .into_iter()
+            .map(|entry| consumer.consume_entry(entry))
+            .collect::<Vec<_>>();
+
+        assert!(outcomes
+            .iter()
+            .all(|outcome| matches!(outcome, RuntimeBridgeConsumeOutcome::Accepted { .. })));
+        assert_eq!(consumer.metrics().entries_seen, 5);
+        assert_eq!(consumer.metrics().accepted_count, 5);
+        assert_eq!(consumer.metrics().dlq_count, 0);
+        assert_eq!(consumer.metrics().health_count, 1);
+        assert_eq!(consumer.metrics().readiness_count, 1);
+        assert_eq!(consumer.metrics().portfolio_snapshot_count, 1);
+        assert_eq!(consumer.metrics().order_snapshot_count, 1);
+        assert_eq!(consumer.metrics().market_data_count, 1);
+    }
+
+    #[tokio::test]
     async fn publishes_market_data_event_from_readonly_path() {
         let sink = InMemoryRedisStreamSink::default();
         let gateway = FinamGateway::new(GatewayConfig::default(), sink.clone());
@@ -758,6 +1126,119 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].stream, "finam:market-data");
         assert!(entries[0].payload.contains("\"msg_type\":\"MarketData\""));
+    }
+
+    #[tokio::test]
+    async fn runtime_bridge_dry_consumer_dedupes_historical_bars() {
+        let sink = InMemoryRedisStreamSink::default();
+        let config = GatewayConfig::default();
+        let gateway = FinamGateway::new(config.clone(), sink.clone());
+        let bar = sample_bar();
+
+        gateway
+            .publish_market_data_event(MarketDataEvent::Bar(bar.clone()))
+            .await
+            .expect("first bar published");
+        gateway
+            .publish_market_data_event(MarketDataEvent::Bar(bar))
+            .await
+            .expect("duplicate bar published");
+
+        let mut consumer = RuntimeBridgeDryConsumer::from_gateway_config(&config);
+        let outcomes = runtime_entries(sink.entries().expect("entries"))
+            .into_iter()
+            .map(|entry| consumer.consume_entry(entry))
+            .collect::<Vec<_>>();
+
+        assert!(matches!(
+            outcomes[0],
+            RuntimeBridgeConsumeOutcome::Accepted {
+                kind: RuntimeBridgePayloadKind::MarketData,
+                ..
+            }
+        ));
+        assert!(matches!(
+            outcomes[1],
+            RuntimeBridgeConsumeOutcome::DuplicateBar { .. }
+        ));
+        assert_eq!(consumer.metrics().accepted_count, 1);
+        assert_eq!(consumer.metrics().market_data_count, 1);
+        assert_eq!(consumer.metrics().duplicate_bar_count, 1);
+        assert_eq!(consumer.metrics().dlq_count, 0);
+    }
+
+    #[test]
+    fn runtime_bridge_dry_consumer_dlqs_stream_contract_violations() {
+        let config = GatewayConfig::default();
+        let mut consumer = RuntimeBridgeDryConsumer::from_gateway_config(&config);
+        let wrong_type_payload = serde_json::to_string(&Envelope::new(
+            config.source.clone(),
+            MessageType::MarketData,
+            MarketDataEvent::Quote(Quote {
+                instrument: sample_instrument(),
+                source_kind: MarketDataSourceKind::ReadOnlyPoll,
+                bid: None,
+                ask: None,
+                last: Some(Decimal::new(5000, 0)),
+                source_ts: None,
+                received_ts: Utc::now(),
+            }),
+        ))
+        .expect("payload");
+
+        let outcome = consumer.consume_entry(RuntimeBridgeStreamEntry {
+            stream: config.redis.health_stream.clone(),
+            entry_id: "1-0".to_string(),
+            payload: wrong_type_payload,
+        });
+
+        assert!(matches!(
+            outcome,
+            RuntimeBridgeConsumeOutcome::DeadLetter(RuntimeBridgeDeadLetter {
+                reason: RuntimeBridgeDlqReason::MessageTypeMismatch {
+                    expected: MessageType::Health
+                },
+                ..
+            })
+        ));
+        assert_eq!(consumer.metrics().dlq_count, 1);
+    }
+
+    #[test]
+    fn runtime_bridge_dry_consumer_dlqs_raw_order_comments() {
+        let config = GatewayConfig::default();
+        let snapshot = OrderSnapshot {
+            orders: vec![sample_order_with_comment(Some(
+                "raw external comment must not leak",
+            ))],
+            active_orders_count: 1,
+            terminal_orders_count: 0,
+            blocking_unknown_status_present: false,
+            received_ts: Utc::now(),
+        };
+        let payload = serde_json::to_string(&Envelope::new(
+            config.source.clone(),
+            MessageType::OrderSnapshot,
+            snapshot,
+        ))
+        .expect("payload");
+        let mut consumer = RuntimeBridgeDryConsumer::from_gateway_config(&config);
+
+        let outcome = consumer.consume_entry(RuntimeBridgeStreamEntry {
+            stream: config.redis.order_snapshot_stream.clone(),
+            entry_id: "1-0".to_string(),
+            payload,
+        });
+
+        assert!(matches!(
+            outcome,
+            RuntimeBridgeConsumeOutcome::DeadLetter(RuntimeBridgeDeadLetter {
+                reason: RuntimeBridgeDlqReason::RawOrderCommentPresent,
+                ..
+            })
+        ));
+        assert_eq!(consumer.metrics().dlq_count, 1);
+        assert_eq!(consumer.metrics().accepted_count, 0);
     }
 
     #[tokio::test]
@@ -890,6 +1371,59 @@ mod tests {
             }]
         }))
         .expect("orders dto")
+    }
+
+    fn sample_order_with_comment(comment: Option<&str>) -> Order {
+        Order {
+            account_id: broker_core::BrokerAccountId::new("ACC_TEST_0001"),
+            order_id: None,
+            client_order_id: Some(ClientOrderId::new("ABC123").expect("client order id")),
+            broker_client_order_id_fingerprint: None,
+            instrument: sample_instrument(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            status: OrderStatus::Working,
+            qty: Decimal::ONE,
+            filled_qty: Decimal::ZERO,
+            limit_price: Some(Decimal::new(5000, 0)),
+            stop_price: None,
+            comment_fingerprint: None,
+            comment: comment.map(str::to_string),
+            source_ts: None,
+            received_ts: Utc::now(),
+        }
+    }
+
+    fn sample_bar() -> Bar {
+        let open_ts = Utc
+            .with_ymd_and_hms(2026, 6, 29, 9, 10, 0)
+            .single()
+            .expect("timestamp");
+        Bar {
+            instrument: sample_instrument(),
+            source_kind: MarketDataSourceKind::HistoricalPoll,
+            timeframe_sec: 60,
+            open_ts,
+            close_ts: open_ts + chrono::Duration::seconds(60),
+            open: Decimal::new(5000, 0),
+            high: Decimal::new(5010, 0),
+            low: Decimal::new(4990, 0),
+            close: Decimal::new(5005, 0),
+            volume: Decimal::new(10, 0),
+            is_final: true,
+        }
+    }
+
+    fn runtime_entries(entries: Vec<RedisStreamEntry>) -> Vec<RuntimeBridgeStreamEntry> {
+        entries
+            .into_iter()
+            .enumerate()
+            .map(|(index, entry)| RuntimeBridgeStreamEntry {
+                stream: entry.stream,
+                entry_id: format!("{}-0", index + 1),
+                payload: entry.payload,
+            })
+            .collect()
     }
 
     fn decode_stream_payload<T>(
