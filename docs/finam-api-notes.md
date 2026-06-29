@@ -61,6 +61,7 @@ REST docs list:
 - `GET /v1/accounts/{account_id}/orders/{order_id}` — order details.
 - `DELETE /v1/accounts/{account_id}/orders/{order_id}` — cancel order.
 - `POST /v1/accounts/{account_id}/sltp-orders` — place SL/TP order.
+- `GET /v1/exchanges` — exchange/MIC list.
 - `GET /v1/instruments/{symbol}/bars` — historical bars.
 - `GET /v1/instruments/{symbol}/orderbook` — current order book.
 - `GET /v1/instruments/{symbol}/quotes/latest` — last quote.

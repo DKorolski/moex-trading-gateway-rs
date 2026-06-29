@@ -254,7 +254,7 @@ impl FinamRestClient {
     }
 
     pub async fn exchanges(&self, token: &AccessToken) -> Result<serde_json::Value, FinamError> {
-        let url = self.rest_url(&["v1", "assets", "exchanges"])?;
+        let url = self.rest_url(&["v1", "exchanges"])?;
         self.get_json(token, url).await
     }
 
