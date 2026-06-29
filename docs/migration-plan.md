@@ -92,6 +92,26 @@ M2a explicitly not allowed:
 - Live micro.
 - Stop/SLTP/bracket.
 
+M2b allowed scope:
+
+- `finam-gateway-shadow-once` read-only executable runner.
+- `FinamAuthManager` token acquisition.
+- FINAM read-only account/orders/quote/bars fetch.
+- Redis publication of health, portfolio snapshot, order snapshot, readiness,
+  and read-only market data events.
+- Optional config file for Redis URL, stream names, account id, symbol, and
+  timeframe.
+- Redis smoke script/command that publishes and reads back a synthetic envelope.
+
+M2b explicitly not allowed:
+
+- POST/DELETE order endpoints.
+- Live order placement or cancel.
+- Real order ACK lifecycle.
+- Runtime adaptation.
+- Live micro.
+- Stop/SLTP/bracket.
+
 Exit criteria:
 
 - Stream events reconcile with REST snapshots.

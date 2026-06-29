@@ -8,9 +8,13 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+broker-core = { path = "../broker-core" }
 broker-finam = { path = "../broker-finam" }
+finam-gateway = { path = "../finam-gateway" }
 chrono.workspace = true
 clap = { workspace = true, features = ["env"] }
+redis.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 

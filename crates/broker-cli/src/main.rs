@@ -1,4 +1,5 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
+use broker_core::MarketDataEvent;
 use broker_finam::{
     active_orders, has_blocking_unknown_order_statuses, map_account_trade, map_bar,
     map_latest_market_trade, map_order_state, map_portfolio_snapshot, map_quote,
@@ -6,8 +7,14 @@ use broker_finam::{
     FinamApiCapabilities, FinamAuthManager, FinamConfig, FinamMapperError, FinamRestClient,
     GatewayEnabledFeatures, HistoryQuery, SecretToken,
 };
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use clap::{Parser, Subcommand};
+use finam_gateway::{
+    default_readonly_health, FinamGateway, GatewayConfig, GatewayFeatureSet,
+    RedisConnectionStreamSink, RedisStreamConfig,
+};
+use redis::streams::StreamRangeReply;
+use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -87,6 +94,51 @@ enum Command {
         /// Optional file path for saving typed redacted probe records as JSON.
         #[arg(long)]
         output: Option<PathBuf>,
+    },
+    /// Run one FINAM read-only shadow gateway pass and publish broker-truth events to Redis.
+    #[command(name = "finam-gateway-shadow-once")]
+    GatewayShadowOnce {
+        /// Optional JSON config file with Redis streams and read-only FINAM inputs.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Environment variable that contains the Finam secret token.
+        #[arg(long, default_value = "FINAM_SECRET_TOKEN")]
+        secret_env: String,
+        /// Redis connection URL. Overrides config file.
+        #[arg(long, env = "FINAM_GATEWAY_REDIS_URL")]
+        redis_url: Option<String>,
+        /// Finam account id. Overrides config file.
+        #[arg(long, env = "FINAM_ACCOUNT_ID")]
+        account_id: Option<String>,
+        /// Finam venue symbol, for example IMOEXF@RTSX. Overrides config file.
+        #[arg(long, env = "FINAM_SYMBOL")]
+        symbol: Option<String>,
+        /// Bars timeframe value accepted by Finam REST, for example TIME_FRAME_M1.
+        #[arg(long, env = "FINAM_TIMEFRAME")]
+        timeframe: Option<String>,
+        /// Optional inclusive start time, RFC3339, for bars publication.
+        #[arg(long)]
+        start_time: Option<String>,
+        /// Optional exclusive end time, RFC3339, for bars publication.
+        #[arg(long)]
+        end_time: Option<String>,
+        /// Default bars lookback if start/end are not supplied.
+        #[arg(long, default_value_t = 60)]
+        bars_lookback_minutes: i64,
+    },
+    /// Publish a synthetic gateway envelope to Redis and read it back with XRANGE.
+    #[command(name = "finam-gateway-redis-smoke")]
+    GatewayRedisSmoke {
+        /// Redis connection URL.
+        #[arg(
+            long,
+            env = "FINAM_GATEWAY_REDIS_URL",
+            default_value = "redis://127.0.0.1:6379/"
+        )]
+        redis_url: String,
+        /// Redis stream used for the synthetic smoke event.
+        #[arg(long, default_value = "finam:smoke")]
+        stream: String,
     },
 }
 
@@ -573,7 +625,380 @@ async fn main() -> Result<()> {
                 write_records_fixture(output, "finam-typed-readonly-redacted-v1", &records)?;
             }
         }
+        Command::GatewayShadowOnce {
+            config,
+            secret_env,
+            redis_url,
+            account_id,
+            symbol,
+            timeframe,
+            start_time,
+            end_time,
+            bars_lookback_minutes,
+        } => {
+            run_gateway_shadow_once(GatewayShadowOnceArgs {
+                config,
+                secret_env,
+                redis_url,
+                account_id,
+                symbol,
+                timeframe,
+                start_time,
+                end_time,
+                bars_lookback_minutes,
+            })
+            .await?;
+        }
+        Command::GatewayRedisSmoke { redis_url, stream } => {
+            run_gateway_redis_smoke(redis_url, stream).await?;
+        }
     }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct GatewayShadowOnceArgs {
+    config: Option<PathBuf>,
+    secret_env: String,
+    redis_url: Option<String>,
+    account_id: Option<String>,
+    symbol: Option<String>,
+    timeframe: Option<String>,
+    start_time: Option<String>,
+    end_time: Option<String>,
+    bars_lookback_minutes: i64,
+}
+
+#[derive(Debug)]
+struct ResolvedGatewayShadowConfig {
+    secret_env: String,
+    gateway_config: GatewayConfig,
+    account_id: String,
+    symbol: String,
+    timeframe: String,
+    start_time: String,
+    end_time: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct GatewayShadowFileConfig {
+    redis_url: Option<String>,
+    source: Option<String>,
+    account_id: Option<String>,
+    symbol: Option<String>,
+    timeframe: Option<String>,
+    start_time: Option<String>,
+    end_time: Option<String>,
+    streams: Option<GatewayShadowStreamsFileConfig>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct GatewayShadowStreamsFileConfig {
+    health: Option<String>,
+    readiness: Option<String>,
+    portfolio: Option<String>,
+    orders_snapshot: Option<String>,
+    market_data: Option<String>,
+}
+
+async fn run_gateway_shadow_once(args: GatewayShadowOnceArgs) -> Result<()> {
+    let file_config = read_gateway_shadow_file_config(args.config.as_ref())?;
+    let resolved = resolve_gateway_shadow_config(args, file_config)?;
+    let redis_url = resolved.gateway_config.redis.url.clone();
+    let secret = SecretToken::new(std::env::var(&resolved.secret_env).with_context(|| {
+        format!(
+            "missing required environment variable {}",
+            resolved.secret_env
+        )
+    })?);
+    let client = FinamRestClient::try_new(FinamConfig::default())?;
+    let auth_manager = FinamAuthManager::new(client.clone(), secret);
+    let token = match auth_manager.access_token().await {
+        Ok(token) => token,
+        Err(error) => {
+            print_json(serde_json::json!({
+                "gateway_shadow_once": false,
+                "live_trading_enabled": false,
+                "error_kind": error.kind(),
+                "error": error.to_redacted_string(),
+            }))?;
+            return Err(error).context("FINAM auth failed for shadow gateway");
+        }
+    };
+    let sink = match RedisConnectionStreamSink::connect(&redis_url).await {
+        Ok(sink) => sink,
+        Err(error) => {
+            emit_redis_degraded_stderr("redis_connect", &error)?;
+            return Err(error).context("Redis connection failed for shadow gateway");
+        }
+    };
+    let gateway = FinamGateway::new(resolved.gateway_config, sink);
+    let received_ts = Utc::now();
+
+    let account = client
+        .account_typed(&token, &resolved.account_id)
+        .await
+        .context("FINAM read-only account fetch failed")?;
+    let orders = client
+        .account_orders_typed(&token, &resolved.account_id)
+        .await
+        .context("FINAM read-only account orders fetch failed")?;
+    let report = match gateway
+        .run_readonly_reconciliation_once(&account, &orders, received_ts)
+        .await
+    {
+        Ok(report) => report,
+        Err(error) => {
+            emit_redis_degraded_stderr("readonly_reconciliation_publish", &error)?;
+            return Err(error).context("Redis publication failed for shadow reconciliation");
+        }
+    };
+
+    let quote = client
+        .last_quote_typed(&token, &resolved.symbol)
+        .await
+        .context("FINAM read-only latest quote fetch failed")?;
+    let mapped_quote = map_quote(&quote, Utc::now()).map_err(mapper_anyhow)?;
+    if let Err(error) = gateway
+        .publish_market_data_event(MarketDataEvent::Quote(mapped_quote))
+        .await
+    {
+        emit_redis_degraded_stderr("quote_publish", &error)?;
+        return Err(error).context("Redis publication failed for quote event");
+    }
+
+    let bars_query = BarsQuery {
+        timeframe: &resolved.timeframe,
+        start_time: Some(resolved.start_time.as_str()),
+        end_time: Some(resolved.end_time.as_str()),
+    };
+    let bars = client
+        .bars_typed(&token, &resolved.symbol, bars_query)
+        .await
+        .context("FINAM read-only bars fetch failed")?;
+    let timeframe_sec = timeframe_seconds(&resolved.timeframe)?;
+    let mut published_bars_count = 0usize;
+    for bar in &bars.bars {
+        let mapped_bar = map_bar(&resolved.symbol, bar, timeframe_sec).map_err(mapper_anyhow)?;
+        if let Err(error) = gateway
+            .publish_market_data_event(MarketDataEvent::Bar(mapped_bar))
+            .await
+        {
+            emit_redis_degraded_stderr("bar_publish", &error)?;
+            return Err(error).context("Redis publication failed for bar event");
+        }
+        published_bars_count += 1;
+    }
+
+    print_json(serde_json::json!({
+        "gateway_shadow_once": true,
+        "live_trading_enabled": false,
+        "command_consumer_enabled": gateway.config().features.command_consumer_enabled,
+        "order_placement_enabled": gateway.config().features.order_placement_enabled,
+        "cancel_enabled": gateway.config().features.cancel_enabled,
+        "stop_sltp_bracket_enabled": gateway.config().features.stop_sltp_bracket_enabled,
+        "streams": {
+            "health": gateway.config().redis.health_stream,
+            "readiness": gateway.config().redis.readiness_stream,
+            "portfolio": gateway.config().redis.portfolio_stream,
+            "orders_snapshot": gateway.config().redis.order_snapshot_stream,
+            "market_data": gateway.config().redis.market_data_stream,
+        },
+        "readiness_phase": format!("{:?}", report.readiness.phase),
+        "readiness_reasons": report.readiness.reasons.iter().map(|reason| format!("{reason:?}")).collect::<Vec<_>>(),
+        "summary": {
+            "cash_count": report.summary.cash_count,
+            "positions_count": report.summary.positions_count,
+            "orders_count": report.summary.orders_count,
+            "active_orders_count": report.summary.active_orders_count,
+            "terminal_orders_count": report.summary.terminal_orders_count,
+            "blocking_unknown_status_present": report.summary.blocking_unknown_status_present,
+        },
+        "market_data": {
+            "quote_published": true,
+            "bars_published_count": published_bars_count,
+            "timeframe_sec": timeframe_sec,
+        }
+    }))?;
+    Ok(())
+}
+
+async fn run_gateway_redis_smoke(redis_url: String, stream: String) -> Result<()> {
+    let mut gateway_config = GatewayConfig {
+        features: GatewayFeatureSet::default(),
+        ..GatewayConfig::default()
+    };
+    gateway_config.redis.url = redis_url.clone();
+    gateway_config.redis.health_stream = stream.clone();
+
+    let sink = match RedisConnectionStreamSink::connect(&redis_url).await {
+        Ok(sink) => sink,
+        Err(error) => {
+            emit_redis_degraded_stderr("redis_smoke_connect", &error)?;
+            return Err(error).context("Redis smoke connection failed");
+        }
+    };
+    let gateway = FinamGateway::new(gateway_config, sink);
+    if let Err(error) = gateway
+        .publish_health(default_readonly_health(gateway.config()))
+        .await
+    {
+        emit_redis_degraded_stderr("redis_smoke_publish", &error)?;
+        return Err(error).context("Redis smoke publish failed");
+    }
+
+    let client = redis::Client::open(redis_url.as_str()).context("Redis smoke URL is invalid")?;
+    let mut manager = match client.get_connection_manager().await {
+        Ok(manager) => manager,
+        Err(error) => {
+            emit_redis_degraded_stderr("redis_smoke_read_connect", &error)?;
+            return Err(error).context("Redis smoke read connection failed");
+        }
+    };
+    let reply: StreamRangeReply = redis::cmd("XREVRANGE")
+        .arg(&stream)
+        .arg("+")
+        .arg("-")
+        .arg("COUNT")
+        .arg(1)
+        .query_async(&mut manager)
+        .await
+        .context("Redis smoke XRANGE/XREVRANGE failed")?;
+    let latest = reply
+        .ids
+        .first()
+        .context("Redis smoke stream did not contain the published event")?;
+    let payload: String = latest
+        .get("payload")
+        .context("Redis smoke entry does not contain payload field")?;
+    let envelope: serde_json::Value =
+        serde_json::from_str(&payload).context("Redis smoke payload is not JSON")?;
+    let schema_version = envelope
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        .context("Redis smoke envelope is missing schema_version")?;
+    let msg_type = envelope
+        .get("msg_type")
+        .and_then(serde_json::Value::as_str)
+        .context("Redis smoke envelope is missing msg_type")?;
+    anyhow::ensure!(schema_version == 2, "Redis smoke schema_version mismatch");
+    anyhow::ensure!(msg_type == "Health", "Redis smoke msg_type mismatch");
+
+    print_json(serde_json::json!({
+        "redis_smoke": true,
+        "live_trading_enabled": false,
+        "stream": stream,
+        "entry_id_present": !latest.id.is_empty(),
+        "schema_version": schema_version,
+        "msg_type": msg_type,
+        "payload_len": payload.len(),
+    }))?;
+    Ok(())
+}
+
+fn read_gateway_shadow_file_config(path: Option<&PathBuf>) -> Result<GatewayShadowFileConfig> {
+    let Some(path) = path else {
+        return Ok(GatewayShadowFileConfig::default());
+    };
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read gateway shadow config {}", path.display()))?;
+    serde_json::from_str(&content)
+        .with_context(|| format!("failed to parse gateway shadow config {}", path.display()))
+}
+
+fn resolve_gateway_shadow_config(
+    args: GatewayShadowOnceArgs,
+    file_config: GatewayShadowFileConfig,
+) -> Result<ResolvedGatewayShadowConfig> {
+    let mut gateway_config = GatewayConfig {
+        features: GatewayFeatureSet::default(),
+        ..GatewayConfig::default()
+    };
+    apply_gateway_shadow_file_config(&mut gateway_config, &file_config);
+    if let Some(redis_url) = args.redis_url {
+        gateway_config.redis.url = redis_url;
+    }
+
+    let now = Utc::now();
+    let lookback_minutes = args.bars_lookback_minutes.max(1);
+    let end_time = args
+        .end_time
+        .or(file_config.end_time)
+        .unwrap_or_else(|| now.to_rfc3339());
+    let start_time = args
+        .start_time
+        .or(file_config.start_time)
+        .unwrap_or_else(|| (now - Duration::minutes(lookback_minutes)).to_rfc3339());
+
+    Ok(ResolvedGatewayShadowConfig {
+        secret_env: args.secret_env,
+        gateway_config,
+        account_id: args
+            .account_id
+            .or(file_config.account_id)
+            .context("missing required FINAM account_id for shadow gateway")?,
+        symbol: args
+            .symbol
+            .or(file_config.symbol)
+            .context("missing required FINAM symbol for shadow gateway")?,
+        timeframe: args
+            .timeframe
+            .or(file_config.timeframe)
+            .unwrap_or_else(|| "TIME_FRAME_M1".to_string()),
+        start_time,
+        end_time,
+    })
+}
+
+fn apply_gateway_shadow_file_config(
+    gateway_config: &mut GatewayConfig,
+    file_config: &GatewayShadowFileConfig,
+) {
+    if let Some(redis_url) = file_config.redis_url.as_deref() {
+        gateway_config.redis.url = redis_url.to_string();
+    }
+    if let Some(source) = file_config.source.as_deref() {
+        gateway_config.source = source.to_string();
+    }
+    if let Some(streams) = file_config.streams.as_ref() {
+        apply_gateway_shadow_streams(&mut gateway_config.redis, streams);
+    }
+}
+
+fn apply_gateway_shadow_streams(
+    redis_config: &mut RedisStreamConfig,
+    streams: &GatewayShadowStreamsFileConfig,
+) {
+    if let Some(value) = streams.health.as_deref() {
+        redis_config.health_stream = value.to_string();
+    }
+    if let Some(value) = streams.readiness.as_deref() {
+        redis_config.readiness_stream = value.to_string();
+    }
+    if let Some(value) = streams.portfolio.as_deref() {
+        redis_config.portfolio_stream = value.to_string();
+    }
+    if let Some(value) = streams.orders_snapshot.as_deref() {
+        redis_config.order_snapshot_stream = value.to_string();
+    }
+    if let Some(value) = streams.market_data.as_deref() {
+        redis_config.market_data_stream = value.to_string();
+    }
+}
+
+fn emit_redis_degraded_stderr(stage: &str, _error: &dyn std::error::Error) -> Result<()> {
+    eprintln!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "gateway_shadow_degraded": true,
+            "live_trading_enabled": false,
+            "reason": "RedisUnavailable",
+            "stage": stage,
+            "error_present": true,
+        }))?
+    );
     Ok(())
 }
 
@@ -848,5 +1273,80 @@ mod tests {
     fn timeframe_seconds_rejects_unknown_timeframe() {
         assert_eq!(timeframe_seconds("TIME_FRAME_M1").expect("m1"), 60);
         assert!(timeframe_seconds("TIME_FRAME_UNKNOWN").is_err());
+    }
+
+    #[test]
+    fn gateway_shadow_config_keeps_live_order_features_disabled() {
+        let resolved = resolve_gateway_shadow_config(
+            GatewayShadowOnceArgs {
+                config: None,
+                secret_env: "FINAM_SECRET_TOKEN".to_string(),
+                redis_url: Some("redis://127.0.0.1:6379/".to_string()),
+                account_id: Some("ACC_TEST_0001".to_string()),
+                symbol: Some("TICKER@MIC".to_string()),
+                timeframe: None,
+                start_time: Some("2026-06-29T09:00:00Z".to_string()),
+                end_time: Some("2026-06-29T09:10:00Z".to_string()),
+                bars_lookback_minutes: 60,
+            },
+            GatewayShadowFileConfig::default(),
+        )
+        .expect("resolved config");
+
+        assert!(!resolved.gateway_config.features.command_consumer_enabled);
+        assert!(!resolved.gateway_config.features.order_placement_enabled);
+        assert!(!resolved.gateway_config.features.cancel_enabled);
+        assert!(!resolved.gateway_config.features.stop_sltp_bracket_enabled);
+        assert_eq!(resolved.timeframe, "TIME_FRAME_M1");
+    }
+
+    #[test]
+    fn gateway_shadow_config_accepts_stream_name_overrides() {
+        let resolved = resolve_gateway_shadow_config(
+            GatewayShadowOnceArgs {
+                config: None,
+                secret_env: "FINAM_SECRET_TOKEN".to_string(),
+                redis_url: None,
+                account_id: Some("ACC_TEST_0001".to_string()),
+                symbol: Some("TICKER@MIC".to_string()),
+                timeframe: Some("TIME_FRAME_M10".to_string()),
+                start_time: Some("2026-06-29T09:00:00Z".to_string()),
+                end_time: Some("2026-06-29T09:10:00Z".to_string()),
+                bars_lookback_minutes: 60,
+            },
+            GatewayShadowFileConfig {
+                redis_url: Some("redis://127.0.0.1:6379/".to_string()),
+                source: Some("finam-gateway-test".to_string()),
+                streams: Some(GatewayShadowStreamsFileConfig {
+                    health: Some("broker.health".to_string()),
+                    readiness: Some("broker.readiness".to_string()),
+                    portfolio: Some("broker.portfolio.snapshot".to_string()),
+                    orders_snapshot: Some("broker.orders.snapshot".to_string()),
+                    market_data: Some("broker.market_data".to_string()),
+                }),
+                ..GatewayShadowFileConfig::default()
+            },
+        )
+        .expect("resolved config");
+
+        assert_eq!(resolved.gateway_config.source, "finam-gateway-test");
+        assert_eq!(resolved.gateway_config.redis.health_stream, "broker.health");
+        assert_eq!(
+            resolved.gateway_config.redis.readiness_stream,
+            "broker.readiness"
+        );
+        assert_eq!(
+            resolved.gateway_config.redis.portfolio_stream,
+            "broker.portfolio.snapshot"
+        );
+        assert_eq!(
+            resolved.gateway_config.redis.order_snapshot_stream,
+            "broker.orders.snapshot"
+        );
+        assert_eq!(
+            resolved.gateway_config.redis.market_data_stream,
+            "broker.market_data"
+        );
+        assert_eq!(resolved.timeframe, "TIME_FRAME_M10");
     }
 }

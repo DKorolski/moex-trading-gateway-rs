@@ -1,0 +1,14 @@
+{
+  "redis_url": "redis://127.0.0.1:6379/",
+  "source": "finam-gateway",
+  "account_id": "ACC_TEST_0001",
+  "symbol": "TICKER@MIC",
+  "timeframe": "TIME_FRAME_M1",
+  "streams": {
+    "health": "broker.health",
+    "readiness": "broker.readiness",
+    "portfolio": "broker.portfolio.snapshot",
+    "orders_snapshot": "broker.orders.snapshot",
+    "market_data": "broker.market_data"
+  }
+}

@@ -187,9 +187,13 @@ name = "broker-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "broker-core",
  "broker-finam",
  "chrono",
  "clap",
+ "finam-gateway",
+ "redis",
+ "serde",
  "serde_json",
  "tokio",
 ]

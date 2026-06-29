@@ -55,6 +55,18 @@ readiness, portfolio snapshots, order snapshots, and read-only market data
 events, but order command consumption, order placement/cancel, ACK lifecycle,
 runtime adaptation, and stop/SLTP/bracket features remain disabled.
 
+M2b adds executable shadow-mode commands without enabling live orders:
+
+```bash
+cargo run -p broker-cli -- finam-gateway-shadow-once \
+  --config config/finam-gateway-shadow.example.json
+
+scripts/redis_shadow_smoke.sh
+```
+
+The example config uses synthetic account/symbol placeholders. Put real FINAM
+inputs only in local `.env` or an ignored local config file.
+
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`.
 
@@ -67,4 +79,5 @@ See:
 - [Handoff packaging](docs/handoff.md)
 - [Migration plan](docs/migration-plan.md)
 - [Migration decision](docs/migration-decision-2026-06-27.md)
+- [Redis stream contract](docs/redis-stream-contract.md)
 - [Security policy](docs/security.md)
