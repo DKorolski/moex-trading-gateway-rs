@@ -278,7 +278,8 @@ pub fn map_order_state(
         filled_qty,
         limit_price,
         stop_price: None,
-        comment: order.order.comment.clone(),
+        comment_fingerprint: order.order.comment.as_deref().map(redact_core_value),
+        comment: None,
         source_ts,
         received_ts,
     })
@@ -535,7 +536,7 @@ mod tests {
                 "limit_price": {"value": "1000.5"},
                 "quantity": {"value": "1"},
                 "side": "SIDE_BUY",
-                "symbol": "IMOEXF@RTSX",
+                "symbol": "TESTFUT@TEST",
                 "time_in_force": "TIME_IN_FORCE_DAY",
                 "type": "ORDER_TYPE_LIMIT",
                 "valid_before": "2026-06-29T23:59:59Z"
@@ -551,10 +552,10 @@ mod tests {
         let mapped = map_order_state(&order, received_ts).expect("mapped order");
 
         assert_eq!(mapped.account_id.as_str(), "ACC_TEST_0001");
-        assert_eq!(mapped.instrument.symbol, "IMOEXF");
+        assert_eq!(mapped.instrument.symbol, "TESTFUT");
         assert_eq!(
             mapped.instrument.venue_symbol.as_deref(),
-            Some("IMOEXF@RTSX")
+            Some("TESTFUT@TEST")
         );
         assert_eq!(mapped.side, OrderSide::Buy);
         assert_eq!(mapped.order_type, OrderType::Limit);
@@ -569,6 +570,13 @@ mod tests {
                 .map(|fp| fp.len),
             Some("ABC123".len())
         );
+        assert!(mapped.comment.is_none());
+        let comment_fingerprint = mapped
+            .comment_fingerprint
+            .as_ref()
+            .expect("redacted comment fingerprint");
+        assert_eq!(comment_fingerprint.len, "manual test".len());
+        assert_eq!(comment_fingerprint.sha256.len(), 64);
     }
 
     #[test]
@@ -582,7 +590,7 @@ mod tests {
                 "legs": [],
                 "quantity": {"value": "1"},
                 "side": "SIDE_BUY",
-                "symbol": "IMOEXF@RTSX",
+                "symbol": "TESTFUT@TEST",
                 "type": "ORDER_TYPE_LIMIT"
             },
             "status": "ORDER_STATUS_CANCELED"
@@ -617,9 +625,9 @@ mod tests {
             timestamp: "2026-06-29T09:10:00Z".into(),
         };
 
-        let mapped = map_bar("IMOEXF@RTSX", &bar, 60).expect("mapped bar");
+        let mapped = map_bar("TESTFUT@TEST", &bar, 60).expect("mapped bar");
 
-        assert_eq!(mapped.instrument.symbol, "IMOEXF");
+        assert_eq!(mapped.instrument.symbol, "TESTFUT");
         assert_eq!(mapped.source_kind, MarketDataSourceKind::HistoricalPoll);
         assert_eq!(mapped.timeframe_sec, 60);
         assert_eq!(mapped.close_ts, mapped.open_ts + Duration::seconds(60));
@@ -644,7 +652,7 @@ mod tests {
         };
 
         assert_eq!(
-            map_bar("IMOEXF@RTSX", &bar, 0).expect_err("zero timeframe"),
+            map_bar("TESTFUT@TEST", &bar, 0).expect_err("zero timeframe"),
             FinamMapperError::InvalidTimeframe
         );
     }
@@ -680,7 +688,7 @@ mod tests {
             ],
             "positions": [
                 {
-                    "symbol": "IMOEXF@RTSX",
+                    "symbol": "TESTFUT@TEST",
                     "asset_type": "FUTURES",
                     "quantity": {"value": "2"},
                     "average_price": {"value": "5000.5"},
@@ -698,7 +706,7 @@ mod tests {
         assert_eq!(snapshot.positions.len(), 1);
         let position = &snapshot.positions[0];
         assert_eq!(position.account_id.as_str(), "ACC_TEST_0001");
-        assert_eq!(position.instrument.symbol, "IMOEXF");
+        assert_eq!(position.instrument.symbol, "TESTFUT");
         assert_eq!(position.instrument.market, Market::Futures);
         assert_eq!(position.qty, Decimal::new(2, 0));
         assert_eq!(position.avg_price, Some(Decimal::new(50005, 1)));

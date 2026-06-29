@@ -58,6 +58,17 @@ literals, FINAM token prefixes, or JWT-like strings. Synthetic examples should
 use names such as `ACC_TEST_0001`, `ACC_DYNAMIC_TEST_001`,
 `ORDER_DYNAMIC_TEST_001`, and `SYNTH@TEST`.
 
+Public instrument symbols are not secrets by themselves, but tests, config
+templates, and handoff examples should still prefer synthetic values such as
+`TICKER@MIC`, `TESTFUT@TEST`, and `INTERNAL_TEST_FUT`. Real instrument symbols
+belong only in domain documentation where they are the explicit subject of API
+characterization or migration planning.
+
+Broker-native order comments can contain operator/broker context. Broker-neutral
+Redis snapshots must redact raw comments by default and may expose only a
+non-reversible `comment_fingerprint`. Raw comment export requires a separate
+local-only broker-truth/debug workflow.
+
 ## Live trading guard
 
 Order-emitting functionality must require:

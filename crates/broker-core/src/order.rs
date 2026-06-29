@@ -70,6 +70,8 @@ pub struct Order {
     pub filled_qty: Quantity,
     pub limit_price: Option<Price>,
     pub stop_price: Option<Price>,
+    #[serde(default)]
+    pub comment_fingerprint: Option<RedactedValueFingerprint>,
     pub comment: Option<String>,
     pub source_ts: Option<chrono::DateTime<chrono::Utc>>,
     pub received_ts: chrono::DateTime<chrono::Utc>,

@@ -1,11 +1,11 @@
 # Redis stream contract
 
-M2b/M2c use Redis Streams only for shadow/read-only publication. They do not define
+M2 uses Redis Streams only for shadow/read-only publication. It does not define
 or enable an order command stream.
 
 ## Payload shape
 
-Every gateway publication uses one Redis stream entry with a single field. M2c
+Every gateway publication uses one Redis stream entry with a single field. M2
 may include approximate `MAXLEN` trimming:
 
 ```text
@@ -34,6 +34,11 @@ Market-data payloads include `source_kind`:
 - `LiveStream` reserved for future streaming feeds;
 - `Recovery` reserved for future recovery/replay flows.
 
+Order snapshot payloads must not expose raw broker-native comments. A mapped
+order can carry `comment_fingerprint` with length and SHA-256 when a comment was
+present, but `comment` is cleared before broker-neutral snapshot publication.
+Runtime consumers must treat raw comments as unavailable in Redis streams.
+
 ## Stream names
 
 The source defaults remain FINAM-namespaced for local safety:
@@ -59,7 +64,7 @@ broker.market_data
 
 See `config/finam-gateway-shadow.example.json` for a safe synthetic example.
 
-## Message types in M2b/M2c
+## Message types in M2
 
 Allowed:
 
@@ -69,7 +74,7 @@ Allowed:
 - `Readiness`;
 - `MarketData`.
 
-Not allowed in M2b/M2c:
+Not allowed in M2:
 
 - command consumer streams;
 - command ACK lifecycle for real orders;
@@ -88,7 +93,7 @@ publish:
 5. readiness.
 
 Readiness is intentionally published last, after broker-truth snapshots and
-market-data publication. In M2b/M2c the readiness phase may reach
+market-data publication. In M2 the readiness phase may reach
 `Reconciliation`, but it must not become `LiveReady`.
 
 If a shadow-loop iteration fails after Redis is available, the runner attempts
@@ -117,6 +122,19 @@ This is still shadow-mode only. Before runtime bridge consumption, decide
 whether dedupe remains producer-side, consumer-side, or both, and whether the
 watermark must become durable.
 
+The planned durable strategy before live runtime consumption is:
+
+1. keep the producer-side watermark for low-noise publication;
+2. persist the latest accepted bar key per `(source, venue_symbol, timeframe)`
+   in Redis or another gateway-local durable store;
+3. make the runtime bridge idempotent by rejecting already-seen bar keys even if
+   the gateway restarts;
+4. preserve a recovery path that can replay a bounded historical window with
+   `source_kind = Recovery` without being confused with fresh live data.
+
+The current M2e implementation documents this policy but intentionally keeps the
+watermark in-process until the runtime bridge contract is reviewed.
+
 ## Redis smoke
 
 Local Redis round-trip smoke:
@@ -133,13 +151,25 @@ cargo run -p broker-cli -- finam-gateway-redis-smoke \
   --stream finam:smoke
 ```
 
-The smoke publishes a synthetic `Health` envelope through the same
+The CLI smoke publishes a synthetic `Health` envelope through the same
 `RedisConnectionStreamSink` used by the shadow runner. It then:
 
 - reads the latest entry back with `XREVRANGE`;
 - reads a consumer-style entry with `XREAD`;
 - decodes the payload as typed `Envelope<GatewayHealth>`;
 - verifies `schema_version = 2` and `msg_type = Health`.
+
+Unit-level stream contract tests also decode the allowed M2 shadow payloads as
+typed envelopes:
+
+- `Envelope<GatewayHealth>`;
+- `Envelope<BrokerReadiness>`;
+- `Envelope<PortfolioSnapshot>`;
+- `Envelope<OrderSnapshot>`;
+- `Envelope<MarketDataEvent>`.
+
+Command, command-ACK, placement, cancel, stop, SLTP, and bracket payloads remain
+outside the allowed M2 stream contract.
 
 ## Retention policy
 
@@ -156,3 +186,7 @@ market data: 10000
 These values are configurable through `config/finam-gateway-shadow.example.json`.
 Set a value to `0` only in local experiments if unbounded retention is
 intentionally required.
+
+In-memory stream retention is covered by unit tests. Redis approximate
+`MAXLEN ~ <n>` is covered by the Redis smoke path and should receive a dedicated
+integration test before a long-running production shadow deployment.

@@ -18,7 +18,7 @@ The first target adapter is Finam Trade API. The project is developed with gatew
 3. M2 — stream/shadow mode and reconciliation.
 4. M3 — micro live MARKET/LIMIT/CANCEL.
 5. M4 — stop/SLTP/bracket lifecycle.
-6. M5 — strategy migration for USDRUBF, IMOEXF, and RI.
+6. M5 — strategy migration for the target MOEX futures systems.
 
 ## Safety posture
 
@@ -76,6 +76,11 @@ does not consume commands or emit broker order actions.
 M2d adds shadow hardening only: historical-bar watermark/dedupe, market-data
 source kind, typed Redis XREAD smoke, handoff content scanning, and draft active
 order startup policy.
+M2e keeps the same read-only/shadow boundary while hardening the runtime bridge
+contract: broker-native order comments are redacted from neutral snapshots,
+typed decode coverage is expanded for all allowed shadow payloads, final loop
+summaries include cumulative metrics, and bar-finality/durable-dedupe policy is
+documented before any runtime consumer is attached.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`.
@@ -86,6 +91,7 @@ See:
 - [Active orders startup policy draft](docs/active-orders-startup-policy.md)
 - [Broker contract](docs/broker-contract.md)
 - [Finam API notes](docs/finam-api-notes.md)
+- [Finam bar finality golden-test plan](docs/finam-bar-finality-golden-test-plan.md)
 - [Finam read-only fixtures](docs/finam-readonly-fixtures.md)
 - [Handoff packaging](docs/handoff.md)
 - [Migration plan](docs/migration-plan.md)

@@ -158,6 +158,30 @@ M2d explicitly not allowed:
 - Live micro.
 - Stop/SLTP/bracket.
 
+M2e allowed scope:
+
+- Public-symbol handoff policy: synthetic values in tests/templates, real
+  symbols only in API characterization or migration-planning docs.
+- Redaction policy and implementation for broker-native order comments in
+  broker-neutral `OrderSnapshot` streams.
+- Typed envelope decode tests for all allowed M2 shadow payloads: health,
+  readiness, portfolio snapshot, order snapshot, and market data.
+- Final shadow-loop summary metrics.
+- Bar timestamp/finality golden-test plan before runtime consumption.
+- Future durable historical-bar dedupe/watermark strategy.
+
+M2e explicitly not allowed:
+
+- POST/DELETE order endpoints.
+- Live order placement or cancel.
+- Command stream consumer for real trading.
+- Real order ACK lifecycle.
+- Durable request/client/broker id store in the order path.
+- Runtime adaptation.
+- `LiveReady` publication.
+- Live micro.
+- Stop/SLTP/bracket.
+
 Exit criteria:
 
 - Stream events reconcile with REST snapshots.

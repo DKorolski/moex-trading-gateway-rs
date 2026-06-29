@@ -474,7 +474,8 @@ where
     }
 }
 
-pub fn build_order_snapshot(orders: Vec<Order>, received_ts: DateTime<Utc>) -> OrderSnapshot {
+pub fn build_order_snapshot(mut orders: Vec<Order>, received_ts: DateTime<Utc>) -> OrderSnapshot {
+    redact_order_snapshot_comments(&mut orders);
     let active_orders_count = broker_finam::active_orders(&orders).count();
     let terminal_orders_count = broker_finam::terminal_orders(&orders).count();
     let blocking_unknown_status_present =
@@ -485,6 +486,12 @@ pub fn build_order_snapshot(orders: Vec<Order>, received_ts: DateTime<Utc>) -> O
         terminal_orders_count,
         blocking_unknown_status_present,
         received_ts,
+    }
+}
+
+fn redact_order_snapshot_comments(orders: &mut [Order]) {
+    for order in orders {
+        order.comment = None;
     }
 }
 
@@ -566,12 +573,14 @@ fn command_client_order_id(command: &BrokerCommand) -> Option<broker_core::Clien
 
 #[cfg(test)]
 mod tests {
+    use broker_core::account::PortfolioSnapshot;
     use broker_core::event::{MarketDataEvent, MarketDataSourceKind, Quote};
     use broker_core::ids::{ClientOrderId, StrategyRequestId};
     use broker_core::instrument::{Exchange, InstrumentId, Market};
     use broker_core::order::{OrderSide, OrderType, TimeInForce};
     use chrono::TimeZone;
     use rust_decimal::Decimal;
+    use serde::de::DeserializeOwned;
     use uuid::Uuid;
 
     use super::*;
@@ -651,6 +660,80 @@ mod tests {
                 "finam:readiness",
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn publishes_typed_broker_neutral_envelopes_for_shadow_contract() {
+        let sink = InMemoryRedisStreamSink::default();
+        let gateway = FinamGateway::new(GatewayConfig::default(), sink.clone());
+
+        gateway
+            .publish_health(default_readonly_health(gateway.config()))
+            .await
+            .expect("health published");
+        gateway
+            .publish_readonly_snapshots(&sample_account(), &sample_orders(), Utc::now())
+            .await
+            .expect("snapshots published");
+        gateway
+            .publish_market_data_event(MarketDataEvent::Quote(Quote {
+                instrument: sample_instrument(),
+                source_kind: MarketDataSourceKind::ReadOnlyPoll,
+                bid: None,
+                ask: None,
+                last: Some(Decimal::new(5000, 0)),
+                source_ts: None,
+                received_ts: Utc::now(),
+            }))
+            .await
+            .expect("market data published");
+        gateway
+            .publish_readiness(BrokerReadiness {
+                phase: ReadinessPhase::Reconciliation,
+                reasons: vec![ReadinessReason::OperatorLiveArmMissing],
+                checked_ts: Utc::now(),
+            })
+            .await
+            .expect("readiness published");
+
+        let entries = sink.entries().expect("entries");
+        let health: Envelope<GatewayHealth> =
+            decode_stream_payload(&entries, "finam:health", MessageType::Health);
+        assert_eq!(health.payload.status, GatewayHealthStatus::ReadOnly);
+
+        let portfolio: Envelope<PortfolioSnapshot> =
+            decode_stream_payload(&entries, "finam:portfolio", MessageType::PortfolioSnapshot);
+        assert_eq!(portfolio.payload.positions.len(), 1);
+
+        let orders: Envelope<OrderSnapshot> = decode_stream_payload(
+            &entries,
+            "finam:orders:snapshot",
+            MessageType::OrderSnapshot,
+        );
+        assert_eq!(orders.payload.orders.len(), 1);
+        let order = &orders.payload.orders[0];
+        assert!(order.comment.is_none());
+        assert!(order.comment_fingerprint.is_some());
+        let order_snapshot_payload = entries
+            .iter()
+            .find(|entry| entry.stream == "finam:orders:snapshot")
+            .expect("order snapshot payload")
+            .payload
+            .as_str();
+        assert!(!order_snapshot_payload.contains("raw broker note must not leak"));
+
+        let market_data: Envelope<MarketDataEvent> =
+            decode_stream_payload(&entries, "finam:market-data", MessageType::MarketData);
+        match market_data.payload {
+            MarketDataEvent::Quote(quote) => {
+                assert_eq!(quote.source_kind, MarketDataSourceKind::ReadOnlyPoll);
+            }
+            other => panic!("unexpected market data payload: {other:?}"),
+        }
+
+        let readiness: Envelope<BrokerReadiness> =
+            decode_stream_payload(&entries, "finam:readiness", MessageType::Readiness);
+        assert_eq!(readiness.payload.phase, ReadinessPhase::Reconciliation);
     }
 
     #[tokio::test]
@@ -767,9 +850,9 @@ mod tests {
 
     fn sample_instrument() -> InstrumentId {
         InstrumentId {
-            symbol: "IMOEXF".to_string(),
-            venue_symbol: Some("IMOEXF@RTSX".to_string()),
-            exchange: Exchange::Moex,
+            symbol: "TESTFUT".to_string(),
+            venue_symbol: Some("TESTFUT@TEST".to_string()),
+            exchange: Exchange::Other("TEST".to_string()),
             market: Market::Futures,
         }
     }
@@ -779,7 +862,7 @@ mod tests {
             "account_id": "ACC_TEST_0001",
             "cash": [{"currency_code": "RUB", "units": "1000", "nanos": 0}],
             "positions": [{
-                "symbol": "IMOEXF@RTSX",
+                "symbol": "TESTFUT@TEST",
                 "asset_type": "FUTURES",
                 "quantity": {"value": "1"}
             }],
@@ -796,15 +879,35 @@ mod tests {
                 "initial_quantity": {"value": "1"},
                 "order": {
                     "account_id": "ACC_TEST_0001",
+                    "comment": "raw broker note must not leak",
                     "legs": [],
                     "quantity": {"value": "1"},
                     "side": "SIDE_BUY",
-                    "symbol": "IMOEXF@RTSX",
+                    "symbol": "TESTFUT@TEST",
                     "type": "ORDER_TYPE_LIMIT"
                 },
                 "status": "ORDER_STATUS_ACTIVE"
             }]
         }))
         .expect("orders dto")
+    }
+
+    fn decode_stream_payload<T>(
+        entries: &[RedisStreamEntry],
+        stream: &str,
+        msg_type: MessageType,
+    ) -> Envelope<T>
+    where
+        T: DeserializeOwned,
+    {
+        let entry = entries
+            .iter()
+            .find(|entry| entry.stream == stream)
+            .unwrap_or_else(|| panic!("missing stream entry: {stream}"));
+        let envelope: Envelope<T> =
+            serde_json::from_str(&entry.payload).expect("typed envelope decodes");
+        assert_eq!(envelope.schema_version, 2);
+        assert_eq!(envelope.msg_type, msg_type);
+        envelope
     }
 }

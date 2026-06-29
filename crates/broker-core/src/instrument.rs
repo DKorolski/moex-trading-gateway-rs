@@ -11,7 +11,7 @@ pub struct BrokerSymbol(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct InstrumentId {
-    /// Broker-neutral symbol, for example `IMOEXF`, `RTS-9.26`, or `USDRUBF`.
+    /// Broker-neutral symbol, for example `TESTFUT` or `INTERNAL_TEST_FUT`.
     pub symbol: String,
     /// Broker/exchange native symbol when it differs, for example Finam `ticker@mic`.
     pub venue_symbol: Option<String>,

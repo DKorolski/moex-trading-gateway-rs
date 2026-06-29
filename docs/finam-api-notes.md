@@ -272,5 +272,7 @@ Bar timestamp convention remains unproven. The current mapper treats
 `bar.timestamp` as `open_ts` and derives `close_ts = open_ts + timeframe`, but
 runtime/live bar consumption must wait for a golden test proving FINAM's
 timestamp convention across normal bars and session gaps.
+See `docs/finam-bar-finality-golden-test-plan.md` for the required acceptance
+checks before any runtime consumer uses historical bars for execution decisions.
 
 The redacted shape fixture remains local under `tmp/` and is git-ignored.

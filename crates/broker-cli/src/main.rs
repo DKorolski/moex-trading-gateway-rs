@@ -113,7 +113,7 @@ enum Command {
         /// Finam account id. Overrides config file.
         #[arg(long, env = "FINAM_ACCOUNT_ID")]
         account_id: Option<String>,
-        /// Finam venue symbol, for example IMOEXF@RTSX. Overrides config file.
+        /// Finam venue symbol, for example TICKER@MIC. Overrides config file.
         #[arg(long, env = "FINAM_SYMBOL")]
         symbol: Option<String>,
         /// Bars timeframe value accepted by Finam REST, for example TIME_FRAME_M1.
@@ -144,7 +144,7 @@ enum Command {
         /// Finam account id. Overrides config file.
         #[arg(long, env = "FINAM_ACCOUNT_ID")]
         account_id: Option<String>,
-        /// Finam venue symbol, for example IMOEXF@RTSX. Overrides config file.
+        /// Finam venue symbol, for example TICKER@MIC. Overrides config file.
         #[arg(long, env = "FINAM_SYMBOL")]
         symbol: Option<String>,
         /// Bars timeframe value accepted by Finam REST, for example TIME_FRAME_M1.
@@ -922,6 +922,7 @@ async fn run_gateway_shadow_loop(args: GatewayShadowOnceArgs) -> Result<()> {
                 iteration,
                 success_count,
                 failure_count,
+                &snapshot_shadow_metrics(&runtime),
             ))?;
             break;
         }
@@ -938,6 +939,7 @@ async fn run_gateway_shadow_loop(args: GatewayShadowOnceArgs) -> Result<()> {
                     iteration,
                     success_count,
                     failure_count,
+                    &snapshot_shadow_metrics(&runtime),
                 ))?;
                 break;
             }
@@ -1190,6 +1192,7 @@ fn shadow_loop_summary_json(
     iterations: u64,
     success_count: u64,
     failure_count: u64,
+    metrics: &ShadowMetrics,
 ) -> serde_json::Value {
     serde_json::json!({
         "gateway_shadow_loop": "stopped",
@@ -1199,6 +1202,7 @@ fn shadow_loop_summary_json(
         "success_count": success_count,
         "failure_count": failure_count,
         "live_trading_enabled": false,
+        "metrics": shadow_metrics_json(metrics),
     })
 }
 
@@ -1838,6 +1842,27 @@ mod tests {
     fn timeframe_seconds_rejects_unknown_timeframe() {
         assert_eq!(timeframe_seconds("TIME_FRAME_M1").expect("m1"), 60);
         assert!(timeframe_seconds("TIME_FRAME_UNKNOWN").is_err());
+    }
+
+    #[test]
+    fn shadow_loop_summary_includes_cumulative_metrics() {
+        let metrics = ShadowMetrics {
+            success_count: 2,
+            failure_count: 1,
+            published_market_data_count: 42,
+            deduped_bar_count: 7,
+            ..ShadowMetrics::default()
+        };
+
+        let summary = shadow_loop_summary_json("max_iterations", 123, 3, 2, 1, &metrics);
+
+        assert_eq!(summary["gateway_shadow_loop"], "stopped");
+        assert_eq!(summary["success_count"], 2);
+        assert_eq!(summary["failure_count"], 1);
+        assert_eq!(summary["metrics"]["success_count"], 2);
+        assert_eq!(summary["metrics"]["failure_count"], 1);
+        assert_eq!(summary["metrics"]["published_market_data_count"], 42);
+        assert_eq!(summary["metrics"]["deduped_bar_count"], 7);
     }
 
     #[test]
