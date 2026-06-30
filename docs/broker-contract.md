@@ -118,3 +118,8 @@ Phase 1 supports only MARKET/LIMIT/CANCEL. Stop, SLTP, and bracket semantics are
 The Phase 1 command enum intentionally exposes no SLTP command. FINAM SLTP stays
 an API-research topic until a dedicated lifecycle contract and rejection tests
 exist.
+
+The M3 order path must follow `docs/m2-to-m3-readiness-gate.md` and
+`docs/m3-order-path-design.md`: durable id mapping before network submit,
+operator arming before endpoint use, and no blind retry after ambiguous
+place-order timeout.

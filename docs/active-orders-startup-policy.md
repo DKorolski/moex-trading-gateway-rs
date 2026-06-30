@@ -38,3 +38,6 @@ Close-only / manual-only candidate:
 - active-order policy encoded in readiness;
 - operator-visible report listing active orders by redacted/fingerprinted ids;
 - no `LiveReady` if active ownership is unknown.
+
+See `docs/m2-to-m3-readiness-gate.md` for the M2m gate and
+`docs/m3-order-path-design.md` for the order-path state model.

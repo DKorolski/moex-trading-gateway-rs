@@ -30,6 +30,8 @@ broker-alor-legacy read-only/reference later
 4. Read-only and reconciliation come before order-emitting functionality.
 5. Every order-emitting mode must be gated by explicit readiness and operator configuration.
 6. M2a gateway publication is shadow/read-only: Redis health/readiness and broker-truth snapshots are allowed, while command consumers and live order endpoints remain disabled.
+7. M3 order submission must persist id mapping before network calls and must not
+   blindly retry after ambiguous place-order timeout.
 
 ## Why not port the Alor gateway directly
 

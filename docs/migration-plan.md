@@ -361,9 +361,42 @@ Exit criteria:
 - Reconnect does not create false orphan trades or stale positions.
 - Runtime can consume FINAM-normalized events without strategy logic changes.
 
+M2m M2-to-M3 readiness gate and order-path design, still without live orders:
+
+- M2 exit checklist for reproducible checks and clean handoff.
+- Conservative bar-finality policy: `open_ts`, derived `close_ts`, inclusive
+  historical `end_time`, receive/probe-time guard, broker schedule, and actual
+  bar availability.
+- Runtime/durable watermark key design:
+  `(source, source_kind, venue_symbol, timeframe_sec, open_ts, is_final)`.
+- Operator arming model with account/instrument/qty allowlists, endpoint arm,
+  visible preflight, and automatic disarm triggers.
+- MARKET/LIMIT/CANCEL command stream contract using broker-protocol v2
+  envelopes.
+- ACK lifecycle design separated from order/trade/fill lifecycle.
+- Durable `StrategyRequestId -> ClientOrderId -> BrokerOrderId` mapping store
+  design.
+- No-blind-retry policy for ambiguous order placement timeouts.
+- Rate-limit, retry, and backoff policy.
+- Order-path fixture plan and market/limit/cancel safety test matrix.
+
+M2m explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer.
+- Real CommandAck lifecycle.
+- Durable id mapping implementation in the live order path.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
+M2m acceptance is the design gate for starting M3 implementation. It does not
+itself authorize live orders.
+
 ## M3 — micro MARKET/LIMIT/CANCEL
 
-- Operator-armed order-emitting mode.
+- Operator-armed order-emitting mode after M2m acceptance.
 - Market and limit order placement with short client order id and comment.
 - Cancel command and terminal-state handling.
 - ACK lifecycle separate from fill lifecycle.
@@ -371,6 +404,9 @@ Exit criteria:
 
 Exit criteria:
 
+- Durable id mapping survives restart/replay.
+- No-blind-retry behavior is proven by tests.
+- Operator arming and automatic disarm are proven by tests.
 - One or more micro live cycles complete and reconcile.
 - No bracket/stop semantics yet.
 - No blind duplicate after ambiguous place-order timeout.

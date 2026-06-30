@@ -116,6 +116,10 @@ M2l is the final pre-runtime dry acceptance pass: it tightens the XAUTOCLAIM
 cursor stop condition, locks shadow-loop readiness metrics with a regression
 test, clarifies producer-vs-runtime watermark keys, and extends read-only FINAM
 M1 evidence around clearing windows.
+M2m is the M2-to-M3 gate/design package: it defines the M2 exit checklist, bar
+finality policy, durable watermark/id-mapping designs, operator arming model,
+command/ACK lifecycle, no-blind-retry policy, and the M3 MARKET/LIMIT/CANCEL
+safety test matrix. It still does not enable order endpoints.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`. The Redis CI job runs
@@ -133,6 +137,9 @@ See:
 - [Handoff packaging](docs/handoff.md)
 - [Migration plan](docs/migration-plan.md)
 - [Migration decision](docs/migration-decision-2026-06-27.md)
+- [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
+- [M3 order-path design](docs/m3-order-path-design.md)
 - [Redis stream contract](docs/redis-stream-contract.md)
 - [Runtime bridge dry contract](docs/runtime-bridge-dry-contract.md)
+- [Runtime bridge pending policy](docs/runtime-bridge-pending-policy.md)
 - [Security policy](docs/security.md)
