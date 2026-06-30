@@ -2,7 +2,8 @@
 
 M2f prepares the runtime-consumer side of the broker-neutral stream contract
 without connecting strategies and without enabling live order paths. M2g hardens
-that dry contract before a Redis consumer runner is introduced.
+that dry contract. M2h wraps it in a dry Redis `XREADGROUP` runner, still
+without strategy invocation or live order paths.
 
 ## What exists in M2f/M2g
 
@@ -64,15 +65,68 @@ Safe diagnostics included in reasons:
 - `MessageTypeMismatch` includes the expected and actual known message types;
 - `TypedDecodeFailed` includes the expected payload kind.
 
-## What M2f/M2g deliberately do not do
+## M2h dry Redis runner
 
-The dry consumer contract does not:
+`broker-cli runtime-bridge-dry-consume` is a local/shadow runner around the dry
+consumer contract:
+
+```bash
+cargo run -p broker-cli -- runtime-bridge-dry-consume \
+  --config config/finam-gateway-shadow.example.json \
+  --group broker-runtime-bridge-dry \
+  --consumer dry-consumer-1 \
+  --max-iterations 1
+```
+
+The runner:
+
+- creates missing consumer groups with `XGROUP CREATE ... MKSTREAM`;
+- reads health, readiness, portfolio snapshot, order snapshot, and market-data
+  streams with `XREADGROUP`;
+- feeds each `payload` field into `RuntimeBridgeDryConsumer`;
+- publishes safe dead letters to the configured runtime-bridge DLQ stream;
+- records last seen Redis ids, returned-entry count, pending counts, DLQ
+  publication count, missing-payload count, and Redis `XACK` count;
+- updates `RuntimeBridgeReadinessSimulator` from the same broker-neutral stream
+  entries;
+- `XACK`s processed Redis entries so dry-run groups do not accumulate pending
+  messages.
+
+The DLQ stream entry contains a single redacted JSON payload:
+
+```text
+schema_version
+ts_utc
+source
+consumer_group
+consumer_name
+dead_letter
+```
+
+`dead_letter` contains stream, entry id, reason enum, and payload length. It
+does not contain raw Redis payload text.
+
+The readiness simulator is deliberately dry. It reports:
+
+- `WaitingForInputs` until health, gateway readiness, portfolio snapshot, order
+  snapshot, and market data have all been observed;
+- `DryReady` when those shadow inputs are internally consistent;
+- `Degraded` for degraded/stopped gateway states;
+- `Blocked` for unknown open-order status or dead letters.
+
+The simulator output always contains `live_ready = false`; it is not a runtime
+arming mechanism.
+
+## What M2f/M2g/M2h deliberately do not do
+
+The dry consumer contract and dry Redis runner do not:
 
 - read or process command streams;
-- produce command ACKs;
+- produce trading command ACKs;
 - place or cancel broker orders;
 - adapt or invoke strategy runtime code;
 - publish `LiveReady`;
+- arm live trading from the dry readiness-simulator output;
 - implement durable order-id mapping;
 - implement stop/SLTP/bracket behavior.
 
@@ -82,8 +136,9 @@ Before attaching a strategy runtime:
 
 1. execute the FINAM bar timestamp/finality golden test;
 2. decide whether consumer-side dedupe state must become durable;
-3. define a real DLQ stream/storage and retention policy;
-4. add Redis `XREADGROUP` integration coverage for multi-stream consumption and
-   consumer lag;
+3. decide whether the dry DLQ stream policy is sufficient for real runtime
+   operations or needs durable external storage;
+4. add Redis `XREADGROUP` integration coverage for reconnect/replay behavior and
+   consumer lag under load;
 5. keep `LiveReady` blocked until broker-truth snapshots, market-data readiness,
    schedule, operator arm, and id mapping gates are all satisfied.

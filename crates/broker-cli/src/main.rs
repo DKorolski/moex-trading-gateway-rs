@@ -13,10 +13,13 @@ use finam_gateway::{
     default_readonly_health, degraded_health, degraded_readiness, readiness_from_readonly_summary,
     stopped_health, stopped_readiness, FinamGateway, GatewayConfig, GatewayFeatureSet,
     ReadonlySnapshotSummary, RedisConnectionStreamSink, RedisRetentionConfig, RedisStreamConfig,
+    RuntimeBridgeConsumeOutcome, RuntimeBridgeDeadLetter, RuntimeBridgeDlqReason,
+    RuntimeBridgeDlqRecord, RuntimeBridgeDryConsumer, RuntimeBridgeReadinessSimulator,
+    RuntimeBridgeStreamEntry,
 };
 use redis::streams::{StreamRangeReply, StreamReadReply};
 use serde::Deserialize;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration as StdDuration, Instant};
@@ -95,6 +98,31 @@ enum Command {
         #[arg(long, default_value_t = 10)]
         limit: u32,
         /// Optional file path for saving typed redacted probe records as JSON.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    /// Run a read-only FINAM bar timestamp/finality golden-test harness.
+    #[command(name = "finam-bar-finality-golden-check")]
+    BarFinalityGoldenCheck {
+        /// Environment variable that contains the Finam secret token.
+        #[arg(long, default_value = "FINAM_SECRET_TOKEN")]
+        secret_env: String,
+        /// Finam venue symbol, for example TICKER@MIC.
+        #[arg(long, env = "FINAM_SYMBOL")]
+        symbol: Option<String>,
+        /// Bars timeframe value accepted by Finam REST, for example TIME_FRAME_M1.
+        #[arg(long, default_value = "TIME_FRAME_M1")]
+        timeframe: String,
+        /// Optional inclusive start time, RFC3339, for the golden window.
+        #[arg(long)]
+        start_time: Option<String>,
+        /// Optional exclusive end time, RFC3339, for the golden window.
+        #[arg(long)]
+        end_time: Option<String>,
+        /// Default bars lookback if start/end are not supplied.
+        #[arg(long, default_value_t = 90)]
+        lookback_minutes: i64,
+        /// Optional file path for saving the redacted golden result as JSON.
         #[arg(long)]
         output: Option<PathBuf>,
     },
@@ -179,6 +207,34 @@ enum Command {
         /// Redis stream used for the synthetic smoke event.
         #[arg(long, default_value = "finam:smoke")]
         stream: String,
+    },
+    /// Dry runtime-bridge consumer for broker-neutral Redis streams. Does not run strategies.
+    #[command(name = "runtime-bridge-dry-consume")]
+    RuntimeBridgeDryConsume {
+        /// Optional JSON config file with Redis streams. Reuses shadow config stream names.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Redis connection URL. Overrides config file.
+        #[arg(long, env = "FINAM_GATEWAY_REDIS_URL")]
+        redis_url: Option<String>,
+        /// Redis consumer group name for dry runtime bridge reads.
+        #[arg(long, default_value = "broker-runtime-bridge-dry")]
+        group: String,
+        /// Redis consumer name for dry runtime bridge reads.
+        #[arg(long, default_value = "dry-consumer-1")]
+        consumer: String,
+        /// Consumer group start id used only when creating missing groups.
+        #[arg(long, default_value = "$")]
+        group_start_id: String,
+        /// Max entries per XREADGROUP batch.
+        #[arg(long, default_value_t = 100)]
+        count: usize,
+        /// XREADGROUP block timeout in milliseconds.
+        #[arg(long, default_value_t = 1000)]
+        block_ms: u64,
+        /// Safety stop after N XREADGROUP iterations.
+        #[arg(long, default_value_t = 1)]
+        max_iterations: u64,
     },
 }
 
@@ -665,6 +721,26 @@ async fn main() -> Result<()> {
                 write_records_fixture(output, "finam-typed-readonly-redacted-v1", &records)?;
             }
         }
+        Command::BarFinalityGoldenCheck {
+            secret_env,
+            symbol,
+            timeframe,
+            start_time,
+            end_time,
+            lookback_minutes,
+            output,
+        } => {
+            run_bar_finality_golden_check(BarFinalityGoldenArgs {
+                secret_env,
+                symbol,
+                timeframe,
+                start_time,
+                end_time,
+                lookback_minutes,
+                output,
+            })
+            .await?;
+        }
         Command::GatewayShadowOnce {
             config,
             secret_env,
@@ -722,6 +798,28 @@ async fn main() -> Result<()> {
         Command::GatewayRedisSmoke { redis_url, stream } => {
             run_gateway_redis_smoke(redis_url, stream).await?;
         }
+        Command::RuntimeBridgeDryConsume {
+            config,
+            redis_url,
+            group,
+            consumer,
+            group_start_id,
+            count,
+            block_ms,
+            max_iterations,
+        } => {
+            run_runtime_bridge_dry_consume(RuntimeBridgeDryConsumeArgs {
+                config,
+                redis_url,
+                group,
+                consumer,
+                group_start_id,
+                count,
+                block_ms,
+                max_iterations,
+            })
+            .await?;
+        }
     }
     Ok(())
 }
@@ -740,6 +838,37 @@ struct GatewayShadowOnceArgs {
     max_iterations: Option<u64>,
 }
 
+struct RuntimeBridgeDryConsumeArgs {
+    config: Option<PathBuf>,
+    redis_url: Option<String>,
+    group: String,
+    consumer: String,
+    group_start_id: String,
+    count: usize,
+    block_ms: u64,
+    max_iterations: u64,
+}
+
+struct BarFinalityGoldenArgs {
+    secret_env: String,
+    symbol: Option<String>,
+    timeframe: String,
+    start_time: Option<String>,
+    end_time: Option<String>,
+    lookback_minutes: i64,
+    output: Option<PathBuf>,
+}
+
+struct ResolvedRuntimeBridgeDryConfig {
+    gateway_config: GatewayConfig,
+    group: String,
+    consumer: String,
+    group_start_id: String,
+    count: usize,
+    block_ms: u64,
+    max_iterations: u64,
+}
+
 struct ResolvedGatewayShadowConfig {
     secret_env: String,
     gateway_config: GatewayConfig,
@@ -751,6 +880,16 @@ struct ResolvedGatewayShadowConfig {
     bars_lookback_minutes: i64,
     interval_seconds: u64,
     max_iterations: Option<u64>,
+}
+
+#[derive(Default)]
+struct RuntimeBridgeRedisDryMetrics {
+    xreadgroup_iterations: u64,
+    entries_returned: u64,
+    dlq_published_count: u64,
+    xack_count: u64,
+    missing_payload_count: u64,
+    last_ids: BTreeMap<String, String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -778,6 +917,7 @@ struct GatewayShadowStreamsFileConfig {
     portfolio: Option<String>,
     orders_snapshot: Option<String>,
     market_data: Option<String>,
+    runtime_bridge_dlq: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -788,6 +928,7 @@ struct GatewayShadowRetentionFileConfig {
     portfolio_maxlen: Option<usize>,
     order_snapshot_maxlen: Option<usize>,
     market_data_maxlen: Option<usize>,
+    runtime_bridge_dlq_maxlen: Option<usize>,
 }
 
 struct GatewayShadowRuntime {
@@ -1258,6 +1399,81 @@ fn shadow_bars_window(config: &ResolvedGatewayShadowConfig) -> (String, String) 
     (start_time, end_time)
 }
 
+fn golden_bars_window(
+    start_time: Option<&str>,
+    end_time: Option<&str>,
+    lookback_minutes: i64,
+) -> (String, String) {
+    let now = Utc::now();
+    let end_time = end_time
+        .map(str::to_string)
+        .unwrap_or_else(|| now.to_rfc3339());
+    let lookback_minutes = lookback_minutes.max(1);
+    let start_time = start_time
+        .map(str::to_string)
+        .unwrap_or_else(|| (now - ChronoDuration::minutes(lookback_minutes)).to_rfc3339());
+    (start_time, end_time)
+}
+
+fn bar_finality_golden_summary(
+    symbol: &str,
+    timeframe: &str,
+    timeframe_sec: u32,
+    start_time: &str,
+    end_time: &str,
+    bars: &broker_finam::BarsResponse,
+) -> Result<serde_json::Value> {
+    let probe_ts = Utc::now();
+    let mapped = bars
+        .bars
+        .iter()
+        .map(|bar| map_bar(symbol, bar, timeframe_sec))
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(mapper_anyhow)?;
+    let unique_open_deltas_sec = mapped
+        .windows(2)
+        .map(|window| (window[1].open_ts - window[0].open_ts).num_seconds())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let non_monotonic_open_ts_count = mapped
+        .windows(2)
+        .filter(|window| window[1].open_ts <= window[0].open_ts)
+        .count();
+    let close_delta_mismatch_count = mapped
+        .iter()
+        .filter(|bar| (bar.close_ts - bar.open_ts).num_seconds() != i64::from(timeframe_sec))
+        .count();
+    let last_bar_closed_before_probe_time = mapped.last().map(|bar| bar.close_ts <= probe_ts);
+
+    Ok(serde_json::json!({
+        "bar_finality_golden_harness": true,
+        "ok": true,
+        "live_trading_enabled": false,
+        "order_endpoints_used": false,
+        "symbol_present": !symbol.is_empty(),
+        "response_symbol_present": !bars.symbol.is_empty(),
+        "response_symbol_matches_request": bars.symbol == symbol,
+        "timeframe": timeframe,
+        "timeframe_sec": timeframe_sec,
+        "request": {
+            "start_time": start_time,
+            "end_time": end_time,
+        },
+        "bars_count": bars.bars.len(),
+        "mapped_bars_count": mapped.len(),
+        "first_bar_open_ts": mapped.first().map(|bar| bar.open_ts.to_rfc3339()),
+        "last_bar_open_ts": mapped.last().map(|bar| bar.open_ts.to_rfc3339()),
+        "last_bar_close_ts": mapped.last().map(|bar| bar.close_ts.to_rfc3339()),
+        "unique_open_deltas_sec": unique_open_deltas_sec,
+        "non_monotonic_open_ts_count": non_monotonic_open_ts_count,
+        "all_mapped_final_true": mapped.iter().all(|bar| bar.is_final),
+        "close_delta_mismatch_count": close_delta_mismatch_count,
+        "last_bar_closed_before_probe_time": last_bar_closed_before_probe_time,
+        "acceptance_status": "unproven_operator_review_required",
+    }))
+}
+
 fn historical_bar_watermark_key(timeframe: &str, bar: &broker_core::event::Bar) -> String {
     let symbol = bar
         .instrument
@@ -1437,6 +1653,354 @@ async fn run_gateway_redis_smoke(redis_url: String, stream: String) -> Result<()
     Ok(())
 }
 
+async fn run_bar_finality_golden_check(args: BarFinalityGoldenArgs) -> Result<()> {
+    let symbol = args
+        .symbol
+        .as_deref()
+        .context("missing required FINAM symbol for bar finality golden check")?;
+    let timeframe_sec = timeframe_seconds(&args.timeframe)?;
+    let (start_time, end_time) = golden_bars_window(
+        args.start_time.as_deref(),
+        args.end_time.as_deref(),
+        args.lookback_minutes,
+    );
+    let mut records = Vec::new();
+
+    let secret = SecretToken::new(std::env::var(&args.secret_env)?);
+    let client = FinamRestClient::try_new(FinamConfig::default())?;
+    let auth_manager = FinamAuthManager::new(client.clone(), secret);
+    match auth_manager.access_token().await {
+        Ok(token) => {
+            emit_record(
+                &mut records,
+                serde_json::json!({
+                    "auth_http": 200,
+                    "jwt_present": !token.is_empty(),
+                    "jwt_len": token.len(),
+                    "bar_finality_golden_harness": true,
+                    "live_trading_enabled": false,
+                    "order_endpoints_used": false,
+                }),
+            )?;
+            let bars_query = BarsQuery {
+                timeframe: &args.timeframe,
+                start_time: Some(start_time.as_str()),
+                end_time: Some(end_time.as_str()),
+            };
+            match client.bars_typed(&token, symbol, bars_query).await {
+                Ok(bars) => {
+                    let summary = bar_finality_golden_summary(
+                        symbol,
+                        &args.timeframe,
+                        timeframe_sec,
+                        &start_time,
+                        &end_time,
+                        &bars,
+                    )?;
+                    emit_record(&mut records, summary)?;
+                }
+                Err(error) => {
+                    emit_record(
+                        &mut records,
+                        serde_json::json!({
+                            "bar_finality_golden_harness": true,
+                            "ok": false,
+                            "live_trading_enabled": false,
+                            "order_endpoints_used": false,
+                            "probe": "bars_typed",
+                            "error_kind": error.kind(),
+                            "error": error.to_redacted_string(),
+                        }),
+                    )?;
+                }
+            }
+        }
+        Err(error) => {
+            emit_record(
+                &mut records,
+                serde_json::json!({
+                    "auth_error_kind": error.kind(),
+                    "auth_error": error.to_redacted_string(),
+                    "bar_finality_golden_harness": true,
+                    "live_trading_enabled": false,
+                    "order_endpoints_used": false,
+                }),
+            )?;
+        }
+    }
+
+    if let Some(output) = args.output {
+        write_records_fixture(output, "finam-bar-finality-golden-redacted-v1", &records)?;
+    }
+    Ok(())
+}
+
+async fn run_runtime_bridge_dry_consume(args: RuntimeBridgeDryConsumeArgs) -> Result<()> {
+    let file_config = read_gateway_shadow_file_config(args.config.as_ref())?;
+    let resolved = resolve_runtime_bridge_dry_config(args, file_config)?;
+    let client = redis::Client::open(resolved.gateway_config.redis.url.as_str())
+        .context("runtime bridge dry Redis URL is invalid")?;
+    let mut manager = client
+        .get_connection_manager()
+        .await
+        .context("runtime bridge dry Redis connection failed")?;
+    let streams = runtime_bridge_consumer_streams(&resolved.gateway_config.redis);
+    for stream in &streams {
+        ensure_runtime_bridge_group(
+            &mut manager,
+            stream,
+            &resolved.group,
+            &resolved.group_start_id,
+        )
+        .await?;
+    }
+
+    let mut consumer = RuntimeBridgeDryConsumer::from_gateway_config(&resolved.gateway_config);
+    let mut readiness_simulator =
+        RuntimeBridgeReadinessSimulator::from_gateway_config(&resolved.gateway_config);
+    let mut redis_metrics = RuntimeBridgeRedisDryMetrics::default();
+    let iterations = resolved.max_iterations.max(1);
+    for _ in 0..iterations {
+        redis_metrics.xreadgroup_iterations += 1;
+        let reply = runtime_bridge_xreadgroup(&mut manager, &resolved, &streams).await?;
+        if reply.keys.is_empty() {
+            continue;
+        }
+        for key in reply.keys {
+            for id in key.ids {
+                redis_metrics.entries_returned += 1;
+                redis_metrics
+                    .last_ids
+                    .insert(key.key.clone(), id.id.clone());
+                let outcome = match id.get::<String>("payload") {
+                    Some(payload) => {
+                        let entry = RuntimeBridgeStreamEntry {
+                            stream: key.key.clone(),
+                            entry_id: id.id.clone(),
+                            payload,
+                        };
+                        let outcome = consumer.consume_entry(entry.clone());
+                        if matches!(
+                            outcome,
+                            RuntimeBridgeConsumeOutcome::Accepted { .. }
+                                | RuntimeBridgeConsumeOutcome::DuplicateBar { .. }
+                        ) {
+                            if let Err(dead_letter) = readiness_simulator.observe_entry(&entry) {
+                                readiness_simulator.observe_dead_letter(&dead_letter);
+                                publish_runtime_bridge_dlq(&mut manager, &resolved, dead_letter)
+                                    .await?;
+                                redis_metrics.dlq_published_count += 1;
+                            }
+                        }
+                        outcome
+                    }
+                    None => {
+                        redis_metrics.missing_payload_count += 1;
+                        RuntimeBridgeConsumeOutcome::DeadLetter(RuntimeBridgeDeadLetter {
+                            stream: key.key.clone(),
+                            entry_id: id.id.clone(),
+                            reason: RuntimeBridgeDlqReason::MissingPayload,
+                            payload_len: 0,
+                        })
+                    }
+                };
+                if let RuntimeBridgeConsumeOutcome::DeadLetter(dead_letter) = outcome {
+                    readiness_simulator.observe_dead_letter(&dead_letter);
+                    publish_runtime_bridge_dlq(&mut manager, &resolved, dead_letter).await?;
+                    redis_metrics.dlq_published_count += 1;
+                }
+                let acked =
+                    runtime_bridge_xack(&mut manager, &key.key, &resolved.group, &id.id).await?;
+                redis_metrics.xack_count += acked;
+            }
+        }
+    }
+
+    let pending_counts =
+        runtime_bridge_pending_counts(&mut manager, &streams, &resolved.group).await;
+    print_json(runtime_bridge_dry_summary_json(
+        &resolved,
+        consumer.metrics(),
+        &readiness_simulator,
+        &redis_metrics,
+        pending_counts,
+    ))?;
+    Ok(())
+}
+
+async fn ensure_runtime_bridge_group(
+    manager: &mut redis::aio::ConnectionManager,
+    stream: &str,
+    group: &str,
+    start_id: &str,
+) -> Result<()> {
+    let result: redis::RedisResult<()> = redis::cmd("XGROUP")
+        .arg("CREATE")
+        .arg(stream)
+        .arg(group)
+        .arg(start_id)
+        .arg("MKSTREAM")
+        .query_async(manager)
+        .await;
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if error.to_string().contains("BUSYGROUP") => Ok(()),
+        Err(error) => Err(error).with_context(|| {
+            format!("failed to create runtime bridge consumer group for stream {stream}")
+        }),
+    }
+}
+
+async fn runtime_bridge_xreadgroup(
+    manager: &mut redis::aio::ConnectionManager,
+    resolved: &ResolvedRuntimeBridgeDryConfig,
+    streams: &[String],
+) -> Result<StreamReadReply> {
+    let mut command = redis::cmd("XREADGROUP");
+    command
+        .arg("GROUP")
+        .arg(&resolved.group)
+        .arg(&resolved.consumer)
+        .arg("COUNT")
+        .arg(resolved.count.max(1));
+    if resolved.block_ms > 0 {
+        command.arg("BLOCK").arg(resolved.block_ms);
+    }
+    command.arg("STREAMS");
+    for stream in streams {
+        command.arg(stream);
+    }
+    for _ in streams {
+        command.arg(">");
+    }
+    command
+        .query_async(manager)
+        .await
+        .context("runtime bridge dry XREADGROUP failed")
+}
+
+async fn publish_runtime_bridge_dlq(
+    manager: &mut redis::aio::ConnectionManager,
+    resolved: &ResolvedRuntimeBridgeDryConfig,
+    dead_letter: RuntimeBridgeDeadLetter,
+) -> Result<()> {
+    let record = RuntimeBridgeDlqRecord::new(
+        resolved.gateway_config.source.clone(),
+        resolved.group.clone(),
+        resolved.consumer.clone(),
+        dead_letter,
+    );
+    let payload =
+        serde_json::to_string(&record).context("runtime bridge DLQ record serialization failed")?;
+    let mut command = redis::cmd("XADD");
+    command.arg(&resolved.gateway_config.redis.runtime_bridge_dlq_stream);
+    if let Some(maxlen) = resolved
+        .gateway_config
+        .redis
+        .retention
+        .runtime_bridge_dlq_maxlen
+        .filter(|value| *value > 0)
+    {
+        command.arg("MAXLEN").arg("~").arg(maxlen);
+    }
+    let _message_id: String = command
+        .arg("*")
+        .arg("payload")
+        .arg(payload)
+        .query_async(manager)
+        .await
+        .context("runtime bridge dry DLQ publish failed")?;
+    Ok(())
+}
+
+async fn runtime_bridge_xack(
+    manager: &mut redis::aio::ConnectionManager,
+    stream: &str,
+    group: &str,
+    id: &str,
+) -> Result<u64> {
+    let acked: i64 = redis::cmd("XACK")
+        .arg(stream)
+        .arg(group)
+        .arg(id)
+        .query_async(manager)
+        .await
+        .with_context(|| format!("runtime bridge dry XACK failed for stream {stream}"))?;
+    Ok(acked.max(0) as u64)
+}
+
+async fn runtime_bridge_pending_counts(
+    manager: &mut redis::aio::ConnectionManager,
+    streams: &[String],
+    group: &str,
+) -> BTreeMap<String, Option<i64>> {
+    let mut counts = BTreeMap::new();
+    for stream in streams {
+        let result: redis::RedisResult<redis::Value> = redis::cmd("XPENDING")
+            .arg(stream)
+            .arg(group)
+            .query_async(&mut *manager)
+            .await;
+        counts.insert(
+            stream.clone(),
+            result
+                .ok()
+                .and_then(|value| pending_count_from_value(&value)),
+        );
+    }
+    counts
+}
+
+fn pending_count_from_value(value: &redis::Value) -> Option<i64> {
+    match value {
+        redis::Value::Int(count) => Some(*count),
+        redis::Value::Array(items) => items.first().and_then(pending_count_from_value),
+        _ => None,
+    }
+}
+
+fn runtime_bridge_consumer_streams(redis: &RedisStreamConfig) -> Vec<String> {
+    vec![
+        redis.health_stream.clone(),
+        redis.readiness_stream.clone(),
+        redis.portfolio_stream.clone(),
+        redis.order_snapshot_stream.clone(),
+        redis.market_data_stream.clone(),
+    ]
+}
+
+fn runtime_bridge_dry_summary_json(
+    resolved: &ResolvedRuntimeBridgeDryConfig,
+    consumer_metrics: &finam_gateway::RuntimeBridgeConsumerMetrics,
+    readiness_simulator: &RuntimeBridgeReadinessSimulator,
+    redis_metrics: &RuntimeBridgeRedisDryMetrics,
+    pending_counts: BTreeMap<String, Option<i64>>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "runtime_bridge_dry_consumer": true,
+        "live_trading_enabled": false,
+        "command_consumer_enabled": false,
+        "order_placement_enabled": false,
+        "group": resolved.group,
+        "consumer": resolved.consumer,
+        "streams": runtime_bridge_consumer_streams(&resolved.gateway_config.redis),
+        "dlq_stream": resolved.gateway_config.redis.runtime_bridge_dlq_stream,
+        "xreadgroup": {
+            "iterations": redis_metrics.xreadgroup_iterations,
+            "entries_returned": redis_metrics.entries_returned,
+            "last_ids": redis_metrics.last_ids,
+            "pending_counts": pending_counts,
+            "xack_count": redis_metrics.xack_count,
+        },
+        "dlq": {
+            "published_count": redis_metrics.dlq_published_count,
+            "missing_payload_count": redis_metrics.missing_payload_count,
+        },
+        "consumer_metrics": consumer_metrics,
+        "readiness_simulator": readiness_simulator.decision(),
+    })
+}
+
 fn read_gateway_shadow_file_config(path: Option<&PathBuf>) -> Result<GatewayShadowFileConfig> {
     let Some(path) = path else {
         return Ok(GatewayShadowFileConfig::default());
@@ -1497,6 +2061,38 @@ fn resolve_gateway_shadow_config(
     })
 }
 
+fn resolve_runtime_bridge_dry_config(
+    args: RuntimeBridgeDryConsumeArgs,
+    file_config: GatewayShadowFileConfig,
+) -> Result<ResolvedRuntimeBridgeDryConfig> {
+    let mut gateway_config = GatewayConfig {
+        features: GatewayFeatureSet::default(),
+        ..GatewayConfig::default()
+    };
+    apply_gateway_shadow_file_config(&mut gateway_config, &file_config);
+    if let Some(redis_url) = args.redis_url {
+        gateway_config.redis.url = redis_url;
+    }
+
+    Ok(ResolvedRuntimeBridgeDryConfig {
+        gateway_config,
+        group: non_empty_or_default(args.group, "broker-runtime-bridge-dry"),
+        consumer: non_empty_or_default(args.consumer, "dry-consumer-1"),
+        group_start_id: non_empty_or_default(args.group_start_id, "$"),
+        count: args.count.max(1),
+        block_ms: args.block_ms,
+        max_iterations: args.max_iterations.max(1),
+    })
+}
+
+fn non_empty_or_default(value: String, default: &str) -> String {
+    if value.trim().is_empty() {
+        default.to_string()
+    } else {
+        value
+    }
+}
+
 fn apply_gateway_shadow_file_config(
     gateway_config: &mut GatewayConfig,
     file_config: &GatewayShadowFileConfig,
@@ -1534,6 +2130,9 @@ fn apply_gateway_shadow_streams(
     if let Some(value) = streams.market_data.as_deref() {
         redis_config.market_data_stream = value.to_string();
     }
+    if let Some(value) = streams.runtime_bridge_dlq.as_deref() {
+        redis_config.runtime_bridge_dlq_stream = value.to_string();
+    }
 }
 
 fn apply_gateway_shadow_retention(
@@ -1554,6 +2153,9 @@ fn apply_gateway_shadow_retention(
     }
     if retention.market_data_maxlen.is_some() {
         retention_config.market_data_maxlen = retention.market_data_maxlen;
+    }
+    if retention.runtime_bridge_dlq_maxlen.is_some() {
+        retention_config.runtime_bridge_dlq_maxlen = retention.runtime_bridge_dlq_maxlen;
     }
 }
 
@@ -1845,6 +2447,55 @@ mod tests {
     }
 
     #[test]
+    fn bar_finality_golden_summary_uses_redacted_shape_and_timestamp_diagnostics() {
+        let bars = broker_finam::BarsResponse {
+            symbol: "TESTFUT@TEST".to_string(),
+            bars: vec![
+                sample_finam_bar("2026-06-29T09:00:00Z"),
+                sample_finam_bar("2026-06-29T09:01:00Z"),
+            ],
+        };
+
+        let summary = bar_finality_golden_summary(
+            "TESTFUT@TEST",
+            "TIME_FRAME_M1",
+            60,
+            "2026-06-29T09:00:00Z",
+            "2026-06-29T09:02:00Z",
+            &bars,
+        )
+        .expect("summary");
+        let rendered = serde_json::to_string(&summary).expect("summary serializes");
+
+        assert_eq!(summary["bar_finality_golden_harness"], true);
+        assert_eq!(summary["live_trading_enabled"], false);
+        assert_eq!(summary["order_endpoints_used"], false);
+        assert_eq!(summary["symbol_present"], true);
+        assert_eq!(summary["response_symbol_matches_request"], true);
+        assert_eq!(summary["bars_count"], 2);
+        assert_eq!(summary["mapped_bars_count"], 2);
+        assert_eq!(summary["unique_open_deltas_sec"], serde_json::json!([60]));
+        assert_eq!(summary["close_delta_mismatch_count"], 0);
+        assert_eq!(
+            summary["acceptance_status"],
+            "unproven_operator_review_required"
+        );
+        assert!(!rendered.contains("TESTFUT@TEST"));
+    }
+
+    #[test]
+    fn golden_bars_window_uses_operator_bounds_when_present() {
+        let (start_time, end_time) = golden_bars_window(
+            Some("2026-06-29T09:00:00Z"),
+            Some("2026-06-29T09:10:00Z"),
+            90,
+        );
+
+        assert_eq!(start_time, "2026-06-29T09:00:00Z");
+        assert_eq!(end_time, "2026-06-29T09:10:00Z");
+    }
+
+    #[test]
     fn shadow_loop_summary_includes_cumulative_metrics() {
         let metrics = ShadowMetrics {
             success_count: 2,
@@ -1917,6 +2568,7 @@ mod tests {
                     portfolio: Some("broker.portfolio.snapshot".to_string()),
                     orders_snapshot: Some("broker.orders.snapshot".to_string()),
                     market_data: Some("broker.market_data".to_string()),
+                    runtime_bridge_dlq: Some("broker.runtime_bridge.dlq".to_string()),
                 }),
                 ..GatewayShadowFileConfig::default()
             },
@@ -1940,6 +2592,10 @@ mod tests {
         assert_eq!(
             resolved.gateway_config.redis.market_data_stream,
             "broker.market_data"
+        );
+        assert_eq!(
+            resolved.gateway_config.redis.runtime_bridge_dlq_stream,
+            "broker.runtime_bridge.dlq"
         );
         assert_eq!(resolved.timeframe, "TIME_FRAME_M10");
     }
@@ -1970,6 +2626,7 @@ mod tests {
                     portfolio_maxlen: Some(20),
                     order_snapshot_maxlen: Some(20),
                     market_data_maxlen: Some(100),
+                    runtime_bridge_dlq_maxlen: Some(30),
                 }),
                 ..GatewayShadowFileConfig::default()
             },
@@ -1987,5 +2644,30 @@ mod tests {
             resolved.gateway_config.redis.retention.market_data_maxlen,
             Some(100)
         );
+        assert_eq!(
+            resolved
+                .gateway_config
+                .redis
+                .retention
+                .runtime_bridge_dlq_maxlen,
+            Some(30)
+        );
+    }
+
+    fn sample_finam_bar(timestamp: &str) -> broker_finam::Bar {
+        broker_finam::Bar {
+            close: decimal_value("5001"),
+            high: decimal_value("5010"),
+            low: decimal_value("4990"),
+            open: decimal_value("5000"),
+            timestamp: timestamp.to_string(),
+            volume: decimal_value("10"),
+        }
+    }
+
+    fn decimal_value(value: &str) -> broker_finam::DecimalValue {
+        broker_finam::DecimalValue {
+            value: value.to_string(),
+        }
     }
 }

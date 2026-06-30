@@ -47,6 +47,7 @@ pub struct RedisStreamConfig {
     pub portfolio_stream: String,
     pub order_snapshot_stream: String,
     pub market_data_stream: String,
+    pub runtime_bridge_dlq_stream: String,
     pub retention: RedisRetentionConfig,
 }
 
@@ -59,6 +60,7 @@ impl Default for RedisStreamConfig {
             portfolio_stream: "finam:portfolio".to_string(),
             order_snapshot_stream: "finam:orders:snapshot".to_string(),
             market_data_stream: "finam:market-data".to_string(),
+            runtime_bridge_dlq_stream: "finam:runtime-bridge:dlq".to_string(),
             retention: RedisRetentionConfig::default(),
         }
     }
@@ -71,6 +73,7 @@ pub struct RedisRetentionConfig {
     pub portfolio_maxlen: Option<usize>,
     pub order_snapshot_maxlen: Option<usize>,
     pub market_data_maxlen: Option<usize>,
+    pub runtime_bridge_dlq_maxlen: Option<usize>,
 }
 
 impl Default for RedisRetentionConfig {
@@ -81,6 +84,7 @@ impl Default for RedisRetentionConfig {
             portfolio_maxlen: Some(1_000),
             order_snapshot_maxlen: Some(1_000),
             market_data_maxlen: Some(10_000),
+            runtime_bridge_dlq_maxlen: Some(1_000),
         }
     }
 }
@@ -193,6 +197,7 @@ pub enum RuntimeBridgeDlqReason {
         actual: u64,
     },
     MissingMessageType,
+    MissingPayload,
     UnsupportedMessageType,
     MessageTypeMismatch {
         expected: MessageType,
@@ -210,6 +215,34 @@ pub struct RuntimeBridgeDeadLetter {
     pub entry_id: String,
     pub reason: RuntimeBridgeDlqReason,
     pub payload_len: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeBridgeDlqRecord {
+    pub schema_version: u16,
+    pub ts_utc: DateTime<Utc>,
+    pub source: String,
+    pub consumer_group: String,
+    pub consumer_name: String,
+    pub dead_letter: RuntimeBridgeDeadLetter,
+}
+
+impl RuntimeBridgeDlqRecord {
+    pub fn new(
+        source: impl Into<String>,
+        consumer_group: impl Into<String>,
+        consumer_name: impl Into<String>,
+        dead_letter: RuntimeBridgeDeadLetter,
+    ) -> Self {
+        Self {
+            schema_version: SCHEMA_VERSION,
+            ts_utc: Utc::now(),
+            source: source.into(),
+            consumer_group: consumer_group.into(),
+            consumer_name: consumer_name.into(),
+            dead_letter,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -236,6 +269,220 @@ pub struct RuntimeBridgeConsumerMetrics {
     pub portfolio_snapshot_count: u64,
     pub order_snapshot_count: u64,
     pub market_data_count: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RuntimeBridgeDryReadinessPhase {
+    WaitingForInputs,
+    DryReady,
+    Degraded,
+    Blocked,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RuntimeBridgeDryReadinessReason {
+    HealthMissing,
+    HealthNotReadOnly { status: GatewayHealthStatus },
+    GatewayReadinessMissing,
+    GatewayReadinessNotReconciliation { phase: ReadinessPhase },
+    PortfolioSnapshotMissing,
+    OrderSnapshotMissing,
+    MarketDataMissing,
+    UnknownOpenOrders,
+    DeadLettersPresent { count: u64 },
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeBridgeReadinessState {
+    pub health_seen: bool,
+    pub health_status: Option<GatewayHealthStatus>,
+    pub gateway_readiness_seen: bool,
+    pub gateway_readiness_phase: Option<ReadinessPhase>,
+    pub portfolio_snapshot_seen: bool,
+    pub order_snapshot_seen: bool,
+    pub market_data_seen: bool,
+    pub blocking_unknown_orders: bool,
+    pub dead_letter_count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeBridgeReadinessDecision {
+    pub schema_version: u16,
+    pub live_ready: bool,
+    pub phase: RuntimeBridgeDryReadinessPhase,
+    pub reasons: Vec<RuntimeBridgeDryReadinessReason>,
+    pub state: RuntimeBridgeReadinessState,
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeBridgeReadinessSimulator {
+    config: RedisStreamConfig,
+    state: RuntimeBridgeReadinessState,
+}
+
+impl RuntimeBridgeReadinessSimulator {
+    pub fn new(config: RedisStreamConfig) -> Self {
+        Self {
+            config,
+            state: RuntimeBridgeReadinessState::default(),
+        }
+    }
+
+    pub fn from_gateway_config(config: &GatewayConfig) -> Self {
+        Self::new(config.redis.clone())
+    }
+
+    pub fn observe_entry(
+        &mut self,
+        entry: &RuntimeBridgeStreamEntry,
+    ) -> Result<(), RuntimeBridgeDeadLetter> {
+        self.try_observe_entry(entry)
+            .map_err(|reason| dead_letter(entry, reason))
+    }
+
+    pub fn observe_dead_letter(&mut self, _dead_letter: &RuntimeBridgeDeadLetter) {
+        self.state.dead_letter_count += 1;
+    }
+
+    pub fn state(&self) -> &RuntimeBridgeReadinessState {
+        &self.state
+    }
+
+    pub fn decision(&self) -> RuntimeBridgeReadinessDecision {
+        let mut reasons = Vec::new();
+        let mut has_blocker = false;
+        let mut has_degraded = false;
+
+        if !self.state.health_seen {
+            reasons.push(RuntimeBridgeDryReadinessReason::HealthMissing);
+        } else if let Some(status) = self.state.health_status {
+            if status != GatewayHealthStatus::ReadOnly {
+                reasons.push(RuntimeBridgeDryReadinessReason::HealthNotReadOnly { status });
+                match status {
+                    GatewayHealthStatus::Degraded | GatewayHealthStatus::Stopped => {
+                        has_degraded = true;
+                    }
+                    GatewayHealthStatus::Starting => {}
+                    GatewayHealthStatus::ReadOnly => {}
+                }
+            }
+        }
+
+        if !self.state.gateway_readiness_seen {
+            reasons.push(RuntimeBridgeDryReadinessReason::GatewayReadinessMissing);
+        } else if let Some(phase) = self.state.gateway_readiness_phase {
+            if phase != ReadinessPhase::Reconciliation {
+                reasons.push(
+                    RuntimeBridgeDryReadinessReason::GatewayReadinessNotReconciliation { phase },
+                );
+                match phase {
+                    ReadinessPhase::Degraded | ReadinessPhase::Stopped => has_degraded = true,
+                    ReadinessPhase::Blocked => has_blocker = true,
+                    _ => {}
+                }
+            }
+        }
+
+        if !self.state.portfolio_snapshot_seen {
+            reasons.push(RuntimeBridgeDryReadinessReason::PortfolioSnapshotMissing);
+        }
+        if !self.state.order_snapshot_seen {
+            reasons.push(RuntimeBridgeDryReadinessReason::OrderSnapshotMissing);
+        }
+        if !self.state.market_data_seen {
+            reasons.push(RuntimeBridgeDryReadinessReason::MarketDataMissing);
+        }
+        if self.state.blocking_unknown_orders {
+            reasons.push(RuntimeBridgeDryReadinessReason::UnknownOpenOrders);
+            has_blocker = true;
+        }
+        if self.state.dead_letter_count > 0 {
+            reasons.push(RuntimeBridgeDryReadinessReason::DeadLettersPresent {
+                count: self.state.dead_letter_count,
+            });
+            has_blocker = true;
+        }
+
+        let phase = if has_blocker {
+            RuntimeBridgeDryReadinessPhase::Blocked
+        } else if has_degraded {
+            RuntimeBridgeDryReadinessPhase::Degraded
+        } else if reasons.is_empty() {
+            RuntimeBridgeDryReadinessPhase::DryReady
+        } else {
+            RuntimeBridgeDryReadinessPhase::WaitingForInputs
+        };
+
+        RuntimeBridgeReadinessDecision {
+            schema_version: SCHEMA_VERSION,
+            live_ready: false,
+            phase,
+            reasons,
+            state: self.state.clone(),
+        }
+    }
+
+    fn try_observe_entry(
+        &mut self,
+        entry: &RuntimeBridgeStreamEntry,
+    ) -> Result<(), RuntimeBridgeDlqReason> {
+        let expected = expected_message_type_for_stream(&self.config, &entry.stream)
+            .ok_or(RuntimeBridgeDlqReason::UnknownStream)?;
+        let envelope_value: serde_json::Value = serde_json::from_str(&entry.payload)
+            .map_err(|_| RuntimeBridgeDlqReason::InvalidJson)?;
+        validate_envelope_header(&envelope_value, &expected)?;
+
+        match expected {
+            MessageType::Health => {
+                let envelope = decode_envelope::<GatewayHealth>(
+                    &entry.payload,
+                    RuntimeBridgePayloadKind::Health,
+                )?;
+                self.state.health_seen = true;
+                self.state.health_status = Some(envelope.payload.status);
+                Ok(())
+            }
+            MessageType::Readiness => {
+                let envelope = decode_envelope::<BrokerReadiness>(
+                    &entry.payload,
+                    RuntimeBridgePayloadKind::Readiness,
+                )?;
+                self.state.gateway_readiness_seen = true;
+                self.state.gateway_readiness_phase = Some(envelope.payload.phase);
+                Ok(())
+            }
+            MessageType::PortfolioSnapshot => {
+                decode_envelope::<PortfolioSnapshot>(
+                    &entry.payload,
+                    RuntimeBridgePayloadKind::PortfolioSnapshot,
+                )?;
+                self.state.portfolio_snapshot_seen = true;
+                Ok(())
+            }
+            MessageType::OrderSnapshot => {
+                let envelope = decode_envelope::<OrderSnapshot>(
+                    &entry.payload,
+                    RuntimeBridgePayloadKind::OrderSnapshot,
+                )?;
+                if order_snapshot_has_raw_comments(&envelope.payload) {
+                    return Err(RuntimeBridgeDlqReason::RawOrderCommentPresent);
+                }
+                self.state.order_snapshot_seen = true;
+                self.state.blocking_unknown_orders =
+                    envelope.payload.blocking_unknown_status_present;
+                Ok(())
+            }
+            MessageType::MarketData => {
+                decode_envelope::<MarketDataEvent>(
+                    &entry.payload,
+                    RuntimeBridgePayloadKind::MarketData,
+                )?;
+                self.state.market_data_seen = true;
+                Ok(())
+            }
+            _ => Err(RuntimeBridgeDlqReason::UnsupportedMessageType),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1405,6 +1652,122 @@ mod tests {
         let entries = sink.entries().expect("entries");
         assert_eq!(entries.len(), 2);
         assert!(entries.iter().all(|entry| entry.stream == "finam:health"));
+    }
+
+    #[tokio::test]
+    async fn runtime_bridge_readiness_simulator_reports_dry_ready_for_complete_shadow_inputs() {
+        let sink = InMemoryRedisStreamSink::default();
+        let config = GatewayConfig::default();
+        let gateway = FinamGateway::new(config.clone(), sink.clone());
+
+        gateway
+            .publish_health(default_readonly_health(gateway.config()))
+            .await
+            .expect("health published");
+        gateway
+            .publish_readonly_snapshots(&sample_account(), &sample_orders(), Utc::now())
+            .await
+            .expect("snapshots published");
+        gateway
+            .publish_market_data_event(MarketDataEvent::Quote(Quote {
+                instrument: sample_instrument(),
+                source_kind: MarketDataSourceKind::ReadOnlyPoll,
+                bid: None,
+                ask: None,
+                last: Some(Decimal::new(5000, 0)),
+                source_ts: None,
+                received_ts: Utc::now(),
+            }))
+            .await
+            .expect("market data published");
+        gateway
+            .publish_readiness(BrokerReadiness {
+                phase: ReadinessPhase::Reconciliation,
+                reasons: vec![ReadinessReason::OperatorLiveArmMissing],
+                checked_ts: Utc::now(),
+            })
+            .await
+            .expect("readiness published");
+
+        let mut simulator = RuntimeBridgeReadinessSimulator::from_gateway_config(&config);
+        for entry in runtime_entries(sink.entries().expect("entries")) {
+            simulator.observe_entry(&entry).expect("valid stream entry");
+        }
+
+        let decision = simulator.decision();
+        assert_eq!(decision.phase, RuntimeBridgeDryReadinessPhase::DryReady);
+        assert!(!decision.live_ready);
+        assert!(decision.reasons.is_empty());
+        assert!(decision.state.health_seen);
+        assert!(decision.state.portfolio_snapshot_seen);
+        assert!(decision.state.order_snapshot_seen);
+        assert!(decision.state.market_data_seen);
+    }
+
+    #[test]
+    fn runtime_bridge_readiness_simulator_blocks_on_dlq_and_unknown_orders() {
+        let config = GatewayConfig::default();
+        let mut simulator = RuntimeBridgeReadinessSimulator::from_gateway_config(&config);
+        simulator.state.health_seen = true;
+        simulator.state.health_status = Some(GatewayHealthStatus::ReadOnly);
+        simulator.state.gateway_readiness_seen = true;
+        simulator.state.gateway_readiness_phase = Some(ReadinessPhase::Reconciliation);
+        simulator.state.portfolio_snapshot_seen = true;
+        simulator.state.order_snapshot_seen = true;
+        simulator.state.market_data_seen = true;
+        simulator.state.blocking_unknown_orders = true;
+        simulator.observe_dead_letter(&RuntimeBridgeDeadLetter {
+            stream: config.redis.market_data_stream.clone(),
+            entry_id: "1-0".to_string(),
+            reason: RuntimeBridgeDlqReason::InvalidJson,
+            payload_len: 7,
+        });
+
+        let decision = simulator.decision();
+        assert_eq!(decision.phase, RuntimeBridgeDryReadinessPhase::Blocked);
+        assert!(!decision.live_ready);
+        assert!(decision
+            .reasons
+            .contains(&RuntimeBridgeDryReadinessReason::UnknownOpenOrders));
+        assert!(decision
+            .reasons
+            .contains(&RuntimeBridgeDryReadinessReason::DeadLettersPresent { count: 1 }));
+    }
+
+    #[test]
+    fn runtime_bridge_dlq_record_serializes_without_raw_payload() {
+        let record = RuntimeBridgeDlqRecord::new(
+            "finam-gateway",
+            "broker-runtime-bridge-dry",
+            "dry-consumer-1",
+            RuntimeBridgeDeadLetter {
+                stream: "broker.market_data".to_string(),
+                entry_id: "1-0".to_string(),
+                reason: RuntimeBridgeDlqReason::InvalidJson,
+                payload_len: 42,
+            },
+        );
+
+        let payload = serde_json::to_string(&record).expect("DLQ record serializes");
+
+        assert!(payload.contains("\"schema_version\":2"));
+        assert!(payload.contains("\"consumer_group\":\"broker-runtime-bridge-dry\""));
+        assert!(payload.contains("\"payload_len\":42"));
+        assert!(payload.contains("\"InvalidJson\""));
+        assert!(!payload.contains("raw Redis payload"));
+        assert!(!payload.contains("\"payload\":"));
+    }
+
+    #[test]
+    fn runtime_bridge_dlq_retention_default_is_bounded() {
+        assert_eq!(
+            RedisRetentionConfig::default().runtime_bridge_dlq_maxlen,
+            Some(1_000)
+        );
+        assert_eq!(
+            RedisStreamConfig::default().runtime_bridge_dlq_stream,
+            "finam:runtime-bridge:dlq"
+        );
     }
 
     #[test]

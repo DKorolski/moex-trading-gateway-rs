@@ -69,9 +69,15 @@ Redis snapshots must redact raw comments by default and may expose only a
 non-reversible `comment_fingerprint`. Raw comment export requires a separate
 local-only broker-truth/debug workflow.
 
+FINAM bar finality golden-check output must stay redacted. It may include
+timestamp diagnostics, counts, symbol/account presence flags, and derived
+timeframe consistency, but not secret tokens, JWTs, account ids, order ids, raw
+broker payloads, or local `.env` values.
+
 Runtime-bridge DLQ records must not store raw Redis payload text. Store only
-stream name, entry id, reason class, payload length, and optional future
-non-reversible fingerprints.
+schema version, timestamp, gateway source, consumer group/name, stream name,
+entry id, reason class, payload length, and optional future non-reversible
+fingerprints.
 Typed expected/actual diagnostics are allowed when represented as enum/type
 names, not raw decoded values.
 

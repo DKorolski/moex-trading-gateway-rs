@@ -12,13 +12,15 @@
     "readiness": "broker.readiness",
     "portfolio": "broker.portfolio.snapshot",
     "orders_snapshot": "broker.orders.snapshot",
-    "market_data": "broker.market_data"
+    "market_data": "broker.market_data",
+    "runtime_bridge_dlq": "broker.runtime_bridge.dlq"
   },
   "retention": {
     "health_maxlen": 1000,
     "readiness_maxlen": 1000,
     "portfolio_maxlen": 1000,
     "order_snapshot_maxlen": 1000,
-    "market_data_maxlen": 10000
+    "market_data_maxlen": 10000,
+    "runtime_bridge_dlq_maxlen": 1000
   }
 }

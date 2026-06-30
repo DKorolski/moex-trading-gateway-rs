@@ -224,16 +224,21 @@ M2g compact hardening allowed scope:
   and empty `comment_fingerprint`.
 - Terminology cleanup across M2d/M2e/M2f/M2g docs.
 
-M2g remaining allowed scope, still without live orders:
+M2h dry Redis runner allowed scope, still without live orders:
 
 - Redis `XREADGROUP` dry consumer runner for broker-neutral streams.
-- Consumer lag metrics for last id, pending entries, decode failures, and DLQ
-  count.
+- Consumer metrics for `XREADGROUP` iterations, returned entries, last id,
+  pending entries, Redis `XACK` count, missing payloads, and DLQ count.
 - DLQ publication stream without raw payload.
-- Runtime-readiness simulator that consumes health/readiness/snapshots/market
-  data but does not run strategies.
+- Runtime-readiness simulator/dry runner that consumes health/readiness/
+  snapshots/market data but does not run strategies.
+- Configurable DLQ stream name and bounded retention.
+- Read-only FINAM bar timestamp/finality golden-test harness that emits
+  redacted evidence and keeps the acceptance decision manual.
+- Consumer-side idempotency/watermark design notes, with implementation still
+  in-memory until durability is explicitly approved.
 
-M2g explicitly still not allowed:
+M2h explicitly still not allowed:
 
 - POST/DELETE order endpoints.
 - Live order placement or cancel.

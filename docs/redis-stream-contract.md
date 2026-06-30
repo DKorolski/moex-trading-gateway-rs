@@ -51,6 +51,7 @@ finam:readiness
 finam:portfolio
 finam:orders:snapshot
 finam:market-data
+finam:runtime-bridge:dlq
 ```
 
 For a broker-neutral runtime bridge deployment, stream names are configured
@@ -62,6 +63,7 @@ broker.readiness
 broker.portfolio.snapshot
 broker.orders.snapshot
 broker.market_data
+broker.runtime_bridge.dlq
 ```
 
 See `config/finam-gateway-shadow.example.json` for a safe synthetic example.
@@ -136,8 +138,16 @@ The planned durable strategy before live runtime consumption is:
    `source_kind = Recovery` without being confused with fresh live data.
 
 M2d keeps producer-side watermarking in-process. M2f/M2g add dry consumer-side
-dedupe and refine the key shape, but intentionally do not persist it until the
-runtime bridge runner/storage contract is reviewed.
+dedupe and refine the key shape. M2h keeps the runtime-side watermark
+in-memory inside the dry consumer; durability is a separate M3/M4 gate because
+it affects replay, recovery, and operator incident handling. The current design
+decision is:
+
+- producer-side in-process dedupe reduces Redis noise;
+- consumer-side in-process dedupe makes the dry bridge idempotent within one
+  runner process;
+- durable dedupe storage must be added before real strategy runtime attachment
+  if the bridge must survive restarts without replaying already-consumed bars.
 
 ## Redis smoke
 
@@ -178,9 +188,10 @@ outside the allowed M2 stream contract.
 ## Dry runtime bridge consumer contract
 
 M2f introduces a dry consumer contract in `finam-gateway`, and M2g hardens its
-diagnostics/dedupe rules. The dry consumer is not attached to the strategy
-runtime. It accepts stream entries in the same shape a Redis
-`XREAD`/`XREADGROUP` reader would produce:
+diagnostics/dedupe rules. M2h adds a dry Redis `XREADGROUP` runner around the
+same contract. The dry consumer is not attached to the strategy runtime. It
+accepts stream entries in the same shape a Redis `XREAD`/`XREADGROUP` reader
+would produce:
 
 ```text
 stream
@@ -211,6 +222,7 @@ Dead-letter reasons are classified without storing raw payload text:
 - message type mismatch for the stream, with expected and actual known message
   types;
 - typed decode failure, with expected payload kind;
+- missing `payload` field in the Redis stream entry;
 - raw order comment present.
 
 The dry consumer metrics are:
@@ -222,9 +234,32 @@ The dry consumer metrics are:
 - per-payload-kind counts for health, readiness, portfolio snapshot, order
   snapshot, and market data.
 
+`runtime-bridge-dry-consume` adds Redis-runner metrics:
+
+- `XREADGROUP` iteration count;
+- returned-entry count;
+- last seen Redis id per stream;
+- `XPENDING` count per stream;
+- Redis `XACK` count;
+- DLQ publication count;
+- missing-payload count.
+
+Redis `XACK` here means only that a dry consumer group has processed the stream
+entry. It is not a broker command ACK and it is not an order lifecycle event.
+
+The runner also emits a dry readiness-simulator decision. The decision can be
+`WaitingForInputs`, `DryReady`, `Degraded`, or `Blocked`, but it always keeps
+`live_ready = false`. It is an observability aid for the future runtime bridge,
+not an arming signal.
+
+When a dead letter is produced, the runner publishes a safe
+`RuntimeBridgeDlqRecord` to the configured DLQ stream. The DLQ payload includes
+schema version, timestamp, gateway source, consumer group, consumer name, and
+the redacted dead-letter fields. It does not store raw Redis payload text.
+
 This is still not a live runtime bridge. It does not publish `LiveReady`, does
-not consume command streams, does not produce command ACKs, and does not call
-strategies.
+not consume command streams, does not produce command ACKs, does not call
+strategies, and does not arm live trading from simulator output.
 
 ## Retention policy
 
@@ -236,6 +271,7 @@ readiness: 1000
 portfolio snapshots: 1000
 order snapshots: 1000
 market data: 10000
+runtime bridge DLQ: 1000
 ```
 
 These values are configurable through `config/finam-gateway-shadow.example.json`.

@@ -8,6 +8,23 @@ execution semantics.
 Before a runtime bridge consumes bar events, run and archive a redacted golden
 test for each timeframe used by strategies.
 
+M2h adds a read-only harness for collecting the first evidence bundle:
+
+```bash
+FINAM_SECRET_TOKEN=... FINAM_SYMBOL=TICKER@MIC \
+  cargo run -p broker-cli -- finam-bar-finality-golden-check \
+  --timeframe TIME_FRAME_M1 \
+  --start-time 2026-06-29T09:00:00Z \
+  --end-time 2026-06-29T10:00:00Z \
+  --output tmp/finam-bar-finality-golden-redacted.json
+```
+
+The harness uses only auth and `bars_typed`; it does not call account, order,
+cancel, or placement endpoints. Its output is redacted: it records presence
+flags, counts, timestamp deltas, first/last bar timestamps, derived close/open
+consistency, and `acceptance_status =
+unproven_operator_review_required`.
+
 ## Required checks
 
 1. Request a bounded historical window that contains only fully closed bars.

@@ -41,6 +41,7 @@ cargo run -p broker-cli -- finam-info
 FINAM_SECRET_TOKEN=... cargo run -p broker-cli -- finam-auth-check
 FINAM_SECRET_TOKEN=... cargo run -p broker-cli -- finam-readonly-check
 FINAM_SECRET_TOKEN=... cargo run -p broker-cli -- finam-typed-readonly-check
+FINAM_SECRET_TOKEN=... FINAM_SYMBOL=TICKER@MIC cargo run -p broker-cli -- finam-bar-finality-golden-check
 ```
 
 `finam-readonly-check` is diagnostics-only: it does not place, cancel, replace,
@@ -89,6 +90,13 @@ commands.
 M2g hardens that dry contract: bar dedupe keys include `source_kind` and
 finality, DLQ reasons carry safe expected/actual type context, and order
 snapshot serialization has contract coverage to keep raw comments absent.
+M2h adds the dry Redis runner around that contract: `runtime-bridge-dry-consume`
+uses `XREADGROUP` over the broker-neutral shadow streams, publishes safe DLQ
+records without raw payloads, reports consumer/pending metrics, Redis-ACKs
+processed stream entries, and emits a dry readiness-simulator decision that is
+never `LiveReady`. It also adds a read-only `finam-bar-finality-golden-check`
+harness for FINAM bar timestamp/finality evidence. It still does not consume
+order commands, produce trading ACKs, call strategies, or enable live orders.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`.
