@@ -123,3 +123,8 @@ The M3 order path must follow `docs/m2-to-m3-readiness-gate.md` and
 `docs/m3-order-path-design.md`: durable id mapping before network submit,
 operator arming before endpoint use, and no blind retry after ambiguous
 place-order timeout.
+
+M3a-1 starts this contract in code through `broker-core::order_path`. That
+module is intentionally non-network: it defines state transitions, duplicate-id
+store behavior, outgoing comment policy, operator arming, and preflight checks
+without calling any broker endpoint.

@@ -5,6 +5,12 @@ but does not enable FINAM order placement, cancel, command stream consumption,
 real ACK lifecycle, strategy runtime attachment, `LiveReady`, stop/SLTP, or
 bracket behavior.
 
+M3a-1 implementation status: the broker-neutral non-network foundation lives in
+`broker-core::order_path`. It includes the order-path state machine, an in-
+memory store specification for duplicate-id tests, outgoing comment policy,
+operator arming TTL/one-shot checks, and place-order preflight validation. It
+does not call FINAM endpoints and is not a live command consumer.
+
 M3 scope is deliberately small:
 
 - one operator-selected FINAM account;
@@ -66,6 +72,28 @@ Required preflight checks:
 `client_order_id` must be generated before network submission and must satisfy
 FINAM's outgoing id limit.
 
+## Outgoing FINAM comment policy
+
+First micro default: no outgoing FINAM `comment`.
+
+If an operator explicitly enables comments later, the only allowed format is a
+sanitized deterministic diagnostic string:
+
+```text
+strategy=<short_strategy_id>;intent=<intent_class>;cid=<client_order_id>
+```
+
+Policy:
+
+- max length is configured and enforced before endpoint use;
+- invalid values are rejected, not truncated;
+- only ASCII alphanumeric, `_`, and `-` are allowed in strategy/intent tokens;
+- forbidden content includes account ids, operator names, secrets, JWT/token
+  text, raw broker order ids, and raw strategy state;
+- durable mapping stores only a length/SHA-256 fingerprint;
+- Redis streams must not expose the raw outgoing comment;
+- tests must prove serialization redacts the raw comment value.
+
 ## Cancel flow
 
 ```text
@@ -105,6 +133,10 @@ partial fill, terminal state, and PnL.
 The first M3 implementation task should be a durable local store. It may start
 as SQLite or Redis with atomic semantics, but the contract is independent of the
 storage engine.
+
+M3a-1 adds an in-memory store specification only. It proves duplicate
+`StrategyRequestId` and duplicate `ClientOrderId` rejection, but it is not the
+final durable backend for live order emission.
 
 Primary key:
 
@@ -200,6 +232,10 @@ Required arm inputs:
 - dry/live mode flag;
 - operator confirmation timestamp or token;
 - preflight summary persisted to logs/artifacts without secrets.
+
+M3a-1 implements TTL/one-shot arm semantics in the broker-neutral domain model.
+One-shot arms are consumed after an endpoint-attempt marker; process restart
+must require a fresh arm in any future endpoint-enabled runner.
 
 Automatic disarm triggers:
 

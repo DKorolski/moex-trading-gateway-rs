@@ -87,6 +87,11 @@ M2k DLQ summary metrics expose only latest reason, timestamp, stream, entry id,
 and consecutive count; they must not add raw payload text to stdout or Redis
 DLQ records.
 
+M3 outgoing broker comments must follow the same redaction posture. First micro
+defaults to no outgoing comment. If sanitized comments are enabled later, Redis
+streams and durable mapping exports may store only length/SHA-256 fingerprints,
+not the raw comment value.
+
 CLI command argument containers should not derive auto `Debug`, because account
 ids and venue symbols can be supplied as args or environment-derived values.
 

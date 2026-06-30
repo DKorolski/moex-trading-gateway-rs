@@ -396,6 +396,36 @@ itself authorize live orders.
 
 ## M3 — micro MARKET/LIMIT/CANCEL
 
+M3a-1 non-network order-path foundation:
+
+- Broker-neutral `broker-core::order_path` module.
+- Order-path state machine for intent recording, submit in-flight, submitted,
+  timeout/unknown-pending, recovery by client order id, cancel request,
+  terminal, local/broker rejection, and manual intervention.
+- In-memory store specification enforcing duplicate `StrategyRequestId` and
+  duplicate `ClientOrderId` rejection. This is a test/spec implementation, not
+  the final durable backend.
+- Restart recovery behavior: `IntentRecorded` remains not submitted, while
+  `SubmitInFlight` recovers as `TimeoutUnknownPending` before any retry.
+- Outgoing comment policy: default disabled; optional sanitized deterministic
+  comment serializes only a fingerprint and rejects unsafe/too-long values.
+- Operator arm TTL/one-shot model with audit fields.
+- MARKET/LIMIT place-order preflight for account/symbol allowlist, order type,
+  TIF, quantity bounds/step, market quantity guard, and limit price tick. First
+  micro policy rejects invalid broker-boundary values; it does not silently
+  round.
+
+M3a-1 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Durable backend implementation for the live order path.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 - Operator-armed order-emitting mode after M2m acceptance.
 - Market and limit order placement with short client order id and comment.
 - Cancel command and terminal-state handling.

@@ -277,3 +277,29 @@ order:
 
 Stop, SLTP, bracket, strategy migration, scaling, and RI remain outside M3
 micro scope.
+
+## M3a-1 non-network foundation status
+
+Implemented in `broker-core::order_path`:
+
+- state-machine transition table with negative transition tests;
+- in-memory store specification that rejects duplicate `StrategyRequestId` and
+  duplicate `ClientOrderId`;
+- restart recovery rule: recorded intent is not submitted, submit-in-flight
+  becomes timeout/unknown-pending before any retry;
+- outgoing comment policy: disabled by default, sanitized deterministic mode
+  available, raw value skipped from serialization, unsafe/too-long values
+  rejected;
+- operator arm TTL/one-shot semantics;
+- place-order preflight that rejects invalid account, symbol, order type, TIF,
+  quantity step/bounds, market quantity, and limit price tick.
+
+Still not implemented in M3a-1:
+
+- final durable backend;
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer;
+- ACK publication against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro.

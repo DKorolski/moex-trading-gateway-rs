@@ -205,6 +205,8 @@ dependencies = [
  "chrono",
  "rust_decimal",
  "serde",
+ "serde_json",
+ "sha2",
  "thiserror 1.0.69",
  "uuid",
 ]

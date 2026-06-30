@@ -11,6 +11,7 @@ pub mod event;
 pub mod ids;
 pub mod instrument;
 pub mod order;
+pub mod order_path;
 pub mod readiness;
 pub mod subscription;
 pub mod time;
@@ -31,6 +32,13 @@ pub use instrument::{
 pub use order::{
     Order, OrderId, OrderSide, OrderStatus, OrderType, RedactedValueFingerprint, StopKind,
     TimeInForce, Trade, TradeId,
+};
+pub use order_path::{
+    CommentPolicyMode, InMemoryOrderPathStore, OperatorArm, OrderPathCommandKind,
+    OrderPathErrorKind, OrderPathEvent, OrderPathReconciliationSource, OrderPathRecord,
+    OrderPathState, OrderPathStoreError, OrderPathTransitionError, OrderPreflightError,
+    OrderPreflightPolicy, OutgoingCommentError, OutgoingCommentIntent, OutgoingOrderComment,
+    OutgoingOrderCommentPolicy,
 };
 pub use readiness::{BrokerReadiness, ReadinessPhase, ReadinessReason};
 pub use subscription::{SubscriptionIntent, SubscriptionKind, SubscriptionState};
