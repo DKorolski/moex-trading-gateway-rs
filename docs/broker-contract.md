@@ -128,5 +128,9 @@ M3a starts this contract in code through `broker-core::order_path`. That module
 is intentionally non-network: it defines state transitions, duplicate-id store
 behavior, outgoing comment policy, operator arming, place/cancel preflight,
 exact cancel mapping checks, raw place-command comment rejection, local durable
-restart/replay tests, store update invariants, and synthetic ACK construction
-without calling any broker endpoint.
+restart/replay tests, broker-order-id uniqueness, cancel timeout/no-blind-retry
+states, store update invariants, and synthetic ACK construction with safe reason
+codes without calling any broker endpoint.
+
+`broker-finam::order_request` may build FINAM request path/body specs for dry
+fixture tests, but it must not send HTTP or enable POST/DELETE order endpoints.

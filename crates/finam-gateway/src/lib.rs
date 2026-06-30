@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use broker_core::account::PortfolioSnapshot;
-use broker_core::command::{BrokerCommand, CommandAck, CommandAckStatus};
+use broker_core::command::{BrokerCommand, CommandAck, CommandAckReason, CommandAckStatus};
 use broker_core::envelope::{Envelope, MessageType, SCHEMA_VERSION};
 use broker_core::event::MarketDataEvent;
 use broker_core::ids::StrategyRequestId;
@@ -1014,7 +1014,7 @@ where
             client_order_id: command_client_order_id(command),
             broker_order_id: None,
             status: CommandAckStatus::Rejected,
-            reason: Some("FeatureDisabled: command consumer/order placement disabled in M2a read-only gateway".to_string()),
+            reason: Some(CommandAckReason::feature_disabled()),
             received_ts: Utc::now(),
         }
     }
@@ -1131,6 +1131,7 @@ fn command_client_order_id(command: &BrokerCommand) -> Option<broker_core::Clien
 #[cfg(test)]
 mod tests {
     use broker_core::account::PortfolioSnapshot;
+    use broker_core::command::CommandAckReasonCode;
     use broker_core::event::{Bar, MarketDataEvent, MarketDataSourceKind, Quote};
     use broker_core::ids::{ClientOrderId, StrategyRequestId};
     use broker_core::instrument::{Exchange, InstrumentId, Market};
@@ -1918,11 +1919,10 @@ mod tests {
         let ack = gateway.reject_command_feature_disabled(&command);
 
         assert_eq!(ack.status, CommandAckStatus::Rejected);
-        assert!(ack
-            .reason
-            .as_deref()
-            .expect("reason")
-            .contains("FeatureDisabled"));
+        assert_eq!(
+            ack.reason.expect("reason").code,
+            CommandAckReasonCode::FeatureDisabled
+        );
     }
 
     fn sample_instrument() -> InstrumentId {

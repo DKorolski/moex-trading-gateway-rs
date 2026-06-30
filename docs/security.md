@@ -97,6 +97,10 @@ Dry M3 preflight rejects any raw command comment; any future broker-native
 comment must be generated inside the gateway through the sanitized outgoing
 comment policy and persisted only as a fingerprint.
 
+Command ACK reasons must remain safe structured codes. Do not publish raw broker
+error bodies, account ids, broker order ids, secrets, JWTs, or arbitrary payload
+text in `CommandAck.reason`.
+
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account
 ids, instruments, order state, timestamps, and outgoing-comment fingerprints,

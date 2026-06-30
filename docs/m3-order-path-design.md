@@ -12,8 +12,10 @@ arming TTL/one-shot checks, and place-order preflight validation. M3a-2 adds the
 storage trait, JSON-file durable test backend, cancel preflight, reference
 price/notional/slippage guards, and synthetic ACK construction. M3a-3 hardens
 cancel mapping, raw command-comment rejection, store update invariants, tick
-scale tests, and limit-band boundary tests. It does not call FINAM endpoints and
-is not a live command consumer.
+scale tests, and limit-band boundary tests. M3a-4 adds broker-order-id
+uniqueness, cancel timeout/no-blind-retry states, safe ACK reason codes, and dry
+FINAM place/cancel request builders without HTTP send. It does not call FINAM
+endpoints and is not a live command consumer.
 
 M3 scope is deliberately small:
 
@@ -129,6 +131,12 @@ known active order as submit-ready or a known terminal/local rejected order as
 already-terminal. Missing or mismatched mappings are rejected unless an explicit
 operator policy permits broker-order-id-only cancel with no mapping.
 
+Ambiguous cancel timeout follows the same no-blind-retry principle as place:
+after a cancel request times out, the order path moves to
+`CancelTimeoutUnknownPending`; automatic cancel retry is blocked until
+broker-truth reconciliation proves terminal/canceled state or an operator-
+visible manual-intervention decision is recorded.
+
 ## ACK publishing rules
 
 ACKs are command-path facts only:
@@ -145,6 +153,10 @@ ACKs are command-path facts only:
 
 ACKs do not imply fill. The runtime must use normalized orders/trades for fill,
 partial fill, terminal state, and PnL.
+
+ACK reasons are structured safe codes, not arbitrary strings. Redis
+`broker.command_acks` must not carry raw broker response text, account ids,
+raw order ids, secrets, JWTs, or raw payload fragments.
 
 ## Durable mapping store
 
@@ -167,6 +179,10 @@ M3a-3 adds dry store update invariants: `ClientOrderId` cannot change,
 cannot be overwritten by non-terminal states, and `last_update_ts` cannot
 regress.
 
+M3a-4 makes `BrokerOrderId` a unique secondary key across records. Duplicate
+broker ids are rejected on insert, update, and JSON-file reopen because cancel
+and reconciliation by broker id must never be ambiguous.
+
 Primary key:
 
 ```text
@@ -184,6 +200,8 @@ Optional broker key:
 ```text
 broker_order_id
 ```
+
+M3a-4 treats this as a unique secondary key once present.
 
 Persisted fields:
 
@@ -286,6 +304,7 @@ Unit/fixture tests before real micro:
 |---|---|
 | valid market place | local `Accepted`, synthetic `Submitted` |
 | valid limit place | local `Accepted`, synthetic `Submitted` |
+| FINAM market/limit request builder | JSON body/path built, no HTTP send |
 | invalid qty | `Rejected`, no endpoint call |
 | invalid limit price | `Rejected`, no endpoint call |
 | missing limit tick/reference data | `Rejected`, no endpoint call |
@@ -300,6 +319,8 @@ Unit/fixture tests before real micro:
 | recovered by client order id | `Recovered` |
 | cancel active known order | `Accepted` then `Submitted` |
 | cancel mismatched broker order id | `Rejected`, no endpoint call |
+| cancel timeout | `CancelTimeoutUnknownPending`, no blind retry |
+| cancel recovered terminal | `Recovered` by broker-truth reconciliation |
 | cancel terminal order | `Recovered` or safe `Rejected`, no duplicate risk |
 | partial fill before snapshot | fill comes from trade event, not ACK |
 | trade before order snapshot | reconciliation creates/updates order owner |

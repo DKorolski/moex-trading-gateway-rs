@@ -359,3 +359,28 @@ Still not implemented in M3a-3:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3a-4 dry request/ACK builder hardening status
+
+Implemented while still keeping all broker endpoints disabled:
+
+- `BrokerOrderId` is a unique secondary key across order-path records;
+- duplicate broker ids reject on in-memory insert/update and JSON-file reopen;
+- cancel state machine supports `RecoveredByClientOrderId -> RequestCancel`;
+- cancel timeout moves to `CancelTimeoutUnknownPending` and blocks blind retry;
+- cancel timeout may recover to `CancelRecoveredTerminal` by broker-truth
+  reconciliation or move to `ManualInterventionRequired`;
+- cancel preflight rejects already-pending cancel and unknown/manual states;
+- `CommandAck.reason` is now a safe structured reason code, not arbitrary text;
+- `broker-finam::order_request` builds dry FINAM MARKET/LIMIT/CANCEL request
+  path/body specs without sending HTTP.
+
+Still not implemented in M3a-4:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer;
+- ACK publication against FINAM endpoints or Redis command streams;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

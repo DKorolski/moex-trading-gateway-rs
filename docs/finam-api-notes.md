@@ -237,6 +237,9 @@ Implementation notes from the first review:
   REST endpoints;
 - FINAM API capabilities are separate from gateway-enabled features;
 - Phase 1 enabled features keep live orders, stops, SLTP, and brackets disabled;
+- M3a-4 includes dry FINAM order request builders for MARKET/LIMIT/CANCEL path
+  and body fixture tests only; no REST order POST/DELETE send methods are
+  implemented or enabled;
 - raw `serde_json::Value` is acceptable only for the shape probe. Typed DTOs and
   mappers are required before Redis gateway/readiness work.
 

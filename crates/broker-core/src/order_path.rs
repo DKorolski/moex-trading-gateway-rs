@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::account::AccountId;
-use crate::command::{CancelOrder, CommandAck, CommandAckStatus, PlaceOrder};
+use crate::command::{CancelOrder, CommandAck, CommandAckReason, CommandAckStatus, PlaceOrder};
 use crate::ids::{BrokerOrderId, ClientOrderId, StrategyRequestId};
 use crate::instrument::{InstrumentId, Price, Quantity};
 use crate::order::{OrderSide, OrderType, RedactedValueFingerprint, TimeInForce};
@@ -31,6 +31,8 @@ pub enum OrderPathState {
     BrokerRejected,
     CancelRequested,
     CancelSubmitted,
+    CancelTimeoutUnknownPending,
+    CancelRecoveredTerminal,
     Terminal,
     ManualInterventionRequired,
 }
@@ -46,6 +48,8 @@ pub enum OrderPathEvent {
     BrokerReject,
     RequestCancel,
     CancelAccepted,
+    CancelTimedOut,
+    RecoverCancelTerminal,
     MarkTerminal,
 }
 
@@ -171,6 +175,15 @@ impl OrderPathRecord {
             OrderPathEvent::CancelAccepted => {
                 self.last_ack_status = Some(CommandAckStatus::Submitted);
             }
+            OrderPathEvent::CancelTimedOut => {
+                self.last_ack_status = Some(CommandAckStatus::Timeout);
+                self.last_error_kind = Some(OrderPathErrorKind::TransportTimeout);
+            }
+            OrderPathEvent::RecoverCancelTerminal => {
+                self.last_ack_status = Some(CommandAckStatus::Recovered);
+                self.last_reconciliation_source =
+                    Some(OrderPathReconciliationSource::OrderSnapshot);
+            }
             OrderPathEvent::RequireManualIntervention => {
                 self.last_ack_status = Some(CommandAckStatus::UnknownPending);
                 self.last_error_kind = Some(OrderPathErrorKind::ReconciliationRequired);
@@ -195,7 +208,7 @@ impl OrderPathRecord {
     pub fn synthetic_ack(
         &self,
         status: CommandAckStatus,
-        reason: Option<String>,
+        reason: Option<CommandAckReason>,
         now: DateTime<Utc>,
     ) -> CommandAck {
         CommandAck {
@@ -223,12 +236,25 @@ fn next_order_path_state(state: OrderPathState, event: OrderPathEvent) -> Option
         }
         (S::SubmitInFlight, E::BrokerReject) => Some(S::BrokerRejected),
         (S::Submitted, E::BrokerReject) => Some(S::BrokerRejected),
-        (S::Submitted, E::RequestCancel) => Some(S::CancelRequested),
+        (S::Submitted, E::RequestCancel) | (S::RecoveredByClientOrderId, E::RequestCancel) => {
+            Some(S::CancelRequested)
+        }
         (S::CancelRequested, E::CancelAccepted) => Some(S::CancelSubmitted),
+        (S::CancelRequested, E::CancelTimedOut) | (S::CancelSubmitted, E::CancelTimedOut) => {
+            Some(S::CancelTimeoutUnknownPending)
+        }
+        (S::CancelTimeoutUnknownPending, E::RecoverCancelTerminal) => {
+            Some(S::CancelRecoveredTerminal)
+        }
+        (S::CancelTimeoutUnknownPending, E::RequireManualIntervention) => {
+            Some(S::ManualInterventionRequired)
+        }
         (S::Submitted, E::MarkTerminal)
         | (S::RecoveredByClientOrderId, E::MarkTerminal)
         | (S::CancelRequested, E::MarkTerminal)
         | (S::CancelSubmitted, E::MarkTerminal)
+        | (S::CancelTimeoutUnknownPending, E::MarkTerminal)
+        | (S::CancelRecoveredTerminal, E::MarkTerminal)
         | (S::BrokerRejected, E::MarkTerminal)
         | (S::LocalRejected, E::MarkTerminal) => Some(S::Terminal),
         _ => None,
@@ -250,6 +276,8 @@ pub enum OrderPathStoreError {
     DuplicateStrategyRequestId(StrategyRequestId),
     #[error("duplicate client order id: {0}")]
     DuplicateClientOrderId(ClientOrderId),
+    #[error("duplicate broker order id: {0}")]
+    DuplicateBrokerOrderId(BrokerOrderId),
     #[error("order-path record not found: {0}")]
     RecordNotFound(StrategyRequestId),
     #[error("client_order_id cannot be changed for request: {0}")]
@@ -270,6 +298,7 @@ pub trait OrderPathStore {
     fn insert_intent(&mut self, record: OrderPathRecord) -> Result<(), OrderPathStoreError>;
     fn load_by_request_id(&self, request_id: StrategyRequestId) -> Option<OrderPathRecord>;
     fn load_by_client_order_id(&self, client_order_id: &ClientOrderId) -> Option<OrderPathRecord>;
+    fn load_by_broker_order_id(&self, broker_order_id: &BrokerOrderId) -> Option<OrderPathRecord>;
     fn update_record(&mut self, record: OrderPathRecord) -> Result<(), OrderPathStoreError>;
     fn all_records(&self) -> Vec<OrderPathRecord>;
 }
@@ -278,6 +307,7 @@ pub trait OrderPathStore {
 pub struct InMemoryOrderPathStore {
     by_request_id: HashMap<StrategyRequestId, OrderPathRecord>,
     request_by_client_id: HashMap<ClientOrderId, StrategyRequestId>,
+    request_by_broker_id: HashMap<BrokerOrderId, StrategyRequestId>,
 }
 
 impl InMemoryOrderPathStore {
@@ -295,8 +325,19 @@ impl InMemoryOrderPathStore {
                 record.client_order_id.clone(),
             ));
         }
+        if let Some(broker_order_id) = record.broker_order_id.as_ref() {
+            if self.request_by_broker_id.contains_key(broker_order_id) {
+                return Err(OrderPathStoreError::DuplicateBrokerOrderId(
+                    broker_order_id.clone(),
+                ));
+            }
+        }
         self.request_by_client_id
             .insert(record.client_order_id.clone(), record.request_id);
+        if let Some(broker_order_id) = record.broker_order_id.as_ref() {
+            self.request_by_broker_id
+                .insert(broker_order_id.clone(), record.request_id);
+        }
         self.by_request_id.insert(record.request_id, record);
         Ok(())
     }
@@ -321,6 +362,15 @@ impl InMemoryOrderPathStore {
             .and_then(|request_id| self.by_request_id.get(request_id))
     }
 
+    pub fn get_by_broker_order_id(
+        &self,
+        broker_order_id: &BrokerOrderId,
+    ) -> Option<&OrderPathRecord> {
+        self.request_by_broker_id
+            .get(broker_order_id)
+            .and_then(|request_id| self.by_request_id.get(request_id))
+    }
+
     pub fn update_record(&mut self, record: OrderPathRecord) -> Result<(), OrderPathStoreError> {
         let existing = self
             .by_request_id
@@ -338,6 +388,18 @@ impl InMemoryOrderPathStore {
             }
             _ => {}
         }
+        if existing.broker_order_id.is_none() {
+            if let Some(new_broker_order_id) = record.broker_order_id.as_ref() {
+                if let Some(mapped_request_id) = self.request_by_broker_id.get(new_broker_order_id)
+                {
+                    if mapped_request_id != &record.request_id {
+                        return Err(OrderPathStoreError::DuplicateBrokerOrderId(
+                            new_broker_order_id.clone(),
+                        ));
+                    }
+                }
+            }
+        }
         if is_terminal_order_path_state(existing.state)
             && !is_terminal_order_path_state(record.state)
         {
@@ -349,6 +411,12 @@ impl InMemoryOrderPathStore {
             return Err(OrderPathStoreError::UpdatedTimestampRegressed(
                 record.request_id,
             ));
+        }
+        if existing.broker_order_id.is_none() {
+            if let Some(new_broker_order_id) = record.broker_order_id.as_ref() {
+                self.request_by_broker_id
+                    .insert(new_broker_order_id.clone(), record.request_id);
+            }
         }
         self.by_request_id.insert(record.request_id, record);
         Ok(())
@@ -370,6 +438,10 @@ impl OrderPathStore for InMemoryOrderPathStore {
 
     fn load_by_client_order_id(&self, client_order_id: &ClientOrderId) -> Option<OrderPathRecord> {
         self.get_by_client_order_id(client_order_id).cloned()
+    }
+
+    fn load_by_broker_order_id(&self, broker_order_id: &BrokerOrderId) -> Option<OrderPathRecord> {
+        self.get_by_broker_order_id(broker_order_id).cloned()
     }
 
     fn update_record(&mut self, record: OrderPathRecord) -> Result<(), OrderPathStoreError> {
@@ -452,6 +524,10 @@ impl OrderPathStore for JsonFileOrderPathStore {
 
     fn load_by_client_order_id(&self, client_order_id: &ClientOrderId) -> Option<OrderPathRecord> {
         self.inner.load_by_client_order_id(client_order_id)
+    }
+
+    fn load_by_broker_order_id(&self, broker_order_id: &BrokerOrderId) -> Option<OrderPathRecord> {
+        self.inner.load_by_broker_order_id(broker_order_id)
     }
 
     fn update_record(&mut self, record: OrderPathRecord) -> Result<(), OrderPathStoreError> {
@@ -749,6 +825,18 @@ impl OrderPreflightPolicy {
             if mapped_order_id != &cancel.order_id {
                 return Err(OrderPreflightError::CancelMappingMismatch);
             }
+            if matches!(
+                record.state,
+                OrderPathState::TimeoutUnknownPending | OrderPathState::CancelTimeoutUnknownPending
+            ) {
+                return Err(OrderPreflightError::CancelStateRequiresManualIntervention);
+            }
+            if matches!(
+                record.state,
+                OrderPathState::CancelRequested | OrderPathState::CancelSubmitted
+            ) {
+                return Err(OrderPreflightError::CancelAlreadyPending);
+            }
             if is_terminal_order_path_state(record.state) {
                 return Ok(CancelPreflightDecision::AlreadyTerminal);
             }
@@ -904,6 +992,10 @@ pub enum OrderPreflightError {
     CancelMappingMissing,
     #[error("cancel mapping does not match requested broker order id")]
     CancelMappingMismatch,
+    #[error("cancel is already pending for this broker order id")]
+    CancelAlreadyPending,
+    #[error("cancel state requires reconciliation or manual intervention")]
+    CancelStateRequiresManualIntervention,
 }
 
 fn is_decimal_multiple(value: Decimal, step: Decimal) -> bool {
@@ -913,7 +1005,10 @@ fn is_decimal_multiple(value: Decimal, step: Decimal) -> bool {
 fn is_terminal_order_path_state(state: OrderPathState) -> bool {
     matches!(
         state,
-        OrderPathState::Terminal | OrderPathState::LocalRejected | OrderPathState::BrokerRejected
+        OrderPathState::Terminal
+            | OrderPathState::CancelRecoveredTerminal
+            | OrderPathState::LocalRejected
+            | OrderPathState::BrokerRejected
     )
 }
 
@@ -921,7 +1016,7 @@ fn is_terminal_order_path_state(state: OrderPathState) -> bool {
 mod tests {
     use super::*;
     use crate::account::AccountId;
-    use crate::command::{CancelOrder, PlaceOrder};
+    use crate::command::{CancelOrder, CommandAckReason, PlaceOrder};
     use crate::ids::ClientOrderId;
     use crate::instrument::{Exchange, Market};
     use uuid::Uuid;
@@ -1044,6 +1139,62 @@ mod tests {
     }
 
     #[test]
+    fn order_path_cancel_state_machine_handles_recovered_and_timeout_without_blind_retry() {
+        let now = Utc::now();
+        let order = place_order(request_id(19), "CID000000000000019");
+        let mut recovered = OrderPathRecord::from_place_order(&order, now, None);
+        recovered
+            .transition(OrderPathEvent::BeginSubmit, now)
+            .expect("begin");
+        recovered
+            .transition(OrderPathEvent::SubmitTimedOut, now)
+            .expect("timeout");
+        recovered
+            .transition(OrderPathEvent::RecoverByClientOrderId, now)
+            .expect("recover active by client id");
+        recovered
+            .transition(OrderPathEvent::RequestCancel, now)
+            .expect("cancel recovered active order");
+        assert_eq!(recovered.state, OrderPathState::CancelRequested);
+
+        recovered
+            .transition(OrderPathEvent::CancelTimedOut, now)
+            .expect("cancel timeout");
+        assert_eq!(recovered.state, OrderPathState::CancelTimeoutUnknownPending);
+        assert_eq!(recovered.last_ack_status, Some(CommandAckStatus::Timeout));
+
+        let blind_retry = recovered
+            .transition(OrderPathEvent::RequestCancel, now)
+            .expect_err("cancel blind retry blocked");
+        assert_eq!(
+            blind_retry,
+            OrderPathTransitionError::InvalidTransition {
+                from: OrderPathState::CancelTimeoutUnknownPending,
+                event: OrderPathEvent::RequestCancel
+            }
+        );
+
+        let mut recovered_terminal = recovered.clone();
+        recovered_terminal
+            .transition(OrderPathEvent::RecoverCancelTerminal, now)
+            .expect("cancel recovered terminal by broker truth");
+        assert_eq!(
+            recovered_terminal.state,
+            OrderPathState::CancelRecoveredTerminal
+        );
+        assert_eq!(
+            recovered_terminal.last_reconciliation_source,
+            Some(OrderPathReconciliationSource::OrderSnapshot)
+        );
+
+        let mut manual = recovered;
+        manual
+            .transition(OrderPathEvent::RequireManualIntervention, now)
+            .expect("manual intervention after bounded reconciliation");
+        assert_eq!(manual.state, OrderPathState::ManualInterventionRequired);
+    }
+
+    #[test]
     fn order_path_state_machine_rejects_terminal_resubmit() {
         let now = Utc::now();
         let order = place_order(request_id(2), "CID000000000000002");
@@ -1095,6 +1246,49 @@ mod tests {
         assert!(matches!(
             store.insert_intent(duplicate_client),
             Err(OrderPathStoreError::DuplicateClientOrderId(_))
+        ));
+    }
+
+    #[test]
+    fn order_path_store_rejects_duplicate_broker_order_ids_and_indexes_lookup() {
+        let now = Utc::now();
+        let mut first = OrderPathRecord::from_place_order(
+            &place_order(request_id(16), "CID000000000000016"),
+            now,
+            None,
+        );
+        first.broker_order_id = Some(BrokerOrderId::new("BROKER_TEST_DUP"));
+        let mut duplicate = OrderPathRecord::from_place_order(
+            &place_order(request_id(17), "CID000000000000017"),
+            now,
+            None,
+        );
+        duplicate.broker_order_id = Some(BrokerOrderId::new("BROKER_TEST_DUP"));
+        let mut store = InMemoryOrderPathStore::default();
+
+        store.insert_intent(first.clone()).expect("first insert");
+        assert_eq!(
+            store
+                .load_by_broker_order_id(&BrokerOrderId::new("BROKER_TEST_DUP"))
+                .expect("broker lookup")
+                .request_id,
+            first.request_id
+        );
+        assert!(matches!(
+            store.insert_intent(duplicate),
+            Err(OrderPathStoreError::DuplicateBrokerOrderId(_))
+        ));
+
+        let mut second = OrderPathRecord::from_place_order(
+            &place_order(request_id(18), "CID000000000000018"),
+            now,
+            None,
+        );
+        store.insert_intent(second.clone()).expect("second insert");
+        second.broker_order_id = Some(BrokerOrderId::new("BROKER_TEST_DUP"));
+        assert!(matches!(
+            store.update_record(second),
+            Err(OrderPathStoreError::DuplicateBrokerOrderId(_))
         ));
     }
 
@@ -1184,6 +1378,39 @@ mod tests {
             ));
             assert!(store.load_by_client_order_id(&client_order_id).is_some());
         }
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn json_file_order_path_store_rejects_duplicate_broker_ids_after_restart() {
+        let now = Utc::now();
+        let path = temp_store_path("duplicate_broker");
+        let mut first = OrderPathRecord::from_place_order(
+            &place_order(request_id(33), "CID000000000000033"),
+            now,
+            None,
+        );
+        first.broker_order_id = Some(BrokerOrderId::new("BROKER_TEST_REOPEN_DUP"));
+        let mut second = OrderPathRecord::from_place_order(
+            &place_order(request_id(34), "CID000000000000034"),
+            now,
+            None,
+        );
+        second.broker_order_id = Some(BrokerOrderId::new("BROKER_TEST_REOPEN_DUP"));
+        let snapshot = OrderPathStoreSnapshot {
+            records: vec![first, second],
+        };
+        std::fs::write(
+            &path,
+            serde_json::to_string_pretty(&snapshot).expect("snapshot"),
+        )
+        .expect("write duplicate snapshot");
+
+        assert!(matches!(
+            JsonFileOrderPathStore::open(&path),
+            Err(OrderPathStoreError::DuplicateBrokerOrderId(_))
+        ));
 
         let _ = std::fs::remove_file(path);
     }
@@ -1285,7 +1512,7 @@ mod tests {
 
         let ack = record.synthetic_ack(
             CommandAckStatus::Submitted,
-            Some("synthetic submitted".to_string()),
+            Some(CommandAckReason::synthetic_submitted()),
             now,
         );
 
@@ -1296,7 +1523,10 @@ mod tests {
             Some(BrokerOrderId::new("BROKER_TEST_1"))
         );
         assert_eq!(ack.status, CommandAckStatus::Submitted);
-        assert_eq!(ack.reason, Some("synthetic submitted".to_string()));
+        assert_eq!(ack.reason, Some(CommandAckReason::synthetic_submitted()));
+        let rendered = serde_json::to_string(&ack).expect("ack serializes");
+        assert!(rendered.contains("synthetic_submitted"));
+        assert!(!rendered.contains("raw broker response"));
     }
 
     #[test]
@@ -1433,6 +1663,46 @@ mod tests {
                 .validate_cancel_order(&cancel, now, Some(&existing))
                 .expect("cancel existing"),
             CancelPreflightDecision::SubmitCancel
+        );
+
+        let mut recovered_active = existing.clone();
+        recovered_active.state = OrderPathState::RecoveredByClientOrderId;
+        recovered_active.last_update_ts = now + chrono::Duration::milliseconds(1);
+        assert_eq!(
+            policy
+                .validate_cancel_order(&cancel, now, Some(&recovered_active))
+                .expect("cancel recovered active"),
+            CancelPreflightDecision::SubmitCancel
+        );
+
+        let mut pending_cancel = existing.clone();
+        pending_cancel.state = OrderPathState::CancelRequested;
+        pending_cancel.last_update_ts = now + chrono::Duration::milliseconds(2);
+        assert_eq!(
+            policy
+                .validate_cancel_order(&cancel, now, Some(&pending_cancel))
+                .expect_err("cancel already pending"),
+            OrderPreflightError::CancelAlreadyPending
+        );
+
+        let mut unknown_place = existing.clone();
+        unknown_place.state = OrderPathState::TimeoutUnknownPending;
+        unknown_place.last_update_ts = now + chrono::Duration::milliseconds(3);
+        assert_eq!(
+            policy
+                .validate_cancel_order(&cancel, now, Some(&unknown_place))
+                .expect_err("place unknown requires manual"),
+            OrderPreflightError::CancelStateRequiresManualIntervention
+        );
+
+        let mut unknown_cancel = existing.clone();
+        unknown_cancel.state = OrderPathState::CancelTimeoutUnknownPending;
+        unknown_cancel.last_update_ts = now + chrono::Duration::milliseconds(4);
+        assert_eq!(
+            policy
+                .validate_cancel_order(&cancel, now, Some(&unknown_cancel))
+                .expect_err("cancel unknown requires manual"),
+            OrderPreflightError::CancelStateRequiresManualIntervention
         );
 
         let mut missing_broker_mapping = existing.clone();

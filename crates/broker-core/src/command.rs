@@ -43,7 +43,7 @@ pub struct CommandAck {
     pub client_order_id: Option<ClientOrderId>,
     pub broker_order_id: Option<BrokerOrderId>,
     pub status: CommandAckStatus,
-    pub reason: Option<String>,
+    pub reason: Option<CommandAckReason>,
     pub received_ts: chrono::DateTime<chrono::Utc>,
 }
 
@@ -58,4 +58,45 @@ pub enum CommandAckStatus {
     Error,
     Timeout,
     UnknownPending,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandAckReason {
+    pub code: CommandAckReasonCode,
+}
+
+impl CommandAckReason {
+    pub fn new(code: CommandAckReasonCode) -> Self {
+        Self { code }
+    }
+
+    pub fn feature_disabled() -> Self {
+        Self::new(CommandAckReasonCode::FeatureDisabled)
+    }
+
+    pub fn synthetic_submitted() -> Self {
+        Self::new(CommandAckReasonCode::SyntheticSubmitted)
+    }
+
+    pub fn cancel_timeout_unknown_pending() -> Self {
+        Self::new(CommandAckReasonCode::CancelTimeoutUnknownPending)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandAckReasonCode {
+    FeatureDisabled,
+    SyntheticSubmitted,
+    LocalValidationRejected,
+    BrokerRejected,
+    TransportTimeout,
+    TimeoutUnknownPending,
+    CancelTimeoutUnknownPending,
+    RecoveredByBrokerTruth,
+    ReconciliationRequired,
+    DuplicateCommand,
+    ExpiredCommand,
+    ManualInterventionRequired,
+    DryRunOnly,
 }

@@ -11,8 +11,10 @@ use std::time::{Duration, Instant};
 
 pub mod dto;
 pub mod mapper;
+pub mod order_request;
 pub use dto::*;
 pub use mapper::*;
+pub use order_request::*;
 
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_JWT_TTL: Duration = Duration::from_secs(15 * 60);
