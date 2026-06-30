@@ -449,6 +449,29 @@ M3a-2 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3a-3 endpoint-adjacent dry hardening:
+
+- Cancel preflight requires exact `BrokerOrderId` match against the existing
+  order-path mapping before submit-ready or already-terminal classification.
+- Missing broker mapping and mismatched active/terminal mappings are rejected.
+- Raw `PlaceOrder.comment` is rejected at preflight; outgoing comments remain
+  internally generated/fingerprint-only through policy.
+- Store update invariants prevent client id change, known broker id
+  change/clear, terminal state overwrite, and timestamp regression.
+- Tick/step edge tests cover decimal scales common to MOEX futures.
+- Limit reference-band tests cover exact bps boundary, over-boundary, and
+  invalid reference price.
+
+M3a-3 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer.
+- Real CommandAck publication against FINAM endpoints or Redis command streams.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

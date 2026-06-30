@@ -330,3 +330,32 @@ Still not implemented in M3a-2:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3a-3 endpoint-adjacent dry hardening status
+
+Implemented in `broker-core::order_path` while still keeping all broker
+endpoints disabled:
+
+- cancel preflight now requires `cancel.order_id` to exactly match
+  `existing.broker_order_id`;
+- missing existing broker-order mapping rejects as `CancelMappingMissing`;
+- mismatched active or terminal mapping rejects as `CancelMappingMismatch`;
+- raw `PlaceOrder.comment` rejects at place preflight before persist/endpoint
+  work;
+- one-shot operator arm now reports canonical `OneShotAlreadyUsed` after an
+  endpoint-attempt marker;
+- store update invariants reject client id change, broker id change/clear,
+  terminal-to-non-terminal overwrite, and regressed `last_update_ts`;
+- decimal tick/step tests cover common futures scales;
+- limit reference-band tests cover exact boundary, over-boundary, and invalid
+  reference price cases.
+
+Still not implemented in M3a-3:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer;
+- ACK publication against FINAM endpoints or Redis command streams;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

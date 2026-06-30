@@ -254,6 +254,12 @@ pub enum OrderPathStoreError {
     RecordNotFound(StrategyRequestId),
     #[error("client_order_id cannot be changed for request: {0}")]
     ClientOrderIdChanged(StrategyRequestId),
+    #[error("broker_order_id cannot be changed for request: {0}")]
+    BrokerOrderIdChanged(StrategyRequestId),
+    #[error("terminal order-path state cannot be overwritten for request: {0}")]
+    TerminalStateOverwrite(StrategyRequestId),
+    #[error("order-path updated timestamp regressed for request: {0}")]
+    UpdatedTimestampRegressed(StrategyRequestId),
     #[error("order-path store io error: {0}")]
     Io(String),
     #[error("order-path store serialization error: {0}")]
@@ -322,6 +328,27 @@ impl InMemoryOrderPathStore {
             .ok_or(OrderPathStoreError::RecordNotFound(record.request_id))?;
         if existing.client_order_id != record.client_order_id {
             return Err(OrderPathStoreError::ClientOrderIdChanged(record.request_id));
+        }
+        match (&existing.broker_order_id, &record.broker_order_id) {
+            (Some(existing_id), Some(new_id)) if existing_id != new_id => {
+                return Err(OrderPathStoreError::BrokerOrderIdChanged(record.request_id));
+            }
+            (Some(_), None) => {
+                return Err(OrderPathStoreError::BrokerOrderIdChanged(record.request_id));
+            }
+            _ => {}
+        }
+        if is_terminal_order_path_state(existing.state)
+            && !is_terminal_order_path_state(record.state)
+        {
+            return Err(OrderPathStoreError::TerminalStateOverwrite(
+                record.request_id,
+            ));
+        }
+        if record.last_update_ts < existing.last_update_ts {
+            return Err(OrderPathStoreError::UpdatedTimestampRegressed(
+                record.request_id,
+            ));
         }
         self.by_request_id.insert(record.request_id, record);
         Ok(())
@@ -569,14 +596,14 @@ pub struct OperatorArm {
 
 impl OperatorArm {
     pub fn validate(&self, now: DateTime<Utc>) -> Result<(), OrderPreflightError> {
+        if self.one_shot && self.endpoint_attempted {
+            return Err(OrderPreflightError::OneShotAlreadyUsed);
+        }
         if !self.endpoint_calls_enabled {
             return Err(OrderPreflightError::EndpointNotArmed);
         }
         if now >= self.armed_until {
             return Err(OrderPreflightError::ArmExpired);
-        }
-        if self.one_shot && self.endpoint_attempted {
-            return Err(OrderPreflightError::OneShotAlreadyUsed);
         }
         if self.session_id.is_empty() || self.preflight_digest.is_empty() {
             return Err(OrderPreflightError::MissingArmAudit);
@@ -651,6 +678,9 @@ impl OrderPreflightPolicy {
         if !self.allowed_time_in_force.contains(&order.time_in_force) {
             return Err(OrderPreflightError::UnsupportedTimeInForce);
         }
+        if order.comment.is_some() {
+            return Err(OrderPreflightError::RawCommandCommentNotAllowed);
+        }
         if order.qty <= Decimal::ZERO {
             return Err(OrderPreflightError::InvalidQuantity);
         }
@@ -711,6 +741,13 @@ impl OrderPreflightPolicy {
         if let Some(record) = existing {
             if record.account_id != cancel.account_id {
                 return Err(OrderPreflightError::AccountNotAllowed);
+            }
+            let mapped_order_id = record
+                .broker_order_id
+                .as_ref()
+                .ok_or(OrderPreflightError::CancelMappingMissing)?;
+            if mapped_order_id != &cancel.order_id {
+                return Err(OrderPreflightError::CancelMappingMismatch);
             }
             if is_terminal_order_path_state(record.state) {
                 return Ok(CancelPreflightDecision::AlreadyTerminal);
@@ -829,6 +866,8 @@ pub enum OrderPreflightError {
     UnsupportedOrderType,
     #[error("time in force is unsupported")]
     UnsupportedTimeInForce,
+    #[error("raw broker command comment is not allowed")]
+    RawCommandCommentNotAllowed,
     #[error("quantity is invalid")]
     InvalidQuantity,
     #[error("quantity is outside configured bounds")]
@@ -863,6 +902,8 @@ pub enum OrderPreflightError {
     BrokerOrderIdMissing,
     #[error("cancel mapping is missing")]
     CancelMappingMissing,
+    #[error("cancel mapping does not match requested broker order id")]
+    CancelMappingMismatch,
 }
 
 fn is_decimal_multiple(value: Decimal, step: Decimal) -> bool {
@@ -1054,6 +1095,65 @@ mod tests {
         assert!(matches!(
             store.insert_intent(duplicate_client),
             Err(OrderPathStoreError::DuplicateClientOrderId(_))
+        ));
+    }
+
+    #[test]
+    fn order_path_store_rejects_broker_id_changes_terminal_overwrite_and_timestamp_regression() {
+        let now = Utc::now();
+        let request_id = request_id(29);
+        let order = place_order(request_id, "CID000000000000029");
+        let mut record = OrderPathRecord::from_place_order(&order, now, None);
+        let mut store = InMemoryOrderPathStore::default();
+        store.insert_intent(record.clone()).expect("insert");
+
+        record.broker_order_id = Some(BrokerOrderId::new("BROKER_TEST_29"));
+        store
+            .update_record(record.clone())
+            .expect("first broker id mapping can be recorded");
+
+        let mut cleared_broker_id = record.clone();
+        cleared_broker_id.broker_order_id = None;
+        assert!(matches!(
+            store.update_record(cleared_broker_id),
+            Err(OrderPathStoreError::BrokerOrderIdChanged(_))
+        ));
+
+        let mut changed_broker_id = record.clone();
+        changed_broker_id.broker_order_id = Some(BrokerOrderId::new("BROKER_TEST_OTHER"));
+        assert!(matches!(
+            store.update_record(changed_broker_id),
+            Err(OrderPathStoreError::BrokerOrderIdChanged(_))
+        ));
+
+        let mut regressed_timestamp = record.clone();
+        regressed_timestamp.last_update_ts = now - chrono::Duration::milliseconds(1);
+        assert!(matches!(
+            store.update_record(regressed_timestamp),
+            Err(OrderPathStoreError::UpdatedTimestampRegressed(_))
+        ));
+
+        let mut terminal = record.clone();
+        terminal
+            .transition(
+                OrderPathEvent::LocalReject,
+                now + chrono::Duration::seconds(1),
+            )
+            .expect("reject");
+        terminal
+            .transition(
+                OrderPathEvent::MarkTerminal,
+                now + chrono::Duration::seconds(2),
+            )
+            .expect("terminal");
+        store.update_record(terminal.clone()).expect("terminal");
+
+        let mut overwrite_terminal = terminal.clone();
+        overwrite_terminal.state = OrderPathState::Submitted;
+        overwrite_terminal.last_update_ts = terminal.last_update_ts + chrono::Duration::seconds(1);
+        assert!(matches!(
+            store.update_record(overwrite_terminal),
+            Err(OrderPathStoreError::TerminalStateOverwrite(_))
         ));
     }
 
@@ -1272,11 +1372,10 @@ mod tests {
 
         arm.validate(now).expect("fresh arm");
         arm.record_endpoint_attempt();
-        assert!(matches!(
-            arm.validate(now),
-            Err(OrderPreflightError::EndpointNotArmed)
-                | Err(OrderPreflightError::OneShotAlreadyUsed)
-        ));
+        assert_eq!(
+            arm.validate(now).expect_err("one-shot already used"),
+            OrderPreflightError::OneShotAlreadyUsed
+        );
 
         let expired = OperatorArm {
             armed_until: now - chrono::Duration::seconds(1),
@@ -1297,6 +1396,21 @@ mod tests {
         policy
             .validate_place_order(&order, now)
             .expect("valid order");
+    }
+
+    #[test]
+    fn preflight_rejects_raw_place_order_comment_at_command_boundary() {
+        let now = Utc::now();
+        let policy = preflight_policy(now);
+        let mut order = place_order(request_id(15), "CID000000000000015");
+        order.comment = Some("raw broker comment must not enter command path".to_string());
+
+        assert_eq!(
+            policy
+                .validate_place_order(&order, now)
+                .expect_err("raw comment"),
+            OrderPreflightError::RawCommandCommentNotAllowed
+        );
     }
 
     #[test]
@@ -1321,6 +1435,23 @@ mod tests {
             CancelPreflightDecision::SubmitCancel
         );
 
+        let mut missing_broker_mapping = existing.clone();
+        missing_broker_mapping.broker_order_id = None;
+        assert_eq!(
+            policy
+                .validate_cancel_order(&cancel, now, Some(&missing_broker_mapping))
+                .expect_err("missing broker mapping"),
+            OrderPreflightError::CancelMappingMissing
+        );
+
+        let mismatched_cancel = cancel_order(request_id(44), "BROKER_TEST_OTHER");
+        assert_eq!(
+            policy
+                .validate_cancel_order(&mismatched_cancel, now, Some(&existing))
+                .expect_err("mismatched mapping"),
+            OrderPreflightError::CancelMappingMismatch
+        );
+
         existing
             .transition(OrderPathEvent::MarkTerminal, now)
             .expect("terminal");
@@ -1329,6 +1460,13 @@ mod tests {
                 .validate_cancel_order(&cancel, now, Some(&existing))
                 .expect("terminal cancel"),
             CancelPreflightDecision::AlreadyTerminal
+        );
+
+        assert_eq!(
+            policy
+                .validate_cancel_order(&mismatched_cancel, now, Some(&existing))
+                .expect_err("terminal mismatch"),
+            OrderPreflightError::CancelMappingMismatch
         );
 
         assert_eq!(
@@ -1369,6 +1507,28 @@ mod tests {
                 .expect_err("missing broker id"),
             OrderPreflightError::BrokerOrderIdMissing
         );
+    }
+
+    #[test]
+    fn decimal_multiple_handles_common_futures_scales_without_rounding() {
+        assert!(is_decimal_multiple(Decimal::new(10, 1), Decimal::new(1, 1)));
+        assert!(is_decimal_multiple(
+            Decimal::new(9_123, 2),
+            Decimal::new(1, 2)
+        ));
+        assert!(is_decimal_multiple(
+            Decimal::new(10_010, 2),
+            Decimal::new(5, 2)
+        ));
+        assert!(!is_decimal_multiple(
+            Decimal::new(10_011, 2),
+            Decimal::new(5, 2)
+        ));
+        assert!(is_decimal_multiple(
+            Decimal::new(250_000, 0),
+            Decimal::new(10, 0)
+        ));
+        assert!(!is_decimal_multiple(Decimal::ONE, Decimal::ZERO));
     }
 
     #[test]
@@ -1596,6 +1756,48 @@ mod tests {
                 )
                 .expect_err("band"),
             OrderPreflightError::LimitPriceBandExceeded
+        );
+    }
+
+    #[test]
+    fn preflight_limit_reference_band_allows_exact_boundary_and_rejects_epsilon() {
+        let now = Utc::now();
+        let mut policy = preflight_policy(now);
+        policy.price_step = Some(Decimal::new(1, 2));
+        policy.max_limit_deviation_bps = Some(100);
+
+        let mut exact_boundary = place_order(request_id(74), "CID000000000000074");
+        exact_boundary.limit_price = Some(Decimal::new(101_000, 2));
+        policy
+            .validate_place_order_with_context(
+                &exact_boundary,
+                now,
+                &fresh_reference(now, Decimal::new(100_000, 2)),
+            )
+            .expect("exact bps boundary is allowed");
+
+        let mut over_boundary = place_order(request_id(75), "CID000000000000075");
+        over_boundary.limit_price = Some(Decimal::new(101_001, 2));
+        assert_eq!(
+            policy
+                .validate_place_order_with_context(
+                    &over_boundary,
+                    now,
+                    &fresh_reference(now, Decimal::new(100_000, 2))
+                )
+                .expect_err("over boundary"),
+            OrderPreflightError::LimitPriceBandExceeded
+        );
+
+        assert_eq!(
+            policy
+                .validate_place_order_with_context(
+                    &exact_boundary,
+                    now,
+                    &fresh_reference(now, Decimal::ZERO)
+                )
+                .expect_err("zero reference"),
+            OrderPreflightError::ReferencePriceInvalid
         );
     }
 }

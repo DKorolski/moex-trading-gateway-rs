@@ -123,8 +123,9 @@ safety test matrix. It still does not enable order endpoints.
 M3a starts with non-network order-path foundation only: broker-neutral state
 machine, id-mapping store contract, JSON-file durable test backend, outgoing
 comment policy, operator arming TTL/one-shot semantics, place/cancel preflight,
-synthetic ACK construction, and price/reference/notional guard tests. It still
-does not call FINAM order endpoints or consume live strategy commands.
+exact cancel mapping checks, raw command-comment rejection, synthetic ACK
+construction, store invariants, and price/reference/notional guard tests. It
+still does not call FINAM order endpoints or consume live strategy commands.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`. The Redis CI job runs

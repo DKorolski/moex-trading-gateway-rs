@@ -92,6 +92,11 @@ defaults to no outgoing comment. If sanitized comments are enabled later, Redis
 streams and durable mapping exports may store only length/SHA-256 fingerprints,
 not the raw comment value.
 
+Broker-neutral place-order commands must not carry raw `PlaceOrder.comment`.
+Dry M3 preflight rejects any raw command comment; any future broker-native
+comment must be generated inside the gateway through the sanitized outgoing
+comment policy and persisted only as a fingerprint.
+
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account
 ids, instruments, order state, timestamps, and outgoing-comment fingerprints,

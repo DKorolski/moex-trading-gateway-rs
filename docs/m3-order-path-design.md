@@ -10,8 +10,10 @@ M3a implementation status: the broker-neutral non-network foundation lives in
 store specification for duplicate-id tests, outgoing comment policy, operator
 arming TTL/one-shot checks, and place-order preflight validation. M3a-2 adds the
 storage trait, JSON-file durable test backend, cancel preflight, reference
-price/notional/slippage guards, and synthetic ACK construction. It does not call
-FINAM endpoints and is not a live command consumer.
+price/notional/slippage guards, and synthetic ACK construction. M3a-3 hardens
+cancel mapping, raw command-comment rejection, store update invariants, tick
+scale tests, and limit-band boundary tests. It does not call FINAM endpoints and
+is not a live command consumer.
 
 M3 scope is deliberately small:
 
@@ -60,6 +62,7 @@ Required preflight checks:
 - account is allowlisted and matches loaded broker-truth state;
 - instrument is allowlisted and mapped to FINAM symbol/MIC;
 - order type is `Market` or `Limit`;
+- raw `PlaceOrder.comment` is absent at the broker-neutral command boundary;
 - limit order has valid positive limit price and loaded tick/price step;
 - qty is positive and within max contracts;
 - side is allowed by operator mode;
@@ -100,6 +103,11 @@ Policy:
 - Redis streams must not expose the raw outgoing comment;
 - tests must prove serialization redacts the raw comment value.
 
+Broker-neutral `PlaceOrder.comment` is rejected by preflight. The gateway may
+later build an outgoing FINAM comment internally through
+`OutgoingOrderCommentPolicy`, but strategy/runtime command streams must not
+carry raw broker comments.
+
 ## Cancel flow
 
 ```text
@@ -115,10 +123,11 @@ BrokerCommand::CancelOrder
 
 Cancel requires a known `BrokerOrderId`. If the order is already terminal by
 broker truth, the cancel command should be acknowledged as recovered/terminal
-without calling FINAM. M3a-2 implements this as non-network cancel preflight:
-known active mappings may proceed to a future submit step, known terminal/local
-rejected mappings are classified as already-terminal, and unknown mappings are
-rejected unless an explicit operator policy permits broker-order-id-only cancel.
+without calling FINAM. M3a dry preflight requires the requested
+`BrokerOrderId` to exactly match the existing mapping before classifying a
+known active order as submit-ready or a known terminal/local rejected order as
+already-terminal. Missing or mismatched mappings are rejected unless an explicit
+operator policy permits broker-order-id-only cancel with no mapping.
 
 ## ACK publishing rules
 
@@ -152,6 +161,11 @@ for dry restart/replay tests. The file backend persists recorded intent and
 state updates before any future network step, rebuilds duplicate-id indexes on
 open, and intentionally remains a test/local implementation rather than a final
 production store choice.
+
+M3a-3 adds dry store update invariants: `ClientOrderId` cannot change,
+`BrokerOrderId` cannot be changed or cleared after it is known, terminal states
+cannot be overwritten by non-terminal states, and `last_update_ts` cannot
+regress.
 
 Primary key:
 
@@ -279,11 +293,13 @@ Unit/fixture tests before real micro:
 | order/run notional exceeds guard | `Rejected`, no endpoint call |
 | limit outside reference band | `Rejected`, no endpoint call |
 | account not armed | `Rejected`, no endpoint call |
+| raw place-order comment | `Rejected`, no endpoint call |
 | duplicate client order id | `Duplicate`, no endpoint call |
 | broker rejection | `Rejected`, durable state updated |
 | place timeout | `Timeout`/`UnknownPending`, retry blocked |
 | recovered by client order id | `Recovered` |
 | cancel active known order | `Accepted` then `Submitted` |
+| cancel mismatched broker order id | `Rejected`, no endpoint call |
 | cancel terminal order | `Recovered` or safe `Rejected`, no duplicate risk |
 | partial fill before snapshot | fill comes from trade event, not ACK |
 | trade before order snapshot | reconciliation creates/updates order owner |

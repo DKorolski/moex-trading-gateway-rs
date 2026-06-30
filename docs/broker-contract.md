@@ -127,5 +127,6 @@ place-order timeout.
 M3a starts this contract in code through `broker-core::order_path`. That module
 is intentionally non-network: it defines state transitions, duplicate-id store
 behavior, outgoing comment policy, operator arming, place/cancel preflight,
-local durable restart/replay tests, and synthetic ACK construction without
-calling any broker endpoint.
+exact cancel mapping checks, raw place-command comment rejection, local durable
+restart/replay tests, store update invariants, and synthetic ACK construction
+without calling any broker endpoint.
