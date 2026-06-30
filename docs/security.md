@@ -72,6 +72,8 @@ local-only broker-truth/debug workflow.
 Runtime-bridge DLQ records must not store raw Redis payload text. Store only
 stream name, entry id, reason class, payload length, and optional future
 non-reversible fingerprints.
+Typed expected/actual diagnostics are allowed when represented as enum/type
+names, not raw decoded values.
 
 CLI command argument containers should not derive auto `Debug`, because account
 ids and venue symbols can be supplied as args or environment-derived values.

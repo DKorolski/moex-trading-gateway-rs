@@ -1,9 +1,10 @@
 # Runtime bridge dry contract
 
 M2f prepares the runtime-consumer side of the broker-neutral stream contract
-without connecting strategies and without enabling live order paths.
+without connecting strategies and without enabling live order paths. M2g hardens
+that dry contract before a Redis consumer runner is introduced.
 
-## What exists in M2f
+## What exists in M2f/M2g
 
 `finam-gateway::RuntimeBridgeDryConsumer` consumes already-published shadow
 stream entries represented as:
@@ -26,11 +27,14 @@ Allowed stream payloads:
 
 For each entry the dry consumer validates stream/message compatibility, performs
 typed decode, checks that order snapshots contain no raw broker comments, and
-dedupes historical bars by:
+dedupes bars by:
 
 ```text
-source|venue_symbol|timeframe_sec|open_ts
+source|source_kind|venue_symbol|timeframe_sec|open_ts|is_final
 ```
+
+Including `source_kind` and finality keeps future `HistoricalPoll`, `Recovery`,
+and `LiveStream` bars from being collapsed into the same key accidentally.
 
 Outcomes:
 
@@ -55,9 +59,14 @@ invalid JSON, missing/unsupported schema version, missing/unsupported message
 type, stream/message mismatch, typed decode failure, and raw order comment
 presence.
 
-## What M2f deliberately does not do
+Safe diagnostics included in reasons:
 
-M2f does not:
+- `MessageTypeMismatch` includes the expected and actual known message types;
+- `TypedDecodeFailed` includes the expected payload kind.
+
+## What M2f/M2g deliberately do not do
+
+The dry consumer contract does not:
 
 - read or process command streams;
 - produce command ACKs;

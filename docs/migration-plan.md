@@ -190,7 +190,7 @@ M2f allowed scope:
   market data envelopes.
 - `schema_version` and `msg_type` validation before typed payload use.
 - Consumer-side historical-bar dedupe/idempotency by
-  `(source, venue_symbol, timeframe, open_ts)`.
+  `(source, source_kind, venue_symbol, timeframe_sec, open_ts, is_final)`.
 - Redacted `OrderSnapshot` validation that sends raw-comment violations to DLQ.
 - DLQ/dead-letter classification for unknown streams, invalid JSON, schema
   mismatch, message-type mismatch, typed-decode failure, unsupported message
@@ -200,6 +200,40 @@ M2f allowed scope:
 - Removal of auto-derived `Debug` for CLI command args.
 
 M2f explicitly not allowed:
+
+- POST/DELETE order endpoints.
+- Live order placement or cancel.
+- Command stream consumer for real trading.
+- Real order ACK lifecycle.
+- Durable request/client/broker id store in the order path.
+- Strategy runtime adaptation or strategy invocation.
+- `LiveReady` publication.
+- Live micro.
+- Stop/SLTP/bracket.
+
+M2g compact hardening allowed scope:
+
+- Dry consumer contract hardening before Redis consumer runner work.
+- Source-kind and finality-aware bar dedupe key:
+  `(source, source_kind, venue_symbol, timeframe_sec, open_ts, is_final)`.
+- DLQ `TypedDecodeFailed` enriched with expected payload kind, without raw
+  payload.
+- DLQ `MessageTypeMismatch` enriched with expected and actual known message
+  types, without raw payload.
+- Contract test that clean `OrderSnapshot` serialization omits raw `comment`
+  and empty `comment_fingerprint`.
+- Terminology cleanup across M2d/M2e/M2f/M2g docs.
+
+M2g remaining allowed scope, still without live orders:
+
+- Redis `XREADGROUP` dry consumer runner for broker-neutral streams.
+- Consumer lag metrics for last id, pending entries, decode failures, and DLQ
+  count.
+- DLQ publication stream without raw payload.
+- Runtime-readiness simulator that consumes health/readiness/snapshots/market
+  data but does not run strategies.
+
+M2g explicitly still not allowed:
 
 - POST/DELETE order endpoints.
 - Live order placement or cancel.

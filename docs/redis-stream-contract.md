@@ -127,15 +127,17 @@ watermark must become durable.
 The planned durable strategy before live runtime consumption is:
 
 1. keep the producer-side watermark for low-noise publication;
-2. persist the latest accepted bar key per `(source, venue_symbol, timeframe)`
-   in Redis or another gateway-local durable store;
+2. persist the latest accepted bar key per
+   `(source, source_kind, venue_symbol, timeframe_sec, open_ts, is_final)` in
+   Redis or another gateway-local durable store;
 3. make the runtime bridge idempotent by rejecting already-seen bar keys even if
    the gateway restarts;
 4. preserve a recovery path that can replay a bounded historical window with
    `source_kind = Recovery` without being confused with fresh live data.
 
-The current M2e implementation documents this policy but intentionally keeps the
-watermark in-process until the runtime bridge contract is reviewed.
+M2d keeps producer-side watermarking in-process. M2f/M2g add dry consumer-side
+dedupe and refine the key shape, but intentionally do not persist it until the
+runtime bridge runner/storage contract is reviewed.
 
 ## Redis smoke
 
@@ -175,9 +177,10 @@ outside the allowed M2 stream contract.
 
 ## Dry runtime bridge consumer contract
 
-M2f introduces a dry consumer contract in `finam-gateway` but does not attach it
-to the strategy runtime. The dry consumer accepts stream entries in the same
-shape a Redis `XREAD`/`XREADGROUP` reader would produce:
+M2f introduces a dry consumer contract in `finam-gateway`, and M2g hardens its
+diagnostics/dedupe rules. The dry consumer is not attached to the strategy
+runtime. It accepts stream entries in the same shape a Redis
+`XREAD`/`XREADGROUP` reader would produce:
 
 ```text
 stream
@@ -193,7 +196,8 @@ For each entry it:
 4. validates that envelope `msg_type` matches the stream;
 5. typed-decodes the envelope payload;
 6. rejects raw order comments in `OrderSnapshot`;
-7. dedupes historical bars by `(source, venue_symbol, timeframe, open_ts)`;
+7. dedupes bars by
+   `(source, source_kind, venue_symbol, timeframe_sec, open_ts, is_final)`;
 8. emits either `Accepted`, `DuplicateBar`, or `DeadLetter`.
 
 Dead-letter reasons are classified without storing raw payload text:
@@ -204,8 +208,9 @@ Dead-letter reasons are classified without storing raw payload text:
 - unsupported schema version;
 - missing message type;
 - unsupported message type;
-- message type mismatch for the stream;
-- typed decode failure;
+- message type mismatch for the stream, with expected and actual known message
+  types;
+- typed decode failure, with expected payload kind;
 - raw order comment present.
 
 The dry consumer metrics are:

@@ -188,11 +188,19 @@ pub enum RuntimeBridgeDlqReason {
     UnknownStream,
     InvalidJson,
     MissingSchemaVersion,
-    UnsupportedSchemaVersion { expected: u16, actual: u64 },
+    UnsupportedSchemaVersion {
+        expected: u16,
+        actual: u64,
+    },
     MissingMessageType,
     UnsupportedMessageType,
-    MessageTypeMismatch { expected: MessageType },
-    TypedDecodeFailed,
+    MessageTypeMismatch {
+        expected: MessageType,
+        actual: Option<MessageType>,
+    },
+    TypedDecodeFailed {
+        expected: RuntimeBridgePayloadKind,
+    },
     RawOrderCommentPresent,
 }
 
@@ -292,26 +300,38 @@ impl RuntimeBridgeDryConsumer {
 
         match expected {
             MessageType::Health => {
-                decode_envelope::<GatewayHealth>(&entry.payload)?;
+                decode_envelope::<GatewayHealth>(&entry.payload, RuntimeBridgePayloadKind::Health)?;
                 Ok(accepted(RuntimeBridgePayloadKind::Health, entry))
             }
             MessageType::Readiness => {
-                decode_envelope::<BrokerReadiness>(&entry.payload)?;
+                decode_envelope::<BrokerReadiness>(
+                    &entry.payload,
+                    RuntimeBridgePayloadKind::Readiness,
+                )?;
                 Ok(accepted(RuntimeBridgePayloadKind::Readiness, entry))
             }
             MessageType::PortfolioSnapshot => {
-                decode_envelope::<PortfolioSnapshot>(&entry.payload)?;
+                decode_envelope::<PortfolioSnapshot>(
+                    &entry.payload,
+                    RuntimeBridgePayloadKind::PortfolioSnapshot,
+                )?;
                 Ok(accepted(RuntimeBridgePayloadKind::PortfolioSnapshot, entry))
             }
             MessageType::OrderSnapshot => {
-                let envelope = decode_envelope::<OrderSnapshot>(&entry.payload)?;
+                let envelope = decode_envelope::<OrderSnapshot>(
+                    &entry.payload,
+                    RuntimeBridgePayloadKind::OrderSnapshot,
+                )?;
                 if order_snapshot_has_raw_comments(&envelope.payload) {
                     return Err(RuntimeBridgeDlqReason::RawOrderCommentPresent);
                 }
                 Ok(accepted(RuntimeBridgePayloadKind::OrderSnapshot, entry))
             }
             MessageType::MarketData => {
-                let envelope = decode_envelope::<MarketDataEvent>(&entry.payload)?;
+                let envelope = decode_envelope::<MarketDataEvent>(
+                    &entry.payload,
+                    RuntimeBridgePayloadKind::MarketData,
+                )?;
                 if let MarketDataEvent::Bar(bar) = &envelope.payload {
                     let bar_key = runtime_bridge_bar_key(&envelope.source, bar);
                     if !self.seen_bar_keys.insert(bar_key.clone()) {
@@ -497,6 +517,7 @@ fn validate_envelope_header(
     if &actual != expected {
         return Err(RuntimeBridgeDlqReason::MessageTypeMismatch {
             expected: expected.clone(),
+            actual: Some(actual),
         });
     }
     Ok(())
@@ -513,11 +534,15 @@ fn parse_known_message_type(value: &str) -> Option<MessageType> {
     }
 }
 
-fn decode_envelope<T>(payload: &str) -> Result<Envelope<T>, RuntimeBridgeDlqReason>
+fn decode_envelope<T>(
+    payload: &str,
+    expected: RuntimeBridgePayloadKind,
+) -> Result<Envelope<T>, RuntimeBridgeDlqReason>
 where
     T: DeserializeOwned,
 {
-    serde_json::from_str(payload).map_err(|_| RuntimeBridgeDlqReason::TypedDecodeFailed)
+    serde_json::from_str(payload)
+        .map_err(|_| RuntimeBridgeDlqReason::TypedDecodeFailed { expected })
 }
 
 fn accepted(
@@ -553,9 +578,11 @@ fn runtime_bridge_bar_key(source: &str, bar: &broker_core::event::Bar) -> String
         .as_deref()
         .unwrap_or(&bar.instrument.symbol);
     format!(
-        "{source}|{symbol}|{}|{}",
+        "{source}|{:?}|{symbol}|{}|{}|{}",
+        bar.source_kind,
         bar.timeframe_sec,
-        bar.open_ts.to_rfc3339()
+        bar.open_ts.to_rfc3339(),
+        bar.is_final
     )
 }
 
@@ -1133,7 +1160,7 @@ mod tests {
         let sink = InMemoryRedisStreamSink::default();
         let config = GatewayConfig::default();
         let gateway = FinamGateway::new(config.clone(), sink.clone());
-        let bar = sample_bar();
+        let bar = sample_bar(MarketDataSourceKind::HistoricalPoll, true);
 
         gateway
             .publish_market_data_event(MarketDataEvent::Bar(bar.clone()))
@@ -1167,6 +1194,67 @@ mod tests {
         assert_eq!(consumer.metrics().dlq_count, 0);
     }
 
+    #[tokio::test]
+    async fn runtime_bridge_bar_dedupe_key_includes_source_kind_and_finality() {
+        let sink = InMemoryRedisStreamSink::default();
+        let config = GatewayConfig::default();
+        let gateway = FinamGateway::new(config.clone(), sink.clone());
+
+        gateway
+            .publish_market_data_event(MarketDataEvent::Bar(sample_bar(
+                MarketDataSourceKind::HistoricalPoll,
+                true,
+            )))
+            .await
+            .expect("historical final bar published");
+        gateway
+            .publish_market_data_event(MarketDataEvent::Bar(sample_bar(
+                MarketDataSourceKind::LiveStream,
+                true,
+            )))
+            .await
+            .expect("live final bar published");
+        gateway
+            .publish_market_data_event(MarketDataEvent::Bar(sample_bar(
+                MarketDataSourceKind::HistoricalPoll,
+                false,
+            )))
+            .await
+            .expect("historical forming bar published");
+        gateway
+            .publish_market_data_event(MarketDataEvent::Bar(sample_bar(
+                MarketDataSourceKind::HistoricalPoll,
+                true,
+            )))
+            .await
+            .expect("duplicate historical final bar published");
+
+        let mut consumer = RuntimeBridgeDryConsumer::from_gateway_config(&config);
+        let outcomes = runtime_entries(sink.entries().expect("entries"))
+            .into_iter()
+            .map(|entry| consumer.consume_entry(entry))
+            .collect::<Vec<_>>();
+
+        assert!(matches!(
+            outcomes[0],
+            RuntimeBridgeConsumeOutcome::Accepted { .. }
+        ));
+        assert!(matches!(
+            outcomes[1],
+            RuntimeBridgeConsumeOutcome::Accepted { .. }
+        ));
+        assert!(matches!(
+            outcomes[2],
+            RuntimeBridgeConsumeOutcome::Accepted { .. }
+        ));
+        assert!(matches!(
+            outcomes[3],
+            RuntimeBridgeConsumeOutcome::DuplicateBar { .. }
+        ));
+        assert_eq!(consumer.metrics().accepted_count, 3);
+        assert_eq!(consumer.metrics().duplicate_bar_count, 1);
+    }
+
     #[test]
     fn runtime_bridge_dry_consumer_dlqs_stream_contract_violations() {
         let config = GatewayConfig::default();
@@ -1196,7 +1284,39 @@ mod tests {
             outcome,
             RuntimeBridgeConsumeOutcome::DeadLetter(RuntimeBridgeDeadLetter {
                 reason: RuntimeBridgeDlqReason::MessageTypeMismatch {
-                    expected: MessageType::Health
+                    expected: MessageType::Health,
+                    actual: Some(MessageType::MarketData)
+                },
+                ..
+            })
+        ));
+        assert_eq!(consumer.metrics().dlq_count, 1);
+    }
+
+    #[test]
+    fn runtime_bridge_dry_consumer_reports_expected_type_on_decode_failure() {
+        let config = GatewayConfig::default();
+        let mut consumer = RuntimeBridgeDryConsumer::from_gateway_config(&config);
+        let payload = serde_json::json!({
+            "schema_version": 2,
+            "ts_utc": "2026-06-29T09:10:00Z",
+            "source": "finam-gateway",
+            "msg_type": "Health",
+            "payload": {}
+        })
+        .to_string();
+
+        let outcome = consumer.consume_entry(RuntimeBridgeStreamEntry {
+            stream: config.redis.health_stream.clone(),
+            entry_id: "1-0".to_string(),
+            payload,
+        });
+
+        assert!(matches!(
+            outcome,
+            RuntimeBridgeConsumeOutcome::DeadLetter(RuntimeBridgeDeadLetter {
+                reason: RuntimeBridgeDlqReason::TypedDecodeFailed {
+                    expected: RuntimeBridgePayloadKind::Health
                 },
                 ..
             })
@@ -1239,6 +1359,27 @@ mod tests {
         ));
         assert_eq!(consumer.metrics().dlq_count, 1);
         assert_eq!(consumer.metrics().accepted_count, 0);
+    }
+
+    #[test]
+    fn clean_order_snapshot_serialization_omits_raw_comment_field() {
+        let snapshot = OrderSnapshot {
+            orders: vec![sample_order_with_comment(None)],
+            active_orders_count: 1,
+            terminal_orders_count: 0,
+            blocking_unknown_status_present: false,
+            received_ts: Utc::now(),
+        };
+
+        let payload = serde_json::to_string(&Envelope::new(
+            "finam-gateway",
+            MessageType::OrderSnapshot,
+            snapshot,
+        ))
+        .expect("snapshot serializes");
+
+        assert!(!payload.contains("\"comment\""));
+        assert!(!payload.contains("\"comment_fingerprint\""));
     }
 
     #[tokio::test]
@@ -1394,14 +1535,14 @@ mod tests {
         }
     }
 
-    fn sample_bar() -> Bar {
+    fn sample_bar(source_kind: MarketDataSourceKind, is_final: bool) -> Bar {
         let open_ts = Utc
             .with_ymd_and_hms(2026, 6, 29, 9, 10, 0)
             .single()
             .expect("timestamp");
         Bar {
             instrument: sample_instrument(),
-            source_kind: MarketDataSourceKind::HistoricalPoll,
+            source_kind,
             timeframe_sec: 60,
             open_ts,
             close_ts: open_ts + chrono::Duration::seconds(60),
@@ -1410,7 +1551,7 @@ mod tests {
             low: Decimal::new(4990, 0),
             close: Decimal::new(5005, 0),
             volume: Decimal::new(10, 0),
-            is_final: true,
+            is_final,
         }
     }
 

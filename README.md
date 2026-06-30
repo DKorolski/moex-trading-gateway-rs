@@ -86,6 +86,9 @@ schema/msg-type validation for the allowed shadow streams, consumer-side
 historical-bar dedupe, redacted order-snapshot validation, DLQ classification,
 and consumer metrics. It still does not run strategies or consume order
 commands.
+M2g hardens that dry contract: bar dedupe keys include `source_kind` and
+finality, DLQ reasons carry safe expected/actual type context, and order
+snapshot serialization has contract coverage to keep raw comments absent.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`.
