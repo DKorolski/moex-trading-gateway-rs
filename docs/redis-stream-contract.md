@@ -155,6 +155,7 @@ Local Redis round-trip smoke:
 
 ```bash
 scripts/redis_shadow_smoke.sh
+scripts/runtime_bridge_dry_smoke.sh
 ```
 
 or directly:
@@ -172,6 +173,14 @@ The CLI smoke publishes a synthetic `Health` envelope through the same
 - reads a consumer-style entry with `XREAD`;
 - decodes the payload as typed `Envelope<GatewayHealth>`;
 - verifies `schema_version = 2` and `msg_type = Health`.
+
+The runtime-bridge dry smoke publishes a full synthetic broker-neutral stream
+set and verifies the dry `XREADGROUP` consumer path. It covers both:
+
+- positive path: five valid payloads, accepted count = 5, Redis `XACK` = 5,
+  DLQ = 0, readiness simulator = `DryReady`;
+- negative path: invalid JSON payload, safe DLQ publication, no raw payload in
+  the DLQ record, Redis `XACK` = 1, readiness simulator = `Blocked`.
 
 Unit-level stream contract tests also decode the allowed M2 shadow payloads as
 typed envelopes:
@@ -246,6 +255,16 @@ The dry consumer metrics are:
 
 Redis `XACK` here means only that a dry consumer group has processed the stream
 entry. It is not a broker command ACK and it is not an order lifecycle event.
+
+Consumer groups support two operator modes:
+
+```text
+Tail mode:      --group-start-id '$'  # only entries published after group creation
+Backfill mode:  --group-start-id 0    # existing stream history from the beginning
+```
+
+The CLI default is tail mode. Use backfill mode for replay-grade dry validation
+when streams were populated before the consumer group was created.
 
 The runner also emits a dry readiness-simulator decision. The decision can be
 `WaitingForInputs`, `DryReady`, `Degraded`, or `Blocked`, but it always keeps

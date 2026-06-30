@@ -67,6 +67,7 @@ cargo run -p broker-cli -- finam-gateway-shadow-loop \
   --max-iterations 3
 
 scripts/redis_shadow_smoke.sh
+scripts/runtime_bridge_dry_smoke.sh
 ```
 
 The example config uses synthetic account/symbol placeholders. Put real FINAM
@@ -97,9 +98,14 @@ processed stream entries, and emits a dry readiness-simulator decision that is
 never `LiveReady`. It also adds a read-only `finam-bar-finality-golden-check`
 harness for FINAM bar timestamp/finality evidence. It still does not consume
 order commands, produce trading ACKs, call strategies, or enable live orders.
+M2i keeps the same shadow-only boundary and adds replay-grade validation:
+positive Redis dry-runner smoke with synthetic broker-neutral streams, negative
+DLQ smoke that verifies raw payloads are not stored, CI coverage for both, and
+clear tail/backfill docs for `--group-start-id`.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
-`cargo clippy --workspace --all-targets -- -D warnings`.
+`cargo clippy --workspace --all-targets -- -D warnings`. The Redis CI job runs
+both `scripts/redis_shadow_smoke.sh` and `scripts/runtime_bridge_dry_smoke.sh`.
 
 See:
 

@@ -250,6 +250,30 @@ M2h explicitly still not allowed:
 - Live micro.
 - Stop/SLTP/bracket.
 
+M2i pre-runtime bridge hardening allowed scope, still without live orders:
+
+- CI Redis integration for `runtime-bridge-dry-consume` with synthetic
+  broker-neutral streams.
+- Positive dry-runner smoke: accepted counts, Redis `XACK`, DLQ = 0, and
+  readiness simulator `DryReady`.
+- Negative DLQ smoke: invalid payload goes to safe DLQ, raw payload is absent,
+  Redis `XACK` is applied, and readiness simulator becomes `Blocked`.
+- Docs/examples for `--group-start-id '$'` tail mode versus
+  `--group-start-id 0` backfill/replay mode.
+- Operator hint when tail mode returns zero entries.
+
+M2i explicitly still not allowed:
+
+- POST/DELETE order endpoints.
+- Live order placement or cancel.
+- Command stream consumer for real trading.
+- Real order ACK lifecycle.
+- Durable request/client/broker id store in the order path.
+- Strategy runtime adaptation or strategy invocation.
+- `LiveReady` publication.
+- Live micro.
+- Stop/SLTP/bracket.
+
 Exit criteria:
 
 - Stream events reconcile with REST snapshots.

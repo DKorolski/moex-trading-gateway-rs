@@ -78,6 +78,26 @@ cargo run -p broker-cli -- runtime-bridge-dry-consume \
   --max-iterations 1
 ```
 
+Consumer-group start mode matters:
+
+```bash
+# Tail mode: consume only entries published after the group is created.
+cargo run -p broker-cli -- runtime-bridge-dry-consume \
+  --config config/finam-gateway-shadow.example.json \
+  --group broker-runtime-bridge-dry-tail \
+  --group-start-id '$'
+
+# Backfill/replay mode: consume existing stream history from the beginning.
+cargo run -p broker-cli -- runtime-bridge-dry-consume \
+  --config config/finam-gateway-shadow.example.json \
+  --group broker-runtime-bridge-dry-backfill \
+  --group-start-id 0
+```
+
+The CLI default is tail mode (`$`). If a dry run returns zero entries with
+`--group-start-id '$'`, the summary includes an operator hint to use
+`--group-start-id 0` for backfill validation.
+
 The runner:
 
 - creates missing consumer groups with `XGROUP CREATE ... MKSTREAM`;
@@ -117,7 +137,19 @@ The readiness simulator is deliberately dry. It reports:
 The simulator output always contains `live_ready = false`; it is not a runtime
 arming mechanism.
 
-## What M2f/M2g/M2h deliberately do not do
+M2i adds the integration smoke command used by CI:
+
+```bash
+scripts/runtime_bridge_dry_smoke.sh
+```
+
+It creates unique synthetic streams, publishes a valid set of Health,
+Readiness, PortfolioSnapshot, OrderSnapshot, and MarketData payloads, consumes
+them with `--group-start-id 0`, and asserts accepted counts, Redis `XACK`, DLQ
+count, and `DryReady`. It then publishes an invalid payload and asserts safe DLQ
+publication, no raw-payload leak, Redis `XACK`, and simulator `Blocked`.
+
+## What M2f/M2g/M2h/M2i deliberately do not do
 
 The dry consumer contract and dry Redis runner do not:
 

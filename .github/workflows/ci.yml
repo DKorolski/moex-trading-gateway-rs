@@ -51,3 +51,6 @@ jobs:
 
       - name: Redis shadow smoke
         run: scripts/redis_shadow_smoke.sh
+
+      - name: Runtime bridge dry smoke
+        run: scripts/runtime_bridge_dry_smoke.sh
