@@ -121,9 +121,10 @@ finality policy, durable watermark/id-mapping designs, operator arming model,
 command/ACK lifecycle, no-blind-retry policy, and the M3 MARKET/LIMIT/CANCEL
 safety test matrix. It still does not enable order endpoints.
 M3a starts with non-network order-path foundation only: broker-neutral state
-machine, id-mapping store contract/in-memory spec, outgoing comment policy,
-operator arming TTL/one-shot semantics, and price/qty/TIF preflight tests. It
-still does not call FINAM order endpoints or consume live strategy commands.
+machine, id-mapping store contract, JSON-file durable test backend, outgoing
+comment policy, operator arming TTL/one-shot semantics, place/cancel preflight,
+synthetic ACK construction, and price/reference/notional guard tests. It still
+does not call FINAM order endpoints or consume live strategy commands.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`. The Redis CI job runs

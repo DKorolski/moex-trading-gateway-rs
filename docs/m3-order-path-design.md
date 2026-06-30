@@ -1,15 +1,17 @@
 # M3 order-path design — MARKET/LIMIT/CANCEL
 
-Status: M2m design only. This document defines the intended M3 micro order path
-but does not enable FINAM order placement, cancel, command stream consumption,
-real ACK lifecycle, strategy runtime attachment, `LiveReady`, stop/SLTP, or
-bracket behavior.
+Status: M3a dry/non-network implementation in progress. This document defines
+the intended M3 micro order path, but current code still does not enable FINAM
+order placement, cancel, command stream consumption, real ACK lifecycle,
+strategy runtime attachment, `LiveReady`, stop/SLTP, or bracket behavior.
 
-M3a-1 implementation status: the broker-neutral non-network foundation lives in
-`broker-core::order_path`. It includes the order-path state machine, an in-
-memory store specification for duplicate-id tests, outgoing comment policy,
-operator arming TTL/one-shot checks, and place-order preflight validation. It
-does not call FINAM endpoints and is not a live command consumer.
+M3a implementation status: the broker-neutral non-network foundation lives in
+`broker-core::order_path`. M3a-1 added the order-path state machine, in-memory
+store specification for duplicate-id tests, outgoing comment policy, operator
+arming TTL/one-shot checks, and place-order preflight validation. M3a-2 adds the
+storage trait, JSON-file durable test backend, cancel preflight, reference
+price/notional/slippage guards, and synthetic ACK construction. It does not call
+FINAM endpoints and is not a live command consumer.
 
 M3 scope is deliberately small:
 
@@ -58,11 +60,15 @@ Required preflight checks:
 - account is allowlisted and matches loaded broker-truth state;
 - instrument is allowlisted and mapped to FINAM symbol/MIC;
 - order type is `Market` or `Limit`;
-- limit order has valid limit price;
+- limit order has valid positive limit price and loaded tick/price step;
 - qty is positive and within max contracts;
 - side is allowed by operator mode;
 - market schedule permits entry;
 - instrument params/tick/lot are loaded;
+- market orders have a fresh reference price for notional guards;
+- limit orders are inside the configured reference-price deviation band when
+  that guard is enabled;
+- order notional and run notional remain inside configured bounds;
 - margin/free-cash guard passes;
 - no unknown active orders for the account/symbol;
 - durable id mapping does not already contain a conflicting request;
@@ -109,7 +115,10 @@ BrokerCommand::CancelOrder
 
 Cancel requires a known `BrokerOrderId`. If the order is already terminal by
 broker truth, the cancel command should be acknowledged as recovered/terminal
-without calling FINAM.
+without calling FINAM. M3a-2 implements this as non-network cancel preflight:
+known active mappings may proceed to a future submit step, known terminal/local
+rejected mappings are classified as already-terminal, and unknown mappings are
+rejected unless an explicit operator policy permits broker-order-id-only cancel.
 
 ## ACK publishing rules
 
@@ -137,6 +146,12 @@ storage engine.
 M3a-1 adds an in-memory store specification only. It proves duplicate
 `StrategyRequestId` and duplicate `ClientOrderId` rejection, but it is not the
 final durable backend for live order emission.
+
+M3a-2 adds the `OrderPathStore` trait and a JSON-file store implementation used
+for dry restart/replay tests. The file backend persists recorded intent and
+state updates before any future network step, rebuilds duplicate-id indexes on
+open, and intentionally remains a test/local implementation rather than a final
+production store choice.
 
 Primary key:
 
@@ -233,7 +248,7 @@ Required arm inputs:
 - operator confirmation timestamp or token;
 - preflight summary persisted to logs/artifacts without secrets.
 
-M3a-1 implements TTL/one-shot arm semantics in the broker-neutral domain model.
+M3a implements TTL/one-shot arm semantics in the broker-neutral domain model.
 One-shot arms are consumed after an endpoint-attempt marker; process restart
 must require a fresh arm in any future endpoint-enabled runner.
 
@@ -259,6 +274,10 @@ Unit/fixture tests before real micro:
 | valid limit place | local `Accepted`, synthetic `Submitted` |
 | invalid qty | `Rejected`, no endpoint call |
 | invalid limit price | `Rejected`, no endpoint call |
+| missing limit tick/reference data | `Rejected`, no endpoint call |
+| stale reference price | `Rejected`, no endpoint call |
+| order/run notional exceeds guard | `Rejected`, no endpoint call |
+| limit outside reference band | `Rejected`, no endpoint call |
 | account not armed | `Rejected`, no endpoint call |
 | duplicate client order id | `Duplicate`, no endpoint call |
 | broker rejection | `Rejected`, durable state updated |
@@ -274,7 +293,7 @@ Unit/fixture tests before real micro:
 Integration tests before real micro:
 
 - command stream synthetic consumer with FINAM endpoints disabled;
-- durable mapping restart/replay test;
+- durable mapping restart/replay test using the order-path store contract;
 - broker-truth reconciliation against redacted read-only fixtures;
 - DLQ/rejected command does not call FINAM;
 - explicit arming required for every endpoint-using test.

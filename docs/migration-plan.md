@@ -426,6 +426,31 @@ M3a-1 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3a-2 dry order-path hardening:
+
+- `OrderPathStore` trait and JSON-file local durable backend for restart/replay
+  tests.
+- Intent/state persistence before any future network submission step.
+- Duplicate request/client id protection after store reopen.
+- Non-network cancel preflight for active, terminal, missing mapping, missing
+  broker id, arm/audit, and account-scope cases.
+- MARKET/LIMIT risk guards for fresh reference price, loaded price step,
+  notional per order/run, and optional limit-reference deviation band.
+- Synthetic `CommandAck` construction for dry order-path tests only; ACKs
+  remain separate from fills/trades/reconciliation.
+
+M3a-2 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer.
+- Real CommandAck publication against FINAM endpoints or Redis command streams.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
+Future M3 targets after dry-order-path review acceptance:
+
 - Operator-armed order-emitting mode after M2m acceptance.
 - Market and limit order placement with short client order id and comment.
 - Cancel command and terminal-state handling.

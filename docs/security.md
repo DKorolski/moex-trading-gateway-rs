@@ -92,6 +92,12 @@ defaults to no outgoing comment. If sanitized comments are enabled later, Redis
 streams and durable mapping exports may store only length/SHA-256 fingerprints,
 not the raw comment value.
 
+M3 dry order-path durable-store fixtures must remain local/synthetic. They may
+persist broker-neutral request ids, derived client order ids, synthetic account
+ids, instruments, order state, timestamps, and outgoing-comment fingerprints,
+but must not persist FINAM secrets, JWTs, raw broker payloads, or raw outgoing
+comment values.
+
 CLI command argument containers should not derive auto `Debug`, because account
 ids and venue symbols can be supplied as args or environment-derived values.
 

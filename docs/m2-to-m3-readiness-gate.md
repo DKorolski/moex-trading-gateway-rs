@@ -303,3 +303,30 @@ Still not implemented in M3a-1:
 - runtime strategy attachment;
 - `LiveReady`;
 - live micro.
+
+## M3a-2 dry order-path hardening status
+
+Implemented in `broker-core::order_path` while keeping all broker endpoints
+disabled:
+
+- `OrderPathStore` trait plus `JsonFileOrderPathStore` for local durable
+  restart/replay tests;
+- persisted intent/state recovery with duplicate `StrategyRequestId` and
+  `ClientOrderId` checks after reopening the file store;
+- cancel preflight for active, terminal, missing-arm, missing-broker-id,
+  account-mismatch, and missing-mapping cases;
+- MARKET reference-price freshness and notional guards;
+- LIMIT requirement for loaded price step, positive tick-aligned price,
+  optional reference-price deviation band, and notional guards;
+- synthetic `CommandAck` builder for dry tests, explicitly separated from fill
+  or trade semantics.
+
+Still not implemented in M3a-2:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer;
+- ACK publication against FINAM endpoints or Redis command streams;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.
