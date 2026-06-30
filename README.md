@@ -106,6 +106,12 @@ M2j keeps the boundary dry and adds pending/reconnect hardening: opt-in
 `XAUTOCLAIM` via `--claim-stale-ms`, reconnect smoke for delivered-but-unacked
 entries, broader Redis-negative contract cases, pending-age/stream-length
 metrics, and a generated `handoff-commit.txt` in review archives.
+M2k keeps the boundary dry and makes replay safer operationally: cursor/backlog
+`XAUTOCLAIM`, multi-pending reconnect smoke, latest/consecutive DLQ summary
+metrics, DLQ retention stress smoke, degraded/stopped readiness simulator
+coverage, and documented pending ownership plus durable watermark/dedupe
+decisions. It also records the first redacted FINAM M1 bar-finality evidence
+summary while keeping runtime consumption and `LiveReady` blocked.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`. The Redis CI job runs
@@ -118,6 +124,7 @@ See:
 - [Broker contract](docs/broker-contract.md)
 - [Finam API notes](docs/finam-api-notes.md)
 - [Finam bar finality golden-test plan](docs/finam-bar-finality-golden-test-plan.md)
+- [Finam bar finality evidence 2026-06-30](docs/finam-bar-finality-evidence-2026-06-30.md)
 - [Finam read-only fixtures](docs/finam-readonly-fixtures.md)
 - [Handoff packaging](docs/handoff.md)
 - [Migration plan](docs/migration-plan.md)

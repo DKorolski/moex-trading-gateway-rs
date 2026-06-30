@@ -165,14 +165,14 @@ mod tests {
 
     #[test]
     fn client_order_id_rejects_uuid_length() {
-        let error = ClientOrderId::new("b61e4fe9-694b-4d9e-be25-a222fe70b6c4")
-            .expect_err("uuid must be too long");
+        let error =
+            ClientOrderId::new("ACC_TEST_0001_TOO_LONG").expect_err("value must be too long");
         assert!(matches!(error, ClientOrderIdError::TooLong { .. }));
     }
 
     #[test]
     fn derived_client_order_id_is_deterministic_and_finam_safe() {
-        let uuid = Uuid::parse_str("019eda4d-48c1-7491-9f3d-3243ebcd52c5").expect("uuid");
+        let uuid = Uuid::parse_str("00000000-0000-4000-8000-000000000001").expect("uuid");
         let request_id = StrategyRequestId::from(uuid);
 
         let first = ClientOrderId::from_strategy_request(request_id);

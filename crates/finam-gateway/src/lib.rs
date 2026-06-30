@@ -1735,6 +1735,98 @@ mod tests {
     }
 
     #[test]
+    fn runtime_bridge_readiness_simulator_degrades_on_gateway_health_status() {
+        let config = GatewayConfig::default();
+        let mut degraded = RuntimeBridgeReadinessSimulator::from_gateway_config(&config);
+        degraded.state.health_seen = true;
+        degraded.state.health_status = Some(GatewayHealthStatus::Degraded);
+        degraded.state.gateway_readiness_seen = true;
+        degraded.state.gateway_readiness_phase = Some(ReadinessPhase::Reconciliation);
+        degraded.state.portfolio_snapshot_seen = true;
+        degraded.state.order_snapshot_seen = true;
+        degraded.state.market_data_seen = true;
+
+        let degraded_decision = degraded.decision();
+        assert_eq!(
+            degraded_decision.phase,
+            RuntimeBridgeDryReadinessPhase::Degraded
+        );
+        assert!(!degraded_decision.live_ready);
+        assert!(degraded_decision.reasons.contains(
+            &RuntimeBridgeDryReadinessReason::HealthNotReadOnly {
+                status: GatewayHealthStatus::Degraded
+            }
+        ));
+
+        let mut stopped = RuntimeBridgeReadinessSimulator::from_gateway_config(&config);
+        stopped.state.health_seen = true;
+        stopped.state.health_status = Some(GatewayHealthStatus::Stopped);
+        stopped.state.gateway_readiness_seen = true;
+        stopped.state.gateway_readiness_phase = Some(ReadinessPhase::Reconciliation);
+        stopped.state.portfolio_snapshot_seen = true;
+        stopped.state.order_snapshot_seen = true;
+        stopped.state.market_data_seen = true;
+
+        let stopped_decision = stopped.decision();
+        assert_eq!(
+            stopped_decision.phase,
+            RuntimeBridgeDryReadinessPhase::Degraded
+        );
+        assert!(!stopped_decision.live_ready);
+        assert!(stopped_decision.reasons.contains(
+            &RuntimeBridgeDryReadinessReason::HealthNotReadOnly {
+                status: GatewayHealthStatus::Stopped
+            }
+        ));
+    }
+
+    #[test]
+    fn runtime_bridge_readiness_simulator_degrades_on_gateway_readiness_phase() {
+        let config = GatewayConfig::default();
+        let mut degraded = RuntimeBridgeReadinessSimulator::from_gateway_config(&config);
+        degraded.state.health_seen = true;
+        degraded.state.health_status = Some(GatewayHealthStatus::ReadOnly);
+        degraded.state.gateway_readiness_seen = true;
+        degraded.state.gateway_readiness_phase = Some(ReadinessPhase::Degraded);
+        degraded.state.portfolio_snapshot_seen = true;
+        degraded.state.order_snapshot_seen = true;
+        degraded.state.market_data_seen = true;
+
+        let degraded_decision = degraded.decision();
+        assert_eq!(
+            degraded_decision.phase,
+            RuntimeBridgeDryReadinessPhase::Degraded
+        );
+        assert!(!degraded_decision.live_ready);
+        assert!(degraded_decision.reasons.contains(
+            &RuntimeBridgeDryReadinessReason::GatewayReadinessNotReconciliation {
+                phase: ReadinessPhase::Degraded
+            }
+        ));
+
+        let mut stopped = RuntimeBridgeReadinessSimulator::from_gateway_config(&config);
+        stopped.state.health_seen = true;
+        stopped.state.health_status = Some(GatewayHealthStatus::ReadOnly);
+        stopped.state.gateway_readiness_seen = true;
+        stopped.state.gateway_readiness_phase = Some(ReadinessPhase::Stopped);
+        stopped.state.portfolio_snapshot_seen = true;
+        stopped.state.order_snapshot_seen = true;
+        stopped.state.market_data_seen = true;
+
+        let stopped_decision = stopped.decision();
+        assert_eq!(
+            stopped_decision.phase,
+            RuntimeBridgeDryReadinessPhase::Degraded
+        );
+        assert!(!stopped_decision.live_ready);
+        assert!(stopped_decision.reasons.contains(
+            &RuntimeBridgeDryReadinessReason::GatewayReadinessNotReconciliation {
+                phase: ReadinessPhase::Stopped
+            }
+        ));
+    }
+
+    #[test]
     fn runtime_bridge_dlq_record_serializes_without_raw_payload() {
         let record = RuntimeBridgeDlqRecord::new(
             "finam-gateway",
@@ -1803,7 +1895,7 @@ mod tests {
         let gateway =
             FinamGateway::new(GatewayConfig::default(), InMemoryRedisStreamSink::default());
         let request_id = StrategyRequestId::from(
-            Uuid::parse_str("019eda4d-48c1-7491-9f3d-3243ebcd52c5").expect("uuid"),
+            Uuid::parse_str("00000000-0000-4000-8000-000000000002").expect("uuid"),
         );
         let command = BrokerCommand::PlaceOrder(broker_core::PlaceOrder {
             request_id,

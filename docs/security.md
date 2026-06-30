@@ -83,6 +83,9 @@ names, not raw decoded values.
 `scripts/runtime_bridge_dry_smoke.sh` includes negative Redis DLQ checks for
 invalid JSON and raw `Order.comment`, and verifies that DLQ records do not
 contain the raw payload/comment text.
+M2k DLQ summary metrics expose only latest reason, timestamp, stream, entry id,
+and consecutive count; they must not add raw payload text to stdout or Redis
+DLQ records.
 
 CLI command argument containers should not derive auto `Debug`, because account
 ids and venue symbols can be supplied as args or environment-derived values.

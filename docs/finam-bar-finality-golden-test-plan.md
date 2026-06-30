@@ -37,7 +37,13 @@ unproven_operator_review_required`.
    whether FINAM returns the still-forming current bar.
 4. Repeat around a session gap or evening/session boundary.
 5. Save only redacted shape/count/timestamp-convention fixtures, not account,
-   order, trade, or secret-bearing payloads.
+order, trade, or secret-bearing payloads.
+
+M2k recorded the first redacted M1 evidence summary in
+`docs/finam-bar-finality-evidence-2026-06-30.md`. The evidence supports
+open-timestamp mapping for the checked windows and shows that exact
+minute-aligned `end_time` may be inclusive. Runtime consumption remains blocked
+until the finality/drop and durable dedupe/watermark policies are implemented.
 
 ## Acceptance rule
 

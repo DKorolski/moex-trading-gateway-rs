@@ -298,6 +298,32 @@ M2j explicitly still not allowed:
 - Strategy runtime adaptation or strategy invocation.
 - `LiveReady` publication.
 - Live micro.
+
+M2k replay-grade dry validation and operational hardening, still without live
+orders:
+
+- Cursor/backlog `XAUTOCLAIM` recovery instead of a single `0-0` claim pass.
+- Reconnect smoke with multiple pending entries and a smaller claim batch to
+  exercise the backlog cursor.
+- Operator-facing DLQ summary: latest reason, timestamp, stream, entry id, and
+  consecutive DLQ count.
+- DLQ retention stress smoke with exact runtime-bridge DLQ `MAXLEN` trimming.
+- Redacted real FINAM M1 bar-finality evidence on several windows, documenting
+  open-timestamp support and end-time boundary caveat.
+- Pending ownership policy, safe `claim_stale_ms` guidance, repeated-DLQ stop
+  rules, and durable watermark/dedupe decision docs.
+- Readiness simulator coverage for degraded and stopped health/readiness states.
+
+M2k explicitly still not allowed:
+
+- POST/DELETE order endpoints.
+- Live order placement or cancel.
+- Command stream consumer for real trading.
+- Real order ACK lifecycle.
+- Durable request/client/broker id store in the order path.
+- Strategy runtime adaptation or strategy invocation.
+- `LiveReady` publication.
+- Live micro.
 - Stop/SLTP/bracket.
 
 Exit criteria:

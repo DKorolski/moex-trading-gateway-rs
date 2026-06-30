@@ -248,8 +248,8 @@ The dry consumer metrics are:
 `runtime-bridge-dry-consume` adds Redis-runner metrics:
 
 - `XREADGROUP` iteration count;
-- `XAUTOCLAIM` iteration and claimed-entry count when pending recovery is
-  enabled;
+- cursor-based `XAUTOCLAIM` iteration, claimed-entry count, deleted-id count,
+  and last returned cursor per stream when pending recovery is enabled;
 - returned-entry count;
 - last seen Redis id per stream;
 - `XPENDING` count per stream;
@@ -257,6 +257,8 @@ The dry consumer metrics are:
 - stream length per stream;
 - Redis `XACK` count;
 - DLQ publication count;
+- latest DLQ reason/timestamp/stream/entry id;
+- consecutive DLQ count;
 - missing-payload count.
 
 Redis `XACK` here means only that a dry consumer group has processed the stream
@@ -281,6 +283,13 @@ When a dead letter is produced, the runner publishes a safe
 `RuntimeBridgeDlqRecord` to the configured DLQ stream. The DLQ payload includes
 schema version, timestamp, gateway source, consumer group, consumer name, and
 the redacted dead-letter fields. It does not store raw Redis payload text.
+The source entry is then `XACK`ed by the dry consumer group to prevent poison
+loops; repeated DLQ bursts should stop the dry bridge for operator review.
+The dry runtime-bridge DLQ publisher uses exact `MAXLEN = <n>` trimming so the
+DLQ bound is testable and enforceable.
+
+Pending ownership and recovery rules for `XAUTOCLAIM` are defined in
+`docs/runtime-bridge-pending-policy.md`.
 
 This is still not a live runtime bridge. It does not publish `LiveReady`, does
 not consume command streams, does not produce command ACKs, does not call
@@ -288,7 +297,9 @@ strategies, and does not arm live trading from simulator output.
 
 ## Retention policy
 
-M2c defaults use approximate Redis stream trimming:
+M2c defaults use approximate Redis stream trimming for health/readiness/
+snapshot/market-data streams. The runtime-bridge DLQ uses exact trimming in the
+dry consumer.
 
 ```text
 health: 1000
@@ -304,5 +315,6 @@ Set a value to `0` only in local experiments if unbounded retention is
 intentionally required.
 
 In-memory stream retention is covered by unit tests. Redis approximate
-`MAXLEN ~ <n>` is covered by the Redis smoke path and should receive a dedicated
-integration test before a long-running production shadow deployment.
+`MAXLEN ~ <n>` remains for the gateway publication streams. Runtime-bridge DLQ
+exact `MAXLEN = <n>` is covered by a retention stress check in
+`scripts/runtime_bridge_dry_smoke.sh`.

@@ -101,14 +101,15 @@ The CLI default is tail mode (`$`). If a dry run returns zero entries with
 The runner:
 
 - creates missing consumer groups with `XGROUP CREATE ... MKSTREAM`;
-- optionally recovers stale pending entries with `XAUTOCLAIM` when
-  `--claim-stale-ms` is supplied;
+- optionally recovers stale pending entries with cursor-based `XAUTOCLAIM`
+  when `--claim-stale-ms` is supplied;
 - reads health, readiness, portfolio snapshot, order snapshot, and market-data
   streams with `XREADGROUP`;
 - feeds each `payload` field into `RuntimeBridgeDryConsumer`;
 - publishes safe dead letters to the configured runtime-bridge DLQ stream;
 - records last seen Redis ids, returned-entry count, pending counts, DLQ
-  publication count, missing-payload count, and Redis `XACK` count;
+  publication count, latest DLQ summary, consecutive DLQ count,
+  missing-payload count, and Redis `XACK` count;
 - updates `RuntimeBridgeReadinessSimulator` from the same broker-neutral stream
   entries;
 - `XACK`s processed Redis entries so dry-run groups do not accumulate pending
@@ -127,6 +128,9 @@ dead_letter
 
 `dead_letter` contains stream, entry id, reason enum, and payload length. It
 does not contain raw Redis payload text.
+The dry runtime-bridge DLQ publisher uses exact Redis `MAXLEN = <n>` trimming
+for the DLQ stream so the operator-facing DLQ retention bound is enforceable in
+stress smoke.
 
 The readiness simulator is deliberately dry. It reports:
 
@@ -162,10 +166,16 @@ It also runs Redis-negative cases for:
 Each negative case must publish a safe DLQ record, avoid raw-payload/comment
 leakage, `XACK` the Redis entry, and leave the simulator `Blocked`.
 
-M2j adds a reconnect smoke: a synthetic entry is delivered to a consumer group
-without `XACK`, leaving it in the PEL. A recovered consumer then uses
-`--claim-stale-ms 0` / `XAUTOCLAIM` to claim, process, and `XACK` it. This is
-still dry recovery only; it is not a real strategy runtime replay mechanism.
+M2j/M2k add reconnect smoke: synthetic entries are delivered to a consumer group
+without `XACK`, leaving them in the PEL. A recovered consumer then uses
+`--claim-stale-ms 0` / cursor-based `XAUTOCLAIM` to claim, process, and `XACK`
+them. M2k uses multiple pending entries with a smaller claim batch to exercise
+the backlog cursor path. This is still dry recovery only; it is not a real
+strategy runtime replay mechanism.
+
+M2k also adds a DLQ retention stress smoke: it publishes multiple bad entries,
+verifies safe DLQ publication and `XACK`, and asserts that the configured DLQ
+stream bound is respected.
 
 The dry summary includes:
 
@@ -173,10 +183,20 @@ The dry summary includes:
 - `xautoclaim.iterations`;
 - `xautoclaim.claimed_entries_returned`;
 - `xautoclaim.deleted_ids_count`;
+- `xautoclaim.last_next_ids`;
 - `xreadgroup.pending_oldest_idle_ms`;
-- `xreadgroup.stream_lengths`.
+- `xreadgroup.stream_lengths`;
+- `dlq.latest_reason`;
+- `dlq.latest_ts`;
+- `dlq.latest_stream`;
+- `dlq.latest_entry_id`;
+- `dlq.consecutive_count`.
 
-## What M2f/M2g/M2h/M2i/M2j deliberately do not do
+Pending ownership, safe `claim_stale_ms` selection, repeated-DLQ handling, and
+the durable watermark/dedupe decision are documented in
+`docs/runtime-bridge-pending-policy.md`.
+
+## What M2f/M2g/M2h/M2i/M2j/M2k deliberately do not do
 
 The dry consumer contract and dry Redis runner do not:
 
