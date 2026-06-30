@@ -274,6 +274,32 @@ M2i explicitly still not allowed:
 - Live micro.
 - Stop/SLTP/bracket.
 
+M2j dry bridge replay/reconnect hardening allowed scope, still without live
+orders:
+
+- Opt-in `XAUTOCLAIM` dry pending recovery through `--claim-stale-ms`.
+- Reconnect smoke: create a delivered-but-unacked pending entry, recover it via
+  `XAUTOCLAIM`, process it through the same dry consumer/DLQ/XACK path, and
+  verify no pending entry remains.
+- Redis negative smoke coverage for invalid JSON, message-type mismatch,
+  unsupported schema version, missing payload field, typed decode failure, and
+  raw `Order.comment` in `OrderSnapshot`.
+- Consumer observability additions: claimed-entry count, XAUTOCLAIM iterations,
+  deleted-id count, pending oldest idle time, and stream lengths.
+- Handoff archive source-commit marker without including `.git/`.
+
+M2j explicitly still not allowed:
+
+- POST/DELETE order endpoints.
+- Live order placement or cancel.
+- Command stream consumer for real trading.
+- Real order ACK lifecycle.
+- Durable request/client/broker id store in the order path.
+- Strategy runtime adaptation or strategy invocation.
+- `LiveReady` publication.
+- Live micro.
+- Stop/SLTP/bracket.
+
 Exit criteria:
 
 - Stream events reconcile with REST snapshots.

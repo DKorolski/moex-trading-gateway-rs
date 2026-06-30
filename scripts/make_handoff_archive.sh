@@ -9,7 +9,8 @@ head_sha="$(git -C "$repo_root" rev-parse --short HEAD)"
 archive_path="$archive_dir/moex-trading-project-${head_sha}.zip"
 
 scan_output="$(mktemp)"
-trap 'rm -f "$scan_output"' EXIT
+commit_marker="$repo_root/handoff-commit.txt"
+trap 'rm -f "$scan_output" "$commit_marker"' EXIT
 
 legacy_portfolio_prefix="75""02"
 legacy_account_id="190""9892"
@@ -36,6 +37,12 @@ if (
   cat "$scan_output" >&2
   exit 1
 fi
+
+cat >"$commit_marker" <<EOF
+source_commit=$head_sha
+source_ref=$(git -C "$repo_root" rev-parse HEAD)
+archive_name=$(basename "$archive_path")
+EOF
 
 (
   cd "$repo_root"

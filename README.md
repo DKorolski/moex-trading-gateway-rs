@@ -102,6 +102,10 @@ M2i keeps the same shadow-only boundary and adds replay-grade validation:
 positive Redis dry-runner smoke with synthetic broker-neutral streams, negative
 DLQ smoke that verifies raw payloads are not stored, CI coverage for both, and
 clear tail/backfill docs for `--group-start-id`.
+M2j keeps the boundary dry and adds pending/reconnect hardening: opt-in
+`XAUTOCLAIM` via `--claim-stale-ms`, reconnect smoke for delivered-but-unacked
+entries, broader Redis-negative contract cases, pending-age/stream-length
+metrics, and a generated `handoff-commit.txt` in review archives.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`. The Redis CI job runs

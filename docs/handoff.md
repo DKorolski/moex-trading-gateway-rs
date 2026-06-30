@@ -18,7 +18,10 @@ scripts/make_handoff_archive.sh
 ```
 
 The script creates a zip under `reports/handoff/` and excludes local artifacts.
-`reports/` is git-ignored.
+`reports/` is git-ignored. Each archive includes a generated
+`handoff-commit.txt` with the short commit, full source commit, and archive
+name so reviewers can verify the source revision even though `.git/` is
+excluded.
 
 If a reviewer needs probe evidence, send a manually approved redacted fixture
 separately, not the whole `tmp/` directory.

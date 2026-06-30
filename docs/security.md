@@ -80,9 +80,9 @@ entry id, reason class, payload length, and optional future non-reversible
 fingerprints.
 Typed expected/actual diagnostics are allowed when represented as enum/type
 names, not raw decoded values.
-`scripts/runtime_bridge_dry_smoke.sh` includes a negative Redis DLQ check that
-publishes an invalid synthetic payload and verifies that the DLQ record does not
-contain the raw payload text.
+`scripts/runtime_bridge_dry_smoke.sh` includes negative Redis DLQ checks for
+invalid JSON and raw `Order.comment`, and verifies that DLQ records do not
+contain the raw payload/comment text.
 
 CLI command argument containers should not derive auto `Debug`, because account
 ids and venue symbols can be supplied as args or environment-derived values.

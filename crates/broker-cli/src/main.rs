@@ -1,8 +1,9 @@
 use anyhow::{Context, Result};
 use broker_core::event::Quote;
 use broker_core::{
-    BrokerAccountId, BrokerReadiness, Envelope, Exchange, InstrumentId, Market, MarketDataEvent,
-    MarketDataSourceKind, MessageType, PortfolioSnapshot, ReadinessPhase, ReadinessReason,
+    BrokerAccountId, BrokerReadiness, ClientOrderId, Envelope, Exchange, InstrumentId, Market,
+    MarketDataEvent, MarketDataSourceKind, MessageType, Order, OrderSide, OrderStatus, OrderType,
+    PortfolioSnapshot, ReadinessPhase, ReadinessReason,
 };
 use broker_finam::{
     active_orders, has_blocking_unknown_order_statuses, map_account_trade, map_bar,
@@ -21,7 +22,9 @@ use finam_gateway::{
     RuntimeBridgeDlqReason, RuntimeBridgeDlqRecord, RuntimeBridgeDryConsumer,
     RuntimeBridgeReadinessSimulator, RuntimeBridgeStreamEntry,
 };
-use redis::streams::{StreamRangeReply, StreamReadReply};
+use redis::streams::{
+    StreamAutoClaimReply, StreamId, StreamPendingCountReply, StreamRangeReply, StreamReadReply,
+};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
@@ -239,6 +242,9 @@ enum Command {
         /// Safety stop after N XREADGROUP iterations.
         #[arg(long, default_value_t = 1)]
         max_iterations: u64,
+        /// Optional dry pending recovery: XAUTOCLAIM entries idle for at least N milliseconds.
+        #[arg(long)]
+        claim_stale_ms: Option<u64>,
     },
     /// Publish synthetic broker-neutral streams and verify dry runtime bridge consume/DLQ paths.
     #[command(name = "runtime-bridge-redis-smoke")]
@@ -825,6 +831,7 @@ async fn main() -> Result<()> {
             count,
             block_ms,
             max_iterations,
+            claim_stale_ms,
         } => {
             run_runtime_bridge_dry_consume(RuntimeBridgeDryConsumeArgs {
                 config,
@@ -835,6 +842,7 @@ async fn main() -> Result<()> {
                 count,
                 block_ms,
                 max_iterations,
+                claim_stale_ms,
             })
             .await?;
         }
@@ -868,6 +876,7 @@ struct RuntimeBridgeDryConsumeArgs {
     count: usize,
     block_ms: u64,
     max_iterations: u64,
+    claim_stale_ms: Option<u64>,
 }
 
 struct BarFinalityGoldenArgs {
@@ -888,6 +897,7 @@ struct ResolvedRuntimeBridgeDryConfig {
     count: usize,
     block_ms: u64,
     max_iterations: u64,
+    claim_stale_ms: Option<u64>,
 }
 
 struct ResolvedGatewayShadowConfig {
@@ -906,7 +916,10 @@ struct ResolvedGatewayShadowConfig {
 #[derive(Default)]
 struct RuntimeBridgeRedisDryMetrics {
     xreadgroup_iterations: u64,
+    xautoclaim_iterations: u64,
     entries_returned: u64,
+    claimed_entries_returned: u64,
+    xautoclaim_deleted_ids_count: u64,
     dlq_published_count: u64,
     xack_count: u64,
     missing_payload_count: u64,
@@ -1779,18 +1792,29 @@ async fn run_runtime_bridge_redis_smoke(redis_url: String, prefix: String) -> Re
     .await?;
     assert_runtime_bridge_positive_smoke_summary(&positive_summary)?;
 
-    let negative_config =
-        runtime_bridge_smoke_config(&redis_url, &format!("{stream_prefix}.negative.{run_id}"));
-    let bad_payload = "raw Redis payload must not leak";
-    publish_runtime_bridge_bad_smoke_entry(&negative_config, bad_payload).await?;
-    let negative_summary = consume_runtime_bridge_dry(runtime_bridge_smoke_resolved_config(
-        negative_config.clone(),
-        format!("runtime-bridge-smoke-negative-{run_id}"),
-        "smoke-negative",
-    ))
+    let negative_results =
+        run_runtime_bridge_negative_smoke_cases(&redis_url, &stream_prefix, run_id).await?;
+
+    let reconnect_config =
+        runtime_bridge_smoke_config(&redis_url, &format!("{stream_prefix}.reconnect.{run_id}"));
+    publish_runtime_bridge_reconnect_smoke_entry(&reconnect_config).await?;
+    create_runtime_bridge_pending_entry_without_ack(
+        &reconnect_config,
+        &reconnect_config.redis.health_stream,
+        &format!("runtime-bridge-smoke-reconnect-{run_id}"),
+        "smoke-crashed",
+    )
     .await?;
-    let dlq_payload = latest_runtime_bridge_dlq_payload(&negative_config).await?;
-    assert_runtime_bridge_negative_smoke_summary(&negative_summary, &dlq_payload, bad_payload)?;
+    let reconnect_summary = consume_runtime_bridge_dry(ResolvedRuntimeBridgeDryConfig {
+        claim_stale_ms: Some(0),
+        ..runtime_bridge_smoke_resolved_config(
+            reconnect_config,
+            format!("runtime-bridge-smoke-reconnect-{run_id}"),
+            "smoke-recovered",
+        )
+    })
+    .await?;
+    assert_runtime_bridge_reconnect_smoke_summary(&reconnect_summary)?;
 
     print_json(serde_json::json!({
         "runtime_bridge_redis_smoke": true,
@@ -1801,11 +1825,12 @@ async fn run_runtime_bridge_redis_smoke(redis_url: String, prefix: String) -> Re
             "xack_count": json_path_u64(&positive_summary, "/xreadgroup/xack_count")?,
             "readiness_phase": json_path_str(&positive_summary, "/readiness_simulator/phase")?,
         },
-        "negative": {
-            "dlq_published_count": json_path_u64(&negative_summary, "/dlq/published_count")?,
-            "xack_count": json_path_u64(&negative_summary, "/xreadgroup/xack_count")?,
-            "readiness_phase": json_path_str(&negative_summary, "/readiness_simulator/phase")?,
-            "raw_payload_absent_from_dlq": !dlq_payload.contains(bad_payload),
+        "negative_cases": negative_results,
+        "reconnect": {
+            "accepted_count": json_path_u64(&reconnect_summary, "/consumer_metrics/accepted_count")?,
+            "claimed_entries_returned": json_path_u64(&reconnect_summary, "/xautoclaim/claimed_entries_returned")?,
+            "xack_count": json_path_u64(&reconnect_summary, "/xreadgroup/xack_count")?,
+            "readiness_phase": json_path_str(&reconnect_summary, "/readiness_simulator/phase")?,
         }
     }))?;
     Ok(())
@@ -1837,6 +1862,29 @@ async fn consume_runtime_bridge_dry(
     let mut redis_metrics = RuntimeBridgeRedisDryMetrics::default();
     let iterations = resolved.max_iterations.max(1);
     for _ in 0..iterations {
+        if let Some(claim_stale_ms) = resolved.claim_stale_ms {
+            for stream in &streams {
+                redis_metrics.xautoclaim_iterations += 1;
+                let reply =
+                    runtime_bridge_xautoclaim(&mut manager, &resolved, stream, claim_stale_ms)
+                        .await?;
+                redis_metrics.xautoclaim_deleted_ids_count += reply.deleted_ids.len() as u64;
+                for id in reply.claimed {
+                    redis_metrics.claimed_entries_returned += 1;
+                    process_runtime_bridge_stream_id(
+                        &mut manager,
+                        &resolved,
+                        &mut consumer,
+                        &mut readiness_simulator,
+                        &mut redis_metrics,
+                        stream,
+                        &id,
+                    )
+                    .await?;
+                }
+            }
+        }
+
         redis_metrics.xreadgroup_iterations += 1;
         let reply = runtime_bridge_xreadgroup(&mut manager, &resolved, &streams).await?;
         if reply.keys.is_empty() {
@@ -1845,61 +1893,33 @@ async fn consume_runtime_bridge_dry(
         for key in reply.keys {
             for id in key.ids {
                 redis_metrics.entries_returned += 1;
-                redis_metrics
-                    .last_ids
-                    .insert(key.key.clone(), id.id.clone());
-                let outcome = match id.get::<String>("payload") {
-                    Some(payload) => {
-                        let entry = RuntimeBridgeStreamEntry {
-                            stream: key.key.clone(),
-                            entry_id: id.id.clone(),
-                            payload,
-                        };
-                        let outcome = consumer.consume_entry(entry.clone());
-                        if matches!(
-                            outcome,
-                            RuntimeBridgeConsumeOutcome::Accepted { .. }
-                                | RuntimeBridgeConsumeOutcome::DuplicateBar { .. }
-                        ) {
-                            if let Err(dead_letter) = readiness_simulator.observe_entry(&entry) {
-                                readiness_simulator.observe_dead_letter(&dead_letter);
-                                publish_runtime_bridge_dlq(&mut manager, &resolved, dead_letter)
-                                    .await?;
-                                redis_metrics.dlq_published_count += 1;
-                            }
-                        }
-                        outcome
-                    }
-                    None => {
-                        redis_metrics.missing_payload_count += 1;
-                        RuntimeBridgeConsumeOutcome::DeadLetter(RuntimeBridgeDeadLetter {
-                            stream: key.key.clone(),
-                            entry_id: id.id.clone(),
-                            reason: RuntimeBridgeDlqReason::MissingPayload,
-                            payload_len: 0,
-                        })
-                    }
-                };
-                if let RuntimeBridgeConsumeOutcome::DeadLetter(dead_letter) = outcome {
-                    readiness_simulator.observe_dead_letter(&dead_letter);
-                    publish_runtime_bridge_dlq(&mut manager, &resolved, dead_letter).await?;
-                    redis_metrics.dlq_published_count += 1;
-                }
-                let acked =
-                    runtime_bridge_xack(&mut manager, &key.key, &resolved.group, &id.id).await?;
-                redis_metrics.xack_count += acked;
+                process_runtime_bridge_stream_id(
+                    &mut manager,
+                    &resolved,
+                    &mut consumer,
+                    &mut readiness_simulator,
+                    &mut redis_metrics,
+                    &key.key,
+                    &id,
+                )
+                .await?;
             }
         }
     }
 
     let pending_counts =
         runtime_bridge_pending_counts(&mut manager, &streams, &resolved.group).await;
+    let pending_oldest_idle_ms =
+        runtime_bridge_pending_oldest_idle_ms(&mut manager, &streams, &resolved.group).await;
+    let stream_lengths = runtime_bridge_stream_lengths(&mut manager, &streams).await;
     Ok(runtime_bridge_dry_summary_json(
         &resolved,
         consumer.metrics(),
         &readiness_simulator,
         &redis_metrics,
         pending_counts,
+        pending_oldest_idle_ms,
+        stream_lengths,
     ))
 }
 
@@ -1940,6 +1960,7 @@ fn runtime_bridge_smoke_resolved_config(
         count: 100,
         block_ms: 1,
         max_iterations: 1,
+        claim_stale_ms: None,
     }
 }
 
@@ -1997,9 +2018,10 @@ async fn publish_runtime_bridge_positive_smoke_entries(config: &GatewayConfig) -
     Ok(())
 }
 
-async fn publish_runtime_bridge_bad_smoke_entry(
+async fn publish_runtime_bridge_payload_entry(
     config: &GatewayConfig,
-    bad_payload: &str,
+    stream: &str,
+    payload: &str,
 ) -> Result<()> {
     let client = redis::Client::open(config.redis.url.as_str())
         .context("runtime bridge smoke URL invalid")?;
@@ -2008,14 +2030,244 @@ async fn publish_runtime_bridge_bad_smoke_entry(
         .await
         .context("runtime bridge smoke Redis connection failed")?;
     let _message_id: String = redis::cmd("XADD")
-        .arg(&config.redis.market_data_stream)
+        .arg(stream)
         .arg("*")
         .arg("payload")
-        .arg(bad_payload)
+        .arg(payload)
         .query_async(&mut manager)
         .await
-        .context("runtime bridge smoke bad entry publish failed")?;
+        .context("runtime bridge smoke entry publish failed")?;
     Ok(())
+}
+
+async fn publish_runtime_bridge_entry_without_payload(
+    config: &GatewayConfig,
+    stream: &str,
+) -> Result<()> {
+    let client = redis::Client::open(config.redis.url.as_str())
+        .context("runtime bridge smoke URL invalid")?;
+    let mut manager = client
+        .get_connection_manager()
+        .await
+        .context("runtime bridge smoke Redis connection failed")?;
+    let _message_id: String = redis::cmd("XADD")
+        .arg(stream)
+        .arg("*")
+        .arg("not_payload")
+        .arg("synthetic field")
+        .query_async(&mut manager)
+        .await
+        .context("runtime bridge smoke missing-payload entry publish failed")?;
+    Ok(())
+}
+
+async fn publish_runtime_bridge_reconnect_smoke_entry(config: &GatewayConfig) -> Result<()> {
+    let payload = serde_json::to_string(&Envelope::new(
+        config.source.clone(),
+        MessageType::Health,
+        default_readonly_health(config),
+    ))?;
+    publish_runtime_bridge_payload_entry(config, &config.redis.health_stream, &payload).await
+}
+
+async fn create_runtime_bridge_pending_entry_without_ack(
+    config: &GatewayConfig,
+    stream: &str,
+    group: &str,
+    consumer: &str,
+) -> Result<()> {
+    let client = redis::Client::open(config.redis.url.as_str())
+        .context("runtime bridge pending smoke URL invalid")?;
+    let mut manager = client
+        .get_connection_manager()
+        .await
+        .context("runtime bridge pending smoke Redis connection failed")?;
+    ensure_runtime_bridge_group(&mut manager, stream, group, "0").await?;
+    let reply: StreamReadReply = redis::cmd("XREADGROUP")
+        .arg("GROUP")
+        .arg(group)
+        .arg(consumer)
+        .arg("COUNT")
+        .arg(1)
+        .arg("STREAMS")
+        .arg(stream)
+        .arg(">")
+        .query_async(&mut manager)
+        .await
+        .context("runtime bridge pending smoke XREADGROUP failed")?;
+    let delivered = reply
+        .keys
+        .iter()
+        .find(|key| key.key == stream)
+        .map(|key| key.ids.len())
+        .unwrap_or_default();
+    anyhow::ensure!(
+        delivered == 1,
+        "runtime bridge pending smoke did not create exactly one pending entry"
+    );
+    Ok(())
+}
+
+async fn run_runtime_bridge_negative_smoke_cases(
+    redis_url: &str,
+    stream_prefix: &str,
+    run_id: i64,
+) -> Result<Vec<serde_json::Value>> {
+    let mut results = Vec::new();
+    let cases = vec![
+        RuntimeBridgeNegativeSmokeCase::InvalidJson,
+        RuntimeBridgeNegativeSmokeCase::MessageTypeMismatch,
+        RuntimeBridgeNegativeSmokeCase::UnsupportedSchemaVersion,
+        RuntimeBridgeNegativeSmokeCase::MissingPayload,
+        RuntimeBridgeNegativeSmokeCase::TypedDecodeFailed,
+        RuntimeBridgeNegativeSmokeCase::RawOrderCommentPresent,
+    ];
+
+    for case in cases {
+        let case_name = case.name();
+        let config = runtime_bridge_smoke_config(
+            redis_url,
+            &format!("{stream_prefix}.negative.{case_name}.{run_id}"),
+        );
+        let raw_payload = case.publish(&config).await?;
+        let summary = consume_runtime_bridge_dry(runtime_bridge_smoke_resolved_config(
+            config.clone(),
+            format!("runtime-bridge-smoke-negative-{case_name}-{run_id}"),
+            "smoke-negative",
+        ))
+        .await?;
+        let dlq_payload = latest_runtime_bridge_dlq_payload(&config).await?;
+        assert_runtime_bridge_negative_smoke_summary(
+            &summary,
+            &dlq_payload,
+            raw_payload.as_deref(),
+            case.expected_reason(),
+        )?;
+        results.push(serde_json::json!({
+            "case": case_name,
+            "expected_reason": case.expected_reason(),
+            "dlq_published_count": json_path_u64(&summary, "/dlq/published_count")?,
+            "xack_count": json_path_u64(&summary, "/xreadgroup/xack_count")?,
+            "readiness_phase": json_path_str(&summary, "/readiness_simulator/phase")?,
+            "raw_payload_absent_from_dlq": raw_payload
+                .as_deref()
+                .map(|payload| !dlq_payload.contains(payload))
+                .unwrap_or(true),
+        }));
+    }
+
+    Ok(results)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum RuntimeBridgeNegativeSmokeCase {
+    InvalidJson,
+    MessageTypeMismatch,
+    UnsupportedSchemaVersion,
+    MissingPayload,
+    TypedDecodeFailed,
+    RawOrderCommentPresent,
+}
+
+impl RuntimeBridgeNegativeSmokeCase {
+    fn name(self) -> &'static str {
+        match self {
+            Self::InvalidJson => "invalid_json",
+            Self::MessageTypeMismatch => "message_type_mismatch",
+            Self::UnsupportedSchemaVersion => "unsupported_schema_version",
+            Self::MissingPayload => "missing_payload",
+            Self::TypedDecodeFailed => "typed_decode_failed",
+            Self::RawOrderCommentPresent => "raw_order_comment_present",
+        }
+    }
+
+    fn expected_reason(self) -> &'static str {
+        match self {
+            Self::InvalidJson => "InvalidJson",
+            Self::MessageTypeMismatch => "MessageTypeMismatch",
+            Self::UnsupportedSchemaVersion => "UnsupportedSchemaVersion",
+            Self::MissingPayload => "MissingPayload",
+            Self::TypedDecodeFailed => "TypedDecodeFailed",
+            Self::RawOrderCommentPresent => "RawOrderCommentPresent",
+        }
+    }
+
+    async fn publish(self, config: &GatewayConfig) -> Result<Option<String>> {
+        match self {
+            Self::InvalidJson => {
+                let payload = "raw Redis payload must not leak".to_string();
+                publish_runtime_bridge_payload_entry(
+                    config,
+                    &config.redis.market_data_stream,
+                    &payload,
+                )
+                .await?;
+                Ok(Some(payload))
+            }
+            Self::MessageTypeMismatch => {
+                let payload = serde_json::to_string(&Envelope::new(
+                    config.source.clone(),
+                    MessageType::MarketData,
+                    MarketDataEvent::Quote(smoke_quote()?),
+                ))?;
+                publish_runtime_bridge_payload_entry(config, &config.redis.health_stream, &payload)
+                    .await?;
+                Ok(None)
+            }
+            Self::UnsupportedSchemaVersion => {
+                let payload = serde_json::json!({
+                    "schema_version": 1,
+                    "ts_utc": Utc::now(),
+                    "source": config.source.clone(),
+                    "msg_type": "Health",
+                    "payload": {}
+                })
+                .to_string();
+                publish_runtime_bridge_payload_entry(config, &config.redis.health_stream, &payload)
+                    .await?;
+                Ok(None)
+            }
+            Self::MissingPayload => {
+                publish_runtime_bridge_entry_without_payload(config, &config.redis.health_stream)
+                    .await?;
+                Ok(None)
+            }
+            Self::TypedDecodeFailed => {
+                let payload = serde_json::json!({
+                    "schema_version": 2,
+                    "ts_utc": Utc::now(),
+                    "source": config.source.clone(),
+                    "msg_type": "Health",
+                    "payload": {}
+                })
+                .to_string();
+                publish_runtime_bridge_payload_entry(config, &config.redis.health_stream, &payload)
+                    .await?;
+                Ok(None)
+            }
+            Self::RawOrderCommentPresent => {
+                let snapshot = OrderSnapshot {
+                    orders: vec![smoke_order_with_raw_comment()?],
+                    active_orders_count: 1,
+                    terminal_orders_count: 0,
+                    blocking_unknown_status_present: false,
+                    received_ts: Utc::now(),
+                };
+                let payload = serde_json::to_string(&Envelope::new(
+                    config.source.clone(),
+                    MessageType::OrderSnapshot,
+                    snapshot,
+                ))?;
+                publish_runtime_bridge_payload_entry(
+                    config,
+                    &config.redis.order_snapshot_stream,
+                    &payload,
+                )
+                .await?;
+                Ok(Some("raw smoke comment must not leak".to_string()))
+            }
+        }
+    }
 }
 
 async fn latest_runtime_bridge_dlq_payload(config: &GatewayConfig) -> Result<String> {
@@ -2078,7 +2330,8 @@ fn assert_runtime_bridge_positive_smoke_summary(summary: &serde_json::Value) -> 
 fn assert_runtime_bridge_negative_smoke_summary(
     summary: &serde_json::Value,
     dlq_payload: &str,
-    bad_payload: &str,
+    raw_payload_that_must_not_leak: Option<&str>,
+    expected_reason: &str,
 ) -> Result<()> {
     anyhow::ensure!(
         !json_path_bool(summary, "/live_trading_enabled")?,
@@ -2088,9 +2341,11 @@ fn assert_runtime_bridge_negative_smoke_summary(
         json_path_u64(summary, "/consumer_metrics/accepted_count")? == 0,
         "runtime bridge smoke negative accepted_count mismatch"
     );
+    let consumer_dlq_count = json_path_u64(summary, "/consumer_metrics/dlq_count")?;
+    let missing_payload_count = json_path_u64(summary, "/dlq/missing_payload_count")?;
     anyhow::ensure!(
-        json_path_u64(summary, "/consumer_metrics/dlq_count")? == 1,
-        "runtime bridge smoke negative consumer DLQ count mismatch"
+        consumer_dlq_count + missing_payload_count == 1,
+        "runtime bridge smoke negative DLQ classification count mismatch"
     );
     anyhow::ensure!(
         json_path_u64(summary, "/dlq/published_count")? == 1,
@@ -2108,10 +2363,12 @@ fn assert_runtime_bridge_negative_smoke_summary(
         !json_path_bool(summary, "/readiness_simulator/live_ready")?,
         "runtime bridge smoke negative readiness became live-ready"
     );
-    anyhow::ensure!(
-        !dlq_payload.contains(bad_payload),
-        "runtime bridge smoke DLQ leaked raw payload"
-    );
+    if let Some(raw_payload) = raw_payload_that_must_not_leak {
+        anyhow::ensure!(
+            !dlq_payload.contains(raw_payload),
+            "runtime bridge smoke DLQ leaked raw payload"
+        );
+    }
     let dlq: serde_json::Value =
         serde_json::from_str(dlq_payload).context("runtime bridge DLQ payload is not JSON")?;
     anyhow::ensure!(
@@ -2119,10 +2376,69 @@ fn assert_runtime_bridge_negative_smoke_summary(
         "runtime bridge smoke DLQ schema_version mismatch"
     );
     anyhow::ensure!(
-        json_path_str(&dlq, "/dead_letter/reason")? == "InvalidJson",
+        dlq_reason_matches(&dlq, expected_reason),
         "runtime bridge smoke DLQ reason mismatch"
     );
     Ok(())
+}
+
+fn assert_runtime_bridge_reconnect_smoke_summary(summary: &serde_json::Value) -> Result<()> {
+    anyhow::ensure!(
+        !json_path_bool(summary, "/live_trading_enabled")?,
+        "runtime bridge reconnect smoke enabled live trading"
+    );
+    anyhow::ensure!(
+        json_path_u64(summary, "/consumer_metrics/accepted_count")? == 1,
+        "runtime bridge reconnect smoke accepted_count mismatch"
+    );
+    anyhow::ensure!(
+        json_path_u64(summary, "/consumer_metrics/dlq_count")? == 0,
+        "runtime bridge reconnect smoke DLQ count mismatch"
+    );
+    anyhow::ensure!(
+        json_path_u64(summary, "/xautoclaim/claimed_entries_returned")? == 1,
+        "runtime bridge reconnect smoke claimed count mismatch"
+    );
+    anyhow::ensure!(
+        json_path_u64(summary, "/xreadgroup/xack_count")? == 1,
+        "runtime bridge reconnect smoke XACK count mismatch"
+    );
+    anyhow::ensure!(
+        json_path_str(summary, "/readiness_simulator/phase")? == "WaitingForInputs",
+        "runtime bridge reconnect smoke readiness phase mismatch"
+    );
+    anyhow::ensure!(
+        !json_path_bool(summary, "/readiness_simulator/live_ready")?,
+        "runtime bridge reconnect smoke readiness became live-ready"
+    );
+    let pending_total = summary
+        .pointer("/xreadgroup/pending_counts")
+        .and_then(serde_json::Value::as_object)
+        .map(|object| {
+            object
+                .values()
+                .filter_map(serde_json::Value::as_i64)
+                .sum::<i64>()
+        })
+        .context("runtime bridge reconnect smoke missing pending counts")?;
+    anyhow::ensure!(
+        pending_total == 0,
+        "runtime bridge reconnect smoke left pending entries"
+    );
+    Ok(())
+}
+
+fn dlq_reason_matches(dlq: &serde_json::Value, expected_reason: &str) -> bool {
+    let Some(reason) = dlq.pointer("/dead_letter/reason") else {
+        return false;
+    };
+    if reason.as_str() == Some(expected_reason) {
+        return true;
+    }
+    reason
+        .as_object()
+        .map(|object| object.contains_key(expected_reason))
+        .unwrap_or(false)
 }
 
 fn smoke_instrument() -> InstrumentId {
@@ -2132,6 +2448,39 @@ fn smoke_instrument() -> InstrumentId {
         exchange: Exchange::Other("TEST".to_string()),
         market: Market::Futures,
     }
+}
+
+fn smoke_quote() -> Result<Quote> {
+    Ok(Quote {
+        instrument: smoke_instrument(),
+        source_kind: MarketDataSourceKind::ReadOnlyPoll,
+        bid: None,
+        ask: None,
+        last: Some(decimal("5000")?),
+        source_ts: None,
+        received_ts: Utc::now(),
+    })
+}
+
+fn smoke_order_with_raw_comment() -> Result<Order> {
+    Ok(Order {
+        account_id: BrokerAccountId::new("ACC_TEST_0001"),
+        order_id: None,
+        client_order_id: Some(ClientOrderId::new("ABC123").context("client order id")?),
+        broker_client_order_id_fingerprint: None,
+        instrument: smoke_instrument(),
+        side: OrderSide::Buy,
+        order_type: OrderType::Limit,
+        status: OrderStatus::Working,
+        qty: decimal("1")?,
+        filled_qty: decimal("0")?,
+        limit_price: Some(decimal("5000")?),
+        stop_price: None,
+        comment_fingerprint: None,
+        comment: Some("raw smoke comment must not leak".to_string()),
+        source_ts: None,
+        received_ts: Utc::now(),
+    })
 }
 
 fn decimal(value: &str) -> Result<broker_core::Price> {
@@ -2182,6 +2531,78 @@ async fn ensure_runtime_bridge_group(
             format!("failed to create runtime bridge consumer group for stream {stream}")
         }),
     }
+}
+
+async fn process_runtime_bridge_stream_id(
+    manager: &mut redis::aio::ConnectionManager,
+    resolved: &ResolvedRuntimeBridgeDryConfig,
+    consumer: &mut RuntimeBridgeDryConsumer,
+    readiness_simulator: &mut RuntimeBridgeReadinessSimulator,
+    redis_metrics: &mut RuntimeBridgeRedisDryMetrics,
+    stream: &str,
+    id: &StreamId,
+) -> Result<()> {
+    redis_metrics
+        .last_ids
+        .insert(stream.to_string(), id.id.clone());
+    let outcome = match id.get::<String>("payload") {
+        Some(payload) => {
+            let entry = RuntimeBridgeStreamEntry {
+                stream: stream.to_string(),
+                entry_id: id.id.clone(),
+                payload,
+            };
+            let outcome = consumer.consume_entry(entry.clone());
+            if matches!(
+                outcome,
+                RuntimeBridgeConsumeOutcome::Accepted { .. }
+                    | RuntimeBridgeConsumeOutcome::DuplicateBar { .. }
+            ) {
+                if let Err(dead_letter) = readiness_simulator.observe_entry(&entry) {
+                    readiness_simulator.observe_dead_letter(&dead_letter);
+                    publish_runtime_bridge_dlq(manager, resolved, dead_letter).await?;
+                    redis_metrics.dlq_published_count += 1;
+                }
+            }
+            outcome
+        }
+        None => {
+            redis_metrics.missing_payload_count += 1;
+            RuntimeBridgeConsumeOutcome::DeadLetter(RuntimeBridgeDeadLetter {
+                stream: stream.to_string(),
+                entry_id: id.id.clone(),
+                reason: RuntimeBridgeDlqReason::MissingPayload,
+                payload_len: 0,
+            })
+        }
+    };
+    if let RuntimeBridgeConsumeOutcome::DeadLetter(dead_letter) = outcome {
+        readiness_simulator.observe_dead_letter(&dead_letter);
+        publish_runtime_bridge_dlq(manager, resolved, dead_letter).await?;
+        redis_metrics.dlq_published_count += 1;
+    }
+    let acked = runtime_bridge_xack(manager, stream, &resolved.group, &id.id).await?;
+    redis_metrics.xack_count += acked;
+    Ok(())
+}
+
+async fn runtime_bridge_xautoclaim(
+    manager: &mut redis::aio::ConnectionManager,
+    resolved: &ResolvedRuntimeBridgeDryConfig,
+    stream: &str,
+    claim_stale_ms: u64,
+) -> Result<StreamAutoClaimReply> {
+    redis::cmd("XAUTOCLAIM")
+        .arg(stream)
+        .arg(&resolved.group)
+        .arg(&resolved.consumer)
+        .arg(claim_stale_ms)
+        .arg("0-0")
+        .arg("COUNT")
+        .arg(resolved.count.max(1))
+        .query_async(manager)
+        .await
+        .with_context(|| format!("runtime bridge dry XAUTOCLAIM failed for stream {stream}"))
 }
 
 async fn runtime_bridge_xreadgroup(
@@ -2284,6 +2705,46 @@ async fn runtime_bridge_pending_counts(
     counts
 }
 
+async fn runtime_bridge_pending_oldest_idle_ms(
+    manager: &mut redis::aio::ConnectionManager,
+    streams: &[String],
+    group: &str,
+) -> BTreeMap<String, Option<u64>> {
+    let mut idle = BTreeMap::new();
+    for stream in streams {
+        let result: redis::RedisResult<StreamPendingCountReply> = redis::cmd("XPENDING")
+            .arg(stream)
+            .arg(group)
+            .arg("-")
+            .arg("+")
+            .arg(1)
+            .query_async(&mut *manager)
+            .await;
+        idle.insert(
+            stream.clone(),
+            result
+                .ok()
+                .and_then(|reply| reply.ids.first().map(|id| id.last_delivered_ms as u64)),
+        );
+    }
+    idle
+}
+
+async fn runtime_bridge_stream_lengths(
+    manager: &mut redis::aio::ConnectionManager,
+    streams: &[String],
+) -> BTreeMap<String, Option<i64>> {
+    let mut lengths = BTreeMap::new();
+    for stream in streams {
+        let result: redis::RedisResult<i64> = redis::cmd("XLEN")
+            .arg(stream)
+            .query_async(&mut *manager)
+            .await;
+        lengths.insert(stream.clone(), result.ok());
+    }
+    lengths
+}
+
 fn pending_count_from_value(value: &redis::Value) -> Option<i64> {
     match value {
         redis::Value::Int(count) => Some(*count),
@@ -2308,13 +2769,15 @@ fn runtime_bridge_dry_summary_json(
     readiness_simulator: &RuntimeBridgeReadinessSimulator,
     redis_metrics: &RuntimeBridgeRedisDryMetrics,
     pending_counts: BTreeMap<String, Option<i64>>,
+    pending_oldest_idle_ms: BTreeMap<String, Option<u64>>,
+    stream_lengths: BTreeMap<String, Option<i64>>,
 ) -> serde_json::Value {
-    let operator_hint =
-        if redis_metrics.entries_returned == 0 && resolved.group_start_id.trim() == "$" {
-            Some("group_start_id_dollar_tails_new_entries_only_use_0_for_backfill")
-        } else {
-            None
-        };
+    let total_returned = redis_metrics.entries_returned + redis_metrics.claimed_entries_returned;
+    let operator_hint = if total_returned == 0 && resolved.group_start_id.trim() == "$" {
+        Some("group_start_id_dollar_tails_new_entries_only_use_0_for_backfill")
+    } else {
+        None
+    };
     serde_json::json!({
         "runtime_bridge_dry_consumer": true,
         "live_trading_enabled": false,
@@ -2323,6 +2786,7 @@ fn runtime_bridge_dry_summary_json(
         "group": resolved.group,
         "consumer": resolved.consumer,
         "group_start_id": resolved.group_start_id,
+        "claim_stale_ms": resolved.claim_stale_ms,
         "operator_hint": operator_hint,
         "streams": runtime_bridge_consumer_streams(&resolved.gateway_config.redis),
         "dlq_stream": resolved.gateway_config.redis.runtime_bridge_dlq_stream,
@@ -2331,7 +2795,15 @@ fn runtime_bridge_dry_summary_json(
             "entries_returned": redis_metrics.entries_returned,
             "last_ids": redis_metrics.last_ids,
             "pending_counts": pending_counts,
+            "pending_oldest_idle_ms": pending_oldest_idle_ms,
+            "stream_lengths": stream_lengths,
             "xack_count": redis_metrics.xack_count,
+        },
+        "xautoclaim": {
+            "enabled": resolved.claim_stale_ms.is_some(),
+            "iterations": redis_metrics.xautoclaim_iterations,
+            "claimed_entries_returned": redis_metrics.claimed_entries_returned,
+            "deleted_ids_count": redis_metrics.xautoclaim_deleted_ids_count,
         },
         "dlq": {
             "published_count": redis_metrics.dlq_published_count,
@@ -2423,6 +2895,7 @@ fn resolve_runtime_bridge_dry_config(
         count: args.count.max(1),
         block_ms: args.block_ms,
         max_iterations: args.max_iterations.max(1),
+        claim_stale_ms: args.claim_stale_ms,
     })
 }
 
@@ -3008,6 +3481,7 @@ mod tests {
             count: 100,
             block_ms: 1,
             max_iterations: 1,
+            claim_stale_ms: None,
         };
         let redis_metrics = RuntimeBridgeRedisDryMetrics {
             xreadgroup_iterations: 1,
@@ -3019,6 +3493,8 @@ mod tests {
             &finam_gateway::RuntimeBridgeConsumerMetrics::default(),
             &readiness_simulator,
             &redis_metrics,
+            BTreeMap::new(),
+            BTreeMap::new(),
             BTreeMap::new(),
         );
 

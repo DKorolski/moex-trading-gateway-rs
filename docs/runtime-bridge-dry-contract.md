@@ -101,6 +101,8 @@ The CLI default is tail mode (`$`). If a dry run returns zero entries with
 The runner:
 
 - creates missing consumer groups with `XGROUP CREATE ... MKSTREAM`;
+- optionally recovers stale pending entries with `XAUTOCLAIM` when
+  `--claim-stale-ms` is supplied;
 - reads health, readiness, portfolio snapshot, order snapshot, and market-data
   streams with `XREADGROUP`;
 - feeds each `payload` field into `RuntimeBridgeDryConsumer`;
@@ -137,7 +139,7 @@ The readiness simulator is deliberately dry. It reports:
 The simulator output always contains `live_ready = false`; it is not a runtime
 arming mechanism.
 
-M2i adds the integration smoke command used by CI:
+M2i/M2j add the integration smoke command used by CI:
 
 ```bash
 scripts/runtime_bridge_dry_smoke.sh
@@ -146,10 +148,35 @@ scripts/runtime_bridge_dry_smoke.sh
 It creates unique synthetic streams, publishes a valid set of Health,
 Readiness, PortfolioSnapshot, OrderSnapshot, and MarketData payloads, consumes
 them with `--group-start-id 0`, and asserts accepted counts, Redis `XACK`, DLQ
-count, and `DryReady`. It then publishes an invalid payload and asserts safe DLQ
-publication, no raw-payload leak, Redis `XACK`, and simulator `Blocked`.
+count, and `DryReady`.
 
-## What M2f/M2g/M2h/M2i deliberately do not do
+It also runs Redis-negative cases for:
+
+- invalid JSON;
+- message type mismatch;
+- unsupported schema version;
+- missing `payload` field;
+- typed decode failure after a valid envelope header;
+- raw `Order.comment` in an `OrderSnapshot`.
+
+Each negative case must publish a safe DLQ record, avoid raw-payload/comment
+leakage, `XACK` the Redis entry, and leave the simulator `Blocked`.
+
+M2j adds a reconnect smoke: a synthetic entry is delivered to a consumer group
+without `XACK`, leaving it in the PEL. A recovered consumer then uses
+`--claim-stale-ms 0` / `XAUTOCLAIM` to claim, process, and `XACK` it. This is
+still dry recovery only; it is not a real strategy runtime replay mechanism.
+
+The dry summary includes:
+
+- `xautoclaim.enabled`;
+- `xautoclaim.iterations`;
+- `xautoclaim.claimed_entries_returned`;
+- `xautoclaim.deleted_ids_count`;
+- `xreadgroup.pending_oldest_idle_ms`;
+- `xreadgroup.stream_lengths`.
+
+## What M2f/M2g/M2h/M2i/M2j deliberately do not do
 
 The dry consumer contract and dry Redis runner do not:
 

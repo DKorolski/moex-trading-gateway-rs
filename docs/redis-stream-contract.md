@@ -175,12 +175,14 @@ The CLI smoke publishes a synthetic `Health` envelope through the same
 - verifies `schema_version = 2` and `msg_type = Health`.
 
 The runtime-bridge dry smoke publishes a full synthetic broker-neutral stream
-set and verifies the dry `XREADGROUP` consumer path. It covers both:
+set and verifies the dry `XREADGROUP` consumer path. It covers:
 
 - positive path: five valid payloads, accepted count = 5, Redis `XACK` = 5,
   DLQ = 0, readiness simulator = `DryReady`;
-- negative path: invalid JSON payload, safe DLQ publication, no raw payload in
-  the DLQ record, Redis `XACK` = 1, readiness simulator = `Blocked`.
+- negative paths: invalid JSON, message-type mismatch, unsupported schema
+  version, missing payload field, typed decode failure, and raw order comment;
+- reconnect path: one delivered-but-unacked entry is recovered with
+  `XAUTOCLAIM`, processed, and `XACK`ed.
 
 Unit-level stream contract tests also decode the allowed M2 shadow payloads as
 typed envelopes:
@@ -246,9 +248,13 @@ The dry consumer metrics are:
 `runtime-bridge-dry-consume` adds Redis-runner metrics:
 
 - `XREADGROUP` iteration count;
+- `XAUTOCLAIM` iteration and claimed-entry count when pending recovery is
+  enabled;
 - returned-entry count;
 - last seen Redis id per stream;
 - `XPENDING` count per stream;
+- oldest pending idle time per stream;
+- stream length per stream;
 - Redis `XACK` count;
 - DLQ publication count;
 - missing-payload count.
