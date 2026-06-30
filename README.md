@@ -112,6 +112,10 @@ metrics, DLQ retention stress smoke, degraded/stopped readiness simulator
 coverage, and documented pending ownership plus durable watermark/dedupe
 decisions. It also records the first redacted FINAM M1 bar-finality evidence
 summary while keeping runtime consumption and `LiveReady` blocked.
+M2l is the final pre-runtime dry acceptance pass: it tightens the XAUTOCLAIM
+cursor stop condition, locks shadow-loop readiness metrics with a regression
+test, clarifies producer-vs-runtime watermark keys, and extends read-only FINAM
+M1 evidence around clearing windows.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`. The Redis CI job runs

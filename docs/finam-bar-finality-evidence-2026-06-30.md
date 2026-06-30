@@ -1,14 +1,16 @@
 # FINAM bar finality evidence — 2026-06-30
 
-Status: redacted read-only evidence summary for M2k. The probes used only FINAM
-auth and `bars_typed`; order placement, cancel, account order commands, command
-consumer, and live trading were not used.
+Status: redacted read-only evidence summary for M2k/M2l. The probes used only
+FINAM auth and `bars_typed`; order placement, cancel, account order commands,
+command consumer, and live trading were not used.
 
 Local redacted JSON outputs were saved under `tmp/`:
 
 - `tmp/finam-bar-finality-2026-06-30-open-window-redacted.json`;
 - `tmp/finam-bar-finality-2026-06-30-near-current-redacted.json`;
 - `tmp/finam-bar-finality-2026-06-29-boundary-redacted.json`.
+- `tmp/finam-bar-finality-2026-06-30-intraday-clearing-redacted.json`;
+- `tmp/finam-bar-finality-2026-06-29-evening-clearing-redacted.json`.
 
 The committed summary intentionally omits token values, account ids, order ids,
 and the concrete venue symbol. The probe confirmed `symbol_present = true` and
@@ -23,6 +25,8 @@ All checks used `TIME_FRAME_M1`.
 | Open session | `2026-06-30T06:00:00Z` → `2026-06-30T07:00:00Z` | 61 | `06:00:00Z` | `07:00:00Z` | `07:01:00Z` | 60s | Returned a bar at exact `end_time`. |
 | Near-current | lookback 90 minutes | 89 | `10:22:00Z` | `11:50:00Z` | `11:51:00Z` | 60s | Last derived close was before probe time. |
 | Boundary sample | `2026-06-29T15:40:00Z` → `2026-06-29T16:20:00Z` | 41 | `15:40:00Z` | `16:20:00Z` | `16:21:00Z` | 60s | Returned a bar at exact `end_time`. |
+| Intraday clearing sample | `2026-06-30T10:55:00Z` → `2026-06-30T11:10:00Z` | 16 | `10:55:00Z` | `11:10:00Z` | `11:11:00Z` | 60s | Continuous M1 sequence across the checked window. |
+| Evening clearing sample | `2026-06-29T15:45:00Z` → `2026-06-29T16:10:00Z` | 26 | `15:45:00Z` | `16:10:00Z` | `16:11:00Z` | 60s | Continuous M1 sequence across the checked window. |
 
 Common probe results:
 
@@ -43,6 +47,12 @@ The evidence supports the existing shadow mapper assumption that FINAM REST
 Important caveat: exact minute-aligned bounded requests returned a bar whose
 timestamp equals `end_time`. Treat FINAM historical bars as end-inclusive unless
 future probes prove otherwise.
+
+The clearing-window samples also returned continuous M1 timestamp sequences for
+the checked instrument/window. Do not infer exchange clearing gaps from generic
+schedule assumptions alone. Runtime-grade handling must compare broker-provided
+instrument schedule, actual bar availability, and receive/probe time before
+deciding whether a boundary bar is eligible.
 
 Before using historical polling as a runtime execution input, the gateway must
 still enforce an explicit finality policy:

@@ -111,22 +111,25 @@ On graceful loop shutdown, the runner publishes stopped health/readiness.
 
 ## Historical bar watermark
 
-`finam-gateway-shadow-loop` keeps an in-process watermark for historical bars
-keyed by:
+`finam-gateway-shadow-loop` currently keeps a producer-side, in-process
+watermark for historical bars keyed by:
 
 ```text
 venue_symbol|timeframe|open_ts
 ```
 
-Within one process, repeated polling of the same lookback window does not
-publish duplicate historical bar events. The loop reports `bars_deduped_count`
-and cumulative `deduped_bar_count` in its summary metrics.
+This is a low-noise publication heuristic for the current historical-polling
+producer. It is intentionally narrower than the runtime/durable key because the
+M2 shadow loop publishes only one historical polling source. Within one process,
+repeated polling of the same lookback window does not publish duplicate
+historical bar events. The loop reports `bars_deduped_count` and cumulative
+`deduped_bar_count` in its summary metrics.
 
 This is still shadow-mode only. Before runtime bridge consumption, decide
 whether dedupe remains producer-side, consumer-side, or both, and whether the
 watermark must become durable.
 
-The planned durable strategy before live runtime consumption is:
+The planned runtime/durable contract key before live runtime consumption is:
 
 1. keep the producer-side watermark for low-noise publication;
 2. persist the latest accepted bar key per
@@ -137,11 +140,11 @@ The planned durable strategy before live runtime consumption is:
 4. preserve a recovery path that can replay a bounded historical window with
    `source_kind = Recovery` without being confused with fresh live data.
 
-M2d keeps producer-side watermarking in-process. M2f/M2g add dry consumer-side
-dedupe and refine the key shape. M2h keeps the runtime-side watermark
-in-memory inside the dry consumer; durability is a separate M3/M4 gate because
-it affects replay, recovery, and operator incident handling. The current design
-decision is:
+M2d keeps producer-side watermarking in-process with the narrow heuristic key.
+M2f/M2g add dry consumer-side dedupe and refine the runtime key shape. M2h/M2k
+keep the runtime-side watermark in-memory inside the dry consumer; durability
+is a separate M3/M4 gate because it affects replay, recovery, and operator
+incident handling. The current design decision is:
 
 - producer-side in-process dedupe reduces Redis noise;
 - consumer-side in-process dedupe makes the dry bridge idempotent within one
@@ -181,8 +184,10 @@ set and verifies the dry `XREADGROUP` consumer path. It covers:
   DLQ = 0, readiness simulator = `DryReady`;
 - negative paths: invalid JSON, message-type mismatch, unsupported schema
   version, missing payload field, typed decode failure, and raw order comment;
-- reconnect path: one delivered-but-unacked entry is recovered with
-  `XAUTOCLAIM`, processed, and `XACK`ed.
+- reconnect path: multiple delivered-but-unacked entries are recovered with
+  cursor-based `XAUTOCLAIM`, processed, and `XACK`ed;
+- retention path: multiple bad entries are published to a bounded runtime-
+  bridge DLQ stream and exact DLQ `MAXLEN` is verified.
 
 Unit-level stream contract tests also decode the allowed M2 shadow payloads as
 typed envelopes:

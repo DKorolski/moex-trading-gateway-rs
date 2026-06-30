@@ -1558,9 +1558,17 @@ fn record_shadow_success(runtime: &GatewayShadowRuntime, report: &ShadowIteratio
         .metrics
         .lock()
         .expect("shadow metrics mutex not poisoned");
+    record_shadow_success_metrics(&mut metrics, report, Utc::now());
+}
+
+fn record_shadow_success_metrics(
+    metrics: &mut ShadowMetrics,
+    report: &ShadowIterationReport,
+    now: chrono::DateTime<Utc>,
+) {
     metrics.success_count += 1;
     metrics.consecutive_failures = 0;
-    metrics.last_success_ts = Some(Utc::now());
+    metrics.last_success_ts = Some(now);
     metrics.published_health_count += 1;
     metrics.published_readiness_count += 1;
     metrics.published_snapshot_count += 2;
@@ -1902,7 +1910,6 @@ async fn consume_runtime_bridge_dry(
                     .await?;
                     let next_stream_id = reply.next_stream_id.clone();
                     let deleted_count = reply.deleted_ids.len() as u64;
-                    let claimed_count = reply.claimed.len() as u64;
                     redis_metrics.xautoclaim_deleted_ids_count += deleted_count;
                     redis_metrics
                         .xautoclaim_last_next_ids
@@ -1920,10 +1927,7 @@ async fn consume_runtime_bridge_dry(
                         )
                         .await?;
                     }
-                    if next_stream_id == "0-0"
-                        || next_stream_id == start_id
-                        || (claimed_count == 0 && deleted_count == 0)
-                    {
+                    if runtime_bridge_xautoclaim_cursor_done(&start_id, &next_stream_id) {
                         break;
                     }
                     start_id = next_stream_id;
@@ -2744,6 +2748,10 @@ fn runtime_bridge_dlq_reason_label(reason: &RuntimeBridgeDlqReason) -> String {
     .to_string()
 }
 
+fn runtime_bridge_xautoclaim_cursor_done(start_id: &str, next_stream_id: &str) -> bool {
+    next_stream_id == "0-0" || next_stream_id == start_id
+}
+
 async fn runtime_bridge_xautoclaim(
     manager: &mut redis::aio::ConnectionManager,
     resolved: &ResolvedRuntimeBridgeDryConfig,
@@ -3507,6 +3515,51 @@ mod tests {
         assert_eq!(summary["metrics"]["failure_count"], 1);
         assert_eq!(summary["metrics"]["published_market_data_count"], 42);
         assert_eq!(summary["metrics"]["deduped_bar_count"], 7);
+    }
+
+    #[test]
+    fn record_shadow_success_metrics_counts_one_readiness_per_iteration() {
+        let mut metrics = ShadowMetrics {
+            consecutive_failures: 3,
+            ..ShadowMetrics::default()
+        };
+        let report = ShadowIterationReport {
+            iteration: 1,
+            elapsed_ms: 12,
+            summary: ReadonlySnapshotSummary {
+                cash_count: 1,
+                positions_count: 0,
+                orders_count: 0,
+                active_orders_count: 0,
+                terminal_orders_count: 0,
+                blocking_unknown_status_present: false,
+            },
+            readiness_phase: "Reconciliation".to_string(),
+            readiness_reasons: Vec::new(),
+            quote_published: true,
+            bars_published_count: 3,
+            bars_deduped_count: 2,
+            timeframe_sec: 60,
+        };
+        let now = Utc::now();
+
+        record_shadow_success_metrics(&mut metrics, &report, now);
+
+        assert_eq!(metrics.success_count, 1);
+        assert_eq!(metrics.consecutive_failures, 0);
+        assert_eq!(metrics.last_success_ts, Some(now));
+        assert_eq!(metrics.published_health_count, 1);
+        assert_eq!(metrics.published_readiness_count, 1);
+        assert_eq!(metrics.published_snapshot_count, 2);
+        assert_eq!(metrics.published_market_data_count, 4);
+        assert_eq!(metrics.deduped_bar_count, 2);
+    }
+
+    #[test]
+    fn xautoclaim_cursor_continues_when_empty_page_advances() {
+        assert!(!runtime_bridge_xautoclaim_cursor_done("0-0", "123-0"));
+        assert!(runtime_bridge_xautoclaim_cursor_done("123-0", "123-0"));
+        assert!(runtime_bridge_xautoclaim_cursor_done("123-0", "0-0"));
     }
 
     #[test]

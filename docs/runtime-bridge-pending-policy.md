@@ -33,8 +33,13 @@ Pending recovery must drain with the Redis `XAUTOCLAIM` cursor:
 2. process claimed entries through the same dry consumer, DLQ, readiness, and
    `XACK` path as fresh `XREADGROUP` entries;
 3. continue with Redis `next_stream_id` while it advances;
-4. stop when Redis returns `0-0`, the cursor stops advancing, or no claimed/
-   deleted entries are returned.
+4. stop when Redis returns `0-0` or the cursor stops advancing.
+
+An empty claim page with an advancing cursor is not terminal; the dry consumer
+continues scanning the pending backlog until Redis returns the terminal cursor
+or a non-advancing cursor. If a future long-running bridge needs a hard safety
+guard, add an explicit page/iteration limit rather than treating the first empty
+page as the end of backlog.
 
 The dry summary exposes `xautoclaim.last_next_ids` so an operator can see where
 the latest cursor pass ended for each stream.

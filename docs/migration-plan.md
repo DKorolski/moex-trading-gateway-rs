@@ -326,6 +326,35 @@ M2k explicitly still not allowed:
 - Live micro.
 - Stop/SLTP/bracket.
 
+M2l final pre-runtime dry bridge acceptance hardening, still without live
+orders:
+
+- XAUTOCLAIM cursor-loop stops only on Redis terminal cursor `0-0` or
+  non-advancing cursor; an empty page with an advancing cursor remains part of
+  the backlog scan.
+- Shadow-loop success metrics are regression-tested so one successful
+  iteration increments readiness publication count once.
+- Producer-side historical watermark is documented as the current low-noise
+  heuristic key, while the runtime/durable key remains
+  `(source, source_kind, venue_symbol, timeframe_sec, open_ts, is_final)`.
+- Redacted FINAM M1 bar-finality evidence is extended around intraday/evening
+  clearing windows. The checked windows returned continuous M1 timestamps and
+  inclusive `end_time`, so runtime finality must use broker-provided schedule,
+  actual bar availability, and receive/probe time rather than generic schedule
+  assumptions alone.
+
+M2l explicitly still not allowed:
+
+- POST/DELETE order endpoints.
+- Live order placement or cancel.
+- Command stream consumer for real trading.
+- Real order ACK lifecycle.
+- Durable request/client/broker id store in the order path.
+- Strategy runtime adaptation or strategy invocation.
+- `LiveReady` publication.
+- Live micro.
+- Stop/SLTP/bracket.
+
 Exit criteria:
 
 - Stream events reconcile with REST snapshots.

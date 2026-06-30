@@ -196,7 +196,7 @@ Pending ownership, safe `claim_stale_ms` selection, repeated-DLQ handling, and
 the durable watermark/dedupe decision are documented in
 `docs/runtime-bridge-pending-policy.md`.
 
-## What M2f/M2g/M2h/M2i/M2j/M2k deliberately do not do
+## What M2f/M2g/M2h/M2i/M2j/M2k/M2l deliberately do not do
 
 The dry consumer contract and dry Redis runner do not:
 
