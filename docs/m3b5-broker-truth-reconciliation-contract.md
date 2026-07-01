@@ -8,6 +8,10 @@ stop/SLTP, or bracket behavior.
 M3b-5 defines the broker-truth side of cancel reconciliation after uncertain
 cancel endpoint outcomes such as 404/409/410.
 
+M3b-6 extends this single-source classification contract with source freshness,
+precedence, conflict handling, and multi-source follow-up simulation. See
+`docs/m3b6-broker-truth-source-semantics.md`.
+
 ## Dry-only execution client naming
 
 The older approved execution simulator trait is now explicitly dry-only:

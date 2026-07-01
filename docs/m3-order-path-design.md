@@ -44,7 +44,11 @@ M3b-4 hardens the mock/classified transport boundary, keeps accepted response
 DTOs/fixtures out of serde export paths, and models dry cancel reconciliation
 follow-up after uncertain 404/409/410 responses. M3b-5 defines the
 broker-truth source/classification contract for that follow-up, including
-redacted diagnostics and stale/unknown truth operator disarm policy.
+redacted diagnostics and stale/unknown truth operator disarm policy. M3b-6 adds
+source-specific freshness policy, dry builders for get-order/orders/trades/
+position evidence, precedence selection, conflict detection, and
+`ReconciliationConflict` operator disarm while keeping all endpoint and runtime
+paths disabled.
 
 M3 scope is deliberately small:
 
@@ -130,6 +134,12 @@ results are not serde export objects and their debug output is redacted.
 Cancel-specific 404/409/410 responses require reconciliation instead of being
 treated as ordinary broker rejection. Body-read failure is modeled as a
 post-begin decode error.
+
+M3b-4/M3b-5/M3b-6 model cancel reconciliation after uncertain cancel outcomes:
+single-source truth maps terminal/still-working/unknown to the guarded
+follow-up matrix, and multi-source truth selects only fresh known evidence.
+Fresh terminal-vs-still-working disagreement is treated as a broker-truth
+conflict and disarms the operator instead of choosing a side silently.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

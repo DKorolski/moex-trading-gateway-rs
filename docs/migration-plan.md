@@ -929,6 +929,37 @@ M3b-5 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-6 broker-truth source semantics / precedence simulator:
+
+- Dry builders now cover future `GetOrder`, `OrdersSnapshot`,
+  `TradesSnapshot`, and `PositionSnapshot` broker-truth inputs.
+- Source freshness is policy-driven with per-source `max_age_ms`; stale source
+  evidence cannot win precedence.
+- Missing get-order/snapshot evidence is represented explicitly as unknown with
+  redacted diagnostics.
+- Multi-source reconciliation selects the highest-precedence fresh known truth
+  when sources agree.
+- Fresh terminal-vs-still-working disagreement becomes an explicit
+  `ReconciliationConflict` operator disarm instead of silently choosing a side.
+- Trade-derived evidence can recover terminal truth when direct order evidence
+  is missing/unknown.
+- Position-derived evidence is lowest precedence; flat or missing position is
+  unknown, not proof of success.
+- Cancel follow-up can now run from the multi-source decision while preserving
+  the same guarded uncertain-state matrix.
+- Details are documented in
+  `docs/m3b6-broker-truth-source-semantics.md`.
+
+M3b-6 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

@@ -1496,6 +1496,7 @@ pub enum OperatorDisarmSignal {
     OrderEndpointMaintenance,
     OrderEndpointDecodeError,
     OrderEndpointUnauthorized,
+    ReconciliationConflict,
     ReconciliationStale,
     RestartRecovery,
 }
@@ -3307,6 +3308,7 @@ mod tests {
             OperatorDisarmSignal::OrderEndpointMaintenance,
             OperatorDisarmSignal::OrderEndpointDecodeError,
             OperatorDisarmSignal::OrderEndpointUnauthorized,
+            OperatorDisarmSignal::ReconciliationConflict,
             OperatorDisarmSignal::ReconciliationStale,
             OperatorDisarmSignal::RestartRecovery,
         ] {

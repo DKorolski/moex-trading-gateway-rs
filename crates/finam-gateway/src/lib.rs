@@ -12,14 +12,15 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use broker_core::account::PortfolioSnapshot;
+use broker_core::account::{PortfolioSnapshot, Position};
 use broker_core::command::{
     BrokerCommand, CommandAck, CommandAckReason, CommandAckReasonCode, CommandAckStatus,
 };
 use broker_core::envelope::{Envelope, MessageType, SCHEMA_VERSION};
 use broker_core::event::MarketDataEvent;
-use broker_core::ids::StrategyRequestId;
-use broker_core::order::{Order, OrderStatus};
+use broker_core::ids::{BrokerOrderId, ClientOrderId, StrategyRequestId};
+use broker_core::instrument::InstrumentId;
+use broker_core::order::{Order, OrderStatus, Trade};
 use broker_core::readiness::{BrokerReadiness, ReadinessPhase, ReadinessReason};
 use broker_core::{
     OperatorArm, OperatorDisarmDecision, OperatorDisarmSignal, OrderPathErrorKind, OrderPathEvent,
@@ -1054,6 +1055,63 @@ pub enum CancelBrokerTruthSource {
     PositionSnapshot,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CancelBrokerTruthFreshnessPolicy {
+    pub get_order_max_age_ms: u64,
+    pub orders_snapshot_max_age_ms: u64,
+    pub trades_snapshot_max_age_ms: u64,
+    pub position_snapshot_max_age_ms: u64,
+}
+
+impl Default for CancelBrokerTruthFreshnessPolicy {
+    fn default() -> Self {
+        Self {
+            get_order_max_age_ms: 1_000,
+            orders_snapshot_max_age_ms: 2_000,
+            trades_snapshot_max_age_ms: 5_000,
+            position_snapshot_max_age_ms: 5_000,
+        }
+    }
+}
+
+impl CancelBrokerTruthFreshnessPolicy {
+    pub fn max_age_ms(&self, source: CancelBrokerTruthSource) -> u64 {
+        match source {
+            CancelBrokerTruthSource::GetOrder => self.get_order_max_age_ms,
+            CancelBrokerTruthSource::OrdersSnapshot => self.orders_snapshot_max_age_ms,
+            CancelBrokerTruthSource::TradesSnapshot => self.trades_snapshot_max_age_ms,
+            CancelBrokerTruthSource::PositionSnapshot => self.position_snapshot_max_age_ms,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CancelBrokerTruthPrecedencePolicy {
+    pub ordered_sources: Vec<CancelBrokerTruthSource>,
+}
+
+impl Default for CancelBrokerTruthPrecedencePolicy {
+    fn default() -> Self {
+        Self {
+            ordered_sources: vec![
+                CancelBrokerTruthSource::GetOrder,
+                CancelBrokerTruthSource::OrdersSnapshot,
+                CancelBrokerTruthSource::TradesSnapshot,
+                CancelBrokerTruthSource::PositionSnapshot,
+            ],
+        }
+    }
+}
+
+impl CancelBrokerTruthPrecedencePolicy {
+    fn rank(&self, source: CancelBrokerTruthSource) -> usize {
+        self.ordered_sources
+            .iter()
+            .position(|candidate| *candidate == source)
+            .unwrap_or(usize::MAX)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CancelBrokerTruthStatusClass {
     Terminal,
@@ -1068,6 +1126,7 @@ pub struct CancelBrokerTruthDiagnostic {
     pub order_id_len: Option<usize>,
     pub client_order_id_present: bool,
     pub client_order_id_len: Option<usize>,
+    pub evidence_present: bool,
     pub status_present: bool,
     pub status_class: CancelBrokerTruthStatusClass,
     pub stale: bool,
@@ -1088,7 +1147,9 @@ pub struct CancelBrokerTruthObservation {
     pub order_id_len: Option<usize>,
     pub client_order_id_present: bool,
     pub client_order_id_len: Option<usize>,
+    pub evidence_present: bool,
     pub order_status: Option<OrderStatus>,
+    pub status_class_override: Option<CancelBrokerTruthStatusClass>,
     pub observed_ts: DateTime<Utc>,
     pub max_age_ms: u64,
 }
@@ -1102,6 +1163,7 @@ impl std::fmt::Debug for CancelBrokerTruthObservation {
             .field("order_id_len", &self.order_id_len)
             .field("client_order_id_present", &self.client_order_id_present)
             .field("client_order_id_len", &self.client_order_id_len)
+            .field("evidence_present", &self.evidence_present)
             .field("status_present", &self.order_status.is_some())
             .field("status_class", &self.status_class())
             .field("observed_ts", &self.observed_ts)
@@ -1124,7 +1186,9 @@ impl CancelBrokerTruthObservation {
                 .client_order_id
                 .as_ref()
                 .map(|client_order_id| client_order_id.as_str().len()),
+            evidence_present: true,
             order_status: Some(order.status.clone()),
+            status_class_override: None,
             observed_ts: order.received_ts,
             max_age_ms,
         }
@@ -1141,13 +1205,64 @@ impl CancelBrokerTruthObservation {
             order_id_len: None,
             client_order_id_present: false,
             client_order_id_len: None,
+            evidence_present: false,
             order_status: None,
+            status_class_override: None,
             observed_ts,
             max_age_ms,
         }
     }
 
+    pub fn from_trade(trade: &Trade, max_age_ms: u64) -> Self {
+        Self {
+            source: CancelBrokerTruthSource::TradesSnapshot,
+            order_id_present: trade.order_id.is_some(),
+            order_id_len: trade
+                .order_id
+                .as_ref()
+                .map(|order_id| order_id.as_str().len()),
+            client_order_id_present: trade.client_order_id.is_some(),
+            client_order_id_len: trade
+                .client_order_id
+                .as_ref()
+                .map(|client_order_id| client_order_id.as_str().len()),
+            evidence_present: true,
+            order_status: None,
+            status_class_override: Some(CancelBrokerTruthStatusClass::Terminal),
+            observed_ts: trade.received_ts,
+            max_age_ms,
+        }
+    }
+
+    pub fn from_position(position: &Position, observed_ts: DateTime<Utc>, max_age_ms: u64) -> Self {
+        let status_class = if position.qty == broker_core::instrument::Quantity::ZERO {
+            CancelBrokerTruthStatusClass::Unknown
+        } else {
+            CancelBrokerTruthStatusClass::Terminal
+        };
+        Self {
+            source: CancelBrokerTruthSource::PositionSnapshot,
+            order_id_present: false,
+            order_id_len: None,
+            client_order_id_present: false,
+            client_order_id_len: None,
+            evidence_present: true,
+            order_status: None,
+            status_class_override: Some(status_class),
+            observed_ts,
+            max_age_ms,
+        }
+    }
+
+    fn with_observed_ts(mut self, observed_ts: DateTime<Utc>) -> Self {
+        self.observed_ts = observed_ts;
+        self
+    }
+
     fn status_class(&self) -> CancelBrokerTruthStatusClass {
+        if let Some(status_class) = self.status_class_override {
+            return status_class;
+        }
         match self.order_status.as_ref() {
             Some(
                 OrderStatus::Filled
@@ -1168,6 +1283,38 @@ pub struct CancelBrokerTruthClassification {
     pub broker_truth: CancelReconciliationBrokerTruth,
     pub diagnostic: CancelBrokerTruthDiagnostic,
     pub operator_disarm_signal: Option<OperatorDisarmSignal>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CancelBrokerTruthDecisionKind {
+    Selected,
+    Conflict,
+    UnknownOnly,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CancelBrokerTruthReconciliationDecision {
+    pub broker_truth: CancelReconciliationBrokerTruth,
+    pub decision_kind: CancelBrokerTruthDecisionKind,
+    pub selected_source: Option<CancelBrokerTruthSource>,
+    pub diagnostics: Vec<CancelBrokerTruthDiagnostic>,
+    pub stale_present: bool,
+    pub unknown_present: bool,
+    pub conflicting_sources: Vec<CancelBrokerTruthSource>,
+    pub operator_disarm_signal: Option<OperatorDisarmSignal>,
+}
+
+impl CancelBrokerTruthReconciliationDecision {
+    fn selected_diagnostic(&self) -> Option<CancelBrokerTruthDiagnostic> {
+        self.selected_source
+            .and_then(|source| {
+                self.diagnostics
+                    .iter()
+                    .find(|diagnostic| diagnostic.source == source)
+            })
+            .or_else(|| self.diagnostics.first())
+            .cloned()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1239,6 +1386,7 @@ pub fn classify_cancel_broker_truth(
             order_id_len: observation.order_id_len,
             client_order_id_present: observation.client_order_id_present,
             client_order_id_len: observation.client_order_id_len,
+            evidence_present: observation.evidence_present,
             status_present: observation.order_status.is_some(),
             status_class,
             stale,
@@ -1247,6 +1395,221 @@ pub fn classify_cancel_broker_truth(
         },
         operator_disarm_signal,
     }
+}
+
+pub fn build_cancel_truth_from_get_order(
+    order: Option<&Order>,
+    observed_ts: DateTime<Utc>,
+    freshness_policy: &CancelBrokerTruthFreshnessPolicy,
+) -> CancelBrokerTruthObservation {
+    let max_age_ms = freshness_policy.max_age_ms(CancelBrokerTruthSource::GetOrder);
+    order.map_or_else(
+        || {
+            CancelBrokerTruthObservation::missing(
+                CancelBrokerTruthSource::GetOrder,
+                observed_ts,
+                max_age_ms,
+            )
+        },
+        |order| {
+            CancelBrokerTruthObservation::from_order(
+                CancelBrokerTruthSource::GetOrder,
+                order,
+                max_age_ms,
+            )
+            .with_observed_ts(observed_ts)
+        },
+    )
+}
+
+pub fn build_cancel_truth_from_orders_snapshot(
+    orders: &[Order],
+    order_id: &BrokerOrderId,
+    client_order_id: Option<&ClientOrderId>,
+    snapshot_received_ts: DateTime<Utc>,
+    freshness_policy: &CancelBrokerTruthFreshnessPolicy,
+) -> CancelBrokerTruthObservation {
+    let max_age_ms = freshness_policy.max_age_ms(CancelBrokerTruthSource::OrdersSnapshot);
+    orders
+        .iter()
+        .find(|order| order_matches_cancel(order, order_id, client_order_id))
+        .map_or_else(
+            || {
+                CancelBrokerTruthObservation::missing(
+                    CancelBrokerTruthSource::OrdersSnapshot,
+                    snapshot_received_ts,
+                    max_age_ms,
+                )
+            },
+            |order| {
+                CancelBrokerTruthObservation::from_order(
+                    CancelBrokerTruthSource::OrdersSnapshot,
+                    order,
+                    max_age_ms,
+                )
+                .with_observed_ts(snapshot_received_ts)
+            },
+        )
+}
+
+pub fn build_cancel_truth_from_trades_snapshot(
+    trades: &[Trade],
+    order_id: &BrokerOrderId,
+    client_order_id: Option<&ClientOrderId>,
+    snapshot_received_ts: DateTime<Utc>,
+    freshness_policy: &CancelBrokerTruthFreshnessPolicy,
+) -> CancelBrokerTruthObservation {
+    let max_age_ms = freshness_policy.max_age_ms(CancelBrokerTruthSource::TradesSnapshot);
+    trades
+        .iter()
+        .filter(|trade| trade_matches_cancel(trade, order_id, client_order_id))
+        .max_by_key(|trade| trade.received_ts)
+        .map_or_else(
+            || {
+                CancelBrokerTruthObservation::missing(
+                    CancelBrokerTruthSource::TradesSnapshot,
+                    snapshot_received_ts,
+                    max_age_ms,
+                )
+            },
+            |trade| {
+                CancelBrokerTruthObservation::from_trade(trade, max_age_ms)
+                    .with_observed_ts(snapshot_received_ts)
+            },
+        )
+}
+
+pub fn build_cancel_truth_from_position_snapshot(
+    positions: &[Position],
+    instrument: &InstrumentId,
+    snapshot_received_ts: DateTime<Utc>,
+    freshness_policy: &CancelBrokerTruthFreshnessPolicy,
+) -> CancelBrokerTruthObservation {
+    let max_age_ms = freshness_policy.max_age_ms(CancelBrokerTruthSource::PositionSnapshot);
+    positions
+        .iter()
+        .find(|position| &position.instrument == instrument)
+        .map_or_else(
+            || {
+                CancelBrokerTruthObservation::missing(
+                    CancelBrokerTruthSource::PositionSnapshot,
+                    snapshot_received_ts,
+                    max_age_ms,
+                )
+            },
+            |position| {
+                CancelBrokerTruthObservation::from_position(
+                    position,
+                    snapshot_received_ts,
+                    max_age_ms,
+                )
+            },
+        )
+}
+
+pub fn reconcile_cancel_broker_truth_sources(
+    classifications: &[CancelBrokerTruthClassification],
+    precedence_policy: &CancelBrokerTruthPrecedencePolicy,
+) -> CancelBrokerTruthReconciliationDecision {
+    let diagnostics = classifications
+        .iter()
+        .map(|classification| classification.diagnostic.clone())
+        .collect::<Vec<_>>();
+    let stale_present = diagnostics.iter().any(|diagnostic| diagnostic.stale);
+    let unknown_present = classifications.iter().any(|classification| {
+        classification.broker_truth == CancelReconciliationBrokerTruth::Unknown
+    });
+    let fresh_known = classifications
+        .iter()
+        .filter(|classification| {
+            !classification.diagnostic.stale
+                && classification.broker_truth != CancelReconciliationBrokerTruth::Unknown
+        })
+        .collect::<Vec<_>>();
+    let terminal_present = fresh_known.iter().any(|classification| {
+        classification.broker_truth == CancelReconciliationBrokerTruth::Terminal
+    });
+    let still_working_present = fresh_known.iter().any(|classification| {
+        classification.broker_truth == CancelReconciliationBrokerTruth::StillWorking
+    });
+
+    if terminal_present && still_working_present {
+        let mut conflicting_sources = fresh_known
+            .iter()
+            .map(|classification| classification.diagnostic.source)
+            .collect::<Vec<_>>();
+        conflicting_sources.sort_by_key(|source| precedence_policy.rank(*source));
+        conflicting_sources.dedup();
+        return CancelBrokerTruthReconciliationDecision {
+            broker_truth: CancelReconciliationBrokerTruth::Unknown,
+            decision_kind: CancelBrokerTruthDecisionKind::Conflict,
+            selected_source: None,
+            diagnostics,
+            stale_present,
+            unknown_present,
+            conflicting_sources,
+            operator_disarm_signal: Some(OperatorDisarmSignal::ReconciliationConflict),
+        };
+    }
+
+    if let Some(selected) = fresh_known
+        .into_iter()
+        .min_by_key(|classification| precedence_policy.rank(classification.diagnostic.source))
+    {
+        return CancelBrokerTruthReconciliationDecision {
+            broker_truth: selected.broker_truth,
+            decision_kind: CancelBrokerTruthDecisionKind::Selected,
+            selected_source: Some(selected.diagnostic.source),
+            diagnostics,
+            stale_present,
+            unknown_present,
+            conflicting_sources: Vec::new(),
+            operator_disarm_signal: None,
+        };
+    }
+
+    let selected_source = classifications
+        .iter()
+        .min_by_key(|classification| precedence_policy.rank(classification.diagnostic.source))
+        .map(|classification| classification.diagnostic.source);
+    CancelBrokerTruthReconciliationDecision {
+        broker_truth: CancelReconciliationBrokerTruth::Unknown,
+        decision_kind: CancelBrokerTruthDecisionKind::UnknownOnly,
+        selected_source,
+        diagnostics,
+        stale_present,
+        unknown_present,
+        conflicting_sources: Vec::new(),
+        operator_disarm_signal: Some(if stale_present {
+            OperatorDisarmSignal::ReconciliationStale
+        } else {
+            OperatorDisarmSignal::UnknownPendingOrder
+        }),
+    }
+}
+
+fn order_matches_cancel(
+    order: &Order,
+    order_id: &BrokerOrderId,
+    client_order_id: Option<&ClientOrderId>,
+) -> bool {
+    if let Some(candidate_order_id) = order.order_id.as_ref() {
+        return candidate_order_id == order_id;
+    }
+    client_order_id
+        .is_some_and(|client_order_id| order.client_order_id.as_ref() == Some(client_order_id))
+}
+
+fn trade_matches_cancel(
+    trade: &Trade,
+    order_id: &BrokerOrderId,
+    client_order_id: Option<&ClientOrderId>,
+) -> bool {
+    if let Some(candidate_order_id) = trade.order_id.as_ref() {
+        return candidate_order_id == order_id;
+    }
+    client_order_id
+        .is_some_and(|client_order_id| trade.client_order_id.as_ref() == Some(client_order_id))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1531,6 +1894,27 @@ where
         classification.broker_truth,
         Some(classification.diagnostic.clone()),
         classification.operator_disarm_signal,
+        operator_arm,
+        checked_ts,
+    )
+}
+
+pub fn simulate_cancel_reconciliation_follow_up_from_broker_truth_decision<S>(
+    store: &mut S,
+    mapped_request_id: StrategyRequestId,
+    decision: &CancelBrokerTruthReconciliationDecision,
+    operator_arm: Option<&mut OperatorArm>,
+    checked_ts: DateTime<Utc>,
+) -> Result<CancelReconciliationFollowUpReport, EndpointResponseIntegrationSimulatorError>
+where
+    S: OrderPathStore,
+{
+    simulate_cancel_reconciliation_follow_up_with_policy(
+        store,
+        mapped_request_id,
+        decision.broker_truth,
+        decision.selected_diagnostic(),
+        decision.operator_disarm_signal,
         operator_arm,
         checked_ts,
     )
@@ -2470,12 +2854,12 @@ pub fn redact_command_ack_for_redis(mut ack: CommandAck) -> CommandAck {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use broker_core::account::PortfolioSnapshot;
+    use broker_core::account::{PortfolioSnapshot, Position};
     use broker_core::command::{CommandAckReason, CommandAckReasonCode};
     use broker_core::event::{Bar, MarketDataEvent, MarketDataSourceKind, Quote};
-    use broker_core::ids::{BrokerOrderId, ClientOrderId, StrategyRequestId};
+    use broker_core::ids::{BrokerOrderId, BrokerTradeId, ClientOrderId, StrategyRequestId};
     use broker_core::instrument::{Exchange, InstrumentId, Market};
-    use broker_core::order::{Order, OrderSide, OrderStatus, OrderType, TimeInForce};
+    use broker_core::order::{Order, OrderSide, OrderStatus, OrderType, TimeInForce, Trade};
     use broker_core::{
         CancelOrder, CancelPreflightApproval, DryOrderRateLimit, InMemoryOrderPathStore,
         OperatorArm, OperatorDisarmSignal, OrderPathErrorKind, OrderPathEvent, OrderPathRecord,
@@ -5089,6 +5473,498 @@ mod tests {
     }
 
     #[test]
+    fn cancel_broker_truth_builders_cover_get_order_orders_trades_and_positions() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 18, 10)
+            .single()
+            .expect("timestamp");
+        let policy = CancelBrokerTruthFreshnessPolicy {
+            get_order_max_age_ms: 100,
+            orders_snapshot_max_age_ms: 200,
+            trades_snapshot_max_age_ms: 300,
+            position_snapshot_max_age_ms: 400,
+        };
+        let order_id = BrokerOrderId::new("BROKER_TEST_BUILDER_ORDER");
+        let client_id = ClientOrderId::new("CID000000000000190").expect("client id");
+        let terminal_order =
+            sample_order_with_status(OrderStatus::Canceled, order_id.as_str(), now);
+        let working_order = sample_order_with_status(OrderStatus::Working, order_id.as_str(), now);
+        let trade = sample_trade(order_id.as_str(), now);
+        let non_flat_position = sample_position(Decimal::ONE);
+        let flat_position = sample_position(Decimal::ZERO);
+
+        let get_order = classify_cancel_broker_truth(
+            &build_cancel_truth_from_get_order(Some(&terminal_order), now, &policy),
+            now,
+        );
+        assert_eq!(
+            get_order.broker_truth,
+            CancelReconciliationBrokerTruth::Terminal
+        );
+        assert_eq!(
+            get_order.diagnostic.source,
+            CancelBrokerTruthSource::GetOrder
+        );
+        assert_eq!(get_order.diagnostic.max_age_ms, 100);
+        assert!(get_order.diagnostic.evidence_present);
+        assert!(get_order.diagnostic.status_present);
+
+        let get_order_missing = classify_cancel_broker_truth(
+            &build_cancel_truth_from_get_order(None, now, &policy),
+            now,
+        );
+        assert_eq!(
+            get_order_missing.broker_truth,
+            CancelReconciliationBrokerTruth::Unknown
+        );
+        assert_eq!(
+            get_order_missing.diagnostic.source,
+            CancelBrokerTruthSource::GetOrder
+        );
+        assert!(!get_order_missing.diagnostic.evidence_present);
+
+        let orders_snapshot = classify_cancel_broker_truth(
+            &build_cancel_truth_from_orders_snapshot(
+                &[working_order],
+                &order_id,
+                Some(&client_id),
+                now,
+                &policy,
+            ),
+            now,
+        );
+        assert_eq!(
+            orders_snapshot.broker_truth,
+            CancelReconciliationBrokerTruth::StillWorking
+        );
+        assert_eq!(
+            orders_snapshot.diagnostic.source,
+            CancelBrokerTruthSource::OrdersSnapshot
+        );
+        assert_eq!(orders_snapshot.diagnostic.max_age_ms, 200);
+
+        let trades_snapshot = classify_cancel_broker_truth(
+            &build_cancel_truth_from_trades_snapshot(
+                &[trade],
+                &order_id,
+                Some(&client_id),
+                now,
+                &policy,
+            ),
+            now,
+        );
+        assert_eq!(
+            trades_snapshot.broker_truth,
+            CancelReconciliationBrokerTruth::Terminal
+        );
+        assert_eq!(
+            trades_snapshot.diagnostic.source,
+            CancelBrokerTruthSource::TradesSnapshot
+        );
+        assert!(trades_snapshot.diagnostic.evidence_present);
+        assert!(!trades_snapshot.diagnostic.status_present);
+        assert_eq!(trades_snapshot.diagnostic.max_age_ms, 300);
+
+        let position_non_flat = classify_cancel_broker_truth(
+            &build_cancel_truth_from_position_snapshot(
+                &[non_flat_position],
+                &sample_instrument(),
+                now,
+                &policy,
+            ),
+            now,
+        );
+        assert_eq!(
+            position_non_flat.broker_truth,
+            CancelReconciliationBrokerTruth::Terminal
+        );
+        assert_eq!(
+            position_non_flat.diagnostic.source,
+            CancelBrokerTruthSource::PositionSnapshot
+        );
+        assert_eq!(position_non_flat.diagnostic.max_age_ms, 400);
+
+        let position_flat = classify_cancel_broker_truth(
+            &build_cancel_truth_from_position_snapshot(
+                &[flat_position],
+                &sample_instrument(),
+                now,
+                &policy,
+            ),
+            now,
+        );
+        assert_eq!(
+            position_flat.broker_truth,
+            CancelReconciliationBrokerTruth::Unknown
+        );
+        assert!(position_flat.diagnostic.evidence_present);
+
+        let rendered = format!(
+            "{:?}{:?}{:?}{:?}",
+            get_order, orders_snapshot, trades_snapshot, position_non_flat
+        );
+        let diagnostics_json = serde_json::to_string(&vec![
+            get_order.diagnostic,
+            orders_snapshot.diagnostic,
+            trades_snapshot.diagnostic,
+            position_non_flat.diagnostic,
+        ])
+        .expect("diagnostics serialize");
+        assert!(!rendered.contains("BROKER_TEST_BUILDER_ORDER"));
+        assert!(!diagnostics_json.contains("BROKER_TEST_BUILDER_ORDER"));
+        assert!(!diagnostics_json.contains("CID000000000000190"));
+    }
+
+    #[test]
+    fn cancel_broker_truth_precedence_selects_fresh_highest_priority_source() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 18, 20)
+            .single()
+            .expect("timestamp");
+        let freshness = CancelBrokerTruthFreshnessPolicy::default();
+        let precedence = CancelBrokerTruthPrecedencePolicy::default();
+        let order_id = BrokerOrderId::new("BROKER_TEST_PRECEDENCE");
+        let client_id = ClientOrderId::new("CID000000000000191").expect("client id");
+        let get_order_terminal = classify_cancel_broker_truth(
+            &build_cancel_truth_from_get_order(
+                Some(&sample_order_with_status(
+                    OrderStatus::Canceled,
+                    order_id.as_str(),
+                    now,
+                )),
+                now,
+                &freshness,
+            ),
+            now,
+        );
+        let orders_terminal = classify_cancel_broker_truth(
+            &build_cancel_truth_from_orders_snapshot(
+                &[sample_order_with_status(
+                    OrderStatus::Filled,
+                    order_id.as_str(),
+                    now,
+                )],
+                &order_id,
+                Some(&client_id),
+                now,
+                &freshness,
+            ),
+            now,
+        );
+        let trade_terminal = classify_cancel_broker_truth(
+            &build_cancel_truth_from_trades_snapshot(
+                &[sample_trade(order_id.as_str(), now)],
+                &order_id,
+                Some(&client_id),
+                now,
+                &freshness,
+            ),
+            now,
+        );
+        let position_terminal = classify_cancel_broker_truth(
+            &build_cancel_truth_from_position_snapshot(
+                &[sample_position(Decimal::ONE)],
+                &sample_instrument(),
+                now,
+                &freshness,
+            ),
+            now,
+        );
+
+        let all_terminal = reconcile_cancel_broker_truth_sources(
+            &[
+                position_terminal.clone(),
+                trade_terminal.clone(),
+                orders_terminal.clone(),
+                get_order_terminal,
+            ],
+            &precedence,
+        );
+        assert_eq!(
+            all_terminal.decision_kind,
+            CancelBrokerTruthDecisionKind::Selected
+        );
+        assert_eq!(
+            all_terminal.broker_truth,
+            CancelReconciliationBrokerTruth::Terminal
+        );
+        assert_eq!(
+            all_terminal.selected_source,
+            Some(CancelBrokerTruthSource::GetOrder)
+        );
+        assert!(all_terminal.operator_disarm_signal.is_none());
+
+        let trade_vs_position = reconcile_cancel_broker_truth_sources(
+            &[position_terminal, trade_terminal],
+            &precedence,
+        );
+        assert_eq!(
+            trade_vs_position.selected_source,
+            Some(CancelBrokerTruthSource::TradesSnapshot)
+        );
+
+        let missing_get_order = classify_cancel_broker_truth(
+            &build_cancel_truth_from_get_order(None, now, &freshness),
+            now,
+        );
+        let unknown_order_status = classify_cancel_broker_truth(
+            &build_cancel_truth_from_orders_snapshot(
+                &[sample_order_with_status(
+                    OrderStatus::Unknown("BROKER_RAW_UNKNOWN_STATUS".to_string()),
+                    order_id.as_str(),
+                    now,
+                )],
+                &order_id,
+                Some(&client_id),
+                now,
+                &freshness,
+            ),
+            now,
+        );
+        let trade_implies_terminal = classify_cancel_broker_truth(
+            &build_cancel_truth_from_trades_snapshot(
+                &[sample_trade(order_id.as_str(), now)],
+                &order_id,
+                Some(&client_id),
+                now,
+                &freshness,
+            ),
+            now,
+        );
+        let recovered_from_trade = reconcile_cancel_broker_truth_sources(
+            &[
+                missing_get_order,
+                unknown_order_status,
+                trade_implies_terminal,
+            ],
+            &precedence,
+        );
+        assert_eq!(
+            recovered_from_trade.broker_truth,
+            CancelReconciliationBrokerTruth::Terminal
+        );
+        assert_eq!(
+            recovered_from_trade.selected_source,
+            Some(CancelBrokerTruthSource::TradesSnapshot)
+        );
+        let rendered = format!("{recovered_from_trade:?}");
+        assert!(!rendered.contains("BROKER_RAW_UNKNOWN_STATUS"));
+        assert!(!rendered.contains("BROKER_TEST_PRECEDENCE"));
+    }
+
+    #[test]
+    fn cancel_broker_truth_precedence_handles_conflicts_stale_and_unknown() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 18, 25)
+            .single()
+            .expect("timestamp");
+        let freshness = CancelBrokerTruthFreshnessPolicy {
+            get_order_max_age_ms: 500,
+            orders_snapshot_max_age_ms: 500,
+            trades_snapshot_max_age_ms: 500,
+            position_snapshot_max_age_ms: 500,
+        };
+        let precedence = CancelBrokerTruthPrecedencePolicy::default();
+        let order_id = BrokerOrderId::new("BROKER_TEST_CONFLICT");
+        let client_id = ClientOrderId::new("CID000000000000192").expect("client id");
+
+        let get_working = classify_cancel_broker_truth(
+            &build_cancel_truth_from_get_order(
+                Some(&sample_order_with_status(
+                    OrderStatus::Working,
+                    order_id.as_str(),
+                    now,
+                )),
+                now,
+                &freshness,
+            ),
+            now,
+        );
+        let orders_terminal = classify_cancel_broker_truth(
+            &build_cancel_truth_from_orders_snapshot(
+                &[sample_order_with_status(
+                    OrderStatus::Canceled,
+                    order_id.as_str(),
+                    now,
+                )],
+                &order_id,
+                Some(&client_id),
+                now,
+                &freshness,
+            ),
+            now,
+        );
+        let conflict =
+            reconcile_cancel_broker_truth_sources(&[get_working, orders_terminal], &precedence);
+        assert_eq!(
+            conflict.decision_kind,
+            CancelBrokerTruthDecisionKind::Conflict
+        );
+        assert_eq!(
+            conflict.broker_truth,
+            CancelReconciliationBrokerTruth::Unknown
+        );
+        assert_eq!(
+            conflict.operator_disarm_signal,
+            Some(OperatorDisarmSignal::ReconciliationConflict)
+        );
+        assert_eq!(
+            conflict.conflicting_sources,
+            vec![
+                CancelBrokerTruthSource::GetOrder,
+                CancelBrokerTruthSource::OrdersSnapshot,
+            ]
+        );
+
+        let stale_get_terminal = classify_cancel_broker_truth(
+            &build_cancel_truth_from_get_order(
+                Some(&sample_order_with_status(
+                    OrderStatus::Canceled,
+                    order_id.as_str(),
+                    now,
+                )),
+                now,
+                &freshness,
+            ),
+            now + chrono::Duration::milliseconds(600),
+        );
+        let fresh_orders_working = classify_cancel_broker_truth(
+            &build_cancel_truth_from_orders_snapshot(
+                &[sample_order_with_status(
+                    OrderStatus::Working,
+                    order_id.as_str(),
+                    now,
+                )],
+                &order_id,
+                Some(&client_id),
+                now + chrono::Duration::milliseconds(550),
+                &freshness,
+            ),
+            now + chrono::Duration::milliseconds(600),
+        );
+        let stale_vs_fresh = reconcile_cancel_broker_truth_sources(
+            &[stale_get_terminal, fresh_orders_working],
+            &precedence,
+        );
+        assert_eq!(
+            stale_vs_fresh.broker_truth,
+            CancelReconciliationBrokerTruth::StillWorking
+        );
+        assert_eq!(
+            stale_vs_fresh.selected_source,
+            Some(CancelBrokerTruthSource::OrdersSnapshot)
+        );
+        assert!(stale_vs_fresh.stale_present);
+        assert!(stale_vs_fresh.operator_disarm_signal.is_none());
+
+        let all_stale = reconcile_cancel_broker_truth_sources(
+            &[classify_cancel_broker_truth(
+                &build_cancel_truth_from_get_order(
+                    Some(&sample_order_with_status(
+                        OrderStatus::Canceled,
+                        order_id.as_str(),
+                        now,
+                    )),
+                    now,
+                    &freshness,
+                ),
+                now + chrono::Duration::milliseconds(600),
+            )],
+            &precedence,
+        );
+        assert_eq!(
+            all_stale.decision_kind,
+            CancelBrokerTruthDecisionKind::UnknownOnly
+        );
+        assert_eq!(
+            all_stale.operator_disarm_signal,
+            Some(OperatorDisarmSignal::ReconciliationStale)
+        );
+
+        let all_unknown = reconcile_cancel_broker_truth_sources(
+            &[classify_cancel_broker_truth(
+                &build_cancel_truth_from_get_order(None, now, &freshness),
+                now,
+            )],
+            &precedence,
+        );
+        assert_eq!(
+            all_unknown.operator_disarm_signal,
+            Some(OperatorDisarmSignal::UnknownPendingOrder)
+        );
+    }
+
+    #[test]
+    fn cancel_reconciliation_follow_up_from_precedence_decision_disarms_for_conflict() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 18, 40)
+            .single()
+            .expect("timestamp");
+        let (mut store, approved_cancel, mapped_request_id) = submitted_store_and_approved_cancel(
+            now,
+            request_id(188),
+            request_id(189),
+            BrokerOrderId::new("BROKER_TEST_DECISION_FOLLOW"),
+        );
+        simulate_cancel_order_endpoint_local_http_response(
+            &mut store,
+            &approved_cancel,
+            &FinamOrderEndpointLocalHttpResponse::Response {
+                status: 409,
+                body: serde_json::json!({"message": "cancel state uncertain"}).to_string(),
+                retry_after_ms: None,
+            },
+            None,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .expect("cancel conflict requires reconciliation");
+        let decision = CancelBrokerTruthReconciliationDecision {
+            broker_truth: CancelReconciliationBrokerTruth::Unknown,
+            decision_kind: CancelBrokerTruthDecisionKind::Conflict,
+            selected_source: None,
+            diagnostics: vec![],
+            stale_present: false,
+            unknown_present: true,
+            conflicting_sources: vec![
+                CancelBrokerTruthSource::GetOrder,
+                CancelBrokerTruthSource::OrdersSnapshot,
+            ],
+            operator_disarm_signal: Some(OperatorDisarmSignal::ReconciliationConflict),
+        };
+        let mut arm = dry_preflight_policy(now).operator_arm.clone();
+
+        let follow_up = simulate_cancel_reconciliation_follow_up_from_broker_truth_decision(
+            &mut store,
+            mapped_request_id,
+            &decision,
+            Some(&mut arm),
+            now + chrono::Duration::milliseconds(3),
+        )
+        .expect("decision follow-up");
+
+        assert_eq!(
+            follow_up.outcome,
+            CancelReconciliationFollowUpOutcomeKind::UnknownPending
+        );
+        assert_eq!(follow_up.state, OrderPathState::ManualInterventionRequired);
+        assert_eq!(follow_up.ack.status, CommandAckStatus::UnknownPending);
+        assert_eq!(
+            follow_up.ack.reason.as_ref().expect("reason").code,
+            CommandAckReasonCode::ReconciliationRequired
+        );
+        assert_eq!(
+            follow_up.disarm_decision.expect("disarm").signal,
+            OperatorDisarmSignal::ReconciliationConflict
+        );
+        assert_eq!(
+            arm.validate(now)
+                .expect_err("conflicting truth disarms operator arm"),
+            broker_core::OrderPreflightError::EndpointNotArmed
+        );
+    }
+
+    #[test]
     fn cancel_reconciliation_follow_up_from_broker_truth_matrix_and_disarm_policy() {
         let now = Utc
             .with_ymd_and_hms(2026, 7, 1, 12, 18, 30)
@@ -6188,6 +7064,35 @@ mod tests {
             comment: None,
             source_ts: None,
             received_ts,
+        }
+    }
+
+    fn sample_trade(broker_order_id: &str, received_ts: DateTime<Utc>) -> Trade {
+        Trade {
+            account_id: broker_core::BrokerAccountId::new("ACC_TEST_0001"),
+            trade_id: BrokerTradeId::new("TRADE_TEST_1"),
+            order_id: Some(BrokerOrderId::new(broker_order_id)),
+            client_order_id: Some(ClientOrderId::new("CID000000000000999").expect("client id")),
+            broker_client_order_id_fingerprint: None,
+            instrument: sample_instrument(),
+            side: OrderSide::Buy,
+            qty: Decimal::ONE,
+            price: Decimal::new(5000, 0),
+            gross_amount: None,
+            commission: None,
+            source_ts: received_ts,
+            received_ts,
+        }
+    }
+
+    fn sample_position(qty: Decimal) -> Position {
+        Position {
+            account_id: broker_core::BrokerAccountId::new("ACC_TEST_0001"),
+            instrument: sample_instrument(),
+            qty,
+            avg_price: Some(Decimal::new(5000, 0)),
+            unrealized_pnl: None,
+            source_ts: None,
         }
     }
 

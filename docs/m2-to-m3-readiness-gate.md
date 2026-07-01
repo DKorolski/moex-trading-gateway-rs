@@ -772,3 +772,36 @@ Still not implemented in M3b-5:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-6 broker-truth source semantics / precedence status
+
+Implemented while still keeping all broker endpoints disabled:
+
+- dry builders exist for `GetOrder`, `OrdersSnapshot`, `TradesSnapshot`, and
+  `PositionSnapshot` future broker-truth inputs;
+- source freshness is policy-driven with per-source `max_age_ms`;
+- freshness is measured from the get-order response or snapshot receive time;
+- missing source evidence is represented as unknown with `evidence_present =
+  false`;
+- trade-derived truth can recover terminal state when order truth is missing or
+  unknown;
+- position-derived truth is lowest precedence and flat/missing position remains
+  unknown;
+- multi-source reconciliation selects the highest-precedence fresh known source
+  when there is no conflict;
+- fresh terminal-vs-still-working disagreement produces
+  `ReconciliationConflict` and operator disarm;
+- stale-only truth produces `ReconciliationStale`;
+- unknown-only truth produces `UnknownPendingOrder`;
+- multi-source diagnostics export only source classes, presence/length flags,
+  status classes, staleness, and age policy.
+
+Still not implemented in M3b-6:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.
