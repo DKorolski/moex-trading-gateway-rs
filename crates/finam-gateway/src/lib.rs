@@ -1012,6 +1012,7 @@ pub enum EndpointResponseIntegrationOutcomeKind {
     Maintenance,
     DecodeError,
     Unauthorized,
+    ReconciliationRequired,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1140,7 +1141,10 @@ where
 
     record.transition(OrderPathEvent::BeginSubmit, begin_ts)?;
     store.update_record(record.clone())?;
-    let classified = broker_finam::classify_order_endpoint_local_http_response(response);
+    let classified = broker_finam::classify_order_endpoint_local_http_response_for_context(
+        broker_finam::FinamOrderEndpointContext::Place,
+        response,
+    );
 
     apply_place_order_endpoint_result_after_begin(
         store,
@@ -1178,7 +1182,10 @@ where
 
     record.transition(OrderPathEvent::RequestCancel, begin_ts)?;
     store.update_record(record.clone())?;
-    let classified = broker_finam::classify_order_endpoint_local_http_response(response);
+    let classified = broker_finam::classify_order_endpoint_local_http_response_for_context(
+        broker_finam::FinamOrderEndpointContext::Cancel,
+        response,
+    );
 
     apply_cancel_order_endpoint_result_after_begin(
         store,
@@ -1239,11 +1246,11 @@ where
 {
     if let Some(non_execution) = endpoint_non_execution_policy(&endpoint_result) {
         record.transition(OrderPathEvent::RequireManualIntervention, outcome_ts)?;
-        record.last_ack_status = Some(CommandAckStatus::Error);
+        record.last_ack_status = Some(non_execution.ack_status);
         record.last_error_kind = Some(non_execution.error_kind);
         store.update_record(record.clone())?;
         let ack = record.synthetic_ack(
-            CommandAckStatus::Error,
+            non_execution.ack_status,
             Some(CommandAckReason::new(non_execution.reason_code)),
             outcome_ts,
         );
@@ -1313,6 +1320,11 @@ where
     };
     store.update_record(record.clone())?;
     let ack = record.synthetic_ack(ack_status, ack_reason, outcome_ts);
+    let disarm_decision = match outcome {
+        EndpointResponseIntegrationOutcomeKind::TimeoutUnknownPending => operator_arm
+            .map(|arm| arm.disarm_for_safety_signal(OperatorDisarmSignal::UnknownPendingOrder)),
+        _ => None,
+    };
 
     Ok(EndpointResponseIntegrationReport {
         ack,
@@ -1321,7 +1333,7 @@ where
         cancel_attempt_count: record.cancel_attempt_count,
         outcome,
         endpoint_response,
-        disarm_decision: None,
+        disarm_decision,
         retry_after_ms: None,
     })
 }
@@ -1382,11 +1394,11 @@ where
 {
     if let Some(non_execution) = endpoint_non_execution_policy(&endpoint_result) {
         record.transition(OrderPathEvent::RequireManualIntervention, outcome_ts)?;
-        record.last_ack_status = Some(CommandAckStatus::Error);
+        record.last_ack_status = Some(non_execution.ack_status);
         record.last_error_kind = Some(non_execution.error_kind);
         store.update_record(record.clone())?;
         let ack = record.synthetic_ack(
-            CommandAckStatus::Error,
+            non_execution.ack_status,
             Some(CommandAckReason::new(non_execution.reason_code)),
             outcome_ts,
         );
@@ -1452,6 +1464,11 @@ where
     };
     store.update_record(record.clone())?;
     let ack = record.synthetic_ack(ack_status, ack_reason, outcome_ts);
+    let disarm_decision = match outcome {
+        EndpointResponseIntegrationOutcomeKind::CancelTimeoutUnknownPending => operator_arm
+            .map(|arm| arm.disarm_for_safety_signal(OperatorDisarmSignal::UnknownPendingOrder)),
+        _ => None,
+    };
 
     Ok(EndpointResponseIntegrationReport {
         ack,
@@ -1460,7 +1477,7 @@ where
         cancel_attempt_count: record.cancel_attempt_count,
         outcome,
         endpoint_response,
-        disarm_decision: None,
+        disarm_decision,
         retry_after_ms: None,
     })
 }
@@ -1468,6 +1485,7 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct EndpointNonExecutionPolicy {
     outcome: EndpointResponseIntegrationOutcomeKind,
+    ack_status: CommandAckStatus,
     reason_code: CommandAckReasonCode,
     error_kind: OrderPathErrorKind,
     disarm_signal: OperatorDisarmSignal,
@@ -1482,6 +1500,7 @@ fn endpoint_non_execution_policy(
         broker_finam::FinamOrderEndpointMappedResult::RateLimited { retry_after_ms } => {
             Some(EndpointNonExecutionPolicy {
                 outcome: EndpointResponseIntegrationOutcomeKind::RateLimited,
+                ack_status: CommandAckStatus::Error,
                 reason_code: CommandAckReasonCode::RateLimited,
                 error_kind: OrderPathErrorKind::RateLimited,
                 disarm_signal: OperatorDisarmSignal::OrderEndpointRateLimited,
@@ -1491,6 +1510,7 @@ fn endpoint_non_execution_policy(
         broker_finam::FinamOrderEndpointMappedResult::Maintenance { .. } => {
             Some(EndpointNonExecutionPolicy {
                 outcome: EndpointResponseIntegrationOutcomeKind::Maintenance,
+                ack_status: CommandAckStatus::Error,
                 reason_code: CommandAckReasonCode::BrokerMaintenance,
                 error_kind: OrderPathErrorKind::BrokerMaintenance,
                 disarm_signal: OperatorDisarmSignal::OrderEndpointMaintenance,
@@ -1500,6 +1520,7 @@ fn endpoint_non_execution_policy(
         broker_finam::FinamOrderEndpointMappedResult::DecodeError { .. } => {
             Some(EndpointNonExecutionPolicy {
                 outcome: EndpointResponseIntegrationOutcomeKind::DecodeError,
+                ack_status: CommandAckStatus::Error,
                 reason_code: CommandAckReasonCode::ResponseDecodeError,
                 error_kind: OrderPathErrorKind::ResponseDecodeError,
                 disarm_signal: OperatorDisarmSignal::OrderEndpointDecodeError,
@@ -1509,9 +1530,20 @@ fn endpoint_non_execution_policy(
         broker_finam::FinamOrderEndpointMappedResult::Unauthorized { .. } => {
             Some(EndpointNonExecutionPolicy {
                 outcome: EndpointResponseIntegrationOutcomeKind::Unauthorized,
+                ack_status: CommandAckStatus::Error,
                 reason_code: CommandAckReasonCode::Unauthorized,
                 error_kind: OrderPathErrorKind::Unauthorized,
                 disarm_signal: OperatorDisarmSignal::OrderEndpointUnauthorized,
+                retry_after_ms: None,
+            })
+        }
+        broker_finam::FinamOrderEndpointMappedResult::ReconciliationRequired { .. } => {
+            Some(EndpointNonExecutionPolicy {
+                outcome: EndpointResponseIntegrationOutcomeKind::ReconciliationRequired,
+                ack_status: CommandAckStatus::UnknownPending,
+                reason_code: CommandAckReasonCode::ReconciliationRequired,
+                error_kind: OrderPathErrorKind::ReconciliationRequired,
+                disarm_signal: OperatorDisarmSignal::UnknownPendingOrder,
                 retry_after_ms: None,
             })
         }
@@ -4056,6 +4088,108 @@ mod tests {
         );
     }
 
+    #[test]
+    fn local_http_cancel_conflict_statuses_require_reconciliation_after_request_cancel() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 15, 0)
+            .single()
+            .expect("timestamp");
+
+        for (status, place_id, cancel_id) in [(404, 145, 146), (409, 147, 148), (410, 149, 150)] {
+            let (mut store, approved_cancel, place_request_id) =
+                submitted_store_and_approved_cancel(
+                    now,
+                    request_id(place_id),
+                    request_id(cancel_id),
+                    BrokerOrderId::new("BROKER_TEST_HTTP_CANCEL_CONFLICT"),
+                );
+            let mut arm = dry_preflight_policy(now).operator_arm.clone();
+            let response = FinamOrderEndpointLocalHttpResponse::Response {
+                status,
+                body: serde_json::json!({"message": "cancel state uncertain"}).to_string(),
+                retry_after_ms: None,
+            };
+
+            let report = simulate_cancel_order_endpoint_local_http_response(
+                &mut store,
+                &approved_cancel,
+                &response,
+                Some(&mut arm),
+                now + chrono::Duration::milliseconds(1),
+                now + chrono::Duration::milliseconds(2),
+            )
+            .expect("cancel conflict requires reconciliation");
+
+            assert_eq!(
+                report.outcome,
+                EndpointResponseIntegrationOutcomeKind::ReconciliationRequired
+            );
+            assert_eq!(report.state, OrderPathState::ManualInterventionRequired);
+            assert_eq!(report.ack.status, CommandAckStatus::UnknownPending);
+            assert_eq!(
+                report.ack.reason.as_ref().expect("reason").code,
+                CommandAckReasonCode::ReconciliationRequired
+            );
+            assert_eq!(
+                report.disarm_decision.expect("disarm").signal,
+                OperatorDisarmSignal::UnknownPendingOrder
+            );
+            let stored = store
+                .load_by_request_id(place_request_id)
+                .expect("stored cancel conflict record");
+            assert_eq!(stored.cancel_attempt_count, 1);
+            assert_eq!(
+                stored.last_error_kind,
+                Some(OrderPathErrorKind::ReconciliationRequired)
+            );
+        }
+    }
+
+    #[test]
+    fn local_http_body_read_failure_records_decode_error_after_begin_submit() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 18, 0)
+            .single()
+            .expect("timestamp");
+        let (mut store, approved, order) =
+            place_store_and_approved(now, request_id(151), "CID000000000000151");
+        let mut arm = dry_preflight_policy(now).operator_arm.clone();
+        let response = FinamOrderEndpointLocalHttpResponse::BodyReadFailed { status: Some(200) };
+
+        let report = simulate_place_order_endpoint_local_http_response(
+            &mut store,
+            &approved,
+            None,
+            &response,
+            Some(&mut arm),
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .expect("body read failure classified after begin submit");
+
+        assert_eq!(
+            report.outcome,
+            EndpointResponseIntegrationOutcomeKind::DecodeError
+        );
+        assert_eq!(report.state, OrderPathState::ManualInterventionRequired);
+        assert_eq!(report.ack.status, CommandAckStatus::Error);
+        assert_eq!(
+            report.ack.reason.as_ref().expect("reason").code,
+            CommandAckReasonCode::ResponseDecodeError
+        );
+        assert_eq!(
+            report.endpoint_response.body_kind.as_deref(),
+            Some("body_read_failed")
+        );
+        assert_eq!(
+            store
+                .load_by_request_id(order.request_id)
+                .expect("stored body-read-failure record")
+                .last_error_kind,
+            Some(OrderPathErrorKind::ResponseDecodeError)
+        );
+    }
+
     #[tokio::test]
     async fn local_http_unauthorized_statuses_disarm_and_redact_ack() {
         let now = Utc
@@ -4125,6 +4259,78 @@ mod tests {
             assert!(!entries[0].payload.contains(client_order_id));
             assert!(!entries[0].payload.contains("ACC_TEST_0001"));
             assert!(!entries[0].payload.contains("auth failed"));
+        }
+    }
+
+    #[test]
+    fn local_http_operator_disarm_matrix_covers_endpoint_safety_outcomes() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 30, 0)
+            .single()
+            .expect("timestamp");
+        let cases = [
+            (
+                FinamOrderEndpointLocalHttpResponse::Response {
+                    status: 401,
+                    body: serde_json::json!({"message": "auth failed"}).to_string(),
+                    retry_after_ms: None,
+                },
+                EndpointResponseIntegrationOutcomeKind::Unauthorized,
+                OperatorDisarmSignal::OrderEndpointUnauthorized,
+            ),
+            (
+                FinamOrderEndpointLocalHttpResponse::Response {
+                    status: 429,
+                    body: serde_json::json!({"message": "too many"}).to_string(),
+                    retry_after_ms: Some(1_000),
+                },
+                EndpointResponseIntegrationOutcomeKind::RateLimited,
+                OperatorDisarmSignal::OrderEndpointRateLimited,
+            ),
+            (
+                FinamOrderEndpointLocalHttpResponse::Response {
+                    status: 503,
+                    body: serde_json::json!({"message": "maintenance"}).to_string(),
+                    retry_after_ms: None,
+                },
+                EndpointResponseIntegrationOutcomeKind::Maintenance,
+                OperatorDisarmSignal::OrderEndpointMaintenance,
+            ),
+            (
+                FinamOrderEndpointLocalHttpResponse::BodyReadFailed { status: Some(200) },
+                EndpointResponseIntegrationOutcomeKind::DecodeError,
+                OperatorDisarmSignal::OrderEndpointDecodeError,
+            ),
+            (
+                FinamOrderEndpointLocalHttpResponse::Timeout,
+                EndpointResponseIntegrationOutcomeKind::TimeoutUnknownPending,
+                OperatorDisarmSignal::UnknownPendingOrder,
+            ),
+        ];
+
+        for (index, (response, expected_outcome, expected_signal)) in cases.into_iter().enumerate()
+        {
+            let client_order_id = format!("CIDM3B3MATRIX{index:07}");
+            let (mut store, approved, _) =
+                place_store_and_approved(now, request_id(160 + index as u128), &client_order_id);
+            let mut arm = dry_preflight_policy(now).operator_arm.clone();
+
+            let report = simulate_place_order_endpoint_local_http_response(
+                &mut store,
+                &approved,
+                None,
+                &response,
+                Some(&mut arm),
+                now + chrono::Duration::milliseconds(1),
+                now + chrono::Duration::milliseconds(2),
+            )
+            .expect("matrix response integrates");
+
+            assert_eq!(report.outcome, expected_outcome);
+            assert_eq!(
+                report.disarm_decision.expect("disarm").signal,
+                expected_signal
+            );
         }
     }
 

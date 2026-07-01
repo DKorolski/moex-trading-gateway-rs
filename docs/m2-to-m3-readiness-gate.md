@@ -687,3 +687,32 @@ Still not implemented in M3b-2:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-3 redacted endpoint result/status policy status
+
+Implemented while still keeping all broker endpoints disabled:
+
+- internal endpoint result types are not serde export objects;
+- internal endpoint result `Debug` output is redacted by presence/length rather
+  than raw broker order id;
+- `FinamOrderEndpointResponseDiagnostic` remains the safe export boundary;
+- local HTTP response classification is endpoint-context-aware;
+- cancel 404/409/410 maps to reconciliation-required, not ordinary broker
+  rejection;
+- 408/504 map to timeout/unknown-pending and can disarm as
+  `UnknownPendingOrder`;
+- 500/502/503 map to maintenance;
+- body-read failure maps to decode error after durable attempt recording;
+- operator disarm matrix covers unauthorized/rate-limit/maintenance/decode and
+  timeout/ambiguous paths;
+- `EndpointGateApproved` remains unconstructible.
+
+Still not implemented in M3b-3:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

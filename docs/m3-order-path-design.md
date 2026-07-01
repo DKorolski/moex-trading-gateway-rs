@@ -38,7 +38,8 @@ deployment inspector, and transition-audit contract matrix. M3b-1 routes those
 fixtures through the order-path state machine and redacted ACK/disarm policy
 without adding real endpoint transport. M3b-2 adds local/mock HTTP-shaped
 endpoint response classification and proves post-network decode/map errors are
-recorded after durable `BeginSubmit`/`RequestCancel`.
+recorded after durable `BeginSubmit`/`RequestCancel`. M3b-3 redacts internal
+endpoint results and makes local status classification place/cancel-aware.
 
 M3 scope is deliberately small:
 
@@ -118,6 +119,12 @@ maps local status/body outcomes such as 401/403, 429, 500/503, timeout,
 malformed JSON, and empty broker-order-id cases. The gateway helpers persist
 `BeginSubmit` or `RequestCancel` first, then classify the response, then record
 safe ACK/disarm state.
+
+M3b-3 refines that local classifier: internal mapped/classified endpoint
+results are not serde export objects and their debug output is redacted.
+Cancel-specific 404/409/410 responses require reconciliation instead of being
+treated as ordinary broker rejection. Body-read failure is modeled as a
+post-begin decode error.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.
@@ -240,6 +247,10 @@ ACKs are command-path facts only:
   `ManualInterventionRequired`, operator disarm, and no blind retry;
 - 401/403 local HTTP response -> `Error / Unauthorized`,
   `ManualInterventionRequired`, operator disarm;
+- cancel 404/409/410 local HTTP response -> `UnknownPending /
+  ReconciliationRequired`, `ManualInterventionRequired`, operator disarm;
+- 408/504 local HTTP response -> timeout/unknown-pending and operator disarm
+  when an arm is supplied;
 - local non-retryable error -> `Error`.
 
 ACKs do not imply fill. The runtime must use normalized orders/trades for fill,

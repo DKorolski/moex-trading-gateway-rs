@@ -136,6 +136,10 @@ local response `Debug` output records only status, body length, body kind, and
 retry-after presence. Unauthorized and decode-error paths use safe enum reason
 codes and do not expose raw broker body text in ACKs, diagnostics, Redis, or
 handoff archives.
+M3b-3 extends that boundary to internal endpoint result types: mapped and
+classified endpoint results are not serde export payloads, and their custom
+`Debug` implementations expose only safe presence/length/status/kind fields.
+`FinamOrderEndpointResponseDiagnostic` remains the review/export surface.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

@@ -264,6 +264,9 @@ Implementation notes from the first review:
   401/403/429/500/503/timeout/malformed/empty-id cases and verifies
   post-network decode/map-error ordering, still without FINAM order endpoint
   calls;
+- M3b-3 adds redacted internal endpoint result boundaries and context-aware
+  local status policy for place/cancel, still without FINAM order endpoint
+  calls;
 - raw `serde_json::Value` is acceptable only for the shape probe. Typed DTOs and
   mappers are required before Redis gateway/readiness work.
 

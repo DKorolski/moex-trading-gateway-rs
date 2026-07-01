@@ -301,16 +301,37 @@ impl FinamDryOrderClient for MockFinamDryOrderClient {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum FinamOrderExecutionOutcome {
     Accepted {
-        #[serde(skip_serializing_if = "Option::is_none")]
         broker_order_id: Option<BrokerOrderId>,
     },
     Rejected {
         reason_code: CommandAckReasonCode,
     },
     Timeout,
+}
+
+impl std::fmt::Debug for FinamOrderExecutionOutcome {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Accepted { broker_order_id } => formatter
+                .debug_struct("FinamOrderExecutionOutcome::Accepted")
+                .field("broker_order_id_present", &broker_order_id.is_some())
+                .field(
+                    "broker_order_id_len",
+                    &broker_order_id.as_ref().map(|value| value.as_str().len()),
+                )
+                .finish(),
+            Self::Rejected { reason_code } => formatter
+                .debug_struct("FinamOrderExecutionOutcome::Rejected")
+                .field("reason_code", reason_code)
+                .finish(),
+            Self::Timeout => formatter
+                .debug_struct("FinamOrderExecutionOutcome::Timeout")
+                .finish(),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -397,6 +418,7 @@ pub enum FinamOrderEndpointResponseKind {
     RateLimited,
     Maintenance,
     Unauthorized,
+    ReconciliationRequired,
     Timeout,
     DecodeError,
 }
@@ -514,7 +536,7 @@ impl FinamOrderEndpointFixture {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum FinamOrderEndpointMappedResult {
     Execution(FinamOrderExecutionOutcome),
     RateLimited {
@@ -526,10 +548,45 @@ pub enum FinamOrderEndpointMappedResult {
     Unauthorized {
         status: u16,
     },
+    ReconciliationRequired {
+        status: u16,
+    },
     DecodeError {
         status: Option<u16>,
         body_kind: Option<String>,
     },
+}
+
+impl std::fmt::Debug for FinamOrderEndpointMappedResult {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Execution(outcome) => formatter
+                .debug_struct("FinamOrderEndpointMappedResult::Execution")
+                .field("outcome", outcome)
+                .finish(),
+            Self::RateLimited { retry_after_ms } => formatter
+                .debug_struct("FinamOrderEndpointMappedResult::RateLimited")
+                .field("retry_after_ms_present", &retry_after_ms.is_some())
+                .finish(),
+            Self::Maintenance { maintenance_kind } => formatter
+                .debug_struct("FinamOrderEndpointMappedResult::Maintenance")
+                .field("maintenance_kind", maintenance_kind)
+                .finish(),
+            Self::Unauthorized { status } => formatter
+                .debug_struct("FinamOrderEndpointMappedResult::Unauthorized")
+                .field("status", status)
+                .finish(),
+            Self::ReconciliationRequired { status } => formatter
+                .debug_struct("FinamOrderEndpointMappedResult::ReconciliationRequired")
+                .field("status", status)
+                .finish(),
+            Self::DecodeError { status, body_kind } => formatter
+                .debug_struct("FinamOrderEndpointMappedResult::DecodeError")
+                .field("status", status)
+                .field("body_kind", body_kind)
+                .finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -544,6 +601,9 @@ pub enum FinamOrderEndpointLocalHttpResponse {
         status: u16,
         body: String,
         retry_after_ms: Option<u64>,
+    },
+    BodyReadFailed {
+        status: Option<u16>,
     },
     Timeout,
 }
@@ -562,6 +622,10 @@ impl std::fmt::Debug for FinamOrderEndpointLocalHttpResponse {
                 .field("body_kind", &json_body_kind(body))
                 .field("retry_after_ms_present", &retry_after_ms.is_some())
                 .finish(),
+            Self::BodyReadFailed { status } => formatter
+                .debug_struct("FinamOrderEndpointLocalHttpResponse::BodyReadFailed")
+                .field("status", status)
+                .finish(),
             Self::Timeout => formatter
                 .debug_struct("FinamOrderEndpointLocalHttpResponse::Timeout")
                 .finish(),
@@ -569,13 +633,39 @@ impl std::fmt::Debug for FinamOrderEndpointLocalHttpResponse {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct FinamOrderEndpointClassifiedResponse {
     pub result: FinamOrderEndpointMappedResult,
     pub diagnostic: FinamOrderEndpointResponseDiagnostic,
 }
 
+impl std::fmt::Debug for FinamOrderEndpointClassifiedResponse {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("FinamOrderEndpointClassifiedResponse")
+            .field("result", &self.result)
+            .field("diagnostic", &self.diagnostic)
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FinamOrderEndpointContext {
+    Place,
+    Cancel,
+}
+
 pub fn classify_order_endpoint_local_http_response(
+    response: &FinamOrderEndpointLocalHttpResponse,
+) -> FinamOrderEndpointClassifiedResponse {
+    classify_order_endpoint_local_http_response_for_context(
+        FinamOrderEndpointContext::Place,
+        response,
+    )
+}
+
+pub fn classify_order_endpoint_local_http_response_for_context(
+    context: FinamOrderEndpointContext,
     response: &FinamOrderEndpointLocalHttpResponse,
 ) -> FinamOrderEndpointClassifiedResponse {
     match response {
@@ -587,6 +677,9 @@ pub fn classify_order_endpoint_local_http_response(
                 ),
                 diagnostic: fixture.redacted_diagnostic(),
             }
+        }
+        FinamOrderEndpointLocalHttpResponse::BodyReadFailed { status } => {
+            decode_error_response(*status, Some("body_read_failed".to_string()))
         }
         FinamOrderEndpointLocalHttpResponse::Response {
             status,
@@ -624,7 +717,21 @@ pub fn classify_order_endpoint_local_http_response(
             }
         }
         FinamOrderEndpointLocalHttpResponse::Response { status, body, .. }
-            if *status == 500 || *status == 503 =>
+            if *status == 408 || *status == 504 =>
+        {
+            let fixture = FinamOrderEndpointFixture::Timeout;
+            let mut diagnostic = fixture.redacted_diagnostic();
+            diagnostic.status = Some(*status);
+            diagnostic.body_kind = Some(json_body_kind(body));
+            FinamOrderEndpointClassifiedResponse {
+                result: FinamOrderEndpointMappedResult::Execution(
+                    FinamOrderExecutionOutcome::Timeout,
+                ),
+                diagnostic,
+            }
+        }
+        FinamOrderEndpointLocalHttpResponse::Response { status, body, .. }
+            if *status == 500 || *status == 502 || *status == 503 =>
         {
             let maintenance_kind = if *status == 503 {
                 FinamOrderEndpointMaintenanceKind::ServiceInterval
@@ -644,6 +751,24 @@ pub fn classify_order_endpoint_local_http_response(
             if (200..300).contains(status) =>
         {
             classify_success_order_endpoint_response(*status, body)
+        }
+        FinamOrderEndpointLocalHttpResponse::Response { status, body, .. }
+            if context == FinamOrderEndpointContext::Cancel
+                && matches!(*status, 404 | 409 | 410) =>
+        {
+            FinamOrderEndpointClassifiedResponse {
+                result: FinamOrderEndpointMappedResult::ReconciliationRequired { status: *status },
+                diagnostic: FinamOrderEndpointResponseDiagnostic {
+                    kind: FinamOrderEndpointResponseKind::ReconciliationRequired,
+                    broker_order_id_present: false,
+                    broker_order_id_len: None,
+                    reason_code: None,
+                    retry_after_ms_present: false,
+                    maintenance_kind: None,
+                    status: Some(*status),
+                    body_kind: Some(json_body_kind(body)),
+                },
+            }
         }
         FinamOrderEndpointLocalHttpResponse::Response { status, body, .. }
             if (400..500).contains(status) =>
@@ -1324,6 +1449,11 @@ mod tests {
                 broker_order_id: Some(BrokerOrderId::new("BROKER_TEST_HTTP_1")),
             })
         );
+        let classified_debug = format!("{classified:?}");
+        let result_debug = format!("{:?}", classified.result);
+        assert!(classified_debug.contains("broker_order_id_len"));
+        assert!(!classified_debug.contains("BROKER_TEST_HTTP_1"));
+        assert!(!result_debug.contains("BROKER_TEST_HTTP_1"));
         assert_eq!(
             classified.diagnostic.kind,
             FinamOrderEndpointResponseKind::Accepted
@@ -1405,6 +1535,7 @@ mod tests {
 
         for (status, maintenance_kind) in [
             (500, FinamOrderEndpointMaintenanceKind::Unknown),
+            (502, FinamOrderEndpointMaintenanceKind::Unknown),
             (503, FinamOrderEndpointMaintenanceKind::ServiceInterval),
         ] {
             let classified = classify_order_endpoint_local_http_response(
@@ -1422,6 +1553,25 @@ mod tests {
                 classified.diagnostic.kind,
                 FinamOrderEndpointResponseKind::Maintenance
             );
+        }
+
+        for status in [408, 504] {
+            let classified = classify_order_endpoint_local_http_response(
+                &FinamOrderEndpointLocalHttpResponse::Response {
+                    status,
+                    body: json!({"error": "ambiguous timeout"}).to_string(),
+                    retry_after_ms: None,
+                },
+            );
+            assert_eq!(
+                classified.result,
+                FinamOrderEndpointMappedResult::Execution(FinamOrderExecutionOutcome::Timeout)
+            );
+            assert_eq!(
+                classified.diagnostic.kind,
+                FinamOrderEndpointResponseKind::Timeout
+            );
+            assert_eq!(classified.diagnostic.status, Some(status));
         }
 
         let broker_rejected = classify_order_endpoint_local_http_response(
@@ -1449,6 +1599,60 @@ mod tests {
             timeout.diagnostic.kind,
             FinamOrderEndpointResponseKind::Timeout
         );
+
+        let body_read_failed = classify_order_endpoint_local_http_response(
+            &FinamOrderEndpointLocalHttpResponse::BodyReadFailed { status: Some(200) },
+        );
+        assert_eq!(
+            body_read_failed.result,
+            FinamOrderEndpointMappedResult::DecodeError {
+                status: Some(200),
+                body_kind: Some("body_read_failed".to_string()),
+            }
+        );
+        assert_eq!(
+            body_read_failed.diagnostic.kind,
+            FinamOrderEndpointResponseKind::DecodeError
+        );
+    }
+
+    #[test]
+    fn local_http_endpoint_classifier_is_context_aware_for_cancel_conflicts() {
+        for status in [404, 409, 410] {
+            let place = classify_order_endpoint_local_http_response_for_context(
+                FinamOrderEndpointContext::Place,
+                &FinamOrderEndpointLocalHttpResponse::Response {
+                    status,
+                    body: json!({"error": "place rejected or unavailable"}).to_string(),
+                    retry_after_ms: None,
+                },
+            );
+            assert_eq!(
+                place.result,
+                FinamOrderEndpointMappedResult::Execution(FinamOrderExecutionOutcome::Rejected {
+                    reason_code: CommandAckReasonCode::BrokerRejected,
+                })
+            );
+
+            let cancel = classify_order_endpoint_local_http_response_for_context(
+                FinamOrderEndpointContext::Cancel,
+                &FinamOrderEndpointLocalHttpResponse::Response {
+                    status,
+                    body: json!({"error": "cancel state uncertain"}).to_string(),
+                    retry_after_ms: None,
+                },
+            );
+            assert_eq!(
+                cancel.result,
+                FinamOrderEndpointMappedResult::ReconciliationRequired { status }
+            );
+            assert_eq!(
+                cancel.diagnostic.kind,
+                FinamOrderEndpointResponseKind::ReconciliationRequired
+            );
+            let cancel_debug = format!("{cancel:?}");
+            assert!(!cancel_debug.contains("cancel state uncertain"));
+        }
     }
 
     #[test]

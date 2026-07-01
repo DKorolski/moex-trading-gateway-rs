@@ -831,6 +831,43 @@ M3b-2 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-3 redacted endpoint result boundary and status policy:
+
+- Internal endpoint result types no longer serve as serde export objects:
+  `FinamOrderExecutionOutcome`, `FinamOrderEndpointMappedResult`, and
+  `FinamOrderEndpointClassifiedResponse`.
+- Those internal types now have custom redacted `Debug`; accepted broker order
+  ids are shown only as presence/length.
+- `FinamOrderEndpointResponseDiagnostic` remains the safe export/reporting
+  boundary.
+- `FinamOrderEndpointContext` and
+  `classify_order_endpoint_local_http_response_for_context()` add
+  place/cancel-specific local status policy.
+- Shared policy covers body-read failure, malformed JSON, 401/403, 408/504,
+  429, and 500/502/503.
+- Place generic 4xx responses stay broker-rejected in the dry classifier.
+- Cancel 404/409/410 map to `ReconciliationRequired`, not ordinary broker
+  rejection.
+- Gateway integration maps cancel reconciliation-required responses to
+  `ManualInterventionRequired` with `UnknownPending` ACK and
+  `UnknownPendingOrder` disarm.
+- Timeout/ambiguous local responses disarm operator arm as `UnknownPendingOrder`
+  when an arm is supplied.
+- Operator disarm matrix covers unauthorized, rate-limit, maintenance,
+  decode/body-read failure, and timeout/ambiguous outcomes.
+- Details are documented in
+  `docs/m3b3-redacted-endpoint-result-status-policy.md`.
+
+M3b-3 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

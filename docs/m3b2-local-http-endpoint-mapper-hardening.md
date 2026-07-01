@@ -29,6 +29,10 @@ It has a custom `Debug` implementation that records only status, body length,
 body kind, and retry-after presence. Raw body text and broker order ids are not
 printed.
 
+M3b-3 follow-up: internal endpoint mapped/classified results also have redacted
+`Debug` output and are no longer serde export objects. See
+`docs/m3b3-redacted-endpoint-result-status-policy.md`.
+
 ## Status and body mapping
 
 M3b-2 maps local HTTP-shaped outcomes to endpoint results as follows:
