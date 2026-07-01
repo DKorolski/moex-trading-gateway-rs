@@ -22,7 +22,8 @@ use broker_core::ids::StrategyRequestId;
 use broker_core::order::Order;
 use broker_core::readiness::{BrokerReadiness, ReadinessPhase, ReadinessReason};
 use broker_core::{
-    OrderPathEvent, OrderPathState, OrderPathStore, OrderPathStoreError, OrderPathTransitionError,
+    OperatorArm, OperatorDisarmDecision, OperatorDisarmSignal, OrderPathErrorKind, OrderPathEvent,
+    OrderPathState, OrderPathStore, OrderPathStoreError, OrderPathTransitionError,
     OutgoingOrderComment, PreflightApprovedCancelOrder, PreflightApprovedPlaceOrder,
 };
 use chrono::{DateTime, Utc};
@@ -997,6 +998,49 @@ pub struct DryOrderExecutionReport {
     pub outcome: DryOrderExecutionOutcomeKind,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EndpointResponseIntegrationOutcomeKind {
+    Submitted,
+    SubmittedPendingBrokerOrderId,
+    BrokerRejected,
+    TimeoutUnknownPending,
+    CancelSubmitted,
+    CancelAcceptedBrokerOrderIdMismatch,
+    CancelRejected,
+    CancelTimeoutUnknownPending,
+    RateLimited,
+    Maintenance,
+    DecodeError,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EndpointResponseIntegrationReport {
+    pub ack: CommandAck,
+    pub state: OrderPathState,
+    pub submit_attempt_count: u32,
+    pub cancel_attempt_count: u32,
+    pub outcome: EndpointResponseIntegrationOutcomeKind,
+    pub endpoint_response: broker_finam::FinamOrderEndpointResponseDiagnostic,
+    pub disarm_decision: Option<OperatorDisarmDecision>,
+    pub retry_after_ms: Option<u64>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum EndpointResponseIntegrationSimulatorError {
+    #[error("endpoint response integration missing order-path record: {request_id}")]
+    MissingOrderPathRecord { request_id: StrategyRequestId },
+    #[error("endpoint response integration missing mapped order-path request id for cancel request: {request_id}")]
+    MissingCancelMapping { request_id: StrategyRequestId },
+    #[error("endpoint response request build error: {0}")]
+    RequestBuild(#[from] broker_finam::FinamOrderRequestBuildError),
+    #[error("endpoint response mapper error: {0}")]
+    EndpointMapper(#[from] broker_finam::FinamOrderEndpointMapperError),
+    #[error("endpoint response order-path store error: {0}")]
+    Store(#[from] OrderPathStoreError),
+    #[error("endpoint response order-path transition error: {0}")]
+    Transition(#[from] OrderPathTransitionError),
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum DryOrderExecutionSimulatorError {
     #[error("dry order execution missing order-path record: {request_id}")]
@@ -1011,6 +1055,342 @@ pub enum DryOrderExecutionSimulatorError {
     Store(#[from] OrderPathStoreError),
     #[error("dry order-path transition error: {0}")]
     Transition(#[from] OrderPathTransitionError),
+}
+
+struct EndpointResponseIntegrationInput<'a> {
+    endpoint_result: broker_finam::FinamOrderEndpointMappedResult,
+    endpoint_response: broker_finam::FinamOrderEndpointResponseDiagnostic,
+    operator_arm: Option<&'a mut OperatorArm>,
+    begin_ts: DateTime<Utc>,
+    outcome_ts: DateTime<Utc>,
+}
+
+pub fn simulate_place_order_endpoint_fixture<S>(
+    store: &mut S,
+    approved: &PreflightApprovedPlaceOrder,
+    outgoing_comment: Option<&OutgoingOrderComment>,
+    endpoint_fixture: &broker_finam::FinamOrderEndpointFixture,
+    operator_arm: Option<&mut OperatorArm>,
+    begin_ts: DateTime<Utc>,
+    outcome_ts: DateTime<Utc>,
+) -> Result<EndpointResponseIntegrationReport, EndpointResponseIntegrationSimulatorError>
+where
+    S: OrderPathStore,
+{
+    let diagnostic = endpoint_fixture.redacted_diagnostic();
+    let endpoint_result = endpoint_fixture.map_fixture()?;
+    simulate_place_order_endpoint_result(
+        store,
+        approved,
+        outgoing_comment,
+        EndpointResponseIntegrationInput {
+            endpoint_result,
+            endpoint_response: diagnostic,
+            operator_arm,
+            begin_ts,
+            outcome_ts,
+        },
+    )
+}
+
+pub fn simulate_cancel_order_endpoint_fixture<S>(
+    store: &mut S,
+    approved: &PreflightApprovedCancelOrder,
+    endpoint_fixture: &broker_finam::FinamOrderEndpointFixture,
+    operator_arm: Option<&mut OperatorArm>,
+    begin_ts: DateTime<Utc>,
+    outcome_ts: DateTime<Utc>,
+) -> Result<EndpointResponseIntegrationReport, EndpointResponseIntegrationSimulatorError>
+where
+    S: OrderPathStore,
+{
+    let diagnostic = endpoint_fixture.redacted_diagnostic();
+    let endpoint_result = endpoint_fixture.map_fixture()?;
+    simulate_cancel_order_endpoint_result(
+        store,
+        approved,
+        EndpointResponseIntegrationInput {
+            endpoint_result,
+            endpoint_response: diagnostic,
+            operator_arm,
+            begin_ts,
+            outcome_ts,
+        },
+    )
+}
+
+fn simulate_place_order_endpoint_result<S>(
+    store: &mut S,
+    approved: &PreflightApprovedPlaceOrder,
+    outgoing_comment: Option<&OutgoingOrderComment>,
+    input: EndpointResponseIntegrationInput<'_>,
+) -> Result<EndpointResponseIntegrationReport, EndpointResponseIntegrationSimulatorError>
+where
+    S: OrderPathStore,
+{
+    let EndpointResponseIntegrationInput {
+        endpoint_result,
+        endpoint_response,
+        operator_arm,
+        begin_ts,
+        outcome_ts,
+    } = input;
+    let request_id = approved.order().request_id;
+    let _spec = broker_finam::build_place_order_request(approved, outgoing_comment)?;
+    let mut record = store
+        .load_by_request_id(request_id)
+        .ok_or(EndpointResponseIntegrationSimulatorError::MissingOrderPathRecord { request_id })?;
+
+    record.transition(OrderPathEvent::BeginSubmit, begin_ts)?;
+    store.update_record(record.clone())?;
+
+    if let Some(non_execution) = endpoint_non_execution_policy(&endpoint_result) {
+        record.transition(OrderPathEvent::RequireManualIntervention, outcome_ts)?;
+        record.last_ack_status = Some(CommandAckStatus::Error);
+        record.last_error_kind = Some(non_execution.error_kind);
+        store.update_record(record.clone())?;
+        let ack = record.synthetic_ack(
+            CommandAckStatus::Error,
+            Some(CommandAckReason::new(non_execution.reason_code)),
+            outcome_ts,
+        );
+        return Ok(EndpointResponseIntegrationReport {
+            ack,
+            state: record.state,
+            submit_attempt_count: record.submit_attempt_count,
+            cancel_attempt_count: record.cancel_attempt_count,
+            outcome: non_execution.outcome,
+            endpoint_response,
+            disarm_decision: operator_arm
+                .map(|arm| arm.disarm_for_safety_signal(non_execution.disarm_signal)),
+            retry_after_ms: non_execution.retry_after_ms,
+        });
+    }
+
+    let broker_finam::FinamOrderEndpointMappedResult::Execution(execution_outcome) =
+        endpoint_result
+    else {
+        unreachable!("non-execution endpoint results are handled above");
+    };
+    let (ack_status, ack_reason, outcome) = match execution_outcome {
+        broker_finam::FinamOrderExecutionOutcome::Accepted {
+            broker_order_id: Some(broker_order_id),
+        } => {
+            record.broker_order_id = Some(broker_order_id);
+            record.transition(OrderPathEvent::SubmitAccepted, outcome_ts)?;
+            (
+                CommandAckStatus::Submitted,
+                Some(CommandAckReason::synthetic_submitted()),
+                EndpointResponseIntegrationOutcomeKind::Submitted,
+            )
+        }
+        broker_finam::FinamOrderExecutionOutcome::Accepted {
+            broker_order_id: None,
+        } => {
+            record.transition(
+                OrderPathEvent::SubmitAcceptedWithoutBrokerOrderId,
+                outcome_ts,
+            )?;
+            (
+                CommandAckStatus::UnknownPending,
+                Some(CommandAckReason::new(
+                    CommandAckReasonCode::ReconciliationRequired,
+                )),
+                EndpointResponseIntegrationOutcomeKind::SubmittedPendingBrokerOrderId,
+            )
+        }
+        broker_finam::FinamOrderExecutionOutcome::Rejected { reason_code } => {
+            record.transition(OrderPathEvent::BrokerReject, outcome_ts)?;
+            (
+                CommandAckStatus::Rejected,
+                Some(CommandAckReason::new(reason_code)),
+                EndpointResponseIntegrationOutcomeKind::BrokerRejected,
+            )
+        }
+        broker_finam::FinamOrderExecutionOutcome::Timeout => {
+            record.transition(OrderPathEvent::SubmitTimedOut, outcome_ts)?;
+            (
+                CommandAckStatus::Timeout,
+                Some(CommandAckReason::new(
+                    CommandAckReasonCode::TransportTimeout,
+                )),
+                EndpointResponseIntegrationOutcomeKind::TimeoutUnknownPending,
+            )
+        }
+    };
+    store.update_record(record.clone())?;
+    let ack = record.synthetic_ack(ack_status, ack_reason, outcome_ts);
+
+    Ok(EndpointResponseIntegrationReport {
+        ack,
+        state: record.state,
+        submit_attempt_count: record.submit_attempt_count,
+        cancel_attempt_count: record.cancel_attempt_count,
+        outcome,
+        endpoint_response,
+        disarm_decision: None,
+        retry_after_ms: None,
+    })
+}
+
+fn simulate_cancel_order_endpoint_result<S>(
+    store: &mut S,
+    approved: &PreflightApprovedCancelOrder,
+    input: EndpointResponseIntegrationInput<'_>,
+) -> Result<EndpointResponseIntegrationReport, EndpointResponseIntegrationSimulatorError>
+where
+    S: OrderPathStore,
+{
+    let EndpointResponseIntegrationInput {
+        endpoint_result,
+        endpoint_response,
+        operator_arm,
+        begin_ts,
+        outcome_ts,
+    } = input;
+    let cancel_request_id = approved.cancel().request_id;
+    let mapped_request_id = approved.mapped_request_id().ok_or(
+        EndpointResponseIntegrationSimulatorError::MissingCancelMapping {
+            request_id: cancel_request_id,
+        },
+    )?;
+    let _spec = broker_finam::build_cancel_order_request(approved)?;
+    let mut record = store.load_by_request_id(mapped_request_id).ok_or(
+        EndpointResponseIntegrationSimulatorError::MissingOrderPathRecord {
+            request_id: mapped_request_id,
+        },
+    )?;
+
+    record.transition(OrderPathEvent::RequestCancel, begin_ts)?;
+    store.update_record(record.clone())?;
+
+    if let Some(non_execution) = endpoint_non_execution_policy(&endpoint_result) {
+        record.transition(OrderPathEvent::RequireManualIntervention, outcome_ts)?;
+        record.last_ack_status = Some(CommandAckStatus::Error);
+        record.last_error_kind = Some(non_execution.error_kind);
+        store.update_record(record.clone())?;
+        let ack = record.synthetic_ack(
+            CommandAckStatus::Error,
+            Some(CommandAckReason::new(non_execution.reason_code)),
+            outcome_ts,
+        );
+        return Ok(EndpointResponseIntegrationReport {
+            ack,
+            state: record.state,
+            submit_attempt_count: record.submit_attempt_count,
+            cancel_attempt_count: record.cancel_attempt_count,
+            outcome: non_execution.outcome,
+            endpoint_response,
+            disarm_decision: operator_arm
+                .map(|arm| arm.disarm_for_safety_signal(non_execution.disarm_signal)),
+            retry_after_ms: non_execution.retry_after_ms,
+        });
+    }
+
+    let broker_finam::FinamOrderEndpointMappedResult::Execution(execution_outcome) =
+        endpoint_result
+    else {
+        unreachable!("non-execution endpoint results are handled above");
+    };
+    let (ack_status, ack_reason, outcome) = match execution_outcome {
+        broker_finam::FinamOrderExecutionOutcome::Accepted { broker_order_id } => {
+            let returned_id_mismatch = broker_order_id
+                .as_ref()
+                .is_some_and(|returned_id| returned_id != &approved.cancel().order_id);
+            if returned_id_mismatch {
+                record.transition(OrderPathEvent::RequireManualIntervention, outcome_ts)?;
+                (
+                    CommandAckStatus::UnknownPending,
+                    Some(CommandAckReason::new(
+                        CommandAckReasonCode::ManualInterventionRequired,
+                    )),
+                    EndpointResponseIntegrationOutcomeKind::CancelAcceptedBrokerOrderIdMismatch,
+                )
+            } else {
+                record.transition(OrderPathEvent::CancelAccepted, outcome_ts)?;
+                (
+                    CommandAckStatus::Submitted,
+                    Some(CommandAckReason::synthetic_submitted()),
+                    EndpointResponseIntegrationOutcomeKind::CancelSubmitted,
+                )
+            }
+        }
+        broker_finam::FinamOrderExecutionOutcome::Rejected { reason_code } => {
+            record.transition(OrderPathEvent::CancelRejected, outcome_ts)?;
+            (
+                CommandAckStatus::Rejected,
+                Some(CommandAckReason::new(reason_code)),
+                EndpointResponseIntegrationOutcomeKind::CancelRejected,
+            )
+        }
+        broker_finam::FinamOrderExecutionOutcome::Timeout => {
+            record.transition(OrderPathEvent::CancelTimedOut, outcome_ts)?;
+            (
+                CommandAckStatus::Timeout,
+                Some(CommandAckReason::new(
+                    CommandAckReasonCode::TransportTimeout,
+                )),
+                EndpointResponseIntegrationOutcomeKind::CancelTimeoutUnknownPending,
+            )
+        }
+    };
+    store.update_record(record.clone())?;
+    let ack = record.synthetic_ack(ack_status, ack_reason, outcome_ts);
+
+    Ok(EndpointResponseIntegrationReport {
+        ack,
+        state: record.state,
+        submit_attempt_count: record.submit_attempt_count,
+        cancel_attempt_count: record.cancel_attempt_count,
+        outcome,
+        endpoint_response,
+        disarm_decision: None,
+        retry_after_ms: None,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct EndpointNonExecutionPolicy {
+    outcome: EndpointResponseIntegrationOutcomeKind,
+    reason_code: CommandAckReasonCode,
+    error_kind: OrderPathErrorKind,
+    disarm_signal: OperatorDisarmSignal,
+    retry_after_ms: Option<u64>,
+}
+
+fn endpoint_non_execution_policy(
+    endpoint_result: &broker_finam::FinamOrderEndpointMappedResult,
+) -> Option<EndpointNonExecutionPolicy> {
+    match endpoint_result {
+        broker_finam::FinamOrderEndpointMappedResult::Execution(_) => None,
+        broker_finam::FinamOrderEndpointMappedResult::RateLimited { retry_after_ms } => {
+            Some(EndpointNonExecutionPolicy {
+                outcome: EndpointResponseIntegrationOutcomeKind::RateLimited,
+                reason_code: CommandAckReasonCode::RateLimited,
+                error_kind: OrderPathErrorKind::RateLimited,
+                disarm_signal: OperatorDisarmSignal::OrderEndpointRateLimited,
+                retry_after_ms: *retry_after_ms,
+            })
+        }
+        broker_finam::FinamOrderEndpointMappedResult::Maintenance { .. } => {
+            Some(EndpointNonExecutionPolicy {
+                outcome: EndpointResponseIntegrationOutcomeKind::Maintenance,
+                reason_code: CommandAckReasonCode::BrokerMaintenance,
+                error_kind: OrderPathErrorKind::BrokerMaintenance,
+                disarm_signal: OperatorDisarmSignal::OrderEndpointMaintenance,
+                retry_after_ms: None,
+            })
+        }
+        broker_finam::FinamOrderEndpointMappedResult::DecodeError { .. } => {
+            Some(EndpointNonExecutionPolicy {
+                outcome: EndpointResponseIntegrationOutcomeKind::DecodeError,
+                reason_code: CommandAckReasonCode::ResponseDecodeError,
+                error_kind: OrderPathErrorKind::ResponseDecodeError,
+                disarm_signal: OperatorDisarmSignal::OrderEndpointDecodeError,
+                retry_after_ms: None,
+            })
+        }
+    }
 }
 
 pub async fn simulate_place_order_approved<S, C>(
@@ -1513,13 +1893,14 @@ mod tests {
     use broker_core::order::{Order, OrderSide, OrderStatus, OrderType, TimeInForce};
     use broker_core::{
         CancelOrder, CancelPreflightApproval, DryOrderRateLimit, InMemoryOrderPathStore,
-        OperatorArm, OrderPathEvent, OrderPathRecord, OrderPathState, OrderPathStore,
-        OrderPathTransitionError, OrderPreflightPolicy, PlaceOrder, SqliteOrderPathReadStore,
-        SqliteOrderPathStore,
+        OperatorArm, OperatorDisarmSignal, OrderPathErrorKind, OrderPathEvent, OrderPathRecord,
+        OrderPathState, OrderPathStore, OrderPathTransitionError, OrderPreflightPolicy, PlaceOrder,
+        SqliteOrderPathReadStore, SqliteOrderPathStore,
     };
     use broker_finam::{
-        FinamDryOrderClient, FinamOrderExecutionOutcome, MockFinamApprovedOrderExecutionClient,
-        MockFinamDryOrderClient,
+        FinamDryOrderClient, FinamOrderEndpointAcceptedDto, FinamOrderEndpointFixture,
+        FinamOrderEndpointMaintenanceKind, FinamOrderEndpointResponseKind,
+        FinamOrderExecutionOutcome, MockFinamApprovedOrderExecutionClient, MockFinamDryOrderClient,
     };
     use chrono::{DateTime, TimeZone};
     use rust_decimal::Decimal;
@@ -2961,6 +3342,405 @@ mod tests {
         assert!(loaded.broker_order_id.is_none());
     }
 
+    #[test]
+    fn endpoint_response_integration_maps_place_execution_fixtures() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 11, 0, 0)
+            .single()
+            .expect("timestamp");
+
+        let (mut accepted_store, accepted_approved, accepted_order) =
+            place_store_and_approved(now, request_id(130), "CID000000000000130");
+        let accepted_fixture = FinamOrderEndpointFixture::Accepted(FinamOrderEndpointAcceptedDto {
+            broker_order_id: Some("BROKER_TEST_ENDPOINT_130".to_string()),
+        });
+        let accepted_report = simulate_place_order_endpoint_fixture(
+            &mut accepted_store,
+            &accepted_approved,
+            None,
+            &accepted_fixture,
+            None,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .expect("accepted endpoint fixture");
+
+        assert_eq!(
+            accepted_report.outcome,
+            EndpointResponseIntegrationOutcomeKind::Submitted
+        );
+        assert_eq!(accepted_report.state, OrderPathState::Submitted);
+        assert_eq!(accepted_report.ack.status, CommandAckStatus::Submitted);
+        assert_eq!(
+            accepted_report.endpoint_response.kind,
+            FinamOrderEndpointResponseKind::Accepted
+        );
+        assert_eq!(
+            accepted_store
+                .load_by_request_id(accepted_order.request_id)
+                .expect("accepted record")
+                .broker_order_id,
+            Some(BrokerOrderId::new("BROKER_TEST_ENDPOINT_130"))
+        );
+
+        let (mut no_id_store, no_id_approved, _) =
+            place_store_and_approved(now, request_id(131), "CID000000000000131");
+        let no_id_fixture = FinamOrderEndpointFixture::Accepted(FinamOrderEndpointAcceptedDto {
+            broker_order_id: None,
+        });
+        let no_id_report = simulate_place_order_endpoint_fixture(
+            &mut no_id_store,
+            &no_id_approved,
+            None,
+            &no_id_fixture,
+            None,
+            now + chrono::Duration::milliseconds(3),
+            now + chrono::Duration::milliseconds(4),
+        )
+        .expect("accepted without id endpoint fixture");
+        assert_eq!(
+            no_id_report.outcome,
+            EndpointResponseIntegrationOutcomeKind::SubmittedPendingBrokerOrderId
+        );
+        assert_eq!(
+            no_id_report.state,
+            OrderPathState::SubmittedPendingBrokerOrderId
+        );
+        assert_eq!(no_id_report.ack.status, CommandAckStatus::UnknownPending);
+        assert_eq!(
+            no_id_report.ack.reason.expect("reason").code,
+            CommandAckReasonCode::ReconciliationRequired
+        );
+
+        let (mut rejected_store, rejected_approved, _) =
+            place_store_and_approved(now, request_id(132), "CID000000000000132");
+        let rejected_fixture = FinamOrderEndpointFixture::Rejected {
+            reason_code: broker_finam::FinamOrderEndpointRejectedCode::BrokerRejected,
+        };
+        let rejected_report = simulate_place_order_endpoint_fixture(
+            &mut rejected_store,
+            &rejected_approved,
+            None,
+            &rejected_fixture,
+            None,
+            now + chrono::Duration::milliseconds(5),
+            now + chrono::Duration::milliseconds(6),
+        )
+        .expect("rejected endpoint fixture");
+        assert_eq!(
+            rejected_report.outcome,
+            EndpointResponseIntegrationOutcomeKind::BrokerRejected
+        );
+        assert_eq!(rejected_report.state, OrderPathState::BrokerRejected);
+        assert_eq!(rejected_report.ack.status, CommandAckStatus::Rejected);
+        assert_eq!(
+            rejected_report.ack.reason.expect("reason").code,
+            CommandAckReasonCode::BrokerRejected
+        );
+    }
+
+    #[tokio::test]
+    async fn endpoint_response_rate_limit_disarms_backoffs_redacts_and_blocks_retry() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 11, 10, 0)
+            .single()
+            .expect("timestamp");
+        let (mut store, approved, order) =
+            place_store_and_approved(now, request_id(133), "CID000000000000133");
+        let mut arm = dry_preflight_policy(now).operator_arm.clone();
+        let rate_limited = FinamOrderEndpointFixture::RateLimited {
+            retry_after_ms: Some(2_500),
+        };
+
+        let report = simulate_place_order_endpoint_fixture(
+            &mut store,
+            &approved,
+            None,
+            &rate_limited,
+            Some(&mut arm),
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .expect("rate limited endpoint fixture");
+
+        assert_eq!(
+            report.outcome,
+            EndpointResponseIntegrationOutcomeKind::RateLimited
+        );
+        assert_eq!(report.state, OrderPathState::ManualInterventionRequired);
+        assert_eq!(report.ack.status, CommandAckStatus::Error);
+        assert_eq!(
+            report.ack.reason.as_ref().expect("reason").code,
+            CommandAckReasonCode::RateLimited
+        );
+        assert_eq!(report.retry_after_ms, Some(2_500));
+        assert_eq!(
+            report.disarm_decision.expect("disarm").signal,
+            OperatorDisarmSignal::OrderEndpointRateLimited
+        );
+        assert_eq!(
+            arm.validate(now)
+                .expect_err("rate-limit disarms operator arm"),
+            broker_core::OrderPreflightError::EndpointNotArmed
+        );
+        let loaded = store
+            .load_by_request_id(order.request_id)
+            .expect("manual intervention record");
+        assert_eq!(loaded.state, OrderPathState::ManualInterventionRequired);
+        assert_eq!(
+            loaded.last_error_kind,
+            Some(OrderPathErrorKind::RateLimited)
+        );
+
+        let accepted_late = FinamOrderEndpointFixture::Accepted(FinamOrderEndpointAcceptedDto {
+            broker_order_id: Some("BROKER_TEST_ENDPOINT_RETRY".to_string()),
+        });
+        let retry_error = simulate_place_order_endpoint_fixture(
+            &mut store,
+            &approved,
+            None,
+            &accepted_late,
+            None,
+            now + chrono::Duration::milliseconds(3),
+            now + chrono::Duration::milliseconds(4),
+        )
+        .expect_err("blind endpoint retry must be blocked");
+        assert!(matches!(
+            retry_error,
+            EndpointResponseIntegrationSimulatorError::Transition(
+                OrderPathTransitionError::InvalidTransition {
+                    from: OrderPathState::ManualInterventionRequired,
+                    event: OrderPathEvent::BeginSubmit
+                }
+            )
+        ));
+
+        let sink = InMemoryRedisStreamSink::default();
+        let gateway = FinamGateway::new(GatewayConfig::default(), sink.clone());
+        gateway
+            .publish_dry_command_ack(report.ack)
+            .await
+            .expect("rate-limit ack published");
+        let entries = sink.entries().expect("entries");
+        assert!(entries[0].payload.contains("rate_limited"));
+        assert!(!entries[0].payload.contains("CID000000000000133"));
+        assert!(!entries[0].payload.contains("ACC_TEST_0001"));
+        assert!(!entries[0].payload.contains("BROKER_TEST_ENDPOINT_RETRY"));
+    }
+
+    #[test]
+    fn endpoint_response_integration_maps_maintenance_and_decode_error() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 11, 20, 0)
+            .single()
+            .expect("timestamp");
+        let cases = [
+            (
+                FinamOrderEndpointFixture::Maintenance {
+                    maintenance_kind: FinamOrderEndpointMaintenanceKind::ServiceInterval,
+                },
+                EndpointResponseIntegrationOutcomeKind::Maintenance,
+                CommandAckReasonCode::BrokerMaintenance,
+                OrderPathErrorKind::BrokerMaintenance,
+                OperatorDisarmSignal::OrderEndpointMaintenance,
+                FinamOrderEndpointResponseKind::Maintenance,
+                request_id(134),
+                "CID000000000000134",
+            ),
+            (
+                FinamOrderEndpointFixture::DecodeError {
+                    status: Some(502),
+                    body_kind: Some("object".to_string()),
+                },
+                EndpointResponseIntegrationOutcomeKind::DecodeError,
+                CommandAckReasonCode::ResponseDecodeError,
+                OrderPathErrorKind::ResponseDecodeError,
+                OperatorDisarmSignal::OrderEndpointDecodeError,
+                FinamOrderEndpointResponseKind::DecodeError,
+                request_id(135),
+                "CID000000000000135",
+            ),
+        ];
+
+        for (
+            fixture,
+            expected_outcome,
+            expected_reason,
+            expected_error,
+            expected_signal,
+            expected_response_kind,
+            request_id,
+            client_order_id,
+        ) in cases
+        {
+            let (mut store, approved, order) =
+                place_store_and_approved(now, request_id, client_order_id);
+            let mut arm = dry_preflight_policy(now).operator_arm.clone();
+
+            let report = simulate_place_order_endpoint_fixture(
+                &mut store,
+                &approved,
+                None,
+                &fixture,
+                Some(&mut arm),
+                now + chrono::Duration::milliseconds(1),
+                now + chrono::Duration::milliseconds(2),
+            )
+            .expect("non-execution endpoint fixture");
+
+            assert_eq!(report.outcome, expected_outcome);
+            assert_eq!(report.state, OrderPathState::ManualInterventionRequired);
+            assert_eq!(report.ack.status, CommandAckStatus::Error);
+            assert_eq!(
+                report.ack.reason.as_ref().expect("reason").code,
+                expected_reason
+            );
+            assert_eq!(report.endpoint_response.kind, expected_response_kind);
+            assert_eq!(
+                report.disarm_decision.expect("disarm").signal,
+                expected_signal
+            );
+            assert_eq!(
+                store
+                    .load_by_request_id(order.request_id)
+                    .expect("record")
+                    .last_error_kind,
+                Some(expected_error)
+            );
+        }
+    }
+
+    #[test]
+    fn endpoint_response_integration_maps_cancel_rate_limit() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 11, 30, 0)
+            .single()
+            .expect("timestamp");
+        let (mut store, approved_cancel, place_request_id) = submitted_store_and_approved_cancel(
+            now,
+            request_id(136),
+            request_id(137),
+            BrokerOrderId::new("BROKER_TEST_ENDPOINT_CANCEL"),
+        );
+        let mut arm = dry_preflight_policy(now).operator_arm.clone();
+        let fixture = FinamOrderEndpointFixture::RateLimited {
+            retry_after_ms: Some(1_000),
+        };
+
+        let report = simulate_cancel_order_endpoint_fixture(
+            &mut store,
+            &approved_cancel,
+            &fixture,
+            Some(&mut arm),
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .expect("cancel rate-limit endpoint fixture");
+
+        assert_eq!(
+            report.outcome,
+            EndpointResponseIntegrationOutcomeKind::RateLimited
+        );
+        assert_eq!(report.state, OrderPathState::ManualInterventionRequired);
+        assert_eq!(report.cancel_attempt_count, 1);
+        assert_eq!(report.ack.status, CommandAckStatus::Error);
+        assert_eq!(
+            report.ack.reason.expect("reason").code,
+            CommandAckReasonCode::RateLimited
+        );
+        assert_eq!(
+            report.disarm_decision.expect("disarm").signal,
+            OperatorDisarmSignal::OrderEndpointRateLimited
+        );
+        let loaded = store
+            .load_by_request_id(place_request_id)
+            .expect("cancel record");
+        assert_eq!(loaded.state, OrderPathState::ManualInterventionRequired);
+        assert_eq!(
+            loaded.last_error_kind,
+            Some(OrderPathErrorKind::RateLimited)
+        );
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_endpoint_rate_limit_persists_safe_audit_and_redacted_ack() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 11, 40, 0)
+            .single()
+            .expect("timestamp");
+        let path = temp_sqlite_path("endpoint_rate_limit");
+        cleanup_sqlite_path(&path);
+        let order = sample_place_order(request_id(138), "CID000000000000138", now);
+        let policy = dry_preflight_policy(now);
+        let approved = policy
+            .approve_place_order(&order, now)
+            .expect("preflight approved");
+        let mut store = SqliteOrderPathStore::open(&path).expect("open sqlite store");
+        store
+            .insert_intent(OrderPathRecord::from_place_order(
+                approved.order(),
+                now,
+                None,
+            ))
+            .expect("intent inserted");
+        let mut arm = policy.operator_arm.clone();
+        let fixture = FinamOrderEndpointFixture::RateLimited {
+            retry_after_ms: Some(1_500),
+        };
+
+        let report = simulate_place_order_endpoint_fixture(
+            &mut store,
+            &approved,
+            None,
+            &fixture,
+            Some(&mut arm),
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .expect("sqlite endpoint rate-limit report");
+
+        assert_eq!(
+            report.outcome,
+            EndpointResponseIntegrationOutcomeKind::RateLimited
+        );
+        let audit = store.transition_audit().expect("transition audit");
+        assert_eq!(audit.len(), 3);
+        assert_eq!(audit[0].event, "InsertIntent");
+        assert_eq!(audit[1].event, "BeginSubmit");
+        assert_eq!(audit[1].from_state.as_deref(), Some("IntentRecorded"));
+        assert_eq!(audit[1].to_state, "SubmitInFlight");
+        assert_eq!(audit[2].event, "RequireManualIntervention");
+        assert_eq!(audit[2].from_state.as_deref(), Some("SubmitInFlight"));
+        assert_eq!(audit[2].to_state, "ManualInterventionRequired");
+        assert_eq!(audit[2].reason_code.as_deref(), Some("RateLimited"));
+        assert_eq!(audit[2].safe_details, "sqlite_order_path_store");
+        drop(store);
+
+        {
+            let readonly =
+                SqliteOrderPathReadStore::open_readonly(&path).expect("open read-only diagnostics");
+            assert_eq!(
+                readonly
+                    .operator_load_by_request_id(order.request_id)
+                    .expect("read-only record")
+                    .last_error_kind,
+                Some(OrderPathErrorKind::RateLimited)
+            );
+        }
+
+        let sink = InMemoryRedisStreamSink::default();
+        let gateway = FinamGateway::new(GatewayConfig::default(), sink.clone());
+        gateway
+            .publish_dry_command_ack(report.ack)
+            .await
+            .expect("sqlite rate-limit ack published");
+        let entries = sink.entries().expect("entries");
+        assert!(entries[0].payload.contains("rate_limited"));
+        assert!(!entries[0].payload.contains("CID000000000000138"));
+        assert!(!entries[0].payload.contains("ACC_TEST_0001"));
+        cleanup_sqlite_path(&path);
+    }
+
     #[tokio::test]
     async fn cancel_simulator_accepts_approved_cancel_and_redacts_ack() {
         let now = Utc
@@ -3476,6 +4256,31 @@ mod tests {
         let mut store = InMemoryOrderPathStore::default();
         store.insert_intent(existing).expect("insert submitted");
         (store, approved_cancel, place_request_id)
+    }
+
+    fn place_store_and_approved(
+        now: DateTime<Utc>,
+        request_id: StrategyRequestId,
+        client_order_id: &str,
+    ) -> (
+        InMemoryOrderPathStore,
+        broker_core::PreflightApprovedPlaceOrder,
+        PlaceOrder,
+    ) {
+        let order = sample_place_order(request_id, client_order_id, now);
+        let policy = dry_preflight_policy(now);
+        let approved = policy
+            .approve_place_order(&order, now)
+            .expect("preflight approved");
+        let mut store = InMemoryOrderPathStore::default();
+        store
+            .insert_intent(OrderPathRecord::from_place_order(
+                approved.order(),
+                now,
+                None,
+            ))
+            .expect("intent inserted");
+        (store, approved, order)
     }
 
     fn dry_preflight_policy(now: DateTime<Utc>) -> OrderPreflightPolicy {

@@ -66,6 +66,8 @@ pub enum OrderPathErrorKind {
     BrokerRejected,
     TransportTimeout,
     RateLimited,
+    BrokerMaintenance,
+    ResponseDecodeError,
     ReconciliationRequired,
     DurableStoreUnavailable,
     Unknown,
@@ -248,6 +250,7 @@ fn next_order_path_state(state: OrderPathState, event: OrderPathEvent) -> Option
             Some(S::SubmittedPendingBrokerOrderId)
         }
         (S::SubmitInFlight, E::SubmitTimedOut) => Some(S::TimeoutUnknownPending),
+        (S::SubmitInFlight, E::RequireManualIntervention) => Some(S::ManualInterventionRequired),
         (S::TimeoutUnknownPending, E::RecoverByClientOrderId) => Some(S::RecoveredByClientOrderId),
         (S::SubmittedPendingBrokerOrderId, E::RecoverByClientOrderId) => {
             Some(S::RecoveredByClientOrderId)
@@ -1207,7 +1210,8 @@ fn infer_transition_audit_event(
         | (S::SubmittedPendingBrokerOrderId, S::RecoveredByClientOrderId) => {
             "RecoverByClientOrderId"
         }
-        (S::SubmittedPendingBrokerOrderId, S::ManualInterventionRequired)
+        (S::SubmitInFlight, S::ManualInterventionRequired)
+        | (S::SubmittedPendingBrokerOrderId, S::ManualInterventionRequired)
         | (S::TimeoutUnknownPending, S::ManualInterventionRequired)
         | (S::CancelTimeoutUnknownPending, S::ManualInterventionRequired) => {
             "RequireManualIntervention"
@@ -1481,6 +1485,9 @@ pub enum OperatorDisarmSignal {
     AcceptedWithoutBrokerOrderId,
     CancelBrokerOrderIdMismatch,
     CancelTimeoutUnknownPending,
+    OrderEndpointRateLimited,
+    OrderEndpointMaintenance,
+    OrderEndpointDecodeError,
     ReconciliationStale,
     RestartRecovery,
 }
@@ -3279,6 +3286,9 @@ mod tests {
             OperatorDisarmSignal::AcceptedWithoutBrokerOrderId,
             OperatorDisarmSignal::CancelBrokerOrderIdMismatch,
             OperatorDisarmSignal::CancelTimeoutUnknownPending,
+            OperatorDisarmSignal::OrderEndpointRateLimited,
+            OperatorDisarmSignal::OrderEndpointMaintenance,
+            OperatorDisarmSignal::OrderEndpointDecodeError,
             OperatorDisarmSignal::ReconciliationStale,
             OperatorDisarmSignal::RestartRecovery,
         ] {
@@ -3973,6 +3983,12 @@ mod tests {
                 OrderPathState::TimeoutUnknownPending,
                 Some(OrderPathErrorKind::TransportTimeout),
                 "SubmitTimedOut",
+            ),
+            (
+                OrderPathState::SubmitInFlight,
+                OrderPathState::ManualInterventionRequired,
+                Some(OrderPathErrorKind::RateLimited),
+                "RequireManualIntervention",
             ),
             (
                 OrderPathState::Submitted,

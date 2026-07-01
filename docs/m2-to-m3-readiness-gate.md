@@ -628,3 +628,33 @@ Still not implemented in M3b-0:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-1 endpoint response integration simulator status
+
+Implemented while still keeping all broker endpoints disabled:
+
+- synthetic/redacted FINAM endpoint fixtures are routed through the order-path
+  state machine;
+- accepted/rejected/timeout fixtures produce state transitions and ACKs through
+  the same semantics as the dry execution simulator;
+- rate-limit, maintenance, and decode-error fixtures persist an endpoint-attempt
+  start and then move to `ManualInterventionRequired`;
+- rate-limit, maintenance, and decode-error outcomes emit broker-neutral ACK
+  reason codes and operator disarm signals;
+- rate-limit preserves `retry_after_ms` in the integration report for future
+  backoff wiring;
+- no-blind-retry is tested after endpoint rate-limit;
+- SQLite-backed audit covers `InsertIntent -> BeginSubmit ->
+  RequireManualIntervention` with safe reason code `RateLimited`;
+- Redis ACK publication remains redacted through the dry ACK publisher;
+- `EndpointGateApproved` remains unconstructible.
+
+Still not implemented in M3b-1:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

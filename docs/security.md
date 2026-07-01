@@ -126,6 +126,11 @@ debug/diagnostic output exposes only presence and length, and the future
 transport trait requires an endpoint gate marker that is not constructible from
 the current blocked decision or from a manually forged allow-looking decision
 while the post-review approval constant remains false.
+M3b-1 keeps endpoint response integration dry and redacted: rate-limit,
+maintenance, and decode-error fixtures become safe enum reason codes,
+order-path error kinds, and operator disarm signals. Runtime-facing Redis ACKs
+still pass through the dry ACK publisher, which removes raw client and broker
+order ids.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

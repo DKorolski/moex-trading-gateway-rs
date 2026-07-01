@@ -137,11 +137,13 @@ diagnostic API boundary, safe transition audit event names,
 store-error-to-operator-disarm mapping, explicit pre-endpoint gate decision,
 endpoint gate marker design, synthetic/redacted FINAM response fixtures,
 future transport signature with required gate marker, SQLite runtime-directory
-deployment inspector, store invariants, broker-order-id uniqueness, cancel
-timeout policy, dry window/backoff rate limiting, FINAM request DTO builders
-without HTTP send, workspace-wide source-scan guard tests, and
-price/reference/notional guard tests. It still does not call FINAM order
-endpoints or consume live strategy commands.
+deployment inspector, endpoint response integration simulator for accepted /
+rejected / timeout / rate-limit / maintenance / decode-error fixtures, store
+invariants, broker-order-id uniqueness, cancel timeout policy, dry
+window/backoff rate limiting, FINAM request DTO builders without HTTP send,
+workspace-wide source-scan guard tests, and price/reference/notional guard
+tests. It still does not call FINAM order endpoints or consume live strategy
+commands.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`. The Redis CI job runs
@@ -165,6 +167,7 @@ See:
 - [M3a-10 SQLite production hardening](docs/m3a10-sqlite-production-hardening.md)
 - [M3a-11 final pre-endpoint gate](docs/m3a11-final-pre-endpoint-gate.md)
 - [M3b-0 design / fixture gate](docs/m3b0-design-fixture-gate.md)
+- [M3b-1 endpoint response integration simulator](docs/m3b1-endpoint-response-integration-simulator.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

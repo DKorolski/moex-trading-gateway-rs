@@ -257,6 +257,9 @@ Implementation notes from the first review:
   redaction decision, still without FINAM order endpoint calls;
 - M3b-0 adds synthetic/redacted order endpoint response fixtures and future
   transport marker signatures, still without FINAM order endpoint calls;
+- M3b-1 routes synthetic/redacted endpoint fixtures through order-path state
+  transitions, redacted ACK/disarm policy, and no-blind-retry checks, still
+  without FINAM order endpoint calls;
 - raw `serde_json::Value` is acceptable only for the shape probe. Typed DTOs and
   mappers are required before Redis gateway/readiness work.
 

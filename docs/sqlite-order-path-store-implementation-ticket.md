@@ -168,3 +168,8 @@ M3b-0 adds `inspect_sqlite_runtime_directory()` for future deployment/startup
 checks. It can flag missing/non-directory runtime paths, group/world-accessible
 Unix directories, workspace-tree locations, and workspace artifact locations
 before endpoint-capable mode is considered.
+
+M3b-1 adds a SQLite-backed endpoint response fixture integration test for the
+rate-limit path. It persists `InsertIntent`, `BeginSubmit`, and
+`RequireManualIntervention` with safe reason code `RateLimited`, then publishes
+a redacted dry ACK without raw account/client/broker identifiers.

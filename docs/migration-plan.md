@@ -757,6 +757,44 @@ M3b-0 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-1 endpoint response integration simulator:
+
+- `simulate_place_order_endpoint_fixture()` and
+  `simulate_cancel_order_endpoint_fixture()` route synthetic/redacted FINAM
+  endpoint fixtures through the order-path state machine.
+- Execution-like fixtures map to existing dry semantics:
+  accepted/rejected/timeout for place and cancel, including accepted without
+  broker order id and cancel returned-id mismatch handling.
+- Non-execution fixtures are conservative:
+  rate-limit/maintenance/decode-error persist `BeginSubmit` or `RequestCancel`,
+  then `RequireManualIntervention`.
+- New broker-neutral ACK reason codes cover `RateLimited`, `BrokerMaintenance`,
+  and `ResponseDecodeError`.
+- New operator disarm signals cover order endpoint rate-limit, maintenance, and
+  decode-error responses.
+- Rate-limit integration preserves `retry_after_ms` in the redacted report for
+  future backoff wiring.
+- No-blind-retry is tested after rate-limit because the record remains in
+  `ManualInterventionRequired` before any future transport could be called.
+- SQLite-backed audit proves `InsertIntent -> BeginSubmit ->
+  RequireManualIntervention` with safe reason code `RateLimited`.
+- Runtime-facing ACK publication remains redacted through
+  `publish_dry_command_ack()`.
+- `EndpointGateApproved` remains unconstructible and real HTTP transport is
+  still absent.
+- Details are documented in
+  `docs/m3b1-endpoint-response-integration-simulator.md`.
+
+M3b-1 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

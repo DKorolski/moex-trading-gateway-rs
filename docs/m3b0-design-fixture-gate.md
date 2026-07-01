@@ -76,6 +76,11 @@ cancel_order_endpoint(&EndpointGateApproved, FinamCancelOrderRequestSpec)
 The trait returns mapped endpoint results. It still has no HTTP implementation
 and no real endpoint caller.
 
+M3b-1 follow-up: these fixture classes are now routed through a dry order-path
+integration simulator in
+`docs/m3b1-endpoint-response-integration-simulator.md`, still without real
+FINAM order endpoint calls.
+
 ## SQLite deployment checks
 
 `broker-core` now exposes:

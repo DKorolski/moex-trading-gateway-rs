@@ -99,4 +99,7 @@ pub enum CommandAckReasonCode {
     ExpiredCommand,
     ManualInterventionRequired,
     DryRunOnly,
+    RateLimited,
+    BrokerMaintenance,
+    ResponseDecodeError,
 }

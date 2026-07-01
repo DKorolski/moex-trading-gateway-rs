@@ -34,7 +34,9 @@ transition audit event-name refinement, store-error-to-disarm mapping, an
 explicit pre-endpoint gate decision, and the migration/fixture runbook. M3b-0
 adds the endpoint gate marker design, synthetic/redacted response fixtures,
 future real transport signature requiring the marker, SQLite runtime-directory
-deployment inspector, and transition-audit contract matrix.
+deployment inspector, and transition-audit contract matrix. M3b-1 routes those
+fixtures through the order-path state machine and redacted ACK/disarm policy
+without adding real endpoint transport.
 
 M3 scope is deliberately small:
 
@@ -102,6 +104,12 @@ M3b-0 adds the compile-time shape of the future real transport without adding
 transport implementation: endpoint methods require `EndpointGateApproved` and
 FINAM request specs. The marker cannot be obtained from the current blocked
 decision.
+
+M3b-1 adds a dry endpoint response integration simulator. It accepts
+synthetic/redacted `FinamOrderEndpointFixture` values plus preflight-approved
+commands, persists the same local order-path transitions future transport would
+need, and returns a redacted integration report. It still does not send FINAM
+HTTP and does not consume live strategy commands.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.
@@ -220,6 +228,8 @@ ACKs are command-path facts only:
 - validation/operator/readiness/broker rejection -> `Rejected`;
 - request timed out -> `Timeout` plus durable `TimeoutUnknownPending` state;
 - reconciliation is required and retry is blocked -> `UnknownPending`;
+- rate-limit/maintenance/decode-error endpoint fixture -> `Error`,
+  `ManualInterventionRequired`, operator disarm, and no blind retry;
 - local non-retryable error -> `Error`.
 
 ACKs do not imply fill. The runtime must use normalized orders/trades for fill,
@@ -352,6 +362,8 @@ Order POST rules:
 - no automatic retry after timeout/unknown;
 - no retry on validation/broker rejection;
 - rate-limit response disarms order submission and schedules reconciliation;
+- M3b-1 preserves `retry_after_ms` from rate-limit fixtures in the dry
+  integration report for future backoff wiring;
 - retry only transport setup before request is known to have reached FINAM, if
   the client can prove no order request was sent.
 

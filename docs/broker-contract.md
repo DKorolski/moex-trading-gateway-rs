@@ -151,6 +151,10 @@ explicit real-endpoint gate decision that remains blocked before endpoint
 implementation review. M3b-0 adds an endpoint gate marker, synthetic/redacted
 FINAM endpoint response fixtures, future transport signatures requiring the
 marker, and deployment/audit contract tests, still without real endpoint calls.
+M3b-1 routes those fixtures through order-path state transitions, redacted ACK
+publication, no-blind-retry checks, and operator disarm categories for
+rate-limit/maintenance/decode-error outcomes, still without real endpoint
+calls.
 
 `broker-finam::order_request` may build FINAM request path/body specs for dry
 fixture tests only from preflight-approved commands, but it must not send HTTP
