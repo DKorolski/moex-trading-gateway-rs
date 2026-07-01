@@ -1,4 +1,4 @@
-# M3a-6 execution simulator and live-boundary decisions
+# M3a-6/M3a-7 execution simulator and live-boundary decisions
 
 Status: dry/non-network. This document does not authorize FINAM
 `POST /orders`, FINAM `DELETE /orders/{order_id}`, real command consumption,
@@ -25,8 +25,10 @@ async fn place(order: PlaceOrder)
 async fn cancel(cancel: CancelOrder)
 ```
 
-M3a-6 encodes this as `FinamApprovedOrderExecutionClient`. The provided mock
-client records only redacted request diagnostics and scripted outcomes.
+M3a encodes this as `FinamApprovedOrderExecutionClient`. The provided mock
+client records only redacted request diagnostics and scripted outcomes. M3a-7
+adds a compile-level contract test so the approved client boundary remains
+request-spec-based, not raw-command-based.
 
 ## Dry execution simulator
 
@@ -46,11 +48,49 @@ preflight-approved command
 Covered dry outcomes:
 
 - `Accepted` -> `Submitted`;
+- `Accepted` without broker order id -> `SubmittedPendingBrokerOrderId` and
+  `UnknownPending` / `ReconciliationRequired`;
 - `Rejected` -> `BrokerRejected`;
 - `Timeout` -> `TimeoutUnknownPending`.
 
 Blind retry from `TimeoutUnknownPending` is blocked before the mock client is
 called again.
+
+## Dry cancel simulator
+
+`finam-gateway::simulate_cancel_order_approved()` models the future cancel
+endpoint boundary without network:
+
+```text
+preflight-approved cancel
+  -> build dry FINAM cancel request spec
+  -> load mapped place order-path record
+  -> persist RequestCancel
+  -> call approved-only mock execution client
+  -> apply Accepted / Rejected / Timeout to state machine
+  -> return synthetic CommandAck
+```
+
+Covered dry cancel outcomes:
+
+- `Accepted` -> `CancelSubmitted`;
+- `Rejected` -> `ManualInterventionRequired`;
+- `Timeout` -> `CancelTimeoutUnknownPending`.
+
+Blind cancel retry from `CancelTimeoutUnknownPending` is blocked before the
+mock client is called again. Already-terminal cancel preflight remains a
+no-endpoint/no-mock-call recovery path.
+
+## Accepted without broker order id
+
+An accepted place response without a broker order id is ambiguous. The safe
+policy is:
+
+- persist `SubmittedPendingBrokerOrderId`;
+- publish a redacted `UnknownPending` ACK with `ReconciliationRequired`;
+- disarm/operator-surface the condition;
+- block cancel until broker truth recovers the broker order id by client order
+  id or the operator records manual intervention.
 
 ## ACK contract decision
 
@@ -73,7 +113,8 @@ from public handoff archives or runtime-facing ACK exports.
 
 The first real endpoint path should use SQLite with WAL and a single-writer
 execution model. `JsonFileOrderPathStore` remains a spec/test/restart backend,
-not the production live-order store.
+not the production live-order store. The implementation ticket is
+`docs/sqlite-order-path-store-implementation-ticket.md`.
 
 Required SQLite properties before any real endpoint call:
 
@@ -97,4 +138,3 @@ the policy must be bound to method/account/instrument and must define:
 - 429/transport backoff duration;
 - no blind retry after ambiguous placement timeout;
 - operator-visible exhausted/backoff state.
-

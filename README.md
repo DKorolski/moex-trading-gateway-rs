@@ -127,9 +127,10 @@ approved marker types for dry request builders, exact cancel mapping checks, raw
 command-comment rejection, command TTL expiry, dry rate-limit capacity,
 synthetic ACK construction/publication with safe reason codes and redacted ids,
 approved-only mock execution simulation for accepted/rejected/timeout outcomes,
-store invariants, broker-order-id uniqueness, cancel timeout policy, dry
-window/backoff rate limiting, FINAM request DTO builders without HTTP send, and
-price/reference/notional guard tests. It still does not call FINAM order
+accepted-without-broker-id reconciliation policy, dry cancel execution
+simulation, store invariants, broker-order-id uniqueness, cancel timeout policy,
+dry window/backoff rate limiting, FINAM request DTO builders without HTTP send,
+and price/reference/notional guard tests. It still does not call FINAM order
 endpoints or consume live strategy commands.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
@@ -155,3 +156,4 @@ See:
 - [Runtime bridge dry contract](docs/runtime-bridge-dry-contract.md)
 - [Runtime bridge pending policy](docs/runtime-bridge-pending-policy.md)
 - [Security policy](docs/security.md)
+- [SQLite order-path store implementation ticket](docs/sqlite-order-path-store-implementation-ticket.md)

@@ -135,7 +135,9 @@ types, command TTL expiry checks, dry rate-limit capacity, operator disarm
 safety signals, and a mock-only redacted ACK publisher. M3a-6 adds an
 approved-only mock execution boundary, simulator coverage for accepted/rejected/
 timeout outcomes, no-blind-retry coverage, re-arm workflow tests, and a dry
-window/backoff limiter.
+window/backoff limiter. M3a-7 adds accepted-without-broker-id reconciliation
+policy, dry cancel execution simulation, cancel no-blind-retry coverage, and a
+SQLite/WAL single-writer implementation ticket.
 
 `broker-finam::order_request` may build FINAM request path/body specs for dry
 fixture tests only from preflight-approved commands, but it must not send HTTP

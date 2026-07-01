@@ -562,6 +562,41 @@ M3a-6 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3a-7 dry cancel simulator / accepted-without-broker-id policy:
+
+- Accepted place execution without a broker order id is no longer treated as
+  normal `Submitted`. It moves to `SubmittedPendingBrokerOrderId`, returns an
+  `UnknownPending` ACK with `ReconciliationRequired`, and blocks cancel until
+  broker truth recovers the broker order id by client order id.
+- Operator disarm signals now include accepted-without-broker-id and
+  cancel-timeout-unknown-pending safety cases.
+- `finam-gateway` adds a dry cancel execution simulator:
+  preflight-approved cancel -> request spec -> persisted `RequestCancel` ->
+  mock execution -> state-machine transition -> synthetic ACK.
+- Accepted dry cancel execution moves to `CancelSubmitted`; rejected cancel
+  moves to `ManualInterventionRequired`; timeout moves to
+  `CancelTimeoutUnknownPending`.
+- No-blind-retry is tested for cancel timeout: a second cancel attempt from
+  `CancelTimeoutUnknownPending` fails before the mock client is called.
+- Already-terminal cancel preflight is tested as a no-endpoint/no-mock-call
+  recovery path.
+- Dry cancel ACK publication remains redacted.
+- The approved-only execution boundary is locked by a compile-level contract
+  test: future clients accept FINAM request specs, not raw commands.
+- `docs/sqlite-order-path-store-implementation-ticket.md` records the SQLite /
+  WAL single-writer implementation ticket for the first production durable
+  order-path backend.
+
+M3a-7 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

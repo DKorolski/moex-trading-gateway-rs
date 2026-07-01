@@ -23,7 +23,7 @@ use broker_core::order::Order;
 use broker_core::readiness::{BrokerReadiness, ReadinessPhase, ReadinessReason};
 use broker_core::{
     OrderPathEvent, OrderPathState, OrderPathStore, OrderPathStoreError, OrderPathTransitionError,
-    OutgoingOrderComment, PreflightApprovedPlaceOrder,
+    OutgoingOrderComment, PreflightApprovedCancelOrder, PreflightApprovedPlaceOrder,
 };
 use chrono::{DateTime, Utc};
 use serde::de::DeserializeOwned;
@@ -874,8 +874,12 @@ pub enum GatewayError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DryOrderExecutionOutcomeKind {
     Submitted,
+    SubmittedPendingBrokerOrderId,
     BrokerRejected,
     TimeoutUnknownPending,
+    CancelSubmitted,
+    CancelRejected,
+    CancelTimeoutUnknownPending,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -883,6 +887,7 @@ pub struct DryOrderExecutionReport {
     pub ack: CommandAck,
     pub state: OrderPathState,
     pub submit_attempt_count: u32,
+    pub cancel_attempt_count: u32,
     pub outcome: DryOrderExecutionOutcomeKind,
 }
 
@@ -890,6 +895,8 @@ pub struct DryOrderExecutionReport {
 pub enum DryOrderExecutionSimulatorError {
     #[error("dry order execution missing order-path record: {request_id}")]
     MissingOrderPathRecord { request_id: StrategyRequestId },
+    #[error("dry cancel execution missing mapped order-path request id for cancel request: {request_id}")]
+    MissingCancelMapping { request_id: StrategyRequestId },
     #[error("dry order request build error: {0}")]
     RequestBuild(#[from] broker_finam::FinamOrderRequestBuildError),
     #[error("dry order execution client error: {0}")]
@@ -923,13 +930,30 @@ where
 
     let execution_outcome = client.place_approved(spec).await?;
     let (ack_status, ack_reason, outcome) = match execution_outcome {
-        broker_finam::FinamOrderExecutionOutcome::Accepted { broker_order_id } => {
-            record.broker_order_id = broker_order_id;
+        broker_finam::FinamOrderExecutionOutcome::Accepted {
+            broker_order_id: Some(broker_order_id),
+        } => {
+            record.broker_order_id = Some(broker_order_id);
             record.transition(OrderPathEvent::SubmitAccepted, outcome_ts)?;
             (
                 CommandAckStatus::Submitted,
                 Some(CommandAckReason::synthetic_submitted()),
                 DryOrderExecutionOutcomeKind::Submitted,
+            )
+        }
+        broker_finam::FinamOrderExecutionOutcome::Accepted {
+            broker_order_id: None,
+        } => {
+            record.transition(
+                OrderPathEvent::SubmitAcceptedWithoutBrokerOrderId,
+                outcome_ts,
+            )?;
+            (
+                CommandAckStatus::UnknownPending,
+                Some(CommandAckReason::new(
+                    CommandAckReasonCode::ReconciliationRequired,
+                )),
+                DryOrderExecutionOutcomeKind::SubmittedPendingBrokerOrderId,
             )
         }
         broker_finam::FinamOrderExecutionOutcome::Rejected { reason_code } => {
@@ -958,6 +982,75 @@ where
         ack,
         state: record.state,
         submit_attempt_count: record.submit_attempt_count,
+        cancel_attempt_count: record.cancel_attempt_count,
+        outcome,
+    })
+}
+
+pub async fn simulate_cancel_order_approved<S, C>(
+    store: &mut S,
+    client: &mut C,
+    approved: &PreflightApprovedCancelOrder,
+    begin_ts: DateTime<Utc>,
+    outcome_ts: DateTime<Utc>,
+) -> Result<DryOrderExecutionReport, DryOrderExecutionSimulatorError>
+where
+    S: OrderPathStore,
+    C: broker_finam::FinamApprovedOrderExecutionClient,
+{
+    let cancel_request_id = approved.cancel().request_id;
+    let mapped_request_id = approved.mapped_request_id().ok_or(
+        DryOrderExecutionSimulatorError::MissingCancelMapping {
+            request_id: cancel_request_id,
+        },
+    )?;
+    let spec = broker_finam::build_cancel_order_request(approved)?;
+    let mut record = store.load_by_request_id(mapped_request_id).ok_or(
+        DryOrderExecutionSimulatorError::MissingOrderPathRecord {
+            request_id: mapped_request_id,
+        },
+    )?;
+
+    record.transition(OrderPathEvent::RequestCancel, begin_ts)?;
+    store.update_record(record.clone())?;
+
+    let execution_outcome = client.cancel_approved(spec).await?;
+    let (ack_status, ack_reason, outcome) = match execution_outcome {
+        broker_finam::FinamOrderExecutionOutcome::Accepted { .. } => {
+            record.transition(OrderPathEvent::CancelAccepted, outcome_ts)?;
+            (
+                CommandAckStatus::Submitted,
+                Some(CommandAckReason::synthetic_submitted()),
+                DryOrderExecutionOutcomeKind::CancelSubmitted,
+            )
+        }
+        broker_finam::FinamOrderExecutionOutcome::Rejected { reason_code } => {
+            record.transition(OrderPathEvent::CancelRejected, outcome_ts)?;
+            (
+                CommandAckStatus::Rejected,
+                Some(CommandAckReason::new(reason_code)),
+                DryOrderExecutionOutcomeKind::CancelRejected,
+            )
+        }
+        broker_finam::FinamOrderExecutionOutcome::Timeout => {
+            record.transition(OrderPathEvent::CancelTimedOut, outcome_ts)?;
+            (
+                CommandAckStatus::Timeout,
+                Some(CommandAckReason::new(
+                    CommandAckReasonCode::TransportTimeout,
+                )),
+                DryOrderExecutionOutcomeKind::CancelTimeoutUnknownPending,
+            )
+        }
+    };
+    store.update_record(record.clone())?;
+    let ack = record.synthetic_ack(ack_status, ack_reason, outcome_ts);
+
+    Ok(DryOrderExecutionReport {
+        ack,
+        state: record.state,
+        submit_attempt_count: record.submit_attempt_count,
+        cancel_attempt_count: record.cancel_attempt_count,
         outcome,
     })
 }
@@ -1293,8 +1386,9 @@ mod tests {
     use broker_core::instrument::{Exchange, InstrumentId, Market};
     use broker_core::order::{Order, OrderSide, OrderStatus, OrderType, TimeInForce};
     use broker_core::{
-        DryOrderRateLimit, InMemoryOrderPathStore, OperatorArm, OrderPathEvent, OrderPathRecord,
-        OrderPathState, OrderPathStore, OrderPathTransitionError, OrderPreflightPolicy, PlaceOrder,
+        CancelOrder, CancelPreflightApproval, DryOrderRateLimit, InMemoryOrderPathStore,
+        OperatorArm, OrderPathEvent, OrderPathRecord, OrderPathState, OrderPathStore,
+        OrderPathTransitionError, OrderPreflightPolicy, PlaceOrder,
     };
     use broker_finam::{
         FinamDryOrderClient, FinamOrderExecutionOutcome, MockFinamApprovedOrderExecutionClient,
@@ -2431,6 +2525,263 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn execution_simulator_accepted_without_broker_id_stays_pending_reconciliation() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 6, 30, 9, 50, 0)
+            .single()
+            .expect("timestamp");
+        let order = sample_place_order(request_id(9), "CID000000000000009", now);
+        let policy = dry_preflight_policy(now);
+        let approved = policy
+            .approve_place_order(&order, now)
+            .expect("preflight approved");
+        let mut store = InMemoryOrderPathStore::default();
+        store
+            .insert_intent(OrderPathRecord::from_place_order(
+                approved.order(),
+                now,
+                None,
+            ))
+            .expect("intent inserted");
+        let mut client = MockFinamApprovedOrderExecutionClient::new(vec![
+            FinamOrderExecutionOutcome::Accepted {
+                broker_order_id: None,
+            },
+        ]);
+
+        let report = simulate_place_order_approved(
+            &mut store,
+            &mut client,
+            &approved,
+            None,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .await
+        .expect("simulation report");
+
+        assert_eq!(
+            report.outcome,
+            DryOrderExecutionOutcomeKind::SubmittedPendingBrokerOrderId
+        );
+        assert_eq!(report.state, OrderPathState::SubmittedPendingBrokerOrderId);
+        assert_eq!(report.ack.status, CommandAckStatus::UnknownPending);
+        assert_eq!(
+            report.ack.reason.expect("reason").code,
+            CommandAckReasonCode::ReconciliationRequired
+        );
+        let loaded = store
+            .load_by_request_id(order.request_id)
+            .expect("stored pending record");
+        assert_eq!(loaded.state, OrderPathState::SubmittedPendingBrokerOrderId);
+        assert!(loaded.broker_order_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn cancel_simulator_accepts_approved_cancel_and_redacts_ack() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 6, 30, 10, 0, 0)
+            .single()
+            .expect("timestamp");
+        let broker_order_id = BrokerOrderId::new("BROKER_TEST_10");
+        let (mut store, approved_cancel, place_request_id) = submitted_store_and_approved_cancel(
+            now,
+            request_id(10),
+            request_id(11),
+            broker_order_id,
+        );
+        let mut client = MockFinamApprovedOrderExecutionClient::new(vec![
+            FinamOrderExecutionOutcome::Accepted {
+                broker_order_id: None,
+            },
+        ]);
+
+        let report = simulate_cancel_order_approved(
+            &mut store,
+            &mut client,
+            &approved_cancel,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .await
+        .expect("cancel simulation");
+
+        assert_eq!(
+            report.outcome,
+            DryOrderExecutionOutcomeKind::CancelSubmitted
+        );
+        assert_eq!(report.state, OrderPathState::CancelSubmitted);
+        assert_eq!(report.ack.status, CommandAckStatus::Submitted);
+        assert_eq!(report.cancel_attempt_count, 1);
+        assert_eq!(
+            store
+                .load_by_request_id(place_request_id)
+                .expect("record")
+                .state,
+            OrderPathState::CancelSubmitted
+        );
+        let records_json = serde_json::to_string(client.records()).expect("records");
+        assert!(!records_json.contains("BROKER_TEST_10"));
+        assert!(!records_json.contains("ACC_TEST_0001"));
+
+        let sink = InMemoryRedisStreamSink::default();
+        let gateway = FinamGateway::new(GatewayConfig::default(), sink.clone());
+        gateway
+            .publish_dry_command_ack(report.ack)
+            .await
+            .expect("cancel ack published");
+        let entries = sink.entries().expect("entries");
+        assert!(!entries[0].payload.contains("BROKER_TEST_10"));
+        assert!(!entries[0].payload.contains("CID000000000000010"));
+    }
+
+    #[tokio::test]
+    async fn cancel_simulator_rejection_requires_manual_intervention() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 6, 30, 10, 10, 0)
+            .single()
+            .expect("timestamp");
+        let (mut store, approved_cancel, place_request_id) = submitted_store_and_approved_cancel(
+            now,
+            request_id(12),
+            request_id(13),
+            BrokerOrderId::new("BROKER_TEST_12"),
+        );
+        let mut client = MockFinamApprovedOrderExecutionClient::new(vec![
+            FinamOrderExecutionOutcome::Rejected {
+                reason_code: CommandAckReasonCode::BrokerRejected,
+            },
+        ]);
+
+        let report = simulate_cancel_order_approved(
+            &mut store,
+            &mut client,
+            &approved_cancel,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .await
+        .expect("cancel rejected simulation");
+
+        assert_eq!(report.outcome, DryOrderExecutionOutcomeKind::CancelRejected);
+        assert_eq!(report.state, OrderPathState::ManualInterventionRequired);
+        assert_eq!(report.ack.status, CommandAckStatus::Rejected);
+        assert_eq!(
+            report.ack.reason.expect("reason").code,
+            CommandAckReasonCode::BrokerRejected
+        );
+        assert_eq!(
+            store
+                .load_by_request_id(place_request_id)
+                .expect("record")
+                .state,
+            OrderPathState::ManualInterventionRequired
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_simulator_timeout_blocks_blind_retry_and_can_recover_terminal() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 6, 30, 10, 20, 0)
+            .single()
+            .expect("timestamp");
+        let (mut store, approved_cancel, place_request_id) = submitted_store_and_approved_cancel(
+            now,
+            request_id(14),
+            request_id(15),
+            BrokerOrderId::new("BROKER_TEST_14"),
+        );
+        let mut client = MockFinamApprovedOrderExecutionClient::new(vec![
+            FinamOrderExecutionOutcome::Timeout,
+            FinamOrderExecutionOutcome::Accepted {
+                broker_order_id: None,
+            },
+        ]);
+
+        let report = simulate_cancel_order_approved(
+            &mut store,
+            &mut client,
+            &approved_cancel,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .await
+        .expect("cancel timeout simulation");
+
+        assert_eq!(
+            report.outcome,
+            DryOrderExecutionOutcomeKind::CancelTimeoutUnknownPending
+        );
+        assert_eq!(report.state, OrderPathState::CancelTimeoutUnknownPending);
+        assert_eq!(report.ack.status, CommandAckStatus::Timeout);
+
+        let retry_error = simulate_cancel_order_approved(
+            &mut store,
+            &mut client,
+            &approved_cancel,
+            now + chrono::Duration::milliseconds(3),
+            now + chrono::Duration::milliseconds(4),
+        )
+        .await
+        .expect_err("blind cancel retry must be blocked before mock client call");
+        assert!(matches!(
+            retry_error,
+            DryOrderExecutionSimulatorError::Transition(
+                OrderPathTransitionError::InvalidTransition {
+                    from: OrderPathState::CancelTimeoutUnknownPending,
+                    event: OrderPathEvent::RequestCancel
+                }
+            )
+        ));
+        assert_eq!(client.records().len(), 1);
+
+        let mut recovered = store
+            .load_by_request_id(place_request_id)
+            .expect("timeout record");
+        recovered
+            .transition(
+                OrderPathEvent::RecoverCancelTerminal,
+                now + chrono::Duration::milliseconds(5),
+            )
+            .expect("recover terminal by broker truth");
+        store
+            .update_record(recovered.clone())
+            .expect("persist recovery");
+        assert_eq!(recovered.state, OrderPathState::CancelRecoveredTerminal);
+    }
+
+    #[test]
+    fn cancel_preflight_already_terminal_does_not_call_mock_client() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 6, 30, 10, 30, 0)
+            .single()
+            .expect("timestamp");
+        let order = sample_place_order(request_id(16), "CID000000000000016", now);
+        let mut existing = submitted_record(&order, now, BrokerOrderId::new("BROKER_TEST_16"));
+        existing
+            .transition(
+                OrderPathEvent::MarkTerminal,
+                now + chrono::Duration::milliseconds(1),
+            )
+            .expect("mark terminal");
+        let cancel = sample_cancel_order(request_id(17), "BROKER_TEST_16", now);
+        let policy = dry_preflight_policy(now);
+        let client = MockFinamApprovedOrderExecutionClient::new(vec![
+            FinamOrderExecutionOutcome::Accepted {
+                broker_order_id: None,
+            },
+        ]);
+
+        assert_eq!(
+            policy
+                .approve_cancel_order(&cancel, now, Some(&existing))
+                .expect("terminal cancel decision"),
+            CancelPreflightApproval::AlreadyTerminal
+        );
+        assert!(client.records().is_empty());
+    }
+
     fn request_id(n: u128) -> StrategyRequestId {
         StrategyRequestId::from(Uuid::from_u128(n))
     }
@@ -2454,6 +2805,66 @@ mod tests {
             time_in_force: TimeInForce::Day,
             comment: None,
         }
+    }
+
+    fn sample_cancel_order(
+        request_id: StrategyRequestId,
+        broker_order_id: &str,
+        now: DateTime<Utc>,
+    ) -> CancelOrder {
+        CancelOrder {
+            request_id,
+            created_ts: now,
+            ttl_ms: Some(1_000),
+            account_id: broker_core::BrokerAccountId::new("ACC_TEST_0001"),
+            order_id: BrokerOrderId::new(broker_order_id),
+            client_order_id: None,
+        }
+    }
+
+    fn submitted_record(
+        order: &PlaceOrder,
+        now: DateTime<Utc>,
+        broker_order_id: BrokerOrderId,
+    ) -> OrderPathRecord {
+        let mut record = OrderPathRecord::from_place_order(order, now, None);
+        record.broker_order_id = Some(broker_order_id);
+        record
+            .transition(OrderPathEvent::BeginSubmit, now)
+            .expect("begin submit");
+        record
+            .transition(
+                OrderPathEvent::SubmitAccepted,
+                now + chrono::Duration::milliseconds(1),
+            )
+            .expect("submitted");
+        record
+    }
+
+    fn submitted_store_and_approved_cancel(
+        now: DateTime<Utc>,
+        place_request_id: StrategyRequestId,
+        cancel_request_id: StrategyRequestId,
+        broker_order_id: BrokerOrderId,
+    ) -> (
+        InMemoryOrderPathStore,
+        broker_core::PreflightApprovedCancelOrder,
+        StrategyRequestId,
+    ) {
+        let order = sample_place_order(place_request_id, "CID000000000000010", now);
+        let existing = submitted_record(&order, now, broker_order_id.clone());
+        let cancel = sample_cancel_order(cancel_request_id, broker_order_id.as_str(), now);
+        let policy = dry_preflight_policy(now);
+        let approved_cancel = match policy
+            .approve_cancel_order(&cancel, now, Some(&existing))
+            .expect("cancel approved")
+        {
+            CancelPreflightApproval::Submit(approved) => approved,
+            CancelPreflightApproval::AlreadyTerminal => panic!("expected submit cancel"),
+        };
+        let mut store = InMemoryOrderPathStore::default();
+        store.insert_intent(existing).expect("insert submitted");
+        (store, approved_cancel, place_request_id)
     }
 
     fn dry_preflight_policy(now: DateTime<Utc>) -> OrderPreflightPolicy {

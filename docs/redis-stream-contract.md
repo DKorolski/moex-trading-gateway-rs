@@ -313,6 +313,10 @@ M3a-6 keeps runtime-facing ACKs redacted as the selected direction for future
 real ACK work. Full client/broker id correlation belongs to the protected
 durable mapping store and broker-truth reconciliation path.
 
+M3a-7 extends that rule to dry cancel ACKs and accepted-without-broker-id
+ambiguity: Redis ACKs may say `UnknownPending` / `ReconciliationRequired`, but
+must not expose raw client or broker order ids.
+
 ## Retention policy
 
 M2c defaults use approximate Redis stream trimming for health/readiness/

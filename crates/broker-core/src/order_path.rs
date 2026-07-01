@@ -26,6 +26,7 @@ pub enum OrderPathState {
     LocalRejected,
     SubmitInFlight,
     Submitted,
+    SubmittedPendingBrokerOrderId,
     TimeoutUnknownPending,
     RecoveredByClientOrderId,
     BrokerRejected,
@@ -42,12 +43,14 @@ pub enum OrderPathEvent {
     LocalReject,
     BeginSubmit,
     SubmitAccepted,
+    SubmitAcceptedWithoutBrokerOrderId,
     SubmitTimedOut,
     RecoverByClientOrderId,
     RequireManualIntervention,
     BrokerReject,
     RequestCancel,
     CancelAccepted,
+    CancelRejected,
     CancelTimedOut,
     RecoverCancelTerminal,
     MarkTerminal,
@@ -151,6 +154,10 @@ impl OrderPathRecord {
             OrderPathEvent::SubmitAccepted => {
                 self.last_ack_status = Some(CommandAckStatus::Submitted);
             }
+            OrderPathEvent::SubmitAcceptedWithoutBrokerOrderId => {
+                self.last_ack_status = Some(CommandAckStatus::UnknownPending);
+                self.last_error_kind = Some(OrderPathErrorKind::ReconciliationRequired);
+            }
             OrderPathEvent::SubmitTimedOut => {
                 self.last_ack_status = Some(CommandAckStatus::Timeout);
                 self.last_error_kind = Some(OrderPathErrorKind::TransportTimeout);
@@ -174,6 +181,10 @@ impl OrderPathRecord {
             }
             OrderPathEvent::CancelAccepted => {
                 self.last_ack_status = Some(CommandAckStatus::Submitted);
+            }
+            OrderPathEvent::CancelRejected => {
+                self.last_ack_status = Some(CommandAckStatus::Rejected);
+                self.last_error_kind = Some(OrderPathErrorKind::BrokerRejected);
             }
             OrderPathEvent::CancelTimedOut => {
                 self.last_ack_status = Some(CommandAckStatus::Timeout);
@@ -229,8 +240,17 @@ fn next_order_path_state(state: OrderPathState, event: OrderPathEvent) -> Option
         (S::IntentRecorded, E::LocalReject) => Some(S::LocalRejected),
         (S::IntentRecorded, E::BeginSubmit) => Some(S::SubmitInFlight),
         (S::SubmitInFlight, E::SubmitAccepted) => Some(S::Submitted),
+        (S::SubmitInFlight, E::SubmitAcceptedWithoutBrokerOrderId) => {
+            Some(S::SubmittedPendingBrokerOrderId)
+        }
         (S::SubmitInFlight, E::SubmitTimedOut) => Some(S::TimeoutUnknownPending),
         (S::TimeoutUnknownPending, E::RecoverByClientOrderId) => Some(S::RecoveredByClientOrderId),
+        (S::SubmittedPendingBrokerOrderId, E::RecoverByClientOrderId) => {
+            Some(S::RecoveredByClientOrderId)
+        }
+        (S::SubmittedPendingBrokerOrderId, E::RequireManualIntervention) => {
+            Some(S::ManualInterventionRequired)
+        }
         (S::TimeoutUnknownPending, E::RequireManualIntervention) => {
             Some(S::ManualInterventionRequired)
         }
@@ -240,6 +260,9 @@ fn next_order_path_state(state: OrderPathState, event: OrderPathEvent) -> Option
             Some(S::CancelRequested)
         }
         (S::CancelRequested, E::CancelAccepted) => Some(S::CancelSubmitted),
+        (S::CancelRequested, E::CancelRejected) | (S::CancelSubmitted, E::CancelRejected) => {
+            Some(S::ManualInterventionRequired)
+        }
         (S::CancelRequested, E::CancelTimedOut) | (S::CancelSubmitted, E::CancelTimedOut) => {
             Some(S::CancelTimeoutUnknownPending)
         }
@@ -728,6 +751,8 @@ pub enum OperatorDisarmSignal {
     GatewayDegraded,
     RuntimeBridgeDeadLetter,
     UnknownPendingOrder,
+    AcceptedWithoutBrokerOrderId,
+    CancelTimeoutUnknownPending,
     RestartRecovery,
 }
 
@@ -893,7 +918,9 @@ impl OrderPreflightPolicy {
             }
             if matches!(
                 record.state,
-                OrderPathState::TimeoutUnknownPending | OrderPathState::CancelTimeoutUnknownPending
+                OrderPathState::SubmittedPendingBrokerOrderId
+                    | OrderPathState::TimeoutUnknownPending
+                    | OrderPathState::CancelTimeoutUnknownPending
             ) {
                 return Err(OrderPreflightError::CancelStateRequiresManualIntervention);
             }
@@ -1419,6 +1446,46 @@ mod tests {
     }
 
     #[test]
+    fn order_path_accepted_without_broker_id_requires_reconciliation_before_cancel() {
+        let now = Utc::now();
+        let order = place_order(request_id(49), "CID000000000000049");
+        let mut record = OrderPathRecord::from_place_order(&order, now, None);
+
+        record
+            .transition(OrderPathEvent::BeginSubmit, now)
+            .expect("begin submit");
+        record
+            .transition(OrderPathEvent::SubmitAcceptedWithoutBrokerOrderId, now)
+            .expect("accepted without broker id");
+
+        assert_eq!(record.state, OrderPathState::SubmittedPendingBrokerOrderId);
+        assert_eq!(
+            record.last_ack_status,
+            Some(CommandAckStatus::UnknownPending)
+        );
+        assert_eq!(
+            record.last_error_kind,
+            Some(OrderPathErrorKind::ReconciliationRequired)
+        );
+        assert!(matches!(
+            record.transition(OrderPathEvent::RequestCancel, now),
+            Err(OrderPathTransitionError::InvalidTransition {
+                from: OrderPathState::SubmittedPendingBrokerOrderId,
+                event: OrderPathEvent::RequestCancel
+            })
+        ));
+
+        record.broker_order_id = Some(BrokerOrderId::new("BROKER_TEST_49"));
+        record
+            .transition(OrderPathEvent::RecoverByClientOrderId, now)
+            .expect("recover broker id by client id");
+        record
+            .transition(OrderPathEvent::RequestCancel, now)
+            .expect("cancel after recovery");
+        assert_eq!(record.state, OrderPathState::CancelRequested);
+    }
+
+    #[test]
     fn order_path_cancel_state_machine_handles_recovered_and_timeout_without_blind_retry() {
         let now = Utc::now();
         let order = place_order(request_id(19), "CID000000000000019");
@@ -1472,6 +1539,29 @@ mod tests {
             .transition(OrderPathEvent::RequireManualIntervention, now)
             .expect("manual intervention after bounded reconciliation");
         assert_eq!(manual.state, OrderPathState::ManualInterventionRequired);
+
+        let mut cancel_rejected = OrderPathRecord::from_place_order(&order, now, None);
+        cancel_rejected.broker_order_id = Some(BrokerOrderId::new("BROKER_TEST_CANCEL_REJECT"));
+        cancel_rejected
+            .transition(OrderPathEvent::BeginSubmit, now)
+            .expect("begin");
+        cancel_rejected
+            .transition(OrderPathEvent::SubmitAccepted, now)
+            .expect("submitted");
+        cancel_rejected
+            .transition(OrderPathEvent::RequestCancel, now)
+            .expect("cancel requested");
+        cancel_rejected
+            .transition(OrderPathEvent::CancelRejected, now)
+            .expect("cancel rejected");
+        assert_eq!(
+            cancel_rejected.state,
+            OrderPathState::ManualInterventionRequired
+        );
+        assert_eq!(
+            cancel_rejected.last_error_kind,
+            Some(OrderPathErrorKind::BrokerRejected)
+        );
     }
 
     #[test]
@@ -1904,6 +1994,8 @@ mod tests {
             OperatorDisarmSignal::GatewayDegraded,
             OperatorDisarmSignal::RuntimeBridgeDeadLetter,
             OperatorDisarmSignal::UnknownPendingOrder,
+            OperatorDisarmSignal::AcceptedWithoutBrokerOrderId,
+            OperatorDisarmSignal::CancelTimeoutUnknownPending,
             OperatorDisarmSignal::RestartRecovery,
         ] {
             let mut arm = sample_arm(now);
@@ -2156,9 +2248,19 @@ mod tests {
             OrderPreflightError::CancelStateRequiresManualIntervention
         );
 
+        let mut accepted_without_broker_id = existing.clone();
+        accepted_without_broker_id.state = OrderPathState::SubmittedPendingBrokerOrderId;
+        accepted_without_broker_id.last_update_ts = now + chrono::Duration::milliseconds(4);
+        assert_eq!(
+            policy
+                .validate_cancel_order(&cancel, now, Some(&accepted_without_broker_id))
+                .expect_err("accepted without broker id requires recovery"),
+            OrderPreflightError::CancelStateRequiresManualIntervention
+        );
+
         let mut unknown_cancel = existing.clone();
         unknown_cancel.state = OrderPathState::CancelTimeoutUnknownPending;
-        unknown_cancel.last_update_ts = now + chrono::Duration::milliseconds(4);
+        unknown_cancel.last_update_ts = now + chrono::Duration::milliseconds(5);
         assert_eq!(
             policy
                 .validate_cancel_order(&cancel, now, Some(&unknown_cancel))

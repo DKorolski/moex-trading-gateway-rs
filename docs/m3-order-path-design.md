@@ -18,8 +18,10 @@ FINAM place/cancel request builders without HTTP send. M3a-5 adds
 preflight-approved request-builder markers and mock-only redacted ACK
 publication. M3a-6 adds an approved-only mock execution client, dry execution
 simulator, no-blind-retry simulator tests, operator re-arm workflow tests, and
-dry window/backoff rate-limit policy. It does not call FINAM endpoints and is
-not a live command consumer.
+dry window/backoff rate-limit policy. M3a-7 adds
+accepted-without-broker-id reconciliation policy, dry cancel execution
+simulation, cancel no-blind-retry tests, and the SQLite/WAL implementation
+ticket. It does not call FINAM endpoints and is not a live command consumer.
 
 M3 scope is deliberately small:
 
@@ -56,6 +58,11 @@ and full broker/client id correlation belongs to the durable mapping store plus
 broker-truth reconciliation. See
 `docs/m3a6-execution-simulator-decisions.md`.
 
+M3a-7 adds one important ambiguity rule: if a place call is accepted but does
+not return a broker order id, the runtime-facing ACK is `UnknownPending` with
+`ReconciliationRequired`, not `Submitted`. Cancel is blocked until broker truth
+recovers the broker order id.
+
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.
 
@@ -68,7 +75,7 @@ BrokerCommand::PlaceOrder
   -> durable intent + id mapping write
   -> local ACK Accepted
   -> FINAM POST /v1/accounts/{account_id}/orders
-  -> Submitted / TimeoutUnknownPending / Rejected
+  -> Submitted / SubmittedPendingBrokerOrderId / TimeoutUnknownPending / Rejected
   -> broker-truth order/trade reconciliation
 ```
 
@@ -96,6 +103,10 @@ Required preflight checks:
 
 `client_order_id` must be generated before network submission and must satisfy
 FINAM's outgoing id limit.
+
+If a broker-side accepted/submitted response does not include a broker order
+id, M3a-7 treats it as `SubmittedPendingBrokerOrderId` and requires
+broker-truth reconciliation before cancel.
 
 ## Outgoing FINAM comment policy
 
@@ -333,9 +344,11 @@ Unit/fixture tests before real micro:
 | duplicate client order id | `Duplicate`, no endpoint call |
 | broker rejection | `Rejected`, durable state updated |
 | place timeout | `Timeout`/`UnknownPending`, retry blocked |
+| place accepted without broker order id | `UnknownPending`, cancel blocked |
 | recovered by client order id | `Recovered` |
 | cancel active known order | `Accepted` then `Submitted` |
 | cancel mismatched broker order id | `Rejected`, no endpoint call |
+| cancel rejected by broker | `ManualInterventionRequired` |
 | cancel timeout | `CancelTimeoutUnknownPending`, no blind retry |
 | cancel recovered terminal | `Recovered` by broker-truth reconciliation |
 | cancel terminal order | `Recovered` or safe `Rejected`, no duplicate risk |

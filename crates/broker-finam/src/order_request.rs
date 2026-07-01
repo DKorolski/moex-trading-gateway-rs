@@ -758,4 +758,41 @@ mod tests {
         assert!(!rendered.contains("TESTFUT@TEST"));
         assert!(!rendered.contains("CID000000000000001"));
     }
+
+    #[test]
+    fn approved_execution_client_contract_is_request_spec_based() {
+        fn assert_client<T: FinamApprovedOrderExecutionClient>() {}
+        fn assert_place_boundary<T: FinamApprovedOrderExecutionClient>(
+            _client: &mut T,
+            _spec: FinamPlaceOrderRequestSpec,
+        ) {
+        }
+        fn assert_cancel_boundary<T: FinamApprovedOrderExecutionClient>(
+            _client: &mut T,
+            _spec: FinamCancelOrderRequestSpec,
+        ) {
+        }
+
+        assert_client::<MockFinamApprovedOrderExecutionClient>();
+        let order = place_order();
+        let approved = approve_place(&order);
+        let place_spec = build_place_order_request(&approved, None).expect("place spec");
+        let cancel = CancelOrder {
+            request_id: request_id(4),
+            created_ts: Utc
+                .with_ymd_and_hms(2026, 6, 30, 9, 13, 0)
+                .single()
+                .expect("timestamp"),
+            ttl_ms: Some(1_000),
+            account_id: AccountId::new("ACC_TEST_0001"),
+            order_id: BrokerOrderId::new("BROKER_TEST_4"),
+            client_order_id: None,
+        };
+        let approved_cancel = approve_cancel(&cancel);
+        let cancel_spec = build_cancel_order_request(&approved_cancel).expect("cancel spec");
+        let mut client = MockFinamApprovedOrderExecutionClient::new(Vec::new());
+
+        assert_place_boundary(&mut client, place_spec);
+        assert_cancel_boundary(&mut client, cancel_spec);
+    }
 }

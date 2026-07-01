@@ -33,8 +33,9 @@ broker-alor-legacy read-only/reference later
 7. M3 order submission must persist id mapping before network calls and must not
    blindly retry after ambiguous place-order timeout.
 8. M3 dry order-path work may build durable/local contracts, approved-only mock
-   execution simulation, and synthetic ACKs, but FINAM order endpoints remain
-   blocked until the live-order gate is explicitly opened.
+   execution simulation, dry cancel simulation, and synthetic ACKs, but FINAM
+   order endpoints remain blocked until the live-order gate is explicitly
+   opened.
 
 ## Why not port the Alor gateway directly
 

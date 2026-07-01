@@ -245,6 +245,8 @@ Implementation notes from the first review:
   ACK Redis publication without FINAM order endpoint calls;
 - M3a-6 adds an approved-only mock execution boundary and simulator tests for
   accepted/rejected/timeout outcomes, still without FINAM order endpoint calls;
+- M3a-7 adds accepted-without-broker-id reconciliation policy and dry cancel
+  execution simulation, still without FINAM order endpoint calls;
 - raw `serde_json::Value` is acceptable only for the shape probe. Typed DTOs and
   mappers are required before Redis gateway/readiness work.
 

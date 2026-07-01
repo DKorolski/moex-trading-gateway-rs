@@ -439,3 +439,36 @@ Still not implemented in M3a-6:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3a-7 dry cancel simulator / accepted-without-broker-id status
+
+Implemented while still keeping all broker endpoints disabled:
+
+- accepted place execution without a broker order id moves to
+  `SubmittedPendingBrokerOrderId` with `UnknownPending` /
+  `ReconciliationRequired`, not normal `Submitted`;
+- cancel from `SubmittedPendingBrokerOrderId` is blocked until broker-truth
+  reconciliation recovers a broker order id by client order id;
+- operator disarm coverage includes accepted-without-broker-id and
+  cancel-timeout-unknown-pending safety signals;
+- dry cancel simulator persists `RequestCancel` before mock execution;
+- dry cancel accepted/rejected/timeout outcomes map to `CancelSubmitted`,
+  `ManualInterventionRequired`, and `CancelTimeoutUnknownPending`;
+- no-blind-retry from `CancelTimeoutUnknownPending` is blocked before a second
+  mock execution call;
+- already-terminal cancel preflight remains a no-endpoint/no-mock-call path;
+- dry cancel ACK publication remains redacted;
+- approved-only execution client contract is locked to FINAM request specs, not
+  raw commands;
+- SQLite/WAL single-writer production-store requirements are captured in
+  `docs/sqlite-order-path-store-implementation-ticket.md`.
+
+Still not implemented in M3a-7:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.
