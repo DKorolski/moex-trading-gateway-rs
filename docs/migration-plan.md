@@ -960,6 +960,38 @@ M3b-6 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-7 broker-truth fetch orchestration simulator:
+
+- Added a dry orchestration layer over M3b-6 source classifications.
+- Mock dry fetchers model `GetOrder`, `OrdersSnapshot`, `TradesSnapshot`, and
+  `PositionSnapshot` without calling real FINAM order endpoints.
+- Source diagnostics now distinguish typed reasons: `NotFound404`, `Timeout`,
+  `DecodeError`, `Maintenance`, `Unauthorized`, `NotRequested`,
+  `MissingFixture`, and `PositionGuardRejected`.
+- The orchestration policy snapshots precedence version, source order,
+  per-source `max_age_ms`, and position guard config into redacted reports.
+- Position-derived terminal truth is guarded by instrument/intent/expected
+  delta/strategy-state context and by absence/staleness of direct order/trade
+  evidence.
+- Operator disarm selection covers stale, conflict, unknown, unauthorized,
+  maintenance, and decode-error outcomes.
+- SQLite-backed tests prove post-classification orchestration follow-up still
+  persists the existing durable transition audit.
+- Source-scan tests ensure the truth fetcher boundary stays dry and does not
+  reference real order endpoint request specs or endpoint methods.
+- Details are documented in
+  `docs/m3b7-broker-truth-orchestration-simulator.md`.
+
+M3b-7 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

@@ -805,3 +805,38 @@ Still not implemented in M3b-6:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-7 broker-truth fetch orchestration simulator status
+
+Implemented while still keeping all broker endpoints disabled:
+
+- dry orchestration now models the future order of broker-truth collection:
+  get-order, orders snapshot, trades snapshot, and position snapshot;
+- mock truth fetchers are dry-only and return redacted observations or typed
+  missing/error reasons;
+- typed fetch reasons cover `NotFound404`, `Timeout`, `DecodeError`,
+  `Maintenance`, `Unauthorized`, `NotRequested`, `MissingFixture`, and
+  `PositionGuardRejected`;
+- orchestration policy diagnostics snapshot precedence version, source order,
+  per-source freshness, and position guard config;
+- position-derived terminal evidence is guarded by instrument/intent/expected
+  delta/strategy-state context plus absence/staleness of direct order/trade
+  evidence;
+- fatal source errors select operator disarm before ordinary unknown/stale
+  decisions;
+- stale/conflict/unknown/unauthorized/maintenance/decode-error disarm matrix
+  is covered;
+- SQLite-backed tests prove orchestration-driven follow-up uses durable
+  transition audit after uncertain cancel outcomes;
+- source-scan tests guard the truth fetcher boundary against real endpoint
+  request specs and endpoint methods.
+
+Still not implemented in M3b-7:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

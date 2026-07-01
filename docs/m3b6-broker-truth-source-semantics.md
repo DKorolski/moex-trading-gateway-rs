@@ -9,6 +9,10 @@ M3b-6 extends the M3b-5 broker-truth contract from single-source
 classification to multi-source reconciliation precedence. The goal is to make
 ambiguous cancel follow-up deterministic before any real endpoint is enabled.
 
+M3b-7 builds on this source/precedence layer with a dry fetch orchestration
+simulator, typed source missing/error reasons, and guarded position-derived
+truth policy. See `docs/m3b7-broker-truth-orchestration-simulator.md`.
+
 ## Source builders
 
 Dry builders now exist for the future broker-truth source classes:

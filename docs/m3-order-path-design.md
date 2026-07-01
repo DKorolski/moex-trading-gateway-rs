@@ -48,7 +48,10 @@ redacted diagnostics and stale/unknown truth operator disarm policy. M3b-6 adds
 source-specific freshness policy, dry builders for get-order/orders/trades/
 position evidence, precedence selection, conflict detection, and
 `ReconciliationConflict` operator disarm while keeping all endpoint and runtime
-paths disabled.
+paths disabled. M3b-7 adds the dry broker-truth fetch orchestration simulator:
+typed source missing/error reasons, mock get-order/orders/trades/position
+fetchers, policy snapshot diagnostics, guarded position-derived truth, and
+SQLite-backed follow-up audit coverage.
 
 M3 scope is deliberately small:
 
@@ -140,6 +143,10 @@ single-source truth maps terminal/still-working/unknown to the guarded
 follow-up matrix, and multi-source truth selects only fresh known evidence.
 Fresh terminal-vs-still-working disagreement is treated as a broker-truth
 conflict and disarms the operator instead of choosing a side silently.
+M3b-7 adds the dry orchestration layer above those classifications: source
+fetch reasons are typed, fatal source errors have explicit operator disarm
+policy, and position-derived terminal truth is downgraded unless the guard
+context proves it is safe to use.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.
