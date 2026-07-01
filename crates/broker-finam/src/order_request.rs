@@ -907,8 +907,13 @@ pub enum FinamOrderExecutionError {
     MockScriptExhausted,
 }
 
+/// Dry-only approved order execution client used by M3a/M3b simulators.
+///
+/// Production FINAM order transport must not implement or reuse this trait.
+/// The real endpoint boundary is `EndpointGateApproved + request spec ->
+/// FinamOrderEndpointClassifiedResponse`.
 #[async_trait]
-pub trait FinamApprovedOrderExecutionClient: Send {
+pub trait FinamDryApprovedOrderExecutionClient: Send {
     async fn place_approved(
         &mut self,
         spec: FinamPlaceOrderRequestSpec,
@@ -921,13 +926,13 @@ pub trait FinamApprovedOrderExecutionClient: Send {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct MockFinamApprovedOrderExecutionClient {
+pub struct MockFinamDryApprovedOrderExecutionClient {
     script: Vec<FinamOrderExecutionOutcome>,
     next_index: usize,
     records: Vec<FinamMockExecutionRecord>,
 }
 
-impl MockFinamApprovedOrderExecutionClient {
+impl MockFinamDryApprovedOrderExecutionClient {
     pub fn new(script: Vec<FinamOrderExecutionOutcome>) -> Self {
         Self {
             script,
@@ -952,7 +957,7 @@ impl MockFinamApprovedOrderExecutionClient {
 }
 
 #[async_trait]
-impl FinamApprovedOrderExecutionClient for MockFinamApprovedOrderExecutionClient {
+impl FinamDryApprovedOrderExecutionClient for MockFinamDryApprovedOrderExecutionClient {
     async fn place_approved(
         &mut self,
         spec: FinamPlaceOrderRequestSpec,
@@ -1310,20 +1315,27 @@ mod tests {
     }
 
     #[test]
-    fn approved_execution_client_contract_is_request_spec_based() {
-        fn assert_client<T: FinamApprovedOrderExecutionClient>() {}
-        fn assert_place_boundary<T: FinamApprovedOrderExecutionClient>(
+    fn dry_approved_execution_client_contract_is_request_spec_based() {
+        fn assert_client<T: FinamDryApprovedOrderExecutionClient>() {}
+        fn assert_place_boundary<T: FinamDryApprovedOrderExecutionClient>(
             _client: &mut T,
             _spec: FinamPlaceOrderRequestSpec,
         ) {
         }
-        fn assert_cancel_boundary<T: FinamApprovedOrderExecutionClient>(
+        fn assert_cancel_boundary<T: FinamDryApprovedOrderExecutionClient>(
             _client: &mut T,
             _spec: FinamCancelOrderRequestSpec,
         ) {
         }
 
-        assert_client::<MockFinamApprovedOrderExecutionClient>();
+        assert_client::<MockFinamDryApprovedOrderExecutionClient>();
+        let source = include_str!("order_request.rs");
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source");
+        assert!(production_source.contains("pub trait FinamDryApprovedOrderExecutionClient"));
+        assert!(!production_source.contains("pub trait FinamApprovedOrderExecutionClient"));
         let order = place_order();
         let approved = approve_place(&order);
         let place_spec = build_place_order_request(&approved, None).expect("place spec");
@@ -1340,7 +1352,7 @@ mod tests {
         };
         let approved_cancel = approve_cancel(&cancel);
         let cancel_spec = build_cancel_order_request(&approved_cancel).expect("cancel spec");
-        let mut client = MockFinamApprovedOrderExecutionClient::new(Vec::new());
+        let mut client = MockFinamDryApprovedOrderExecutionClient::new(Vec::new());
 
         assert_place_boundary(&mut client, place_spec);
         assert_cancel_boundary(&mut client, cancel_spec);

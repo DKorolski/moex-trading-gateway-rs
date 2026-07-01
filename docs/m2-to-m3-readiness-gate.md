@@ -743,3 +743,32 @@ Still not implemented in M3b-4:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-5 broker-truth reconciliation source contract status
+
+Implemented while still keeping all broker endpoints disabled:
+
+- dry execution simulator trait is explicitly named
+  `FinamDryApprovedOrderExecutionClient`;
+- future real endpoint transport boundary remains classified-response based;
+- broker-truth source classes are defined for orders snapshot, get-order,
+  trades snapshot, and position snapshot inputs;
+- broker-truth observations are non-serde and redacted;
+- `CancelBrokerTruthDiagnostic` is the safe truth export boundary;
+- terminal / still-working / unknown status classification is covered;
+- stale truth maps to `Unknown` plus `ReconciliationStale` disarm;
+- fresh unknown truth maps to `UnknownPendingOrder` disarm;
+- cancel follow-up can run from broker-truth classification and preserves the
+  guarded state matrix;
+- production source-scan tests guard against old non-dry trait names and mapped
+  result real-transport boundaries.
+
+Still not implemented in M3b-5:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

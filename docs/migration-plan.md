@@ -898,6 +898,37 @@ M3b-4 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-5 broker-truth reconciliation source contract:
+
+- The older dry execution simulator trait is explicitly renamed to
+  `FinamDryApprovedOrderExecutionClient`.
+- Future production FINAM transport remains classified-response based:
+  `EndpointGateApproved + request spec -> FinamOrderEndpointClassifiedResponse`.
+- Broker-truth source classes are defined for `OrdersSnapshot`, `GetOrder`,
+  `TradesSnapshot`, and `PositionSnapshot`.
+- `CancelBrokerTruthObservation` is non-serde and redacted; the export boundary
+  is `CancelBrokerTruthDiagnostic`.
+- Fresh terminal statuses map to `Terminal`; fresh active statuses map to
+  `StillWorking`; missing or unknown statuses map to `Unknown`.
+- Stale truth maps to `Unknown` with `ReconciliationStale` operator disarm.
+- Fresh unknown truth maps to `UnknownPendingOrder` operator disarm.
+- Cancel follow-up can now run from broker-truth classification and persists
+  the same guarded state matrix as M3b-4.
+- Production source-scan tests guard the dry-only trait name and classified-only
+  future transport boundary.
+- Details are documented in
+  `docs/m3b5-broker-truth-reconciliation-contract.md`.
+
+M3b-5 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

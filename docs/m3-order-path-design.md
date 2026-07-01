@@ -42,7 +42,9 @@ recorded after durable `BeginSubmit`/`RequestCancel`. M3b-3 redacts internal
 endpoint results and makes local status classification place/cancel-aware.
 M3b-4 hardens the mock/classified transport boundary, keeps accepted response
 DTOs/fixtures out of serde export paths, and models dry cancel reconciliation
-follow-up after uncertain 404/409/410 responses.
+follow-up after uncertain 404/409/410 responses. M3b-5 defines the
+broker-truth source/classification contract for that follow-up, including
+redacted diagnostics and stale/unknown truth operator disarm policy.
 
 M3 scope is deliberately small:
 

@@ -25,15 +25,16 @@ async fn place(order: PlaceOrder)
 async fn cancel(cancel: CancelOrder)
 ```
 
-M3a encodes this as `FinamApprovedOrderExecutionClient`. The provided mock
-client records only redacted request diagnostics and scripted outcomes. M3a-7
-adds a compile-level contract test so the approved client boundary remains
-request-spec-based, not raw-command-based.
+M3a/M3b encode this as `FinamDryApprovedOrderExecutionClient`. The provided
+mock client records only redacted request diagnostics and scripted outcomes.
+This is dry-only and must not be reused as the real FINAM transport boundary.
+M3a-7 adds a compile-level contract test so the dry approved client boundary
+remains request-spec-based, not raw-command-based.
 
 ## Dry execution simulator
 
-`finam-gateway::simulate_place_order_approved()` models the future endpoint
-boundary without network:
+`finam-gateway::simulate_place_order_approved()` is a dry-only execution
+simulator without network:
 
 ```text
 preflight-approved command
@@ -58,8 +59,8 @@ called again.
 
 ## Dry cancel simulator
 
-`finam-gateway::simulate_cancel_order_approved()` models the future cancel
-endpoint boundary without network:
+`finam-gateway::simulate_cancel_order_approved()` is a dry-only cancel
+simulator without network:
 
 ```text
 preflight-approved cancel
