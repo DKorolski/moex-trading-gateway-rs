@@ -142,6 +142,9 @@ rejected / timeout / rate-limit / maintenance / decode-error fixtures, local
 HTTP endpoint mapper hardening for 401/403/429/500/503/timeout/malformed/empty
 id cases, redacted internal endpoint-result boundaries, context-aware local
 status policy for place/cancel, post-network decode/map-error ordering tests,
+mock classified endpoint transport boundary hardening, deserialize-only
+accepted endpoint DTOs, non-serde synthetic endpoint fixtures, cancel
+reconciliation follow-up dry scenarios after 404/409/410,
 store invariants, broker-order-id uniqueness, cancel timeout policy, dry
 window/backoff rate limiting, FINAM request DTO builders without HTTP send,
 workspace-wide source-scan guard tests, and price/reference/notional guard
@@ -173,6 +176,7 @@ See:
 - [M3b-1 endpoint response integration simulator](docs/m3b1-endpoint-response-integration-simulator.md)
 - [M3b-2 local HTTP endpoint mapper hardening](docs/m3b2-local-http-endpoint-mapper-hardening.md)
 - [M3b-3 redacted endpoint result and status policy](docs/m3b3-redacted-endpoint-result-status-policy.md)
+- [M3b-4 mock transport boundary hardening](docs/m3b4-mock-transport-boundary-hardening.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

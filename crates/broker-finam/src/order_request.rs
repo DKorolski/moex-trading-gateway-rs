@@ -334,9 +334,15 @@ impl std::fmt::Debug for FinamOrderExecutionOutcome {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// FINAM accepted-order response DTO.
+///
+/// This type is intentionally deserialize-only. It may carry a broker-native
+/// order id while parsing an endpoint response, so it must not become a
+/// report/log/handoff export boundary. Export `FinamOrderEndpointResponseDiagnostic`
+/// instead.
+#[derive(Clone, PartialEq, Eq, Deserialize)]
 pub struct FinamOrderEndpointAcceptedDto {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     #[serde(alias = "brokerOrderId", alias = "order_id", alias = "orderId")]
     pub broker_order_id: Option<String>,
 }
@@ -369,15 +375,18 @@ pub enum FinamOrderEndpointMaintenanceKind {
     Unknown,
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+/// Synthetic endpoint fixture used by dry tests and local simulators.
+///
+/// It is intentionally not serde-exportable because an accepted fixture may
+/// contain a raw broker order id. Use `redacted_diagnostic()` for every
+/// diagnostic, review, or handoff path.
+#[derive(Clone, PartialEq, Eq)]
 pub enum FinamOrderEndpointFixture {
     Accepted(FinamOrderEndpointAcceptedDto),
     Rejected {
         reason_code: FinamOrderEndpointRejectedCode,
     },
     RateLimited {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         retry_after_ms: Option<u64>,
     },
     Maintenance {
@@ -385,9 +394,7 @@ pub enum FinamOrderEndpointFixture {
     },
     Timeout,
     DecodeError {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         status: Option<u16>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         body_kind: Option<String>,
     },
 }
@@ -1417,6 +1424,118 @@ mod tests {
                 body_kind: Some("object".to_string()),
             }
         );
+    }
+
+    #[test]
+    fn endpoint_response_raw_dto_and_fixture_are_not_serde_export_boundaries() {
+        let source = include_str!("order_request.rs");
+        assert!(source.contains(
+            "#[derive(Clone, PartialEq, Eq, Deserialize)]\npub struct FinamOrderEndpointAcceptedDto"
+        ));
+        assert!(!source.contains(
+            "#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]\npub struct FinamOrderEndpointAcceptedDto"
+        ));
+        assert!(!source.contains(
+            "#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]\npub enum FinamOrderEndpointFixture"
+        ));
+
+        let dto = serde_json::from_value::<FinamOrderEndpointAcceptedDto>(
+            json!({"broker_order_id": "BROKER_TEST_DTO_BOUNDARY"}),
+        )
+        .expect("accepted dto still deserializes");
+        assert_eq!(
+            dto.broker_order_id.as_deref(),
+            Some("BROKER_TEST_DTO_BOUNDARY")
+        );
+        let dto_debug = format!("{dto:?}");
+        assert!(dto_debug.contains("broker_order_id_len"));
+        assert!(!dto_debug.contains("BROKER_TEST_DTO_BOUNDARY"));
+    }
+
+    #[test]
+    fn endpoint_response_diagnostics_are_redacted_for_all_result_kinds() {
+        let responses = vec![
+            classify_order_endpoint_local_http_response(
+                &FinamOrderEndpointLocalHttpResponse::Response {
+                    status: 200,
+                    body: json!({"broker_order_id": "BROKER_TEST_DIAG_ACCEPTED"}).to_string(),
+                    retry_after_ms: None,
+                },
+            ),
+            classify_order_endpoint_local_http_response(
+                &FinamOrderEndpointLocalHttpResponse::Response {
+                    status: 422,
+                    body: json!({"message": "raw broker rejection body must not leak"}).to_string(),
+                    retry_after_ms: None,
+                },
+            ),
+            classify_order_endpoint_local_http_response(
+                &FinamOrderEndpointLocalHttpResponse::Response {
+                    status: 429,
+                    body: json!({"message": "raw rate body must not leak"}).to_string(),
+                    retry_after_ms: Some(1_000),
+                },
+            ),
+            classify_order_endpoint_local_http_response(
+                &FinamOrderEndpointLocalHttpResponse::Response {
+                    status: 503,
+                    body: json!({"message": "raw maintenance body must not leak"}).to_string(),
+                    retry_after_ms: None,
+                },
+            ),
+            classify_order_endpoint_local_http_response(
+                &FinamOrderEndpointLocalHttpResponse::Response {
+                    status: 401,
+                    body: json!({"message": "raw auth body must not leak"}).to_string(),
+                    retry_after_ms: None,
+                },
+            ),
+            classify_order_endpoint_local_http_response_for_context(
+                FinamOrderEndpointContext::Cancel,
+                &FinamOrderEndpointLocalHttpResponse::Response {
+                    status: 404,
+                    body: json!({"message": "raw cancel uncertainty body must not leak"})
+                        .to_string(),
+                    retry_after_ms: None,
+                },
+            ),
+            classify_order_endpoint_local_http_response(
+                &FinamOrderEndpointLocalHttpResponse::Response {
+                    status: 504,
+                    body: json!({"message": "raw timeout body must not leak"}).to_string(),
+                    retry_after_ms: None,
+                },
+            ),
+            classify_order_endpoint_local_http_response(
+                &FinamOrderEndpointLocalHttpResponse::BodyReadFailed { status: Some(200) },
+            ),
+            classify_order_endpoint_local_http_response(
+                &FinamOrderEndpointLocalHttpResponse::Response {
+                    status: 200,
+                    body: "{raw malformed body must not leak".to_string(),
+                    retry_after_ms: None,
+                },
+            ),
+        ];
+
+        for classified in responses {
+            let rendered = format!("{classified:?}");
+            let diagnostic_json =
+                serde_json::to_string(&classified.diagnostic).expect("diagnostic export");
+            for forbidden in [
+                "BROKER_TEST_DIAG_ACCEPTED",
+                "raw broker rejection body must not leak",
+                "raw rate body must not leak",
+                "raw maintenance body must not leak",
+                "raw auth body must not leak",
+                "raw cancel uncertainty body must not leak",
+                "raw timeout body must not leak",
+                "raw malformed body must not leak",
+            ] {
+                assert!(!rendered.contains(forbidden));
+                assert!(!diagnostic_json.contains(forbidden));
+            }
+        }
     }
 
     #[test]

@@ -40,6 +40,9 @@ without adding real endpoint transport. M3b-2 adds local/mock HTTP-shaped
 endpoint response classification and proves post-network decode/map errors are
 recorded after durable `BeginSubmit`/`RequestCancel`. M3b-3 redacts internal
 endpoint results and makes local status classification place/cancel-aware.
+M3b-4 hardens the mock/classified transport boundary, keeps accepted response
+DTOs/fixtures out of serde export paths, and models dry cancel reconciliation
+follow-up after uncertain 404/409/410 responses.
 
 M3 scope is deliberately small:
 

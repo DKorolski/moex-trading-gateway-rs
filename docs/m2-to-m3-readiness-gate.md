@@ -716,3 +716,30 @@ Still not implemented in M3b-3:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-4 mock transport boundary / export hardening status
+
+Implemented while still keeping all broker endpoints disabled:
+
+- accepted endpoint response DTO is deserialize-only;
+- synthetic endpoint fixture is not serde-exportable;
+- redacted endpoint diagnostic remains the export boundary;
+- mock classified endpoint transport returns only classified responses;
+- future real transport compile contract is classified-response based while
+  still requiring the unconstructible endpoint gate marker;
+- source/contract tests guard against raw body or accepted DTO crossing the
+  mock transport boundary;
+- SQLite-backed tests prove durable `BeginSubmit` / `RequestCancel` before
+  mock classified transport call;
+- dry cancel reconciliation follow-up covers terminal, still-working, and
+  unknown broker truth after uncertain cancel responses.
+
+Still not implemented in M3b-4:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

@@ -276,7 +276,12 @@ fn next_order_path_state(state: OrderPathState, event: OrderPathEvent) -> Option
         (S::CancelRequested, E::CancelTimedOut) | (S::CancelSubmitted, E::CancelTimedOut) => {
             Some(S::CancelTimeoutUnknownPending)
         }
-        (S::CancelTimeoutUnknownPending, E::RecoverCancelTerminal) => {
+        // Recovery from ManualInterventionRequired is used by guarded cancel
+        // reconciliation follow-up after an uncertain cancel endpoint result.
+        // The state machine is state-only; callers must prove this is a cancel
+        // uncertainty, not an arbitrary manual-intervention record.
+        (S::CancelTimeoutUnknownPending, E::RecoverCancelTerminal)
+        | (S::ManualInterventionRequired, E::RecoverCancelTerminal) => {
             Some(S::CancelRecoveredTerminal)
         }
         (S::CancelTimeoutUnknownPending, E::RequireManualIntervention) => {
@@ -1234,7 +1239,8 @@ fn infer_transition_audit_event(
         | (S::CancelSubmitted, S::ManualInterventionRequired) => "RequireManualIntervention",
         (S::CancelRequested, S::CancelTimeoutUnknownPending)
         | (S::CancelSubmitted, S::CancelTimeoutUnknownPending) => "CancelTimedOut",
-        (S::CancelTimeoutUnknownPending, S::CancelRecoveredTerminal) => "RecoverCancelTerminal",
+        (S::CancelTimeoutUnknownPending, S::CancelRecoveredTerminal)
+        | (S::ManualInterventionRequired, S::CancelRecoveredTerminal) => "RecoverCancelTerminal",
         (_, S::Terminal) => "MarkTerminal",
         _ => "UpdateRecord",
     }
@@ -2505,6 +2511,15 @@ mod tests {
             .transition(OrderPathEvent::RequireManualIntervention, now)
             .expect("manual intervention after bounded reconciliation");
         assert_eq!(manual.state, OrderPathState::ManualInterventionRequired);
+
+        manual
+            .transition(OrderPathEvent::RecoverCancelTerminal, now)
+            .expect("manual cancel reconciliation can recover terminal by broker truth");
+        assert_eq!(manual.state, OrderPathState::CancelRecoveredTerminal);
+        assert_eq!(
+            manual.last_reconciliation_source,
+            Some(OrderPathReconciliationSource::OrderSnapshot)
+        );
 
         let mut cancel_rejected = OrderPathRecord::from_place_order(&order, now, None);
         cancel_rejected.broker_order_id = Some(BrokerOrderId::new("BROKER_TEST_CANCEL_REJECT"));
@@ -4022,6 +4037,12 @@ mod tests {
                 OrderPathState::ManualInterventionRequired,
                 Some(OrderPathErrorKind::ReconciliationRequired),
                 "RequireManualIntervention",
+            ),
+            (
+                OrderPathState::ManualInterventionRequired,
+                OrderPathState::CancelRecoveredTerminal,
+                Some(OrderPathErrorKind::ReconciliationRequired),
+                "RecoverCancelTerminal",
             ),
         ];
 

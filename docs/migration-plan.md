@@ -868,6 +868,36 @@ M3b-3 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-4 mock transport boundary and endpoint export hardening:
+
+- `FinamOrderEndpointAcceptedDto` is deserialize-only; it is not a
+  report/log/handoff export boundary.
+- `FinamOrderEndpointFixture` is a synthetic, non-serde fixture; accepted
+  fixtures may carry raw broker ids only inside dry tests/local mapping.
+- `FinamOrderEndpointResponseDiagnostic` remains the only endpoint result
+  export/reporting boundary.
+- `FinamMockClassifiedEndpointTransport` returns only
+  `FinamOrderEndpointClassifiedResponse`; raw local HTTP bodies and accepted
+  DTOs do not cross the transport boundary.
+- Future real endpoint transport compile contract also returns classified
+  responses, while `EndpointGateApproved` remains unconstructible.
+- SQLite-backed tests prove `BeginSubmit` / `RequestCancel` is durable before
+  mock classified transport is called.
+- Dry cancel reconciliation follow-up after 404/409/410 covers terminal
+  broker truth, still-working broker truth, and unknown broker truth.
+- Details are documented in
+  `docs/m3b4-mock-transport-boundary-hardening.md`.
+
+M3b-4 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

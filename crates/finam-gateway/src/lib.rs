@@ -210,13 +210,37 @@ pub trait FinamRealOrderEndpointTransport: Send {
         &mut self,
         gate: &EndpointGateApproved,
         spec: broker_finam::FinamPlaceOrderRequestSpec,
-    ) -> Result<broker_finam::FinamOrderEndpointMappedResult, broker_finam::FinamOrderExecutionError>;
+    ) -> Result<
+        broker_finam::FinamOrderEndpointClassifiedResponse,
+        broker_finam::FinamOrderExecutionError,
+    >;
 
     async fn cancel_order_endpoint(
         &mut self,
         gate: &EndpointGateApproved,
         spec: broker_finam::FinamCancelOrderRequestSpec,
-    ) -> Result<broker_finam::FinamOrderEndpointMappedResult, broker_finam::FinamOrderExecutionError>;
+    ) -> Result<
+        broker_finam::FinamOrderEndpointClassifiedResponse,
+        broker_finam::FinamOrderExecutionError,
+    >;
+}
+
+/// Dry/mock endpoint transport boundary for M3b-4.
+///
+/// Implementations receive already approved broker-neutral request specs and
+/// may only return a classified endpoint result plus redacted diagnostic. Raw
+/// HTTP bodies and accepted response DTOs must remain inside the classifier
+/// layer and must not cross this trait boundary.
+pub trait FinamMockClassifiedEndpointTransport {
+    fn place_order_endpoint_classified(
+        &mut self,
+        spec: broker_finam::FinamPlaceOrderRequestSpec,
+    ) -> broker_finam::FinamOrderEndpointClassifiedResponse;
+
+    fn cancel_order_endpoint_classified(
+        &mut self,
+        spec: broker_finam::FinamCancelOrderRequestSpec,
+    ) -> broker_finam::FinamOrderEndpointClassifiedResponse;
 }
 
 impl GatewayFeatureSet {
@@ -1015,6 +1039,20 @@ pub enum EndpointResponseIntegrationOutcomeKind {
     ReconciliationRequired,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CancelReconciliationBrokerTruth {
+    Terminal,
+    StillWorking,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CancelReconciliationFollowUpOutcomeKind {
+    CancelRecoveredTerminal,
+    ManualInterventionRequired,
+    UnknownPending,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EndpointResponseIntegrationReport {
     pub ack: CommandAck,
@@ -1027,12 +1065,23 @@ pub struct EndpointResponseIntegrationReport {
     pub retry_after_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CancelReconciliationFollowUpReport {
+    pub ack: CommandAck,
+    pub state: OrderPathState,
+    pub cancel_attempt_count: u32,
+    pub broker_truth: CancelReconciliationBrokerTruth,
+    pub outcome: CancelReconciliationFollowUpOutcomeKind,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum EndpointResponseIntegrationSimulatorError {
     #[error("endpoint response integration missing order-path record: {request_id}")]
     MissingOrderPathRecord { request_id: StrategyRequestId },
     #[error("endpoint response integration missing mapped order-path request id for cancel request: {request_id}")]
     MissingCancelMapping { request_id: StrategyRequestId },
+    #[error("cancel reconciliation follow-up requires uncertain cancel state, found {state:?}")]
+    InvalidCancelReconciliationState { state: OrderPathState },
     #[error("endpoint response request build error: {0}")]
     RequestBuild(#[from] broker_finam::FinamOrderRequestBuildError),
     #[error("endpoint response mapper error: {0}")]
@@ -1156,6 +1205,39 @@ where
     )
 }
 
+pub fn simulate_place_order_endpoint_classified_transport<S, T>(
+    store: &mut S,
+    transport: &mut T,
+    approved: &PreflightApprovedPlaceOrder,
+    outgoing_comment: Option<&OutgoingOrderComment>,
+    operator_arm: Option<&mut OperatorArm>,
+    begin_ts: DateTime<Utc>,
+    outcome_ts: DateTime<Utc>,
+) -> Result<EndpointResponseIntegrationReport, EndpointResponseIntegrationSimulatorError>
+where
+    S: OrderPathStore,
+    T: FinamMockClassifiedEndpointTransport,
+{
+    let request_id = approved.order().request_id;
+    let spec = broker_finam::build_place_order_request(approved, outgoing_comment)?;
+    let mut record = store
+        .load_by_request_id(request_id)
+        .ok_or(EndpointResponseIntegrationSimulatorError::MissingOrderPathRecord { request_id })?;
+
+    record.transition(OrderPathEvent::BeginSubmit, begin_ts)?;
+    store.update_record(record.clone())?;
+    let classified = transport.place_order_endpoint_classified(spec);
+
+    apply_place_order_endpoint_result_after_begin(
+        store,
+        record,
+        classified.result,
+        classified.diagnostic,
+        operator_arm,
+        outcome_ts,
+    )
+}
+
 pub fn simulate_cancel_order_endpoint_local_http_response<S>(
     store: &mut S,
     approved: &PreflightApprovedCancelOrder,
@@ -1196,6 +1278,128 @@ where
         operator_arm,
         outcome_ts,
     )
+}
+
+pub fn simulate_cancel_order_endpoint_classified_transport<S, T>(
+    store: &mut S,
+    transport: &mut T,
+    approved: &PreflightApprovedCancelOrder,
+    operator_arm: Option<&mut OperatorArm>,
+    begin_ts: DateTime<Utc>,
+    outcome_ts: DateTime<Utc>,
+) -> Result<EndpointResponseIntegrationReport, EndpointResponseIntegrationSimulatorError>
+where
+    S: OrderPathStore,
+    T: FinamMockClassifiedEndpointTransport,
+{
+    let cancel_request_id = approved.cancel().request_id;
+    let mapped_request_id = approved.mapped_request_id().ok_or(
+        EndpointResponseIntegrationSimulatorError::MissingCancelMapping {
+            request_id: cancel_request_id,
+        },
+    )?;
+    let spec = broker_finam::build_cancel_order_request(approved)?;
+    let mut record = store.load_by_request_id(mapped_request_id).ok_or(
+        EndpointResponseIntegrationSimulatorError::MissingOrderPathRecord {
+            request_id: mapped_request_id,
+        },
+    )?;
+
+    record.transition(OrderPathEvent::RequestCancel, begin_ts)?;
+    store.update_record(record.clone())?;
+    let classified = transport.cancel_order_endpoint_classified(spec);
+
+    apply_cancel_order_endpoint_result_after_begin(
+        store,
+        record,
+        approved,
+        classified.result,
+        classified.diagnostic,
+        operator_arm,
+        outcome_ts,
+    )
+}
+
+pub fn simulate_cancel_reconciliation_follow_up<S>(
+    store: &mut S,
+    mapped_request_id: StrategyRequestId,
+    broker_truth: CancelReconciliationBrokerTruth,
+    checked_ts: DateTime<Utc>,
+) -> Result<CancelReconciliationFollowUpReport, EndpointResponseIntegrationSimulatorError>
+where
+    S: OrderPathStore,
+{
+    let mut record = store.load_by_request_id(mapped_request_id).ok_or(
+        EndpointResponseIntegrationSimulatorError::MissingOrderPathRecord {
+            request_id: mapped_request_id,
+        },
+    )?;
+
+    let eligible = record.cancel_attempt_count > 0
+        && match record.state {
+            OrderPathState::CancelTimeoutUnknownPending => true,
+            OrderPathState::ManualInterventionRequired => {
+                record.last_error_kind == Some(OrderPathErrorKind::ReconciliationRequired)
+            }
+            _ => false,
+        };
+    if !eligible {
+        return Err(
+            EndpointResponseIntegrationSimulatorError::InvalidCancelReconciliationState {
+                state: record.state,
+            },
+        );
+    }
+
+    let (ack_status, reason_code, outcome) = match broker_truth {
+        CancelReconciliationBrokerTruth::Terminal => {
+            record.transition(OrderPathEvent::RecoverCancelTerminal, checked_ts)?;
+            (
+                CommandAckStatus::Recovered,
+                CommandAckReasonCode::RecoveredByBrokerTruth,
+                CancelReconciliationFollowUpOutcomeKind::CancelRecoveredTerminal,
+            )
+        }
+        CancelReconciliationBrokerTruth::StillWorking => {
+            if record.state != OrderPathState::ManualInterventionRequired {
+                record.transition(OrderPathEvent::RequireManualIntervention, checked_ts)?;
+            } else {
+                record.last_update_ts = checked_ts;
+            }
+            record.last_ack_status = Some(CommandAckStatus::UnknownPending);
+            record.last_error_kind = Some(OrderPathErrorKind::ReconciliationRequired);
+            (
+                CommandAckStatus::UnknownPending,
+                CommandAckReasonCode::ManualInterventionRequired,
+                CancelReconciliationFollowUpOutcomeKind::ManualInterventionRequired,
+            )
+        }
+        CancelReconciliationBrokerTruth::Unknown => {
+            record.last_update_ts = checked_ts;
+            record.last_ack_status = Some(CommandAckStatus::UnknownPending);
+            record.last_error_kind = Some(OrderPathErrorKind::ReconciliationRequired);
+            (
+                CommandAckStatus::UnknownPending,
+                CommandAckReasonCode::ReconciliationRequired,
+                CancelReconciliationFollowUpOutcomeKind::UnknownPending,
+            )
+        }
+    };
+
+    store.update_record(record.clone())?;
+    let ack = record.synthetic_ack(
+        ack_status,
+        Some(CommandAckReason::new(reason_code)),
+        checked_ts,
+    );
+
+    Ok(CancelReconciliationFollowUpReport {
+        ack,
+        state: record.state,
+        cancel_attempt_count: record.cancel_attempt_count,
+        broker_truth,
+        outcome,
+    })
 }
 
 fn simulate_place_order_endpoint_result<S>(
@@ -3036,10 +3240,12 @@ mod tests {
                 _gate: &EndpointGateApproved,
                 _spec: broker_finam::FinamPlaceOrderRequestSpec,
             ) -> Result<
-                broker_finam::FinamOrderEndpointMappedResult,
+                broker_finam::FinamOrderEndpointClassifiedResponse,
                 broker_finam::FinamOrderExecutionError,
             > {
-                Err(broker_finam::FinamOrderExecutionError::MockScriptExhausted)
+                Ok(broker_finam::classify_order_endpoint_local_http_response(
+                    &FinamOrderEndpointLocalHttpResponse::Timeout,
+                ))
             }
 
             async fn cancel_order_endpoint(
@@ -3047,10 +3253,15 @@ mod tests {
                 _gate: &EndpointGateApproved,
                 _spec: broker_finam::FinamCancelOrderRequestSpec,
             ) -> Result<
-                broker_finam::FinamOrderEndpointMappedResult,
+                broker_finam::FinamOrderEndpointClassifiedResponse,
                 broker_finam::FinamOrderExecutionError,
             > {
-                Err(broker_finam::FinamOrderExecutionError::MockScriptExhausted)
+                Ok(
+                    broker_finam::classify_order_endpoint_local_http_response_for_context(
+                        broker_finam::FinamOrderEndpointContext::Cancel,
+                        &FinamOrderEndpointLocalHttpResponse::Timeout,
+                    ),
+                )
             }
         }
 
@@ -3076,6 +3287,91 @@ mod tests {
             assert_place_signature(&mut transport, gate, place_spec);
             assert_cancel_signature(&mut transport, gate, cancel_spec);
         }
+    }
+
+    #[test]
+    fn mock_classified_endpoint_transport_signature_cannot_export_raw_response() {
+        fn assert_transport<T: FinamMockClassifiedEndpointTransport>() {}
+        fn assert_place_signature<T: FinamMockClassifiedEndpointTransport>(
+            _transport: &mut T,
+            _spec: broker_finam::FinamPlaceOrderRequestSpec,
+        ) -> broker_finam::FinamOrderEndpointClassifiedResponse {
+            broker_finam::classify_order_endpoint_local_http_response(
+                &FinamOrderEndpointLocalHttpResponse::Timeout,
+            )
+        }
+        fn assert_cancel_signature<T: FinamMockClassifiedEndpointTransport>(
+            _transport: &mut T,
+            _spec: broker_finam::FinamCancelOrderRequestSpec,
+        ) -> broker_finam::FinamOrderEndpointClassifiedResponse {
+            broker_finam::classify_order_endpoint_local_http_response_for_context(
+                broker_finam::FinamOrderEndpointContext::Cancel,
+                &FinamOrderEndpointLocalHttpResponse::Timeout,
+            )
+        }
+
+        struct CompileOnlyClassifiedTransport;
+
+        impl FinamMockClassifiedEndpointTransport for CompileOnlyClassifiedTransport {
+            fn place_order_endpoint_classified(
+                &mut self,
+                _spec: broker_finam::FinamPlaceOrderRequestSpec,
+            ) -> broker_finam::FinamOrderEndpointClassifiedResponse {
+                broker_finam::classify_order_endpoint_local_http_response(
+                    &FinamOrderEndpointLocalHttpResponse::Timeout,
+                )
+            }
+
+            fn cancel_order_endpoint_classified(
+                &mut self,
+                _spec: broker_finam::FinamCancelOrderRequestSpec,
+            ) -> broker_finam::FinamOrderEndpointClassifiedResponse {
+                broker_finam::classify_order_endpoint_local_http_response_for_context(
+                    broker_finam::FinamOrderEndpointContext::Cancel,
+                    &FinamOrderEndpointLocalHttpResponse::Timeout,
+                )
+            }
+        }
+
+        assert_transport::<CompileOnlyClassifiedTransport>();
+        let mut transport = CompileOnlyClassifiedTransport;
+        let order = sample_place_order(request_id(23), "CID000000000000023", Utc::now());
+        let approved = dry_preflight_policy(order.created_ts)
+            .approve_place_order(&order, order.created_ts)
+            .expect("approved");
+        let place_spec = broker_finam::build_place_order_request(&approved, None).expect("spec");
+        let (_store, approved_cancel, _) = submitted_store_and_approved_cancel(
+            Utc::now(),
+            request_id(24),
+            request_id(25),
+            BrokerOrderId::new("BROKER_TEST_CLASSIFIED_GATE"),
+        );
+        let cancel_spec = broker_finam::build_cancel_order_request(&approved_cancel).expect("spec");
+        let _ = assert_place_signature(&mut transport, place_spec);
+        let _ = assert_cancel_signature(&mut transport, cancel_spec);
+
+        let source = include_str!("lib.rs");
+        let real_trait_source = source
+            .split("pub trait FinamRealOrderEndpointTransport")
+            .nth(1)
+            .expect("real transport trait source")
+            .split("/// Dry/mock endpoint transport boundary")
+            .next()
+            .expect("real transport trait end");
+        assert!(real_trait_source.contains("FinamOrderEndpointClassifiedResponse"));
+        assert!(!real_trait_source.contains("FinamOrderEndpointMappedResult"));
+
+        let mock_trait_source = source
+            .split("pub trait FinamMockClassifiedEndpointTransport")
+            .nth(1)
+            .expect("mock transport trait source")
+            .split("impl GatewayFeatureSet")
+            .next()
+            .expect("mock transport trait end");
+        assert!(mock_trait_source.contains("FinamOrderEndpointClassifiedResponse"));
+        assert!(!mock_trait_source.contains("FinamOrderEndpointLocalHttpResponse"));
+        assert!(!mock_trait_source.contains("FinamOrderEndpointAcceptedDto"));
+        assert!(!mock_trait_source.contains("body: String"));
     }
 
     #[tokio::test]
@@ -3946,6 +4242,135 @@ mod tests {
         assert!(!entries[0].payload.contains("ACC_TEST_0001"));
     }
 
+    #[test]
+    fn classified_transport_place_persists_begin_submit_before_boundary_call() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 2, 0)
+            .single()
+            .expect("timestamp");
+        let path = temp_sqlite_path("classified_transport_place");
+        cleanup_sqlite_path(&path);
+        let order = sample_place_order(request_id(170), "CID000000000000170", now);
+        let policy = dry_preflight_policy(now);
+        let approved = policy
+            .approve_place_order(&order, now)
+            .expect("preflight approved");
+        let mut store = SqliteOrderPathStore::open(&path).expect("open sqlite store");
+        store
+            .insert_intent(OrderPathRecord::from_place_order(
+                approved.order(),
+                now,
+                None,
+            ))
+            .expect("intent inserted");
+        let classified = broker_finam::classify_order_endpoint_local_http_response(
+            &FinamOrderEndpointLocalHttpResponse::Response {
+                status: 200,
+                body: serde_json::json!({"broker_order_id": "BROKER_TEST_CLASSIFIED_PLACE"})
+                    .to_string(),
+                retry_after_ms: None,
+            },
+        );
+        let mut transport = InspectingClassifiedTransport::new(
+            path.clone(),
+            order.request_id,
+            OrderPathState::SubmitInFlight,
+            classified,
+        );
+
+        let report = simulate_place_order_endpoint_classified_transport(
+            &mut store,
+            &mut transport,
+            &approved,
+            None,
+            None,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .expect("classified place transport report");
+
+        assert_eq!(transport.call_count, 1);
+        assert_eq!(
+            report.outcome,
+            EndpointResponseIntegrationOutcomeKind::Submitted
+        );
+        assert_eq!(report.state, OrderPathState::Submitted);
+        let audit = store.transition_audit().expect("transition audit");
+        assert_eq!(audit.len(), 3);
+        assert_eq!(audit[0].event, "InsertIntent");
+        assert_eq!(audit[1].event, "BeginSubmit");
+        assert_eq!(audit[2].event, "SubmitAccepted");
+        cleanup_sqlite_path(&path);
+    }
+
+    #[test]
+    fn classified_transport_cancel_persists_request_cancel_before_boundary_call() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 4, 0)
+            .single()
+            .expect("timestamp");
+        let path = temp_sqlite_path("classified_transport_cancel");
+        cleanup_sqlite_path(&path);
+        let broker_order_id = BrokerOrderId::new("BROKER_TEST_CLASSIFIED_CANCEL");
+        let order = sample_place_order(request_id(171), "CID000000000000171", now);
+        let existing = submitted_record(&order, now, broker_order_id.clone());
+        let cancel = sample_cancel_order(request_id(172), broker_order_id.as_str(), now);
+        let policy = dry_preflight_policy(now);
+        let approved_cancel = match policy
+            .approve_cancel_order(&cancel, now, Some(&existing))
+            .expect("cancel approved")
+        {
+            CancelPreflightApproval::Submit(approved) => approved,
+            CancelPreflightApproval::AlreadyTerminal => panic!("expected submit cancel"),
+        };
+        let mut store = SqliteOrderPathStore::open(&path).expect("open sqlite store");
+        store
+            .insert_intent(existing)
+            .expect("submitted record inserted");
+        let classified = broker_finam::classify_order_endpoint_local_http_response_for_context(
+            broker_finam::FinamOrderEndpointContext::Cancel,
+            &FinamOrderEndpointLocalHttpResponse::Response {
+                status: 409,
+                body: serde_json::json!({"message": "cancel state uncertain"}).to_string(),
+                retry_after_ms: None,
+            },
+        );
+        let mut transport = InspectingClassifiedTransport::new(
+            path.clone(),
+            order.request_id,
+            OrderPathState::CancelRequested,
+            classified,
+        );
+
+        let report = simulate_cancel_order_endpoint_classified_transport(
+            &mut store,
+            &mut transport,
+            &approved_cancel,
+            None,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .expect("classified cancel transport report");
+
+        assert_eq!(transport.call_count, 1);
+        assert_eq!(
+            report.outcome,
+            EndpointResponseIntegrationOutcomeKind::ReconciliationRequired
+        );
+        assert_eq!(report.state, OrderPathState::ManualInterventionRequired);
+        assert_eq!(report.ack.status, CommandAckStatus::UnknownPending);
+        assert_eq!(
+            report.ack.reason.as_ref().expect("reason").code,
+            CommandAckReasonCode::ReconciliationRequired
+        );
+        let audit = store.transition_audit().expect("transition audit");
+        assert_eq!(audit.len(), 3);
+        assert_eq!(audit[0].event, "InsertIntent");
+        assert_eq!(audit[1].event, "RequestCancel");
+        assert_eq!(audit[2].event, "RequireManualIntervention");
+        cleanup_sqlite_path(&path);
+    }
+
     #[tokio::test]
     async fn local_http_empty_broker_id_records_decode_error_after_begin_submit() {
         let now = Utc
@@ -4143,6 +4568,191 @@ mod tests {
                 Some(OrderPathErrorKind::ReconciliationRequired)
             );
         }
+    }
+
+    #[test]
+    fn cancel_reconciliation_follow_up_recovers_terminal_after_cancel_404() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 16, 0)
+            .single()
+            .expect("timestamp");
+        let path = temp_sqlite_path("cancel_reconciliation_terminal");
+        cleanup_sqlite_path(&path);
+        let broker_order_id = BrokerOrderId::new("BROKER_TEST_RECON_TERMINAL");
+        let order = sample_place_order(request_id(173), "CID000000000000173", now);
+        let existing = submitted_record(&order, now, broker_order_id.clone());
+        let cancel = sample_cancel_order(request_id(174), broker_order_id.as_str(), now);
+        let policy = dry_preflight_policy(now);
+        let approved_cancel = match policy
+            .approve_cancel_order(&cancel, now, Some(&existing))
+            .expect("cancel approved")
+        {
+            CancelPreflightApproval::Submit(approved) => approved,
+            CancelPreflightApproval::AlreadyTerminal => panic!("expected submit cancel"),
+        };
+        let mut store = SqliteOrderPathStore::open(&path).expect("open sqlite store");
+        store
+            .insert_intent(existing)
+            .expect("submitted record inserted");
+        let response = FinamOrderEndpointLocalHttpResponse::Response {
+            status: 404,
+            body: serde_json::json!({"message": "cancel state uncertain"}).to_string(),
+            retry_after_ms: None,
+        };
+
+        let conflict_report = simulate_cancel_order_endpoint_local_http_response(
+            &mut store,
+            &approved_cancel,
+            &response,
+            None,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .expect("cancel 404 requires reconciliation");
+        assert_eq!(
+            conflict_report.outcome,
+            EndpointResponseIntegrationOutcomeKind::ReconciliationRequired
+        );
+        assert_eq!(
+            conflict_report.state,
+            OrderPathState::ManualInterventionRequired
+        );
+
+        let follow_up = simulate_cancel_reconciliation_follow_up(
+            &mut store,
+            order.request_id,
+            CancelReconciliationBrokerTruth::Terminal,
+            now + chrono::Duration::milliseconds(3),
+        )
+        .expect("terminal broker truth recovers cancel");
+
+        assert_eq!(
+            follow_up.outcome,
+            CancelReconciliationFollowUpOutcomeKind::CancelRecoveredTerminal
+        );
+        assert_eq!(follow_up.state, OrderPathState::CancelRecoveredTerminal);
+        assert_eq!(follow_up.ack.status, CommandAckStatus::Recovered);
+        assert_eq!(
+            follow_up.ack.reason.as_ref().expect("reason").code,
+            CommandAckReasonCode::RecoveredByBrokerTruth
+        );
+        let audit = store.transition_audit().expect("transition audit");
+        assert_eq!(audit.len(), 4);
+        assert_eq!(audit[0].event, "InsertIntent");
+        assert_eq!(audit[1].event, "RequestCancel");
+        assert_eq!(audit[2].event, "RequireManualIntervention");
+        assert_eq!(audit[3].event, "RecoverCancelTerminal");
+        cleanup_sqlite_path(&path);
+    }
+
+    #[test]
+    fn cancel_reconciliation_follow_up_covers_still_working_and_unknown_truth() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 17, 0)
+            .single()
+            .expect("timestamp");
+        let cases = [
+            (
+                404,
+                CancelReconciliationBrokerTruth::StillWorking,
+                CancelReconciliationFollowUpOutcomeKind::ManualInterventionRequired,
+                CommandAckReasonCode::ManualInterventionRequired,
+                request_id(175),
+                request_id(176),
+            ),
+            (
+                409,
+                CancelReconciliationBrokerTruth::Unknown,
+                CancelReconciliationFollowUpOutcomeKind::UnknownPending,
+                CommandAckReasonCode::ReconciliationRequired,
+                request_id(177),
+                request_id(178),
+            ),
+        ];
+
+        for (
+            status,
+            broker_truth,
+            expected_outcome,
+            expected_reason,
+            place_request_id,
+            cancel_request_id,
+        ) in cases
+        {
+            let (mut store, approved_cancel, mapped_request_id) =
+                submitted_store_and_approved_cancel(
+                    now,
+                    place_request_id,
+                    cancel_request_id,
+                    BrokerOrderId::new("BROKER_TEST_RECON_FOLLOW_UP"),
+                );
+            let response = FinamOrderEndpointLocalHttpResponse::Response {
+                status,
+                body: serde_json::json!({"message": "cancel state uncertain"}).to_string(),
+                retry_after_ms: None,
+            };
+            let conflict_report = simulate_cancel_order_endpoint_local_http_response(
+                &mut store,
+                &approved_cancel,
+                &response,
+                None,
+                now + chrono::Duration::milliseconds(1),
+                now + chrono::Duration::milliseconds(2),
+            )
+            .expect("cancel conflict requires reconciliation");
+            assert_eq!(
+                conflict_report.state,
+                OrderPathState::ManualInterventionRequired
+            );
+
+            let follow_up = simulate_cancel_reconciliation_follow_up(
+                &mut store,
+                mapped_request_id,
+                broker_truth,
+                now + chrono::Duration::milliseconds(3),
+            )
+            .expect("follow-up report");
+
+            assert_eq!(follow_up.outcome, expected_outcome);
+            assert_eq!(follow_up.state, OrderPathState::ManualInterventionRequired);
+            assert_eq!(follow_up.ack.status, CommandAckStatus::UnknownPending);
+            assert_eq!(
+                follow_up.ack.reason.as_ref().expect("reason").code,
+                expected_reason
+            );
+            assert_eq!(
+                store
+                    .load_by_request_id(mapped_request_id)
+                    .expect("stored follow-up record")
+                    .last_error_kind,
+                Some(OrderPathErrorKind::ReconciliationRequired)
+            );
+        }
+    }
+
+    #[test]
+    fn cancel_reconciliation_follow_up_rejects_non_uncertain_cancel_state() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 19, 0)
+            .single()
+            .expect("timestamp");
+        let (mut store, _approved, order) =
+            place_store_and_approved(now, request_id(179), "CID000000000000179");
+
+        let error = simulate_cancel_reconciliation_follow_up(
+            &mut store,
+            order.request_id,
+            CancelReconciliationBrokerTruth::Terminal,
+            now + chrono::Duration::milliseconds(1),
+        )
+        .expect_err("fresh place intent is not an uncertain cancel");
+
+        assert!(matches!(
+            error,
+            EndpointResponseIntegrationSimulatorError::InvalidCancelReconciliationState {
+                state: OrderPathState::IntentRecorded
+            }
+        ));
     }
 
     #[test]
@@ -4742,6 +5352,63 @@ mod tests {
             self.assert_expected_state_is_durable();
             self.call_count += 1;
             Ok(self.outcome.clone())
+        }
+    }
+
+    struct InspectingClassifiedTransport {
+        db_path: PathBuf,
+        expected_request_id: StrategyRequestId,
+        expected_state_before_call: OrderPathState,
+        classified: broker_finam::FinamOrderEndpointClassifiedResponse,
+        call_count: usize,
+    }
+
+    impl InspectingClassifiedTransport {
+        fn new(
+            db_path: PathBuf,
+            expected_request_id: StrategyRequestId,
+            expected_state_before_call: OrderPathState,
+            classified: broker_finam::FinamOrderEndpointClassifiedResponse,
+        ) -> Self {
+            Self {
+                db_path,
+                expected_request_id,
+                expected_state_before_call,
+                classified,
+                call_count: 0,
+            }
+        }
+
+        fn assert_expected_state_is_durable(&self) {
+            let readonly =
+                SqliteOrderPathReadStore::open_readonly(&self.db_path).expect("read-only sqlite");
+            let record = readonly
+                .operator_load_by_request_id(self.expected_request_id)
+                .expect("expected order-path record");
+            assert_eq!(record.state, self.expected_state_before_call);
+        }
+    }
+
+    impl FinamMockClassifiedEndpointTransport for InspectingClassifiedTransport {
+        fn place_order_endpoint_classified(
+            &mut self,
+            spec: broker_finam::FinamPlaceOrderRequestSpec,
+        ) -> broker_finam::FinamOrderEndpointClassifiedResponse {
+            assert!(!spec.account_id.is_empty());
+            self.assert_expected_state_is_durable();
+            self.call_count += 1;
+            self.classified.clone()
+        }
+
+        fn cancel_order_endpoint_classified(
+            &mut self,
+            spec: broker_finam::FinamCancelOrderRequestSpec,
+        ) -> broker_finam::FinamOrderEndpointClassifiedResponse {
+            assert!(!spec.account_id.is_empty());
+            assert!(!spec.order_id.is_empty());
+            self.assert_expected_state_is_durable();
+            self.call_count += 1;
+            self.classified.clone()
         }
     }
 
