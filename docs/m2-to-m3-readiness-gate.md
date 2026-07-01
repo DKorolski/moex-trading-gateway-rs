@@ -840,3 +840,34 @@ Still not implemented in M3b-7:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-8 read-only broker-truth boundary status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- get-order response building checks requested broker/client identity before
+  accepting evidence;
+- mismatched get-order identity is represented as typed
+  `MismatchedOrderIdentity` without raw ids;
+- position-derived terminal truth requires actual direct-source attempts rather
+  than policy exclusion;
+- explicit `CancelBrokerTruthReadonlyFetcher` contract exists above the dry
+  mock implementation;
+- read-only HTTP/transport error mapping covers 404, 401/403, 429, 5xx,
+  timeout, decode error, and dry missing fixture;
+- gateway config contains defaulted broker-truth reconciliation policy;
+- shadow config can override per-source freshness, precedence, version, and
+  position guard policy;
+- orchestration reports include policy snapshot and SHA-256 policy fingerprint;
+- source scans guard the read-only truth fetcher boundary against order
+  endpoint specs/methods and POST/DELETE calls.
+
+Still not implemented in M3b-8:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

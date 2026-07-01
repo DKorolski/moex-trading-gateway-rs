@@ -51,7 +51,10 @@ position evidence, precedence selection, conflict detection, and
 paths disabled. M3b-7 adds the dry broker-truth fetch orchestration simulator:
 typed source missing/error reasons, mock get-order/orders/trades/position
 fetchers, policy snapshot diagnostics, guarded position-derived truth, and
-SQLite-backed follow-up audit coverage.
+SQLite-backed follow-up audit coverage. M3b-8 hardens the future read-only
+broker-truth boundary with checked get-order identity, strict direct-source
+requirements before position-derived terminal truth, read-only HTTP/error
+reason mapping, gateway-config policy overrides, and policy fingerprints.
 
 M3 scope is deliberately small:
 
@@ -147,6 +150,10 @@ M3b-7 adds the dry orchestration layer above those classifications: source
 fetch reasons are typed, fatal source errors have explicit operator disarm
 policy, and position-derived terminal truth is downgraded unless the guard
 context proves it is safe to use.
+M3b-8 adds the read-only boundary rules that a future real FINAM truth fetcher
+must obey: get-order evidence must match the requested identity, source errors
+map to typed reasons, and position truth cannot compensate for skipped direct
+order/trade sources.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

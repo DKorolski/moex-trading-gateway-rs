@@ -16,9 +16,9 @@ use chrono::{Duration as ChronoDuration, Utc};
 use clap::{Parser, Subcommand};
 use finam_gateway::{
     default_readonly_health, degraded_health, degraded_readiness, readiness_from_readonly_summary,
-    stopped_health, stopped_readiness, FinamGateway, GatewayConfig, GatewayFeatureSet,
-    OrderSnapshot, ReadonlySnapshotSummary, RedisConnectionStreamSink, RedisRetentionConfig,
-    RedisStreamConfig, RuntimeBridgeConsumeOutcome, RuntimeBridgeDeadLetter,
+    stopped_health, stopped_readiness, BrokerTruthGatewayConfig, FinamGateway, GatewayConfig,
+    GatewayFeatureSet, OrderSnapshot, ReadonlySnapshotSummary, RedisConnectionStreamSink,
+    RedisRetentionConfig, RedisStreamConfig, RuntimeBridgeConsumeOutcome, RuntimeBridgeDeadLetter,
     RuntimeBridgeDlqReason, RuntimeBridgeDlqRecord, RuntimeBridgeDryConsumer,
     RuntimeBridgeReadinessSimulator, RuntimeBridgeStreamEntry,
 };
@@ -961,6 +961,7 @@ struct GatewayShadowFileConfig {
     max_iterations: Option<u64>,
     streams: Option<GatewayShadowStreamsFileConfig>,
     retention: Option<GatewayShadowRetentionFileConfig>,
+    broker_truth: Option<BrokerTruthGatewayConfig>,
 }
 
 #[derive(Default, Deserialize)]
@@ -3115,6 +3116,9 @@ fn apply_gateway_shadow_file_config(
     if let Some(retention) = file_config.retention.as_ref() {
         apply_gateway_shadow_retention(&mut gateway_config.redis.retention, retention);
     }
+    if let Some(broker_truth) = file_config.broker_truth.as_ref() {
+        gateway_config.broker_truth = broker_truth.clone();
+    }
 }
 
 fn apply_gateway_shadow_streams(
@@ -3363,6 +3367,10 @@ fn print_json(value: serde_json::Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use finam_gateway::{
+        CancelBrokerTruthFreshnessPolicy, CancelBrokerTruthOrchestrationPolicy,
+        CancelBrokerTruthPrecedencePolicy, CancelBrokerTruthSource, CancelPositionTruthGuardPolicy,
+    };
 
     #[test]
     fn json_shape_keeps_nested_structure_without_scalar_values() {
@@ -3719,6 +3727,71 @@ mod tests {
                 .runtime_bridge_dlq_maxlen,
             Some(30)
         );
+    }
+
+    #[test]
+    fn gateway_shadow_config_accepts_broker_truth_policy_overrides() {
+        let resolved = resolve_gateway_shadow_config(
+            GatewayShadowOnceArgs {
+                config: None,
+                secret_env: "FINAM_SECRET_TOKEN".to_string(),
+                redis_url: None,
+                account_id: Some("ACC_TEST_0001".to_string()),
+                symbol: Some("TICKER@MIC".to_string()),
+                timeframe: None,
+                start_time: None,
+                end_time: None,
+                bars_lookback_minutes: 60,
+                interval_seconds: None,
+                max_iterations: None,
+            },
+            GatewayShadowFileConfig {
+                broker_truth: Some(BrokerTruthGatewayConfig {
+                    cancel_reconciliation: CancelBrokerTruthOrchestrationPolicy {
+                        precedence_version: "m3b8-cli-test".to_string(),
+                        freshness: CancelBrokerTruthFreshnessPolicy {
+                            get_order_max_age_ms: 111,
+                            orders_snapshot_max_age_ms: 222,
+                            trades_snapshot_max_age_ms: 333,
+                            position_snapshot_max_age_ms: 444,
+                        },
+                        precedence: CancelBrokerTruthPrecedencePolicy {
+                            ordered_sources: vec![
+                                CancelBrokerTruthSource::OrdersSnapshot,
+                                CancelBrokerTruthSource::GetOrder,
+                                CancelBrokerTruthSource::TradesSnapshot,
+                            ],
+                        },
+                        position_guard: CancelPositionTruthGuardPolicy {
+                            require_instrument_match: true,
+                            require_intent_context: true,
+                            require_expected_position_delta: false,
+                            require_strategy_state: true,
+                            require_order_or_trade_absent_or_stale: true,
+                        },
+                    },
+                }),
+                ..GatewayShadowFileConfig::default()
+            },
+        )
+        .expect("resolved config");
+
+        let policy = resolved
+            .gateway_config
+            .broker_truth
+            .cancel_reconciliation
+            .diagnostic();
+        assert_eq!(policy.precedence_version, "m3b8-cli-test");
+        assert_eq!(policy.get_order_max_age_ms, 111);
+        assert_eq!(
+            policy.precedence_order,
+            vec![
+                CancelBrokerTruthSource::OrdersSnapshot,
+                CancelBrokerTruthSource::GetOrder,
+                CancelBrokerTruthSource::TradesSnapshot,
+            ]
+        );
+        assert_eq!(policy.policy_sha256.len(), 64);
     }
 
     #[test]

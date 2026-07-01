@@ -992,6 +992,38 @@ M3b-7 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-8 read-only broker-truth boundary hardening:
+
+- Added checked get-order response building: matching broker id or broker-id-
+  absent matching client id can become evidence; mismatched identity becomes a
+  typed `MismatchedOrderIdentity` reason.
+- Position-derived terminal truth now requires direct order/trade sources to be
+  actually attempted and missing/stale/unknown; excluding direct sources from
+  precedence no longer strengthens position truth.
+- Added explicit `CancelBrokerTruthReadonlyFetcher` boundary while keeping the
+  existing mock implementation dry.
+- Added read-only failure mapping: 404 -> `NotFound404`, 401/403 ->
+  `Unauthorized`, 429 -> `RateLimited`, 5xx -> `Maintenance`, timeout ->
+  `Timeout`, decode failure -> `DecodeError`.
+- Added defaulted `broker_truth.cancel_reconciliation` gateway config section
+  and shadow-config parsing for policy overrides.
+- Orchestration reports now include a redacted policy snapshot with SHA-256
+  policy fingerprint.
+- Source-scan tests guard the read-only truth fetcher boundary against real
+  order endpoint request specs, endpoint methods, `.post(`, and `.delete(`.
+- Details are documented in
+  `docs/m3b8-readonly-broker-truth-boundary.md`.
+
+M3b-8 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

@@ -9,6 +9,12 @@ M3b-7 adds a dry broker-truth fetch orchestration layer on top of the M3b-6
 source precedence simulator. It models how a future gateway should collect
 truth after ambiguous cancel outcomes without adding real broker order calls.
 
+M3b-8 hardens the future read-only boundary for this orchestration layer with
+checked get-order identity, strict direct-source requirements before
+position-derived terminal truth, typed HTTP/error mapping, config-driven policy
+snapshots, and policy fingerprints. See
+`docs/m3b8-readonly-broker-truth-boundary.md`.
+
 ## Orchestration flow
 
 The default dry flow is:

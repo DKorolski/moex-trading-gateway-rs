@@ -24,5 +24,31 @@
     "market_data_maxlen": 10000,
     "command_ack_maxlen": 1000,
     "runtime_bridge_dlq_maxlen": 1000
+  },
+  "broker_truth": {
+    "cancel_reconciliation": {
+      "precedence_version": "m3b8-example-v1",
+      "freshness": {
+        "get_order_max_age_ms": 1000,
+        "orders_snapshot_max_age_ms": 2000,
+        "trades_snapshot_max_age_ms": 5000,
+        "position_snapshot_max_age_ms": 5000
+      },
+      "precedence": {
+        "ordered_sources": [
+          "GetOrder",
+          "OrdersSnapshot",
+          "TradesSnapshot",
+          "PositionSnapshot"
+        ]
+      },
+      "position_guard": {
+        "require_instrument_match": true,
+        "require_intent_context": true,
+        "require_expected_position_delta": true,
+        "require_strategy_state": true,
+        "require_order_or_trade_absent_or_stale": true
+      }
+    }
   }
 }
