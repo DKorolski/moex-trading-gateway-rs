@@ -802,10 +802,7 @@ mod tests {
             .parent()
             .and_then(std::path::Path::parent)
             .expect("workspace root");
-        let checked_files = [
-            "crates/broker-finam/src/order_request.rs",
-            "crates/finam-gateway/src/lib.rs",
-        ];
+        let checked_files = rust_source_files(&workspace_root.join("crates"));
         let forbidden_patterns = vec![
             ["place(order:", " PlaceOrder"].concat(),
             ["cancel(cancel:", " CancelOrder"].concat(),
@@ -814,8 +811,8 @@ mod tests {
             [".", "delete("].concat(),
         ];
 
-        for relative_path in checked_files {
-            let path = workspace_root.join(relative_path);
+        assert!(!checked_files.is_empty());
+        for path in checked_files {
             let source = std::fs::read_to_string(&path).expect("source file readable");
             for pattern in &forbidden_patterns {
                 assert!(
@@ -823,6 +820,25 @@ mod tests {
                     "forbidden raw order boundary pattern {pattern:?} found in {}",
                     path.display()
                 );
+            }
+        }
+    }
+
+    fn rust_source_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut files = Vec::new();
+        collect_rust_source_files(root, &mut files);
+        files.sort();
+        files
+    }
+
+    fn collect_rust_source_files(root: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(root).expect("read source directory") {
+            let entry = entry.expect("directory entry");
+            let path = entry.path();
+            if path.is_dir() {
+                collect_rust_source_files(&path, files);
+            } else if path.extension().and_then(|value| value.to_str()) == Some("rs") {
+                files.push(path);
             }
         }
     }

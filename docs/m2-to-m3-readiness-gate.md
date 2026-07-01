@@ -505,3 +505,33 @@ Still not implemented in M3a-8:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3a-9 reconciliation idempotency / SQLite-WAL durable store prototype status
+
+Implemented while still keeping all broker endpoints disabled:
+
+- repeated reconciliation of the same `client_order_id -> broker_order_id`
+  broker-truth fact is idempotent and returns the existing recovered record;
+- same client id with a different broker id returns a mismatch error;
+- duplicate broker id mapped to another request remains rejected by the store;
+- `SqliteOrderPathStore` prototype is added with WAL, `synchronous=FULL`,
+  `BEGIN IMMEDIATE` writes, unique request/client/broker ids, and a sidecar
+  single-writer lock;
+- SQLite prototype tests cover second writer rejection, crash/reopen,
+  `SubmitInFlight` recovery persistence, `CancelRequested` and
+  `SubmittedPendingBrokerOrderId` preservation, corrupt database blocking, and
+  redacted export;
+- approved-only source-scan coverage walks the whole `crates/` Rust source
+  tree;
+- prototype boundaries are documented in
+  `docs/m3a9-durable-store-prototype.md`.
+
+Still not implemented in M3a-9:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

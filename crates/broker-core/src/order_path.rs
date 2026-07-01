@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::fmt::Write;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
+use rusqlite::{params, Connection, TransactionBehavior};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -315,6 +316,10 @@ pub enum OrderPathStoreError {
     UpdatedTimestampRegressed(StrategyRequestId),
     #[error("order-path store io error: {0}")]
     Io(String),
+    #[error("order-path store writer lock unavailable: {0}")]
+    WriterLockUnavailable(String),
+    #[error("order-path sqlite store error: {0}")]
+    Sqlite(String),
     #[error("order-path store serialization error: {0}")]
     Serialization(String),
 }
@@ -328,7 +333,7 @@ pub trait OrderPathStore {
     fn all_records(&self) -> Vec<OrderPathRecord>;
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct InMemoryOrderPathStore {
     by_request_id: HashMap<StrategyRequestId, OrderPathRecord>,
     request_by_client_id: HashMap<ClientOrderId, StrategyRequestId>,
@@ -563,6 +568,241 @@ impl OrderPathStore for JsonFileOrderPathStore {
     fn all_records(&self) -> Vec<OrderPathRecord> {
         self.inner.all_records()
     }
+}
+
+pub struct SqliteOrderPathStore {
+    path: PathBuf,
+    lock_path: PathBuf,
+    _writer_lock: File,
+    connection: Connection,
+    inner: InMemoryOrderPathStore,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SqliteOrderPathRedactedRecord {
+    pub request_id: StrategyRequestId,
+    pub client_order_id_fingerprint: RedactedValueFingerprint,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub broker_order_id_fingerprint: Option<RedactedValueFingerprint>,
+    pub account_id_fingerprint: RedactedValueFingerprint,
+    pub state: OrderPathState,
+    pub last_update_ts: DateTime<Utc>,
+}
+
+impl SqliteOrderPathStore {
+    pub fn open(path: impl Into<PathBuf>) -> Result<Self, OrderPathStoreError> {
+        let path = path.into();
+        if let Some(parent) = path.parent().filter(|path| !path.as_os_str().is_empty()) {
+            fs::create_dir_all(parent)
+                .map_err(|error| OrderPathStoreError::Io(error.to_string()))?;
+        }
+        let lock_path = sqlite_writer_lock_path(&path);
+        let writer_lock = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock_path)
+            .map_err(|error| OrderPathStoreError::WriterLockUnavailable(error.to_string()))?;
+        let connection = Connection::open(&path).map_err(sqlite_store_error)?;
+        let mut store = Self {
+            path,
+            lock_path,
+            _writer_lock: writer_lock,
+            connection,
+            inner: InMemoryOrderPathStore::default(),
+        };
+        if let Err(error) = store.initialize_and_load() {
+            let _ = fs::remove_file(&store.lock_path);
+            return Err(error);
+        }
+        Ok(store)
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn lock_path(&self) -> &Path {
+        &self.lock_path
+    }
+
+    pub fn redacted_records(&self) -> Vec<SqliteOrderPathRedactedRecord> {
+        let mut records: Vec<_> =
+            self.inner
+                .all_records()
+                .into_iter()
+                .map(|record| SqliteOrderPathRedactedRecord {
+                    request_id: record.request_id,
+                    client_order_id_fingerprint: fingerprint_redacted_value(
+                        record.client_order_id.as_str(),
+                    ),
+                    broker_order_id_fingerprint: record.broker_order_id.as_ref().map(
+                        |broker_order_id| fingerprint_redacted_value(broker_order_id.as_str()),
+                    ),
+                    account_id_fingerprint: fingerprint_redacted_value(record.account_id.as_str()),
+                    state: record.state,
+                    last_update_ts: record.last_update_ts,
+                })
+                .collect();
+        records.sort_by(|left, right| {
+            left.request_id
+                .to_string()
+                .cmp(&right.request_id.to_string())
+        });
+        records
+    }
+
+    fn initialize_and_load(&mut self) -> Result<(), OrderPathStoreError> {
+        self.connection
+            .execute_batch(
+                r#"
+                PRAGMA journal_mode = WAL;
+                PRAGMA synchronous = FULL;
+                PRAGMA foreign_keys = ON;
+                PRAGMA busy_timeout = 5000;
+                CREATE TABLE IF NOT EXISTS order_path_records (
+                    request_id TEXT PRIMARY KEY,
+                    client_order_id TEXT NOT NULL UNIQUE,
+                    broker_order_id TEXT UNIQUE,
+                    state TEXT NOT NULL,
+                    last_update_ts TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                );
+                "#,
+            )
+            .map_err(sqlite_store_error)?;
+        self.inner = self.load_inner_from_sqlite()?;
+        Ok(())
+    }
+
+    fn load_inner_from_sqlite(&self) -> Result<InMemoryOrderPathStore, OrderPathStoreError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT payload FROM order_path_records ORDER BY request_id")
+            .map_err(sqlite_store_error)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(sqlite_store_error)?;
+        let mut inner = InMemoryOrderPathStore::default();
+        for row in rows {
+            let payload = row.map_err(sqlite_store_error)?;
+            let record: OrderPathRecord = serde_json::from_str(&payload)
+                .map_err(|error| OrderPathStoreError::Serialization(error.to_string()))?;
+            inner.insert_intent(record)?;
+        }
+        Ok(inner)
+    }
+
+    fn insert_record_sql(&mut self, record: &OrderPathRecord) -> Result<(), OrderPathStoreError> {
+        let payload = serde_json::to_string(record)
+            .map_err(|error| OrderPathStoreError::Serialization(error.to_string()))?;
+        let broker_order_id = record.broker_order_id.as_ref().map(|value| value.as_str());
+        let state = format!("{:?}", record.state);
+        let last_update_ts = record.last_update_ts.to_rfc3339();
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(sqlite_store_error)?;
+        transaction
+            .execute(
+                "INSERT INTO order_path_records \
+                 (request_id, client_order_id, broker_order_id, state, last_update_ts, payload) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    record.request_id.to_string(),
+                    record.client_order_id.as_str(),
+                    broker_order_id,
+                    state,
+                    last_update_ts,
+                    payload
+                ],
+            )
+            .map_err(sqlite_store_error)?;
+        transaction.commit().map_err(sqlite_store_error)?;
+        Ok(())
+    }
+
+    fn update_record_sql(&mut self, record: &OrderPathRecord) -> Result<(), OrderPathStoreError> {
+        let payload = serde_json::to_string(record)
+            .map_err(|error| OrderPathStoreError::Serialization(error.to_string()))?;
+        let broker_order_id = record.broker_order_id.as_ref().map(|value| value.as_str());
+        let state = format!("{:?}", record.state);
+        let last_update_ts = record.last_update_ts.to_rfc3339();
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(sqlite_store_error)?;
+        let affected = transaction
+            .execute(
+                "UPDATE order_path_records \
+                 SET client_order_id = ?2, broker_order_id = ?3, state = ?4, \
+                     last_update_ts = ?5, payload = ?6 \
+                 WHERE request_id = ?1",
+                params![
+                    record.request_id.to_string(),
+                    record.client_order_id.as_str(),
+                    broker_order_id,
+                    state,
+                    last_update_ts,
+                    payload
+                ],
+            )
+            .map_err(sqlite_store_error)?;
+        if affected != 1 {
+            return Err(OrderPathStoreError::RecordNotFound(record.request_id));
+        }
+        transaction.commit().map_err(sqlite_store_error)?;
+        Ok(())
+    }
+}
+
+impl Drop for SqliteOrderPathStore {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.lock_path);
+    }
+}
+
+impl OrderPathStore for SqliteOrderPathStore {
+    fn insert_intent(&mut self, record: OrderPathRecord) -> Result<(), OrderPathStoreError> {
+        let mut next_inner = self.inner.clone();
+        next_inner.insert_intent(record.clone())?;
+        self.insert_record_sql(&record)?;
+        self.inner = next_inner;
+        Ok(())
+    }
+
+    fn load_by_request_id(&self, request_id: StrategyRequestId) -> Option<OrderPathRecord> {
+        self.inner.load_by_request_id(request_id)
+    }
+
+    fn load_by_client_order_id(&self, client_order_id: &ClientOrderId) -> Option<OrderPathRecord> {
+        self.inner.load_by_client_order_id(client_order_id)
+    }
+
+    fn load_by_broker_order_id(&self, broker_order_id: &BrokerOrderId) -> Option<OrderPathRecord> {
+        self.inner.load_by_broker_order_id(broker_order_id)
+    }
+
+    fn update_record(&mut self, record: OrderPathRecord) -> Result<(), OrderPathStoreError> {
+        let mut next_inner = self.inner.clone();
+        next_inner.update_record(record.clone())?;
+        self.update_record_sql(&record)?;
+        self.inner = next_inner;
+        Ok(())
+    }
+
+    fn all_records(&self) -> Vec<OrderPathRecord> {
+        self.inner.all_records()
+    }
+}
+
+fn sqlite_writer_lock_path(path: &Path) -> PathBuf {
+    let mut lock_path = path.to_path_buf();
+    lock_path.set_extension("writer.lock");
+    lock_path
+}
+
+fn sqlite_store_error(error: rusqlite::Error) -> OrderPathStoreError {
+    OrderPathStoreError::Sqlite(error.to_string())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1295,6 +1535,8 @@ pub enum OrderPathReconciliationError {
     RecordNotFoundByClientOrderId(ClientOrderId),
     #[error("order-path record already has broker_order_id: {0}")]
     BrokerOrderIdAlreadySet(StrategyRequestId),
+    #[error("order-path broker_order_id mismatch for request: {0}")]
+    BrokerOrderIdMismatch(StrategyRequestId),
     #[error("order-path state is not client-id-recoverable for request {request_id}: {state:?}")]
     StateNotRecoverableByClientOrderId {
         request_id: StrategyRequestId,
@@ -1320,8 +1562,11 @@ where
         .ok_or_else(|| {
             OrderPathReconciliationError::RecordNotFoundByClientOrderId(client_order_id.clone())
         })?;
-    if record.broker_order_id.is_some() {
-        return Err(OrderPathReconciliationError::BrokerOrderIdAlreadySet(
+    if let Some(existing_broker_order_id) = record.broker_order_id.as_ref() {
+        if existing_broker_order_id == &broker_order_id {
+            return Ok(record);
+        }
+        return Err(OrderPathReconciliationError::BrokerOrderIdMismatch(
             record.request_id,
         ));
     }
@@ -1480,6 +1725,13 @@ mod tests {
         std::env::temp_dir().join(format!("moex_trading_order_path_{name}_{unique}.json"))
     }
 
+    fn cleanup_sqlite_store(path: &Path) {
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(sqlite_writer_lock_path(path));
+        let _ = std::fs::remove_file(PathBuf::from(format!("{}-wal", path.to_string_lossy())));
+        let _ = std::fs::remove_file(PathBuf::from(format!("{}-shm", path.to_string_lossy())));
+    }
+
     #[test]
     fn order_path_state_machine_follows_submit_timeout_recovery() {
         let now = Utc::now();
@@ -1593,16 +1845,25 @@ mod tests {
             CancelPreflightApproval::Submit(_)
         ));
 
-        let duplicate_recovery = recover_order_path_by_client_order_id(
+        let idempotent_recovery = recover_order_path_by_client_order_id(
+            &mut store,
+            &order.client_order_id,
+            BrokerOrderId::new("BROKER_TEST_RECOVERED_50"),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .expect("same broker truth fact is idempotent");
+        assert_eq!(idempotent_recovery, recovered);
+
+        let mismatched_recovery = recover_order_path_by_client_order_id(
             &mut store,
             &order.client_order_id,
             BrokerOrderId::new("BROKER_TEST_OTHER_50"),
-            now + chrono::Duration::milliseconds(2),
+            now + chrono::Duration::milliseconds(3),
         )
-        .expect_err("broker id can be set only once");
+        .expect_err("different broker id for same client id must fail");
         assert_eq!(
-            duplicate_recovery,
-            OrderPathReconciliationError::BrokerOrderIdAlreadySet(order.request_id)
+            mismatched_recovery,
+            OrderPathReconciliationError::BrokerOrderIdMismatch(order.request_id)
         );
     }
 
@@ -2003,6 +2264,189 @@ mod tests {
 
         let _ = std::fs::remove_file(inflight_path);
         let _ = std::fs::remove_file(submitted_path);
+    }
+
+    #[test]
+    fn sqlite_order_path_store_uses_wal_and_single_writer_lock() {
+        let path = temp_store_path("sqlite_wal");
+        cleanup_sqlite_store(&path);
+        let store = SqliteOrderPathStore::open(&path).expect("open sqlite store");
+
+        let journal_mode: String = store
+            .connection
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .expect("journal mode");
+        let synchronous: i64 = store
+            .connection
+            .query_row("PRAGMA synchronous", [], |row| row.get(0))
+            .expect("synchronous");
+        assert_eq!(journal_mode.to_ascii_lowercase(), "wal");
+        assert_eq!(synchronous, 2);
+        assert!(store.lock_path().exists());
+        assert!(matches!(
+            SqliteOrderPathStore::open(&path),
+            Err(OrderPathStoreError::WriterLockUnavailable(_))
+        ));
+
+        drop(store);
+        assert!(!sqlite_writer_lock_path(&path).exists());
+        cleanup_sqlite_store(&path);
+    }
+
+    #[test]
+    fn sqlite_order_path_store_persists_unique_records_and_reopens() {
+        let now = Utc::now();
+        let path = temp_store_path("sqlite_persist");
+        cleanup_sqlite_store(&path);
+        let order = place_order(request_id(54), "CID000000000000054");
+        let mut record = OrderPathRecord::from_place_order(&order, now, None);
+        record
+            .transition(OrderPathEvent::BeginSubmit, now)
+            .expect("begin submit before persist");
+
+        {
+            let mut store = SqliteOrderPathStore::open(&path).expect("open sqlite store");
+            store.insert_intent(record.clone()).expect("insert record");
+            assert!(matches!(
+                store.insert_intent(OrderPathRecord::from_place_order(&order, now, None)),
+                Err(OrderPathStoreError::DuplicateStrategyRequestId(_))
+            ));
+        }
+        {
+            let mut store = SqliteOrderPathStore::open(&path).expect("reopen sqlite store");
+            let mut loaded = store
+                .load_by_request_id(order.request_id)
+                .expect("record survives reopen");
+            assert_eq!(loaded.state, OrderPathState::SubmitInFlight);
+            loaded
+                .recover_after_restart(now + chrono::Duration::seconds(1))
+                .expect("recover inflight after restart");
+            store
+                .update_record(loaded.clone())
+                .expect("persist recovered state");
+        }
+        {
+            let store = SqliteOrderPathStore::open(&path).expect("reopen recovered sqlite store");
+            assert_eq!(
+                store
+                    .load_by_client_order_id(&order.client_order_id)
+                    .expect("client id lookup")
+                    .state,
+                OrderPathState::TimeoutUnknownPending
+            );
+        }
+
+        cleanup_sqlite_store(&path);
+    }
+
+    #[test]
+    fn sqlite_order_path_store_preserves_cancel_and_pending_states_after_reopen() {
+        let now = Utc::now();
+        let path = temp_store_path("sqlite_reopen_states");
+        cleanup_sqlite_store(&path);
+
+        let cancel_order_place = place_order(request_id(55), "CID000000000000055");
+        let mut cancel_requested =
+            OrderPathRecord::from_place_order(&cancel_order_place, now, None);
+        cancel_requested.broker_order_id = Some(BrokerOrderId::new("BROKER_TEST_SQLITE_55"));
+        cancel_requested
+            .transition(OrderPathEvent::BeginSubmit, now)
+            .expect("begin");
+        cancel_requested
+            .transition(OrderPathEvent::SubmitAccepted, now)
+            .expect("submit accepted");
+        cancel_requested
+            .transition(
+                OrderPathEvent::RequestCancel,
+                now + chrono::Duration::milliseconds(1),
+            )
+            .expect("request cancel");
+
+        let pending_order = place_order(request_id(56), "CID000000000000056");
+        let mut submitted_pending = OrderPathRecord::from_place_order(&pending_order, now, None);
+        submitted_pending
+            .transition(OrderPathEvent::BeginSubmit, now)
+            .expect("begin pending");
+        submitted_pending
+            .transition(
+                OrderPathEvent::SubmitAcceptedWithoutBrokerOrderId,
+                now + chrono::Duration::milliseconds(1),
+            )
+            .expect("accepted without id");
+
+        {
+            let mut store = SqliteOrderPathStore::open(&path).expect("open sqlite store");
+            store
+                .insert_intent(cancel_requested.clone())
+                .expect("insert cancel requested");
+            store
+                .insert_intent(submitted_pending.clone())
+                .expect("insert submitted pending");
+        }
+        {
+            let store = SqliteOrderPathStore::open(&path).expect("reopen sqlite store");
+            assert_eq!(
+                store
+                    .load_by_request_id(cancel_requested.request_id)
+                    .expect("cancel requested")
+                    .state,
+                OrderPathState::CancelRequested
+            );
+            assert_eq!(
+                store
+                    .load_by_request_id(submitted_pending.request_id)
+                    .expect("submitted pending")
+                    .state,
+                OrderPathState::SubmittedPendingBrokerOrderId
+            );
+        }
+
+        cleanup_sqlite_store(&path);
+    }
+
+    #[test]
+    fn sqlite_order_path_store_redacted_export_omits_raw_ids() {
+        let now = Utc::now();
+        let path = temp_store_path("sqlite_redacted");
+        cleanup_sqlite_store(&path);
+        let order = place_order(request_id(57), "CID000000000000057");
+        let mut record = OrderPathRecord::from_place_order(&order, now, None);
+        record.broker_order_id = Some(BrokerOrderId::new("BROKER_TEST_SQLITE_57"));
+        record
+            .transition(OrderPathEvent::BeginSubmit, now)
+            .expect("begin");
+        record
+            .transition(OrderPathEvent::SubmitAccepted, now)
+            .expect("submitted");
+
+        let mut store = SqliteOrderPathStore::open(&path).expect("open sqlite store");
+        store.insert_intent(record).expect("insert record");
+        let redacted_json =
+            serde_json::to_string(&store.redacted_records()).expect("redacted export serializes");
+
+        assert!(redacted_json.contains("client_order_id_fingerprint"));
+        assert!(redacted_json.contains("broker_order_id_fingerprint"));
+        assert!(!redacted_json.contains("CID000000000000057"));
+        assert!(!redacted_json.contains("BROKER_TEST_SQLITE_57"));
+        assert!(!redacted_json.contains("ACC_TEST_0001"));
+
+        drop(store);
+        cleanup_sqlite_store(&path);
+    }
+
+    #[test]
+    fn sqlite_order_path_store_blocks_corrupt_database() {
+        let path = temp_store_path("sqlite_corrupt");
+        cleanup_sqlite_store(&path);
+        std::fs::write(&path, "not a sqlite database").expect("write corrupt file");
+
+        assert!(matches!(
+            SqliteOrderPathStore::open(&path),
+            Err(OrderPathStoreError::Sqlite(_))
+        ));
+        assert!(!sqlite_writer_lock_path(&path).exists());
+
+        cleanup_sqlite_store(&path);
     }
 
     #[test]

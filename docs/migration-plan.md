@@ -627,6 +627,36 @@ M3a-8 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3a-9 reconciliation idempotency / SQLite-WAL durable store prototype:
+
+- Client-id recovery is idempotent: repeated broker-truth facts with the same
+  `client_order_id` and same `broker_order_id` return the existing recovered
+  record without raising an operator-visible error.
+- Client-id recovery with a different broker id for the same client id returns
+  a mismatch error, while duplicate broker ids mapped to another request remain
+  rejected by the store.
+- `broker-core` adds `SqliteOrderPathStore` as a dry prototype backend with
+  WAL, `synchronous=FULL`, `BEGIN IMMEDIATE` transactions, unique
+  request/client/broker ids, sidecar single-writer lock, crash/reopen tests, and
+  redacted export tests.
+- SQLite prototype tests cover `SubmitInFlight`, `CancelRequested`, and
+  `SubmittedPendingBrokerOrderId` reopening behavior, corrupt database open
+  failure, and second writer rejection.
+- Approved-only source-scan coverage now walks the whole `crates/` Rust source
+  tree instead of only current order-adjacent files.
+- `docs/m3a9-durable-store-prototype.md` records the prototype boundaries and
+  what remains before real endpoint use.
+
+M3a-9 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

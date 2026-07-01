@@ -20,6 +20,8 @@ responses and broker-truth recovery.
 | place timeout | `TimeoutUnknownPending` | `Timeout` / `TransportTimeout` | blocked until broker-truth recovery or manual decision |
 | place rejected | `BrokerRejected` | `Rejected` / broker-safe code | terminal/local no cancel submit |
 | client-id recovery finds broker id | `RecoveredByClientOrderId` | recovery fact via broker truth | allowed after normal cancel preflight |
+| repeated client-id recovery with same broker id | unchanged recovered record | idempotent success | no false operator alert |
+| repeated client-id recovery with different broker id | unchanged record | reconciliation mismatch error | operator-visible issue |
 | client-id recovery finds duplicate broker id | unchanged pending record | store error, no public raw id | blocked; operator-visible reconciliation issue |
 | client-id recovery on non-recoverable state | unchanged record | reconciliation error | blocked unless normal preflight already permits state |
 
@@ -78,3 +80,12 @@ cancel(cancel: CancelOrder)
 ```
 
 M3a-8 adds source-scan coverage for this rule across the order-adjacent crates.
+M3a-9 expands it to the whole `crates/` Rust source tree so newly added crates
+or modules must also preserve the approved-only boundary.
+
+## Durable store note
+
+M3a-9 adds a SQLite/WAL prototype with `BEGIN IMMEDIATE` writes, unique
+request/client/broker ids, a sidecar single-writer lock, crash/reopen tests, and
+redacted export. It is still dry/non-network and does not authorize real FINAM
+order endpoints.

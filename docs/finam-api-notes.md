@@ -249,6 +249,8 @@ Implementation notes from the first review:
   execution simulation, still without FINAM order endpoint calls;
 - M3a-8 adds dry client-id recovery, cancel accepted broker-id mismatch policy,
   and source-scan boundary coverage, still without FINAM order endpoint calls;
+- M3a-9 adds idempotent recovery and a SQLite/WAL durable-store prototype,
+  still without FINAM order endpoint calls;
 - raw `serde_json::Value` is acceptable only for the shape probe. Typed DTOs and
   mappers are required before Redis gateway/readiness work.
 

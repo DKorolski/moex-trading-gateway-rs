@@ -321,6 +321,10 @@ M3a-8 keeps cancel accepted broker-id mismatch ACKs redacted. Redis may expose
 `UnknownPending` / `ManualInterventionRequired`, while full returned/mapped
 broker-id comparison remains inside the protected order-path store and logs.
 
+M3a-9 does not change Redis stream scope. The SQLite prototype may export
+redacted diagnostics locally, but no new Redis order/ACK lifecycle or live
+command stream is enabled.
+
 ## Retention policy
 
 M2c defaults use approximate Redis stream trimming for health/readiness/

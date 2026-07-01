@@ -23,8 +23,9 @@ accepted-without-broker-id reconciliation policy, dry cancel execution
 simulation, cancel no-blind-retry tests, and the SQLite/WAL implementation
 ticket. M3a-8 adds a dry recovery-by-client-order-id helper, cancel accepted
 broker-id mismatch policy, source-scan boundary tests, and an
-ACK/reconciliation state matrix. It does not call FINAM endpoints and is not a
-live command consumer.
+ACK/reconciliation state matrix. M3a-9 adds idempotent recovery, a
+SQLite/WAL durable-store prototype, and workspace-wide source-scan coverage. It
+does not call FINAM endpoints and is not a live command consumer.
 
 M3 scope is deliberately small:
 
@@ -71,6 +72,12 @@ M3a-8 proves the recovery happy path: broker truth may resolve
 `RecoveredByClientOrderId`, and only then allow cancel preflight. It also
 defines cancel accepted response policy: a returned broker order id must match
 the mapped cancel id; a mismatch requires manual intervention.
+
+M3a-9 makes repeated broker-truth polling idempotent: the same
+`client_order_id -> broker_order_id` fact is a no-op success after recovery,
+while a different broker id for the same client id remains a reconciliation
+mismatch. The SQLite/WAL prototype proves the durable-store direction without
+authorizing live endpoint use.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.
@@ -225,6 +232,11 @@ regress.
 M3a-4 makes `BrokerOrderId` a unique secondary key across records. Duplicate
 broker ids are rejected on insert, update, and JSON-file reopen because cancel
 and reconciliation by broker id must never be ambiguous.
+
+M3a-9 adds `SqliteOrderPathStore` as the first dry SQLite/WAL prototype. It uses
+WAL, `synchronous=FULL`, `BEGIN IMMEDIATE` write transactions, unique
+request/client/broker ids, a sidecar single-writer lock, and redacted exports.
+It remains non-network and is not yet wired to any live endpoint path.
 
 Primary key:
 

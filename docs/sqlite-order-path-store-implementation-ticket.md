@@ -1,8 +1,9 @@
 # SQLite order-path store implementation ticket
 
-Status: design ticket for the first production-grade durable store. This does
-not authorize FINAM order endpoints, real command consumption, runtime strategy
-attachment, `LiveReady`, live micro, stop/SLTP, or bracket behavior.
+Status: design ticket plus M3a-9 dry prototype notes for the first
+production-grade durable store. This does not authorize FINAM order endpoints,
+real command consumption, runtime strategy attachment, `LiveReady`, live micro,
+stop/SLTP, or bracket behavior.
 
 ## Goal
 
@@ -12,7 +13,7 @@ state before any future network call.
 
 ## Required schema
 
-Minimum table:
+Target production table:
 
 ```sql
 CREATE TABLE order_path_records (
@@ -50,6 +51,9 @@ Notes:
   comments must not be exported by default.
 - A protected local operator view may join full ids only if file permissions and
   export redaction are explicit.
+- M3a-9 prototype uses a smaller indexed table plus serialized
+  `OrderPathRecord` payload while the production schema is still being
+  finalized.
 
 ## Transaction contract
 
@@ -94,6 +98,10 @@ Order-path writes must be owned by one process/actor. Concurrent writers are not
 allowed for first live micro. If a second process cannot acquire the writer
 lease/lock, order emission is blocked.
 
+M3a-9 prototype implements this as a sidecar writer-lock file and rejects a
+second writer in local tests. Stale-lock recovery policy remains a future
+review item.
+
 ## Recovery behavior
 
 On startup:
@@ -119,3 +127,24 @@ On startup:
 - corruption/open failure blocks endpoint emission;
 - redacted export omits account ids, broker ids, comments, secrets, JWTs, and raw
   broker payload fragments.
+
+## M3a-9 prototype status
+
+Implemented in dry code only:
+
+- SQLite/WAL startup with `synchronous=FULL`;
+- `BEGIN IMMEDIATE` write transactions;
+- unique request/client/broker ids;
+- sidecar single-writer lock;
+- crash/reopen tests for `SubmitInFlight`, `CancelRequested`, and
+  `SubmittedPendingBrokerOrderId`;
+- corrupt database open failure blocks use;
+- redacted export tests.
+
+Still required before real endpoint use:
+
+- production schema migration/versioning;
+- operator-audited file permissions;
+- stale writer-lock recovery policy;
+- live endpoint integration gate;
+- protected full-id diagnostic view.
