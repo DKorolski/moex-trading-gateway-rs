@@ -14,8 +14,12 @@ price/notional/slippage guards, and synthetic ACK construction. M3a-3 hardens
 cancel mapping, raw command-comment rejection, store update invariants, tick
 scale tests, and limit-band boundary tests. M3a-4 adds broker-order-id
 uniqueness, cancel timeout/no-blind-retry states, safe ACK reason codes, and dry
-FINAM place/cancel request builders without HTTP send. It does not call FINAM
-endpoints and is not a live command consumer.
+FINAM place/cancel request builders without HTTP send. M3a-5 adds
+preflight-approved request-builder markers and mock-only redacted ACK
+publication. M3a-6 adds an approved-only mock execution client, dry execution
+simulator, no-blind-retry simulator tests, operator re-arm workflow tests, and
+dry window/backoff rate-limit policy. It does not call FINAM endpoints and is
+not a live command consumer.
 
 M3 scope is deliberately small:
 
@@ -46,6 +50,11 @@ M3a-5 implements only a mock/dry ACK publisher. It is allowed to publish
 synthetic `CommandAck` envelopes while live command/order/cancel features are
 disabled, but it is not a real FINAM ACK lifecycle and is not connected to
 strategy command streams.
+
+M3a-6 fixes the ACK contract direction: runtime-facing ACKs remain redacted,
+and full broker/client id correlation belongs to the durable mapping store plus
+broker-truth reconciliation. See
+`docs/m3a6-execution-simulator-decisions.md`.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

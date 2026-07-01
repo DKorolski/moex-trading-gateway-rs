@@ -530,6 +530,38 @@ M3a-5 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3a-6 mock network boundary / execution simulator:
+
+- `broker-finam` defines an approved-only execution client trait. The mock
+  implementation accepts only FINAM request specs, never raw `PlaceOrder` /
+  `CancelOrder` commands.
+- Mock execution outcomes cover accepted, rejected, and timeout paths while
+  storing only redacted diagnostics.
+- `finam-gateway` adds a dry place-order execution simulator:
+  preflight-approved command -> request spec -> persisted `BeginSubmit` ->
+  mock execution -> state-machine transition -> synthetic ACK.
+- Accepted place execution moves to `Submitted`; rejected execution moves to
+  `BrokerRejected`; timeout moves to `TimeoutUnknownPending`.
+- No-blind-retry is tested: a second submit attempt from
+  `TimeoutUnknownPending` fails before the mock client is called.
+- Operator safety workflow now includes explicit re-arm after operator-visible
+  disarm.
+- Dry rate-limit policy now includes a window reset and backoff state.
+- ACK and durable-store decisions are documented in
+  `docs/m3a6-execution-simulator-decisions.md`: runtime ACKs remain redacted,
+  and SQLite/WAL is the selected production-store direction for first real
+  endpoint path.
+
+M3a-6 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

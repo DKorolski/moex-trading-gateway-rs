@@ -1,6 +1,7 @@
+use async_trait::async_trait;
 use broker_core::{
-    OrderSide, OrderType, OutgoingOrderComment, PreflightApprovedCancelOrder,
-    PreflightApprovedPlaceOrder, TimeInForce,
+    BrokerOrderId, CommandAckReasonCode, OrderSide, OrderType, OutgoingOrderComment,
+    PreflightApprovedCancelOrder, PreflightApprovedPlaceOrder, TimeInForce,
 };
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -297,6 +298,143 @@ impl FinamDryOrderClient for MockFinamDryOrderClient {
         };
         self.requests.push(diagnostic.clone());
         diagnostic
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FinamOrderExecutionOutcome {
+    Accepted {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        broker_order_id: Option<BrokerOrderId>,
+    },
+    Rejected {
+        reason_code: CommandAckReasonCode,
+    },
+    Timeout,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FinamMockExecutionDiagnosticOutcome {
+    Accepted {
+        broker_order_id_present: bool,
+        broker_order_id_len: Option<usize>,
+    },
+    Rejected {
+        reason_code: CommandAckReasonCode,
+    },
+    Timeout,
+}
+
+impl From<&FinamOrderExecutionOutcome> for FinamMockExecutionDiagnosticOutcome {
+    fn from(outcome: &FinamOrderExecutionOutcome) -> Self {
+        match outcome {
+            FinamOrderExecutionOutcome::Accepted { broker_order_id } => {
+                FinamMockExecutionDiagnosticOutcome::Accepted {
+                    broker_order_id_present: broker_order_id.is_some(),
+                    broker_order_id_len: broker_order_id.as_ref().map(|value| value.as_str().len()),
+                }
+            }
+            FinamOrderExecutionOutcome::Rejected { reason_code } => {
+                FinamMockExecutionDiagnosticOutcome::Rejected {
+                    reason_code: *reason_code,
+                }
+            }
+            FinamOrderExecutionOutcome::Timeout => FinamMockExecutionDiagnosticOutcome::Timeout,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinamMockExecutionRecord {
+    pub kind: FinamDryOrderRequestKind,
+    pub request: FinamDryOrderRequestDiagnostic,
+    pub outcome: FinamMockExecutionDiagnosticOutcome,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum FinamOrderExecutionError {
+    #[error("mock FINAM order execution script exhausted")]
+    MockScriptExhausted,
+}
+
+#[async_trait]
+pub trait FinamApprovedOrderExecutionClient: Send {
+    async fn place_approved(
+        &mut self,
+        spec: FinamPlaceOrderRequestSpec,
+    ) -> Result<FinamOrderExecutionOutcome, FinamOrderExecutionError>;
+
+    async fn cancel_approved(
+        &mut self,
+        spec: FinamCancelOrderRequestSpec,
+    ) -> Result<FinamOrderExecutionOutcome, FinamOrderExecutionError>;
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct MockFinamApprovedOrderExecutionClient {
+    script: Vec<FinamOrderExecutionOutcome>,
+    next_index: usize,
+    records: Vec<FinamMockExecutionRecord>,
+}
+
+impl MockFinamApprovedOrderExecutionClient {
+    pub fn new(script: Vec<FinamOrderExecutionOutcome>) -> Self {
+        Self {
+            script,
+            next_index: 0,
+            records: Vec::new(),
+        }
+    }
+
+    pub fn records(&self) -> &[FinamMockExecutionRecord] {
+        &self.records
+    }
+
+    fn next_outcome(&mut self) -> Result<FinamOrderExecutionOutcome, FinamOrderExecutionError> {
+        let outcome = self
+            .script
+            .get(self.next_index)
+            .cloned()
+            .ok_or(FinamOrderExecutionError::MockScriptExhausted)?;
+        self.next_index += 1;
+        Ok(outcome)
+    }
+}
+
+#[async_trait]
+impl FinamApprovedOrderExecutionClient for MockFinamApprovedOrderExecutionClient {
+    async fn place_approved(
+        &mut self,
+        spec: FinamPlaceOrderRequestSpec,
+    ) -> Result<FinamOrderExecutionOutcome, FinamOrderExecutionError> {
+        let outcome = self.next_outcome()?;
+        self.records.push(FinamMockExecutionRecord {
+            kind: FinamDryOrderRequestKind::Place,
+            request: FinamDryOrderRequestDiagnostic {
+                kind: FinamDryOrderRequestKind::Place,
+                path: spec.redacted_path_shape(),
+                body: Some(spec.redacted_body_shape()),
+            },
+            outcome: FinamMockExecutionDiagnosticOutcome::from(&outcome),
+        });
+        Ok(outcome)
+    }
+
+    async fn cancel_approved(
+        &mut self,
+        spec: FinamCancelOrderRequestSpec,
+    ) -> Result<FinamOrderExecutionOutcome, FinamOrderExecutionError> {
+        let outcome = self.next_outcome()?;
+        self.records.push(FinamMockExecutionRecord {
+            kind: FinamDryOrderRequestKind::Cancel,
+            request: FinamDryOrderRequestDiagnostic {
+                kind: FinamDryOrderRequestKind::Cancel,
+                path: spec.redacted_path_shape(),
+                body: None,
+            },
+            outcome: FinamMockExecutionDiagnosticOutcome::from(&outcome),
+        });
+        Ok(outcome)
     }
 }
 

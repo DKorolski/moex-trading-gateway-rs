@@ -706,6 +706,21 @@ impl OperatorArm {
             endpoint_calls_enabled: self.endpoint_calls_enabled,
         }
     }
+
+    pub fn rearm(
+        &mut self,
+        session_id: impl Into<String>,
+        armed_until: DateTime<Utc>,
+        preflight_digest: impl Into<String>,
+        one_shot: bool,
+    ) {
+        self.session_id = session_id.into();
+        self.armed_until = armed_until;
+        self.preflight_digest = preflight_digest.into();
+        self.one_shot = one_shot;
+        self.endpoint_attempted = false;
+        self.endpoint_calls_enabled = true;
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1062,6 +1077,94 @@ pub enum DryOrderRateLimitError {
     CapacityExhausted,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DryOrderRateWindow {
+    pub capacity: u32,
+    pub used: u32,
+    pub window_started_ts: DateTime<Utc>,
+    pub window_ms: u64,
+    pub backoff_until: Option<DateTime<Utc>>,
+}
+
+impl DryOrderRateWindow {
+    pub fn new(capacity: u32, window_ms: u64, now: DateTime<Utc>) -> Self {
+        Self {
+            capacity,
+            used: 0,
+            window_started_ts: now,
+            window_ms: window_ms.max(1),
+            backoff_until: None,
+        }
+    }
+
+    pub fn with_backoff_until(mut self, backoff_until: DateTime<Utc>) -> Self {
+        self.backoff_until = Some(backoff_until);
+        self
+    }
+
+    pub fn remaining(&self, now: DateTime<Utc>) -> u32 {
+        if self.window_elapsed(now) {
+            self.capacity
+        } else {
+            self.capacity.saturating_sub(self.used)
+        }
+    }
+
+    pub fn try_consume(
+        &mut self,
+        now: DateTime<Utc>,
+        permits: u32,
+    ) -> Result<DryOrderRateWindowDecision, DryOrderRateWindowError> {
+        if let Some(backoff_until) = self.backoff_until {
+            if now < backoff_until {
+                return Err(DryOrderRateWindowError::BackoffActive {
+                    retry_after_ms: duration_ms_floor(backoff_until.signed_duration_since(now)),
+                });
+            }
+            self.backoff_until = None;
+        }
+        if self.window_elapsed(now) {
+            self.used = 0;
+            self.window_started_ts = now;
+        }
+        if permits == 0 {
+            return Ok(DryOrderRateWindowDecision {
+                remaining: self.remaining(now),
+            });
+        }
+        if self.remaining(now) < permits {
+            let reset_after = chrono::Duration::milliseconds(self.window_ms as i64)
+                - now.signed_duration_since(self.window_started_ts);
+            return Err(DryOrderRateWindowError::CapacityExhausted {
+                reset_after_ms: duration_ms_floor(reset_after),
+            });
+        }
+        self.used += permits;
+        Ok(DryOrderRateWindowDecision {
+            remaining: self.remaining(now),
+        })
+    }
+
+    fn window_elapsed(&self, now: DateTime<Utc>) -> bool {
+        now.signed_duration_since(self.window_started_ts)
+            .num_milliseconds()
+            >= self.window_ms as i64
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DryOrderRateWindowDecision {
+    pub remaining: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum DryOrderRateWindowError {
+    #[error("dry order rate window capacity exhausted; reset after {reset_after_ms} ms")]
+    CapacityExhausted { reset_after_ms: u64 },
+    #[error("dry order rate backoff active; retry after {retry_after_ms} ms")]
+    BackoffActive { retry_after_ms: u64 },
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OrderReferencePrice {
     pub price: Price,
@@ -1169,6 +1272,10 @@ fn validate_command_ttl(
     } else {
         Ok(())
     }
+}
+
+fn duration_ms_floor(duration: chrono::Duration) -> u64 {
+    duration.num_milliseconds().max(0) as u64
 }
 
 fn is_decimal_multiple(value: Decimal, step: Decimal) -> bool {
@@ -1814,6 +1921,32 @@ mod tests {
     }
 
     #[test]
+    fn operator_arm_can_be_rearmed_after_operator_visible_safety_disarm() {
+        let now = Utc::now();
+        let mut arm = sample_arm(now);
+
+        arm.disarm_for_safety_signal(OperatorDisarmSignal::RuntimeBridgeDeadLetter);
+        assert_eq!(
+            arm.validate(now).expect_err("disarmed"),
+            OrderPreflightError::EndpointNotArmed
+        );
+
+        arm.rearm(
+            "ARM_TEST_2",
+            now + chrono::Duration::minutes(10),
+            "digest-test-2",
+            true,
+        );
+
+        arm.validate(now).expect("rearmed arm is valid");
+        arm.record_endpoint_attempt();
+        assert_eq!(
+            arm.validate(now).expect_err("one-shot consumed"),
+            OrderPreflightError::OneShotAlreadyUsed
+        );
+    }
+
+    #[test]
     fn preflight_accepts_valid_limit_order() {
         let now = Utc::now();
         let policy = preflight_policy(now);
@@ -1903,6 +2036,57 @@ mod tests {
             DryOrderRateLimitError::CapacityExhausted
         );
         assert_eq!(rate_limit.used, 2);
+    }
+
+    #[test]
+    fn dry_order_rate_window_resets_and_respects_backoff() {
+        let now = Utc::now();
+        let mut window = DryOrderRateWindow::new(2, 1_000, now);
+
+        assert_eq!(
+            window.try_consume(now, 1).expect("first permit").remaining,
+            1
+        );
+        assert_eq!(
+            window
+                .try_consume(now + chrono::Duration::milliseconds(100), 1)
+                .expect("second permit")
+                .remaining,
+            0
+        );
+        assert_eq!(
+            window
+                .try_consume(now + chrono::Duration::milliseconds(200), 1)
+                .expect_err("window capacity exhausted"),
+            DryOrderRateWindowError::CapacityExhausted {
+                reset_after_ms: 800
+            }
+        );
+        assert_eq!(
+            window
+                .try_consume(now + chrono::Duration::milliseconds(1_000), 1)
+                .expect("window reset")
+                .remaining,
+            1
+        );
+
+        let mut backoff = DryOrderRateWindow::new(2, 1_000, now)
+            .with_backoff_until(now + chrono::Duration::milliseconds(500));
+        assert_eq!(
+            backoff
+                .try_consume(now + chrono::Duration::milliseconds(250), 1)
+                .expect_err("backoff active"),
+            DryOrderRateWindowError::BackoffActive {
+                retry_after_ms: 250
+            }
+        );
+        assert_eq!(
+            backoff
+                .try_consume(now + chrono::Duration::milliseconds(500), 1)
+                .expect("backoff elapsed")
+                .remaining,
+            1
+        );
     }
 
     #[test]

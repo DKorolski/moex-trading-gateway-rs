@@ -243,6 +243,8 @@ Implementation notes from the first review:
 - M3a-5 restricts dry order request builders to preflight-approved marker
   types, records only redacted mock-client diagnostics, and adds mock-only dry
   ACK Redis publication without FINAM order endpoint calls;
+- M3a-6 adds an approved-only mock execution boundary and simulator tests for
+  accepted/rejected/timeout outcomes, still without FINAM order endpoint calls;
 - raw `serde_json::Value` is acceptable only for the shape probe. Typed DTOs and
   mappers are required before Redis gateway/readiness work.
 

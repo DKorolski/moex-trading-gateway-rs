@@ -1,23 +1,30 @@
-//! FINAM gateway primitives for M2 read-only/shadow mode.
+//! FINAM gateway primitives for read-only/shadow and dry order-path modes.
 //!
-//! This crate intentionally does not contain order placement, cancel, ACK
-//! lifecycle, stop/SLTP, bracket, or runtime adaptation. It prepares the
-//! Redis/shadow publication boundary for health, readiness, broker-truth
-//! snapshots, read-only market data, retention, and degraded/stopped status
-//! reporting, plus a dry runtime-bridge consumer contract for typed decode and
-//! idempotency validation.
+//! This crate intentionally does not contain real FINAM order placement/cancel,
+//! real broker ACK lifecycle, stop/SLTP, bracket, or runtime adaptation. It
+//! prepares the Redis/shadow publication boundary for health, readiness,
+//! broker-truth snapshots, read-only market data, retention, and
+//! degraded/stopped status reporting, plus dry runtime-bridge and mock
+//! order-path contracts for typed decode, idempotency validation, synthetic ACK
+//! publication, and approved-only execution simulation.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use broker_core::account::PortfolioSnapshot;
-use broker_core::command::{BrokerCommand, CommandAck, CommandAckReason, CommandAckStatus};
+use broker_core::command::{
+    BrokerCommand, CommandAck, CommandAckReason, CommandAckReasonCode, CommandAckStatus,
+};
 use broker_core::envelope::{Envelope, MessageType, SCHEMA_VERSION};
 use broker_core::event::MarketDataEvent;
 use broker_core::ids::StrategyRequestId;
 use broker_core::order::Order;
 use broker_core::readiness::{BrokerReadiness, ReadinessPhase, ReadinessReason};
+use broker_core::{
+    OrderPathEvent, OrderPathState, OrderPathStore, OrderPathStoreError, OrderPathTransitionError,
+    OutgoingOrderComment, PreflightApprovedPlaceOrder,
+};
 use chrono::{DateTime, Utc};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -864,6 +871,97 @@ pub enum GatewayError {
     Mapper(#[from] broker_finam::FinamMapperError),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DryOrderExecutionOutcomeKind {
+    Submitted,
+    BrokerRejected,
+    TimeoutUnknownPending,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DryOrderExecutionReport {
+    pub ack: CommandAck,
+    pub state: OrderPathState,
+    pub submit_attempt_count: u32,
+    pub outcome: DryOrderExecutionOutcomeKind,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum DryOrderExecutionSimulatorError {
+    #[error("dry order execution missing order-path record: {request_id}")]
+    MissingOrderPathRecord { request_id: StrategyRequestId },
+    #[error("dry order request build error: {0}")]
+    RequestBuild(#[from] broker_finam::FinamOrderRequestBuildError),
+    #[error("dry order execution client error: {0}")]
+    Execution(#[from] broker_finam::FinamOrderExecutionError),
+    #[error("dry order-path store error: {0}")]
+    Store(#[from] OrderPathStoreError),
+    #[error("dry order-path transition error: {0}")]
+    Transition(#[from] OrderPathTransitionError),
+}
+
+pub async fn simulate_place_order_approved<S, C>(
+    store: &mut S,
+    client: &mut C,
+    approved: &PreflightApprovedPlaceOrder,
+    outgoing_comment: Option<&OutgoingOrderComment>,
+    begin_ts: DateTime<Utc>,
+    outcome_ts: DateTime<Utc>,
+) -> Result<DryOrderExecutionReport, DryOrderExecutionSimulatorError>
+where
+    S: OrderPathStore,
+    C: broker_finam::FinamApprovedOrderExecutionClient,
+{
+    let request_id = approved.order().request_id;
+    let spec = broker_finam::build_place_order_request(approved, outgoing_comment)?;
+    let mut record = store
+        .load_by_request_id(request_id)
+        .ok_or(DryOrderExecutionSimulatorError::MissingOrderPathRecord { request_id })?;
+
+    record.transition(OrderPathEvent::BeginSubmit, begin_ts)?;
+    store.update_record(record.clone())?;
+
+    let execution_outcome = client.place_approved(spec).await?;
+    let (ack_status, ack_reason, outcome) = match execution_outcome {
+        broker_finam::FinamOrderExecutionOutcome::Accepted { broker_order_id } => {
+            record.broker_order_id = broker_order_id;
+            record.transition(OrderPathEvent::SubmitAccepted, outcome_ts)?;
+            (
+                CommandAckStatus::Submitted,
+                Some(CommandAckReason::synthetic_submitted()),
+                DryOrderExecutionOutcomeKind::Submitted,
+            )
+        }
+        broker_finam::FinamOrderExecutionOutcome::Rejected { reason_code } => {
+            record.transition(OrderPathEvent::BrokerReject, outcome_ts)?;
+            (
+                CommandAckStatus::Rejected,
+                Some(CommandAckReason::new(reason_code)),
+                DryOrderExecutionOutcomeKind::BrokerRejected,
+            )
+        }
+        broker_finam::FinamOrderExecutionOutcome::Timeout => {
+            record.transition(OrderPathEvent::SubmitTimedOut, outcome_ts)?;
+            (
+                CommandAckStatus::Timeout,
+                Some(CommandAckReason::new(
+                    CommandAckReasonCode::TransportTimeout,
+                )),
+                DryOrderExecutionOutcomeKind::TimeoutUnknownPending,
+            )
+        }
+    };
+    store.update_record(record.clone())?;
+    let ack = record.synthetic_ack(ack_status, ack_reason, outcome_ts);
+
+    Ok(DryOrderExecutionReport {
+        ack,
+        state: record.state,
+        submit_attempt_count: record.submit_attempt_count,
+        outcome,
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct FinamGateway<S> {
     config: GatewayConfig,
@@ -1196,9 +1294,12 @@ mod tests {
     use broker_core::order::{Order, OrderSide, OrderStatus, OrderType, TimeInForce};
     use broker_core::{
         DryOrderRateLimit, InMemoryOrderPathStore, OperatorArm, OrderPathEvent, OrderPathRecord,
-        OrderPathStore, OrderPreflightPolicy, PlaceOrder,
+        OrderPathState, OrderPathStore, OrderPathTransitionError, OrderPreflightPolicy, PlaceOrder,
     };
-    use broker_finam::{FinamDryOrderClient, MockFinamDryOrderClient};
+    use broker_finam::{
+        FinamDryOrderClient, FinamOrderExecutionOutcome, MockFinamApprovedOrderExecutionClient,
+        MockFinamDryOrderClient,
+    };
     use chrono::{DateTime, TimeZone};
     use rust_decimal::Decimal;
     use serde::de::DeserializeOwned;
@@ -2130,6 +2231,204 @@ mod tests {
         assert!(entries[0].payload.contains("synthetic_submitted"));
         assert!(!entries[0].payload.contains("ACC_TEST_0001"));
         assert!(!entries[0].payload.contains("CID000000000000005"));
+    }
+
+    #[tokio::test]
+    async fn execution_simulator_submits_approved_place_and_redacts_published_ack() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 6, 30, 9, 20, 0)
+            .single()
+            .expect("timestamp");
+        let order = sample_place_order(request_id(6), "CID000000000000006", now);
+        let policy = dry_preflight_policy(now);
+        let approved = policy
+            .approve_place_order(&order, now)
+            .expect("preflight approved");
+        let mut store = InMemoryOrderPathStore::default();
+        store
+            .insert_intent(OrderPathRecord::from_place_order(
+                approved.order(),
+                now,
+                None,
+            ))
+            .expect("intent inserted");
+        let mut client = MockFinamApprovedOrderExecutionClient::new(vec![
+            FinamOrderExecutionOutcome::Accepted {
+                broker_order_id: Some(BrokerOrderId::new("BROKER_TEST_6")),
+            },
+        ]);
+
+        let report = simulate_place_order_approved(
+            &mut store,
+            &mut client,
+            &approved,
+            None,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .await
+        .expect("simulation report");
+
+        assert_eq!(report.outcome, DryOrderExecutionOutcomeKind::Submitted);
+        assert_eq!(report.state, OrderPathState::Submitted);
+        assert_eq!(report.submit_attempt_count, 1);
+        assert_eq!(report.ack.status, CommandAckStatus::Submitted);
+        assert_eq!(
+            report.ack.broker_order_id,
+            Some(BrokerOrderId::new("BROKER_TEST_6"))
+        );
+        let loaded = store
+            .load_by_request_id(order.request_id)
+            .expect("stored submitted record");
+        assert_eq!(loaded.state, OrderPathState::Submitted);
+        assert_eq!(
+            loaded.broker_order_id,
+            Some(BrokerOrderId::new("BROKER_TEST_6"))
+        );
+        let records_json = serde_json::to_string(client.records()).expect("records");
+        assert!(!records_json.contains("ACC_TEST_0001"));
+        assert!(!records_json.contains("BROKER_TEST_6"));
+        assert!(!records_json.contains("CID000000000000006"));
+
+        let sink = InMemoryRedisStreamSink::default();
+        let gateway = FinamGateway::new(GatewayConfig::default(), sink.clone());
+        gateway
+            .publish_dry_command_ack(report.ack)
+            .await
+            .expect("ack published");
+        let entries = sink.entries().expect("entries");
+        assert!(!entries[0].payload.contains("BROKER_TEST_6"));
+        assert!(!entries[0].payload.contains("CID000000000000006"));
+    }
+
+    #[tokio::test]
+    async fn execution_simulator_maps_rejected_place_to_broker_rejected_state() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 6, 30, 9, 30, 0)
+            .single()
+            .expect("timestamp");
+        let order = sample_place_order(request_id(7), "CID000000000000007", now);
+        let policy = dry_preflight_policy(now);
+        let approved = policy
+            .approve_place_order(&order, now)
+            .expect("preflight approved");
+        let mut store = InMemoryOrderPathStore::default();
+        store
+            .insert_intent(OrderPathRecord::from_place_order(
+                approved.order(),
+                now,
+                None,
+            ))
+            .expect("intent inserted");
+        let mut client = MockFinamApprovedOrderExecutionClient::new(vec![
+            FinamOrderExecutionOutcome::Rejected {
+                reason_code: CommandAckReasonCode::BrokerRejected,
+            },
+        ]);
+
+        let report = simulate_place_order_approved(
+            &mut store,
+            &mut client,
+            &approved,
+            None,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .await
+        .expect("simulation report");
+
+        assert_eq!(report.outcome, DryOrderExecutionOutcomeKind::BrokerRejected);
+        assert_eq!(report.state, OrderPathState::BrokerRejected);
+        assert_eq!(report.ack.status, CommandAckStatus::Rejected);
+        assert_eq!(
+            report.ack.reason.expect("reason").code,
+            CommandAckReasonCode::BrokerRejected
+        );
+        assert_eq!(
+            store
+                .load_by_request_id(order.request_id)
+                .expect("record")
+                .state,
+            OrderPathState::BrokerRejected
+        );
+    }
+
+    #[tokio::test]
+    async fn execution_simulator_timeout_blocks_blind_place_retry() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 6, 30, 9, 40, 0)
+            .single()
+            .expect("timestamp");
+        let order = sample_place_order(request_id(8), "CID000000000000008", now);
+        let policy = dry_preflight_policy(now);
+        let approved = policy
+            .approve_place_order(&order, now)
+            .expect("preflight approved");
+        let mut store = InMemoryOrderPathStore::default();
+        store
+            .insert_intent(OrderPathRecord::from_place_order(
+                approved.order(),
+                now,
+                None,
+            ))
+            .expect("intent inserted");
+        let mut client = MockFinamApprovedOrderExecutionClient::new(vec![
+            FinamOrderExecutionOutcome::Timeout,
+            FinamOrderExecutionOutcome::Accepted {
+                broker_order_id: Some(BrokerOrderId::new("BROKER_TEST_RETRY")),
+            },
+        ]);
+
+        let report = simulate_place_order_approved(
+            &mut store,
+            &mut client,
+            &approved,
+            None,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .await
+        .expect("timeout simulation report");
+
+        assert_eq!(
+            report.outcome,
+            DryOrderExecutionOutcomeKind::TimeoutUnknownPending
+        );
+        assert_eq!(report.state, OrderPathState::TimeoutUnknownPending);
+        assert_eq!(report.ack.status, CommandAckStatus::Timeout);
+        assert_eq!(
+            report.ack.reason.expect("reason").code,
+            CommandAckReasonCode::TransportTimeout
+        );
+
+        let retry_error = simulate_place_order_approved(
+            &mut store,
+            &mut client,
+            &approved,
+            None,
+            now + chrono::Duration::milliseconds(3),
+            now + chrono::Duration::milliseconds(4),
+        )
+        .await
+        .expect_err("blind retry must be blocked before mock client call");
+
+        assert!(matches!(
+            retry_error,
+            DryOrderExecutionSimulatorError::Transition(
+                OrderPathTransitionError::InvalidTransition {
+                    from: OrderPathState::TimeoutUnknownPending,
+                    event: OrderPathEvent::BeginSubmit
+                }
+            )
+        ));
+        assert_eq!(client.records().len(), 1);
+        assert_eq!(
+            store
+                .load_by_request_id(order.request_id)
+                .expect("record")
+                .state,
+            OrderPathState::TimeoutUnknownPending
+        );
     }
 
     fn request_id(n: u128) -> StrategyRequestId {

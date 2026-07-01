@@ -37,7 +37,8 @@ pub use order::{
 };
 pub use order_path::{
     CancelPreflightApproval, CancelPreflightDecision, CommentPolicyMode, DryOrderRateLimit,
-    DryOrderRateLimitError, InMemoryOrderPathStore, JsonFileOrderPathStore, OperatorArm,
+    DryOrderRateLimitError, DryOrderRateWindow, DryOrderRateWindowDecision,
+    DryOrderRateWindowError, InMemoryOrderPathStore, JsonFileOrderPathStore, OperatorArm,
     OperatorDisarmDecision, OperatorDisarmSignal, OrderPathCommandKind, OrderPathErrorKind,
     OrderPathEvent, OrderPathReconciliationSource, OrderPathRecord, OrderPathState, OrderPathStore,
     OrderPathStoreError, OrderPathTransitionError, OrderPreflightContext, OrderPreflightError,

@@ -102,7 +102,9 @@ error bodies, account ids, broker order ids, secrets, JWTs, or arbitrary payload
 text in `CommandAck.reason`. The M3a-5 dry Redis ACK publisher additionally
 clears optional client/broker order ids before publishing `CommandAck` envelopes;
 operator correlation must use `StrategyRequestId` plus the local durable mapping
-store.
+store. M3a-6 keeps this as the future runtime-facing ACK direction; any
+internal full-id operator view must be protected and separate from handoff or
+runtime-facing exports.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

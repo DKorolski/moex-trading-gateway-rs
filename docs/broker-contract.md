@@ -132,7 +132,10 @@ restart/replay tests, broker-order-id uniqueness, cancel timeout/no-blind-retry
 states, store update invariants, and synthetic ACK construction with safe reason
 codes without calling any broker endpoint. M3a-5 adds preflight-approved marker
 types, command TTL expiry checks, dry rate-limit capacity, operator disarm
-safety signals, and a mock-only redacted ACK publisher.
+safety signals, and a mock-only redacted ACK publisher. M3a-6 adds an
+approved-only mock execution boundary, simulator coverage for accepted/rejected/
+timeout outcomes, no-blind-retry coverage, re-arm workflow tests, and a dry
+window/backoff limiter.
 
 `broker-finam::order_request` may build FINAM request path/body specs for dry
 fixture tests only from preflight-approved commands, but it must not send HTTP

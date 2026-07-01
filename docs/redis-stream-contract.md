@@ -309,6 +309,10 @@ client/broker order ids before Redis publication. This does not connect the dry
 runtime bridge to strategy command streams and does not authorize FINAM
 POST/DELETE order endpoints.
 
+M3a-6 keeps runtime-facing ACKs redacted as the selected direction for future
+real ACK work. Full client/broker id correlation belongs to the protected
+durable mapping store and broker-truth reconciliation path.
+
 ## Retention policy
 
 M2c defaults use approximate Redis stream trimming for health/readiness/

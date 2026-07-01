@@ -413,3 +413,29 @@ Still not implemented in M3a-5:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3a-6 mock network boundary / execution simulator status
+
+Implemented while still keeping all broker endpoints disabled:
+
+- approved-only execution client trait and scripted mock execution client;
+- mock execution diagnostics remain redacted;
+- dry place-order simulator persists `BeginSubmit` before mock execution;
+- accepted/rejected/timeout outcomes map to `Submitted`, `BrokerRejected`, and
+  `TimeoutUnknownPending`;
+- no-blind-retry from `TimeoutUnknownPending` is blocked before a second mock
+  execution call;
+- operator disarm/re-arm workflow is covered by local tests;
+- dry window/backoff rate-limit policy is covered by local tests;
+- ACK redaction and SQLite/WAL durable-store direction are documented in
+  `docs/m3a6-execution-simulator-decisions.md`.
+
+Still not implemented in M3a-6:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.
