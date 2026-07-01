@@ -68,6 +68,7 @@ pub enum OrderPathErrorKind {
     RateLimited,
     BrokerMaintenance,
     ResponseDecodeError,
+    Unauthorized,
     ReconciliationRequired,
     DurableStoreUnavailable,
     Unknown,
@@ -1488,6 +1489,7 @@ pub enum OperatorDisarmSignal {
     OrderEndpointRateLimited,
     OrderEndpointMaintenance,
     OrderEndpointDecodeError,
+    OrderEndpointUnauthorized,
     ReconciliationStale,
     RestartRecovery,
 }
@@ -3289,6 +3291,7 @@ mod tests {
             OperatorDisarmSignal::OrderEndpointRateLimited,
             OperatorDisarmSignal::OrderEndpointMaintenance,
             OperatorDisarmSignal::OrderEndpointDecodeError,
+            OperatorDisarmSignal::OrderEndpointUnauthorized,
             OperatorDisarmSignal::ReconciliationStale,
             OperatorDisarmSignal::RestartRecovery,
         ] {

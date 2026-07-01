@@ -795,6 +795,42 @@ M3b-1 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-2 local HTTP endpoint mapper hardening:
+
+- `broker-finam` adds `FinamOrderEndpointLocalHttpResponse`,
+  `FinamOrderEndpointClassifiedResponse`, and
+  `classify_order_endpoint_local_http_response()` for local/mock HTTP-shaped
+  order endpoint responses.
+- The classifier maps 2xx success bodies, 400-class broker rejection, 401/403
+  unauthorized, 429 rate-limit, 500/503 maintenance, timeout, malformed JSON,
+  and empty broker-order-id cases without using a real broker URL.
+- Local response `Debug` output redacts raw response bodies and broker ids.
+- `finam-gateway` adds local HTTP integration helpers that persist
+  `BeginSubmit` or `RequestCancel` before classifying response/decode/map
+  outcomes.
+- Empty accepted `broker_order_id` and malformed JSON now reach
+  `ResponseDecodeError -> ManualInterventionRequired` after durable attempt
+  recording, not as an early mapper error.
+- 401/403 unauthorized responses map to safe ACK/error/disarm categories:
+  `Unauthorized`, `OrderPathErrorKind::Unauthorized`, and
+  `OrderEndpointUnauthorized`.
+- Redis ACK publication remains redacted for successful accepted responses,
+  decode errors, and unauthorized responses.
+- `EndpointGateApproved` remains unconstructible and real HTTP transport is
+  still absent.
+- Details are documented in
+  `docs/m3b2-local-http-endpoint-mapper-hardening.md`.
+
+M3b-2 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

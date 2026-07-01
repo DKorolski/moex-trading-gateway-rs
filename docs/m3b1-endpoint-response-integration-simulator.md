@@ -32,6 +32,11 @@ Inputs remain approved-only:
 The helpers build FINAM request specs but do not send HTTP. They do not require
 or construct `EndpointGateApproved`, and they do not implement a real transport.
 
+M3b-2 follow-up: local/mock HTTP-shaped endpoint responses are now classified in
+`docs/m3b2-local-http-endpoint-mapper-hardening.md`. Those helpers persist
+`BeginSubmit` or `RequestCancel` before response classification, so
+post-network decode/map errors cannot bypass durable attempt recording.
+
 ## Outcome mapping
 
 Execution-like endpoint outcomes use the same state semantics as the existing

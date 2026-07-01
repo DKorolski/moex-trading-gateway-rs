@@ -658,3 +658,32 @@ Still not implemented in M3b-1:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-2 local HTTP endpoint mapper hardening status
+
+Implemented while still keeping all broker endpoints disabled:
+
+- local/mock HTTP-shaped endpoint response classifier exists without real
+  broker network calls;
+- status/body mapping covers success, broker rejection, 401/403 unauthorized,
+  429 rate-limit, 500/503 maintenance, timeout, malformed JSON, and empty
+  broker-order-id cases;
+- local HTTP gateway integration persists `BeginSubmit` or `RequestCancel`
+  before response classification;
+- post-network decode/map failures become `ResponseDecodeError` plus
+  `ManualInterventionRequired` after durable attempt recording;
+- unauthorized responses have safe ACK/error/disarm categories;
+- redacted ACK publication is tested for local HTTP success, decode error, and
+  unauthorized responses;
+- real broker base URL is not used in order tests;
+- `EndpointGateApproved` remains unconstructible.
+
+Still not implemented in M3b-2:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

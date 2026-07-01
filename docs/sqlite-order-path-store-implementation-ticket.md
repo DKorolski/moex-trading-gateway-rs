@@ -173,3 +173,8 @@ M3b-1 adds a SQLite-backed endpoint response fixture integration test for the
 rate-limit path. It persists `InsertIntent`, `BeginSubmit`, and
 `RequireManualIntervention` with safe reason code `RateLimited`, then publishes
 a redacted dry ACK without raw account/client/broker identifiers.
+
+M3b-2 adds a SQLite-backed local HTTP response test for the empty broker-order-id
+decode-error path. It proves `BeginSubmit` is persisted before
+`ResponseDecodeError -> RequireManualIntervention`, matching the future
+post-network ordering invariant.

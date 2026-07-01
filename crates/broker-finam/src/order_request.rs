@@ -316,6 +316,7 @@ pub enum FinamOrderExecutionOutcome {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FinamOrderEndpointAcceptedDto {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "brokerOrderId", alias = "order_id", alias = "orderId")]
     pub broker_order_id: Option<String>,
 }
 
@@ -395,6 +396,7 @@ pub enum FinamOrderEndpointResponseKind {
     Rejected,
     RateLimited,
     Maintenance,
+    Unauthorized,
     Timeout,
     DecodeError,
 }
@@ -521,6 +523,9 @@ pub enum FinamOrderEndpointMappedResult {
     Maintenance {
         maintenance_kind: FinamOrderEndpointMaintenanceKind,
     },
+    Unauthorized {
+        status: u16,
+    },
     DecodeError {
         status: Option<u16>,
         body_kind: Option<String>,
@@ -531,6 +536,199 @@ pub enum FinamOrderEndpointMappedResult {
 pub enum FinamOrderEndpointMapperError {
     #[error("FINAM order endpoint accepted response has empty broker order id")]
     EmptyBrokerOrderId,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub enum FinamOrderEndpointLocalHttpResponse {
+    Response {
+        status: u16,
+        body: String,
+        retry_after_ms: Option<u64>,
+    },
+    Timeout,
+}
+
+impl std::fmt::Debug for FinamOrderEndpointLocalHttpResponse {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Response {
+                status,
+                body,
+                retry_after_ms,
+            } => formatter
+                .debug_struct("FinamOrderEndpointLocalHttpResponse::Response")
+                .field("status", status)
+                .field("body_len", &body.len())
+                .field("body_kind", &json_body_kind(body))
+                .field("retry_after_ms_present", &retry_after_ms.is_some())
+                .finish(),
+            Self::Timeout => formatter
+                .debug_struct("FinamOrderEndpointLocalHttpResponse::Timeout")
+                .finish(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinamOrderEndpointClassifiedResponse {
+    pub result: FinamOrderEndpointMappedResult,
+    pub diagnostic: FinamOrderEndpointResponseDiagnostic,
+}
+
+pub fn classify_order_endpoint_local_http_response(
+    response: &FinamOrderEndpointLocalHttpResponse,
+) -> FinamOrderEndpointClassifiedResponse {
+    match response {
+        FinamOrderEndpointLocalHttpResponse::Timeout => {
+            let fixture = FinamOrderEndpointFixture::Timeout;
+            FinamOrderEndpointClassifiedResponse {
+                result: FinamOrderEndpointMappedResult::Execution(
+                    FinamOrderExecutionOutcome::Timeout,
+                ),
+                diagnostic: fixture.redacted_diagnostic(),
+            }
+        }
+        FinamOrderEndpointLocalHttpResponse::Response {
+            status,
+            body,
+            retry_after_ms,
+        } if *status == 401 || *status == 403 => FinamOrderEndpointClassifiedResponse {
+            result: FinamOrderEndpointMappedResult::Unauthorized { status: *status },
+            diagnostic: FinamOrderEndpointResponseDiagnostic {
+                kind: FinamOrderEndpointResponseKind::Unauthorized,
+                broker_order_id_present: false,
+                broker_order_id_len: None,
+                reason_code: None,
+                retry_after_ms_present: false,
+                maintenance_kind: None,
+                status: Some(*status),
+                body_kind: Some(json_body_kind(body)),
+            },
+        },
+        FinamOrderEndpointLocalHttpResponse::Response {
+            status,
+            body,
+            retry_after_ms,
+        } if *status == 429 => {
+            let fixture = FinamOrderEndpointFixture::RateLimited {
+                retry_after_ms: *retry_after_ms,
+            };
+            let mut diagnostic = fixture.redacted_diagnostic();
+            diagnostic.status = Some(*status);
+            diagnostic.body_kind = Some(json_body_kind(body));
+            FinamOrderEndpointClassifiedResponse {
+                result: FinamOrderEndpointMappedResult::RateLimited {
+                    retry_after_ms: *retry_after_ms,
+                },
+                diagnostic,
+            }
+        }
+        FinamOrderEndpointLocalHttpResponse::Response { status, body, .. }
+            if *status == 500 || *status == 503 =>
+        {
+            let maintenance_kind = if *status == 503 {
+                FinamOrderEndpointMaintenanceKind::ServiceInterval
+            } else {
+                FinamOrderEndpointMaintenanceKind::Unknown
+            };
+            let fixture = FinamOrderEndpointFixture::Maintenance { maintenance_kind };
+            let mut diagnostic = fixture.redacted_diagnostic();
+            diagnostic.status = Some(*status);
+            diagnostic.body_kind = Some(json_body_kind(body));
+            FinamOrderEndpointClassifiedResponse {
+                result: FinamOrderEndpointMappedResult::Maintenance { maintenance_kind },
+                diagnostic,
+            }
+        }
+        FinamOrderEndpointLocalHttpResponse::Response { status, body, .. }
+            if (200..300).contains(status) =>
+        {
+            classify_success_order_endpoint_response(*status, body)
+        }
+        FinamOrderEndpointLocalHttpResponse::Response { status, body, .. }
+            if (400..500).contains(status) =>
+        {
+            let fixture = FinamOrderEndpointFixture::Rejected {
+                reason_code: FinamOrderEndpointRejectedCode::BrokerRejected,
+            };
+            let mut diagnostic = fixture.redacted_diagnostic();
+            diagnostic.status = Some(*status);
+            diagnostic.body_kind = Some(json_body_kind(body));
+            FinamOrderEndpointClassifiedResponse {
+                result: FinamOrderEndpointMappedResult::Execution(
+                    FinamOrderExecutionOutcome::Rejected {
+                        reason_code: CommandAckReasonCode::BrokerRejected,
+                    },
+                ),
+                diagnostic,
+            }
+        }
+        FinamOrderEndpointLocalHttpResponse::Response { status, body, .. } => {
+            decode_error_response(Some(*status), Some(json_body_kind(body)))
+        }
+    }
+}
+
+fn classify_success_order_endpoint_response(
+    status: u16,
+    body: &str,
+) -> FinamOrderEndpointClassifiedResponse {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
+        return decode_error_response(Some(status), Some("malformed_json".to_string()));
+    };
+    let body_kind = json_value_kind(&value).to_string();
+    let Ok(dto) = serde_json::from_value::<FinamOrderEndpointAcceptedDto>(value) else {
+        return decode_error_response(Some(status), Some(body_kind));
+    };
+    if dto.broker_order_id.as_deref().is_some_and(str::is_empty) {
+        return decode_error_response(Some(status), Some(body_kind));
+    }
+
+    let diagnostic = FinamOrderEndpointFixture::Accepted(dto.clone()).redacted_diagnostic();
+    FinamOrderEndpointClassifiedResponse {
+        result: FinamOrderEndpointMappedResult::Execution(FinamOrderExecutionOutcome::Accepted {
+            broker_order_id: dto.broker_order_id.map(|value| BrokerOrderId::new(&value)),
+        }),
+        diagnostic: FinamOrderEndpointResponseDiagnostic {
+            status: Some(status),
+            body_kind: Some(body_kind),
+            ..diagnostic
+        },
+    }
+}
+
+fn decode_error_response(
+    status: Option<u16>,
+    body_kind: Option<String>,
+) -> FinamOrderEndpointClassifiedResponse {
+    let fixture = FinamOrderEndpointFixture::DecodeError {
+        status,
+        body_kind: body_kind.clone(),
+    };
+    FinamOrderEndpointClassifiedResponse {
+        result: FinamOrderEndpointMappedResult::DecodeError { status, body_kind },
+        diagnostic: fixture.redacted_diagnostic(),
+    }
+}
+
+fn json_body_kind(body: &str) -> String {
+    if body.is_empty() {
+        return "empty".to_string();
+    }
+    serde_json::from_str::<serde_json::Value>(body)
+        .map(|value| json_value_kind(&value).to_string())
+        .unwrap_or_else(|_| "malformed_json".to_string())
+}
+
+fn json_value_kind(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Object(_) => "object",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::Bool(_) => "bool",
+        serde_json::Value::Null => "null",
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1107,6 +1305,149 @@ mod tests {
                 .map_fixture()
                 .expect_err("empty broker id must fail"),
             FinamOrderEndpointMapperError::EmptyBrokerOrderId
+        );
+    }
+
+    #[test]
+    fn local_http_endpoint_classifier_maps_statuses_and_redacts_body() {
+        let accepted = FinamOrderEndpointLocalHttpResponse::Response {
+            status: 200,
+            body: json!({"broker_order_id": "BROKER_TEST_HTTP_1"}).to_string(),
+            retry_after_ms: None,
+        };
+        let accepted_debug = format!("{accepted:?}");
+        assert!(!accepted_debug.contains("BROKER_TEST_HTTP_1"));
+        let classified = classify_order_endpoint_local_http_response(&accepted);
+        assert_eq!(
+            classified.result,
+            FinamOrderEndpointMappedResult::Execution(FinamOrderExecutionOutcome::Accepted {
+                broker_order_id: Some(BrokerOrderId::new("BROKER_TEST_HTTP_1")),
+            })
+        );
+        assert_eq!(
+            classified.diagnostic.kind,
+            FinamOrderEndpointResponseKind::Accepted
+        );
+        assert_eq!(classified.diagnostic.status, Some(200));
+        assert_eq!(classified.diagnostic.body_kind.as_deref(), Some("object"));
+        let diagnostic_json =
+            serde_json::to_string(&classified.diagnostic).expect("diagnostic serializes");
+        assert!(!diagnostic_json.contains("BROKER_TEST_HTTP_1"));
+
+        let empty_id = FinamOrderEndpointLocalHttpResponse::Response {
+            status: 200,
+            body: json!({"broker_order_id": ""}).to_string(),
+            retry_after_ms: None,
+        };
+        let classified = classify_order_endpoint_local_http_response(&empty_id);
+        assert_eq!(
+            classified.result,
+            FinamOrderEndpointMappedResult::DecodeError {
+                status: Some(200),
+                body_kind: Some("object".to_string()),
+            }
+        );
+        assert_eq!(
+            classified.diagnostic.kind,
+            FinamOrderEndpointResponseKind::DecodeError
+        );
+
+        let malformed = FinamOrderEndpointLocalHttpResponse::Response {
+            status: 200,
+            body: "{not-json".to_string(),
+            retry_after_ms: None,
+        };
+        let classified = classify_order_endpoint_local_http_response(&malformed);
+        assert_eq!(
+            classified.result,
+            FinamOrderEndpointMappedResult::DecodeError {
+                status: Some(200),
+                body_kind: Some("malformed_json".to_string()),
+            }
+        );
+
+        for status in [401, 403] {
+            let classified = classify_order_endpoint_local_http_response(
+                &FinamOrderEndpointLocalHttpResponse::Response {
+                    status,
+                    body: json!({"message": "secret-ish broker text"}).to_string(),
+                    retry_after_ms: None,
+                },
+            );
+            assert_eq!(
+                classified.result,
+                FinamOrderEndpointMappedResult::Unauthorized { status }
+            );
+            assert_eq!(
+                classified.diagnostic.kind,
+                FinamOrderEndpointResponseKind::Unauthorized
+            );
+            assert_eq!(classified.diagnostic.status, Some(status));
+        }
+
+        let rate_limited = classify_order_endpoint_local_http_response(
+            &FinamOrderEndpointLocalHttpResponse::Response {
+                status: 429,
+                body: json!({"error": "too many requests"}).to_string(),
+                retry_after_ms: Some(2_000),
+            },
+        );
+        assert_eq!(
+            rate_limited.result,
+            FinamOrderEndpointMappedResult::RateLimited {
+                retry_after_ms: Some(2_000),
+            }
+        );
+        assert_eq!(
+            rate_limited.diagnostic.kind,
+            FinamOrderEndpointResponseKind::RateLimited
+        );
+
+        for (status, maintenance_kind) in [
+            (500, FinamOrderEndpointMaintenanceKind::Unknown),
+            (503, FinamOrderEndpointMaintenanceKind::ServiceInterval),
+        ] {
+            let classified = classify_order_endpoint_local_http_response(
+                &FinamOrderEndpointLocalHttpResponse::Response {
+                    status,
+                    body: json!({"error": "maintenance window"}).to_string(),
+                    retry_after_ms: None,
+                },
+            );
+            assert_eq!(
+                classified.result,
+                FinamOrderEndpointMappedResult::Maintenance { maintenance_kind }
+            );
+            assert_eq!(
+                classified.diagnostic.kind,
+                FinamOrderEndpointResponseKind::Maintenance
+            );
+        }
+
+        let broker_rejected = classify_order_endpoint_local_http_response(
+            &FinamOrderEndpointLocalHttpResponse::Response {
+                status: 400,
+                body: json!({"error": "broker rejected"}).to_string(),
+                retry_after_ms: None,
+            },
+        );
+        assert_eq!(
+            broker_rejected.result,
+            FinamOrderEndpointMappedResult::Execution(FinamOrderExecutionOutcome::Rejected {
+                reason_code: CommandAckReasonCode::BrokerRejected,
+            })
+        );
+
+        let timeout = classify_order_endpoint_local_http_response(
+            &FinamOrderEndpointLocalHttpResponse::Timeout,
+        );
+        assert_eq!(
+            timeout.result,
+            FinamOrderEndpointMappedResult::Execution(FinamOrderExecutionOutcome::Timeout)
+        );
+        assert_eq!(
+            timeout.diagnostic.kind,
+            FinamOrderEndpointResponseKind::Timeout
         );
     }
 

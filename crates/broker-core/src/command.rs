@@ -102,4 +102,5 @@ pub enum CommandAckReasonCode {
     RateLimited,
     BrokerMaintenance,
     ResponseDecodeError,
+    Unauthorized,
 }

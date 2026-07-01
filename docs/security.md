@@ -131,6 +131,11 @@ maintenance, and decode-error fixtures become safe enum reason codes,
 order-path error kinds, and operator disarm signals. Runtime-facing Redis ACKs
 still pass through the dry ACK publisher, which removes raw client and broker
 order ids.
+M3b-2 keeps local/mock HTTP endpoint characterization redacted by default:
+local response `Debug` output records only status, body length, body kind, and
+retry-after presence. Unauthorized and decode-error paths use safe enum reason
+codes and do not expose raw broker body text in ACKs, diagnostics, Redis, or
+handoff archives.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

@@ -260,6 +260,10 @@ Implementation notes from the first review:
 - M3b-1 routes synthetic/redacted endpoint fixtures through order-path state
   transitions, redacted ACK/disarm policy, and no-blind-retry checks, still
   without FINAM order endpoint calls;
+- M3b-2 adds local/mock HTTP-shaped order endpoint response classification for
+  401/403/429/500/503/timeout/malformed/empty-id cases and verifies
+  post-network decode/map-error ordering, still without FINAM order endpoint
+  calls;
 - raw `serde_json::Value` is acceptable only for the shape probe. Typed DTOs and
   mappers are required before Redis gateway/readiness work.
 

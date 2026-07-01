@@ -1011,6 +1011,7 @@ pub enum EndpointResponseIntegrationOutcomeKind {
     RateLimited,
     Maintenance,
     DecodeError,
+    Unauthorized,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1119,6 +1120,77 @@ where
     )
 }
 
+pub fn simulate_place_order_endpoint_local_http_response<S>(
+    store: &mut S,
+    approved: &PreflightApprovedPlaceOrder,
+    outgoing_comment: Option<&OutgoingOrderComment>,
+    response: &broker_finam::FinamOrderEndpointLocalHttpResponse,
+    operator_arm: Option<&mut OperatorArm>,
+    begin_ts: DateTime<Utc>,
+    outcome_ts: DateTime<Utc>,
+) -> Result<EndpointResponseIntegrationReport, EndpointResponseIntegrationSimulatorError>
+where
+    S: OrderPathStore,
+{
+    let request_id = approved.order().request_id;
+    let _spec = broker_finam::build_place_order_request(approved, outgoing_comment)?;
+    let mut record = store
+        .load_by_request_id(request_id)
+        .ok_or(EndpointResponseIntegrationSimulatorError::MissingOrderPathRecord { request_id })?;
+
+    record.transition(OrderPathEvent::BeginSubmit, begin_ts)?;
+    store.update_record(record.clone())?;
+    let classified = broker_finam::classify_order_endpoint_local_http_response(response);
+
+    apply_place_order_endpoint_result_after_begin(
+        store,
+        record,
+        classified.result,
+        classified.diagnostic,
+        operator_arm,
+        outcome_ts,
+    )
+}
+
+pub fn simulate_cancel_order_endpoint_local_http_response<S>(
+    store: &mut S,
+    approved: &PreflightApprovedCancelOrder,
+    response: &broker_finam::FinamOrderEndpointLocalHttpResponse,
+    operator_arm: Option<&mut OperatorArm>,
+    begin_ts: DateTime<Utc>,
+    outcome_ts: DateTime<Utc>,
+) -> Result<EndpointResponseIntegrationReport, EndpointResponseIntegrationSimulatorError>
+where
+    S: OrderPathStore,
+{
+    let cancel_request_id = approved.cancel().request_id;
+    let mapped_request_id = approved.mapped_request_id().ok_or(
+        EndpointResponseIntegrationSimulatorError::MissingCancelMapping {
+            request_id: cancel_request_id,
+        },
+    )?;
+    let _spec = broker_finam::build_cancel_order_request(approved)?;
+    let mut record = store.load_by_request_id(mapped_request_id).ok_or(
+        EndpointResponseIntegrationSimulatorError::MissingOrderPathRecord {
+            request_id: mapped_request_id,
+        },
+    )?;
+
+    record.transition(OrderPathEvent::RequestCancel, begin_ts)?;
+    store.update_record(record.clone())?;
+    let classified = broker_finam::classify_order_endpoint_local_http_response(response);
+
+    apply_cancel_order_endpoint_result_after_begin(
+        store,
+        record,
+        approved,
+        classified.result,
+        classified.diagnostic,
+        operator_arm,
+        outcome_ts,
+    )
+}
+
 fn simulate_place_order_endpoint_result<S>(
     store: &mut S,
     approved: &PreflightApprovedPlaceOrder,
@@ -1144,6 +1216,27 @@ where
     record.transition(OrderPathEvent::BeginSubmit, begin_ts)?;
     store.update_record(record.clone())?;
 
+    apply_place_order_endpoint_result_after_begin(
+        store,
+        record,
+        endpoint_result,
+        endpoint_response,
+        operator_arm,
+        outcome_ts,
+    )
+}
+
+fn apply_place_order_endpoint_result_after_begin<S>(
+    store: &mut S,
+    mut record: broker_core::OrderPathRecord,
+    endpoint_result: broker_finam::FinamOrderEndpointMappedResult,
+    endpoint_response: broker_finam::FinamOrderEndpointResponseDiagnostic,
+    operator_arm: Option<&mut OperatorArm>,
+    outcome_ts: DateTime<Utc>,
+) -> Result<EndpointResponseIntegrationReport, EndpointResponseIntegrationSimulatorError>
+where
+    S: OrderPathStore,
+{
     if let Some(non_execution) = endpoint_non_execution_policy(&endpoint_result) {
         record.transition(OrderPathEvent::RequireManualIntervention, outcome_ts)?;
         record.last_ack_status = Some(CommandAckStatus::Error);
@@ -1264,6 +1357,29 @@ where
     record.transition(OrderPathEvent::RequestCancel, begin_ts)?;
     store.update_record(record.clone())?;
 
+    apply_cancel_order_endpoint_result_after_begin(
+        store,
+        record,
+        approved,
+        endpoint_result,
+        endpoint_response,
+        operator_arm,
+        outcome_ts,
+    )
+}
+
+fn apply_cancel_order_endpoint_result_after_begin<S>(
+    store: &mut S,
+    mut record: broker_core::OrderPathRecord,
+    approved: &PreflightApprovedCancelOrder,
+    endpoint_result: broker_finam::FinamOrderEndpointMappedResult,
+    endpoint_response: broker_finam::FinamOrderEndpointResponseDiagnostic,
+    operator_arm: Option<&mut OperatorArm>,
+    outcome_ts: DateTime<Utc>,
+) -> Result<EndpointResponseIntegrationReport, EndpointResponseIntegrationSimulatorError>
+where
+    S: OrderPathStore,
+{
     if let Some(non_execution) = endpoint_non_execution_policy(&endpoint_result) {
         record.transition(OrderPathEvent::RequireManualIntervention, outcome_ts)?;
         record.last_ack_status = Some(CommandAckStatus::Error);
@@ -1387,6 +1503,15 @@ fn endpoint_non_execution_policy(
                 reason_code: CommandAckReasonCode::ResponseDecodeError,
                 error_kind: OrderPathErrorKind::ResponseDecodeError,
                 disarm_signal: OperatorDisarmSignal::OrderEndpointDecodeError,
+                retry_after_ms: None,
+            })
+        }
+        broker_finam::FinamOrderEndpointMappedResult::Unauthorized { .. } => {
+            Some(EndpointNonExecutionPolicy {
+                outcome: EndpointResponseIntegrationOutcomeKind::Unauthorized,
+                reason_code: CommandAckReasonCode::Unauthorized,
+                error_kind: OrderPathErrorKind::Unauthorized,
+                disarm_signal: OperatorDisarmSignal::OrderEndpointUnauthorized,
                 retry_after_ms: None,
             })
         }
@@ -1899,8 +2024,9 @@ mod tests {
     };
     use broker_finam::{
         FinamDryOrderClient, FinamOrderEndpointAcceptedDto, FinamOrderEndpointFixture,
-        FinamOrderEndpointMaintenanceKind, FinamOrderEndpointResponseKind,
-        FinamOrderExecutionOutcome, MockFinamApprovedOrderExecutionClient, MockFinamDryOrderClient,
+        FinamOrderEndpointLocalHttpResponse, FinamOrderEndpointMaintenanceKind,
+        FinamOrderEndpointResponseKind, FinamOrderExecutionOutcome,
+        MockFinamApprovedOrderExecutionClient, MockFinamDryOrderClient,
     };
     use chrono::{DateTime, TimeZone};
     use rust_decimal::Decimal;
@@ -3739,6 +3865,267 @@ mod tests {
         assert!(!entries[0].payload.contains("CID000000000000138"));
         assert!(!entries[0].payload.contains("ACC_TEST_0001"));
         cleanup_sqlite_path(&path);
+    }
+
+    #[tokio::test]
+    async fn local_http_success_response_redacts_ack_ids() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 11, 50, 0)
+            .single()
+            .expect("timestamp");
+        let (mut store, approved, _) =
+            place_store_and_approved(now, request_id(139), "CID000000000000139");
+        let response = FinamOrderEndpointLocalHttpResponse::Response {
+            status: 200,
+            body: serde_json::json!({"broker_order_id": "BROKER_TEST_HTTP_OK"}).to_string(),
+            retry_after_ms: None,
+        };
+
+        let report = simulate_place_order_endpoint_local_http_response(
+            &mut store,
+            &approved,
+            None,
+            &response,
+            None,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .expect("local http accepted response");
+
+        assert_eq!(
+            report.outcome,
+            EndpointResponseIntegrationOutcomeKind::Submitted
+        );
+        assert_eq!(report.ack.status, CommandAckStatus::Submitted);
+        assert_eq!(
+            report.ack.broker_order_id,
+            Some(BrokerOrderId::new("BROKER_TEST_HTTP_OK"))
+        );
+
+        let sink = InMemoryRedisStreamSink::default();
+        let gateway = FinamGateway::new(GatewayConfig::default(), sink.clone());
+        gateway
+            .publish_dry_command_ack(report.ack)
+            .await
+            .expect("accepted ack published");
+        let entries = sink.entries().expect("entries");
+        assert!(!entries[0].payload.contains("BROKER_TEST_HTTP_OK"));
+        assert!(!entries[0].payload.contains("CID000000000000139"));
+        assert!(!entries[0].payload.contains("ACC_TEST_0001"));
+    }
+
+    #[tokio::test]
+    async fn local_http_empty_broker_id_records_decode_error_after_begin_submit() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 0, 0)
+            .single()
+            .expect("timestamp");
+        let path = temp_sqlite_path("local_http_empty_id");
+        cleanup_sqlite_path(&path);
+        let order = sample_place_order(request_id(140), "CID000000000000140", now);
+        let policy = dry_preflight_policy(now);
+        let approved = policy
+            .approve_place_order(&order, now)
+            .expect("preflight approved");
+        let mut store = SqliteOrderPathStore::open(&path).expect("open sqlite store");
+        store
+            .insert_intent(OrderPathRecord::from_place_order(
+                approved.order(),
+                now,
+                None,
+            ))
+            .expect("intent inserted");
+        let mut arm = policy.operator_arm.clone();
+        let response = FinamOrderEndpointLocalHttpResponse::Response {
+            status: 200,
+            body: serde_json::json!({"broker_order_id": ""}).to_string(),
+            retry_after_ms: None,
+        };
+
+        let report = simulate_place_order_endpoint_local_http_response(
+            &mut store,
+            &approved,
+            None,
+            &response,
+            Some(&mut arm),
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .expect("empty broker id classified after begin submit");
+
+        assert_eq!(
+            report.outcome,
+            EndpointResponseIntegrationOutcomeKind::DecodeError
+        );
+        assert_eq!(report.state, OrderPathState::ManualInterventionRequired);
+        assert_eq!(report.ack.status, CommandAckStatus::Error);
+        assert_eq!(
+            report.ack.reason.as_ref().expect("reason").code,
+            CommandAckReasonCode::ResponseDecodeError
+        );
+        assert_eq!(
+            report.disarm_decision.expect("disarm").signal,
+            OperatorDisarmSignal::OrderEndpointDecodeError
+        );
+        assert_eq!(
+            arm.validate(now).expect_err("decode error disarms arm"),
+            broker_core::OrderPreflightError::EndpointNotArmed
+        );
+
+        let audit = store.transition_audit().expect("transition audit");
+        assert_eq!(audit.len(), 3);
+        assert_eq!(audit[0].event, "InsertIntent");
+        assert_eq!(audit[1].event, "BeginSubmit");
+        assert_eq!(audit[1].to_state, "SubmitInFlight");
+        assert_eq!(audit[2].event, "RequireManualIntervention");
+        assert_eq!(audit[2].from_state.as_deref(), Some("SubmitInFlight"));
+        assert_eq!(audit[2].to_state, "ManualInterventionRequired");
+        assert_eq!(audit[2].reason_code.as_deref(), Some("ResponseDecodeError"));
+        let stored = store
+            .load_by_request_id(order.request_id)
+            .expect("stored record");
+        assert_eq!(
+            stored.last_error_kind,
+            Some(OrderPathErrorKind::ResponseDecodeError)
+        );
+
+        let sink = InMemoryRedisStreamSink::default();
+        let gateway = FinamGateway::new(GatewayConfig::default(), sink.clone());
+        gateway
+            .publish_dry_command_ack(report.ack)
+            .await
+            .expect("decode ack published");
+        let entries = sink.entries().expect("entries");
+        assert!(entries[0].payload.contains("response_decode_error"));
+        assert!(!entries[0].payload.contains("CID000000000000140"));
+        assert!(!entries[0].payload.contains("ACC_TEST_0001"));
+        cleanup_sqlite_path(&path);
+    }
+
+    #[test]
+    fn local_http_cancel_malformed_json_records_after_request_cancel() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 10, 0)
+            .single()
+            .expect("timestamp");
+        let (mut store, approved_cancel, place_request_id) = submitted_store_and_approved_cancel(
+            now,
+            request_id(141),
+            request_id(142),
+            BrokerOrderId::new("BROKER_TEST_HTTP_CANCEL"),
+        );
+        let mut arm = dry_preflight_policy(now).operator_arm.clone();
+        let response = FinamOrderEndpointLocalHttpResponse::Response {
+            status: 200,
+            body: "{not-json".to_string(),
+            retry_after_ms: None,
+        };
+
+        let report = simulate_cancel_order_endpoint_local_http_response(
+            &mut store,
+            &approved_cancel,
+            &response,
+            Some(&mut arm),
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .expect("malformed cancel response classified after request cancel");
+
+        assert_eq!(
+            report.outcome,
+            EndpointResponseIntegrationOutcomeKind::DecodeError
+        );
+        assert_eq!(report.state, OrderPathState::ManualInterventionRequired);
+        assert_eq!(report.cancel_attempt_count, 1);
+        assert_eq!(report.ack.status, CommandAckStatus::Error);
+        assert_eq!(
+            report.ack.reason.as_ref().expect("reason").code,
+            CommandAckReasonCode::ResponseDecodeError
+        );
+        let stored = store
+            .load_by_request_id(place_request_id)
+            .expect("stored cancel record");
+        assert_eq!(stored.cancel_attempt_count, 1);
+        assert_eq!(
+            stored.last_error_kind,
+            Some(OrderPathErrorKind::ResponseDecodeError)
+        );
+        assert_eq!(
+            report.disarm_decision.expect("disarm").signal,
+            OperatorDisarmSignal::OrderEndpointDecodeError
+        );
+    }
+
+    #[tokio::test]
+    async fn local_http_unauthorized_statuses_disarm_and_redact_ack() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 20, 0)
+            .single()
+            .expect("timestamp");
+
+        for (status, request_num, client_order_id) in [
+            (401, 143, "CID000000000000143"),
+            (403, 144, "CID000000000000144"),
+        ] {
+            let (mut store, approved, order) =
+                place_store_and_approved(now, request_id(request_num), client_order_id);
+            let mut arm = dry_preflight_policy(now).operator_arm.clone();
+            let response = FinamOrderEndpointLocalHttpResponse::Response {
+                status,
+                body: serde_json::json!({"message": "auth failed and must not leak"}).to_string(),
+                retry_after_ms: None,
+            };
+
+            let report = simulate_place_order_endpoint_local_http_response(
+                &mut store,
+                &approved,
+                None,
+                &response,
+                Some(&mut arm),
+                now + chrono::Duration::milliseconds(1),
+                now + chrono::Duration::milliseconds(2),
+            )
+            .expect("unauthorized local http response");
+
+            assert_eq!(
+                report.outcome,
+                EndpointResponseIntegrationOutcomeKind::Unauthorized
+            );
+            assert_eq!(report.state, OrderPathState::ManualInterventionRequired);
+            assert_eq!(report.ack.status, CommandAckStatus::Error);
+            assert_eq!(
+                report.ack.reason.as_ref().expect("reason").code,
+                CommandAckReasonCode::Unauthorized
+            );
+            assert_eq!(
+                report.endpoint_response.kind,
+                FinamOrderEndpointResponseKind::Unauthorized
+            );
+            assert_eq!(report.endpoint_response.status, Some(status));
+            assert_eq!(
+                report.disarm_decision.expect("disarm").signal,
+                OperatorDisarmSignal::OrderEndpointUnauthorized
+            );
+            assert_eq!(
+                store
+                    .load_by_request_id(order.request_id)
+                    .expect("stored record")
+                    .last_error_kind,
+                Some(OrderPathErrorKind::Unauthorized)
+            );
+
+            let sink = InMemoryRedisStreamSink::default();
+            let gateway = FinamGateway::new(GatewayConfig::default(), sink.clone());
+            gateway
+                .publish_dry_command_ack(report.ack)
+                .await
+                .expect("unauthorized ack published");
+            let entries = sink.entries().expect("entries");
+            assert!(entries[0].payload.contains("unauthorized"));
+            assert!(!entries[0].payload.contains(client_order_id));
+            assert!(!entries[0].payload.contains("ACC_TEST_0001"));
+            assert!(!entries[0].payload.contains("auth failed"));
+        }
     }
 
     #[tokio::test]

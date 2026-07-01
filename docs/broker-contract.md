@@ -154,7 +154,10 @@ marker, and deployment/audit contract tests, still without real endpoint calls.
 M3b-1 routes those fixtures through order-path state transitions, redacted ACK
 publication, no-blind-retry checks, and operator disarm categories for
 rate-limit/maintenance/decode-error outcomes, still without real endpoint
-calls.
+calls. M3b-2 adds local/mock HTTP response classification and proves
+post-network decode/map failures are recorded after durable attempt state,
+including unauthorized, malformed JSON, and empty broker-order-id cases, still
+without real endpoint calls.
 
 `broker-finam::order_request` may build FINAM request path/body specs for dry
 fixture tests only from preflight-approved commands, but it must not send HTTP

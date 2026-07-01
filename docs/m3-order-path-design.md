@@ -36,7 +36,9 @@ adds the endpoint gate marker design, synthetic/redacted response fixtures,
 future real transport signature requiring the marker, SQLite runtime-directory
 deployment inspector, and transition-audit contract matrix. M3b-1 routes those
 fixtures through the order-path state machine and redacted ACK/disarm policy
-without adding real endpoint transport.
+without adding real endpoint transport. M3b-2 adds local/mock HTTP-shaped
+endpoint response classification and proves post-network decode/map errors are
+recorded after durable `BeginSubmit`/`RequestCancel`.
 
 M3 scope is deliberately small:
 
@@ -110,6 +112,12 @@ synthetic/redacted `FinamOrderEndpointFixture` values plus preflight-approved
 commands, persists the same local order-path transitions future transport would
 need, and returns a redacted integration report. It still does not send FINAM
 HTTP and does not consume live strategy commands.
+
+M3b-2 adds local HTTP response classification without real broker calls. It
+maps local status/body outcomes such as 401/403, 429, 500/503, timeout,
+malformed JSON, and empty broker-order-id cases. The gateway helpers persist
+`BeginSubmit` or `RequestCancel` first, then classify the response, then record
+safe ACK/disarm state.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.
@@ -230,6 +238,8 @@ ACKs are command-path facts only:
 - reconciliation is required and retry is blocked -> `UnknownPending`;
 - rate-limit/maintenance/decode-error endpoint fixture -> `Error`,
   `ManualInterventionRequired`, operator disarm, and no blind retry;
+- 401/403 local HTTP response -> `Error / Unauthorized`,
+  `ManualInterventionRequired`, operator disarm;
 - local non-retryable error -> `Error`.
 
 ACKs do not imply fill. The runtime must use normalized orders/trades for fill,
