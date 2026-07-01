@@ -1090,6 +1090,38 @@ M3b-10 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-11 real-readonly broker-truth transport gate:
+
+- Added disabled-by-default `real_readonly_broker_truth_enabled` feature flag.
+- Added a separate real-readonly broker-truth gate that can approve only when
+  read-only broker-truth is explicitly enabled and command/order/cancel/SLTP
+  features remain disabled.
+- Added FINAM REST read-only route builder separate from local `/readonly/...`
+  placeholders. Route templates cover GetOrder, OrdersSnapshot, TradesSnapshot,
+  and PositionSnapshot using documented `GET /v1/...` routes.
+- Raw rendered route paths remain private to the route type; public route
+  diagnostics expose only method, template, route source, query-key names, and
+  presence/length metadata.
+- Added async `FinamRealReadonlyBrokerTruthTransport` boundary requiring the
+  real-readonly gate marker and returning only captured redacted responses.
+- Hardened instrument identity: symbol-only equality no longer passes; venue
+  and exchange must agree, with market allowed to be unknown only when absent
+  from the broker DTO.
+- Documented and tested `UnknownClientError -> UnknownPendingOrder` operator
+  policy.
+- Details are documented in
+  `docs/m3b11-real-readonly-transport-gate.md`.
+
+M3b-11 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

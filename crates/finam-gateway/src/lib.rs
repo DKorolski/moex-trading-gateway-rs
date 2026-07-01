@@ -129,6 +129,8 @@ pub struct GatewayFeatureSet {
     pub publish_readiness: bool,
     pub publish_snapshots: bool,
     pub publish_market_data_from_readonly: bool,
+    #[serde(default)]
+    pub real_readonly_broker_truth_enabled: bool,
     pub command_consumer_enabled: bool,
     pub order_placement_enabled: bool,
     pub cancel_enabled: bool,
@@ -142,6 +144,7 @@ impl Default for GatewayFeatureSet {
             publish_readiness: true,
             publish_snapshots: true,
             publish_market_data_from_readonly: true,
+            real_readonly_broker_truth_enabled: false,
             command_consumer_enabled: false,
             order_placement_enabled: false,
             cancel_enabled: false,
@@ -157,6 +160,54 @@ pub enum RealOrderEndpointGateBlock {
     OrderPlacementEnabled,
     CancelEnabled,
     StopSltpBracketEnabled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RealReadonlyBrokerTruthGateBlock {
+    DisabledByDefault,
+    CommandConsumerEnabled,
+    OrderPlacementEnabled,
+    CancelEnabled,
+    StopSltpBracketEnabled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RealReadonlyBrokerTruthTransportPolicy {
+    AsyncReadOnlyGetOnlyNoRawBodyCrossing,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RealReadonlyBrokerTruthGateDecision {
+    pub real_readonly_allowed: bool,
+    pub blocking_reasons: Vec<RealReadonlyBrokerTruthGateBlock>,
+    pub transport_policy: RealReadonlyBrokerTruthTransportPolicy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RealReadonlyBrokerTruthGateApproved {
+    _private: (),
+}
+
+impl RealReadonlyBrokerTruthGateApproved {
+    pub fn try_from_decision(
+        decision: &RealReadonlyBrokerTruthGateDecision,
+    ) -> Result<Self, RealReadonlyBrokerTruthGateApprovalError> {
+        if decision.real_readonly_allowed && decision.blocking_reasons.is_empty() {
+            Ok(Self { _private: () })
+        } else {
+            Err(RealReadonlyBrokerTruthGateApprovalError::Blocked {
+                decision: decision.clone(),
+            })
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RealReadonlyBrokerTruthGateApprovalError {
+    #[error("FINAM real read-only broker-truth gate is blocked: {decision:?}")]
+    Blocked {
+        decision: RealReadonlyBrokerTruthGateDecision,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -275,6 +326,33 @@ impl GatewayFeatureSet {
             endpoint_calls_allowed: false,
             blocking_reasons,
             runtime_ack_id_policy: RuntimeCommandAckIdPolicy::RedactedRuntimeAckOnly,
+        }
+    }
+
+    pub fn real_readonly_broker_truth_gate_decision(&self) -> RealReadonlyBrokerTruthGateDecision {
+        let mut blocking_reasons = Vec::new();
+        if !self.real_readonly_broker_truth_enabled {
+            blocking_reasons.push(RealReadonlyBrokerTruthGateBlock::DisabledByDefault);
+        }
+        if self.command_consumer_enabled {
+            blocking_reasons.push(RealReadonlyBrokerTruthGateBlock::CommandConsumerEnabled);
+        }
+        if self.order_placement_enabled {
+            blocking_reasons.push(RealReadonlyBrokerTruthGateBlock::OrderPlacementEnabled);
+        }
+        if self.cancel_enabled {
+            blocking_reasons.push(RealReadonlyBrokerTruthGateBlock::CancelEnabled);
+        }
+        if self.stop_sltp_bracket_enabled {
+            blocking_reasons.push(RealReadonlyBrokerTruthGateBlock::StopSltpBracketEnabled);
+        }
+
+        RealReadonlyBrokerTruthGateDecision {
+            real_readonly_allowed: self.real_readonly_broker_truth_enabled
+                && blocking_reasons.is_empty(),
+            blocking_reasons,
+            transport_policy:
+                RealReadonlyBrokerTruthTransportPolicy::AsyncReadOnlyGetOnlyNoRawBodyCrossing,
         }
     }
 }
@@ -2032,9 +2110,15 @@ fn readonly_fetch_missing(
 }
 
 fn broker_truth_instrument_matches(actual: &InstrumentId, expected: &InstrumentId) -> bool {
-    actual == expected
-        || (actual.venue_symbol.is_some() && actual.venue_symbol == expected.venue_symbol)
-        || actual.symbol == expected.symbol
+    if actual == expected {
+        return true;
+    }
+    actual.symbol == expected.symbol
+        && actual.venue_symbol.is_some()
+        && actual.venue_symbol == expected.venue_symbol
+        && actual.exchange == expected.exchange
+        && (actual.market == expected.market
+            || actual.market == broker_core::Market::Other("unknown".to_string()))
 }
 
 fn order_scope_mismatch(
@@ -2368,6 +2452,156 @@ pub enum CancelBrokerTruthReadonlyHttpMethod {
     Get,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FinamRealReadonlyRouteSource {
+    FinamRestDocs20260701,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinamRealReadonlyRouteDiagnostic {
+    pub source: CancelBrokerTruthSource,
+    pub method: CancelBrokerTruthReadonlyHttpMethod,
+    pub path_template: &'static str,
+    pub route_source: FinamRealReadonlyRouteSource,
+    pub query_keys: Vec<&'static str>,
+    pub account_id_present: bool,
+    pub account_id_len: Option<usize>,
+    pub order_id_present: bool,
+    pub order_id_len: Option<usize>,
+    pub client_order_id_present: bool,
+    pub client_order_id_len: Option<usize>,
+    pub instrument_symbol_present: bool,
+    pub instrument_symbol_len: Option<usize>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct FinamRealReadonlyRoute {
+    method: CancelBrokerTruthReadonlyHttpMethod,
+    path: String,
+    query_keys: Vec<&'static str>,
+    diagnostic: FinamRealReadonlyRouteDiagnostic,
+}
+
+impl std::fmt::Debug for FinamRealReadonlyRoute {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("FinamRealReadonlyRoute")
+            .field("diagnostic", &self.diagnostic)
+            .finish()
+    }
+}
+
+impl FinamRealReadonlyRoute {
+    pub fn method(&self) -> CancelBrokerTruthReadonlyHttpMethod {
+        self.method
+    }
+
+    pub fn diagnostic(&self) -> &FinamRealReadonlyRouteDiagnostic {
+        &self.diagnostic
+    }
+
+    pub fn query_keys(&self) -> &[&'static str] {
+        &self.query_keys
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FinamRealReadonlyRouteBuildError {
+    MissingAccountId,
+}
+
+fn finam_real_readonly_route_template(
+    source: CancelBrokerTruthSource,
+) -> (&'static str, Vec<&'static str>) {
+    match source {
+        CancelBrokerTruthSource::GetOrder => {
+            ("/v1/accounts/{account_id}/orders/{order_id}", Vec::new())
+        }
+        CancelBrokerTruthSource::OrdersSnapshot => ("/v1/accounts/{account_id}/orders", Vec::new()),
+        CancelBrokerTruthSource::TradesSnapshot => (
+            "/v1/accounts/{account_id}/trades",
+            vec!["limit", "interval.start_time", "interval.end_time"],
+        ),
+        CancelBrokerTruthSource::PositionSnapshot => ("/v1/accounts/{account_id}", Vec::new()),
+    }
+}
+
+fn append_url_path_segment(output: &mut String, segment: &str) {
+    for byte in segment.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                output.push(byte as char);
+            }
+            _ => {
+                write!(output, "%{byte:02X}").expect("percent-encoding write cannot fail");
+            }
+        }
+    }
+}
+
+fn render_finam_real_readonly_path(
+    source: CancelBrokerTruthSource,
+    request: &CancelBrokerTruthFetchRequestSnapshot,
+) -> Result<String, FinamRealReadonlyRouteBuildError> {
+    let account_id = request
+        .account_id
+        .as_ref()
+        .ok_or(FinamRealReadonlyRouteBuildError::MissingAccountId)?;
+    let mut path = String::new();
+    path.push_str("/v1/accounts/");
+    append_url_path_segment(&mut path, account_id.as_str());
+    match source {
+        CancelBrokerTruthSource::GetOrder => {
+            path.push_str("/orders/");
+            append_url_path_segment(&mut path, request.order_id.as_str());
+        }
+        CancelBrokerTruthSource::OrdersSnapshot => {
+            path.push_str("/orders");
+        }
+        CancelBrokerTruthSource::TradesSnapshot => {
+            path.push_str("/trades");
+        }
+        CancelBrokerTruthSource::PositionSnapshot => {}
+    }
+    Ok(path)
+}
+
+pub fn build_finam_real_readonly_route(
+    _gate: &RealReadonlyBrokerTruthGateApproved,
+    source: CancelBrokerTruthSource,
+    request: &CancelBrokerTruthFetchRequestSnapshot,
+) -> Result<FinamRealReadonlyRoute, FinamRealReadonlyRouteBuildError> {
+    let (path_template, query_keys) = finam_real_readonly_route_template(source);
+    let path = render_finam_real_readonly_path(source, request)?;
+    let diagnostic = FinamRealReadonlyRouteDiagnostic {
+        source,
+        method: CancelBrokerTruthReadonlyHttpMethod::Get,
+        path_template,
+        route_source: FinamRealReadonlyRouteSource::FinamRestDocs20260701,
+        query_keys: query_keys.clone(),
+        account_id_present: request.account_id.is_some(),
+        account_id_len: request
+            .account_id
+            .as_ref()
+            .map(|account_id| account_id.as_str().len()),
+        order_id_present: true,
+        order_id_len: Some(request.order_id.as_str().len()),
+        client_order_id_present: request.client_order_id.is_some(),
+        client_order_id_len: request
+            .client_order_id
+            .as_ref()
+            .map(|client_order_id| client_order_id.as_str().len()),
+        instrument_symbol_present: true,
+        instrument_symbol_len: Some(request.instrument.symbol.len()),
+    };
+    Ok(FinamRealReadonlyRoute {
+        method: CancelBrokerTruthReadonlyHttpMethod::Get,
+        path,
+        query_keys,
+        diagnostic,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CancelBrokerTruthReadonlyRequestSpec {
     pub source: CancelBrokerTruthSource,
@@ -2466,6 +2700,15 @@ pub trait CancelBrokerTruthReadonlyHttpClient {
     async fn send_readonly(
         &mut self,
         spec: CancelBrokerTruthReadonlyRequestSpec,
+    ) -> CancelBrokerTruthReadonlyCapturedResponse;
+}
+
+#[async_trait]
+pub trait FinamRealReadonlyBrokerTruthTransport: Send {
+    async fn send_finam_real_readonly(
+        &mut self,
+        gate: &RealReadonlyBrokerTruthGateApproved,
+        route: FinamRealReadonlyRoute,
     ) -> CancelBrokerTruthReadonlyCapturedResponse;
 }
 
@@ -5678,6 +5921,8 @@ mod tests {
             "serde_json::Value",
             "pub body",
             "pub response",
+            "pub path:",
+            "FinamRealOrderEndpointTransport",
         ] {
             assert!(
                 !truth_fetcher_source.contains(forbidden),
@@ -8402,6 +8647,204 @@ mod tests {
     }
 
     #[test]
+    fn real_readonly_broker_truth_gate_is_disabled_by_default_and_blocks_order_features() {
+        let default_features = GatewayFeatureSet::default();
+        let default_decision = default_features.real_readonly_broker_truth_gate_decision();
+        assert!(!default_decision.real_readonly_allowed);
+        assert_eq!(
+            default_decision.blocking_reasons,
+            vec![RealReadonlyBrokerTruthGateBlock::DisabledByDefault]
+        );
+        assert!(matches!(
+            RealReadonlyBrokerTruthGateApproved::try_from_decision(&default_decision)
+                .expect_err("default real-readonly gate is disabled"),
+            RealReadonlyBrokerTruthGateApprovalError::Blocked { decision }
+                if decision.blocking_reasons
+                    == vec![RealReadonlyBrokerTruthGateBlock::DisabledByDefault]
+        ));
+
+        let enabled_readonly = GatewayFeatureSet {
+            real_readonly_broker_truth_enabled: true,
+            ..GatewayFeatureSet::default()
+        };
+        let enabled_decision = enabled_readonly.real_readonly_broker_truth_gate_decision();
+        assert!(enabled_decision.real_readonly_allowed);
+        assert!(enabled_decision.blocking_reasons.is_empty());
+        assert!(RealReadonlyBrokerTruthGateApproved::try_from_decision(&enabled_decision).is_ok());
+
+        let unsafe_features = GatewayFeatureSet {
+            real_readonly_broker_truth_enabled: true,
+            command_consumer_enabled: true,
+            order_placement_enabled: true,
+            cancel_enabled: true,
+            stop_sltp_bracket_enabled: true,
+            ..GatewayFeatureSet::default()
+        };
+        let unsafe_decision = unsafe_features.real_readonly_broker_truth_gate_decision();
+        assert!(!unsafe_decision.real_readonly_allowed);
+        assert_eq!(
+            unsafe_decision.blocking_reasons,
+            vec![
+                RealReadonlyBrokerTruthGateBlock::CommandConsumerEnabled,
+                RealReadonlyBrokerTruthGateBlock::OrderPlacementEnabled,
+                RealReadonlyBrokerTruthGateBlock::CancelEnabled,
+                RealReadonlyBrokerTruthGateBlock::StopSltpBracketEnabled,
+            ]
+        );
+    }
+
+    #[test]
+    fn finam_real_readonly_routes_are_get_only_redacted_and_separate_from_local_placeholders() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 19, 34)
+            .single()
+            .expect("timestamp");
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let order_id = BrokerOrderId::new("BROKER_TEST_REAL_ROUTE");
+        let client_id = ClientOrderId::new("CID000000000000203").expect("client id");
+        let instrument = sample_instrument();
+        let request = truth_fetch_request_with_account(
+            &account_id,
+            &order_id,
+            Some(&client_id),
+            &instrument,
+            now,
+            CancelPositionTruthGuardContext::default(),
+        );
+        let request_snapshot = CancelBrokerTruthFetchRequestSnapshot::from(&request);
+        let decision = GatewayFeatureSet {
+            real_readonly_broker_truth_enabled: true,
+            ..GatewayFeatureSet::default()
+        }
+        .real_readonly_broker_truth_gate_decision();
+        let gate = RealReadonlyBrokerTruthGateApproved::try_from_decision(&decision)
+            .expect("enabled read-only gate");
+
+        let logical = build_cancel_broker_truth_readonly_request_spec(
+            CancelBrokerTruthSource::GetOrder,
+            &request_snapshot,
+        );
+        assert_eq!(logical.path_template, "/readonly/orders/{order_id}");
+
+        let get_order_route = build_finam_real_readonly_route(
+            &gate,
+            CancelBrokerTruthSource::GetOrder,
+            &request_snapshot,
+        )
+        .expect("get-order route");
+        assert_eq!(
+            get_order_route.method(),
+            CancelBrokerTruthReadonlyHttpMethod::Get
+        );
+        assert_eq!(
+            get_order_route.diagnostic().path_template,
+            "/v1/accounts/{account_id}/orders/{order_id}"
+        );
+        assert_eq!(
+            get_order_route.path,
+            "/v1/accounts/ACC_TEST_0001/orders/BROKER_TEST_REAL_ROUTE"
+        );
+        assert!(!format!("{get_order_route:?}").contains(order_id.as_str()));
+        assert!(!format!("{get_order_route:?}").contains(account_id.as_str()));
+
+        let cases = [
+            (
+                CancelBrokerTruthSource::OrdersSnapshot,
+                "/v1/accounts/{account_id}/orders",
+                "/v1/accounts/ACC_TEST_0001/orders",
+            ),
+            (
+                CancelBrokerTruthSource::TradesSnapshot,
+                "/v1/accounts/{account_id}/trades",
+                "/v1/accounts/ACC_TEST_0001/trades",
+            ),
+            (
+                CancelBrokerTruthSource::PositionSnapshot,
+                "/v1/accounts/{account_id}",
+                "/v1/accounts/ACC_TEST_0001",
+            ),
+        ];
+        for (source, template, rendered_path) in cases {
+            let route =
+                build_finam_real_readonly_route(&gate, source, &request_snapshot).expect("route");
+            assert_eq!(route.method(), CancelBrokerTruthReadonlyHttpMethod::Get);
+            assert_eq!(route.diagnostic().path_template, template);
+            assert_eq!(route.path, rendered_path);
+            assert!(!format!("{route:?}").contains(account_id.as_str()));
+        }
+
+        let request_without_account = CancelBrokerTruthFetchRequestSnapshot {
+            account_id: None,
+            ..request_snapshot
+        };
+        assert_eq!(
+            build_finam_real_readonly_route(
+                &gate,
+                CancelBrokerTruthSource::OrdersSnapshot,
+                &request_without_account,
+            )
+            .expect_err("real route requires account id"),
+            FinamRealReadonlyRouteBuildError::MissingAccountId
+        );
+    }
+
+    #[test]
+    fn unknown_client_error_is_manual_unknown_pending_policy() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 19, 35)
+            .single()
+            .expect("timestamp");
+        let policy = CancelBrokerTruthOrchestrationPolicy::default();
+        let order_id = BrokerOrderId::new("BROKER_TEST_UNKNOWN_CLIENT");
+        let client_id = ClientOrderId::new("CID000000000000204").expect("client id");
+        let instrument = sample_instrument();
+        let request = truth_fetch_request(
+            &order_id,
+            Some(&client_id),
+            &instrument,
+            now,
+            CancelPositionTruthGuardContext::default(),
+        );
+        let mut fetcher = MockCancelBrokerTruthDryFetcher::new(
+            CancelBrokerTruthFetchResult::missing(
+                CancelBrokerTruthSource::GetOrder,
+                CancelBrokerTruthFetchReason::UnknownClientError,
+                now,
+            ),
+            CancelBrokerTruthFetchResult::missing(
+                CancelBrokerTruthSource::OrdersSnapshot,
+                CancelBrokerTruthFetchReason::MissingFixture,
+                now,
+            ),
+            CancelBrokerTruthFetchResult::missing(
+                CancelBrokerTruthSource::TradesSnapshot,
+                CancelBrokerTruthFetchReason::MissingFixture,
+                now,
+            ),
+            CancelBrokerTruthFetchResult::missing(
+                CancelBrokerTruthSource::PositionSnapshot,
+                CancelBrokerTruthFetchReason::MissingFixture,
+                now,
+            ),
+        );
+
+        let report =
+            simulate_cancel_broker_truth_fetch_orchestration(&mut fetcher, &request, &policy, now);
+        assert_eq!(
+            report.fetch_diagnostics[0].reason,
+            Some(CancelBrokerTruthFetchReason::UnknownClientError)
+        );
+        assert_eq!(
+            report.fetch_diagnostics[0].operator_disarm_signal,
+            Some(OperatorDisarmSignal::UnknownPendingOrder)
+        );
+        assert_eq!(
+            report.operator_disarm_signal,
+            Some(OperatorDisarmSignal::UnknownPendingOrder)
+        );
+    }
+
+    #[test]
     fn get_order_client_id_fallback_is_weak_by_default_and_policy_controlled() {
         let now = Utc
             .with_ymd_and_hms(2026, 7, 1, 12, 19, 32)
@@ -8569,6 +9012,32 @@ mod tests {
         );
         let CancelBrokerTruthFetchResult::Missing { reason, .. } = result else {
             panic!("instrument mismatch should not become evidence");
+        };
+        assert_eq!(reason, CancelBrokerTruthFetchReason::InstrumentMismatch);
+
+        let same_symbol_different_venue_body = serde_json::json!({
+            "executed_quantity": {"value": "0"},
+            "initial_quantity": {"value": "1"},
+            "order": {
+                "account_id": account_id.as_str(),
+                "client_order_id": client_id.as_str(),
+                "limit_price": {"value": "5000"},
+                "quantity": {"value": "1"},
+                "side": "SIDE_BUY",
+                "symbol": "TESTFUT@OTHER",
+                "type": "ORDER_TYPE_LIMIT"
+            },
+            "order_id": order_id.as_str(),
+            "status": "ORDER_STATUS_CANCELED"
+        });
+        let result = map_cancel_broker_truth_get_order_http_response(
+            &CancelBrokerTruthReadonlyHttpResponse::json(200, &same_symbol_different_venue_body),
+            &request_snapshot,
+            now,
+            &policy.freshness,
+        );
+        let CancelBrokerTruthFetchResult::Missing { reason, .. } = result else {
+            panic!("same symbol with different venue should not become evidence");
         };
         assert_eq!(reason, CancelBrokerTruthFetchReason::InstrumentMismatch);
     }

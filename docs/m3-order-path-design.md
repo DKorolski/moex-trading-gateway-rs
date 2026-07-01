@@ -60,7 +60,10 @@ contract, explicit 408/502/504 policy, and categorical get-order
 identity-strength diagnostics without enabling real order endpoints. M3b-10
 adds the GET-only local mock read-only transport boundary, refined 4xx
 diagnostics, account/instrument scope checks, and weak-by-default
-client-order-id fallback policy.
+client-order-id fallback policy. M3b-11 adds a disabled-by-default
+real-readonly broker-truth gate and separates FINAM documented GET route
+templates from local `/readonly/...` placeholders while keeping real order
+endpoints disabled.
 
 M3 scope is deliberately small:
 
@@ -167,6 +170,10 @@ M3b-10 adds redacted GET-only request specs and a local mock read-only HTTP
 client boundary while keeping real order endpoints disabled. It also separates
 invalid read-only requests from decode errors and prevents wrong-account or
 wrong-instrument truth from becoming evidence.
+M3b-11 adds the disabled-by-default real-readonly route gate: FINAM GET route
+templates are rendered only behind an explicit read-only gate, raw paths stay
+private, symbol-only instrument matches no longer pass, and unknown client
+errors are operator-visible unknown-pending outcomes.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

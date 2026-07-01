@@ -931,3 +931,30 @@ Still not implemented in M3b-10:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-11 real-readonly broker-truth transport gate status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- separate `real_readonly_broker_truth_enabled` feature flag, disabled by
+  default;
+- real-readonly broker-truth gate that blocks unless read-only is explicitly
+  enabled and all order/runtime features remain disabled;
+- FINAM REST GET route builder separate from local `/readonly/...`
+  placeholders;
+- route diagnostics are redacted and raw rendered paths are private;
+- async real-readonly transport boundary requires the gate marker and returns
+  only captured redacted responses;
+- instrument identity no longer accepts symbol-only matches;
+- `UnknownClientError` policy is operator-visible
+  `UnknownPendingOrder`.
+
+Still not implemented in M3b-11:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

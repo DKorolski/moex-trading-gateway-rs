@@ -8,6 +8,10 @@ consumption, real FINAM CommandAck lifecycle, runtime strategy attachment,
 M3b-10 extends the M3b-9 local DTO mapper with a read-only mock transport
 boundary. It is still local and does not perform network I/O.
 
+M3b-11 adds the disabled-by-default real-readonly FINAM route gate and keeps it
+separate from the local `/readonly/...` placeholders. See
+`docs/m3b11-real-readonly-transport-gate.md`.
+
 ## Read-only request specs
 
 Broker-truth request builders now create redacted GET-only request specs for:

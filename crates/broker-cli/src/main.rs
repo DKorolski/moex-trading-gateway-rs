@@ -3603,6 +3603,12 @@ mod tests {
         .expect("resolved config");
 
         assert!(!resolved.gateway_config.features.command_consumer_enabled);
+        assert!(
+            !resolved
+                .gateway_config
+                .features
+                .real_readonly_broker_truth_enabled
+        );
         assert!(!resolved.gateway_config.features.order_placement_enabled);
         assert!(!resolved.gateway_config.features.cancel_enabled);
         assert!(!resolved.gateway_config.features.stop_sltp_bracket_enabled);
