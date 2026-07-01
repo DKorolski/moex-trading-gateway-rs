@@ -145,6 +145,10 @@ exports, and workspace-wide approved-only source-scan coverage. M3a-10 adds
 SQLite schema-version guard, writer-lock metadata/stale-lock policy,
 read-only diagnostic store access, transition audit rows, store-failure
 operator disarm signals, and SQLite-backed dry simulator ordering tests.
+M3a-11 adds WAL/SHM/lock permission hardening, operator-only diagnostic method
+names, safe transition audit event names, store-error-to-disarm mapping, and an
+explicit real-endpoint gate decision that remains blocked before endpoint
+implementation review.
 
 `broker-finam::order_request` may build FINAM request path/body specs for dry
 fixture tests only from preflight-approved commands, but it must not send HTTP

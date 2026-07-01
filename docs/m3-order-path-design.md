@@ -28,7 +28,10 @@ SQLite/WAL durable-store prototype, and workspace-wide source-scan coverage. It
 does not call FINAM endpoints and is not a live command consumer. M3a-10 hardens
 that SQLite path with writer-lock metadata/stale-lock policy, schema-version
 guard, read-only diagnostics, transition audit, operator store-failure disarm
-signals, and SQLite-backed dry simulator ordering tests.
+signals, and SQLite-backed dry simulator ordering tests. M3a-11 adds WAL/SHM
+runtime-file permission hardening, operator-only diagnostic API names, safe
+transition audit event-name refinement, store-error-to-disarm mapping, an
+explicit pre-endpoint gate decision, and the migration/fixture runbook.
 
 M3 scope is deliberately small:
 
@@ -86,6 +89,11 @@ M3a-10 strengthens that proof: dry place/cancel simulator tests use SQLite as
 the backing store and a read-only diagnostic connection inside the mock
 execution client. This verifies that `SubmitInFlight` and `CancelRequested` are
 committed before any future external endpoint call would be attempted.
+
+M3a-11 keeps the external endpoint path blocked, but makes the boundary
+operator-visible in code: real endpoint gate decisions are always blocked by
+`M3a11PreEndpointReviewRequired`, and runtime-facing ACK id policy remains
+`RedactedRuntimeAckOnly`.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.
@@ -251,6 +259,11 @@ stale-lock removal, cleanup on connection-open failure, read-only diagnostic
 store access, transaction audit rows, and store-failure operator disarm signals.
 It also documents terminal-record retention/archive policy for the protected
 local store.
+
+M3a-11 hardens runtime sidecar permissions for DB/WAL/SHM/lock files when
+present, makes raw read-only lookups explicitly operator-only, refines audit
+events to safe transition names, and maps store errors to endpoint-disarm
+signals.
 
 Primary key:
 

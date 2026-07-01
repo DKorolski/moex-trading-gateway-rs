@@ -1,6 +1,6 @@
 # SQLite order-path store implementation ticket
 
-Status: design ticket plus M3a-9/M3a-10 dry implementation notes for the first
+Status: design ticket plus M3a-9/M3a-10/M3a-11 dry implementation notes for the first
 production-grade durable store. This does not authorize FINAM order endpoints,
 real command consumption, runtime strategy attachment, `LiveReady`, live micro,
 stop/SLTP, or bracket behavior.
@@ -142,6 +142,10 @@ Implemented in dry code only:
 - `order_path_schema` version guard;
 - read-only/query-only diagnostic store;
 - transaction audit table;
+- DB/WAL/SHM/writer-lock permission hardening when files are present;
+- operator-only raw diagnostic method names and separate redacted exports;
+- safe inferred transition event names in audit rows;
+- store-error-to-operator-disarm mapping;
 - crash/reopen tests for `SubmitInFlight`, `CancelRequested`, and
   `SubmittedPendingBrokerOrderId`;
 - corrupt database open failure blocks use;
@@ -155,3 +159,7 @@ Still required before real endpoint use:
 - protected full-id diagnostic view.
 - schema backup/migration runbook for future version changes;
 - real reconciliation-loop integration and staleness/backoff policy.
+
+M3a-11 adds the first migration/backup runbook and pre-endpoint response fixture
+plan in `docs/m3a11-final-pre-endpoint-gate.md`; a reviewed migration tool and
+real reconciliation-loop integration are still future work.

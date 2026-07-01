@@ -253,6 +253,8 @@ Implementation notes from the first review:
   still without FINAM order endpoint calls;
 - M3a-10 adds SQLite store hardening and SQLite-backed dry simulator ordering
   tests, still without FINAM order endpoint calls;
+- M3a-11 adds final pre-endpoint gate policy, fixture plan, and ACK/id
+  redaction decision, still without FINAM order endpoint calls;
 - raw `serde_json::Value` is acceptable only for the shape probe. Typed DTOs and
   mappers are required before Redis gateway/readiness work.
 

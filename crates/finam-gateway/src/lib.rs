@@ -137,6 +137,51 @@ impl Default for GatewayFeatureSet {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RealOrderEndpointGateBlock {
+    M3a11PreEndpointReviewRequired,
+    CommandConsumerEnabled,
+    OrderPlacementEnabled,
+    CancelEnabled,
+    StopSltpBracketEnabled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RuntimeCommandAckIdPolicy {
+    RedactedRuntimeAckOnly,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RealOrderEndpointGateDecision {
+    pub endpoint_calls_allowed: bool,
+    pub blocking_reasons: Vec<RealOrderEndpointGateBlock>,
+    pub runtime_ack_id_policy: RuntimeCommandAckIdPolicy,
+}
+
+impl GatewayFeatureSet {
+    pub fn real_order_endpoint_gate_decision(&self) -> RealOrderEndpointGateDecision {
+        let mut blocking_reasons = vec![RealOrderEndpointGateBlock::M3a11PreEndpointReviewRequired];
+        if self.command_consumer_enabled {
+            blocking_reasons.push(RealOrderEndpointGateBlock::CommandConsumerEnabled);
+        }
+        if self.order_placement_enabled {
+            blocking_reasons.push(RealOrderEndpointGateBlock::OrderPlacementEnabled);
+        }
+        if self.cancel_enabled {
+            blocking_reasons.push(RealOrderEndpointGateBlock::CancelEnabled);
+        }
+        if self.stop_sltp_bracket_enabled {
+            blocking_reasons.push(RealOrderEndpointGateBlock::StopSltpBracketEnabled);
+        }
+
+        RealOrderEndpointGateDecision {
+            endpoint_calls_allowed: false,
+            blocking_reasons,
+            runtime_ack_id_policy: RuntimeCommandAckIdPolicy::RedactedRuntimeAckOnly,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayHealth {
     pub status: GatewayHealthStatus,
@@ -1086,6 +1131,10 @@ where
 
     pub fn config(&self) -> &GatewayConfig {
         &self.config
+    }
+
+    pub fn real_order_endpoint_gate_decision(&self) -> RealOrderEndpointGateDecision {
+        self.config.features.real_order_endpoint_gate_decision()
     }
 
     pub fn command_consumer_mode(&self) -> CommandConsumerMode {
@@ -2244,27 +2293,97 @@ mod tests {
 
     #[tokio::test]
     async fn dry_command_ack_publisher_refuses_order_enabled_modes() {
-        let mut config = GatewayConfig::default();
-        config.features.order_placement_enabled = true;
-        let gateway = FinamGateway::new(config, InMemoryRedisStreamSink::default());
-        let ack = CommandAck {
-            request_id: request_id(4),
-            client_order_id: None,
-            broker_order_id: None,
-            status: CommandAckStatus::Submitted,
-            reason: Some(CommandAckReason::synthetic_submitted()),
-            received_ts: Utc::now(),
-        };
+        fn enable_command_consumer(features: &mut GatewayFeatureSet) {
+            features.command_consumer_enabled = true;
+        }
+        fn enable_order_placement(features: &mut GatewayFeatureSet) {
+            features.order_placement_enabled = true;
+        }
+        fn enable_cancel(features: &mut GatewayFeatureSet) {
+            features.cancel_enabled = true;
+        }
+        fn enable_stop_sltp_bracket(features: &mut GatewayFeatureSet) {
+            features.stop_sltp_bracket_enabled = true;
+        }
 
-        assert!(matches!(
-            gateway
-                .publish_dry_command_ack(ack)
-                .await
-                .expect_err("order mode must be refused"),
-            GatewayError::DryCommandAckPublisherUnsafeMode {
-                reason: "order_placement_enabled"
-            }
-        ));
+        for (configure, reason) in [
+            (
+                enable_command_consumer as fn(&mut GatewayFeatureSet),
+                "command_consumer_enabled",
+            ),
+            (
+                enable_order_placement as fn(&mut GatewayFeatureSet),
+                "order_placement_enabled",
+            ),
+            (
+                enable_cancel as fn(&mut GatewayFeatureSet),
+                "cancel_enabled",
+            ),
+            (
+                enable_stop_sltp_bracket as fn(&mut GatewayFeatureSet),
+                "stop_sltp_bracket_enabled",
+            ),
+        ] {
+            let mut config = GatewayConfig::default();
+            configure(&mut config.features);
+            let gateway = FinamGateway::new(config, InMemoryRedisStreamSink::default());
+            let ack = CommandAck {
+                request_id: request_id(4),
+                client_order_id: None,
+                broker_order_id: None,
+                status: CommandAckStatus::Submitted,
+                reason: Some(CommandAckReason::synthetic_submitted()),
+                received_ts: Utc::now(),
+            };
+
+            assert!(matches!(
+                gateway
+                    .publish_dry_command_ack(ack)
+                    .await
+                    .expect_err("order mode must be refused"),
+                GatewayError::DryCommandAckPublisherUnsafeMode {
+                    reason: actual
+                } if actual == reason
+            ));
+        }
+    }
+
+    #[test]
+    fn real_order_endpoint_gate_remains_blocked_until_post_m3a11_review() {
+        let gateway =
+            FinamGateway::new(GatewayConfig::default(), InMemoryRedisStreamSink::default());
+
+        let decision = gateway.real_order_endpoint_gate_decision();
+
+        assert!(!decision.endpoint_calls_allowed);
+        assert_eq!(
+            decision.blocking_reasons,
+            vec![RealOrderEndpointGateBlock::M3a11PreEndpointReviewRequired]
+        );
+        assert_eq!(
+            decision.runtime_ack_id_policy,
+            RuntimeCommandAckIdPolicy::RedactedRuntimeAckOnly
+        );
+
+        let features = GatewayFeatureSet {
+            command_consumer_enabled: true,
+            order_placement_enabled: true,
+            cancel_enabled: true,
+            stop_sltp_bracket_enabled: true,
+            ..GatewayFeatureSet::default()
+        };
+        let flagged = features.real_order_endpoint_gate_decision();
+        assert!(!flagged.endpoint_calls_allowed);
+        assert_eq!(
+            flagged.blocking_reasons,
+            vec![
+                RealOrderEndpointGateBlock::M3a11PreEndpointReviewRequired,
+                RealOrderEndpointGateBlock::CommandConsumerEnabled,
+                RealOrderEndpointGateBlock::OrderPlacementEnabled,
+                RealOrderEndpointGateBlock::CancelEnabled,
+                RealOrderEndpointGateBlock::StopSltpBracketEnabled,
+            ]
+        );
     }
 
     #[tokio::test]
@@ -2472,10 +2591,10 @@ mod tests {
         assert_eq!(audit[0].event, "InsertIntent");
         assert_eq!(audit[0].from_state, None);
         assert_eq!(audit[0].to_state, "IntentRecorded");
-        assert_eq!(audit[1].event, "UpdateRecord");
+        assert_eq!(audit[1].event, "BeginSubmit");
         assert_eq!(audit[1].from_state.as_deref(), Some("IntentRecorded"));
         assert_eq!(audit[1].to_state, "SubmitInFlight");
-        assert_eq!(audit[2].event, "UpdateRecord");
+        assert_eq!(audit[2].event, "SubmitAccepted");
         assert_eq!(audit[2].from_state.as_deref(), Some("SubmitInFlight"));
         assert_eq!(audit[2].to_state, "Submitted");
         drop(store);
@@ -2485,7 +2604,7 @@ mod tests {
                 SqliteOrderPathReadStore::open_readonly(&path).expect("open read-only diagnostics");
             assert_eq!(
                 readonly
-                    .load_by_request_id(order.request_id)
+                    .operator_load_by_request_id(order.request_id)
                     .expect("read-only record")
                     .state,
                 OrderPathState::Submitted
@@ -2862,10 +2981,10 @@ mod tests {
         assert_eq!(audit[0].event, "InsertIntent");
         assert_eq!(audit[0].from_state, None);
         assert_eq!(audit[0].to_state, "Submitted");
-        assert_eq!(audit[1].event, "UpdateRecord");
+        assert_eq!(audit[1].event, "RequestCancel");
         assert_eq!(audit[1].from_state.as_deref(), Some("Submitted"));
         assert_eq!(audit[1].to_state, "CancelRequested");
-        assert_eq!(audit[2].event, "UpdateRecord");
+        assert_eq!(audit[2].event, "RequireManualIntervention");
         assert_eq!(audit[2].from_state.as_deref(), Some("CancelRequested"));
         assert_eq!(audit[2].to_state, "ManualInterventionRequired");
         drop(store);
@@ -2875,7 +2994,7 @@ mod tests {
                 SqliteOrderPathReadStore::open_readonly(&path).expect("open read-only diagnostics");
             assert_eq!(
                 readonly
-                    .load_by_request_id(order.request_id)
+                    .operator_load_by_request_id(order.request_id)
                     .expect("read-only record")
                     .state,
                 OrderPathState::ManualInterventionRequired
@@ -3070,7 +3189,7 @@ mod tests {
             let readonly =
                 SqliteOrderPathReadStore::open_readonly(&self.db_path).expect("read-only sqlite");
             let record = readonly
-                .load_by_request_id(self.expected_request_id)
+                .operator_load_by_request_id(self.expected_request_id)
                 .expect("expected order-path record");
             assert_eq!(record.state, self.expected_state_before_call);
         }

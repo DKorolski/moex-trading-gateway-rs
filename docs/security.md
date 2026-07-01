@@ -116,6 +116,10 @@ M3a-10 keeps that posture for read-only diagnostics and transition audit:
 diagnostic/audit rows expose state, timestamps, safe reason codes, and
 fingerprints only; raw ids remain local to the protected SQLite payload and must
 not be included in Redis ACKs or handoff archives.
+M3a-11 makes the boundary explicit in API names and gateway decisions:
+operator-only SQLite diagnostic methods use the `operator_` prefix, runtime ACK
+id policy is `RedactedRuntimeAckOnly`, and real endpoint gates remain blocked
+until a later reviewed implementation.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account
@@ -127,6 +131,9 @@ SQLite order-path database, WAL, SHM, and writer-lock files are runtime
 artifacts. They must not be included in review handoff archives. Use redacted
 exports and the retention/archive policy in
 `docs/order-path-retention-archive-policy.md` for review evidence.
+M3a-11 hardens DB/WAL/SHM/writer-lock permissions where supported and requires
+`umask 077` plus a protected local runtime directory for any future live-capable
+deployment.
 
 CLI command argument containers should not derive auto `Debug`, because account
 ids and venue symbols can be supplied as args or environment-derived values.

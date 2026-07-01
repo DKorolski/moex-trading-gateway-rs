@@ -330,6 +330,10 @@ read-only diagnostics are local protected store features. The dry ACK publisher
 continues to redact optional client/broker order ids before publishing
 `CommandAck` envelopes.
 
+M3a-11 still does not change Redis stream scope. Runtime-facing ACK id policy
+is explicitly `RedactedRuntimeAckOnly`; full ids remain local to the protected
+SQLite store and operator/internal diagnostics.
+
 ## Retention policy
 
 M2c defaults use approximate Redis stream trimming for health/readiness/

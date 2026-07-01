@@ -693,6 +693,37 @@ M3a-10 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3a-11 final pre-endpoint order-path gate:
+
+- SQLite runtime-file hardening now covers the main DB, WAL, SHM, and writer
+  lock files when present.
+- Deployment policy requires `umask 077` and a protected local runtime
+  directory for any future live-capable process.
+- `SqliteOrderPathReadStore` raw lookup methods are explicitly operator-only
+  via `operator_*` names; reporting/review exports use `redacted_records()`.
+- Transition audit rows now record safe inferred event names such as
+  `BeginSubmit`, `SubmitAccepted`, `RequestCancel`, `CancelTimedOut`, and
+  `RequireManualIntervention` instead of only generic `UpdateRecord`.
+- `OrderPathStoreError::operator_disarm_signal()` maps lock uncertainty,
+  migration mismatch, and other store failures to operator disarm signals.
+- `GatewayFeatureSet::real_order_endpoint_gate_decision()` and
+  `FinamGateway::real_order_endpoint_gate_decision()` explicitly keep real
+  endpoint calls blocked with `M3a11PreEndpointReviewRequired`.
+- Runtime-facing ACK id policy is locked as `RedactedRuntimeAckOnly`; raw
+  client/broker ids remain local to protected operator/internal diagnostics.
+- SQLite migration/backup runbook and pre-endpoint FINAM response fixture plan
+  are documented in `docs/m3a11-final-pre-endpoint-gate.md`.
+
+M3a-11 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

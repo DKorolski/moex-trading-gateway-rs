@@ -10,6 +10,10 @@ command-path state. It may contain raw local account/client/broker identifiers
 needed for reconciliation and cancel mapping. It must stay local to the gateway
 host and must not be included in handoff archives.
 
+Future live-capable deployments must run with `umask 077` in a protected local
+runtime directory. The store hardens DB/WAL/SHM/writer-lock file permissions
+where the platform supports Unix permissions.
+
 Default policy:
 
 - do not auto-purge terminal records during first live-micro preparation;

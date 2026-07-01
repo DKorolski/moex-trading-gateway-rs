@@ -132,11 +132,14 @@ simulation, recovery-by-client-order-id helper, cancel accepted broker-id
 mismatch policy, idempotent recovery, SQLite/WAL durable-store prototype,
 SQLite schema/version guard, writer-lock metadata/stale-lock policy, read-only
 diagnostic store, transition audit journal, SQLite-backed dry simulator
-ordering tests, store invariants, broker-order-id uniqueness, cancel timeout
-policy, dry window/backoff rate limiting, FINAM request DTO builders without
-HTTP send, workspace-wide source-scan guard tests, and price/reference/notional
-guard tests. It still does not call FINAM order endpoints or consume live
-strategy commands.
+ordering tests, WAL/SHM runtime-file permission hardening, operator-only
+diagnostic API boundary, safe transition audit event names,
+store-error-to-operator-disarm mapping, explicit pre-endpoint gate decision,
+store invariants, broker-order-id uniqueness, cancel timeout policy, dry
+window/backoff rate limiting, FINAM request DTO builders without HTTP send,
+workspace-wide source-scan guard tests, and price/reference/notional guard
+tests. It still does not call FINAM order endpoints or consume live strategy
+commands.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`. The Redis CI job runs
@@ -158,6 +161,7 @@ See:
 - [M3a-8 reconciliation state matrix](docs/m3a8-reconciliation-state-matrix.md)
 - [M3a-9 durable store prototype](docs/m3a9-durable-store-prototype.md)
 - [M3a-10 SQLite production hardening](docs/m3a10-sqlite-production-hardening.md)
+- [M3a-11 final pre-endpoint gate](docs/m3a11-final-pre-endpoint-gate.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

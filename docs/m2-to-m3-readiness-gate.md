@@ -571,3 +571,34 @@ Still not implemented in M3a-10:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3a-11 final pre-endpoint order-path gate status
+
+Implemented while still keeping all broker endpoints disabled:
+
+- SQLite runtime-file hardening covers DB, WAL, SHM, and writer-lock files when
+  present;
+- deployment policy requires `umask 077` and protected local runtime directory
+  before any future live-capable process;
+- raw read-only SQLite diagnostic methods are operator-only and named with the
+  `operator_` prefix;
+- redacted reporting/export remains separate through `redacted_records()`;
+- transition audit rows record safe inferred event names instead of only
+  generic update events;
+- store errors map to operator disarm signals for lock uncertainty, migration
+  mismatch, and store unavailability;
+- real endpoint gate decision is explicit and remains blocked by
+  `M3a11PreEndpointReviewRequired`;
+- runtime ACK id policy is locked as `RedactedRuntimeAckOnly`;
+- SQLite migration/backup runbook and pre-endpoint FINAM response fixture plan
+  are documented in `docs/m3a11-final-pre-endpoint-gate.md`.
+
+Still not implemented in M3a-11:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

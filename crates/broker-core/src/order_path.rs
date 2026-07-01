@@ -329,6 +329,28 @@ pub enum OrderPathStoreError {
     Serialization(String),
 }
 
+impl OrderPathStoreError {
+    pub fn operator_disarm_signal(&self) -> OperatorDisarmSignal {
+        match self {
+            Self::WriterLockUnavailable(_) => OperatorDisarmSignal::OrderPathStoreLockUncertain,
+            Self::SchemaVersionMismatch { .. } => {
+                OperatorDisarmSignal::OrderPathStoreMigrationMismatch
+            }
+            Self::DuplicateStrategyRequestId(_)
+            | Self::DuplicateClientOrderId(_)
+            | Self::DuplicateBrokerOrderId(_)
+            | Self::RecordNotFound(_)
+            | Self::ClientOrderIdChanged(_)
+            | Self::BrokerOrderIdChanged(_)
+            | Self::TerminalStateOverwrite(_)
+            | Self::UpdatedTimestampRegressed(_)
+            | Self::Io(_)
+            | Self::Sqlite(_)
+            | Self::Serialization(_) => OperatorDisarmSignal::OrderPathStoreUnavailable,
+        }
+    }
+}
+
 pub trait OrderPathStore {
     fn insert_intent(&mut self, record: OrderPathRecord) -> Result<(), OrderPathStoreError>;
     fn load_by_request_id(&self, request_id: StrategyRequestId) -> Option<OrderPathRecord>;
@@ -638,7 +660,7 @@ impl SqliteOrderPathStore {
                 return Err(sqlite_store_error(error));
             }
         };
-        if let Err(error) = harden_sqlite_file_permissions(&path) {
+        if let Err(error) = harden_sqlite_runtime_file_permissions(&path, Some(&lock_path)) {
             let _ = fs::remove_file(&lock_path);
             return Err(error);
         }
@@ -651,6 +673,12 @@ impl SqliteOrderPathStore {
             inner: InMemoryOrderPathStore::default(),
         };
         if let Err(error) = store.initialize_and_load() {
+            let _ = fs::remove_file(&store.lock_path);
+            return Err(error);
+        }
+        if let Err(error) =
+            harden_sqlite_runtime_file_permissions(&store.path, Some(&store.lock_path))
+        {
             let _ = fs::remove_file(&store.lock_path);
             return Err(error);
         }
@@ -758,6 +786,7 @@ impl SqliteOrderPathStore {
             record.last_update_ts,
         )?;
         transaction.commit().map_err(sqlite_store_error)?;
+        harden_sqlite_runtime_file_permissions(&self.path, Some(&self.lock_path))?;
         Ok(())
     }
 
@@ -799,15 +828,22 @@ impl SqliteOrderPathStore {
             record.request_id,
             Some(previous.state),
             record.state,
-            "UpdateRecord",
+            infer_transition_audit_event(previous, record),
             record_reason_code(record),
             record.last_update_ts,
         )?;
         transaction.commit().map_err(sqlite_store_error)?;
+        harden_sqlite_runtime_file_permissions(&self.path, Some(&self.lock_path))?;
         Ok(())
     }
 }
 
+/// Operator/internal diagnostic store.
+///
+/// This surface is read-only/query-only at SQLite level, but methods prefixed
+/// with `operator_` return raw local `OrderPathRecord` payloads and therefore
+/// must not be used for review exports or runtime-facing reporting. Use
+/// `redacted_records()` for review/export surfaces.
 impl SqliteOrderPathReadStore {
     pub fn open_readonly(path: impl Into<PathBuf>) -> Result<Self, OrderPathStoreError> {
         let path = path.into();
@@ -827,25 +863,28 @@ impl SqliteOrderPathReadStore {
         Ok(Self { connection, inner })
     }
 
-    pub fn load_by_request_id(&self, request_id: StrategyRequestId) -> Option<OrderPathRecord> {
+    pub fn operator_load_by_request_id(
+        &self,
+        request_id: StrategyRequestId,
+    ) -> Option<OrderPathRecord> {
         self.inner.load_by_request_id(request_id)
     }
 
-    pub fn load_by_client_order_id(
+    pub fn operator_load_by_client_order_id(
         &self,
         client_order_id: &ClientOrderId,
     ) -> Option<OrderPathRecord> {
         self.inner.load_by_client_order_id(client_order_id)
     }
 
-    pub fn load_by_broker_order_id(
+    pub fn operator_load_by_broker_order_id(
         &self,
         broker_order_id: &BrokerOrderId,
     ) -> Option<OrderPathRecord> {
         self.inner.load_by_broker_order_id(broker_order_id)
     }
 
-    pub fn all_records(&self) -> Vec<OrderPathRecord> {
+    pub fn operator_all_records(&self) -> Vec<OrderPathRecord> {
         self.inner.all_records()
     }
 
@@ -910,6 +949,14 @@ fn sqlite_writer_lock_path(path: &Path) -> PathBuf {
     lock_path
 }
 
+fn sqlite_wal_path(path: &Path) -> PathBuf {
+    PathBuf::from(format!("{}-wal", path.to_string_lossy()))
+}
+
+fn sqlite_shm_path(path: &Path) -> PathBuf {
+    PathBuf::from(format!("{}-shm", path.to_string_lossy()))
+}
+
 fn create_sqlite_writer_lock(
     lock_path: &Path,
 ) -> Result<(File, SqliteWriterLockMetadata), OrderPathStoreError> {
@@ -937,6 +984,10 @@ fn create_sqlite_writer_lock(
     if let Err(error) = writer_lock.sync_all() {
         let _ = fs::remove_file(lock_path);
         return Err(OrderPathStoreError::Io(error.to_string()));
+    }
+    if let Err(error) = harden_existing_sqlite_runtime_file(lock_path) {
+        let _ = fs::remove_file(lock_path);
+        return Err(error);
     }
     Ok((writer_lock, metadata))
 }
@@ -1097,8 +1148,54 @@ fn record_reason_code(record: &OrderPathRecord) -> Option<String> {
         .or_else(|| record.last_ack_status.map(|status| format!("{status:?}")))
 }
 
+fn infer_transition_audit_event(
+    previous: &OrderPathRecord,
+    record: &OrderPathRecord,
+) -> &'static str {
+    use OrderPathState as S;
+
+    match (previous.state, record.state) {
+        (S::IntentRecorded, S::LocalRejected) => "LocalReject",
+        (S::IntentRecorded, S::SubmitInFlight) => "BeginSubmit",
+        (S::SubmitInFlight, S::Submitted) => "SubmitAccepted",
+        (S::SubmitInFlight, S::SubmittedPendingBrokerOrderId) => {
+            "SubmitAcceptedWithoutBrokerOrderId"
+        }
+        (S::SubmitInFlight, S::TimeoutUnknownPending) => "SubmitTimedOut",
+        (S::TimeoutUnknownPending, S::RecoveredByClientOrderId)
+        | (S::SubmittedPendingBrokerOrderId, S::RecoveredByClientOrderId) => {
+            "RecoverByClientOrderId"
+        }
+        (S::SubmittedPendingBrokerOrderId, S::ManualInterventionRequired)
+        | (S::TimeoutUnknownPending, S::ManualInterventionRequired)
+        | (S::CancelTimeoutUnknownPending, S::ManualInterventionRequired) => {
+            "RequireManualIntervention"
+        }
+        (S::SubmitInFlight, S::BrokerRejected) | (S::Submitted, S::BrokerRejected) => {
+            "BrokerReject"
+        }
+        (S::Submitted, S::CancelRequested) | (S::RecoveredByClientOrderId, S::CancelRequested) => {
+            "RequestCancel"
+        }
+        (S::CancelRequested, S::CancelSubmitted) => "CancelAccepted",
+        (S::CancelRequested, S::ManualInterventionRequired)
+        | (S::CancelSubmitted, S::ManualInterventionRequired)
+            if record.last_error_kind == Some(OrderPathErrorKind::BrokerRejected) =>
+        {
+            "CancelRejected"
+        }
+        (S::CancelRequested, S::ManualInterventionRequired)
+        | (S::CancelSubmitted, S::ManualInterventionRequired) => "RequireManualIntervention",
+        (S::CancelRequested, S::CancelTimeoutUnknownPending)
+        | (S::CancelSubmitted, S::CancelTimeoutUnknownPending) => "CancelTimedOut",
+        (S::CancelTimeoutUnknownPending, S::CancelRecoveredTerminal) => "RecoverCancelTerminal",
+        (_, S::Terminal) => "MarkTerminal",
+        _ => "UpdateRecord",
+    }
+}
+
 #[cfg(unix)]
-fn harden_sqlite_file_permissions(path: &Path) -> Result<(), OrderPathStoreError> {
+fn harden_existing_sqlite_runtime_file(path: &Path) -> Result<(), OrderPathStoreError> {
     use std::os::unix::fs::PermissionsExt;
 
     let permissions = fs::Permissions::from_mode(0o600);
@@ -1107,7 +1204,29 @@ fn harden_sqlite_file_permissions(path: &Path) -> Result<(), OrderPathStoreError
 }
 
 #[cfg(not(unix))]
-fn harden_sqlite_file_permissions(_path: &Path) -> Result<(), OrderPathStoreError> {
+fn harden_existing_sqlite_runtime_file(_path: &Path) -> Result<(), OrderPathStoreError> {
+    Ok(())
+}
+
+fn harden_sqlite_runtime_file_permissions(
+    db_path: &Path,
+    lock_path: Option<&Path>,
+) -> Result<(), OrderPathStoreError> {
+    let wal_path = sqlite_wal_path(db_path);
+    let shm_path = sqlite_shm_path(db_path);
+    for path in [
+        Some(db_path),
+        Some(wal_path.as_path()),
+        Some(shm_path.as_path()),
+        lock_path,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if path.exists() {
+            harden_existing_sqlite_runtime_file(path)?;
+        }
+    }
     Ok(())
 }
 
@@ -2041,8 +2160,37 @@ mod tests {
     fn cleanup_sqlite_store(path: &Path) {
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(sqlite_writer_lock_path(path));
-        let _ = std::fs::remove_file(PathBuf::from(format!("{}-wal", path.to_string_lossy())));
-        let _ = std::fs::remove_file(PathBuf::from(format!("{}-shm", path.to_string_lossy())));
+        let _ = std::fs::remove_file(sqlite_wal_path(path));
+        let _ = std::fs::remove_file(sqlite_shm_path(path));
+    }
+
+    #[cfg(unix)]
+    fn assert_sqlite_runtime_file_is_protected(path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mode = std::fs::metadata(path)
+            .expect("sqlite runtime file metadata")
+            .permissions()
+            .mode();
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "{path:?} must not be group/world accessible"
+        );
+    }
+
+    #[cfg(unix)]
+    fn assert_existing_sqlite_runtime_files_are_protected(path: &Path) {
+        for runtime_path in [
+            path.to_path_buf(),
+            sqlite_wal_path(path),
+            sqlite_shm_path(path),
+            sqlite_writer_lock_path(path),
+        ] {
+            if runtime_path.exists() {
+                assert_sqlite_runtime_file_is_protected(&runtime_path);
+            }
+        }
     }
 
     #[test]
@@ -2723,21 +2871,23 @@ mod tests {
             assert_eq!(audit[0].event, "InsertIntent");
             assert_eq!(audit[0].from_state, None);
             assert_eq!(audit[0].to_state, "SubmitInFlight");
-            assert_eq!(audit[1].event, "UpdateRecord");
+            assert_eq!(audit[1].event, "SubmitTimedOut");
             assert_eq!(audit[1].from_state.as_deref(), Some("SubmitInFlight"));
             assert_eq!(audit[1].to_state, "TimeoutUnknownPending");
+            #[cfg(unix)]
+            assert_existing_sqlite_runtime_files_are_protected(&path);
         }
         {
             let store =
                 SqliteOrderPathReadStore::open_readonly(&path).expect("open read-only diagnostics");
             assert_eq!(
                 store
-                    .load_by_client_order_id(&order.client_order_id)
+                    .operator_load_by_client_order_id(&order.client_order_id)
                     .expect("client id lookup")
                     .state,
                 OrderPathState::TimeoutUnknownPending
             );
-            assert_eq!(store.all_records().len(), 1);
+            assert_eq!(store.operator_all_records().len(), 1);
             assert_eq!(store.transition_audit().expect("read audit").len(), 2);
             assert!(store
                 .connection
@@ -3660,6 +3810,27 @@ mod tests {
                 )
                 .expect_err("zero reference"),
             OrderPreflightError::ReferencePriceInvalid
+        );
+    }
+
+    #[test]
+    fn order_path_store_errors_map_to_operator_disarm_signals() {
+        assert_eq!(
+            OrderPathStoreError::WriterLockUnavailable("present".to_string())
+                .operator_disarm_signal(),
+            OperatorDisarmSignal::OrderPathStoreLockUncertain
+        );
+        assert_eq!(
+            (OrderPathStoreError::SchemaVersionMismatch {
+                expected: 1,
+                found: 2,
+            })
+            .operator_disarm_signal(),
+            OperatorDisarmSignal::OrderPathStoreMigrationMismatch
+        );
+        assert_eq!(
+            OrderPathStoreError::Sqlite("disk unavailable".to_string()).operator_disarm_signal(),
+            OperatorDisarmSignal::OrderPathStoreUnavailable
         );
     }
 }

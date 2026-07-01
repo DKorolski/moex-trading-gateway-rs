@@ -84,3 +84,9 @@ at least:
 
 Until those are implemented and reviewed, M3a-10 remains a production-hardening
 step for the dry order path only.
+
+M3a-11 follow-up status: WAL/SHM/lock permission hardening, operator-only raw
+diagnostic method names, safe transition audit event names, store-error disarm
+mapping, explicit pre-endpoint gate decision, migration runbook, and
+pre-endpoint fixture plan are now documented/implemented while FINAM order
+endpoints remain disabled. See `docs/m3a11-final-pre-endpoint-gate.md`.
