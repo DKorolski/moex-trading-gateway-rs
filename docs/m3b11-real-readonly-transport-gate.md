@@ -9,6 +9,10 @@ M3b-11 separates local/mock `/readonly/...` placeholders from documented FINAM
 REST read-only route templates. It does not implement a network client and does
 not perform HTTP I/O.
 
+M3b-12 follow-up implements the GET-only real-readonly transport behind this
+gate, plus query policy, operator guardrails, and redacted SQLite audit. See
+`docs/m3b12-real-readonly-broker-truth-transport.md`.
+
 Sources used for route templates:
 
 - FINAM REST docs: https://api.finam.ru/docs/rest/

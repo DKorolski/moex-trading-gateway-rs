@@ -464,6 +464,8 @@ dependencies = [
  "broker-finam",
  "chrono",
  "redis",
+ "reqwest",
+ "rusqlite",
  "rust_decimal",
  "serde",
  "serde_json",

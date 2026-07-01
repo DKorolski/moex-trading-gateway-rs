@@ -1122,6 +1122,36 @@ M3b-11 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-12 real-readonly broker-truth transport:
+
+- Added GET-only `ReqwestFinamRealReadonlyBrokerTruthTransport` behind
+  `RealReadonlyBrokerTruthGateApproved`.
+- Added `FinamRealReadonlyBrokerTruthAsyncFetcher`, which builds FINAM GET
+  routes, captures raw status/body privately, maps through typed broker-truth
+  DTO classifiers, and exports only redacted diagnostics/audit records.
+- Added `FinamRealReadonlyBrokerTruthQueryPolicy`: trades use a bounded
+  single-page window ending at `request.requested_at`; orders/positions are
+  filtered client-side after broker account snapshots.
+- Added redacted operator guardrails for enabling read-only broker truth:
+  HTTPS base URL, account allowlist, bounded timeout, minimum request interval,
+  and disabled order/runtime flags.
+- Added `SqliteFinamRealReadonlyBrokerTruthAuditStore` for redacted
+  real-readonly attempt audit rows.
+- Added source-scan tests proving the real-readonly transport remains GET-only
+  and does not introduce order endpoint request specs, `.post(`, or `.delete(`.
+- Details are documented in
+  `docs/m3b12-real-readonly-broker-truth-transport.md`.
+
+M3b-12 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

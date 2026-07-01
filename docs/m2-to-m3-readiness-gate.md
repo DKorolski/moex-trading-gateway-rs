@@ -958,3 +958,32 @@ Still not implemented in M3b-11:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-12 real-readonly broker-truth transport status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- GET-only real-readonly FINAM transport behind
+  `RealReadonlyBrokerTruthGateApproved`;
+- captured raw status/body remains private and maps through the broker-truth
+  DTO classifiers before diagnostics/audit export;
+- route request parts are crate-private; public diagnostics expose templates,
+  query-key names, and id presence/length metadata only;
+- trades query policy is bounded by limit/window and uses
+  `request.requested_at` as the window end;
+- redacted operator guardrails cover gate state, HTTPS base URL, account
+  allowlist, timeout, minimum request interval, and disabled order/runtime
+  flags;
+- SQLite read-only broker-truth audit rows persist status/body hash/fetch
+  reason without raw ids, paths, query values, or bodies;
+- source-scan coverage proves the real-readonly transport remains GET-only.
+
+Still not implemented in M3b-12:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

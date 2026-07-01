@@ -63,7 +63,9 @@ diagnostics, account/instrument scope checks, and weak-by-default
 client-order-id fallback policy. M3b-11 adds a disabled-by-default
 real-readonly broker-truth gate and separates FINAM documented GET route
 templates from local `/readonly/...` placeholders while keeping real order
-endpoints disabled.
+endpoints disabled. M3b-12 adds the GET-only real-readonly transport,
+captured-response mapping, query policy, operator guardrails, source-scan
+GET-only checks, and redacted SQLite audit for read-only broker-truth attempts.
 
 M3 scope is deliberately small:
 
@@ -174,6 +176,10 @@ M3b-11 adds the disabled-by-default real-readonly route gate: FINAM GET route
 templates are rendered only behind an explicit read-only gate, raw paths stay
 private, symbol-only instrument matches no longer pass, and unknown client
 errors are operator-visible unknown-pending outcomes.
+M3b-12 adds the first executable real-readonly transport path while keeping
+order endpoints disabled: GET responses are captured privately, typed through
+broker-truth mappers, audited with status/body hash only, and guarded by
+HTTPS/account-allowlist/timeout/rate-limit diagnostics.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

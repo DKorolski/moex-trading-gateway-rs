@@ -140,6 +140,12 @@ M3b-3 extends that boundary to internal endpoint result types: mapped and
 classified endpoint results are not serde export payloads, and their custom
 `Debug` implementations expose only safe presence/length/status/kind fields.
 `FinamOrderEndpointResponseDiagnostic` remains the review/export surface.
+M3b-12 applies the same rule to real-readonly broker-truth: FINAM GET response
+bodies are captured privately for typed mapping, while exported route, HTTP, and
+SQLite audit diagnostics contain only templates, query-key names, status, body
+presence/length/SHA-256, id presence/length metadata, and safe enum reasons.
+Rendered paths, query values, raw ids, and raw bodies must not be stored in
+handoff artifacts.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account
