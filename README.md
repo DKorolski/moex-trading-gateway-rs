@@ -128,10 +128,11 @@ command-comment rejection, command TTL expiry, dry rate-limit capacity,
 synthetic ACK construction/publication with safe reason codes and redacted ids,
 approved-only mock execution simulation for accepted/rejected/timeout outcomes,
 accepted-without-broker-id reconciliation policy, dry cancel execution
-simulation, store invariants, broker-order-id uniqueness, cancel timeout policy,
-dry window/backoff rate limiting, FINAM request DTO builders without HTTP send,
-and price/reference/notional guard tests. It still does not call FINAM order
-endpoints or consume live strategy commands.
+simulation, recovery-by-client-order-id helper, cancel accepted broker-id
+mismatch policy, store invariants, broker-order-id uniqueness, cancel timeout
+policy, dry window/backoff rate limiting, FINAM request DTO builders without
+HTTP send, source-scan guard tests, and price/reference/notional guard tests. It
+still does not call FINAM order endpoints or consume live strategy commands.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`. The Redis CI job runs
@@ -150,6 +151,7 @@ See:
 - [Migration plan](docs/migration-plan.md)
 - [Migration decision](docs/migration-decision-2026-06-27.md)
 - [M3a-6 execution simulator decisions](docs/m3a6-execution-simulator-decisions.md)
+- [M3a-8 reconciliation state matrix](docs/m3a8-reconciliation-state-matrix.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Redis stream contract](docs/redis-stream-contract.md)

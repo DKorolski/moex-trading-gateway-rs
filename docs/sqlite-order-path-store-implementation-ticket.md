@@ -112,7 +112,10 @@ On startup:
 - duplicate request/client/broker ids reject;
 - crash/reopen preserves `SubmitInFlight` and recovery behavior;
 - cancel transaction persists `CancelRequested` before mocked cancel endpoint;
+- client-id recovery sets `broker_order_id` once and rejects duplicate broker
+  truth ids;
+- cancel accepted with returned broker-id mismatch persists manual intervention
+  without exposing raw ids in public ACK/export paths;
 - corruption/open failure blocks endpoint emission;
 - redacted export omits account ids, broker ids, comments, secrets, JWTs, and raw
   broker payload fragments.
-

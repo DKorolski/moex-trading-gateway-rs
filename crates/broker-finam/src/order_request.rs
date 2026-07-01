@@ -795,4 +795,35 @@ mod tests {
         assert_place_boundary(&mut client, place_spec);
         assert_cancel_boundary(&mut client, cancel_spec);
     }
+
+    #[test]
+    fn source_surface_keeps_network_boundary_approved_only() {
+        let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("workspace root");
+        let checked_files = [
+            "crates/broker-finam/src/order_request.rs",
+            "crates/finam-gateway/src/lib.rs",
+        ];
+        let forbidden_patterns = vec![
+            ["place(order:", " PlaceOrder"].concat(),
+            ["cancel(cancel:", " CancelOrder"].concat(),
+            ["async fn ", "place("].concat(),
+            ["async fn ", "cancel("].concat(),
+            [".", "delete("].concat(),
+        ];
+
+        for relative_path in checked_files {
+            let path = workspace_root.join(relative_path);
+            let source = std::fs::read_to_string(&path).expect("source file readable");
+            for pattern in &forbidden_patterns {
+                assert!(
+                    !source.contains(pattern),
+                    "forbidden raw order boundary pattern {pattern:?} found in {}",
+                    path.display()
+                );
+            }
+        }
+    }
 }

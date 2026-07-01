@@ -263,6 +263,8 @@ fn next_order_path_state(state: OrderPathState, event: OrderPathEvent) -> Option
         (S::CancelRequested, E::CancelRejected) | (S::CancelSubmitted, E::CancelRejected) => {
             Some(S::ManualInterventionRequired)
         }
+        (S::CancelRequested, E::RequireManualIntervention)
+        | (S::CancelSubmitted, E::RequireManualIntervention) => Some(S::ManualInterventionRequired),
         (S::CancelRequested, E::CancelTimedOut) | (S::CancelSubmitted, E::CancelTimedOut) => {
             Some(S::CancelTimeoutUnknownPending)
         }
@@ -752,7 +754,9 @@ pub enum OperatorDisarmSignal {
     RuntimeBridgeDeadLetter,
     UnknownPendingOrder,
     AcceptedWithoutBrokerOrderId,
+    CancelBrokerOrderIdMismatch,
     CancelTimeoutUnknownPending,
+    ReconciliationStale,
     RestartRecovery,
 }
 
@@ -1285,6 +1289,60 @@ pub enum OrderPreflightError {
     CancelStateRequiresManualIntervention,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum OrderPathReconciliationError {
+    #[error("order-path record not found by client_order_id: {0}")]
+    RecordNotFoundByClientOrderId(ClientOrderId),
+    #[error("order-path record already has broker_order_id: {0}")]
+    BrokerOrderIdAlreadySet(StrategyRequestId),
+    #[error("order-path state is not client-id-recoverable for request {request_id}: {state:?}")]
+    StateNotRecoverableByClientOrderId {
+        request_id: StrategyRequestId,
+        state: OrderPathState,
+    },
+    #[error("order-path store error during reconciliation: {0}")]
+    Store(#[from] OrderPathStoreError),
+    #[error("order-path transition error during reconciliation: {0}")]
+    Transition(#[from] OrderPathTransitionError),
+}
+
+pub fn recover_order_path_by_client_order_id<S>(
+    store: &mut S,
+    client_order_id: &ClientOrderId,
+    broker_order_id: BrokerOrderId,
+    now: DateTime<Utc>,
+) -> Result<OrderPathRecord, OrderPathReconciliationError>
+where
+    S: OrderPathStore,
+{
+    let mut record = store
+        .load_by_client_order_id(client_order_id)
+        .ok_or_else(|| {
+            OrderPathReconciliationError::RecordNotFoundByClientOrderId(client_order_id.clone())
+        })?;
+    if record.broker_order_id.is_some() {
+        return Err(OrderPathReconciliationError::BrokerOrderIdAlreadySet(
+            record.request_id,
+        ));
+    }
+    if !matches!(
+        record.state,
+        OrderPathState::SubmittedPendingBrokerOrderId | OrderPathState::TimeoutUnknownPending
+    ) {
+        return Err(
+            OrderPathReconciliationError::StateNotRecoverableByClientOrderId {
+                request_id: record.request_id,
+                state: record.state,
+            },
+        );
+    }
+
+    record.broker_order_id = Some(broker_order_id);
+    record.transition(OrderPathEvent::RecoverByClientOrderId, now)?;
+    store.update_record(record.clone())?;
+    Ok(record)
+}
+
 fn validate_command_ttl(
     created_ts: DateTime<Utc>,
     ttl_ms: Option<u64>,
@@ -1483,6 +1541,114 @@ mod tests {
             .transition(OrderPathEvent::RequestCancel, now)
             .expect("cancel after recovery");
         assert_eq!(record.state, OrderPathState::CancelRequested);
+    }
+
+    #[test]
+    fn recovery_helper_sets_broker_id_once_and_allows_cancel_preflight() {
+        let now = Utc::now();
+        let order = place_order(request_id(50), "CID000000000000050");
+        let mut record = OrderPathRecord::from_place_order(&order, now, None);
+        record
+            .transition(OrderPathEvent::BeginSubmit, now)
+            .expect("begin submit");
+        record
+            .transition(OrderPathEvent::SubmitAcceptedWithoutBrokerOrderId, now)
+            .expect("accepted without broker id");
+        let mut store = InMemoryOrderPathStore::default();
+        store.insert_intent(record).expect("insert pending record");
+
+        let recovered = recover_order_path_by_client_order_id(
+            &mut store,
+            &order.client_order_id,
+            BrokerOrderId::new("BROKER_TEST_RECOVERED_50"),
+            now + chrono::Duration::milliseconds(1),
+        )
+        .expect("recover by broker truth client id match");
+
+        assert_eq!(recovered.state, OrderPathState::RecoveredByClientOrderId);
+        assert_eq!(
+            recovered.broker_order_id,
+            Some(BrokerOrderId::new("BROKER_TEST_RECOVERED_50"))
+        );
+        assert_eq!(
+            recovered.last_reconciliation_source,
+            Some(OrderPathReconciliationSource::ClientOrderId)
+        );
+        assert_eq!(
+            store
+                .load_by_broker_order_id(&BrokerOrderId::new("BROKER_TEST_RECOVERED_50"))
+                .expect("broker id index")
+                .request_id,
+            order.request_id
+        );
+
+        let cancel = cancel_order(request_id(51), "BROKER_TEST_RECOVERED_50");
+        let stored = store
+            .load_by_request_id(order.request_id)
+            .expect("stored recovered record");
+        assert!(matches!(
+            preflight_policy(now)
+                .approve_cancel_order(&cancel, now, Some(&stored))
+                .expect("cancel preflight after recovery"),
+            CancelPreflightApproval::Submit(_)
+        ));
+
+        let duplicate_recovery = recover_order_path_by_client_order_id(
+            &mut store,
+            &order.client_order_id,
+            BrokerOrderId::new("BROKER_TEST_OTHER_50"),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .expect_err("broker id can be set only once");
+        assert_eq!(
+            duplicate_recovery,
+            OrderPathReconciliationError::BrokerOrderIdAlreadySet(order.request_id)
+        );
+    }
+
+    #[test]
+    fn recovery_helper_rejects_duplicate_broker_truth_id() {
+        let now = Utc::now();
+        let first_order = place_order(request_id(52), "CID000000000000052");
+        let mut first = OrderPathRecord::from_place_order(&first_order, now, None);
+        first.broker_order_id = Some(BrokerOrderId::new("BROKER_TEST_DUP_RECOVERY"));
+        first
+            .transition(OrderPathEvent::BeginSubmit, now)
+            .expect("first begin");
+        first
+            .transition(OrderPathEvent::SubmitAccepted, now)
+            .expect("first submitted");
+
+        let second_order = place_order(request_id(53), "CID000000000000053");
+        let mut second = OrderPathRecord::from_place_order(&second_order, now, None);
+        second
+            .transition(OrderPathEvent::BeginSubmit, now)
+            .expect("second begin");
+        second
+            .transition(OrderPathEvent::SubmitAcceptedWithoutBrokerOrderId, now)
+            .expect("second accepted without id");
+
+        let mut store = InMemoryOrderPathStore::default();
+        store.insert_intent(first).expect("insert first");
+        store.insert_intent(second).expect("insert second");
+
+        let error = recover_order_path_by_client_order_id(
+            &mut store,
+            &second_order.client_order_id,
+            BrokerOrderId::new("BROKER_TEST_DUP_RECOVERY"),
+            now + chrono::Duration::milliseconds(1),
+        )
+        .expect_err("duplicate broker truth id must be rejected");
+
+        assert!(matches!(
+            error,
+            OrderPathReconciliationError::Store(OrderPathStoreError::DuplicateBrokerOrderId(_))
+        ));
+        assert!(store
+            .load_by_request_id(second_order.request_id)
+            .expect("second still pending")
+            .broker_order_id
+            .is_none());
     }
 
     #[test]
@@ -1995,7 +2161,9 @@ mod tests {
             OperatorDisarmSignal::RuntimeBridgeDeadLetter,
             OperatorDisarmSignal::UnknownPendingOrder,
             OperatorDisarmSignal::AcceptedWithoutBrokerOrderId,
+            OperatorDisarmSignal::CancelBrokerOrderIdMismatch,
             OperatorDisarmSignal::CancelTimeoutUnknownPending,
+            OperatorDisarmSignal::ReconciliationStale,
             OperatorDisarmSignal::RestartRecovery,
         ] {
             let mut arm = sample_arm(now);

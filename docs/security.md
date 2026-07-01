@@ -106,7 +106,9 @@ store. M3a-6 keeps this as the future runtime-facing ACK direction; any
 internal full-id operator view must be protected and separate from handoff or
 runtime-facing exports. M3a-7 applies the same rule to dry cancel ACKs and to
 accepted-without-broker-id ambiguity: ACKs expose safe status/reason codes, not
-raw broker identifiers.
+raw broker identifiers. M3a-8 applies the same rule to cancel accepted broker-id
+mismatch diagnostics and recovery helpers: public ACKs/state docs may expose
+safe reason codes, not raw returned broker ids.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

@@ -81,6 +81,15 @@ Blind cancel retry from `CancelTimeoutUnknownPending` is blocked before the
 mock client is called again. Already-terminal cancel preflight remains a
 no-endpoint/no-mock-call recovery path.
 
+M3a-8 adds cancel accepted response id policy:
+
+- accepted with no returned broker order id -> `CancelSubmitted`;
+- accepted with returned broker order id matching the mapped cancel id ->
+  `CancelSubmitted`;
+- accepted with returned broker order id mismatch ->
+  `ManualInterventionRequired` and a redacted `UnknownPending` /
+  `ManualInterventionRequired` ACK.
+
 ## Accepted without broker order id
 
 An accepted place response without a broker order id is ambiguous. The safe
@@ -91,6 +100,18 @@ policy is:
 - disarm/operator-surface the condition;
 - block cancel until broker truth recovers the broker order id by client order
   id or the operator records manual intervention.
+
+M3a-8 adds a dry broker-truth helper for the happy path:
+
+```text
+client_order_id -> broker_order_id
+  -> set broker_order_id once
+  -> RecoverByClientOrderId
+  -> cancel preflight allowed
+```
+
+Duplicate broker ids and non-recoverable states are rejected without
+overwriting the stored order-path record.
 
 ## ACK contract decision
 

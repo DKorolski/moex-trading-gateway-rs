@@ -317,6 +317,10 @@ M3a-7 extends that rule to dry cancel ACKs and accepted-without-broker-id
 ambiguity: Redis ACKs may say `UnknownPending` / `ReconciliationRequired`, but
 must not expose raw client or broker order ids.
 
+M3a-8 keeps cancel accepted broker-id mismatch ACKs redacted. Redis may expose
+`UnknownPending` / `ManualInterventionRequired`, while full returned/mapped
+broker-id comparison remains inside the protected order-path store and logs.
+
 ## Retention policy
 
 M2c defaults use approximate Redis stream trimming for health/readiness/

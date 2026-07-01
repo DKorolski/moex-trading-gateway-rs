@@ -137,7 +137,9 @@ approved-only mock execution boundary, simulator coverage for accepted/rejected/
 timeout outcomes, no-blind-retry coverage, re-arm workflow tests, and a dry
 window/backoff limiter. M3a-7 adds accepted-without-broker-id reconciliation
 policy, dry cancel execution simulation, cancel no-blind-retry coverage, and a
-SQLite/WAL single-writer implementation ticket.
+SQLite/WAL single-writer implementation ticket. M3a-8 adds a dry
+recovery-by-client-order-id helper, cancel accepted broker-id mismatch policy,
+source-scan boundary coverage, and an ACK/reconciliation state matrix.
 
 `broker-finam::order_request` may build FINAM request path/body specs for dry
 fixture tests only from preflight-approved commands, but it must not send HTTP

@@ -878,6 +878,7 @@ pub enum DryOrderExecutionOutcomeKind {
     BrokerRejected,
     TimeoutUnknownPending,
     CancelSubmitted,
+    CancelAcceptedBrokerOrderIdMismatch,
     CancelRejected,
     CancelTimeoutUnknownPending,
 }
@@ -1016,13 +1017,27 @@ where
 
     let execution_outcome = client.cancel_approved(spec).await?;
     let (ack_status, ack_reason, outcome) = match execution_outcome {
-        broker_finam::FinamOrderExecutionOutcome::Accepted { .. } => {
-            record.transition(OrderPathEvent::CancelAccepted, outcome_ts)?;
-            (
-                CommandAckStatus::Submitted,
-                Some(CommandAckReason::synthetic_submitted()),
-                DryOrderExecutionOutcomeKind::CancelSubmitted,
-            )
+        broker_finam::FinamOrderExecutionOutcome::Accepted { broker_order_id } => {
+            let returned_id_mismatch = broker_order_id
+                .as_ref()
+                .is_some_and(|returned_id| returned_id != &approved.cancel().order_id);
+            if returned_id_mismatch {
+                record.transition(OrderPathEvent::RequireManualIntervention, outcome_ts)?;
+                (
+                    CommandAckStatus::UnknownPending,
+                    Some(CommandAckReason::new(
+                        CommandAckReasonCode::ManualInterventionRequired,
+                    )),
+                    DryOrderExecutionOutcomeKind::CancelAcceptedBrokerOrderIdMismatch,
+                )
+            } else {
+                record.transition(OrderPathEvent::CancelAccepted, outcome_ts)?;
+                (
+                    CommandAckStatus::Submitted,
+                    Some(CommandAckReason::synthetic_submitted()),
+                    DryOrderExecutionOutcomeKind::CancelSubmitted,
+                )
+            }
         }
         broker_finam::FinamOrderExecutionOutcome::Rejected { reason_code } => {
             record.transition(OrderPathEvent::CancelRejected, outcome_ts)?;
@@ -2634,6 +2649,56 @@ mod tests {
         let entries = sink.entries().expect("entries");
         assert!(!entries[0].payload.contains("BROKER_TEST_10"));
         assert!(!entries[0].payload.contains("CID000000000000010"));
+    }
+
+    #[tokio::test]
+    async fn cancel_simulator_requires_matching_returned_broker_order_id() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 6, 30, 10, 5, 0)
+            .single()
+            .expect("timestamp");
+        let (mut store, approved_cancel, place_request_id) = submitted_store_and_approved_cancel(
+            now,
+            request_id(18),
+            request_id(19),
+            BrokerOrderId::new("BROKER_TEST_18"),
+        );
+        let mut client = MockFinamApprovedOrderExecutionClient::new(vec![
+            FinamOrderExecutionOutcome::Accepted {
+                broker_order_id: Some(BrokerOrderId::new("BROKER_TEST_OTHER_18")),
+            },
+        ]);
+
+        let report = simulate_cancel_order_approved(
+            &mut store,
+            &mut client,
+            &approved_cancel,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .await
+        .expect("cancel mismatch simulation");
+
+        assert_eq!(
+            report.outcome,
+            DryOrderExecutionOutcomeKind::CancelAcceptedBrokerOrderIdMismatch
+        );
+        assert_eq!(report.state, OrderPathState::ManualInterventionRequired);
+        assert_eq!(report.ack.status, CommandAckStatus::UnknownPending);
+        assert_eq!(
+            report.ack.reason.expect("reason").code,
+            CommandAckReasonCode::ManualInterventionRequired
+        );
+        assert_eq!(
+            store
+                .load_by_request_id(place_request_id)
+                .expect("record")
+                .state,
+            OrderPathState::ManualInterventionRequired
+        );
+        let records_json = serde_json::to_string(client.records()).expect("records");
+        assert!(!records_json.contains("BROKER_TEST_OTHER_18"));
+        assert!(!records_json.contains("BROKER_TEST_18"));
     }
 
     #[tokio::test]

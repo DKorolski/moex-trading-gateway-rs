@@ -21,7 +21,10 @@ simulator, no-blind-retry simulator tests, operator re-arm workflow tests, and
 dry window/backoff rate-limit policy. M3a-7 adds
 accepted-without-broker-id reconciliation policy, dry cancel execution
 simulation, cancel no-blind-retry tests, and the SQLite/WAL implementation
-ticket. It does not call FINAM endpoints and is not a live command consumer.
+ticket. M3a-8 adds a dry recovery-by-client-order-id helper, cancel accepted
+broker-id mismatch policy, source-scan boundary tests, and an
+ACK/reconciliation state matrix. It does not call FINAM endpoints and is not a
+live command consumer.
 
 M3 scope is deliberately small:
 
@@ -62,6 +65,12 @@ M3a-7 adds one important ambiguity rule: if a place call is accepted but does
 not return a broker order id, the runtime-facing ACK is `UnknownPending` with
 `ReconciliationRequired`, not `Submitted`. Cancel is blocked until broker truth
 recovers the broker order id.
+
+M3a-8 proves the recovery happy path: broker truth may resolve
+`client_order_id -> broker_order_id`, set the broker id once, transition to
+`RecoveredByClientOrderId`, and only then allow cancel preflight. It also
+defines cancel accepted response policy: a returned broker order id must match
+the mapped cancel id; a mismatch requires manual intervention.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.
@@ -144,7 +153,7 @@ BrokerCommand::CancelOrder
   -> durable cancel intent write
   -> local ACK Accepted
   -> FINAM DELETE /v1/accounts/{account_id}/orders/{order_id}
-  -> Submitted / TimeoutUnknownPending / Rejected
+  -> Submitted / ManualInterventionRequired / TimeoutUnknownPending / Rejected
   -> broker-truth terminal-state reconciliation
 ```
 
@@ -161,6 +170,12 @@ after a cancel request times out, the order path moves to
 `CancelTimeoutUnknownPending`; automatic cancel retry is blocked until
 broker-truth reconciliation proves terminal/canceled state or an operator-
 visible manual-intervention decision is recorded.
+
+If a cancel accepted response includes a broker order id, it must match the
+mapped cancel order id. A mismatched returned id is treated as
+`ManualInterventionRequired` with an `UnknownPending` ACK because the broker
+accepted some cancel-shaped response, but not one that safely matches our
+durable mapping.
 
 ## ACK publishing rules
 
@@ -345,9 +360,10 @@ Unit/fixture tests before real micro:
 | broker rejection | `Rejected`, durable state updated |
 | place timeout | `Timeout`/`UnknownPending`, retry blocked |
 | place accepted without broker order id | `UnknownPending`, cancel blocked |
-| recovered by client order id | `Recovered` |
+| recovered by client order id | broker id set once, then `Recovered` |
 | cancel active known order | `Accepted` then `Submitted` |
 | cancel mismatched broker order id | `Rejected`, no endpoint call |
+| cancel accepted with returned broker id mismatch | `UnknownPending`, manual intervention |
 | cancel rejected by broker | `ManualInterventionRequired` |
 | cancel timeout | `CancelTimeoutUnknownPending`, no blind retry |
 | cancel recovered terminal | `Recovered` by broker-truth reconciliation |

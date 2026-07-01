@@ -597,6 +597,36 @@ M3a-7 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3a-8 reconciliation-ready dry order path / SQLite planning:
+
+- `broker-core` adds a dry broker-truth recovery helper that resolves
+  `client_order_id -> broker_order_id`, sets `broker_order_id` once, transitions
+  `SubmittedPendingBrokerOrderId` / `TimeoutUnknownPending` to
+  `RecoveredByClientOrderId`, and then allows normal cancel preflight.
+- Recovery rejects duplicate broker ids and non-recoverable states without
+  overwriting the durable order-path record.
+- Operator disarm signals now include cancel broker-order-id mismatch and stale
+  reconciliation safety cases.
+- Dry cancel accepted response policy is explicit: a missing returned order id
+  is allowed, a matching returned order id is allowed, and a mismatched returned
+  order id moves to `ManualInterventionRequired` with an `UnknownPending` /
+  `ManualInterventionRequired` ACK.
+- Source-scan coverage asserts that future network boundaries do not introduce
+  raw `place(order: PlaceOrder)` / `cancel(cancel: CancelOrder)` style APIs or
+  direct DELETE calls in the order crates.
+- `docs/m3a8-reconciliation-state-matrix.md` records the ACK/reconciliation
+  matrix for dry order-path review.
+
+M3a-8 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.
