@@ -9,6 +9,11 @@ M3b-9 prepares the broker-truth fetcher boundary for a future real FINAM
 read-only implementation by adding local HTTP-shaped mapping tests. It does not
 perform network I/O.
 
+M3b-10 extends this local boundary with redacted GET-only request specs, a
+local mock read-only HTTP client, refined 4xx reasons, scope checks, and
+weak-by-default client-id fallback policy. See
+`docs/m3b10-readonly-fetcher-local-mock-transport.md`.
+
 ## Async-aware boundary
 
 The synchronous dry contract remains:

@@ -902,3 +902,32 @@ Still not implemented in M3b-9:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-10 read-only broker-truth local mock transport status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- redacted GET-only read-only request specs for GetOrder, OrdersSnapshot,
+  TradesSnapshot, and PositionSnapshot;
+- async local mock read-only HTTP client boundary that records redacted specs
+  and returns local fixture responses;
+- captured response public surface exposes only source plus redacted HTTP
+  diagnostic, not raw body bytes;
+- 4xx policy separates `InvalidRequest`, `UnsupportedEndpoint`, and
+  `UnknownClientError` from 2xx body `DecodeError`;
+- account/instrument scope mismatches are typed and cannot become evidence;
+- `ClientOrderIdFallback` is weak by default and requires explicit policy to
+  become strong evidence;
+- source scans guard the async/local read-only boundary against order endpoint
+  specs, POST/DELETE calls, raw response types, generic JSON values, and public
+  raw body/response fields.
+
+Still not implemented in M3b-10:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

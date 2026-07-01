@@ -1057,6 +1057,39 @@ M3b-9 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-10 read-only broker-truth local mock transport:
+
+- Added GET-only redacted read-only request specs for GetOrder,
+  OrdersSnapshot, TradesSnapshot, and PositionSnapshot.
+- Added async `CancelBrokerTruthReadonlyHttpClient` and
+  `LocalMockCancelBrokerTruthReadonlyHttpClient` for local read-only transport
+  tests without network I/O.
+- Captured read-only responses expose only source plus redacted HTTP
+  diagnostic; raw body bytes stay private to the mapper boundary.
+- Refined 4xx mapping: 400/422 -> `InvalidRequest`, 405 ->
+  `UnsupportedEndpoint`, 409/410/other 4xx -> `UnknownClientError`.
+- Added account/instrument scope checks for read-only broker-truth DTOs:
+  matching order/client ids from a wrong account or instrument no longer become
+  evidence.
+- Added identity policy: `ClientOrderIdFallback` is weak by default and
+  downgrades to `WeakIdentityNeedsConfirmation` unless explicitly allowed by
+  config/policy.
+- Source-scan tests now cover the async/local read-only transport boundary and
+  reject order endpoint specs, POST/DELETE calls, raw `reqwest::Response`,
+  generic `serde_json::Value`, and public raw body/response fields there.
+- Details are documented in
+  `docs/m3b10-readonly-fetcher-local-mock-transport.md`.
+
+M3b-10 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

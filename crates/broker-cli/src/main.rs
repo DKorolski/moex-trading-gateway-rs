@@ -3368,8 +3368,9 @@ fn print_json(value: serde_json::Value) -> Result<()> {
 mod tests {
     use super::*;
     use finam_gateway::{
-        CancelBrokerTruthFreshnessPolicy, CancelBrokerTruthOrchestrationPolicy,
-        CancelBrokerTruthPrecedencePolicy, CancelBrokerTruthSource, CancelPositionTruthGuardPolicy,
+        CancelBrokerTruthFreshnessPolicy, CancelBrokerTruthIdentityPolicy,
+        CancelBrokerTruthOrchestrationPolicy, CancelBrokerTruthPrecedencePolicy,
+        CancelBrokerTruthSource, CancelPositionTruthGuardPolicy,
     };
 
     #[test]
@@ -3769,6 +3770,9 @@ mod tests {
                             require_strategy_state: true,
                             require_order_or_trade_absent_or_stale: true,
                         },
+                        identity: CancelBrokerTruthIdentityPolicy {
+                            accept_client_order_id_fallback_as_strong: true,
+                        },
                     },
                 }),
                 ..GatewayShadowFileConfig::default()
@@ -3792,6 +3796,7 @@ mod tests {
             ]
         );
         assert_eq!(policy.policy_sha256.len(), 64);
+        assert!(policy.identity.accept_client_order_id_fallback_as_strong);
     }
 
     #[test]

@@ -153,6 +153,8 @@ reasons, guarded position-derived truth policy,
 read-only broker-truth boundary hardening, checked get-order identity,
 config-driven truth policy fingerprints, async-aware read-only truth fetcher
 contract, local HTTP truth DTO mappers, identity-strength diagnostics,
+read-only local mock transport, refined 4xx truth policy,
+account/instrument scope checks, weak client-id fallback policy,
 store invariants, broker-order-id uniqueness, cancel timeout policy, dry
 window/backoff rate limiting, FINAM request DTO builders without HTTP send,
 workspace-wide source-scan guard tests, and price/reference/notional guard
@@ -190,6 +192,7 @@ See:
 - [M3b-7 broker-truth orchestration simulator](docs/m3b7-broker-truth-orchestration-simulator.md)
 - [M3b-8 read-only broker-truth boundary](docs/m3b8-readonly-broker-truth-boundary.md)
 - [M3b-9 read-only fetcher local HTTP mapper](docs/m3b9-readonly-fetcher-local-http.md)
+- [M3b-10 read-only fetcher local mock transport](docs/m3b10-readonly-fetcher-local-mock-transport.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

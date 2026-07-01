@@ -57,7 +57,10 @@ requirements before position-derived terminal truth, read-only HTTP/error
 reason mapping, gateway-config policy overrides, and policy fingerprints.
 M3b-9 adds the local HTTP-shaped read-only DTO mapper, async-aware fetcher
 contract, explicit 408/502/504 policy, and categorical get-order
-identity-strength diagnostics without enabling real order endpoints.
+identity-strength diagnostics without enabling real order endpoints. M3b-10
+adds the GET-only local mock read-only transport boundary, refined 4xx
+diagnostics, account/instrument scope checks, and weak-by-default
+client-order-id fallback policy.
 
 M3 scope is deliberately small:
 
@@ -160,6 +163,10 @@ order/trade sources.
 M3b-9 adds the local/read-only HTTP fixture mapper and async-facing fetcher
 contract so future real read-only network code can be implemented without
 blocking-runtime ambiguity or raw HTTP body leakage.
+M3b-10 adds redacted GET-only request specs and a local mock read-only HTTP
+client boundary while keeping real order endpoints disabled. It also separates
+invalid read-only requests from decode errors and prevents wrong-account or
+wrong-instrument truth from becoming evidence.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.
