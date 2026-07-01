@@ -971,6 +971,7 @@ struct GatewayShadowStreamsFileConfig {
     portfolio: Option<String>,
     orders_snapshot: Option<String>,
     market_data: Option<String>,
+    command_ack: Option<String>,
     runtime_bridge_dlq: Option<String>,
 }
 
@@ -982,6 +983,7 @@ struct GatewayShadowRetentionFileConfig {
     portfolio_maxlen: Option<usize>,
     order_snapshot_maxlen: Option<usize>,
     market_data_maxlen: Option<usize>,
+    command_ack_maxlen: Option<usize>,
     runtime_bridge_dlq_maxlen: Option<usize>,
 }
 
@@ -1341,6 +1343,7 @@ fn shadow_iteration_json(
             "portfolio": runtime.gateway.config().redis.portfolio_stream,
             "orders_snapshot": runtime.gateway.config().redis.order_snapshot_stream,
             "market_data": runtime.gateway.config().redis.market_data_stream,
+            "command_ack": runtime.gateway.config().redis.command_ack_stream,
         },
         "readiness_phase": report.readiness_phase,
         "readiness_reasons": report.readiness_reasons,
@@ -1985,6 +1988,7 @@ fn runtime_bridge_smoke_config(redis_url: &str, prefix: &str) -> GatewayConfig {
     config.redis.portfolio_stream = format!("{prefix}.portfolio.snapshot");
     config.redis.order_snapshot_stream = format!("{prefix}.orders.snapshot");
     config.redis.market_data_stream = format!("{prefix}.market_data");
+    config.redis.command_ack_stream = format!("{prefix}.command_acks");
     config.redis.runtime_bridge_dlq_stream = format!("{prefix}.runtime_bridge.dlq");
     config.redis.retention = RedisRetentionConfig {
         health_maxlen: Some(100),
@@ -1992,6 +1996,7 @@ fn runtime_bridge_smoke_config(redis_url: &str, prefix: &str) -> GatewayConfig {
         portfolio_maxlen: Some(100),
         order_snapshot_maxlen: Some(100),
         market_data_maxlen: Some(100),
+        command_ack_maxlen: Some(100),
         runtime_bridge_dlq_maxlen: Some(100),
     };
     config
@@ -3131,6 +3136,9 @@ fn apply_gateway_shadow_streams(
     if let Some(value) = streams.market_data.as_deref() {
         redis_config.market_data_stream = value.to_string();
     }
+    if let Some(value) = streams.command_ack.as_deref() {
+        redis_config.command_ack_stream = value.to_string();
+    }
     if let Some(value) = streams.runtime_bridge_dlq.as_deref() {
         redis_config.runtime_bridge_dlq_stream = value.to_string();
     }
@@ -3154,6 +3162,9 @@ fn apply_gateway_shadow_retention(
     }
     if retention.market_data_maxlen.is_some() {
         retention_config.market_data_maxlen = retention.market_data_maxlen;
+    }
+    if retention.command_ack_maxlen.is_some() {
+        retention_config.command_ack_maxlen = retention.command_ack_maxlen;
     }
     if retention.runtime_bridge_dlq_maxlen.is_some() {
         retention_config.runtime_bridge_dlq_maxlen = retention.runtime_bridge_dlq_maxlen;
@@ -3614,6 +3625,7 @@ mod tests {
                     portfolio: Some("broker.portfolio.snapshot".to_string()),
                     orders_snapshot: Some("broker.orders.snapshot".to_string()),
                     market_data: Some("broker.market_data".to_string()),
+                    command_ack: Some("broker.command_acks".to_string()),
                     runtime_bridge_dlq: Some("broker.runtime_bridge.dlq".to_string()),
                 }),
                 ..GatewayShadowFileConfig::default()
@@ -3638,6 +3650,10 @@ mod tests {
         assert_eq!(
             resolved.gateway_config.redis.market_data_stream,
             "broker.market_data"
+        );
+        assert_eq!(
+            resolved.gateway_config.redis.command_ack_stream,
+            "broker.command_acks"
         );
         assert_eq!(
             resolved.gateway_config.redis.runtime_bridge_dlq_stream,
@@ -3672,6 +3688,7 @@ mod tests {
                     portfolio_maxlen: Some(20),
                     order_snapshot_maxlen: Some(20),
                     market_data_maxlen: Some(100),
+                    command_ack_maxlen: Some(30),
                     runtime_bridge_dlq_maxlen: Some(30),
                 }),
                 ..GatewayShadowFileConfig::default()
@@ -3689,6 +3706,10 @@ mod tests {
         assert_eq!(
             resolved.gateway_config.redis.retention.market_data_maxlen,
             Some(100)
+        );
+        assert_eq!(
+            resolved.gateway_config.redis.retention.command_ack_maxlen,
+            Some(30)
         );
         assert_eq!(
             resolved

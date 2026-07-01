@@ -51,6 +51,7 @@ finam:readiness
 finam:portfolio
 finam:orders:snapshot
 finam:market-data
+finam:command-acks
 finam:runtime-bridge:dlq
 ```
 
@@ -63,6 +64,7 @@ broker.readiness
 broker.portfolio.snapshot
 broker.orders.snapshot
 broker.market_data
+broker.command_acks
 broker.runtime_bridge.dlq
 ```
 
@@ -300,6 +302,13 @@ This is still not a live runtime bridge. It does not publish `LiveReady`, does
 not consume command streams, does not produce command ACKs, does not call
 strategies, and does not arm live trading from simulator output.
 
+M3a-5 adds a separate mock-only dry ACK publisher in `finam-gateway`. It
+publishes `CommandAck` envelopes to the configured ACK stream only while live
+command/order/cancel features are disabled, and it redacts optional
+client/broker order ids before Redis publication. This does not connect the dry
+runtime bridge to strategy command streams and does not authorize FINAM
+POST/DELETE order endpoints.
+
 ## Retention policy
 
 M2c defaults use approximate Redis stream trimming for health/readiness/
@@ -312,6 +321,7 @@ readiness: 1000
 portfolio snapshots: 1000
 order snapshots: 1000
 market data: 10000
+command ACKs: 1000
 runtime bridge DLQ: 1000
 ```
 

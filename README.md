@@ -7,8 +7,8 @@ The first target adapter is Finam Trade API. The project is developed with gatew
 ## Initial direction
 
 - `broker-core`: normalized contracts for orders, trades, positions, market data, subscriptions, readiness, and command acks.
-- `broker-finam`: Finam adapter surface. M0 is read-only/stubbed; live order placement is out of scope until contracts and read-only reconciliation are validated.
-- `finam-gateway`: FINAM shadow gateway boundary for Redis health/readiness, broker-truth snapshots, and read-only market data publication. Command consumption and live order endpoints stay disabled in M2a.
+- `broker-finam`: Finam adapter surface. Live order placement is out of scope; current order work is limited to dry request specs gated by broker-core preflight markers.
+- `finam-gateway`: FINAM shadow gateway boundary for Redis health/readiness, broker-truth snapshots, read-only market data publication, and mock-only dry ACK publication. Command consumption and live order endpoints stay disabled.
 - `broker-cli`: operator-facing diagnostics for endpoint defaults, auth checks, and redacted read-only probes. Full exports are a later M1 task.
 
 ## Milestones
@@ -122,12 +122,14 @@ command/ACK lifecycle, no-blind-retry policy, and the M3 MARKET/LIMIT/CANCEL
 safety test matrix. It still does not enable order endpoints.
 M3a starts with non-network order-path foundation only: broker-neutral state
 machine, id-mapping store contract, JSON-file durable test backend, outgoing
-comment policy, operator arming TTL/one-shot semantics, place/cancel preflight,
-exact cancel mapping checks, raw command-comment rejection, synthetic ACK
-construction with safe reason codes, store invariants, broker-order-id
-uniqueness, cancel timeout policy, FINAM request DTO builders without HTTP
-send, and price/reference/notional guard tests. It still does not call FINAM
-order endpoints or consume live strategy commands.
+comment policy, operator arming/disarm safety signals, place/cancel preflight,
+approved marker types for dry request builders, exact cancel mapping checks, raw
+command-comment rejection, command TTL expiry, dry rate-limit capacity,
+synthetic ACK construction/publication with safe reason codes and redacted ids,
+store invariants, broker-order-id uniqueness, cancel timeout policy, FINAM
+request DTO builders without HTTP send, and price/reference/notional guard
+tests. It still does not call FINAM order endpoints or consume live strategy
+commands.
 
 CI runs `cargo fmt --all --check`, `cargo test --all`, and
 `cargo clippy --workspace --all-targets -- -D warnings`. The Redis CI job runs

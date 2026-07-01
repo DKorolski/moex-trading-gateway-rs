@@ -42,6 +42,11 @@ M3 command payloads use `Envelope<BrokerCommand>` with `schema_version = 2` and
 `msg_type = Command`. ACK payloads use `Envelope<CommandAck>` with
 `msg_type = CommandAck`.
 
+M3a-5 implements only a mock/dry ACK publisher. It is allowed to publish
+synthetic `CommandAck` envelopes while live command/order/cancel features are
+disabled, but it is not a real FINAM ACK lifecycle and is not connected to
+strategy command streams.
+
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.
 
@@ -157,6 +162,9 @@ partial fill, terminal state, and PnL.
 ACK reasons are structured safe codes, not arbitrary strings. Redis
 `broker.command_acks` must not carry raw broker response text, account ids,
 raw order ids, secrets, JWTs, or raw payload fragments.
+The dry publisher clears optional client/broker order ids before Redis
+publication; operators must correlate through `StrategyRequestId` and the local
+mapping store.
 
 ## Durable mapping store
 

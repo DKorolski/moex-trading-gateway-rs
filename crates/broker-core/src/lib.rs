@@ -36,12 +36,14 @@ pub use order::{
     TimeInForce, Trade, TradeId,
 };
 pub use order_path::{
-    CancelPreflightDecision, CommentPolicyMode, InMemoryOrderPathStore, JsonFileOrderPathStore,
-    OperatorArm, OrderPathCommandKind, OrderPathErrorKind, OrderPathEvent,
-    OrderPathReconciliationSource, OrderPathRecord, OrderPathState, OrderPathStore,
+    CancelPreflightApproval, CancelPreflightDecision, CommentPolicyMode, DryOrderRateLimit,
+    DryOrderRateLimitError, InMemoryOrderPathStore, JsonFileOrderPathStore, OperatorArm,
+    OperatorDisarmDecision, OperatorDisarmSignal, OrderPathCommandKind, OrderPathErrorKind,
+    OrderPathEvent, OrderPathReconciliationSource, OrderPathRecord, OrderPathState, OrderPathStore,
     OrderPathStoreError, OrderPathTransitionError, OrderPreflightContext, OrderPreflightError,
     OrderPreflightPolicy, OrderReferencePrice, OutgoingCommentError, OutgoingCommentIntent,
-    OutgoingOrderComment, OutgoingOrderCommentPolicy,
+    OutgoingOrderComment, OutgoingOrderCommentPolicy, PreflightApprovedCancelOrder,
+    PreflightApprovedPlaceOrder,
 };
 pub use readiness::{BrokerReadiness, ReadinessPhase, ReadinessReason};
 pub use subscription::{SubscriptionIntent, SubscriptionKind, SubscriptionState};

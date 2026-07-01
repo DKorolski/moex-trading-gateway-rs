@@ -1,5 +1,6 @@
 use broker_core::{
-    CancelOrder, OrderSide, OrderType, OutgoingOrderComment, PlaceOrder, TimeInForce,
+    OrderSide, OrderType, OutgoingOrderComment, PreflightApprovedCancelOrder,
+    PreflightApprovedPlaceOrder, TimeInForce,
 };
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -27,12 +28,18 @@ impl std::fmt::Debug for FinamPlaceOrderRequest {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("FinamPlaceOrderRequest")
-            .field("symbol", &self.symbol)
-            .field("quantity", &self.quantity)
-            .field("side", &self.side)
-            .field("order_type", &self.order_type)
+            .field("symbol_present", &!self.symbol.is_empty())
+            .field("symbol_len", &self.symbol.len())
+            .field("quantity_present", &!self.quantity.value.is_empty())
+            .field("quantity_len", &self.quantity.value.len())
+            .field("side_present", &!self.side.is_empty())
+            .field("order_type_present", &!self.order_type.is_empty())
             .field("time_in_force", &self.time_in_force)
             .field("limit_price_present", &self.limit_price.is_some())
+            .field(
+                "limit_price_len",
+                &self.limit_price.as_ref().map(|price| price.value.len()),
+            )
             .field(
                 "client_order_id_present",
                 &self
@@ -79,6 +86,39 @@ impl FinamPlaceOrderRequestSpec {
             "orders".to_string(),
         ]
     }
+
+    pub fn redacted_path_shape(&self) -> FinamOrderPathDiagnostic {
+        FinamOrderPathDiagnostic {
+            method: "POST".to_string(),
+            path_template: "/v1/accounts/{account_id}/orders".to_string(),
+            account_id_present: !self.account_id.is_empty(),
+            account_id_len: self.account_id.len(),
+            order_id_present: false,
+            order_id_len: None,
+        }
+    }
+
+    pub fn redacted_body_shape(&self) -> FinamPlaceOrderBodyDiagnostic {
+        FinamPlaceOrderBodyDiagnostic {
+            symbol_present: !self.body.symbol.is_empty(),
+            symbol_len: self.body.symbol.len(),
+            quantity_present: !self.body.quantity.value.is_empty(),
+            quantity_len: self.body.quantity.value.len(),
+            side_present: !self.body.side.is_empty(),
+            order_type_present: !self.body.order_type.is_empty(),
+            time_in_force_present: self.body.time_in_force.is_some(),
+            limit_price_present: self.body.limit_price.is_some(),
+            limit_price_len: self
+                .body
+                .limit_price
+                .as_ref()
+                .map(|price| price.value.len()),
+            client_order_id_present: self.body.client_order_id.is_some(),
+            client_order_id_len: self.body.client_order_id.as_ref().map(|value| value.len()),
+            comment_present: self.body.comment.is_some(),
+            comment_len: self.body.comment.as_ref().map(|value| value.len()),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq)]
@@ -109,12 +149,24 @@ impl FinamCancelOrderRequestSpec {
             self.order_id.clone(),
         ]
     }
+
+    pub fn redacted_path_shape(&self) -> FinamOrderPathDiagnostic {
+        FinamOrderPathDiagnostic {
+            method: "DELETE".to_string(),
+            path_template: "/v1/accounts/{account_id}/orders/{order_id}".to_string(),
+            account_id_present: !self.account_id.is_empty(),
+            account_id_len: self.account_id.len(),
+            order_id_present: !self.order_id.is_empty(),
+            order_id_len: Some(self.order_id.len()),
+        }
+    }
 }
 
 pub fn build_place_order_request(
-    order: &PlaceOrder,
+    approved: &PreflightApprovedPlaceOrder,
     outgoing_comment: Option<&OutgoingOrderComment>,
 ) -> Result<FinamPlaceOrderRequestSpec, FinamOrderRequestBuildError> {
+    let order = approved.order();
     if order.comment.is_some() {
         return Err(FinamOrderRequestBuildError::RawCommandCommentNotAllowed);
     }
@@ -161,8 +213,9 @@ pub fn build_place_order_request(
 }
 
 pub fn build_cancel_order_request(
-    cancel: &CancelOrder,
+    approved: &PreflightApprovedCancelOrder,
 ) -> Result<FinamCancelOrderRequestSpec, FinamOrderRequestBuildError> {
+    let cancel = approved.cancel();
     if cancel.order_id.as_str().is_empty() {
         return Err(FinamOrderRequestBuildError::MissingBrokerOrderId);
     }
@@ -170,6 +223,98 @@ pub fn build_cancel_order_request(
         account_id: cancel.account_id.as_str().to_string(),
         order_id: cancel.order_id.as_str().to_string(),
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinamOrderPathDiagnostic {
+    pub method: String,
+    pub path_template: String,
+    pub account_id_present: bool,
+    pub account_id_len: usize,
+    pub order_id_present: bool,
+    pub order_id_len: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FinamDryOrderRequestKind {
+    Place,
+    Cancel,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinamDryOrderRequestDiagnostic {
+    pub kind: FinamDryOrderRequestKind,
+    pub path: FinamOrderPathDiagnostic,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<FinamPlaceOrderBodyDiagnostic>,
+}
+
+pub trait FinamDryOrderClient {
+    fn record_place_order_request(
+        &mut self,
+        spec: &FinamPlaceOrderRequestSpec,
+    ) -> FinamDryOrderRequestDiagnostic;
+
+    fn record_cancel_order_request(
+        &mut self,
+        spec: &FinamCancelOrderRequestSpec,
+    ) -> FinamDryOrderRequestDiagnostic;
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct MockFinamDryOrderClient {
+    requests: Vec<FinamDryOrderRequestDiagnostic>,
+}
+
+impl MockFinamDryOrderClient {
+    pub fn requests(&self) -> &[FinamDryOrderRequestDiagnostic] {
+        &self.requests
+    }
+}
+
+impl FinamDryOrderClient for MockFinamDryOrderClient {
+    fn record_place_order_request(
+        &mut self,
+        spec: &FinamPlaceOrderRequestSpec,
+    ) -> FinamDryOrderRequestDiagnostic {
+        let diagnostic = FinamDryOrderRequestDiagnostic {
+            kind: FinamDryOrderRequestKind::Place,
+            path: spec.redacted_path_shape(),
+            body: Some(spec.redacted_body_shape()),
+        };
+        self.requests.push(diagnostic.clone());
+        diagnostic
+    }
+
+    fn record_cancel_order_request(
+        &mut self,
+        spec: &FinamCancelOrderRequestSpec,
+    ) -> FinamDryOrderRequestDiagnostic {
+        let diagnostic = FinamDryOrderRequestDiagnostic {
+            kind: FinamDryOrderRequestKind::Cancel,
+            path: spec.redacted_path_shape(),
+            body: None,
+        };
+        self.requests.push(diagnostic.clone());
+        diagnostic
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinamPlaceOrderBodyDiagnostic {
+    pub symbol_present: bool,
+    pub symbol_len: usize,
+    pub quantity_present: bool,
+    pub quantity_len: usize,
+    pub side_present: bool,
+    pub order_type_present: bool,
+    pub time_in_force_present: bool,
+    pub limit_price_present: bool,
+    pub limit_price_len: Option<usize>,
+    pub client_order_id_present: bool,
+    pub client_order_id_len: Option<usize>,
+    pub comment_present: bool,
+    pub comment_len: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -217,10 +362,13 @@ fn finam_time_in_force(
 mod tests {
     use super::*;
     use broker_core::{
-        AccountId, BrokerOrderId, ClientOrderId, Exchange, InstrumentId, Market,
-        OutgoingCommentIntent, OutgoingOrderCommentPolicy, StrategyRequestId,
+        AccountId, BrokerOrderId, CancelOrder, CancelPreflightApproval, ClientOrderId, Exchange,
+        InstrumentId, Market, OperatorArm, OrderPathEvent, OrderPathRecord, OrderPathState,
+        OrderPreflightContext, OrderPreflightPolicy, OrderReferencePrice, OutgoingCommentIntent,
+        OutgoingOrderCommentPolicy, PlaceOrder, PreflightApprovedCancelOrder,
+        PreflightApprovedPlaceOrder, StrategyRequestId,
     };
-    use chrono::{TimeZone, Utc};
+    use chrono::{DateTime, TimeZone, Utc};
     use rust_decimal::Decimal;
     use serde_json::json;
     use uuid::Uuid;
@@ -258,15 +406,90 @@ mod tests {
         }
     }
 
+    fn sample_arm(now: DateTime<Utc>) -> OperatorArm {
+        OperatorArm {
+            session_id: "ARM_TEST_1".to_string(),
+            armed_until: now + chrono::Duration::minutes(5),
+            endpoint_calls_enabled: true,
+            one_shot: false,
+            endpoint_attempted: false,
+            preflight_digest: "digest-test".to_string(),
+        }
+    }
+
+    fn preflight_policy(now: DateTime<Utc>) -> OrderPreflightPolicy {
+        OrderPreflightPolicy {
+            allowed_accounts: vec![AccountId::new("ACC_TEST_0001")],
+            allowed_venue_symbols: vec!["TESTFUT@TEST".to_string()],
+            allowed_order_types: vec![OrderType::Market, OrderType::Limit],
+            allowed_time_in_force: vec![TimeInForce::Day],
+            min_qty: Decimal::new(1, 0),
+            qty_step: Decimal::new(1, 0),
+            max_qty: Decimal::new(3, 0),
+            price_step: Some(Decimal::new(1, 2)),
+            max_market_qty: Decimal::new(1, 0),
+            max_notional_per_order: None,
+            max_notional_per_run: None,
+            max_limit_deviation_bps: None,
+            max_reference_age_ms: 1_000,
+            allow_cancel_by_broker_order_id_without_mapping: false,
+            operator_arm: sample_arm(now),
+        }
+    }
+
+    fn approve_place(order: &PlaceOrder) -> PreflightApprovedPlaceOrder {
+        let now = order.created_ts + chrono::Duration::milliseconds(1);
+        let context = OrderPreflightContext {
+            reference_price: Some(OrderReferencePrice {
+                price: order.limit_price.unwrap_or(Decimal::new(10_050, 2)),
+                received_ts: now,
+            }),
+            current_run_notional: Decimal::ZERO,
+        };
+        preflight_policy(now)
+            .approve_place_order_with_context(order, now, &context)
+            .expect("place preflight approval")
+    }
+
+    fn approve_cancel(cancel: &CancelOrder) -> PreflightApprovedCancelOrder {
+        let now = cancel.created_ts + chrono::Duration::milliseconds(1);
+        let mut existing =
+            OrderPathRecord::from_place_order(&place_order(), cancel.created_ts, None);
+        existing.broker_order_id = Some(cancel.order_id.clone());
+        existing
+            .transition(OrderPathEvent::BeginSubmit, now)
+            .expect("begin submit");
+        existing
+            .transition(OrderPathEvent::SubmitAccepted, now)
+            .expect("submitted");
+        assert_eq!(existing.state, OrderPathState::Submitted);
+        match preflight_policy(now)
+            .approve_cancel_order(cancel, now, Some(&existing))
+            .expect("cancel preflight approval")
+        {
+            CancelPreflightApproval::Submit(approved) => approved,
+            CancelPreflightApproval::AlreadyTerminal => panic!("expected submit approval"),
+        }
+    }
+
     #[test]
     fn builds_limit_place_order_body_without_sending_http() {
         let order = place_order();
-        let spec = build_place_order_request(&order, None).expect("request spec");
+        let approved = approve_place(&order);
+        let spec = build_place_order_request(&approved, None).expect("request spec");
 
         assert_eq!(
             spec.rest_path_segments(),
             vec!["v1", "accounts", "ACC_TEST_0001", "orders"]
         );
+        assert_eq!(
+            spec.redacted_path_shape().path_template,
+            "/v1/accounts/{account_id}/orders"
+        );
+        let diagnostic = spec.redacted_body_shape();
+        assert!(diagnostic.symbol_present);
+        assert_eq!(diagnostic.symbol_len, "TESTFUT@TEST".len());
+        assert!(diagnostic.limit_price_present);
         let body = serde_json::to_value(&spec.body).expect("body");
         assert_eq!(
             body,
@@ -288,9 +511,10 @@ mod tests {
         order.order_type = OrderType::Market;
         order.limit_price = None;
         order.side = OrderSide::Sell;
+        let approved = approve_place(&order);
 
         let body = serde_json::to_value(
-            &build_place_order_request(&order, None)
+            &build_place_order_request(&approved, None)
                 .expect("market request")
                 .body,
         )
@@ -301,8 +525,10 @@ mod tests {
 
         order.comment = Some("raw broker comment must not leak".to_string());
         assert_eq!(
-            build_place_order_request(&order, None).expect_err("raw comment"),
-            FinamOrderRequestBuildError::RawCommandCommentNotAllowed
+            preflight_policy(order.created_ts)
+                .approve_place_order(&order, order.created_ts)
+                .expect_err("raw comment"),
+            broker_core::OrderPreflightError::RawCommandCommentNotAllowed
         );
     }
 
@@ -322,7 +548,8 @@ mod tests {
             .expect("comment policy")
             .expect("comment");
 
-        let spec = build_place_order_request(&order, Some(&comment)).expect("request");
+        let approved = approve_place(&order);
+        let spec = build_place_order_request(&approved, Some(&comment)).expect("request");
         let body = serde_json::to_value(&spec.body).expect("body");
         assert_eq!(
             body["comment"],
@@ -346,12 +573,51 @@ mod tests {
             client_order_id: None,
         };
 
-        let spec = build_cancel_order_request(&cancel).expect("cancel spec");
+        let approved = approve_cancel(&cancel);
+        let spec = build_cancel_order_request(&approved).expect("cancel spec");
         assert_eq!(
             spec.rest_path_segments(),
             vec!["v1", "accounts", "ACC_TEST_0001", "orders", "BROKER_TEST_1"]
         );
+        assert_eq!(
+            spec.redacted_path_shape().path_template,
+            "/v1/accounts/{account_id}/orders/{order_id}"
+        );
         assert!(!format!("{spec:?}").contains("BROKER_TEST_1"));
         assert!(!format!("{spec:?}").contains("ACC_TEST_0001"));
+    }
+
+    #[test]
+    fn mock_dry_order_client_records_only_redacted_diagnostics() {
+        let order = place_order();
+        let approved = approve_place(&order);
+        let place_spec = build_place_order_request(&approved, None).expect("place spec");
+        let cancel = CancelOrder {
+            request_id: request_id(3),
+            created_ts: Utc
+                .with_ymd_and_hms(2026, 6, 30, 9, 12, 0)
+                .single()
+                .expect("timestamp"),
+            ttl_ms: Some(1_000),
+            account_id: AccountId::new("ACC_TEST_0001"),
+            order_id: BrokerOrderId::new("BROKER_TEST_3"),
+            client_order_id: None,
+        };
+        let approved_cancel = approve_cancel(&cancel);
+        let cancel_spec = build_cancel_order_request(&approved_cancel).expect("cancel spec");
+        let mut client = MockFinamDryOrderClient::default();
+
+        client.record_place_order_request(&place_spec);
+        client.record_cancel_order_request(&cancel_spec);
+
+        assert_eq!(client.requests().len(), 2);
+        assert_eq!(client.requests()[0].kind, FinamDryOrderRequestKind::Place);
+        assert_eq!(client.requests()[1].kind, FinamDryOrderRequestKind::Cancel);
+        let rendered = serde_json::to_string(client.requests()).expect("diagnostics serialize");
+        assert!(rendered.contains("/v1/accounts/{account_id}/orders"));
+        assert!(!rendered.contains("ACC_TEST_0001"));
+        assert!(!rendered.contains("BROKER_TEST_3"));
+        assert!(!rendered.contains("TESTFUT@TEST"));
+        assert!(!rendered.contains("CID000000000000001"));
     }
 }

@@ -240,6 +240,9 @@ Implementation notes from the first review:
 - M3a-4 includes dry FINAM order request builders for MARKET/LIMIT/CANCEL path
   and body fixture tests only; no REST order POST/DELETE send methods are
   implemented or enabled;
+- M3a-5 restricts dry order request builders to preflight-approved marker
+  types, records only redacted mock-client diagnostics, and adds mock-only dry
+  ACK Redis publication without FINAM order endpoint calls;
 - raw `serde_json::Value` is acceptable only for the shape probe. Typed DTOs and
   mappers are required before Redis gateway/readiness work.
 

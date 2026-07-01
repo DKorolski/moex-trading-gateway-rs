@@ -47,6 +47,8 @@ pub struct RedisStreamConfig {
     pub portfolio_stream: String,
     pub order_snapshot_stream: String,
     pub market_data_stream: String,
+    #[serde(default = "default_command_ack_stream")]
+    pub command_ack_stream: String,
     pub runtime_bridge_dlq_stream: String,
     pub retention: RedisRetentionConfig,
 }
@@ -60,6 +62,7 @@ impl Default for RedisStreamConfig {
             portfolio_stream: "finam:portfolio".to_string(),
             order_snapshot_stream: "finam:orders:snapshot".to_string(),
             market_data_stream: "finam:market-data".to_string(),
+            command_ack_stream: default_command_ack_stream(),
             runtime_bridge_dlq_stream: "finam:runtime-bridge:dlq".to_string(),
             retention: RedisRetentionConfig::default(),
         }
@@ -73,6 +76,8 @@ pub struct RedisRetentionConfig {
     pub portfolio_maxlen: Option<usize>,
     pub order_snapshot_maxlen: Option<usize>,
     pub market_data_maxlen: Option<usize>,
+    #[serde(default = "default_command_ack_maxlen")]
+    pub command_ack_maxlen: Option<usize>,
     pub runtime_bridge_dlq_maxlen: Option<usize>,
 }
 
@@ -84,9 +89,18 @@ impl Default for RedisRetentionConfig {
             portfolio_maxlen: Some(1_000),
             order_snapshot_maxlen: Some(1_000),
             market_data_maxlen: Some(10_000),
+            command_ack_maxlen: default_command_ack_maxlen(),
             runtime_bridge_dlq_maxlen: Some(1_000),
         }
     }
+}
+
+fn default_command_ack_stream() -> String {
+    "finam:command-acks".to_string()
+}
+
+fn default_command_ack_maxlen() -> Option<usize> {
+    Some(1_000)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -776,6 +790,7 @@ fn parse_known_message_type(value: &str) -> Option<MessageType> {
         "Readiness" => Some(MessageType::Readiness),
         "PortfolioSnapshot" => Some(MessageType::PortfolioSnapshot),
         "OrderSnapshot" => Some(MessageType::OrderSnapshot),
+        "CommandAck" => Some(MessageType::CommandAck),
         "MarketData" => Some(MessageType::MarketData),
         _ => None,
     }
@@ -843,6 +858,8 @@ pub enum GatewayError {
     InternalState { message: &'static str },
     #[error("gateway feature disabled: {feature}")]
     FeatureDisabled { feature: &'static str },
+    #[error("gateway dry command ACK publisher unsafe mode: {reason}")]
+    DryCommandAckPublisherUnsafeMode { reason: &'static str },
     #[error("finam mapper error: {0}")]
     Mapper(#[from] broker_finam::FinamMapperError),
 }
@@ -1019,6 +1036,41 @@ where
         }
     }
 
+    pub async fn publish_dry_command_ack(&self, ack: CommandAck) -> Result<(), GatewayError> {
+        self.validate_dry_command_ack_publisher_mode()?;
+        self.publish_envelope(
+            &self.config.redis.command_ack_stream,
+            MessageType::CommandAck,
+            redact_command_ack_for_redis(ack),
+            self.config.redis.retention.command_ack_maxlen,
+        )
+        .await
+    }
+
+    fn validate_dry_command_ack_publisher_mode(&self) -> Result<(), GatewayError> {
+        if self.config.features.command_consumer_enabled {
+            return Err(GatewayError::DryCommandAckPublisherUnsafeMode {
+                reason: "command_consumer_enabled",
+            });
+        }
+        if self.config.features.order_placement_enabled {
+            return Err(GatewayError::DryCommandAckPublisherUnsafeMode {
+                reason: "order_placement_enabled",
+            });
+        }
+        if self.config.features.cancel_enabled {
+            return Err(GatewayError::DryCommandAckPublisherUnsafeMode {
+                reason: "cancel_enabled",
+            });
+        }
+        if self.config.features.stop_sltp_bracket_enabled {
+            return Err(GatewayError::DryCommandAckPublisherUnsafeMode {
+                reason: "stop_sltp_bracket_enabled",
+            });
+        }
+        Ok(())
+    }
+
     async fn publish_envelope<T: Serialize + Send + Sync>(
         &self,
         stream: &str,
@@ -1128,15 +1180,26 @@ fn command_client_order_id(command: &BrokerCommand) -> Option<broker_core::Clien
     }
 }
 
+pub fn redact_command_ack_for_redis(mut ack: CommandAck) -> CommandAck {
+    ack.client_order_id = None;
+    ack.broker_order_id = None;
+    ack
+}
+
 #[cfg(test)]
 mod tests {
     use broker_core::account::PortfolioSnapshot;
-    use broker_core::command::CommandAckReasonCode;
+    use broker_core::command::{CommandAckReason, CommandAckReasonCode};
     use broker_core::event::{Bar, MarketDataEvent, MarketDataSourceKind, Quote};
-    use broker_core::ids::{ClientOrderId, StrategyRequestId};
+    use broker_core::ids::{BrokerOrderId, ClientOrderId, StrategyRequestId};
     use broker_core::instrument::{Exchange, InstrumentId, Market};
     use broker_core::order::{Order, OrderSide, OrderStatus, OrderType, TimeInForce};
-    use chrono::TimeZone;
+    use broker_core::{
+        DryOrderRateLimit, InMemoryOrderPathStore, OperatorArm, OrderPathEvent, OrderPathRecord,
+        OrderPathStore, OrderPreflightPolicy, PlaceOrder,
+    };
+    use broker_finam::{FinamDryOrderClient, MockFinamDryOrderClient};
+    use chrono::{DateTime, TimeZone};
     use rust_decimal::Decimal;
     use serde::de::DeserializeOwned;
     use uuid::Uuid;
@@ -1923,6 +1986,202 @@ mod tests {
             ack.reason.expect("reason").code,
             CommandAckReasonCode::FeatureDisabled
         );
+    }
+
+    #[tokio::test]
+    async fn publishes_dry_command_ack_as_redacted_command_ack_envelope() {
+        let sink = InMemoryRedisStreamSink::default();
+        let gateway = FinamGateway::new(GatewayConfig::default(), sink.clone());
+        let request_id = request_id(3);
+        let ack = CommandAck {
+            request_id,
+            client_order_id: Some(ClientOrderId::new("CID000000000000003").expect("client id")),
+            broker_order_id: Some(BrokerOrderId::new("BROKER_TEST_3")),
+            status: CommandAckStatus::Submitted,
+            reason: Some(CommandAckReason::synthetic_submitted()),
+            received_ts: Utc
+                .with_ymd_and_hms(2026, 6, 30, 9, 10, 0)
+                .single()
+                .expect("timestamp"),
+        };
+
+        gateway
+            .publish_dry_command_ack(ack)
+            .await
+            .expect("dry ACK published");
+
+        let entries = sink.entries().expect("entries");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].stream, "finam:command-acks");
+        assert!(entries[0].payload.contains("\"msg_type\":\"CommandAck\""));
+        assert!(!entries[0].payload.contains("CID000000000000003"));
+        assert!(!entries[0].payload.contains("BROKER_TEST_3"));
+
+        let envelope: Envelope<CommandAck> =
+            decode_stream_payload(&entries, "finam:command-acks", MessageType::CommandAck);
+        assert_eq!(envelope.payload.request_id, request_id);
+        assert_eq!(envelope.payload.status, CommandAckStatus::Submitted);
+        assert_eq!(
+            envelope.payload.reason.expect("reason").code,
+            CommandAckReasonCode::SyntheticSubmitted
+        );
+        assert!(envelope.payload.client_order_id.is_none());
+        assert!(envelope.payload.broker_order_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn dry_command_ack_publisher_refuses_order_enabled_modes() {
+        let mut config = GatewayConfig::default();
+        config.features.order_placement_enabled = true;
+        let gateway = FinamGateway::new(config, InMemoryRedisStreamSink::default());
+        let ack = CommandAck {
+            request_id: request_id(4),
+            client_order_id: None,
+            broker_order_id: None,
+            status: CommandAckStatus::Submitted,
+            reason: Some(CommandAckReason::synthetic_submitted()),
+            received_ts: Utc::now(),
+        };
+
+        assert!(matches!(
+            gateway
+                .publish_dry_command_ack(ack)
+                .await
+                .expect_err("order mode must be refused"),
+            GatewayError::DryCommandAckPublisherUnsafeMode {
+                reason: "order_placement_enabled"
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn dry_order_path_integrates_preflight_store_request_spec_mock_client_and_ack() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 6, 30, 9, 10, 0)
+            .single()
+            .expect("timestamp");
+        let order = sample_place_order(request_id(5), "CID000000000000005", now);
+        let policy = dry_preflight_policy(now);
+        let approved = policy
+            .approve_place_order(&order, now)
+            .expect("preflight approved");
+        let mut rate_limit = DryOrderRateLimit::new(1);
+        rate_limit.try_consume(1).expect("dry rate-limit permit");
+        let mut store = InMemoryOrderPathStore::default();
+        store
+            .insert_intent(OrderPathRecord::from_place_order(
+                approved.order(),
+                now,
+                None,
+            ))
+            .expect("intent persisted before dry request spec");
+
+        let request_spec =
+            broker_finam::build_place_order_request(&approved, None).expect("dry spec");
+        let mut dry_client = MockFinamDryOrderClient::default();
+        let diagnostic = dry_client.record_place_order_request(&request_spec);
+
+        assert_eq!(
+            diagnostic.kind,
+            broker_finam::FinamDryOrderRequestKind::Place
+        );
+        let diagnostic_json = serde_json::to_string(dry_client.requests()).expect("diagnostics");
+        assert!(!diagnostic_json.contains("ACC_TEST_0001"));
+        assert!(!diagnostic_json.contains("CID000000000000005"));
+        assert!(!diagnostic_json.contains("TESTFUT@TEST"));
+
+        let mut record = store
+            .load_by_request_id(order.request_id)
+            .expect("record persisted");
+        record
+            .transition(
+                OrderPathEvent::BeginSubmit,
+                now + chrono::Duration::milliseconds(1),
+            )
+            .expect("begin dry submit");
+        record
+            .transition(
+                OrderPathEvent::SubmitAccepted,
+                now + chrono::Duration::milliseconds(2),
+            )
+            .expect("synthetic submit accepted");
+        store
+            .update_record(record.clone())
+            .expect("persist submitted");
+        let ack = record.synthetic_ack(
+            CommandAckStatus::Submitted,
+            Some(CommandAckReason::synthetic_submitted()),
+            now + chrono::Duration::milliseconds(2),
+        );
+        let sink = InMemoryRedisStreamSink::default();
+        let gateway = FinamGateway::new(GatewayConfig::default(), sink.clone());
+
+        gateway
+            .publish_dry_command_ack(ack)
+            .await
+            .expect("dry ack published");
+
+        let entries = sink.entries().expect("entries");
+        let ack_envelope: Envelope<CommandAck> =
+            decode_stream_payload(&entries, "finam:command-acks", MessageType::CommandAck);
+        assert_eq!(ack_envelope.payload.request_id, order.request_id);
+        assert_eq!(ack_envelope.payload.status, CommandAckStatus::Submitted);
+        assert!(ack_envelope.payload.client_order_id.is_none());
+        assert!(entries[0].payload.contains("synthetic_submitted"));
+        assert!(!entries[0].payload.contains("ACC_TEST_0001"));
+        assert!(!entries[0].payload.contains("CID000000000000005"));
+    }
+
+    fn request_id(n: u128) -> StrategyRequestId {
+        StrategyRequestId::from(Uuid::from_u128(n))
+    }
+
+    fn sample_place_order(
+        request_id: StrategyRequestId,
+        client_order_id: &str,
+        now: DateTime<Utc>,
+    ) -> PlaceOrder {
+        PlaceOrder {
+            request_id,
+            created_ts: now,
+            ttl_ms: Some(1_000),
+            account_id: broker_core::BrokerAccountId::new("ACC_TEST_0001"),
+            client_order_id: ClientOrderId::new(client_order_id).expect("client order id"),
+            instrument: sample_instrument(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: Decimal::ONE,
+            limit_price: Some(Decimal::new(5000, 0)),
+            time_in_force: TimeInForce::Day,
+            comment: None,
+        }
+    }
+
+    fn dry_preflight_policy(now: DateTime<Utc>) -> OrderPreflightPolicy {
+        OrderPreflightPolicy {
+            allowed_accounts: vec![broker_core::BrokerAccountId::new("ACC_TEST_0001")],
+            allowed_venue_symbols: vec!["TESTFUT@TEST".to_string()],
+            allowed_order_types: vec![OrderType::Market, OrderType::Limit],
+            allowed_time_in_force: vec![TimeInForce::Day],
+            min_qty: Decimal::ONE,
+            qty_step: Decimal::ONE,
+            max_qty: Decimal::new(3, 0),
+            price_step: Some(Decimal::new(1, 0)),
+            max_market_qty: Decimal::ONE,
+            max_notional_per_order: None,
+            max_notional_per_run: None,
+            max_limit_deviation_bps: None,
+            max_reference_age_ms: 1_000,
+            allow_cancel_by_broker_order_id_without_mapping: false,
+            operator_arm: OperatorArm {
+                session_id: "ARM_TEST_1".to_string(),
+                armed_until: now + chrono::Duration::minutes(5),
+                endpoint_calls_enabled: true,
+                one_shot: false,
+                endpoint_attempted: false,
+                preflight_digest: "digest-test".to_string(),
+            },
+        }
     }
 
     fn sample_instrument() -> InstrumentId {

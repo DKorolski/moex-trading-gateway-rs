@@ -99,7 +99,10 @@ comment policy and persisted only as a fingerprint.
 
 Command ACK reasons must remain safe structured codes. Do not publish raw broker
 error bodies, account ids, broker order ids, secrets, JWTs, or arbitrary payload
-text in `CommandAck.reason`.
+text in `CommandAck.reason`. The M3a-5 dry Redis ACK publisher additionally
+clears optional client/broker order ids before publishing `CommandAck` envelopes;
+operator correlation must use `StrategyRequestId` plus the local durable mapping
+store.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

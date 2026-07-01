@@ -693,6 +693,34 @@ impl OperatorArm {
             self.endpoint_calls_enabled = false;
         }
     }
+
+    pub fn disarm_for_safety_signal(
+        &mut self,
+        signal: OperatorDisarmSignal,
+    ) -> OperatorDisarmDecision {
+        let was_enabled = self.endpoint_calls_enabled;
+        self.endpoint_calls_enabled = false;
+        OperatorDisarmDecision {
+            signal,
+            was_enabled,
+            endpoint_calls_enabled: self.endpoint_calls_enabled,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum OperatorDisarmSignal {
+    GatewayDegraded,
+    RuntimeBridgeDeadLetter,
+    UnknownPendingOrder,
+    RestartRecovery,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct OperatorDisarmDecision {
+    pub signal: OperatorDisarmSignal,
+    pub was_enabled: bool,
+    pub endpoint_calls_enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -723,6 +751,14 @@ impl OrderPreflightPolicy {
         self.validate_place_order_with_context(order, now, &OrderPreflightContext::default())
     }
 
+    pub fn approve_place_order(
+        &self,
+        order: &PlaceOrder,
+        now: DateTime<Utc>,
+    ) -> Result<PreflightApprovedPlaceOrder, OrderPreflightError> {
+        self.approve_place_order_with_context(order, now, &OrderPreflightContext::default())
+    }
+
     pub fn validate_place_order_with_context(
         &self,
         order: &PlaceOrder,
@@ -730,6 +766,7 @@ impl OrderPreflightPolicy {
         context: &OrderPreflightContext,
     ) -> Result<(), OrderPreflightError> {
         self.operator_arm.validate(now)?;
+        validate_command_ttl(order.created_ts, order.ttl_ms, now)?;
         if !self.allowed_accounts.contains(&order.account_id) {
             return Err(OrderPreflightError::AccountNotAllowed);
         }
@@ -801,6 +838,19 @@ impl OrderPreflightPolicy {
         Ok(())
     }
 
+    pub fn approve_place_order_with_context(
+        &self,
+        order: &PlaceOrder,
+        now: DateTime<Utc>,
+        context: &OrderPreflightContext,
+    ) -> Result<PreflightApprovedPlaceOrder, OrderPreflightError> {
+        self.validate_place_order_with_context(order, now, context)?;
+        Ok(PreflightApprovedPlaceOrder {
+            order: order.clone(),
+            approved_ts: now,
+        })
+    }
+
     pub fn validate_cancel_order(
         &self,
         cancel: &CancelOrder,
@@ -808,6 +858,7 @@ impl OrderPreflightPolicy {
         existing: Option<&OrderPathRecord>,
     ) -> Result<CancelPreflightDecision, OrderPreflightError> {
         self.operator_arm.validate(now)?;
+        validate_command_ttl(cancel.created_ts, cancel.ttl_ms, now)?;
         if !self.allowed_accounts.contains(&cancel.account_id) {
             return Err(OrderPreflightError::AccountNotAllowed);
         }
@@ -846,6 +897,26 @@ impl OrderPreflightPolicy {
             Ok(CancelPreflightDecision::SubmitCancel)
         } else {
             Err(OrderPreflightError::CancelMappingMissing)
+        }
+    }
+
+    pub fn approve_cancel_order(
+        &self,
+        cancel: &CancelOrder,
+        now: DateTime<Utc>,
+        existing: Option<&OrderPathRecord>,
+    ) -> Result<CancelPreflightApproval, OrderPreflightError> {
+        match self.validate_cancel_order(cancel, now, existing)? {
+            CancelPreflightDecision::SubmitCancel => Ok(CancelPreflightApproval::Submit(
+                PreflightApprovedCancelOrder {
+                    cancel: cancel.clone(),
+                    approved_ts: now,
+                    mapped_request_id: existing.map(|record| record.request_id),
+                },
+            )),
+            CancelPreflightDecision::AlreadyTerminal => {
+                Ok(CancelPreflightApproval::AlreadyTerminal)
+            }
         }
     }
 
@@ -907,6 +978,90 @@ impl OrderPreflightPolicy {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreflightApprovedPlaceOrder {
+    order: PlaceOrder,
+    approved_ts: DateTime<Utc>,
+}
+
+impl PreflightApprovedPlaceOrder {
+    pub fn order(&self) -> &PlaceOrder {
+        &self.order
+    }
+
+    pub fn approved_ts(&self) -> DateTime<Utc> {
+        self.approved_ts
+    }
+
+    pub fn into_inner(self) -> PlaceOrder {
+        self.order
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreflightApprovedCancelOrder {
+    cancel: CancelOrder,
+    approved_ts: DateTime<Utc>,
+    mapped_request_id: Option<StrategyRequestId>,
+}
+
+impl PreflightApprovedCancelOrder {
+    pub fn cancel(&self) -> &CancelOrder {
+        &self.cancel
+    }
+
+    pub fn approved_ts(&self) -> DateTime<Utc> {
+        self.approved_ts
+    }
+
+    pub fn mapped_request_id(&self) -> Option<StrategyRequestId> {
+        self.mapped_request_id
+    }
+
+    pub fn into_inner(self) -> CancelOrder {
+        self.cancel
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CancelPreflightApproval {
+    Submit(PreflightApprovedCancelOrder),
+    AlreadyTerminal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DryOrderRateLimit {
+    pub capacity: u32,
+    pub used: u32,
+}
+
+impl DryOrderRateLimit {
+    pub fn new(capacity: u32) -> Self {
+        Self { capacity, used: 0 }
+    }
+
+    pub fn remaining(&self) -> u32 {
+        self.capacity.saturating_sub(self.used)
+    }
+
+    pub fn try_consume(&mut self, permits: u32) -> Result<(), DryOrderRateLimitError> {
+        if permits == 0 {
+            return Ok(());
+        }
+        if self.remaining() < permits {
+            return Err(DryOrderRateLimitError::CapacityExhausted);
+        }
+        self.used += permits;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum DryOrderRateLimitError {
+    #[error("dry order rate limit capacity exhausted")]
+    CapacityExhausted,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OrderReferencePrice {
     pub price: Price,
@@ -944,6 +1099,8 @@ pub enum OrderPreflightError {
     OneShotAlreadyUsed,
     #[error("operator arm missing session id or preflight digest")]
     MissingArmAudit,
+    #[error("command ttl expired")]
+    CommandExpired,
     #[error("account is not allowlisted")]
     AccountNotAllowed,
     #[error("venue symbol is missing")]
@@ -996,6 +1153,22 @@ pub enum OrderPreflightError {
     CancelAlreadyPending,
     #[error("cancel state requires reconciliation or manual intervention")]
     CancelStateRequiresManualIntervention,
+}
+
+fn validate_command_ttl(
+    created_ts: DateTime<Utc>,
+    ttl_ms: Option<u64>,
+    now: DateTime<Utc>,
+) -> Result<(), OrderPreflightError> {
+    let Some(ttl_ms) = ttl_ms else {
+        return Ok(());
+    };
+    let age_ms = now.signed_duration_since(created_ts).num_milliseconds();
+    if age_ms > ttl_ms as i64 {
+        Err(OrderPreflightError::CommandExpired)
+    } else {
+        Ok(())
+    }
 }
 
 fn is_decimal_multiple(value: Decimal, step: Decimal) -> bool {
@@ -1618,6 +1791,29 @@ mod tests {
     }
 
     #[test]
+    fn operator_arm_disarms_on_m3_safety_signals() {
+        let now = Utc::now();
+        for signal in [
+            OperatorDisarmSignal::GatewayDegraded,
+            OperatorDisarmSignal::RuntimeBridgeDeadLetter,
+            OperatorDisarmSignal::UnknownPendingOrder,
+            OperatorDisarmSignal::RestartRecovery,
+        ] {
+            let mut arm = sample_arm(now);
+
+            let decision = arm.disarm_for_safety_signal(signal);
+
+            assert_eq!(decision.signal, signal);
+            assert!(decision.was_enabled);
+            assert!(!decision.endpoint_calls_enabled);
+            assert_eq!(
+                arm.validate(now).expect_err("disarmed arm must block"),
+                OrderPreflightError::EndpointNotArmed
+            );
+        }
+    }
+
+    #[test]
     fn preflight_accepts_valid_limit_order() {
         let now = Utc::now();
         let policy = preflight_policy(now);
@@ -1626,6 +1822,87 @@ mod tests {
         policy
             .validate_place_order(&order, now)
             .expect("valid order");
+    }
+
+    #[test]
+    fn preflight_approval_markers_are_returned_only_after_validation() {
+        let now = Utc::now();
+        let policy = preflight_policy(now);
+        let order = place_order(request_id(45), "CID000000000000045");
+
+        let approved_place = policy
+            .approve_place_order(&order, now)
+            .expect("place approved");
+
+        assert_eq!(approved_place.order().request_id, order.request_id);
+        assert_eq!(approved_place.approved_ts(), now);
+
+        let mut existing = OrderPathRecord::from_place_order(&order, now, None);
+        existing.broker_order_id = Some(BrokerOrderId::new("BROKER_TEST_45"));
+        existing
+            .transition(OrderPathEvent::BeginSubmit, now)
+            .expect("begin submit");
+        existing
+            .transition(OrderPathEvent::SubmitAccepted, now)
+            .expect("submitted");
+        let cancel = cancel_order(request_id(46), "BROKER_TEST_45");
+
+        let approved_cancel = policy
+            .approve_cancel_order(&cancel, now, Some(&existing))
+            .expect("cancel approved");
+
+        match approved_cancel {
+            CancelPreflightApproval::Submit(approved) => {
+                assert_eq!(approved.cancel().request_id, cancel.request_id);
+                assert_eq!(approved.mapped_request_id(), Some(order.request_id));
+                assert_eq!(approved.approved_ts(), now);
+            }
+            CancelPreflightApproval::AlreadyTerminal => panic!("expected submit approval"),
+        }
+    }
+
+    #[test]
+    fn preflight_rejects_expired_place_and_cancel_commands() {
+        let now = Utc::now();
+        let policy = preflight_policy(now);
+        let mut order = place_order(request_id(47), "CID000000000000047");
+        order.created_ts = now - chrono::Duration::milliseconds(1_001);
+        order.ttl_ms = Some(1_000);
+
+        assert_eq!(
+            policy
+                .approve_place_order(&order, now)
+                .expect_err("expired place command"),
+            OrderPreflightError::CommandExpired
+        );
+
+        let mut cancel = cancel_order(request_id(48), "BROKER_TEST_48");
+        cancel.created_ts = now - chrono::Duration::milliseconds(1_001);
+        cancel.ttl_ms = Some(1_000);
+
+        assert_eq!(
+            policy
+                .approve_cancel_order(&cancel, now, None)
+                .expect_err("expired cancel command"),
+            OrderPreflightError::CommandExpired
+        );
+    }
+
+    #[test]
+    fn dry_order_rate_limit_consumes_capacity_without_overdraft() {
+        let mut rate_limit = DryOrderRateLimit::new(2);
+
+        rate_limit.try_consume(0).expect("zero permit no-op");
+        assert_eq!(rate_limit.remaining(), 2);
+        rate_limit.try_consume(1).expect("first permit");
+        assert_eq!(rate_limit.remaining(), 1);
+        rate_limit.try_consume(1).expect("second permit");
+        assert_eq!(rate_limit.remaining(), 0);
+        assert_eq!(
+            rate_limit.try_consume(1).expect_err("capacity exhausted"),
+            DryOrderRateLimitError::CapacityExhausted
+        );
+        assert_eq!(rate_limit.used, 2);
     }
 
     #[test]

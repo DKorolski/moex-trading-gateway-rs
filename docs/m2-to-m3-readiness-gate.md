@@ -384,3 +384,32 @@ Still not implemented in M3a-4:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3a-5 dry approved-path / mock ACK publisher status
+
+Implemented while still keeping all broker endpoints disabled:
+
+- request builders accept only preflight-approved marker types, not raw
+  commands;
+- command TTL expiry is rejected by preflight for place and cancel commands;
+- dry request path/body diagnostics are redacted and mock FINAM dry client
+  stores only diagnostics;
+- synthetic dry `CommandAck` Redis publication exists only in disabled/mocked
+  mode and refuses command-consumer/order/cancel/SLTP-enabled configs;
+- dry ACK Redis payloads clear raw client/broker order ids and keep structured
+  reason codes;
+- ACK stream name and retention are configurable and bounded;
+- dry integration test covers preflight -> store -> dry request spec -> mock
+  diagnostics -> synthetic ACK envelope;
+- operator disarm safety signals and dry rate-limit capacity are covered by
+  local tests.
+
+Still not implemented in M3a-5:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

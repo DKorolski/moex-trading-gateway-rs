@@ -496,6 +496,40 @@ M3a-4 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3a-5 dry approved-path / mock ACK publisher:
+
+- FINAM dry request builders now require `PreflightApprovedPlaceOrder` /
+  `PreflightApprovedCancelOrder` marker types returned only by successful
+  preflight.
+- Preflight now rejects expired place/cancel commands by command TTL before any
+  dry request spec can be built.
+- Redacted path/body diagnostics are available for dry request specs; request
+  `Debug` output avoids raw account id, broker order id, symbol, quantity,
+  price, client order id, and outgoing comment values.
+- A mock FINAM dry order client records only redacted request diagnostics and
+  has no network implementation.
+- `finam-gateway` can publish synthetic dry `CommandAck` envelopes to a bounded
+  ACK stream only when command consumer, order placement, cancel, and
+  stop/SLTP/bracket features are disabled.
+- Redis dry ACK publication clears optional client/broker order ids before
+  publishing; correlation remains through `StrategyRequestId` and the durable
+  order-path store.
+- Dry integration tests cover command -> preflight -> local store -> request
+  spec -> mock client diagnostic -> synthetic ACK envelope.
+- Operator-arm disarm signals cover degraded gateway, runtime-bridge DLQ,
+  unknown-pending order, and restart-recovery safety cases.
+- Dry order rate-limit capacity is represented and tested locally.
+
+M3a-5 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.
