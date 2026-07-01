@@ -1024,6 +1024,39 @@ M3b-8 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-9 read-only broker-truth local HTTP mapper:
+
+- Added an async-aware `CancelBrokerTruthAsyncReadonlyFetcher` contract using
+  an owned request snapshot so future real read-only network code does not need
+  to hide a blocking runtime behind the synchronous dry trait.
+- Added local HTTP-shaped read-only fixtures for broker-truth fetches. Fixtures
+  carry status plus optional body bytes; debug/diagnostic output exposes only
+  status, body presence, body length, and body SHA-256.
+- Added typed local DTO mapping for GetOrder, OrdersSnapshot, TradesSnapshot,
+  and PositionSnapshot into `CancelBrokerTruthFetchResult`.
+- Clarified read-only HTTP status policy: 408 and 504 map to `Timeout`; 502,
+  503, and other 5xx map to `Maintenance`; 404, 401/403, 429, decode, and dry
+  fixture failures keep their previous typed reasons.
+- GetOrder reports now include categorical `identity_strength`
+  (`BrokerOrderIdExact` or `ClientOrderIdFallback`) without raw broker/client
+  identifiers.
+- Default broker-truth policy version is now the neutral
+  `cancel-truth-default-v1`.
+- Tests cover async trait use, local DTO mapping, malformed body decode errors,
+  redacted fixture debug, and broker-truth report redaction.
+- Details are documented in
+  `docs/m3b9-readonly-fetcher-local-http.md`.
+
+M3b-9 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

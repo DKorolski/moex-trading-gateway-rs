@@ -55,6 +55,9 @@ SQLite-backed follow-up audit coverage. M3b-8 hardens the future read-only
 broker-truth boundary with checked get-order identity, strict direct-source
 requirements before position-derived terminal truth, read-only HTTP/error
 reason mapping, gateway-config policy overrides, and policy fingerprints.
+M3b-9 adds the local HTTP-shaped read-only DTO mapper, async-aware fetcher
+contract, explicit 408/502/504 policy, and categorical get-order
+identity-strength diagnostics without enabling real order endpoints.
 
 M3 scope is deliberately small:
 
@@ -154,6 +157,9 @@ M3b-8 adds the read-only boundary rules that a future real FINAM truth fetcher
 must obey: get-order evidence must match the requested identity, source errors
 map to typed reasons, and position truth cannot compensate for skipped direct
 order/trade sources.
+M3b-9 adds the local/read-only HTTP fixture mapper and async-facing fetcher
+contract so future real read-only network code can be implemented without
+blocking-runtime ambiguity or raw HTTP body leakage.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

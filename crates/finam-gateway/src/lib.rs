@@ -1130,6 +1130,12 @@ pub enum CancelBrokerTruthStatusClass {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CancelBrokerTruthIdentityStrength {
+    BrokerOrderIdExact,
+    ClientOrderIdFallback,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CancelBrokerTruthDiagnostic {
     pub source: CancelBrokerTruthSource,
@@ -1137,6 +1143,7 @@ pub struct CancelBrokerTruthDiagnostic {
     pub order_id_len: Option<usize>,
     pub client_order_id_present: bool,
     pub client_order_id_len: Option<usize>,
+    pub identity_strength: Option<CancelBrokerTruthIdentityStrength>,
     pub evidence_present: bool,
     pub status_present: bool,
     pub status_class: CancelBrokerTruthStatusClass,
@@ -1158,6 +1165,7 @@ pub struct CancelBrokerTruthObservation {
     pub order_id_len: Option<usize>,
     pub client_order_id_present: bool,
     pub client_order_id_len: Option<usize>,
+    pub identity_strength: Option<CancelBrokerTruthIdentityStrength>,
     pub evidence_present: bool,
     pub order_status: Option<OrderStatus>,
     pub status_class_override: Option<CancelBrokerTruthStatusClass>,
@@ -1174,6 +1182,7 @@ impl std::fmt::Debug for CancelBrokerTruthObservation {
             .field("order_id_len", &self.order_id_len)
             .field("client_order_id_present", &self.client_order_id_present)
             .field("client_order_id_len", &self.client_order_id_len)
+            .field("identity_strength", &self.identity_strength)
             .field("evidence_present", &self.evidence_present)
             .field("status_present", &self.order_status.is_some())
             .field("status_class", &self.status_class())
@@ -1197,6 +1206,7 @@ impl CancelBrokerTruthObservation {
                 .client_order_id
                 .as_ref()
                 .map(|client_order_id| client_order_id.as_str().len()),
+            identity_strength: None,
             evidence_present: true,
             order_status: Some(order.status.clone()),
             status_class_override: None,
@@ -1216,6 +1226,7 @@ impl CancelBrokerTruthObservation {
             order_id_len: None,
             client_order_id_present: false,
             client_order_id_len: None,
+            identity_strength: None,
             evidence_present: false,
             order_status: None,
             status_class_override: None,
@@ -1237,6 +1248,7 @@ impl CancelBrokerTruthObservation {
                 .client_order_id
                 .as_ref()
                 .map(|client_order_id| client_order_id.as_str().len()),
+            identity_strength: None,
             evidence_present: true,
             order_status: None,
             status_class_override: Some(CancelBrokerTruthStatusClass::Terminal),
@@ -1257,6 +1269,7 @@ impl CancelBrokerTruthObservation {
             order_id_len: None,
             client_order_id_present: false,
             client_order_id_len: None,
+            identity_strength: None,
             evidence_present: true,
             order_status: None,
             status_class_override: Some(status_class),
@@ -1397,6 +1410,7 @@ pub fn classify_cancel_broker_truth(
             order_id_len: observation.order_id_len,
             client_order_id_present: observation.client_order_id_present,
             client_order_id_len: observation.client_order_id_len,
+            identity_strength: observation.identity_strength,
             evidence_present: observation.evidence_present,
             status_present: observation.order_status.is_some(),
             status_class,
@@ -1441,18 +1455,19 @@ pub fn build_cancel_truth_from_get_order_response(
     freshness_policy: &CancelBrokerTruthFreshnessPolicy,
 ) -> CancelBrokerTruthFetchResult {
     match order {
-        Some(order) if order_matches_cancel(order, order_id, client_order_id) => {
-            CancelBrokerTruthFetchResult::observation(build_cancel_truth_from_get_order(
-                Some(order),
+        Some(order) => match order_cancel_identity_strength(order, order_id, client_order_id) {
+            Some(identity_strength) => {
+                let mut observation =
+                    build_cancel_truth_from_get_order(Some(order), observed_ts, freshness_policy);
+                observation.identity_strength = Some(identity_strength);
+                CancelBrokerTruthFetchResult::observation(observation)
+            }
+            None => CancelBrokerTruthFetchResult::missing(
+                CancelBrokerTruthSource::GetOrder,
+                CancelBrokerTruthFetchReason::MismatchedOrderIdentity,
                 observed_ts,
-                freshness_policy,
-            ))
-        }
-        Some(_) => CancelBrokerTruthFetchResult::missing(
-            CancelBrokerTruthSource::GetOrder,
-            CancelBrokerTruthFetchReason::MismatchedOrderIdentity,
-            observed_ts,
-        ),
+            ),
+        },
         None => CancelBrokerTruthFetchResult::missing(
             CancelBrokerTruthSource::GetOrder,
             CancelBrokerTruthFetchReason::NotFound404,
@@ -1667,6 +1682,9 @@ pub fn map_cancel_broker_truth_readonly_failure_to_fetch_reason(
         CancelBrokerTruthReadonlyFailure::HttpStatus(401 | 403) => {
             CancelBrokerTruthFetchReason::Unauthorized
         }
+        CancelBrokerTruthReadonlyFailure::HttpStatus(408 | 504) => {
+            CancelBrokerTruthFetchReason::Timeout
+        }
         CancelBrokerTruthReadonlyFailure::HttpStatus(429) => {
             CancelBrokerTruthFetchReason::RateLimited
         }
@@ -1748,7 +1766,7 @@ pub struct CancelBrokerTruthOrchestrationPolicy {
 impl Default for CancelBrokerTruthOrchestrationPolicy {
     fn default() -> Self {
         Self {
-            precedence_version: "m3b7-default-v1".to_string(),
+            precedence_version: "cancel-truth-default-v1".to_string(),
             freshness: CancelBrokerTruthFreshnessPolicy::default(),
             precedence: CancelBrokerTruthPrecedencePolicy::default(),
             position_guard: CancelPositionTruthGuardPolicy::default(),
@@ -1823,6 +1841,27 @@ pub struct CancelBrokerTruthFetchRequest<'a> {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+pub struct CancelBrokerTruthFetchRequestSnapshot {
+    pub order_id: BrokerOrderId,
+    pub client_order_id: Option<ClientOrderId>,
+    pub instrument: InstrumentId,
+    pub requested_at: DateTime<Utc>,
+    pub position_guard_context: CancelPositionTruthGuardContext,
+}
+
+impl From<&CancelBrokerTruthFetchRequest<'_>> for CancelBrokerTruthFetchRequestSnapshot {
+    fn from(request: &CancelBrokerTruthFetchRequest<'_>) -> Self {
+        Self {
+            order_id: request.order_id.clone(),
+            client_order_id: request.client_order_id.cloned(),
+            instrument: request.instrument.clone(),
+            requested_at: request.requested_at,
+            position_guard_context: request.position_guard_context,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub enum CancelBrokerTruthFetchResult {
     Observation(CancelBrokerTruthObservation),
     Missing {
@@ -1870,6 +1909,295 @@ impl CancelBrokerTruthFetchResult {
             observed_ts,
         }
     }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct CancelBrokerTruthReadonlyHttpResponse {
+    status: u16,
+    body: Option<Vec<u8>>,
+}
+
+impl std::fmt::Debug for CancelBrokerTruthReadonlyHttpResponse {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CancelBrokerTruthReadonlyHttpResponse")
+            .field("diagnostic", &self.diagnostic())
+            .finish()
+    }
+}
+
+impl CancelBrokerTruthReadonlyHttpResponse {
+    pub fn empty(status: u16) -> Self {
+        Self { status, body: None }
+    }
+
+    pub fn json<T>(status: u16, body: &T) -> Self
+    where
+        T: Serialize,
+    {
+        Self {
+            status,
+            body: Some(
+                serde_json::to_vec(body)
+                    .expect("local read-only broker-truth fixture body is serializable"),
+            ),
+        }
+    }
+
+    pub fn raw(status: u16, body: impl Into<Vec<u8>>) -> Self {
+        Self {
+            status,
+            body: Some(body.into()),
+        }
+    }
+
+    pub fn diagnostic(&self) -> CancelBrokerTruthReadonlyHttpDiagnostic {
+        CancelBrokerTruthReadonlyHttpDiagnostic {
+            status: self.status,
+            body_present: self.body.is_some(),
+            body_len: self.body.as_ref().map(Vec::len),
+            body_sha256: self.body.as_ref().map(|body| sha256_hex(body)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CancelBrokerTruthReadonlyHttpDiagnostic {
+    pub status: u16,
+    pub body_present: bool,
+    pub body_len: Option<usize>,
+    pub body_sha256: Option<String>,
+}
+
+fn readonly_http_status_failure(status: u16) -> Option<CancelBrokerTruthFetchReason> {
+    (!(200..=299).contains(&status)).then(|| {
+        map_cancel_broker_truth_readonly_failure_to_fetch_reason(
+            CancelBrokerTruthReadonlyFailure::HttpStatus(status),
+        )
+    })
+}
+
+fn decode_readonly_http_body<T>(
+    response: &CancelBrokerTruthReadonlyHttpResponse,
+) -> Result<T, CancelBrokerTruthFetchReason>
+where
+    T: DeserializeOwned,
+{
+    let body = response
+        .body
+        .as_ref()
+        .ok_or(CancelBrokerTruthFetchReason::DecodeError)?;
+    serde_json::from_slice(body).map_err(|_| CancelBrokerTruthFetchReason::DecodeError)
+}
+
+fn readonly_fetch_missing(
+    source: CancelBrokerTruthSource,
+    reason: CancelBrokerTruthFetchReason,
+    observed_ts: DateTime<Utc>,
+) -> CancelBrokerTruthFetchResult {
+    CancelBrokerTruthFetchResult::missing(source, reason, observed_ts)
+}
+
+pub fn map_cancel_broker_truth_get_order_http_response(
+    response: &CancelBrokerTruthReadonlyHttpResponse,
+    request: &CancelBrokerTruthFetchRequestSnapshot,
+    observed_ts: DateTime<Utc>,
+    freshness_policy: &CancelBrokerTruthFreshnessPolicy,
+) -> CancelBrokerTruthFetchResult {
+    if let Some(reason) = readonly_http_status_failure(response.status) {
+        return readonly_fetch_missing(CancelBrokerTruthSource::GetOrder, reason, observed_ts);
+    }
+
+    let order_state = match decode_readonly_http_body::<broker_finam::dto::OrderState>(response) {
+        Ok(order_state) => order_state,
+        Err(reason) => {
+            return readonly_fetch_missing(CancelBrokerTruthSource::GetOrder, reason, observed_ts)
+        }
+    };
+    let order = match broker_finam::mapper::map_order_state(&order_state, observed_ts) {
+        Ok(order) => order,
+        Err(_) => {
+            return readonly_fetch_missing(
+                CancelBrokerTruthSource::GetOrder,
+                CancelBrokerTruthFetchReason::DecodeError,
+                observed_ts,
+            )
+        }
+    };
+    build_cancel_truth_from_get_order_response(
+        Some(&order),
+        &request.order_id,
+        request.client_order_id.as_ref(),
+        observed_ts,
+        freshness_policy,
+    )
+}
+
+pub fn map_cancel_broker_truth_orders_snapshot_http_response(
+    response: &CancelBrokerTruthReadonlyHttpResponse,
+    request: &CancelBrokerTruthFetchRequestSnapshot,
+    observed_ts: DateTime<Utc>,
+    freshness_policy: &CancelBrokerTruthFreshnessPolicy,
+) -> CancelBrokerTruthFetchResult {
+    if let Some(reason) = readonly_http_status_failure(response.status) {
+        return readonly_fetch_missing(
+            CancelBrokerTruthSource::OrdersSnapshot,
+            reason,
+            observed_ts,
+        );
+    }
+
+    let orders_response =
+        match decode_readonly_http_body::<broker_finam::dto::AccountOrdersResponse>(response) {
+            Ok(orders_response) => orders_response,
+            Err(reason) => {
+                return readonly_fetch_missing(
+                    CancelBrokerTruthSource::OrdersSnapshot,
+                    reason,
+                    observed_ts,
+                )
+            }
+        };
+    let orders = match orders_response
+        .orders
+        .iter()
+        .map(|order| broker_finam::mapper::map_order_state(order, observed_ts))
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(orders) => orders,
+        Err(_) => {
+            return readonly_fetch_missing(
+                CancelBrokerTruthSource::OrdersSnapshot,
+                CancelBrokerTruthFetchReason::DecodeError,
+                observed_ts,
+            )
+        }
+    };
+    CancelBrokerTruthFetchResult::observation(build_cancel_truth_from_orders_snapshot(
+        &orders,
+        &request.order_id,
+        request.client_order_id.as_ref(),
+        observed_ts,
+        freshness_policy,
+    ))
+}
+
+pub fn map_cancel_broker_truth_trades_snapshot_http_response(
+    response: &CancelBrokerTruthReadonlyHttpResponse,
+    request: &CancelBrokerTruthFetchRequestSnapshot,
+    observed_ts: DateTime<Utc>,
+    freshness_policy: &CancelBrokerTruthFreshnessPolicy,
+) -> CancelBrokerTruthFetchResult {
+    if let Some(reason) = readonly_http_status_failure(response.status) {
+        return readonly_fetch_missing(
+            CancelBrokerTruthSource::TradesSnapshot,
+            reason,
+            observed_ts,
+        );
+    }
+
+    let trades_response =
+        match decode_readonly_http_body::<broker_finam::dto::AccountTradesResponse>(response) {
+            Ok(trades_response) => trades_response,
+            Err(reason) => {
+                return readonly_fetch_missing(
+                    CancelBrokerTruthSource::TradesSnapshot,
+                    reason,
+                    observed_ts,
+                )
+            }
+        };
+    let trades = match trades_response
+        .trades
+        .iter()
+        .map(|trade| {
+            broker_finam::mapper::map_account_trade("ACC_TEST_UNKNOWN", trade, observed_ts)
+        })
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(trades) => trades,
+        Err(_) => {
+            return readonly_fetch_missing(
+                CancelBrokerTruthSource::TradesSnapshot,
+                CancelBrokerTruthFetchReason::DecodeError,
+                observed_ts,
+            )
+        }
+    };
+    CancelBrokerTruthFetchResult::observation(build_cancel_truth_from_trades_snapshot(
+        &trades,
+        &request.order_id,
+        request.client_order_id.as_ref(),
+        observed_ts,
+        freshness_policy,
+    ))
+}
+
+pub fn map_cancel_broker_truth_position_snapshot_http_response(
+    response: &CancelBrokerTruthReadonlyHttpResponse,
+    request: &CancelBrokerTruthFetchRequestSnapshot,
+    observed_ts: DateTime<Utc>,
+    freshness_policy: &CancelBrokerTruthFreshnessPolicy,
+) -> CancelBrokerTruthFetchResult {
+    if let Some(reason) = readonly_http_status_failure(response.status) {
+        return readonly_fetch_missing(
+            CancelBrokerTruthSource::PositionSnapshot,
+            reason,
+            observed_ts,
+        );
+    }
+
+    let account_response =
+        match decode_readonly_http_body::<broker_finam::dto::AccountResponse>(response) {
+            Ok(account_response) => account_response,
+            Err(reason) => {
+                return readonly_fetch_missing(
+                    CancelBrokerTruthSource::PositionSnapshot,
+                    reason,
+                    observed_ts,
+                )
+            }
+        };
+    let portfolio =
+        match broker_finam::mapper::map_portfolio_snapshot(&account_response, observed_ts) {
+            Ok(portfolio) => portfolio,
+            Err(_) => {
+                return readonly_fetch_missing(
+                    CancelBrokerTruthSource::PositionSnapshot,
+                    CancelBrokerTruthFetchReason::DecodeError,
+                    observed_ts,
+                )
+            }
+        };
+    CancelBrokerTruthFetchResult::observation(build_cancel_truth_from_position_snapshot(
+        &portfolio.positions,
+        &request.instrument,
+        observed_ts,
+        freshness_policy,
+    ))
+}
+
+#[async_trait]
+pub trait CancelBrokerTruthAsyncReadonlyFetcher {
+    async fn fetch_get_order(
+        &mut self,
+        request: CancelBrokerTruthFetchRequestSnapshot,
+    ) -> CancelBrokerTruthFetchResult;
+
+    async fn fetch_orders_snapshot(
+        &mut self,
+        request: CancelBrokerTruthFetchRequestSnapshot,
+    ) -> CancelBrokerTruthFetchResult;
+
+    async fn fetch_trades_snapshot(
+        &mut self,
+        request: CancelBrokerTruthFetchRequestSnapshot,
+    ) -> CancelBrokerTruthFetchResult;
+
+    async fn fetch_position_snapshot(
+        &mut self,
+        request: CancelBrokerTruthFetchRequestSnapshot,
+    ) -> CancelBrokerTruthFetchResult;
 }
 
 pub trait CancelBrokerTruthReadonlyFetcher {
@@ -1986,6 +2314,159 @@ impl CancelBrokerTruthReadonlyFetcher for MockCancelBrokerTruthDryFetcher {
 }
 
 impl CancelBrokerTruthDryFetcher for MockCancelBrokerTruthDryFetcher {}
+
+#[derive(Clone)]
+pub struct LocalHttpCancelBrokerTruthReadonlyFetcher {
+    freshness_policy: CancelBrokerTruthFreshnessPolicy,
+    observed_ts: DateTime<Utc>,
+    get_order_response: CancelBrokerTruthReadonlyHttpResponse,
+    orders_snapshot_response: CancelBrokerTruthReadonlyHttpResponse,
+    trades_snapshot_response: CancelBrokerTruthReadonlyHttpResponse,
+    position_snapshot_response: CancelBrokerTruthReadonlyHttpResponse,
+    calls: Vec<CancelBrokerTruthSource>,
+}
+
+impl LocalHttpCancelBrokerTruthReadonlyFetcher {
+    pub fn new(
+        freshness_policy: CancelBrokerTruthFreshnessPolicy,
+        observed_ts: DateTime<Utc>,
+        get_order_response: CancelBrokerTruthReadonlyHttpResponse,
+        orders_snapshot_response: CancelBrokerTruthReadonlyHttpResponse,
+        trades_snapshot_response: CancelBrokerTruthReadonlyHttpResponse,
+        position_snapshot_response: CancelBrokerTruthReadonlyHttpResponse,
+    ) -> Self {
+        Self {
+            freshness_policy,
+            observed_ts,
+            get_order_response,
+            orders_snapshot_response,
+            trades_snapshot_response,
+            position_snapshot_response,
+            calls: Vec::new(),
+        }
+    }
+
+    pub fn calls(&self) -> &[CancelBrokerTruthSource] {
+        &self.calls
+    }
+
+    fn fetch_get_order_snapshot(
+        &self,
+        request: &CancelBrokerTruthFetchRequestSnapshot,
+    ) -> CancelBrokerTruthFetchResult {
+        map_cancel_broker_truth_get_order_http_response(
+            &self.get_order_response,
+            request,
+            self.observed_ts,
+            &self.freshness_policy,
+        )
+    }
+
+    fn fetch_orders_snapshot_snapshot(
+        &self,
+        request: &CancelBrokerTruthFetchRequestSnapshot,
+    ) -> CancelBrokerTruthFetchResult {
+        map_cancel_broker_truth_orders_snapshot_http_response(
+            &self.orders_snapshot_response,
+            request,
+            self.observed_ts,
+            &self.freshness_policy,
+        )
+    }
+
+    fn fetch_trades_snapshot_snapshot(
+        &self,
+        request: &CancelBrokerTruthFetchRequestSnapshot,
+    ) -> CancelBrokerTruthFetchResult {
+        map_cancel_broker_truth_trades_snapshot_http_response(
+            &self.trades_snapshot_response,
+            request,
+            self.observed_ts,
+            &self.freshness_policy,
+        )
+    }
+
+    fn fetch_position_snapshot_snapshot(
+        &self,
+        request: &CancelBrokerTruthFetchRequestSnapshot,
+    ) -> CancelBrokerTruthFetchResult {
+        map_cancel_broker_truth_position_snapshot_http_response(
+            &self.position_snapshot_response,
+            request,
+            self.observed_ts,
+            &self.freshness_policy,
+        )
+    }
+}
+
+impl CancelBrokerTruthReadonlyFetcher for LocalHttpCancelBrokerTruthReadonlyFetcher {
+    fn fetch_get_order(
+        &mut self,
+        request: &CancelBrokerTruthFetchRequest<'_>,
+    ) -> CancelBrokerTruthFetchResult {
+        self.calls.push(CancelBrokerTruthSource::GetOrder);
+        self.fetch_get_order_snapshot(&CancelBrokerTruthFetchRequestSnapshot::from(request))
+    }
+
+    fn fetch_orders_snapshot(
+        &mut self,
+        request: &CancelBrokerTruthFetchRequest<'_>,
+    ) -> CancelBrokerTruthFetchResult {
+        self.calls.push(CancelBrokerTruthSource::OrdersSnapshot);
+        self.fetch_orders_snapshot_snapshot(&CancelBrokerTruthFetchRequestSnapshot::from(request))
+    }
+
+    fn fetch_trades_snapshot(
+        &mut self,
+        request: &CancelBrokerTruthFetchRequest<'_>,
+    ) -> CancelBrokerTruthFetchResult {
+        self.calls.push(CancelBrokerTruthSource::TradesSnapshot);
+        self.fetch_trades_snapshot_snapshot(&CancelBrokerTruthFetchRequestSnapshot::from(request))
+    }
+
+    fn fetch_position_snapshot(
+        &mut self,
+        request: &CancelBrokerTruthFetchRequest<'_>,
+    ) -> CancelBrokerTruthFetchResult {
+        self.calls.push(CancelBrokerTruthSource::PositionSnapshot);
+        self.fetch_position_snapshot_snapshot(&CancelBrokerTruthFetchRequestSnapshot::from(request))
+    }
+}
+
+#[async_trait]
+impl CancelBrokerTruthAsyncReadonlyFetcher for LocalHttpCancelBrokerTruthReadonlyFetcher {
+    async fn fetch_get_order(
+        &mut self,
+        request: CancelBrokerTruthFetchRequestSnapshot,
+    ) -> CancelBrokerTruthFetchResult {
+        self.calls.push(CancelBrokerTruthSource::GetOrder);
+        self.fetch_get_order_snapshot(&request)
+    }
+
+    async fn fetch_orders_snapshot(
+        &mut self,
+        request: CancelBrokerTruthFetchRequestSnapshot,
+    ) -> CancelBrokerTruthFetchResult {
+        self.calls.push(CancelBrokerTruthSource::OrdersSnapshot);
+        self.fetch_orders_snapshot_snapshot(&request)
+    }
+
+    async fn fetch_trades_snapshot(
+        &mut self,
+        request: CancelBrokerTruthFetchRequestSnapshot,
+    ) -> CancelBrokerTruthFetchResult {
+        self.calls.push(CancelBrokerTruthSource::TradesSnapshot);
+        self.fetch_trades_snapshot_snapshot(&request)
+    }
+
+    async fn fetch_position_snapshot(
+        &mut self,
+        request: CancelBrokerTruthFetchRequestSnapshot,
+    ) -> CancelBrokerTruthFetchResult {
+        self.calls.push(CancelBrokerTruthSource::PositionSnapshot);
+        self.fetch_position_snapshot_snapshot(&request)
+    }
+}
 
 pub fn simulate_cancel_broker_truth_fetch_orchestration<F>(
     fetcher: &mut F,
@@ -2257,11 +2738,21 @@ fn order_matches_cancel(
     order_id: &BrokerOrderId,
     client_order_id: Option<&ClientOrderId>,
 ) -> bool {
+    order_cancel_identity_strength(order, order_id, client_order_id).is_some()
+}
+
+fn order_cancel_identity_strength(
+    order: &Order,
+    order_id: &BrokerOrderId,
+    client_order_id: Option<&ClientOrderId>,
+) -> Option<CancelBrokerTruthIdentityStrength> {
     if let Some(candidate_order_id) = order.order_id.as_ref() {
-        return candidate_order_id == order_id;
+        return (candidate_order_id == order_id)
+            .then_some(CancelBrokerTruthIdentityStrength::BrokerOrderIdExact);
     }
     client_order_id
         .is_some_and(|client_order_id| order.client_order_id.as_ref() == Some(client_order_id))
+        .then_some(CancelBrokerTruthIdentityStrength::ClientOrderIdFallback)
 }
 
 fn trade_matches_cancel(
@@ -6760,7 +7251,7 @@ mod tests {
             report.fetch_diagnostics[2].outcome,
             CancelBrokerTruthFetchOutcomeKind::Evidence
         );
-        assert_eq!(report.policy.precedence_version, "m3b7-default-v1");
+        assert_eq!(report.policy.precedence_version, "cancel-truth-default-v1");
 
         let report_json = serde_json::to_string(&report).expect("report serializes");
         assert!(!report_json.contains("BROKER_TEST_ORCH_TRADE"));
@@ -6797,6 +7288,10 @@ mod tests {
             classification.broker_truth,
             CancelReconciliationBrokerTruth::StillWorking
         );
+        assert_eq!(
+            classification.diagnostic.identity_strength,
+            Some(CancelBrokerTruthIdentityStrength::BrokerOrderIdExact)
+        );
 
         let mut client_only_order =
             sample_order_with_status(OrderStatus::Canceled, "BROKER_TEST_IGNORED", now);
@@ -6809,10 +7304,15 @@ mod tests {
             now,
             &policy,
         );
-        assert!(matches!(
-            client_only,
-            CancelBrokerTruthFetchResult::Observation(_)
-        ));
+        let CancelBrokerTruthFetchResult::Observation(client_only_observation) = client_only else {
+            panic!("client-id fallback get-order should be evidence");
+        };
+        assert_eq!(
+            classify_cancel_broker_truth(&client_only_observation, now)
+                .diagnostic
+                .identity_strength,
+            Some(CancelBrokerTruthIdentityStrength::ClientOrderIdFallback)
+        );
 
         let mismatched = build_cancel_truth_from_get_order_response(
             Some(&sample_order_with_status(
@@ -7094,8 +7594,16 @@ mod tests {
                 CancelBrokerTruthFetchReason::Unauthorized,
             ),
             (
+                CancelBrokerTruthReadonlyFailure::HttpStatus(408),
+                CancelBrokerTruthFetchReason::Timeout,
+            ),
+            (
                 CancelBrokerTruthReadonlyFailure::HttpStatus(429),
                 CancelBrokerTruthFetchReason::RateLimited,
+            ),
+            (
+                CancelBrokerTruthReadonlyFailure::HttpStatus(502),
+                CancelBrokerTruthFetchReason::Maintenance,
             ),
             (
                 CancelBrokerTruthReadonlyFailure::HttpStatus(500),
@@ -7104,6 +7612,10 @@ mod tests {
             (
                 CancelBrokerTruthReadonlyFailure::HttpStatus(503),
                 CancelBrokerTruthFetchReason::Maintenance,
+            ),
+            (
+                CancelBrokerTruthReadonlyFailure::HttpStatus(504),
+                CancelBrokerTruthFetchReason::Timeout,
             ),
             (
                 CancelBrokerTruthReadonlyFailure::Timeout,
@@ -7128,6 +7640,253 @@ mod tests {
         let rendered = format!("{:?}", CancelBrokerTruthReadonlyFailure::HttpStatus(401));
         assert!(!rendered.contains("token"));
         assert!(!rendered.contains("account"));
+    }
+
+    #[tokio::test]
+    async fn local_http_readonly_fetcher_maps_dtos_async_and_redacts_raw_body() {
+        fn assert_async_fetcher<T: CancelBrokerTruthAsyncReadonlyFetcher>() {}
+        assert_async_fetcher::<LocalHttpCancelBrokerTruthReadonlyFetcher>();
+
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 19, 28)
+            .single()
+            .expect("timestamp");
+        let policy = CancelBrokerTruthOrchestrationPolicy::default();
+        let order_id = BrokerOrderId::new("BROKER_TEST_LOCAL_HTTP");
+        let client_id = ClientOrderId::new("CID000000000000198").expect("client id");
+        let instrument = sample_instrument();
+        let request = truth_fetch_request(
+            &order_id,
+            Some(&client_id),
+            &instrument,
+            now,
+            CancelPositionTruthGuardContext {
+                instrument_match: true,
+                intent_context_present: true,
+                expected_position_delta_present: true,
+                strategy_state_known: true,
+                order_or_trade_evidence_absent_or_stale: true,
+            },
+        );
+        let request_snapshot = CancelBrokerTruthFetchRequestSnapshot::from(&request);
+        let get_order_body = serde_json::json!({
+            "executed_quantity": {"value": "0"},
+            "initial_quantity": {"value": "1"},
+            "order": {
+                "account_id": "ACC_TEST_0001",
+                "client_order_id": client_id.as_str(),
+                "comment": "raw broker comment must not leak",
+                "limit_price": {"value": "5000"},
+                "quantity": {"value": "1"},
+                "side": "SIDE_BUY",
+                "symbol": "TESTFUT@TEST",
+                "type": "ORDER_TYPE_LIMIT"
+            },
+            "order_id": order_id.as_str(),
+            "status": "ORDER_STATUS_CANCELED",
+            "transact_at": "2026-07-01T09:19:28Z"
+        });
+        let orders_body = serde_json::json!({
+            "orders": [get_order_body.clone()]
+        });
+        let trades_body = serde_json::json!({
+            "trades": [{
+                "account_id": "ACC_TEST_0001",
+                "client_order_id": client_id.as_str(),
+                "order_id": order_id.as_str(),
+                "price": {"value": "5000"},
+                "quantity": {"value": "1"},
+                "side": "SIDE_BUY",
+                "symbol": "TESTFUT@TEST",
+                "timestamp": "2026-07-01T09:19:28Z",
+                "trade_id": "TRADE_TEST_LOCAL_HTTP"
+            }]
+        });
+        let account_body = serde_json::json!({
+            "account_id": "ACC_TEST_0001",
+            "cash": [],
+            "positions": [{
+                "asset_type": "FUTURES",
+                "average_price": {"value": "5000"},
+                "quantity": {"value": "1"},
+                "symbol": "TESTFUT@TEST"
+            }]
+        });
+
+        let get_order_response = CancelBrokerTruthReadonlyHttpResponse::json(200, &get_order_body);
+        let response_debug = format!("{get_order_response:?}");
+        assert!(!response_debug.contains(order_id.as_str()));
+        assert!(!response_debug.contains(client_id.as_str()));
+        assert!(!response_debug.contains("raw broker comment must not leak"));
+        assert!(response_debug.contains("body_sha256"));
+
+        let direct_get_order = map_cancel_broker_truth_get_order_http_response(
+            &get_order_response,
+            &request_snapshot,
+            now,
+            &policy.freshness,
+        );
+        let CancelBrokerTruthFetchResult::Observation(get_observation) = direct_get_order else {
+            panic!("get-order DTO should map to evidence");
+        };
+        let get_classification = classify_cancel_broker_truth(&get_observation, now);
+        assert_eq!(
+            get_classification.broker_truth,
+            CancelReconciliationBrokerTruth::Terminal
+        );
+        assert_eq!(
+            get_classification.diagnostic.identity_strength,
+            Some(CancelBrokerTruthIdentityStrength::BrokerOrderIdExact)
+        );
+
+        let orders_result = map_cancel_broker_truth_orders_snapshot_http_response(
+            &CancelBrokerTruthReadonlyHttpResponse::json(200, &orders_body),
+            &request_snapshot,
+            now,
+            &policy.freshness,
+        );
+        assert!(matches!(
+            orders_result,
+            CancelBrokerTruthFetchResult::Observation(_)
+        ));
+        let trades_result = map_cancel_broker_truth_trades_snapshot_http_response(
+            &CancelBrokerTruthReadonlyHttpResponse::json(200, &trades_body),
+            &request_snapshot,
+            now,
+            &policy.freshness,
+        );
+        let CancelBrokerTruthFetchResult::Observation(trade_observation) = trades_result else {
+            panic!("trades DTO should map to evidence");
+        };
+        assert_eq!(
+            classify_cancel_broker_truth(&trade_observation, now).broker_truth,
+            CancelReconciliationBrokerTruth::Terminal
+        );
+        let position_result = map_cancel_broker_truth_position_snapshot_http_response(
+            &CancelBrokerTruthReadonlyHttpResponse::json(200, &account_body),
+            &request_snapshot,
+            now,
+            &policy.freshness,
+        );
+        let CancelBrokerTruthFetchResult::Observation(position_observation) = position_result
+        else {
+            panic!("position DTO should map to evidence");
+        };
+        assert_eq!(
+            classify_cancel_broker_truth(&position_observation, now).broker_truth,
+            CancelReconciliationBrokerTruth::Terminal
+        );
+
+        let mut async_fetcher = LocalHttpCancelBrokerTruthReadonlyFetcher::new(
+            policy.freshness.clone(),
+            now,
+            get_order_response.clone(),
+            CancelBrokerTruthReadonlyHttpResponse::json(200, &orders_body),
+            CancelBrokerTruthReadonlyHttpResponse::json(200, &trades_body),
+            CancelBrokerTruthReadonlyHttpResponse::json(200, &account_body),
+        );
+        let async_result = CancelBrokerTruthAsyncReadonlyFetcher::fetch_get_order(
+            &mut async_fetcher,
+            request_snapshot.clone(),
+        )
+        .await;
+        assert!(matches!(
+            async_result,
+            CancelBrokerTruthFetchResult::Observation(_)
+        ));
+        assert_eq!(async_fetcher.calls(), &[CancelBrokerTruthSource::GetOrder]);
+
+        let mut fetcher = LocalHttpCancelBrokerTruthReadonlyFetcher::new(
+            policy.freshness.clone(),
+            now,
+            get_order_response,
+            CancelBrokerTruthReadonlyHttpResponse::json(200, &orders_body),
+            CancelBrokerTruthReadonlyHttpResponse::json(200, &trades_body),
+            CancelBrokerTruthReadonlyHttpResponse::json(200, &account_body),
+        );
+        let report =
+            simulate_cancel_broker_truth_fetch_orchestration(&mut fetcher, &request, &policy, now);
+        assert_eq!(
+            report.decision.broker_truth,
+            CancelReconciliationBrokerTruth::Terminal
+        );
+        assert_eq!(
+            report.fetch_diagnostics[0]
+                .truth
+                .as_ref()
+                .expect("get-order truth")
+                .identity_strength,
+            Some(CancelBrokerTruthIdentityStrength::BrokerOrderIdExact)
+        );
+        let report_json = serde_json::to_string(&report).expect("report serializes");
+        assert!(report_json.contains("BrokerOrderIdExact"));
+        assert!(!report_json.contains(order_id.as_str()));
+        assert!(!report_json.contains(client_id.as_str()));
+        assert!(!report_json.contains("raw broker comment must not leak"));
+        assert!(!report_json.contains("TRADE_TEST_LOCAL_HTTP"));
+    }
+
+    #[test]
+    fn local_http_readonly_fetcher_maps_status_and_decode_failures_without_raw_body() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 19, 29)
+            .single()
+            .expect("timestamp");
+        let policy = CancelBrokerTruthOrchestrationPolicy::default();
+        let order_id = BrokerOrderId::new("BROKER_TEST_LOCAL_FAILURE");
+        let client_id = ClientOrderId::new("CID000000000000199").expect("client id");
+        let instrument = sample_instrument();
+        let request = truth_fetch_request(
+            &order_id,
+            Some(&client_id),
+            &instrument,
+            now,
+            CancelPositionTruthGuardContext::default(),
+        );
+        let request_snapshot = CancelBrokerTruthFetchRequestSnapshot::from(&request);
+
+        let timeout = map_cancel_broker_truth_get_order_http_response(
+            &CancelBrokerTruthReadonlyHttpResponse::empty(504),
+            &request_snapshot,
+            now,
+            &policy.freshness,
+        );
+        let CancelBrokerTruthFetchResult::Missing { reason, .. } = timeout else {
+            panic!("504 should map to missing timeout");
+        };
+        assert_eq!(reason, CancelBrokerTruthFetchReason::Timeout);
+
+        let maintenance = map_cancel_broker_truth_get_order_http_response(
+            &CancelBrokerTruthReadonlyHttpResponse::empty(502),
+            &request_snapshot,
+            now,
+            &policy.freshness,
+        );
+        let CancelBrokerTruthFetchResult::Missing { reason, .. } = maintenance else {
+            panic!("502 should map to missing maintenance");
+        };
+        assert_eq!(reason, CancelBrokerTruthFetchReason::Maintenance);
+
+        let malformed = CancelBrokerTruthReadonlyHttpResponse::raw(
+            200,
+            format!(
+                "{{\"order_id\":\"{}\",\"comment\":\"raw malformed body must not leak\"",
+                order_id.as_str()
+            ),
+        );
+        let decode_error = map_cancel_broker_truth_get_order_http_response(
+            &malformed,
+            &request_snapshot,
+            now,
+            &policy.freshness,
+        );
+        let CancelBrokerTruthFetchResult::Missing { reason, .. } = decode_error else {
+            panic!("malformed 2xx body should map to decode error");
+        };
+        assert_eq!(reason, CancelBrokerTruthFetchReason::DecodeError);
+        let rendered = format!("{malformed:?}");
+        assert!(!rendered.contains(order_id.as_str()));
+        assert!(!rendered.contains("raw malformed body must not leak"));
     }
 
     #[test]
@@ -7184,7 +7943,7 @@ mod tests {
         .expect("missing broker_truth uses default");
         assert_eq!(
             parsed.broker_truth.cancel_reconciliation.precedence_version,
-            "m3b7-default-v1"
+            "cancel-truth-default-v1"
         );
     }
 

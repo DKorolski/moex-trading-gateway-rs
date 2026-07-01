@@ -151,7 +151,8 @@ broker-truth source freshness/precedence simulation, conflict disarm policy,
 broker-truth fetch orchestration simulator, typed missing/error source
 reasons, guarded position-derived truth policy,
 read-only broker-truth boundary hardening, checked get-order identity,
-config-driven truth policy fingerprints,
+config-driven truth policy fingerprints, async-aware read-only truth fetcher
+contract, local HTTP truth DTO mappers, identity-strength diagnostics,
 store invariants, broker-order-id uniqueness, cancel timeout policy, dry
 window/backoff rate limiting, FINAM request DTO builders without HTTP send,
 workspace-wide source-scan guard tests, and price/reference/notional guard
@@ -188,6 +189,7 @@ See:
 - [M3b-6 broker-truth source semantics](docs/m3b6-broker-truth-source-semantics.md)
 - [M3b-7 broker-truth orchestration simulator](docs/m3b7-broker-truth-orchestration-simulator.md)
 - [M3b-8 read-only broker-truth boundary](docs/m3b8-readonly-broker-truth-boundary.md)
+- [M3b-9 read-only fetcher local HTTP mapper](docs/m3b9-readonly-fetcher-local-http.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

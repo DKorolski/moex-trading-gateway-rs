@@ -54,6 +54,10 @@ boundary is guarded by source scans so it does not reference order endpoint
 approval markers, FINAM order request specs, order endpoint methods, `.post(`,
 or `.delete(`.
 
+M3b-9 extends this boundary with an async-aware read-only fetcher contract and
+local HTTP-shaped DTO mappers. See
+`docs/m3b9-readonly-fetcher-local-http.md`.
+
 ## Error mapping contract
 
 Read-only transport and HTTP outcomes map to typed fetch reasons:
