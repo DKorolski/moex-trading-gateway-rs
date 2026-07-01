@@ -31,7 +31,10 @@ guard, read-only diagnostics, transition audit, operator store-failure disarm
 signals, and SQLite-backed dry simulator ordering tests. M3a-11 adds WAL/SHM
 runtime-file permission hardening, operator-only diagnostic API names, safe
 transition audit event-name refinement, store-error-to-disarm mapping, an
-explicit pre-endpoint gate decision, and the migration/fixture runbook.
+explicit pre-endpoint gate decision, and the migration/fixture runbook. M3b-0
+adds the endpoint gate marker design, synthetic/redacted response fixtures,
+future real transport signature requiring the marker, SQLite runtime-directory
+deployment inspector, and transition-audit contract matrix.
 
 M3 scope is deliberately small:
 
@@ -94,6 +97,11 @@ M3a-11 keeps the external endpoint path blocked, but makes the boundary
 operator-visible in code: real endpoint gate decisions are always blocked by
 `M3a11PreEndpointReviewRequired`, and runtime-facing ACK id policy remains
 `RedactedRuntimeAckOnly`.
+
+M3b-0 adds the compile-time shape of the future real transport without adding
+transport implementation: endpoint methods require `EndpointGateApproved` and
+FINAM request specs. The marker cannot be obtained from the current blocked
+decision.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.
@@ -264,6 +272,11 @@ M3a-11 hardens runtime sidecar permissions for DB/WAL/SHM/lock files when
 present, makes raw read-only lookups explicitly operator-only, refines audit
 events to safe transition names, and maps store errors to endpoint-disarm
 signals.
+
+M3b-0 adds a runtime-directory inspector for future deployment/startup checks:
+missing/not-directory paths, group/world-accessible Unix directories, workspace
+tree locations, and workspace artifact locations can be flagged before any
+endpoint-capable mode is armed.
 
 Primary key:
 

@@ -644,6 +644,47 @@ pub struct SqliteOrderPathTransitionAudit {
     pub safe_details: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SqliteRuntimeDirectoryIssue {
+    Missing,
+    NotDirectory,
+    GroupOrWorldAccessible,
+    InsideWorkspaceTree,
+    InsideWorkspaceArtifactArea,
+}
+
+pub fn inspect_sqlite_runtime_directory(
+    runtime_dir: &Path,
+    workspace_root: Option<&Path>,
+) -> Vec<SqliteRuntimeDirectoryIssue> {
+    let mut issues = Vec::new();
+    match fs::metadata(runtime_dir) {
+        Ok(metadata) if !metadata.is_dir() => {
+            issues.push(SqliteRuntimeDirectoryIssue::NotDirectory)
+        }
+        Ok(metadata) => {
+            if sqlite_runtime_directory_is_group_or_world_accessible(&metadata) {
+                issues.push(SqliteRuntimeDirectoryIssue::GroupOrWorldAccessible);
+            }
+        }
+        Err(_) => issues.push(SqliteRuntimeDirectoryIssue::Missing),
+    }
+
+    if let Some(workspace_root) = workspace_root {
+        if runtime_dir.starts_with(workspace_root) {
+            issues.push(SqliteRuntimeDirectoryIssue::InsideWorkspaceTree);
+        }
+        if runtime_dir.starts_with(workspace_root.join("reports"))
+            || runtime_dir.starts_with(workspace_root.join("tmp"))
+            || runtime_dir.starts_with(workspace_root.join("handoff"))
+        {
+            issues.push(SqliteRuntimeDirectoryIssue::InsideWorkspaceArtifactArea);
+        }
+    }
+
+    issues
+}
+
 impl SqliteOrderPathStore {
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, OrderPathStoreError> {
         let path = path.into();
@@ -1192,6 +1233,18 @@ fn infer_transition_audit_event(
         (_, S::Terminal) => "MarkTerminal",
         _ => "UpdateRecord",
     }
+}
+
+#[cfg(unix)]
+fn sqlite_runtime_directory_is_group_or_world_accessible(metadata: &fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    metadata.permissions().mode() & 0o077 != 0
+}
+
+#[cfg(not(unix))]
+fn sqlite_runtime_directory_is_group_or_world_accessible(_metadata: &fs::Metadata) -> bool {
+    false
 }
 
 #[cfg(unix)]
@@ -2157,6 +2210,14 @@ mod tests {
         std::env::temp_dir().join(format!("moex_trading_order_path_{name}_{unique}.json"))
     }
 
+    fn temp_runtime_dir(name: &str) -> std::path::PathBuf {
+        let unique = Utc::now()
+            .timestamp_nanos_opt()
+            .unwrap_or_default()
+            .unsigned_abs();
+        std::env::temp_dir().join(format!("moex_trading_order_path_{name}_{unique}"))
+    }
+
     fn cleanup_sqlite_store(path: &Path) {
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(sqlite_writer_lock_path(path));
@@ -2191,6 +2252,14 @@ mod tests {
                 assert_sqlite_runtime_file_is_protected(&runtime_path);
             }
         }
+    }
+
+    #[cfg(unix)]
+    fn chmod(path: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+            .expect("set permissions");
     }
 
     #[test]
@@ -2901,6 +2970,42 @@ mod tests {
         }
 
         cleanup_sqlite_store(&path);
+    }
+
+    #[test]
+    fn sqlite_runtime_directory_inspector_flags_deployment_issues() {
+        let private_dir = temp_runtime_dir("private_runtime");
+        std::fs::create_dir_all(&private_dir).expect("create private dir");
+        #[cfg(unix)]
+        chmod(&private_dir, 0o700);
+        assert!(inspect_sqlite_runtime_directory(&private_dir, None).is_empty());
+
+        let missing_dir = private_dir.join("missing");
+        assert_eq!(
+            inspect_sqlite_runtime_directory(&missing_dir, None),
+            vec![SqliteRuntimeDirectoryIssue::Missing]
+        );
+
+        let not_dir = private_dir.join("not_dir");
+        std::fs::write(&not_dir, "not a directory").expect("write file");
+        assert_eq!(
+            inspect_sqlite_runtime_directory(&not_dir, None),
+            vec![SqliteRuntimeDirectoryIssue::NotDirectory]
+        );
+
+        let workspace = temp_runtime_dir("workspace");
+        let artifact_runtime = workspace.join("reports").join("handoff_runtime");
+        std::fs::create_dir_all(&artifact_runtime).expect("create artifact runtime dir");
+        #[cfg(unix)]
+        chmod(&artifact_runtime, 0o755);
+        let issues = inspect_sqlite_runtime_directory(&artifact_runtime, Some(&workspace));
+        assert!(issues.contains(&SqliteRuntimeDirectoryIssue::InsideWorkspaceTree));
+        assert!(issues.contains(&SqliteRuntimeDirectoryIssue::InsideWorkspaceArtifactArea));
+        #[cfg(unix)]
+        assert!(issues.contains(&SqliteRuntimeDirectoryIssue::GroupOrWorldAccessible));
+
+        let _ = std::fs::remove_dir_all(private_dir);
+        let _ = std::fs::remove_dir_all(workspace);
     }
 
     #[test]
@@ -3832,5 +3937,82 @@ mod tests {
             OrderPathStoreError::Sqlite("disk unavailable".to_string()).operator_disarm_signal(),
             OperatorDisarmSignal::OrderPathStoreUnavailable
         );
+    }
+
+    #[test]
+    fn transition_audit_event_names_follow_contract_matrix() {
+        fn record_in_state(
+            state: OrderPathState,
+            error_kind: Option<OrderPathErrorKind>,
+        ) -> OrderPathRecord {
+            let mut record = OrderPathRecord::from_place_order(
+                &place_order(request_id(90), "CID000000000000090"),
+                Utc::now(),
+                None,
+            );
+            record.state = state;
+            record.last_error_kind = error_kind;
+            record
+        }
+
+        let cases = [
+            (
+                OrderPathState::IntentRecorded,
+                OrderPathState::SubmitInFlight,
+                None,
+                "BeginSubmit",
+            ),
+            (
+                OrderPathState::SubmitInFlight,
+                OrderPathState::Submitted,
+                None,
+                "SubmitAccepted",
+            ),
+            (
+                OrderPathState::SubmitInFlight,
+                OrderPathState::TimeoutUnknownPending,
+                Some(OrderPathErrorKind::TransportTimeout),
+                "SubmitTimedOut",
+            ),
+            (
+                OrderPathState::Submitted,
+                OrderPathState::CancelRequested,
+                None,
+                "RequestCancel",
+            ),
+            (
+                OrderPathState::CancelRequested,
+                OrderPathState::CancelSubmitted,
+                None,
+                "CancelAccepted",
+            ),
+            (
+                OrderPathState::CancelRequested,
+                OrderPathState::CancelTimeoutUnknownPending,
+                Some(OrderPathErrorKind::TransportTimeout),
+                "CancelTimedOut",
+            ),
+            (
+                OrderPathState::CancelRequested,
+                OrderPathState::ManualInterventionRequired,
+                Some(OrderPathErrorKind::BrokerRejected),
+                "CancelRejected",
+            ),
+            (
+                OrderPathState::CancelRequested,
+                OrderPathState::ManualInterventionRequired,
+                Some(OrderPathErrorKind::ReconciliationRequired),
+                "RequireManualIntervention",
+            ),
+        ];
+
+        for (from, to, error_kind, expected_event) in cases {
+            let previous = record_in_state(from, None);
+            let record = record_in_state(to, error_kind);
+            assert_eq!(
+                infer_transition_audit_event(&previous, &record),
+                expected_event
+            );
+        }
     }
 }

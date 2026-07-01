@@ -602,3 +602,29 @@ Still not implemented in M3a-11:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-0 design / fixture gate status
+
+Implemented while still keeping all broker endpoints disabled:
+
+- endpoint gate marker design exists and cannot be approved while the current
+  decision contains `M3a11PreEndpointReviewRequired`;
+- future real endpoint transport signature requires the marker and FINAM
+  request specs;
+- synthetic/redacted FINAM endpoint fixtures cover accepted/rejected/timeout/
+  rate-limit/maintenance/decode-error classes;
+- fixture diagnostics redact raw broker order ids;
+- SQLite runtime-directory inspector exists for future deployment/startup
+  checks;
+- transition audit event-name matrix is table-tested;
+- operator raw diagnostics remain operator/internal design only.
+
+Still not implemented in M3b-0:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

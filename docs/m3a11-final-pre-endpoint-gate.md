@@ -166,3 +166,9 @@ diagnostics.
 - `LiveReady` publication;
 - first live micro;
 - stop/SLTP/bracket.
+
+M3b-0 follow-up status: endpoint gate marker design, synthetic/redacted FINAM
+order endpoint response fixtures, future transport signatures requiring the
+marker, SQLite runtime-directory inspector, and transition audit contract
+matrix are now implemented while real FINAM order endpoints remain disabled.
+See `docs/m3b0-design-fixture-gate.md`.

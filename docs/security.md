@@ -120,6 +120,12 @@ M3a-11 makes the boundary explicit in API names and gateway decisions:
 operator-only SQLite diagnostic methods use the `operator_` prefix, runtime ACK
 id policy is `RedactedRuntimeAckOnly`, and real endpoint gates remain blocked
 until a later reviewed implementation.
+M3b-0 keeps the same posture for response fixtures and future transport shape:
+synthetic accepted responses can carry broker-order ids for mapping tests, but
+debug/diagnostic output exposes only presence and length, and the future
+transport trait requires an endpoint gate marker that is not constructible from
+the current blocked decision or from a manually forged allow-looking decision
+while the post-review approval constant remains false.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account
@@ -134,6 +140,9 @@ exports and the retention/archive policy in
 M3a-11 hardens DB/WAL/SHM/writer-lock permissions where supported and requires
 `umask 077` plus a protected local runtime directory for any future live-capable
 deployment.
+M3b-0 adds a runtime-directory inspector for future startup/deployment checks;
+paths inside the workspace or artifact areas remain unsuitable for live-capable
+SQLite runtime state.
 
 CLI command argument containers should not derive auto `Debug`, because account
 ids and venue symbols can be supplied as args or environment-derived values.

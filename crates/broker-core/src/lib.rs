@@ -36,16 +36,17 @@ pub use order::{
     TimeInForce, Trade, TradeId,
 };
 pub use order_path::{
-    CancelPreflightApproval, CancelPreflightDecision, CommentPolicyMode, DryOrderRateLimit,
-    DryOrderRateLimitError, DryOrderRateWindow, DryOrderRateWindowDecision,
-    DryOrderRateWindowError, InMemoryOrderPathStore, JsonFileOrderPathStore, OperatorArm,
-    OperatorDisarmDecision, OperatorDisarmSignal, OrderPathCommandKind, OrderPathErrorKind,
-    OrderPathEvent, OrderPathReconciliationSource, OrderPathRecord, OrderPathState, OrderPathStore,
-    OrderPathStoreError, OrderPathTransitionError, OrderPreflightContext, OrderPreflightError,
-    OrderPreflightPolicy, OrderReferencePrice, OutgoingCommentError, OutgoingCommentIntent,
-    OutgoingOrderComment, OutgoingOrderCommentPolicy, PreflightApprovedCancelOrder,
-    PreflightApprovedPlaceOrder, SqliteOrderPathReadStore, SqliteOrderPathRedactedRecord,
-    SqliteOrderPathStore, SqliteOrderPathTransitionAudit, SqliteWriterLockMetadata,
+    inspect_sqlite_runtime_directory, CancelPreflightApproval, CancelPreflightDecision,
+    CommentPolicyMode, DryOrderRateLimit, DryOrderRateLimitError, DryOrderRateWindow,
+    DryOrderRateWindowDecision, DryOrderRateWindowError, InMemoryOrderPathStore,
+    JsonFileOrderPathStore, OperatorArm, OperatorDisarmDecision, OperatorDisarmSignal,
+    OrderPathCommandKind, OrderPathErrorKind, OrderPathEvent, OrderPathReconciliationSource,
+    OrderPathRecord, OrderPathState, OrderPathStore, OrderPathStoreError, OrderPathTransitionError,
+    OrderPreflightContext, OrderPreflightError, OrderPreflightPolicy, OrderReferencePrice,
+    OutgoingCommentError, OutgoingCommentIntent, OutgoingOrderComment, OutgoingOrderCommentPolicy,
+    PreflightApprovedCancelOrder, PreflightApprovedPlaceOrder, SqliteOrderPathReadStore,
+    SqliteOrderPathRedactedRecord, SqliteOrderPathStore, SqliteOrderPathTransitionAudit,
+    SqliteRuntimeDirectoryIssue, SqliteWriterLockMetadata,
 };
 pub use readiness::{BrokerReadiness, ReadinessPhase, ReadinessReason};
 pub use subscription::{SubscriptionIntent, SubscriptionKind, SubscriptionState};

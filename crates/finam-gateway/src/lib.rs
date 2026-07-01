@@ -158,6 +158,66 @@ pub struct RealOrderEndpointGateDecision {
     pub runtime_ack_id_policy: RuntimeCommandAckIdPolicy,
 }
 
+const REAL_ORDER_ENDPOINT_IMPLEMENTATION_REVIEW_ACCEPTED: bool = false;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EndpointGateApproved {
+    _private: (),
+}
+
+impl EndpointGateApproved {
+    pub fn try_from_decision(
+        decision: &RealOrderEndpointGateDecision,
+    ) -> Result<Self, EndpointGateApprovalError> {
+        if !REAL_ORDER_ENDPOINT_IMPLEMENTATION_REVIEW_ACCEPTED {
+            let mut blocked_decision = decision.clone();
+            blocked_decision.endpoint_calls_allowed = false;
+            if !blocked_decision
+                .blocking_reasons
+                .contains(&RealOrderEndpointGateBlock::M3a11PreEndpointReviewRequired)
+            {
+                blocked_decision
+                    .blocking_reasons
+                    .push(RealOrderEndpointGateBlock::M3a11PreEndpointReviewRequired);
+            }
+            return Err(EndpointGateApprovalError::Blocked {
+                decision: blocked_decision,
+            });
+        }
+
+        if decision.endpoint_calls_allowed && decision.blocking_reasons.is_empty() {
+            Ok(Self { _private: () })
+        } else {
+            Err(EndpointGateApprovalError::Blocked {
+                decision: decision.clone(),
+            })
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum EndpointGateApprovalError {
+    #[error("FINAM real order endpoint gate is blocked: {decision:?}")]
+    Blocked {
+        decision: RealOrderEndpointGateDecision,
+    },
+}
+
+#[async_trait]
+pub trait FinamRealOrderEndpointTransport: Send {
+    async fn place_order_endpoint(
+        &mut self,
+        gate: &EndpointGateApproved,
+        spec: broker_finam::FinamPlaceOrderRequestSpec,
+    ) -> Result<broker_finam::FinamOrderEndpointMappedResult, broker_finam::FinamOrderExecutionError>;
+
+    async fn cancel_order_endpoint(
+        &mut self,
+        gate: &EndpointGateApproved,
+        spec: broker_finam::FinamCancelOrderRequestSpec,
+    ) -> Result<broker_finam::FinamOrderEndpointMappedResult, broker_finam::FinamOrderExecutionError>;
+}
+
 impl GatewayFeatureSet {
     pub fn real_order_endpoint_gate_decision(&self) -> RealOrderEndpointGateDecision {
         let mut blocking_reasons = vec![RealOrderEndpointGateBlock::M3a11PreEndpointReviewRequired];
@@ -2364,6 +2424,13 @@ mod tests {
             decision.runtime_ack_id_policy,
             RuntimeCommandAckIdPolicy::RedactedRuntimeAckOnly
         );
+        assert!(matches!(
+            EndpointGateApproved::try_from_decision(&decision)
+                .expect_err("M3b-0 marker must not be constructible"),
+            EndpointGateApprovalError::Blocked { decision } if decision
+                .blocking_reasons
+                .contains(&RealOrderEndpointGateBlock::M3a11PreEndpointReviewRequired)
+        ));
 
         let features = GatewayFeatureSet {
             command_consumer_enabled: true,
@@ -2384,6 +2451,92 @@ mod tests {
                 RealOrderEndpointGateBlock::StopSltpBracketEnabled,
             ]
         );
+        assert!(EndpointGateApproved::try_from_decision(&flagged).is_err());
+    }
+
+    #[test]
+    fn endpoint_gate_marker_cannot_be_forged_from_manual_decision() {
+        let manual_decision = RealOrderEndpointGateDecision {
+            endpoint_calls_allowed: true,
+            blocking_reasons: vec![],
+            runtime_ack_id_policy: RuntimeCommandAckIdPolicy::RedactedRuntimeAckOnly,
+        };
+
+        assert!(matches!(
+            EndpointGateApproved::try_from_decision(&manual_decision)
+                .expect_err("manual decision must not forge endpoint approval"),
+            EndpointGateApprovalError::Blocked { decision } if !decision.endpoint_calls_allowed
+                && decision
+                    .blocking_reasons
+                    .contains(&RealOrderEndpointGateBlock::M3a11PreEndpointReviewRequired)
+        ));
+    }
+
+    #[test]
+    fn future_real_endpoint_transport_signature_requires_gate_marker() {
+        fn assert_transport<T: FinamRealOrderEndpointTransport>() {}
+        fn assert_place_signature<T: FinamRealOrderEndpointTransport>(
+            _transport: &mut T,
+            _gate: &EndpointGateApproved,
+            _spec: broker_finam::FinamPlaceOrderRequestSpec,
+        ) {
+        }
+        fn assert_cancel_signature<T: FinamRealOrderEndpointTransport>(
+            _transport: &mut T,
+            _gate: &EndpointGateApproved,
+            _spec: broker_finam::FinamCancelOrderRequestSpec,
+        ) {
+        }
+
+        struct CompileOnlyTransport;
+
+        #[async_trait::async_trait]
+        impl FinamRealOrderEndpointTransport for CompileOnlyTransport {
+            async fn place_order_endpoint(
+                &mut self,
+                _gate: &EndpointGateApproved,
+                _spec: broker_finam::FinamPlaceOrderRequestSpec,
+            ) -> Result<
+                broker_finam::FinamOrderEndpointMappedResult,
+                broker_finam::FinamOrderExecutionError,
+            > {
+                Err(broker_finam::FinamOrderExecutionError::MockScriptExhausted)
+            }
+
+            async fn cancel_order_endpoint(
+                &mut self,
+                _gate: &EndpointGateApproved,
+                _spec: broker_finam::FinamCancelOrderRequestSpec,
+            ) -> Result<
+                broker_finam::FinamOrderEndpointMappedResult,
+                broker_finam::FinamOrderExecutionError,
+            > {
+                Err(broker_finam::FinamOrderExecutionError::MockScriptExhausted)
+            }
+        }
+
+        assert_transport::<CompileOnlyTransport>();
+        let mut transport = CompileOnlyTransport;
+        let order = sample_place_order(request_id(20), "CID000000000000020", Utc::now());
+        let approved = dry_preflight_policy(order.created_ts)
+            .approve_place_order(&order, order.created_ts)
+            .expect("approved");
+        let place_spec = broker_finam::build_place_order_request(&approved, None).expect("spec");
+        let (_store, approved_cancel, _) = submitted_store_and_approved_cancel(
+            Utc::now(),
+            request_id(21),
+            request_id(22),
+            BrokerOrderId::new("BROKER_TEST_GATE"),
+        );
+        let cancel_spec = broker_finam::build_cancel_order_request(&approved_cancel).expect("spec");
+        let maybe_gate = EndpointGateApproved::try_from_decision(
+            &GatewayFeatureSet::default().real_order_endpoint_gate_decision(),
+        )
+        .ok();
+        if let Some(gate) = maybe_gate.as_ref() {
+            assert_place_signature(&mut transport, gate, place_spec);
+            assert_cancel_signature(&mut transport, gate, cancel_spec);
+        }
     }
 
     #[tokio::test]

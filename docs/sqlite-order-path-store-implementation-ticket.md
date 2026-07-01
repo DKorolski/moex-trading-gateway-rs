@@ -163,3 +163,8 @@ Still required before real endpoint use:
 M3a-11 adds the first migration/backup runbook and pre-endpoint response fixture
 plan in `docs/m3a11-final-pre-endpoint-gate.md`; a reviewed migration tool and
 real reconciliation-loop integration are still future work.
+
+M3b-0 adds `inspect_sqlite_runtime_directory()` for future deployment/startup
+checks. It can flag missing/non-directory runtime paths, group/world-accessible
+Unix directories, workspace-tree locations, and workspace artifact locations
+before endpoint-capable mode is considered.

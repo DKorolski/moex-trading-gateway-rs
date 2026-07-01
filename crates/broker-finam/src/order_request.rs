@@ -313,6 +313,226 @@ pub enum FinamOrderExecutionOutcome {
     Timeout,
 }
 
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinamOrderEndpointAcceptedDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub broker_order_id: Option<String>,
+}
+
+impl std::fmt::Debug for FinamOrderEndpointAcceptedDto {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("FinamOrderEndpointAcceptedDto")
+            .field("broker_order_id_present", &self.broker_order_id.is_some())
+            .field(
+                "broker_order_id_len",
+                &self.broker_order_id.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FinamOrderEndpointRejectedCode {
+    BrokerRejected,
+    LocalBrokerValidation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FinamOrderEndpointMaintenanceKind {
+    ServiceInterval,
+    MarketClosed,
+    Unknown,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FinamOrderEndpointFixture {
+    Accepted(FinamOrderEndpointAcceptedDto),
+    Rejected {
+        reason_code: FinamOrderEndpointRejectedCode,
+    },
+    RateLimited {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        retry_after_ms: Option<u64>,
+    },
+    Maintenance {
+        maintenance_kind: FinamOrderEndpointMaintenanceKind,
+    },
+    Timeout,
+    DecodeError {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        body_kind: Option<String>,
+    },
+}
+
+impl std::fmt::Debug for FinamOrderEndpointFixture {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.redacted_diagnostic().fmt(formatter)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinamOrderEndpointResponseDiagnostic {
+    pub kind: FinamOrderEndpointResponseKind,
+    pub broker_order_id_present: bool,
+    pub broker_order_id_len: Option<usize>,
+    pub reason_code: Option<FinamOrderEndpointRejectedCode>,
+    pub retry_after_ms_present: bool,
+    pub maintenance_kind: Option<FinamOrderEndpointMaintenanceKind>,
+    pub status: Option<u16>,
+    pub body_kind: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FinamOrderEndpointResponseKind {
+    Accepted,
+    Rejected,
+    RateLimited,
+    Maintenance,
+    Timeout,
+    DecodeError,
+}
+
+impl FinamOrderEndpointFixture {
+    pub fn redacted_diagnostic(&self) -> FinamOrderEndpointResponseDiagnostic {
+        match self {
+            Self::Accepted(dto) => FinamOrderEndpointResponseDiagnostic {
+                kind: FinamOrderEndpointResponseKind::Accepted,
+                broker_order_id_present: dto.broker_order_id.is_some(),
+                broker_order_id_len: dto.broker_order_id.as_ref().map(|value| value.len()),
+                reason_code: None,
+                retry_after_ms_present: false,
+                maintenance_kind: None,
+                status: None,
+                body_kind: None,
+            },
+            Self::Rejected { reason_code } => FinamOrderEndpointResponseDiagnostic {
+                kind: FinamOrderEndpointResponseKind::Rejected,
+                broker_order_id_present: false,
+                broker_order_id_len: None,
+                reason_code: Some(*reason_code),
+                retry_after_ms_present: false,
+                maintenance_kind: None,
+                status: None,
+                body_kind: None,
+            },
+            Self::RateLimited { retry_after_ms } => FinamOrderEndpointResponseDiagnostic {
+                kind: FinamOrderEndpointResponseKind::RateLimited,
+                broker_order_id_present: false,
+                broker_order_id_len: None,
+                reason_code: None,
+                retry_after_ms_present: retry_after_ms.is_some(),
+                maintenance_kind: None,
+                status: None,
+                body_kind: None,
+            },
+            Self::Maintenance { maintenance_kind } => FinamOrderEndpointResponseDiagnostic {
+                kind: FinamOrderEndpointResponseKind::Maintenance,
+                broker_order_id_present: false,
+                broker_order_id_len: None,
+                reason_code: None,
+                retry_after_ms_present: false,
+                maintenance_kind: Some(*maintenance_kind),
+                status: None,
+                body_kind: None,
+            },
+            Self::Timeout => FinamOrderEndpointResponseDiagnostic {
+                kind: FinamOrderEndpointResponseKind::Timeout,
+                broker_order_id_present: false,
+                broker_order_id_len: None,
+                reason_code: None,
+                retry_after_ms_present: false,
+                maintenance_kind: None,
+                status: None,
+                body_kind: None,
+            },
+            Self::DecodeError { status, body_kind } => FinamOrderEndpointResponseDiagnostic {
+                kind: FinamOrderEndpointResponseKind::DecodeError,
+                broker_order_id_present: false,
+                broker_order_id_len: None,
+                reason_code: None,
+                retry_after_ms_present: false,
+                maintenance_kind: None,
+                status: *status,
+                body_kind: body_kind.clone(),
+            },
+        }
+    }
+
+    pub fn map_fixture(
+        &self,
+    ) -> Result<FinamOrderEndpointMappedResult, FinamOrderEndpointMapperError> {
+        match self {
+            Self::Accepted(dto) => Ok(FinamOrderEndpointMappedResult::Execution(
+                FinamOrderExecutionOutcome::Accepted {
+                    broker_order_id: dto
+                        .broker_order_id
+                        .as_ref()
+                        .map(|value| {
+                            if value.is_empty() {
+                                Err(FinamOrderEndpointMapperError::EmptyBrokerOrderId)
+                            } else {
+                                Ok(BrokerOrderId::new(value))
+                            }
+                        })
+                        .transpose()?,
+                },
+            )),
+            Self::Rejected { .. } => Ok(FinamOrderEndpointMappedResult::Execution(
+                FinamOrderExecutionOutcome::Rejected {
+                    reason_code: CommandAckReasonCode::BrokerRejected,
+                },
+            )),
+            Self::RateLimited { retry_after_ms } => {
+                Ok(FinamOrderEndpointMappedResult::RateLimited {
+                    retry_after_ms: *retry_after_ms,
+                })
+            }
+            Self::Maintenance { maintenance_kind } => {
+                Ok(FinamOrderEndpointMappedResult::Maintenance {
+                    maintenance_kind: *maintenance_kind,
+                })
+            }
+            Self::Timeout => Ok(FinamOrderEndpointMappedResult::Execution(
+                FinamOrderExecutionOutcome::Timeout,
+            )),
+            Self::DecodeError { status, body_kind } => {
+                Ok(FinamOrderEndpointMappedResult::DecodeError {
+                    status: *status,
+                    body_kind: body_kind.clone(),
+                })
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FinamOrderEndpointMappedResult {
+    Execution(FinamOrderExecutionOutcome),
+    RateLimited {
+        retry_after_ms: Option<u64>,
+    },
+    Maintenance {
+        maintenance_kind: FinamOrderEndpointMaintenanceKind,
+    },
+    DecodeError {
+        status: Option<u16>,
+        body_kind: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum FinamOrderEndpointMapperError {
+    #[error("FINAM order endpoint accepted response has empty broker order id")]
+    EmptyBrokerOrderId,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FinamMockExecutionDiagnosticOutcome {
     Accepted {
@@ -794,6 +1014,100 @@ mod tests {
 
         assert_place_boundary(&mut client, place_spec);
         assert_cancel_boundary(&mut client, cancel_spec);
+    }
+
+    #[test]
+    fn endpoint_response_fixtures_map_without_raw_debug_leaks() {
+        let accepted = FinamOrderEndpointFixture::Accepted(FinamOrderEndpointAcceptedDto {
+            broker_order_id: Some("BROKER_TEST_ACCEPTED_1".to_string()),
+        });
+        assert_eq!(
+            accepted.map_fixture().expect("accepted maps"),
+            FinamOrderEndpointMappedResult::Execution(FinamOrderExecutionOutcome::Accepted {
+                broker_order_id: Some(BrokerOrderId::new("BROKER_TEST_ACCEPTED_1")),
+            })
+        );
+        let accepted_debug = format!("{accepted:?}");
+        assert!(accepted_debug.contains("broker_order_id_len"));
+        assert!(!accepted_debug.contains("BROKER_TEST_ACCEPTED_1"));
+        let diagnostic_json =
+            serde_json::to_string(&accepted.redacted_diagnostic()).expect("diagnostic serializes");
+        assert!(!diagnostic_json.contains("BROKER_TEST_ACCEPTED_1"));
+
+        let accepted_without_id =
+            FinamOrderEndpointFixture::Accepted(FinamOrderEndpointAcceptedDto {
+                broker_order_id: None,
+            });
+        assert_eq!(
+            accepted_without_id
+                .map_fixture()
+                .expect("accepted without id"),
+            FinamOrderEndpointMappedResult::Execution(FinamOrderExecutionOutcome::Accepted {
+                broker_order_id: None,
+            })
+        );
+
+        let rejected = FinamOrderEndpointFixture::Rejected {
+            reason_code: FinamOrderEndpointRejectedCode::BrokerRejected,
+        };
+        assert_eq!(
+            rejected.map_fixture().expect("rejected maps"),
+            FinamOrderEndpointMappedResult::Execution(FinamOrderExecutionOutcome::Rejected {
+                reason_code: CommandAckReasonCode::BrokerRejected,
+            })
+        );
+
+        let rate_limited = FinamOrderEndpointFixture::RateLimited {
+            retry_after_ms: Some(1_000),
+        };
+        assert_eq!(
+            rate_limited.map_fixture().expect("rate limited maps"),
+            FinamOrderEndpointMappedResult::RateLimited {
+                retry_after_ms: Some(1_000),
+            }
+        );
+
+        let maintenance = FinamOrderEndpointFixture::Maintenance {
+            maintenance_kind: FinamOrderEndpointMaintenanceKind::ServiceInterval,
+        };
+        assert_eq!(
+            maintenance.map_fixture().expect("maintenance maps"),
+            FinamOrderEndpointMappedResult::Maintenance {
+                maintenance_kind: FinamOrderEndpointMaintenanceKind::ServiceInterval,
+            }
+        );
+
+        let timeout = FinamOrderEndpointFixture::Timeout;
+        assert_eq!(
+            timeout.map_fixture().expect("timeout maps"),
+            FinamOrderEndpointMappedResult::Execution(FinamOrderExecutionOutcome::Timeout)
+        );
+
+        let decode_error = FinamOrderEndpointFixture::DecodeError {
+            status: Some(502),
+            body_kind: Some("object".to_string()),
+        };
+        assert_eq!(
+            decode_error.map_fixture().expect("decode error maps"),
+            FinamOrderEndpointMappedResult::DecodeError {
+                status: Some(502),
+                body_kind: Some("object".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn endpoint_response_fixture_rejects_empty_broker_order_id() {
+        let accepted = FinamOrderEndpointFixture::Accepted(FinamOrderEndpointAcceptedDto {
+            broker_order_id: Some(String::new()),
+        });
+
+        assert_eq!(
+            accepted
+                .map_fixture()
+                .expect_err("empty broker id must fail"),
+            FinamOrderEndpointMapperError::EmptyBrokerOrderId
+        );
     }
 
     #[test]

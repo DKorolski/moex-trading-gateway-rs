@@ -255,6 +255,8 @@ Implementation notes from the first review:
   tests, still without FINAM order endpoint calls;
 - M3a-11 adds final pre-endpoint gate policy, fixture plan, and ACK/id
   redaction decision, still without FINAM order endpoint calls;
+- M3b-0 adds synthetic/redacted order endpoint response fixtures and future
+  transport marker signatures, still without FINAM order endpoint calls;
 - raw `serde_json::Value` is acceptable only for the shape probe. Typed DTOs and
   mappers are required before Redis gateway/readiness work.
 

@@ -724,6 +724,39 @@ M3a-11 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-0 design / fixture gate:
+
+- `EndpointGateApproved` marker design is added; the marker has no public
+  constructor and cannot be obtained while `M3a11PreEndpointReviewRequired`
+  blocks the current decision. M3b-0 also keeps post-review endpoint approval
+  false, so a manually constructed allow-looking decision cannot forge the
+  marker.
+- Future real endpoint transport trait signatures require
+  `&EndpointGateApproved` plus FINAM request specs; there is still no HTTP
+  implementation.
+- Synthetic/redacted FINAM order endpoint fixture DTOs cover accepted with id,
+  accepted without id, rejected, timeout, rate-limited, maintenance, and decode
+  error response classes.
+- Fixture mapping tests classify future endpoint outcomes without leaking raw
+  broker ids through debug/diagnostic output.
+- SQLite runtime-directory deployment inspector can flag missing/not-directory,
+  group/world-accessible Unix permissions, workspace-tree paths, and
+  workspace-artifact paths.
+- Transition audit event names are locked with a table-driven contract matrix.
+- Operator raw diagnostics remain design-only for future explicit operator
+  mode; runtime logs/Redis/review exports stay redacted.
+- Boundaries are documented in `docs/m3b0-design-fixture-gate.md`.
+
+M3b-0 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

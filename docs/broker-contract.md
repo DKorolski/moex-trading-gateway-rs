@@ -148,7 +148,9 @@ operator disarm signals, and SQLite-backed dry simulator ordering tests.
 M3a-11 adds WAL/SHM/lock permission hardening, operator-only diagnostic method
 names, safe transition audit event names, store-error-to-disarm mapping, and an
 explicit real-endpoint gate decision that remains blocked before endpoint
-implementation review.
+implementation review. M3b-0 adds an endpoint gate marker, synthetic/redacted
+FINAM endpoint response fixtures, future transport signatures requiring the
+marker, and deployment/audit contract tests, still without real endpoint calls.
 
 `broker-finam::order_request` may build FINAM request path/body specs for dry
 fixture tests only from preflight-approved commands, but it must not send HTTP
