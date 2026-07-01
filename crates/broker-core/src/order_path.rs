@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::fs::{self, File, OpenOptions};
+use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, TransactionBehavior};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -14,6 +15,8 @@ use crate::command::{CancelOrder, CommandAck, CommandAckReason, CommandAckStatus
 use crate::ids::{BrokerOrderId, ClientOrderId, StrategyRequestId};
 use crate::instrument::{InstrumentId, Price, Quantity};
 use crate::order::{OrderSide, OrderType, RedactedValueFingerprint, TimeInForce};
+
+const SQLITE_ORDER_PATH_SCHEMA_VERSION: i64 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OrderPathCommandKind {
@@ -318,6 +321,8 @@ pub enum OrderPathStoreError {
     Io(String),
     #[error("order-path store writer lock unavailable: {0}")]
     WriterLockUnavailable(String),
+    #[error("order-path sqlite schema version mismatch: expected {expected}, found {found}")]
+    SchemaVersionMismatch { expected: i64, found: i64 },
     #[error("order-path sqlite store error: {0}")]
     Sqlite(String),
     #[error("order-path store serialization error: {0}")]
@@ -574,8 +579,22 @@ pub struct SqliteOrderPathStore {
     path: PathBuf,
     lock_path: PathBuf,
     _writer_lock: File,
+    writer_lock_metadata: SqliteWriterLockMetadata,
     connection: Connection,
     inner: InMemoryOrderPathStore,
+}
+
+pub struct SqliteOrderPathReadStore {
+    connection: Connection,
+    inner: InMemoryOrderPathStore,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SqliteWriterLockMetadata {
+    pub instance_id: String,
+    pub pid: u32,
+    pub created_ts: DateTime<Utc>,
+    pub schema_version: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -589,6 +608,20 @@ pub struct SqliteOrderPathRedactedRecord {
     pub last_update_ts: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SqliteOrderPathTransitionAudit {
+    pub id: i64,
+    pub request_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_state: Option<String>,
+    pub to_state: String,
+    pub event: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason_code: Option<String>,
+    pub ts: String,
+    pub safe_details: String,
+}
+
 impl SqliteOrderPathStore {
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, OrderPathStoreError> {
         let path = path.into();
@@ -597,16 +630,23 @@ impl SqliteOrderPathStore {
                 .map_err(|error| OrderPathStoreError::Io(error.to_string()))?;
         }
         let lock_path = sqlite_writer_lock_path(&path);
-        let writer_lock = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&lock_path)
-            .map_err(|error| OrderPathStoreError::WriterLockUnavailable(error.to_string()))?;
-        let connection = Connection::open(&path).map_err(sqlite_store_error)?;
+        let (writer_lock, writer_lock_metadata) = create_sqlite_writer_lock(&lock_path)?;
+        let connection = match Connection::open(&path) {
+            Ok(connection) => connection,
+            Err(error) => {
+                let _ = fs::remove_file(&lock_path);
+                return Err(sqlite_store_error(error));
+            }
+        };
+        if let Err(error) = harden_sqlite_file_permissions(&path) {
+            let _ = fs::remove_file(&lock_path);
+            return Err(error);
+        }
         let mut store = Self {
             path,
             lock_path,
             _writer_lock: writer_lock,
+            writer_lock_metadata,
             connection,
             inner: InMemoryOrderPathStore::default(),
         };
@@ -625,30 +665,18 @@ impl SqliteOrderPathStore {
         &self.lock_path
     }
 
+    pub fn writer_lock_metadata(&self) -> &SqliteWriterLockMetadata {
+        &self.writer_lock_metadata
+    }
+
     pub fn redacted_records(&self) -> Vec<SqliteOrderPathRedactedRecord> {
-        let mut records: Vec<_> =
-            self.inner
-                .all_records()
-                .into_iter()
-                .map(|record| SqliteOrderPathRedactedRecord {
-                    request_id: record.request_id,
-                    client_order_id_fingerprint: fingerprint_redacted_value(
-                        record.client_order_id.as_str(),
-                    ),
-                    broker_order_id_fingerprint: record.broker_order_id.as_ref().map(
-                        |broker_order_id| fingerprint_redacted_value(broker_order_id.as_str()),
-                    ),
-                    account_id_fingerprint: fingerprint_redacted_value(record.account_id.as_str()),
-                    state: record.state,
-                    last_update_ts: record.last_update_ts,
-                })
-                .collect();
-        records.sort_by(|left, right| {
-            left.request_id
-                .to_string()
-                .cmp(&right.request_id.to_string())
-        });
-        records
+        redacted_records_from_inner(&self.inner)
+    }
+
+    pub fn transition_audit(
+        &self,
+    ) -> Result<Vec<SqliteOrderPathTransitionAudit>, OrderPathStoreError> {
+        load_transition_audit_from_sqlite(&self.connection)
     }
 
     fn initialize_and_load(&mut self) -> Result<(), OrderPathStoreError> {
@@ -659,6 +687,17 @@ impl SqliteOrderPathStore {
                 PRAGMA synchronous = FULL;
                 PRAGMA foreign_keys = ON;
                 PRAGMA busy_timeout = 5000;
+                CREATE TABLE IF NOT EXISTS order_path_schema (
+                    key TEXT PRIMARY KEY,
+                    value INTEGER NOT NULL
+                );
+                "#,
+            )
+            .map_err(sqlite_store_error)?;
+        ensure_sqlite_schema_version(&self.connection)?;
+        self.connection
+            .execute_batch(
+                r#"
                 CREATE TABLE IF NOT EXISTS order_path_records (
                     request_id TEXT PRIMARY KEY,
                     client_order_id TEXT NOT NULL UNIQUE,
@@ -667,29 +706,21 @@ impl SqliteOrderPathStore {
                     last_update_ts TEXT NOT NULL,
                     payload TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS order_path_transitions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    request_id TEXT NOT NULL,
+                    from_state TEXT,
+                    to_state TEXT NOT NULL,
+                    event TEXT NOT NULL,
+                    reason_code TEXT,
+                    ts TEXT NOT NULL,
+                    safe_details TEXT NOT NULL
+                );
                 "#,
             )
             .map_err(sqlite_store_error)?;
-        self.inner = self.load_inner_from_sqlite()?;
+        self.inner = load_inner_from_sqlite(&self.connection)?;
         Ok(())
-    }
-
-    fn load_inner_from_sqlite(&self) -> Result<InMemoryOrderPathStore, OrderPathStoreError> {
-        let mut statement = self
-            .connection
-            .prepare("SELECT payload FROM order_path_records ORDER BY request_id")
-            .map_err(sqlite_store_error)?;
-        let rows = statement
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(sqlite_store_error)?;
-        let mut inner = InMemoryOrderPathStore::default();
-        for row in rows {
-            let payload = row.map_err(sqlite_store_error)?;
-            let record: OrderPathRecord = serde_json::from_str(&payload)
-                .map_err(|error| OrderPathStoreError::Serialization(error.to_string()))?;
-            inner.insert_intent(record)?;
-        }
-        Ok(inner)
     }
 
     fn insert_record_sql(&mut self, record: &OrderPathRecord) -> Result<(), OrderPathStoreError> {
@@ -717,11 +748,24 @@ impl SqliteOrderPathStore {
                 ],
             )
             .map_err(sqlite_store_error)?;
+        insert_transition_audit_sql(
+            &transaction,
+            record.request_id,
+            None,
+            record.state,
+            "InsertIntent",
+            record_reason_code(record),
+            record.last_update_ts,
+        )?;
         transaction.commit().map_err(sqlite_store_error)?;
         Ok(())
     }
 
-    fn update_record_sql(&mut self, record: &OrderPathRecord) -> Result<(), OrderPathStoreError> {
+    fn update_record_sql(
+        &mut self,
+        previous: &OrderPathRecord,
+        record: &OrderPathRecord,
+    ) -> Result<(), OrderPathStoreError> {
         let payload = serde_json::to_string(record)
             .map_err(|error| OrderPathStoreError::Serialization(error.to_string()))?;
         let broker_order_id = record.broker_order_id.as_ref().map(|value| value.as_str());
@@ -750,8 +794,69 @@ impl SqliteOrderPathStore {
         if affected != 1 {
             return Err(OrderPathStoreError::RecordNotFound(record.request_id));
         }
+        insert_transition_audit_sql(
+            &transaction,
+            record.request_id,
+            Some(previous.state),
+            record.state,
+            "UpdateRecord",
+            record_reason_code(record),
+            record.last_update_ts,
+        )?;
         transaction.commit().map_err(sqlite_store_error)?;
         Ok(())
+    }
+}
+
+impl SqliteOrderPathReadStore {
+    pub fn open_readonly(path: impl Into<PathBuf>) -> Result<Self, OrderPathStoreError> {
+        let path = path.into();
+        let connection = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(sqlite_store_error)?;
+        connection
+            .execute_batch(
+                r#"
+                PRAGMA query_only = ON;
+                PRAGMA foreign_keys = ON;
+                PRAGMA busy_timeout = 5000;
+                "#,
+            )
+            .map_err(sqlite_store_error)?;
+        ensure_sqlite_schema_version(&connection)?;
+        let inner = load_inner_from_sqlite(&connection)?;
+        Ok(Self { connection, inner })
+    }
+
+    pub fn load_by_request_id(&self, request_id: StrategyRequestId) -> Option<OrderPathRecord> {
+        self.inner.load_by_request_id(request_id)
+    }
+
+    pub fn load_by_client_order_id(
+        &self,
+        client_order_id: &ClientOrderId,
+    ) -> Option<OrderPathRecord> {
+        self.inner.load_by_client_order_id(client_order_id)
+    }
+
+    pub fn load_by_broker_order_id(
+        &self,
+        broker_order_id: &BrokerOrderId,
+    ) -> Option<OrderPathRecord> {
+        self.inner.load_by_broker_order_id(broker_order_id)
+    }
+
+    pub fn all_records(&self) -> Vec<OrderPathRecord> {
+        self.inner.all_records()
+    }
+
+    pub fn redacted_records(&self) -> Vec<SqliteOrderPathRedactedRecord> {
+        redacted_records_from_inner(&self.inner)
+    }
+
+    pub fn transition_audit(
+        &self,
+    ) -> Result<Vec<SqliteOrderPathTransitionAudit>, OrderPathStoreError> {
+        load_transition_audit_from_sqlite(&self.connection)
     }
 }
 
@@ -784,8 +889,12 @@ impl OrderPathStore for SqliteOrderPathStore {
 
     fn update_record(&mut self, record: OrderPathRecord) -> Result<(), OrderPathStoreError> {
         let mut next_inner = self.inner.clone();
+        let previous = self
+            .inner
+            .load_by_request_id(record.request_id)
+            .ok_or(OrderPathStoreError::RecordNotFound(record.request_id))?;
         next_inner.update_record(record.clone())?;
-        self.update_record_sql(&record)?;
+        self.update_record_sql(&previous, &record)?;
         self.inner = next_inner;
         Ok(())
     }
@@ -799,6 +908,207 @@ fn sqlite_writer_lock_path(path: &Path) -> PathBuf {
     let mut lock_path = path.to_path_buf();
     lock_path.set_extension("writer.lock");
     lock_path
+}
+
+fn create_sqlite_writer_lock(
+    lock_path: &Path,
+) -> Result<(File, SqliteWriterLockMetadata), OrderPathStoreError> {
+    let metadata = SqliteWriterLockMetadata {
+        instance_id: format!(
+            "sqlite-writer-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ),
+        pid: std::process::id(),
+        created_ts: Utc::now(),
+        schema_version: SQLITE_ORDER_PATH_SCHEMA_VERSION,
+    };
+    let mut writer_lock = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(lock_path)
+        .map_err(|error| sqlite_writer_lock_unavailable(lock_path, error))?;
+    let raw = serde_json::to_string_pretty(&metadata)
+        .map_err(|error| OrderPathStoreError::Serialization(error.to_string()))?;
+    if let Err(error) = writer_lock.write_all(raw.as_bytes()) {
+        let _ = fs::remove_file(lock_path);
+        return Err(OrderPathStoreError::Io(error.to_string()));
+    }
+    if let Err(error) = writer_lock.sync_all() {
+        let _ = fs::remove_file(lock_path);
+        return Err(OrderPathStoreError::Io(error.to_string()));
+    }
+    Ok((writer_lock, metadata))
+}
+
+fn sqlite_writer_lock_unavailable(path: &Path, error: std::io::Error) -> OrderPathStoreError {
+    let summary = fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<SqliteWriterLockMetadata>(&raw).ok())
+        .map(|metadata| {
+            format!(
+                "writer lock present: pid={} created_ts={} instance_id_len={} schema_version={}",
+                metadata.pid,
+                metadata.created_ts,
+                metadata.instance_id.len(),
+                metadata.schema_version
+            )
+        })
+        .unwrap_or_else(|| format!("writer lock unavailable: {error}"));
+    OrderPathStoreError::WriterLockUnavailable(summary)
+}
+
+fn ensure_sqlite_schema_version(connection: &Connection) -> Result<(), OrderPathStoreError> {
+    let version = connection
+        .query_row(
+            "SELECT value FROM order_path_schema WHERE key = 'schema_version'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(sqlite_store_error)?;
+    match version {
+        Some(value) if value == SQLITE_ORDER_PATH_SCHEMA_VERSION => Ok(()),
+        Some(value) => Err(OrderPathStoreError::SchemaVersionMismatch {
+            expected: SQLITE_ORDER_PATH_SCHEMA_VERSION,
+            found: value,
+        }),
+        None => {
+            connection
+                .execute(
+                    "INSERT INTO order_path_schema (key, value) VALUES ('schema_version', ?1)",
+                    params![SQLITE_ORDER_PATH_SCHEMA_VERSION],
+                )
+                .map_err(sqlite_store_error)?;
+            Ok(())
+        }
+    }
+}
+
+fn load_inner_from_sqlite(
+    connection: &Connection,
+) -> Result<InMemoryOrderPathStore, OrderPathStoreError> {
+    let mut statement = connection
+        .prepare("SELECT payload FROM order_path_records ORDER BY request_id")
+        .map_err(sqlite_store_error)?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(sqlite_store_error)?;
+    let mut inner = InMemoryOrderPathStore::default();
+    for row in rows {
+        let payload = row.map_err(sqlite_store_error)?;
+        let record: OrderPathRecord = serde_json::from_str(&payload)
+            .map_err(|error| OrderPathStoreError::Serialization(error.to_string()))?;
+        inner.insert_intent(record)?;
+    }
+    Ok(inner)
+}
+
+fn redacted_records_from_inner(
+    inner: &InMemoryOrderPathStore,
+) -> Vec<SqliteOrderPathRedactedRecord> {
+    let mut records: Vec<_> = inner
+        .all_records()
+        .into_iter()
+        .map(|record| SqliteOrderPathRedactedRecord {
+            request_id: record.request_id,
+            client_order_id_fingerprint: fingerprint_redacted_value(
+                record.client_order_id.as_str(),
+            ),
+            broker_order_id_fingerprint: record
+                .broker_order_id
+                .as_ref()
+                .map(|broker_order_id| fingerprint_redacted_value(broker_order_id.as_str())),
+            account_id_fingerprint: fingerprint_redacted_value(record.account_id.as_str()),
+            state: record.state,
+            last_update_ts: record.last_update_ts,
+        })
+        .collect();
+    records.sort_by(|left, right| {
+        left.request_id
+            .to_string()
+            .cmp(&right.request_id.to_string())
+    });
+    records
+}
+
+fn insert_transition_audit_sql(
+    transaction: &rusqlite::Transaction<'_>,
+    request_id: StrategyRequestId,
+    from_state: Option<OrderPathState>,
+    to_state: OrderPathState,
+    event: &'static str,
+    reason_code: Option<String>,
+    ts: DateTime<Utc>,
+) -> Result<(), OrderPathStoreError> {
+    transaction
+        .execute(
+            "INSERT INTO order_path_transitions \
+             (request_id, from_state, to_state, event, reason_code, ts, safe_details) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                request_id.to_string(),
+                from_state.map(|state| format!("{state:?}")),
+                format!("{to_state:?}"),
+                event,
+                reason_code,
+                ts.to_rfc3339(),
+                "sqlite_order_path_store"
+            ],
+        )
+        .map_err(sqlite_store_error)?;
+    Ok(())
+}
+
+fn load_transition_audit_from_sqlite(
+    connection: &Connection,
+) -> Result<Vec<SqliteOrderPathTransitionAudit>, OrderPathStoreError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, request_id, from_state, to_state, event, reason_code, ts, safe_details \
+             FROM order_path_transitions ORDER BY id",
+        )
+        .map_err(sqlite_store_error)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(SqliteOrderPathTransitionAudit {
+                id: row.get(0)?,
+                request_id: row.get(1)?,
+                from_state: row.get(2)?,
+                to_state: row.get(3)?,
+                event: row.get(4)?,
+                reason_code: row.get(5)?,
+                ts: row.get(6)?,
+                safe_details: row.get(7)?,
+            })
+        })
+        .map_err(sqlite_store_error)?;
+    let mut entries = Vec::new();
+    for row in rows {
+        entries.push(row.map_err(sqlite_store_error)?);
+    }
+    Ok(entries)
+}
+
+fn record_reason_code(record: &OrderPathRecord) -> Option<String> {
+    record
+        .last_error_kind
+        .map(|kind| format!("{kind:?}"))
+        .or_else(|| record.last_ack_status.map(|status| format!("{status:?}")))
+}
+
+#[cfg(unix)]
+fn harden_sqlite_file_permissions(path: &Path) -> Result<(), OrderPathStoreError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let permissions = fs::Permissions::from_mode(0o600);
+    fs::set_permissions(path, permissions)
+        .map_err(|error| OrderPathStoreError::Io(error.to_string()))
+}
+
+#[cfg(not(unix))]
+fn harden_sqlite_file_permissions(_path: &Path) -> Result<(), OrderPathStoreError> {
+    Ok(())
 }
 
 fn sqlite_store_error(error: rusqlite::Error) -> OrderPathStoreError {
@@ -991,6 +1301,9 @@ impl OperatorArm {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OperatorDisarmSignal {
     GatewayDegraded,
+    OrderPathStoreLockUncertain,
+    OrderPathStoreMigrationMismatch,
+    OrderPathStoreUnavailable,
     RuntimeBridgeDeadLetter,
     UnknownPendingOrder,
     AcceptedWithoutBrokerOrderId,
@@ -2271,6 +2584,7 @@ mod tests {
         let path = temp_store_path("sqlite_wal");
         cleanup_sqlite_store(&path);
         let store = SqliteOrderPathStore::open(&path).expect("open sqlite store");
+        let lock_metadata = store.writer_lock_metadata().clone();
 
         let journal_mode: String = store
             .connection
@@ -2283,12 +2597,92 @@ mod tests {
         assert_eq!(journal_mode.to_ascii_lowercase(), "wal");
         assert_eq!(synchronous, 2);
         assert!(store.lock_path().exists());
+        let raw_lock = std::fs::read_to_string(store.lock_path()).expect("lock metadata");
+        let parsed_lock: SqliteWriterLockMetadata =
+            serde_json::from_str(&raw_lock).expect("lock metadata parses");
+        assert_eq!(parsed_lock, lock_metadata);
+        assert_eq!(parsed_lock.pid, std::process::id());
+        assert_eq!(parsed_lock.schema_version, SQLITE_ORDER_PATH_SCHEMA_VERSION);
+        assert!(!parsed_lock.instance_id.is_empty());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mode = std::fs::metadata(store.path())
+                .expect("db metadata")
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o077, 0);
+        }
         assert!(matches!(
             SqliteOrderPathStore::open(&path),
             Err(OrderPathStoreError::WriterLockUnavailable(_))
         ));
+        let second_writer_error = match SqliteOrderPathStore::open(&path) {
+            Ok(_) => panic!("second writer must be rejected"),
+            Err(error) => error,
+        };
+        assert!(format!("{second_writer_error}").contains("pid="));
 
         drop(store);
+        assert!(!sqlite_writer_lock_path(&path).exists());
+        cleanup_sqlite_store(&path);
+    }
+
+    #[test]
+    fn sqlite_order_path_store_does_not_auto_remove_stale_lock_and_cleans_failed_open() {
+        let path = temp_store_path("sqlite_stale_lock");
+        cleanup_sqlite_store(&path);
+        std::fs::write(sqlite_writer_lock_path(&path), "stale lock").expect("write stale lock");
+        assert!(matches!(
+            SqliteOrderPathStore::open(&path),
+            Err(OrderPathStoreError::WriterLockUnavailable(_))
+        ));
+        assert!(sqlite_writer_lock_path(&path).exists());
+        cleanup_sqlite_store(&path);
+
+        let dir_path = temp_store_path("sqlite_open_failure_dir");
+        cleanup_sqlite_store(&dir_path);
+        std::fs::create_dir_all(&dir_path).expect("create directory where db file is expected");
+        assert!(matches!(
+            SqliteOrderPathStore::open(&dir_path),
+            Err(OrderPathStoreError::Sqlite(_))
+        ));
+        assert!(!sqlite_writer_lock_path(&dir_path).exists());
+        let _ = std::fs::remove_dir_all(&dir_path);
+    }
+
+    #[test]
+    fn sqlite_order_path_store_blocks_schema_version_mismatch() {
+        let path = temp_store_path("sqlite_schema_mismatch");
+        cleanup_sqlite_store(&path);
+        {
+            let connection = Connection::open(&path).expect("open raw sqlite");
+            connection
+                .execute_batch(
+                    r#"
+                    CREATE TABLE order_path_schema (
+                        key TEXT PRIMARY KEY,
+                        value INTEGER NOT NULL
+                    );
+                    INSERT INTO order_path_schema (key, value)
+                    VALUES ('schema_version', 999);
+                    "#,
+                )
+                .expect("seed newer schema");
+        }
+
+        let schema_error = match SqliteOrderPathStore::open(&path) {
+            Ok(_) => panic!("schema mismatch must block writer open"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            schema_error,
+            OrderPathStoreError::SchemaVersionMismatch {
+                expected: SQLITE_ORDER_PATH_SCHEMA_VERSION,
+                found: 999,
+            }
+        );
         assert!(!sqlite_writer_lock_path(&path).exists());
         cleanup_sqlite_store(&path);
     }
@@ -2324,9 +2718,18 @@ mod tests {
             store
                 .update_record(loaded.clone())
                 .expect("persist recovered state");
+            let audit = store.transition_audit().expect("audit entries");
+            assert_eq!(audit.len(), 2);
+            assert_eq!(audit[0].event, "InsertIntent");
+            assert_eq!(audit[0].from_state, None);
+            assert_eq!(audit[0].to_state, "SubmitInFlight");
+            assert_eq!(audit[1].event, "UpdateRecord");
+            assert_eq!(audit[1].from_state.as_deref(), Some("SubmitInFlight"));
+            assert_eq!(audit[1].to_state, "TimeoutUnknownPending");
         }
         {
-            let store = SqliteOrderPathStore::open(&path).expect("reopen recovered sqlite store");
+            let store =
+                SqliteOrderPathReadStore::open_readonly(&path).expect("open read-only diagnostics");
             assert_eq!(
                 store
                     .load_by_client_order_id(&order.client_order_id)
@@ -2334,6 +2737,17 @@ mod tests {
                     .state,
                 OrderPathState::TimeoutUnknownPending
             );
+            assert_eq!(store.all_records().len(), 1);
+            assert_eq!(store.transition_audit().expect("read audit").len(), 2);
+            assert!(store
+                .connection
+                .execute(
+                    "INSERT INTO order_path_records \
+                     (request_id, client_order_id, state, last_update_ts, payload) \
+                     VALUES ('REQ_TEST', 'CID_TEST', 'IntentRecorded', 'ts', '{}')",
+                    [],
+                )
+                .is_err());
         }
 
         cleanup_sqlite_store(&path);
@@ -2602,6 +3016,9 @@ mod tests {
         let now = Utc::now();
         for signal in [
             OperatorDisarmSignal::GatewayDegraded,
+            OperatorDisarmSignal::OrderPathStoreLockUncertain,
+            OperatorDisarmSignal::OrderPathStoreMigrationMismatch,
+            OperatorDisarmSignal::OrderPathStoreUnavailable,
             OperatorDisarmSignal::RuntimeBridgeDeadLetter,
             OperatorDisarmSignal::UnknownPendingOrder,
             OperatorDisarmSignal::AcceptedWithoutBrokerOrderId,

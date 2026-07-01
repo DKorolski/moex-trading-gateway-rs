@@ -61,3 +61,9 @@ Covered locally:
   fails.
 
 Until those are accepted, this remains a prototype backend for dry tests.
+
+M3a-10 follow-up status: schema-version guard, writer-lock metadata,
+stale-lock policy, read-only diagnostics, transition audit, and SQLite-backed
+dry simulator ordering tests are now implemented while still keeping FINAM
+order endpoints disabled. See
+`docs/m3a10-sqlite-production-hardening.md`.

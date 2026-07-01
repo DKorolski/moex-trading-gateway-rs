@@ -535,3 +535,39 @@ Still not implemented in M3a-9:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3a-10 SQLite production-hardening / dry command-to-store integration status
+
+Implemented while still keeping all broker endpoints disabled:
+
+- SQLite writer-lock metadata records instance id, pid, created timestamp, and
+  schema version;
+- stale/unknown writer locks are not auto-removed and remain an
+  operator-controlled recovery condition;
+- a created writer lock is cleaned up if SQLite connection open fails before a
+  store instance exists;
+- SQLite startup checks `order_path_schema.schema_version` and blocks unknown
+  versions;
+- read-only diagnostic SQLite store opens alongside the writer and is
+  query-only;
+- transition-audit rows are appended in the same transaction as order-path
+  inserts/updates;
+- SQLite file permissions are hardened locally where Unix permissions are
+  available;
+- operator disarm signals include store lock uncertainty, migration mismatch,
+  and store unavailability;
+- SQLite-backed dry simulator tests prove `BeginSubmit -> mock call` and
+  `RequestCancel -> mock call` ordering against a read-only diagnostic view;
+- public dry ACK publication remains redacted;
+- retention/archive policy is documented in
+  `docs/order-path-retention-archive-policy.md`.
+
+Still not implemented in M3a-10:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

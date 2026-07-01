@@ -44,7 +44,8 @@ pub use order_path::{
     OrderPathStoreError, OrderPathTransitionError, OrderPreflightContext, OrderPreflightError,
     OrderPreflightPolicy, OrderReferencePrice, OutgoingCommentError, OutgoingCommentIntent,
     OutgoingOrderComment, OutgoingOrderCommentPolicy, PreflightApprovedCancelOrder,
-    PreflightApprovedPlaceOrder,
+    PreflightApprovedPlaceOrder, SqliteOrderPathReadStore, SqliteOrderPathRedactedRecord,
+    SqliteOrderPathStore, SqliteOrderPathTransitionAudit, SqliteWriterLockMetadata,
 };
 pub use readiness::{BrokerReadiness, ReadinessPhase, ReadinessReason};
 pub use subscription::{SubscriptionIntent, SubscriptionKind, SubscriptionState};

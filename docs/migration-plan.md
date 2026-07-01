@@ -657,6 +657,42 @@ M3a-9 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3a-10 SQLite production-hardening / dry command-to-store integration:
+
+- SQLite writer-lock files include safe metadata: instance id, pid, created
+  timestamp, and schema version.
+- Stale/unknown writer locks are not auto-removed; lock uncertainty remains an
+  operator-controlled recovery path and order-endpoint disarm signal.
+- Lock files are cleaned up if they were created but SQLite connection open
+  fails before a store instance exists.
+- SQLite startup checks `order_path_schema.schema_version`; unknown/newer
+  versions block writer startup and map to migration-mismatch safety handling.
+- `SqliteOrderPathReadStore::open_readonly` supports diagnostic reads while a
+  writer is open and cannot write.
+- SQLite writes append transition-audit rows in the same transaction as record
+  inserts/updates.
+- Operator disarm signals now include store lock uncertainty, migration
+  mismatch, and store unavailability.
+- `finam-gateway` has SQLite-backed dry place/cancel simulator tests proving
+  `SubmitInFlight` / `CancelRequested` are durable before the mock execution
+  client is called.
+- Dry Redis ACK publication remains redacted even when the backing store holds
+  raw local ids for protected reconciliation.
+- Retention/archive policy for terminal order-path records is documented in
+  `docs/order-path-retention-archive-policy.md`.
+- M3a-10 boundaries are documented in
+  `docs/m3a10-sqlite-production-hardening.md`.
+
+M3a-10 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

@@ -1,6 +1,6 @@
 # SQLite order-path store implementation ticket
 
-Status: design ticket plus M3a-9 dry prototype notes for the first
+Status: design ticket plus M3a-9/M3a-10 dry implementation notes for the first
 production-grade durable store. This does not authorize FINAM order endpoints,
 real command consumption, runtime strategy attachment, `LiveReady`, live micro,
 stop/SLTP, or bracket behavior.
@@ -99,8 +99,9 @@ allowed for first live micro. If a second process cannot acquire the writer
 lease/lock, order emission is blocked.
 
 M3a-9 prototype implements this as a sidecar writer-lock file and rejects a
-second writer in local tests. Stale-lock recovery policy remains a future
-review item.
+second writer in local tests. M3a-10 adds writer-lock metadata and an explicit
+no-auto-delete stale-lock policy: stale/unknown locks are operator-controlled
+recovery items and must disarm order endpoints.
 
 ## Recovery behavior
 
@@ -128,23 +129,29 @@ On startup:
 - redacted export omits account ids, broker ids, comments, secrets, JWTs, and raw
   broker payload fragments.
 
-## M3a-9 prototype status
+## M3a-9/M3a-10 dry implementation status
 
 Implemented in dry code only:
 
 - SQLite/WAL startup with `synchronous=FULL`;
 - `BEGIN IMMEDIATE` write transactions;
 - unique request/client/broker ids;
-- sidecar single-writer lock;
+- sidecar single-writer lock with safe metadata;
+- no automatic stale-lock removal;
+- cleanup of a newly-created lock if SQLite connection open fails;
+- `order_path_schema` version guard;
+- read-only/query-only diagnostic store;
+- transaction audit table;
 - crash/reopen tests for `SubmitInFlight`, `CancelRequested`, and
   `SubmittedPendingBrokerOrderId`;
 - corrupt database open failure blocks use;
-- redacted export tests.
+- redacted export tests;
+- SQLite-backed dry place/cancel simulator tests proving durable state before
+  the mock execution boundary.
 
 Still required before real endpoint use:
 
-- production schema migration/versioning;
-- operator-audited file permissions;
-- stale writer-lock recovery policy;
 - live endpoint integration gate;
 - protected full-id diagnostic view.
+- schema backup/migration runbook for future version changes;
+- real reconciliation-loop integration and staleness/backoff policy.

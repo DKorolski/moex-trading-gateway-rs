@@ -141,7 +141,10 @@ SQLite/WAL single-writer implementation ticket. M3a-8 adds a dry
 recovery-by-client-order-id helper, cancel accepted broker-id mismatch policy,
 source-scan boundary coverage, and an ACK/reconciliation state matrix. M3a-9
 adds idempotent recovery, a SQLite/WAL durable-store prototype, redacted store
-exports, and workspace-wide approved-only source-scan coverage.
+exports, and workspace-wide approved-only source-scan coverage. M3a-10 adds
+SQLite schema-version guard, writer-lock metadata/stale-lock policy,
+read-only diagnostic store access, transition audit rows, store-failure
+operator disarm signals, and SQLite-backed dry simulator ordering tests.
 
 `broker-finam::order_request` may build FINAM request path/body specs for dry
 fixture tests only from preflight-approved commands, but it must not send HTTP

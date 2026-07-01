@@ -1394,6 +1394,8 @@ pub fn redact_command_ack_for_redis(mut ack: CommandAck) -> CommandAck {
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+
     use broker_core::account::PortfolioSnapshot;
     use broker_core::command::{CommandAckReason, CommandAckReasonCode};
     use broker_core::event::{Bar, MarketDataEvent, MarketDataSourceKind, Quote};
@@ -1403,7 +1405,8 @@ mod tests {
     use broker_core::{
         CancelOrder, CancelPreflightApproval, DryOrderRateLimit, InMemoryOrderPathStore,
         OperatorArm, OrderPathEvent, OrderPathRecord, OrderPathState, OrderPathStore,
-        OrderPathTransitionError, OrderPreflightPolicy, PlaceOrder,
+        OrderPathTransitionError, OrderPreflightPolicy, PlaceOrder, SqliteOrderPathReadStore,
+        SqliteOrderPathStore,
     };
     use broker_finam::{
         FinamDryOrderClient, FinamOrderExecutionOutcome, MockFinamApprovedOrderExecutionClient,
@@ -2411,6 +2414,99 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sqlite_backed_place_simulator_persists_begin_submit_before_mock_call_and_redacts_ack()
+    {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 9, 20, 0)
+            .single()
+            .expect("timestamp");
+        let path = temp_sqlite_path("place_begin_submit");
+        cleanup_sqlite_path(&path);
+        let order = sample_place_order(request_id(106), "CID000000000000106", now);
+        let policy = dry_preflight_policy(now);
+        let approved = policy
+            .approve_place_order(&order, now)
+            .expect("preflight approved");
+        let mut store = SqliteOrderPathStore::open(&path).expect("open sqlite store");
+        store
+            .insert_intent(OrderPathRecord::from_place_order(
+                approved.order(),
+                now,
+                None,
+            ))
+            .expect("intent inserted");
+        let mut client = InspectingExecutionClient::new(
+            path.clone(),
+            order.request_id,
+            OrderPathState::SubmitInFlight,
+            FinamOrderExecutionOutcome::Accepted {
+                broker_order_id: Some(BrokerOrderId::new("BROKER_TEST_SQLITE_PLACE")),
+            },
+        );
+
+        let report = simulate_place_order_approved(
+            &mut store,
+            &mut client,
+            &approved,
+            None,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .await
+        .expect("sqlite-backed simulation report");
+
+        assert_eq!(client.call_count, 1);
+        assert_eq!(report.outcome, DryOrderExecutionOutcomeKind::Submitted);
+        assert_eq!(report.state, OrderPathState::Submitted);
+        assert_eq!(report.ack.status, CommandAckStatus::Submitted);
+        let loaded = store
+            .load_by_request_id(order.request_id)
+            .expect("stored submitted record");
+        assert_eq!(loaded.state, OrderPathState::Submitted);
+        assert_eq!(
+            loaded.broker_order_id,
+            Some(BrokerOrderId::new("BROKER_TEST_SQLITE_PLACE"))
+        );
+        let audit = store.transition_audit().expect("transition audit");
+        assert_eq!(audit.len(), 3);
+        assert_eq!(audit[0].event, "InsertIntent");
+        assert_eq!(audit[0].from_state, None);
+        assert_eq!(audit[0].to_state, "IntentRecorded");
+        assert_eq!(audit[1].event, "UpdateRecord");
+        assert_eq!(audit[1].from_state.as_deref(), Some("IntentRecorded"));
+        assert_eq!(audit[1].to_state, "SubmitInFlight");
+        assert_eq!(audit[2].event, "UpdateRecord");
+        assert_eq!(audit[2].from_state.as_deref(), Some("SubmitInFlight"));
+        assert_eq!(audit[2].to_state, "Submitted");
+        drop(store);
+
+        {
+            let readonly =
+                SqliteOrderPathReadStore::open_readonly(&path).expect("open read-only diagnostics");
+            assert_eq!(
+                readonly
+                    .load_by_request_id(order.request_id)
+                    .expect("read-only record")
+                    .state,
+                OrderPathState::Submitted
+            );
+            assert_eq!(readonly.transition_audit().expect("read audit").len(), 3);
+        }
+
+        let sink = InMemoryRedisStreamSink::default();
+        let gateway = FinamGateway::new(GatewayConfig::default(), sink.clone());
+        gateway
+            .publish_dry_command_ack(report.ack)
+            .await
+            .expect("ack published");
+        let entries = sink.entries().expect("entries");
+        assert!(!entries[0].payload.contains("BROKER_TEST_SQLITE_PLACE"));
+        assert!(!entries[0].payload.contains("CID000000000000106"));
+        assert!(!entries[0].payload.contains("ACC_TEST_0001"));
+        cleanup_sqlite_path(&path);
+    }
+
+    #[tokio::test]
     async fn execution_simulator_maps_rejected_place_to_broker_rejected_state() {
         let now = Utc
             .with_ymd_and_hms(2026, 6, 30, 9, 30, 0)
@@ -2702,6 +2798,105 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sqlite_backed_cancel_simulator_persists_request_cancel_before_mock_call_and_manual_mismatch(
+    ) {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 10, 5, 0)
+            .single()
+            .expect("timestamp");
+        let path = temp_sqlite_path("cancel_request_before_call");
+        cleanup_sqlite_path(&path);
+        let broker_order_id = BrokerOrderId::new("BROKER_TEST_SQLITE_CANCEL");
+        let order = sample_place_order(request_id(118), "CID000000000000118", now);
+        let existing = submitted_record(&order, now, broker_order_id.clone());
+        let cancel = sample_cancel_order(request_id(119), broker_order_id.as_str(), now);
+        let policy = dry_preflight_policy(now);
+        let approved_cancel = match policy
+            .approve_cancel_order(&cancel, now, Some(&existing))
+            .expect("cancel approved")
+        {
+            CancelPreflightApproval::Submit(approved) => approved,
+            CancelPreflightApproval::AlreadyTerminal => panic!("expected submit cancel"),
+        };
+        let mut store = SqliteOrderPathStore::open(&path).expect("open sqlite store");
+        store
+            .insert_intent(existing)
+            .expect("submitted record inserted");
+        let mut client = InspectingExecutionClient::new(
+            path.clone(),
+            order.request_id,
+            OrderPathState::CancelRequested,
+            FinamOrderExecutionOutcome::Accepted {
+                broker_order_id: Some(BrokerOrderId::new("BROKER_TEST_SQLITE_OTHER")),
+            },
+        );
+
+        let report = simulate_cancel_order_approved(
+            &mut store,
+            &mut client,
+            &approved_cancel,
+            now + chrono::Duration::milliseconds(1),
+            now + chrono::Duration::milliseconds(2),
+        )
+        .await
+        .expect("sqlite-backed cancel mismatch report");
+
+        assert_eq!(client.call_count, 1);
+        assert_eq!(
+            report.outcome,
+            DryOrderExecutionOutcomeKind::CancelAcceptedBrokerOrderIdMismatch
+        );
+        assert_eq!(report.state, OrderPathState::ManualInterventionRequired);
+        assert_eq!(report.ack.status, CommandAckStatus::UnknownPending);
+        assert_eq!(
+            report.ack.reason.as_ref().expect("reason").code,
+            CommandAckReasonCode::ManualInterventionRequired
+        );
+        let loaded = store
+            .load_by_request_id(order.request_id)
+            .expect("manual intervention record");
+        assert_eq!(loaded.state, OrderPathState::ManualInterventionRequired);
+        assert_eq!(loaded.broker_order_id, Some(broker_order_id));
+        let audit = store.transition_audit().expect("transition audit");
+        assert_eq!(audit.len(), 3);
+        assert_eq!(audit[0].event, "InsertIntent");
+        assert_eq!(audit[0].from_state, None);
+        assert_eq!(audit[0].to_state, "Submitted");
+        assert_eq!(audit[1].event, "UpdateRecord");
+        assert_eq!(audit[1].from_state.as_deref(), Some("Submitted"));
+        assert_eq!(audit[1].to_state, "CancelRequested");
+        assert_eq!(audit[2].event, "UpdateRecord");
+        assert_eq!(audit[2].from_state.as_deref(), Some("CancelRequested"));
+        assert_eq!(audit[2].to_state, "ManualInterventionRequired");
+        drop(store);
+
+        {
+            let readonly =
+                SqliteOrderPathReadStore::open_readonly(&path).expect("open read-only diagnostics");
+            assert_eq!(
+                readonly
+                    .load_by_request_id(order.request_id)
+                    .expect("read-only record")
+                    .state,
+                OrderPathState::ManualInterventionRequired
+            );
+            assert_eq!(readonly.transition_audit().expect("read audit").len(), 3);
+        }
+
+        let sink = InMemoryRedisStreamSink::default();
+        let gateway = FinamGateway::new(GatewayConfig::default(), sink.clone());
+        gateway
+            .publish_dry_command_ack(report.ack)
+            .await
+            .expect("cancel ack published");
+        let entries = sink.entries().expect("entries");
+        assert!(!entries[0].payload.contains("BROKER_TEST_SQLITE_CANCEL"));
+        assert!(!entries[0].payload.contains("BROKER_TEST_SQLITE_OTHER"));
+        assert!(!entries[0].payload.contains("CID000000000000118"));
+        cleanup_sqlite_path(&path);
+    }
+
+    #[tokio::test]
     async fn cancel_simulator_rejection_requires_manual_intervention() {
         let now = Utc
             .with_ymd_and_hms(2026, 6, 30, 10, 10, 0)
@@ -2845,6 +3040,85 @@ mod tests {
             CancelPreflightApproval::AlreadyTerminal
         );
         assert!(client.records().is_empty());
+    }
+
+    struct InspectingExecutionClient {
+        db_path: PathBuf,
+        expected_request_id: StrategyRequestId,
+        expected_state_before_call: OrderPathState,
+        outcome: FinamOrderExecutionOutcome,
+        call_count: usize,
+    }
+
+    impl InspectingExecutionClient {
+        fn new(
+            db_path: PathBuf,
+            expected_request_id: StrategyRequestId,
+            expected_state_before_call: OrderPathState,
+            outcome: FinamOrderExecutionOutcome,
+        ) -> Self {
+            Self {
+                db_path,
+                expected_request_id,
+                expected_state_before_call,
+                outcome,
+                call_count: 0,
+            }
+        }
+
+        fn assert_expected_state_is_durable(&self) {
+            let readonly =
+                SqliteOrderPathReadStore::open_readonly(&self.db_path).expect("read-only sqlite");
+            let record = readonly
+                .load_by_request_id(self.expected_request_id)
+                .expect("expected order-path record");
+            assert_eq!(record.state, self.expected_state_before_call);
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl broker_finam::FinamApprovedOrderExecutionClient for InspectingExecutionClient {
+        async fn place_approved(
+            &mut self,
+            spec: broker_finam::FinamPlaceOrderRequestSpec,
+        ) -> Result<FinamOrderExecutionOutcome, broker_finam::FinamOrderExecutionError> {
+            assert!(!spec.account_id.is_empty());
+            self.assert_expected_state_is_durable();
+            self.call_count += 1;
+            Ok(self.outcome.clone())
+        }
+
+        async fn cancel_approved(
+            &mut self,
+            spec: broker_finam::FinamCancelOrderRequestSpec,
+        ) -> Result<FinamOrderExecutionOutcome, broker_finam::FinamOrderExecutionError> {
+            assert!(!spec.account_id.is_empty());
+            assert!(!spec.order_id.is_empty());
+            self.assert_expected_state_is_durable();
+            self.call_count += 1;
+            Ok(self.outcome.clone())
+        }
+    }
+
+    fn temp_sqlite_path(name: &str) -> PathBuf {
+        let unique = Utc::now()
+            .timestamp_nanos_opt()
+            .unwrap_or_default()
+            .unsigned_abs();
+        std::env::temp_dir().join(format!("moex_trading_gateway_{name}_{unique}.sqlite"))
+    }
+
+    fn cleanup_sqlite_path(path: &Path) {
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(sqlite_writer_lock_path(path));
+        let _ = std::fs::remove_file(PathBuf::from(format!("{}-wal", path.to_string_lossy())));
+        let _ = std::fs::remove_file(PathBuf::from(format!("{}-shm", path.to_string_lossy())));
+    }
+
+    fn sqlite_writer_lock_path(path: &Path) -> PathBuf {
+        let mut lock_path = path.to_path_buf();
+        lock_path.set_extension("writer.lock");
+        lock_path
     }
 
     fn request_id(n: u128) -> StrategyRequestId {

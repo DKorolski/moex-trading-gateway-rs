@@ -112,12 +112,21 @@ safe reason codes, not raw returned broker ids. M3a-9 applies this to the
 SQLite prototype redacted export: raw account, client-order, and broker-order
 ids stay in the local protected store only, while public export surfaces use
 length/SHA-256 fingerprints.
+M3a-10 keeps that posture for read-only diagnostics and transition audit:
+diagnostic/audit rows expose state, timestamps, safe reason codes, and
+fingerprints only; raw ids remain local to the protected SQLite payload and must
+not be included in Redis ACKs or handoff archives.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account
 ids, instruments, order state, timestamps, and outgoing-comment fingerprints,
 but must not persist FINAM secrets, JWTs, raw broker payloads, or raw outgoing
 comment values.
+
+SQLite order-path database, WAL, SHM, and writer-lock files are runtime
+artifacts. They must not be included in review handoff archives. Use redacted
+exports and the retention/archive policy in
+`docs/order-path-retention-archive-policy.md` for review evidence.
 
 CLI command argument containers should not derive auto `Debug`, because account
 ids and venue symbols can be supplied as args or environment-derived values.

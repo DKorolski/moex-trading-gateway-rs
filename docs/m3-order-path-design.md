@@ -25,7 +25,10 @@ ticket. M3a-8 adds a dry recovery-by-client-order-id helper, cancel accepted
 broker-id mismatch policy, source-scan boundary tests, and an
 ACK/reconciliation state matrix. M3a-9 adds idempotent recovery, a
 SQLite/WAL durable-store prototype, and workspace-wide source-scan coverage. It
-does not call FINAM endpoints and is not a live command consumer.
+does not call FINAM endpoints and is not a live command consumer. M3a-10 hardens
+that SQLite path with writer-lock metadata/stale-lock policy, schema-version
+guard, read-only diagnostics, transition audit, operator store-failure disarm
+signals, and SQLite-backed dry simulator ordering tests.
 
 M3 scope is deliberately small:
 
@@ -78,6 +81,11 @@ M3a-9 makes repeated broker-truth polling idempotent: the same
 while a different broker id for the same client id remains a reconciliation
 mismatch. The SQLite/WAL prototype proves the durable-store direction without
 authorizing live endpoint use.
+
+M3a-10 strengthens that proof: dry place/cancel simulator tests use SQLite as
+the backing store and a read-only diagnostic connection inside the mock
+execution client. This verifies that `SubmitInFlight` and `CancelRequested` are
+committed before any future external endpoint call would be attempted.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.
@@ -237,6 +245,12 @@ M3a-9 adds `SqliteOrderPathStore` as the first dry SQLite/WAL prototype. It uses
 WAL, `synchronous=FULL`, `BEGIN IMMEDIATE` write transactions, unique
 request/client/broker ids, a sidecar single-writer lock, and redacted exports.
 It remains non-network and is not yet wired to any live endpoint path.
+
+M3a-10 adds schema-version startup guard, writer-lock metadata, no automatic
+stale-lock removal, cleanup on connection-open failure, read-only diagnostic
+store access, transaction audit rows, and store-failure operator disarm signals.
+It also documents terminal-record retention/archive policy for the protected
+local store.
 
 Primary key:
 

@@ -325,6 +325,11 @@ M3a-9 does not change Redis stream scope. The SQLite prototype may export
 redacted diagnostics locally, but no new Redis order/ACK lifecycle or live
 command stream is enabled.
 
+M3a-10 still does not change Redis stream scope. SQLite transition audit and
+read-only diagnostics are local protected store features. The dry ACK publisher
+continues to redact optional client/broker order ids before publishing
+`CommandAck` envelopes.
+
 ## Retention policy
 
 M2c defaults use approximate Redis stream trimming for health/readiness/
