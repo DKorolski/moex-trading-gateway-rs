@@ -227,6 +227,7 @@ See:
 - [M3c-5 implementation boundary architecture decision](docs/m3c5-implementation-boundary-architecture-decision.md)
 - [M3c-6 scanner transition API shape](docs/m3c6-scanner-transition-api-shape.md)
 - [M3c-7 gated route-rendering boundary](docs/m3c7-gated-route-rendering-boundary.md)
+- [M3c-8 non-serializable route boundary](docs/m3c8-nonserializable-route-boundary.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

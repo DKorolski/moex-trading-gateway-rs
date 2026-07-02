@@ -18,9 +18,21 @@ report_failure() {
   failures=$((failures + 1))
 }
 
-if rg -n '\.post\(|\.delete\(|\.request\(|\.send\(|Method::POST|Method::DELETE|reqwest::Client|HttpClient|Transport|Adapter|Backend' "$target" >/tmp/moex_transition_forbidden.$$; then
+if rg -n '\.post\(|\.delete\(|\.request\(|\.send\(|Method::POST|Method::DELETE|reqwest|HttpClient|Transport|Adapter|Backend' "$target" >/tmp/moex_transition_forbidden.$$; then
   cat /tmp/moex_transition_forbidden.$$ >&2
   report_failure "design-only API shape must not contain HTTP send surfaces"
+fi
+rm -f /tmp/moex_transition_forbidden.$$
+
+if rg -n 'pub struct GatewayRealOrderEndpointInternalRouteShape' "$target" >/tmp/moex_transition_forbidden.$$; then
+  cat /tmp/moex_transition_forbidden.$$ >&2
+  report_failure "internal route shape must not be public"
+fi
+rm -f /tmp/moex_transition_forbidden.$$
+
+if rg -nU '#\[derive\([^\]]*Serialize[^\]]*\)\]\nstruct GatewayRealOrderEndpointInternalRouteShape' "$target" >/tmp/moex_transition_forbidden.$$; then
+  cat /tmp/moex_transition_forbidden.$$ >&2
+  report_failure "internal route shape must not be serializable"
 fi
 rm -f /tmp/moex_transition_forbidden.$$
 
@@ -30,6 +42,9 @@ required_patterns=(
   "FinamCancelOrderRequestSpec"
   "DesignOnlyNoHttpSend"
   "api_shape_contains_route_templates: false"
+  "struct GatewayRealOrderEndpointInternalRouteShape"
+  "route_template_exported: false"
+  "GatewayRealOrderEndpointRedactedRouteDiagnostic"
   "CurrentDenyAllOrderPostDelete"
   "FutureExactTwoRouteAllowlistAfterReview"
   "real_post_delete_calls_allowed_now: false"

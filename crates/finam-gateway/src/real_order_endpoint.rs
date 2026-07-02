@@ -4,7 +4,8 @@
 //! This module intentionally does not perform route rendering from live inputs,
 //! does not own a network connector, and does not submit FINAM order requests.
 //! It only records the pre-implementation boundary shape that a later reviewed
-//! implementation must satisfy.
+//! implementation must satisfy. Any path template kept here is internal-only;
+//! exported diagnostics are redacted.
 
 use serde::{Deserialize, Serialize};
 
@@ -24,11 +25,20 @@ pub enum GatewayRealOrderEndpointOperation {
     CancelOrder,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GatewayRealOrderEndpointInternalRouteShape {
+    pub operation: GatewayRealOrderEndpointOperation,
+    pub method_name: &'static str,
+    pub route_template: &'static str,
+    pub gate_marker_required: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GatewayRealOrderEndpointGatedRouteShape {
+pub struct GatewayRealOrderEndpointRedactedRouteDiagnostic {
     pub operation: GatewayRealOrderEndpointOperation,
     pub method_name: String,
-    pub route_template: String,
+    pub route_template_redacted: bool,
+    pub route_template_exported: bool,
     pub gate_marker_required: bool,
 }
 
@@ -78,36 +88,48 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
     }
 }
 
-fn place_order_route_shape() -> GatewayRealOrderEndpointGatedRouteShape {
-    GatewayRealOrderEndpointGatedRouteShape {
+fn place_order_route_shape() -> GatewayRealOrderEndpointInternalRouteShape {
+    GatewayRealOrderEndpointInternalRouteShape {
         operation: GatewayRealOrderEndpointOperation::PlaceOrder,
-        method_name: "POST".to_string(),
-        route_template: "/v1/accounts/{account_id}/orders".to_string(),
+        method_name: "POST",
+        route_template: "/v1/accounts/{account_id}/orders",
         gate_marker_required: true,
     }
 }
 
-fn cancel_order_route_shape() -> GatewayRealOrderEndpointGatedRouteShape {
-    GatewayRealOrderEndpointGatedRouteShape {
+fn cancel_order_route_shape() -> GatewayRealOrderEndpointInternalRouteShape {
+    GatewayRealOrderEndpointInternalRouteShape {
         operation: GatewayRealOrderEndpointOperation::CancelOrder,
-        method_name: "DELETE".to_string(),
-        route_template: "/v1/accounts/{account_id}/orders/{order_id}".to_string(),
+        method_name: "DELETE",
+        route_template: "/v1/accounts/{account_id}/orders/{order_id}",
         gate_marker_required: true,
+    }
+}
+
+fn redacted_route_diagnostic(
+    route: GatewayRealOrderEndpointInternalRouteShape,
+) -> GatewayRealOrderEndpointRedactedRouteDiagnostic {
+    GatewayRealOrderEndpointRedactedRouteDiagnostic {
+        operation: route.operation,
+        method_name: route.method_name.to_string(),
+        route_template_redacted: true,
+        route_template_exported: false,
+        gate_marker_required: route.gate_marker_required,
     }
 }
 
 pub fn place_order_api_shape(
     _gate: &EndpointGateApproved,
     _spec: &broker_finam::FinamPlaceOrderRequestSpec,
-) -> GatewayRealOrderEndpointGatedRouteShape {
-    place_order_route_shape()
+) -> GatewayRealOrderEndpointRedactedRouteDiagnostic {
+    redacted_route_diagnostic(place_order_route_shape())
 }
 
 pub fn cancel_order_api_shape(
     _gate: &EndpointGateApproved,
     _spec: &broker_finam::FinamCancelOrderRequestSpec,
-) -> GatewayRealOrderEndpointGatedRouteShape {
-    cancel_order_route_shape()
+) -> GatewayRealOrderEndpointRedactedRouteDiagnostic {
+    redacted_route_diagnostic(cancel_order_route_shape())
 }
 
 #[cfg(test)]
@@ -161,14 +183,14 @@ mod tests {
             _f: fn(
                 &EndpointGateApproved,
                 &broker_finam::FinamPlaceOrderRequestSpec,
-            ) -> GatewayRealOrderEndpointGatedRouteShape,
+            ) -> GatewayRealOrderEndpointRedactedRouteDiagnostic,
         ) {
         }
         fn assert_cancel_signature(
             _f: fn(
                 &EndpointGateApproved,
                 &broker_finam::FinamCancelOrderRequestSpec,
-            ) -> GatewayRealOrderEndpointGatedRouteShape,
+            ) -> GatewayRealOrderEndpointRedactedRouteDiagnostic,
         ) {
         }
 
@@ -177,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn gated_route_shapes_are_separate_from_design_report_shape() {
+    fn internal_route_shapes_are_separate_from_design_report_shape() {
         let place = place_order_route_shape();
         let cancel = cancel_order_route_shape();
 
@@ -190,5 +212,22 @@ mod tests {
         );
         assert!(place.gate_marker_required);
         assert!(cancel.gate_marker_required);
+    }
+
+    #[test]
+    fn exported_route_diagnostics_are_redacted_and_not_transport_input() {
+        let place = redacted_route_diagnostic(place_order_route_shape());
+        let cancel = redacted_route_diagnostic(cancel_order_route_shape());
+
+        assert!(place.route_template_redacted);
+        assert!(cancel.route_template_redacted);
+        assert!(!place.route_template_exported);
+        assert!(!cancel.route_template_exported);
+
+        let rendered = serde_json::to_string(&[place, cancel]).expect("diagnostics serialize");
+        assert!(!rendered.contains("/v1/accounts/{account_id}/orders"));
+        assert!(!rendered.contains("{order_id}"));
+        assert!(rendered.contains("\"route_template_redacted\":true"));
+        assert!(rendered.contains("\"route_template_exported\":false"));
     }
 }

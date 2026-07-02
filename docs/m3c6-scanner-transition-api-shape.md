@@ -20,8 +20,8 @@ api_shape_contains_route_templates = false
 real_post_delete_calls_allowed_now = false
 ```
 
-It contains no reqwest client, no real HTTP send, no `.post(`, no `.delete(`,
-and no `Method::POST/DELETE`.
+It contains no `reqwest` token, no real HTTP send, no `.post(`, no `.delete(`,
+no `.request(`, no `.send(`, and no `Method::POST/DELETE`.
 
 ## Gate-marker signatures
 
@@ -35,6 +35,15 @@ cancel_order_api_shape(&EndpointGateApproved, &FinamCancelOrderRequestSpec)
 
 The marker remains unconstructible, so these signatures are compile/API shape,
 not implementation enablement.
+
+M3c-8 keeps the actual route template shape internal-only and non-serializable.
+Exported gated helpers return only redacted diagnostics:
+
+```text
+GatewayRealOrderEndpointRedactedRouteDiagnostic
+route_template_redacted = true
+route_template_exported = false
+```
 
 ## Scanner transition spec
 

@@ -45,6 +45,10 @@ Adapter
 Backend
 ```
 
+M3c-8 supersedes the `reqwest::Client` term with a broader any-`reqwest`
+token guard and makes route templates internal-only/non-serializable, with
+only redacted diagnostics exported.
+
 ## Still not allowed
 
 - FINAM real PlaceOrder `POST`;

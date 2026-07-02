@@ -1645,6 +1645,28 @@ M3c-7 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-8 non-serializable route boundary / redacted diagnostic hardening:
+
+- Route templates inside `crates/finam-gateway/src/real_order_endpoint.rs` are
+  now held only by a private, non-serializable internal route shape.
+- Public gated helpers still require `EndpointGateApproved`, but return only
+  `GatewayRealOrderEndpointRedactedRouteDiagnostic`.
+- Exported diagnostics set `route_template_redacted = true` and
+  `route_template_exported = false`.
+- `scripts/order_endpoint_scanner_transition_spec.sh` now rejects any `reqwest`
+  token in the design-only module, not only `reqwest::Client`.
+- Details are documented in `docs/m3c8-nonserializable-route-boundary.md`.
+
+M3c-8 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

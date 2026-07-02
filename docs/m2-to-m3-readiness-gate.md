@@ -1311,6 +1311,10 @@ Implemented while still keeping all broker order endpoints disabled:
 - M3c-7 gated route-rendering boundary: design/report shape no longer contains
   route templates, while gated route-shape functions require
   `EndpointGateApproved`;
+- M3c-8 non-serializable route boundary: route templates remain private
+  internal-only design data, exported diagnostics are redacted, and the
+  scanner transition guard rejects any `reqwest` token in the design-only
+  module;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:
