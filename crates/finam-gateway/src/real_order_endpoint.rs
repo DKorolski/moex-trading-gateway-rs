@@ -142,6 +142,69 @@ struct GatewayRealOrderEndpointAttemptJournalBinding {
     pub state_machine_transition_required: bool,
 }
 
+#[allow(dead_code)]
+struct GatewayRealOrderEndpointCheckpointProofFingerprint {
+    pub checkpoint_proof_fingerprint_present: bool,
+    pub checkpoint_proof_sha256_len: usize,
+    pub raw_checkpoint_values_exported: bool,
+}
+
+#[allow(dead_code)]
+struct GatewayRealOrderEndpointCapturedEnvelopeFingerprint {
+    pub captured_envelope_fingerprint_present: bool,
+    pub captured_envelope_sha256_len: usize,
+    pub raw_path_body_error_exported: bool,
+}
+
+#[allow(dead_code)]
+struct GatewayRealOrderEndpointOutcomeClassifierFingerprint {
+    pub outcome_fingerprint_present: bool,
+    pub outcome_sha256_len: usize,
+    pub raw_broker_values_exported: bool,
+}
+
+#[allow(dead_code)]
+struct GatewayRealOrderEndpointStateTransitionResultRecord {
+    pub event: OrderPathEvent,
+    pub state: OrderPathState,
+    pub transition_committed: bool,
+    pub transition_result_fingerprint_present: bool,
+    pub transition_result_sha256_len: usize,
+    pub raw_transition_values_exported: bool,
+}
+
+#[allow(dead_code)]
+struct GatewayRealOrderEndpointAckDiagnosticFingerprint {
+    pub ack_diagnostic_fingerprint_present: bool,
+    pub ack_diagnostic_sha256_len: usize,
+    pub runtime_ack_redacted_only: bool,
+    pub raw_ack_id_exported: bool,
+}
+
+#[allow(dead_code)]
+struct GatewayRealOrderEndpointDurableAttemptJournalAppendInput {
+    pub parts: ApprovedOrderEndpointRequestParts,
+    pub attempt_fingerprint: GatewayRealOrderEndpointAttemptFingerprint,
+    pub checkpoint_proof_fingerprint: GatewayRealOrderEndpointCheckpointProofFingerprint,
+    pub captured_envelope_fingerprint: GatewayRealOrderEndpointCapturedEnvelopeFingerprint,
+    pub outcome_fingerprint: GatewayRealOrderEndpointOutcomeClassifierFingerprint,
+    pub state_transition_result: GatewayRealOrderEndpointStateTransitionResultRecord,
+    pub ack_diagnostic_fingerprint: GatewayRealOrderEndpointAckDiagnosticFingerprint,
+}
+
+#[allow(dead_code)]
+struct GatewayRealOrderEndpointDurableAttemptJournalRecord {
+    pub endpoint_attempt_id_hash_present: bool,
+    pub request_fingerprint_bound: bool,
+    pub checkpoint_proof_fingerprint_bound: bool,
+    pub captured_envelope_fingerprint_bound: bool,
+    pub outcome_fingerprint_bound: bool,
+    pub state_transition_result_bound: bool,
+    pub ack_diagnostic_fingerprint_bound: bool,
+    pub append_committed_after_state_transition: bool,
+    pub raw_values_exported: bool,
+}
+
 struct OrderEndpointDurableStateCheckpoint {
     pub intent_recorded_before_endpoint: bool,
     pub label: GatewayRealOrderEndpointDurableCheckpointLabel,
@@ -652,6 +715,125 @@ pub struct GatewayRealOrderEndpointAttemptDiagnostic {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointDurableAttemptJournalContractDesignShape {
+    pub durable_journal_schema_design_only: bool,
+    pub journal_record_internal_only: bool,
+    pub append_requires_endpoint_gate: bool,
+    pub append_requires_approved_request_parts: bool,
+    pub append_requires_operation_specific_checkpoint_marker: bool,
+    pub endpoint_attempt_id_hash_len: usize,
+    pub binds_request_fingerprint: bool,
+    pub binds_checkpoint_proof_fingerprint: bool,
+    pub binds_captured_envelope_fingerprint: bool,
+    pub binds_outcome_fingerprint: bool,
+    pub binds_state_transition_result_fingerprint: bool,
+    pub binds_ack_diagnostic_fingerprint: bool,
+    pub append_committed_after_state_transition: bool,
+    pub raw_endpoint_attempt_id_exported: bool,
+    pub raw_request_values_exported: bool,
+    pub raw_broker_order_id_exported: bool,
+    pub raw_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub raw_error_exported: bool,
+    pub diagnostic_redacted_only: bool,
+    pub diagnostic_can_feed_transport: bool,
+    pub diagnostic_can_bypass_state_machine: bool,
+    pub exact_once_attempt_id_unique_required: bool,
+    pub replay_requires_same_fingerprint_set: bool,
+    pub append_constructor_count: usize,
+    pub diagnostic_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointDurableAttemptJournalDiagnostic {
+    pub operation: GatewayRealOrderEndpointOperation,
+    pub endpoint_attempt_id_hash_present: bool,
+    pub endpoint_attempt_id_sha256_len: usize,
+    pub request_fingerprint_bound: bool,
+    pub checkpoint_proof_fingerprint_bound: bool,
+    pub captured_envelope_fingerprint_bound: bool,
+    pub outcome_fingerprint_bound: bool,
+    pub state_transition_result_fingerprint_bound: bool,
+    pub ack_diagnostic_fingerprint_bound: bool,
+    pub append_committed_after_state_transition: bool,
+    pub state_machine_transition_required: bool,
+    pub state_machine_bypass_allowed: bool,
+    pub raw_endpoint_attempt_id_exported: bool,
+    pub raw_request_values_exported: bool,
+    pub raw_broker_order_id_exported: bool,
+    pub raw_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub raw_error_exported: bool,
+    pub runtime_ack_redacted_only: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointFinamStatusBodyPolicy {
+    PlaceSuccessBodyRequiredForSubmitted,
+    CancelSuccessBodyOptional,
+    Undocumented2xxRequiresEvidenceOrWaiver,
+    BrokerRejectBodyRedacted,
+    UnauthorizedBodyRedacted,
+    NotFoundRequiresReadOnlyReconciliation,
+    RateLimitBodyRedacted,
+    MaintenanceBodyRedacted,
+    TimeoutUnknownPending,
+    MalformedBodyDecodeError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointFinamStatusSemanticsEntry {
+    pub operation: GatewayRealOrderEndpointOperation,
+    pub status_code: u16,
+    pub documented_by_finam_rest_docs: bool,
+    pub defensive_policy_only: bool,
+    pub implementation_gate_evidence_required: bool,
+    pub waiver_required_before_live: bool,
+    pub body_policy: GatewayRealOrderEndpointFinamStatusBodyPolicy,
+    pub future_send_outcome: GatewayRealOrderEndpointFutureSendOutcome,
+    pub order_path_event: OrderPathEvent,
+    pub order_path_state: OrderPathState,
+    pub ack_status: CommandAckStatus,
+    pub ack_reason_code: Option<CommandAckReasonCode>,
+    pub operator_disarm_signal: Option<OperatorDisarmSignal>,
+    pub body_required_for_immediate_submitted: bool,
+    pub body_optional_for_cancel_acceptance: bool,
+    pub empty_body_reconciliation_required: bool,
+    pub cancel_reconciliation_required: bool,
+    pub no_blind_retry: bool,
+    pub raw_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub raw_error_exported: bool,
+    pub raw_broker_order_id_exported: bool,
+    pub state_machine_transition_required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointFinamStatusSemanticsDesignShape {
+    pub official_rest_docs_checked: bool,
+    pub documented_place_status_count: usize,
+    pub documented_cancel_status_count: usize,
+    pub place_status_entry_count: usize,
+    pub cancel_status_entry_count: usize,
+    pub total_status_entry_count: usize,
+    pub documented_success_status_only_200: bool,
+    pub undocumented_success_201_202_204_require_evidence_or_waiver: bool,
+    pub place_success_body_required_for_immediate_submitted: bool,
+    pub place_empty_body_requires_reconciliation: bool,
+    pub cancel_success_body_optional: bool,
+    pub cancel_missing_id_requires_reconciliation: bool,
+    pub cancel_404_documented_and_requires_reconciliation: bool,
+    pub cancel_409_410_documented_by_finam_rest_docs: bool,
+    pub cancel_409_410_policy_or_waiver_required: bool,
+    pub defensive_422_502_not_documented_as_finam_order_status: bool,
+    pub status_semantics_can_bypass_state_machine: bool,
+    pub raw_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub raw_error_exported: bool,
+    pub raw_broker_order_id_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayRealOrderEndpointOutcomeStatePolicyDesignShape {
     pub matrix_serializable: bool,
     pub outcome_entry_count: usize,
@@ -715,8 +897,11 @@ pub struct GatewayRealOrderEndpointApiShape {
     pub cancel_accepted_id_policy_design: GatewayRealOrderEndpointCancelAcceptedIdPolicyDesignShape,
     pub captured_envelope_design: GatewayRealOrderEndpointCapturedEnvelopeDesignShape,
     pub endpoint_attempt_journal_design: GatewayRealOrderEndpointAttemptJournalDesignShape,
+    pub durable_attempt_journal_contract_design:
+        GatewayRealOrderEndpointDurableAttemptJournalContractDesignShape,
     pub http_status_outcome_matrix_design:
         GatewayRealOrderEndpointHttpStatusOutcomeMatrixDesignShape,
+    pub finam_status_semantics_design: GatewayRealOrderEndpointFinamStatusSemanticsDesignShape,
     pub durable_checkpoint_capability_design:
         GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape,
     pub checkpoint_marker_creation_design:
@@ -874,6 +1059,35 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
             constructor_count: endpoint_attempt_journal_binding_constructor_count(),
             diagnostic_count: endpoint_attempt_diagnostic_count(),
         },
+        durable_attempt_journal_contract_design:
+            GatewayRealOrderEndpointDurableAttemptJournalContractDesignShape {
+                durable_journal_schema_design_only: true,
+                journal_record_internal_only: true,
+                append_requires_endpoint_gate: true,
+                append_requires_approved_request_parts: true,
+                append_requires_operation_specific_checkpoint_marker: true,
+                endpoint_attempt_id_hash_len: 64,
+                binds_request_fingerprint: true,
+                binds_checkpoint_proof_fingerprint: true,
+                binds_captured_envelope_fingerprint: true,
+                binds_outcome_fingerprint: true,
+                binds_state_transition_result_fingerprint: true,
+                binds_ack_diagnostic_fingerprint: true,
+                append_committed_after_state_transition: true,
+                raw_endpoint_attempt_id_exported: false,
+                raw_request_values_exported: false,
+                raw_broker_order_id_exported: false,
+                raw_path_exported: false,
+                raw_body_exported: false,
+                raw_error_exported: false,
+                diagnostic_redacted_only: true,
+                diagnostic_can_feed_transport: false,
+                diagnostic_can_bypass_state_machine: false,
+                exact_once_attempt_id_unique_required: true,
+                replay_requires_same_fingerprint_set: true,
+                append_constructor_count: durable_attempt_journal_append_constructor_count(),
+                diagnostic_count: durable_attempt_journal_diagnostic_count(),
+            },
         http_status_outcome_matrix_design:
             GatewayRealOrderEndpointHttpStatusOutcomeMatrixDesignShape {
                 matrix_serializable: true,
@@ -894,6 +1108,29 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
                 raw_error_exported: false,
                 state_machine_transition_required: true,
             },
+        finam_status_semantics_design: GatewayRealOrderEndpointFinamStatusSemanticsDesignShape {
+            official_rest_docs_checked: true,
+            documented_place_status_count: documented_place_finam_rest_statuses().len(),
+            documented_cancel_status_count: documented_cancel_finam_rest_statuses().len(),
+            place_status_entry_count: place_finam_status_semantics_matrix().len(),
+            cancel_status_entry_count: cancel_finam_status_semantics_matrix().len(),
+            total_status_entry_count: finam_status_semantics_matrix().len(),
+            documented_success_status_only_200: true,
+            undocumented_success_201_202_204_require_evidence_or_waiver: true,
+            place_success_body_required_for_immediate_submitted: true,
+            place_empty_body_requires_reconciliation: true,
+            cancel_success_body_optional: true,
+            cancel_missing_id_requires_reconciliation: true,
+            cancel_404_documented_and_requires_reconciliation: true,
+            cancel_409_410_documented_by_finam_rest_docs: false,
+            cancel_409_410_policy_or_waiver_required: true,
+            defensive_422_502_not_documented_as_finam_order_status: true,
+            status_semantics_can_bypass_state_machine: false,
+            raw_path_exported: false,
+            raw_body_exported: false,
+            raw_error_exported: false,
+            raw_broker_order_id_exported: false,
+        },
         durable_checkpoint_capability_design:
             GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape {
                 place_capability_type_internal: true,
@@ -1252,6 +1489,48 @@ fn endpoint_attempt_redacted_diagnostic(
     }
 }
 
+fn append_place_durable_endpoint_attempt_journal(
+    _gate: &EndpointGateApproved,
+    input: GatewayRealOrderEndpointDurableAttemptJournalAppendInput,
+    _checkpoint_marker: PlaceEndpointDurableCheckpointApproved,
+) -> GatewayRealOrderEndpointDurableAttemptJournalDiagnostic {
+    durable_endpoint_attempt_journal_redacted_diagnostic(input.parts.operation)
+}
+
+fn append_cancel_durable_endpoint_attempt_journal(
+    _gate: &EndpointGateApproved,
+    input: GatewayRealOrderEndpointDurableAttemptJournalAppendInput,
+    _checkpoint_marker: CancelEndpointDurableCheckpointApproved,
+) -> GatewayRealOrderEndpointDurableAttemptJournalDiagnostic {
+    durable_endpoint_attempt_journal_redacted_diagnostic(input.parts.operation)
+}
+
+fn durable_endpoint_attempt_journal_redacted_diagnostic(
+    operation: GatewayRealOrderEndpointOperation,
+) -> GatewayRealOrderEndpointDurableAttemptJournalDiagnostic {
+    GatewayRealOrderEndpointDurableAttemptJournalDiagnostic {
+        operation,
+        endpoint_attempt_id_hash_present: true,
+        endpoint_attempt_id_sha256_len: 64,
+        request_fingerprint_bound: true,
+        checkpoint_proof_fingerprint_bound: true,
+        captured_envelope_fingerprint_bound: true,
+        outcome_fingerprint_bound: true,
+        state_transition_result_fingerprint_bound: true,
+        ack_diagnostic_fingerprint_bound: true,
+        append_committed_after_state_transition: true,
+        state_machine_transition_required: true,
+        state_machine_bypass_allowed: false,
+        raw_endpoint_attempt_id_exported: false,
+        raw_request_values_exported: false,
+        raw_broker_order_id_exported: false,
+        raw_path_exported: false,
+        raw_body_exported: false,
+        raw_error_exported: false,
+        runtime_ack_redacted_only: true,
+    }
+}
+
 fn approved_request_parts_constructor_count() -> usize {
     let _place: fn(
         &EndpointGateApproved,
@@ -1371,6 +1650,30 @@ fn endpoint_attempt_diagnostic_count() -> usize {
     let _diagnostic: fn(
         GatewayRealOrderEndpointOperation,
     ) -> GatewayRealOrderEndpointAttemptDiagnostic = endpoint_attempt_redacted_diagnostic;
+    1
+}
+
+fn durable_attempt_journal_append_constructor_count() -> usize {
+    let _place: fn(
+        &EndpointGateApproved,
+        GatewayRealOrderEndpointDurableAttemptJournalAppendInput,
+        PlaceEndpointDurableCheckpointApproved,
+    ) -> GatewayRealOrderEndpointDurableAttemptJournalDiagnostic =
+        append_place_durable_endpoint_attempt_journal;
+    let _cancel: fn(
+        &EndpointGateApproved,
+        GatewayRealOrderEndpointDurableAttemptJournalAppendInput,
+        CancelEndpointDurableCheckpointApproved,
+    ) -> GatewayRealOrderEndpointDurableAttemptJournalDiagnostic =
+        append_cancel_durable_endpoint_attempt_journal;
+    2
+}
+
+fn durable_attempt_journal_diagnostic_count() -> usize {
+    let _diagnostic: fn(
+        GatewayRealOrderEndpointOperation,
+    ) -> GatewayRealOrderEndpointDurableAttemptJournalDiagnostic =
+        durable_endpoint_attempt_journal_redacted_diagnostic;
     1
 }
 
@@ -1981,6 +2284,394 @@ pub fn cancel_http_status_outcome_matrix() -> Vec<GatewayRealOrderEndpointHttpSt
 pub fn http_status_outcome_matrix() -> Vec<GatewayRealOrderEndpointHttpStatusOutcomeEntry> {
     let mut matrix = place_http_status_outcome_matrix();
     matrix.extend(cancel_http_status_outcome_matrix());
+    matrix
+}
+
+fn documented_place_finam_rest_statuses() -> [u16; 4] {
+    [200, 400, 401, 429]
+}
+
+fn documented_cancel_finam_rest_statuses() -> [u16; 5] {
+    [200, 400, 401, 404, 429]
+}
+
+// A matrix row is intentionally explicit for implementation-gate review. This
+// records current REST-doc evidence and defensive/waiver policies without
+// enabling any real endpoint call.
+#[allow(clippy::too_many_arguments)]
+fn finam_status_semantics_entry(
+    operation: GatewayRealOrderEndpointOperation,
+    status_code: u16,
+    documented_by_finam_rest_docs: bool,
+    defensive_policy_only: bool,
+    waiver_required_before_live: bool,
+    body_policy: GatewayRealOrderEndpointFinamStatusBodyPolicy,
+    future_send_outcome: GatewayRealOrderEndpointFutureSendOutcome,
+    order_path_event: OrderPathEvent,
+    order_path_state: OrderPathState,
+    ack_status: CommandAckStatus,
+    ack_reason_code: Option<CommandAckReasonCode>,
+    operator_disarm_signal: Option<OperatorDisarmSignal>,
+    body_required_for_immediate_submitted: bool,
+    body_optional_for_cancel_acceptance: bool,
+    empty_body_reconciliation_required: bool,
+    cancel_reconciliation_required: bool,
+) -> GatewayRealOrderEndpointFinamStatusSemanticsEntry {
+    GatewayRealOrderEndpointFinamStatusSemanticsEntry {
+        operation,
+        status_code,
+        documented_by_finam_rest_docs,
+        defensive_policy_only,
+        implementation_gate_evidence_required: !documented_by_finam_rest_docs
+            || waiver_required_before_live,
+        waiver_required_before_live,
+        body_policy,
+        future_send_outcome,
+        order_path_event,
+        order_path_state,
+        ack_status,
+        ack_reason_code,
+        operator_disarm_signal,
+        body_required_for_immediate_submitted,
+        body_optional_for_cancel_acceptance,
+        empty_body_reconciliation_required,
+        cancel_reconciliation_required,
+        no_blind_retry: true,
+        raw_path_exported: false,
+        raw_body_exported: false,
+        raw_error_exported: false,
+        raw_broker_order_id_exported: false,
+        state_machine_transition_required: true,
+    }
+}
+
+pub fn place_finam_status_semantics_matrix(
+) -> Vec<GatewayRealOrderEndpointFinamStatusSemanticsEntry> {
+    use GatewayRealOrderEndpointFinamStatusBodyPolicy as BodyPolicy;
+    use GatewayRealOrderEndpointFutureSendOutcome as Outcome;
+
+    vec![
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            200,
+            true,
+            false,
+            false,
+            BodyPolicy::PlaceSuccessBodyRequiredForSubmitted,
+            Outcome::Accepted,
+            OrderPathEvent::SubmitAccepted,
+            OrderPathState::Submitted,
+            CommandAckStatus::Submitted,
+            None,
+            None,
+            true,
+            false,
+            false,
+            false,
+        ),
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            201,
+            false,
+            true,
+            true,
+            BodyPolicy::Undocumented2xxRequiresEvidenceOrWaiver,
+            Outcome::DecodeError,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::ResponseDecodeError),
+            Some(OperatorDisarmSignal::OrderEndpointDecodeError),
+            false,
+            false,
+            true,
+            false,
+        ),
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            202,
+            false,
+            true,
+            true,
+            BodyPolicy::Undocumented2xxRequiresEvidenceOrWaiver,
+            Outcome::DecodeError,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::ResponseDecodeError),
+            Some(OperatorDisarmSignal::OrderEndpointDecodeError),
+            false,
+            false,
+            true,
+            false,
+        ),
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            204,
+            false,
+            true,
+            true,
+            BodyPolicy::Undocumented2xxRequiresEvidenceOrWaiver,
+            Outcome::DecodeError,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::ResponseDecodeError),
+            Some(OperatorDisarmSignal::OrderEndpointDecodeError),
+            false,
+            false,
+            true,
+            false,
+        ),
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            400,
+            true,
+            false,
+            false,
+            BodyPolicy::BrokerRejectBodyRedacted,
+            Outcome::Rejected,
+            OrderPathEvent::BrokerReject,
+            OrderPathState::BrokerRejected,
+            CommandAckStatus::Rejected,
+            Some(CommandAckReasonCode::BrokerRejected),
+            None,
+            false,
+            false,
+            false,
+            false,
+        ),
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            401,
+            true,
+            false,
+            false,
+            BodyPolicy::UnauthorizedBodyRedacted,
+            Outcome::Unauthorized,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::Unauthorized),
+            Some(OperatorDisarmSignal::OrderEndpointUnauthorized),
+            false,
+            false,
+            false,
+            false,
+        ),
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            429,
+            true,
+            false,
+            false,
+            BodyPolicy::RateLimitBodyRedacted,
+            Outcome::RateLimited,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::RateLimited),
+            Some(OperatorDisarmSignal::OrderEndpointRateLimited),
+            false,
+            false,
+            false,
+            false,
+        ),
+    ]
+}
+
+pub fn cancel_finam_status_semantics_matrix(
+) -> Vec<GatewayRealOrderEndpointFinamStatusSemanticsEntry> {
+    use GatewayRealOrderEndpointFinamStatusBodyPolicy as BodyPolicy;
+    use GatewayRealOrderEndpointFutureSendOutcome as Outcome;
+
+    vec![
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            200,
+            true,
+            false,
+            false,
+            BodyPolicy::CancelSuccessBodyOptional,
+            Outcome::Accepted,
+            OrderPathEvent::CancelAccepted,
+            OrderPathState::CancelSubmitted,
+            CommandAckStatus::Submitted,
+            None,
+            None,
+            false,
+            true,
+            false,
+            false,
+        ),
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            201,
+            false,
+            true,
+            true,
+            BodyPolicy::Undocumented2xxRequiresEvidenceOrWaiver,
+            Outcome::DecodeError,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::ResponseDecodeError),
+            Some(OperatorDisarmSignal::OrderEndpointDecodeError),
+            false,
+            false,
+            true,
+            true,
+        ),
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            202,
+            false,
+            true,
+            true,
+            BodyPolicy::Undocumented2xxRequiresEvidenceOrWaiver,
+            Outcome::DecodeError,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::ResponseDecodeError),
+            Some(OperatorDisarmSignal::OrderEndpointDecodeError),
+            false,
+            false,
+            true,
+            true,
+        ),
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            204,
+            false,
+            true,
+            true,
+            BodyPolicy::Undocumented2xxRequiresEvidenceOrWaiver,
+            Outcome::DecodeError,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::ResponseDecodeError),
+            Some(OperatorDisarmSignal::OrderEndpointDecodeError),
+            false,
+            false,
+            true,
+            true,
+        ),
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            400,
+            true,
+            false,
+            false,
+            BodyPolicy::BrokerRejectBodyRedacted,
+            Outcome::Rejected,
+            OrderPathEvent::CancelRejected,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Rejected,
+            Some(CommandAckReasonCode::BrokerRejected),
+            None,
+            false,
+            false,
+            false,
+            false,
+        ),
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            401,
+            true,
+            false,
+            false,
+            BodyPolicy::UnauthorizedBodyRedacted,
+            Outcome::Unauthorized,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::Unauthorized),
+            Some(OperatorDisarmSignal::OrderEndpointUnauthorized),
+            false,
+            false,
+            false,
+            false,
+        ),
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            404,
+            true,
+            false,
+            false,
+            BodyPolicy::NotFoundRequiresReadOnlyReconciliation,
+            Outcome::TimeoutUnknownPending,
+            OrderPathEvent::CancelTimedOut,
+            OrderPathState::CancelTimeoutUnknownPending,
+            CommandAckStatus::UnknownPending,
+            Some(CommandAckReasonCode::ReconciliationRequired),
+            Some(OperatorDisarmSignal::CancelTimeoutUnknownPending),
+            false,
+            false,
+            false,
+            true,
+        ),
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            409,
+            false,
+            true,
+            true,
+            BodyPolicy::NotFoundRequiresReadOnlyReconciliation,
+            Outcome::TimeoutUnknownPending,
+            OrderPathEvent::CancelTimedOut,
+            OrderPathState::CancelTimeoutUnknownPending,
+            CommandAckStatus::UnknownPending,
+            Some(CommandAckReasonCode::ReconciliationRequired),
+            Some(OperatorDisarmSignal::CancelTimeoutUnknownPending),
+            false,
+            false,
+            false,
+            true,
+        ),
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            410,
+            false,
+            true,
+            true,
+            BodyPolicy::NotFoundRequiresReadOnlyReconciliation,
+            Outcome::TimeoutUnknownPending,
+            OrderPathEvent::CancelTimedOut,
+            OrderPathState::CancelTimeoutUnknownPending,
+            CommandAckStatus::UnknownPending,
+            Some(CommandAckReasonCode::ReconciliationRequired),
+            Some(OperatorDisarmSignal::CancelTimeoutUnknownPending),
+            false,
+            false,
+            false,
+            true,
+        ),
+        finam_status_semantics_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            429,
+            true,
+            false,
+            false,
+            BodyPolicy::RateLimitBodyRedacted,
+            Outcome::RateLimited,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::RateLimited),
+            Some(OperatorDisarmSignal::OrderEndpointRateLimited),
+            false,
+            false,
+            false,
+            false,
+        ),
+    ]
+}
+
+pub fn finam_status_semantics_matrix() -> Vec<GatewayRealOrderEndpointFinamStatusSemanticsEntry> {
+    let mut matrix = place_finam_status_semantics_matrix();
+    matrix.extend(cancel_finam_status_semantics_matrix());
     matrix
 }
 
@@ -2875,6 +3566,139 @@ mod tests {
         );
         assert_eq!(shape.endpoint_attempt_journal_design.constructor_count, 2);
         assert_eq!(shape.endpoint_attempt_journal_design.diagnostic_count, 1);
+        assert!(
+            shape
+                .durable_attempt_journal_contract_design
+                .durable_journal_schema_design_only
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_contract_design
+                .journal_record_internal_only
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_contract_design
+                .append_requires_endpoint_gate
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_contract_design
+                .append_requires_approved_request_parts
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_contract_design
+                .append_requires_operation_specific_checkpoint_marker
+        );
+        assert_eq!(
+            shape
+                .durable_attempt_journal_contract_design
+                .endpoint_attempt_id_hash_len,
+            64
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_contract_design
+                .binds_request_fingerprint
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_contract_design
+                .binds_checkpoint_proof_fingerprint
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_contract_design
+                .binds_captured_envelope_fingerprint
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_contract_design
+                .binds_outcome_fingerprint
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_contract_design
+                .binds_state_transition_result_fingerprint
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_contract_design
+                .binds_ack_diagnostic_fingerprint
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_contract_design
+                .append_committed_after_state_transition
+        );
+        assert!(
+            !shape
+                .durable_attempt_journal_contract_design
+                .raw_endpoint_attempt_id_exported
+        );
+        assert!(
+            !shape
+                .durable_attempt_journal_contract_design
+                .raw_request_values_exported
+        );
+        assert!(
+            !shape
+                .durable_attempt_journal_contract_design
+                .raw_broker_order_id_exported
+        );
+        assert!(
+            !shape
+                .durable_attempt_journal_contract_design
+                .raw_path_exported
+        );
+        assert!(
+            !shape
+                .durable_attempt_journal_contract_design
+                .raw_body_exported
+        );
+        assert!(
+            !shape
+                .durable_attempt_journal_contract_design
+                .raw_error_exported
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_contract_design
+                .diagnostic_redacted_only
+        );
+        assert!(
+            !shape
+                .durable_attempt_journal_contract_design
+                .diagnostic_can_feed_transport
+        );
+        assert!(
+            !shape
+                .durable_attempt_journal_contract_design
+                .diagnostic_can_bypass_state_machine
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_contract_design
+                .exact_once_attempt_id_unique_required
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_contract_design
+                .replay_requires_same_fingerprint_set
+        );
+        assert_eq!(
+            shape
+                .durable_attempt_journal_contract_design
+                .append_constructor_count,
+            2
+        );
+        assert_eq!(
+            shape
+                .durable_attempt_journal_contract_design
+                .diagnostic_count,
+            1
+        );
         assert!(shape.http_status_outcome_matrix_design.matrix_serializable);
         assert_eq!(
             shape.http_status_outcome_matrix_design.place_entry_count,
@@ -2940,6 +3764,100 @@ mod tests {
             shape
                 .http_status_outcome_matrix_design
                 .state_machine_transition_required
+        );
+        assert!(
+            shape
+                .finam_status_semantics_design
+                .official_rest_docs_checked
+        );
+        assert_eq!(
+            shape
+                .finam_status_semantics_design
+                .documented_place_status_count,
+            4
+        );
+        assert_eq!(
+            shape
+                .finam_status_semantics_design
+                .documented_cancel_status_count,
+            5
+        );
+        assert_eq!(
+            shape.finam_status_semantics_design.place_status_entry_count,
+            7
+        );
+        assert_eq!(
+            shape
+                .finam_status_semantics_design
+                .cancel_status_entry_count,
+            10
+        );
+        assert_eq!(
+            shape.finam_status_semantics_design.total_status_entry_count,
+            17
+        );
+        assert!(
+            shape
+                .finam_status_semantics_design
+                .documented_success_status_only_200
+        );
+        assert!(
+            shape
+                .finam_status_semantics_design
+                .undocumented_success_201_202_204_require_evidence_or_waiver
+        );
+        assert!(
+            shape
+                .finam_status_semantics_design
+                .place_success_body_required_for_immediate_submitted
+        );
+        assert!(
+            shape
+                .finam_status_semantics_design
+                .place_empty_body_requires_reconciliation
+        );
+        assert!(
+            shape
+                .finam_status_semantics_design
+                .cancel_success_body_optional
+        );
+        assert!(
+            shape
+                .finam_status_semantics_design
+                .cancel_missing_id_requires_reconciliation
+        );
+        assert!(
+            shape
+                .finam_status_semantics_design
+                .cancel_404_documented_and_requires_reconciliation
+        );
+        assert!(
+            !shape
+                .finam_status_semantics_design
+                .cancel_409_410_documented_by_finam_rest_docs
+        );
+        assert!(
+            shape
+                .finam_status_semantics_design
+                .cancel_409_410_policy_or_waiver_required
+        );
+        assert!(
+            shape
+                .finam_status_semantics_design
+                .defensive_422_502_not_documented_as_finam_order_status
+        );
+        assert!(
+            !shape
+                .finam_status_semantics_design
+                .status_semantics_can_bypass_state_machine
+        );
+        assert!(!shape.finam_status_semantics_design.raw_path_exported);
+        assert!(!shape.finam_status_semantics_design.raw_body_exported);
+        assert!(!shape.finam_status_semantics_design.raw_error_exported);
+        assert!(
+            !shape
+                .finam_status_semantics_design
+                .raw_broker_order_id_exported
         );
         assert!(
             shape
@@ -4255,6 +5173,215 @@ mod tests {
         );
         assert!(!journal_source.contains("GatewayRealOrderEndpointFutureSendDiagnostic"));
         assert!(!journal_source.contains("GatewayRealOrderEndpointAcceptedResultDiagnostic"));
+    }
+
+    #[test]
+    fn durable_endpoint_attempt_journal_contract_binds_all_fingerprints() {
+        fn assert_place_append_signature(
+            _f: fn(
+                &EndpointGateApproved,
+                GatewayRealOrderEndpointDurableAttemptJournalAppendInput,
+                PlaceEndpointDurableCheckpointApproved,
+            ) -> GatewayRealOrderEndpointDurableAttemptJournalDiagnostic,
+        ) {
+        }
+        fn assert_cancel_append_signature(
+            _f: fn(
+                &EndpointGateApproved,
+                GatewayRealOrderEndpointDurableAttemptJournalAppendInput,
+                CancelEndpointDurableCheckpointApproved,
+            ) -> GatewayRealOrderEndpointDurableAttemptJournalDiagnostic,
+        ) {
+        }
+
+        assert_place_append_signature(append_place_durable_endpoint_attempt_journal);
+        assert_cancel_append_signature(append_cancel_durable_endpoint_attempt_journal);
+        assert_eq!(durable_attempt_journal_append_constructor_count(), 2);
+        assert_eq!(durable_attempt_journal_diagnostic_count(), 1);
+
+        let diagnostic = durable_endpoint_attempt_journal_redacted_diagnostic(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+        );
+        assert_eq!(
+            diagnostic.operation,
+            GatewayRealOrderEndpointOperation::CancelOrder
+        );
+        assert!(diagnostic.endpoint_attempt_id_hash_present);
+        assert_eq!(diagnostic.endpoint_attempt_id_sha256_len, 64);
+        assert!(diagnostic.request_fingerprint_bound);
+        assert!(diagnostic.checkpoint_proof_fingerprint_bound);
+        assert!(diagnostic.captured_envelope_fingerprint_bound);
+        assert!(diagnostic.outcome_fingerprint_bound);
+        assert!(diagnostic.state_transition_result_fingerprint_bound);
+        assert!(diagnostic.ack_diagnostic_fingerprint_bound);
+        assert!(diagnostic.append_committed_after_state_transition);
+        assert!(diagnostic.state_machine_transition_required);
+        assert!(!diagnostic.state_machine_bypass_allowed);
+        assert!(!diagnostic.raw_endpoint_attempt_id_exported);
+        assert!(!diagnostic.raw_request_values_exported);
+        assert!(!diagnostic.raw_broker_order_id_exported);
+        assert!(!diagnostic.raw_path_exported);
+        assert!(!diagnostic.raw_body_exported);
+        assert!(!diagnostic.raw_error_exported);
+        assert!(diagnostic.runtime_ack_redacted_only);
+
+        let source = include_str!("real_order_endpoint.rs");
+        for internal_type in [
+            "GatewayRealOrderEndpointCheckpointProofFingerprint",
+            "GatewayRealOrderEndpointCapturedEnvelopeFingerprint",
+            "GatewayRealOrderEndpointOutcomeClassifierFingerprint",
+            "GatewayRealOrderEndpointStateTransitionResultRecord",
+            "GatewayRealOrderEndpointAckDiagnosticFingerprint",
+            "GatewayRealOrderEndpointDurableAttemptJournalAppendInput",
+            "GatewayRealOrderEndpointDurableAttemptJournalRecord",
+        ] {
+            assert!(source.contains(&format!("struct {internal_type}")));
+            assert!(!source.contains(&format!("pub struct {internal_type}")));
+            assert!(!source.contains(&format!("impl std::fmt::Debug for {internal_type}")));
+        }
+
+        let append_source = source
+            .split("fn append_place_durable_endpoint_attempt_journal")
+            .nth(1)
+            .expect("durable journal append source")
+            .split("fn approved_request_parts_constructor_count")
+            .next()
+            .expect("durable journal append boundary");
+        assert!(append_source.contains("EndpointGateApproved"));
+        assert!(append_source.contains("GatewayRealOrderEndpointDurableAttemptJournalAppendInput"));
+        assert!(append_source.contains("PlaceEndpointDurableCheckpointApproved"));
+        assert!(append_source.contains("CancelEndpointDurableCheckpointApproved"));
+        assert!(
+            !append_source.contains("GatewayRealOrderEndpointCapturedResponseEnvelopeDiagnostic")
+        );
+        assert!(!append_source.contains("GatewayRealOrderEndpointFutureSendDiagnostic"));
+        assert!(!append_source.contains("GatewayRealOrderEndpointAcceptedResultDiagnostic"));
+    }
+
+    #[test]
+    fn finam_status_semantics_records_documented_and_waiver_statuses() {
+        use GatewayRealOrderEndpointFinamStatusBodyPolicy as BodyPolicy;
+        use GatewayRealOrderEndpointFutureSendOutcome as Outcome;
+
+        assert_eq!(documented_place_finam_rest_statuses(), [200, 400, 401, 429]);
+        assert_eq!(
+            documented_cancel_finam_rest_statuses(),
+            [200, 400, 401, 404, 429]
+        );
+
+        let place = place_finam_status_semantics_matrix();
+        let cancel = cancel_finam_status_semantics_matrix();
+        let combined = finam_status_semantics_matrix();
+        assert_eq!(place.len(), 7);
+        assert_eq!(cancel.len(), 10);
+        assert_eq!(combined.len(), 17);
+
+        for entry in &combined {
+            assert!(entry.no_blind_retry);
+            assert!(entry.state_machine_transition_required);
+            assert!(!entry.raw_path_exported);
+            assert!(!entry.raw_body_exported);
+            assert!(!entry.raw_error_exported);
+            assert!(!entry.raw_broker_order_id_exported);
+        }
+
+        fn find_status_entry(
+            matrix: &[GatewayRealOrderEndpointFinamStatusSemanticsEntry],
+            status_code: u16,
+        ) -> &GatewayRealOrderEndpointFinamStatusSemanticsEntry {
+            matrix
+                .iter()
+                .find(|entry| entry.status_code == status_code)
+                .expect("FINAM status semantics entry")
+        }
+
+        let place_ok = find_status_entry(&place, 200);
+        assert!(place_ok.documented_by_finam_rest_docs);
+        assert!(!place_ok.defensive_policy_only);
+        assert!(!place_ok.implementation_gate_evidence_required);
+        assert_eq!(
+            place_ok.body_policy,
+            BodyPolicy::PlaceSuccessBodyRequiredForSubmitted
+        );
+        assert_eq!(place_ok.future_send_outcome, Outcome::Accepted);
+        assert_eq!(place_ok.order_path_event, OrderPathEvent::SubmitAccepted);
+        assert_eq!(place_ok.order_path_state, OrderPathState::Submitted);
+        assert_eq!(place_ok.ack_status, CommandAckStatus::Submitted);
+        assert!(place_ok.body_required_for_immediate_submitted);
+
+        for status_code in [201, 202, 204] {
+            let place_undocumented = find_status_entry(&place, status_code);
+            assert!(!place_undocumented.documented_by_finam_rest_docs);
+            assert!(place_undocumented.defensive_policy_only);
+            assert!(place_undocumented.implementation_gate_evidence_required);
+            assert!(place_undocumented.waiver_required_before_live);
+            assert_eq!(
+                place_undocumented.body_policy,
+                BodyPolicy::Undocumented2xxRequiresEvidenceOrWaiver
+            );
+            assert_eq!(place_undocumented.future_send_outcome, Outcome::DecodeError);
+            assert_eq!(
+                place_undocumented.order_path_state,
+                OrderPathState::ManualInterventionRequired
+            );
+            assert!(place_undocumented.empty_body_reconciliation_required);
+        }
+
+        let cancel_ok = find_status_entry(&cancel, 200);
+        assert!(cancel_ok.documented_by_finam_rest_docs);
+        assert_eq!(cancel_ok.body_policy, BodyPolicy::CancelSuccessBodyOptional);
+        assert_eq!(cancel_ok.future_send_outcome, Outcome::Accepted);
+        assert_eq!(cancel_ok.order_path_event, OrderPathEvent::CancelAccepted);
+        assert_eq!(cancel_ok.order_path_state, OrderPathState::CancelSubmitted);
+        assert!(cancel_ok.body_optional_for_cancel_acceptance);
+
+        let cancel_404 = find_status_entry(&cancel, 404);
+        assert!(cancel_404.documented_by_finam_rest_docs);
+        assert_eq!(
+            cancel_404.body_policy,
+            BodyPolicy::NotFoundRequiresReadOnlyReconciliation
+        );
+        assert_eq!(
+            cancel_404.future_send_outcome,
+            Outcome::TimeoutUnknownPending
+        );
+        assert_eq!(cancel_404.order_path_event, OrderPathEvent::CancelTimedOut);
+        assert_eq!(
+            cancel_404.order_path_state,
+            OrderPathState::CancelTimeoutUnknownPending
+        );
+        assert_eq!(cancel_404.ack_status, CommandAckStatus::UnknownPending);
+        assert_eq!(
+            cancel_404.ack_reason_code,
+            Some(CommandAckReasonCode::ReconciliationRequired)
+        );
+        assert!(cancel_404.cancel_reconciliation_required);
+
+        for status_code in [409, 410] {
+            let cancel_defensive = find_status_entry(&cancel, status_code);
+            assert!(!cancel_defensive.documented_by_finam_rest_docs);
+            assert!(cancel_defensive.defensive_policy_only);
+            assert!(cancel_defensive.implementation_gate_evidence_required);
+            assert!(cancel_defensive.waiver_required_before_live);
+            assert!(cancel_defensive.cancel_reconciliation_required);
+            assert_eq!(
+                cancel_defensive.order_path_state,
+                OrderPathState::CancelTimeoutUnknownPending
+            );
+        }
+
+        let place_400 = find_status_entry(&place, 400);
+        assert_eq!(place_400.future_send_outcome, Outcome::Rejected);
+        assert_eq!(place_400.ack_status, CommandAckStatus::Rejected);
+        assert_eq!(
+            place_400.ack_reason_code,
+            Some(CommandAckReasonCode::BrokerRejected)
+        );
+
+        let rendered = serde_json::to_string(&combined).expect("status semantics serializes");
+        assert!(!rendered.contains("ACC_TEST_0001"));
+        assert!(!rendered.contains("ORDER_TEST_0001"));
+        assert!(!rendered.contains("/v1/accounts/ACC_TEST_0001"));
     }
 
     #[test]

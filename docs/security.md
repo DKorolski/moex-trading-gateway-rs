@@ -245,6 +245,11 @@ Place/Cancel HTTP status/body-shape outcome matrix. Attempt diagnostics export
 only endpoint-attempt hashes and binding booleans; status mapping requires the
 captured envelope, attempt journal, and state-machine transition before future
 ACK/runtime export.
+M3c-16 refines that boundary into a durable endpoint-attempt journal contract
+whose append input binds only request/checkpoint/envelope/outcome/state/ACK
+fingerprints. It also records FINAM status semantics: documented `200` success,
+undocumented `201/202/204` requiring evidence or waiver, and cancel `404`
+reconciliation without raw path/body/error/broker-order-id export.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

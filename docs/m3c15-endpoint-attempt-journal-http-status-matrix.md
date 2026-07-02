@@ -61,6 +61,14 @@ Diagnostics remain output-only. They cannot construct request parts, recreate a
 captured envelope, feed a future transport boundary, or bypass the order-path
 state machine.
 
+## Follow-up in M3c-16
+
+M3c-16 turns the design binding into a durable endpoint-attempt journal contract
+with fingerprint-only request/checkpoint/envelope/outcome/state/ACK evidence.
+It also clarifies FINAM status semantics: documented success remains `200`;
+undocumented `201/202/204` and cancel `409/410` need evidence or waiver before
+live implementation.
+
 ## Still not allowed
 
 - FINAM real PlaceOrder `POST`;

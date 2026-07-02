@@ -66,6 +66,12 @@ if rg -n 'pub fn bind_(place|cancel)_endpoint_attempt_journal' "$target" >/tmp/m
 fi
 rm -f /tmp/moex_transition_forbidden.$$
 
+if rg -n 'pub fn append_(place|cancel)_durable_endpoint_attempt_journal' "$target" >/tmp/moex_transition_forbidden.$$; then
+  cat /tmp/moex_transition_forbidden.$$ >&2
+  report_failure "durable endpoint attempt journal append functions must not be public"
+fi
+rm -f /tmp/moex_transition_forbidden.$$
+
 if rg -n 'consume_approved_request_parts_for_future_endpoint\([^)]*GatewayRealOrderEndpoint.*Diagnostic' "$target" >/tmp/moex_transition_forbidden.$$; then
   cat /tmp/moex_transition_forbidden.$$ >&2
   report_failure "diagnostic DTOs must not feed the approved request-parts consumer"
@@ -88,6 +94,13 @@ for internal_type in \
   GatewayRealOrderEndpointSqliteTransitionCommitProof \
   GatewayRealOrderEndpointCapturedEnvelopeRecord \
   GatewayRealOrderEndpointAttemptJournalBinding \
+  GatewayRealOrderEndpointCheckpointProofFingerprint \
+  GatewayRealOrderEndpointCapturedEnvelopeFingerprint \
+  GatewayRealOrderEndpointOutcomeClassifierFingerprint \
+  GatewayRealOrderEndpointStateTransitionResultRecord \
+  GatewayRealOrderEndpointAckDiagnosticFingerprint \
+  GatewayRealOrderEndpointDurableAttemptJournalAppendInput \
+  GatewayRealOrderEndpointDurableAttemptJournalRecord \
   PlaceEndpointDurableCheckpointApproved \
   CancelEndpointDurableCheckpointApproved
 do
@@ -229,6 +242,33 @@ required_patterns=(
   "binds_captured_envelope: true"
   "binds_outcome_classifier: true"
   "diagnostic_redacted_only: true"
+  "GatewayRealOrderEndpointCheckpointProofFingerprint"
+  "GatewayRealOrderEndpointCapturedEnvelopeFingerprint"
+  "GatewayRealOrderEndpointOutcomeClassifierFingerprint"
+  "GatewayRealOrderEndpointStateTransitionResultRecord"
+  "GatewayRealOrderEndpointAckDiagnosticFingerprint"
+  "GatewayRealOrderEndpointDurableAttemptJournalAppendInput"
+  "GatewayRealOrderEndpointDurableAttemptJournalRecord"
+  "GatewayRealOrderEndpointDurableAttemptJournalContractDesignShape"
+  "GatewayRealOrderEndpointDurableAttemptJournalDiagnostic"
+  "append_place_durable_endpoint_attempt_journal"
+  "append_cancel_durable_endpoint_attempt_journal"
+  "durable_endpoint_attempt_journal_redacted_diagnostic"
+  "durable_journal_schema_design_only: true"
+  "journal_record_internal_only: true"
+  "append_requires_endpoint_gate: true"
+  "append_requires_approved_request_parts: true"
+  "append_requires_operation_specific_checkpoint_marker: true"
+  "binds_checkpoint_proof_fingerprint: true"
+  "binds_captured_envelope_fingerprint: true"
+  "binds_outcome_fingerprint: true"
+  "binds_state_transition_result_fingerprint: true"
+  "binds_ack_diagnostic_fingerprint: true"
+  "append_committed_after_state_transition: true"
+  "exact_once_attempt_id_unique_required: true"
+  "replay_requires_same_fingerprint_set: true"
+  "raw_endpoint_attempt_id_exported: false"
+  "raw_request_values_exported: false"
   "GatewayRealOrderEndpointHttpBodyShape"
   "GatewayRealOrderEndpointHttpStatusOutcomeEntry"
   "GatewayRealOrderEndpointHttpStatusOutcomeMatrixDesignShape"
@@ -250,6 +290,30 @@ required_patterns=(
   "covers_malformed_body_decode_error: true"
   "covers_transport_category_failures: true"
   "place_cancel_specific_mapping: true"
+  "GatewayRealOrderEndpointFinamStatusBodyPolicy"
+  "GatewayRealOrderEndpointFinamStatusSemanticsEntry"
+  "GatewayRealOrderEndpointFinamStatusSemanticsDesignShape"
+  "documented_place_finam_rest_statuses"
+  "documented_cancel_finam_rest_statuses"
+  "place_finam_status_semantics_matrix"
+  "cancel_finam_status_semantics_matrix"
+  "finam_status_semantics_matrix"
+  "PlaceSuccessBodyRequiredForSubmitted"
+  "CancelSuccessBodyOptional"
+  "Undocumented2xxRequiresEvidenceOrWaiver"
+  "NotFoundRequiresReadOnlyReconciliation"
+  "official_rest_docs_checked: true"
+  "documented_success_status_only_200: true"
+  "undocumented_success_201_202_204_require_evidence_or_waiver: true"
+  "place_success_body_required_for_immediate_submitted: true"
+  "place_empty_body_requires_reconciliation: true"
+  "cancel_success_body_optional: true"
+  "cancel_missing_id_requires_reconciliation: true"
+  "cancel_404_documented_and_requires_reconciliation: true"
+  "cancel_409_410_documented_by_finam_rest_docs: false"
+  "cancel_409_410_policy_or_waiver_required: true"
+  "defensive_422_502_not_documented_as_finam_order_status: true"
+  "status_semantics_can_bypass_state_machine: false"
   "GatewayRealOrderEndpointOutcomeStatePolicyEntry"
   "GatewayRealOrderEndpointAcceptedBrokerIdPolicyEntry"
   "GatewayRealOrderEndpointOutcomeStatePolicyDesignShape"

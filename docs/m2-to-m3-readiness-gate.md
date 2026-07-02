@@ -1346,6 +1346,10 @@ Implemented while still keeping all broker order endpoints disabled:
   envelope, and outcome classifier through a private endpoint-attempt
   fingerprint, and records Place/Cancel-specific status/body-shape mappings
   that still require state-machine transition before any ACK/runtime export;
+- M3c-16 durable attempt journal / FINAM status semantics: records the future
+  append-only endpoint-attempt journal schema as fingerprint-only evidence,
+  and distinguishes documented FINAM REST `200` success from undocumented
+  `201/202/204` and cancel `409/410` defensive/waiver policies;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:

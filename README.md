@@ -170,9 +170,9 @@ M3c self-contained gate evidence report, source-archive content binding,
 negative forbidden-surface harness, M3c implementation transition plan, and
 M3c implementation-boundary architecture decision, and M3c scanner transition
 API shape with gated route-rendering boundary, M3c outcome state/ACK policy,
-M3c transport/accepted-result classifier design, and M3c request-bound
-checkpoint/captured-envelope design, and M3c endpoint-attempt journal/status
-matrix design,
+M3c transport/accepted-result classifier design, M3c request-bound
+checkpoint/captured-envelope design, M3c endpoint-attempt journal/status
+matrix design, and M3c durable attempt journal / FINAM status semantics design,
 store invariants, broker-order-id uniqueness, cancel timeout policy, dry
 window/backoff rate limiting, FINAM request DTO builders without HTTP send,
 workspace-wide source-scan guard tests, and price/reference/notional guard
@@ -238,6 +238,7 @@ See:
 - [M3c-13 transport category and accepted-result classifier design](docs/m3c13-transport-accepted-classifier-design.md)
 - [M3c-14 request-bound checkpoint and captured envelope design](docs/m3c14-request-bound-checkpoint-captured-envelope.md)
 - [M3c-15 endpoint attempt journal and HTTP status outcome matrix](docs/m3c15-endpoint-attempt-journal-http-status-matrix.md)
+- [M3c-16 durable attempt journal and FINAM status semantics](docs/m3c16-durable-attempt-journal-finam-status-semantics.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

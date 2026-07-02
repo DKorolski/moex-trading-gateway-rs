@@ -147,6 +147,23 @@ place_cancel_specific_mapping = true
 state_machine_transition_required = true
 ```
 
+M3c-16 records durable attempt journal and FINAM status semantics design:
+
+```text
+durable_journal_schema_design_only = true
+append_requires_endpoint_gate = true
+binds_checkpoint_proof_fingerprint = true
+binds_captured_envelope_fingerprint = true
+binds_outcome_fingerprint = true
+binds_state_transition_result_fingerprint = true
+binds_ack_diagnostic_fingerprint = true
+documented_success_status_only_200 = true
+undocumented_success_201_202_204_require_evidence_or_waiver = true
+cancel_404_documented_and_requires_reconciliation = true
+cancel_409_410_policy_or_waiver_required = true
+status_semantics_can_bypass_state_machine = false
+```
+
 The scanner transition guard checks these markers while keeping all real order
 endpoint calls forbidden.
 

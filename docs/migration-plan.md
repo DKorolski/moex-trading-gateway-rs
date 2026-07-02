@@ -1858,6 +1858,35 @@ M3c-15 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-16 durable attempt journal / FINAM status semantics:
+
+- Added future durable endpoint-attempt journal contract design. Journal append
+  remains private/internal and requires endpoint gate, approved request parts,
+  and operation-specific checkpoint marker.
+- The journal record binds endpoint-attempt id, request snapshot, checkpoint
+  proof, captured envelope, outcome, state transition result, and ACK diagnostic
+  through hashes/fingerprints only.
+- Added redacted durable journal diagnostic; it cannot feed transport, bypass
+  the state machine, or export raw endpoint-attempt id, broker order id, path,
+  body, error, or request identity values.
+- Added FINAM status semantics matrix distinguishing documented REST `200`
+  success from undocumented `201/202/204`, which require implementation-gate
+  evidence or waiver before live.
+- Cancel `404` is documented as reconciliation-required; cancel `409/410` stay
+  defensive/waiver policy until FINAM evidence exists.
+- Details are documented in
+  `docs/m3c16-durable-attempt-journal-finam-status-semantics.md`.
+
+M3c-16 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.
