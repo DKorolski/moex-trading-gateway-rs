@@ -27,6 +27,11 @@ place_order_api_shape(&EndpointGateApproved, &FinamPlaceOrderRequestSpec)
 cancel_order_api_shape(&EndpointGateApproved, &FinamCancelOrderRequestSpec)
 ```
 
+M3c-9 extends this boundary with private approved request-parts and rendered
+path types. Those internal types remain non-`Debug` and non-serializable, and
+their constructors require the endpoint gate marker, approved request spec,
+allowlist approval, operator-arm approval, and durable-state checkpoint.
+
 ## Scanner-transition guard
 
 `scripts/order_endpoint_scanner_transition_spec.sh` now rejects any `reqwest`

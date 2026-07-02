@@ -1667,6 +1667,31 @@ M3c-8 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-9 approved request-parts boundary / internal capability hardening:
+
+- Added private `ApprovedOrderEndpointRequestParts` design type inside
+  `crates/finam-gateway/src/real_order_endpoint.rs`.
+- Added separate private `RenderedOrderEndpointPath` type for rendered paths.
+- Both internal types remain non-`Debug`, non-`Serialize`, and
+  non-`Deserialize`.
+- Private constructors require `EndpointGateApproved`, an approved FINAM
+  request spec, account/instrument allowlist approval, operator-arm approval,
+  and a durable-state checkpoint.
+- Exported diagnostics still redact rendered paths and raw body data and cannot
+  feed the request-parts constructors.
+- Details are documented in
+  `docs/m3c9-approved-request-parts-boundary.md`.
+
+M3c-9 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

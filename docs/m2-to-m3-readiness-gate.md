@@ -1315,6 +1315,10 @@ Implemented while still keeping all broker order endpoints disabled:
   internal-only design data, exported diagnostics are redacted, and the
   scanner transition guard rejects any `reqwest` token in the design-only
   module;
+- M3c-9 approved request-parts boundary: private non-`Debug`/non-serializable
+  request parts and rendered path types require `EndpointGateApproved`,
+  approved request specs, account/instrument allowlist approval, operator-arm
+  approval, and durable-state checkpoint before any future endpoint boundary;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:

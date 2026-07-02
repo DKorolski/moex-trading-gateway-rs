@@ -25,7 +25,7 @@ pub enum GatewayRealOrderEndpointOperation {
     CancelOrder,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct GatewayRealOrderEndpointInternalRouteShape {
     pub operation: GatewayRealOrderEndpointOperation,
     pub method_name: &'static str,
@@ -42,6 +42,78 @@ pub struct GatewayRealOrderEndpointRedactedRouteDiagnostic {
     pub gate_marker_required: bool,
 }
 
+struct RenderedOrderEndpointPath(String);
+
+enum ApprovedOrderEndpointRequestSpec {
+    Place(broker_finam::FinamPlaceOrderRequestSpec),
+    Cancel(broker_finam::FinamCancelOrderRequestSpec),
+}
+
+struct OrderEndpointAccountInstrumentAllowlistApproved {
+    pub account_allowlisted: bool,
+    pub instrument_allowlisted: bool,
+}
+
+struct OrderEndpointOperatorArmApproved {
+    pub operator_arm_validated: bool,
+    pub one_shot_arm: bool,
+}
+
+struct OrderEndpointDurableStateCheckpoint {
+    pub intent_recorded_before_endpoint: bool,
+}
+
+struct ApprovedOrderEndpointRequestParts {
+    pub operation: GatewayRealOrderEndpointOperation,
+    pub method_name: &'static str,
+    pub rendered_path: RenderedOrderEndpointPath,
+    pub approved_request_spec: ApprovedOrderEndpointRequestSpec,
+    pub account_instrument_allowlist_approved: bool,
+    pub operator_arm_approved: bool,
+    pub durable_state_checkpoint_present: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GatewayRealOrderEndpointApprovedPartsError {
+    AccountInstrumentAllowlist,
+    OperatorArm,
+    DurableStateCheckpoint,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointApprovedPartsDesignShape {
+    pub approved_request_parts_type_internal: bool,
+    pub rendered_path_type_internal: bool,
+    pub rendered_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub diagnostic_can_construct_request_parts: bool,
+    pub constructors_require_endpoint_gate: bool,
+    pub constructors_require_approved_request_spec: bool,
+    pub constructors_require_account_instrument_allowlist: bool,
+    pub constructors_require_operator_arm: bool,
+    pub constructors_require_durable_state_checkpoint: bool,
+    pub constructor_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointApprovedPartsDiagnostic {
+    pub operation: GatewayRealOrderEndpointOperation,
+    pub method_name: String,
+    pub rendered_path_present: bool,
+    pub rendered_path_redacted: bool,
+    pub rendered_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub account_id_present: bool,
+    pub account_id_len: usize,
+    pub order_id_present: bool,
+    pub order_id_len: Option<usize>,
+    pub symbol_present: bool,
+    pub symbol_len: Option<usize>,
+    pub account_instrument_allowlist_approved: bool,
+    pub operator_arm_approved: bool,
+    pub durable_state_checkpoint_present: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayRealOrderEndpointApiShape {
     pub mode: GatewayRealOrderEndpointBoundaryMode,
@@ -49,6 +121,7 @@ pub struct GatewayRealOrderEndpointApiShape {
     pub route_rendering_requires_gate_marker: bool,
     pub http_send_requires_gate_marker: bool,
     pub api_shape_contains_route_templates: bool,
+    pub approved_request_parts_design: GatewayRealOrderEndpointApprovedPartsDesignShape,
     pub runtime_ack_id_policy: RuntimeCommandAckIdPolicy,
     pub scanner_transition_spec: GatewayRealOrderEndpointScannerTransitionSpec,
 }
@@ -73,6 +146,19 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
         route_rendering_requires_gate_marker: true,
         http_send_requires_gate_marker: true,
         api_shape_contains_route_templates: false,
+        approved_request_parts_design: GatewayRealOrderEndpointApprovedPartsDesignShape {
+            approved_request_parts_type_internal: true,
+            rendered_path_type_internal: true,
+            rendered_path_exported: false,
+            raw_body_exported: false,
+            diagnostic_can_construct_request_parts: false,
+            constructors_require_endpoint_gate: true,
+            constructors_require_approved_request_spec: true,
+            constructors_require_account_instrument_allowlist: true,
+            constructors_require_operator_arm: true,
+            constructors_require_durable_state_checkpoint: true,
+            constructor_count: approved_request_parts_constructor_count(),
+        },
         runtime_ack_id_policy: RuntimeCommandAckIdPolicy::RedactedRuntimeAckOnly,
         scanner_transition_spec: GatewayRealOrderEndpointScannerTransitionSpec {
             current_mode: M3cOrderEndpointScannerTransitionMode::CurrentDenyAllOrderPostDelete,
@@ -118,6 +204,135 @@ fn redacted_route_diagnostic(
     }
 }
 
+fn render_path_from_segments(segments: Vec<String>) -> RenderedOrderEndpointPath {
+    RenderedOrderEndpointPath(format!("/{}", segments.join("/")))
+}
+
+fn validate_request_part_inputs(
+    allowlist: &OrderEndpointAccountInstrumentAllowlistApproved,
+    operator_arm: &OrderEndpointOperatorArmApproved,
+    checkpoint: &OrderEndpointDurableStateCheckpoint,
+) -> Result<(), GatewayRealOrderEndpointApprovedPartsError> {
+    if !(allowlist.account_allowlisted && allowlist.instrument_allowlisted) {
+        return Err(GatewayRealOrderEndpointApprovedPartsError::AccountInstrumentAllowlist);
+    }
+    if !(operator_arm.operator_arm_validated && operator_arm.one_shot_arm) {
+        return Err(GatewayRealOrderEndpointApprovedPartsError::OperatorArm);
+    }
+    if !checkpoint.intent_recorded_before_endpoint {
+        return Err(GatewayRealOrderEndpointApprovedPartsError::DurableStateCheckpoint);
+    }
+    Ok(())
+}
+
+fn build_place_approved_request_parts(
+    _gate: &EndpointGateApproved,
+    approved_spec: &broker_finam::FinamPlaceOrderRequestSpec,
+    allowlist: &OrderEndpointAccountInstrumentAllowlistApproved,
+    operator_arm: &OrderEndpointOperatorArmApproved,
+    checkpoint: &OrderEndpointDurableStateCheckpoint,
+) -> Result<ApprovedOrderEndpointRequestParts, GatewayRealOrderEndpointApprovedPartsError> {
+    validate_request_part_inputs(allowlist, operator_arm, checkpoint)?;
+    let route = place_order_route_shape();
+    Ok(ApprovedOrderEndpointRequestParts {
+        operation: route.operation,
+        method_name: route.method_name,
+        rendered_path: render_path_from_segments(approved_spec.rest_path_segments()),
+        approved_request_spec: ApprovedOrderEndpointRequestSpec::Place(approved_spec.clone()),
+        account_instrument_allowlist_approved: true,
+        operator_arm_approved: true,
+        durable_state_checkpoint_present: true,
+    })
+}
+
+fn build_cancel_approved_request_parts(
+    _gate: &EndpointGateApproved,
+    approved_spec: &broker_finam::FinamCancelOrderRequestSpec,
+    allowlist: &OrderEndpointAccountInstrumentAllowlistApproved,
+    operator_arm: &OrderEndpointOperatorArmApproved,
+    checkpoint: &OrderEndpointDurableStateCheckpoint,
+) -> Result<ApprovedOrderEndpointRequestParts, GatewayRealOrderEndpointApprovedPartsError> {
+    validate_request_part_inputs(allowlist, operator_arm, checkpoint)?;
+    let route = cancel_order_route_shape();
+    Ok(ApprovedOrderEndpointRequestParts {
+        operation: route.operation,
+        method_name: route.method_name,
+        rendered_path: render_path_from_segments(approved_spec.rest_path_segments()),
+        approved_request_spec: ApprovedOrderEndpointRequestSpec::Cancel(approved_spec.clone()),
+        account_instrument_allowlist_approved: true,
+        operator_arm_approved: true,
+        durable_state_checkpoint_present: true,
+    })
+}
+
+fn approved_request_parts_redacted_diagnostic(
+    parts: &ApprovedOrderEndpointRequestParts,
+) -> GatewayRealOrderEndpointApprovedPartsDiagnostic {
+    let (account_id_present, account_id_len, order_id_present, order_id_len, symbol_len) =
+        match &parts.approved_request_spec {
+            ApprovedOrderEndpointRequestSpec::Place(spec) => (
+                !spec.account_id.is_empty(),
+                spec.account_id.len(),
+                false,
+                None,
+                Some(spec.body.symbol.len()),
+            ),
+            ApprovedOrderEndpointRequestSpec::Cancel(spec) => (
+                !spec.account_id.is_empty(),
+                spec.account_id.len(),
+                !spec.order_id.is_empty(),
+                Some(spec.order_id.len()),
+                None,
+            ),
+        };
+
+    GatewayRealOrderEndpointApprovedPartsDiagnostic {
+        operation: parts.operation,
+        method_name: parts.method_name.to_string(),
+        rendered_path_present: !parts.rendered_path.0.is_empty(),
+        rendered_path_redacted: true,
+        rendered_path_exported: false,
+        raw_body_exported: false,
+        account_id_present,
+        account_id_len,
+        order_id_present,
+        order_id_len,
+        symbol_present: symbol_len.is_some_and(|len| len > 0),
+        symbol_len,
+        account_instrument_allowlist_approved: parts.account_instrument_allowlist_approved,
+        operator_arm_approved: parts.operator_arm_approved,
+        durable_state_checkpoint_present: parts.durable_state_checkpoint_present,
+    }
+}
+
+fn approved_request_parts_constructor_count() -> usize {
+    let _place: fn(
+        &EndpointGateApproved,
+        &broker_finam::FinamPlaceOrderRequestSpec,
+        &OrderEndpointAccountInstrumentAllowlistApproved,
+        &OrderEndpointOperatorArmApproved,
+        &OrderEndpointDurableStateCheckpoint,
+    ) -> Result<
+        ApprovedOrderEndpointRequestParts,
+        GatewayRealOrderEndpointApprovedPartsError,
+    > = build_place_approved_request_parts;
+    let _cancel: fn(
+        &EndpointGateApproved,
+        &broker_finam::FinamCancelOrderRequestSpec,
+        &OrderEndpointAccountInstrumentAllowlistApproved,
+        &OrderEndpointOperatorArmApproved,
+        &OrderEndpointDurableStateCheckpoint,
+    ) -> Result<
+        ApprovedOrderEndpointRequestParts,
+        GatewayRealOrderEndpointApprovedPartsError,
+    > = build_cancel_approved_request_parts;
+    let _diagnostic: fn(
+        &ApprovedOrderEndpointRequestParts,
+    ) -> GatewayRealOrderEndpointApprovedPartsDiagnostic =
+        approved_request_parts_redacted_diagnostic;
+    2
+}
+
 pub fn place_order_api_shape(
     _gate: &EndpointGateApproved,
     _spec: &broker_finam::FinamPlaceOrderRequestSpec,
@@ -156,6 +371,49 @@ mod tests {
         );
         assert!(!shape.api_shape_contains_route_templates);
         assert!(
+            shape
+                .approved_request_parts_design
+                .approved_request_parts_type_internal
+        );
+        assert!(
+            shape
+                .approved_request_parts_design
+                .rendered_path_type_internal
+        );
+        assert!(!shape.approved_request_parts_design.rendered_path_exported);
+        assert!(!shape.approved_request_parts_design.raw_body_exported);
+        assert!(
+            !shape
+                .approved_request_parts_design
+                .diagnostic_can_construct_request_parts
+        );
+        assert!(
+            shape
+                .approved_request_parts_design
+                .constructors_require_endpoint_gate
+        );
+        assert!(
+            shape
+                .approved_request_parts_design
+                .constructors_require_approved_request_spec
+        );
+        assert!(
+            shape
+                .approved_request_parts_design
+                .constructors_require_account_instrument_allowlist
+        );
+        assert!(
+            shape
+                .approved_request_parts_design
+                .constructors_require_operator_arm
+        );
+        assert!(
+            shape
+                .approved_request_parts_design
+                .constructors_require_durable_state_checkpoint
+        );
+        assert_eq!(shape.approved_request_parts_design.constructor_count, 2);
+        assert!(
             !shape
                 .scanner_transition_spec
                 .real_post_delete_calls_allowed_now
@@ -175,6 +433,7 @@ mod tests {
         assert_eq!(shape.scanner_transition_spec.negative_tests.len(), 6);
         let rendered = serde_json::to_string(&shape).expect("shape serializes");
         assert!(!rendered.contains("/v1/accounts/{account_id}/orders"));
+        assert!(!rendered.contains("ApprovedOrderEndpointRequestParts"));
     }
 
     #[test]
@@ -229,5 +488,120 @@ mod tests {
         assert!(!rendered.contains("{order_id}"));
         assert!(rendered.contains("\"route_template_redacted\":true"));
         assert!(rendered.contains("\"route_template_exported\":false"));
+    }
+
+    #[test]
+    fn approved_request_parts_constructors_require_all_safety_inputs() {
+        fn assert_place_signature(
+            _f: fn(
+                &EndpointGateApproved,
+                &broker_finam::FinamPlaceOrderRequestSpec,
+                &OrderEndpointAccountInstrumentAllowlistApproved,
+                &OrderEndpointOperatorArmApproved,
+                &OrderEndpointDurableStateCheckpoint,
+            ) -> Result<
+                ApprovedOrderEndpointRequestParts,
+                GatewayRealOrderEndpointApprovedPartsError,
+            >,
+        ) {
+        }
+        fn assert_cancel_signature(
+            _f: fn(
+                &EndpointGateApproved,
+                &broker_finam::FinamCancelOrderRequestSpec,
+                &OrderEndpointAccountInstrumentAllowlistApproved,
+                &OrderEndpointOperatorArmApproved,
+                &OrderEndpointDurableStateCheckpoint,
+            ) -> Result<
+                ApprovedOrderEndpointRequestParts,
+                GatewayRealOrderEndpointApprovedPartsError,
+            >,
+        ) {
+        }
+
+        assert_place_signature(build_place_approved_request_parts);
+        assert_cancel_signature(build_cancel_approved_request_parts);
+        assert_eq!(approved_request_parts_constructor_count(), 2);
+    }
+
+    #[test]
+    fn approved_request_parts_diagnostic_does_not_export_raw_path_or_body() {
+        let place_parts = ApprovedOrderEndpointRequestParts {
+            operation: GatewayRealOrderEndpointOperation::PlaceOrder,
+            method_name: "POST",
+            rendered_path: RenderedOrderEndpointPath(
+                "/v1/accounts/ACC_TEST_0001/orders".to_string(),
+            ),
+            approved_request_spec: ApprovedOrderEndpointRequestSpec::Place(
+                broker_finam::FinamPlaceOrderRequestSpec {
+                    account_id: "ACC_TEST_0001".to_string(),
+                    body: broker_finam::FinamPlaceOrderRequest {
+                        symbol: "IMOEXF_TEST".to_string(),
+                        quantity: broker_finam::DecimalValue {
+                            value: "1".to_string(),
+                        },
+                        side: "BUY".to_string(),
+                        order_type: "ORDER_TYPE_MARKET".to_string(),
+                        time_in_force: Some("TIME_IN_FORCE_DAY".to_string()),
+                        limit_price: None,
+                        client_order_id: Some("CID_TEST_0001".to_string()),
+                        comment: None,
+                    },
+                },
+            ),
+            account_instrument_allowlist_approved: true,
+            operator_arm_approved: true,
+            durable_state_checkpoint_present: true,
+        };
+        let cancel_parts = ApprovedOrderEndpointRequestParts {
+            operation: GatewayRealOrderEndpointOperation::CancelOrder,
+            method_name: "DELETE",
+            rendered_path: RenderedOrderEndpointPath(
+                "/v1/accounts/ACC_TEST_0001/orders/ORDER_TEST_0001".to_string(),
+            ),
+            approved_request_spec: ApprovedOrderEndpointRequestSpec::Cancel(
+                broker_finam::FinamCancelOrderRequestSpec {
+                    account_id: "ACC_TEST_0001".to_string(),
+                    order_id: "ORDER_TEST_0001".to_string(),
+                },
+            ),
+            account_instrument_allowlist_approved: true,
+            operator_arm_approved: true,
+            durable_state_checkpoint_present: true,
+        };
+
+        let place = approved_request_parts_redacted_diagnostic(&place_parts);
+        let cancel = approved_request_parts_redacted_diagnostic(&cancel_parts);
+        let rendered = serde_json::to_string(&[place, cancel]).expect("diagnostics serialize");
+
+        assert!(!rendered.contains("/v1/accounts/ACC_TEST_0001"));
+        assert!(!rendered.contains("ACC_TEST_0001"));
+        assert!(!rendered.contains("ORDER_TEST_0001"));
+        assert!(!rendered.contains("IMOEXF_TEST"));
+        assert!(!rendered.contains("CID_TEST_0001"));
+        assert!(rendered.contains("\"rendered_path_redacted\":true"));
+        assert!(rendered.contains("\"rendered_path_exported\":false"));
+        assert!(rendered.contains("\"raw_body_exported\":false"));
+    }
+
+    #[test]
+    fn diagnostics_cannot_feed_request_parts_constructors() {
+        let source = include_str!("real_order_endpoint.rs");
+        let constructor_source = source
+            .split("fn build_place_approved_request_parts")
+            .nth(1)
+            .expect("place constructor")
+            .split("fn approved_request_parts_redacted_diagnostic")
+            .next()
+            .expect("constructor boundary");
+
+        assert!(!constructor_source.contains("GatewayRealOrderEndpointRedactedRouteDiagnostic"));
+        assert!(!constructor_source.contains("GatewayRealOrderEndpointApprovedPartsDiagnostic"));
+        assert!(constructor_source.contains("EndpointGateApproved"));
+        assert!(constructor_source.contains("FinamPlaceOrderRequestSpec"));
+        assert!(constructor_source.contains("FinamCancelOrderRequestSpec"));
+        assert!(constructor_source.contains("OrderEndpointAccountInstrumentAllowlistApproved"));
+        assert!(constructor_source.contains("OrderEndpointOperatorArmApproved"));
+        assert!(constructor_source.contains("OrderEndpointDurableStateCheckpoint"));
     }
 }

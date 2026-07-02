@@ -45,6 +45,18 @@ route_template_redacted = true
 route_template_exported = false
 ```
 
+M3c-9 adds a private approved request-parts design boundary. The public API
+shape records:
+
+```text
+approved_request_parts_type_internal = true
+rendered_path_type_internal = true
+rendered_path_exported = false
+raw_body_exported = false
+diagnostic_can_construct_request_parts = false
+constructor_count = 2
+```
+
 ## Scanner transition spec
 
 The API shape exports:

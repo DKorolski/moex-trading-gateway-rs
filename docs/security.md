@@ -208,6 +208,12 @@ guard also blocks request/send/client/transport terms while design-only.
 M3c-8 keeps future route templates in a private non-serializable internal route
 shape and exports only redacted route diagnostics. The scanner transition guard
 now rejects any `reqwest` token in the design-only module.
+M3c-9 adds a private non-`Debug`/non-serializable
+`ApprovedOrderEndpointRequestParts` design capability plus a private
+`RenderedOrderEndpointPath`. Its constructors require the endpoint gate marker,
+approved request spec, account/instrument allowlist approval, operator-arm
+approval, and durable-state checkpoint. Exported diagnostics still redact
+rendered paths and raw body data.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account
