@@ -1303,6 +1303,9 @@ Implemented while still keeping all broker order endpoints disabled:
 - explicit M3c-4 transition plan: approved-only compile trait decision,
   future exact-two-route scanner mode, approved future module path, and
   `EndpointGateApproved` requirement for route rendering and HTTP send;
+- M3c-5 crate-boundary decision: `broker-finam` remains request-spec/route
+  builder only, while future real HTTP send stays in `finam-gateway` to avoid
+  dependency cycles around `EndpointGateApproved`;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:

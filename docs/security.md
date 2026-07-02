@@ -197,6 +197,9 @@ M3c-4 records the future implementation transition plan while keeping the
 existing real endpoint transport trait as an approved-only compile contract.
 Future route rendering and HTTP send must require `EndpointGateApproved`; the
 marker remains unconstructible.
+M3c-5 resolves the future crate boundary: `broker-finam` remains request-spec
+and route-builder only, while future real order HTTP send is planned inside
+`finam-gateway`, the crate that owns `EndpointGateApproved`.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

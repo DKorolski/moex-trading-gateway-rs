@@ -374,12 +374,21 @@ pub enum M3cOrderEndpointScannerTransitionMode {
     FutureExactTwoRouteAllowlistAfterReview,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3cOrderEndpointImplementationLocationDecision {
+    GatewayHttpSendBrokerFinamRouteBuilder,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct M3cOrderEndpointImplementationTransitionPlan {
     pub design_only: bool,
     pub current_scanner_mode: M3cOrderEndpointScannerTransitionMode,
     pub future_scanner_mode: M3cOrderEndpointScannerTransitionMode,
+    pub implementation_location_decision: M3cOrderEndpointImplementationLocationDecision,
     pub approved_future_module_path: String,
+    pub broker_finam_future_role: String,
+    pub finam_gateway_future_role: String,
+    pub dependency_cycle_risk_resolved: bool,
     pub compile_trait_decision: M3cRealOrderEndpointCompileTraitDecision,
     pub endpoint_gate_marker_required: bool,
     pub route_rendering_requires_gate_marker: bool,
@@ -601,8 +610,13 @@ fn m3c_order_endpoint_implementation_transition_plan(
         current_scanner_mode: M3cOrderEndpointScannerTransitionMode::CurrentDenyAllOrderPostDelete,
         future_scanner_mode:
             M3cOrderEndpointScannerTransitionMode::FutureExactTwoRouteAllowlistAfterReview,
-        approved_future_module_path: "crates/broker-finam/src/order_endpoint_transport.rs"
+        implementation_location_decision:
+            M3cOrderEndpointImplementationLocationDecision::GatewayHttpSendBrokerFinamRouteBuilder,
+        approved_future_module_path: "crates/finam-gateway/src/real_order_endpoint.rs".to_string(),
+        broker_finam_future_role: "request_spec_route_builder_only_no_http_send".to_string(),
+        finam_gateway_future_role: "endpoint_gate_marker_owner_and_future_real_http_send_boundary"
             .to_string(),
+        dependency_cycle_risk_resolved: true,
         compile_trait_decision:
             M3cRealOrderEndpointCompileTraitDecision::ApprovedOnlyCompileContract,
         endpoint_gate_marker_required: true,
@@ -8754,8 +8768,31 @@ mod tests {
         assert_eq!(
             report
                 .implementation_transition_plan
+                .implementation_location_decision,
+            M3cOrderEndpointImplementationLocationDecision::GatewayHttpSendBrokerFinamRouteBuilder
+        );
+        assert_eq!(
+            report
+                .implementation_transition_plan
                 .approved_future_module_path,
-            "crates/broker-finam/src/order_endpoint_transport.rs"
+            "crates/finam-gateway/src/real_order_endpoint.rs"
+        );
+        assert_eq!(
+            report
+                .implementation_transition_plan
+                .broker_finam_future_role,
+            "request_spec_route_builder_only_no_http_send"
+        );
+        assert_eq!(
+            report
+                .implementation_transition_plan
+                .finam_gateway_future_role,
+            "endpoint_gate_marker_owner_and_future_real_http_send_boundary"
+        );
+        assert!(
+            report
+                .implementation_transition_plan
+                .dependency_cycle_risk_resolved
         );
         assert!(
             report

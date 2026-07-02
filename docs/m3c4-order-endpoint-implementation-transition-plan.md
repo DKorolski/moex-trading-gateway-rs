@@ -42,13 +42,15 @@ POST   /v1/accounts/{account_id}/orders
 DELETE /v1/accounts/{account_id}/orders/{order_id}
 ```
 
-The planned implementation module is:
+The M3c-5 architecture decision resolves the implementation module as:
 
 ```text
-crates/broker-finam/src/order_endpoint_transport.rs
+crates/finam-gateway/src/real_order_endpoint.rs
 ```
 
-No other module may introduce order endpoint HTTP send surfaces.
+`broker-finam` remains request-spec/route-builder only and must not introduce
+real order endpoint HTTP send surfaces. This avoids a dependency cycle because
+`EndpointGateApproved` stays in `finam-gateway`.
 
 ## Gate requirements
 
@@ -92,7 +94,11 @@ route_template_recheck
 design_only = true
 current_scanner_mode = CurrentDenyAllOrderPostDelete
 future_scanner_mode = FutureExactTwoRouteAllowlistAfterReview
-approved_future_module_path = crates/broker-finam/src/order_endpoint_transport.rs
+implementation_location_decision = GatewayHttpSendBrokerFinamRouteBuilder
+approved_future_module_path = crates/finam-gateway/src/real_order_endpoint.rs
+broker_finam_future_role = request_spec_route_builder_only_no_http_send
+finam_gateway_future_role = endpoint_gate_marker_owner_and_future_real_http_send_boundary
+dependency_cycle_risk_resolved = true
 compile_trait_decision = ApprovedOnlyCompileContract
 endpoint_gate_marker_required = true
 route_rendering_requires_gate_marker = true

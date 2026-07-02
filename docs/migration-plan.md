@@ -1555,8 +1555,8 @@ M3c-4 explicit order endpoint implementation gate transition plan:
   approved-only compile contract, not implementation approval.
 - Recorded current scanner mode as `CurrentDenyAllOrderPostDelete`.
 - Recorded future scanner mode as `FutureExactTwoRouteAllowlistAfterReview`.
-- Recorded approved future implementation module:
-  `crates/broker-finam/src/order_endpoint_transport.rs`.
+- Recorded initial future implementation module candidate; superseded by the
+  M3c-5 gateway-owned HTTP-send boundary decision.
 - Recorded that future route rendering and HTTP send must both require
   `EndpointGateApproved`.
 - Release-profile evidence/waiver, positive GetOrder evidence/waiver, and
@@ -1565,6 +1565,33 @@ M3c-4 explicit order endpoint implementation gate transition plan:
   `docs/m3c4-order-endpoint-implementation-transition-plan.md`.
 
 M3c-4 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
+M3c-5 implementation boundary architecture decision / scanner transition design:
+
+- Resolved the crate-boundary decision as
+  `GatewayHttpSendBrokerFinamRouteBuilder`.
+- `broker-finam` remains request-spec/route-builder only and must not contain
+  future real order HTTP send surfaces.
+- Future real HTTP send boundary is planned inside `finam-gateway` at
+  `crates/finam-gateway/src/real_order_endpoint.rs`, where
+  `EndpointGateApproved` already lives.
+- This avoids a Rust workspace dependency cycle between `broker-finam` and
+  `finam-gateway`.
+- The future scanner transition remains design-only:
+  `CurrentDenyAllOrderPostDelete` -> `FutureExactTwoRouteAllowlistAfterReview`
+  after a separate implementation review.
+- Details are documented in
+  `docs/m3c5-implementation-boundary-architecture-decision.md`.
+
+M3c-5 explicitly still not allowed:
 
 - FINAM POST/DELETE order endpoint calls.
 - Real command stream consumer connected to strategies.
