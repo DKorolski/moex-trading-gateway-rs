@@ -1975,25 +1975,34 @@ fn validate_source_archive_content_binding(
     path: &Path,
     source_commit_full_sha: Option<&str>,
 ) -> Result<HandoffCommitMarker> {
-    let Some(source_commit_full_sha) = source_commit_full_sha else {
-        anyhow::bail!("cannot validate source archive content binding without git HEAD sha");
-    };
     let marker = read_handoff_commit_marker_from_zip(path)?;
     let archive_name = path
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .context("source archive path has no file name")?;
+    validate_handoff_marker_content_binding(&marker, &archive_name, source_commit_full_sha)?;
+    Ok(marker)
+}
+
+fn validate_handoff_marker_content_binding(
+    marker: &HandoffCommitMarker,
+    archive_name: &str,
+    source_commit_full_sha: Option<&str>,
+) -> Result<()> {
+    let Some(source_commit_full_sha) = source_commit_full_sha else {
+        anyhow::bail!("cannot validate source archive content binding without git HEAD sha");
+    };
     anyhow::ensure!(
         marker.source_ref.as_deref() == Some(source_commit_full_sha),
         "source archive content binding mismatch: handoff_source_ref={:?} git_head={source_commit_full_sha}",
         marker.source_ref
     );
     anyhow::ensure!(
-        marker.archive_name.as_deref() == Some(archive_name.as_str()),
+        marker.archive_name.as_deref() == Some(archive_name),
         "source archive content archive_name mismatch: handoff_archive_name={:?} archive_name={archive_name}",
         marker.archive_name
     );
-    Ok(marker)
+    Ok(())
 }
 
 fn run_forbidden_surface_scan_metadata() -> Result<serde_json::Value> {
@@ -4126,6 +4135,47 @@ mod tests {
             M3cOrderEndpointGateEvidenceStatus::WaiverAccepted
         );
         assert!(parse_m3c_evidence_slot_status("accepted").is_err());
+    }
+
+    #[test]
+    fn m3c_handoff_marker_content_binding_rejects_stale_zip_contents() {
+        let head = Some("eee47cf0769bfdfbf2ebcd2c7781dcf5f28f350b");
+        let matching = HandoffCommitMarker {
+            source_commit: Some("eee47cf".to_string()),
+            source_ref: Some("eee47cf0769bfdfbf2ebcd2c7781dcf5f28f350b".to_string()),
+            archive_name: Some("moex-trading-project-eee47cf.zip".to_string()),
+        };
+        let stale_ref = HandoffCommitMarker {
+            source_ref: Some("1d54115d8f5250b19e92b91ca979376bf39714d1".to_string()),
+            ..matching.clone()
+        };
+        let stale_archive_name = HandoffCommitMarker {
+            archive_name: Some("moex-trading-project-1d54115.zip".to_string()),
+            ..matching.clone()
+        };
+
+        validate_handoff_marker_content_binding(
+            &matching,
+            "moex-trading-project-eee47cf.zip",
+            head,
+        )
+        .expect("matching handoff marker binds");
+        assert!(validate_handoff_marker_content_binding(
+            &stale_ref,
+            "moex-trading-project-eee47cf.zip",
+            head,
+        )
+        .expect_err("stale source_ref must be rejected")
+        .to_string()
+        .contains("source archive content binding mismatch"));
+        assert!(validate_handoff_marker_content_binding(
+            &stale_archive_name,
+            "moex-trading-project-eee47cf.zip",
+            head,
+        )
+        .expect_err("stale handoff archive_name must be rejected")
+        .to_string()
+        .contains("source archive content archive_name mismatch"));
     }
 
     #[test]

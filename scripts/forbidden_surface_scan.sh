@@ -35,6 +35,12 @@ if rg -n '"/v1/accounts/[^"]*/orders' crates/broker-finam/src/lib.rs >/tmp/moex_
 fi
 rm -f /tmp/moex_forbidden_order_route_literal.$$
 
+if rg -n --glob 'crates/**/*.rs' 'OrderEndpointHttp(Client|Transport|Adapter|Backend)' crates >/tmp/moex_forbidden_order_http_abstraction.$$; then
+  cat /tmp/moex_forbidden_order_http_abstraction.$$ >&2
+  report_failure "non-reqwest order endpoint HTTP abstraction is forbidden before explicit endpoint review"
+fi
+rm -f /tmp/moex_forbidden_order_http_abstraction.$$
+
 python3 - <<'PY'
 from pathlib import Path
 import sys

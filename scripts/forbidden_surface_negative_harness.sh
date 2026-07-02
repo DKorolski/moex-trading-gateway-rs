@@ -31,5 +31,6 @@ run_negative_case "same-module-extra-delete" 'fn _m3c_negative_same_module_delet
 run_negative_case "generic-method-post" 'fn _m3c_negative_generic_post() { let _ = reqwest::Method::POST; }'
 run_negative_case "generic-method-delete" 'fn _m3c_negative_generic_delete() { let _ = reqwest::Method::DELETE; }'
 run_negative_case "route-string-bypass" 'fn _m3c_negative_route_bypass() -> String { "/v1/accounts/ACC_TEST_0001/orders".to_string() }'
+run_negative_case "non-reqwest-client-abstraction" 'trait OrderEndpointHttpClient { fn send_order_endpoint(&self, route: &str); }'
 
 echo "forbidden-surface-negative-harness: ok"

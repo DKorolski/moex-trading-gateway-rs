@@ -208,6 +208,7 @@ same-module extra .delete(
 generic Method::POST
 generic Method::DELETE
 literal FINAM order route bypass in broker-finam
+non-reqwest order endpoint HTTP abstraction
 ```
 
 ## Preconditions before implementation gate

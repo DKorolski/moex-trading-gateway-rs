@@ -1532,6 +1532,9 @@ M3c-3 implementation-gate preconditions hardening:
 - Added `scripts/forbidden_surface_negative_harness.sh` and tightened the
   forbidden-surface scan for literal FINAM order route bypasses in
   `broker-finam` source.
+- M3c-3a completes the negative harness with a non-reqwest order endpoint HTTP
+  abstraction case and adds unit coverage for stale `handoff-commit.txt`
+  content binding, including stale `source_ref` and stale `archive_name`.
 - Real endpoint approval remains impossible and `endpoint_calls_allowed`
   remains `false`.
 
