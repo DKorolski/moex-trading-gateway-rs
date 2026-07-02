@@ -97,6 +97,24 @@ state_machine_transition_required = true
 The existing guard still rejects order-call surfaces and any `reqwest` token in
 the design-only module.
 
+## M3c-12 follow-up
+
+M3c-12 extends this boundary with a design-only outcome state/ACK policy
+matrix. Each future outcome now maps to order-path events/states, redacted ACK
+status/reason policy, operator disarm/backoff/manual policy, and no-blind-retry
+constraints.
+
+The timeout ACK reason policy is operation-aware:
+
+```text
+Place  -> TimeoutUnknownPending
+Cancel -> CancelTimeoutUnknownPending
+```
+
+M3c-12 also records accepted broker-order-id inheritance and private
+operation-specific durable checkpoint capability markers. Result diagnostics
+still cannot bypass the state machine.
+
 ## Evidence slots
 
 These slots remain deliberately pending before any real order implementation

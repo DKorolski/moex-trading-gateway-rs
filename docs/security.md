@@ -225,6 +225,12 @@ approved request parts by value, records operation-specific durable checkpoint
 labels for Place/Cancel, forbids request-parts reuse and blind retry after
 timeout/unknown, and requires state-machine transition before any future ACK or
 runtime export.
+M3c-12 adds a design-only outcome state/ACK policy matrix. It serializes the
+future outcome-to-order-path mapping, redacted ACK status/reason policy,
+operator disarm/backoff/manual policy, accepted broker-order-id inheritance,
+and timeout/no-blind-retry invariant. It also records private non-serializable
+operation-specific durable checkpoint capability markers for Place and Cancel;
+result diagnostics still cannot bypass the state machine or feed transport.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

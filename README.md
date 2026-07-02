@@ -169,7 +169,7 @@ closeout, M3c pre-order gate policy, M3c order endpoint gate design diagnostics,
 M3c self-contained gate evidence report, source-archive content binding,
 negative forbidden-surface harness, M3c implementation transition plan, and
 M3c implementation-boundary architecture decision, and M3c scanner transition
-API shape with gated route-rendering boundary,
+API shape with gated route-rendering boundary and M3c outcome state/ACK policy,
 store invariants, broker-order-id uniqueness, cancel timeout policy, dry
 window/backoff rate limiting, FINAM request DTO builders without HTTP send,
 workspace-wide source-scan guard tests, and price/reference/notional guard
@@ -231,6 +231,7 @@ See:
 - [M3c-9 approved request-parts boundary](docs/m3c9-approved-request-parts-boundary.md)
 - [M3c-10 approved parts consumer boundary](docs/m3c10-approved-parts-consumer-boundary.md)
 - [M3c-11 future send result boundary](docs/m3c11-future-send-result-boundary.md)
+- [M3c-12 outcome state and ACK policy matrix](docs/m3c12-outcome-state-ack-policy-matrix.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

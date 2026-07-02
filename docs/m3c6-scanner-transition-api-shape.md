@@ -81,6 +81,29 @@ retry_after_timeout_unknown_allowed = false
 state_machine_transition_required = true
 ```
 
+M3c-12 records the design-only future send outcome policy matrix:
+
+```text
+matrix_serializable = true
+outcome_entry_count = 8
+accepted_broker_id_policy_entry_count = 4
+ack_reason_mapping_redacted = true
+operator_disarm_backoff_manual_matrix_present = true
+accepted_broker_id_policy_inherited = true
+timeout_no_blind_retry_invariant = true
+outcome_diagnostic_can_bypass_state_machine = false
+state_machine_transition_required = true
+```
+
+The operation-specific durable checkpoint capability design remains private and
+non-serializable:
+
+```text
+PlaceEndpointDurableCheckpointApproved
+CancelEndpointDurableCheckpointApproved
+created_after_sqlite_transition_only = true
+```
+
 ## Scanner transition spec
 
 The API shape exports:

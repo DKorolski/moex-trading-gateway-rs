@@ -1328,6 +1328,11 @@ Implemented while still keeping all broker order endpoints disabled:
   outcomes, operation-specific durable checkpoint labels, single-use
   request-parts policy, no retry after timeout/unknown, and mandatory
   state-machine transition before any future ACK/runtime export;
+- M3c-12 outcome state/ACK policy matrix: serializable outcome-to-order-path
+  mapping, operation-aware timeout ACK reasons, operator
+  disarm/backoff/manual-intervention policy, accepted broker-order-id
+  inheritance, no-blind-retry invariant, and private durable checkpoint
+  capability marker design;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:

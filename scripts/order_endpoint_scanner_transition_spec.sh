@@ -57,7 +57,9 @@ rm -f /tmp/moex_transition_forbidden.$$
 for internal_type in \
   GatewayRealOrderEndpointInternalRouteShape \
   RenderedOrderEndpointPath \
-  ApprovedOrderEndpointRequestParts
+  ApprovedOrderEndpointRequestParts \
+  PlaceEndpointDurableCheckpointApproved \
+  CancelEndpointDurableCheckpointApproved
 do
   if rg -n "pub struct ${internal_type}" "$target" >/tmp/moex_transition_forbidden.$$; then
     cat /tmp/moex_transition_forbidden.$$ >&2
@@ -135,6 +137,33 @@ required_patterns=(
   "GatewayRealOrderEndpointApprovedPartsDiagnostic"
   "GatewayRealOrderEndpointConsumerDiagnostic"
   "GatewayRealOrderEndpointFutureSendDiagnostic"
+  "GatewayRealOrderEndpointOutcomeStatePolicyEntry"
+  "GatewayRealOrderEndpointAcceptedBrokerIdPolicyEntry"
+  "GatewayRealOrderEndpointOutcomeStatePolicyDesignShape"
+  "GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape"
+  "future_send_outcome_state_policy_matrix"
+  "accepted_broker_id_policy_matrix"
+  "matrix_serializable: true"
+  "outcome_entry_count"
+  "accepted_broker_id_policy_entry_count"
+  "ack_reason_mapping_redacted: true"
+  "operator_disarm_backoff_manual_matrix_present: true"
+  "accepted_broker_id_policy_inherited: true"
+  "timeout_no_blind_retry_invariant: true"
+  "outcome_diagnostic_can_bypass_state_machine: false"
+  "place_ack_reason_code"
+  "cancel_ack_reason_code"
+  "CommandAckReasonCode::CancelTimeoutUnknownPending"
+  "backoff_required: true"
+  "manual_intervention_required: true"
+  "no_blind_retry: true"
+  "raw_broker_order_id_exported: false"
+  "PlaceEndpointDurableCheckpointApproved"
+  "CancelEndpointDurableCheckpointApproved"
+  "place_capability_type_internal: true"
+  "cancel_capability_type_internal: true"
+  "capability_not_debug_or_serializable: true"
+  "created_after_sqlite_transition_only: true"
   "CurrentDenyAllOrderPostDelete"
   "FutureExactTwoRouteAllowlistAfterReview"
   "real_post_delete_calls_allowed_now: false"

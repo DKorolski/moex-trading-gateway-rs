@@ -1747,6 +1747,35 @@ M3c-11 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-12 future send outcome state/ACK policy matrix:
+
+- Added serializable `GatewayRealOrderEndpointOutcomeStatePolicyEntry` matrix
+  binding every future send outcome to order-path events/states, redacted ACK
+  status/reason policy, operator disarm/backoff/manual policy, and no-blind
+  retry invariants.
+- ACK reason mapping is operation-aware for timeout/unknown: Place maps to
+  `TimeoutUnknownPending`, Cancel maps to `CancelTimeoutUnknownPending`.
+- Added accepted-result broker-order-id policy inheritance covering accepted
+  with broker id, accepted without broker id, empty broker id/decode error, and
+  broker id mismatch/manual intervention.
+- Added design-only private durable checkpoint capability markers:
+  `PlaceEndpointDurableCheckpointApproved` and
+  `CancelEndpointDurableCheckpointApproved`.
+- Policy matrix entries require state-machine transition and cannot be bypassed
+  by result diagnostics.
+- Details are documented in
+  `docs/m3c12-outcome-state-ack-policy-matrix.md`.
+
+M3c-12 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.
