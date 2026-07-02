@@ -18,7 +18,7 @@ report_failure() {
   failures=$((failures + 1))
 }
 
-if rg -n '\.post\(|\.delete\(|Method::POST|Method::DELETE' "$target" >/tmp/moex_transition_forbidden.$$; then
+if rg -n '\.post\(|\.delete\(|\.request\(|\.send\(|Method::POST|Method::DELETE|reqwest::Client|HttpClient|Transport|Adapter|Backend' "$target" >/tmp/moex_transition_forbidden.$$; then
   cat /tmp/moex_transition_forbidden.$$ >&2
   report_failure "design-only API shape must not contain HTTP send surfaces"
 fi
@@ -29,6 +29,7 @@ required_patterns=(
   "FinamPlaceOrderRequestSpec"
   "FinamCancelOrderRequestSpec"
   "DesignOnlyNoHttpSend"
+  "api_shape_contains_route_templates: false"
   "CurrentDenyAllOrderPostDelete"
   "FutureExactTwoRouteAllowlistAfterReview"
   "real_post_delete_calls_allowed_now: false"

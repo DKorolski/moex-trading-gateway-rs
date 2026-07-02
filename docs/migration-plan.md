@@ -1624,6 +1624,27 @@ M3c-6 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-7 gated route-rendering boundary / design-shape hardening:
+
+- `api_shape()` is now design/report shape only and does not contain route
+  templates.
+- Future route template access is separated into gated route-shape functions
+  requiring `EndpointGateApproved`.
+- `scripts/order_endpoint_scanner_transition_spec.sh` now also rejects
+  `.request(`, `.send(`, `reqwest::Client`, `HttpClient`, `Transport`,
+  `Adapter`, and `Backend` in the design-only module.
+- Details are documented in `docs/m3c7-gated-route-rendering-boundary.md`.
+
+M3c-7 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

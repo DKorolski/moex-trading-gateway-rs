@@ -202,6 +202,9 @@ and route-builder only, while future real order HTTP send is planned inside
 `finam-gateway`, the crate that owns `EndpointGateApproved`.
 M3c-6 adds the gateway-owned API shape module and scanner transition guard, but
 the module is design-only and contains no HTTP send surface.
+M3c-7 separates design/report shape from gated route-shape functions so future
+route template access requires `EndpointGateApproved`; the scanner transition
+guard also blocks request/send/client/transport terms while design-only.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

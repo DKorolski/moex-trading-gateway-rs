@@ -16,6 +16,7 @@ This module is deliberately API-shape only:
 
 ```text
 mode = DesignOnlyNoHttpSend
+api_shape_contains_route_templates = false
 real_post_delete_calls_allowed_now = false
 ```
 
@@ -24,6 +25,7 @@ and no `Method::POST/DELETE`.
 
 ## Gate-marker signatures
 
+M3c-7 separates the design/report shape from gated route-shape functions.
 Future route-shape functions require `EndpointGateApproved` in their signatures:
 
 ```text
@@ -43,6 +45,7 @@ current_mode = CurrentDenyAllOrderPostDelete
 future_mode = FutureExactTwoRouteAllowlistAfterReview
 exact_place_order_surface_count = 1
 exact_cancel_order_surface_count = 1
+allowed_route_template_count = 2
 approved_module_path = crates/finam-gateway/src/real_order_endpoint.rs
 real_post_delete_calls_allowed_now = false
 ```

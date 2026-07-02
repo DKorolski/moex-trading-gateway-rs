@@ -1308,6 +1308,9 @@ Implemented while still keeping all broker order endpoints disabled:
   dependency cycles around `EndpointGateApproved`;
 - M3c-6 design-only `real_order_endpoint` API shape and scanner transition
   guard, still without HTTP send surfaces;
+- M3c-7 gated route-rendering boundary: design/report shape no longer contains
+  route templates, while gated route-shape functions require
+  `EndpointGateApproved`;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:
