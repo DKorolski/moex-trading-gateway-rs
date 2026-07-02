@@ -42,6 +42,7 @@ FINAM_SECRET_TOKEN=... cargo run -p broker-cli -- finam-auth-check
 FINAM_SECRET_TOKEN=... cargo run -p broker-cli -- finam-readonly-check
 FINAM_SECRET_TOKEN=... cargo run -p broker-cli -- finam-typed-readonly-check
 FINAM_SECRET_TOKEN=... FINAM_SYMBOL=TICKER@MIC cargo run -p broker-cli -- finam-bar-finality-golden-check
+FINAM_SECRET_TOKEN=... FINAM_ACCOUNT_ID=... FINAM_SYMBOL=TICKER@MIC cargo run -p broker-cli -- finam-real-readonly-evidence
 ```
 
 `finam-readonly-check` is diagnostics-only: it does not place, cancel, replace,
@@ -161,8 +162,8 @@ marker, contract-probe harness, page-full trades incomplete semantics,
 redacted SQLite audit, non-serializable token/account preflight marker,
 probe-run identity, explicit actual HTTP send counters, request-bound preflight
 markers, redacted source-order evidence, preflight freshness/TTL, and per-row
-actual HTTP send flags, explicit operator-run clock policy, and computed
-preflight age,
+actual HTTP send flags, explicit operator-run clock policy, computed
+preflight age, and a controlled one-shot real-readonly evidence command,
 store invariants, broker-order-id uniqueness, cancel timeout policy, dry
 window/backoff rate limiting, FINAM request DTO builders without HTTP send,
 workspace-wide source-scan guard tests, and price/reference/notional guard
@@ -212,6 +213,7 @@ See:
 - [M3b-19 real-readonly request-bound evidence gate](docs/m3b19-real-readonly-request-bound-evidence-gate.md)
 - [M3b-20 real-readonly pre-run freshness gate](docs/m3b20-real-readonly-pre-run-freshness-gate.md)
 - [M3b-21 real-readonly operator clock gate](docs/m3b21-real-readonly-operator-clock-gate.md)
+- [M3b-22 controlled real-readonly evidence package](docs/m3b22-real-readonly-evidence-package.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

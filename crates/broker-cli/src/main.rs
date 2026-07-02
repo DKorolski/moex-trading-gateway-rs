@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use broker_core::event::Quote;
 use broker_core::{
-    BrokerAccountId, BrokerReadiness, ClientOrderId, Envelope, Exchange, InstrumentId, Market,
-    MarketDataEvent, MarketDataSourceKind, MessageType, Order, OrderSide, OrderStatus, OrderType,
-    PortfolioSnapshot, ReadinessPhase, ReadinessReason,
+    BrokerAccountId, BrokerOrderId, BrokerReadiness, ClientOrderId, Envelope, Exchange,
+    InstrumentId, Market, MarketDataEvent, MarketDataSourceKind, MessageType, Order, OrderSide,
+    OrderStatus, OrderType, PortfolioSnapshot, ReadinessPhase, ReadinessReason,
 };
 use broker_finam::{
     active_orders, has_blocking_unknown_order_statuses, map_account_trade, map_bar,
@@ -15,12 +15,20 @@ use broker_finam::{
 use chrono::{Duration as ChronoDuration, Utc};
 use clap::{Parser, Subcommand};
 use finam_gateway::{
-    default_readonly_health, degraded_health, degraded_readiness, readiness_from_readonly_summary,
-    stopped_health, stopped_readiness, BrokerTruthGatewayConfig, FinamGateway, GatewayConfig,
-    GatewayFeatureSet, OrderSnapshot, ReadonlySnapshotSummary, RedisConnectionStreamSink,
-    RedisRetentionConfig, RedisStreamConfig, RuntimeBridgeConsumeOutcome, RuntimeBridgeDeadLetter,
-    RuntimeBridgeDlqReason, RuntimeBridgeDlqRecord, RuntimeBridgeDryConsumer,
-    RuntimeBridgeReadinessSimulator, RuntimeBridgeStreamEntry,
+    default_readonly_health, degraded_health, degraded_readiness,
+    evaluate_finam_real_readonly_operator_guardrails, readiness_from_readonly_summary,
+    run_finam_real_readonly_operator_contract_probe, stopped_health, stopped_readiness,
+    BrokerTruthGatewayConfig, CancelBrokerTruthFetchRequestSnapshot,
+    CancelBrokerTruthFreshnessPolicy, CancelBrokerTruthSource, CancelPositionTruthGuardContext,
+    FinamGateway, FinamRealReadonlyAuditStoreMode, FinamRealReadonlyBrokerTruthAsyncFetcher,
+    FinamRealReadonlyBrokerTruthQueryPolicy, FinamRealReadonlyBrokerTruthTransportConfig,
+    FinamRealReadonlyContractProbeOperatorRunConfig, FinamRealReadonlyRedactedOutputLocation,
+    FinamRealReadonlyTokenAccountPreflightApproved, GatewayConfig, GatewayFeatureSet,
+    OrderSnapshot, ReadonlySnapshotSummary, RealReadonlyBrokerTruthGateApproved,
+    RealReadonlyBrokerTruthRunApproved, RedisConnectionStreamSink, RedisRetentionConfig,
+    RedisStreamConfig, ReqwestFinamRealReadonlyBrokerTruthTransport, RuntimeBridgeConsumeOutcome,
+    RuntimeBridgeDeadLetter, RuntimeBridgeDlqReason, RuntimeBridgeDlqRecord,
+    RuntimeBridgeDryConsumer, RuntimeBridgeReadinessSimulator, RuntimeBridgeStreamEntry,
 };
 use redis::streams::{
     StreamAutoClaimReply, StreamId, StreamPendingCountReply, StreamRangeReply, StreamReadReply,
@@ -132,6 +140,43 @@ enum Command {
         /// Optional file path for saving the redacted golden result as JSON.
         #[arg(long)]
         output: Option<PathBuf>,
+    },
+    /// Run a controlled one-shot real-readonly broker-truth evidence probe. Requires readonly token.
+    #[command(name = "finam-real-readonly-evidence")]
+    RealReadonlyEvidence {
+        /// Environment variable that contains the Finam secret token.
+        #[arg(long, default_value = "FINAM_SECRET_TOKEN")]
+        secret_env: String,
+        /// Finam account id. Raw value is never written to the report.
+        #[arg(long, env = "FINAM_ACCOUNT_ID")]
+        account_id: String,
+        /// Finam venue symbol, for example TICKER@MIC. Raw value is never written to the report.
+        #[arg(long, env = "FINAM_SYMBOL")]
+        symbol: String,
+        /// Synthetic or operator-selected broker order id used only as read-only reconciliation target.
+        #[arg(long, default_value = "SYNTHETIC_PROBE_ORDER_0001")]
+        broker_order_id: String,
+        /// Optional client order id used only as read-only reconciliation target.
+        #[arg(long)]
+        client_order_id: Option<String>,
+        /// Maximum GET-only broker-truth requests. Must stay <= 4.
+        #[arg(long, default_value_t = 4)]
+        max_requests: usize,
+        /// Request timeout bound for the real-readonly transport.
+        #[arg(long, default_value_t = 10_000)]
+        request_timeout_ms: u64,
+        /// Minimum interval between GET requests.
+        #[arg(long, default_value_t = 250)]
+        min_request_interval_ms: u64,
+        /// Preflight marker max age for the one-shot run.
+        #[arg(long, default_value_t = 60_000)]
+        preflight_max_age_ms: u64,
+        /// Optional file path for saving the redacted evidence package.
+        #[arg(
+            long,
+            default_value = "reports/finam-real-readonly-evidence/redacted-evidence.json"
+        )]
+        output: PathBuf,
     },
     /// Run one FINAM read-only shadow gateway pass and publish broker-truth events to Redis.
     #[command(name = "finam-gateway-shadow-once")]
@@ -765,6 +810,32 @@ async fn main() -> Result<()> {
             })
             .await?;
         }
+        Command::RealReadonlyEvidence {
+            secret_env,
+            account_id,
+            symbol,
+            broker_order_id,
+            client_order_id,
+            max_requests,
+            request_timeout_ms,
+            min_request_interval_ms,
+            preflight_max_age_ms,
+            output,
+        } => {
+            run_finam_real_readonly_evidence(FinamRealReadonlyEvidenceArgs {
+                secret_env,
+                account_id,
+                symbol,
+                broker_order_id,
+                client_order_id,
+                max_requests,
+                request_timeout_ms,
+                min_request_interval_ms,
+                preflight_max_age_ms,
+                output,
+            })
+            .await?;
+        }
         Command::GatewayShadowOnce {
             config,
             secret_env,
@@ -877,6 +948,19 @@ struct RuntimeBridgeDryConsumeArgs {
     block_ms: u64,
     max_iterations: u64,
     claim_stale_ms: Option<u64>,
+}
+
+struct FinamRealReadonlyEvidenceArgs {
+    secret_env: String,
+    account_id: String,
+    symbol: String,
+    broker_order_id: String,
+    client_order_id: Option<String>,
+    max_requests: usize,
+    request_timeout_ms: u64,
+    min_request_interval_ms: u64,
+    preflight_max_age_ms: u64,
+    output: PathBuf,
 }
 
 struct BarFinalityGoldenArgs {
@@ -1715,6 +1799,161 @@ async fn run_gateway_redis_smoke(redis_url: String, stream: String) -> Result<()
         "schema_version": schema_version,
         "msg_type": msg_type,
         "payload_len": payload.len(),
+    }))?;
+    Ok(())
+}
+
+async fn run_finam_real_readonly_evidence(args: FinamRealReadonlyEvidenceArgs) -> Result<()> {
+    if args.max_requests == 0 || args.max_requests > 4 {
+        anyhow::bail!("max_requests must be in 1..=4 for controlled real-readonly evidence");
+    }
+    if args.preflight_max_age_ms == 0 {
+        anyhow::bail!("preflight_max_age_ms must be greater than zero");
+    }
+
+    let finam_config = FinamConfig {
+        request_timeout_ms: args.request_timeout_ms,
+        ..FinamConfig::default()
+    };
+    let secret = SecretToken::new(std::env::var(&args.secret_env)?);
+    let client = FinamRestClient::try_new(finam_config.clone())?;
+    let auth_manager = FinamAuthManager::new(client.clone(), secret);
+    let access_token = auth_manager
+        .access_token()
+        .await
+        .map_err(|error| anyhow::anyhow!(error.to_redacted_string()))?;
+    let token_details = client
+        .token_details_typed(&access_token)
+        .await
+        .map_err(|error| anyhow::anyhow!(error.to_redacted_string()))?;
+
+    let account_id = BrokerAccountId::new(args.account_id);
+    let order_id = BrokerOrderId::new(args.broker_order_id);
+    let client_order_id = args
+        .client_order_id
+        .map(ClientOrderId::new)
+        .transpose()
+        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    let instrument = InstrumentId {
+        symbol: args.symbol.clone(),
+        venue_symbol: Some(args.symbol),
+        exchange: Exchange::Moex,
+        market: Market::Futures,
+    };
+    let request_snapshot_requested_at = Utc::now();
+    let request_snapshot = CancelBrokerTruthFetchRequestSnapshot {
+        account_id: Some(account_id.clone()),
+        order_id,
+        client_order_id,
+        instrument,
+        requested_at: request_snapshot_requested_at,
+        position_guard_context: CancelPositionTruthGuardContext::default(),
+    };
+
+    let features = GatewayFeatureSet {
+        real_readonly_broker_truth_enabled: true,
+        ..GatewayFeatureSet::default()
+    };
+    let transport_config = FinamRealReadonlyBrokerTruthTransportConfig {
+        rest_base_url: finam_config.rest_base_url.clone(),
+        request_timeout_ms: args.request_timeout_ms,
+        min_request_interval_ms: args.min_request_interval_ms,
+        allowed_accounts: vec![account_id],
+    };
+    let gate = RealReadonlyBrokerTruthGateApproved::try_from_decision(
+        &features.real_readonly_broker_truth_gate_decision(),
+    )?;
+    let guardrails = evaluate_finam_real_readonly_operator_guardrails(
+        &features,
+        &transport_config,
+        &request_snapshot,
+    );
+    let run_approval =
+        RealReadonlyBrokerTruthRunApproved::try_from_gate_and_guardrails(gate, &guardrails)?;
+    let preflight_checked_at = Utc::now();
+    let preflight_marker = FinamRealReadonlyTokenAccountPreflightApproved::try_from_token_details(
+        &features,
+        &request_snapshot,
+        &token_details,
+        preflight_checked_at,
+        args.preflight_max_age_ms,
+    )?;
+    let probe_run_started_at = Utc::now();
+    let transport = ReqwestFinamRealReadonlyBrokerTruthTransport::try_new(
+        transport_config,
+        access_token,
+        &run_approval,
+    )?;
+    let mut fetcher = FinamRealReadonlyBrokerTruthAsyncFetcher::new(
+        transport,
+        run_approval,
+        CancelBrokerTruthFreshnessPolicy::default(),
+        FinamRealReadonlyBrokerTruthQueryPolicy::default(),
+        probe_run_started_at,
+    );
+    let report = run_finam_real_readonly_operator_contract_probe(
+        &mut fetcher,
+        request_snapshot,
+        &FinamRealReadonlyContractProbeOperatorRunConfig {
+            enabled: true,
+            probe_run_started_at: Some(probe_run_started_at),
+            sources: vec![
+                CancelBrokerTruthSource::GetOrder,
+                CancelBrokerTruthSource::OrdersSnapshot,
+                CancelBrokerTruthSource::TradesSnapshot,
+                CancelBrokerTruthSource::PositionSnapshot,
+            ],
+            max_requests: args.max_requests,
+            request_timeout_ms: args.request_timeout_ms,
+            min_request_interval_ms: args.min_request_interval_ms,
+            redacted_output_location: Some(
+                FinamRealReadonlyRedactedOutputLocation::from_path_label(
+                    args.output.to_string_lossy(),
+                ),
+            ),
+            audit_store_mode: FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore,
+            retry_disabled: true,
+            background_loop_disabled: true,
+            scheduler_disabled: true,
+            operator_disable_procedure_documented: true,
+            preserve_transport_error_taxonomy: true,
+            token_account_preflight: Some(preflight_marker),
+        },
+    )
+    .await;
+
+    let payload = serde_json::json!({
+        "fixture_kind": "finam-real-readonly-contract-probe-evidence-v1",
+        "generated_at": Utc::now(),
+        "live_trading_enabled": false,
+        "order_endpoints_used": false,
+        "scope": {
+            "single_controlled_operator_run": true,
+            "get_only_broker_truth_probe": true,
+            "max_requests_lte_4": args.max_requests <= 4,
+            "retry_disabled": true,
+            "background_loop_disabled": true,
+            "scheduler_disabled": true,
+            "persistent_audit_store_used": false,
+            "ephemeral_evidence_store_only": true,
+            "real_order_post_delete_enabled": false,
+        },
+        "operator_report": report,
+    });
+    write_json_payload(&args.output, &payload)?;
+    print_json(serde_json::json!({
+        "finam_real_readonly_evidence": true,
+        "output": args.output,
+        "live_trading_enabled": false,
+        "order_endpoints_used": false,
+        "fixture_kind": "finam-real-readonly-contract-probe-evidence-v1",
+        "blocking_reasons_count": payload["operator_report"]["blocking_reasons"]
+            .as_array()
+            .map(Vec::len)
+            .unwrap_or_default(),
+        "actual_http_send_started_count": payload["operator_report"]["actual_http_send_started_count"],
+        "actual_http_send_completed_count": payload["operator_report"]["actual_http_send_completed_count"],
+        "max_requests": payload["operator_report"]["max_requests"],
     }))?;
     Ok(())
 }
@@ -3269,6 +3508,16 @@ fn write_records_fixture(
         "records": records,
     });
     std::fs::write(path, serde_json::to_string_pretty(&payload)?)?;
+    Ok(())
+}
+
+fn write_json_payload(path: &PathBuf, payload: &serde_json::Value) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    std::fs::write(path, serde_json::to_string_pretty(payload)?)?;
     Ok(())
 }
 

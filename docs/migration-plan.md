@@ -1392,6 +1392,33 @@ M3b-21-pre explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-22 controlled real-readonly evidence package:
+
+- Added `broker-cli finam-real-readonly-evidence` as the controlled one-shot
+  operator command for the first real-readonly FINAM broker-truth evidence
+  package.
+- The command requires a fresh request-bound
+  `FinamRealReadonlyTokenAccountPreflightApproved` marker, an explicit
+  operator-provided `probe_run_started_at`, and exports
+  `computed_preflight_age_ms`.
+- The run stays single-account/single-base-URL by approved hashes, uses
+  `EphemeralEvidenceStore`, disables retry/background loop/scheduler, and
+  caps actual GET-only broker-truth requests at `max_requests <= 4`.
+- The evidence package contains only redacted scope, request, source-order,
+  send-flag, route-template, status/body-hash, mapped-reason, operator-action,
+  and audit-fingerprint data.
+- Details are documented in `docs/m3b22-real-readonly-evidence-package.md`.
+
+M3b-22 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

@@ -173,6 +173,9 @@ instead of raw transport data.
 M3b-21-pre requires an explicit operator-provided probe clock for enabled runs,
 exports only computed preflight age, and adds local transport-like coverage for
 started/completed send flags without any real FINAM probe.
+M3b-22 adds a controlled one-shot real-readonly evidence command. The report is
+redacted and GET-only; actual evidence artifacts stay under `reports/` and are
+kept separate from source handoff archives.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

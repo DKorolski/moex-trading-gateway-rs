@@ -6,6 +6,9 @@ FINAM order placement/cancel, real command consumption, real CommandAck
 lifecycle, runtime attachment, `LiveReady`, live micro, stop/SLTP, or bracket
 behavior.
 
+M3b-22 follow-up adds the controlled one-shot real-readonly evidence package
+command and runbook. See `docs/m3b22-real-readonly-evidence-package.md`.
+
 ## Explicit operator-run clock
 
 Enabled operator-run probes now require an explicit operator-provided clock:

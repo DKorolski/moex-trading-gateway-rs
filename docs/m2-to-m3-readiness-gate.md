@@ -1204,3 +1204,27 @@ Still not implemented in M3b-21-pre:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-22 controlled real-readonly evidence package status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- controlled one-shot `finam-real-readonly-evidence` CLI command;
+- fresh request-bound token/account preflight marker before any source loop;
+- explicit operator-provided probe clock and computed preflight age in the
+  report;
+- strict single-account and base-URL approval hashes;
+- GET-only broker-truth source loop capped by `max_requests <= 4`;
+- retry, background loop, and scheduler disabled;
+- `EphemeralEvidenceStore` only;
+- redacted evidence package written under `reports/finam-real-readonly-evidence/`.
+
+Still not implemented in M3b-22:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.
