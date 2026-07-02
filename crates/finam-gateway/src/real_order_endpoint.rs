@@ -8,6 +8,8 @@
 //! exported diagnostics are redacted.
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::fmt::Write as _;
 
 use broker_core::command::{CommandAckReasonCode, CommandAckStatus};
 use broker_core::{OperatorDisarmSignal, OrderPathErrorKind, OrderPathEvent, OrderPathState};
@@ -1094,6 +1096,112 @@ pub struct GatewayRealOrderEndpointAttemptIdLifecycleDesignShape {
     pub raw_endpoint_attempt_id_exported: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointImplementationGateReadinessItem {
+    ForbiddenSurfaceScanners,
+    EndpointGateUnconstructible,
+    DurableStoreImplementedTested,
+    OperatorArmImplementedTested,
+    RateLimitBackoffImplementedTested,
+    NoBlindRetryImplementedTested,
+    RedactedAckImplementedTested,
+    ReleaseProfileEvidenceOrWaiver,
+    PositiveGetOrderEvidenceOrWaiver,
+    RouteTemplateRecheck,
+    CanonicalReplayGoldenVectors,
+    OperatorReplayRunbook,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointImplementationGateReadinessStatus {
+    ImplementedAndTested,
+    DesignRecorded,
+    PendingEvidenceOrWaiver,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointImplementationGateReadinessChecklistEntry {
+    pub item: GatewayRealOrderEndpointImplementationGateReadinessItem,
+    pub status: GatewayRealOrderEndpointImplementationGateReadinessStatus,
+    pub must_close_before_implementation_gate: bool,
+    pub reviewer_acceptance_required: bool,
+    pub endpoint_calls_allowed_for_check: bool,
+    pub raw_values_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointImplementationGateReadinessDesignShape {
+    pub checklist_design_only: bool,
+    pub checklist_entry_count: usize,
+    pub implemented_tested_count: usize,
+    pub pending_evidence_or_waiver_count: usize,
+    pub release_profile_evidence_or_waiver_pending: bool,
+    pub positive_get_order_evidence_or_waiver_pending: bool,
+    pub route_template_recheck_pending: bool,
+    pub canonical_replay_golden_vectors_present: bool,
+    pub operator_replay_runbook_present: bool,
+    pub endpoint_calls_allowed_for_readiness: bool,
+    pub raw_values_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointCanonicalReplayGoldenVector {
+    pub name: String,
+    pub schema_version: u16,
+    pub encoding: GatewayRealOrderEndpointCanonicalReplayEncoding,
+    pub canonical_json: String,
+    pub expected_sha256: String,
+    pub field_count: usize,
+    pub no_whitespace: bool,
+    pub sorted_keys_required: bool,
+    pub raw_values_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointCanonicalReplayGoldenVectorDesignShape {
+    pub golden_vectors_design_only: bool,
+    pub vector_count: usize,
+    pub canonical_json_no_whitespace: bool,
+    pub expected_sha256_len: usize,
+    pub all_fields_hash_or_safe_label: bool,
+    pub raw_values_exported: bool,
+    pub refactor_changes_require_vector_update_and_schema_bump: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointOperatorReplayRunbookCase {
+    IdempotentReplaySameFingerprint,
+    ConflictingReplayDisarm,
+    TimeoutUnknownPending,
+    ManualIntervention,
+    TerminalOutcomeNewAttempt,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointOperatorReplayRunbookEntry {
+    pub case: GatewayRealOrderEndpointOperatorReplayRunbookCase,
+    pub operator_visible: bool,
+    pub redacted_diagnostic_only: bool,
+    pub same_endpoint_attempt_id_allowed: bool,
+    pub new_endpoint_attempt_id_required: bool,
+    pub disarm_required: bool,
+    pub no_blind_retry: bool,
+    pub raw_endpoint_attempt_id_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointOperatorReplayRunbookDesignShape {
+    pub operator_runbook_design_only: bool,
+    pub case_count: usize,
+    pub idempotent_replay_case_present: bool,
+    pub conflicting_replay_disarms: bool,
+    pub timeout_requires_new_attempt_id: bool,
+    pub manual_requires_new_attempt_id: bool,
+    pub terminal_requires_new_attempt_id: bool,
+    pub redacted_diagnostics_only: bool,
+    pub raw_endpoint_attempt_id_exported: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayRealOrderEndpointOutcomeStatePolicyDesignShape {
     pub matrix_serializable: bool,
@@ -1172,6 +1280,11 @@ pub struct GatewayRealOrderEndpointApiShape {
     pub canonical_replay_fingerprint_design:
         GatewayRealOrderEndpointCanonicalReplayFingerprintDesignShape,
     pub endpoint_attempt_id_lifecycle_design: GatewayRealOrderEndpointAttemptIdLifecycleDesignShape,
+    pub implementation_gate_readiness_design:
+        GatewayRealOrderEndpointImplementationGateReadinessDesignShape,
+    pub canonical_replay_golden_vector_design:
+        GatewayRealOrderEndpointCanonicalReplayGoldenVectorDesignShape,
+    pub operator_replay_runbook_design: GatewayRealOrderEndpointOperatorReplayRunbookDesignShape,
     pub durable_checkpoint_capability_design:
         GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape,
     pub checkpoint_marker_creation_design:
@@ -1501,6 +1614,53 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
                 new_endpoint_attempt_requires_new_id: true,
                 raw_endpoint_attempt_id_exported: false,
             },
+        implementation_gate_readiness_design:
+            GatewayRealOrderEndpointImplementationGateReadinessDesignShape {
+                checklist_design_only: true,
+                checklist_entry_count: implementation_gate_readiness_checklist().len(),
+                implemented_tested_count: implementation_gate_readiness_checklist()
+                    .iter()
+                    .filter(|entry| {
+                        entry.status
+                            == GatewayRealOrderEndpointImplementationGateReadinessStatus::ImplementedAndTested
+                    })
+                    .count(),
+                pending_evidence_or_waiver_count: implementation_gate_readiness_checklist()
+                    .iter()
+                    .filter(|entry| {
+                        entry.status
+                            == GatewayRealOrderEndpointImplementationGateReadinessStatus::PendingEvidenceOrWaiver
+                    })
+                    .count(),
+                release_profile_evidence_or_waiver_pending: true,
+                positive_get_order_evidence_or_waiver_pending: true,
+                route_template_recheck_pending: true,
+                canonical_replay_golden_vectors_present: true,
+                operator_replay_runbook_present: true,
+                endpoint_calls_allowed_for_readiness: false,
+                raw_values_exported: false,
+            },
+        canonical_replay_golden_vector_design:
+            GatewayRealOrderEndpointCanonicalReplayGoldenVectorDesignShape {
+                golden_vectors_design_only: true,
+                vector_count: canonical_replay_golden_vectors().len(),
+                canonical_json_no_whitespace: true,
+                expected_sha256_len: 64,
+                all_fields_hash_or_safe_label: true,
+                raw_values_exported: false,
+                refactor_changes_require_vector_update_and_schema_bump: true,
+            },
+        operator_replay_runbook_design: GatewayRealOrderEndpointOperatorReplayRunbookDesignShape {
+            operator_runbook_design_only: true,
+            case_count: operator_replay_runbook_entries().len(),
+            idempotent_replay_case_present: true,
+            conflicting_replay_disarms: true,
+            timeout_requires_new_attempt_id: true,
+            manual_requires_new_attempt_id: true,
+            terminal_requires_new_attempt_id: true,
+            redacted_diagnostics_only: true,
+            raw_endpoint_attempt_id_exported: false,
+        },
         durable_checkpoint_capability_design:
             GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape {
                 place_capability_type_internal: true,
@@ -3336,6 +3496,143 @@ pub fn endpoint_attempt_id_lifecycle_policy(
     ]
 }
 
+fn readiness_checklist_entry(
+    item: GatewayRealOrderEndpointImplementationGateReadinessItem,
+    status: GatewayRealOrderEndpointImplementationGateReadinessStatus,
+) -> GatewayRealOrderEndpointImplementationGateReadinessChecklistEntry {
+    GatewayRealOrderEndpointImplementationGateReadinessChecklistEntry {
+        item,
+        status,
+        must_close_before_implementation_gate: true,
+        reviewer_acceptance_required: true,
+        endpoint_calls_allowed_for_check: false,
+        raw_values_exported: false,
+    }
+}
+
+pub fn implementation_gate_readiness_checklist(
+) -> Vec<GatewayRealOrderEndpointImplementationGateReadinessChecklistEntry> {
+    use GatewayRealOrderEndpointImplementationGateReadinessItem as Item;
+    use GatewayRealOrderEndpointImplementationGateReadinessStatus as Status;
+
+    vec![
+        readiness_checklist_entry(Item::ForbiddenSurfaceScanners, Status::ImplementedAndTested),
+        readiness_checklist_entry(
+            Item::EndpointGateUnconstructible,
+            Status::ImplementedAndTested,
+        ),
+        readiness_checklist_entry(
+            Item::DurableStoreImplementedTested,
+            Status::ImplementedAndTested,
+        ),
+        readiness_checklist_entry(
+            Item::OperatorArmImplementedTested,
+            Status::ImplementedAndTested,
+        ),
+        readiness_checklist_entry(
+            Item::RateLimitBackoffImplementedTested,
+            Status::ImplementedAndTested,
+        ),
+        readiness_checklist_entry(
+            Item::NoBlindRetryImplementedTested,
+            Status::ImplementedAndTested,
+        ),
+        readiness_checklist_entry(
+            Item::RedactedAckImplementedTested,
+            Status::ImplementedAndTested,
+        ),
+        readiness_checklist_entry(
+            Item::ReleaseProfileEvidenceOrWaiver,
+            Status::PendingEvidenceOrWaiver,
+        ),
+        readiness_checklist_entry(
+            Item::PositiveGetOrderEvidenceOrWaiver,
+            Status::PendingEvidenceOrWaiver,
+        ),
+        readiness_checklist_entry(Item::RouteTemplateRecheck, Status::PendingEvidenceOrWaiver),
+        readiness_checklist_entry(Item::CanonicalReplayGoldenVectors, Status::DesignRecorded),
+        readiness_checklist_entry(Item::OperatorReplayRunbook, Status::DesignRecorded),
+    ]
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut sha256 = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut sha256, "{byte:02x}").expect("hex write cannot fail");
+    }
+    sha256
+}
+
+pub fn canonical_replay_golden_vectors() -> Vec<GatewayRealOrderEndpointCanonicalReplayGoldenVector>
+{
+    let canonical_json = concat!(
+        "{\"account_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",",
+        "\"ack_diagnostic_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",",
+        "\"captured_envelope_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",",
+        "\"checkpoint_label\":\"PlaceBeginSubmitPersistedBeforeEndpoint\",",
+        "\"checkpoint_proof_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",",
+        "\"client_order_id_sha256\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",",
+        "\"endpoint_attempt_id_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",",
+        "\"instrument_sha256\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",",
+        "\"operation\":\"PlaceOrder\",",
+        "\"outcome_sha256\":\"9999999999999999999999999999999999999999999999999999999999999999\",",
+        "\"request_fingerprint_sha256\":\"7777777777777777777777777777777777777777777777777777777777777777\",",
+        "\"request_id_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",",
+        "\"schema_version\":1,",
+        "\"state_transition_sha256\":\"8888888888888888888888888888888888888888888888888888888888888888\"}"
+    );
+    let expected_sha256 = sha256_hex(canonical_json.as_bytes());
+    debug_assert_eq!(
+        expected_sha256,
+        "d467afd3b7d320c26966a1a400995e00664397ed47bb74320a418cfd2524abc6"
+    );
+
+    vec![GatewayRealOrderEndpointCanonicalReplayGoldenVector {
+        name: "place_order_schema_v1_sorted_keys_no_whitespace".to_string(),
+        schema_version: 1,
+        encoding:
+            GatewayRealOrderEndpointCanonicalReplayEncoding::Utf8JsonObjectSortedKeysNoWhitespace,
+        canonical_json: canonical_json.to_string(),
+        expected_sha256,
+        field_count: canonical_replay_fingerprint_fields().len(),
+        no_whitespace: true,
+        sorted_keys_required: true,
+        raw_values_exported: false,
+    }]
+}
+
+fn operator_replay_runbook_entry(
+    case: GatewayRealOrderEndpointOperatorReplayRunbookCase,
+    same_endpoint_attempt_id_allowed: bool,
+    new_endpoint_attempt_id_required: bool,
+    disarm_required: bool,
+) -> GatewayRealOrderEndpointOperatorReplayRunbookEntry {
+    GatewayRealOrderEndpointOperatorReplayRunbookEntry {
+        case,
+        operator_visible: true,
+        redacted_diagnostic_only: true,
+        same_endpoint_attempt_id_allowed,
+        new_endpoint_attempt_id_required,
+        disarm_required,
+        no_blind_retry: true,
+        raw_endpoint_attempt_id_exported: false,
+    }
+}
+
+pub fn operator_replay_runbook_entries() -> Vec<GatewayRealOrderEndpointOperatorReplayRunbookEntry>
+{
+    use GatewayRealOrderEndpointOperatorReplayRunbookCase as Case;
+
+    vec![
+        operator_replay_runbook_entry(Case::IdempotentReplaySameFingerprint, true, false, false),
+        operator_replay_runbook_entry(Case::ConflictingReplayDisarm, false, true, true),
+        operator_replay_runbook_entry(Case::TimeoutUnknownPending, false, true, true),
+        operator_replay_runbook_entry(Case::ManualIntervention, false, true, true),
+        operator_replay_runbook_entry(Case::TerminalOutcomeNewAttempt, false, true, false),
+    ]
+}
+
 pub fn future_send_outcome_state_policy_matrix(
 ) -> Vec<GatewayRealOrderEndpointOutcomeStatePolicyEntry> {
     use GatewayRealOrderEndpointFutureSendOutcome as Outcome;
@@ -4904,6 +5201,137 @@ mod tests {
         assert!(
             !shape
                 .endpoint_attempt_id_lifecycle_design
+                .raw_endpoint_attempt_id_exported
+        );
+        assert!(
+            shape
+                .implementation_gate_readiness_design
+                .checklist_design_only
+        );
+        assert_eq!(
+            shape
+                .implementation_gate_readiness_design
+                .checklist_entry_count,
+            12
+        );
+        assert_eq!(
+            shape
+                .implementation_gate_readiness_design
+                .implemented_tested_count,
+            7
+        );
+        assert_eq!(
+            shape
+                .implementation_gate_readiness_design
+                .pending_evidence_or_waiver_count,
+            3
+        );
+        assert!(
+            shape
+                .implementation_gate_readiness_design
+                .release_profile_evidence_or_waiver_pending
+        );
+        assert!(
+            shape
+                .implementation_gate_readiness_design
+                .positive_get_order_evidence_or_waiver_pending
+        );
+        assert!(
+            shape
+                .implementation_gate_readiness_design
+                .route_template_recheck_pending
+        );
+        assert!(
+            shape
+                .implementation_gate_readiness_design
+                .canonical_replay_golden_vectors_present
+        );
+        assert!(
+            shape
+                .implementation_gate_readiness_design
+                .operator_replay_runbook_present
+        );
+        assert!(
+            !shape
+                .implementation_gate_readiness_design
+                .endpoint_calls_allowed_for_readiness
+        );
+        assert!(
+            !shape
+                .implementation_gate_readiness_design
+                .raw_values_exported
+        );
+        assert!(
+            shape
+                .canonical_replay_golden_vector_design
+                .golden_vectors_design_only
+        );
+        assert_eq!(shape.canonical_replay_golden_vector_design.vector_count, 1);
+        assert!(
+            shape
+                .canonical_replay_golden_vector_design
+                .canonical_json_no_whitespace
+        );
+        assert_eq!(
+            shape
+                .canonical_replay_golden_vector_design
+                .expected_sha256_len,
+            64
+        );
+        assert!(
+            shape
+                .canonical_replay_golden_vector_design
+                .all_fields_hash_or_safe_label
+        );
+        assert!(
+            !shape
+                .canonical_replay_golden_vector_design
+                .raw_values_exported
+        );
+        assert!(
+            shape
+                .canonical_replay_golden_vector_design
+                .refactor_changes_require_vector_update_and_schema_bump
+        );
+        assert!(
+            shape
+                .operator_replay_runbook_design
+                .operator_runbook_design_only
+        );
+        assert_eq!(shape.operator_replay_runbook_design.case_count, 5);
+        assert!(
+            shape
+                .operator_replay_runbook_design
+                .idempotent_replay_case_present
+        );
+        assert!(
+            shape
+                .operator_replay_runbook_design
+                .conflicting_replay_disarms
+        );
+        assert!(
+            shape
+                .operator_replay_runbook_design
+                .timeout_requires_new_attempt_id
+        );
+        assert!(
+            shape
+                .operator_replay_runbook_design
+                .manual_requires_new_attempt_id
+        );
+        assert!(
+            shape
+                .operator_replay_runbook_design
+                .terminal_requires_new_attempt_id
+        );
+        assert!(
+            shape
+                .operator_replay_runbook_design
+                .redacted_diagnostics_only
+        );
+        assert!(
+            !shape
+                .operator_replay_runbook_design
                 .raw_endpoint_attempt_id_exported
         );
         assert!(
@@ -6759,6 +7187,173 @@ mod tests {
         assert!(!shape.raw_endpoint_attempt_id_exported);
 
         let rendered = serde_json::to_string(&(shape, policy)).expect("lifecycle serializes");
+        assert!(!rendered.contains("ACC_TEST_0001"));
+        assert!(!rendered.contains("ORDER_TEST_0001"));
+        assert!(!rendered.contains("Bearer "));
+    }
+
+    #[test]
+    fn implementation_gate_readiness_checklist_records_pending_evidence_without_endpoint_calls() {
+        use GatewayRealOrderEndpointImplementationGateReadinessItem as Item;
+        use GatewayRealOrderEndpointImplementationGateReadinessStatus as Status;
+
+        let checklist = implementation_gate_readiness_checklist();
+        assert_eq!(checklist.len(), 12);
+
+        for entry in &checklist {
+            assert!(entry.must_close_before_implementation_gate);
+            assert!(entry.reviewer_acceptance_required);
+            assert!(!entry.endpoint_calls_allowed_for_check);
+            assert!(!entry.raw_values_exported);
+        }
+
+        let implemented = checklist
+            .iter()
+            .filter(|entry| entry.status == Status::ImplementedAndTested)
+            .count();
+        let pending = checklist
+            .iter()
+            .filter(|entry| entry.status == Status::PendingEvidenceOrWaiver)
+            .count();
+        let design_recorded = checklist
+            .iter()
+            .filter(|entry| entry.status == Status::DesignRecorded)
+            .count();
+
+        assert_eq!(implemented, 7);
+        assert_eq!(pending, 3);
+        assert_eq!(design_recorded, 2);
+
+        for item in [
+            Item::ReleaseProfileEvidenceOrWaiver,
+            Item::PositiveGetOrderEvidenceOrWaiver,
+            Item::RouteTemplateRecheck,
+        ] {
+            let entry = checklist
+                .iter()
+                .find(|entry| entry.item == item)
+                .expect("pending evidence item");
+            assert_eq!(entry.status, Status::PendingEvidenceOrWaiver);
+        }
+
+        for item in [
+            Item::CanonicalReplayGoldenVectors,
+            Item::OperatorReplayRunbook,
+        ] {
+            let entry = checklist
+                .iter()
+                .find(|entry| entry.item == item)
+                .expect("design recorded item");
+            assert_eq!(entry.status, Status::DesignRecorded);
+        }
+
+        let rendered = serde_json::to_string(&checklist).expect("checklist serializes");
+        assert!(!rendered.contains("ACC_TEST_0001"));
+        assert!(!rendered.contains("ORDER_TEST_0001"));
+        assert!(!rendered.contains("Bearer "));
+    }
+
+    #[test]
+    fn canonical_replay_golden_vector_locks_json_and_sha256() {
+        let vectors = canonical_replay_golden_vectors();
+        assert_eq!(vectors.len(), 1);
+
+        let vector = &vectors[0];
+        assert_eq!(
+            vector.name,
+            "place_order_schema_v1_sorted_keys_no_whitespace"
+        );
+        assert_eq!(vector.schema_version, 1);
+        assert_eq!(
+            vector.encoding,
+            GatewayRealOrderEndpointCanonicalReplayEncoding::Utf8JsonObjectSortedKeysNoWhitespace
+        );
+        assert_eq!(
+            vector.field_count,
+            canonical_replay_fingerprint_fields().len()
+        );
+        assert!(vector.no_whitespace);
+        assert!(vector.sorted_keys_required);
+        assert!(!vector.raw_values_exported);
+        assert_eq!(vector.expected_sha256.len(), 64);
+        assert_eq!(
+            vector.expected_sha256,
+            "d467afd3b7d320c26966a1a400995e00664397ed47bb74320a418cfd2524abc6"
+        );
+        assert_eq!(
+            sha256_hex(vector.canonical_json.as_bytes()),
+            vector.expected_sha256
+        );
+        assert_eq!(
+            vector.canonical_json,
+            concat!(
+                "{\"account_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",",
+                "\"ack_diagnostic_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",",
+                "\"captured_envelope_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",",
+                "\"checkpoint_label\":\"PlaceBeginSubmitPersistedBeforeEndpoint\",",
+                "\"checkpoint_proof_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",",
+                "\"client_order_id_sha256\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",",
+                "\"endpoint_attempt_id_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",",
+                "\"instrument_sha256\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",",
+                "\"operation\":\"PlaceOrder\",",
+                "\"outcome_sha256\":\"9999999999999999999999999999999999999999999999999999999999999999\",",
+                "\"request_fingerprint_sha256\":\"7777777777777777777777777777777777777777777777777777777777777777\",",
+                "\"request_id_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",",
+                "\"schema_version\":1,",
+                "\"state_transition_sha256\":\"8888888888888888888888888888888888888888888888888888888888888888\"}"
+            )
+        );
+        assert!(!vector.canonical_json.chars().any(char::is_whitespace));
+        assert!(!vector.canonical_json.contains("ACC_TEST_0001"));
+        assert!(!vector.canonical_json.contains("ORDER_TEST_0001"));
+        assert!(!vector.canonical_json.contains("Bearer "));
+    }
+
+    #[test]
+    fn operator_replay_runbook_links_lifecycle_to_redacted_operator_actions() {
+        use GatewayRealOrderEndpointOperatorReplayRunbookCase as Case;
+
+        let entries = operator_replay_runbook_entries();
+        assert_eq!(entries.len(), 5);
+
+        for entry in &entries {
+            assert!(entry.operator_visible);
+            assert!(entry.redacted_diagnostic_only);
+            assert!(entry.no_blind_retry);
+            assert!(!entry.raw_endpoint_attempt_id_exported);
+        }
+
+        let idempotent = entries
+            .iter()
+            .find(|entry| entry.case == Case::IdempotentReplaySameFingerprint)
+            .expect("idempotent replay case");
+        assert!(idempotent.same_endpoint_attempt_id_allowed);
+        assert!(!idempotent.new_endpoint_attempt_id_required);
+        assert!(!idempotent.disarm_required);
+
+        for case in [
+            Case::ConflictingReplayDisarm,
+            Case::TimeoutUnknownPending,
+            Case::ManualIntervention,
+        ] {
+            let entry = entries
+                .iter()
+                .find(|entry| entry.case == case)
+                .expect("operator disarm case");
+            assert!(!entry.same_endpoint_attempt_id_allowed);
+            assert!(entry.new_endpoint_attempt_id_required);
+            assert!(entry.disarm_required);
+        }
+
+        let terminal = entries
+            .iter()
+            .find(|entry| entry.case == Case::TerminalOutcomeNewAttempt)
+            .expect("terminal outcome case");
+        assert!(!terminal.same_endpoint_attempt_id_allowed);
+        assert!(terminal.new_endpoint_attempt_id_required);
+        assert!(!terminal.disarm_required);
+
+        let rendered = serde_json::to_string(&entries).expect("runbook serializes");
         assert!(!rendered.contains("ACC_TEST_0001"));
         assert!(!rendered.contains("ORDER_TEST_0001"));
         assert!(!rendered.contains("Bearer "));

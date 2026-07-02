@@ -261,6 +261,12 @@ order endpoints; auto-repair and automatic stale-lock deletion remain forbidden.
 Replay fingerprints are stable sorted-key/no-whitespace hash-only shapes, and
 attempt ids cannot be reused for new network attempts after timeout, manual, or
 terminal outcomes.
+M3c-19 adds design-only implementation-gate readiness, canonical replay golden
+vectors, and operator replay runbook entries. The readiness checklist keeps
+release-profile evidence, positive GetOrder evidence, and route-template recheck
+pending before implementation gate; the golden vector is synthetic/hash-only;
+operator replay diagnostics stay redacted and never export raw endpoint-attempt
+ids.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

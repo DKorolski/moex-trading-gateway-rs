@@ -1360,6 +1360,11 @@ Implemented while still keeping all broker order endpoints disabled:
   sorted-key/no-whitespace replay fingerprint ordering, and endpoint-attempt-id
   lifecycle rules forbidding reuse for new attempts after timeout/manual/terminal
   outcomes;
+- M3c-19 implementation-gate readiness / golden vectors: records the design-only
+  readiness checklist, keeps release-profile evidence, positive GetOrder
+  evidence, and route-template recheck pending, adds a synthetic canonical
+  replay golden vector with fixed SHA-256, and links replay/conflict/timeout/
+  manual/terminal cases to redacted operator runbook actions;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:

@@ -210,6 +210,31 @@ new_endpoint_attempt_requires_new_id = true
 
 These markers are still design/report-only; they do not enable endpoint calls.
 
+M3c-19 records implementation-gate readiness, golden-vector, and operator
+runbook markers:
+
+```text
+checklist_design_only = true
+ImplementedAndTested
+PendingEvidenceOrWaiver
+release_profile_evidence_or_waiver_pending = true
+positive_get_order_evidence_or_waiver_pending = true
+route_template_recheck_pending = true
+endpoint_calls_allowed_for_readiness = false
+golden_vectors_design_only = true
+canonical_json_no_whitespace = true
+expected_sha256 = d467afd3b7d320c26966a1a400995e00664397ed47bb74320a418cfd2524abc6
+all_fields_hash_or_safe_label = true
+operator_runbook_design_only = true
+conflicting_replay_disarms = true
+timeout_requires_new_attempt_id = true
+manual_requires_new_attempt_id = true
+terminal_requires_new_attempt_id = true
+redacted_diagnostics_only = true
+```
+
+These markers are also design/report-only; they do not enable endpoint calls.
+
 ## Scanner transition spec
 
 The API shape exports:

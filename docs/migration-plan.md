@@ -1940,6 +1940,31 @@ M3c-18 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-19 implementation-gate readiness / canonical fingerprint golden vectors:
+
+- Added design-only implementation-gate readiness checklist separating
+  implemented/tested items from pending evidence/waiver items.
+- Kept release-profile evidence/waiver, positive GetOrder evidence/waiver, and
+  route-template recheck pending before implementation gate.
+- Added synthetic canonical replay golden vector for schema v1 with sorted-key
+  no-whitespace JSON and expected SHA-256
+  `d467afd3b7d320c26966a1a400995e00664397ed47bb74320a418cfd2524abc6`.
+- Added operator replay runbook cases for idempotent replay, conflicting replay
+  disarm, timeout unknown pending, manual intervention, and terminal outcome new
+  attempts.
+- Details are documented in
+  `docs/m3c19-implementation-gate-readiness-golden-vectors.md`.
+
+M3c-19 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

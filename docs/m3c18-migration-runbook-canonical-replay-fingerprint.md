@@ -73,6 +73,14 @@ Timeout/manual/terminal outcomes require a new `endpoint_attempt_id` for any
 new network attempt. The raw attempt id is not exported; only the SHA-256 shape
 is visible in design/report artifacts.
 
+## Follow-up in M3c-19
+
+M3c-19 records the implementation-gate readiness checklist, adds a fixed
+synthetic canonical replay golden vector, and links replay/conflict/timeout/
+manual/terminal lifecycle cases to redacted operator runbook actions. The
+release-profile evidence/waiver, positive GetOrder evidence/waiver, and
+route-template recheck remain pending before implementation gate.
+
 ## Still not allowed
 
 - FINAM real PlaceOrder `POST`;
