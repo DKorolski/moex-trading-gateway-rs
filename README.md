@@ -245,6 +245,7 @@ See:
 - [M3c-19 implementation-gate readiness and golden vectors](docs/m3c19-implementation-gate-readiness-golden-vectors.md)
 - [M3c-20 evidence slot closure package](docs/m3c20-evidence-slot-closure-package.md)
 - [M3c-21 release-profile evidence](docs/m3c21-release-profile-evidence.md)
+- [M3c-22 route-template recheck evidence](docs/m3c22-route-template-recheck-evidence.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

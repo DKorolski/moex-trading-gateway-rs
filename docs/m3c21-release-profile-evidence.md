@@ -68,6 +68,13 @@ evidence_provided_or_waiver_count = 1
 evidence_pending_count = 4
 ```
 
+## Follow-up in M3c-22
+
+M3c-22 closes the route-template recheck slot using source-bound evidence from
+the official FINAM REST documentation. The recheck remains design-only: exactly
+two route templates, no rendered account/order ids, and no FINAM order endpoint
+calls.
+
 ## Still not allowed
 
 - FINAM real PlaceOrder `POST`;

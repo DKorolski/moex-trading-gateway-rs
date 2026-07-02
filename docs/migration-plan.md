@@ -2013,6 +2013,29 @@ M3c-21 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-22 route-template recheck evidence:
+
+- Added source-bound route-template recheck helper
+  `scripts/m3c_route_template_recheck_evidence.py`.
+- The helper fetches the official FINAM REST documentation page, records its
+  SHA-256, verifies the two design templates, records template hashes, runs the
+  forbidden-surface scan, and keeps all rendered live routes/account/order ids
+  out of the evidence.
+- M3c-22 closes `route_template_recheck` as `EvidenceProvided`; release profile
+  remains `EvidenceProvided`, while positive GetOrder, undocumented
+  `201/202/204`, and cancel `409/410` remain pending.
+- Details are documented in `docs/m3c22-route-template-recheck-evidence.md`.
+
+M3c-22 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.
