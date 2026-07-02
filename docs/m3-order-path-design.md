@@ -218,6 +218,8 @@ M3b-22 adds the actual controlled one-shot real-readonly evidence command while
 keeping all order endpoints and runtime/live behavior disabled.
 M3b-23 hardens that evidence with source/archive metadata, per-attempt timing,
 and parsed-count summaries while keeping the order boundary closed.
+M3b-24 closes GetOrder 200 fixture coverage and records the M3c pre-order gate
+policy; it remains design/fixture-only and does not enable order endpoints.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

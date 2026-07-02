@@ -83,6 +83,10 @@ GetOrder -> 200 / identity mismatch / MismatchedOrderIdentity
 
 It must still avoid FINAM POST/DELETE order endpoints.
 
+M3b-24 follow-up adds a checked synthetic real-shape GetOrder 200 fixture for
+exact identity and mismatch, plus M3c pre-order gate policy. See
+`docs/m3b24-m3c0-pre-order-readiness-closeout.md`.
+
 ## Still not allowed
 
 - FINAM real PlaceOrder endpoint calls;

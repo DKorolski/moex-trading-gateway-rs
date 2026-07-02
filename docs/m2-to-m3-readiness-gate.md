@@ -1251,3 +1251,26 @@ Still not implemented in M3b-23:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-24 / M3c-0 pre-order readiness closeout status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- GetOrder 200 synthetic real-shape fixture for exact broker order identity;
+- GetOrder 200 synthetic real-shape fixture for mismatched identity mapping to
+  `MismatchedOrderIdentity`;
+- positive reconciliation fixture proving parsed/matched counts and terminal
+  truth for exact identity;
+- release-profile evidence policy for future gate review;
+- FINAM route-template recheck policy for `FinamRestDocs20260701`;
+- M3c order endpoint gate design policy and readiness matrix.
+
+Still not implemented in M3b-24:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

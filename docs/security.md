@@ -179,6 +179,9 @@ kept separate from source handoff archives.
 M3b-23 adds self-contained evidence metadata, runs the forbidden-surface scan
 before evidence collection, and adds timing/parsed-count diagnostics without raw
 broker identifiers or bodies.
+M3b-24 adds GetOrder 200 fixture closeout and pre-order gate policy while
+keeping real FINAM order endpoints disabled and absent from the allowed
+surface.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

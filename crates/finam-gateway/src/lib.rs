@@ -11197,6 +11197,131 @@ mod tests {
         assert!(!report_json.contains("TRADE_TEST_LOCAL_HTTP"));
     }
 
+    #[test]
+    fn m3b24_get_order_200_real_shape_fixture_covers_exact_and_mismatch_redacted() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 2, 11, 24, 0)
+            .single()
+            .expect("timestamp");
+        let policy = CancelBrokerTruthOrchestrationPolicy::default();
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let order_id = BrokerOrderId::new("BROKER_TEST_M3B24_EXACT");
+        let client_id = ClientOrderId::new("CID000000000000224").expect("client id");
+        let instrument = sample_instrument();
+        let request = truth_fetch_request_with_account(
+            &account_id,
+            &order_id,
+            Some(&client_id),
+            &instrument,
+            now,
+            CancelPositionTruthGuardContext::default(),
+        );
+        let request_snapshot = CancelBrokerTruthFetchRequestSnapshot::from(&request);
+        let exact_body = serde_json::json!({
+            "executed_quantity": {"value": "1"},
+            "initial_quantity": {"value": "1"},
+            "order": {
+                "account_id": account_id.as_str(),
+                "client_order_id": client_id.as_str(),
+                "comment": "m3b24 raw comment must not leak",
+                "limit_price": {"value": "5000"},
+                "quantity": {"value": "1"},
+                "side": "SIDE_BUY",
+                "symbol": "TESTFUT@TEST",
+                "type": "ORDER_TYPE_LIMIT"
+            },
+            "order_id": order_id.as_str(),
+            "status": "ORDER_STATUS_CANCELED",
+            "transact_at": "2026-07-02T08:24:00Z"
+        });
+        let exact_response = CancelBrokerTruthReadonlyHttpResponse::json(200, &exact_body);
+        let exact_result = map_cancel_broker_truth_get_order_http_response(
+            &exact_response,
+            &request_snapshot,
+            now,
+            &policy.freshness,
+        );
+        let CancelBrokerTruthFetchResult::Observation(exact_observation) = exact_result else {
+            panic!("GetOrder 200 exact identity fixture should become broker truth evidence");
+        };
+        let exact_classification = classify_cancel_broker_truth(&exact_observation, now);
+        assert_eq!(
+            exact_classification.broker_truth,
+            CancelReconciliationBrokerTruth::Terminal
+        );
+        assert_eq!(
+            exact_classification.diagnostic.identity_strength,
+            Some(CancelBrokerTruthIdentityStrength::BrokerOrderIdExact)
+        );
+        let exact_summary = build_finam_real_readonly_reconciliation_evidence_summary(
+            CancelBrokerTruthSource::GetOrder,
+            &exact_response,
+            &request_snapshot,
+            FinamRealReadonlyBrokerTruthQueryPolicy::default(),
+        );
+        assert_eq!(exact_summary.parsed_orders_count, Some(1));
+        assert_eq!(exact_summary.matched_orders_count, Some(1));
+        assert_eq!(exact_summary.snapshot_complete, Some(true));
+        assert_eq!(exact_summary.snapshot_incomplete_reason, None);
+
+        let mismatch_body = serde_json::json!({
+            "executed_quantity": {"value": "1"},
+            "initial_quantity": {"value": "1"},
+            "order": {
+                "account_id": account_id.as_str(),
+                "client_order_id": "CID000000000000225",
+                "comment": "m3b24 mismatch raw comment must not leak",
+                "limit_price": {"value": "5000"},
+                "quantity": {"value": "1"},
+                "side": "SIDE_BUY",
+                "symbol": "TESTFUT@TEST",
+                "type": "ORDER_TYPE_LIMIT"
+            },
+            "order_id": "BROKER_TEST_M3B24_OTHER",
+            "status": "ORDER_STATUS_CANCELED",
+            "transact_at": "2026-07-02T08:24:01Z"
+        });
+        let mismatch_response = CancelBrokerTruthReadonlyHttpResponse::json(200, &mismatch_body);
+        let mismatch_result = map_cancel_broker_truth_get_order_http_response(
+            &mismatch_response,
+            &request_snapshot,
+            now,
+            &policy.freshness,
+        );
+        let CancelBrokerTruthFetchResult::Missing { reason, .. } = mismatch_result else {
+            panic!("GetOrder 200 mismatched identity fixture must not become evidence");
+        };
+        assert_eq!(
+            reason,
+            CancelBrokerTruthFetchReason::MismatchedOrderIdentity
+        );
+        let mismatch_summary = build_finam_real_readonly_reconciliation_evidence_summary(
+            CancelBrokerTruthSource::GetOrder,
+            &mismatch_response,
+            &request_snapshot,
+            FinamRealReadonlyBrokerTruthQueryPolicy::default(),
+        );
+        assert_eq!(mismatch_summary.parsed_orders_count, Some(1));
+        assert_eq!(mismatch_summary.matched_orders_count, Some(0));
+        assert_eq!(mismatch_summary.snapshot_complete, Some(true));
+
+        let rendered = serde_json::to_string(&serde_json::json!({
+            "exact_summary": exact_summary,
+            "mismatch_summary": mismatch_summary,
+            "exact_classification": exact_classification.diagnostic,
+            "mismatch_reason": reason,
+        }))
+        .expect("m3b24 fixture report serializes");
+        assert!(rendered.contains("BrokerOrderIdExact"));
+        assert!(rendered.contains("MismatchedOrderIdentity"));
+        assert!(!rendered.contains(order_id.as_str()));
+        assert!(!rendered.contains(client_id.as_str()));
+        assert!(!rendered.contains("BROKER_TEST_M3B24_OTHER"));
+        assert!(!rendered.contains("CID000000000000225"));
+        assert!(!rendered.contains("m3b24 raw comment must not leak"));
+        assert!(!rendered.contains("m3b24 mismatch raw comment must not leak"));
+    }
+
     #[tokio::test]
     async fn local_mock_readonly_transport_builds_get_specs_and_keeps_raw_body_private() {
         let now = Utc

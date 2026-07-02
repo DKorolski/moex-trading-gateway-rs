@@ -1443,6 +1443,29 @@ M3b-23 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-24 / M3c-0 pre-order readiness closeout:
+
+- Added explicit GetOrder 200 synthetic real-shape fixture coverage for exact
+  identity and `MismatchedOrderIdentity`.
+- Added redacted fixture assertions for positive reconciliation summary:
+  parsed/matched counts and `BrokerOrderIdExact` terminal truth.
+- Documented release-profile evidence policy for future pre-order gate review.
+- Documented FINAM route-template recheck policy for `FinamRestDocs20260701`.
+- Documented M3c feature-flag/off-by-default order transport plan and
+  pre-order readiness matrix.
+- Details are documented in
+  `docs/m3b24-m3c0-pre-order-readiness-closeout.md`.
+
+M3b-24 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.
