@@ -57,6 +57,17 @@ diagnostic_can_construct_request_parts = false
 constructor_count = 2
 ```
 
+M3c-10 records the private approved request-parts consumer design:
+
+```text
+consumer_internal_only = true
+consumer_requires_endpoint_gate = true
+consumer_accepts_approved_request_parts_only = true
+consumer_accepts_diagnostics = false
+consumer_network_enabled = false
+consumer_count = 1
+```
+
 ## Scanner transition spec
 
 The API shape exports:

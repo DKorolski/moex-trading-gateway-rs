@@ -30,6 +30,18 @@ if rg -n 'pub struct GatewayRealOrderEndpointInternalRouteShape' "$target" >/tmp
 fi
 rm -f /tmp/moex_transition_forbidden.$$
 
+if rg -n 'pub fn consume_approved_request_parts_for_future_endpoint' "$target" >/tmp/moex_transition_forbidden.$$; then
+  cat /tmp/moex_transition_forbidden.$$ >&2
+  report_failure "approved request-parts consumer must not be public"
+fi
+rm -f /tmp/moex_transition_forbidden.$$
+
+if rg -n 'consume_approved_request_parts_for_future_endpoint\([^)]*GatewayRealOrderEndpoint.*Diagnostic' "$target" >/tmp/moex_transition_forbidden.$$; then
+  cat /tmp/moex_transition_forbidden.$$ >&2
+  report_failure "diagnostic DTOs must not feed the approved request-parts consumer"
+fi
+rm -f /tmp/moex_transition_forbidden.$$
+
 for internal_type in \
   GatewayRealOrderEndpointInternalRouteShape \
   RenderedOrderEndpointPath \
@@ -69,17 +81,24 @@ required_patterns=(
   "struct GatewayRealOrderEndpointInternalRouteShape"
   "struct RenderedOrderEndpointPath"
   "struct ApprovedOrderEndpointRequestParts"
+  "fn consume_approved_request_parts_for_future_endpoint"
   "diagnostic_can_construct_request_parts: false"
   "constructors_require_endpoint_gate: true"
   "constructors_require_approved_request_spec: true"
   "constructors_require_account_instrument_allowlist: true"
   "constructors_require_operator_arm: true"
   "constructors_require_durable_state_checkpoint: true"
+  "consumer_internal_only: true"
+  "consumer_requires_endpoint_gate: true"
+  "consumer_accepts_approved_request_parts_only: true"
+  "consumer_accepts_diagnostics: false"
+  "consumer_network_enabled: false"
   "route_template_exported: false"
   "rendered_path_exported: false"
   "raw_body_exported: false"
   "GatewayRealOrderEndpointRedactedRouteDiagnostic"
   "GatewayRealOrderEndpointApprovedPartsDiagnostic"
+  "GatewayRealOrderEndpointConsumerDiagnostic"
   "CurrentDenyAllOrderPostDelete"
   "FutureExactTwoRouteAllowlistAfterReview"
   "real_post_delete_calls_allowed_now: false"

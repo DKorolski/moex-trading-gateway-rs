@@ -1692,6 +1692,33 @@ M3c-9 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-10 approved request-parts consumer boundary / future endpoint consumer
+shape:
+
+- Added private `consume_approved_request_parts_for_future_endpoint` inside
+  `crates/finam-gateway/src/real_order_endpoint.rs`.
+- The consumer requires `EndpointGateApproved` and accepts only the private
+  `ApprovedOrderEndpointRequestParts` capability.
+- The consumer remains design-only/no-network and returns only
+  `GatewayRealOrderEndpointConsumerDiagnostic`.
+- Exported consumer diagnostics redact rendered path, raw body, account id,
+  broker order id, instrument symbol, and client order id.
+- Scanner guards now check that the consumer is private, diagnostics cannot
+  feed it, `consumer_network_enabled = false`, `rendered_path_exported = false`,
+  and `raw_body_exported = false`.
+- Details are documented in
+  `docs/m3c10-approved-parts-consumer-boundary.md`.
+
+M3c-10 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

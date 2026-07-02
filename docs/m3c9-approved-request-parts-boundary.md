@@ -54,6 +54,10 @@ Diagnostics cannot feed the request-parts constructors. The constructor
 signatures accept the approved request specs and safety markers, not exported
 diagnostic structs.
 
+M3c-10 adds the next private consumer boundary: it accepts only
+`ApprovedOrderEndpointRequestParts`, requires `EndpointGateApproved`, remains
+no-network/design-only, and returns only redacted consumer diagnostics.
+
 ## Scanner-transition guard
 
 `scripts/order_endpoint_scanner_transition_spec.sh` now also checks that:

@@ -115,6 +115,39 @@ pub struct GatewayRealOrderEndpointApprovedPartsDiagnostic {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointConsumerDesignShape {
+    pub consumer_internal_only: bool,
+    pub consumer_requires_endpoint_gate: bool,
+    pub consumer_accepts_approved_request_parts_only: bool,
+    pub consumer_accepts_diagnostics: bool,
+    pub consumer_network_enabled: bool,
+    pub rendered_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub runtime_ack_redacted_only: bool,
+    pub consumer_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointConsumerDiagnostic {
+    pub operation: GatewayRealOrderEndpointOperation,
+    pub method_name: String,
+    pub accepted_approved_request_parts: bool,
+    pub endpoint_gate_required: bool,
+    pub network_enabled: bool,
+    pub rendered_path_present: bool,
+    pub rendered_path_redacted: bool,
+    pub rendered_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub runtime_ack_redacted_only: bool,
+    pub account_id_present: bool,
+    pub account_id_len: usize,
+    pub order_id_present: bool,
+    pub order_id_len: Option<usize>,
+    pub symbol_present: bool,
+    pub symbol_len: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayRealOrderEndpointApiShape {
     pub mode: GatewayRealOrderEndpointBoundaryMode,
     pub approved_module_path: String,
@@ -122,6 +155,7 @@ pub struct GatewayRealOrderEndpointApiShape {
     pub http_send_requires_gate_marker: bool,
     pub api_shape_contains_route_templates: bool,
     pub approved_request_parts_design: GatewayRealOrderEndpointApprovedPartsDesignShape,
+    pub consumer_design: GatewayRealOrderEndpointConsumerDesignShape,
     pub runtime_ack_id_policy: RuntimeCommandAckIdPolicy,
     pub scanner_transition_spec: GatewayRealOrderEndpointScannerTransitionSpec,
 }
@@ -158,6 +192,17 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
             constructors_require_operator_arm: true,
             constructors_require_durable_state_checkpoint: true,
             constructor_count: approved_request_parts_constructor_count(),
+        },
+        consumer_design: GatewayRealOrderEndpointConsumerDesignShape {
+            consumer_internal_only: true,
+            consumer_requires_endpoint_gate: true,
+            consumer_accepts_approved_request_parts_only: true,
+            consumer_accepts_diagnostics: false,
+            consumer_network_enabled: false,
+            rendered_path_exported: false,
+            raw_body_exported: false,
+            runtime_ack_redacted_only: true,
+            consumer_count: approved_request_parts_consumer_count(),
         },
         runtime_ack_id_policy: RuntimeCommandAckIdPolicy::RedactedRuntimeAckOnly,
         scanner_transition_spec: GatewayRealOrderEndpointScannerTransitionSpec {
@@ -305,6 +350,37 @@ fn approved_request_parts_redacted_diagnostic(
     }
 }
 
+fn approved_request_parts_consumer_redacted_diagnostic(
+    parts: ApprovedOrderEndpointRequestParts,
+) -> GatewayRealOrderEndpointConsumerDiagnostic {
+    let parts_diagnostic = approved_request_parts_redacted_diagnostic(&parts);
+    GatewayRealOrderEndpointConsumerDiagnostic {
+        operation: parts_diagnostic.operation,
+        method_name: parts_diagnostic.method_name,
+        accepted_approved_request_parts: true,
+        endpoint_gate_required: true,
+        network_enabled: false,
+        rendered_path_present: parts_diagnostic.rendered_path_present,
+        rendered_path_redacted: true,
+        rendered_path_exported: false,
+        raw_body_exported: false,
+        runtime_ack_redacted_only: true,
+        account_id_present: parts_diagnostic.account_id_present,
+        account_id_len: parts_diagnostic.account_id_len,
+        order_id_present: parts_diagnostic.order_id_present,
+        order_id_len: parts_diagnostic.order_id_len,
+        symbol_present: parts_diagnostic.symbol_present,
+        symbol_len: parts_diagnostic.symbol_len,
+    }
+}
+
+fn consume_approved_request_parts_for_future_endpoint(
+    _gate: &EndpointGateApproved,
+    parts: ApprovedOrderEndpointRequestParts,
+) -> GatewayRealOrderEndpointConsumerDiagnostic {
+    approved_request_parts_consumer_redacted_diagnostic(parts)
+}
+
 fn approved_request_parts_constructor_count() -> usize {
     let _place: fn(
         &EndpointGateApproved,
@@ -331,6 +407,15 @@ fn approved_request_parts_constructor_count() -> usize {
     ) -> GatewayRealOrderEndpointApprovedPartsDiagnostic =
         approved_request_parts_redacted_diagnostic;
     2
+}
+
+fn approved_request_parts_consumer_count() -> usize {
+    let _consumer: fn(
+        &EndpointGateApproved,
+        ApprovedOrderEndpointRequestParts,
+    ) -> GatewayRealOrderEndpointConsumerDiagnostic =
+        consume_approved_request_parts_for_future_endpoint;
+    1
 }
 
 pub fn place_order_api_shape(
@@ -413,6 +498,19 @@ mod tests {
                 .constructors_require_durable_state_checkpoint
         );
         assert_eq!(shape.approved_request_parts_design.constructor_count, 2);
+        assert!(shape.consumer_design.consumer_internal_only);
+        assert!(shape.consumer_design.consumer_requires_endpoint_gate);
+        assert!(
+            shape
+                .consumer_design
+                .consumer_accepts_approved_request_parts_only
+        );
+        assert!(!shape.consumer_design.consumer_accepts_diagnostics);
+        assert!(!shape.consumer_design.consumer_network_enabled);
+        assert!(!shape.consumer_design.rendered_path_exported);
+        assert!(!shape.consumer_design.raw_body_exported);
+        assert!(shape.consumer_design.runtime_ack_redacted_only);
+        assert_eq!(shape.consumer_design.consumer_count, 1);
         assert!(
             !shape
                 .scanner_transition_spec
@@ -434,6 +532,7 @@ mod tests {
         let rendered = serde_json::to_string(&shape).expect("shape serializes");
         assert!(!rendered.contains("/v1/accounts/{account_id}/orders"));
         assert!(!rendered.contains("ApprovedOrderEndpointRequestParts"));
+        assert!(!rendered.contains("RenderedOrderEndpointPath"));
     }
 
     #[test]
@@ -603,5 +702,81 @@ mod tests {
         assert!(constructor_source.contains("OrderEndpointAccountInstrumentAllowlistApproved"));
         assert!(constructor_source.contains("OrderEndpointOperatorArmApproved"));
         assert!(constructor_source.contains("OrderEndpointDurableStateCheckpoint"));
+    }
+
+    #[test]
+    fn approved_request_parts_consumer_requires_gate_and_internal_parts() {
+        fn assert_consumer_signature(
+            _f: fn(
+                &EndpointGateApproved,
+                ApprovedOrderEndpointRequestParts,
+            ) -> GatewayRealOrderEndpointConsumerDiagnostic,
+        ) {
+        }
+
+        assert_consumer_signature(consume_approved_request_parts_for_future_endpoint);
+        assert_eq!(approved_request_parts_consumer_count(), 1);
+    }
+
+    #[test]
+    fn approved_request_parts_consumer_diagnostic_is_redacted() {
+        let parts = ApprovedOrderEndpointRequestParts {
+            operation: GatewayRealOrderEndpointOperation::PlaceOrder,
+            method_name: "POST",
+            rendered_path: RenderedOrderEndpointPath(
+                "/v1/accounts/ACC_TEST_0001/orders".to_string(),
+            ),
+            approved_request_spec: ApprovedOrderEndpointRequestSpec::Place(
+                broker_finam::FinamPlaceOrderRequestSpec {
+                    account_id: "ACC_TEST_0001".to_string(),
+                    body: broker_finam::FinamPlaceOrderRequest {
+                        symbol: "IMOEXF_TEST".to_string(),
+                        quantity: broker_finam::DecimalValue {
+                            value: "1".to_string(),
+                        },
+                        side: "BUY".to_string(),
+                        order_type: "ORDER_TYPE_MARKET".to_string(),
+                        time_in_force: Some("TIME_IN_FORCE_DAY".to_string()),
+                        limit_price: None,
+                        client_order_id: Some("CID_TEST_0002".to_string()),
+                        comment: None,
+                    },
+                },
+            ),
+            account_instrument_allowlist_approved: true,
+            operator_arm_approved: true,
+            durable_state_checkpoint_present: true,
+        };
+        let diagnostic = approved_request_parts_consumer_redacted_diagnostic(parts);
+
+        let rendered = serde_json::to_string(&diagnostic).expect("diagnostic serializes");
+        assert!(!rendered.contains("/v1/accounts/ACC_TEST_0001"));
+        assert!(!rendered.contains("ACC_TEST_0001"));
+        assert!(!rendered.contains("IMOEXF_TEST"));
+        assert!(!rendered.contains("CID_TEST_0002"));
+        assert!(rendered.contains("\"accepted_approved_request_parts\":true"));
+        assert!(rendered.contains("\"endpoint_gate_required\":true"));
+        assert!(rendered.contains("\"network_enabled\":false"));
+        assert!(rendered.contains("\"rendered_path_redacted\":true"));
+        assert!(rendered.contains("\"rendered_path_exported\":false"));
+        assert!(rendered.contains("\"raw_body_exported\":false"));
+        assert!(rendered.contains("\"runtime_ack_redacted_only\":true"));
+    }
+
+    #[test]
+    fn diagnostics_cannot_feed_consumer_boundary() {
+        let source = include_str!("real_order_endpoint.rs");
+        let consumer_source = source
+            .split("fn consume_approved_request_parts_for_future_endpoint")
+            .nth(1)
+            .expect("consumer source")
+            .split("fn approved_request_parts_constructor_count")
+            .next()
+            .expect("consumer boundary");
+
+        assert!(consumer_source.contains("EndpointGateApproved"));
+        assert!(consumer_source.contains("ApprovedOrderEndpointRequestParts"));
+        assert!(!consumer_source.contains("GatewayRealOrderEndpointRedactedRouteDiagnostic"));
+        assert!(!consumer_source.contains("GatewayRealOrderEndpointApprovedPartsDiagnostic"));
     }
 }

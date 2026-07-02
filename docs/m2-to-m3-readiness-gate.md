@@ -1319,6 +1319,10 @@ Implemented while still keeping all broker order endpoints disabled:
   request parts and rendered path types require `EndpointGateApproved`,
   approved request specs, account/instrument allowlist approval, operator-arm
   approval, and durable-state checkpoint before any future endpoint boundary;
+- M3c-10 approved request-parts consumer boundary: private gateway-owned
+  consumer accepts only `ApprovedOrderEndpointRequestParts`, requires
+  `EndpointGateApproved`, remains no-network/design-only, and exports only
+  redacted consumer diagnostics;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:

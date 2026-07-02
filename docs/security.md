@@ -214,6 +214,11 @@ M3c-9 adds a private non-`Debug`/non-serializable
 approved request spec, account/instrument allowlist approval, operator-arm
 approval, and durable-state checkpoint. Exported diagnostics still redact
 rendered paths and raw body data.
+M3c-10 adds a private gateway-owned approved request-parts consumer boundary
+that requires `EndpointGateApproved` and accepts only
+`ApprovedOrderEndpointRequestParts`. It remains no-network/design-only and
+returns only redacted consumer diagnostics; diagnostic DTOs cannot feed the
+consumer.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account
