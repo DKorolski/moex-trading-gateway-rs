@@ -24,9 +24,11 @@ use finam_gateway::{
     FinamRealReadonlyBrokerTruthQueryPolicy, FinamRealReadonlyBrokerTruthTransportConfig,
     FinamRealReadonlyContractProbeOperatorRunConfig, FinamRealReadonlyRedactedOutputLocation,
     FinamRealReadonlyTokenAccountPreflightApproved, GatewayConfig, GatewayFeatureSet,
-    OrderSnapshot, ReadonlySnapshotSummary, RealReadonlyBrokerTruthGateApproved,
-    RealReadonlyBrokerTruthRunApproved, RedisConnectionStreamSink, RedisRetentionConfig,
-    RedisStreamConfig, ReqwestFinamRealReadonlyBrokerTruthTransport, RuntimeBridgeConsumeOutcome,
+    M3cForbiddenSurfaceScanEvidence, M3cOrderEndpointGateDesignEvidence,
+    M3cOrderEndpointGateEvidenceStatus, M3cSourceEvidence, OrderSnapshot, ReadonlySnapshotSummary,
+    RealReadonlyBrokerTruthGateApproved, RealReadonlyBrokerTruthRunApproved,
+    RedisConnectionStreamSink, RedisRetentionConfig, RedisStreamConfig,
+    ReqwestFinamRealReadonlyBrokerTruthTransport, RuntimeBridgeConsumeOutcome,
     RuntimeBridgeDeadLetter, RuntimeBridgeDlqReason, RuntimeBridgeDlqRecord,
     RuntimeBridgeDryConsumer, RuntimeBridgeReadinessSimulator, RuntimeBridgeStreamEntry,
 };
@@ -182,6 +184,19 @@ enum Command {
         )]
         output: PathBuf,
         /// Optional source handoff archive path to fingerprint in the evidence metadata.
+        #[arg(long)]
+        source_archive: Option<PathBuf>,
+    },
+    /// Emit M3c order endpoint gate design evidence. Does not place or cancel orders.
+    #[command(name = "m3c-order-endpoint-gate-report")]
+    M3cOrderEndpointGateReport {
+        /// Optional file path for saving the self-contained M3c gate report.
+        #[arg(
+            long,
+            default_value = "reports/m3c-order-endpoint-gate/design-evidence.json"
+        )]
+        output: PathBuf,
+        /// Optional source handoff archive path to fingerprint in the report.
         #[arg(long)]
         source_archive: Option<PathBuf>,
     },
@@ -844,6 +859,12 @@ async fn main() -> Result<()> {
                 source_archive,
             })
             .await?;
+        }
+        Command::M3cOrderEndpointGateReport {
+            output,
+            source_archive,
+        } => {
+            run_m3c_order_endpoint_gate_report(output, source_archive)?;
         }
         Command::GatewayShadowOnce {
             config,
@@ -1901,6 +1922,76 @@ fn build_finam_real_readonly_evidence_metadata(
         "runbook_doc": "docs/m3b23-real-readonly-evidence-closeout.md",
         "runbook_doc_version": "m3b23",
     }))
+}
+
+fn resolve_source_evidence(source_archive: Option<&Path>) -> Result<M3cSourceEvidence> {
+    let source_commit_full_sha = source_commit_full_sha();
+    let resolved_source_archive = source_archive
+        .map(PathBuf::from)
+        .or_else(|| infer_source_archive(source_commit_full_sha.as_deref()));
+    let source_archive_name = resolved_source_archive
+        .as_ref()
+        .and_then(|path| path.file_name())
+        .map(|name| name.to_string_lossy().to_string());
+    let source_archive_sha256 = resolved_source_archive
+        .as_ref()
+        .filter(|path| path.exists())
+        .map(|path| sha256_file(path))
+        .transpose()?;
+    Ok(M3cSourceEvidence {
+        source_commit_full_sha,
+        source_archive_name,
+        source_archive_sha256,
+    })
+}
+
+fn build_m3c_order_endpoint_gate_design_evidence(
+    source_archive: Option<&Path>,
+) -> Result<M3cOrderEndpointGateDesignEvidence> {
+    let scan = run_forbidden_surface_scan_metadata()?;
+    let scan_status = match scan.get("status").and_then(serde_json::Value::as_str) {
+        Some("ok") => M3cOrderEndpointGateEvidenceStatus::Ok,
+        Some("script_missing") => M3cOrderEndpointGateEvidenceStatus::Failed,
+        _ => M3cOrderEndpointGateEvidenceStatus::Failed,
+    };
+    let exit_code = scan
+        .get("exit_code")
+        .and_then(serde_json::Value::as_i64)
+        .and_then(|code| i32::try_from(code).ok());
+
+    Ok(M3cOrderEndpointGateDesignEvidence {
+        forbidden_surface_scan: M3cForbiddenSurfaceScanEvidence {
+            status: scan_status,
+            script_path: scan
+                .get("script_path")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("scripts/forbidden_surface_scan.sh")
+                .to_string(),
+            script_sha256: scan
+                .get("script_sha256")
+                .and_then(serde_json::Value::as_str)
+                .map(ToString::to_string),
+            checked_at: Some(Utc::now().to_rfc3339()),
+            exit_code,
+        },
+        source: resolve_source_evidence(source_archive)?,
+        release_profile_evidence_or_waiver: M3cOrderEndpointGateEvidenceStatus::Pending,
+        positive_get_order_evidence_or_waiver: M3cOrderEndpointGateEvidenceStatus::Pending,
+        route_template_recheck: M3cOrderEndpointGateEvidenceStatus::Pending,
+    })
+}
+
+fn run_m3c_order_endpoint_gate_report(
+    output: PathBuf,
+    source_archive: Option<PathBuf>,
+) -> Result<()> {
+    let evidence = build_m3c_order_endpoint_gate_design_evidence(source_archive.as_deref())?;
+    let report =
+        GatewayFeatureSet::default().m3c_order_endpoint_gate_design_report_with_evidence(evidence);
+    let payload = serde_json::to_value(report)?;
+    print_json(payload.clone())?;
+    write_json_payload(&output, &payload)?;
+    Ok(())
 }
 
 async fn run_finam_real_readonly_evidence(args: FinamRealReadonlyEvidenceArgs) -> Result<()> {

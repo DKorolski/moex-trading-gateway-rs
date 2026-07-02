@@ -1,6 +1,6 @@
-# M3c-0 / M3c-1 order endpoint gate design
+# M3c-0 / M3c-2 order endpoint gate design
 
-Status: design-only order endpoint gate. This increment does not add or
+Status: design-only order endpoint gate. These increments do not add or
 authorize FINAM `POST /orders`, FINAM `DELETE /orders/{order_id}`, real command
 consumer attachment, real FINAM CommandAck lifecycle, runtime/live attachment,
 `LiveReady`, live micro, stop/SLTP, or bracket behavior.
@@ -63,6 +63,9 @@ stop_sltp_bracket_enabled
 marker_constructible
 gate_decision
 checklist
+evidence
+future_order_endpoint_allowlist
+negative_test_plan
 forbidden_surface_scan_must_remain_green
 real_post_delete_added
 ```
@@ -89,6 +92,59 @@ RouteTemplateRecheck
 PositiveGetOrderEvidenceOrWaiver
 ```
 
+Checklist status vocabulary is intentionally strict:
+
+```text
+DesignRecorded
+ImplementedAndTested
+EvidenceProvided
+WaiverAccepted
+Blocked
+```
+
+`DesignRecorded` means the policy/design is captured but must not be confused
+with implementation readiness. For example, account allowlist, instrument
+allowlist, and unknown-active-order startup guard stay design-level items until
+the implementation gate proves and tests them.
+
+## M3c-2 evidence report
+
+`broker-cli m3c-order-endpoint-gate-report` emits and saves a self-contained
+M3c gate report. The command runs the forbidden-surface scan before writing the
+report and records:
+
+```text
+evidence.forbidden_surface_scan.status
+evidence.forbidden_surface_scan.script_path
+evidence.forbidden_surface_scan.script_sha256
+evidence.forbidden_surface_scan.checked_at
+evidence.forbidden_surface_scan.exit_code
+evidence.source.source_commit_full_sha
+evidence.source.source_archive_name
+evidence.source.source_archive_sha256
+```
+
+The report also keeps the remaining implementation-gate evidence slots explicit:
+
+```text
+release_profile_evidence_or_waiver = Pending
+positive_get_order_evidence_or_waiver = Pending
+route_template_recheck = Pending
+```
+
+Example operator command:
+
+```bash
+cargo run -p broker-cli -- m3c-order-endpoint-gate-report \
+  --source-archive reports/handoff/moex-trading-project-<commit>.zip
+```
+
+The default output path is:
+
+```text
+reports/m3c-order-endpoint-gate/design-evidence.json
+```
+
 ## Source-scan extension plan
 
 At M3c-0, `scripts/forbidden_surface_scan.sh` must remain green and still blocks
@@ -105,6 +161,22 @@ DELETE /v1/accounts/{account_id}/orders/{order_id}
 
 That allowlist must be narrower than the current auth/session allowlist and must
 fail on any other POST/DELETE occurrence.
+
+M3c-2 records the future allowlist as data in the design report:
+
+```text
+POST /v1/accounts/{account_id}/orders
+DELETE /v1/accounts/{account_id}/orders/{order_id}
+```
+
+Before implementation, scan coverage must include negative tests that fail on:
+
+- extra same-module order `POST`;
+- extra same-module order `DELETE`;
+- generic request wrapper using `POST`;
+- generic request wrapper using `DELETE`;
+- route-string bypasses;
+- non-reqwest client abstractions.
 
 ## Preconditions before implementation gate
 

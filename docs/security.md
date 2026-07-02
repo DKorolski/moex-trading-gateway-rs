@@ -185,6 +185,10 @@ surface.
 M3c-0 adds an explicit `real_order_endpoint_enabled = false` gate flag and a
 serializable design report. The marker remains unconstructible and the
 forbidden-surface scan still rejects accidental POST/DELETE leakage.
+M3c-2 extends that report with self-contained evidence fields, a strict
+checklist status vocabulary, future route allowlist data, and negative-test
+plan entries. The generated evidence report remains diagnostic only and does
+not authorize FINAM order endpoint calls.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

@@ -1490,6 +1490,34 @@ M3c-0 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-2 order endpoint implementation gate design hardening:
+
+- Added strict checklist status vocabulary:
+  `DesignRecorded`, `ImplementedAndTested`, `EvidenceProvided`,
+  `WaiverAccepted`, and `Blocked`.
+- Added self-contained M3c evidence fields for forbidden-surface scan status,
+  scan script SHA256, check timestamp, source commit, and source archive hash.
+- Added `broker-cli m3c-order-endpoint-gate-report` to emit and save the M3c
+  gate report after running the forbidden-surface scan.
+- Added future order endpoint allowlist data for exactly:
+  `POST /v1/accounts/{account_id}/orders` and
+  `DELETE /v1/accounts/{account_id}/orders/{order_id}`.
+- Added negative-test plan entries for same-module bypasses, generic request
+  wrappers, route-string bypasses, and non-reqwest client abstractions.
+- Release-profile evidence/waiver, positive GetOrder evidence/waiver, and
+  current route-template recheck remain explicit `Pending` evidence slots.
+- Details are documented in `docs/m3c0-order-endpoint-gate-design.md`.
+
+M3c-2 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

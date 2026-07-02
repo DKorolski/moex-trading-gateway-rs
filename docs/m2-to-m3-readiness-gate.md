@@ -1275,21 +1275,28 @@ Still not implemented in M3b-24:
 - live micro;
 - stop/SLTP/bracket.
 
-## M3c-0 / M3c-1 order endpoint gate design status
+## M3c-0 / M3c-2 order endpoint gate design status
 
 Implemented while still keeping all broker order endpoints disabled:
 
 - explicit `real_order_endpoint_enabled` feature flag, default false;
 - `M3cImplementationReviewRequired` endpoint gate blocker;
-- `m3c_order_endpoint_gate_design_report()` diagnostic;
+- `m3c_order_endpoint_gate_design_report()` diagnostic and
+  `m3c_order_endpoint_gate_design_report_with_evidence(...)` for
+  self-contained review artifacts;
 - checklist for operator arming, allowlists, validation guards, SQLite durable
   store, startup unknown-active-order guard, no-blind-retry, manual
   intervention, redacted ACK/export policy, source-scan extension plan,
   release-profile evidence, route-template recheck, and positive GetOrder
   evidence/waiver;
+- strict checklist statuses that distinguish design, tested implementation,
+  provided evidence, accepted waiver, and blocked state;
+- CLI-generated M3c evidence report with forbidden-surface scan status/hash,
+  source commit/archive fingerprint, future route allowlist, and negative-test
+  plan;
 - `EndpointGateApproved` remains unconstructible.
 
-Still not implemented in M3c-0:
+Still not implemented in M3c-2:
 
 - FINAM POST/DELETE order endpoint calls;
 - real command stream consumer connected to strategies;

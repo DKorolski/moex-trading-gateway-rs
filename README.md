@@ -165,8 +165,8 @@ markers, redacted source-order evidence, preflight freshness/TTL, and per-row
 actual HTTP send flags, explicit operator-run clock policy, computed
 preflight age, a controlled one-shot real-readonly evidence command, and
 self-contained/timed/parsed-count evidence closeout, GetOrder 200 fixture
-closeout, M3c pre-order gate policy, and M3c order endpoint gate design
-diagnostics,
+closeout, M3c pre-order gate policy, M3c order endpoint gate design diagnostics,
+and M3c self-contained gate evidence report,
 store invariants, broker-order-id uniqueness, cancel timeout policy, dry
 window/backoff rate limiting, FINAM request DTO builders without HTTP send,
 workspace-wide source-scan guard tests, and price/reference/notional guard
@@ -219,7 +219,7 @@ See:
 - [M3b-22 controlled real-readonly evidence package](docs/m3b22-real-readonly-evidence-package.md)
 - [M3b-23 real-readonly evidence closeout hardening](docs/m3b23-real-readonly-evidence-closeout.md)
 - [M3b-24 / M3c-0 pre-order readiness closeout](docs/m3b24-m3c0-pre-order-readiness-closeout.md)
-- [M3c-0 / M3c-1 order endpoint gate design](docs/m3c0-order-endpoint-gate-design.md)
+- [M3c-0 / M3c-2 order endpoint gate design](docs/m3c0-order-endpoint-gate-design.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

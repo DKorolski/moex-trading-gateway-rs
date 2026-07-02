@@ -252,16 +252,108 @@ pub enum M3cOrderEndpointGateDesignItem {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum M3cOrderEndpointGateDesignStatus {
-    ExistingDryMechanism,
     DesignRecorded,
-    PolicyDocumented,
-    BlockedUntilImplementationReview,
+    ImplementedAndTested,
+    EvidenceProvided,
+    WaiverAccepted,
+    Blocked,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct M3cOrderEndpointGateDesignChecklistItem {
     pub item: M3cOrderEndpointGateDesignItem,
     pub status: M3cOrderEndpointGateDesignStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3cOrderEndpointGateEvidenceStatus {
+    NotRunInStaticReport,
+    Ok,
+    Failed,
+    WaiverAccepted,
+    Pending,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3cForbiddenSurfaceScanEvidence {
+    pub status: M3cOrderEndpointGateEvidenceStatus,
+    pub script_path: String,
+    pub script_sha256: Option<String>,
+    pub checked_at: Option<String>,
+    pub exit_code: Option<i32>,
+}
+
+impl Default for M3cForbiddenSurfaceScanEvidence {
+    fn default() -> Self {
+        Self {
+            status: M3cOrderEndpointGateEvidenceStatus::NotRunInStaticReport,
+            script_path: "scripts/forbidden_surface_scan.sh".to_string(),
+            script_sha256: None,
+            checked_at: None,
+            exit_code: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3cSourceEvidence {
+    pub source_commit_full_sha: Option<String>,
+    pub source_archive_name: Option<String>,
+    pub source_archive_sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3cOrderEndpointGateDesignEvidence {
+    pub forbidden_surface_scan: M3cForbiddenSurfaceScanEvidence,
+    pub source: M3cSourceEvidence,
+    pub release_profile_evidence_or_waiver: M3cOrderEndpointGateEvidenceStatus,
+    pub positive_get_order_evidence_or_waiver: M3cOrderEndpointGateEvidenceStatus,
+    pub route_template_recheck: M3cOrderEndpointGateEvidenceStatus,
+}
+
+impl Default for M3cOrderEndpointGateDesignEvidence {
+    fn default() -> Self {
+        Self {
+            forbidden_surface_scan: M3cForbiddenSurfaceScanEvidence::default(),
+            source: M3cSourceEvidence {
+                source_commit_full_sha: None,
+                source_archive_name: None,
+                source_archive_sha256: None,
+            },
+            release_profile_evidence_or_waiver: M3cOrderEndpointGateEvidenceStatus::Pending,
+            positive_get_order_evidence_or_waiver: M3cOrderEndpointGateEvidenceStatus::Pending,
+            route_template_recheck: M3cOrderEndpointGateEvidenceStatus::Pending,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3cOrderEndpointRoutePurpose {
+    PlaceOrder,
+    CancelOrder,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3cOrderEndpointRouteAllowlistEntry {
+    pub purpose: M3cOrderEndpointRoutePurpose,
+    pub http_method: String,
+    pub route_template: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3cOrderEndpointNegativeTestSurface {
+    SameModuleExtraPost,
+    SameModuleExtraDelete,
+    GenericRequestPost,
+    GenericRequestDelete,
+    RouteStringBypass,
+    NonReqwestClientAbstraction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3cOrderEndpointNegativeTestPlanItem {
+    pub surface: M3cOrderEndpointNegativeTestSurface,
+    pub expected_result: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -276,6 +368,9 @@ pub struct M3cOrderEndpointGateDesignReport {
     pub marker_constructible: bool,
     pub gate_decision: RealOrderEndpointGateDecision,
     pub checklist: Vec<M3cOrderEndpointGateDesignChecklistItem>,
+    pub evidence: M3cOrderEndpointGateDesignEvidence,
+    pub future_order_endpoint_allowlist: Vec<M3cOrderEndpointRouteAllowlistEntry>,
+    pub negative_test_plan: Vec<M3cOrderEndpointNegativeTestPlanItem>,
     pub forbidden_surface_scan_must_remain_green: bool,
     pub real_post_delete_added: bool,
 }
@@ -382,53 +477,83 @@ fn m3c_order_endpoint_gate_design_checklist() -> Vec<M3cOrderEndpointGateDesignC
         ),
         (
             Item::SeparateCommandConsumerFlagDefaultFalse,
-            Status::ExistingDryMechanism,
+            Status::ImplementedAndTested,
         ),
         (
             Item::EndpointGateApprovedUnconstructibleUntilReview,
-            Status::BlockedUntilImplementationReview,
+            Status::Blocked,
         ),
-        (Item::OperatorArmOneShotTtl, Status::ExistingDryMechanism),
+        (Item::OperatorArmOneShotTtl, Status::ImplementedAndTested),
         (Item::AccountAllowlist, Status::DesignRecorded),
         (Item::InstrumentAllowlist, Status::DesignRecorded),
         (
             Item::OrderTypeTifQuantityNotionalPriceGuards,
-            Status::ExistingDryMechanism,
+            Status::ImplementedAndTested,
         ),
         (
             Item::SqliteDurableStoreMandatory,
-            Status::ExistingDryMechanism,
+            Status::ImplementedAndTested,
         ),
         (
             Item::UnknownActiveBrokerOrderStartupGuard,
             Status::DesignRecorded,
         ),
-        (Item::RateLimitBackoffPolicy, Status::ExistingDryMechanism),
+        (Item::RateLimitBackoffPolicy, Status::ImplementedAndTested),
         (
             Item::NoBlindRetryAfterSubmitOrCancelTimeout,
-            Status::ExistingDryMechanism,
+            Status::ImplementedAndTested,
         ),
         (
             Item::ManualInterventionStateAndRunbook,
-            Status::ExistingDryMechanism,
+            Status::ImplementedAndTested,
         ),
-        (Item::RedactedAckExportPolicy, Status::ExistingDryMechanism),
+        (Item::RedactedAckExportPolicy, Status::ImplementedAndTested),
         (
             Item::ForbiddenSurfaceScanExtensionPlan,
-            Status::PolicyDocumented,
+            Status::DesignRecorded,
         ),
-        (
-            Item::ReleaseProfileEvidenceOrWaiver,
-            Status::PolicyDocumented,
-        ),
-        (Item::RouteTemplateRecheck, Status::PolicyDocumented),
+        (Item::ReleaseProfileEvidenceOrWaiver, Status::DesignRecorded),
+        (Item::RouteTemplateRecheck, Status::DesignRecorded),
         (
             Item::PositiveGetOrderEvidenceOrWaiver,
-            Status::PolicyDocumented,
+            Status::DesignRecorded,
         ),
     ]
     .into_iter()
     .map(|(item, status)| M3cOrderEndpointGateDesignChecklistItem { item, status })
+    .collect()
+}
+
+fn m3c_future_order_endpoint_allowlist() -> Vec<M3cOrderEndpointRouteAllowlistEntry> {
+    vec![
+        M3cOrderEndpointRouteAllowlistEntry {
+            purpose: M3cOrderEndpointRoutePurpose::PlaceOrder,
+            http_method: "POST".to_string(),
+            route_template: "/v1/accounts/{account_id}/orders".to_string(),
+        },
+        M3cOrderEndpointRouteAllowlistEntry {
+            purpose: M3cOrderEndpointRoutePurpose::CancelOrder,
+            http_method: "DELETE".to_string(),
+            route_template: "/v1/accounts/{account_id}/orders/{order_id}".to_string(),
+        },
+    ]
+}
+
+fn m3c_order_endpoint_negative_test_plan() -> Vec<M3cOrderEndpointNegativeTestPlanItem> {
+    use M3cOrderEndpointNegativeTestSurface as Surface;
+    [
+        Surface::SameModuleExtraPost,
+        Surface::SameModuleExtraDelete,
+        Surface::GenericRequestPost,
+        Surface::GenericRequestDelete,
+        Surface::RouteStringBypass,
+        Surface::NonReqwestClientAbstraction,
+    ]
+    .into_iter()
+    .map(|surface| M3cOrderEndpointNegativeTestPlanItem {
+        surface,
+        expected_result: "forbidden_surface_scan_must_fail".to_string(),
+    })
     .collect()
 }
 
@@ -462,6 +587,15 @@ impl GatewayFeatureSet {
     }
 
     pub fn m3c_order_endpoint_gate_design_report(&self) -> M3cOrderEndpointGateDesignReport {
+        self.m3c_order_endpoint_gate_design_report_with_evidence(
+            M3cOrderEndpointGateDesignEvidence::default(),
+        )
+    }
+
+    pub fn m3c_order_endpoint_gate_design_report_with_evidence(
+        &self,
+        evidence: M3cOrderEndpointGateDesignEvidence,
+    ) -> M3cOrderEndpointGateDesignReport {
         let gate_decision = self.real_order_endpoint_gate_decision();
         let marker_constructible = EndpointGateApproved::try_from_decision(&gate_decision).is_ok();
         M3cOrderEndpointGateDesignReport {
@@ -475,6 +609,9 @@ impl GatewayFeatureSet {
             marker_constructible,
             gate_decision,
             checklist: m3c_order_endpoint_gate_design_checklist(),
+            evidence,
+            future_order_endpoint_allowlist: m3c_future_order_endpoint_allowlist(),
+            negative_test_plan: m3c_order_endpoint_negative_test_plan(),
             forbidden_surface_scan_must_remain_green: true,
             real_post_delete_added: false,
         }
@@ -8515,14 +8652,36 @@ mod tests {
         assert!(report.checklist.iter().any(|item| {
             item.item
                 == M3cOrderEndpointGateDesignItem::EndpointGateApprovedUnconstructibleUntilReview
-                && item.status == M3cOrderEndpointGateDesignStatus::BlockedUntilImplementationReview
+                && item.status == M3cOrderEndpointGateDesignStatus::Blocked
         }));
         assert!(report.checklist.iter().any(|item| {
             item.item == M3cOrderEndpointGateDesignItem::ForbiddenSurfaceScanExtensionPlan
-                && item.status == M3cOrderEndpointGateDesignStatus::PolicyDocumented
+                && item.status == M3cOrderEndpointGateDesignStatus::DesignRecorded
+        }));
+        assert_eq!(
+            report.evidence.forbidden_surface_scan.status,
+            M3cOrderEndpointGateEvidenceStatus::NotRunInStaticReport
+        );
+        assert_eq!(report.future_order_endpoint_allowlist.len(), 2);
+        assert!(report.future_order_endpoint_allowlist.iter().any(|route| {
+            route.purpose == M3cOrderEndpointRoutePurpose::PlaceOrder
+                && route.http_method == "POST"
+                && route.route_template == "/v1/accounts/{account_id}/orders"
+        }));
+        assert!(report.future_order_endpoint_allowlist.iter().any(|route| {
+            route.purpose == M3cOrderEndpointRoutePurpose::CancelOrder
+                && route.http_method == "DELETE"
+                && route.route_template == "/v1/accounts/{account_id}/orders/{order_id}"
+        }));
+        assert!(report.negative_test_plan.iter().any(|item| {
+            item.surface == M3cOrderEndpointNegativeTestSurface::GenericRequestPost
+                && item.expected_result == "forbidden_surface_scan_must_fail"
         }));
         let report_json = serde_json::to_string(&report).expect("report serializes");
         assert!(report_json.contains("RedactedAckExportPolicy"));
+        assert!(report_json.contains("forbidden_surface_scan"));
+        assert!(report_json.contains("future_order_endpoint_allowlist"));
+        assert!(report_json.contains("negative_test_plan"));
         assert!(!report_json.contains("ACC_TEST_0001"));
 
         let unsafe_report = GatewayFeatureSet {
