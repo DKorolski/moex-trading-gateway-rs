@@ -20,6 +20,11 @@ harness is intentionally one-shot and bounded:
 - redacted output-location descriptor;
 - documented disable procedure before the run can proceed.
 
+M3b-15 follow-up tightens pre-run hardening: `.post(` scanning is an exact
+auth/session allowlist, transport timeout/min-interval must match
+`RunApproved` at construction time, and the lower-level probe loop is no longer
+public. See `docs/m3b15-real-readonly-pre-run-hardening.md`.
+
 ## Operator-run approval
 
 The harness accepts only a `FinamRealReadonlyBrokerTruthAsyncFetcher` that

@@ -153,6 +153,9 @@ diagnostics only.
 M3b-14 keeps operator-run evidence redacted as well: output locations are stored
 as length + SHA-256 descriptors, audit mode is explicit, and transport error
 categories are preserved as operator-action enums.
+M3b-15 narrows CI POST allowlisting to exact auth/session functions and binds
+real-readonly transport timeout/rate configuration to the approved run marker at
+construction time.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

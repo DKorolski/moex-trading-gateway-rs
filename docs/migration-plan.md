@@ -1209,6 +1209,32 @@ M3b-14 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-15 real-readonly pre-run hardening:
+
+- Tightened `scripts/forbidden_surface_scan.sh` so `.post(` is allowed only in
+  exact auth/session/token-details function ranges and exact `/v1/sessions`
+  / `/v1/sessions/details` REST paths.
+- Bound `ReqwestFinamRealReadonlyBrokerTruthTransport::try_new(...)` timeout and
+  min-interval configuration to the `RealReadonlyBrokerTruthRunApproved`
+  diagnostic at construction time.
+- Made the lower-level contract-probe loop internal; the public operator
+  entrypoint remains `run_finam_real_readonly_operator_contract_probe(...)`.
+- Added scan/test coverage for the operator-only entrypoint invariant.
+- Documented that `PersistentAuditStore` remains modeled but controlled
+  real-readonly probes should use `EphemeralEvidenceStore` until a persistent
+  audit operational policy is accepted.
+- Details are documented in `docs/m3b15-real-readonly-pre-run-hardening.md`.
+
+M3b-15 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

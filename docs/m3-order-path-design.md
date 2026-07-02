@@ -191,6 +191,10 @@ M3b-14 wraps the contract probe in a one-shot operator harness with explicit
 source/max-request bounds, single-account hash enforcement, no retry/loop
 semantics, redacted output-location evidence, audit-mode declaration, transport
 error action taxonomy, and CI forbidden-surface scanning.
+M3b-15 tightens the pre-run gate by narrowing `.post(` CI allowlisting to exact
+auth/session paths, binding real-readonly transport config to `RunApproved`, and
+making the lower-level probe loop internal so operator code uses the bounded
+operator entrypoint.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

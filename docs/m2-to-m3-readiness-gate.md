@@ -1040,3 +1040,27 @@ Still not implemented in M3b-14:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-15 real-readonly pre-run hardening status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- exact `.post(` allowlist for broker-finam auth/session/token-details only;
+- transport constructor rejects timeout/min-interval mismatches against
+  `RealReadonlyBrokerTruthRunApproved`;
+- lower-level contract probe helper is no longer public;
+- public operator entrypoint remains
+  `run_finam_real_readonly_operator_contract_probe(...)`;
+- forbidden-surface scan verifies the operator-only entrypoint invariant;
+- persistent audit mode remains non-default and requires a separate operational
+  policy before use in real probes.
+
+Still not implemented in M3b-15:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

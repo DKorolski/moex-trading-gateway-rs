@@ -3199,6 +3199,14 @@ pub enum FinamRealReadonlyBrokerTruthTransportInitError {
     },
     #[error("FINAM real-readonly reqwest client configuration failed: {reason}")]
     HttpClientConfig { reason: String },
+    #[error(
+        "FINAM real-readonly transport timeout does not match run approval: approved_ms={approved_ms}, config_ms={config_ms}"
+    )]
+    RequestTimeoutMismatch { approved_ms: u64, config_ms: u64 },
+    #[error(
+        "FINAM real-readonly transport min interval does not match run approval: approved_ms={approved_ms}, config_ms={config_ms}"
+    )]
+    MinRequestIntervalMismatch { approved_ms: u64, config_ms: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -3238,10 +3246,26 @@ impl ReqwestFinamRealReadonlyBrokerTruthTransport {
     pub fn try_new(
         config: FinamRealReadonlyBrokerTruthTransportConfig,
         access_token: broker_finam::AccessToken,
-        _run_approval: &RealReadonlyBrokerTruthRunApproved,
+        run_approval: &RealReadonlyBrokerTruthRunApproved,
     ) -> Result<Self, FinamRealReadonlyBrokerTruthTransportInitError> {
         if access_token.is_empty() {
             return Err(FinamRealReadonlyBrokerTruthTransportInitError::EmptyAccessToken);
+        }
+        if config.request_timeout_ms != run_approval.request_timeout_ms {
+            return Err(
+                FinamRealReadonlyBrokerTruthTransportInitError::RequestTimeoutMismatch {
+                    approved_ms: run_approval.request_timeout_ms,
+                    config_ms: config.request_timeout_ms,
+                },
+            );
+        }
+        if config.min_request_interval_ms != run_approval.min_request_interval_ms {
+            return Err(
+                FinamRealReadonlyBrokerTruthTransportInitError::MinRequestIntervalMismatch {
+                    approved_ms: run_approval.min_request_interval_ms,
+                    config_ms: config.min_request_interval_ms,
+                },
+            );
         }
         let base_url = reqwest::Url::parse(&config.rest_base_url).map_err(|error| {
             FinamRealReadonlyBrokerTruthTransportInitError::InvalidBaseUrl {
@@ -4076,7 +4100,7 @@ pub struct FinamRealReadonlyContractProbeOperatorRunReport {
     pub transport_error_actions: Vec<FinamRealReadonlyTransportErrorOperatorActionDiagnostic>,
 }
 
-pub async fn run_finam_real_readonly_contract_probe<T>(
+async fn run_finam_real_readonly_contract_probe<T>(
     fetcher: &mut FinamRealReadonlyBrokerTruthAsyncFetcher<T>,
     request: CancelBrokerTruthFetchRequestSnapshot,
     config: &FinamRealReadonlyContractProbeConfig,
@@ -10983,6 +11007,36 @@ mod tests {
             .expect_err("non-https base URL should be rejected"),
             FinamRealReadonlyBrokerTruthTransportInitError::NonHttpsBaseUrl { .. }
         ));
+        assert!(matches!(
+            ReqwestFinamRealReadonlyBrokerTruthTransport::try_new(
+                FinamRealReadonlyBrokerTruthTransportConfig {
+                    request_timeout_ms: 9_999,
+                    ..FinamRealReadonlyBrokerTruthTransportConfig::default()
+                },
+                broker_finam::AccessToken::new("ACCESS_TOKEN_TEST"),
+                &run_approval,
+            )
+            .expect_err("transport timeout must match run approval"),
+            FinamRealReadonlyBrokerTruthTransportInitError::RequestTimeoutMismatch {
+                approved_ms: 10_000,
+                config_ms: 9_999,
+            }
+        ));
+        assert!(matches!(
+            ReqwestFinamRealReadonlyBrokerTruthTransport::try_new(
+                FinamRealReadonlyBrokerTruthTransportConfig {
+                    min_request_interval_ms: 251,
+                    ..FinamRealReadonlyBrokerTruthTransportConfig::default()
+                },
+                broker_finam::AccessToken::new("ACCESS_TOKEN_TEST"),
+                &run_approval,
+            )
+            .expect_err("transport min interval must match run approval"),
+            FinamRealReadonlyBrokerTruthTransportInitError::MinRequestIntervalMismatch {
+                approved_ms: 250,
+                config_ms: 251,
+            }
+        ));
         let transport = ReqwestFinamRealReadonlyBrokerTruthTransport::try_new(
             FinamRealReadonlyBrokerTruthTransportConfig::default(),
             broker_finam::AccessToken::new("ACCESS_TOKEN_TEST"),
@@ -10994,6 +11048,8 @@ mod tests {
         assert!(!transport_debug.contains("ACCESS_TOKEN_TEST"));
 
         let source = include_str!("lib.rs");
+        assert!(!source.contains("\npub async fn run_finam_real_readonly_contract_probe"));
+        assert!(source.contains("\npub async fn run_finam_real_readonly_operator_contract_probe"));
         let route_source = source
             .split("pub struct FinamRealReadonlyRoute")
             .nth(1)
