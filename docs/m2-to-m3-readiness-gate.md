@@ -1341,6 +1341,11 @@ Implemented while still keeping all broker order endpoints disabled:
   proof to request/client/account/instrument fingerprint, requires single-use
   markers, documents cancel accepted id semantics, and redacts future captured
   response/error evidence to kind/presence/len/hash/category only;
+- M3c-15 endpoint attempt journal / HTTP status outcome matrix: binds future
+  approved request parts, operation-specific checkpoint marker, captured
+  envelope, and outcome classifier through a private endpoint-attempt
+  fingerprint, and records Place/Cancel-specific status/body-shape mappings
+  that still require state-machine transition before any ACK/runtime export;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:

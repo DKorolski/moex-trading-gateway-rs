@@ -240,6 +240,11 @@ M3c-14 binds that commit proof to a redacted request snapshot fingerprint,
 requires single-use checkpoint markers, records cancel accepted response/id
 policy, and adds redacted captured response/error envelope diagnostics that
 export only kind, presence, length/hash, and typed transport category.
+M3c-15 adds a private endpoint-attempt journal design and serializable
+Place/Cancel HTTP status/body-shape outcome matrix. Attempt diagnostics export
+only endpoint-attempt hashes and binding booleans; status mapping requires the
+captured envelope, attempt journal, and state-machine transition before future
+ACK/runtime export.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

@@ -60,6 +60,12 @@ if rg -n 'pub fn captured_response_error_envelope_diagnostic' "$target" >/tmp/mo
 fi
 rm -f /tmp/moex_transition_forbidden.$$
 
+if rg -n 'pub fn bind_(place|cancel)_endpoint_attempt_journal' "$target" >/tmp/moex_transition_forbidden.$$; then
+  cat /tmp/moex_transition_forbidden.$$ >&2
+  report_failure "endpoint attempt journal binding functions must not be public"
+fi
+rm -f /tmp/moex_transition_forbidden.$$
+
 if rg -n 'consume_approved_request_parts_for_future_endpoint\([^)]*GatewayRealOrderEndpoint.*Diagnostic' "$target" >/tmp/moex_transition_forbidden.$$; then
   cat /tmp/moex_transition_forbidden.$$ >&2
   report_failure "diagnostic DTOs must not feed the approved request-parts consumer"
@@ -78,7 +84,10 @@ for internal_type in \
   ApprovedOrderEndpointRequestParts \
   GatewayRealOrderEndpointAcceptedResponseShape \
   GatewayRealOrderEndpointRequestSnapshotFingerprint \
+  GatewayRealOrderEndpointAttemptFingerprint \
   GatewayRealOrderEndpointSqliteTransitionCommitProof \
+  GatewayRealOrderEndpointCapturedEnvelopeRecord \
+  GatewayRealOrderEndpointAttemptJournalBinding \
   PlaceEndpointDurableCheckpointApproved \
   CancelEndpointDurableCheckpointApproved
 do
@@ -204,6 +213,43 @@ required_patterns=(
   "status_len_hash_presence_only: true"
   "transport_category_mapped: true"
   "diagnostic_can_feed_transport: false"
+  "GatewayRealOrderEndpointAttemptFingerprint"
+  "GatewayRealOrderEndpointCapturedEnvelopeRecord"
+  "GatewayRealOrderEndpointAttemptJournalBinding"
+  "GatewayRealOrderEndpointAttemptJournalDesignShape"
+  "GatewayRealOrderEndpointAttemptDiagnostic"
+  "bind_place_endpoint_attempt_journal"
+  "bind_cancel_endpoint_attempt_journal"
+  "endpoint_attempt_redacted_diagnostic"
+  "journal_internal_only: true"
+  "endpoint_attempt_id_hash_len: 64"
+  "binds_approved_request_parts: true"
+  "binds_request_snapshot_fingerprint: true"
+  "binds_checkpoint_marker: true"
+  "binds_captured_envelope: true"
+  "binds_outcome_classifier: true"
+  "diagnostic_redacted_only: true"
+  "GatewayRealOrderEndpointHttpBodyShape"
+  "GatewayRealOrderEndpointHttpStatusOutcomeEntry"
+  "GatewayRealOrderEndpointHttpStatusOutcomeMatrixDesignShape"
+  "place_http_status_outcome_matrix"
+  "cancel_http_status_outcome_matrix"
+  "http_status_outcome_matrix"
+  "AcceptedWithBrokerOrderId"
+  "AcceptedWithoutBrokerOrderId"
+  "AcceptedEmptyBrokerOrderId"
+  "AcceptedBrokerOrderIdMismatch"
+  "BrokerReject"
+  "MalformedBody"
+  "covers_2xx_accepted_body_variants: true"
+  "covers_400_422_broker_reject: true"
+  "covers_401_403_unauthorized: true"
+  "covers_408_504_timeout: true"
+  "covers_429_rate_limit: true"
+  "covers_500_502_503_maintenance: true"
+  "covers_malformed_body_decode_error: true"
+  "covers_transport_category_failures: true"
+  "place_cancel_specific_mapping: true"
   "GatewayRealOrderEndpointOutcomeStatePolicyEntry"
   "GatewayRealOrderEndpointAcceptedBrokerIdPolicyEntry"
   "GatewayRealOrderEndpointOutcomeStatePolicyDesignShape"

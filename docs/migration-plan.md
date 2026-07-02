@@ -1830,6 +1830,34 @@ M3c-14 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-15 endpoint attempt journal / HTTP status outcome matrix:
+
+- Added private endpoint attempt journal binding design tying approved request
+  parts, operation-specific checkpoint marker, captured envelope, outcome
+  classifier, endpoint attempt hash, and request snapshot fingerprint.
+- Added redacted attempt diagnostic: endpoint attempt id hash only, no raw
+  attempt id, path, body, error, or request identity values.
+- Added serializable Place/Cancel HTTP status/body-shape to future send outcome
+  matrix covering 2xx accepted variants, 400/422 broker reject, 401/403
+  unauthorized, 408/504 timeout, 429 rate-limit, 500/502/503 maintenance, and
+  malformed body decode error.
+- Preserved transport category failure coverage through the captured-envelope
+  transport category matrix.
+- All matrix entries require captured envelope, endpoint attempt journal, and
+  state-machine transition; diagnostics cannot bypass the state machine.
+- Details are documented in
+  `docs/m3c15-endpoint-attempt-journal-http-status-matrix.md`.
+
+M3c-15 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

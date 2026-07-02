@@ -132,6 +132,21 @@ raw_path/body/error exported = false
 status_len_hash_presence_only = true
 ```
 
+M3c-15 records endpoint-attempt journal and HTTP status outcome matrix design:
+
+```text
+journal_internal_only = true
+endpoint_attempt_id_hash_len = 64
+binds_approved_request_parts = true
+binds_checkpoint_marker = true
+binds_captured_envelope = true
+binds_outcome_classifier = true
+diagnostic_redacted_only = true
+matrix covers 2xx/400/422/401/403/408/504/429/500/502/503/malformed body
+place_cancel_specific_mapping = true
+state_machine_transition_required = true
+```
+
 The scanner transition guard checks these markers while keeping all real order
 endpoint calls forbidden.
 

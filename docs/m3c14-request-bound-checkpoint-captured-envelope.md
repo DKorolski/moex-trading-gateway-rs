@@ -64,6 +64,14 @@ raw path/body/error exported = false
 The envelope maps transport categories from M3c-13 and cannot feed transport or
 runtime ACKs directly.
 
+## Follow-up in M3c-15
+
+M3c-15 binds this captured envelope into a private endpoint-attempt journal
+together with approved request parts, the operation-specific checkpoint marker,
+and the future outcome classifier. The follow-up also records the Place/Cancel
+HTTP status/body-shape outcome matrix while preserving the same redaction and
+state-machine-transition requirements.
+
 ## Still not allowed
 
 - FINAM real PlaceOrder `POST`;

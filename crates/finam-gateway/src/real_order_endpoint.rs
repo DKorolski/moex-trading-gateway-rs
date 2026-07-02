@@ -93,6 +93,15 @@ struct GatewayRealOrderEndpointRequestSnapshotFingerprint {
     pub matches_approved_request_parts: bool,
 }
 
+#[allow(dead_code)]
+struct GatewayRealOrderEndpointAttemptFingerprint {
+    pub endpoint_attempt_id_hash_present: bool,
+    pub endpoint_attempt_id_sha256_len: usize,
+    pub request_snapshot_fingerprint_present: bool,
+    pub raw_attempt_id_exported: bool,
+    pub raw_request_values_exported: bool,
+}
+
 struct GatewayRealOrderEndpointSqliteTransitionCommitProof {
     pub event: OrderPathEvent,
     pub durable_commit_observed: bool,
@@ -110,6 +119,27 @@ enum GatewayRealOrderEndpointCheckpointMarkerCreationError {
     RequestSnapshotFingerprintMismatch,
     RawRequestIdentityExported,
     MarkerAlreadyUsed,
+}
+
+#[allow(dead_code)]
+struct GatewayRealOrderEndpointCapturedEnvelopeRecord {
+    pub kind: GatewayRealOrderEndpointCapturedEnvelopeKind,
+    pub status_code_present: bool,
+    pub body_presence_len_hash_only: bool,
+    pub transport_category: Option<GatewayRealOrderEndpointTransportCategory>,
+    pub raw_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub raw_error_exported: bool,
+}
+
+#[allow(dead_code)]
+struct GatewayRealOrderEndpointAttemptJournalBinding {
+    pub attempt_fingerprint: GatewayRealOrderEndpointAttemptFingerprint,
+    pub request_parts_bound: bool,
+    pub checkpoint_marker_bound: bool,
+    pub captured_envelope_bound: bool,
+    pub outcome_classifier_bound: bool,
+    pub state_machine_transition_required: bool,
 }
 
 struct OrderEndpointDurableStateCheckpoint {
@@ -525,6 +555,102 @@ pub struct GatewayRealOrderEndpointCapturedEnvelopeDesignShape {
     pub diagnostic_count: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointHttpBodyShape {
+    AcceptedWithBrokerOrderId,
+    AcceptedWithoutBrokerOrderId,
+    AcceptedEmptyBrokerOrderId,
+    AcceptedBrokerOrderIdMismatch,
+    BrokerReject,
+    Unauthorized,
+    Timeout,
+    RateLimit,
+    Maintenance,
+    MalformedBody,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointHttpStatusOutcomeEntry {
+    pub operation: GatewayRealOrderEndpointOperation,
+    pub status_code: u16,
+    pub body_shape: GatewayRealOrderEndpointHttpBodyShape,
+    pub envelope_kind: GatewayRealOrderEndpointCapturedEnvelopeKind,
+    pub outcome: GatewayRealOrderEndpointFutureSendOutcome,
+    pub accepted_result_kind: Option<GatewayRealOrderEndpointAcceptedResultKind>,
+    pub cancel_accepted_id_policy: Option<GatewayRealOrderEndpointCancelAcceptedIdPolicy>,
+    pub order_path_event: OrderPathEvent,
+    pub order_path_state: OrderPathState,
+    pub ack_status: CommandAckStatus,
+    pub ack_reason_code: Option<CommandAckReasonCode>,
+    pub operator_disarm_signal: Option<OperatorDisarmSignal>,
+    pub state_machine_transition_required: bool,
+    pub captured_envelope_required: bool,
+    pub endpoint_attempt_journal_required: bool,
+    pub no_blind_retry: bool,
+    pub raw_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub raw_error_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointHttpStatusOutcomeMatrixDesignShape {
+    pub matrix_serializable: bool,
+    pub place_entry_count: usize,
+    pub cancel_entry_count: usize,
+    pub total_entry_count: usize,
+    pub covers_2xx_accepted_body_variants: bool,
+    pub covers_400_422_broker_reject: bool,
+    pub covers_401_403_unauthorized: bool,
+    pub covers_408_504_timeout: bool,
+    pub covers_429_rate_limit: bool,
+    pub covers_500_502_503_maintenance: bool,
+    pub covers_malformed_body_decode_error: bool,
+    pub covers_transport_category_failures: bool,
+    pub place_cancel_specific_mapping: bool,
+    pub raw_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub raw_error_exported: bool,
+    pub state_machine_transition_required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointAttemptJournalDesignShape {
+    pub journal_internal_only: bool,
+    pub endpoint_attempt_id_hash_len: usize,
+    pub attempt_id_raw_exported: bool,
+    pub binds_approved_request_parts: bool,
+    pub binds_request_snapshot_fingerprint: bool,
+    pub binds_checkpoint_marker: bool,
+    pub binds_captured_envelope: bool,
+    pub binds_outcome_classifier: bool,
+    pub raw_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub raw_error_exported: bool,
+    pub diagnostic_redacted_only: bool,
+    pub diagnostic_can_feed_transport: bool,
+    pub diagnostic_can_bypass_state_machine: bool,
+    pub constructor_count: usize,
+    pub diagnostic_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointAttemptDiagnostic {
+    pub operation: GatewayRealOrderEndpointOperation,
+    pub endpoint_attempt_id_hash_present: bool,
+    pub endpoint_attempt_id_sha256_len: usize,
+    pub request_snapshot_fingerprint_present: bool,
+    pub request_parts_bound: bool,
+    pub checkpoint_marker_bound: bool,
+    pub captured_envelope_bound: bool,
+    pub outcome_classifier_bound: bool,
+    pub state_machine_transition_required: bool,
+    pub state_machine_bypass_allowed: bool,
+    pub raw_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub raw_error_exported: bool,
+    pub runtime_ack_redacted_only: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayRealOrderEndpointOutcomeStatePolicyDesignShape {
     pub matrix_serializable: bool,
@@ -588,6 +714,9 @@ pub struct GatewayRealOrderEndpointApiShape {
         GatewayRealOrderEndpointAcceptedResultClassifierDesignShape,
     pub cancel_accepted_id_policy_design: GatewayRealOrderEndpointCancelAcceptedIdPolicyDesignShape,
     pub captured_envelope_design: GatewayRealOrderEndpointCapturedEnvelopeDesignShape,
+    pub endpoint_attempt_journal_design: GatewayRealOrderEndpointAttemptJournalDesignShape,
+    pub http_status_outcome_matrix_design:
+        GatewayRealOrderEndpointHttpStatusOutcomeMatrixDesignShape,
     pub durable_checkpoint_capability_design:
         GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape,
     pub checkpoint_marker_creation_design:
@@ -727,6 +856,44 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
             runtime_ack_redacted_only: true,
             diagnostic_count: captured_envelope_diagnostic_count(),
         },
+        endpoint_attempt_journal_design: GatewayRealOrderEndpointAttemptJournalDesignShape {
+            journal_internal_only: true,
+            endpoint_attempt_id_hash_len: 64,
+            attempt_id_raw_exported: false,
+            binds_approved_request_parts: true,
+            binds_request_snapshot_fingerprint: true,
+            binds_checkpoint_marker: true,
+            binds_captured_envelope: true,
+            binds_outcome_classifier: true,
+            raw_path_exported: false,
+            raw_body_exported: false,
+            raw_error_exported: false,
+            diagnostic_redacted_only: true,
+            diagnostic_can_feed_transport: false,
+            diagnostic_can_bypass_state_machine: false,
+            constructor_count: endpoint_attempt_journal_binding_constructor_count(),
+            diagnostic_count: endpoint_attempt_diagnostic_count(),
+        },
+        http_status_outcome_matrix_design:
+            GatewayRealOrderEndpointHttpStatusOutcomeMatrixDesignShape {
+                matrix_serializable: true,
+                place_entry_count: place_http_status_outcome_matrix().len(),
+                cancel_entry_count: cancel_http_status_outcome_matrix().len(),
+                total_entry_count: http_status_outcome_matrix().len(),
+                covers_2xx_accepted_body_variants: true,
+                covers_400_422_broker_reject: true,
+                covers_401_403_unauthorized: true,
+                covers_408_504_timeout: true,
+                covers_429_rate_limit: true,
+                covers_500_502_503_maintenance: true,
+                covers_malformed_body_decode_error: true,
+                covers_transport_category_failures: true,
+                place_cancel_specific_mapping: true,
+                raw_path_exported: false,
+                raw_body_exported: false,
+                raw_error_exported: false,
+                state_machine_transition_required: true,
+            },
         durable_checkpoint_capability_design:
             GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape {
                 place_capability_type_internal: true,
@@ -1044,6 +1211,47 @@ fn captured_response_error_envelope_diagnostic(
     }
 }
 
+fn bind_place_endpoint_attempt_journal(
+    _gate: &EndpointGateApproved,
+    parts: ApprovedOrderEndpointRequestParts,
+    _checkpoint_marker: PlaceEndpointDurableCheckpointApproved,
+    _captured_envelope: GatewayRealOrderEndpointCapturedEnvelopeRecord,
+    _outcome: GatewayRealOrderEndpointFutureSendOutcome,
+) -> GatewayRealOrderEndpointAttemptDiagnostic {
+    endpoint_attempt_redacted_diagnostic(parts.operation)
+}
+
+fn bind_cancel_endpoint_attempt_journal(
+    _gate: &EndpointGateApproved,
+    parts: ApprovedOrderEndpointRequestParts,
+    _checkpoint_marker: CancelEndpointDurableCheckpointApproved,
+    _captured_envelope: GatewayRealOrderEndpointCapturedEnvelopeRecord,
+    _outcome: GatewayRealOrderEndpointFutureSendOutcome,
+) -> GatewayRealOrderEndpointAttemptDiagnostic {
+    endpoint_attempt_redacted_diagnostic(parts.operation)
+}
+
+fn endpoint_attempt_redacted_diagnostic(
+    operation: GatewayRealOrderEndpointOperation,
+) -> GatewayRealOrderEndpointAttemptDiagnostic {
+    GatewayRealOrderEndpointAttemptDiagnostic {
+        operation,
+        endpoint_attempt_id_hash_present: true,
+        endpoint_attempt_id_sha256_len: 64,
+        request_snapshot_fingerprint_present: true,
+        request_parts_bound: true,
+        checkpoint_marker_bound: true,
+        captured_envelope_bound: true,
+        outcome_classifier_bound: true,
+        state_machine_transition_required: true,
+        state_machine_bypass_allowed: false,
+        raw_path_exported: false,
+        raw_body_exported: false,
+        raw_error_exported: false,
+        runtime_ack_redacted_only: true,
+    }
+}
+
 fn approved_request_parts_constructor_count() -> usize {
     let _place: fn(
         &EndpointGateApproved,
@@ -1138,6 +1346,31 @@ fn captured_envelope_diagnostic_count() -> usize {
         Option<GatewayRealOrderEndpointTransportCategory>,
     ) -> GatewayRealOrderEndpointCapturedResponseEnvelopeDiagnostic =
         captured_response_error_envelope_diagnostic;
+    1
+}
+
+fn endpoint_attempt_journal_binding_constructor_count() -> usize {
+    let _place: fn(
+        &EndpointGateApproved,
+        ApprovedOrderEndpointRequestParts,
+        PlaceEndpointDurableCheckpointApproved,
+        GatewayRealOrderEndpointCapturedEnvelopeRecord,
+        GatewayRealOrderEndpointFutureSendOutcome,
+    ) -> GatewayRealOrderEndpointAttemptDiagnostic = bind_place_endpoint_attempt_journal;
+    let _cancel: fn(
+        &EndpointGateApproved,
+        ApprovedOrderEndpointRequestParts,
+        CancelEndpointDurableCheckpointApproved,
+        GatewayRealOrderEndpointCapturedEnvelopeRecord,
+        GatewayRealOrderEndpointFutureSendOutcome,
+    ) -> GatewayRealOrderEndpointAttemptDiagnostic = bind_cancel_endpoint_attempt_journal;
+    2
+}
+
+fn endpoint_attempt_diagnostic_count() -> usize {
+    let _diagnostic: fn(
+        GatewayRealOrderEndpointOperation,
+    ) -> GatewayRealOrderEndpointAttemptDiagnostic = endpoint_attempt_redacted_diagnostic;
     1
 }
 
@@ -1284,6 +1517,471 @@ pub fn transport_category_policy_matrix(
             runtime_ack_redacted_only: true,
         },
     ]
+}
+
+// A matrix row is intentionally explicit: each call site lists the broker
+// status/body shape, future outcome, order-path transition, ACK shape, and
+// operator policy in one place for reviewability.
+#[allow(clippy::too_many_arguments)]
+fn http_status_outcome_entry(
+    operation: GatewayRealOrderEndpointOperation,
+    status_code: u16,
+    body_shape: GatewayRealOrderEndpointHttpBodyShape,
+    outcome: GatewayRealOrderEndpointFutureSendOutcome,
+    accepted_result_kind: Option<GatewayRealOrderEndpointAcceptedResultKind>,
+    cancel_accepted_id_policy: Option<GatewayRealOrderEndpointCancelAcceptedIdPolicy>,
+    order_path_event: OrderPathEvent,
+    order_path_state: OrderPathState,
+    ack_status: CommandAckStatus,
+    ack_reason_code: Option<CommandAckReasonCode>,
+    operator_disarm_signal: Option<OperatorDisarmSignal>,
+) -> GatewayRealOrderEndpointHttpStatusOutcomeEntry {
+    GatewayRealOrderEndpointHttpStatusOutcomeEntry {
+        operation,
+        status_code,
+        body_shape,
+        envelope_kind: if matches!(
+            body_shape,
+            GatewayRealOrderEndpointHttpBodyShape::BrokerReject
+                | GatewayRealOrderEndpointHttpBodyShape::Unauthorized
+                | GatewayRealOrderEndpointHttpBodyShape::Timeout
+                | GatewayRealOrderEndpointHttpBodyShape::RateLimit
+                | GatewayRealOrderEndpointHttpBodyShape::Maintenance
+        ) {
+            GatewayRealOrderEndpointCapturedEnvelopeKind::BrokerErrorResponse
+        } else {
+            GatewayRealOrderEndpointCapturedEnvelopeKind::AcceptedResponse
+        },
+        outcome,
+        accepted_result_kind,
+        cancel_accepted_id_policy,
+        order_path_event,
+        order_path_state,
+        ack_status,
+        ack_reason_code,
+        operator_disarm_signal,
+        state_machine_transition_required: true,
+        captured_envelope_required: true,
+        endpoint_attempt_journal_required: true,
+        no_blind_retry: true,
+        raw_path_exported: false,
+        raw_body_exported: false,
+        raw_error_exported: false,
+    }
+}
+
+pub fn place_http_status_outcome_matrix() -> Vec<GatewayRealOrderEndpointHttpStatusOutcomeEntry> {
+    use GatewayRealOrderEndpointAcceptedResultKind as AcceptedKind;
+    use GatewayRealOrderEndpointFutureSendOutcome as Outcome;
+    use GatewayRealOrderEndpointHttpBodyShape as Body;
+
+    vec![
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            200,
+            Body::AcceptedWithBrokerOrderId,
+            Outcome::Accepted,
+            Some(AcceptedKind::WithBrokerOrderId),
+            None,
+            OrderPathEvent::SubmitAccepted,
+            OrderPathState::Submitted,
+            CommandAckStatus::Submitted,
+            None,
+            None,
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            200,
+            Body::AcceptedWithoutBrokerOrderId,
+            Outcome::Accepted,
+            Some(AcceptedKind::WithoutBrokerOrderId),
+            None,
+            OrderPathEvent::SubmitAcceptedWithoutBrokerOrderId,
+            OrderPathState::SubmittedPendingBrokerOrderId,
+            CommandAckStatus::UnknownPending,
+            Some(CommandAckReasonCode::ReconciliationRequired),
+            Some(OperatorDisarmSignal::AcceptedWithoutBrokerOrderId),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            200,
+            Body::AcceptedEmptyBrokerOrderId,
+            Outcome::Accepted,
+            Some(AcceptedKind::EmptyBrokerOrderId),
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::ResponseDecodeError),
+            Some(OperatorDisarmSignal::OrderEndpointDecodeError),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            200,
+            Body::AcceptedBrokerOrderIdMismatch,
+            Outcome::Accepted,
+            Some(AcceptedKind::BrokerOrderIdMismatch),
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::UnknownPending,
+            Some(CommandAckReasonCode::ManualInterventionRequired),
+            Some(OperatorDisarmSignal::ReconciliationConflict),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            400,
+            Body::BrokerReject,
+            Outcome::Rejected,
+            None,
+            None,
+            OrderPathEvent::BrokerReject,
+            OrderPathState::BrokerRejected,
+            CommandAckStatus::Rejected,
+            Some(CommandAckReasonCode::BrokerRejected),
+            None,
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            422,
+            Body::BrokerReject,
+            Outcome::Rejected,
+            None,
+            None,
+            OrderPathEvent::BrokerReject,
+            OrderPathState::BrokerRejected,
+            CommandAckStatus::Rejected,
+            Some(CommandAckReasonCode::BrokerRejected),
+            None,
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            401,
+            Body::Unauthorized,
+            Outcome::Unauthorized,
+            None,
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::Unauthorized),
+            Some(OperatorDisarmSignal::OrderEndpointUnauthorized),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            403,
+            Body::Unauthorized,
+            Outcome::Unauthorized,
+            None,
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::Unauthorized),
+            Some(OperatorDisarmSignal::OrderEndpointUnauthorized),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            408,
+            Body::Timeout,
+            Outcome::TimeoutUnknownPending,
+            None,
+            None,
+            OrderPathEvent::SubmitTimedOut,
+            OrderPathState::TimeoutUnknownPending,
+            CommandAckStatus::Timeout,
+            Some(CommandAckReasonCode::TimeoutUnknownPending),
+            Some(OperatorDisarmSignal::UnknownPendingOrder),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            504,
+            Body::Timeout,
+            Outcome::TimeoutUnknownPending,
+            None,
+            None,
+            OrderPathEvent::SubmitTimedOut,
+            OrderPathState::TimeoutUnknownPending,
+            CommandAckStatus::Timeout,
+            Some(CommandAckReasonCode::TimeoutUnknownPending),
+            Some(OperatorDisarmSignal::UnknownPendingOrder),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            429,
+            Body::RateLimit,
+            Outcome::RateLimited,
+            None,
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::RateLimited),
+            Some(OperatorDisarmSignal::OrderEndpointRateLimited),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            500,
+            Body::Maintenance,
+            Outcome::Maintenance,
+            None,
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::BrokerMaintenance),
+            Some(OperatorDisarmSignal::OrderEndpointMaintenance),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            502,
+            Body::Maintenance,
+            Outcome::Maintenance,
+            None,
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::BrokerMaintenance),
+            Some(OperatorDisarmSignal::OrderEndpointMaintenance),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            503,
+            Body::Maintenance,
+            Outcome::Maintenance,
+            None,
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::BrokerMaintenance),
+            Some(OperatorDisarmSignal::OrderEndpointMaintenance),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            200,
+            Body::MalformedBody,
+            Outcome::DecodeError,
+            None,
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::ResponseDecodeError),
+            Some(OperatorDisarmSignal::OrderEndpointDecodeError),
+        ),
+    ]
+}
+
+pub fn cancel_http_status_outcome_matrix() -> Vec<GatewayRealOrderEndpointHttpStatusOutcomeEntry> {
+    use GatewayRealOrderEndpointCancelAcceptedIdPolicy as CancelPolicy;
+    use GatewayRealOrderEndpointFutureSendOutcome as Outcome;
+    use GatewayRealOrderEndpointHttpBodyShape as Body;
+
+    vec![
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            200,
+            Body::AcceptedWithBrokerOrderId,
+            Outcome::Accepted,
+            None,
+            Some(CancelPolicy::MatchingBrokerOrderId),
+            OrderPathEvent::CancelAccepted,
+            OrderPathState::CancelSubmitted,
+            CommandAckStatus::Submitted,
+            None,
+            None,
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            200,
+            Body::AcceptedWithoutBrokerOrderId,
+            Outcome::Accepted,
+            None,
+            Some(CancelPolicy::MissingBrokerOrderIdAcceptedPendingReconciliation),
+            OrderPathEvent::CancelAccepted,
+            OrderPathState::CancelSubmitted,
+            CommandAckStatus::UnknownPending,
+            Some(CommandAckReasonCode::ReconciliationRequired),
+            Some(OperatorDisarmSignal::AcceptedWithoutBrokerOrderId),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            200,
+            Body::AcceptedEmptyBrokerOrderId,
+            Outcome::Accepted,
+            None,
+            Some(CancelPolicy::MissingBrokerOrderIdAcceptedPendingReconciliation),
+            OrderPathEvent::CancelAccepted,
+            OrderPathState::CancelSubmitted,
+            CommandAckStatus::UnknownPending,
+            Some(CommandAckReasonCode::ReconciliationRequired),
+            Some(OperatorDisarmSignal::AcceptedWithoutBrokerOrderId),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            200,
+            Body::AcceptedBrokerOrderIdMismatch,
+            Outcome::Accepted,
+            None,
+            Some(CancelPolicy::BrokerOrderIdMismatchManualIntervention),
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::UnknownPending,
+            Some(CommandAckReasonCode::ManualInterventionRequired),
+            Some(OperatorDisarmSignal::CancelBrokerOrderIdMismatch),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            400,
+            Body::BrokerReject,
+            Outcome::Rejected,
+            None,
+            None,
+            OrderPathEvent::CancelRejected,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Rejected,
+            Some(CommandAckReasonCode::BrokerRejected),
+            None,
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            422,
+            Body::BrokerReject,
+            Outcome::Rejected,
+            None,
+            None,
+            OrderPathEvent::CancelRejected,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Rejected,
+            Some(CommandAckReasonCode::BrokerRejected),
+            None,
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            401,
+            Body::Unauthorized,
+            Outcome::Unauthorized,
+            None,
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::Unauthorized),
+            Some(OperatorDisarmSignal::OrderEndpointUnauthorized),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            403,
+            Body::Unauthorized,
+            Outcome::Unauthorized,
+            None,
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::Unauthorized),
+            Some(OperatorDisarmSignal::OrderEndpointUnauthorized),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            408,
+            Body::Timeout,
+            Outcome::TimeoutUnknownPending,
+            None,
+            None,
+            OrderPathEvent::CancelTimedOut,
+            OrderPathState::CancelTimeoutUnknownPending,
+            CommandAckStatus::Timeout,
+            Some(CommandAckReasonCode::CancelTimeoutUnknownPending),
+            Some(OperatorDisarmSignal::CancelTimeoutUnknownPending),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            504,
+            Body::Timeout,
+            Outcome::TimeoutUnknownPending,
+            None,
+            None,
+            OrderPathEvent::CancelTimedOut,
+            OrderPathState::CancelTimeoutUnknownPending,
+            CommandAckStatus::Timeout,
+            Some(CommandAckReasonCode::CancelTimeoutUnknownPending),
+            Some(OperatorDisarmSignal::CancelTimeoutUnknownPending),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            429,
+            Body::RateLimit,
+            Outcome::RateLimited,
+            None,
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::RateLimited),
+            Some(OperatorDisarmSignal::OrderEndpointRateLimited),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            500,
+            Body::Maintenance,
+            Outcome::Maintenance,
+            None,
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::BrokerMaintenance),
+            Some(OperatorDisarmSignal::OrderEndpointMaintenance),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            502,
+            Body::Maintenance,
+            Outcome::Maintenance,
+            None,
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::BrokerMaintenance),
+            Some(OperatorDisarmSignal::OrderEndpointMaintenance),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            503,
+            Body::Maintenance,
+            Outcome::Maintenance,
+            None,
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::BrokerMaintenance),
+            Some(OperatorDisarmSignal::OrderEndpointMaintenance),
+        ),
+        http_status_outcome_entry(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            200,
+            Body::MalformedBody,
+            Outcome::DecodeError,
+            None,
+            None,
+            OrderPathEvent::RequireManualIntervention,
+            OrderPathState::ManualInterventionRequired,
+            CommandAckStatus::Error,
+            Some(CommandAckReasonCode::ResponseDecodeError),
+            Some(OperatorDisarmSignal::OrderEndpointDecodeError),
+        ),
+    ]
+}
+
+pub fn http_status_outcome_matrix() -> Vec<GatewayRealOrderEndpointHttpStatusOutcomeEntry> {
+    let mut matrix = place_http_status_outcome_matrix();
+    matrix.extend(cancel_http_status_outcome_matrix());
+    matrix
 }
 
 pub fn future_send_outcome_state_policy_matrix(
@@ -2120,6 +2818,129 @@ mod tests {
         assert!(!shape.captured_envelope_design.diagnostic_can_feed_transport);
         assert!(shape.captured_envelope_design.runtime_ack_redacted_only);
         assert_eq!(shape.captured_envelope_design.diagnostic_count, 1);
+        assert!(shape.endpoint_attempt_journal_design.journal_internal_only);
+        assert_eq!(
+            shape
+                .endpoint_attempt_journal_design
+                .endpoint_attempt_id_hash_len,
+            64
+        );
+        assert!(
+            !shape
+                .endpoint_attempt_journal_design
+                .attempt_id_raw_exported
+        );
+        assert!(
+            shape
+                .endpoint_attempt_journal_design
+                .binds_approved_request_parts
+        );
+        assert!(
+            shape
+                .endpoint_attempt_journal_design
+                .binds_request_snapshot_fingerprint
+        );
+        assert!(
+            shape
+                .endpoint_attempt_journal_design
+                .binds_checkpoint_marker
+        );
+        assert!(
+            shape
+                .endpoint_attempt_journal_design
+                .binds_captured_envelope
+        );
+        assert!(
+            shape
+                .endpoint_attempt_journal_design
+                .binds_outcome_classifier
+        );
+        assert!(!shape.endpoint_attempt_journal_design.raw_path_exported);
+        assert!(!shape.endpoint_attempt_journal_design.raw_body_exported);
+        assert!(!shape.endpoint_attempt_journal_design.raw_error_exported);
+        assert!(
+            shape
+                .endpoint_attempt_journal_design
+                .diagnostic_redacted_only
+        );
+        assert!(
+            !shape
+                .endpoint_attempt_journal_design
+                .diagnostic_can_feed_transport
+        );
+        assert!(
+            !shape
+                .endpoint_attempt_journal_design
+                .diagnostic_can_bypass_state_machine
+        );
+        assert_eq!(shape.endpoint_attempt_journal_design.constructor_count, 2);
+        assert_eq!(shape.endpoint_attempt_journal_design.diagnostic_count, 1);
+        assert!(shape.http_status_outcome_matrix_design.matrix_serializable);
+        assert_eq!(
+            shape.http_status_outcome_matrix_design.place_entry_count,
+            15
+        );
+        assert_eq!(
+            shape.http_status_outcome_matrix_design.cancel_entry_count,
+            15
+        );
+        assert_eq!(
+            shape.http_status_outcome_matrix_design.total_entry_count,
+            30
+        );
+        assert!(
+            shape
+                .http_status_outcome_matrix_design
+                .covers_2xx_accepted_body_variants
+        );
+        assert!(
+            shape
+                .http_status_outcome_matrix_design
+                .covers_400_422_broker_reject
+        );
+        assert!(
+            shape
+                .http_status_outcome_matrix_design
+                .covers_401_403_unauthorized
+        );
+        assert!(
+            shape
+                .http_status_outcome_matrix_design
+                .covers_408_504_timeout
+        );
+        assert!(
+            shape
+                .http_status_outcome_matrix_design
+                .covers_429_rate_limit
+        );
+        assert!(
+            shape
+                .http_status_outcome_matrix_design
+                .covers_500_502_503_maintenance
+        );
+        assert!(
+            shape
+                .http_status_outcome_matrix_design
+                .covers_malformed_body_decode_error
+        );
+        assert!(
+            shape
+                .http_status_outcome_matrix_design
+                .covers_transport_category_failures
+        );
+        assert!(
+            shape
+                .http_status_outcome_matrix_design
+                .place_cancel_specific_mapping
+        );
+        assert!(!shape.http_status_outcome_matrix_design.raw_path_exported);
+        assert!(!shape.http_status_outcome_matrix_design.raw_body_exported);
+        assert!(!shape.http_status_outcome_matrix_design.raw_error_exported);
+        assert!(
+            shape
+                .http_status_outcome_matrix_design
+                .state_machine_transition_required
+        );
         assert!(
             shape
                 .durable_checkpoint_capability_design
@@ -3365,6 +4186,263 @@ mod tests {
         assert!(rendered.contains("\"raw_path_exported\":false"));
         assert!(rendered.contains("\"raw_body_exported\":false"));
         assert!(rendered.contains("\"raw_error_exported\":false"));
+    }
+
+    #[test]
+    fn endpoint_attempt_journal_binds_parts_checkpoint_envelope_and_outcome() {
+        fn assert_place_signature(
+            _f: fn(
+                &EndpointGateApproved,
+                ApprovedOrderEndpointRequestParts,
+                PlaceEndpointDurableCheckpointApproved,
+                GatewayRealOrderEndpointCapturedEnvelopeRecord,
+                GatewayRealOrderEndpointFutureSendOutcome,
+            ) -> GatewayRealOrderEndpointAttemptDiagnostic,
+        ) {
+        }
+        fn assert_cancel_signature(
+            _f: fn(
+                &EndpointGateApproved,
+                ApprovedOrderEndpointRequestParts,
+                CancelEndpointDurableCheckpointApproved,
+                GatewayRealOrderEndpointCapturedEnvelopeRecord,
+                GatewayRealOrderEndpointFutureSendOutcome,
+            ) -> GatewayRealOrderEndpointAttemptDiagnostic,
+        ) {
+        }
+
+        assert_place_signature(bind_place_endpoint_attempt_journal);
+        assert_cancel_signature(bind_cancel_endpoint_attempt_journal);
+        assert_eq!(endpoint_attempt_journal_binding_constructor_count(), 2);
+        assert_eq!(endpoint_attempt_diagnostic_count(), 1);
+
+        let diagnostic =
+            endpoint_attempt_redacted_diagnostic(GatewayRealOrderEndpointOperation::PlaceOrder);
+        assert_eq!(
+            diagnostic.operation,
+            GatewayRealOrderEndpointOperation::PlaceOrder
+        );
+        assert!(diagnostic.endpoint_attempt_id_hash_present);
+        assert_eq!(diagnostic.endpoint_attempt_id_sha256_len, 64);
+        assert!(diagnostic.request_snapshot_fingerprint_present);
+        assert!(diagnostic.request_parts_bound);
+        assert!(diagnostic.checkpoint_marker_bound);
+        assert!(diagnostic.captured_envelope_bound);
+        assert!(diagnostic.outcome_classifier_bound);
+        assert!(diagnostic.state_machine_transition_required);
+        assert!(!diagnostic.state_machine_bypass_allowed);
+        assert!(!diagnostic.raw_path_exported);
+        assert!(!diagnostic.raw_body_exported);
+        assert!(!diagnostic.raw_error_exported);
+        assert!(diagnostic.runtime_ack_redacted_only);
+
+        let source = include_str!("real_order_endpoint.rs");
+        let journal_source = source
+            .split("fn bind_place_endpoint_attempt_journal")
+            .nth(1)
+            .expect("journal binding source")
+            .split("fn approved_request_parts_constructor_count")
+            .next()
+            .expect("journal binding boundary");
+        assert!(journal_source.contains("EndpointGateApproved"));
+        assert!(journal_source.contains("ApprovedOrderEndpointRequestParts"));
+        assert!(journal_source.contains("PlaceEndpointDurableCheckpointApproved"));
+        assert!(journal_source.contains("CancelEndpointDurableCheckpointApproved"));
+        assert!(journal_source.contains("GatewayRealOrderEndpointCapturedEnvelopeRecord"));
+        assert!(journal_source.contains("GatewayRealOrderEndpointFutureSendOutcome"));
+        assert!(
+            !journal_source.contains("GatewayRealOrderEndpointCapturedResponseEnvelopeDiagnostic")
+        );
+        assert!(!journal_source.contains("GatewayRealOrderEndpointFutureSendDiagnostic"));
+        assert!(!journal_source.contains("GatewayRealOrderEndpointAcceptedResultDiagnostic"));
+    }
+
+    #[test]
+    fn http_status_outcome_matrix_covers_place_and_cancel_statuses() {
+        use GatewayRealOrderEndpointCancelAcceptedIdPolicy as CancelPolicy;
+        use GatewayRealOrderEndpointCapturedEnvelopeKind as EnvelopeKind;
+        use GatewayRealOrderEndpointFutureSendOutcome as Outcome;
+        use GatewayRealOrderEndpointHttpBodyShape as Body;
+
+        let place = place_http_status_outcome_matrix();
+        let cancel = cancel_http_status_outcome_matrix();
+        let combined = http_status_outcome_matrix();
+        assert_eq!(place.len(), 15);
+        assert_eq!(cancel.len(), 15);
+        assert_eq!(combined.len(), 30);
+
+        for entry in &combined {
+            assert!(entry.state_machine_transition_required);
+            assert!(entry.captured_envelope_required);
+            assert!(entry.endpoint_attempt_journal_required);
+            assert!(entry.no_blind_retry);
+            assert!(!entry.raw_path_exported);
+            assert!(!entry.raw_body_exported);
+            assert!(!entry.raw_error_exported);
+        }
+
+        fn find_status_entry(
+            matrix: &[GatewayRealOrderEndpointHttpStatusOutcomeEntry],
+            status_code: u16,
+            body_shape: GatewayRealOrderEndpointHttpBodyShape,
+        ) -> &GatewayRealOrderEndpointHttpStatusOutcomeEntry {
+            matrix
+                .iter()
+                .find(|entry| entry.status_code == status_code && entry.body_shape == body_shape)
+                .expect("status/body-shape entry")
+        }
+
+        let place_accepted = find_status_entry(&place, 200, Body::AcceptedWithBrokerOrderId);
+        assert_eq!(place_accepted.outcome, Outcome::Accepted);
+        assert_eq!(
+            place_accepted.accepted_result_kind,
+            Some(GatewayRealOrderEndpointAcceptedResultKind::WithBrokerOrderId)
+        );
+        assert_eq!(
+            place_accepted.order_path_event,
+            OrderPathEvent::SubmitAccepted
+        );
+        assert_eq!(place_accepted.order_path_state, OrderPathState::Submitted);
+        assert_eq!(place_accepted.ack_status, CommandAckStatus::Submitted);
+
+        let place_missing_id = find_status_entry(&place, 200, Body::AcceptedWithoutBrokerOrderId);
+        assert_eq!(
+            place_missing_id.accepted_result_kind,
+            Some(GatewayRealOrderEndpointAcceptedResultKind::WithoutBrokerOrderId)
+        );
+        assert_eq!(
+            place_missing_id.order_path_event,
+            OrderPathEvent::SubmitAcceptedWithoutBrokerOrderId
+        );
+        assert_eq!(
+            place_missing_id.order_path_state,
+            OrderPathState::SubmittedPendingBrokerOrderId
+        );
+        assert_eq!(
+            place_missing_id.ack_status,
+            CommandAckStatus::UnknownPending
+        );
+
+        let cancel_accepted = find_status_entry(&cancel, 200, Body::AcceptedWithBrokerOrderId);
+        assert_eq!(
+            cancel_accepted.cancel_accepted_id_policy,
+            Some(CancelPolicy::MatchingBrokerOrderId)
+        );
+        assert_eq!(
+            cancel_accepted.order_path_event,
+            OrderPathEvent::CancelAccepted
+        );
+        assert_eq!(
+            cancel_accepted.order_path_state,
+            OrderPathState::CancelSubmitted
+        );
+
+        let cancel_missing = find_status_entry(&cancel, 200, Body::AcceptedWithoutBrokerOrderId);
+        assert_eq!(
+            cancel_missing.cancel_accepted_id_policy,
+            Some(CancelPolicy::MissingBrokerOrderIdAcceptedPendingReconciliation)
+        );
+        assert_eq!(cancel_missing.ack_status, CommandAckStatus::UnknownPending);
+        assert_eq!(
+            cancel_missing.ack_reason_code,
+            Some(CommandAckReasonCode::ReconciliationRequired)
+        );
+
+        let cancel_mismatch = find_status_entry(&cancel, 200, Body::AcceptedBrokerOrderIdMismatch);
+        assert_eq!(
+            cancel_mismatch.cancel_accepted_id_policy,
+            Some(CancelPolicy::BrokerOrderIdMismatchManualIntervention)
+        );
+        assert_eq!(
+            cancel_mismatch.operator_disarm_signal,
+            Some(OperatorDisarmSignal::CancelBrokerOrderIdMismatch)
+        );
+
+        for status in [400, 422] {
+            let place_reject = find_status_entry(&place, status, Body::BrokerReject);
+            assert_eq!(
+                place_reject.envelope_kind,
+                EnvelopeKind::BrokerErrorResponse
+            );
+            assert_eq!(place_reject.outcome, Outcome::Rejected);
+            assert_eq!(
+                place_reject.order_path_state,
+                OrderPathState::BrokerRejected
+            );
+
+            let cancel_reject = find_status_entry(&cancel, status, Body::BrokerReject);
+            assert_eq!(cancel_reject.outcome, Outcome::Rejected);
+            assert_eq!(
+                cancel_reject.order_path_state,
+                OrderPathState::ManualInterventionRequired
+            );
+        }
+
+        for status in [401, 403] {
+            let unauthorized = find_status_entry(&place, status, Body::Unauthorized);
+            assert_eq!(unauthorized.outcome, Outcome::Unauthorized);
+            assert_eq!(
+                unauthorized.operator_disarm_signal,
+                Some(OperatorDisarmSignal::OrderEndpointUnauthorized)
+            );
+        }
+
+        for status in [408, 504] {
+            let place_timeout = find_status_entry(&place, status, Body::Timeout);
+            assert_eq!(place_timeout.outcome, Outcome::TimeoutUnknownPending);
+            assert_eq!(
+                place_timeout.ack_reason_code,
+                Some(CommandAckReasonCode::TimeoutUnknownPending)
+            );
+            assert_eq!(
+                place_timeout.order_path_state,
+                OrderPathState::TimeoutUnknownPending
+            );
+
+            let cancel_timeout = find_status_entry(&cancel, status, Body::Timeout);
+            assert_eq!(cancel_timeout.outcome, Outcome::TimeoutUnknownPending);
+            assert_eq!(
+                cancel_timeout.ack_reason_code,
+                Some(CommandAckReasonCode::CancelTimeoutUnknownPending)
+            );
+            assert_eq!(
+                cancel_timeout.order_path_state,
+                OrderPathState::CancelTimeoutUnknownPending
+            );
+        }
+
+        let rate_limited = find_status_entry(&place, 429, Body::RateLimit);
+        assert_eq!(rate_limited.outcome, Outcome::RateLimited);
+        assert_eq!(
+            rate_limited.operator_disarm_signal,
+            Some(OperatorDisarmSignal::OrderEndpointRateLimited)
+        );
+
+        for status in [500, 502, 503] {
+            let maintenance = find_status_entry(&cancel, status, Body::Maintenance);
+            assert_eq!(maintenance.outcome, Outcome::Maintenance);
+            assert_eq!(
+                maintenance.operator_disarm_signal,
+                Some(OperatorDisarmSignal::OrderEndpointMaintenance)
+            );
+        }
+
+        let malformed = find_status_entry(&place, 200, Body::MalformedBody);
+        assert_eq!(malformed.outcome, Outcome::DecodeError);
+        assert_eq!(
+            malformed.ack_reason_code,
+            Some(CommandAckReasonCode::ResponseDecodeError)
+        );
+
+        assert_eq!(
+            captured_envelope_transport_category_matrix().len(),
+            transport_categories().len()
+        );
+
+        let rendered = serde_json::to_string(&combined).expect("status matrix serializes");
+        assert!(!rendered.contains("/v1/accounts/ACC_TEST_0001"));
+        assert!(!rendered.contains("ACC_TEST_0001"));
+        assert!(!rendered.contains("ORDER_TEST_0003"));
     }
 
     #[test]
