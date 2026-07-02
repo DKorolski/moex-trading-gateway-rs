@@ -57,6 +57,16 @@ same endpoint_attempt_id + same fingerprint set -> idempotent replay
 same endpoint_attempt_id + different fingerprint set -> reject and disarm
 ```
 
+## Follow-up in M3c-18
+
+M3c-18 adds the design-only migration/runbook and replay-fingerprint layer on
+top of this schema. It records WAL, `synchronous=FULL`, single-writer lock,
+schema-version guard, and SQLite integrity-check requirements; any corruption,
+open failure, stale/unknown lock, or integrity-check failure disarms order
+endpoints. It also defines the canonical replay fingerprint ordering and the
+endpoint-attempt-id lifecycle that forbids reusing an attempt id for a new
+network attempt after timeout, manual, or terminal outcomes.
+
 ## Still not allowed
 
 - FINAM real PlaceOrder `POST`;

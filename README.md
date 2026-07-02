@@ -241,6 +241,7 @@ See:
 - [M3c-15 endpoint attempt journal and HTTP status outcome matrix](docs/m3c15-endpoint-attempt-journal-http-status-matrix.md)
 - [M3c-16 durable attempt journal and FINAM status semantics](docs/m3c16-durable-attempt-journal-finam-status-semantics.md)
 - [M3c-17 evidence closure and durable journal schema](docs/m3c17-evidence-closure-durable-journal-schema.md)
+- [M3c-18 migration runbook and canonical replay fingerprint](docs/m3c18-migration-runbook-canonical-replay-fingerprint.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

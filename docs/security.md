@@ -254,6 +254,13 @@ M3c-17 adds an implementation-gate evidence closure plan and design-only SQLite
 schema for `order_endpoint_attempts`. The schema stores hashes/safe enums only,
 requires same-fingerprint idempotent replay, rejects conflicting replay, and
 keeps all closure artifacts redacted and source-archive-bound.
+M3c-18 adds a design-only durable journal migration runbook, canonical replay
+fingerprint spec, and endpoint-attempt-id lifecycle policy. Migration/open
+failures, corruption, stale/unknown locks, or integrity-check failures disarm
+order endpoints; auto-repair and automatic stale-lock deletion remain forbidden.
+Replay fingerprints are stable sorted-key/no-whitespace hash-only shapes, and
+attempt ids cannot be reused for new network attempts after timeout, manual, or
+terminal outcomes.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

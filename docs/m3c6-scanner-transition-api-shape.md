@@ -182,6 +182,34 @@ raw endpoint/request/broker/path/body/error exported = false
 The scanner transition guard checks these markers while keeping all real order
 endpoint calls forbidden.
 
+M3c-18 records migration/runbook, replay-fingerprint, and attempt-id lifecycle
+markers:
+
+```text
+migration_runbook_design_only = true
+wal_required = true
+synchronous_full_required = true
+single_writer_lock_required = true
+schema_version_guard_required = true
+sqlite_integrity_check_required = true
+corruption_open_failure_disarms = true
+stale_or_unknown_lock_disarms = true
+auto_repair_allowed = false
+auto_stale_lock_delete_allowed = false
+fingerprint_spec_design_only = true
+encoding = Utf8JsonObjectSortedKeysNoWhitespace
+stable_field_order_required = true
+sorted_keys_required = true
+whitespace_forbidden = true
+refactor_changes_require_schema_bump = true
+lifecycle_design_only = true
+same_attempt_id_replay_requires_same_fingerprint_set = true
+reuse_after_timeout_manual_or_terminal_allowed = false
+new_endpoint_attempt_requires_new_id = true
+```
+
+These markers are still design/report-only; they do not enable endpoint calls.
+
 ## Scanner transition spec
 
 The API shape exports:

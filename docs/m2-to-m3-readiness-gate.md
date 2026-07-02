@@ -1354,6 +1354,12 @@ Implemented while still keeping all broker order endpoints disabled:
   implementation-gate evidence slots, allowed closure methods, and a
   hash-only `order_endpoint_attempts` SQLite schema with idempotent replay by
   fingerprint set and conflict disarm policy;
+- M3c-18 migration runbook / canonical replay fingerprint: records design-only
+  WAL/synchronous=FULL/single-writer/schema-version/integrity-check startup
+  requirements, corruption/open-failure operator disarm policy, stable
+  sorted-key/no-whitespace replay fingerprint ordering, and endpoint-attempt-id
+  lifecycle rules forbidding reuse for new attempts after timeout/manual/terminal
+  outcomes;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:

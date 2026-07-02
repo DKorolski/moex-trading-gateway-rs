@@ -1913,6 +1913,33 @@ M3c-17 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-18 durable journal migration runbook / canonical replay fingerprint:
+
+- Added design-only SQLite migration/runbook policy for backup, single-writer
+  lock, WAL, `synchronous=FULL`, schema-version guard, table/index creation,
+  integrity check, and refusal to auto-repair.
+- Added operator disarm policy for SQLite open failure, corruption,
+  stale/unknown lock, schema mismatch, and integrity-check failure.
+- Added canonical replay fingerprint design with stable ordered fields, sorted
+  keys, no whitespace, SHA-256-only exported values, and schema-bump requirement
+  for field/encoding changes.
+- Added endpoint-attempt-id lifecycle policy: generated after approved request
+  parts, bound before future send, persisted with the journal, reused only for
+  same-fingerprint idempotent replay, and never reused for a new attempt after
+  timeout/manual/terminal outcomes.
+- Details are documented in
+  `docs/m3c18-migration-runbook-canonical-replay-fingerprint.md`.
+
+M3c-18 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

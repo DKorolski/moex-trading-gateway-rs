@@ -963,6 +963,137 @@ pub struct GatewayRealOrderEndpointDurableAttemptJournalSqliteSchemaDesignShape 
     pub raw_error_exported: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointDurableJournalMigrationStepKind {
+    BackupBeforeMigration,
+    AcquireSingleWriterLock,
+    OpenSqliteWithWal,
+    SetSynchronousFull,
+    VerifySchemaVersion,
+    CreateOrderEndpointAttemptsTable,
+    CreateReplayIndexes,
+    RunIntegrityCheck,
+    RefuseAutoRepair,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointDurableJournalMigrationStep {
+    pub step: GatewayRealOrderEndpointDurableJournalMigrationStepKind,
+    pub required_before_endpoint_gate: bool,
+    pub operator_visible: bool,
+    pub failure_disarms_order_endpoints: bool,
+    pub raw_values_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointDurableJournalMigrationRunbookDesignShape {
+    pub migration_runbook_design_only: bool,
+    pub step_count: usize,
+    pub backup_required_before_migration: bool,
+    pub begin_immediate_required_for_schema_change: bool,
+    pub wal_required: bool,
+    pub synchronous_full_required: bool,
+    pub single_writer_lock_required: bool,
+    pub schema_version_guard_required: bool,
+    pub sqlite_integrity_check_required: bool,
+    pub corruption_open_failure_disarms: bool,
+    pub stale_or_unknown_lock_disarms: bool,
+    pub auto_repair_allowed: bool,
+    pub auto_stale_lock_delete_allowed: bool,
+    pub operator_runbook_required: bool,
+    pub redacted_operator_diagnostics_only: bool,
+    pub raw_sqlite_path_exported: bool,
+    pub raw_request_values_exported: bool,
+    pub raw_broker_payload_exported: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointCanonicalReplayFingerprintField {
+    SchemaVersion,
+    Operation,
+    EndpointAttemptIdSha256,
+    RequestIdSha256,
+    ClientOrderIdSha256,
+    AccountSha256,
+    InstrumentSha256,
+    CheckpointLabel,
+    RequestFingerprintSha256,
+    CheckpointProofSha256,
+    CapturedEnvelopeSha256,
+    OutcomeSha256,
+    StateTransitionSha256,
+    AckDiagnosticSha256,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointCanonicalReplayEncoding {
+    Utf8JsonObjectSortedKeysNoWhitespace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointCanonicalReplayFingerprintFieldEntry {
+    pub ordinal: usize,
+    pub field: GatewayRealOrderEndpointCanonicalReplayFingerprintField,
+    pub required: bool,
+    pub hash_len: usize,
+    pub raw_value_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointCanonicalReplayFingerprintDesignShape {
+    pub fingerprint_spec_design_only: bool,
+    pub field_count: usize,
+    pub encoding: GatewayRealOrderEndpointCanonicalReplayEncoding,
+    pub schema_version_included: bool,
+    pub operation_included: bool,
+    pub endpoint_attempt_id_included: bool,
+    pub request_client_account_instrument_hashes_included: bool,
+    pub checkpoint_and_envelope_hashes_included: bool,
+    pub outcome_state_ack_hashes_included: bool,
+    pub stable_field_order_required: bool,
+    pub sorted_keys_required: bool,
+    pub whitespace_forbidden: bool,
+    pub sha256_len: usize,
+    pub raw_values_exported: bool,
+    pub refactor_changes_require_schema_bump: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointAttemptIdLifecyclePhase {
+    GeneratedAfterApprovedRequestParts,
+    BoundBeforeEndpointSend,
+    PersistedWithAttemptJournal,
+    ReusedOnlyForIdempotentReplay,
+    NeverReusedForNewAttemptAfterTerminalOrManual,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointAttemptIdLifecyclePolicyEntry {
+    pub phase: GatewayRealOrderEndpointAttemptIdLifecyclePhase,
+    pub requires_endpoint_gate: bool,
+    pub requires_request_id_hash: bool,
+    pub requires_client_order_id_hash: bool,
+    pub requires_operation: bool,
+    pub endpoint_attempt_id_sha256_len: usize,
+    pub new_network_attempt_allowed: bool,
+    pub raw_endpoint_attempt_id_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointAttemptIdLifecycleDesignShape {
+    pub lifecycle_design_only: bool,
+    pub phase_count: usize,
+    pub generated_after_approved_request_parts: bool,
+    pub generated_before_future_endpoint_send: bool,
+    pub bound_to_request_and_client_id_hashes: bool,
+    pub bound_to_operation: bool,
+    pub persisted_before_outcome_export: bool,
+    pub same_attempt_id_replay_requires_same_fingerprint_set: bool,
+    pub reuse_after_timeout_manual_or_terminal_allowed: bool,
+    pub new_endpoint_attempt_requires_new_id: bool,
+    pub raw_endpoint_attempt_id_exported: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayRealOrderEndpointOutcomeStatePolicyDesignShape {
     pub matrix_serializable: bool,
@@ -1036,6 +1167,11 @@ pub struct GatewayRealOrderEndpointApiShape {
         GatewayRealOrderEndpointEvidenceClosurePlanDesignShape,
     pub durable_attempt_journal_sqlite_schema_design:
         GatewayRealOrderEndpointDurableAttemptJournalSqliteSchemaDesignShape,
+    pub durable_journal_migration_runbook_design:
+        GatewayRealOrderEndpointDurableJournalMigrationRunbookDesignShape,
+    pub canonical_replay_fingerprint_design:
+        GatewayRealOrderEndpointCanonicalReplayFingerprintDesignShape,
+    pub endpoint_attempt_id_lifecycle_design: GatewayRealOrderEndpointAttemptIdLifecycleDesignShape,
     pub durable_checkpoint_capability_design:
         GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape,
     pub checkpoint_marker_creation_design:
@@ -1310,6 +1446,60 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
                 raw_path_exported: false,
                 raw_body_exported: false,
                 raw_error_exported: false,
+            },
+        durable_journal_migration_runbook_design:
+            GatewayRealOrderEndpointDurableJournalMigrationRunbookDesignShape {
+                migration_runbook_design_only: true,
+                step_count: durable_journal_migration_runbook_steps().len(),
+                backup_required_before_migration: true,
+                begin_immediate_required_for_schema_change: true,
+                wal_required: true,
+                synchronous_full_required: true,
+                single_writer_lock_required: true,
+                schema_version_guard_required: true,
+                sqlite_integrity_check_required: true,
+                corruption_open_failure_disarms: true,
+                stale_or_unknown_lock_disarms: true,
+                auto_repair_allowed: false,
+                auto_stale_lock_delete_allowed: false,
+                operator_runbook_required: true,
+                redacted_operator_diagnostics_only: true,
+                raw_sqlite_path_exported: false,
+                raw_request_values_exported: false,
+                raw_broker_payload_exported: false,
+            },
+        canonical_replay_fingerprint_design:
+            GatewayRealOrderEndpointCanonicalReplayFingerprintDesignShape {
+                fingerprint_spec_design_only: true,
+                field_count: canonical_replay_fingerprint_fields().len(),
+                encoding:
+                    GatewayRealOrderEndpointCanonicalReplayEncoding::Utf8JsonObjectSortedKeysNoWhitespace,
+                schema_version_included: true,
+                operation_included: true,
+                endpoint_attempt_id_included: true,
+                request_client_account_instrument_hashes_included: true,
+                checkpoint_and_envelope_hashes_included: true,
+                outcome_state_ack_hashes_included: true,
+                stable_field_order_required: true,
+                sorted_keys_required: true,
+                whitespace_forbidden: true,
+                sha256_len: 64,
+                raw_values_exported: false,
+                refactor_changes_require_schema_bump: true,
+            },
+        endpoint_attempt_id_lifecycle_design:
+            GatewayRealOrderEndpointAttemptIdLifecycleDesignShape {
+                lifecycle_design_only: true,
+                phase_count: endpoint_attempt_id_lifecycle_policy().len(),
+                generated_after_approved_request_parts: true,
+                generated_before_future_endpoint_send: true,
+                bound_to_request_and_client_id_hashes: true,
+                bound_to_operation: true,
+                persisted_before_outcome_export: true,
+                same_attempt_id_replay_requires_same_fingerprint_set: true,
+                reuse_after_timeout_manual_or_terminal_allowed: false,
+                new_endpoint_attempt_requires_new_id: true,
+                raw_endpoint_attempt_id_exported: false,
             },
         durable_checkpoint_capability_design:
             GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape {
@@ -3046,6 +3236,106 @@ pub fn durable_attempt_journal_replay_policy_matrix(
     ]
 }
 
+fn durable_journal_migration_step(
+    step: GatewayRealOrderEndpointDurableJournalMigrationStepKind,
+) -> GatewayRealOrderEndpointDurableJournalMigrationStep {
+    GatewayRealOrderEndpointDurableJournalMigrationStep {
+        step,
+        required_before_endpoint_gate: true,
+        operator_visible: true,
+        failure_disarms_order_endpoints: true,
+        raw_values_exported: false,
+    }
+}
+
+pub fn durable_journal_migration_runbook_steps(
+) -> Vec<GatewayRealOrderEndpointDurableJournalMigrationStep> {
+    use GatewayRealOrderEndpointDurableJournalMigrationStepKind as Step;
+
+    vec![
+        durable_journal_migration_step(Step::BackupBeforeMigration),
+        durable_journal_migration_step(Step::AcquireSingleWriterLock),
+        durable_journal_migration_step(Step::OpenSqliteWithWal),
+        durable_journal_migration_step(Step::SetSynchronousFull),
+        durable_journal_migration_step(Step::VerifySchemaVersion),
+        durable_journal_migration_step(Step::CreateOrderEndpointAttemptsTable),
+        durable_journal_migration_step(Step::CreateReplayIndexes),
+        durable_journal_migration_step(Step::RunIntegrityCheck),
+        durable_journal_migration_step(Step::RefuseAutoRepair),
+    ]
+}
+
+fn canonical_replay_fingerprint_field(
+    ordinal: usize,
+    field: GatewayRealOrderEndpointCanonicalReplayFingerprintField,
+) -> GatewayRealOrderEndpointCanonicalReplayFingerprintFieldEntry {
+    GatewayRealOrderEndpointCanonicalReplayFingerprintFieldEntry {
+        ordinal,
+        field,
+        required: true,
+        hash_len: 64,
+        raw_value_exported: false,
+    }
+}
+
+pub fn canonical_replay_fingerprint_fields(
+) -> Vec<GatewayRealOrderEndpointCanonicalReplayFingerprintFieldEntry> {
+    use GatewayRealOrderEndpointCanonicalReplayFingerprintField as Field;
+
+    [
+        Field::SchemaVersion,
+        Field::Operation,
+        Field::EndpointAttemptIdSha256,
+        Field::RequestIdSha256,
+        Field::ClientOrderIdSha256,
+        Field::AccountSha256,
+        Field::InstrumentSha256,
+        Field::CheckpointLabel,
+        Field::RequestFingerprintSha256,
+        Field::CheckpointProofSha256,
+        Field::CapturedEnvelopeSha256,
+        Field::OutcomeSha256,
+        Field::StateTransitionSha256,
+        Field::AckDiagnosticSha256,
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, field)| canonical_replay_fingerprint_field(index + 1, field))
+    .collect()
+}
+
+fn endpoint_attempt_id_lifecycle_entry(
+    phase: GatewayRealOrderEndpointAttemptIdLifecyclePhase,
+    new_network_attempt_allowed: bool,
+) -> GatewayRealOrderEndpointAttemptIdLifecyclePolicyEntry {
+    GatewayRealOrderEndpointAttemptIdLifecyclePolicyEntry {
+        phase,
+        requires_endpoint_gate: true,
+        requires_request_id_hash: true,
+        requires_client_order_id_hash: true,
+        requires_operation: true,
+        endpoint_attempt_id_sha256_len: 64,
+        new_network_attempt_allowed,
+        raw_endpoint_attempt_id_exported: false,
+    }
+}
+
+pub fn endpoint_attempt_id_lifecycle_policy(
+) -> Vec<GatewayRealOrderEndpointAttemptIdLifecyclePolicyEntry> {
+    use GatewayRealOrderEndpointAttemptIdLifecyclePhase as Phase;
+
+    vec![
+        endpoint_attempt_id_lifecycle_entry(Phase::GeneratedAfterApprovedRequestParts, true),
+        endpoint_attempt_id_lifecycle_entry(Phase::BoundBeforeEndpointSend, true),
+        endpoint_attempt_id_lifecycle_entry(Phase::PersistedWithAttemptJournal, true),
+        endpoint_attempt_id_lifecycle_entry(Phase::ReusedOnlyForIdempotentReplay, false),
+        endpoint_attempt_id_lifecycle_entry(
+            Phase::NeverReusedForNewAttemptAfterTerminalOrManual,
+            false,
+        ),
+    ]
+}
+
 pub fn future_send_outcome_state_policy_matrix(
 ) -> Vec<GatewayRealOrderEndpointOutcomeStatePolicyEntry> {
     use GatewayRealOrderEndpointFutureSendOutcome as Outcome;
@@ -4420,6 +4710,201 @@ mod tests {
             !shape
                 .durable_attempt_journal_sqlite_schema_design
                 .raw_error_exported
+        );
+        assert!(
+            shape
+                .durable_journal_migration_runbook_design
+                .migration_runbook_design_only
+        );
+        assert_eq!(shape.durable_journal_migration_runbook_design.step_count, 9);
+        assert!(
+            shape
+                .durable_journal_migration_runbook_design
+                .backup_required_before_migration
+        );
+        assert!(
+            shape
+                .durable_journal_migration_runbook_design
+                .begin_immediate_required_for_schema_change
+        );
+        assert!(shape.durable_journal_migration_runbook_design.wal_required);
+        assert!(
+            shape
+                .durable_journal_migration_runbook_design
+                .synchronous_full_required
+        );
+        assert!(
+            shape
+                .durable_journal_migration_runbook_design
+                .single_writer_lock_required
+        );
+        assert!(
+            shape
+                .durable_journal_migration_runbook_design
+                .schema_version_guard_required
+        );
+        assert!(
+            shape
+                .durable_journal_migration_runbook_design
+                .sqlite_integrity_check_required
+        );
+        assert!(
+            shape
+                .durable_journal_migration_runbook_design
+                .corruption_open_failure_disarms
+        );
+        assert!(
+            shape
+                .durable_journal_migration_runbook_design
+                .stale_or_unknown_lock_disarms
+        );
+        assert!(
+            !shape
+                .durable_journal_migration_runbook_design
+                .auto_repair_allowed
+        );
+        assert!(
+            !shape
+                .durable_journal_migration_runbook_design
+                .auto_stale_lock_delete_allowed
+        );
+        assert!(
+            shape
+                .durable_journal_migration_runbook_design
+                .operator_runbook_required
+        );
+        assert!(
+            shape
+                .durable_journal_migration_runbook_design
+                .redacted_operator_diagnostics_only
+        );
+        assert!(
+            !shape
+                .durable_journal_migration_runbook_design
+                .raw_sqlite_path_exported
+        );
+        assert!(
+            !shape
+                .durable_journal_migration_runbook_design
+                .raw_request_values_exported
+        );
+        assert!(
+            !shape
+                .durable_journal_migration_runbook_design
+                .raw_broker_payload_exported
+        );
+        assert!(
+            shape
+                .canonical_replay_fingerprint_design
+                .fingerprint_spec_design_only
+        );
+        assert_eq!(shape.canonical_replay_fingerprint_design.field_count, 14);
+        assert_eq!(
+            shape.canonical_replay_fingerprint_design.encoding,
+            GatewayRealOrderEndpointCanonicalReplayEncoding::Utf8JsonObjectSortedKeysNoWhitespace
+        );
+        assert!(
+            shape
+                .canonical_replay_fingerprint_design
+                .schema_version_included
+        );
+        assert!(shape.canonical_replay_fingerprint_design.operation_included);
+        assert!(
+            shape
+                .canonical_replay_fingerprint_design
+                .endpoint_attempt_id_included
+        );
+        assert!(
+            shape
+                .canonical_replay_fingerprint_design
+                .request_client_account_instrument_hashes_included
+        );
+        assert!(
+            shape
+                .canonical_replay_fingerprint_design
+                .checkpoint_and_envelope_hashes_included
+        );
+        assert!(
+            shape
+                .canonical_replay_fingerprint_design
+                .outcome_state_ack_hashes_included
+        );
+        assert!(
+            shape
+                .canonical_replay_fingerprint_design
+                .stable_field_order_required
+        );
+        assert!(
+            shape
+                .canonical_replay_fingerprint_design
+                .sorted_keys_required
+        );
+        assert!(
+            shape
+                .canonical_replay_fingerprint_design
+                .whitespace_forbidden
+        );
+        assert_eq!(shape.canonical_replay_fingerprint_design.sha256_len, 64);
+        assert!(
+            !shape
+                .canonical_replay_fingerprint_design
+                .raw_values_exported
+        );
+        assert!(
+            shape
+                .canonical_replay_fingerprint_design
+                .refactor_changes_require_schema_bump
+        );
+        assert!(
+            shape
+                .endpoint_attempt_id_lifecycle_design
+                .lifecycle_design_only
+        );
+        assert_eq!(shape.endpoint_attempt_id_lifecycle_design.phase_count, 5);
+        assert!(
+            shape
+                .endpoint_attempt_id_lifecycle_design
+                .generated_after_approved_request_parts
+        );
+        assert!(
+            shape
+                .endpoint_attempt_id_lifecycle_design
+                .generated_before_future_endpoint_send
+        );
+        assert!(
+            shape
+                .endpoint_attempt_id_lifecycle_design
+                .bound_to_request_and_client_id_hashes
+        );
+        assert!(
+            shape
+                .endpoint_attempt_id_lifecycle_design
+                .bound_to_operation
+        );
+        assert!(
+            shape
+                .endpoint_attempt_id_lifecycle_design
+                .persisted_before_outcome_export
+        );
+        assert!(
+            shape
+                .endpoint_attempt_id_lifecycle_design
+                .same_attempt_id_replay_requires_same_fingerprint_set
+        );
+        assert!(
+            !shape
+                .endpoint_attempt_id_lifecycle_design
+                .reuse_after_timeout_manual_or_terminal_allowed
+        );
+        assert!(
+            shape
+                .endpoint_attempt_id_lifecycle_design
+                .new_endpoint_attempt_requires_new_id
+        );
+        assert!(
+            !shape
+                .endpoint_attempt_id_lifecycle_design
+                .raw_endpoint_attempt_id_exported
         );
         assert!(
             shape
@@ -6121,6 +6606,162 @@ mod tests {
         assert!(!rendered.contains("ACC_TEST_0001"));
         assert!(!rendered.contains("ORDER_TEST_0001"));
         assert!(!rendered.contains("/v1/accounts/ACC_TEST_0001"));
+    }
+
+    #[test]
+    fn durable_journal_migration_runbook_records_startup_and_operator_disarm_policy() {
+        use GatewayRealOrderEndpointDurableJournalMigrationStepKind as Step;
+
+        let steps = durable_journal_migration_runbook_steps();
+        assert_eq!(steps.len(), 9);
+
+        let expected = [
+            Step::BackupBeforeMigration,
+            Step::AcquireSingleWriterLock,
+            Step::OpenSqliteWithWal,
+            Step::SetSynchronousFull,
+            Step::VerifySchemaVersion,
+            Step::CreateOrderEndpointAttemptsTable,
+            Step::CreateReplayIndexes,
+            Step::RunIntegrityCheck,
+            Step::RefuseAutoRepair,
+        ];
+
+        for (entry, expected_step) in steps.iter().zip(expected) {
+            assert_eq!(entry.step, expected_step);
+            assert!(entry.required_before_endpoint_gate);
+            assert!(entry.operator_visible);
+            assert!(entry.failure_disarms_order_endpoints);
+            assert!(!entry.raw_values_exported);
+        }
+
+        let shape = api_shape().durable_journal_migration_runbook_design;
+        assert!(shape.migration_runbook_design_only);
+        assert_eq!(shape.step_count, expected.len());
+        assert!(shape.backup_required_before_migration);
+        assert!(shape.begin_immediate_required_for_schema_change);
+        assert!(shape.wal_required);
+        assert!(shape.synchronous_full_required);
+        assert!(shape.single_writer_lock_required);
+        assert!(shape.schema_version_guard_required);
+        assert!(shape.sqlite_integrity_check_required);
+        assert!(shape.corruption_open_failure_disarms);
+        assert!(shape.stale_or_unknown_lock_disarms);
+        assert!(!shape.auto_repair_allowed);
+        assert!(!shape.auto_stale_lock_delete_allowed);
+        assert!(shape.operator_runbook_required);
+        assert!(shape.redacted_operator_diagnostics_only);
+        assert!(!shape.raw_sqlite_path_exported);
+        assert!(!shape.raw_request_values_exported);
+        assert!(!shape.raw_broker_payload_exported);
+
+        let rendered = serde_json::to_string(&(shape, steps)).expect("runbook serializes");
+        assert!(!rendered.contains("ACC_TEST_0001"));
+        assert!(!rendered.contains("ORDER_TEST_0001"));
+        assert!(!rendered.contains("Bearer "));
+    }
+
+    #[test]
+    fn canonical_replay_fingerprint_spec_has_stable_order_and_no_raw_values() {
+        use GatewayRealOrderEndpointCanonicalReplayFingerprintField as Field;
+
+        let fields = canonical_replay_fingerprint_fields();
+        let expected = [
+            Field::SchemaVersion,
+            Field::Operation,
+            Field::EndpointAttemptIdSha256,
+            Field::RequestIdSha256,
+            Field::ClientOrderIdSha256,
+            Field::AccountSha256,
+            Field::InstrumentSha256,
+            Field::CheckpointLabel,
+            Field::RequestFingerprintSha256,
+            Field::CheckpointProofSha256,
+            Field::CapturedEnvelopeSha256,
+            Field::OutcomeSha256,
+            Field::StateTransitionSha256,
+            Field::AckDiagnosticSha256,
+        ];
+
+        assert_eq!(fields.len(), expected.len());
+
+        for (index, entry) in fields.iter().enumerate() {
+            assert_eq!(entry.ordinal, index + 1);
+            assert_eq!(entry.field, expected[index]);
+            assert!(entry.required);
+            assert_eq!(entry.hash_len, 64);
+            assert!(!entry.raw_value_exported);
+        }
+
+        let shape = api_shape().canonical_replay_fingerprint_design;
+        assert!(shape.fingerprint_spec_design_only);
+        assert_eq!(shape.field_count, expected.len());
+        assert_eq!(
+            shape.encoding,
+            GatewayRealOrderEndpointCanonicalReplayEncoding::Utf8JsonObjectSortedKeysNoWhitespace
+        );
+        assert!(shape.schema_version_included);
+        assert!(shape.operation_included);
+        assert!(shape.endpoint_attempt_id_included);
+        assert!(shape.request_client_account_instrument_hashes_included);
+        assert!(shape.checkpoint_and_envelope_hashes_included);
+        assert!(shape.outcome_state_ack_hashes_included);
+        assert!(shape.stable_field_order_required);
+        assert!(shape.sorted_keys_required);
+        assert!(shape.whitespace_forbidden);
+        assert_eq!(shape.sha256_len, 64);
+        assert!(!shape.raw_values_exported);
+        assert!(shape.refactor_changes_require_schema_bump);
+
+        let rendered = serde_json::to_string(&(shape, fields)).expect("fingerprint serializes");
+        assert!(!rendered.contains("ACC_TEST_0001"));
+        assert!(!rendered.contains("ORDER_TEST_0001"));
+        assert!(!rendered.contains("Bearer "));
+    }
+
+    #[test]
+    fn endpoint_attempt_id_lifecycle_prevents_reuse_after_timeout_manual_or_terminal() {
+        use GatewayRealOrderEndpointAttemptIdLifecyclePhase as Phase;
+
+        let policy = endpoint_attempt_id_lifecycle_policy();
+        let expected = [
+            (Phase::GeneratedAfterApprovedRequestParts, true),
+            (Phase::BoundBeforeEndpointSend, true),
+            (Phase::PersistedWithAttemptJournal, true),
+            (Phase::ReusedOnlyForIdempotentReplay, false),
+            (Phase::NeverReusedForNewAttemptAfterTerminalOrManual, false),
+        ];
+
+        assert_eq!(policy.len(), expected.len());
+
+        for (entry, (expected_phase, network_allowed)) in policy.iter().zip(expected) {
+            assert_eq!(entry.phase, expected_phase);
+            assert!(entry.requires_endpoint_gate);
+            assert!(entry.requires_request_id_hash);
+            assert!(entry.requires_client_order_id_hash);
+            assert!(entry.requires_operation);
+            assert_eq!(entry.endpoint_attempt_id_sha256_len, 64);
+            assert_eq!(entry.new_network_attempt_allowed, network_allowed);
+            assert!(!entry.raw_endpoint_attempt_id_exported);
+        }
+
+        let shape = api_shape().endpoint_attempt_id_lifecycle_design;
+        assert!(shape.lifecycle_design_only);
+        assert_eq!(shape.phase_count, expected.len());
+        assert!(shape.generated_after_approved_request_parts);
+        assert!(shape.generated_before_future_endpoint_send);
+        assert!(shape.bound_to_request_and_client_id_hashes);
+        assert!(shape.bound_to_operation);
+        assert!(shape.persisted_before_outcome_export);
+        assert!(shape.same_attempt_id_replay_requires_same_fingerprint_set);
+        assert!(!shape.reuse_after_timeout_manual_or_terminal_allowed);
+        assert!(shape.new_endpoint_attempt_requires_new_id);
+        assert!(!shape.raw_endpoint_attempt_id_exported);
+
+        let rendered = serde_json::to_string(&(shape, policy)).expect("lifecycle serializes");
+        assert!(!rendered.contains("ACC_TEST_0001"));
+        assert!(!rendered.contains("ORDER_TEST_0001"));
+        assert!(!rendered.contains("Bearer "));
     }
 
     #[test]
