@@ -182,6 +182,9 @@ broker identifiers or bodies.
 M3b-24 adds GetOrder 200 fixture closeout and pre-order gate policy while
 keeping real FINAM order endpoints disabled and absent from the allowed
 surface.
+M3c-0 adds an explicit `real_order_endpoint_enabled = false` gate flag and a
+serializable design report. The marker remains unconstructible and the
+forbidden-surface scan still rejects accidental POST/DELETE leakage.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

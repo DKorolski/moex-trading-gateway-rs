@@ -220,6 +220,9 @@ M3b-23 hardens that evidence with source/archive metadata, per-attempt timing,
 and parsed-count summaries while keeping the order boundary closed.
 M3b-24 closes GetOrder 200 fixture coverage and records the M3c pre-order gate
 policy; it remains design/fixture-only and does not enable order endpoints.
+M3c-0 adds explicit order endpoint gate diagnostics and the separate
+`real_order_endpoint_enabled` flag while preserving `EndpointGateApproved` as
+unconstructible.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

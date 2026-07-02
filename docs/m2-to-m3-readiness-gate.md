@@ -1274,3 +1274,27 @@ Still not implemented in M3b-24:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3c-0 / M3c-1 order endpoint gate design status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- explicit `real_order_endpoint_enabled` feature flag, default false;
+- `M3cImplementationReviewRequired` endpoint gate blocker;
+- `m3c_order_endpoint_gate_design_report()` diagnostic;
+- checklist for operator arming, allowlists, validation guards, SQLite durable
+  store, startup unknown-active-order guard, no-blind-retry, manual
+  intervention, redacted ACK/export policy, source-scan extension plan,
+  release-profile evidence, route-template recheck, and positive GetOrder
+  evidence/waiver;
+- `EndpointGateApproved` remains unconstructible.
+
+Still not implemented in M3c-0:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

@@ -129,6 +129,10 @@ forbidden_surface_scan green until explicit gate revision
 | Retry/backoff | no blind retry, bounded read retries | existing dry policy, gate requirement |
 | Runtime/live | remain detached | not implemented |
 
+M3c-0 follow-up adds explicit design diagnostics and a dedicated
+`real_order_endpoint_enabled = false` feature flag. See
+`docs/m3c0-order-endpoint-gate-design.md`.
+
 ## Still not allowed
 
 - FINAM real PlaceOrder endpoint calls;

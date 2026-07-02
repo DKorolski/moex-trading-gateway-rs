@@ -1466,6 +1466,30 @@ M3b-24 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-0 / M3c-1 order endpoint gate design:
+
+- Added explicit `GatewayFeatureSet::real_order_endpoint_enabled`, default
+  `false`.
+- Added `M3cImplementationReviewRequired` as a real endpoint gate blocker.
+- Added a serializable M3c design report and checklist covering feature flags,
+  operator arming, allowlists, validation guards, SQLite durable store,
+  unknown-active-order startup guard, no-blind-retry, manual intervention,
+  redacted ACK policy, source-scan extension plan, release-profile evidence,
+  route-template recheck, and positive GetOrder evidence/waiver.
+- `EndpointGateApproved` remains unconstructible; `endpoint_calls_allowed`
+  remains `false`.
+- Details are documented in `docs/m3c0-order-endpoint-gate-design.md`.
+
+M3c-0 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

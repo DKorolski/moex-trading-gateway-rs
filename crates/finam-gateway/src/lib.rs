@@ -132,6 +132,8 @@ pub struct GatewayFeatureSet {
     pub publish_market_data_from_readonly: bool,
     #[serde(default)]
     pub real_readonly_broker_truth_enabled: bool,
+    #[serde(default)]
+    pub real_order_endpoint_enabled: bool,
     pub command_consumer_enabled: bool,
     pub order_placement_enabled: bool,
     pub cancel_enabled: bool,
@@ -146,6 +148,7 @@ impl Default for GatewayFeatureSet {
             publish_snapshots: true,
             publish_market_data_from_readonly: true,
             real_readonly_broker_truth_enabled: false,
+            real_order_endpoint_enabled: false,
             command_consumer_enabled: false,
             order_placement_enabled: false,
             cancel_enabled: false,
@@ -157,6 +160,8 @@ impl Default for GatewayFeatureSet {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RealOrderEndpointGateBlock {
     M3a11PreEndpointReviewRequired,
+    M3cImplementationReviewRequired,
+    RealOrderEndpointEnabled,
     CommandConsumerEnabled,
     OrderPlacementEnabled,
     CancelEnabled,
@@ -166,6 +171,7 @@ pub enum RealOrderEndpointGateBlock {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RealReadonlyBrokerTruthGateBlock {
     DisabledByDefault,
+    RealOrderEndpointEnabled,
     CommandConsumerEnabled,
     OrderPlacementEnabled,
     CancelEnabled,
@@ -223,6 +229,57 @@ pub struct RealOrderEndpointGateDecision {
     pub runtime_ack_id_policy: RuntimeCommandAckIdPolicy,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3cOrderEndpointGateDesignItem {
+    SeparateRealOrderEndpointFlagDefaultFalse,
+    SeparateCommandConsumerFlagDefaultFalse,
+    EndpointGateApprovedUnconstructibleUntilReview,
+    OperatorArmOneShotTtl,
+    AccountAllowlist,
+    InstrumentAllowlist,
+    OrderTypeTifQuantityNotionalPriceGuards,
+    SqliteDurableStoreMandatory,
+    UnknownActiveBrokerOrderStartupGuard,
+    RateLimitBackoffPolicy,
+    NoBlindRetryAfterSubmitOrCancelTimeout,
+    ManualInterventionStateAndRunbook,
+    RedactedAckExportPolicy,
+    ForbiddenSurfaceScanExtensionPlan,
+    ReleaseProfileEvidenceOrWaiver,
+    RouteTemplateRecheck,
+    PositiveGetOrderEvidenceOrWaiver,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3cOrderEndpointGateDesignStatus {
+    ExistingDryMechanism,
+    DesignRecorded,
+    PolicyDocumented,
+    BlockedUntilImplementationReview,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3cOrderEndpointGateDesignChecklistItem {
+    pub item: M3cOrderEndpointGateDesignItem,
+    pub status: M3cOrderEndpointGateDesignStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3cOrderEndpointGateDesignReport {
+    pub design_only: bool,
+    pub endpoint_calls_allowed: bool,
+    pub real_order_endpoint_enabled: bool,
+    pub command_consumer_enabled: bool,
+    pub order_placement_enabled: bool,
+    pub cancel_enabled: bool,
+    pub stop_sltp_bracket_enabled: bool,
+    pub marker_constructible: bool,
+    pub gate_decision: RealOrderEndpointGateDecision,
+    pub checklist: Vec<M3cOrderEndpointGateDesignChecklistItem>,
+    pub forbidden_surface_scan_must_remain_green: bool,
+    pub real_post_delete_added: bool,
+}
+
 const REAL_ORDER_ENDPOINT_IMPLEMENTATION_REVIEW_ACCEPTED: bool = false;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -244,6 +301,14 @@ impl EndpointGateApproved {
                 blocked_decision
                     .blocking_reasons
                     .push(RealOrderEndpointGateBlock::M3a11PreEndpointReviewRequired);
+            }
+            if !blocked_decision
+                .blocking_reasons
+                .contains(&RealOrderEndpointGateBlock::M3cImplementationReviewRequired)
+            {
+                blocked_decision
+                    .blocking_reasons
+                    .push(RealOrderEndpointGateBlock::M3cImplementationReviewRequired);
             }
             return Err(EndpointGateApprovalError::Blocked {
                 decision: blocked_decision,
@@ -307,9 +372,75 @@ pub trait FinamMockClassifiedEndpointTransport {
     ) -> broker_finam::FinamOrderEndpointClassifiedResponse;
 }
 
+fn m3c_order_endpoint_gate_design_checklist() -> Vec<M3cOrderEndpointGateDesignChecklistItem> {
+    use M3cOrderEndpointGateDesignItem as Item;
+    use M3cOrderEndpointGateDesignStatus as Status;
+    [
+        (
+            Item::SeparateRealOrderEndpointFlagDefaultFalse,
+            Status::DesignRecorded,
+        ),
+        (
+            Item::SeparateCommandConsumerFlagDefaultFalse,
+            Status::ExistingDryMechanism,
+        ),
+        (
+            Item::EndpointGateApprovedUnconstructibleUntilReview,
+            Status::BlockedUntilImplementationReview,
+        ),
+        (Item::OperatorArmOneShotTtl, Status::ExistingDryMechanism),
+        (Item::AccountAllowlist, Status::DesignRecorded),
+        (Item::InstrumentAllowlist, Status::DesignRecorded),
+        (
+            Item::OrderTypeTifQuantityNotionalPriceGuards,
+            Status::ExistingDryMechanism,
+        ),
+        (
+            Item::SqliteDurableStoreMandatory,
+            Status::ExistingDryMechanism,
+        ),
+        (
+            Item::UnknownActiveBrokerOrderStartupGuard,
+            Status::DesignRecorded,
+        ),
+        (Item::RateLimitBackoffPolicy, Status::ExistingDryMechanism),
+        (
+            Item::NoBlindRetryAfterSubmitOrCancelTimeout,
+            Status::ExistingDryMechanism,
+        ),
+        (
+            Item::ManualInterventionStateAndRunbook,
+            Status::ExistingDryMechanism,
+        ),
+        (Item::RedactedAckExportPolicy, Status::ExistingDryMechanism),
+        (
+            Item::ForbiddenSurfaceScanExtensionPlan,
+            Status::PolicyDocumented,
+        ),
+        (
+            Item::ReleaseProfileEvidenceOrWaiver,
+            Status::PolicyDocumented,
+        ),
+        (Item::RouteTemplateRecheck, Status::PolicyDocumented),
+        (
+            Item::PositiveGetOrderEvidenceOrWaiver,
+            Status::PolicyDocumented,
+        ),
+    ]
+    .into_iter()
+    .map(|(item, status)| M3cOrderEndpointGateDesignChecklistItem { item, status })
+    .collect()
+}
+
 impl GatewayFeatureSet {
     pub fn real_order_endpoint_gate_decision(&self) -> RealOrderEndpointGateDecision {
-        let mut blocking_reasons = vec![RealOrderEndpointGateBlock::M3a11PreEndpointReviewRequired];
+        let mut blocking_reasons = vec![
+            RealOrderEndpointGateBlock::M3a11PreEndpointReviewRequired,
+            RealOrderEndpointGateBlock::M3cImplementationReviewRequired,
+        ];
+        if self.real_order_endpoint_enabled {
+            blocking_reasons.push(RealOrderEndpointGateBlock::RealOrderEndpointEnabled);
+        }
         if self.command_consumer_enabled {
             blocking_reasons.push(RealOrderEndpointGateBlock::CommandConsumerEnabled);
         }
@@ -330,10 +461,32 @@ impl GatewayFeatureSet {
         }
     }
 
+    pub fn m3c_order_endpoint_gate_design_report(&self) -> M3cOrderEndpointGateDesignReport {
+        let gate_decision = self.real_order_endpoint_gate_decision();
+        let marker_constructible = EndpointGateApproved::try_from_decision(&gate_decision).is_ok();
+        M3cOrderEndpointGateDesignReport {
+            design_only: true,
+            endpoint_calls_allowed: gate_decision.endpoint_calls_allowed,
+            real_order_endpoint_enabled: self.real_order_endpoint_enabled,
+            command_consumer_enabled: self.command_consumer_enabled,
+            order_placement_enabled: self.order_placement_enabled,
+            cancel_enabled: self.cancel_enabled,
+            stop_sltp_bracket_enabled: self.stop_sltp_bracket_enabled,
+            marker_constructible,
+            gate_decision,
+            checklist: m3c_order_endpoint_gate_design_checklist(),
+            forbidden_surface_scan_must_remain_green: true,
+            real_post_delete_added: false,
+        }
+    }
+
     pub fn real_readonly_broker_truth_gate_decision(&self) -> RealReadonlyBrokerTruthGateDecision {
         let mut blocking_reasons = Vec::new();
         if !self.real_readonly_broker_truth_enabled {
             blocking_reasons.push(RealReadonlyBrokerTruthGateBlock::DisabledByDefault);
+        }
+        if self.real_order_endpoint_enabled {
+            blocking_reasons.push(RealReadonlyBrokerTruthGateBlock::RealOrderEndpointEnabled);
         }
         if self.command_consumer_enabled {
             blocking_reasons.push(RealReadonlyBrokerTruthGateBlock::CommandConsumerEnabled);
@@ -8278,7 +8431,10 @@ mod tests {
         assert!(!decision.endpoint_calls_allowed);
         assert_eq!(
             decision.blocking_reasons,
-            vec![RealOrderEndpointGateBlock::M3a11PreEndpointReviewRequired]
+            vec![
+                RealOrderEndpointGateBlock::M3a11PreEndpointReviewRequired,
+                RealOrderEndpointGateBlock::M3cImplementationReviewRequired,
+            ]
         );
         assert_eq!(
             decision.runtime_ack_id_policy,
@@ -8293,6 +8449,7 @@ mod tests {
         ));
 
         let features = GatewayFeatureSet {
+            real_order_endpoint_enabled: true,
             command_consumer_enabled: true,
             order_placement_enabled: true,
             cancel_enabled: true,
@@ -8305,6 +8462,8 @@ mod tests {
             flagged.blocking_reasons,
             vec![
                 RealOrderEndpointGateBlock::M3a11PreEndpointReviewRequired,
+                RealOrderEndpointGateBlock::M3cImplementationReviewRequired,
+                RealOrderEndpointGateBlock::RealOrderEndpointEnabled,
                 RealOrderEndpointGateBlock::CommandConsumerEnabled,
                 RealOrderEndpointGateBlock::OrderPlacementEnabled,
                 RealOrderEndpointGateBlock::CancelEnabled,
@@ -8329,7 +8488,58 @@ mod tests {
                 && decision
                     .blocking_reasons
                     .contains(&RealOrderEndpointGateBlock::M3a11PreEndpointReviewRequired)
+                    && decision
+                        .blocking_reasons
+                        .contains(&RealOrderEndpointGateBlock::M3cImplementationReviewRequired)
         ));
+    }
+
+    #[test]
+    fn m3c_order_endpoint_gate_design_report_is_design_only_and_blocks_marker() {
+        let report = GatewayFeatureSet::default().m3c_order_endpoint_gate_design_report();
+        assert!(report.design_only);
+        assert!(!report.endpoint_calls_allowed);
+        assert!(!report.real_order_endpoint_enabled);
+        assert!(!report.command_consumer_enabled);
+        assert!(!report.marker_constructible);
+        assert!(!report.real_post_delete_added);
+        assert!(report.forbidden_surface_scan_must_remain_green);
+        assert!(report
+            .gate_decision
+            .blocking_reasons
+            .contains(&RealOrderEndpointGateBlock::M3cImplementationReviewRequired));
+        assert!(report.checklist.iter().any(|item| {
+            item.item == M3cOrderEndpointGateDesignItem::SeparateRealOrderEndpointFlagDefaultFalse
+                && item.status == M3cOrderEndpointGateDesignStatus::DesignRecorded
+        }));
+        assert!(report.checklist.iter().any(|item| {
+            item.item
+                == M3cOrderEndpointGateDesignItem::EndpointGateApprovedUnconstructibleUntilReview
+                && item.status == M3cOrderEndpointGateDesignStatus::BlockedUntilImplementationReview
+        }));
+        assert!(report.checklist.iter().any(|item| {
+            item.item == M3cOrderEndpointGateDesignItem::ForbiddenSurfaceScanExtensionPlan
+                && item.status == M3cOrderEndpointGateDesignStatus::PolicyDocumented
+        }));
+        let report_json = serde_json::to_string(&report).expect("report serializes");
+        assert!(report_json.contains("RedactedAckExportPolicy"));
+        assert!(!report_json.contains("ACC_TEST_0001"));
+
+        let unsafe_report = GatewayFeatureSet {
+            real_order_endpoint_enabled: true,
+            command_consumer_enabled: true,
+            order_placement_enabled: true,
+            cancel_enabled: true,
+            ..GatewayFeatureSet::default()
+        }
+        .m3c_order_endpoint_gate_design_report();
+        assert!(!unsafe_report.endpoint_calls_allowed);
+        assert!(!unsafe_report.marker_constructible);
+        assert!(unsafe_report
+            .gate_decision
+            .blocking_reasons
+            .contains(&RealOrderEndpointGateBlock::RealOrderEndpointEnabled));
+        assert!(EndpointGateApproved::try_from_decision(&unsafe_report.gate_decision).is_err());
     }
 
     #[test]
