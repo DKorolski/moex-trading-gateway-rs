@@ -82,6 +82,19 @@ struct CancelEndpointDurableCheckpointApproved {
     _private: (),
 }
 
+struct GatewayRealOrderEndpointSqliteTransitionCommitProof {
+    pub event: OrderPathEvent,
+    pub durable_commit_observed: bool,
+    pub diagnostic_or_report_source: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GatewayRealOrderEndpointCheckpointMarkerCreationError {
+    WrongTransitionEvent,
+    DurableCommitNotObserved,
+    DiagnosticOrReportLayer,
+}
+
 struct OrderEndpointDurableStateCheckpoint {
     pub intent_recorded_before_endpoint: bool,
     pub label: GatewayRealOrderEndpointDurableCheckpointLabel,
@@ -235,6 +248,21 @@ pub struct GatewayRealOrderEndpointFutureSendDiagnostic {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointTransportCategory {
+    DnsOrConnectError,
+    TlsError,
+    HttpSendError,
+    BodyReadError,
+    Timeout,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointTransportStateSemantics {
+    NonTimeoutTransportFailure,
+    TimeoutUnknownPending,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GatewayRealOrderEndpointOperatorPolicy {
     None,
     BackoffAndManualIntervention,
@@ -242,6 +270,45 @@ pub enum GatewayRealOrderEndpointOperatorPolicy {
     DisarmAndOperatorIntervention,
     DecodeManualIntervention,
     TransportCategoryManualIntervention,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointTransportCategoryPolicyEntry {
+    pub category: GatewayRealOrderEndpointTransportCategory,
+    pub send_outcome: GatewayRealOrderEndpointFutureSendOutcome,
+    pub state_semantics: GatewayRealOrderEndpointTransportStateSemantics,
+    pub place_event: OrderPathEvent,
+    pub place_state: OrderPathState,
+    pub cancel_event: OrderPathEvent,
+    pub cancel_state: OrderPathState,
+    pub error_kind: Option<OrderPathErrorKind>,
+    pub ack_status: CommandAckStatus,
+    pub place_ack_reason_code: Option<CommandAckReasonCode>,
+    pub cancel_ack_reason_code: Option<CommandAckReasonCode>,
+    pub operator_policy: GatewayRealOrderEndpointOperatorPolicy,
+    pub operator_disarm_signal: Option<OperatorDisarmSignal>,
+    pub reconciliation_required: bool,
+    pub backoff_required: bool,
+    pub manual_intervention_required: bool,
+    pub no_blind_retry: bool,
+    pub timeout_unknown_pending_semantics: bool,
+    pub non_timeout_transport_semantics: bool,
+    pub state_machine_transition_required: bool,
+    pub result_diagnostic_can_bypass_state_machine: bool,
+    pub runtime_ack_redacted_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointTransportCategoryPolicyDesignShape {
+    pub matrix_serializable: bool,
+    pub category_count: usize,
+    pub timeout_category_count: usize,
+    pub non_timeout_category_count: usize,
+    pub timeout_separated_from_non_timeout_transport: bool,
+    pub non_timeout_transport_does_not_use_timeout_ack_reason: bool,
+    pub non_timeout_transport_does_not_enter_timeout_unknown_state: bool,
+    pub timeout_uses_unknown_pending_semantics: bool,
+    pub diagnostic_can_bypass_state_machine: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -266,6 +333,18 @@ pub struct GatewayRealOrderEndpointOutcomeStatePolicyEntry {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointAcceptedResultKind {
+    WithBrokerOrderId,
+    WithoutBrokerOrderId,
+    EmptyBrokerOrderId,
+    BrokerOrderIdMismatch,
+}
+
+struct GatewayRealOrderEndpointAcceptedResponseShape {
+    pub kind: GatewayRealOrderEndpointAcceptedResultKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GatewayRealOrderEndpointAcceptedBrokerIdPolicy {
     AcceptedWithBrokerOrderId,
     AcceptedWithoutBrokerOrderId,
@@ -285,6 +364,57 @@ pub struct GatewayRealOrderEndpointAcceptedBrokerIdPolicyEntry {
     pub no_blind_retry: bool,
     pub manual_intervention_required: bool,
     pub raw_broker_order_id_exported: bool,
+    pub runtime_ack_redacted_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointAcceptedResultPolicyEntry {
+    pub kind: GatewayRealOrderEndpointAcceptedResultKind,
+    pub inherited_policy: GatewayRealOrderEndpointAcceptedBrokerIdPolicy,
+    pub send_outcome: GatewayRealOrderEndpointFutureSendOutcome,
+    pub place_event: OrderPathEvent,
+    pub place_state: OrderPathState,
+    pub ack_status: CommandAckStatus,
+    pub ack_reason_code: Option<CommandAckReasonCode>,
+    pub operator_disarm_signal: Option<OperatorDisarmSignal>,
+    pub reconciliation_required: bool,
+    pub no_blind_retry: bool,
+    pub manual_intervention_required: bool,
+    pub raw_broker_order_id_exported: bool,
+    pub runtime_ack_redacted_only: bool,
+    pub state_machine_transition_required: bool,
+    pub accepted_result_can_be_treated_as_unconditional_submitted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointAcceptedResultClassifierDesignShape {
+    pub classifier_internal_only: bool,
+    pub classifier_requires_endpoint_gate: bool,
+    pub classifier_accepts_approved_request_parts_only: bool,
+    pub classifier_accepts_diagnostics: bool,
+    pub classifier_consumes_request_parts: bool,
+    pub accepted_kind_count: usize,
+    pub accepted_policy_entry_count: usize,
+    pub accepted_broker_id_policy_wired: bool,
+    pub raw_broker_order_id_exported: bool,
+    pub unconditional_submitted_allowed: bool,
+    pub state_machine_transition_required: bool,
+    pub classifier_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointAcceptedResultDiagnostic {
+    pub kind: GatewayRealOrderEndpointAcceptedResultKind,
+    pub operation: GatewayRealOrderEndpointOperation,
+    pub method_name: String,
+    pub endpoint_gate_required: bool,
+    pub request_parts_consumed: bool,
+    pub accepted_response_shape_consumed: bool,
+    pub uses_accepted_broker_id_policy_matrix: bool,
+    pub raw_broker_order_id_exported: bool,
+    pub broker_order_id_redacted: bool,
+    pub state_machine_transition_required: bool,
+    pub state_machine_bypass_allowed: bool,
     pub runtime_ack_redacted_only: bool,
 }
 
@@ -314,6 +444,21 @@ pub struct GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointCheckpointMarkerCreationDesignShape {
+    pub place_marker_creation_function_private: bool,
+    pub cancel_marker_creation_function_private: bool,
+    pub creation_requires_endpoint_gate: bool,
+    pub creation_requires_sqlite_transition_commit_proof: bool,
+    pub creation_rejects_diagnostic_or_report_source: bool,
+    pub creation_requires_durable_commit_observed: bool,
+    pub creation_requires_transition_event_match: bool,
+    pub place_required_event: OrderPathEvent,
+    pub cancel_required_event: OrderPathEvent,
+    pub marker_not_debug_or_serializable: bool,
+    pub constructor_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayRealOrderEndpointApiShape {
     pub mode: GatewayRealOrderEndpointBoundaryMode,
     pub approved_module_path: String,
@@ -323,9 +468,15 @@ pub struct GatewayRealOrderEndpointApiShape {
     pub approved_request_parts_design: GatewayRealOrderEndpointApprovedPartsDesignShape,
     pub consumer_design: GatewayRealOrderEndpointConsumerDesignShape,
     pub future_send_result_design: GatewayRealOrderEndpointFutureSendResultDesignShape,
+    pub transport_category_policy_design:
+        GatewayRealOrderEndpointTransportCategoryPolicyDesignShape,
     pub outcome_state_policy_design: GatewayRealOrderEndpointOutcomeStatePolicyDesignShape,
+    pub accepted_result_classifier_design:
+        GatewayRealOrderEndpointAcceptedResultClassifierDesignShape,
     pub durable_checkpoint_capability_design:
         GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape,
+    pub checkpoint_marker_creation_design:
+        GatewayRealOrderEndpointCheckpointMarkerCreationDesignShape,
     pub runtime_ack_id_policy: RuntimeCommandAckIdPolicy,
     pub scanner_transition_spec: GatewayRealOrderEndpointScannerTransitionSpec,
 }
@@ -397,6 +548,18 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
             runtime_ack_redacted_only: true,
             classifier_count: future_send_result_classifier_count(),
         },
+        transport_category_policy_design:
+            GatewayRealOrderEndpointTransportCategoryPolicyDesignShape {
+                matrix_serializable: true,
+                category_count: transport_category_count(),
+                timeout_category_count: 1,
+                non_timeout_category_count: 4,
+                timeout_separated_from_non_timeout_transport: true,
+                non_timeout_transport_does_not_use_timeout_ack_reason: true,
+                non_timeout_transport_does_not_enter_timeout_unknown_state: true,
+                timeout_uses_unknown_pending_semantics: true,
+                diagnostic_can_bypass_state_machine: false,
+            },
         outcome_state_policy_design: GatewayRealOrderEndpointOutcomeStatePolicyDesignShape {
             matrix_serializable: true,
             outcome_entry_count: future_send_outcome_state_policy_matrix().len(),
@@ -408,6 +571,21 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
             outcome_diagnostic_can_bypass_state_machine: false,
             state_machine_transition_required: true,
         },
+        accepted_result_classifier_design:
+            GatewayRealOrderEndpointAcceptedResultClassifierDesignShape {
+                classifier_internal_only: true,
+                classifier_requires_endpoint_gate: true,
+                classifier_accepts_approved_request_parts_only: true,
+                classifier_accepts_diagnostics: false,
+                classifier_consumes_request_parts: true,
+                accepted_kind_count: accepted_result_kind_count(),
+                accepted_policy_entry_count: accepted_result_classifier_policy_matrix().len(),
+                accepted_broker_id_policy_wired: true,
+                raw_broker_order_id_exported: false,
+                unconditional_submitted_allowed: false,
+                state_machine_transition_required: true,
+                classifier_count: accepted_result_classifier_count(),
+            },
         durable_checkpoint_capability_design:
             GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape {
                 place_capability_type_internal: true,
@@ -420,6 +598,20 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
                 cancel_required_event: OrderPathEvent::RequestCancel,
                 cancel_required_label:
                     GatewayRealOrderEndpointDurableCheckpointLabel::CancelRequestCancelPersistedBeforeEndpoint,
+            },
+        checkpoint_marker_creation_design:
+            GatewayRealOrderEndpointCheckpointMarkerCreationDesignShape {
+                place_marker_creation_function_private: true,
+                cancel_marker_creation_function_private: true,
+                creation_requires_endpoint_gate: true,
+                creation_requires_sqlite_transition_commit_proof: true,
+                creation_rejects_diagnostic_or_report_source: true,
+                creation_requires_durable_commit_observed: true,
+                creation_requires_transition_event_match: true,
+                place_required_event: OrderPathEvent::BeginSubmit,
+                cancel_required_event: OrderPathEvent::RequestCancel,
+                marker_not_debug_or_serializable: true,
+                constructor_count: checkpoint_marker_creation_constructor_count(),
             },
         runtime_ack_id_policy: RuntimeCommandAckIdPolicy::RedactedRuntimeAckOnly,
         scanner_transition_spec: GatewayRealOrderEndpointScannerTransitionSpec {
@@ -657,6 +849,27 @@ fn classify_future_send_attempt_result(
     future_send_result_redacted_diagnostic(parts, outcome)
 }
 
+fn classify_accepted_result_after_future_send(
+    _gate: &EndpointGateApproved,
+    parts: ApprovedOrderEndpointRequestParts,
+    accepted_response: GatewayRealOrderEndpointAcceptedResponseShape,
+) -> GatewayRealOrderEndpointAcceptedResultDiagnostic {
+    GatewayRealOrderEndpointAcceptedResultDiagnostic {
+        kind: accepted_response.kind,
+        operation: parts.operation,
+        method_name: parts.method_name.to_string(),
+        endpoint_gate_required: true,
+        request_parts_consumed: true,
+        accepted_response_shape_consumed: true,
+        uses_accepted_broker_id_policy_matrix: true,
+        raw_broker_order_id_exported: false,
+        broker_order_id_redacted: true,
+        state_machine_transition_required: true,
+        state_machine_bypass_allowed: false,
+        runtime_ack_redacted_only: true,
+    }
+}
+
 fn approved_request_parts_constructor_count() -> usize {
     let _place: fn(
         &EndpointGateApproved,
@@ -718,6 +931,174 @@ fn future_send_result_classifier_count() -> usize {
         GatewayRealOrderEndpointFutureSendOutcome,
     ) -> GatewayRealOrderEndpointFutureSendDiagnostic = classify_future_send_attempt_result;
     1
+}
+
+fn accepted_result_kinds() -> [GatewayRealOrderEndpointAcceptedResultKind; 4] {
+    [
+        GatewayRealOrderEndpointAcceptedResultKind::WithBrokerOrderId,
+        GatewayRealOrderEndpointAcceptedResultKind::WithoutBrokerOrderId,
+        GatewayRealOrderEndpointAcceptedResultKind::EmptyBrokerOrderId,
+        GatewayRealOrderEndpointAcceptedResultKind::BrokerOrderIdMismatch,
+    ]
+}
+
+fn accepted_result_kind_count() -> usize {
+    accepted_result_kinds().len()
+}
+
+fn accepted_result_classifier_count() -> usize {
+    let _classifier: fn(
+        &EndpointGateApproved,
+        ApprovedOrderEndpointRequestParts,
+        GatewayRealOrderEndpointAcceptedResponseShape,
+    ) -> GatewayRealOrderEndpointAcceptedResultDiagnostic =
+        classify_accepted_result_after_future_send;
+    1
+}
+
+fn transport_categories() -> [GatewayRealOrderEndpointTransportCategory; 5] {
+    [
+        GatewayRealOrderEndpointTransportCategory::DnsOrConnectError,
+        GatewayRealOrderEndpointTransportCategory::TlsError,
+        GatewayRealOrderEndpointTransportCategory::HttpSendError,
+        GatewayRealOrderEndpointTransportCategory::BodyReadError,
+        GatewayRealOrderEndpointTransportCategory::Timeout,
+    ]
+}
+
+fn transport_category_count() -> usize {
+    transport_categories().len()
+}
+
+pub fn transport_category_policy_matrix(
+) -> Vec<GatewayRealOrderEndpointTransportCategoryPolicyEntry> {
+    use GatewayRealOrderEndpointFutureSendOutcome as Outcome;
+    use GatewayRealOrderEndpointOperatorPolicy as OperatorPolicy;
+    use GatewayRealOrderEndpointTransportCategory as Category;
+    use GatewayRealOrderEndpointTransportStateSemantics as Semantics;
+
+    vec![
+        GatewayRealOrderEndpointTransportCategoryPolicyEntry {
+            category: Category::DnsOrConnectError,
+            send_outcome: Outcome::TransportError,
+            state_semantics: Semantics::NonTimeoutTransportFailure,
+            place_event: OrderPathEvent::RequireManualIntervention,
+            place_state: OrderPathState::ManualInterventionRequired,
+            cancel_event: OrderPathEvent::RequireManualIntervention,
+            cancel_state: OrderPathState::ManualInterventionRequired,
+            error_kind: Some(OrderPathErrorKind::Unknown),
+            ack_status: CommandAckStatus::Error,
+            place_ack_reason_code: Some(CommandAckReasonCode::ManualInterventionRequired),
+            cancel_ack_reason_code: Some(CommandAckReasonCode::ManualInterventionRequired),
+            operator_policy: OperatorPolicy::DegradeAndManualIntervention,
+            operator_disarm_signal: Some(OperatorDisarmSignal::GatewayDegraded),
+            reconciliation_required: false,
+            backoff_required: true,
+            manual_intervention_required: true,
+            no_blind_retry: true,
+            timeout_unknown_pending_semantics: false,
+            non_timeout_transport_semantics: true,
+            state_machine_transition_required: true,
+            result_diagnostic_can_bypass_state_machine: false,
+            runtime_ack_redacted_only: true,
+        },
+        GatewayRealOrderEndpointTransportCategoryPolicyEntry {
+            category: Category::TlsError,
+            send_outcome: Outcome::TransportError,
+            state_semantics: Semantics::NonTimeoutTransportFailure,
+            place_event: OrderPathEvent::RequireManualIntervention,
+            place_state: OrderPathState::ManualInterventionRequired,
+            cancel_event: OrderPathEvent::RequireManualIntervention,
+            cancel_state: OrderPathState::ManualInterventionRequired,
+            error_kind: Some(OrderPathErrorKind::Unknown),
+            ack_status: CommandAckStatus::Error,
+            place_ack_reason_code: Some(CommandAckReasonCode::ManualInterventionRequired),
+            cancel_ack_reason_code: Some(CommandAckReasonCode::ManualInterventionRequired),
+            operator_policy: OperatorPolicy::DegradeAndManualIntervention,
+            operator_disarm_signal: Some(OperatorDisarmSignal::GatewayDegraded),
+            reconciliation_required: false,
+            backoff_required: true,
+            manual_intervention_required: true,
+            no_blind_retry: true,
+            timeout_unknown_pending_semantics: false,
+            non_timeout_transport_semantics: true,
+            state_machine_transition_required: true,
+            result_diagnostic_can_bypass_state_machine: false,
+            runtime_ack_redacted_only: true,
+        },
+        GatewayRealOrderEndpointTransportCategoryPolicyEntry {
+            category: Category::HttpSendError,
+            send_outcome: Outcome::TransportError,
+            state_semantics: Semantics::NonTimeoutTransportFailure,
+            place_event: OrderPathEvent::RequireManualIntervention,
+            place_state: OrderPathState::ManualInterventionRequired,
+            cancel_event: OrderPathEvent::RequireManualIntervention,
+            cancel_state: OrderPathState::ManualInterventionRequired,
+            error_kind: Some(OrderPathErrorKind::Unknown),
+            ack_status: CommandAckStatus::Error,
+            place_ack_reason_code: Some(CommandAckReasonCode::ManualInterventionRequired),
+            cancel_ack_reason_code: Some(CommandAckReasonCode::ManualInterventionRequired),
+            operator_policy: OperatorPolicy::TransportCategoryManualIntervention,
+            operator_disarm_signal: Some(OperatorDisarmSignal::GatewayDegraded),
+            reconciliation_required: true,
+            backoff_required: true,
+            manual_intervention_required: true,
+            no_blind_retry: true,
+            timeout_unknown_pending_semantics: false,
+            non_timeout_transport_semantics: true,
+            state_machine_transition_required: true,
+            result_diagnostic_can_bypass_state_machine: false,
+            runtime_ack_redacted_only: true,
+        },
+        GatewayRealOrderEndpointTransportCategoryPolicyEntry {
+            category: Category::BodyReadError,
+            send_outcome: Outcome::TransportError,
+            state_semantics: Semantics::NonTimeoutTransportFailure,
+            place_event: OrderPathEvent::RequireManualIntervention,
+            place_state: OrderPathState::ManualInterventionRequired,
+            cancel_event: OrderPathEvent::RequireManualIntervention,
+            cancel_state: OrderPathState::ManualInterventionRequired,
+            error_kind: Some(OrderPathErrorKind::Unknown),
+            ack_status: CommandAckStatus::Error,
+            place_ack_reason_code: Some(CommandAckReasonCode::ManualInterventionRequired),
+            cancel_ack_reason_code: Some(CommandAckReasonCode::ManualInterventionRequired),
+            operator_policy: OperatorPolicy::TransportCategoryManualIntervention,
+            operator_disarm_signal: Some(OperatorDisarmSignal::GatewayDegraded),
+            reconciliation_required: true,
+            backoff_required: false,
+            manual_intervention_required: true,
+            no_blind_retry: true,
+            timeout_unknown_pending_semantics: false,
+            non_timeout_transport_semantics: true,
+            state_machine_transition_required: true,
+            result_diagnostic_can_bypass_state_machine: false,
+            runtime_ack_redacted_only: true,
+        },
+        GatewayRealOrderEndpointTransportCategoryPolicyEntry {
+            category: Category::Timeout,
+            send_outcome: Outcome::TimeoutUnknownPending,
+            state_semantics: Semantics::TimeoutUnknownPending,
+            place_event: OrderPathEvent::SubmitTimedOut,
+            place_state: OrderPathState::TimeoutUnknownPending,
+            cancel_event: OrderPathEvent::CancelTimedOut,
+            cancel_state: OrderPathState::CancelTimeoutUnknownPending,
+            error_kind: Some(OrderPathErrorKind::TransportTimeout),
+            ack_status: CommandAckStatus::Timeout,
+            place_ack_reason_code: Some(CommandAckReasonCode::TimeoutUnknownPending),
+            cancel_ack_reason_code: Some(CommandAckReasonCode::CancelTimeoutUnknownPending),
+            operator_policy: OperatorPolicy::DisarmAndOperatorIntervention,
+            operator_disarm_signal: Some(OperatorDisarmSignal::UnknownPendingOrder),
+            reconciliation_required: true,
+            backoff_required: false,
+            manual_intervention_required: true,
+            no_blind_retry: true,
+            timeout_unknown_pending_semantics: true,
+            non_timeout_transport_semantics: false,
+            state_machine_transition_required: true,
+            result_diagnostic_can_bypass_state_machine: false,
+            runtime_ack_redacted_only: true,
+        },
+    ]
 }
 
 pub fn future_send_outcome_state_policy_matrix(
@@ -865,13 +1246,13 @@ pub fn future_send_outcome_state_policy_matrix(
             place_state: OrderPathState::ManualInterventionRequired,
             cancel_event: OrderPathEvent::RequireManualIntervention,
             cancel_state: OrderPathState::ManualInterventionRequired,
-            error_kind: Some(OrderPathErrorKind::TransportTimeout),
+            error_kind: Some(OrderPathErrorKind::Unknown),
             ack_status: CommandAckStatus::Error,
-            place_ack_reason_code: Some(CommandAckReasonCode::TransportTimeout),
-            cancel_ack_reason_code: Some(CommandAckReasonCode::TransportTimeout),
+            place_ack_reason_code: Some(CommandAckReasonCode::ManualInterventionRequired),
+            cancel_ack_reason_code: Some(CommandAckReasonCode::ManualInterventionRequired),
             operator_policy: OperatorPolicy::TransportCategoryManualIntervention,
-            operator_disarm_signal: Some(OperatorDisarmSignal::UnknownPendingOrder),
-            backoff_required: false,
+            operator_disarm_signal: Some(OperatorDisarmSignal::GatewayDegraded),
+            backoff_required: true,
             manual_intervention_required: true,
             no_blind_retry: true,
             state_machine_transition_required: true,
@@ -939,6 +1320,142 @@ pub fn accepted_broker_id_policy_matrix() -> Vec<GatewayRealOrderEndpointAccepte
             runtime_ack_redacted_only: true,
         },
     ]
+}
+
+pub fn accepted_result_classifier_policy_matrix(
+) -> Vec<GatewayRealOrderEndpointAcceptedResultPolicyEntry> {
+    use GatewayRealOrderEndpointAcceptedBrokerIdPolicy as Policy;
+    use GatewayRealOrderEndpointAcceptedResultKind as Kind;
+    use GatewayRealOrderEndpointFutureSendOutcome as Outcome;
+
+    vec![
+        GatewayRealOrderEndpointAcceptedResultPolicyEntry {
+            kind: Kind::WithBrokerOrderId,
+            inherited_policy: Policy::AcceptedWithBrokerOrderId,
+            send_outcome: Outcome::Accepted,
+            place_event: OrderPathEvent::SubmitAccepted,
+            place_state: OrderPathState::Submitted,
+            ack_status: CommandAckStatus::Submitted,
+            ack_reason_code: None,
+            operator_disarm_signal: None,
+            reconciliation_required: false,
+            no_blind_retry: false,
+            manual_intervention_required: false,
+            raw_broker_order_id_exported: false,
+            runtime_ack_redacted_only: true,
+            state_machine_transition_required: true,
+            accepted_result_can_be_treated_as_unconditional_submitted: false,
+        },
+        GatewayRealOrderEndpointAcceptedResultPolicyEntry {
+            kind: Kind::WithoutBrokerOrderId,
+            inherited_policy: Policy::AcceptedWithoutBrokerOrderId,
+            send_outcome: Outcome::Accepted,
+            place_event: OrderPathEvent::SubmitAcceptedWithoutBrokerOrderId,
+            place_state: OrderPathState::SubmittedPendingBrokerOrderId,
+            ack_status: CommandAckStatus::UnknownPending,
+            ack_reason_code: Some(CommandAckReasonCode::ReconciliationRequired),
+            operator_disarm_signal: Some(OperatorDisarmSignal::AcceptedWithoutBrokerOrderId),
+            reconciliation_required: true,
+            no_blind_retry: true,
+            manual_intervention_required: true,
+            raw_broker_order_id_exported: false,
+            runtime_ack_redacted_only: true,
+            state_machine_transition_required: true,
+            accepted_result_can_be_treated_as_unconditional_submitted: false,
+        },
+        GatewayRealOrderEndpointAcceptedResultPolicyEntry {
+            kind: Kind::EmptyBrokerOrderId,
+            inherited_policy: Policy::EmptyBrokerOrderIdDecodeError,
+            send_outcome: Outcome::Accepted,
+            place_event: OrderPathEvent::RequireManualIntervention,
+            place_state: OrderPathState::ManualInterventionRequired,
+            ack_status: CommandAckStatus::Error,
+            ack_reason_code: Some(CommandAckReasonCode::ResponseDecodeError),
+            operator_disarm_signal: Some(OperatorDisarmSignal::OrderEndpointDecodeError),
+            reconciliation_required: true,
+            no_blind_retry: true,
+            manual_intervention_required: true,
+            raw_broker_order_id_exported: false,
+            runtime_ack_redacted_only: true,
+            state_machine_transition_required: true,
+            accepted_result_can_be_treated_as_unconditional_submitted: false,
+        },
+        GatewayRealOrderEndpointAcceptedResultPolicyEntry {
+            kind: Kind::BrokerOrderIdMismatch,
+            inherited_policy: Policy::BrokerOrderIdMismatchManualIntervention,
+            send_outcome: Outcome::Accepted,
+            place_event: OrderPathEvent::RequireManualIntervention,
+            place_state: OrderPathState::ManualInterventionRequired,
+            ack_status: CommandAckStatus::UnknownPending,
+            ack_reason_code: Some(CommandAckReasonCode::ManualInterventionRequired),
+            operator_disarm_signal: Some(OperatorDisarmSignal::ReconciliationConflict),
+            reconciliation_required: true,
+            no_blind_retry: true,
+            manual_intervention_required: true,
+            raw_broker_order_id_exported: false,
+            runtime_ack_redacted_only: true,
+            state_machine_transition_required: true,
+            accepted_result_can_be_treated_as_unconditional_submitted: false,
+        },
+    ]
+}
+
+fn create_place_checkpoint_marker_after_sqlite_transition(
+    _gate: &EndpointGateApproved,
+    proof: &GatewayRealOrderEndpointSqliteTransitionCommitProof,
+) -> Result<
+    PlaceEndpointDurableCheckpointApproved,
+    GatewayRealOrderEndpointCheckpointMarkerCreationError,
+> {
+    validate_checkpoint_marker_creation_proof(proof, OrderPathEvent::BeginSubmit)?;
+    Ok(PlaceEndpointDurableCheckpointApproved { _private: () })
+}
+
+fn create_cancel_checkpoint_marker_after_sqlite_transition(
+    _gate: &EndpointGateApproved,
+    proof: &GatewayRealOrderEndpointSqliteTransitionCommitProof,
+) -> Result<
+    CancelEndpointDurableCheckpointApproved,
+    GatewayRealOrderEndpointCheckpointMarkerCreationError,
+> {
+    validate_checkpoint_marker_creation_proof(proof, OrderPathEvent::RequestCancel)?;
+    Ok(CancelEndpointDurableCheckpointApproved { _private: () })
+}
+
+fn validate_checkpoint_marker_creation_proof(
+    proof: &GatewayRealOrderEndpointSqliteTransitionCommitProof,
+    expected_event: OrderPathEvent,
+) -> Result<(), GatewayRealOrderEndpointCheckpointMarkerCreationError> {
+    if proof.diagnostic_or_report_source {
+        return Err(GatewayRealOrderEndpointCheckpointMarkerCreationError::DiagnosticOrReportLayer);
+    }
+    if !proof.durable_commit_observed {
+        return Err(
+            GatewayRealOrderEndpointCheckpointMarkerCreationError::DurableCommitNotObserved,
+        );
+    }
+    if proof.event != expected_event {
+        return Err(GatewayRealOrderEndpointCheckpointMarkerCreationError::WrongTransitionEvent);
+    }
+    Ok(())
+}
+
+fn checkpoint_marker_creation_constructor_count() -> usize {
+    let _place: fn(
+        &EndpointGateApproved,
+        &GatewayRealOrderEndpointSqliteTransitionCommitProof,
+    ) -> Result<
+        PlaceEndpointDurableCheckpointApproved,
+        GatewayRealOrderEndpointCheckpointMarkerCreationError,
+    > = create_place_checkpoint_marker_after_sqlite_transition;
+    let _cancel: fn(
+        &EndpointGateApproved,
+        &GatewayRealOrderEndpointSqliteTransitionCommitProof,
+    ) -> Result<
+        CancelEndpointDurableCheckpointApproved,
+        GatewayRealOrderEndpointCheckpointMarkerCreationError,
+    > = create_cancel_checkpoint_marker_after_sqlite_transition;
+    2
 }
 
 pub fn place_order_api_shape(
@@ -1099,6 +1616,45 @@ mod tests {
         assert!(!shape.future_send_result_design.raw_body_exported);
         assert!(shape.future_send_result_design.runtime_ack_redacted_only);
         assert_eq!(shape.future_send_result_design.classifier_count, 1);
+        assert!(shape.transport_category_policy_design.matrix_serializable);
+        assert_eq!(shape.transport_category_policy_design.category_count, 5);
+        assert_eq!(
+            shape
+                .transport_category_policy_design
+                .timeout_category_count,
+            1
+        );
+        assert_eq!(
+            shape
+                .transport_category_policy_design
+                .non_timeout_category_count,
+            4
+        );
+        assert!(
+            shape
+                .transport_category_policy_design
+                .timeout_separated_from_non_timeout_transport
+        );
+        assert!(
+            shape
+                .transport_category_policy_design
+                .non_timeout_transport_does_not_use_timeout_ack_reason
+        );
+        assert!(
+            shape
+                .transport_category_policy_design
+                .non_timeout_transport_does_not_enter_timeout_unknown_state
+        );
+        assert!(
+            shape
+                .transport_category_policy_design
+                .timeout_uses_unknown_pending_semantics
+        );
+        assert!(
+            !shape
+                .transport_category_policy_design
+                .diagnostic_can_bypass_state_machine
+        );
         assert!(shape.outcome_state_policy_design.matrix_serializable);
         assert_eq!(shape.outcome_state_policy_design.outcome_entry_count, 8);
         assert_eq!(
@@ -1137,6 +1693,62 @@ mod tests {
                 .outcome_state_policy_design
                 .state_machine_transition_required
         );
+        assert!(
+            shape
+                .accepted_result_classifier_design
+                .classifier_internal_only
+        );
+        assert!(
+            shape
+                .accepted_result_classifier_design
+                .classifier_requires_endpoint_gate
+        );
+        assert!(
+            shape
+                .accepted_result_classifier_design
+                .classifier_accepts_approved_request_parts_only
+        );
+        assert!(
+            !shape
+                .accepted_result_classifier_design
+                .classifier_accepts_diagnostics
+        );
+        assert!(
+            shape
+                .accepted_result_classifier_design
+                .classifier_consumes_request_parts
+        );
+        assert_eq!(
+            shape.accepted_result_classifier_design.accepted_kind_count,
+            4
+        );
+        assert_eq!(
+            shape
+                .accepted_result_classifier_design
+                .accepted_policy_entry_count,
+            4
+        );
+        assert!(
+            shape
+                .accepted_result_classifier_design
+                .accepted_broker_id_policy_wired
+        );
+        assert!(
+            !shape
+                .accepted_result_classifier_design
+                .raw_broker_order_id_exported
+        );
+        assert!(
+            !shape
+                .accepted_result_classifier_design
+                .unconditional_submitted_allowed
+        );
+        assert!(
+            shape
+                .accepted_result_classifier_design
+                .state_machine_transition_required
+        );
+        assert_eq!(shape.accepted_result_classifier_design.classifier_count, 1);
         assert!(
             shape
                 .durable_checkpoint_capability_design
@@ -1181,6 +1793,57 @@ mod tests {
                 .cancel_required_label,
             GatewayRealOrderEndpointDurableCheckpointLabel::CancelRequestCancelPersistedBeforeEndpoint
         );
+        assert!(
+            shape
+                .checkpoint_marker_creation_design
+                .place_marker_creation_function_private
+        );
+        assert!(
+            shape
+                .checkpoint_marker_creation_design
+                .cancel_marker_creation_function_private
+        );
+        assert!(
+            shape
+                .checkpoint_marker_creation_design
+                .creation_requires_endpoint_gate
+        );
+        assert!(
+            shape
+                .checkpoint_marker_creation_design
+                .creation_requires_sqlite_transition_commit_proof
+        );
+        assert!(
+            shape
+                .checkpoint_marker_creation_design
+                .creation_rejects_diagnostic_or_report_source
+        );
+        assert!(
+            shape
+                .checkpoint_marker_creation_design
+                .creation_requires_durable_commit_observed
+        );
+        assert!(
+            shape
+                .checkpoint_marker_creation_design
+                .creation_requires_transition_event_match
+        );
+        assert_eq!(
+            shape.checkpoint_marker_creation_design.place_required_event,
+            OrderPathEvent::BeginSubmit
+        );
+        assert_eq!(
+            shape
+                .checkpoint_marker_creation_design
+                .cancel_required_event,
+            OrderPathEvent::RequestCancel
+        );
+        assert!(
+            shape
+                .checkpoint_marker_creation_design
+                .marker_not_debug_or_serializable
+        );
+        assert_eq!(shape.checkpoint_marker_creation_design.constructor_count, 2);
         assert!(
             !shape
                 .scanner_transition_spec
@@ -1758,9 +2421,14 @@ mod tests {
             .iter()
             .find(|entry| entry.outcome == Outcome::TransportError)
             .expect("transport policy");
+        assert_eq!(transport.error_kind, Some(OrderPathErrorKind::Unknown));
         assert_eq!(
-            transport.error_kind,
-            Some(OrderPathErrorKind::TransportTimeout)
+            transport.place_ack_reason_code,
+            Some(CommandAckReasonCode::ManualInterventionRequired)
+        );
+        assert_eq!(
+            transport.cancel_ack_reason_code,
+            Some(CommandAckReasonCode::ManualInterventionRequired)
         );
         assert_eq!(
             transport.operator_policy,
@@ -1768,8 +2436,9 @@ mod tests {
         );
         assert_eq!(
             transport.operator_disarm_signal,
-            Some(OperatorDisarmSignal::UnknownPendingOrder)
+            Some(OperatorDisarmSignal::GatewayDegraded)
         );
+        assert!(transport.backoff_required);
         assert!(transport.manual_intervention_required);
         assert!(transport.no_blind_retry);
 
@@ -1932,5 +2601,299 @@ mod tests {
             assert!(entry.state_machine_transition_required);
             assert!(!entry.result_diagnostic_can_bypass_state_machine);
         }
+    }
+
+    #[test]
+    fn transport_category_policy_separates_timeout_from_non_timeout_failures() {
+        use GatewayRealOrderEndpointFutureSendOutcome as Outcome;
+        use GatewayRealOrderEndpointTransportCategory as Category;
+        use GatewayRealOrderEndpointTransportStateSemantics as Semantics;
+
+        let matrix = transport_category_policy_matrix();
+        assert_eq!(matrix.len(), 5);
+        assert_eq!(transport_category_count(), 5);
+
+        let categories: Vec<_> = matrix.iter().map(|entry| entry.category).collect();
+        assert_eq!(categories.as_slice(), transport_categories().as_slice());
+
+        let timeout = matrix
+            .iter()
+            .find(|entry| entry.category == Category::Timeout)
+            .expect("timeout category");
+        assert_eq!(timeout.send_outcome, Outcome::TimeoutUnknownPending);
+        assert_eq!(timeout.state_semantics, Semantics::TimeoutUnknownPending);
+        assert_eq!(timeout.place_state, OrderPathState::TimeoutUnknownPending);
+        assert_eq!(
+            timeout.cancel_state,
+            OrderPathState::CancelTimeoutUnknownPending
+        );
+        assert_eq!(
+            timeout.error_kind,
+            Some(OrderPathErrorKind::TransportTimeout)
+        );
+        assert_eq!(timeout.ack_status, CommandAckStatus::Timeout);
+        assert_eq!(
+            timeout.place_ack_reason_code,
+            Some(CommandAckReasonCode::TimeoutUnknownPending)
+        );
+        assert_eq!(
+            timeout.cancel_ack_reason_code,
+            Some(CommandAckReasonCode::CancelTimeoutUnknownPending)
+        );
+        assert!(timeout.timeout_unknown_pending_semantics);
+        assert!(!timeout.non_timeout_transport_semantics);
+        assert!(timeout.reconciliation_required);
+        assert!(timeout.no_blind_retry);
+
+        for entry in matrix
+            .iter()
+            .filter(|entry| entry.category != Category::Timeout)
+        {
+            assert_eq!(entry.send_outcome, Outcome::TransportError);
+            assert_eq!(entry.state_semantics, Semantics::NonTimeoutTransportFailure);
+            assert_eq!(
+                entry.place_state,
+                OrderPathState::ManualInterventionRequired
+            );
+            assert_eq!(
+                entry.cancel_state,
+                OrderPathState::ManualInterventionRequired
+            );
+            assert_ne!(entry.error_kind, Some(OrderPathErrorKind::TransportTimeout));
+            assert_ne!(entry.ack_status, CommandAckStatus::Timeout);
+            assert_ne!(
+                entry.place_ack_reason_code,
+                Some(CommandAckReasonCode::TimeoutUnknownPending)
+            );
+            assert_ne!(
+                entry.cancel_ack_reason_code,
+                Some(CommandAckReasonCode::CancelTimeoutUnknownPending)
+            );
+            assert!(!entry.timeout_unknown_pending_semantics);
+            assert!(entry.non_timeout_transport_semantics);
+            assert!(entry.manual_intervention_required);
+            assert!(entry.no_blind_retry);
+            assert!(entry.state_machine_transition_required);
+            assert!(!entry.result_diagnostic_can_bypass_state_machine);
+            assert!(entry.runtime_ack_redacted_only);
+        }
+
+        let rendered = serde_json::to_string(&matrix).expect("transport policy matrix serializes");
+        assert!(!rendered.contains("ACC_TEST_0001"));
+        assert!(!rendered.contains("ORDER_TEST_0001"));
+        assert!(!rendered.contains("CID_TEST_0001"));
+    }
+
+    #[test]
+    fn accepted_result_classifier_policy_wires_broker_id_matrix() {
+        use GatewayRealOrderEndpointAcceptedBrokerIdPolicy as Policy;
+        use GatewayRealOrderEndpointAcceptedResultKind as Kind;
+        use GatewayRealOrderEndpointFutureSendOutcome as Outcome;
+
+        assert_eq!(accepted_result_kind_count(), 4);
+        assert_eq!(accepted_result_kinds().len(), 4);
+        let matrix = accepted_result_classifier_policy_matrix();
+        assert_eq!(matrix.len(), accepted_broker_id_policy_matrix().len());
+
+        for entry in &matrix {
+            assert_eq!(entry.send_outcome, Outcome::Accepted);
+            assert!(!entry.raw_broker_order_id_exported);
+            assert!(entry.runtime_ack_redacted_only);
+            assert!(entry.state_machine_transition_required);
+            assert!(!entry.accepted_result_can_be_treated_as_unconditional_submitted);
+        }
+
+        let with_id = matrix
+            .iter()
+            .find(|entry| entry.kind == Kind::WithBrokerOrderId)
+            .expect("with broker id accepted result");
+        assert_eq!(with_id.inherited_policy, Policy::AcceptedWithBrokerOrderId);
+        assert_eq!(with_id.place_event, OrderPathEvent::SubmitAccepted);
+        assert_eq!(with_id.place_state, OrderPathState::Submitted);
+        assert_eq!(with_id.ack_status, CommandAckStatus::Submitted);
+        assert_eq!(with_id.ack_reason_code, None);
+        assert!(!with_id.reconciliation_required);
+        assert!(!with_id.no_blind_retry);
+
+        let without_id = matrix
+            .iter()
+            .find(|entry| entry.kind == Kind::WithoutBrokerOrderId)
+            .expect("without broker id accepted result");
+        assert_eq!(
+            without_id.inherited_policy,
+            Policy::AcceptedWithoutBrokerOrderId
+        );
+        assert_eq!(
+            without_id.place_event,
+            OrderPathEvent::SubmitAcceptedWithoutBrokerOrderId
+        );
+        assert_eq!(
+            without_id.place_state,
+            OrderPathState::SubmittedPendingBrokerOrderId
+        );
+        assert_eq!(without_id.ack_status, CommandAckStatus::UnknownPending);
+        assert_eq!(
+            without_id.ack_reason_code,
+            Some(CommandAckReasonCode::ReconciliationRequired)
+        );
+        assert_eq!(
+            without_id.operator_disarm_signal,
+            Some(OperatorDisarmSignal::AcceptedWithoutBrokerOrderId)
+        );
+        assert!(without_id.reconciliation_required);
+        assert!(without_id.no_blind_retry);
+        assert!(without_id.manual_intervention_required);
+
+        let empty = matrix
+            .iter()
+            .find(|entry| entry.kind == Kind::EmptyBrokerOrderId)
+            .expect("empty broker id accepted result");
+        assert_eq!(
+            empty.inherited_policy,
+            Policy::EmptyBrokerOrderIdDecodeError
+        );
+        assert_eq!(empty.place_event, OrderPathEvent::RequireManualIntervention);
+        assert_eq!(
+            empty.ack_reason_code,
+            Some(CommandAckReasonCode::ResponseDecodeError)
+        );
+        assert_eq!(
+            empty.operator_disarm_signal,
+            Some(OperatorDisarmSignal::OrderEndpointDecodeError)
+        );
+        assert!(empty.reconciliation_required);
+        assert!(empty.no_blind_retry);
+
+        let mismatch = matrix
+            .iter()
+            .find(|entry| entry.kind == Kind::BrokerOrderIdMismatch)
+            .expect("broker id mismatch accepted result");
+        assert_eq!(
+            mismatch.inherited_policy,
+            Policy::BrokerOrderIdMismatchManualIntervention
+        );
+        assert_eq!(
+            mismatch.operator_disarm_signal,
+            Some(OperatorDisarmSignal::ReconciliationConflict)
+        );
+        assert!(mismatch.reconciliation_required);
+        assert!(mismatch.no_blind_retry);
+        assert!(mismatch.manual_intervention_required);
+    }
+
+    #[test]
+    fn accepted_result_classifier_requires_gate_parts_and_non_diagnostic_response_shape() {
+        fn assert_classifier_signature(
+            _f: fn(
+                &EndpointGateApproved,
+                ApprovedOrderEndpointRequestParts,
+                GatewayRealOrderEndpointAcceptedResponseShape,
+            ) -> GatewayRealOrderEndpointAcceptedResultDiagnostic,
+        ) {
+        }
+
+        assert_classifier_signature(classify_accepted_result_after_future_send);
+        assert_eq!(accepted_result_classifier_count(), 1);
+
+        let source = include_str!("real_order_endpoint.rs");
+        let classifier_source = source
+            .split("fn classify_accepted_result_after_future_send")
+            .nth(1)
+            .expect("accepted classifier source")
+            .split("fn approved_request_parts_constructor_count")
+            .next()
+            .expect("accepted classifier boundary");
+
+        assert!(classifier_source.contains("EndpointGateApproved"));
+        assert!(classifier_source.contains("ApprovedOrderEndpointRequestParts"));
+        assert!(classifier_source.contains("GatewayRealOrderEndpointAcceptedResponseShape"));
+        assert!(!classifier_source.contains("GatewayRealOrderEndpointFutureSendDiagnostic"));
+        assert!(!classifier_source.contains("GatewayRealOrderEndpointConsumerDiagnostic"));
+        assert!(!classifier_source.contains("GatewayRealOrderEndpointApprovedPartsDiagnostic"));
+    }
+
+    #[test]
+    fn checkpoint_marker_creation_requires_sqlite_commit_proof_not_diagnostic_layer() {
+        fn assert_place_signature(
+            _f: fn(
+                &EndpointGateApproved,
+                &GatewayRealOrderEndpointSqliteTransitionCommitProof,
+            ) -> Result<
+                PlaceEndpointDurableCheckpointApproved,
+                GatewayRealOrderEndpointCheckpointMarkerCreationError,
+            >,
+        ) {
+        }
+        fn assert_cancel_signature(
+            _f: fn(
+                &EndpointGateApproved,
+                &GatewayRealOrderEndpointSqliteTransitionCommitProof,
+            ) -> Result<
+                CancelEndpointDurableCheckpointApproved,
+                GatewayRealOrderEndpointCheckpointMarkerCreationError,
+            >,
+        ) {
+        }
+
+        assert_place_signature(create_place_checkpoint_marker_after_sqlite_transition);
+        assert_cancel_signature(create_cancel_checkpoint_marker_after_sqlite_transition);
+        assert_eq!(checkpoint_marker_creation_constructor_count(), 2);
+
+        let valid_place = GatewayRealOrderEndpointSqliteTransitionCommitProof {
+            event: OrderPathEvent::BeginSubmit,
+            durable_commit_observed: true,
+            diagnostic_or_report_source: false,
+        };
+        assert_eq!(
+            validate_checkpoint_marker_creation_proof(&valid_place, OrderPathEvent::BeginSubmit),
+            Ok(())
+        );
+
+        let wrong_event = GatewayRealOrderEndpointSqliteTransitionCommitProof {
+            event: OrderPathEvent::RequestCancel,
+            durable_commit_observed: true,
+            diagnostic_or_report_source: false,
+        };
+        assert_eq!(
+            validate_checkpoint_marker_creation_proof(&wrong_event, OrderPathEvent::BeginSubmit),
+            Err(GatewayRealOrderEndpointCheckpointMarkerCreationError::WrongTransitionEvent)
+        );
+
+        let uncommitted = GatewayRealOrderEndpointSqliteTransitionCommitProof {
+            event: OrderPathEvent::BeginSubmit,
+            durable_commit_observed: false,
+            diagnostic_or_report_source: false,
+        };
+        assert_eq!(
+            validate_checkpoint_marker_creation_proof(&uncommitted, OrderPathEvent::BeginSubmit),
+            Err(GatewayRealOrderEndpointCheckpointMarkerCreationError::DurableCommitNotObserved)
+        );
+
+        let diagnostic_source = GatewayRealOrderEndpointSqliteTransitionCommitProof {
+            event: OrderPathEvent::BeginSubmit,
+            durable_commit_observed: true,
+            diagnostic_or_report_source: true,
+        };
+        assert_eq!(
+            validate_checkpoint_marker_creation_proof(
+                &diagnostic_source,
+                OrderPathEvent::BeginSubmit
+            ),
+            Err(GatewayRealOrderEndpointCheckpointMarkerCreationError::DiagnosticOrReportLayer)
+        );
+
+        let source = include_str!("real_order_endpoint.rs");
+        let marker_source = source
+            .split("fn create_place_checkpoint_marker_after_sqlite_transition")
+            .nth(1)
+            .expect("marker creation source")
+            .split("pub fn place_order_api_shape")
+            .next()
+            .expect("marker creation boundary");
+        assert!(marker_source.contains("EndpointGateApproved"));
+        assert!(marker_source.contains("GatewayRealOrderEndpointSqliteTransitionCommitProof"));
+        assert!(!marker_source.contains("GatewayRealOrderEndpointFutureSendDiagnostic"));
+        assert!(!marker_source.contains("GatewayRealOrderEndpointAcceptedResultDiagnostic"));
+        assert!(!marker_source.contains("GatewayRealOrderEndpointApiShape"));
     }
 }

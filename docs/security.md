@@ -231,6 +231,11 @@ operator disarm/backoff/manual policy, accepted broker-order-id inheritance,
 and timeout/no-blind-retry invariant. It also records private non-serializable
 operation-specific durable checkpoint capability markers for Place and Cancel;
 result diagnostics still cannot bypass the state machine or feed transport.
+M3c-13 adds design-only transport category and accepted-result classifier
+policies. Timeout is separated from non-timeout transport failures, accepted
+responses are wired to broker-order-id reconciliation policy instead of
+unconditional `Submitted`, and checkpoint marker creation is limited to private
+functions requiring endpoint gate plus SQLite transition commit proof.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

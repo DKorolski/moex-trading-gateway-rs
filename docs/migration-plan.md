@@ -1776,6 +1776,34 @@ M3c-12 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-13 transport category / accepted-result classifier design:
+
+- Added typed transport category policy matrix for `DnsOrConnectError`,
+  `TlsError`, `HttpSendError`, `BodyReadError`, and `Timeout`.
+- Separated true timeout/unknown-pending semantics from non-timeout transport
+  failures. Only `Timeout` maps to `TimeoutUnknownPending` /
+  `CancelTimeoutUnknownPending`; non-timeout transport failures do not use
+  timeout ACK reasons or timeout/unknown states.
+- Added accepted-result classifier design and policy matrix wiring the
+  accepted broker-id policy into future send handling.
+- Recorded that `Accepted` cannot be treated as unconditional `Submitted`:
+  without broker id, empty broker id, and broker-id mismatch require
+  reconciliation/manual handling.
+- Added private checkpoint marker creation design from SQLite transition commit
+  proof; diagnostic/report layers cannot create checkpoint markers.
+- Details are documented in
+  `docs/m3c13-transport-accepted-classifier-design.md`.
+
+M3c-13 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

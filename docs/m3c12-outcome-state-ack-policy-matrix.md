@@ -76,6 +76,13 @@ redacted and cannot feed transport or bypass the state machine. The scanner
 transition spec now checks the M3c-12 markers and still rejects order-call
 surfaces in the design-only module.
 
+## M3c-13 follow-up
+
+M3c-13 refines this matrix with typed transport categories and accepted-result
+classification. True timeout/unknown-pending is separated from non-timeout
+transport failures, and `Accepted` must be classified through broker-order-id
+policy before any future state/ACK export.
+
 ## Still not allowed
 
 - FINAM real PlaceOrder `POST`;

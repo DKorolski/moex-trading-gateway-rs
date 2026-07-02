@@ -42,6 +42,18 @@ if rg -n 'pub fn classify_future_send_attempt_result' "$target" >/tmp/moex_trans
 fi
 rm -f /tmp/moex_transition_forbidden.$$
 
+if rg -n 'pub fn classify_accepted_result_after_future_send' "$target" >/tmp/moex_transition_forbidden.$$; then
+  cat /tmp/moex_transition_forbidden.$$ >&2
+  report_failure "accepted-result classifier must not be public"
+fi
+rm -f /tmp/moex_transition_forbidden.$$
+
+if rg -n 'pub fn create_(place|cancel)_checkpoint_marker_after_sqlite_transition' "$target" >/tmp/moex_transition_forbidden.$$; then
+  cat /tmp/moex_transition_forbidden.$$ >&2
+  report_failure "durable checkpoint marker constructors must not be public"
+fi
+rm -f /tmp/moex_transition_forbidden.$$
+
 if rg -n 'consume_approved_request_parts_for_future_endpoint\([^)]*GatewayRealOrderEndpoint.*Diagnostic' "$target" >/tmp/moex_transition_forbidden.$$; then
   cat /tmp/moex_transition_forbidden.$$ >&2
   report_failure "diagnostic DTOs must not feed the approved request-parts consumer"
@@ -58,6 +70,8 @@ for internal_type in \
   GatewayRealOrderEndpointInternalRouteShape \
   RenderedOrderEndpointPath \
   ApprovedOrderEndpointRequestParts \
+  GatewayRealOrderEndpointAcceptedResponseShape \
+  GatewayRealOrderEndpointSqliteTransitionCommitProof \
   PlaceEndpointDurableCheckpointApproved \
   CancelEndpointDurableCheckpointApproved
 do
@@ -137,10 +151,42 @@ required_patterns=(
   "GatewayRealOrderEndpointApprovedPartsDiagnostic"
   "GatewayRealOrderEndpointConsumerDiagnostic"
   "GatewayRealOrderEndpointFutureSendDiagnostic"
+  "GatewayRealOrderEndpointTransportCategory"
+  "GatewayRealOrderEndpointTransportStateSemantics"
+  "GatewayRealOrderEndpointTransportCategoryPolicyEntry"
+  "GatewayRealOrderEndpointTransportCategoryPolicyDesignShape"
+  "transport_category_policy_matrix"
+  "DnsOrConnectError"
+  "TlsError"
+  "HttpSendError"
+  "BodyReadError"
+  "Timeout"
+  "NonTimeoutTransportFailure"
+  "timeout_separated_from_non_timeout_transport: true"
+  "non_timeout_transport_does_not_use_timeout_ack_reason: true"
+  "non_timeout_transport_does_not_enter_timeout_unknown_state: true"
+  "timeout_uses_unknown_pending_semantics: true"
+  "GatewayRealOrderEndpointAcceptedResultKind"
+  "GatewayRealOrderEndpointAcceptedResponseShape"
+  "GatewayRealOrderEndpointAcceptedResultPolicyEntry"
+  "GatewayRealOrderEndpointAcceptedResultClassifierDesignShape"
+  "GatewayRealOrderEndpointAcceptedResultDiagnostic"
+  "accepted_result_classifier_policy_matrix"
+  "classify_accepted_result_after_future_send"
+  "accepted_broker_id_policy_wired: true"
+  "unconditional_submitted_allowed: false"
   "GatewayRealOrderEndpointOutcomeStatePolicyEntry"
   "GatewayRealOrderEndpointAcceptedBrokerIdPolicyEntry"
   "GatewayRealOrderEndpointOutcomeStatePolicyDesignShape"
   "GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape"
+  "GatewayRealOrderEndpointCheckpointMarkerCreationDesignShape"
+  "GatewayRealOrderEndpointSqliteTransitionCommitProof"
+  "create_place_checkpoint_marker_after_sqlite_transition"
+  "create_cancel_checkpoint_marker_after_sqlite_transition"
+  "creation_requires_sqlite_transition_commit_proof: true"
+  "creation_rejects_diagnostic_or_report_source: true"
+  "creation_requires_durable_commit_observed: true"
+  "creation_requires_transition_event_match: true"
   "future_send_outcome_state_policy_matrix"
   "accepted_broker_id_policy_matrix"
   "matrix_serializable: true"

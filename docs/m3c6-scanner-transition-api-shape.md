@@ -104,6 +104,21 @@ CancelEndpointDurableCheckpointApproved
 created_after_sqlite_transition_only = true
 ```
 
+M3c-13 records transport-category and accepted-result classifier design:
+
+```text
+transport category count = 5
+timeout_separated_from_non_timeout_transport = true
+non_timeout_transport_does_not_use_timeout_ack_reason = true
+accepted_result_classifier_requires_endpoint_gate = true
+accepted_broker_id_policy_wired = true
+unconditional_submitted_allowed = false
+checkpoint marker creation requires SQLite transition commit proof
+```
+
+The accepted-result classifier and checkpoint marker creation functions remain
+private and diagnostics cannot feed either boundary.
+
 ## Scanner transition spec
 
 The API shape exports:

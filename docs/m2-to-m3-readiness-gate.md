@@ -1333,6 +1333,10 @@ Implemented while still keeping all broker order endpoints disabled:
   disarm/backoff/manual-intervention policy, accepted broker-order-id
   inheritance, no-blind-retry invariant, and private durable checkpoint
   capability marker design;
+- M3c-13 transport category and accepted-result classifier design: separates
+  true timeout/unknown-pending from non-timeout transport failures, wires
+  accepted responses into broker-order-id reconciliation policy, and records
+  private checkpoint marker creation from SQLite transition commit proof;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:
