@@ -1866,6 +1866,37 @@ fn infer_source_archive(source_commit_full_sha: Option<&str>) -> Option<PathBuf>
     path.exists().then_some(path)
 }
 
+fn source_archive_short_commit(path: &Path) -> Option<String> {
+    let name = path.file_name()?.to_string_lossy();
+    name.strip_prefix("moex-trading-project-")?
+        .strip_suffix(".zip")
+        .filter(|short| short.len() >= 7)
+        .map(ToString::to_string)
+}
+
+fn validate_source_archive_binding(
+    path: &Path,
+    source_commit_full_sha: Option<&str>,
+) -> Result<()> {
+    let Some(source_commit_full_sha) = source_commit_full_sha else {
+        anyhow::bail!("cannot validate source archive binding without git HEAD sha");
+    };
+    let expected_short = source_commit_full_sha
+        .get(..7)
+        .context("git HEAD sha is shorter than 7 characters")?;
+    let archive_short = source_archive_short_commit(path).with_context(|| {
+        format!(
+            "source archive name must match moex-trading-project-<short_commit>.zip: {}",
+            path.display()
+        )
+    })?;
+    anyhow::ensure!(
+        archive_short == expected_short,
+        "source archive binding mismatch: archive_short={archive_short} git_head_short={expected_short}"
+    );
+    Ok(())
+}
+
 fn run_forbidden_surface_scan_metadata() -> Result<serde_json::Value> {
     let script = PathBuf::from("scripts/forbidden_surface_scan.sh");
     let script_sha256 = script.exists().then(|| sha256_file(&script)).transpose()?;
@@ -1926,6 +1957,9 @@ fn build_finam_real_readonly_evidence_metadata(
 
 fn resolve_source_evidence(source_archive: Option<&Path>) -> Result<M3cSourceEvidence> {
     let source_commit_full_sha = source_commit_full_sha();
+    if let Some(source_archive) = source_archive {
+        validate_source_archive_binding(source_archive, source_commit_full_sha.as_deref())?;
+    }
     let resolved_source_archive = source_archive
         .map(PathBuf::from)
         .or_else(|| infer_source_archive(source_commit_full_sha.as_deref()));
@@ -3909,6 +3943,28 @@ mod tests {
     fn timeframe_seconds_rejects_unknown_timeframe() {
         assert_eq!(timeframe_seconds("TIME_FRAME_M1").expect("m1"), 60);
         assert!(timeframe_seconds("TIME_FRAME_UNKNOWN").is_err());
+    }
+
+    #[test]
+    fn m3c_source_archive_binding_requires_current_head_short_commit() {
+        let head = Some("fa76b6ab7b8661db3942c360e7fcc6e4c63e933a");
+        let matching = Path::new("reports/handoff/moex-trading-project-fa76b6a.zip");
+        let stale = Path::new("reports/handoff/moex-trading-project-ffd9471.zip");
+        let malformed = Path::new("reports/handoff/design-evidence.json");
+
+        assert_eq!(
+            source_archive_short_commit(matching).as_deref(),
+            Some("fa76b6a")
+        );
+        validate_source_archive_binding(matching, head).expect("matching archive binds");
+        assert!(validate_source_archive_binding(stale, head)
+            .expect_err("stale archive must be rejected")
+            .to_string()
+            .contains("source archive binding mismatch"));
+        assert!(validate_source_archive_binding(malformed, head)
+            .expect_err("malformed archive name must be rejected")
+            .to_string()
+            .contains("source archive name must match"));
     }
 
     #[test]
