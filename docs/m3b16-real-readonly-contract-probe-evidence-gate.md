@@ -5,6 +5,10 @@ not authorize FINAM order placement/cancel, real command consumption, real
 CommandAck lifecycle, runtime attachment, `LiveReady`, live micro, stop/SLTP, or
 bracket behavior.
 
+M3b-17 follow-up hardens the evidence package with token readonly/scope
+diagnostics, per-source attempt records, and explicit requested/actual send
+counters. See `docs/m3b17-real-readonly-evidence-package.md`.
+
 ## Base URL bound to RunApproved
 
 `RealReadonlyBrokerTruthRunApproved` now stores redacted identity for the exact

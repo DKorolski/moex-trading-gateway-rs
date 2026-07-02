@@ -1088,3 +1088,26 @@ Still not implemented in M3b-16:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-17 real-readonly evidence package hardening status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- token readonly/scope shape is included in redacted preflight diagnostics;
+- controlled operator probe requires `token_readonly_flag_value == Some(true)`;
+- evidence matrix rows are built from per-source attempt records with
+  `attempt_id`;
+- operator report includes requested source count, actual send count, and max
+  request limit;
+- tests assert send count stays within max requests and blocked token scope sends
+  no requests.
+
+Still not implemented in M3b-17:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

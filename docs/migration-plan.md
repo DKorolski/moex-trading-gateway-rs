@@ -1262,6 +1262,31 @@ M3b-16 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-17 real-readonly evidence package hardening:
+
+- Added token readonly/scope diagnostics:
+  `token_readonly_flag_present`, `token_readonly_flag_value`, and
+  `md_permissions_count`.
+- Operator-run token/account preflight now requires `readonly == Some(true)` in
+  addition to token/account hash match and order-feature disablement.
+- Added per-source attempt records with `attempt_id` so evidence matrix rows are
+  built from an attempt record rather than positional array alignment.
+- Added operator report counters:
+  `requested_sources_count`, `actual_send_count`, and `max_requests`.
+- Tests assert `actual_send_count <= max_requests` and blocked token scope sends
+  zero requests.
+- Details are documented in `docs/m3b17-real-readonly-evidence-package.md`.
+
+M3b-17 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

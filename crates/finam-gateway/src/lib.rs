@@ -3984,6 +3984,7 @@ pub enum FinamRealReadonlyContractProbeBlock {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FinamRealReadonlyContractProbeSourceDiagnostic {
+    pub attempt_id: u32,
     pub source: CancelBrokerTruthSource,
     pub attempted: bool,
     pub outcome: CancelBrokerTruthFetchOutcomeKind,
@@ -3996,6 +3997,7 @@ pub struct FinamRealReadonlyContractProbeReport {
     pub blocking_reasons: Vec<FinamRealReadonlyContractProbeBlock>,
     pub attempted_sources: Vec<CancelBrokerTruthSource>,
     pub source_diagnostics: Vec<FinamRealReadonlyContractProbeSourceDiagnostic>,
+    pub attempt_records: Vec<FinamRealReadonlyContractProbeAttemptRecord>,
     pub route_diagnostics: Vec<FinamRealReadonlyRouteDiagnostic>,
     pub captured_diagnostics: Vec<CancelBrokerTruthReadonlyHttpDiagnostic>,
     pub audit_records: Vec<FinamRealReadonlyBrokerTruthAuditRecord>,
@@ -4073,6 +4075,9 @@ pub struct FinamRealReadonlyTransportErrorOperatorActionDiagnostic {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FinamRealReadonlyTokenAccountPreflightDiagnostic {
     pub token_details_checked: bool,
+    pub token_readonly_flag_present: bool,
+    pub token_readonly_flag_value: Option<bool>,
+    pub md_permissions_count: usize,
     pub token_account_ids_count: usize,
     pub requested_account_id_present: bool,
     pub requested_account_id_len: Option<usize>,
@@ -4105,6 +4110,13 @@ impl FinamRealReadonlyTokenAccountPreflightDiagnostic {
         );
         Self {
             token_details_checked: token_details.is_some(),
+            token_readonly_flag_present: token_details
+                .and_then(|details| details.readonly)
+                .is_some(),
+            token_readonly_flag_value: token_details.and_then(|details| details.readonly),
+            md_permissions_count: token_details
+                .map(|details| details.md_permissions.len())
+                .unwrap_or_default(),
             token_account_ids_count: token_details
                 .map(|details| details.account_ids.len())
                 .unwrap_or_default(),
@@ -4121,6 +4133,7 @@ impl FinamRealReadonlyTokenAccountPreflightDiagnostic {
 
     fn allows_operator_probe(&self) -> bool {
         self.token_details_checked
+            && self.token_readonly_flag_value == Some(true)
             && self.requested_account_id_present
             && self.token_account_hash_match == Some(true)
             && self.no_order_feature_flags_enabled
@@ -4129,6 +4142,7 @@ impl FinamRealReadonlyTokenAccountPreflightDiagnostic {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FinamRealReadonlyContractProbeEvidenceMatrixRow {
+    pub attempt_id: u32,
     pub source: CancelBrokerTruthSource,
     pub route_template: Option<String>,
     pub http_status: Option<u16>,
@@ -4140,6 +4154,16 @@ pub struct FinamRealReadonlyContractProbeEvidenceMatrixRow {
     pub transport_error_category: Option<FinamRealReadonlyTransportErrorCategory>,
     pub operator_action: Option<FinamRealReadonlyTransportErrorOperatorAction>,
     pub audit_record_sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FinamRealReadonlyContractProbeAttemptRecord {
+    pub attempt_id: u32,
+    pub source: CancelBrokerTruthSource,
+    pub source_diagnostic: FinamRealReadonlyContractProbeSourceDiagnostic,
+    pub route_diagnostic: Option<FinamRealReadonlyRouteDiagnostic>,
+    pub captured_diagnostic: Option<CancelBrokerTruthReadonlyHttpDiagnostic>,
+    pub audit_record: Option<FinamRealReadonlyBrokerTruthAuditRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -4213,6 +4237,8 @@ pub struct FinamRealReadonlyContractProbeOperatorRunReport {
     pub operator_disable_procedure_documented: bool,
     pub preserve_transport_error_taxonomy: bool,
     pub token_account_preflight: Option<FinamRealReadonlyTokenAccountPreflightDiagnostic>,
+    pub requested_sources_count: usize,
+    pub actual_send_count: usize,
     pub max_requests: usize,
     pub probe_report: Option<FinamRealReadonlyContractProbeReport>,
     pub evidence_matrix: Vec<FinamRealReadonlyContractProbeEvidenceMatrixRow>,
@@ -4233,6 +4259,7 @@ where
             blocking_reasons: vec![FinamRealReadonlyContractProbeBlock::DisabledByDefault],
             attempted_sources: Vec::new(),
             source_diagnostics: Vec::new(),
+            attempt_records: Vec::new(),
             route_diagnostics: Vec::new(),
             captured_diagnostics: Vec::new(),
             audit_records: Vec::new(),
@@ -4245,6 +4272,7 @@ where
             blocking_reasons: vec![FinamRealReadonlyContractProbeBlock::MaxRequestsZero],
             attempted_sources: Vec::new(),
             source_diagnostics: Vec::new(),
+            attempt_records: Vec::new(),
             route_diagnostics: Vec::new(),
             captured_diagnostics: Vec::new(),
             audit_records: Vec::new(),
@@ -4256,6 +4284,7 @@ where
             blocking_reasons: vec![FinamRealReadonlyContractProbeBlock::MaxRequestsTooHigh],
             attempted_sources: Vec::new(),
             source_diagnostics: Vec::new(),
+            attempt_records: Vec::new(),
             route_diagnostics: Vec::new(),
             captured_diagnostics: Vec::new(),
             audit_records: Vec::new(),
@@ -4275,6 +4304,7 @@ where
             blocking_reasons: vec![FinamRealReadonlyContractProbeBlock::NoSources],
             attempted_sources: Vec::new(),
             source_diagnostics: Vec::new(),
+            attempt_records: Vec::new(),
             route_diagnostics: Vec::new(),
             captured_diagnostics: Vec::new(),
             audit_records: Vec::new(),
@@ -4288,6 +4318,7 @@ where
             ],
             attempted_sources: Vec::new(),
             source_diagnostics: Vec::new(),
+            attempt_records: Vec::new(),
             route_diagnostics: Vec::new(),
             captured_diagnostics: Vec::new(),
             audit_records: Vec::new(),
@@ -4298,8 +4329,13 @@ where
     let captured_start = fetcher.captured_diagnostics().len();
     let audit_start = fetcher.audit_records().len();
     let mut source_diagnostics = Vec::new();
+    let mut attempt_records = Vec::new();
 
-    for source in sources.iter().copied() {
+    for (index, source) in sources.iter().copied().enumerate() {
+        let attempt_id = (index + 1) as u32;
+        let attempt_route_start = fetcher.route_diagnostics().len();
+        let attempt_captured_start = fetcher.captured_diagnostics().len();
+        let attempt_audit_start = fetcher.audit_records().len();
         let result = match source {
             CancelBrokerTruthSource::GetOrder => fetcher.fetch_get_order(request.clone()).await,
             CancelBrokerTruthSource::OrdersSnapshot => {
@@ -4313,11 +4349,27 @@ where
             }
         };
         let reason = cancel_broker_truth_fetch_result_reason(&result);
-        source_diagnostics.push(FinamRealReadonlyContractProbeSourceDiagnostic {
+        let source_diagnostic = FinamRealReadonlyContractProbeSourceDiagnostic {
+            attempt_id,
             source,
             attempted: true,
             outcome: fetch_outcome_kind(reason),
             reason,
+        };
+        source_diagnostics.push(source_diagnostic.clone());
+        attempt_records.push(FinamRealReadonlyContractProbeAttemptRecord {
+            attempt_id,
+            source,
+            source_diagnostic,
+            route_diagnostic: fetcher
+                .route_diagnostics()
+                .get(attempt_route_start)
+                .cloned(),
+            captured_diagnostic: fetcher
+                .captured_diagnostics()
+                .get(attempt_captured_start)
+                .cloned(),
+            audit_record: fetcher.audit_records().get(attempt_audit_start).cloned(),
         });
     }
 
@@ -4326,6 +4378,7 @@ where
         blocking_reasons: Vec::new(),
         attempted_sources: sources.clone(),
         source_diagnostics,
+        attempt_records,
         route_diagnostics: fetcher.route_diagnostics()[route_start..].to_vec(),
         captured_diagnostics: fetcher.captured_diagnostics()[captured_start..].to_vec(),
         audit_records: fetcher.audit_records()[audit_start..].to_vec(),
@@ -4427,6 +4480,8 @@ where
             operator_disable_procedure_documented: config.operator_disable_procedure_documented,
             preserve_transport_error_taxonomy: config.preserve_transport_error_taxonomy,
             token_account_preflight: config.token_account_preflight.clone(),
+            requested_sources_count: deduped_sources.len(),
+            actual_send_count: 0,
             max_requests: config.max_requests,
             probe_report: None,
             evidence_matrix: Vec::new(),
@@ -4459,6 +4514,11 @@ where
         })
         .collect::<Vec<_>>();
     let evidence_matrix = build_finam_real_readonly_contract_probe_evidence_matrix(&probe_report);
+    let actual_send_count = probe_report
+        .attempt_records
+        .iter()
+        .filter(|record| record.captured_diagnostic.is_some())
+        .count();
 
     FinamRealReadonlyContractProbeOperatorRunReport {
         enabled: true,
@@ -4472,6 +4532,8 @@ where
         operator_disable_procedure_documented: config.operator_disable_procedure_documented,
         preserve_transport_error_taxonomy: config.preserve_transport_error_taxonomy,
         token_account_preflight: config.token_account_preflight.clone(),
+        requested_sources_count: probe_report.attempted_sources.len(),
+        actual_send_count,
         max_requests: config.max_requests,
         probe_report: Some(probe_report),
         evidence_matrix,
@@ -4483,13 +4545,12 @@ fn build_finam_real_readonly_contract_probe_evidence_matrix(
     report: &FinamRealReadonlyContractProbeReport,
 ) -> Vec<FinamRealReadonlyContractProbeEvidenceMatrixRow> {
     report
-        .source_diagnostics
+        .attempt_records
         .iter()
-        .enumerate()
-        .map(|(index, source_diagnostic)| {
-            let route = report.route_diagnostics.get(index);
-            let captured = report.captured_diagnostics.get(index);
-            let audit = report.audit_records.get(index);
+        .map(|attempt| {
+            let route = attempt.route_diagnostic.as_ref();
+            let captured = attempt.captured_diagnostic.as_ref();
+            let audit = attempt.audit_record.as_ref();
             let transport_error_category = captured
                 .and_then(|diagnostic| diagnostic.transport_error_category)
                 .or_else(|| audit.and_then(|record| record.transport_error_category));
@@ -4499,7 +4560,8 @@ fn build_finam_real_readonly_contract_probe_evidence_matrix(
                     .map(|encoded| sha256_hex(&encoded))
             });
             FinamRealReadonlyContractProbeEvidenceMatrixRow {
-                source: source_diagnostic.source,
+                attempt_id: attempt.attempt_id,
+                source: attempt.source,
                 route_template: route.map(|diagnostic| diagnostic.path_template.to_string()),
                 http_status: captured
                     .map(|diagnostic| diagnostic.status)
@@ -4507,8 +4569,8 @@ fn build_finam_real_readonly_contract_probe_evidence_matrix(
                 http_body_present: captured.map(|diagnostic| diagnostic.body_present),
                 http_body_len: captured.and_then(|diagnostic| diagnostic.body_len),
                 http_body_sha256: captured.and_then(|diagnostic| diagnostic.body_sha256.clone()),
-                mapped_fetch_reason: source_diagnostic.reason,
-                outcome: source_diagnostic.outcome,
+                mapped_fetch_reason: attempt.source_diagnostic.reason,
+                outcome: attempt.source_diagnostic.outcome,
                 transport_error_category,
                 operator_action: transport_error_category
                     .map(finam_real_readonly_transport_error_operator_action),
@@ -10922,6 +10984,35 @@ mod tests {
                 Some(&token_details),
             );
         assert!(token_account_preflight.allows_operator_probe());
+        assert!(token_account_preflight.token_readonly_flag_present);
+        assert_eq!(
+            token_account_preflight.token_readonly_flag_value,
+            Some(true)
+        );
+        assert_eq!(token_account_preflight.md_permissions_count, 0);
+        let non_readonly_token_details = broker_finam::dto::TokenDetailsResponse {
+            account_ids: vec![account_id.as_str().to_string()],
+            created_at: None,
+            expires_at: None,
+            md_permissions: vec![broker_finam::dto::MarketDataPermission {
+                delay_minutes: Some(15),
+                mic: Some("MISX".to_string()),
+                quote_level: Some("LEVEL1".to_string()),
+            }],
+            readonly: Some(false),
+        };
+        let non_readonly_preflight =
+            FinamRealReadonlyTokenAccountPreflightDiagnostic::from_token_details(
+                &GatewayFeatureSet::default(),
+                &request_snapshot,
+                Some(&non_readonly_token_details),
+            );
+        assert!(!non_readonly_preflight.allows_operator_probe());
+        assert_eq!(
+            non_readonly_preflight.token_readonly_flag_value,
+            Some(false)
+        );
+        assert_eq!(non_readonly_preflight.md_permissions_count, 1);
 
         let enabled = run_finam_real_readonly_operator_contract_probe(
             &mut fetcher,
@@ -10949,6 +11040,9 @@ mod tests {
         .await;
         assert!(enabled.blocking_reasons.is_empty());
         assert_eq!(enabled.max_requests, 4);
+        assert_eq!(enabled.requested_sources_count, 4);
+        assert_eq!(enabled.actual_send_count, 4);
+        assert!(enabled.actual_send_count <= enabled.max_requests);
         assert_eq!(
             enabled.audit_store_mode,
             FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore
@@ -10967,6 +11061,14 @@ mod tests {
             FinamRealReadonlyTransportErrorOperatorAction::CheckTimeoutBudgetAndBrokerLatency
         );
         assert_eq!(enabled.evidence_matrix.len(), 4);
+        assert_eq!(
+            enabled
+                .evidence_matrix
+                .iter()
+                .map(|row| row.attempt_id)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3, 4]
+        );
         assert_eq!(
             enabled.evidence_matrix[0].route_template.as_deref(),
             Some("/v1/accounts/{account_id}/orders/{order_id}")
@@ -10989,6 +11091,8 @@ mod tests {
         assert!(report_json.contains("path_sha256"));
         assert!(report_json.contains("evidence_matrix"));
         assert!(report_json.contains("token_details_checked"));
+        assert!(report_json.contains("token_readonly_flag_value"));
+        assert!(report_json.contains("actual_send_count"));
         assert!(!report_json.contains("reports/finam-readonly-contract-probe/redacted.json"));
         assert!(!report_json.contains(account_id.as_str()));
         assert!(!report_json.contains(order_id.as_str()));
@@ -10996,7 +11100,7 @@ mod tests {
 
         let blocked = run_finam_real_readonly_operator_contract_probe(
             &mut fetcher,
-            request_snapshot,
+            request_snapshot.clone(),
             &FinamRealReadonlyContractProbeOperatorRunConfig {
                 enabled: true,
                 sources: all_cancel_truth_sources().to_vec(),
@@ -11025,6 +11129,34 @@ mod tests {
             .contains(&FinamRealReadonlyContractProbeOperatorRunBlock::BackgroundLoopNotDisabled));
         assert!(!blocked.blocking_reasons.contains(
             &FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightMissing
+        ));
+
+        let blocked_by_token_scope = run_finam_real_readonly_operator_contract_probe(
+            &mut fetcher,
+            request_snapshot,
+            &FinamRealReadonlyContractProbeOperatorRunConfig {
+                enabled: true,
+                sources: vec![CancelBrokerTruthSource::GetOrder],
+                max_requests: 1,
+                request_timeout_ms: 10_000,
+                min_request_interval_ms: 250,
+                redacted_output_location: Some(
+                    FinamRealReadonlyRedactedOutputLocation::from_path_label("redacted.json"),
+                ),
+                audit_store_mode: FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore,
+                retry_disabled: true,
+                background_loop_disabled: true,
+                scheduler_disabled: true,
+                operator_disable_procedure_documented: true,
+                preserve_transport_error_taxonomy: true,
+                token_account_preflight: Some(non_readonly_preflight),
+            },
+        )
+        .await;
+        assert!(blocked_by_token_scope.probe_report.is_none());
+        assert_eq!(blocked_by_token_scope.actual_send_count, 0);
+        assert!(blocked_by_token_scope.blocking_reasons.contains(
+            &FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightFailed
         ));
     }
 

@@ -199,6 +199,9 @@ M3b-16 adds the final evidence-gate preparation: `RunApproved` also binds the
 FINAM base URL hash, operator-run probes require redacted token/account preflight,
 and reports include a redacted evidence matrix for the requested GET-only
 broker-truth sources.
+M3b-17 hardens the evidence package with token readonly/scope diagnostics,
+per-source attempt records for matrix alignment, and explicit requested/actual
+send counters.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

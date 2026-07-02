@@ -159,6 +159,8 @@ construction time.
 M3b-16 extends that binding to the FINAM base URL hash and adds redacted
 token/account preflight plus evidence-matrix fingerprints for controlled
 read-only probe reports.
+M3b-17 requires token readonly scope in the redacted preflight and builds
+evidence rows from per-source attempt records with explicit send counters.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account
