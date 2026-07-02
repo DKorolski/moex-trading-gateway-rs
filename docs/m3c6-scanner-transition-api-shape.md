@@ -164,6 +164,21 @@ cancel_409_410_policy_or_waiver_required = true
 status_semantics_can_bypass_state_machine = false
 ```
 
+M3c-17 records evidence closure and durable journal SQLite schema design:
+
+```text
+plan_design_only = true
+all_slots_pending_before_implementation_gate = true
+order_endpoint_calls_allowed_for_closure = false
+schema_design_only = true
+table_name = order_endpoint_attempts
+schema_version = 1
+endpoint_attempt_id_unique = true
+idempotent_replay_requires_same_fingerprint_set = true
+conflict_replay_rejects_and_disarms = true
+raw endpoint/request/broker/path/body/error exported = false
+```
+
 The scanner transition guard checks these markers while keeping all real order
 endpoint calls forbidden.
 

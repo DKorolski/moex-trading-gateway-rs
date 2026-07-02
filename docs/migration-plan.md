@@ -1887,6 +1887,32 @@ M3c-16 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-17 implementation-gate evidence closure / durable journal SQLite schema:
+
+- Added design-only evidence closure plan for release profile, positive
+  GetOrder, route-template recheck, undocumented `201/202/204`, and cancel
+  `409/410` semantics.
+- Closure methods are controlled evidence, official documentation
+  confirmation, or reviewer-accepted waiver; order endpoint calls remain
+  disallowed for closure.
+- Added design-only `order_endpoint_attempts` SQLite schema contract storing
+  only hashes, safe enums, booleans, integers, and timestamps.
+- Added uniqueness/replay policy: same `endpoint_attempt_id` plus same
+  fingerprint set is idempotent; same attempt id with different fingerprint set
+  is rejected and disarms.
+- Details are documented in
+  `docs/m3c17-evidence-closure-durable-journal-schema.md`.
+
+M3c-17 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

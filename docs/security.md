@@ -250,6 +250,10 @@ whose append input binds only request/checkpoint/envelope/outcome/state/ACK
 fingerprints. It also records FINAM status semantics: documented `200` success,
 undocumented `201/202/204` requiring evidence or waiver, and cancel `404`
 reconciliation without raw path/body/error/broker-order-id export.
+M3c-17 adds an implementation-gate evidence closure plan and design-only SQLite
+schema for `order_endpoint_attempts`. The schema stores hashes/safe enums only,
+requires same-fingerprint idempotent replay, rejects conflicting replay, and
+keeps all closure artifacts redacted and source-archive-bound.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

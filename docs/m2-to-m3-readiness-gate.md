@@ -1350,6 +1350,10 @@ Implemented while still keeping all broker order endpoints disabled:
   append-only endpoint-attempt journal schema as fingerprint-only evidence,
   and distinguishes documented FINAM REST `200` success from undocumented
   `201/202/204` and cancel `409/410` defensive/waiver policies;
+- M3c-17 evidence closure / durable journal schema: records pending
+  implementation-gate evidence slots, allowed closure methods, and a
+  hash-only `order_endpoint_attempts` SQLite schema with idempotent replay by
+  fingerprint set and conflict disarm policy;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:

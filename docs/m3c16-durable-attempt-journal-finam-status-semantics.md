@@ -46,6 +46,12 @@ All entries still require state-machine transition and no-blind-retry. Status
 semantics cannot bypass the order-path state machine and export no raw
 path/body/error/broker-order-id values.
 
+## Follow-up in M3c-17
+
+M3c-17 records the implementation-gate evidence closure plan and the
+design-only SQLite schema for `order_endpoint_attempts`, including unique
+`endpoint_attempt_id_sha256`, replay by fingerprint set, and conflict disarm.
+
 ## Still not allowed
 
 - FINAM real PlaceOrder `POST`;

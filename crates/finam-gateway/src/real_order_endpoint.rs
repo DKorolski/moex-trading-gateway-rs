@@ -833,6 +833,136 @@ pub struct GatewayRealOrderEndpointFinamStatusSemanticsDesignShape {
     pub raw_broker_order_id_exported: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointEvidenceSlot {
+    ReleaseProfileEvidenceOrWaiver,
+    PositiveGetOrderEvidenceOrWaiver,
+    RouteTemplateRecheck,
+    Undocumented2xxStatusSemantics,
+    Cancel409410StatusSemantics,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointEvidenceClosureMethod {
+    ControlledEvidence,
+    ReviewerAcceptedWaiver,
+    OfficialDocsConfirmation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointEvidenceClosureStatus {
+    PendingBeforeImplementationGate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointEvidenceSlotClosurePlanEntry {
+    pub slot: GatewayRealOrderEndpointEvidenceSlot,
+    pub current_status: GatewayRealOrderEndpointEvidenceClosureStatus,
+    pub accepted_closure_methods: Vec<GatewayRealOrderEndpointEvidenceClosureMethod>,
+    pub must_close_before_implementation_gate: bool,
+    pub endpoint_calls_allowed_for_closure: bool,
+    pub order_endpoint_calls_allowed_for_closure: bool,
+    pub reviewer_acceptance_required: bool,
+    pub artifact_redacted_only: bool,
+    pub source_archive_binding_required: bool,
+    pub raw_secret_exported: bool,
+    pub raw_account_exported: bool,
+    pub raw_order_id_exported: bool,
+    pub raw_path_exported: bool,
+    pub raw_body_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointEvidenceClosurePlanDesignShape {
+    pub plan_design_only: bool,
+    pub slot_count: usize,
+    pub release_profile_slot_present: bool,
+    pub positive_get_order_slot_present: bool,
+    pub route_template_recheck_slot_present: bool,
+    pub undocumented_2xx_policy_slot_present: bool,
+    pub cancel_409_410_policy_slot_present: bool,
+    pub all_slots_pending_before_implementation_gate: bool,
+    pub all_slots_require_reviewer_acceptance: bool,
+    pub order_endpoint_calls_allowed_for_closure: bool,
+    pub closure_artifacts_redacted_only: bool,
+    pub source_archive_binding_required: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointDurableAttemptJournalColumnKind {
+    PrimaryKeyHash,
+    ForeignKeyHash,
+    SafeEnum,
+    Timestamp,
+    Sha256,
+    Boolean,
+    Integer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointDurableAttemptJournalColumn {
+    pub name: String,
+    pub kind: GatewayRealOrderEndpointDurableAttemptJournalColumnKind,
+    pub required: bool,
+    pub unique: bool,
+    pub stores_raw_value: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointDurableAttemptJournalIndex {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub unique: bool,
+    pub replay_policy_related: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointDurableAttemptJournalReplayDecision {
+    SameFingerprintSetIdempotentReplay,
+    DifferentFingerprintSetRejectAndDisarm,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointDurableAttemptJournalReplayPolicyEntry {
+    pub decision: GatewayRealOrderEndpointDurableAttemptJournalReplayDecision,
+    pub endpoint_attempt_id_hash_match_required: bool,
+    pub full_fingerprint_set_match_required: bool,
+    pub state_transition_result_match_required: bool,
+    pub ack_diagnostic_match_required: bool,
+    pub raw_values_compared: bool,
+    pub no_blind_retry: bool,
+    pub operator_disarm_on_conflict: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointDurableAttemptJournalSqliteSchemaDesignShape {
+    pub schema_design_only: bool,
+    pub table_name: String,
+    pub schema_version: u16,
+    pub column_count: usize,
+    pub unique_index_count: usize,
+    pub replay_policy_entry_count: usize,
+    pub endpoint_attempt_id_unique: bool,
+    pub request_id_hash_indexed: bool,
+    pub client_order_id_hash_indexed: bool,
+    pub broker_order_id_hash_optional: bool,
+    pub order_path_record_reference_required: bool,
+    pub append_only: bool,
+    pub begin_immediate_required: bool,
+    pub wal_required: bool,
+    pub synchronous_full_required: bool,
+    pub writer_lock_required: bool,
+    pub schema_version_guard_required: bool,
+    pub idempotent_replay_requires_same_fingerprint_set: bool,
+    pub conflict_replay_rejects_and_disarms: bool,
+    pub raw_endpoint_attempt_id_exported: bool,
+    pub raw_request_values_exported: bool,
+    pub raw_broker_order_id_exported: bool,
+    pub raw_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub raw_error_exported: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayRealOrderEndpointOutcomeStatePolicyDesignShape {
     pub matrix_serializable: bool,
@@ -902,6 +1032,10 @@ pub struct GatewayRealOrderEndpointApiShape {
     pub http_status_outcome_matrix_design:
         GatewayRealOrderEndpointHttpStatusOutcomeMatrixDesignShape,
     pub finam_status_semantics_design: GatewayRealOrderEndpointFinamStatusSemanticsDesignShape,
+    pub implementation_gate_evidence_closure_plan_design:
+        GatewayRealOrderEndpointEvidenceClosurePlanDesignShape,
+    pub durable_attempt_journal_sqlite_schema_design:
+        GatewayRealOrderEndpointDurableAttemptJournalSqliteSchemaDesignShape,
     pub durable_checkpoint_capability_design:
         GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape,
     pub checkpoint_marker_creation_design:
@@ -1131,6 +1265,52 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
             raw_error_exported: false,
             raw_broker_order_id_exported: false,
         },
+        implementation_gate_evidence_closure_plan_design:
+            GatewayRealOrderEndpointEvidenceClosurePlanDesignShape {
+                plan_design_only: true,
+                slot_count: implementation_gate_evidence_closure_plan().len(),
+                release_profile_slot_present: true,
+                positive_get_order_slot_present: true,
+                route_template_recheck_slot_present: true,
+                undocumented_2xx_policy_slot_present: true,
+                cancel_409_410_policy_slot_present: true,
+                all_slots_pending_before_implementation_gate: true,
+                all_slots_require_reviewer_acceptance: true,
+                order_endpoint_calls_allowed_for_closure: false,
+                closure_artifacts_redacted_only: true,
+                source_archive_binding_required: true,
+            },
+        durable_attempt_journal_sqlite_schema_design:
+            GatewayRealOrderEndpointDurableAttemptJournalSqliteSchemaDesignShape {
+                schema_design_only: true,
+                table_name: "order_endpoint_attempts".to_string(),
+                schema_version: 1,
+                column_count: durable_attempt_journal_sqlite_columns().len(),
+                unique_index_count: durable_attempt_journal_sqlite_indexes()
+                    .iter()
+                    .filter(|index| index.unique)
+                    .count(),
+                replay_policy_entry_count: durable_attempt_journal_replay_policy_matrix().len(),
+                endpoint_attempt_id_unique: true,
+                request_id_hash_indexed: true,
+                client_order_id_hash_indexed: true,
+                broker_order_id_hash_optional: true,
+                order_path_record_reference_required: true,
+                append_only: true,
+                begin_immediate_required: true,
+                wal_required: true,
+                synchronous_full_required: true,
+                writer_lock_required: true,
+                schema_version_guard_required: true,
+                idempotent_replay_requires_same_fingerprint_set: true,
+                conflict_replay_rejects_and_disarms: true,
+                raw_endpoint_attempt_id_exported: false,
+                raw_request_values_exported: false,
+                raw_broker_order_id_exported: false,
+                raw_path_exported: false,
+                raw_body_exported: false,
+                raw_error_exported: false,
+            },
         durable_checkpoint_capability_design:
             GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape {
                 place_capability_type_internal: true,
@@ -2675,6 +2855,197 @@ pub fn finam_status_semantics_matrix() -> Vec<GatewayRealOrderEndpointFinamStatu
     matrix
 }
 
+fn evidence_slot_entry(
+    slot: GatewayRealOrderEndpointEvidenceSlot,
+    accepted_closure_methods: Vec<GatewayRealOrderEndpointEvidenceClosureMethod>,
+    order_endpoint_calls_allowed_for_closure: bool,
+) -> GatewayRealOrderEndpointEvidenceSlotClosurePlanEntry {
+    GatewayRealOrderEndpointEvidenceSlotClosurePlanEntry {
+        slot,
+        current_status:
+            GatewayRealOrderEndpointEvidenceClosureStatus::PendingBeforeImplementationGate,
+        accepted_closure_methods,
+        must_close_before_implementation_gate: true,
+        endpoint_calls_allowed_for_closure: false,
+        order_endpoint_calls_allowed_for_closure,
+        reviewer_acceptance_required: true,
+        artifact_redacted_only: true,
+        source_archive_binding_required: true,
+        raw_secret_exported: false,
+        raw_account_exported: false,
+        raw_order_id_exported: false,
+        raw_path_exported: false,
+        raw_body_exported: false,
+    }
+}
+
+pub fn implementation_gate_evidence_closure_plan(
+) -> Vec<GatewayRealOrderEndpointEvidenceSlotClosurePlanEntry> {
+    use GatewayRealOrderEndpointEvidenceClosureMethod as Method;
+    use GatewayRealOrderEndpointEvidenceSlot as Slot;
+
+    vec![
+        evidence_slot_entry(
+            Slot::ReleaseProfileEvidenceOrWaiver,
+            vec![Method::ControlledEvidence, Method::ReviewerAcceptedWaiver],
+            false,
+        ),
+        evidence_slot_entry(
+            Slot::PositiveGetOrderEvidenceOrWaiver,
+            vec![Method::ControlledEvidence, Method::ReviewerAcceptedWaiver],
+            false,
+        ),
+        evidence_slot_entry(
+            Slot::RouteTemplateRecheck,
+            vec![
+                Method::OfficialDocsConfirmation,
+                Method::ReviewerAcceptedWaiver,
+            ],
+            false,
+        ),
+        evidence_slot_entry(
+            Slot::Undocumented2xxStatusSemantics,
+            vec![
+                Method::ControlledEvidence,
+                Method::OfficialDocsConfirmation,
+                Method::ReviewerAcceptedWaiver,
+            ],
+            false,
+        ),
+        evidence_slot_entry(
+            Slot::Cancel409410StatusSemantics,
+            vec![
+                Method::ControlledEvidence,
+                Method::OfficialDocsConfirmation,
+                Method::ReviewerAcceptedWaiver,
+            ],
+            false,
+        ),
+    ]
+}
+
+fn durable_attempt_journal_column(
+    name: &str,
+    kind: GatewayRealOrderEndpointDurableAttemptJournalColumnKind,
+    required: bool,
+    unique: bool,
+) -> GatewayRealOrderEndpointDurableAttemptJournalColumn {
+    GatewayRealOrderEndpointDurableAttemptJournalColumn {
+        name: name.to_string(),
+        kind,
+        required,
+        unique,
+        stores_raw_value: false,
+    }
+}
+
+pub fn durable_attempt_journal_sqlite_columns(
+) -> Vec<GatewayRealOrderEndpointDurableAttemptJournalColumn> {
+    use GatewayRealOrderEndpointDurableAttemptJournalColumnKind as Kind;
+
+    vec![
+        durable_attempt_journal_column(
+            "endpoint_attempt_id_sha256",
+            Kind::PrimaryKeyHash,
+            true,
+            true,
+        ),
+        durable_attempt_journal_column("request_id_sha256", Kind::ForeignKeyHash, true, false),
+        durable_attempt_journal_column("client_order_id_sha256", Kind::Sha256, true, false),
+        durable_attempt_journal_column("account_sha256", Kind::Sha256, true, false),
+        durable_attempt_journal_column("instrument_sha256", Kind::Sha256, true, false),
+        durable_attempt_journal_column("broker_order_id_sha256", Kind::Sha256, false, false),
+        durable_attempt_journal_column("operation", Kind::SafeEnum, true, false),
+        durable_attempt_journal_column("checkpoint_label", Kind::SafeEnum, true, false),
+        durable_attempt_journal_column("request_fingerprint_sha256", Kind::Sha256, true, false),
+        durable_attempt_journal_column("checkpoint_proof_sha256", Kind::Sha256, true, false),
+        durable_attempt_journal_column("captured_envelope_sha256", Kind::Sha256, true, false),
+        durable_attempt_journal_column("outcome_sha256", Kind::Sha256, true, false),
+        durable_attempt_journal_column("state_transition_sha256", Kind::Sha256, true, false),
+        durable_attempt_journal_column("ack_diagnostic_sha256", Kind::Sha256, true, false),
+        durable_attempt_journal_column("http_status_present", Kind::Boolean, true, false),
+        durable_attempt_journal_column("http_status_code", Kind::Integer, false, false),
+        durable_attempt_journal_column("created_ts", Kind::Timestamp, true, false),
+        durable_attempt_journal_column("state_transition_committed", Kind::Boolean, true, false),
+        durable_attempt_journal_column("replay_fingerprint_set_sha256", Kind::Sha256, true, false),
+    ]
+}
+
+fn durable_attempt_journal_index(
+    name: &str,
+    columns: &[&str],
+    unique: bool,
+    replay_policy_related: bool,
+) -> GatewayRealOrderEndpointDurableAttemptJournalIndex {
+    GatewayRealOrderEndpointDurableAttemptJournalIndex {
+        name: name.to_string(),
+        columns: columns.iter().map(|column| (*column).to_string()).collect(),
+        unique,
+        replay_policy_related,
+    }
+}
+
+pub fn durable_attempt_journal_sqlite_indexes(
+) -> Vec<GatewayRealOrderEndpointDurableAttemptJournalIndex> {
+    vec![
+        durable_attempt_journal_index(
+            "ux_order_endpoint_attempts_attempt_id",
+            &["endpoint_attempt_id_sha256"],
+            true,
+            true,
+        ),
+        durable_attempt_journal_index(
+            "ix_order_endpoint_attempts_request_id",
+            &["request_id_sha256"],
+            false,
+            false,
+        ),
+        durable_attempt_journal_index(
+            "ix_order_endpoint_attempts_client_order_id",
+            &["client_order_id_sha256"],
+            false,
+            false,
+        ),
+        durable_attempt_journal_index(
+            "ix_order_endpoint_attempts_replay_set",
+            &[
+                "endpoint_attempt_id_sha256",
+                "replay_fingerprint_set_sha256",
+            ],
+            false,
+            true,
+        ),
+    ]
+}
+
+pub fn durable_attempt_journal_replay_policy_matrix(
+) -> Vec<GatewayRealOrderEndpointDurableAttemptJournalReplayPolicyEntry> {
+    use GatewayRealOrderEndpointDurableAttemptJournalReplayDecision as Decision;
+
+    vec![
+        GatewayRealOrderEndpointDurableAttemptJournalReplayPolicyEntry {
+            decision: Decision::SameFingerprintSetIdempotentReplay,
+            endpoint_attempt_id_hash_match_required: true,
+            full_fingerprint_set_match_required: true,
+            state_transition_result_match_required: true,
+            ack_diagnostic_match_required: true,
+            raw_values_compared: false,
+            no_blind_retry: true,
+            operator_disarm_on_conflict: false,
+        },
+        GatewayRealOrderEndpointDurableAttemptJournalReplayPolicyEntry {
+            decision: Decision::DifferentFingerprintSetRejectAndDisarm,
+            endpoint_attempt_id_hash_match_required: true,
+            full_fingerprint_set_match_required: false,
+            state_transition_result_match_required: false,
+            ack_diagnostic_match_required: false,
+            raw_values_compared: false,
+            no_blind_retry: true,
+            operator_disarm_on_conflict: true,
+        },
+    ]
+}
+
 pub fn future_send_outcome_state_policy_matrix(
 ) -> Vec<GatewayRealOrderEndpointOutcomeStatePolicyEntry> {
     use GatewayRealOrderEndpointFutureSendOutcome as Outcome;
@@ -3858,6 +4229,197 @@ mod tests {
             !shape
                 .finam_status_semantics_design
                 .raw_broker_order_id_exported
+        );
+        assert!(
+            shape
+                .implementation_gate_evidence_closure_plan_design
+                .plan_design_only
+        );
+        assert_eq!(
+            shape
+                .implementation_gate_evidence_closure_plan_design
+                .slot_count,
+            5
+        );
+        assert!(
+            shape
+                .implementation_gate_evidence_closure_plan_design
+                .release_profile_slot_present
+        );
+        assert!(
+            shape
+                .implementation_gate_evidence_closure_plan_design
+                .positive_get_order_slot_present
+        );
+        assert!(
+            shape
+                .implementation_gate_evidence_closure_plan_design
+                .route_template_recheck_slot_present
+        );
+        assert!(
+            shape
+                .implementation_gate_evidence_closure_plan_design
+                .undocumented_2xx_policy_slot_present
+        );
+        assert!(
+            shape
+                .implementation_gate_evidence_closure_plan_design
+                .cancel_409_410_policy_slot_present
+        );
+        assert!(
+            shape
+                .implementation_gate_evidence_closure_plan_design
+                .all_slots_pending_before_implementation_gate
+        );
+        assert!(
+            shape
+                .implementation_gate_evidence_closure_plan_design
+                .all_slots_require_reviewer_acceptance
+        );
+        assert!(
+            !shape
+                .implementation_gate_evidence_closure_plan_design
+                .order_endpoint_calls_allowed_for_closure
+        );
+        assert!(
+            shape
+                .implementation_gate_evidence_closure_plan_design
+                .closure_artifacts_redacted_only
+        );
+        assert!(
+            shape
+                .implementation_gate_evidence_closure_plan_design
+                .source_archive_binding_required
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .schema_design_only
+        );
+        assert_eq!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .table_name,
+            "order_endpoint_attempts"
+        );
+        assert_eq!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .schema_version,
+            1
+        );
+        assert_eq!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .column_count,
+            19
+        );
+        assert_eq!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .unique_index_count,
+            1
+        );
+        assert_eq!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .replay_policy_entry_count,
+            2
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .endpoint_attempt_id_unique
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .request_id_hash_indexed
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .client_order_id_hash_indexed
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .broker_order_id_hash_optional
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .order_path_record_reference_required
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .append_only
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .begin_immediate_required
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .wal_required
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .synchronous_full_required
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .writer_lock_required
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .schema_version_guard_required
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .idempotent_replay_requires_same_fingerprint_set
+        );
+        assert!(
+            shape
+                .durable_attempt_journal_sqlite_schema_design
+                .conflict_replay_rejects_and_disarms
+        );
+        assert!(
+            !shape
+                .durable_attempt_journal_sqlite_schema_design
+                .raw_endpoint_attempt_id_exported
+        );
+        assert!(
+            !shape
+                .durable_attempt_journal_sqlite_schema_design
+                .raw_request_values_exported
+        );
+        assert!(
+            !shape
+                .durable_attempt_journal_sqlite_schema_design
+                .raw_broker_order_id_exported
+        );
+        assert!(
+            !shape
+                .durable_attempt_journal_sqlite_schema_design
+                .raw_path_exported
+        );
+        assert!(
+            !shape
+                .durable_attempt_journal_sqlite_schema_design
+                .raw_body_exported
+        );
+        assert!(
+            !shape
+                .durable_attempt_journal_sqlite_schema_design
+                .raw_error_exported
         );
         assert!(
             shape
@@ -5379,6 +5941,183 @@ mod tests {
         );
 
         let rendered = serde_json::to_string(&combined).expect("status semantics serializes");
+        assert!(!rendered.contains("ACC_TEST_0001"));
+        assert!(!rendered.contains("ORDER_TEST_0001"));
+        assert!(!rendered.contains("/v1/accounts/ACC_TEST_0001"));
+    }
+
+    #[test]
+    fn implementation_gate_evidence_closure_plan_keeps_order_calls_closed() {
+        use GatewayRealOrderEndpointEvidenceClosureMethod as Method;
+        use GatewayRealOrderEndpointEvidenceClosureStatus as Status;
+        use GatewayRealOrderEndpointEvidenceSlot as Slot;
+
+        let plan = implementation_gate_evidence_closure_plan();
+        assert_eq!(plan.len(), 5);
+
+        for entry in &plan {
+            assert_eq!(
+                entry.current_status,
+                Status::PendingBeforeImplementationGate
+            );
+            assert!(entry.must_close_before_implementation_gate);
+            assert!(!entry.endpoint_calls_allowed_for_closure);
+            assert!(!entry.order_endpoint_calls_allowed_for_closure);
+            assert!(entry.reviewer_acceptance_required);
+            assert!(entry.artifact_redacted_only);
+            assert!(entry.source_archive_binding_required);
+            assert!(!entry.raw_secret_exported);
+            assert!(!entry.raw_account_exported);
+            assert!(!entry.raw_order_id_exported);
+            assert!(!entry.raw_path_exported);
+            assert!(!entry.raw_body_exported);
+        }
+
+        let release = plan
+            .iter()
+            .find(|entry| entry.slot == Slot::ReleaseProfileEvidenceOrWaiver)
+            .expect("release profile slot");
+        assert_eq!(
+            release.accepted_closure_methods,
+            vec![Method::ControlledEvidence, Method::ReviewerAcceptedWaiver]
+        );
+
+        let get_order = plan
+            .iter()
+            .find(|entry| entry.slot == Slot::PositiveGetOrderEvidenceOrWaiver)
+            .expect("positive get-order slot");
+        assert!(get_order
+            .accepted_closure_methods
+            .contains(&Method::ControlledEvidence));
+        assert!(get_order
+            .accepted_closure_methods
+            .contains(&Method::ReviewerAcceptedWaiver));
+
+        let route_recheck = plan
+            .iter()
+            .find(|entry| entry.slot == Slot::RouteTemplateRecheck)
+            .expect("route-template slot");
+        assert_eq!(
+            route_recheck.accepted_closure_methods,
+            vec![
+                Method::OfficialDocsConfirmation,
+                Method::ReviewerAcceptedWaiver
+            ]
+        );
+
+        for slot in [
+            Slot::Undocumented2xxStatusSemantics,
+            Slot::Cancel409410StatusSemantics,
+        ] {
+            let status_policy = plan
+                .iter()
+                .find(|entry| entry.slot == slot)
+                .expect("status policy slot");
+            assert!(status_policy
+                .accepted_closure_methods
+                .contains(&Method::ControlledEvidence));
+            assert!(status_policy
+                .accepted_closure_methods
+                .contains(&Method::OfficialDocsConfirmation));
+            assert!(status_policy
+                .accepted_closure_methods
+                .contains(&Method::ReviewerAcceptedWaiver));
+        }
+
+        let rendered = serde_json::to_string(&plan).expect("evidence plan serializes");
+        assert!(!rendered.contains("ACC_TEST_0001"));
+        assert!(!rendered.contains("ORDER_TEST_0001"));
+        assert!(!rendered.contains("Bearer "));
+    }
+
+    #[test]
+    fn durable_attempt_journal_sqlite_schema_design_is_hash_only_and_replay_safe() {
+        use GatewayRealOrderEndpointDurableAttemptJournalColumnKind as ColumnKind;
+        use GatewayRealOrderEndpointDurableAttemptJournalReplayDecision as Decision;
+
+        let columns = durable_attempt_journal_sqlite_columns();
+        assert_eq!(columns.len(), 19);
+        assert!(columns.iter().all(|column| !column.stores_raw_value));
+
+        let attempt_id = columns
+            .iter()
+            .find(|column| column.name == "endpoint_attempt_id_sha256")
+            .expect("endpoint attempt id hash column");
+        assert_eq!(attempt_id.kind, ColumnKind::PrimaryKeyHash);
+        assert!(attempt_id.required);
+        assert!(attempt_id.unique);
+
+        let broker_order_id = columns
+            .iter()
+            .find(|column| column.name == "broker_order_id_sha256")
+            .expect("optional broker id hash column");
+        assert_eq!(broker_order_id.kind, ColumnKind::Sha256);
+        assert!(!broker_order_id.required);
+        assert!(!broker_order_id.unique);
+
+        for required_hash in [
+            "request_fingerprint_sha256",
+            "checkpoint_proof_sha256",
+            "captured_envelope_sha256",
+            "outcome_sha256",
+            "state_transition_sha256",
+            "ack_diagnostic_sha256",
+            "replay_fingerprint_set_sha256",
+        ] {
+            let column = columns
+                .iter()
+                .find(|column| column.name == required_hash)
+                .expect("required hash column");
+            assert_eq!(column.kind, ColumnKind::Sha256);
+            assert!(column.required);
+            assert!(!column.unique);
+        }
+
+        let indexes = durable_attempt_journal_sqlite_indexes();
+        assert_eq!(indexes.len(), 4);
+        assert_eq!(indexes.iter().filter(|index| index.unique).count(), 1);
+        assert!(indexes.iter().any(|index| {
+            index.name == "ux_order_endpoint_attempts_attempt_id"
+                && index.unique
+                && index.columns == vec!["endpoint_attempt_id_sha256"]
+        }));
+        assert!(indexes.iter().any(|index| {
+            index.name == "ix_order_endpoint_attempts_replay_set"
+                && index.replay_policy_related
+                && index.columns
+                    == vec![
+                        "endpoint_attempt_id_sha256".to_string(),
+                        "replay_fingerprint_set_sha256".to_string(),
+                    ]
+        }));
+
+        let replay = durable_attempt_journal_replay_policy_matrix();
+        assert_eq!(replay.len(), 2);
+
+        let same = replay
+            .iter()
+            .find(|entry| entry.decision == Decision::SameFingerprintSetIdempotentReplay)
+            .expect("same fingerprint replay");
+        assert!(same.endpoint_attempt_id_hash_match_required);
+        assert!(same.full_fingerprint_set_match_required);
+        assert!(same.state_transition_result_match_required);
+        assert!(same.ack_diagnostic_match_required);
+        assert!(!same.raw_values_compared);
+        assert!(same.no_blind_retry);
+        assert!(!same.operator_disarm_on_conflict);
+
+        let conflict = replay
+            .iter()
+            .find(|entry| entry.decision == Decision::DifferentFingerprintSetRejectAndDisarm)
+            .expect("conflict replay");
+        assert!(conflict.endpoint_attempt_id_hash_match_required);
+        assert!(!conflict.full_fingerprint_set_match_required);
+        assert!(!conflict.raw_values_compared);
+        assert!(conflict.no_blind_retry);
+        assert!(conflict.operator_disarm_on_conflict);
+
+        let rendered =
+            serde_json::to_string(&(columns, indexes, replay)).expect("schema design serializes");
         assert!(!rendered.contains("ACC_TEST_0001"));
         assert!(!rendered.contains("ORDER_TEST_0001"));
         assert!(!rendered.contains("/v1/accounts/ACC_TEST_0001"));
