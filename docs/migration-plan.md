@@ -1990,6 +1990,29 @@ M3c-20 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-21 release-profile evidence:
+
+- Added source-bound release evidence helper
+  `scripts/m3c_release_profile_evidence.py`.
+- The helper runs `cargo build --release -p broker-cli`, records cargo/rustc
+  versions, package version, source commit/archive SHA-256, generated evidence
+  SHA-256 sidecar, forbidden-surface scan status/hash, and closed endpoint
+  booleans.
+- M3c-21 closes only `release_profile_evidence_or_waiver` as
+  `EvidenceProvided`; positive GetOrder, route-template recheck,
+  undocumented `201/202/204`, and cancel `409/410` remain pending.
+- Details are documented in `docs/m3c21-release-profile-evidence.md`.
+
+M3c-21 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

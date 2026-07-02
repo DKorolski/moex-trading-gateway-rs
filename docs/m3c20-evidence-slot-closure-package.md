@@ -53,6 +53,13 @@ evidence_provided_or_waiver_count
 The CLI also accepts pending/evidence/waiver statuses for undocumented `2xx`
 and cancel `409/410` semantics while keeping all defaults pending.
 
+## Follow-up in M3c-21
+
+M3c-21 starts slot closure by providing source-bound release-profile evidence
+for `broker-cli` in release profile. It should move
+`release_profile_evidence_or_waiver` to `EvidenceProvided` while keeping the
+other four slots pending and all real order endpoint calls forbidden.
+
 ## Still not allowed
 
 - FINAM real PlaceOrder `POST`;
