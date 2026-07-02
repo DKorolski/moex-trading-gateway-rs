@@ -202,6 +202,7 @@ See:
 - [M3b-13 real-readonly enablement runbook](docs/m3b13-real-readonly-enable-runbook.md)
 - [M3b-14 real-readonly contract probe operator harness](docs/m3b14-real-readonly-contract-probe-operator-harness.md)
 - [M3b-15 real-readonly pre-run hardening](docs/m3b15-real-readonly-pre-run-hardening.md)
+- [M3b-16 real-readonly contract probe evidence gate](docs/m3b16-real-readonly-contract-probe-evidence-gate.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

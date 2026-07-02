@@ -195,6 +195,10 @@ M3b-15 tightens the pre-run gate by narrowing `.post(` CI allowlisting to exact
 auth/session paths, binding real-readonly transport config to `RunApproved`, and
 making the lower-level probe loop internal so operator code uses the bounded
 operator entrypoint.
+M3b-16 adds the final evidence-gate preparation: `RunApproved` also binds the
+FINAM base URL hash, operator-run probes require redacted token/account preflight,
+and reports include a redacted evidence matrix for the requested GET-only
+broker-truth sources.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

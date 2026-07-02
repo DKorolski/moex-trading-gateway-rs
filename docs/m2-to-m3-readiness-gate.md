@@ -1064,3 +1064,27 @@ Still not implemented in M3b-15:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-16 real-readonly contract probe evidence gate status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- approved FINAM base URL length/SHA-256 is part of `RunApproved`;
+- real-readonly transport rejects base URL mismatches at construction time;
+- token/account preflight diagnostic is redacted and required for operator-run
+  probes;
+- evidence matrix is emitted for requested read-only sources with route
+  template, HTTP/body hash diagnostics, mapped reason/outcome, operator action,
+  and audit-record fingerprint;
+- operator-run controlled probe blocks persistent audit mode and remains
+  ephemeral evidence only.
+
+Still not implemented in M3b-16:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

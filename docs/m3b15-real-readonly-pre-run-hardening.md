@@ -5,6 +5,10 @@ probe. M3b-15 still does not authorize FINAM order placement/cancel, real
 command consumption, real CommandAck lifecycle, runtime attachment, `LiveReady`,
 live micro, stop/SLTP, or bracket behavior.
 
+M3b-16 follow-up binds the approved FINAM base URL into `RunApproved`, adds the
+token/account preflight diagnostic, and emits a redacted evidence matrix. See
+`docs/m3b16-real-readonly-contract-probe-evidence-gate.md`.
+
 ## Exact POST allowlist
 
 `scripts/forbidden_surface_scan.sh` now treats `.post(` as an exact allowlist,

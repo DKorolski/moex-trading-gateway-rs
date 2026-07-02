@@ -1235,6 +1235,33 @@ M3b-15 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-16 real-readonly contract probe evidence gate:
+
+- Added approved FINAM base URL length/SHA-256 to
+  `RealReadonlyBrokerTruthRunApproved`.
+- `ReqwestFinamRealReadonlyBrokerTruthTransport::try_new(...)` now rejects
+  configs whose base URL differs from the approved marker.
+- Added redacted token/account preflight diagnostic for token-details/account
+  hash match and no-order-feature checks.
+- Operator-run probe now requires passing token/account preflight before any
+  source loop can run.
+- Added redacted evidence matrix rows for route template, status, body hash,
+  mapped reason/outcome, operator action, and audit-record fingerprint.
+- Operator-run controlled probe blocks `PersistentAuditStore`; M3b-16 evidence
+  runs remain `EphemeralEvidenceStore` only.
+- Details are documented in
+  `docs/m3b16-real-readonly-contract-probe-evidence-gate.md`.
+
+M3b-16 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

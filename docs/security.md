@@ -156,6 +156,9 @@ categories are preserved as operator-action enums.
 M3b-15 narrows CI POST allowlisting to exact auth/session functions and binds
 real-readonly transport timeout/rate configuration to the approved run marker at
 construction time.
+M3b-16 extends that binding to the FINAM base URL hash and adds redacted
+token/account preflight plus evidence-matrix fingerprints for controlled
+read-only probe reports.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

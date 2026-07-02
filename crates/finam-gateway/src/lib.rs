@@ -3005,6 +3005,8 @@ pub struct FinamRealReadonlyOperatorGuardrailDecision {
     pub blocking_reasons: Vec<FinamRealReadonlyOperatorGuardrailBlock>,
     pub gate_blocks: Vec<RealReadonlyBrokerTruthGateBlock>,
     pub base_url_https: bool,
+    pub rest_base_url_len: usize,
+    pub rest_base_url_sha256: String,
     pub requested_account_id_present: bool,
     pub requested_account_id_len: Option<usize>,
     pub requested_account_id_sha256: Option<String>,
@@ -3024,6 +3026,8 @@ pub fn evaluate_finam_real_readonly_operator_guardrails(
     let base_url_https = reqwest::Url::parse(&config.rest_base_url)
         .map(|url| url.scheme() == "https")
         .unwrap_or(false);
+    let rest_base_url_len = config.rest_base_url.len();
+    let rest_base_url_sha256 = sha256_hex(config.rest_base_url.as_bytes());
     let order_feature_flags_disabled = !features.command_consumer_enabled
         && !features.order_placement_enabled
         && !features.cancel_enabled
@@ -3075,6 +3079,8 @@ pub fn evaluate_finam_real_readonly_operator_guardrails(
         blocking_reasons,
         gate_blocks: gate_decision.blocking_reasons,
         base_url_https,
+        rest_base_url_len,
+        rest_base_url_sha256,
         requested_account_id_present,
         requested_account_id_len,
         requested_account_id_sha256,
@@ -3090,7 +3096,7 @@ pub fn evaluate_finam_real_readonly_operator_guardrails(
 pub enum RealReadonlyBrokerTruthRunApprovalError {
     #[error("FINAM real-readonly run approval is blocked: {decision:?}")]
     GuardrailsBlocked {
-        decision: FinamRealReadonlyOperatorGuardrailDecision,
+        decision: Box<FinamRealReadonlyOperatorGuardrailDecision>,
     },
     #[error("FINAM real-readonly run approval requires a requested account hash")]
     MissingAccountIdentity,
@@ -3101,6 +3107,8 @@ pub struct RealReadonlyBrokerTruthRunApproved {
     gate: RealReadonlyBrokerTruthGateApproved,
     account_id_len: usize,
     account_id_sha256: String,
+    rest_base_url_len: usize,
+    rest_base_url_sha256: String,
     request_timeout_ms: u64,
     min_request_interval_ms: u64,
     _private: (),
@@ -3113,6 +3121,8 @@ impl std::fmt::Debug for RealReadonlyBrokerTruthRunApproved {
             .field("gate", &self.gate)
             .field("account_id_len", &self.account_id_len)
             .field("account_id_sha256", &self.account_id_sha256)
+            .field("rest_base_url_len", &self.rest_base_url_len)
+            .field("rest_base_url_sha256", &self.rest_base_url_sha256)
             .field("request_timeout_ms", &self.request_timeout_ms)
             .field("min_request_interval_ms", &self.min_request_interval_ms)
             .finish()
@@ -3126,7 +3136,7 @@ impl RealReadonlyBrokerTruthRunApproved {
     ) -> Result<Self, RealReadonlyBrokerTruthRunApprovalError> {
         if !decision.allowed || !decision.blocking_reasons.is_empty() {
             return Err(RealReadonlyBrokerTruthRunApprovalError::GuardrailsBlocked {
-                decision: decision.clone(),
+                decision: Box::new(decision.clone()),
             });
         }
         let account_id_len = decision
@@ -3140,6 +3150,8 @@ impl RealReadonlyBrokerTruthRunApproved {
             gate,
             account_id_len,
             account_id_sha256,
+            rest_base_url_len: decision.rest_base_url_len,
+            rest_base_url_sha256: decision.rest_base_url_sha256.clone(),
             request_timeout_ms: decision.request_timeout_ms,
             min_request_interval_ms: decision.min_request_interval_ms,
             _private: (),
@@ -3154,9 +3166,16 @@ impl RealReadonlyBrokerTruthRunApproved {
         RealReadonlyBrokerTruthRunApprovalDiagnostic {
             account_id_len: self.account_id_len,
             account_id_sha256: self.account_id_sha256.clone(),
+            rest_base_url_len: self.rest_base_url_len,
+            rest_base_url_sha256: self.rest_base_url_sha256.clone(),
             request_timeout_ms: self.request_timeout_ms,
             min_request_interval_ms: self.min_request_interval_ms,
         }
+    }
+
+    fn allows_base_url(&self, base_url: &str) -> bool {
+        base_url.len() == self.rest_base_url_len
+            && sha256_hex(base_url.as_bytes()) == self.rest_base_url_sha256
     }
 
     fn allows_request(&self, request: &CancelBrokerTruthFetchRequestSnapshot) -> bool {
@@ -3176,6 +3195,8 @@ impl RealReadonlyBrokerTruthRunApproved {
 pub struct RealReadonlyBrokerTruthRunApprovalDiagnostic {
     pub account_id_len: usize,
     pub account_id_sha256: String,
+    pub rest_base_url_len: usize,
+    pub rest_base_url_sha256: String,
     pub request_timeout_ms: u64,
     pub min_request_interval_ms: u64,
 }
@@ -3207,6 +3228,15 @@ pub enum FinamRealReadonlyBrokerTruthTransportInitError {
         "FINAM real-readonly transport min interval does not match run approval: approved_ms={approved_ms}, config_ms={config_ms}"
     )]
     MinRequestIntervalMismatch { approved_ms: u64, config_ms: u64 },
+    #[error(
+        "FINAM real-readonly transport base URL does not match run approval: approved_len={approved_len}, config_len={config_len}"
+    )]
+    BaseUrlMismatch {
+        approved_len: usize,
+        approved_sha256: String,
+        config_len: usize,
+        config_sha256: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -3279,6 +3309,16 @@ impl ReqwestFinamRealReadonlyBrokerTruthTransport {
                 FinamRealReadonlyBrokerTruthTransportInitError::NonHttpsBaseUrl {
                     base_url_len: config.rest_base_url.len(),
                     base_url_sha256: sha256_hex(config.rest_base_url.as_bytes()),
+                },
+            );
+        }
+        if !run_approval.allows_base_url(&config.rest_base_url) {
+            return Err(
+                FinamRealReadonlyBrokerTruthTransportInitError::BaseUrlMismatch {
+                    approved_len: run_approval.rest_base_url_len,
+                    approved_sha256: run_approval.rest_base_url_sha256.clone(),
+                    config_len: config.rest_base_url.len(),
+                    config_sha256: sha256_hex(config.rest_base_url.as_bytes()),
                 },
             );
         }
@@ -4031,6 +4071,78 @@ pub struct FinamRealReadonlyTransportErrorOperatorActionDiagnostic {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinamRealReadonlyTokenAccountPreflightDiagnostic {
+    pub token_details_checked: bool,
+    pub token_account_ids_count: usize,
+    pub requested_account_id_present: bool,
+    pub requested_account_id_len: Option<usize>,
+    pub requested_account_id_sha256: Option<String>,
+    pub token_account_hash_match: Option<bool>,
+    pub no_order_feature_flags_enabled: bool,
+}
+
+impl FinamRealReadonlyTokenAccountPreflightDiagnostic {
+    pub fn from_token_details(
+        features: &GatewayFeatureSet,
+        request: &CancelBrokerTruthFetchRequestSnapshot,
+        token_details: Option<&broker_finam::dto::TokenDetailsResponse>,
+    ) -> Self {
+        let requested_account_id_len = request
+            .account_id
+            .as_ref()
+            .map(|account_id| account_id.as_str().len());
+        let requested_account_id_sha256 = request
+            .account_id
+            .as_ref()
+            .map(|account_id| sha256_hex(account_id.as_str().as_bytes()));
+        let token_account_hash_match = token_details.zip(requested_account_id_sha256.as_ref()).map(
+            |(details, requested_hash)| {
+                details
+                    .account_ids
+                    .iter()
+                    .any(|account_id| sha256_hex(account_id.as_bytes()) == *requested_hash)
+            },
+        );
+        Self {
+            token_details_checked: token_details.is_some(),
+            token_account_ids_count: token_details
+                .map(|details| details.account_ids.len())
+                .unwrap_or_default(),
+            requested_account_id_present: request.account_id.is_some(),
+            requested_account_id_len,
+            requested_account_id_sha256,
+            token_account_hash_match,
+            no_order_feature_flags_enabled: !features.command_consumer_enabled
+                && !features.order_placement_enabled
+                && !features.cancel_enabled
+                && !features.stop_sltp_bracket_enabled,
+        }
+    }
+
+    fn allows_operator_probe(&self) -> bool {
+        self.token_details_checked
+            && self.requested_account_id_present
+            && self.token_account_hash_match == Some(true)
+            && self.no_order_feature_flags_enabled
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FinamRealReadonlyContractProbeEvidenceMatrixRow {
+    pub source: CancelBrokerTruthSource,
+    pub route_template: Option<String>,
+    pub http_status: Option<u16>,
+    pub http_body_present: Option<bool>,
+    pub http_body_len: Option<usize>,
+    pub http_body_sha256: Option<String>,
+    pub mapped_fetch_reason: Option<CancelBrokerTruthFetchReason>,
+    pub outcome: CancelBrokerTruthFetchOutcomeKind,
+    pub transport_error_category: Option<FinamRealReadonlyTransportErrorCategory>,
+    pub operator_action: Option<FinamRealReadonlyTransportErrorOperatorAction>,
+    pub audit_record_sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FinamRealReadonlyContractProbeOperatorRunConfig {
     pub enabled: bool,
     pub sources: Vec<CancelBrokerTruthSource>,
@@ -4044,6 +4156,7 @@ pub struct FinamRealReadonlyContractProbeOperatorRunConfig {
     pub scheduler_disabled: bool,
     pub operator_disable_procedure_documented: bool,
     pub preserve_transport_error_taxonomy: bool,
+    pub token_account_preflight: Option<FinamRealReadonlyTokenAccountPreflightDiagnostic>,
 }
 
 impl Default for FinamRealReadonlyContractProbeOperatorRunConfig {
@@ -4061,6 +4174,7 @@ impl Default for FinamRealReadonlyContractProbeOperatorRunConfig {
             scheduler_disabled: true,
             operator_disable_procedure_documented: false,
             preserve_transport_error_taxonomy: true,
+            token_account_preflight: None,
         }
     }
 }
@@ -4081,6 +4195,9 @@ pub enum FinamRealReadonlyContractProbeOperatorRunBlock {
     SchedulerNotDisabled,
     DisableProcedureMissing,
     TransportTaxonomyNotPreserved,
+    TokenAccountPreflightMissing,
+    TokenAccountPreflightFailed,
+    PersistentAuditModeNotAllowed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -4095,8 +4212,10 @@ pub struct FinamRealReadonlyContractProbeOperatorRunReport {
     pub scheduler_disabled: bool,
     pub operator_disable_procedure_documented: bool,
     pub preserve_transport_error_taxonomy: bool,
+    pub token_account_preflight: Option<FinamRealReadonlyTokenAccountPreflightDiagnostic>,
     pub max_requests: usize,
     pub probe_report: Option<FinamRealReadonlyContractProbeReport>,
+    pub evidence_matrix: Vec<FinamRealReadonlyContractProbeEvidenceMatrixRow>,
     pub transport_error_actions: Vec<FinamRealReadonlyTransportErrorOperatorActionDiagnostic>,
 }
 
@@ -4279,6 +4398,21 @@ where
         blocking_reasons
             .push(FinamRealReadonlyContractProbeOperatorRunBlock::TransportTaxonomyNotPreserved);
     }
+    match &config.token_account_preflight {
+        Some(preflight) if preflight.allows_operator_probe() => {}
+        Some(_) => {
+            blocking_reasons
+                .push(FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightFailed);
+        }
+        None => {
+            blocking_reasons
+                .push(FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightMissing);
+        }
+    }
+    if config.audit_store_mode != FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore {
+        blocking_reasons
+            .push(FinamRealReadonlyContractProbeOperatorRunBlock::PersistentAuditModeNotAllowed);
+    }
 
     if !blocking_reasons.is_empty() {
         return FinamRealReadonlyContractProbeOperatorRunReport {
@@ -4292,8 +4426,10 @@ where
             scheduler_disabled: config.scheduler_disabled,
             operator_disable_procedure_documented: config.operator_disable_procedure_documented,
             preserve_transport_error_taxonomy: config.preserve_transport_error_taxonomy,
+            token_account_preflight: config.token_account_preflight.clone(),
             max_requests: config.max_requests,
             probe_report: None,
+            evidence_matrix: Vec::new(),
             transport_error_actions: Vec::new(),
         };
     }
@@ -4322,6 +4458,7 @@ where
             })
         })
         .collect::<Vec<_>>();
+    let evidence_matrix = build_finam_real_readonly_contract_probe_evidence_matrix(&probe_report);
 
     FinamRealReadonlyContractProbeOperatorRunReport {
         enabled: true,
@@ -4334,10 +4471,51 @@ where
         scheduler_disabled: config.scheduler_disabled,
         operator_disable_procedure_documented: config.operator_disable_procedure_documented,
         preserve_transport_error_taxonomy: config.preserve_transport_error_taxonomy,
+        token_account_preflight: config.token_account_preflight.clone(),
         max_requests: config.max_requests,
         probe_report: Some(probe_report),
+        evidence_matrix,
         transport_error_actions,
     }
+}
+
+fn build_finam_real_readonly_contract_probe_evidence_matrix(
+    report: &FinamRealReadonlyContractProbeReport,
+) -> Vec<FinamRealReadonlyContractProbeEvidenceMatrixRow> {
+    report
+        .source_diagnostics
+        .iter()
+        .enumerate()
+        .map(|(index, source_diagnostic)| {
+            let route = report.route_diagnostics.get(index);
+            let captured = report.captured_diagnostics.get(index);
+            let audit = report.audit_records.get(index);
+            let transport_error_category = captured
+                .and_then(|diagnostic| diagnostic.transport_error_category)
+                .or_else(|| audit.and_then(|record| record.transport_error_category));
+            let audit_record_sha256 = audit.and_then(|record| {
+                serde_json::to_vec(record)
+                    .ok()
+                    .map(|encoded| sha256_hex(&encoded))
+            });
+            FinamRealReadonlyContractProbeEvidenceMatrixRow {
+                source: source_diagnostic.source,
+                route_template: route.map(|diagnostic| diagnostic.path_template.to_string()),
+                http_status: captured
+                    .map(|diagnostic| diagnostic.status)
+                    .or_else(|| audit.and_then(|record| record.http_status)),
+                http_body_present: captured.map(|diagnostic| diagnostic.body_present),
+                http_body_len: captured.and_then(|diagnostic| diagnostic.body_len),
+                http_body_sha256: captured.and_then(|diagnostic| diagnostic.body_sha256.clone()),
+                mapped_fetch_reason: source_diagnostic.reason,
+                outcome: source_diagnostic.outcome,
+                transport_error_category,
+                operator_action: transport_error_category
+                    .map(finam_real_readonly_transport_error_operator_action),
+                audit_record_sha256,
+            }
+        })
+        .collect()
 }
 
 #[derive(Clone)]
@@ -10725,21 +10903,33 @@ mod tests {
                 FinamRealReadonlyContractProbeOperatorRunBlock::DisabledByDefault,
                 FinamRealReadonlyContractProbeOperatorRunBlock::OutputLocationMissing,
                 FinamRealReadonlyContractProbeOperatorRunBlock::DisableProcedureMissing,
+                FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightMissing,
             ]
         );
         assert!(disabled.probe_report.is_none());
         assert!(fetcher.route_diagnostics().is_empty());
+        let token_details = broker_finam::dto::TokenDetailsResponse {
+            account_ids: vec![account_id.as_str().to_string()],
+            created_at: None,
+            expires_at: None,
+            md_permissions: Vec::new(),
+            readonly: Some(true),
+        };
+        let token_account_preflight =
+            FinamRealReadonlyTokenAccountPreflightDiagnostic::from_token_details(
+                &GatewayFeatureSet::default(),
+                &request_snapshot,
+                Some(&token_details),
+            );
+        assert!(token_account_preflight.allows_operator_probe());
 
         let enabled = run_finam_real_readonly_operator_contract_probe(
             &mut fetcher,
             request_snapshot.clone(),
             &FinamRealReadonlyContractProbeOperatorRunConfig {
                 enabled: true,
-                sources: vec![
-                    CancelBrokerTruthSource::GetOrder,
-                    CancelBrokerTruthSource::TradesSnapshot,
-                ],
-                max_requests: 2,
+                sources: all_cancel_truth_sources().to_vec(),
+                max_requests: 4,
                 request_timeout_ms: 10_000,
                 min_request_interval_ms: 250,
                 redacted_output_location: Some(
@@ -10753,11 +10943,12 @@ mod tests {
                 scheduler_disabled: true,
                 operator_disable_procedure_documented: true,
                 preserve_transport_error_taxonomy: true,
+                token_account_preflight: Some(token_account_preflight.clone()),
             },
         )
         .await;
         assert!(enabled.blocking_reasons.is_empty());
-        assert_eq!(enabled.max_requests, 2);
+        assert_eq!(enabled.max_requests, 4);
         assert_eq!(
             enabled.audit_store_mode,
             FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore
@@ -10768,18 +10959,36 @@ mod tests {
                 .as_ref()
                 .expect("probe report")
                 .attempted_sources,
-            vec![
-                CancelBrokerTruthSource::GetOrder,
-                CancelBrokerTruthSource::TradesSnapshot
-            ]
+            all_cancel_truth_sources().to_vec()
         );
         assert_eq!(enabled.transport_error_actions.len(), 1);
         assert_eq!(
             enabled.transport_error_actions[0].operator_action,
             FinamRealReadonlyTransportErrorOperatorAction::CheckTimeoutBudgetAndBrokerLatency
         );
+        assert_eq!(enabled.evidence_matrix.len(), 4);
+        assert_eq!(
+            enabled.evidence_matrix[0].route_template.as_deref(),
+            Some("/v1/accounts/{account_id}/orders/{order_id}")
+        );
+        assert_eq!(enabled.evidence_matrix[0].http_status, Some(404));
+        assert_eq!(
+            enabled.evidence_matrix[2].operator_action,
+            Some(FinamRealReadonlyTransportErrorOperatorAction::CheckTimeoutBudgetAndBrokerLatency)
+        );
+        assert!(enabled.evidence_matrix[0].audit_record_sha256.is_some());
+        assert_eq!(
+            enabled
+                .token_account_preflight
+                .as_ref()
+                .expect("preflight")
+                .token_account_hash_match,
+            Some(true)
+        );
         let report_json = serde_json::to_string(&enabled).expect("operator report serializes");
         assert!(report_json.contains("path_sha256"));
+        assert!(report_json.contains("evidence_matrix"));
+        assert!(report_json.contains("token_details_checked"));
         assert!(!report_json.contains("reports/finam-readonly-contract-probe/redacted.json"));
         assert!(!report_json.contains(account_id.as_str()));
         assert!(!report_json.contains(order_id.as_str()));
@@ -10803,6 +11012,7 @@ mod tests {
                 scheduler_disabled: true,
                 operator_disable_procedure_documented: true,
                 preserve_transport_error_taxonomy: true,
+                token_account_preflight: Some(token_account_preflight),
             },
         )
         .await;
@@ -10813,6 +11023,9 @@ mod tests {
         assert!(blocked
             .blocking_reasons
             .contains(&FinamRealReadonlyContractProbeOperatorRunBlock::BackgroundLoopNotDisabled));
+        assert!(!blocked.blocking_reasons.contains(
+            &FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightMissing
+        ));
     }
 
     #[test]
@@ -10848,6 +11061,11 @@ mod tests {
         assert_eq!(decision.account_allowed, Some(true));
         assert_eq!(decision.account_allowlist_count, 1);
         assert!(decision.requested_account_id_sha256.is_some());
+        assert_eq!(decision.rest_base_url_len, "https://api.finam.ru".len());
+        assert_eq!(
+            decision.rest_base_url_sha256,
+            sha256_hex("https://api.finam.ru".as_bytes())
+        );
         let gate = RealReadonlyBrokerTruthGateApproved::try_from_decision(
             &features.real_readonly_broker_truth_gate_decision(),
         )
@@ -10856,6 +11074,8 @@ mod tests {
             RealReadonlyBrokerTruthRunApproved::try_from_gate_and_guardrails(gate, &decision)
                 .expect("guardrails allow run marker");
         assert!(run_approval.allows_request(&request_snapshot));
+        assert!(run_approval.allows_base_url("https://api.finam.ru"));
+        assert!(!run_approval.allows_base_url("https://api.finam.example"));
         let decision_json = serde_json::to_string(&decision).expect("decision serializes");
         let config_debug = format!("{config:?}");
         assert!(!decision_json.contains(account_id.as_str()));
@@ -11036,6 +11256,18 @@ mod tests {
                 approved_ms: 250,
                 config_ms: 251,
             }
+        ));
+        assert!(matches!(
+            ReqwestFinamRealReadonlyBrokerTruthTransport::try_new(
+                FinamRealReadonlyBrokerTruthTransportConfig {
+                    rest_base_url: "https://api.finam.example".to_string(),
+                    ..FinamRealReadonlyBrokerTruthTransportConfig::default()
+                },
+                broker_finam::AccessToken::new("ACCESS_TOKEN_TEST"),
+                &run_approval,
+            )
+            .expect_err("transport base URL must match run approval"),
+            FinamRealReadonlyBrokerTruthTransportInitError::BaseUrlMismatch { .. }
         ));
         let transport = ReqwestFinamRealReadonlyBrokerTruthTransport::try_new(
             FinamRealReadonlyBrokerTruthTransportConfig::default(),
