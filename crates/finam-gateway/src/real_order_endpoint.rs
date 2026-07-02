@@ -59,8 +59,15 @@ struct OrderEndpointOperatorArmApproved {
     pub one_shot_arm: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointDurableCheckpointLabel {
+    PlaceBeginSubmitPersistedBeforeEndpoint,
+    CancelRequestCancelPersistedBeforeEndpoint,
+}
+
 struct OrderEndpointDurableStateCheckpoint {
     pub intent_recorded_before_endpoint: bool,
+    pub label: GatewayRealOrderEndpointDurableCheckpointLabel,
 }
 
 struct ApprovedOrderEndpointRequestParts {
@@ -71,6 +78,7 @@ struct ApprovedOrderEndpointRequestParts {
     pub account_instrument_allowlist_approved: bool,
     pub operator_arm_approved: bool,
     pub durable_state_checkpoint_present: bool,
+    pub durable_checkpoint_label: GatewayRealOrderEndpointDurableCheckpointLabel,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +100,7 @@ pub struct GatewayRealOrderEndpointApprovedPartsDesignShape {
     pub constructors_require_account_instrument_allowlist: bool,
     pub constructors_require_operator_arm: bool,
     pub constructors_require_durable_state_checkpoint: bool,
+    pub constructors_require_operation_specific_checkpoint: bool,
     pub constructor_count: usize,
 }
 
@@ -112,6 +121,7 @@ pub struct GatewayRealOrderEndpointApprovedPartsDiagnostic {
     pub account_instrument_allowlist_approved: bool,
     pub operator_arm_approved: bool,
     pub durable_state_checkpoint_present: bool,
+    pub durable_checkpoint_label: GatewayRealOrderEndpointDurableCheckpointLabel,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -147,6 +157,66 @@ pub struct GatewayRealOrderEndpointConsumerDiagnostic {
     pub symbol_len: Option<usize>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointFutureSendOutcome {
+    Accepted,
+    Rejected,
+    TimeoutUnknownPending,
+    RateLimited,
+    Maintenance,
+    Unauthorized,
+    DecodeError,
+    TransportError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointFutureSendResultDesignShape {
+    pub design_only: bool,
+    pub outcome_count: usize,
+    pub future_send_requires_endpoint_gate: bool,
+    pub future_send_accepts_approved_request_parts_only: bool,
+    pub future_send_accepts_diagnostics: bool,
+    pub future_send_consumes_request_parts: bool,
+    pub future_send_network_enabled: bool,
+    pub operation_specific_durable_checkpoint_required: bool,
+    pub place_checkpoint_label: GatewayRealOrderEndpointDurableCheckpointLabel,
+    pub cancel_checkpoint_label: GatewayRealOrderEndpointDurableCheckpointLabel,
+    pub retry_after_timeout_unknown_allowed: bool,
+    pub request_parts_reuse_after_outcome_allowed: bool,
+    pub result_diagnostic_can_bypass_state_machine: bool,
+    pub state_machine_transition_required: bool,
+    pub rendered_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub runtime_ack_redacted_only: bool,
+    pub classifier_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointFutureSendDiagnostic {
+    pub outcome: GatewayRealOrderEndpointFutureSendOutcome,
+    pub operation: GatewayRealOrderEndpointOperation,
+    pub method_name: String,
+    pub endpoint_gate_required: bool,
+    pub request_parts_consumed: bool,
+    pub request_parts_reuse_after_outcome_allowed: bool,
+    pub network_enabled: bool,
+    pub rendered_path_present: bool,
+    pub rendered_path_redacted: bool,
+    pub rendered_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub account_id_present: bool,
+    pub account_id_len: usize,
+    pub order_id_present: bool,
+    pub order_id_len: Option<usize>,
+    pub symbol_present: bool,
+    pub symbol_len: Option<usize>,
+    pub durable_checkpoint_label: GatewayRealOrderEndpointDurableCheckpointLabel,
+    pub retry_after_timeout_unknown_allowed: bool,
+    pub state_machine_transition_required: bool,
+    pub state_machine_bypass_allowed: bool,
+    pub runtime_ack_redacted_only: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayRealOrderEndpointApiShape {
     pub mode: GatewayRealOrderEndpointBoundaryMode,
@@ -156,6 +226,7 @@ pub struct GatewayRealOrderEndpointApiShape {
     pub api_shape_contains_route_templates: bool,
     pub approved_request_parts_design: GatewayRealOrderEndpointApprovedPartsDesignShape,
     pub consumer_design: GatewayRealOrderEndpointConsumerDesignShape,
+    pub future_send_result_design: GatewayRealOrderEndpointFutureSendResultDesignShape,
     pub runtime_ack_id_policy: RuntimeCommandAckIdPolicy,
     pub scanner_transition_spec: GatewayRealOrderEndpointScannerTransitionSpec,
 }
@@ -191,6 +262,7 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
             constructors_require_account_instrument_allowlist: true,
             constructors_require_operator_arm: true,
             constructors_require_durable_state_checkpoint: true,
+            constructors_require_operation_specific_checkpoint: true,
             constructor_count: approved_request_parts_constructor_count(),
         },
         consumer_design: GatewayRealOrderEndpointConsumerDesignShape {
@@ -203,6 +275,28 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
             raw_body_exported: false,
             runtime_ack_redacted_only: true,
             consumer_count: approved_request_parts_consumer_count(),
+        },
+        future_send_result_design: GatewayRealOrderEndpointFutureSendResultDesignShape {
+            design_only: true,
+            outcome_count: future_send_outcome_count(),
+            future_send_requires_endpoint_gate: true,
+            future_send_accepts_approved_request_parts_only: true,
+            future_send_accepts_diagnostics: false,
+            future_send_consumes_request_parts: true,
+            future_send_network_enabled: false,
+            operation_specific_durable_checkpoint_required: true,
+            place_checkpoint_label:
+                GatewayRealOrderEndpointDurableCheckpointLabel::PlaceBeginSubmitPersistedBeforeEndpoint,
+            cancel_checkpoint_label:
+                GatewayRealOrderEndpointDurableCheckpointLabel::CancelRequestCancelPersistedBeforeEndpoint,
+            retry_after_timeout_unknown_allowed: false,
+            request_parts_reuse_after_outcome_allowed: false,
+            result_diagnostic_can_bypass_state_machine: false,
+            state_machine_transition_required: true,
+            rendered_path_exported: false,
+            raw_body_exported: false,
+            runtime_ack_redacted_only: true,
+            classifier_count: future_send_result_classifier_count(),
         },
         runtime_ack_id_policy: RuntimeCommandAckIdPolicy::RedactedRuntimeAckOnly,
         scanner_transition_spec: GatewayRealOrderEndpointScannerTransitionSpec {
@@ -254,6 +348,7 @@ fn render_path_from_segments(segments: Vec<String>) -> RenderedOrderEndpointPath
 }
 
 fn validate_request_part_inputs(
+    operation: GatewayRealOrderEndpointOperation,
     allowlist: &OrderEndpointAccountInstrumentAllowlistApproved,
     operator_arm: &OrderEndpointOperatorArmApproved,
     checkpoint: &OrderEndpointDurableStateCheckpoint,
@@ -267,7 +362,23 @@ fn validate_request_part_inputs(
     if !checkpoint.intent_recorded_before_endpoint {
         return Err(GatewayRealOrderEndpointApprovedPartsError::DurableStateCheckpoint);
     }
+    if checkpoint.label != expected_checkpoint_label(operation) {
+        return Err(GatewayRealOrderEndpointApprovedPartsError::DurableStateCheckpoint);
+    }
     Ok(())
+}
+
+fn expected_checkpoint_label(
+    operation: GatewayRealOrderEndpointOperation,
+) -> GatewayRealOrderEndpointDurableCheckpointLabel {
+    match operation {
+        GatewayRealOrderEndpointOperation::PlaceOrder => {
+            GatewayRealOrderEndpointDurableCheckpointLabel::PlaceBeginSubmitPersistedBeforeEndpoint
+        }
+        GatewayRealOrderEndpointOperation::CancelOrder => {
+            GatewayRealOrderEndpointDurableCheckpointLabel::CancelRequestCancelPersistedBeforeEndpoint
+        }
+    }
 }
 
 fn build_place_approved_request_parts(
@@ -277,8 +388,8 @@ fn build_place_approved_request_parts(
     operator_arm: &OrderEndpointOperatorArmApproved,
     checkpoint: &OrderEndpointDurableStateCheckpoint,
 ) -> Result<ApprovedOrderEndpointRequestParts, GatewayRealOrderEndpointApprovedPartsError> {
-    validate_request_part_inputs(allowlist, operator_arm, checkpoint)?;
     let route = place_order_route_shape();
+    validate_request_part_inputs(route.operation, allowlist, operator_arm, checkpoint)?;
     Ok(ApprovedOrderEndpointRequestParts {
         operation: route.operation,
         method_name: route.method_name,
@@ -287,6 +398,7 @@ fn build_place_approved_request_parts(
         account_instrument_allowlist_approved: true,
         operator_arm_approved: true,
         durable_state_checkpoint_present: true,
+        durable_checkpoint_label: checkpoint.label,
     })
 }
 
@@ -297,8 +409,8 @@ fn build_cancel_approved_request_parts(
     operator_arm: &OrderEndpointOperatorArmApproved,
     checkpoint: &OrderEndpointDurableStateCheckpoint,
 ) -> Result<ApprovedOrderEndpointRequestParts, GatewayRealOrderEndpointApprovedPartsError> {
-    validate_request_part_inputs(allowlist, operator_arm, checkpoint)?;
     let route = cancel_order_route_shape();
+    validate_request_part_inputs(route.operation, allowlist, operator_arm, checkpoint)?;
     Ok(ApprovedOrderEndpointRequestParts {
         operation: route.operation,
         method_name: route.method_name,
@@ -307,6 +419,7 @@ fn build_cancel_approved_request_parts(
         account_instrument_allowlist_approved: true,
         operator_arm_approved: true,
         durable_state_checkpoint_present: true,
+        durable_checkpoint_label: checkpoint.label,
     })
 }
 
@@ -347,6 +460,7 @@ fn approved_request_parts_redacted_diagnostic(
         account_instrument_allowlist_approved: parts.account_instrument_allowlist_approved,
         operator_arm_approved: parts.operator_arm_approved,
         durable_state_checkpoint_present: parts.durable_state_checkpoint_present,
+        durable_checkpoint_label: parts.durable_checkpoint_label,
     }
 }
 
@@ -379,6 +493,45 @@ fn consume_approved_request_parts_for_future_endpoint(
     parts: ApprovedOrderEndpointRequestParts,
 ) -> GatewayRealOrderEndpointConsumerDiagnostic {
     approved_request_parts_consumer_redacted_diagnostic(parts)
+}
+
+fn future_send_result_redacted_diagnostic(
+    parts: ApprovedOrderEndpointRequestParts,
+    outcome: GatewayRealOrderEndpointFutureSendOutcome,
+) -> GatewayRealOrderEndpointFutureSendDiagnostic {
+    let parts_diagnostic = approved_request_parts_redacted_diagnostic(&parts);
+    GatewayRealOrderEndpointFutureSendDiagnostic {
+        outcome,
+        operation: parts_diagnostic.operation,
+        method_name: parts_diagnostic.method_name,
+        endpoint_gate_required: true,
+        request_parts_consumed: true,
+        request_parts_reuse_after_outcome_allowed: false,
+        network_enabled: false,
+        rendered_path_present: parts_diagnostic.rendered_path_present,
+        rendered_path_redacted: true,
+        rendered_path_exported: false,
+        raw_body_exported: false,
+        account_id_present: parts_diagnostic.account_id_present,
+        account_id_len: parts_diagnostic.account_id_len,
+        order_id_present: parts_diagnostic.order_id_present,
+        order_id_len: parts_diagnostic.order_id_len,
+        symbol_present: parts_diagnostic.symbol_present,
+        symbol_len: parts_diagnostic.symbol_len,
+        durable_checkpoint_label: parts_diagnostic.durable_checkpoint_label,
+        retry_after_timeout_unknown_allowed: false,
+        state_machine_transition_required: true,
+        state_machine_bypass_allowed: false,
+        runtime_ack_redacted_only: true,
+    }
+}
+
+fn classify_future_send_attempt_result(
+    _gate: &EndpointGateApproved,
+    parts: ApprovedOrderEndpointRequestParts,
+    outcome: GatewayRealOrderEndpointFutureSendOutcome,
+) -> GatewayRealOrderEndpointFutureSendDiagnostic {
+    future_send_result_redacted_diagnostic(parts, outcome)
 }
 
 fn approved_request_parts_constructor_count() -> usize {
@@ -415,6 +568,32 @@ fn approved_request_parts_consumer_count() -> usize {
         ApprovedOrderEndpointRequestParts,
     ) -> GatewayRealOrderEndpointConsumerDiagnostic =
         consume_approved_request_parts_for_future_endpoint;
+    1
+}
+
+fn future_send_outcomes() -> [GatewayRealOrderEndpointFutureSendOutcome; 8] {
+    [
+        GatewayRealOrderEndpointFutureSendOutcome::Accepted,
+        GatewayRealOrderEndpointFutureSendOutcome::Rejected,
+        GatewayRealOrderEndpointFutureSendOutcome::TimeoutUnknownPending,
+        GatewayRealOrderEndpointFutureSendOutcome::RateLimited,
+        GatewayRealOrderEndpointFutureSendOutcome::Maintenance,
+        GatewayRealOrderEndpointFutureSendOutcome::Unauthorized,
+        GatewayRealOrderEndpointFutureSendOutcome::DecodeError,
+        GatewayRealOrderEndpointFutureSendOutcome::TransportError,
+    ]
+}
+
+fn future_send_outcome_count() -> usize {
+    future_send_outcomes().len()
+}
+
+fn future_send_result_classifier_count() -> usize {
+    let _classifier: fn(
+        &EndpointGateApproved,
+        ApprovedOrderEndpointRequestParts,
+        GatewayRealOrderEndpointFutureSendOutcome,
+    ) -> GatewayRealOrderEndpointFutureSendDiagnostic = classify_future_send_attempt_result;
     1
 }
 
@@ -497,6 +676,11 @@ mod tests {
                 .approved_request_parts_design
                 .constructors_require_durable_state_checkpoint
         );
+        assert!(
+            shape
+                .approved_request_parts_design
+                .constructors_require_operation_specific_checkpoint
+        );
         assert_eq!(shape.approved_request_parts_design.constructor_count, 2);
         assert!(shape.consumer_design.consumer_internal_only);
         assert!(shape.consumer_design.consumer_requires_endpoint_gate);
@@ -511,6 +695,66 @@ mod tests {
         assert!(!shape.consumer_design.raw_body_exported);
         assert!(shape.consumer_design.runtime_ack_redacted_only);
         assert_eq!(shape.consumer_design.consumer_count, 1);
+        assert!(shape.future_send_result_design.design_only);
+        assert_eq!(shape.future_send_result_design.outcome_count, 8);
+        assert!(
+            shape
+                .future_send_result_design
+                .future_send_requires_endpoint_gate
+        );
+        assert!(
+            shape
+                .future_send_result_design
+                .future_send_accepts_approved_request_parts_only
+        );
+        assert!(
+            !shape
+                .future_send_result_design
+                .future_send_accepts_diagnostics
+        );
+        assert!(
+            shape
+                .future_send_result_design
+                .future_send_consumes_request_parts
+        );
+        assert!(!shape.future_send_result_design.future_send_network_enabled);
+        assert!(
+            shape
+                .future_send_result_design
+                .operation_specific_durable_checkpoint_required
+        );
+        assert_eq!(
+            shape.future_send_result_design.place_checkpoint_label,
+            GatewayRealOrderEndpointDurableCheckpointLabel::PlaceBeginSubmitPersistedBeforeEndpoint
+        );
+        assert_eq!(
+            shape.future_send_result_design.cancel_checkpoint_label,
+            GatewayRealOrderEndpointDurableCheckpointLabel::CancelRequestCancelPersistedBeforeEndpoint
+        );
+        assert!(
+            !shape
+                .future_send_result_design
+                .retry_after_timeout_unknown_allowed
+        );
+        assert!(
+            !shape
+                .future_send_result_design
+                .request_parts_reuse_after_outcome_allowed
+        );
+        assert!(
+            !shape
+                .future_send_result_design
+                .result_diagnostic_can_bypass_state_machine
+        );
+        assert!(
+            shape
+                .future_send_result_design
+                .state_machine_transition_required
+        );
+        assert!(!shape.future_send_result_design.rendered_path_exported);
+        assert!(!shape.future_send_result_design.raw_body_exported);
+        assert!(shape.future_send_result_design.runtime_ack_redacted_only);
+        assert_eq!(shape.future_send_result_design.classifier_count, 1);
         assert!(
             !shape
                 .scanner_transition_spec
@@ -651,6 +895,8 @@ mod tests {
             account_instrument_allowlist_approved: true,
             operator_arm_approved: true,
             durable_state_checkpoint_present: true,
+            durable_checkpoint_label:
+                GatewayRealOrderEndpointDurableCheckpointLabel::PlaceBeginSubmitPersistedBeforeEndpoint,
         };
         let cancel_parts = ApprovedOrderEndpointRequestParts {
             operation: GatewayRealOrderEndpointOperation::CancelOrder,
@@ -667,6 +913,8 @@ mod tests {
             account_instrument_allowlist_approved: true,
             operator_arm_approved: true,
             durable_state_checkpoint_present: true,
+            durable_checkpoint_label:
+                GatewayRealOrderEndpointDurableCheckpointLabel::CancelRequestCancelPersistedBeforeEndpoint,
         };
 
         let place = approved_request_parts_redacted_diagnostic(&place_parts);
@@ -746,6 +994,8 @@ mod tests {
             account_instrument_allowlist_approved: true,
             operator_arm_approved: true,
             durable_state_checkpoint_present: true,
+            durable_checkpoint_label:
+                GatewayRealOrderEndpointDurableCheckpointLabel::PlaceBeginSubmitPersistedBeforeEndpoint,
         };
         let diagnostic = approved_request_parts_consumer_redacted_diagnostic(parts);
 
@@ -778,5 +1028,153 @@ mod tests {
         assert!(consumer_source.contains("ApprovedOrderEndpointRequestParts"));
         assert!(!consumer_source.contains("GatewayRealOrderEndpointRedactedRouteDiagnostic"));
         assert!(!consumer_source.contains("GatewayRealOrderEndpointApprovedPartsDiagnostic"));
+    }
+
+    #[test]
+    fn operation_specific_durable_checkpoint_labels_are_required() {
+        let allowlist = OrderEndpointAccountInstrumentAllowlistApproved {
+            account_allowlisted: true,
+            instrument_allowlisted: true,
+        };
+        let operator_arm = OrderEndpointOperatorArmApproved {
+            operator_arm_validated: true,
+            one_shot_arm: true,
+        };
+        let place_checkpoint = OrderEndpointDurableStateCheckpoint {
+            intent_recorded_before_endpoint: true,
+            label:
+                GatewayRealOrderEndpointDurableCheckpointLabel::PlaceBeginSubmitPersistedBeforeEndpoint,
+        };
+        let cancel_checkpoint = OrderEndpointDurableStateCheckpoint {
+            intent_recorded_before_endpoint: true,
+            label:
+                GatewayRealOrderEndpointDurableCheckpointLabel::CancelRequestCancelPersistedBeforeEndpoint,
+        };
+
+        assert!(validate_request_part_inputs(
+            GatewayRealOrderEndpointOperation::PlaceOrder,
+            &allowlist,
+            &operator_arm,
+            &place_checkpoint,
+        )
+        .is_ok());
+        assert_eq!(
+            validate_request_part_inputs(
+                GatewayRealOrderEndpointOperation::PlaceOrder,
+                &allowlist,
+                &operator_arm,
+                &cancel_checkpoint,
+            ),
+            Err(GatewayRealOrderEndpointApprovedPartsError::DurableStateCheckpoint)
+        );
+        assert!(validate_request_part_inputs(
+            GatewayRealOrderEndpointOperation::CancelOrder,
+            &allowlist,
+            &operator_arm,
+            &cancel_checkpoint,
+        )
+        .is_ok());
+        assert_eq!(
+            validate_request_part_inputs(
+                GatewayRealOrderEndpointOperation::CancelOrder,
+                &allowlist,
+                &operator_arm,
+                &place_checkpoint,
+            ),
+            Err(GatewayRealOrderEndpointApprovedPartsError::DurableStateCheckpoint)
+        );
+    }
+
+    #[test]
+    fn future_send_outcome_shape_lists_expected_outcomes() {
+        assert_eq!(future_send_outcome_count(), 8);
+        assert_eq!(
+            future_send_outcomes(),
+            [
+                GatewayRealOrderEndpointFutureSendOutcome::Accepted,
+                GatewayRealOrderEndpointFutureSendOutcome::Rejected,
+                GatewayRealOrderEndpointFutureSendOutcome::TimeoutUnknownPending,
+                GatewayRealOrderEndpointFutureSendOutcome::RateLimited,
+                GatewayRealOrderEndpointFutureSendOutcome::Maintenance,
+                GatewayRealOrderEndpointFutureSendOutcome::Unauthorized,
+                GatewayRealOrderEndpointFutureSendOutcome::DecodeError,
+                GatewayRealOrderEndpointFutureSendOutcome::TransportError,
+            ]
+        );
+    }
+
+    #[test]
+    fn future_send_result_classifier_requires_gate_and_consumes_parts() {
+        fn assert_classifier_signature(
+            _f: fn(
+                &EndpointGateApproved,
+                ApprovedOrderEndpointRequestParts,
+                GatewayRealOrderEndpointFutureSendOutcome,
+            ) -> GatewayRealOrderEndpointFutureSendDiagnostic,
+        ) {
+        }
+
+        assert_classifier_signature(classify_future_send_attempt_result);
+        assert_eq!(future_send_result_classifier_count(), 1);
+    }
+
+    #[test]
+    fn future_send_result_diagnostic_is_redacted_and_state_machine_bound() {
+        for outcome in future_send_outcomes() {
+            let parts = ApprovedOrderEndpointRequestParts {
+                operation: GatewayRealOrderEndpointOperation::CancelOrder,
+                method_name: "DELETE",
+                rendered_path: RenderedOrderEndpointPath(
+                    "/v1/accounts/ACC_TEST_0001/orders/ORDER_TEST_0002".to_string(),
+                ),
+                approved_request_spec: ApprovedOrderEndpointRequestSpec::Cancel(
+                    broker_finam::FinamCancelOrderRequestSpec {
+                        account_id: "ACC_TEST_0001".to_string(),
+                        order_id: "ORDER_TEST_0002".to_string(),
+                    },
+                ),
+                account_instrument_allowlist_approved: true,
+                operator_arm_approved: true,
+                durable_state_checkpoint_present: true,
+                durable_checkpoint_label:
+                    GatewayRealOrderEndpointDurableCheckpointLabel::CancelRequestCancelPersistedBeforeEndpoint,
+            };
+            let diagnostic = future_send_result_redacted_diagnostic(parts, outcome);
+            let rendered = serde_json::to_string(&diagnostic).expect("diagnostic serializes");
+
+            assert!(!rendered.contains("/v1/accounts/ACC_TEST_0001"));
+            assert!(!rendered.contains("ACC_TEST_0001"));
+            assert!(!rendered.contains("ORDER_TEST_0002"));
+            assert!(rendered.contains("\"endpoint_gate_required\":true"));
+            assert!(rendered.contains("\"request_parts_consumed\":true"));
+            assert!(rendered.contains("\"request_parts_reuse_after_outcome_allowed\":false"));
+            assert!(rendered.contains("\"network_enabled\":false"));
+            assert!(rendered.contains("\"rendered_path_redacted\":true"));
+            assert!(rendered.contains("\"rendered_path_exported\":false"));
+            assert!(rendered.contains("\"raw_body_exported\":false"));
+            assert!(rendered.contains("\"retry_after_timeout_unknown_allowed\":false"));
+            assert!(rendered.contains("\"state_machine_transition_required\":true"));
+            assert!(rendered.contains("\"state_machine_bypass_allowed\":false"));
+            assert!(rendered.contains("\"runtime_ack_redacted_only\":true"));
+        }
+    }
+
+    #[test]
+    fn diagnostics_cannot_feed_future_send_result_boundary() {
+        let source = include_str!("real_order_endpoint.rs");
+        let classifier_source = source
+            .split("fn classify_future_send_attempt_result")
+            .nth(1)
+            .expect("classifier source")
+            .split("fn approved_request_parts_constructor_count")
+            .next()
+            .expect("classifier boundary");
+
+        assert!(classifier_source.contains("EndpointGateApproved"));
+        assert!(classifier_source.contains("ApprovedOrderEndpointRequestParts"));
+        assert!(classifier_source.contains("GatewayRealOrderEndpointFutureSendOutcome"));
+        assert!(!classifier_source.contains("GatewayRealOrderEndpointRedactedRouteDiagnostic"));
+        assert!(!classifier_source.contains("GatewayRealOrderEndpointApprovedPartsDiagnostic"));
+        assert!(!classifier_source.contains("GatewayRealOrderEndpointConsumerDiagnostic"));
     }
 }

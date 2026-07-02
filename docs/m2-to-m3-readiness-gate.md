@@ -1323,6 +1323,11 @@ Implemented while still keeping all broker order endpoints disabled:
   consumer accepts only `ApprovedOrderEndpointRequestParts`, requires
   `EndpointGateApproved`, remains no-network/design-only, and exports only
   redacted consumer diagnostics;
+- M3c-11 future send result boundary: design-only future outcome/result shape
+  records accepted/rejected/timeout/rate-limit/maintenance/auth/decode/transport
+  outcomes, operation-specific durable checkpoint labels, single-use
+  request-parts policy, no retry after timeout/unknown, and mandatory
+  state-machine transition before any future ACK/runtime export;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:

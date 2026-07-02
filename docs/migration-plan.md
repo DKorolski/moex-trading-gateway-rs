@@ -1719,6 +1719,34 @@ M3c-10 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-11 future send result/outcome boundary:
+
+- Added design-only `GatewayRealOrderEndpointFutureSendOutcome` with accepted,
+  rejected, timeout/unknown, rate-limit, maintenance, unauthorized, decode, and
+  transport-error outcomes.
+- Added private `classify_future_send_attempt_result` shape requiring
+  `EndpointGateApproved`, consuming `ApprovedOrderEndpointRequestParts` by
+  value, and rejecting diagnostic DTO inputs.
+- Durable checkpoints are now operation-specific:
+  `PlaceBeginSubmitPersistedBeforeEndpoint` and
+  `CancelRequestCancelPersistedBeforeEndpoint`.
+- Future send diagnostics record single-use/no-blind-retry policy:
+  `request_parts_reuse_after_outcome_allowed = false` and
+  `retry_after_timeout_unknown_allowed = false`.
+- Future send diagnostics must require state-machine transition and cannot
+  bypass the state machine.
+- Details are documented in `docs/m3c11-future-send-result-boundary.md`.
+
+M3c-11 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

@@ -219,6 +219,12 @@ that requires `EndpointGateApproved` and accepts only
 `ApprovedOrderEndpointRequestParts`. It remains no-network/design-only and
 returns only redacted consumer diagnostics; diagnostic DTOs cannot feed the
 consumer.
+M3c-11 adds a design-only future send outcome/result boundary. It keeps the
+classifier private/no-network, requires `EndpointGateApproved`, consumes
+approved request parts by value, records operation-specific durable checkpoint
+labels for Place/Cancel, forbids request-parts reuse and blind retry after
+timeout/unknown, and requires state-machine transition before any future ACK or
+runtime export.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

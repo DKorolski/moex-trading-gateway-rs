@@ -18,7 +18,7 @@ report_failure() {
   failures=$((failures + 1))
 }
 
-if rg -n '\.post\(|\.delete\(|\.request\(|\.send\(|Method::POST|Method::DELETE|reqwest|HttpClient|Transport|Adapter|Backend' "$target" >/tmp/moex_transition_forbidden.$$; then
+if rg -n '\.post\(|\.delete\(|\.request\(|\.send\(|Method::POST|Method::DELETE|reqwest|HttpClient|\bTransport\b|\bAdapter\b|\bBackend\b' "$target" >/tmp/moex_transition_forbidden.$$; then
   cat /tmp/moex_transition_forbidden.$$ >&2
   report_failure "design-only API shape must not contain HTTP send surfaces"
 fi
@@ -36,9 +36,21 @@ if rg -n 'pub fn consume_approved_request_parts_for_future_endpoint' "$target" >
 fi
 rm -f /tmp/moex_transition_forbidden.$$
 
+if rg -n 'pub fn classify_future_send_attempt_result' "$target" >/tmp/moex_transition_forbidden.$$; then
+  cat /tmp/moex_transition_forbidden.$$ >&2
+  report_failure "future send result classifier must not be public"
+fi
+rm -f /tmp/moex_transition_forbidden.$$
+
 if rg -n 'consume_approved_request_parts_for_future_endpoint\([^)]*GatewayRealOrderEndpoint.*Diagnostic' "$target" >/tmp/moex_transition_forbidden.$$; then
   cat /tmp/moex_transition_forbidden.$$ >&2
   report_failure "diagnostic DTOs must not feed the approved request-parts consumer"
+fi
+rm -f /tmp/moex_transition_forbidden.$$
+
+if rg -n 'classify_future_send_attempt_result\([^)]*GatewayRealOrderEndpoint.*Diagnostic' "$target" >/tmp/moex_transition_forbidden.$$; then
+  cat /tmp/moex_transition_forbidden.$$ >&2
+  report_failure "diagnostic DTOs must not feed the future send result classifier"
 fi
 rm -f /tmp/moex_transition_forbidden.$$
 
@@ -88,17 +100,41 @@ required_patterns=(
   "constructors_require_account_instrument_allowlist: true"
   "constructors_require_operator_arm: true"
   "constructors_require_durable_state_checkpoint: true"
+  "constructors_require_operation_specific_checkpoint: true"
   "consumer_internal_only: true"
   "consumer_requires_endpoint_gate: true"
   "consumer_accepts_approved_request_parts_only: true"
   "consumer_accepts_diagnostics: false"
   "consumer_network_enabled: false"
+  "GatewayRealOrderEndpointFutureSendOutcome"
+  "Accepted"
+  "Rejected"
+  "TimeoutUnknownPending"
+  "RateLimited"
+  "Maintenance"
+  "Unauthorized"
+  "DecodeError"
+  "TransportError"
+  "fn classify_future_send_attempt_result"
+  "future_send_requires_endpoint_gate: true"
+  "future_send_accepts_approved_request_parts_only: true"
+  "future_send_accepts_diagnostics: false"
+  "future_send_consumes_request_parts: true"
+  "future_send_network_enabled: false"
+  "operation_specific_durable_checkpoint_required: true"
+  "retry_after_timeout_unknown_allowed: false"
+  "request_parts_reuse_after_outcome_allowed: false"
+  "result_diagnostic_can_bypass_state_machine: false"
+  "state_machine_transition_required: true"
+  "PlaceBeginSubmitPersistedBeforeEndpoint"
+  "CancelRequestCancelPersistedBeforeEndpoint"
   "route_template_exported: false"
   "rendered_path_exported: false"
   "raw_body_exported: false"
   "GatewayRealOrderEndpointRedactedRouteDiagnostic"
   "GatewayRealOrderEndpointApprovedPartsDiagnostic"
   "GatewayRealOrderEndpointConsumerDiagnostic"
+  "GatewayRealOrderEndpointFutureSendDiagnostic"
   "CurrentDenyAllOrderPostDelete"
   "FutureExactTwoRouteAllowlistAfterReview"
   "real_post_delete_calls_allowed_now: false"

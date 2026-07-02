@@ -49,6 +49,11 @@ The diagnostic records method, operation, presence/length metadata, and safety
 flags. It does not export the rendered path, account id, broker order id,
 instrument symbol, client order id, or raw request body.
 
+M3c-11 extends this design-only boundary with a future send outcome/result
+shape. The classifier still requires `EndpointGateApproved`, consumes
+`ApprovedOrderEndpointRequestParts` by value, remains no-network, and records
+single-use/no-blind-retry/state-machine-required policy.
+
 ## Negative invariants
 
 Tests and scanner guards cover:

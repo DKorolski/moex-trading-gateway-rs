@@ -68,6 +68,19 @@ consumer_network_enabled = false
 consumer_count = 1
 ```
 
+M3c-11 records the design-only future send result boundary:
+
+```text
+outcome_count = 8
+future_send_requires_endpoint_gate = true
+future_send_consumes_request_parts = true
+future_send_network_enabled = false
+operation_specific_durable_checkpoint_required = true
+request_parts_reuse_after_outcome_allowed = false
+retry_after_timeout_unknown_allowed = false
+state_machine_transition_required = true
+```
+
 ## Scanner transition spec
 
 The API shape exports:

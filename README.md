@@ -230,6 +230,7 @@ See:
 - [M3c-8 non-serializable route boundary](docs/m3c8-nonserializable-route-boundary.md)
 - [M3c-9 approved request-parts boundary](docs/m3c9-approved-request-parts-boundary.md)
 - [M3c-10 approved parts consumer boundary](docs/m3c10-approved-parts-consumer-boundary.md)
+- [M3c-11 future send result boundary](docs/m3c11-future-send-result-boundary.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)
