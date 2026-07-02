@@ -1342,6 +1342,31 @@ M3b-19 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-20-pre real-readonly pre-run freshness gate:
+
+- Added explicit preflight freshness metadata:
+  `preflight_checked_at` and `preflight_max_age_ms`.
+- Added `TokenAccountPreflightExpired` so stale request-bound markers block the
+  operator run before any GET attempt.
+- Added per-row evidence matrix flags:
+  `actual_http_send_started` and `actual_http_send_completed`.
+- Kept aggregate counters and `actual_send_count` compatibility alias.
+- Documented that M3b-20-pre is still not the actual FINAM evidence run; the
+  controlled one-shot real-readonly evidence package must be a separate
+  artifact.
+- Details are documented in
+  `docs/m3b20-real-readonly-pre-run-freshness-gate.md`.
+
+M3b-20-pre explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

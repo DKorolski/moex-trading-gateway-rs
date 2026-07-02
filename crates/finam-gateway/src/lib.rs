@@ -4217,6 +4217,8 @@ pub struct FinamRealReadonlyTransportErrorOperatorActionDiagnostic {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FinamRealReadonlyTokenAccountPreflightDiagnostic {
     pub request_snapshot_fingerprint: String,
+    pub preflight_checked_at: DateTime<Utc>,
+    pub preflight_max_age_ms: u64,
     pub token_details_checked: bool,
     pub token_readonly_flag_present: bool,
     pub token_readonly_flag_value: Option<bool>,
@@ -4234,6 +4236,8 @@ impl FinamRealReadonlyTokenAccountPreflightDiagnostic {
         features: &GatewayFeatureSet,
         request: &CancelBrokerTruthFetchRequestSnapshot,
         token_details: Option<&broker_finam::dto::TokenDetailsResponse>,
+        preflight_checked_at: DateTime<Utc>,
+        preflight_max_age_ms: u64,
     ) -> Self {
         let request_diagnostic =
             CancelBrokerTruthFetchRequestRedactedDiagnostic::from_snapshot(request);
@@ -4255,6 +4259,8 @@ impl FinamRealReadonlyTokenAccountPreflightDiagnostic {
         );
         Self {
             request_snapshot_fingerprint: request_diagnostic.request_snapshot_fingerprint,
+            preflight_checked_at,
+            preflight_max_age_ms,
             token_details_checked: token_details.is_some(),
             token_readonly_flag_present: token_details
                 .and_then(|details| details.readonly)
@@ -4308,11 +4314,15 @@ impl FinamRealReadonlyTokenAccountPreflightApproved {
         features: &GatewayFeatureSet,
         request: &CancelBrokerTruthFetchRequestSnapshot,
         token_details: &broker_finam::dto::TokenDetailsResponse,
+        preflight_checked_at: DateTime<Utc>,
+        preflight_max_age_ms: u64,
     ) -> Result<Self, FinamRealReadonlyTokenAccountPreflightApprovalError> {
         let diagnostic = FinamRealReadonlyTokenAccountPreflightDiagnostic::from_token_details(
             features,
             request,
             Some(token_details),
+            preflight_checked_at,
+            preflight_max_age_ms,
         );
         if diagnostic.allows_operator_probe() {
             Ok(Self {
@@ -4342,6 +4352,16 @@ impl FinamRealReadonlyTokenAccountPreflightApproved {
     fn allows_request(&self, request: &CancelBrokerTruthFetchRequestSnapshot) -> bool {
         self.request_diagnostic.matches_snapshot(request)
     }
+
+    fn is_fresh_at(&self, observed_at: DateTime<Utc>) -> bool {
+        if self.diagnostic.preflight_max_age_ms == 0 {
+            return false;
+        }
+        let age_ms = observed_at
+            .signed_duration_since(self.diagnostic.preflight_checked_at)
+            .num_milliseconds();
+        age_ms >= 0 && (age_ms as u64) <= self.diagnostic.preflight_max_age_ms
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -4357,6 +4377,8 @@ pub struct FinamRealReadonlyContractProbeEvidenceMatrixRow {
     pub probe_run_fingerprint: String,
     pub attempt_id: u32,
     pub source: CancelBrokerTruthSource,
+    pub actual_http_send_started: bool,
+    pub actual_http_send_completed: bool,
     pub route_template: Option<String>,
     pub http_status: Option<u16>,
     pub http_body_present: Option<bool>,
@@ -4453,6 +4475,7 @@ pub enum FinamRealReadonlyContractProbeOperatorRunBlock {
     TokenAccountPreflightMissing,
     TokenAccountPreflightFailed,
     TokenAccountPreflightRequestMismatch,
+    TokenAccountPreflightExpired,
     PersistentAuditModeNotAllowed,
 }
 
@@ -4732,11 +4755,17 @@ where
             .push(FinamRealReadonlyContractProbeOperatorRunBlock::TransportTaxonomyNotPreserved);
     }
     match &config.token_account_preflight {
-        Some(preflight) if preflight.allows_request(&request) => {}
-        Some(_) => {
-            blocking_reasons.push(
-                FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightRequestMismatch,
-            );
+        Some(preflight) => {
+            if !preflight.allows_request(&request) {
+                blocking_reasons.push(
+                    FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightRequestMismatch,
+                );
+            }
+            if !preflight.is_fresh_at(probe_run_started_at) {
+                blocking_reasons.push(
+                    FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightExpired,
+                );
+            }
         }
         None => {
             blocking_reasons
@@ -4890,6 +4919,10 @@ fn build_finam_real_readonly_contract_probe_evidence_matrix(
                 probe_run_fingerprint: attempt.probe_run_fingerprint.clone(),
                 attempt_id: attempt.attempt_id,
                 source: attempt.source,
+                actual_http_send_started: captured
+                    .is_some_and(|diagnostic| diagnostic.actual_http_send_started),
+                actual_http_send_completed: captured
+                    .is_some_and(|diagnostic| diagnostic.actual_http_send_completed),
                 route_template: route.map(|diagnostic| diagnostic.path_template.to_string()),
                 http_status: captured
                     .map(|diagnostic| diagnostic.status)
@@ -11312,8 +11345,15 @@ mod tests {
                 &GatewayFeatureSet::default(),
                 &request_snapshot,
                 Some(&token_details),
+                now,
+                60_000,
             );
         assert!(token_account_preflight_diagnostic.allows_operator_probe());
+        assert_eq!(token_account_preflight_diagnostic.preflight_checked_at, now);
+        assert_eq!(
+            token_account_preflight_diagnostic.preflight_max_age_ms,
+            60_000
+        );
         assert!(token_account_preflight_diagnostic.token_readonly_flag_present);
         assert_eq!(
             token_account_preflight_diagnostic.token_readonly_flag_value,
@@ -11325,6 +11365,8 @@ mod tests {
                 &GatewayFeatureSet::default(),
                 &request_snapshot,
                 &token_details,
+                now,
+                60_000,
             )
             .expect("readonly token/account preflight marker");
         let non_readonly_token_details = broker_finam::dto::TokenDetailsResponse {
@@ -11343,6 +11385,8 @@ mod tests {
                 &GatewayFeatureSet::default(),
                 &request_snapshot,
                 Some(&non_readonly_token_details),
+                now,
+                60_000,
             );
         assert!(!non_readonly_preflight.allows_operator_probe());
         assert_eq!(
@@ -11355,6 +11399,8 @@ mod tests {
                 &GatewayFeatureSet::default(),
                 &request_snapshot,
                 &non_readonly_token_details,
+                now,
+                60_000,
             )
             .expect_err("non-readonly token must not create preflight marker"),
             FinamRealReadonlyTokenAccountPreflightApprovalError::Blocked { .. }
@@ -11393,6 +11439,10 @@ mod tests {
         assert_eq!(enabled.actual_http_send_completed_count, 0);
         assert_eq!(enabled.actual_send_count, 0);
         assert!(enabled.actual_send_count <= enabled.max_requests);
+        assert!(enabled
+            .evidence_matrix
+            .iter()
+            .all(|row| { !row.actual_http_send_started && !row.actual_http_send_completed }));
         assert_eq!(
             enabled.request_snapshot.request_snapshot_fingerprint,
             token_account_preflight
@@ -11468,6 +11518,10 @@ mod tests {
         assert!(report_json.contains("request_broker_order_id_sha256"));
         assert!(report_json.contains("request_instrument_identity_sha256"));
         assert!(report_json.contains("ordered_sources_sha256"));
+        assert!(report_json.contains("preflight_checked_at"));
+        assert!(report_json.contains("preflight_max_age_ms"));
+        assert!(report_json.contains("actual_http_send_started"));
+        assert!(report_json.contains("actual_http_send_completed"));
         assert!(report_json.contains("actual_http_send_started_count"));
         assert!(report_json.contains("captured_response_count"));
         assert!(report_json.contains("actual_send_count"));
@@ -11516,6 +11570,44 @@ mod tests {
                 .request_diagnostic()
                 .request_snapshot_fingerprint
         );
+
+        let stale_token_account_preflight =
+            FinamRealReadonlyTokenAccountPreflightApproved::try_from_token_details(
+                &GatewayFeatureSet::default(),
+                &request_snapshot,
+                &token_details,
+                now - chrono::Duration::milliseconds(60_001),
+                60_000,
+            )
+            .expect("stale marker construction is allowed but operator run blocks it");
+        let blocked_by_stale_marker = run_finam_real_readonly_operator_contract_probe(
+            &mut fetcher,
+            request_snapshot.clone(),
+            &FinamRealReadonlyContractProbeOperatorRunConfig {
+                enabled: true,
+                sources: vec![CancelBrokerTruthSource::GetOrder],
+                max_requests: 1,
+                request_timeout_ms: 10_000,
+                min_request_interval_ms: 250,
+                redacted_output_location: Some(
+                    FinamRealReadonlyRedactedOutputLocation::from_path_label("redacted.json"),
+                ),
+                audit_store_mode: FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore,
+                retry_disabled: true,
+                background_loop_disabled: true,
+                scheduler_disabled: true,
+                operator_disable_procedure_documented: true,
+                preserve_transport_error_taxonomy: true,
+                token_account_preflight: Some(stale_token_account_preflight),
+            },
+        )
+        .await;
+        assert!(blocked_by_stale_marker.probe_report.is_none());
+        assert_eq!(blocked_by_stale_marker.attempt_count, 0);
+        assert_eq!(blocked_by_stale_marker.actual_send_count, 0);
+        assert!(blocked_by_stale_marker.blocking_reasons.contains(
+            &FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightExpired
+        ));
 
         let blocked = run_finam_real_readonly_operator_contract_probe(
             &mut fetcher,

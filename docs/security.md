@@ -167,6 +167,9 @@ captured-response counters from actual HTTP send started/completed counters.
 M3b-19 binds the approval marker to the current redacted request snapshot,
 exports only request/source-order hashes and lengths, and includes those
 fingerprints in the probe-run identity.
+M3b-20-pre adds explicit preflight freshness metadata and blocks stale markers
+before any attempt, while evidence rows expose only safe actual-send booleans
+instead of raw transport data.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

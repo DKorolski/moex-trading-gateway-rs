@@ -5,6 +5,10 @@ real-readonly evidence run. M3b-19 still does not authorize FINAM order
 placement/cancel, real command consumption, real CommandAck lifecycle, runtime
 attachment, `LiveReady`, live micro, stop/SLTP, or bracket behavior.
 
+M3b-20-pre follow-up adds explicit preflight freshness/TTL and per-row actual
+HTTP send flags before any actual controlled real-readonly evidence run. See
+`docs/m3b20-real-readonly-pre-run-freshness-gate.md`.
+
 ## Request-bound preflight marker
 
 `FinamRealReadonlyTokenAccountPreflightApproved` is now bound to the exact

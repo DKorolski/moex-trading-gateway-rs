@@ -1159,3 +1159,26 @@ Still not implemented in M3b-19:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-20-pre real-readonly pre-run freshness gate status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- preflight marker diagnostic includes `preflight_checked_at` and
+  `preflight_max_age_ms`;
+- operator run blocks with `TokenAccountPreflightExpired` before any attempt
+  when the marker is stale;
+- evidence matrix rows include `actual_http_send_started` and
+  `actual_http_send_completed`;
+- aggregate actual-send counters remain present for report-level review;
+- actual controlled FINAM evidence run remains a separate future artifact.
+
+Still not implemented in M3b-20-pre:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

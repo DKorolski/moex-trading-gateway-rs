@@ -208,6 +208,9 @@ actual HTTP send started/completed counts.
 M3b-19 binds that marker to the exact redacted request snapshot, exports
 request/source-order evidence, and includes those hashes in the probe-run
 fingerprint.
+M3b-20-pre adds explicit preflight freshness/TTL and per-row actual HTTP
+send started/completed evidence before any actual controlled FINAM read-only
+probe is run.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.
