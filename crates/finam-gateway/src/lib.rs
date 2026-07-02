@@ -2515,6 +2515,7 @@ pub enum CancelBrokerTruthReadonlyHttpMethod {
 
 const FINAM_REAL_READONLY_MAX_TRADES_LIMIT: u32 = 1_000;
 const FINAM_REAL_READONLY_MAX_TRADES_WINDOW_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
+const FINAM_REAL_READONLY_CONTRACT_PROBE_MAX_REQUESTS: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FinamRealReadonlyOrdersSnapshotFilterPolicy {
@@ -3149,6 +3150,15 @@ impl RealReadonlyBrokerTruthRunApproved {
         &self.gate
     }
 
+    pub fn diagnostic(&self) -> RealReadonlyBrokerTruthRunApprovalDiagnostic {
+        RealReadonlyBrokerTruthRunApprovalDiagnostic {
+            account_id_len: self.account_id_len,
+            account_id_sha256: self.account_id_sha256.clone(),
+            request_timeout_ms: self.request_timeout_ms,
+            min_request_interval_ms: self.min_request_interval_ms,
+        }
+    }
+
     fn allows_request(&self, request: &CancelBrokerTruthFetchRequestSnapshot) -> bool {
         request.account_id.as_ref().is_some_and(|account_id| {
             account_id.as_str().len() == self.account_id_len
@@ -3160,6 +3170,14 @@ impl RealReadonlyBrokerTruthRunApproved {
         route.account_id_len == Some(self.account_id_len)
             && route.account_id_sha256.as_ref() == Some(&self.account_id_sha256)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RealReadonlyBrokerTruthRunApprovalDiagnostic {
+    pub account_id_len: usize,
+    pub account_id_sha256: String,
+    pub request_timeout_ms: u64,
+    pub min_request_interval_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -3878,6 +3896,7 @@ where
 pub struct FinamRealReadonlyContractProbeConfig {
     pub enabled: bool,
     pub sources: Vec<CancelBrokerTruthSource>,
+    pub max_requests: usize,
 }
 
 impl Default for FinamRealReadonlyContractProbeConfig {
@@ -3885,6 +3904,7 @@ impl Default for FinamRealReadonlyContractProbeConfig {
         Self {
             enabled: false,
             sources: all_cancel_truth_sources().to_vec(),
+            max_requests: FINAM_REAL_READONLY_CONTRACT_PROBE_MAX_REQUESTS,
         }
     }
 }
@@ -3893,6 +3913,9 @@ impl Default for FinamRealReadonlyContractProbeConfig {
 pub enum FinamRealReadonlyContractProbeBlock {
     DisabledByDefault,
     NoSources,
+    MaxRequestsZero,
+    MaxRequestsTooHigh,
+    SourceCountExceedsMaxRequests,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -3912,6 +3935,145 @@ pub struct FinamRealReadonlyContractProbeReport {
     pub route_diagnostics: Vec<FinamRealReadonlyRouteDiagnostic>,
     pub captured_diagnostics: Vec<CancelBrokerTruthReadonlyHttpDiagnostic>,
     pub audit_records: Vec<FinamRealReadonlyBrokerTruthAuditRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinamRealReadonlyRedactedOutputLocation {
+    pub path_len: usize,
+    pub path_sha256: String,
+}
+
+impl FinamRealReadonlyRedactedOutputLocation {
+    pub fn from_path_label(path: impl AsRef<str>) -> Self {
+        let path = path.as_ref();
+        Self {
+            path_len: path.len(),
+            path_sha256: sha256_hex(path.as_bytes()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FinamRealReadonlyAuditStoreMode {
+    EphemeralEvidenceStore,
+    PersistentAuditStore,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FinamRealReadonlyTransportErrorOperatorAction {
+    CheckDnsNetworkOrBrokerReachability,
+    CheckTlsCertificatesClockAndProxy,
+    CheckHttpClientNetworkBoundary,
+    CheckBodyReadTimeoutOrTruncatedResponse,
+    CheckTimeoutBudgetAndBrokerLatency,
+    CheckRequestBuilderContract,
+    CheckApprovedAccountAllowlist,
+}
+
+pub fn finam_real_readonly_transport_error_operator_action(
+    category: FinamRealReadonlyTransportErrorCategory,
+) -> FinamRealReadonlyTransportErrorOperatorAction {
+    match category {
+        FinamRealReadonlyTransportErrorCategory::DnsOrConnectError => {
+            FinamRealReadonlyTransportErrorOperatorAction::CheckDnsNetworkOrBrokerReachability
+        }
+        FinamRealReadonlyTransportErrorCategory::TlsError => {
+            FinamRealReadonlyTransportErrorOperatorAction::CheckTlsCertificatesClockAndProxy
+        }
+        FinamRealReadonlyTransportErrorCategory::HttpSendError => {
+            FinamRealReadonlyTransportErrorOperatorAction::CheckHttpClientNetworkBoundary
+        }
+        FinamRealReadonlyTransportErrorCategory::BodyReadError => {
+            FinamRealReadonlyTransportErrorOperatorAction::CheckBodyReadTimeoutOrTruncatedResponse
+        }
+        FinamRealReadonlyTransportErrorCategory::Timeout => {
+            FinamRealReadonlyTransportErrorOperatorAction::CheckTimeoutBudgetAndBrokerLatency
+        }
+        FinamRealReadonlyTransportErrorCategory::RequestBuildError => {
+            FinamRealReadonlyTransportErrorOperatorAction::CheckRequestBuilderContract
+        }
+        FinamRealReadonlyTransportErrorCategory::AccountNotAllowed => {
+            FinamRealReadonlyTransportErrorOperatorAction::CheckApprovedAccountAllowlist
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinamRealReadonlyTransportErrorOperatorActionDiagnostic {
+    pub source: CancelBrokerTruthSource,
+    pub http_status: Option<u16>,
+    pub category: FinamRealReadonlyTransportErrorCategory,
+    pub operator_action: FinamRealReadonlyTransportErrorOperatorAction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinamRealReadonlyContractProbeOperatorRunConfig {
+    pub enabled: bool,
+    pub sources: Vec<CancelBrokerTruthSource>,
+    pub max_requests: usize,
+    pub request_timeout_ms: u64,
+    pub min_request_interval_ms: u64,
+    pub redacted_output_location: Option<FinamRealReadonlyRedactedOutputLocation>,
+    pub audit_store_mode: FinamRealReadonlyAuditStoreMode,
+    pub retry_disabled: bool,
+    pub background_loop_disabled: bool,
+    pub scheduler_disabled: bool,
+    pub operator_disable_procedure_documented: bool,
+    pub preserve_transport_error_taxonomy: bool,
+}
+
+impl Default for FinamRealReadonlyContractProbeOperatorRunConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            sources: all_cancel_truth_sources().to_vec(),
+            max_requests: FINAM_REAL_READONLY_CONTRACT_PROBE_MAX_REQUESTS,
+            request_timeout_ms: 10_000,
+            min_request_interval_ms: 250,
+            redacted_output_location: None,
+            audit_store_mode: FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore,
+            retry_disabled: true,
+            background_loop_disabled: true,
+            scheduler_disabled: true,
+            operator_disable_procedure_documented: false,
+            preserve_transport_error_taxonomy: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FinamRealReadonlyContractProbeOperatorRunBlock {
+    DisabledByDefault,
+    RequestAccountMismatch,
+    NoSources,
+    MaxRequestsZero,
+    MaxRequestsTooHigh,
+    SourceCountExceedsMaxRequests,
+    TimeoutMismatch,
+    MinIntervalMismatch,
+    OutputLocationMissing,
+    RetryNotDisabled,
+    BackgroundLoopNotDisabled,
+    SchedulerNotDisabled,
+    DisableProcedureMissing,
+    TransportTaxonomyNotPreserved,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FinamRealReadonlyContractProbeOperatorRunReport {
+    pub enabled: bool,
+    pub blocking_reasons: Vec<FinamRealReadonlyContractProbeOperatorRunBlock>,
+    pub approval_diagnostic: RealReadonlyBrokerTruthRunApprovalDiagnostic,
+    pub output_location: Option<FinamRealReadonlyRedactedOutputLocation>,
+    pub audit_store_mode: FinamRealReadonlyAuditStoreMode,
+    pub retry_disabled: bool,
+    pub background_loop_disabled: bool,
+    pub scheduler_disabled: bool,
+    pub operator_disable_procedure_documented: bool,
+    pub preserve_transport_error_taxonomy: bool,
+    pub max_requests: usize,
+    pub probe_report: Option<FinamRealReadonlyContractProbeReport>,
+    pub transport_error_actions: Vec<FinamRealReadonlyTransportErrorOperatorActionDiagnostic>,
 }
 
 pub async fn run_finam_real_readonly_contract_probe<T>(
@@ -3934,6 +4096,29 @@ where
         };
     }
 
+    if config.max_requests == 0 {
+        return FinamRealReadonlyContractProbeReport {
+            enabled: true,
+            blocking_reasons: vec![FinamRealReadonlyContractProbeBlock::MaxRequestsZero],
+            attempted_sources: Vec::new(),
+            source_diagnostics: Vec::new(),
+            route_diagnostics: Vec::new(),
+            captured_diagnostics: Vec::new(),
+            audit_records: Vec::new(),
+        };
+    }
+    if config.max_requests > FINAM_REAL_READONLY_CONTRACT_PROBE_MAX_REQUESTS {
+        return FinamRealReadonlyContractProbeReport {
+            enabled: true,
+            blocking_reasons: vec![FinamRealReadonlyContractProbeBlock::MaxRequestsTooHigh],
+            attempted_sources: Vec::new(),
+            source_diagnostics: Vec::new(),
+            route_diagnostics: Vec::new(),
+            captured_diagnostics: Vec::new(),
+            audit_records: Vec::new(),
+        };
+    }
+
     let mut sources = config
         .sources
         .iter()
@@ -3945,6 +4130,19 @@ where
         return FinamRealReadonlyContractProbeReport {
             enabled: true,
             blocking_reasons: vec![FinamRealReadonlyContractProbeBlock::NoSources],
+            attempted_sources: Vec::new(),
+            source_diagnostics: Vec::new(),
+            route_diagnostics: Vec::new(),
+            captured_diagnostics: Vec::new(),
+            audit_records: Vec::new(),
+        };
+    }
+    if sources.len() > config.max_requests {
+        return FinamRealReadonlyContractProbeReport {
+            enabled: true,
+            blocking_reasons: vec![
+                FinamRealReadonlyContractProbeBlock::SourceCountExceedsMaxRequests,
+            ],
             attempted_sources: Vec::new(),
             source_diagnostics: Vec::new(),
             route_diagnostics: Vec::new(),
@@ -3988,6 +4186,133 @@ where
         route_diagnostics: fetcher.route_diagnostics()[route_start..].to_vec(),
         captured_diagnostics: fetcher.captured_diagnostics()[captured_start..].to_vec(),
         audit_records: fetcher.audit_records()[audit_start..].to_vec(),
+    }
+}
+
+pub async fn run_finam_real_readonly_operator_contract_probe<T>(
+    fetcher: &mut FinamRealReadonlyBrokerTruthAsyncFetcher<T>,
+    request: CancelBrokerTruthFetchRequestSnapshot,
+    config: &FinamRealReadonlyContractProbeOperatorRunConfig,
+) -> FinamRealReadonlyContractProbeOperatorRunReport
+where
+    T: FinamRealReadonlyBrokerTruthTransport,
+{
+    let approval_diagnostic = fetcher.run_approval.diagnostic();
+    let mut blocking_reasons = Vec::new();
+
+    if !config.enabled {
+        blocking_reasons.push(FinamRealReadonlyContractProbeOperatorRunBlock::DisabledByDefault);
+    }
+    if !fetcher.run_approval.allows_request(&request) {
+        blocking_reasons
+            .push(FinamRealReadonlyContractProbeOperatorRunBlock::RequestAccountMismatch);
+    }
+    if config.sources.is_empty() {
+        blocking_reasons.push(FinamRealReadonlyContractProbeOperatorRunBlock::NoSources);
+    }
+    if config.max_requests == 0 {
+        blocking_reasons.push(FinamRealReadonlyContractProbeOperatorRunBlock::MaxRequestsZero);
+    }
+    if config.max_requests > FINAM_REAL_READONLY_CONTRACT_PROBE_MAX_REQUESTS {
+        blocking_reasons.push(FinamRealReadonlyContractProbeOperatorRunBlock::MaxRequestsTooHigh);
+    }
+    let mut deduped_sources = config
+        .sources
+        .iter()
+        .copied()
+        .filter(|source| all_cancel_truth_sources().contains(source))
+        .collect::<Vec<_>>();
+    deduped_sources.dedup();
+    if deduped_sources.len() > config.max_requests {
+        blocking_reasons
+            .push(FinamRealReadonlyContractProbeOperatorRunBlock::SourceCountExceedsMaxRequests);
+    }
+    if config.request_timeout_ms != approval_diagnostic.request_timeout_ms {
+        blocking_reasons.push(FinamRealReadonlyContractProbeOperatorRunBlock::TimeoutMismatch);
+    }
+    if config.min_request_interval_ms != approval_diagnostic.min_request_interval_ms {
+        blocking_reasons.push(FinamRealReadonlyContractProbeOperatorRunBlock::MinIntervalMismatch);
+    }
+    if config.redacted_output_location.is_none() {
+        blocking_reasons
+            .push(FinamRealReadonlyContractProbeOperatorRunBlock::OutputLocationMissing);
+    }
+    if !config.retry_disabled {
+        blocking_reasons.push(FinamRealReadonlyContractProbeOperatorRunBlock::RetryNotDisabled);
+    }
+    if !config.background_loop_disabled {
+        blocking_reasons
+            .push(FinamRealReadonlyContractProbeOperatorRunBlock::BackgroundLoopNotDisabled);
+    }
+    if !config.scheduler_disabled {
+        blocking_reasons.push(FinamRealReadonlyContractProbeOperatorRunBlock::SchedulerNotDisabled);
+    }
+    if !config.operator_disable_procedure_documented {
+        blocking_reasons
+            .push(FinamRealReadonlyContractProbeOperatorRunBlock::DisableProcedureMissing);
+    }
+    if !config.preserve_transport_error_taxonomy {
+        blocking_reasons
+            .push(FinamRealReadonlyContractProbeOperatorRunBlock::TransportTaxonomyNotPreserved);
+    }
+
+    if !blocking_reasons.is_empty() {
+        return FinamRealReadonlyContractProbeOperatorRunReport {
+            enabled: config.enabled,
+            blocking_reasons,
+            approval_diagnostic,
+            output_location: config.redacted_output_location.clone(),
+            audit_store_mode: config.audit_store_mode,
+            retry_disabled: config.retry_disabled,
+            background_loop_disabled: config.background_loop_disabled,
+            scheduler_disabled: config.scheduler_disabled,
+            operator_disable_procedure_documented: config.operator_disable_procedure_documented,
+            preserve_transport_error_taxonomy: config.preserve_transport_error_taxonomy,
+            max_requests: config.max_requests,
+            probe_report: None,
+            transport_error_actions: Vec::new(),
+        };
+    }
+
+    let probe_report = run_finam_real_readonly_contract_probe(
+        fetcher,
+        request,
+        &FinamRealReadonlyContractProbeConfig {
+            enabled: true,
+            sources: deduped_sources,
+            max_requests: config.max_requests,
+        },
+    )
+    .await;
+    let transport_error_actions = probe_report
+        .audit_records
+        .iter()
+        .filter_map(|record| {
+            record.transport_error_category.map(|category| {
+                FinamRealReadonlyTransportErrorOperatorActionDiagnostic {
+                    source: record.source,
+                    http_status: record.http_status,
+                    category,
+                    operator_action: finam_real_readonly_transport_error_operator_action(category),
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+
+    FinamRealReadonlyContractProbeOperatorRunReport {
+        enabled: true,
+        blocking_reasons: Vec::new(),
+        approval_diagnostic,
+        output_location: config.redacted_output_location.clone(),
+        audit_store_mode: config.audit_store_mode,
+        retry_disabled: config.retry_disabled,
+        background_loop_disabled: config.background_loop_disabled,
+        scheduler_disabled: config.scheduler_disabled,
+        operator_disable_procedure_documented: config.operator_disable_procedure_documented,
+        preserve_transport_error_taxonomy: config.preserve_transport_error_taxonomy,
+        max_requests: config.max_requests,
+        probe_report: Some(probe_report),
+        transport_error_actions,
     }
 }
 
@@ -10299,6 +10624,7 @@ mod tests {
                     CancelBrokerTruthSource::GetOrder,
                     CancelBrokerTruthSource::TradesSnapshot,
                 ],
+                max_requests: 2,
             },
         )
         .await;
@@ -10320,6 +10646,149 @@ mod tests {
         assert!(!report_json.contains(account_id.as_str()));
         assert!(!report_json.contains(order_id.as_str()));
         assert!(!report_json.contains(client_id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn real_readonly_operator_contract_probe_enforces_limits_and_redacted_evidence() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 2, 12, 0, 0)
+            .single()
+            .expect("timestamp");
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let order_id = BrokerOrderId::new("BROKER_TEST_OPERATOR_PROBE");
+        let client_id = ClientOrderId::new("CID000000000000210").expect("client id");
+        let instrument = sample_instrument();
+        let request = truth_fetch_request_with_account(
+            &account_id,
+            &order_id,
+            Some(&client_id),
+            &instrument,
+            now,
+            CancelPositionTruthGuardContext::default(),
+        );
+        let request_snapshot = CancelBrokerTruthFetchRequestSnapshot::from(&request);
+        let run_approval = real_readonly_run_approval(&account_id, &request_snapshot);
+        let transport = LocalMockFinamRealReadonlyBrokerTruthTransport::new([
+            (
+                CancelBrokerTruthSource::GetOrder,
+                CancelBrokerTruthReadonlyHttpResponse::empty(404),
+            ),
+            (
+                CancelBrokerTruthSource::TradesSnapshot,
+                CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
+                    504,
+                    FinamRealReadonlyTransportErrorCategory::Timeout,
+                ),
+            ),
+        ]);
+        let mut fetcher = FinamRealReadonlyBrokerTruthAsyncFetcher::new(
+            transport,
+            run_approval,
+            CancelBrokerTruthFreshnessPolicy::default(),
+            FinamRealReadonlyBrokerTruthQueryPolicy::default(),
+            now,
+        );
+
+        let disabled = run_finam_real_readonly_operator_contract_probe(
+            &mut fetcher,
+            request_snapshot.clone(),
+            &FinamRealReadonlyContractProbeOperatorRunConfig::default(),
+        )
+        .await;
+        assert_eq!(
+            disabled.blocking_reasons,
+            vec![
+                FinamRealReadonlyContractProbeOperatorRunBlock::DisabledByDefault,
+                FinamRealReadonlyContractProbeOperatorRunBlock::OutputLocationMissing,
+                FinamRealReadonlyContractProbeOperatorRunBlock::DisableProcedureMissing,
+            ]
+        );
+        assert!(disabled.probe_report.is_none());
+        assert!(fetcher.route_diagnostics().is_empty());
+
+        let enabled = run_finam_real_readonly_operator_contract_probe(
+            &mut fetcher,
+            request_snapshot.clone(),
+            &FinamRealReadonlyContractProbeOperatorRunConfig {
+                enabled: true,
+                sources: vec![
+                    CancelBrokerTruthSource::GetOrder,
+                    CancelBrokerTruthSource::TradesSnapshot,
+                ],
+                max_requests: 2,
+                request_timeout_ms: 10_000,
+                min_request_interval_ms: 250,
+                redacted_output_location: Some(
+                    FinamRealReadonlyRedactedOutputLocation::from_path_label(
+                        "reports/finam-readonly-contract-probe/redacted.json",
+                    ),
+                ),
+                audit_store_mode: FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore,
+                retry_disabled: true,
+                background_loop_disabled: true,
+                scheduler_disabled: true,
+                operator_disable_procedure_documented: true,
+                preserve_transport_error_taxonomy: true,
+            },
+        )
+        .await;
+        assert!(enabled.blocking_reasons.is_empty());
+        assert_eq!(enabled.max_requests, 2);
+        assert_eq!(
+            enabled.audit_store_mode,
+            FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore
+        );
+        assert_eq!(
+            enabled
+                .probe_report
+                .as_ref()
+                .expect("probe report")
+                .attempted_sources,
+            vec![
+                CancelBrokerTruthSource::GetOrder,
+                CancelBrokerTruthSource::TradesSnapshot
+            ]
+        );
+        assert_eq!(enabled.transport_error_actions.len(), 1);
+        assert_eq!(
+            enabled.transport_error_actions[0].operator_action,
+            FinamRealReadonlyTransportErrorOperatorAction::CheckTimeoutBudgetAndBrokerLatency
+        );
+        let report_json = serde_json::to_string(&enabled).expect("operator report serializes");
+        assert!(report_json.contains("path_sha256"));
+        assert!(!report_json.contains("reports/finam-readonly-contract-probe/redacted.json"));
+        assert!(!report_json.contains(account_id.as_str()));
+        assert!(!report_json.contains(order_id.as_str()));
+        assert!(!report_json.contains(client_id.as_str()));
+
+        let blocked = run_finam_real_readonly_operator_contract_probe(
+            &mut fetcher,
+            request_snapshot,
+            &FinamRealReadonlyContractProbeOperatorRunConfig {
+                enabled: true,
+                sources: all_cancel_truth_sources().to_vec(),
+                max_requests: 1,
+                request_timeout_ms: 10_000,
+                min_request_interval_ms: 250,
+                redacted_output_location: Some(
+                    FinamRealReadonlyRedactedOutputLocation::from_path_label("redacted.json"),
+                ),
+                audit_store_mode: FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore,
+                retry_disabled: true,
+                background_loop_disabled: false,
+                scheduler_disabled: true,
+                operator_disable_procedure_documented: true,
+                preserve_transport_error_taxonomy: true,
+            },
+        )
+        .await;
+        assert!(blocked.probe_report.is_none());
+        assert!(blocked.blocking_reasons.contains(
+            &FinamRealReadonlyContractProbeOperatorRunBlock::SourceCountExceedsMaxRequests
+        ));
+        assert!(blocked
+            .blocking_reasons
+            .contains(&FinamRealReadonlyContractProbeOperatorRunBlock::BackgroundLoopNotDisabled));
     }
 
     #[test]

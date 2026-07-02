@@ -150,6 +150,9 @@ M3b-13 makes the read-only enablement marker itself redacted: it stores only the
 approved account id length and SHA-256 plus bounded timeout/rate-limit values.
 Transport error categories and contract-probe reports are safe enum/shape
 diagnostics only.
+M3b-14 keeps operator-run evidence redacted as well: output locations are stored
+as length + SHA-256 descriptors, audit mode is explicit, and transport error
+categories are preserved as operator-action enums.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

@@ -19,6 +19,9 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
+      - name: Forbidden surface scan
+        run: bash scripts/forbidden_surface_scan.sh
+
       - name: Cargo fmt
         run: cargo fmt --all --check
 

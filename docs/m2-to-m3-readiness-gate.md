@@ -1015,3 +1015,28 @@ Still not implemented in M3b-13:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-14 real-readonly contract probe operator harness status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- one-shot operator-run harness for the real-readonly contract probe;
+- mandatory `RealReadonlyBrokerTruthRunApproved` remains required end-to-end;
+- request account hash, timeout, and min interval are checked against the
+  approved marker before probing;
+- bounded source list and `max_requests <= 4`;
+- no retry / no background loop / no scheduler flags are required;
+- redacted output-location descriptor is required for enabled runs;
+- audit-store mode is explicit as ephemeral evidence or persistent audit;
+- transport error categories map to operator-action diagnostics;
+- `scripts/forbidden_surface_scan.sh` is included in GitHub Actions CI.
+
+Still not implemented in M3b-14:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

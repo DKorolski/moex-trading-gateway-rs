@@ -187,6 +187,10 @@ M3b-13 requires those guardrails to produce a run marker before transport or
 fetcher construction, blocks account mismatches before send, records failed
 read-only attempts in redacted SQLite audit, and prevents full trades pages from
 becoming strong absence evidence.
+M3b-14 wraps the contract probe in a one-shot operator harness with explicit
+source/max-request bounds, single-account hash enforcement, no retry/loop
+semantics, redacted output-location evidence, audit-mode declaration, transport
+error action taxonomy, and CI forbidden-surface scanning.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

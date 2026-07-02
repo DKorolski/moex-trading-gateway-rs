@@ -1181,6 +1181,34 @@ M3b-13 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-14 real-readonly contract probe operator harness:
+
+- Added a one-shot operator-run harness around the M3b-13 read-only contract
+  probe.
+- The harness requires the existing `RealReadonlyBrokerTruthRunApproved`
+  carried by the fetcher and re-checks the request against the approved account
+  hash before any probe can run.
+- Added explicit probe limits: source list, `max_requests <= 4`, timeout match,
+  min-interval match, no retry, no background loop, no scheduler, and documented
+  disable procedure.
+- Added redacted output-location descriptor and explicit audit-store mode:
+  `EphemeralEvidenceStore` or `PersistentAuditStore`.
+- Added transport-error operator-action taxonomy so reports preserve DNS/TLS/send
+  / body-read / timeout / request-build / account-scope differences.
+- Added `scripts/forbidden_surface_scan.sh` plus GitHub Actions CI invocation.
+- Details are documented in
+  `docs/m3b14-real-readonly-contract-probe-operator-harness.md`.
+
+M3b-14 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

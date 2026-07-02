@@ -9,6 +9,10 @@ M3b-13 hardens the M3b-12 real-readonly GET foundation so it cannot be enabled
 from only a token/base URL/gate. A read-only run now requires an explicit
 operator-scope approval marker.
 
+M3b-14 follow-up adds the bounded operator-run harness for collecting redacted
+contract-probe evidence. See
+`docs/m3b14-real-readonly-contract-probe-operator-harness.md`.
+
 ## Mandatory run approval marker
 
 `RealReadonlyBrokerTruthRunApproved` is constructible only from:
