@@ -1275,7 +1275,7 @@ Still not implemented in M3b-24:
 - live micro;
 - stop/SLTP/bracket.
 
-## M3c-0 / M3c-2 order endpoint gate design status
+## M3c-0 / M3c-3 order endpoint gate design status
 
 Implemented while still keeping all broker order endpoints disabled:
 
@@ -1294,9 +1294,15 @@ Implemented while still keeping all broker order endpoints disabled:
 - CLI-generated M3c evidence report with forbidden-surface scan status/hash,
   source commit/archive fingerprint, future route allowlist, and negative-test
   plan;
+- source archive content-binding against `handoff-commit.txt` inside the
+  supplied ZIP;
+- explicit evidence/waiver slot status handling for release-profile,
+  positive-GetOrder, and route-template-recheck slots;
+- negative forbidden-surface harness for injected POST/DELETE/method/route
+  bypasses;
 - `EndpointGateApproved` remains unconstructible.
 
-Still not implemented in M3c-2:
+Still not implemented in M3c-3:
 
 - FINAM POST/DELETE order endpoint calls;
 - real command stream consumer connected to strategies;

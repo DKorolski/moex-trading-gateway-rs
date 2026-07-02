@@ -1518,6 +1518,33 @@ M3c-2 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-3 implementation-gate preconditions hardening:
+
+- Added source archive content-binding for M3c evidence generation: the CLI now
+  opens the supplied ZIP, reads `handoff-commit.txt`, and verifies that
+  `source_ref` equals the current source ref and `archive_name` equals the
+  supplied archive file name.
+- Extended `M3cSourceEvidence` with handoff source ref, handoff archive name,
+  and `source_archive_content_binding_verified`.
+- Added explicit evidence slot status options for release-profile,
+  positive-GetOrder, and route-template-recheck slots:
+  `pending`, `evidence-provided`, and `waiver-accepted`.
+- Added `scripts/forbidden_surface_negative_harness.sh` and tightened the
+  forbidden-surface scan for literal FINAM order route bypasses in
+  `broker-finam` source.
+- Real endpoint approval remains impossible and `endpoint_calls_allowed`
+  remains `false`.
+
+M3c-3 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

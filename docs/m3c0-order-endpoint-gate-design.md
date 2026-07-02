@@ -1,4 +1,4 @@
-# M3c-0 / M3c-2 order endpoint gate design
+# M3c-0 / M3c-3 order endpoint gate design
 
 Status: design-only order endpoint gate. These increments do not add or
 authorize FINAM `POST /orders`, FINAM `DELETE /orders/{order_id}`, real command
@@ -107,11 +107,11 @@ with implementation readiness. For example, account allowlist, instrument
 allowlist, and unknown-active-order startup guard stay design-level items until
 the implementation gate proves and tests them.
 
-## M3c-2 evidence report
+## M3c-2 / M3c-3 evidence report
 
 `broker-cli m3c-order-endpoint-gate-report` emits and saves a self-contained
 M3c gate report. The command runs the forbidden-surface scan before writing the
-report and records:
+report, validates the supplied source archive binding, and records:
 
 ```text
 evidence.forbidden_surface_scan.status
@@ -122,6 +122,9 @@ evidence.forbidden_surface_scan.exit_code
 evidence.source.source_commit_full_sha
 evidence.source.source_archive_name
 evidence.source.source_archive_sha256
+evidence.source.source_archive_handoff_source_ref
+evidence.source.source_archive_handoff_archive_name
+evidence.source.source_archive_content_binding_verified
 ```
 
 The report also keeps the remaining implementation-gate evidence slots explicit:
@@ -130,6 +133,22 @@ The report also keeps the remaining implementation-gate evidence slots explicit:
 release_profile_evidence_or_waiver = Pending
 positive_get_order_evidence_or_waiver = Pending
 route_template_recheck = Pending
+```
+
+M3c-3 adds explicit slot-status handling for the three evidence/waiver slots:
+
+```text
+--release-profile-status pending|evidence-provided|waiver-accepted
+--positive-get-order-status pending|evidence-provided|waiver-accepted
+--route-template-recheck-status pending|evidence-provided|waiver-accepted
+```
+
+Invalid status values fail the CLI command. Supplying a source archive now also
+opens the ZIP, reads `handoff-commit.txt`, and requires:
+
+```text
+handoff.source_ref == git rev-parse HEAD
+handoff.archive_name == supplied archive file name
 ```
 
 Example operator command:
@@ -177,6 +196,19 @@ Before implementation, scan coverage must include negative tests that fail on:
 - generic request wrapper using `DELETE`;
 - route-string bypasses;
 - non-reqwest client abstractions.
+
+M3c-3 adds `scripts/forbidden_surface_negative_harness.sh`, which runs the
+scanner against temporary source copies with injected forbidden surfaces. The
+harness must remain green before any implementation-gate review. It proves the
+current scanner rejects:
+
+```text
+same-module extra .post(
+same-module extra .delete(
+generic Method::POST
+generic Method::DELETE
+literal FINAM order route bypass in broker-finam
+```
 
 ## Preconditions before implementation gate
 

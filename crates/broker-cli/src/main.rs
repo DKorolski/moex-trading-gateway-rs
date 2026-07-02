@@ -199,6 +199,15 @@ enum Command {
         /// Optional source handoff archive path to fingerprint in the report.
         #[arg(long)]
         source_archive: Option<PathBuf>,
+        /// Evidence slot status: pending, evidence-provided, waiver-accepted.
+        #[arg(long, default_value = "pending")]
+        release_profile_status: String,
+        /// Evidence slot status: pending, evidence-provided, waiver-accepted.
+        #[arg(long, default_value = "pending")]
+        positive_get_order_status: String,
+        /// Evidence slot status: pending, evidence-provided, waiver-accepted.
+        #[arg(long, default_value = "pending")]
+        route_template_recheck_status: String,
     },
     /// Run one FINAM read-only shadow gateway pass and publish broker-truth events to Redis.
     #[command(name = "finam-gateway-shadow-once")]
@@ -863,8 +872,19 @@ async fn main() -> Result<()> {
         Command::M3cOrderEndpointGateReport {
             output,
             source_archive,
+            release_profile_status,
+            positive_get_order_status,
+            route_template_recheck_status,
         } => {
-            run_m3c_order_endpoint_gate_report(output, source_archive)?;
+            run_m3c_order_endpoint_gate_report(
+                output,
+                source_archive,
+                M3cEvidenceSlotArgs {
+                    release_profile_status,
+                    positive_get_order_status,
+                    route_template_recheck_status,
+                },
+            )?;
         }
         Command::GatewayShadowOnce {
             config,
@@ -992,6 +1012,12 @@ struct FinamRealReadonlyEvidenceArgs {
     preflight_max_age_ms: u64,
     output: PathBuf,
     source_archive: Option<PathBuf>,
+}
+
+struct M3cEvidenceSlotArgs {
+    release_profile_status: String,
+    positive_get_order_status: String,
+    route_template_recheck_status: String,
 }
 
 struct BarFinalityGoldenArgs {
@@ -1897,6 +1923,79 @@ fn validate_source_archive_binding(
     Ok(())
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HandoffCommitMarker {
+    source_commit: Option<String>,
+    source_ref: Option<String>,
+    archive_name: Option<String>,
+}
+
+fn parse_handoff_commit_marker(contents: &str) -> HandoffCommitMarker {
+    let mut marker = HandoffCommitMarker {
+        source_commit: None,
+        source_ref: None,
+        archive_name: None,
+    };
+    for line in contents.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        match key {
+            "source_commit" => marker.source_commit = Some(value.to_string()),
+            "source_ref" => marker.source_ref = Some(value.to_string()),
+            "archive_name" => marker.archive_name = Some(value.to_string()),
+            _ => {}
+        }
+    }
+    marker
+}
+
+fn read_handoff_commit_marker_from_zip(path: &Path) -> Result<HandoffCommitMarker> {
+    let output = ProcessCommand::new("unzip")
+        .args(["-p"])
+        .arg(path)
+        .arg("handoff-commit.txt")
+        .output()
+        .with_context(|| format!("failed to read handoff-commit.txt from {}", path.display()))?;
+    anyhow::ensure!(
+        output.status.success(),
+        "source archive is missing readable handoff-commit.txt: {}",
+        path.display()
+    );
+    let contents = String::from_utf8(output.stdout).with_context(|| {
+        format!(
+            "handoff-commit.txt is not valid UTF-8 in {}",
+            path.display()
+        )
+    })?;
+    Ok(parse_handoff_commit_marker(&contents))
+}
+
+fn validate_source_archive_content_binding(
+    path: &Path,
+    source_commit_full_sha: Option<&str>,
+) -> Result<HandoffCommitMarker> {
+    let Some(source_commit_full_sha) = source_commit_full_sha else {
+        anyhow::bail!("cannot validate source archive content binding without git HEAD sha");
+    };
+    let marker = read_handoff_commit_marker_from_zip(path)?;
+    let archive_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .context("source archive path has no file name")?;
+    anyhow::ensure!(
+        marker.source_ref.as_deref() == Some(source_commit_full_sha),
+        "source archive content binding mismatch: handoff_source_ref={:?} git_head={source_commit_full_sha}",
+        marker.source_ref
+    );
+    anyhow::ensure!(
+        marker.archive_name.as_deref() == Some(archive_name.as_str()),
+        "source archive content archive_name mismatch: handoff_archive_name={:?} archive_name={archive_name}",
+        marker.archive_name
+    );
+    Ok(marker)
+}
+
 fn run_forbidden_surface_scan_metadata() -> Result<serde_json::Value> {
     let script = PathBuf::from("scripts/forbidden_surface_scan.sh");
     let script_sha256 = script.exists().then(|| sha256_file(&script)).transpose()?;
@@ -1957,8 +2056,13 @@ fn build_finam_real_readonly_evidence_metadata(
 
 fn resolve_source_evidence(source_archive: Option<&Path>) -> Result<M3cSourceEvidence> {
     let source_commit_full_sha = source_commit_full_sha();
+    let mut handoff_marker = None;
     if let Some(source_archive) = source_archive {
         validate_source_archive_binding(source_archive, source_commit_full_sha.as_deref())?;
+        handoff_marker = Some(validate_source_archive_content_binding(
+            source_archive,
+            source_commit_full_sha.as_deref(),
+        )?);
     }
     let resolved_source_archive = source_archive
         .map(PathBuf::from)
@@ -1976,11 +2080,30 @@ fn resolve_source_evidence(source_archive: Option<&Path>) -> Result<M3cSourceEvi
         source_commit_full_sha,
         source_archive_name,
         source_archive_sha256,
+        source_archive_handoff_source_ref: handoff_marker
+            .as_ref()
+            .and_then(|marker| marker.source_ref.clone()),
+        source_archive_handoff_archive_name: handoff_marker
+            .as_ref()
+            .and_then(|marker| marker.archive_name.clone()),
+        source_archive_content_binding_verified: handoff_marker.is_some(),
     })
+}
+
+fn parse_m3c_evidence_slot_status(value: &str) -> Result<M3cOrderEndpointGateEvidenceStatus> {
+    match value {
+        "pending" => Ok(M3cOrderEndpointGateEvidenceStatus::Pending),
+        "evidence-provided" => Ok(M3cOrderEndpointGateEvidenceStatus::EvidenceProvided),
+        "waiver-accepted" => Ok(M3cOrderEndpointGateEvidenceStatus::WaiverAccepted),
+        _ => anyhow::bail!(
+            "unsupported M3c evidence slot status {value:?}; expected pending, evidence-provided, or waiver-accepted"
+        ),
+    }
 }
 
 fn build_m3c_order_endpoint_gate_design_evidence(
     source_archive: Option<&Path>,
+    slot_args: &M3cEvidenceSlotArgs,
 ) -> Result<M3cOrderEndpointGateDesignEvidence> {
     let scan = run_forbidden_surface_scan_metadata()?;
     let scan_status = match scan.get("status").and_then(serde_json::Value::as_str) {
@@ -2009,17 +2132,25 @@ fn build_m3c_order_endpoint_gate_design_evidence(
             exit_code,
         },
         source: resolve_source_evidence(source_archive)?,
-        release_profile_evidence_or_waiver: M3cOrderEndpointGateEvidenceStatus::Pending,
-        positive_get_order_evidence_or_waiver: M3cOrderEndpointGateEvidenceStatus::Pending,
-        route_template_recheck: M3cOrderEndpointGateEvidenceStatus::Pending,
+        release_profile_evidence_or_waiver: parse_m3c_evidence_slot_status(
+            &slot_args.release_profile_status,
+        )?,
+        positive_get_order_evidence_or_waiver: parse_m3c_evidence_slot_status(
+            &slot_args.positive_get_order_status,
+        )?,
+        route_template_recheck: parse_m3c_evidence_slot_status(
+            &slot_args.route_template_recheck_status,
+        )?,
     })
 }
 
 fn run_m3c_order_endpoint_gate_report(
     output: PathBuf,
     source_archive: Option<PathBuf>,
+    slot_args: M3cEvidenceSlotArgs,
 ) -> Result<()> {
-    let evidence = build_m3c_order_endpoint_gate_design_evidence(source_archive.as_deref())?;
+    let evidence =
+        build_m3c_order_endpoint_gate_design_evidence(source_archive.as_deref(), &slot_args)?;
     let report =
         GatewayFeatureSet::default().m3c_order_endpoint_gate_design_report_with_evidence(evidence);
     let payload = serde_json::to_value(report)?;
@@ -3965,6 +4096,36 @@ mod tests {
             .expect_err("malformed archive name must be rejected")
             .to_string()
             .contains("source archive name must match"));
+    }
+
+    #[test]
+    fn m3c_handoff_marker_parser_and_slot_statuses_are_strict() {
+        let marker = parse_handoff_commit_marker(
+            "source_commit=fa76b6a\nsource_ref=fa76b6ab7b8661db3942c360e7fcc6e4c63e933a\narchive_name=moex-trading-project-fa76b6a.zip\n",
+        );
+
+        assert_eq!(marker.source_commit.as_deref(), Some("fa76b6a"));
+        assert_eq!(
+            marker.source_ref.as_deref(),
+            Some("fa76b6ab7b8661db3942c360e7fcc6e4c63e933a")
+        );
+        assert_eq!(
+            marker.archive_name.as_deref(),
+            Some("moex-trading-project-fa76b6a.zip")
+        );
+        assert_eq!(
+            parse_m3c_evidence_slot_status("pending").expect("pending"),
+            M3cOrderEndpointGateEvidenceStatus::Pending
+        );
+        assert_eq!(
+            parse_m3c_evidence_slot_status("evidence-provided").expect("evidence"),
+            M3cOrderEndpointGateEvidenceStatus::EvidenceProvided
+        );
+        assert_eq!(
+            parse_m3c_evidence_slot_status("waiver-accepted").expect("waiver"),
+            M3cOrderEndpointGateEvidenceStatus::WaiverAccepted
+        );
+        assert!(parse_m3c_evidence_slot_status("accepted").is_err());
     }
 
     #[test]

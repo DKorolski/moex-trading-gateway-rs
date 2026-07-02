@@ -29,6 +29,12 @@ if rg -n --glob 'crates/**/*.rs' 'Method::POST' crates >/tmp/moex_forbidden_meth
 fi
 rm -f /tmp/moex_forbidden_method_post.$$
 
+if rg -n '"/v1/accounts/[^"]*/orders' crates/broker-finam/src/lib.rs >/tmp/moex_forbidden_order_route_literal.$$; then
+  cat /tmp/moex_forbidden_order_route_literal.$$ >&2
+  report_failure "literal FINAM order route bypass is forbidden before explicit endpoint review"
+fi
+rm -f /tmp/moex_forbidden_order_route_literal.$$
+
 python3 - <<'PY'
 from pathlib import Path
 import sys

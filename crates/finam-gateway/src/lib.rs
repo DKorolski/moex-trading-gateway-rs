@@ -270,6 +270,7 @@ pub enum M3cOrderEndpointGateEvidenceStatus {
     NotRunInStaticReport,
     Ok,
     Failed,
+    EvidenceProvided,
     WaiverAccepted,
     Pending,
 }
@@ -300,6 +301,9 @@ pub struct M3cSourceEvidence {
     pub source_commit_full_sha: Option<String>,
     pub source_archive_name: Option<String>,
     pub source_archive_sha256: Option<String>,
+    pub source_archive_handoff_source_ref: Option<String>,
+    pub source_archive_handoff_archive_name: Option<String>,
+    pub source_archive_content_binding_verified: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -319,6 +323,9 @@ impl Default for M3cOrderEndpointGateDesignEvidence {
                 source_commit_full_sha: None,
                 source_archive_name: None,
                 source_archive_sha256: None,
+                source_archive_handoff_source_ref: None,
+                source_archive_handoff_archive_name: None,
+                source_archive_content_binding_verified: false,
             },
             release_profile_evidence_or_waiver: M3cOrderEndpointGateEvidenceStatus::Pending,
             positive_get_order_evidence_or_waiver: M3cOrderEndpointGateEvidenceStatus::Pending,
