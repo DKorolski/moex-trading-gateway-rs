@@ -363,6 +363,35 @@ pub struct M3cOrderEndpointNegativeTestPlanItem {
     pub expected_result: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3cRealOrderEndpointCompileTraitDecision {
+    ApprovedOnlyCompileContract,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3cOrderEndpointScannerTransitionMode {
+    CurrentDenyAllOrderPostDelete,
+    FutureExactTwoRouteAllowlistAfterReview,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3cOrderEndpointImplementationTransitionPlan {
+    pub design_only: bool,
+    pub current_scanner_mode: M3cOrderEndpointScannerTransitionMode,
+    pub future_scanner_mode: M3cOrderEndpointScannerTransitionMode,
+    pub approved_future_module_path: String,
+    pub compile_trait_decision: M3cRealOrderEndpointCompileTraitDecision,
+    pub endpoint_gate_marker_required: bool,
+    pub route_rendering_requires_gate_marker: bool,
+    pub http_send_requires_gate_marker: bool,
+    pub future_allowed_routes: Vec<M3cOrderEndpointRouteAllowlistEntry>,
+    pub post_allowlist_negative_tests: Vec<M3cOrderEndpointNegativeTestPlanItem>,
+    pub release_profile_evidence_required: bool,
+    pub positive_get_order_evidence_required: bool,
+    pub route_template_recheck_required: bool,
+    pub real_post_delete_calls_allowed_now: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct M3cOrderEndpointGateDesignReport {
     pub design_only: bool,
@@ -378,6 +407,7 @@ pub struct M3cOrderEndpointGateDesignReport {
     pub evidence: M3cOrderEndpointGateDesignEvidence,
     pub future_order_endpoint_allowlist: Vec<M3cOrderEndpointRouteAllowlistEntry>,
     pub negative_test_plan: Vec<M3cOrderEndpointNegativeTestPlanItem>,
+    pub implementation_transition_plan: M3cOrderEndpointImplementationTransitionPlan,
     pub forbidden_surface_scan_must_remain_green: bool,
     pub real_post_delete_added: bool,
 }
@@ -564,6 +594,29 @@ fn m3c_order_endpoint_negative_test_plan() -> Vec<M3cOrderEndpointNegativeTestPl
     .collect()
 }
 
+fn m3c_order_endpoint_implementation_transition_plan(
+) -> M3cOrderEndpointImplementationTransitionPlan {
+    M3cOrderEndpointImplementationTransitionPlan {
+        design_only: true,
+        current_scanner_mode: M3cOrderEndpointScannerTransitionMode::CurrentDenyAllOrderPostDelete,
+        future_scanner_mode:
+            M3cOrderEndpointScannerTransitionMode::FutureExactTwoRouteAllowlistAfterReview,
+        approved_future_module_path: "crates/broker-finam/src/order_endpoint_transport.rs"
+            .to_string(),
+        compile_trait_decision:
+            M3cRealOrderEndpointCompileTraitDecision::ApprovedOnlyCompileContract,
+        endpoint_gate_marker_required: true,
+        route_rendering_requires_gate_marker: true,
+        http_send_requires_gate_marker: true,
+        future_allowed_routes: m3c_future_order_endpoint_allowlist(),
+        post_allowlist_negative_tests: m3c_order_endpoint_negative_test_plan(),
+        release_profile_evidence_required: true,
+        positive_get_order_evidence_required: true,
+        route_template_recheck_required: true,
+        real_post_delete_calls_allowed_now: false,
+    }
+}
+
 impl GatewayFeatureSet {
     pub fn real_order_endpoint_gate_decision(&self) -> RealOrderEndpointGateDecision {
         let mut blocking_reasons = vec![
@@ -619,6 +672,7 @@ impl GatewayFeatureSet {
             evidence,
             future_order_endpoint_allowlist: m3c_future_order_endpoint_allowlist(),
             negative_test_plan: m3c_order_endpoint_negative_test_plan(),
+            implementation_transition_plan: m3c_order_endpoint_implementation_transition_plan(),
             forbidden_surface_scan_must_remain_green: true,
             real_post_delete_added: false,
         }
@@ -8684,11 +8738,64 @@ mod tests {
             item.surface == M3cOrderEndpointNegativeTestSurface::GenericRequestPost
                 && item.expected_result == "forbidden_surface_scan_must_fail"
         }));
+        assert!(report.implementation_transition_plan.design_only);
+        assert_eq!(
+            report.implementation_transition_plan.compile_trait_decision,
+            M3cRealOrderEndpointCompileTraitDecision::ApprovedOnlyCompileContract
+        );
+        assert_eq!(
+            report.implementation_transition_plan.current_scanner_mode,
+            M3cOrderEndpointScannerTransitionMode::CurrentDenyAllOrderPostDelete
+        );
+        assert_eq!(
+            report.implementation_transition_plan.future_scanner_mode,
+            M3cOrderEndpointScannerTransitionMode::FutureExactTwoRouteAllowlistAfterReview
+        );
+        assert_eq!(
+            report
+                .implementation_transition_plan
+                .approved_future_module_path,
+            "crates/broker-finam/src/order_endpoint_transport.rs"
+        );
+        assert!(
+            report
+                .implementation_transition_plan
+                .endpoint_gate_marker_required
+        );
+        assert!(
+            report
+                .implementation_transition_plan
+                .route_rendering_requires_gate_marker
+        );
+        assert!(
+            report
+                .implementation_transition_plan
+                .http_send_requires_gate_marker
+        );
+        assert!(
+            !report
+                .implementation_transition_plan
+                .real_post_delete_calls_allowed_now
+        );
+        assert_eq!(
+            report
+                .implementation_transition_plan
+                .future_allowed_routes
+                .len(),
+            2
+        );
+        assert!(
+            report
+                .implementation_transition_plan
+                .positive_get_order_evidence_required
+        );
         let report_json = serde_json::to_string(&report).expect("report serializes");
         assert!(report_json.contains("RedactedAckExportPolicy"));
         assert!(report_json.contains("forbidden_surface_scan"));
         assert!(report_json.contains("future_order_endpoint_allowlist"));
         assert!(report_json.contains("negative_test_plan"));
+        assert!(report_json.contains("implementation_transition_plan"));
+        assert!(report_json.contains("ApprovedOnlyCompileContract"));
         assert!(!report_json.contains("ACC_TEST_0001"));
 
         let unsafe_report = GatewayFeatureSet {

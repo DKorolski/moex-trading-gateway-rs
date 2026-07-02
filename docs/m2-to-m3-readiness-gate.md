@@ -1300,6 +1300,9 @@ Implemented while still keeping all broker order endpoints disabled:
   positive-GetOrder, and route-template-recheck slots;
 - negative forbidden-surface harness for injected POST/DELETE/method/route
   bypasses;
+- explicit M3c-4 transition plan: approved-only compile trait decision,
+  future exact-two-route scanner mode, approved future module path, and
+  `EndpointGateApproved` requirement for route rendering and HTTP send;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:

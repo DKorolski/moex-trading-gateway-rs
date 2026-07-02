@@ -193,6 +193,10 @@ M3c-3 binds that report to the supplied source archive contents by reading
 `handoff-commit.txt` from the ZIP, adds explicit evidence/waiver slot handling,
 and adds a negative forbidden-surface harness. These checks are preconditions
 only; they do not enable order endpoints.
+M3c-4 records the future implementation transition plan while keeping the
+existing real endpoint transport trait as an approved-only compile contract.
+Future route rendering and HTTP send must require `EndpointGateApproved`; the
+marker remains unconstructible.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

@@ -1548,6 +1548,32 @@ M3c-3 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-4 explicit order endpoint implementation gate transition plan:
+
+- Added serializable `implementation_transition_plan` to the M3c gate report.
+- Recorded the decision that `FinamRealOrderEndpointTransport` remains an
+  approved-only compile contract, not implementation approval.
+- Recorded current scanner mode as `CurrentDenyAllOrderPostDelete`.
+- Recorded future scanner mode as `FutureExactTwoRouteAllowlistAfterReview`.
+- Recorded approved future implementation module:
+  `crates/broker-finam/src/order_endpoint_transport.rs`.
+- Recorded that future route rendering and HTTP send must both require
+  `EndpointGateApproved`.
+- Release-profile evidence/waiver, positive GetOrder evidence/waiver, and
+  route-template recheck remain required before implementation gate.
+- Details are documented in
+  `docs/m3c4-order-endpoint-implementation-transition-plan.md`.
+
+M3c-4 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.
