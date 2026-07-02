@@ -1419,6 +1419,30 @@ M3b-22 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-23 real-readonly evidence closeout hardening:
+
+- Added self-contained evidence metadata: full source commit, optional source
+  archive name/SHA-256, broker-cli package version/build profile, forbidden
+  surface scan status/script SHA-256, and runbook version.
+- The evidence command runs `scripts/forbidden_surface_scan.sh` before FINAM
+  broker-truth requests.
+- Added per-attempt timing and actual HTTP-send timing to evidence matrix rows.
+- Added parsed-count reconciliation summaries for orders, trades, and
+  positions, separating HTTP contract evidence from target broker-truth
+  evidence.
+- Documented the future read-only-only GetOrder 200 evidence plan.
+- Details are documented in `docs/m3b23-real-readonly-evidence-closeout.md`.
+
+M3b-23 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

@@ -34,8 +34,12 @@ use redis::streams::{
     StreamAutoClaimReply, StreamId, StreamPendingCountReply, StreamRangeReply, StreamReadReply,
 };
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::fmt::Write as _;
+use std::path::Path;
 use std::path::PathBuf;
+use std::process::Command as ProcessCommand;
 use std::sync::Mutex;
 use std::time::{Duration as StdDuration, Instant};
 
@@ -177,6 +181,9 @@ enum Command {
             default_value = "reports/finam-real-readonly-evidence/redacted-evidence.json"
         )]
         output: PathBuf,
+        /// Optional source handoff archive path to fingerprint in the evidence metadata.
+        #[arg(long)]
+        source_archive: Option<PathBuf>,
     },
     /// Run one FINAM read-only shadow gateway pass and publish broker-truth events to Redis.
     #[command(name = "finam-gateway-shadow-once")]
@@ -821,6 +828,7 @@ async fn main() -> Result<()> {
             min_request_interval_ms,
             preflight_max_age_ms,
             output,
+            source_archive,
         } => {
             run_finam_real_readonly_evidence(FinamRealReadonlyEvidenceArgs {
                 secret_env,
@@ -833,6 +841,7 @@ async fn main() -> Result<()> {
                 min_request_interval_ms,
                 preflight_max_age_ms,
                 output,
+                source_archive,
             })
             .await?;
         }
@@ -961,6 +970,7 @@ struct FinamRealReadonlyEvidenceArgs {
     min_request_interval_ms: u64,
     preflight_max_age_ms: u64,
     output: PathBuf,
+    source_archive: Option<PathBuf>,
 }
 
 struct BarFinalityGoldenArgs {
@@ -1803,6 +1813,96 @@ async fn run_gateway_redis_smoke(redis_url: String, stream: String) -> Result<()
     Ok(())
 }
 
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut rendered = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut rendered, "{byte:02x}").expect("hex write cannot fail");
+    }
+    rendered
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    let bytes = std::fs::read(path)?;
+    Ok(sha256_hex(&bytes))
+}
+
+fn command_stdout(command: &str, args: &[&str]) -> Option<String> {
+    let output = ProcessCommand::new(command).args(args).output().ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn source_commit_full_sha() -> Option<String> {
+    command_stdout("git", &["rev-parse", "HEAD"]).filter(|sha| sha.len() == 40)
+}
+
+fn infer_source_archive(source_commit_full_sha: Option<&str>) -> Option<PathBuf> {
+    let short = source_commit_full_sha?.get(..7)?;
+    let path = PathBuf::from(format!("reports/handoff/moex-trading-project-{short}.zip"));
+    path.exists().then_some(path)
+}
+
+fn run_forbidden_surface_scan_metadata() -> Result<serde_json::Value> {
+    let script = PathBuf::from("scripts/forbidden_surface_scan.sh");
+    let script_sha256 = script.exists().then(|| sha256_file(&script)).transpose()?;
+    if !script.exists() {
+        return Ok(serde_json::json!({
+            "status": "script_missing",
+            "script_path": "scripts/forbidden_surface_scan.sh",
+            "script_sha256": script_sha256,
+            "exit_code": null,
+        }));
+    }
+    let output = ProcessCommand::new("bash").arg(&script).output()?;
+    let exit_code = output.status.code();
+    anyhow::ensure!(
+        output.status.success(),
+        "forbidden surface scan failed before FINAM evidence run: exit_code={exit_code:?}"
+    );
+    Ok(serde_json::json!({
+        "status": "ok",
+        "script_path": "scripts/forbidden_surface_scan.sh",
+        "script_sha256": script_sha256,
+        "exit_code": exit_code,
+    }))
+}
+
+fn build_finam_real_readonly_evidence_metadata(
+    source_archive: Option<&Path>,
+) -> Result<serde_json::Value> {
+    let source_commit_full_sha = source_commit_full_sha();
+    let resolved_source_archive = source_archive
+        .map(PathBuf::from)
+        .or_else(|| infer_source_archive(source_commit_full_sha.as_deref()));
+    let source_archive_name = resolved_source_archive
+        .as_ref()
+        .and_then(|path| path.file_name())
+        .map(|name| name.to_string_lossy().to_string());
+    let source_archive_sha256 = resolved_source_archive
+        .as_ref()
+        .filter(|path| path.exists())
+        .map(|path| sha256_file(path))
+        .transpose()?;
+    let build_profile = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    };
+    Ok(serde_json::json!({
+        "source_commit_full_sha": source_commit_full_sha,
+        "source_archive_name": source_archive_name,
+        "source_archive_sha256": source_archive_sha256,
+        "broker_cli_package_version": env!("CARGO_PKG_VERSION"),
+        "broker_cli_build_profile": build_profile,
+        "forbidden_surface_scan": run_forbidden_surface_scan_metadata()?,
+        "runbook_doc": "docs/m3b23-real-readonly-evidence-closeout.md",
+        "runbook_doc_version": "m3b23",
+    }))
+}
+
 async fn run_finam_real_readonly_evidence(args: FinamRealReadonlyEvidenceArgs) -> Result<()> {
     if args.max_requests == 0 || args.max_requests > 4 {
         anyhow::bail!("max_requests must be in 1..=4 for controlled real-readonly evidence");
@@ -1810,6 +1910,8 @@ async fn run_finam_real_readonly_evidence(args: FinamRealReadonlyEvidenceArgs) -
     if args.preflight_max_age_ms == 0 {
         anyhow::bail!("preflight_max_age_ms must be greater than zero");
     }
+    let evidence_metadata =
+        build_finam_real_readonly_evidence_metadata(args.source_archive.as_deref())?;
 
     let finam_config = FinamConfig {
         request_timeout_ms: args.request_timeout_ms,
@@ -1924,7 +2026,9 @@ async fn run_finam_real_readonly_evidence(args: FinamRealReadonlyEvidenceArgs) -
 
     let payload = serde_json::json!({
         "fixture_kind": "finam-real-readonly-contract-probe-evidence-v1",
+        "evidence_schema_version": 2,
         "generated_at": Utc::now(),
+        "evidence_metadata": evidence_metadata,
         "live_trading_enabled": false,
         "order_endpoints_used": false,
         "scope": {

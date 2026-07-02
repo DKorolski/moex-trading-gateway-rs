@@ -163,7 +163,8 @@ redacted SQLite audit, non-serializable token/account preflight marker,
 probe-run identity, explicit actual HTTP send counters, request-bound preflight
 markers, redacted source-order evidence, preflight freshness/TTL, and per-row
 actual HTTP send flags, explicit operator-run clock policy, computed
-preflight age, and a controlled one-shot real-readonly evidence command,
+preflight age, a controlled one-shot real-readonly evidence command, and
+self-contained/timed/parsed-count evidence closeout,
 store invariants, broker-order-id uniqueness, cancel timeout policy, dry
 window/backoff rate limiting, FINAM request DTO builders without HTTP send,
 workspace-wide source-scan guard tests, and price/reference/notional guard
@@ -214,6 +215,7 @@ See:
 - [M3b-20 real-readonly pre-run freshness gate](docs/m3b20-real-readonly-pre-run-freshness-gate.md)
 - [M3b-21 real-readonly operator clock gate](docs/m3b21-real-readonly-operator-clock-gate.md)
 - [M3b-22 controlled real-readonly evidence package](docs/m3b22-real-readonly-evidence-package.md)
+- [M3b-23 real-readonly evidence closeout hardening](docs/m3b23-real-readonly-evidence-closeout.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

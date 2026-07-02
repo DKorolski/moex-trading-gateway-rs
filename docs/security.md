@@ -176,6 +176,9 @@ started/completed send flags without any real FINAM probe.
 M3b-22 adds a controlled one-shot real-readonly evidence command. The report is
 redacted and GET-only; actual evidence artifacts stay under `reports/` and are
 kept separate from source handoff archives.
+M3b-23 adds self-contained evidence metadata, runs the forbidden-surface scan
+before evidence collection, and adds timing/parsed-count diagnostics without raw
+broker identifiers or bodies.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

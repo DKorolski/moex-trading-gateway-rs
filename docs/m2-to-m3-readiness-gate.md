@@ -1228,3 +1228,26 @@ Still not implemented in M3b-22:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-23 real-readonly evidence closeout hardening status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- self-contained evidence metadata for source commit/archive, broker-cli
+  version/build profile, forbidden-surface scan status/script hash, and runbook
+  version;
+- forbidden-surface scan is executed before FINAM evidence collection;
+- per-attempt and actual HTTP-send timing fields in the redacted evidence
+  matrix;
+- redacted parsed-count summaries for orders, trades, and position snapshots;
+- documented GetOrder 200 evidence plan without creating orders.
+
+Still not implemented in M3b-23:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

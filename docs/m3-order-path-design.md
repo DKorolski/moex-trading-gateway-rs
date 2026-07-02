@@ -216,6 +216,8 @@ computed preflight age, and adds transport-like coverage for send flag
 propagation.
 M3b-22 adds the actual controlled one-shot real-readonly evidence command while
 keeping all order endpoints and runtime/live behavior disabled.
+M3b-23 hardens that evidence with source/archive metadata, per-attempt timing,
+and parsed-count summaries while keeping the order boundary closed.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

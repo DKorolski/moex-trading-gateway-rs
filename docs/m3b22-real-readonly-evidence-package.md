@@ -30,6 +30,10 @@ The token/account preflight is intentionally strict. `token_details.readonly`
 must be `true`; a trading-capable token with `readonly=false` blocks before any
 broker-truth source request is sent.
 
+M3b-23 follow-up makes the evidence artifact self-contained, adds per-attempt
+timing, and adds parsed-count reconciliation summaries. See
+`docs/m3b23-real-readonly-evidence-closeout.md`.
+
 ## Required controlled-run properties
 
 The generated report must satisfy:

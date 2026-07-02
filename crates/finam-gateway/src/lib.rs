@@ -2184,6 +2184,23 @@ impl CancelBrokerTruthReadonlyHttpResponse {
         actual_http_send_started: bool,
         actual_http_send_completed: bool,
     ) -> CancelBrokerTruthReadonlyHttpDiagnostic {
+        self.diagnostic_with_transport_timing(
+            actual_http_send_started,
+            actual_http_send_completed,
+            None,
+            None,
+            None,
+        )
+    }
+
+    fn diagnostic_with_transport_timing(
+        &self,
+        actual_http_send_started: bool,
+        actual_http_send_completed: bool,
+        actual_http_send_started_at: Option<DateTime<Utc>>,
+        actual_http_send_completed_at: Option<DateTime<Utc>>,
+        actual_http_send_elapsed_ms: Option<u64>,
+    ) -> CancelBrokerTruthReadonlyHttpDiagnostic {
         CancelBrokerTruthReadonlyHttpDiagnostic {
             status: self.status,
             body_present: self.body.is_some(),
@@ -2192,6 +2209,9 @@ impl CancelBrokerTruthReadonlyHttpResponse {
             transport_error_category: self.transport_error_category,
             actual_http_send_started,
             actual_http_send_completed,
+            actual_http_send_started_at,
+            actual_http_send_completed_at,
+            actual_http_send_elapsed_ms,
         }
     }
 }
@@ -2216,6 +2236,9 @@ pub struct CancelBrokerTruthReadonlyHttpDiagnostic {
     pub transport_error_category: Option<FinamRealReadonlyTransportErrorCategory>,
     pub actual_http_send_started: bool,
     pub actual_http_send_completed: bool,
+    pub actual_http_send_started_at: Option<DateTime<Utc>>,
+    pub actual_http_send_completed_at: Option<DateTime<Utc>>,
+    pub actual_http_send_elapsed_ms: Option<u64>,
 }
 
 fn readonly_http_status_failure(status: u16) -> Option<CancelBrokerTruthFetchReason> {
@@ -2588,6 +2611,173 @@ pub fn map_cancel_broker_truth_position_snapshot_http_response(
         observed_ts,
         freshness_policy,
     ))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinamRealReadonlyReconciliationEvidenceSummary {
+    pub source: CancelBrokerTruthSource,
+    pub parsed_orders_count: Option<usize>,
+    pub matched_orders_count: Option<usize>,
+    pub parsed_trades_count: Option<usize>,
+    pub matched_trades_count: Option<usize>,
+    pub position_items_count: Option<usize>,
+    pub position_identity_match_count: Option<usize>,
+    pub snapshot_complete: Option<bool>,
+    pub snapshot_incomplete_reason: Option<CancelBrokerTruthFetchReason>,
+}
+
+impl FinamRealReadonlyReconciliationEvidenceSummary {
+    fn empty(
+        source: CancelBrokerTruthSource,
+        reason: Option<CancelBrokerTruthFetchReason>,
+    ) -> Self {
+        Self {
+            source,
+            parsed_orders_count: None,
+            matched_orders_count: None,
+            parsed_trades_count: None,
+            matched_trades_count: None,
+            position_items_count: None,
+            position_identity_match_count: None,
+            snapshot_complete: reason.map(|_| false),
+            snapshot_incomplete_reason: reason,
+        }
+    }
+}
+
+fn build_finam_real_readonly_reconciliation_evidence_summary(
+    source: CancelBrokerTruthSource,
+    response: &CancelBrokerTruthReadonlyHttpResponse,
+    request: &CancelBrokerTruthFetchRequestSnapshot,
+    query_policy: FinamRealReadonlyBrokerTruthQueryPolicy,
+) -> FinamRealReadonlyReconciliationEvidenceSummary {
+    if let Some(reason) = readonly_http_status_failure(response.status) {
+        return FinamRealReadonlyReconciliationEvidenceSummary::empty(source, Some(reason));
+    }
+
+    match source {
+        CancelBrokerTruthSource::GetOrder => {
+            match decode_readonly_http_body::<broker_finam::dto::OrderState>(response) {
+                Ok(order) => {
+                    let identity_matches = order.order_id.as_deref()
+                        == Some(request.order_id.as_str())
+                        || request.client_order_id.as_ref().is_some_and(|client_id| {
+                            order.order.client_order_id.as_deref() == Some(client_id.as_str())
+                        });
+                    FinamRealReadonlyReconciliationEvidenceSummary {
+                        source,
+                        parsed_orders_count: Some(1),
+                        matched_orders_count: Some(usize::from(identity_matches)),
+                        parsed_trades_count: None,
+                        matched_trades_count: None,
+                        position_items_count: None,
+                        position_identity_match_count: None,
+                        snapshot_complete: Some(true),
+                        snapshot_incomplete_reason: None,
+                    }
+                }
+                Err(reason) => {
+                    FinamRealReadonlyReconciliationEvidenceSummary::empty(source, Some(reason))
+                }
+            }
+        }
+        CancelBrokerTruthSource::OrdersSnapshot => {
+            match decode_readonly_http_body::<broker_finam::dto::AccountOrdersResponse>(response) {
+                Ok(orders) => {
+                    let matched_orders_count = orders
+                        .orders
+                        .iter()
+                        .filter(|order| {
+                            order.order_id.as_deref() == Some(request.order_id.as_str())
+                                || request.client_order_id.as_ref().is_some_and(|client_id| {
+                                    order.order.client_order_id.as_deref()
+                                        == Some(client_id.as_str())
+                                })
+                        })
+                        .count();
+                    FinamRealReadonlyReconciliationEvidenceSummary {
+                        source,
+                        parsed_orders_count: Some(orders.orders.len()),
+                        matched_orders_count: Some(matched_orders_count),
+                        parsed_trades_count: None,
+                        matched_trades_count: None,
+                        position_items_count: None,
+                        position_identity_match_count: None,
+                        snapshot_complete: Some(true),
+                        snapshot_incomplete_reason: None,
+                    }
+                }
+                Err(reason) => {
+                    FinamRealReadonlyReconciliationEvidenceSummary::empty(source, Some(reason))
+                }
+            }
+        }
+        CancelBrokerTruthSource::TradesSnapshot => {
+            match decode_readonly_http_body::<broker_finam::dto::AccountTradesResponse>(response) {
+                Ok(trades) => {
+                    let matched_trades_count = trades
+                        .trades
+                        .iter()
+                        .filter(|trade| {
+                            trade.order_id.as_deref() == Some(request.order_id.as_str())
+                                || request.client_order_id.as_ref().is_some_and(|client_id| {
+                                    trade.client_order_id.as_deref() == Some(client_id.as_str())
+                                })
+                        })
+                        .count();
+                    let page_full = trades.trades.len() >= query_policy.trades_limit as usize;
+                    FinamRealReadonlyReconciliationEvidenceSummary {
+                        source,
+                        parsed_orders_count: None,
+                        matched_orders_count: None,
+                        parsed_trades_count: Some(trades.trades.len()),
+                        matched_trades_count: Some(matched_trades_count),
+                        position_items_count: None,
+                        position_identity_match_count: None,
+                        snapshot_complete: Some(!page_full || matched_trades_count > 0),
+                        snapshot_incomplete_reason: (page_full && matched_trades_count == 0)
+                            .then_some(CancelBrokerTruthFetchReason::TradesSnapshotIncomplete),
+                    }
+                }
+                Err(reason) => {
+                    FinamRealReadonlyReconciliationEvidenceSummary::empty(source, Some(reason))
+                }
+            }
+        }
+        CancelBrokerTruthSource::PositionSnapshot => {
+            match decode_readonly_http_body::<broker_finam::dto::AccountResponse>(response) {
+                Ok(account) => {
+                    let account_matches = request
+                        .account_id
+                        .as_ref()
+                        .is_some_and(|account_id| account.account_id == account_id.as_str());
+                    let position_identity_match_count = account
+                        .positions
+                        .iter()
+                        .filter(|position| {
+                            account_matches
+                                && position.symbol.as_deref()
+                                    == Some(request.instrument.symbol.as_str())
+                        })
+                        .count();
+                    FinamRealReadonlyReconciliationEvidenceSummary {
+                        source,
+                        parsed_orders_count: None,
+                        matched_orders_count: None,
+                        parsed_trades_count: None,
+                        matched_trades_count: None,
+                        position_items_count: Some(account.positions.len()),
+                        position_identity_match_count: Some(position_identity_match_count),
+                        snapshot_complete: Some(true),
+                        snapshot_incomplete_reason: None,
+                    }
+                }
+                Err(reason) => {
+                    FinamRealReadonlyReconciliationEvidenceSummary::empty(source, Some(reason))
+                }
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -3038,6 +3228,29 @@ impl CancelBrokerTruthReadonlyCapturedResponse {
     ) -> Self {
         let diagnostic = response
             .diagnostic_with_transport(actual_http_send_started, actual_http_send_completed);
+        Self {
+            source,
+            diagnostic,
+            response,
+        }
+    }
+
+    fn new_with_transport_timing(
+        source: CancelBrokerTruthSource,
+        response: CancelBrokerTruthReadonlyHttpResponse,
+        actual_http_send_started: bool,
+        actual_http_send_completed: bool,
+        actual_http_send_started_at: Option<DateTime<Utc>>,
+        actual_http_send_completed_at: Option<DateTime<Utc>>,
+        actual_http_send_elapsed_ms: Option<u64>,
+    ) -> Self {
+        let diagnostic = response.diagnostic_with_transport_timing(
+            actual_http_send_started,
+            actual_http_send_completed,
+            actual_http_send_started_at,
+            actual_http_send_completed_at,
+            actual_http_send_elapsed_ms,
+        );
         Self {
             source,
             diagnostic,
@@ -3577,27 +3790,51 @@ impl FinamRealReadonlyBrokerTruthTransport for ReqwestFinamRealReadonlyBrokerTru
             );
         }
         let parts = route.request_parts();
-        let (response, actual_http_send_started, actual_http_send_completed) =
-            match self.build_url(&parts) {
-                Ok(url) => {
-                    self.wait_for_rate_limit().await;
-                    let (response, completed) = self.send_get(url).await;
-                    (response, true, completed)
-                }
-                Err(_) => (
-                    CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
-                        400,
-                        FinamRealReadonlyTransportErrorCategory::RequestBuildError,
-                    ),
-                    false,
-                    false,
+        let (
+            response,
+            actual_http_send_started,
+            actual_http_send_completed,
+            actual_http_send_started_at,
+            actual_http_send_completed_at,
+            actual_http_send_elapsed_ms,
+        ) = match self.build_url(&parts) {
+            Ok(url) => {
+                self.wait_for_rate_limit().await;
+                let send_started_at = Utc::now();
+                let send_timer = Instant::now();
+                let (response, completed) = self.send_get(url).await;
+                let send_completed_at = Utc::now();
+                let send_elapsed_ms =
+                    u64::try_from(send_timer.elapsed().as_millis()).unwrap_or(u64::MAX);
+                (
+                    response,
+                    true,
+                    completed,
+                    Some(send_started_at),
+                    completed.then_some(send_completed_at),
+                    Some(send_elapsed_ms),
+                )
+            }
+            Err(_) => (
+                CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
+                    400,
+                    FinamRealReadonlyTransportErrorCategory::RequestBuildError,
                 ),
-            };
-        CancelBrokerTruthReadonlyCapturedResponse::new_with_transport(
+                false,
+                false,
+                None,
+                None,
+                None,
+            ),
+        };
+        CancelBrokerTruthReadonlyCapturedResponse::new_with_transport_timing(
             source,
             response,
             actual_http_send_started,
             actual_http_send_completed,
+            actual_http_send_started_at,
+            actual_http_send_completed_at,
+            actual_http_send_elapsed_ms,
         )
     }
 }
@@ -3951,6 +4188,7 @@ pub struct FinamRealReadonlyBrokerTruthAsyncFetcher<T> {
     observed_ts: DateTime<Utc>,
     route_diagnostics: Vec<FinamRealReadonlyRouteDiagnostic>,
     captured_diagnostics: Vec<CancelBrokerTruthReadonlyHttpDiagnostic>,
+    reconciliation_summaries: Vec<FinamRealReadonlyReconciliationEvidenceSummary>,
     audit_records: Vec<FinamRealReadonlyBrokerTruthAuditRecord>,
 }
 
@@ -3973,6 +4211,7 @@ where
             observed_ts,
             route_diagnostics: Vec::new(),
             captured_diagnostics: Vec::new(),
+            reconciliation_summaries: Vec::new(),
             audit_records: Vec::new(),
         }
     }
@@ -3983,6 +4222,10 @@ where
 
     pub fn captured_diagnostics(&self) -> &[CancelBrokerTruthReadonlyHttpDiagnostic] {
         &self.captured_diagnostics
+    }
+
+    pub fn reconciliation_summaries(&self) -> &[FinamRealReadonlyReconciliationEvidenceSummary] {
+        &self.reconciliation_summaries
     }
 
     pub fn audit_records(&self) -> &[FinamRealReadonlyBrokerTruthAuditRecord] {
@@ -4087,6 +4330,14 @@ where
                 self.observed_ts,
             ),
         );
+        self.reconciliation_summaries.push(
+            build_finam_real_readonly_reconciliation_evidence_summary(
+                captured.source(),
+                &captured.response,
+                &request,
+                self.query_policy,
+            ),
+        );
         result
     }
 }
@@ -4173,6 +4424,7 @@ pub struct FinamRealReadonlyContractProbeReport {
     pub attempt_records: Vec<FinamRealReadonlyContractProbeAttemptRecord>,
     pub route_diagnostics: Vec<FinamRealReadonlyRouteDiagnostic>,
     pub captured_diagnostics: Vec<CancelBrokerTruthReadonlyHttpDiagnostic>,
+    pub reconciliation_summaries: Vec<FinamRealReadonlyReconciliationEvidenceSummary>,
     pub audit_records: Vec<FinamRealReadonlyBrokerTruthAuditRecord>,
 }
 
@@ -4413,8 +4665,16 @@ pub struct FinamRealReadonlyContractProbeEvidenceMatrixRow {
     pub probe_run_fingerprint: String,
     pub attempt_id: u32,
     pub source: CancelBrokerTruthSource,
+    pub attempt_started_at: DateTime<Utc>,
+    pub attempt_completed_at: DateTime<Utc>,
+    pub attempt_elapsed_ms: u64,
+    pub inter_attempt_gap_ms: Option<i64>,
+    pub min_request_interval_ms: u64,
     pub actual_http_send_started: bool,
     pub actual_http_send_completed: bool,
+    pub actual_http_send_started_at: Option<DateTime<Utc>>,
+    pub actual_http_send_completed_at: Option<DateTime<Utc>>,
+    pub actual_http_send_elapsed_ms: Option<u64>,
     pub route_template: Option<String>,
     pub http_status: Option<u16>,
     pub http_body_present: Option<bool>,
@@ -4424,6 +4684,14 @@ pub struct FinamRealReadonlyContractProbeEvidenceMatrixRow {
     pub outcome: CancelBrokerTruthFetchOutcomeKind,
     pub transport_error_category: Option<FinamRealReadonlyTransportErrorCategory>,
     pub operator_action: Option<FinamRealReadonlyTransportErrorOperatorAction>,
+    pub parsed_orders_count: Option<usize>,
+    pub matched_orders_count: Option<usize>,
+    pub parsed_trades_count: Option<usize>,
+    pub matched_trades_count: Option<usize>,
+    pub position_items_count: Option<usize>,
+    pub position_identity_match_count: Option<usize>,
+    pub snapshot_complete: Option<bool>,
+    pub snapshot_incomplete_reason: Option<CancelBrokerTruthFetchReason>,
     pub audit_record_sha256: Option<String>,
 }
 
@@ -4432,9 +4700,13 @@ pub struct FinamRealReadonlyContractProbeAttemptRecord {
     pub probe_run_fingerprint: String,
     pub attempt_id: u32,
     pub source: CancelBrokerTruthSource,
+    pub attempt_started_at: DateTime<Utc>,
+    pub attempt_completed_at: DateTime<Utc>,
+    pub attempt_elapsed_ms: u64,
     pub source_diagnostic: FinamRealReadonlyContractProbeSourceDiagnostic,
     pub route_diagnostic: Option<FinamRealReadonlyRouteDiagnostic>,
     pub captured_diagnostic: Option<CancelBrokerTruthReadonlyHttpDiagnostic>,
+    pub reconciliation_summary: Option<FinamRealReadonlyReconciliationEvidenceSummary>,
     pub audit_record: Option<FinamRealReadonlyBrokerTruthAuditRecord>,
 }
 
@@ -4598,6 +4870,7 @@ where
             attempt_records: Vec::new(),
             route_diagnostics: Vec::new(),
             captured_diagnostics: Vec::new(),
+            reconciliation_summaries: Vec::new(),
             audit_records: Vec::new(),
         };
     }
@@ -4611,6 +4884,7 @@ where
             attempt_records: Vec::new(),
             route_diagnostics: Vec::new(),
             captured_diagnostics: Vec::new(),
+            reconciliation_summaries: Vec::new(),
             audit_records: Vec::new(),
         };
     }
@@ -4623,6 +4897,7 @@ where
             attempt_records: Vec::new(),
             route_diagnostics: Vec::new(),
             captured_diagnostics: Vec::new(),
+            reconciliation_summaries: Vec::new(),
             audit_records: Vec::new(),
         };
     }
@@ -4643,6 +4918,7 @@ where
             attempt_records: Vec::new(),
             route_diagnostics: Vec::new(),
             captured_diagnostics: Vec::new(),
+            reconciliation_summaries: Vec::new(),
             audit_records: Vec::new(),
         };
     }
@@ -4657,12 +4933,14 @@ where
             attempt_records: Vec::new(),
             route_diagnostics: Vec::new(),
             captured_diagnostics: Vec::new(),
+            reconciliation_summaries: Vec::new(),
             audit_records: Vec::new(),
         };
     }
 
     let route_start = fetcher.route_diagnostics().len();
     let captured_start = fetcher.captured_diagnostics().len();
+    let reconciliation_summary_start = fetcher.reconciliation_summaries().len();
     let audit_start = fetcher.audit_records().len();
     let mut source_diagnostics = Vec::new();
     let mut attempt_records = Vec::new();
@@ -4671,7 +4949,10 @@ where
         let attempt_id = (index + 1) as u32;
         let attempt_route_start = fetcher.route_diagnostics().len();
         let attempt_captured_start = fetcher.captured_diagnostics().len();
+        let attempt_reconciliation_summary_start = fetcher.reconciliation_summaries().len();
         let attempt_audit_start = fetcher.audit_records().len();
+        let attempt_started_at = Utc::now();
+        let attempt_timer = Instant::now();
         let result = match source {
             CancelBrokerTruthSource::GetOrder => fetcher.fetch_get_order(request.clone()).await,
             CancelBrokerTruthSource::OrdersSnapshot => {
@@ -4684,6 +4965,9 @@ where
                 fetcher.fetch_position_snapshot(request.clone()).await
             }
         };
+        let attempt_completed_at = Utc::now();
+        let attempt_elapsed_ms =
+            u64::try_from(attempt_timer.elapsed().as_millis()).unwrap_or(u64::MAX);
         let reason = cancel_broker_truth_fetch_result_reason(&result);
         let source_diagnostic = FinamRealReadonlyContractProbeSourceDiagnostic {
             attempt_id,
@@ -4697,6 +4981,9 @@ where
             probe_run_fingerprint: probe_run_fingerprint.clone(),
             attempt_id,
             source,
+            attempt_started_at,
+            attempt_completed_at,
+            attempt_elapsed_ms,
             source_diagnostic,
             route_diagnostic: fetcher
                 .route_diagnostics()
@@ -4705,6 +4992,10 @@ where
             captured_diagnostic: fetcher
                 .captured_diagnostics()
                 .get(attempt_captured_start)
+                .cloned(),
+            reconciliation_summary: fetcher
+                .reconciliation_summaries()
+                .get(attempt_reconciliation_summary_start)
                 .cloned(),
             audit_record: fetcher.audit_records().get(attempt_audit_start).cloned(),
         });
@@ -4718,6 +5009,9 @@ where
         attempt_records,
         route_diagnostics: fetcher.route_diagnostics()[route_start..].to_vec(),
         captured_diagnostics: fetcher.captured_diagnostics()[captured_start..].to_vec(),
+        reconciliation_summaries: fetcher.reconciliation_summaries()
+            [reconciliation_summary_start..]
+            .to_vec(),
         audit_records: fetcher.audit_records()[audit_start..].to_vec(),
     }
 }
@@ -4901,7 +5195,10 @@ where
             })
         })
         .collect::<Vec<_>>();
-    let evidence_matrix = build_finam_real_readonly_contract_probe_evidence_matrix(&probe_report);
+    let evidence_matrix = build_finam_real_readonly_contract_probe_evidence_matrix(
+        &probe_report,
+        config.min_request_interval_ms,
+    );
     let attempt_count = probe_report.attempt_records.len();
     let captured_response_count = probe_report
         .attempt_records
@@ -4966,13 +5263,16 @@ where
 
 fn build_finam_real_readonly_contract_probe_evidence_matrix(
     report: &FinamRealReadonlyContractProbeReport,
+    min_request_interval_ms: u64,
 ) -> Vec<FinamRealReadonlyContractProbeEvidenceMatrixRow> {
+    let mut previous_http_send_started_at = None;
     report
         .attempt_records
         .iter()
         .map(|attempt| {
             let route = attempt.route_diagnostic.as_ref();
             let captured = attempt.captured_diagnostic.as_ref();
+            let reconciliation_summary = attempt.reconciliation_summary.as_ref();
             let audit = attempt.audit_record.as_ref();
             let transport_error_category = captured
                 .and_then(|diagnostic| diagnostic.transport_error_category)
@@ -4982,14 +5282,34 @@ fn build_finam_real_readonly_contract_probe_evidence_matrix(
                     .ok()
                     .map(|encoded| sha256_hex(&encoded))
             });
+            let actual_http_send_started_at =
+                captured.and_then(|diagnostic| diagnostic.actual_http_send_started_at);
+            let inter_attempt_gap_ms = actual_http_send_started_at.and_then(|started_at| {
+                previous_http_send_started_at.map(|previous| {
+                    started_at
+                        .signed_duration_since(previous)
+                        .num_milliseconds()
+                })
+            });
+            previous_http_send_started_at = actual_http_send_started_at;
             FinamRealReadonlyContractProbeEvidenceMatrixRow {
                 probe_run_fingerprint: attempt.probe_run_fingerprint.clone(),
                 attempt_id: attempt.attempt_id,
                 source: attempt.source,
+                attempt_started_at: attempt.attempt_started_at,
+                attempt_completed_at: attempt.attempt_completed_at,
+                attempt_elapsed_ms: attempt.attempt_elapsed_ms,
+                inter_attempt_gap_ms,
+                min_request_interval_ms,
                 actual_http_send_started: captured
                     .is_some_and(|diagnostic| diagnostic.actual_http_send_started),
                 actual_http_send_completed: captured
                     .is_some_and(|diagnostic| diagnostic.actual_http_send_completed),
+                actual_http_send_started_at,
+                actual_http_send_completed_at: captured
+                    .and_then(|diagnostic| diagnostic.actual_http_send_completed_at),
+                actual_http_send_elapsed_ms: captured
+                    .and_then(|diagnostic| diagnostic.actual_http_send_elapsed_ms),
                 route_template: route.map(|diagnostic| diagnostic.path_template.to_string()),
                 http_status: captured
                     .map(|diagnostic| diagnostic.status)
@@ -5002,6 +5322,22 @@ fn build_finam_real_readonly_contract_probe_evidence_matrix(
                 transport_error_category,
                 operator_action: transport_error_category
                     .map(finam_real_readonly_transport_error_operator_action),
+                parsed_orders_count: reconciliation_summary
+                    .and_then(|summary| summary.parsed_orders_count),
+                matched_orders_count: reconciliation_summary
+                    .and_then(|summary| summary.matched_orders_count),
+                parsed_trades_count: reconciliation_summary
+                    .and_then(|summary| summary.parsed_trades_count),
+                matched_trades_count: reconciliation_summary
+                    .and_then(|summary| summary.matched_trades_count),
+                position_items_count: reconciliation_summary
+                    .and_then(|summary| summary.position_items_count),
+                position_identity_match_count: reconciliation_summary
+                    .and_then(|summary| summary.position_identity_match_count),
+                snapshot_complete: reconciliation_summary
+                    .and_then(|summary| summary.snapshot_complete),
+                snapshot_incomplete_reason: reconciliation_summary
+                    .and_then(|summary| summary.snapshot_incomplete_reason),
                 audit_record_sha256,
             }
         })
