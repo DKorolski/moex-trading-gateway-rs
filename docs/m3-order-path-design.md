@@ -211,6 +211,9 @@ fingerprint.
 M3b-20-pre adds explicit preflight freshness/TTL and per-row actual HTTP
 send started/completed evidence before any actual controlled FINAM read-only
 probe is run.
+M3b-21-pre requires an explicit operator-run clock for enabled probes, exports
+computed preflight age, and adds transport-like coverage for send flag
+propagation.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

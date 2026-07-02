@@ -3608,6 +3608,8 @@ pub struct LocalMockFinamRealReadonlyBrokerTruthTransport {
         CancelBrokerTruthSource,
         CancelBrokerTruthReadonlyHttpResponse,
     )>,
+    actual_http_send_started: bool,
+    actual_http_send_completed: bool,
     sent_diagnostics: Vec<FinamRealReadonlyRouteDiagnostic>,
     sent_request_parts: Vec<FinamRealReadonlyRequestParts>,
 }
@@ -3623,6 +3625,28 @@ impl LocalMockFinamRealReadonlyBrokerTruthTransport {
     ) -> Self {
         Self {
             responses: responses.into_iter().collect(),
+            actual_http_send_started: false,
+            actual_http_send_completed: false,
+            sent_diagnostics: Vec::new(),
+            sent_request_parts: Vec::new(),
+        }
+    }
+
+    #[cfg(test)]
+    fn new_with_transport_flags(
+        responses: impl IntoIterator<
+            Item = (
+                CancelBrokerTruthSource,
+                CancelBrokerTruthReadonlyHttpResponse,
+            ),
+        >,
+        actual_http_send_started: bool,
+        actual_http_send_completed: bool,
+    ) -> Self {
+        Self {
+            responses: responses.into_iter().collect(),
+            actual_http_send_started,
+            actual_http_send_completed,
             sent_diagnostics: Vec::new(),
             sent_request_parts: Vec::new(),
         }
@@ -3644,12 +3668,14 @@ impl FinamRealReadonlyBrokerTruthTransport for LocalMockFinamRealReadonlyBrokerT
         self.sent_request_parts.push(route.request_parts());
         let source = route.diagnostic().source;
         if !run_approval.allows_route(route.diagnostic()) {
-            return CancelBrokerTruthReadonlyCapturedResponse::new(
+            return CancelBrokerTruthReadonlyCapturedResponse::new_with_transport(
                 source,
                 CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
                     403,
                     FinamRealReadonlyTransportErrorCategory::AccountNotAllowed,
                 ),
+                self.actual_http_send_started,
+                self.actual_http_send_completed,
             );
         }
         let response = self
@@ -3658,7 +3684,12 @@ impl FinamRealReadonlyBrokerTruthTransport for LocalMockFinamRealReadonlyBrokerT
             .find(|(candidate, _)| *candidate == source)
             .map(|(_, response)| response.clone())
             .unwrap_or_else(|| CancelBrokerTruthReadonlyHttpResponse::empty(404));
-        CancelBrokerTruthReadonlyCapturedResponse::new(source, response)
+        CancelBrokerTruthReadonlyCapturedResponse::new_with_transport(
+            source,
+            response,
+            self.actual_http_send_started,
+            self.actual_http_send_completed,
+        )
     }
 }
 
@@ -4354,13 +4385,18 @@ impl FinamRealReadonlyTokenAccountPreflightApproved {
     }
 
     fn is_fresh_at(&self, observed_at: DateTime<Utc>) -> bool {
+        self.computed_age_ms_at(observed_at)
+            .is_some_and(|age_ms| (age_ms as u64) <= self.diagnostic.preflight_max_age_ms)
+    }
+
+    fn computed_age_ms_at(&self, observed_at: DateTime<Utc>) -> Option<i64> {
         if self.diagnostic.preflight_max_age_ms == 0 {
-            return false;
+            return None;
         }
         let age_ms = observed_at
             .signed_duration_since(self.diagnostic.preflight_checked_at)
             .num_milliseconds();
-        age_ms >= 0 && (age_ms as u64) <= self.diagnostic.preflight_max_age_ms
+        (age_ms >= 0).then_some(age_ms)
     }
 }
 
@@ -4419,9 +4455,16 @@ impl FinamRealReadonlyContractProbeSourceOrderDiagnostic {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FinamRealReadonlyProbeRunClockSource {
+    OperatorProvided,
+    MissingFallbackToFetcherObserved,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FinamRealReadonlyContractProbeOperatorRunConfig {
     pub enabled: bool,
+    pub probe_run_started_at: Option<DateTime<Utc>>,
     pub sources: Vec<CancelBrokerTruthSource>,
     pub max_requests: usize,
     pub request_timeout_ms: u64,
@@ -4440,6 +4483,7 @@ impl Default for FinamRealReadonlyContractProbeOperatorRunConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            probe_run_started_at: None,
             sources: all_cancel_truth_sources().to_vec(),
             max_requests: FINAM_REAL_READONLY_CONTRACT_PROBE_MAX_REQUESTS,
             request_timeout_ms: 10_000,
@@ -4464,6 +4508,7 @@ pub enum FinamRealReadonlyContractProbeOperatorRunBlock {
     MaxRequestsZero,
     MaxRequestsTooHigh,
     SourceCountExceedsMaxRequests,
+    ProbeRunClockMissing,
     TimeoutMismatch,
     MinIntervalMismatch,
     OutputLocationMissing,
@@ -4484,6 +4529,7 @@ pub struct FinamRealReadonlyContractProbeOperatorRunReport {
     pub enabled: bool,
     pub blocking_reasons: Vec<FinamRealReadonlyContractProbeOperatorRunBlock>,
     pub probe_run_started_at: DateTime<Utc>,
+    pub probe_run_clock_source: FinamRealReadonlyProbeRunClockSource,
     pub probe_run_id: String,
     pub probe_run_fingerprint: String,
     pub approval_diagnostic: RealReadonlyBrokerTruthRunApprovalDiagnostic,
@@ -4495,6 +4541,7 @@ pub struct FinamRealReadonlyContractProbeOperatorRunReport {
     pub operator_disable_procedure_documented: bool,
     pub preserve_transport_error_taxonomy: bool,
     pub token_account_preflight: Option<FinamRealReadonlyTokenAccountPreflightDiagnostic>,
+    pub computed_preflight_age_ms: Option<i64>,
     pub request_snapshot: CancelBrokerTruthFetchRequestRedactedDiagnostic,
     pub source_order: FinamRealReadonlyContractProbeSourceOrderDiagnostic,
     pub attempt_count: usize,
@@ -4713,7 +4760,16 @@ where
         CancelBrokerTruthFetchRequestRedactedDiagnostic::from_snapshot(&request);
     let source_order =
         FinamRealReadonlyContractProbeSourceOrderDiagnostic::from_sources(&deduped_sources);
-    let probe_run_started_at = fetcher.observed_ts;
+    let (probe_run_started_at, probe_run_clock_source) = match config.probe_run_started_at {
+        Some(started_at) => (
+            started_at,
+            FinamRealReadonlyProbeRunClockSource::OperatorProvided,
+        ),
+        None => (
+            fetcher.observed_ts,
+            FinamRealReadonlyProbeRunClockSource::MissingFallbackToFetcherObserved,
+        ),
+    };
     let (probe_run_id, probe_run_fingerprint) = build_finam_real_readonly_probe_run_identity(
         probe_run_started_at,
         &approval_diagnostic,
@@ -4722,6 +4778,9 @@ where
         &deduped_sources,
         config.max_requests,
     );
+    if config.enabled && config.probe_run_started_at.is_none() {
+        blocking_reasons.push(FinamRealReadonlyContractProbeOperatorRunBlock::ProbeRunClockMissing);
+    }
     if deduped_sources.len() > config.max_requests {
         blocking_reasons
             .push(FinamRealReadonlyContractProbeOperatorRunBlock::SourceCountExceedsMaxRequests);
@@ -4772,6 +4831,10 @@ where
                 .push(FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightMissing);
         }
     }
+    let computed_preflight_age_ms = config
+        .token_account_preflight
+        .as_ref()
+        .and_then(|preflight| preflight.computed_age_ms_at(probe_run_started_at));
     if config.audit_store_mode != FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore {
         blocking_reasons
             .push(FinamRealReadonlyContractProbeOperatorRunBlock::PersistentAuditModeNotAllowed);
@@ -4782,6 +4845,7 @@ where
             enabled: config.enabled,
             blocking_reasons,
             probe_run_started_at,
+            probe_run_clock_source,
             probe_run_id: probe_run_id.clone(),
             probe_run_fingerprint: probe_run_fingerprint.clone(),
             approval_diagnostic,
@@ -4796,6 +4860,7 @@ where
                 .token_account_preflight
                 .as_ref()
                 .map(|approval| approval.diagnostic().clone()),
+            computed_preflight_age_ms,
             request_snapshot: request_diagnostic,
             source_order,
             attempt_count: 0,
@@ -4868,6 +4933,7 @@ where
         enabled: true,
         blocking_reasons: Vec::new(),
         probe_run_started_at,
+        probe_run_clock_source,
         probe_run_id,
         probe_run_fingerprint,
         approval_diagnostic,
@@ -4882,6 +4948,7 @@ where
             .token_account_preflight
             .as_ref()
             .map(|approval| approval.diagnostic().clone()),
+        computed_preflight_age_ms,
         request_snapshot: request_diagnostic,
         source_order,
         attempt_count,
@@ -11411,6 +11478,7 @@ mod tests {
             request_snapshot.clone(),
             &FinamRealReadonlyContractProbeOperatorRunConfig {
                 enabled: true,
+                probe_run_started_at: Some(now),
                 sources: all_cancel_truth_sources().to_vec(),
                 max_requests: 4,
                 request_timeout_ms: 10_000,
@@ -11431,6 +11499,12 @@ mod tests {
         )
         .await;
         assert!(enabled.blocking_reasons.is_empty());
+        assert_eq!(enabled.probe_run_started_at, now);
+        assert_eq!(
+            enabled.probe_run_clock_source,
+            FinamRealReadonlyProbeRunClockSource::OperatorProvided
+        );
+        assert_eq!(enabled.computed_preflight_age_ms, Some(0));
         assert_eq!(enabled.max_requests, 4);
         assert_eq!(enabled.requested_sources_count, 4);
         assert_eq!(enabled.attempt_count, 4);
@@ -11443,6 +11517,98 @@ mod tests {
             .evidence_matrix
             .iter()
             .all(|row| { !row.actual_http_send_started && !row.actual_http_send_completed }));
+        let mut send_completed_fetcher = FinamRealReadonlyBrokerTruthAsyncFetcher::new(
+            LocalMockFinamRealReadonlyBrokerTruthTransport::new_with_transport_flags(
+                [(
+                    CancelBrokerTruthSource::GetOrder,
+                    CancelBrokerTruthReadonlyHttpResponse::empty(404),
+                )],
+                true,
+                true,
+            ),
+            real_readonly_run_approval(&account_id, &request_snapshot),
+            CancelBrokerTruthFreshnessPolicy::default(),
+            FinamRealReadonlyBrokerTruthQueryPolicy::default(),
+            now,
+        );
+        let send_completed = run_finam_real_readonly_operator_contract_probe(
+            &mut send_completed_fetcher,
+            request_snapshot.clone(),
+            &FinamRealReadonlyContractProbeOperatorRunConfig {
+                enabled: true,
+                probe_run_started_at: Some(now),
+                sources: vec![CancelBrokerTruthSource::GetOrder],
+                max_requests: 1,
+                request_timeout_ms: 10_000,
+                min_request_interval_ms: 250,
+                redacted_output_location: Some(
+                    FinamRealReadonlyRedactedOutputLocation::from_path_label("redacted.json"),
+                ),
+                audit_store_mode: FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore,
+                retry_disabled: true,
+                background_loop_disabled: true,
+                scheduler_disabled: true,
+                operator_disable_procedure_documented: true,
+                preserve_transport_error_taxonomy: true,
+                token_account_preflight: Some(token_account_preflight.clone()),
+            },
+        )
+        .await;
+        assert!(send_completed.blocking_reasons.is_empty());
+        assert_eq!(send_completed.actual_http_send_started_count, 1);
+        assert_eq!(send_completed.actual_http_send_completed_count, 1);
+        assert_eq!(send_completed.actual_send_count, 1);
+        assert_eq!(send_completed.evidence_matrix.len(), 1);
+        assert!(send_completed.evidence_matrix[0].actual_http_send_started);
+        assert!(send_completed.evidence_matrix[0].actual_http_send_completed);
+
+        let mut send_not_completed_fetcher = FinamRealReadonlyBrokerTruthAsyncFetcher::new(
+            LocalMockFinamRealReadonlyBrokerTruthTransport::new_with_transport_flags(
+                [(
+                    CancelBrokerTruthSource::GetOrder,
+                    CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
+                        504,
+                        FinamRealReadonlyTransportErrorCategory::Timeout,
+                    ),
+                )],
+                true,
+                false,
+            ),
+            real_readonly_run_approval(&account_id, &request_snapshot),
+            CancelBrokerTruthFreshnessPolicy::default(),
+            FinamRealReadonlyBrokerTruthQueryPolicy::default(),
+            now,
+        );
+        let send_not_completed = run_finam_real_readonly_operator_contract_probe(
+            &mut send_not_completed_fetcher,
+            request_snapshot.clone(),
+            &FinamRealReadonlyContractProbeOperatorRunConfig {
+                enabled: true,
+                probe_run_started_at: Some(now),
+                sources: vec![CancelBrokerTruthSource::GetOrder],
+                max_requests: 1,
+                request_timeout_ms: 10_000,
+                min_request_interval_ms: 250,
+                redacted_output_location: Some(
+                    FinamRealReadonlyRedactedOutputLocation::from_path_label("redacted.json"),
+                ),
+                audit_store_mode: FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore,
+                retry_disabled: true,
+                background_loop_disabled: true,
+                scheduler_disabled: true,
+                operator_disable_procedure_documented: true,
+                preserve_transport_error_taxonomy: true,
+                token_account_preflight: Some(token_account_preflight.clone()),
+            },
+        )
+        .await;
+        assert!(send_not_completed.blocking_reasons.is_empty());
+        assert_eq!(send_not_completed.actual_http_send_started_count, 1);
+        assert_eq!(send_not_completed.actual_http_send_completed_count, 0);
+        assert_eq!(send_not_completed.actual_send_count, 1);
+        assert_eq!(send_not_completed.evidence_matrix.len(), 1);
+        assert!(send_not_completed.evidence_matrix[0].actual_http_send_started);
+        assert!(!send_not_completed.evidence_matrix[0].actual_http_send_completed);
         assert_eq!(
             enabled.request_snapshot.request_snapshot_fingerprint,
             token_account_preflight
@@ -11520,6 +11686,8 @@ mod tests {
         assert!(report_json.contains("ordered_sources_sha256"));
         assert!(report_json.contains("preflight_checked_at"));
         assert!(report_json.contains("preflight_max_age_ms"));
+        assert!(report_json.contains("computed_preflight_age_ms"));
+        assert!(report_json.contains("OperatorProvided"));
         assert!(report_json.contains("actual_http_send_started"));
         assert!(report_json.contains("actual_http_send_completed"));
         assert!(report_json.contains("actual_http_send_started_count"));
@@ -11539,6 +11707,7 @@ mod tests {
             mismatched_request_snapshot.clone(),
             &FinamRealReadonlyContractProbeOperatorRunConfig {
                 enabled: true,
+                probe_run_started_at: Some(now),
                 sources: vec![CancelBrokerTruthSource::GetOrder],
                 max_requests: 1,
                 request_timeout_ms: 10_000,
@@ -11585,6 +11754,7 @@ mod tests {
             request_snapshot.clone(),
             &FinamRealReadonlyContractProbeOperatorRunConfig {
                 enabled: true,
+                probe_run_started_at: Some(now),
                 sources: vec![CancelBrokerTruthSource::GetOrder],
                 max_requests: 1,
                 request_timeout_ms: 10_000,
@@ -11608,12 +11778,51 @@ mod tests {
         assert!(blocked_by_stale_marker.blocking_reasons.contains(
             &FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightExpired
         ));
+        assert_eq!(
+            blocked_by_stale_marker.computed_preflight_age_ms,
+            Some(60_001)
+        );
+
+        let blocked_without_clock = run_finam_real_readonly_operator_contract_probe(
+            &mut fetcher,
+            request_snapshot.clone(),
+            &FinamRealReadonlyContractProbeOperatorRunConfig {
+                enabled: true,
+                probe_run_started_at: None,
+                sources: vec![CancelBrokerTruthSource::GetOrder],
+                max_requests: 1,
+                request_timeout_ms: 10_000,
+                min_request_interval_ms: 250,
+                redacted_output_location: Some(
+                    FinamRealReadonlyRedactedOutputLocation::from_path_label("redacted.json"),
+                ),
+                audit_store_mode: FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore,
+                retry_disabled: true,
+                background_loop_disabled: true,
+                scheduler_disabled: true,
+                operator_disable_procedure_documented: true,
+                preserve_transport_error_taxonomy: true,
+                token_account_preflight: Some(token_account_preflight.clone()),
+            },
+        )
+        .await;
+        assert!(blocked_without_clock.probe_report.is_none());
+        assert_eq!(blocked_without_clock.attempt_count, 0);
+        assert_eq!(blocked_without_clock.actual_send_count, 0);
+        assert_eq!(
+            blocked_without_clock.probe_run_clock_source,
+            FinamRealReadonlyProbeRunClockSource::MissingFallbackToFetcherObserved
+        );
+        assert!(blocked_without_clock
+            .blocking_reasons
+            .contains(&FinamRealReadonlyContractProbeOperatorRunBlock::ProbeRunClockMissing));
 
         let blocked = run_finam_real_readonly_operator_contract_probe(
             &mut fetcher,
             request_snapshot.clone(),
             &FinamRealReadonlyContractProbeOperatorRunConfig {
                 enabled: true,
+                probe_run_started_at: Some(now),
                 sources: all_cancel_truth_sources().to_vec(),
                 max_requests: 1,
                 request_timeout_ms: 10_000,
@@ -11647,6 +11856,7 @@ mod tests {
             request_snapshot,
             &FinamRealReadonlyContractProbeOperatorRunConfig {
                 enabled: true,
+                probe_run_started_at: Some(now),
                 sources: vec![CancelBrokerTruthSource::GetOrder],
                 max_requests: 1,
                 request_timeout_ms: 10_000,

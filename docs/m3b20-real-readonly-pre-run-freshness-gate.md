@@ -5,6 +5,10 @@ FINAM real-readonly evidence run. M3b-20-pre still does not authorize FINAM
 order placement/cancel, real command consumption, real CommandAck lifecycle,
 runtime attachment, `LiveReady`, live micro, stop/SLTP, or bracket behavior.
 
+M3b-21-pre follow-up makes the operator-run clock explicit, exports computed
+preflight age, and adds transport-like coverage for started/completed send
+flags. See `docs/m3b21-real-readonly-operator-clock-gate.md`.
+
 ## Preflight freshness / TTL
 
 `FinamRealReadonlyTokenAccountPreflightApproved` now carries explicit freshness

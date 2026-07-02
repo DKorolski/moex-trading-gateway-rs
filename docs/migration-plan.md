@@ -1367,6 +1367,31 @@ M3b-20-pre explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-21-pre real-readonly operator clock gate:
+
+- Added explicit operator-run clock configuration:
+  `probe_run_started_at: Option<DateTime<Utc>>`.
+- Enabled operator runs without an operator-provided clock block with
+  `ProbeRunClockMissing` before any attempts.
+- Added `probe_run_clock_source` to the report. `OperatorProvided` is required
+  for controlled enabled runs; `MissingFallbackToFetcherObserved` is only a
+  blocked-report diagnostic fallback.
+- Added `computed_preflight_age_ms` to operator reports.
+- Added transport-like test coverage proving per-row and aggregate send flags
+  propagate for both started/completed and started/not-completed cases.
+- Details are documented in
+  `docs/m3b21-real-readonly-operator-clock-gate.md`.
+
+M3b-21-pre explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

@@ -1182,3 +1182,25 @@ Still not implemented in M3b-20-pre:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-21-pre real-readonly operator clock gate status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- enabled operator runs require an explicit `probe_run_started_at`;
+- missing enabled-run clock blocks with `ProbeRunClockMissing` before any
+  attempts;
+- report includes `probe_run_clock_source`;
+- report includes `computed_preflight_age_ms`;
+- transport-like fixture coverage proves per-row send started/completed flags
+  can be true and aggregate counters follow them.
+
+Still not implemented in M3b-21-pre:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

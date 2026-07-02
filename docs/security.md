@@ -170,6 +170,9 @@ fingerprints in the probe-run identity.
 M3b-20-pre adds explicit preflight freshness metadata and blocks stale markers
 before any attempt, while evidence rows expose only safe actual-send booleans
 instead of raw transport data.
+M3b-21-pre requires an explicit operator-provided probe clock for enabled runs,
+exports only computed preflight age, and adds local transport-like coverage for
+started/completed send flags without any real FINAM probe.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

@@ -161,7 +161,8 @@ marker, contract-probe harness, page-full trades incomplete semantics,
 redacted SQLite audit, non-serializable token/account preflight marker,
 probe-run identity, explicit actual HTTP send counters, request-bound preflight
 markers, redacted source-order evidence, preflight freshness/TTL, and per-row
-actual HTTP send flags,
+actual HTTP send flags, explicit operator-run clock policy, and computed
+preflight age,
 store invariants, broker-order-id uniqueness, cancel timeout policy, dry
 window/backoff rate limiting, FINAM request DTO builders without HTTP send,
 workspace-wide source-scan guard tests, and price/reference/notional guard
@@ -210,6 +211,7 @@ See:
 - [M3b-18 real-readonly pre-evidence gate](docs/m3b18-real-readonly-pre-evidence-gate.md)
 - [M3b-19 real-readonly request-bound evidence gate](docs/m3b19-real-readonly-request-bound-evidence-gate.md)
 - [M3b-20 real-readonly pre-run freshness gate](docs/m3b20-real-readonly-pre-run-freshness-gate.md)
+- [M3b-21 real-readonly operator clock gate](docs/m3b21-real-readonly-operator-clock-gate.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)
