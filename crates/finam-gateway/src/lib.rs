@@ -8,6 +8,8 @@
 //! order-path contracts for typed decode, idempotency validation, synthetic ACK
 //! publication, and approved-only execution simulation.
 
+pub mod real_order_endpoint;
+
 use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};

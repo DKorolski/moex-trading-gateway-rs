@@ -1306,6 +1306,8 @@ Implemented while still keeping all broker order endpoints disabled:
 - M3c-5 crate-boundary decision: `broker-finam` remains request-spec/route
   builder only, while future real HTTP send stays in `finam-gateway` to avoid
   dependency cycles around `EndpointGateApproved`;
+- M3c-6 design-only `real_order_endpoint` API shape and scanner transition
+  guard, still without HTTP send surfaces;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:

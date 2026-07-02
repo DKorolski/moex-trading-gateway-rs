@@ -1601,6 +1601,29 @@ M3c-5 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-6 exact-two-route scanner transition spec / pre-implementation API shape:
+
+- Added design-only module `crates/finam-gateway/src/real_order_endpoint.rs`.
+- The module records API shape only: no reqwest client, no real HTTP send,
+  no `.post(`, no `.delete(`, and no `Method::POST/DELETE`.
+- Route-shape functions require `EndpointGateApproved` plus the broker-finam
+  place/cancel request specs in their signatures.
+- Added `GatewayRealOrderEndpointScannerTransitionSpec` with current deny-all
+  mode and future exact-two-route mode.
+- Added `scripts/order_endpoint_scanner_transition_spec.sh` to verify the
+  design-only module and gate-marker/API-shape markers.
+- Details are documented in `docs/m3c6-scanner-transition-api-shape.md`.
+
+M3c-6 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

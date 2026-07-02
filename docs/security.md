@@ -200,6 +200,8 @@ marker remains unconstructible.
 M3c-5 resolves the future crate boundary: `broker-finam` remains request-spec
 and route-builder only, while future real order HTTP send is planned inside
 `finam-gateway`, the crate that owns `EndpointGateApproved`.
+M3c-6 adds the gateway-owned API shape module and scanner transition guard, but
+the module is design-only and contains no HTTP send surface.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account
