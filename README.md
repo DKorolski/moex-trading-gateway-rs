@@ -157,8 +157,9 @@ read-only local mock transport, refined 4xx truth policy,
 account/instrument scope checks, weak client-id fallback policy,
 disabled-by-default real-readonly FINAM route gate, GET-only real-readonly
 transport, query policy, operator guardrails, mandatory read-only run approval
-marker, contract-probe harness, page-full trades incomplete semantics, and
-redacted SQLite audit,
+marker, contract-probe harness, page-full trades incomplete semantics,
+redacted SQLite audit, non-serializable token/account preflight marker,
+probe-run identity, and explicit actual HTTP send counters,
 store invariants, broker-order-id uniqueness, cancel timeout policy, dry
 window/backoff rate limiting, FINAM request DTO builders without HTTP send,
 workspace-wide source-scan guard tests, and price/reference/notional guard
@@ -204,6 +205,7 @@ See:
 - [M3b-15 real-readonly pre-run hardening](docs/m3b15-real-readonly-pre-run-hardening.md)
 - [M3b-16 real-readonly contract probe evidence gate](docs/m3b16-real-readonly-contract-probe-evidence-gate.md)
 - [M3b-17 real-readonly evidence package hardening](docs/m3b17-real-readonly-evidence-package.md)
+- [M3b-18 real-readonly pre-evidence gate](docs/m3b18-real-readonly-pre-evidence-gate.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

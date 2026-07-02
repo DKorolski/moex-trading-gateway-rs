@@ -1287,6 +1287,34 @@ M3b-17 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-18 real-readonly pre-evidence gate:
+
+- Kept the token/account preflight diagnostic redacted and serializable for
+  reporting, but moved operator approval to
+  `FinamRealReadonlyTokenAccountPreflightApproved`, a non-serializable marker
+  that can only be constructed from checked readonly token scope, account hash
+  match, and disabled order feature flags.
+- Added `probe_run_started_at`, `probe_run_id`, and `probe_run_fingerprint` to
+  the operator report, and copied the fingerprint into attempt records and
+  evidence-matrix rows for redacted audit correlation.
+- Split operator counters into `requested_sources_count`, `attempt_count`,
+  `captured_response_count`, `actual_http_send_started_count`,
+  `actual_http_send_completed_count`, `actual_send_count`, and `max_requests`.
+  `actual_send_count` remains a compatibility alias for started sends.
+- Continued to block `PersistentAuditStore` in controlled operator runs.
+- Details are documented in
+  `docs/m3b18-real-readonly-pre-evidence-gate.md`.
+
+M3b-18 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

@@ -161,6 +161,9 @@ token/account preflight plus evidence-matrix fingerprints for controlled
 read-only probe reports.
 M3b-17 requires token readonly scope in the redacted preflight and builds
 evidence rows from per-source attempt records with explicit send counters.
+M3b-18 keeps that diagnostic redacted but moves approval to a non-serializable
+marker, adds probe-run identity/fingerprints for audit correlation, and splits
+captured-response counters from actual HTTP send started/completed counters.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

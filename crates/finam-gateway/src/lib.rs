@@ -2083,12 +2083,22 @@ impl CancelBrokerTruthReadonlyHttpResponse {
     }
 
     pub fn diagnostic(&self) -> CancelBrokerTruthReadonlyHttpDiagnostic {
+        self.diagnostic_with_transport(false, false)
+    }
+
+    fn diagnostic_with_transport(
+        &self,
+        actual_http_send_started: bool,
+        actual_http_send_completed: bool,
+    ) -> CancelBrokerTruthReadonlyHttpDiagnostic {
         CancelBrokerTruthReadonlyHttpDiagnostic {
             status: self.status,
             body_present: self.body.is_some(),
             body_len: self.body.as_ref().map(Vec::len),
             body_sha256: self.body.as_ref().map(|body| sha256_hex(body)),
             transport_error_category: self.transport_error_category,
+            actual_http_send_started,
+            actual_http_send_completed,
         }
     }
 }
@@ -2111,6 +2121,8 @@ pub struct CancelBrokerTruthReadonlyHttpDiagnostic {
     pub body_len: Option<usize>,
     pub body_sha256: Option<String>,
     pub transport_error_category: Option<FinamRealReadonlyTransportErrorCategory>,
+    pub actual_http_send_started: bool,
+    pub actual_http_send_completed: bool,
 }
 
 fn readonly_http_status_failure(status: u16) -> Option<CancelBrokerTruthFetchReason> {
@@ -2925,6 +2937,21 @@ impl CancelBrokerTruthReadonlyCapturedResponse {
         }
     }
 
+    fn new_with_transport(
+        source: CancelBrokerTruthSource,
+        response: CancelBrokerTruthReadonlyHttpResponse,
+        actual_http_send_started: bool,
+        actual_http_send_completed: bool,
+    ) -> Self {
+        let diagnostic = response
+            .diagnostic_with_transport(actual_http_send_started, actual_http_send_completed);
+        Self {
+            source,
+            diagnostic,
+            response,
+        }
+    }
+
     pub fn source(&self) -> CancelBrokerTruthSource {
         self.source
     }
@@ -3370,7 +3397,7 @@ impl ReqwestFinamRealReadonlyBrokerTruthTransport {
         self.last_request_started_at = Some(Instant::now());
     }
 
-    async fn send_get(&self, url: reqwest::Url) -> CancelBrokerTruthReadonlyHttpResponse {
+    async fn send_get(&self, url: reqwest::Url) -> (CancelBrokerTruthReadonlyHttpResponse, bool) {
         match self
             .http
             .get(url)
@@ -3382,30 +3409,41 @@ impl ReqwestFinamRealReadonlyBrokerTruthTransport {
                 let status = response.status().as_u16();
                 match response.bytes().await {
                     Ok(bytes) if bytes.is_empty() => {
-                        CancelBrokerTruthReadonlyHttpResponse::empty(status)
+                        (CancelBrokerTruthReadonlyHttpResponse::empty(status), true)
                     }
-                    Ok(bytes) => CancelBrokerTruthReadonlyHttpResponse::raw(status, bytes.to_vec()),
-                    Err(error) if error.is_timeout() => {
+                    Ok(bytes) => (
+                        CancelBrokerTruthReadonlyHttpResponse::raw(status, bytes.to_vec()),
+                        true,
+                    ),
+                    Err(error) if error.is_timeout() => (
                         CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
                             504,
                             FinamRealReadonlyTransportErrorCategory::Timeout,
-                        )
-                    }
-                    Err(_) => CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
-                        502,
-                        FinamRealReadonlyTransportErrorCategory::BodyReadError,
+                        ),
+                        true,
+                    ),
+                    Err(_) => (
+                        CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
+                            502,
+                            FinamRealReadonlyTransportErrorCategory::BodyReadError,
+                        ),
+                        true,
                     ),
                 }
             }
-            Err(error) if error.is_timeout() => {
+            Err(error) if error.is_timeout() => (
                 CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
                     504,
                     FinamRealReadonlyTransportErrorCategory::Timeout,
-                )
-            }
-            Err(error) => CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
-                502,
-                classify_finam_real_readonly_send_error(&error),
+                ),
+                false,
+            ),
+            Err(error) => (
+                CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
+                    502,
+                    classify_finam_real_readonly_send_error(&error),
+                ),
+                false,
             ),
         }
     }
@@ -3446,17 +3484,28 @@ impl FinamRealReadonlyBrokerTruthTransport for ReqwestFinamRealReadonlyBrokerTru
             );
         }
         let parts = route.request_parts();
-        let response = match self.build_url(&parts) {
-            Ok(url) => {
-                self.wait_for_rate_limit().await;
-                self.send_get(url).await
-            }
-            Err(_) => CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
-                400,
-                FinamRealReadonlyTransportErrorCategory::RequestBuildError,
-            ),
-        };
-        CancelBrokerTruthReadonlyCapturedResponse::new(source, response)
+        let (response, actual_http_send_started, actual_http_send_completed) =
+            match self.build_url(&parts) {
+                Ok(url) => {
+                    self.wait_for_rate_limit().await;
+                    let (response, completed) = self.send_get(url).await;
+                    (response, true, completed)
+                }
+                Err(_) => (
+                    CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
+                        400,
+                        FinamRealReadonlyTransportErrorCategory::RequestBuildError,
+                    ),
+                    false,
+                    false,
+                ),
+            };
+        CancelBrokerTruthReadonlyCapturedResponse::new_with_transport(
+            source,
+            response,
+            actual_http_send_started,
+            actual_http_send_completed,
+        )
     }
 }
 
@@ -4140,8 +4189,62 @@ impl FinamRealReadonlyTokenAccountPreflightDiagnostic {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub struct FinamRealReadonlyTokenAccountPreflightApproved {
+    diagnostic: FinamRealReadonlyTokenAccountPreflightDiagnostic,
+    _private: (),
+}
+
+impl std::fmt::Debug for FinamRealReadonlyTokenAccountPreflightApproved {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("FinamRealReadonlyTokenAccountPreflightApproved")
+            .field("diagnostic", &self.diagnostic)
+            .finish()
+    }
+}
+
+impl FinamRealReadonlyTokenAccountPreflightApproved {
+    pub fn try_from_token_details(
+        features: &GatewayFeatureSet,
+        request: &CancelBrokerTruthFetchRequestSnapshot,
+        token_details: &broker_finam::dto::TokenDetailsResponse,
+    ) -> Result<Self, FinamRealReadonlyTokenAccountPreflightApprovalError> {
+        let diagnostic = FinamRealReadonlyTokenAccountPreflightDiagnostic::from_token_details(
+            features,
+            request,
+            Some(token_details),
+        );
+        if diagnostic.allows_operator_probe() {
+            Ok(Self {
+                diagnostic,
+                _private: (),
+            })
+        } else {
+            Err(
+                FinamRealReadonlyTokenAccountPreflightApprovalError::Blocked {
+                    diagnostic: Box::new(diagnostic),
+                },
+            )
+        }
+    }
+
+    pub fn diagnostic(&self) -> &FinamRealReadonlyTokenAccountPreflightDiagnostic {
+        &self.diagnostic
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum FinamRealReadonlyTokenAccountPreflightApprovalError {
+    #[error("FINAM real-readonly token/account preflight is blocked: {diagnostic:?}")]
+    Blocked {
+        diagnostic: Box<FinamRealReadonlyTokenAccountPreflightDiagnostic>,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FinamRealReadonlyContractProbeEvidenceMatrixRow {
+    pub probe_run_fingerprint: String,
     pub attempt_id: u32,
     pub source: CancelBrokerTruthSource,
     pub route_template: Option<String>,
@@ -4158,6 +4261,7 @@ pub struct FinamRealReadonlyContractProbeEvidenceMatrixRow {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FinamRealReadonlyContractProbeAttemptRecord {
+    pub probe_run_fingerprint: String,
     pub attempt_id: u32,
     pub source: CancelBrokerTruthSource,
     pub source_diagnostic: FinamRealReadonlyContractProbeSourceDiagnostic,
@@ -4166,7 +4270,7 @@ pub struct FinamRealReadonlyContractProbeAttemptRecord {
     pub audit_record: Option<FinamRealReadonlyBrokerTruthAuditRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FinamRealReadonlyContractProbeOperatorRunConfig {
     pub enabled: bool,
     pub sources: Vec<CancelBrokerTruthSource>,
@@ -4180,7 +4284,7 @@ pub struct FinamRealReadonlyContractProbeOperatorRunConfig {
     pub scheduler_disabled: bool,
     pub operator_disable_procedure_documented: bool,
     pub preserve_transport_error_taxonomy: bool,
-    pub token_account_preflight: Option<FinamRealReadonlyTokenAccountPreflightDiagnostic>,
+    pub token_account_preflight: Option<FinamRealReadonlyTokenAccountPreflightApproved>,
 }
 
 impl Default for FinamRealReadonlyContractProbeOperatorRunConfig {
@@ -4228,6 +4332,9 @@ pub enum FinamRealReadonlyContractProbeOperatorRunBlock {
 pub struct FinamRealReadonlyContractProbeOperatorRunReport {
     pub enabled: bool,
     pub blocking_reasons: Vec<FinamRealReadonlyContractProbeOperatorRunBlock>,
+    pub probe_run_started_at: DateTime<Utc>,
+    pub probe_run_id: String,
+    pub probe_run_fingerprint: String,
     pub approval_diagnostic: RealReadonlyBrokerTruthRunApprovalDiagnostic,
     pub output_location: Option<FinamRealReadonlyRedactedOutputLocation>,
     pub audit_store_mode: FinamRealReadonlyAuditStoreMode,
@@ -4237,6 +4344,10 @@ pub struct FinamRealReadonlyContractProbeOperatorRunReport {
     pub operator_disable_procedure_documented: bool,
     pub preserve_transport_error_taxonomy: bool,
     pub token_account_preflight: Option<FinamRealReadonlyTokenAccountPreflightDiagnostic>,
+    pub attempt_count: usize,
+    pub captured_response_count: usize,
+    pub actual_http_send_started_count: usize,
+    pub actual_http_send_completed_count: usize,
     pub requested_sources_count: usize,
     pub actual_send_count: usize,
     pub max_requests: usize,
@@ -4245,10 +4356,31 @@ pub struct FinamRealReadonlyContractProbeOperatorRunReport {
     pub transport_error_actions: Vec<FinamRealReadonlyTransportErrorOperatorActionDiagnostic>,
 }
 
+fn build_finam_real_readonly_probe_run_identity(
+    started_at: DateTime<Utc>,
+    approval: &RealReadonlyBrokerTruthRunApprovalDiagnostic,
+    sources: &[CancelBrokerTruthSource],
+    max_requests: usize,
+) -> (String, String) {
+    let seed = format!(
+        "{}:{}:{}:{}:{:?}:{}",
+        started_at.to_rfc3339_opts(SecondsFormat::Millis, true),
+        approval.account_id_sha256,
+        approval.rest_base_url_sha256,
+        approval.request_timeout_ms,
+        sources,
+        max_requests
+    );
+    let fingerprint = sha256_hex(seed.as_bytes());
+    let probe_run_id = fingerprint.chars().take(16).collect::<String>();
+    (probe_run_id, fingerprint)
+}
+
 async fn run_finam_real_readonly_contract_probe<T>(
     fetcher: &mut FinamRealReadonlyBrokerTruthAsyncFetcher<T>,
     request: CancelBrokerTruthFetchRequestSnapshot,
     config: &FinamRealReadonlyContractProbeConfig,
+    probe_run_fingerprint: String,
 ) -> FinamRealReadonlyContractProbeReport
 where
     T: FinamRealReadonlyBrokerTruthTransport,
@@ -4358,6 +4490,7 @@ where
         };
         source_diagnostics.push(source_diagnostic.clone());
         attempt_records.push(FinamRealReadonlyContractProbeAttemptRecord {
+            probe_run_fingerprint: probe_run_fingerprint.clone(),
             attempt_id,
             source,
             source_diagnostic,
@@ -4419,6 +4552,13 @@ where
         .filter(|source| all_cancel_truth_sources().contains(source))
         .collect::<Vec<_>>();
     deduped_sources.dedup();
+    let probe_run_started_at = fetcher.observed_ts;
+    let (probe_run_id, probe_run_fingerprint) = build_finam_real_readonly_probe_run_identity(
+        probe_run_started_at,
+        &approval_diagnostic,
+        &deduped_sources,
+        config.max_requests,
+    );
     if deduped_sources.len() > config.max_requests {
         blocking_reasons
             .push(FinamRealReadonlyContractProbeOperatorRunBlock::SourceCountExceedsMaxRequests);
@@ -4452,11 +4592,7 @@ where
             .push(FinamRealReadonlyContractProbeOperatorRunBlock::TransportTaxonomyNotPreserved);
     }
     match &config.token_account_preflight {
-        Some(preflight) if preflight.allows_operator_probe() => {}
-        Some(_) => {
-            blocking_reasons
-                .push(FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightFailed);
-        }
+        Some(_) => {}
         None => {
             blocking_reasons
                 .push(FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightMissing);
@@ -4471,6 +4607,9 @@ where
         return FinamRealReadonlyContractProbeOperatorRunReport {
             enabled: config.enabled,
             blocking_reasons,
+            probe_run_started_at,
+            probe_run_id: probe_run_id.clone(),
+            probe_run_fingerprint: probe_run_fingerprint.clone(),
             approval_diagnostic,
             output_location: config.redacted_output_location.clone(),
             audit_store_mode: config.audit_store_mode,
@@ -4479,7 +4618,14 @@ where
             scheduler_disabled: config.scheduler_disabled,
             operator_disable_procedure_documented: config.operator_disable_procedure_documented,
             preserve_transport_error_taxonomy: config.preserve_transport_error_taxonomy,
-            token_account_preflight: config.token_account_preflight.clone(),
+            token_account_preflight: config
+                .token_account_preflight
+                .as_ref()
+                .map(|approval| approval.diagnostic().clone()),
+            attempt_count: 0,
+            captured_response_count: 0,
+            actual_http_send_started_count: 0,
+            actual_http_send_completed_count: 0,
             requested_sources_count: deduped_sources.len(),
             actual_send_count: 0,
             max_requests: config.max_requests,
@@ -4497,6 +4643,7 @@ where
             sources: deduped_sources,
             max_requests: config.max_requests,
         },
+        probe_run_fingerprint.clone(),
     )
     .await;
     let transport_error_actions = probe_report
@@ -4514,15 +4661,39 @@ where
         })
         .collect::<Vec<_>>();
     let evidence_matrix = build_finam_real_readonly_contract_probe_evidence_matrix(&probe_report);
-    let actual_send_count = probe_report
+    let attempt_count = probe_report.attempt_records.len();
+    let captured_response_count = probe_report
         .attempt_records
         .iter()
         .filter(|record| record.captured_diagnostic.is_some())
+        .count();
+    let actual_http_send_started_count = probe_report
+        .attempt_records
+        .iter()
+        .filter(|record| {
+            record
+                .captured_diagnostic
+                .as_ref()
+                .is_some_and(|diagnostic| diagnostic.actual_http_send_started)
+        })
+        .count();
+    let actual_http_send_completed_count = probe_report
+        .attempt_records
+        .iter()
+        .filter(|record| {
+            record
+                .captured_diagnostic
+                .as_ref()
+                .is_some_and(|diagnostic| diagnostic.actual_http_send_completed)
+        })
         .count();
 
     FinamRealReadonlyContractProbeOperatorRunReport {
         enabled: true,
         blocking_reasons: Vec::new(),
+        probe_run_started_at,
+        probe_run_id,
+        probe_run_fingerprint,
         approval_diagnostic,
         output_location: config.redacted_output_location.clone(),
         audit_store_mode: config.audit_store_mode,
@@ -4531,9 +4702,16 @@ where
         scheduler_disabled: config.scheduler_disabled,
         operator_disable_procedure_documented: config.operator_disable_procedure_documented,
         preserve_transport_error_taxonomy: config.preserve_transport_error_taxonomy,
-        token_account_preflight: config.token_account_preflight.clone(),
+        token_account_preflight: config
+            .token_account_preflight
+            .as_ref()
+            .map(|approval| approval.diagnostic().clone()),
+        attempt_count,
+        captured_response_count,
+        actual_http_send_started_count,
+        actual_http_send_completed_count,
         requested_sources_count: probe_report.attempted_sources.len(),
-        actual_send_count,
+        actual_send_count: actual_http_send_started_count,
         max_requests: config.max_requests,
         probe_report: Some(probe_report),
         evidence_matrix,
@@ -4560,6 +4738,7 @@ fn build_finam_real_readonly_contract_probe_evidence_matrix(
                     .map(|encoded| sha256_hex(&encoded))
             });
             FinamRealReadonlyContractProbeEvidenceMatrixRow {
+                probe_run_fingerprint: attempt.probe_run_fingerprint.clone(),
                 attempt_id: attempt.attempt_id,
                 source: attempt.source,
                 route_template: route.map(|diagnostic| diagnostic.path_template.to_string()),
@@ -10870,6 +11049,7 @@ mod tests {
             &mut fetcher,
             request_snapshot.clone(),
             &FinamRealReadonlyContractProbeConfig::default(),
+            "PROBE_RUN_TEST".to_string(),
         )
         .await;
         assert_eq!(
@@ -10890,6 +11070,7 @@ mod tests {
                 ],
                 max_requests: 2,
             },
+            "PROBE_RUN_TEST".to_string(),
         )
         .await;
         assert_eq!(
@@ -10977,19 +11158,26 @@ mod tests {
             md_permissions: Vec::new(),
             readonly: Some(true),
         };
-        let token_account_preflight =
+        let token_account_preflight_diagnostic =
             FinamRealReadonlyTokenAccountPreflightDiagnostic::from_token_details(
                 &GatewayFeatureSet::default(),
                 &request_snapshot,
                 Some(&token_details),
             );
-        assert!(token_account_preflight.allows_operator_probe());
-        assert!(token_account_preflight.token_readonly_flag_present);
+        assert!(token_account_preflight_diagnostic.allows_operator_probe());
+        assert!(token_account_preflight_diagnostic.token_readonly_flag_present);
         assert_eq!(
-            token_account_preflight.token_readonly_flag_value,
+            token_account_preflight_diagnostic.token_readonly_flag_value,
             Some(true)
         );
-        assert_eq!(token_account_preflight.md_permissions_count, 0);
+        assert_eq!(token_account_preflight_diagnostic.md_permissions_count, 0);
+        let token_account_preflight =
+            FinamRealReadonlyTokenAccountPreflightApproved::try_from_token_details(
+                &GatewayFeatureSet::default(),
+                &request_snapshot,
+                &token_details,
+            )
+            .expect("readonly token/account preflight marker");
         let non_readonly_token_details = broker_finam::dto::TokenDetailsResponse {
             account_ids: vec![account_id.as_str().to_string()],
             created_at: None,
@@ -11013,6 +11201,15 @@ mod tests {
             Some(false)
         );
         assert_eq!(non_readonly_preflight.md_permissions_count, 1);
+        assert!(matches!(
+            FinamRealReadonlyTokenAccountPreflightApproved::try_from_token_details(
+                &GatewayFeatureSet::default(),
+                &request_snapshot,
+                &non_readonly_token_details,
+            )
+            .expect_err("non-readonly token must not create preflight marker"),
+            FinamRealReadonlyTokenAccountPreflightApprovalError::Blocked { .. }
+        ));
 
         let enabled = run_finam_real_readonly_operator_contract_probe(
             &mut fetcher,
@@ -11041,7 +11238,11 @@ mod tests {
         assert!(enabled.blocking_reasons.is_empty());
         assert_eq!(enabled.max_requests, 4);
         assert_eq!(enabled.requested_sources_count, 4);
-        assert_eq!(enabled.actual_send_count, 4);
+        assert_eq!(enabled.attempt_count, 4);
+        assert_eq!(enabled.captured_response_count, 4);
+        assert_eq!(enabled.actual_http_send_started_count, 0);
+        assert_eq!(enabled.actual_http_send_completed_count, 0);
+        assert_eq!(enabled.actual_send_count, 0);
         assert!(enabled.actual_send_count <= enabled.max_requests);
         assert_eq!(
             enabled.audit_store_mode,
@@ -11069,6 +11270,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![1, 2, 3, 4]
         );
+        assert!(enabled
+            .evidence_matrix
+            .iter()
+            .all(|row| row.probe_run_fingerprint == enabled.probe_run_fingerprint));
         assert_eq!(
             enabled.evidence_matrix[0].route_template.as_deref(),
             Some("/v1/accounts/{account_id}/orders/{order_id}")
@@ -11092,6 +11297,9 @@ mod tests {
         assert!(report_json.contains("evidence_matrix"));
         assert!(report_json.contains("token_details_checked"));
         assert!(report_json.contains("token_readonly_flag_value"));
+        assert!(report_json.contains("probe_run_fingerprint"));
+        assert!(report_json.contains("actual_http_send_started_count"));
+        assert!(report_json.contains("captured_response_count"));
         assert!(report_json.contains("actual_send_count"));
         assert!(!report_json.contains("reports/finam-readonly-contract-probe/redacted.json"));
         assert!(!report_json.contains(account_id.as_str()));
@@ -11131,7 +11339,7 @@ mod tests {
             &FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightMissing
         ));
 
-        let blocked_by_token_scope = run_finam_real_readonly_operator_contract_probe(
+        let blocked_without_marker = run_finam_real_readonly_operator_contract_probe(
             &mut fetcher,
             request_snapshot,
             &FinamRealReadonlyContractProbeOperatorRunConfig {
@@ -11149,14 +11357,15 @@ mod tests {
                 scheduler_disabled: true,
                 operator_disable_procedure_documented: true,
                 preserve_transport_error_taxonomy: true,
-                token_account_preflight: Some(non_readonly_preflight),
+                token_account_preflight: None,
             },
         )
         .await;
-        assert!(blocked_by_token_scope.probe_report.is_none());
-        assert_eq!(blocked_by_token_scope.actual_send_count, 0);
-        assert!(blocked_by_token_scope.blocking_reasons.contains(
-            &FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightFailed
+        assert!(blocked_without_marker.probe_report.is_none());
+        assert_eq!(blocked_without_marker.actual_send_count, 0);
+        assert_eq!(blocked_without_marker.attempt_count, 0);
+        assert!(blocked_without_marker.blocking_reasons.contains(
+            &FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightMissing
         ));
     }
 

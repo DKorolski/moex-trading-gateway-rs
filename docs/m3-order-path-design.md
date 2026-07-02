@@ -202,6 +202,9 @@ broker-truth sources.
 M3b-17 hardens the evidence package with token readonly/scope diagnostics,
 per-source attempt records for matrix alignment, and explicit requested/actual
 send counters.
+M3b-18 converts token/account approval into a non-serializable marker, adds
+probe-run id/fingerprint correlation, and splits captured-response volume from
+actual HTTP send started/completed counts.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

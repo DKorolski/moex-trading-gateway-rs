@@ -5,6 +5,10 @@ not authorize FINAM order placement/cancel, real command consumption, real
 CommandAck lifecycle, runtime attachment, `LiveReady`, live micro, stop/SLTP, or
 bracket behavior.
 
+M3b-18 follow-up makes the token/account approval marker non-serializable,
+splits request/captured/actual-send counters, and adds probe run identity for
+audit correlation. See `docs/m3b18-real-readonly-pre-evidence-gate.md`.
+
 ## Token readonly/scope diagnostic
 
 The redacted token/account preflight diagnostic now records token scope shape:

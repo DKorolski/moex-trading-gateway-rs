@@ -1111,3 +1111,27 @@ Still not implemented in M3b-17:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-18 real-readonly pre-evidence gate status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- non-serializable token/account preflight approval marker for the operator
+  probe, while keeping the redacted diagnostic as report-only evidence;
+- probe-run identity fields: `probe_run_started_at`, `probe_run_id`, and
+  `probe_run_fingerprint`;
+- fingerprint propagation into attempt records and evidence-matrix rows;
+- explicit split between attempted sources, captured responses, actual HTTP
+  sends started, and actual HTTP sends completed;
+- compatibility `actual_send_count` kept as the started-send count;
+- controlled operator runs still block `PersistentAuditStore`.
+
+Still not implemented in M3b-18:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.
