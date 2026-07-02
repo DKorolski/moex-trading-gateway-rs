@@ -236,6 +236,10 @@ policies. Timeout is separated from non-timeout transport failures, accepted
 responses are wired to broker-order-id reconciliation policy instead of
 unconditional `Submitted`, and checkpoint marker creation is limited to private
 functions requiring endpoint gate plus SQLite transition commit proof.
+M3c-14 binds that commit proof to a redacted request snapshot fingerprint,
+requires single-use checkpoint markers, records cancel accepted response/id
+policy, and adds redacted captured response/error envelope diagnostics that
+export only kind, presence, length/hash, and typed transport category.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

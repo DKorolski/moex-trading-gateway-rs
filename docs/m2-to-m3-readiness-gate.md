@@ -1337,6 +1337,10 @@ Implemented while still keeping all broker order endpoints disabled:
   true timeout/unknown-pending from non-timeout transport failures, wires
   accepted responses into broker-order-id reconciliation policy, and records
   private checkpoint marker creation from SQLite transition commit proof;
+- M3c-14 request-bound checkpoint and captured envelope design: binds commit
+  proof to request/client/account/instrument fingerprint, requires single-use
+  markers, documents cancel accepted id semantics, and redacts future captured
+  response/error evidence to kind/presence/len/hash/category only;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:

@@ -71,6 +71,13 @@ matching transition event
 
 Diagnostic/report layers cannot create checkpoint markers.
 
+## M3c-14 follow-up
+
+M3c-14 binds the checkpoint proof to a redacted request snapshot fingerprint,
+adds cancel accepted response/id policy, and records a redacted captured
+response/error envelope design. The envelope exports only kind, presence,
+length/hash, and typed transport category.
+
 ## Still not allowed
 
 - FINAM real PlaceOrder `POST`;

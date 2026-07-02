@@ -82,10 +82,23 @@ struct CancelEndpointDurableCheckpointApproved {
     _private: (),
 }
 
+struct GatewayRealOrderEndpointRequestSnapshotFingerprint {
+    pub operation: GatewayRealOrderEndpointOperation,
+    pub request_id_hash_present: bool,
+    pub client_order_id_hash_present: bool,
+    pub account_hash_present: bool,
+    pub instrument_hash_present: bool,
+    pub fingerprint_sha256_len: usize,
+    pub raw_values_exported: bool,
+    pub matches_approved_request_parts: bool,
+}
+
 struct GatewayRealOrderEndpointSqliteTransitionCommitProof {
     pub event: OrderPathEvent,
     pub durable_commit_observed: bool,
     pub diagnostic_or_report_source: bool,
+    pub request_snapshot_fingerprint: GatewayRealOrderEndpointRequestSnapshotFingerprint,
+    pub marker_single_use: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,6 +106,10 @@ enum GatewayRealOrderEndpointCheckpointMarkerCreationError {
     WrongTransitionEvent,
     DurableCommitNotObserved,
     DiagnosticOrReportLayer,
+    RequestSnapshotFingerprintMissing,
+    RequestSnapshotFingerprintMismatch,
+    RawRequestIdentityExported,
+    MarkerAlreadyUsed,
 }
 
 struct OrderEndpointDurableStateCheckpoint {
@@ -418,6 +435,96 @@ pub struct GatewayRealOrderEndpointAcceptedResultDiagnostic {
     pub runtime_ack_redacted_only: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointCancelAcceptedIdPolicy {
+    MatchingBrokerOrderId,
+    MissingBrokerOrderIdAcceptedPendingReconciliation,
+    BrokerOrderIdMismatchManualIntervention,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointCancelAcceptedIdPolicyEntry {
+    pub policy: GatewayRealOrderEndpointCancelAcceptedIdPolicy,
+    pub cancel_event: OrderPathEvent,
+    pub cancel_state: OrderPathState,
+    pub ack_status: CommandAckStatus,
+    pub ack_reason_code: Option<CommandAckReasonCode>,
+    pub operator_disarm_signal: Option<OperatorDisarmSignal>,
+    pub response_body_required: bool,
+    pub broker_order_id_required: bool,
+    pub reconciliation_required: bool,
+    pub no_blind_retry: bool,
+    pub manual_intervention_required: bool,
+    pub raw_broker_order_id_exported: bool,
+    pub runtime_ack_redacted_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointCancelAcceptedIdPolicyDesignShape {
+    pub policy_entry_count: usize,
+    pub response_body_optional_documented: bool,
+    pub matching_id_ok: bool,
+    pub missing_id_requires_reconciliation: bool,
+    pub mismatched_id_manual_conflict: bool,
+    pub raw_broker_order_id_exported: bool,
+    pub no_blind_retry_required: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointCapturedEnvelopeKind {
+    AcceptedResponse,
+    BrokerErrorResponse,
+    TransportError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointCapturedEnvelopeTransportCategoryEntry {
+    pub category: GatewayRealOrderEndpointTransportCategory,
+    pub envelope_kind: GatewayRealOrderEndpointCapturedEnvelopeKind,
+    pub raw_error_exported: bool,
+    pub transport_category_exported: bool,
+    pub error_len_recorded: bool,
+    pub error_sha256_recorded: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointCapturedResponseEnvelopeDiagnostic {
+    pub kind: GatewayRealOrderEndpointCapturedEnvelopeKind,
+    pub operation: GatewayRealOrderEndpointOperation,
+    pub method_name: String,
+    pub endpoint_gate_required: bool,
+    pub request_parts_consumed: bool,
+    pub request_snapshot_fingerprint_present: bool,
+    pub status_code_present: bool,
+    pub body_present: bool,
+    pub body_len_recorded: bool,
+    pub body_sha256_recorded: bool,
+    pub transport_category: Option<GatewayRealOrderEndpointTransportCategory>,
+    pub error_len_recorded: bool,
+    pub error_sha256_recorded: bool,
+    pub raw_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub raw_error_exported: bool,
+    pub runtime_ack_redacted_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointCapturedEnvelopeDesignShape {
+    pub envelope_diagnostic_redacted_only: bool,
+    pub envelope_requires_endpoint_gate: bool,
+    pub envelope_accepts_approved_request_parts_only: bool,
+    pub envelope_accepts_raw_path_body_or_error: bool,
+    pub raw_path_exported: bool,
+    pub raw_body_exported: bool,
+    pub raw_error_exported: bool,
+    pub status_len_hash_presence_only: bool,
+    pub transport_category_mapped: bool,
+    pub transport_category_mapping_entry_count: usize,
+    pub diagnostic_can_feed_transport: bool,
+    pub runtime_ack_redacted_only: bool,
+    pub diagnostic_count: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayRealOrderEndpointOutcomeStatePolicyDesignShape {
     pub matrix_serializable: bool,
@@ -449,9 +556,15 @@ pub struct GatewayRealOrderEndpointCheckpointMarkerCreationDesignShape {
     pub cancel_marker_creation_function_private: bool,
     pub creation_requires_endpoint_gate: bool,
     pub creation_requires_sqlite_transition_commit_proof: bool,
+    pub proof_bound_to_request_snapshot_fingerprint: bool,
+    pub proof_fingerprint_includes_request_client_account_instrument_hashes: bool,
+    pub proof_raw_request_values_exported: bool,
+    pub marker_single_use_required: bool,
+    pub checkpoint_reuse_across_intents_allowed: bool,
     pub creation_rejects_diagnostic_or_report_source: bool,
     pub creation_requires_durable_commit_observed: bool,
     pub creation_requires_transition_event_match: bool,
+    pub creation_requires_fingerprint_operation_match: bool,
     pub place_required_event: OrderPathEvent,
     pub cancel_required_event: OrderPathEvent,
     pub marker_not_debug_or_serializable: bool,
@@ -473,6 +586,8 @@ pub struct GatewayRealOrderEndpointApiShape {
     pub outcome_state_policy_design: GatewayRealOrderEndpointOutcomeStatePolicyDesignShape,
     pub accepted_result_classifier_design:
         GatewayRealOrderEndpointAcceptedResultClassifierDesignShape,
+    pub cancel_accepted_id_policy_design: GatewayRealOrderEndpointCancelAcceptedIdPolicyDesignShape,
+    pub captured_envelope_design: GatewayRealOrderEndpointCapturedEnvelopeDesignShape,
     pub durable_checkpoint_capability_design:
         GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape,
     pub checkpoint_marker_creation_design:
@@ -586,6 +701,32 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
                 state_machine_transition_required: true,
                 classifier_count: accepted_result_classifier_count(),
             },
+        cancel_accepted_id_policy_design:
+            GatewayRealOrderEndpointCancelAcceptedIdPolicyDesignShape {
+                policy_entry_count: cancel_accepted_id_policy_matrix().len(),
+                response_body_optional_documented: true,
+                matching_id_ok: true,
+                missing_id_requires_reconciliation: true,
+                mismatched_id_manual_conflict: true,
+                raw_broker_order_id_exported: false,
+                no_blind_retry_required: true,
+            },
+        captured_envelope_design: GatewayRealOrderEndpointCapturedEnvelopeDesignShape {
+            envelope_diagnostic_redacted_only: true,
+            envelope_requires_endpoint_gate: true,
+            envelope_accepts_approved_request_parts_only: true,
+            envelope_accepts_raw_path_body_or_error: false,
+            raw_path_exported: false,
+            raw_body_exported: false,
+            raw_error_exported: false,
+            status_len_hash_presence_only: true,
+            transport_category_mapped: true,
+            transport_category_mapping_entry_count: captured_envelope_transport_category_matrix()
+                .len(),
+            diagnostic_can_feed_transport: false,
+            runtime_ack_redacted_only: true,
+            diagnostic_count: captured_envelope_diagnostic_count(),
+        },
         durable_checkpoint_capability_design:
             GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape {
                 place_capability_type_internal: true,
@@ -605,9 +746,15 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
                 cancel_marker_creation_function_private: true,
                 creation_requires_endpoint_gate: true,
                 creation_requires_sqlite_transition_commit_proof: true,
+                proof_bound_to_request_snapshot_fingerprint: true,
+                proof_fingerprint_includes_request_client_account_instrument_hashes: true,
+                proof_raw_request_values_exported: false,
+                marker_single_use_required: true,
+                checkpoint_reuse_across_intents_allowed: false,
                 creation_rejects_diagnostic_or_report_source: true,
                 creation_requires_durable_commit_observed: true,
                 creation_requires_transition_event_match: true,
+                creation_requires_fingerprint_operation_match: true,
                 place_required_event: OrderPathEvent::BeginSubmit,
                 cancel_required_event: OrderPathEvent::RequestCancel,
                 marker_not_debug_or_serializable: true,
@@ -870,6 +1017,33 @@ fn classify_accepted_result_after_future_send(
     }
 }
 
+fn captured_response_error_envelope_diagnostic(
+    _gate: &EndpointGateApproved,
+    parts: ApprovedOrderEndpointRequestParts,
+    kind: GatewayRealOrderEndpointCapturedEnvelopeKind,
+    transport_category: Option<GatewayRealOrderEndpointTransportCategory>,
+) -> GatewayRealOrderEndpointCapturedResponseEnvelopeDiagnostic {
+    GatewayRealOrderEndpointCapturedResponseEnvelopeDiagnostic {
+        kind,
+        operation: parts.operation,
+        method_name: parts.method_name.to_string(),
+        endpoint_gate_required: true,
+        request_parts_consumed: true,
+        request_snapshot_fingerprint_present: true,
+        status_code_present: kind != GatewayRealOrderEndpointCapturedEnvelopeKind::TransportError,
+        body_present: kind != GatewayRealOrderEndpointCapturedEnvelopeKind::TransportError,
+        body_len_recorded: kind != GatewayRealOrderEndpointCapturedEnvelopeKind::TransportError,
+        body_sha256_recorded: kind != GatewayRealOrderEndpointCapturedEnvelopeKind::TransportError,
+        transport_category,
+        error_len_recorded: transport_category.is_some(),
+        error_sha256_recorded: transport_category.is_some(),
+        raw_path_exported: false,
+        raw_body_exported: false,
+        raw_error_exported: false,
+        runtime_ack_redacted_only: true,
+    }
+}
+
 fn approved_request_parts_constructor_count() -> usize {
     let _place: fn(
         &EndpointGateApproved,
@@ -953,6 +1127,17 @@ fn accepted_result_classifier_count() -> usize {
         GatewayRealOrderEndpointAcceptedResponseShape,
     ) -> GatewayRealOrderEndpointAcceptedResultDiagnostic =
         classify_accepted_result_after_future_send;
+    1
+}
+
+fn captured_envelope_diagnostic_count() -> usize {
+    let _diagnostic: fn(
+        &EndpointGateApproved,
+        ApprovedOrderEndpointRequestParts,
+        GatewayRealOrderEndpointCapturedEnvelopeKind,
+        Option<GatewayRealOrderEndpointTransportCategory>,
+    ) -> GatewayRealOrderEndpointCapturedResponseEnvelopeDiagnostic =
+        captured_response_error_envelope_diagnostic;
     1
 }
 
@@ -1400,6 +1585,76 @@ pub fn accepted_result_classifier_policy_matrix(
     ]
 }
 
+pub fn cancel_accepted_id_policy_matrix() -> Vec<GatewayRealOrderEndpointCancelAcceptedIdPolicyEntry>
+{
+    use GatewayRealOrderEndpointCancelAcceptedIdPolicy as Policy;
+
+    vec![
+        GatewayRealOrderEndpointCancelAcceptedIdPolicyEntry {
+            policy: Policy::MatchingBrokerOrderId,
+            cancel_event: OrderPathEvent::CancelAccepted,
+            cancel_state: OrderPathState::CancelSubmitted,
+            ack_status: CommandAckStatus::Submitted,
+            ack_reason_code: None,
+            operator_disarm_signal: None,
+            response_body_required: false,
+            broker_order_id_required: false,
+            reconciliation_required: false,
+            no_blind_retry: true,
+            manual_intervention_required: false,
+            raw_broker_order_id_exported: false,
+            runtime_ack_redacted_only: true,
+        },
+        GatewayRealOrderEndpointCancelAcceptedIdPolicyEntry {
+            policy: Policy::MissingBrokerOrderIdAcceptedPendingReconciliation,
+            cancel_event: OrderPathEvent::CancelAccepted,
+            cancel_state: OrderPathState::CancelSubmitted,
+            ack_status: CommandAckStatus::UnknownPending,
+            ack_reason_code: Some(CommandAckReasonCode::ReconciliationRequired),
+            operator_disarm_signal: Some(OperatorDisarmSignal::AcceptedWithoutBrokerOrderId),
+            response_body_required: false,
+            broker_order_id_required: false,
+            reconciliation_required: true,
+            no_blind_retry: true,
+            manual_intervention_required: true,
+            raw_broker_order_id_exported: false,
+            runtime_ack_redacted_only: true,
+        },
+        GatewayRealOrderEndpointCancelAcceptedIdPolicyEntry {
+            policy: Policy::BrokerOrderIdMismatchManualIntervention,
+            cancel_event: OrderPathEvent::RequireManualIntervention,
+            cancel_state: OrderPathState::ManualInterventionRequired,
+            ack_status: CommandAckStatus::UnknownPending,
+            ack_reason_code: Some(CommandAckReasonCode::ManualInterventionRequired),
+            operator_disarm_signal: Some(OperatorDisarmSignal::CancelBrokerOrderIdMismatch),
+            response_body_required: false,
+            broker_order_id_required: false,
+            reconciliation_required: true,
+            no_blind_retry: true,
+            manual_intervention_required: true,
+            raw_broker_order_id_exported: false,
+            runtime_ack_redacted_only: true,
+        },
+    ]
+}
+
+pub fn captured_envelope_transport_category_matrix(
+) -> Vec<GatewayRealOrderEndpointCapturedEnvelopeTransportCategoryEntry> {
+    transport_categories()
+        .into_iter()
+        .map(
+            |category| GatewayRealOrderEndpointCapturedEnvelopeTransportCategoryEntry {
+                category,
+                envelope_kind: GatewayRealOrderEndpointCapturedEnvelopeKind::TransportError,
+                raw_error_exported: false,
+                transport_category_exported: true,
+                error_len_recorded: true,
+                error_sha256_recorded: true,
+            },
+        )
+        .collect()
+}
+
 fn create_place_checkpoint_marker_after_sqlite_transition(
     _gate: &EndpointGateApproved,
     proof: &GatewayRealOrderEndpointSqliteTransitionCommitProof,
@@ -1407,7 +1662,11 @@ fn create_place_checkpoint_marker_after_sqlite_transition(
     PlaceEndpointDurableCheckpointApproved,
     GatewayRealOrderEndpointCheckpointMarkerCreationError,
 > {
-    validate_checkpoint_marker_creation_proof(proof, OrderPathEvent::BeginSubmit)?;
+    validate_checkpoint_marker_creation_proof(
+        proof,
+        OrderPathEvent::BeginSubmit,
+        GatewayRealOrderEndpointOperation::PlaceOrder,
+    )?;
     Ok(PlaceEndpointDurableCheckpointApproved { _private: () })
 }
 
@@ -1418,16 +1677,24 @@ fn create_cancel_checkpoint_marker_after_sqlite_transition(
     CancelEndpointDurableCheckpointApproved,
     GatewayRealOrderEndpointCheckpointMarkerCreationError,
 > {
-    validate_checkpoint_marker_creation_proof(proof, OrderPathEvent::RequestCancel)?;
+    validate_checkpoint_marker_creation_proof(
+        proof,
+        OrderPathEvent::RequestCancel,
+        GatewayRealOrderEndpointOperation::CancelOrder,
+    )?;
     Ok(CancelEndpointDurableCheckpointApproved { _private: () })
 }
 
 fn validate_checkpoint_marker_creation_proof(
     proof: &GatewayRealOrderEndpointSqliteTransitionCommitProof,
     expected_event: OrderPathEvent,
+    expected_operation: GatewayRealOrderEndpointOperation,
 ) -> Result<(), GatewayRealOrderEndpointCheckpointMarkerCreationError> {
     if proof.diagnostic_or_report_source {
         return Err(GatewayRealOrderEndpointCheckpointMarkerCreationError::DiagnosticOrReportLayer);
+    }
+    if !proof.marker_single_use {
+        return Err(GatewayRealOrderEndpointCheckpointMarkerCreationError::MarkerAlreadyUsed);
     }
     if !proof.durable_commit_observed {
         return Err(
@@ -1436,6 +1703,34 @@ fn validate_checkpoint_marker_creation_proof(
     }
     if proof.event != expected_event {
         return Err(GatewayRealOrderEndpointCheckpointMarkerCreationError::WrongTransitionEvent);
+    }
+    validate_request_snapshot_fingerprint(&proof.request_snapshot_fingerprint, expected_operation)?;
+    Ok(())
+}
+
+fn validate_request_snapshot_fingerprint(
+    fingerprint: &GatewayRealOrderEndpointRequestSnapshotFingerprint,
+    expected_operation: GatewayRealOrderEndpointOperation,
+) -> Result<(), GatewayRealOrderEndpointCheckpointMarkerCreationError> {
+    if fingerprint.raw_values_exported {
+        return Err(
+            GatewayRealOrderEndpointCheckpointMarkerCreationError::RawRequestIdentityExported,
+        );
+    }
+    if fingerprint.operation != expected_operation || !fingerprint.matches_approved_request_parts {
+        return Err(
+            GatewayRealOrderEndpointCheckpointMarkerCreationError::RequestSnapshotFingerprintMismatch,
+        );
+    }
+    if !(fingerprint.request_id_hash_present
+        && fingerprint.client_order_id_hash_present
+        && fingerprint.account_hash_present
+        && fingerprint.instrument_hash_present
+        && fingerprint.fingerprint_sha256_len == 64)
+    {
+        return Err(
+            GatewayRealOrderEndpointCheckpointMarkerCreationError::RequestSnapshotFingerprintMissing,
+        );
     }
     Ok(())
 }
@@ -1475,6 +1770,21 @@ pub fn cancel_order_api_shape(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn request_fingerprint(
+        operation: GatewayRealOrderEndpointOperation,
+    ) -> GatewayRealOrderEndpointRequestSnapshotFingerprint {
+        GatewayRealOrderEndpointRequestSnapshotFingerprint {
+            operation,
+            request_id_hash_present: true,
+            client_order_id_hash_present: true,
+            account_hash_present: true,
+            instrument_hash_present: true,
+            fingerprint_sha256_len: 64,
+            raw_values_exported: false,
+            matches_approved_request_parts: true,
+        }
+    }
 
     #[test]
     fn api_shape_is_design_only_and_requires_gate_marker() {
@@ -1749,6 +2059,67 @@ mod tests {
                 .state_machine_transition_required
         );
         assert_eq!(shape.accepted_result_classifier_design.classifier_count, 1);
+        assert_eq!(shape.cancel_accepted_id_policy_design.policy_entry_count, 3);
+        assert!(
+            shape
+                .cancel_accepted_id_policy_design
+                .response_body_optional_documented
+        );
+        assert!(shape.cancel_accepted_id_policy_design.matching_id_ok);
+        assert!(
+            shape
+                .cancel_accepted_id_policy_design
+                .missing_id_requires_reconciliation
+        );
+        assert!(
+            shape
+                .cancel_accepted_id_policy_design
+                .mismatched_id_manual_conflict
+        );
+        assert!(
+            !shape
+                .cancel_accepted_id_policy_design
+                .raw_broker_order_id_exported
+        );
+        assert!(
+            shape
+                .cancel_accepted_id_policy_design
+                .no_blind_retry_required
+        );
+        assert!(
+            shape
+                .captured_envelope_design
+                .envelope_diagnostic_redacted_only
+        );
+        assert!(
+            shape
+                .captured_envelope_design
+                .envelope_requires_endpoint_gate
+        );
+        assert!(
+            shape
+                .captured_envelope_design
+                .envelope_accepts_approved_request_parts_only
+        );
+        assert!(
+            !shape
+                .captured_envelope_design
+                .envelope_accepts_raw_path_body_or_error
+        );
+        assert!(!shape.captured_envelope_design.raw_path_exported);
+        assert!(!shape.captured_envelope_design.raw_body_exported);
+        assert!(!shape.captured_envelope_design.raw_error_exported);
+        assert!(shape.captured_envelope_design.status_len_hash_presence_only);
+        assert!(shape.captured_envelope_design.transport_category_mapped);
+        assert_eq!(
+            shape
+                .captured_envelope_design
+                .transport_category_mapping_entry_count,
+            5
+        );
+        assert!(!shape.captured_envelope_design.diagnostic_can_feed_transport);
+        assert!(shape.captured_envelope_design.runtime_ack_redacted_only);
+        assert_eq!(shape.captured_envelope_design.diagnostic_count, 1);
         assert!(
             shape
                 .durable_checkpoint_capability_design
@@ -1816,6 +2187,31 @@ mod tests {
         assert!(
             shape
                 .checkpoint_marker_creation_design
+                .proof_bound_to_request_snapshot_fingerprint
+        );
+        assert!(
+            shape
+                .checkpoint_marker_creation_design
+                .proof_fingerprint_includes_request_client_account_instrument_hashes
+        );
+        assert!(
+            !shape
+                .checkpoint_marker_creation_design
+                .proof_raw_request_values_exported
+        );
+        assert!(
+            shape
+                .checkpoint_marker_creation_design
+                .marker_single_use_required
+        );
+        assert!(
+            !shape
+                .checkpoint_marker_creation_design
+                .checkpoint_reuse_across_intents_allowed
+        );
+        assert!(
+            shape
+                .checkpoint_marker_creation_design
                 .creation_rejects_diagnostic_or_report_source
         );
         assert!(
@@ -1827,6 +2223,11 @@ mod tests {
             shape
                 .checkpoint_marker_creation_design
                 .creation_requires_transition_event_match
+        );
+        assert!(
+            shape
+                .checkpoint_marker_creation_design
+                .creation_requires_fingerprint_operation_match
         );
         assert_eq!(
             shape.checkpoint_marker_creation_design.place_required_event,
@@ -2813,6 +3214,160 @@ mod tests {
     }
 
     #[test]
+    fn cancel_accepted_id_policy_covers_match_missing_and_mismatch() {
+        use GatewayRealOrderEndpointCancelAcceptedIdPolicy as Policy;
+
+        let matrix = cancel_accepted_id_policy_matrix();
+        assert_eq!(matrix.len(), 3);
+
+        for entry in &matrix {
+            assert!(!entry.response_body_required);
+            assert!(!entry.broker_order_id_required);
+            assert!(entry.no_blind_retry);
+            assert!(!entry.raw_broker_order_id_exported);
+            assert!(entry.runtime_ack_redacted_only);
+        }
+
+        let matching = matrix
+            .iter()
+            .find(|entry| entry.policy == Policy::MatchingBrokerOrderId)
+            .expect("matching cancel id policy");
+        assert_eq!(matching.cancel_event, OrderPathEvent::CancelAccepted);
+        assert_eq!(matching.cancel_state, OrderPathState::CancelSubmitted);
+        assert_eq!(matching.ack_status, CommandAckStatus::Submitted);
+        assert_eq!(matching.ack_reason_code, None);
+        assert_eq!(matching.operator_disarm_signal, None);
+        assert!(!matching.reconciliation_required);
+        assert!(!matching.manual_intervention_required);
+
+        let missing = matrix
+            .iter()
+            .find(|entry| entry.policy == Policy::MissingBrokerOrderIdAcceptedPendingReconciliation)
+            .expect("missing cancel id policy");
+        assert_eq!(missing.cancel_event, OrderPathEvent::CancelAccepted);
+        assert_eq!(missing.cancel_state, OrderPathState::CancelSubmitted);
+        assert_eq!(missing.ack_status, CommandAckStatus::UnknownPending);
+        assert_eq!(
+            missing.ack_reason_code,
+            Some(CommandAckReasonCode::ReconciliationRequired)
+        );
+        assert_eq!(
+            missing.operator_disarm_signal,
+            Some(OperatorDisarmSignal::AcceptedWithoutBrokerOrderId)
+        );
+        assert!(missing.reconciliation_required);
+        assert!(missing.manual_intervention_required);
+
+        let mismatch = matrix
+            .iter()
+            .find(|entry| entry.policy == Policy::BrokerOrderIdMismatchManualIntervention)
+            .expect("mismatched cancel id policy");
+        assert_eq!(
+            mismatch.cancel_event,
+            OrderPathEvent::RequireManualIntervention
+        );
+        assert_eq!(
+            mismatch.cancel_state,
+            OrderPathState::ManualInterventionRequired
+        );
+        assert_eq!(mismatch.ack_status, CommandAckStatus::UnknownPending);
+        assert_eq!(
+            mismatch.ack_reason_code,
+            Some(CommandAckReasonCode::ManualInterventionRequired)
+        );
+        assert_eq!(
+            mismatch.operator_disarm_signal,
+            Some(OperatorDisarmSignal::CancelBrokerOrderIdMismatch)
+        );
+        assert!(mismatch.reconciliation_required);
+        assert!(mismatch.manual_intervention_required);
+    }
+
+    #[test]
+    fn captured_envelope_design_redacts_raw_path_body_and_error() {
+        fn assert_diagnostic_signature(
+            _f: fn(
+                &EndpointGateApproved,
+                ApprovedOrderEndpointRequestParts,
+                GatewayRealOrderEndpointCapturedEnvelopeKind,
+                Option<GatewayRealOrderEndpointTransportCategory>,
+            ) -> GatewayRealOrderEndpointCapturedResponseEnvelopeDiagnostic,
+        ) {
+        }
+
+        assert_diagnostic_signature(captured_response_error_envelope_diagnostic);
+        assert_eq!(captured_envelope_diagnostic_count(), 1);
+
+        let matrix = captured_envelope_transport_category_matrix();
+        assert_eq!(matrix.len(), transport_categories().len());
+        for entry in &matrix {
+            assert_eq!(
+                entry.envelope_kind,
+                GatewayRealOrderEndpointCapturedEnvelopeKind::TransportError
+            );
+            assert!(!entry.raw_error_exported);
+            assert!(entry.transport_category_exported);
+            assert!(entry.error_len_recorded);
+            assert!(entry.error_sha256_recorded);
+        }
+
+        let diagnostic = GatewayRealOrderEndpointCapturedResponseEnvelopeDiagnostic {
+            kind: GatewayRealOrderEndpointCapturedEnvelopeKind::TransportError,
+            operation: GatewayRealOrderEndpointOperation::CancelOrder,
+            method_name: "DELETE".to_string(),
+            endpoint_gate_required: true,
+            request_parts_consumed: true,
+            request_snapshot_fingerprint_present: true,
+            status_code_present: false,
+            body_present: false,
+            body_len_recorded: false,
+            body_sha256_recorded: false,
+            transport_category: Some(GatewayRealOrderEndpointTransportCategory::HttpSendError),
+            error_len_recorded: true,
+            error_sha256_recorded: true,
+            raw_path_exported: false,
+            raw_body_exported: false,
+            raw_error_exported: false,
+            runtime_ack_redacted_only: true,
+        };
+        assert_eq!(
+            diagnostic.kind,
+            GatewayRealOrderEndpointCapturedEnvelopeKind::TransportError
+        );
+        assert_eq!(
+            diagnostic.operation,
+            GatewayRealOrderEndpointOperation::CancelOrder
+        );
+        assert!(diagnostic.endpoint_gate_required);
+        assert!(diagnostic.request_parts_consumed);
+        assert!(diagnostic.request_snapshot_fingerprint_present);
+        assert!(!diagnostic.status_code_present);
+        assert!(!diagnostic.body_present);
+        assert!(!diagnostic.body_len_recorded);
+        assert!(!diagnostic.body_sha256_recorded);
+        assert_eq!(
+            diagnostic.transport_category,
+            Some(GatewayRealOrderEndpointTransportCategory::HttpSendError)
+        );
+        assert!(diagnostic.error_len_recorded);
+        assert!(diagnostic.error_sha256_recorded);
+        assert!(!diagnostic.raw_path_exported);
+        assert!(!diagnostic.raw_body_exported);
+        assert!(!diagnostic.raw_error_exported);
+        assert!(diagnostic.runtime_ack_redacted_only);
+
+        let rendered = serde_json::to_string(&diagnostic).expect("diagnostic serializes");
+        assert!(!rendered.contains("/v1/accounts/ACC_TEST_0001"));
+        assert!(!rendered.contains("ACC_TEST_0001"));
+        assert!(!rendered.contains("ORDER_TEST_0003"));
+        let forbidden_error_token = ["req", "west"].join("");
+        assert!(!rendered.contains(&forbidden_error_token));
+        assert!(rendered.contains("\"raw_path_exported\":false"));
+        assert!(rendered.contains("\"raw_body_exported\":false"));
+        assert!(rendered.contains("\"raw_error_exported\":false"));
+    }
+
+    #[test]
     fn checkpoint_marker_creation_requires_sqlite_commit_proof_not_diagnostic_layer() {
         fn assert_place_signature(
             _f: fn(
@@ -2843,9 +3398,17 @@ mod tests {
             event: OrderPathEvent::BeginSubmit,
             durable_commit_observed: true,
             diagnostic_or_report_source: false,
+            request_snapshot_fingerprint: request_fingerprint(
+                GatewayRealOrderEndpointOperation::PlaceOrder,
+            ),
+            marker_single_use: true,
         };
         assert_eq!(
-            validate_checkpoint_marker_creation_proof(&valid_place, OrderPathEvent::BeginSubmit),
+            validate_checkpoint_marker_creation_proof(
+                &valid_place,
+                OrderPathEvent::BeginSubmit,
+                GatewayRealOrderEndpointOperation::PlaceOrder,
+            ),
             Ok(())
         );
 
@@ -2853,9 +3416,17 @@ mod tests {
             event: OrderPathEvent::RequestCancel,
             durable_commit_observed: true,
             diagnostic_or_report_source: false,
+            request_snapshot_fingerprint: request_fingerprint(
+                GatewayRealOrderEndpointOperation::PlaceOrder,
+            ),
+            marker_single_use: true,
         };
         assert_eq!(
-            validate_checkpoint_marker_creation_proof(&wrong_event, OrderPathEvent::BeginSubmit),
+            validate_checkpoint_marker_creation_proof(
+                &wrong_event,
+                OrderPathEvent::BeginSubmit,
+                GatewayRealOrderEndpointOperation::PlaceOrder,
+            ),
             Err(GatewayRealOrderEndpointCheckpointMarkerCreationError::WrongTransitionEvent)
         );
 
@@ -2863,9 +3434,17 @@ mod tests {
             event: OrderPathEvent::BeginSubmit,
             durable_commit_observed: false,
             diagnostic_or_report_source: false,
+            request_snapshot_fingerprint: request_fingerprint(
+                GatewayRealOrderEndpointOperation::PlaceOrder,
+            ),
+            marker_single_use: true,
         };
         assert_eq!(
-            validate_checkpoint_marker_creation_proof(&uncommitted, OrderPathEvent::BeginSubmit),
+            validate_checkpoint_marker_creation_proof(
+                &uncommitted,
+                OrderPathEvent::BeginSubmit,
+                GatewayRealOrderEndpointOperation::PlaceOrder,
+            ),
             Err(GatewayRealOrderEndpointCheckpointMarkerCreationError::DurableCommitNotObserved)
         );
 
@@ -2873,13 +3452,75 @@ mod tests {
             event: OrderPathEvent::BeginSubmit,
             durable_commit_observed: true,
             diagnostic_or_report_source: true,
+            request_snapshot_fingerprint: request_fingerprint(
+                GatewayRealOrderEndpointOperation::PlaceOrder,
+            ),
+            marker_single_use: true,
         };
         assert_eq!(
             validate_checkpoint_marker_creation_proof(
                 &diagnostic_source,
-                OrderPathEvent::BeginSubmit
+                OrderPathEvent::BeginSubmit,
+                GatewayRealOrderEndpointOperation::PlaceOrder,
             ),
             Err(GatewayRealOrderEndpointCheckpointMarkerCreationError::DiagnosticOrReportLayer)
+        );
+
+        let marker_reuse = GatewayRealOrderEndpointSqliteTransitionCommitProof {
+            event: OrderPathEvent::BeginSubmit,
+            durable_commit_observed: true,
+            diagnostic_or_report_source: false,
+            request_snapshot_fingerprint: request_fingerprint(
+                GatewayRealOrderEndpointOperation::PlaceOrder,
+            ),
+            marker_single_use: false,
+        };
+        assert_eq!(
+            validate_checkpoint_marker_creation_proof(
+                &marker_reuse,
+                OrderPathEvent::BeginSubmit,
+                GatewayRealOrderEndpointOperation::PlaceOrder,
+            ),
+            Err(GatewayRealOrderEndpointCheckpointMarkerCreationError::MarkerAlreadyUsed)
+        );
+
+        let wrong_operation = GatewayRealOrderEndpointSqliteTransitionCommitProof {
+            event: OrderPathEvent::BeginSubmit,
+            durable_commit_observed: true,
+            diagnostic_or_report_source: false,
+            request_snapshot_fingerprint: request_fingerprint(
+                GatewayRealOrderEndpointOperation::CancelOrder,
+            ),
+            marker_single_use: true,
+        };
+        assert_eq!(
+            validate_checkpoint_marker_creation_proof(
+                &wrong_operation,
+                OrderPathEvent::BeginSubmit,
+                GatewayRealOrderEndpointOperation::PlaceOrder,
+            ),
+            Err(
+                GatewayRealOrderEndpointCheckpointMarkerCreationError::RequestSnapshotFingerprintMismatch
+            )
+        );
+
+        let raw_identity = GatewayRealOrderEndpointSqliteTransitionCommitProof {
+            event: OrderPathEvent::BeginSubmit,
+            durable_commit_observed: true,
+            diagnostic_or_report_source: false,
+            request_snapshot_fingerprint: GatewayRealOrderEndpointRequestSnapshotFingerprint {
+                raw_values_exported: true,
+                ..request_fingerprint(GatewayRealOrderEndpointOperation::PlaceOrder)
+            },
+            marker_single_use: true,
+        };
+        assert_eq!(
+            validate_checkpoint_marker_creation_proof(
+                &raw_identity,
+                OrderPathEvent::BeginSubmit,
+                GatewayRealOrderEndpointOperation::PlaceOrder,
+            ),
+            Err(GatewayRealOrderEndpointCheckpointMarkerCreationError::RawRequestIdentityExported)
         );
 
         let source = include_str!("real_order_endpoint.rs");
@@ -2892,6 +3533,7 @@ mod tests {
             .expect("marker creation boundary");
         assert!(marker_source.contains("EndpointGateApproved"));
         assert!(marker_source.contains("GatewayRealOrderEndpointSqliteTransitionCommitProof"));
+        assert!(marker_source.contains("validate_request_snapshot_fingerprint"));
         assert!(!marker_source.contains("GatewayRealOrderEndpointFutureSendDiagnostic"));
         assert!(!marker_source.contains("GatewayRealOrderEndpointAcceptedResultDiagnostic"));
         assert!(!marker_source.contains("GatewayRealOrderEndpointApiShape"));

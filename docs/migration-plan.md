@@ -1804,6 +1804,32 @@ M3c-13 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-14 request-bound checkpoint / captured response envelope design:
+
+- Bound future durable checkpoint proof to a redacted request snapshot
+  fingerprint covering request id, client order id, account, and instrument
+  hashes.
+- Recorded single-use marker creation semantics and rejection of marker reuse,
+  diagnostic/report-sourced proofs, raw request identity export, and
+  cross-operation/cross-intent fingerprint mismatch.
+- Added cancel accepted response/id policy: matching id accepted, missing id
+  accepted pending reconciliation, mismatched id manual/reconciliation conflict.
+- Added redacted captured response/error envelope design using only kind,
+  status/body/error presence, len/hash, and transport category. Raw path, body,
+  and error are not exported.
+- Details are documented in
+  `docs/m3c14-request-bound-checkpoint-captured-envelope.md`.
+
+M3c-14 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

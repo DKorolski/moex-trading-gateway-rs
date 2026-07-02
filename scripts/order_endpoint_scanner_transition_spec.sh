@@ -54,6 +54,12 @@ if rg -n 'pub fn create_(place|cancel)_checkpoint_marker_after_sqlite_transition
 fi
 rm -f /tmp/moex_transition_forbidden.$$
 
+if rg -n 'pub fn captured_response_error_envelope_diagnostic' "$target" >/tmp/moex_transition_forbidden.$$; then
+  cat /tmp/moex_transition_forbidden.$$ >&2
+  report_failure "captured response/error envelope diagnostic constructor must not be public"
+fi
+rm -f /tmp/moex_transition_forbidden.$$
+
 if rg -n 'consume_approved_request_parts_for_future_endpoint\([^)]*GatewayRealOrderEndpoint.*Diagnostic' "$target" >/tmp/moex_transition_forbidden.$$; then
   cat /tmp/moex_transition_forbidden.$$ >&2
   report_failure "diagnostic DTOs must not feed the approved request-parts consumer"
@@ -71,6 +77,7 @@ for internal_type in \
   RenderedOrderEndpointPath \
   ApprovedOrderEndpointRequestParts \
   GatewayRealOrderEndpointAcceptedResponseShape \
+  GatewayRealOrderEndpointRequestSnapshotFingerprint \
   GatewayRealOrderEndpointSqliteTransitionCommitProof \
   PlaceEndpointDurableCheckpointApproved \
   CancelEndpointDurableCheckpointApproved
@@ -175,18 +182,47 @@ required_patterns=(
   "classify_accepted_result_after_future_send"
   "accepted_broker_id_policy_wired: true"
   "unconditional_submitted_allowed: false"
+  "GatewayRealOrderEndpointCancelAcceptedIdPolicy"
+  "GatewayRealOrderEndpointCancelAcceptedIdPolicyEntry"
+  "GatewayRealOrderEndpointCancelAcceptedIdPolicyDesignShape"
+  "cancel_accepted_id_policy_matrix"
+  "MissingBrokerOrderIdAcceptedPendingReconciliation"
+  "BrokerOrderIdMismatchManualIntervention"
+  "response_body_optional_documented: true"
+  "missing_id_requires_reconciliation: true"
+  "mismatched_id_manual_conflict: true"
+  "GatewayRealOrderEndpointCapturedEnvelopeKind"
+  "GatewayRealOrderEndpointCapturedEnvelopeTransportCategoryEntry"
+  "GatewayRealOrderEndpointCapturedResponseEnvelopeDiagnostic"
+  "GatewayRealOrderEndpointCapturedEnvelopeDesignShape"
+  "captured_response_error_envelope_diagnostic"
+  "captured_envelope_transport_category_matrix"
+  "envelope_diagnostic_redacted_only: true"
+  "envelope_accepts_raw_path_body_or_error: false"
+  "raw_path_exported: false"
+  "raw_error_exported: false"
+  "status_len_hash_presence_only: true"
+  "transport_category_mapped: true"
+  "diagnostic_can_feed_transport: false"
   "GatewayRealOrderEndpointOutcomeStatePolicyEntry"
   "GatewayRealOrderEndpointAcceptedBrokerIdPolicyEntry"
   "GatewayRealOrderEndpointOutcomeStatePolicyDesignShape"
   "GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape"
   "GatewayRealOrderEndpointCheckpointMarkerCreationDesignShape"
+  "GatewayRealOrderEndpointRequestSnapshotFingerprint"
   "GatewayRealOrderEndpointSqliteTransitionCommitProof"
   "create_place_checkpoint_marker_after_sqlite_transition"
   "create_cancel_checkpoint_marker_after_sqlite_transition"
   "creation_requires_sqlite_transition_commit_proof: true"
+  "proof_bound_to_request_snapshot_fingerprint: true"
+  "proof_fingerprint_includes_request_client_account_instrument_hashes: true"
+  "proof_raw_request_values_exported: false"
+  "marker_single_use_required: true"
+  "checkpoint_reuse_across_intents_allowed: false"
   "creation_rejects_diagnostic_or_report_source: true"
   "creation_requires_durable_commit_observed: true"
   "creation_requires_transition_event_match: true"
+  "creation_requires_fingerprint_operation_match: true"
   "future_send_outcome_state_policy_matrix"
   "accepted_broker_id_policy_matrix"
   "matrix_serializable: true"

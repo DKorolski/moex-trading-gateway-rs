@@ -119,6 +119,22 @@ checkpoint marker creation requires SQLite transition commit proof
 The accepted-result classifier and checkpoint marker creation functions remain
 private and diagnostics cannot feed either boundary.
 
+M3c-14 records request-bound checkpoint and captured-envelope design:
+
+```text
+proof_bound_to_request_snapshot_fingerprint = true
+marker_single_use_required = true
+checkpoint_reuse_across_intents_allowed = false
+cancel accepted id policy entry count = 3
+envelope_diagnostic_redacted_only = true
+envelope_accepts_raw_path_body_or_error = false
+raw_path/body/error exported = false
+status_len_hash_presence_only = true
+```
+
+The scanner transition guard checks these markers while keeping all real order
+endpoint calls forbidden.
+
 ## Scanner transition spec
 
 The API shape exports:
