@@ -66,6 +66,9 @@ templates from local `/readonly/...` placeholders while keeping real order
 endpoints disabled. M3b-12 adds the GET-only real-readonly transport,
 captured-response mapping, query policy, operator guardrails, source-scan
 GET-only checks, and redacted SQLite audit for read-only broker-truth attempts.
+M3b-13 makes that read-only path operator-enableable only with a mandatory
+run-approved marker, account-hash enforcement, transport error categories,
+disabled contract-probe harness, and page-full trades incomplete semantics.
 
 M3 scope is deliberately small:
 
@@ -180,6 +183,10 @@ M3b-12 adds the first executable real-readonly transport path while keeping
 order endpoints disabled: GET responses are captured privately, typed through
 broker-truth mappers, audited with status/body hash only, and guarded by
 HTTPS/account-allowlist/timeout/rate-limit diagnostics.
+M3b-13 requires those guardrails to produce a run marker before transport or
+fetcher construction, blocks account mismatches before send, records failed
+read-only attempts in redacted SQLite audit, and prevents full trades pages from
+becoming strong absence evidence.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.

@@ -987,3 +987,31 @@ Still not implemented in M3b-12:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-13 real-readonly enablement runbook / contract probe status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- mandatory `RealReadonlyBrokerTruthRunApproved` marker created only from
+  approved gate + allowed operator guardrails;
+- transport/fetcher construction requires the run marker;
+- account hash enforcement blocks mismatched accounts before route rendering /
+  send and records redacted failed audit rows;
+- redacted transport error categories distinguish DNS/connect, TLS, send,
+  body-read, timeout, request-build, and account-not-allowed conditions;
+- page-full trades snapshots without exact identity evidence map to
+  `TradesSnapshotIncomplete`;
+- disabled-by-default contract-probe harness can exercise selected read-only
+  sources through the approved fetcher and emit redacted report/audit records;
+- SQLite audit rows cover route-build/account-scope failures and transport
+  categories without raw ids, paths, query values, URLs, tokens, or bodies.
+
+Still not implemented in M3b-13:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

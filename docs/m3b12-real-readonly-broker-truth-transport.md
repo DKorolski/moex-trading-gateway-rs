@@ -17,6 +17,12 @@ M3b-12 turns the M3b-11 route gate into an executable read-only transport path:
 - local tests use `LocalMockFinamRealReadonlyBrokerTruthTransport`, not live
   FINAM I/O.
 
+M3b-13 follow-up makes read-only enablement stricter: transport/fetcher
+construction requires `RealReadonlyBrokerTruthRunApproved`, transport errors
+carry redacted categories, full trades pages become incomplete evidence, and a
+disabled-by-default contract-probe harness is available. See
+`docs/m3b13-real-readonly-enable-runbook.md`.
+
 ## Captured-response invariant
 
 The implementation preserves the review invariant:

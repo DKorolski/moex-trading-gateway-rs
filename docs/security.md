@@ -146,6 +146,10 @@ SQLite audit diagnostics contain only templates, query-key names, status, body
 presence/length/SHA-256, id presence/length metadata, and safe enum reasons.
 Rendered paths, query values, raw ids, and raw bodies must not be stored in
 handoff artifacts.
+M3b-13 makes the read-only enablement marker itself redacted: it stores only the
+approved account id length and SHA-256 plus bounded timeout/rate-limit values.
+Transport error categories and contract-probe reports are safe enum/shape
+diagnostics only.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

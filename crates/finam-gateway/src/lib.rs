@@ -1736,6 +1736,7 @@ pub enum CancelBrokerTruthFetchReason {
     AccountMismatch,
     InstrumentMismatch,
     WeakIdentityNeedsConfirmation,
+    TradesSnapshotIncomplete,
     NotRequested,
     MissingFixture,
     PositionGuardRejected,
@@ -2027,6 +2028,7 @@ impl CancelBrokerTruthFetchResult {
 pub struct CancelBrokerTruthReadonlyHttpResponse {
     status: u16,
     body: Option<Vec<u8>>,
+    transport_error_category: Option<FinamRealReadonlyTransportErrorCategory>,
 }
 
 impl std::fmt::Debug for CancelBrokerTruthReadonlyHttpResponse {
@@ -2040,7 +2042,22 @@ impl std::fmt::Debug for CancelBrokerTruthReadonlyHttpResponse {
 
 impl CancelBrokerTruthReadonlyHttpResponse {
     pub fn empty(status: u16) -> Self {
-        Self { status, body: None }
+        Self {
+            status,
+            body: None,
+            transport_error_category: None,
+        }
+    }
+
+    pub fn empty_with_transport_error(
+        status: u16,
+        transport_error_category: FinamRealReadonlyTransportErrorCategory,
+    ) -> Self {
+        Self {
+            status,
+            body: None,
+            transport_error_category: Some(transport_error_category),
+        }
     }
 
     pub fn json<T>(status: u16, body: &T) -> Self
@@ -2053,6 +2070,7 @@ impl CancelBrokerTruthReadonlyHttpResponse {
                 serde_json::to_vec(body)
                     .expect("local read-only broker-truth fixture body is serializable"),
             ),
+            transport_error_category: None,
         }
     }
 
@@ -2060,6 +2078,7 @@ impl CancelBrokerTruthReadonlyHttpResponse {
         Self {
             status,
             body: Some(body.into()),
+            transport_error_category: None,
         }
     }
 
@@ -2069,8 +2088,20 @@ impl CancelBrokerTruthReadonlyHttpResponse {
             body_present: self.body.is_some(),
             body_len: self.body.as_ref().map(Vec::len),
             body_sha256: self.body.as_ref().map(|body| sha256_hex(body)),
+            transport_error_category: self.transport_error_category,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FinamRealReadonlyTransportErrorCategory {
+    DnsOrConnectError,
+    TlsError,
+    HttpSendError,
+    BodyReadError,
+    Timeout,
+    RequestBuildError,
+    AccountNotAllowed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2079,6 +2110,7 @@ pub struct CancelBrokerTruthReadonlyHttpDiagnostic {
     pub body_present: bool,
     pub body_len: Option<usize>,
     pub body_sha256: Option<String>,
+    pub transport_error_category: Option<FinamRealReadonlyTransportErrorCategory>,
 }
 
 fn readonly_http_status_failure(status: u16) -> Option<CancelBrokerTruthFetchReason> {
@@ -2298,6 +2330,22 @@ pub fn map_cancel_broker_truth_trades_snapshot_http_response(
     observed_ts: DateTime<Utc>,
     freshness_policy: &CancelBrokerTruthFreshnessPolicy,
 ) -> CancelBrokerTruthFetchResult {
+    map_cancel_broker_truth_trades_snapshot_http_response_with_query_policy(
+        response,
+        request,
+        observed_ts,
+        freshness_policy,
+        FinamRealReadonlyBrokerTruthQueryPolicy::default(),
+    )
+}
+
+pub fn map_cancel_broker_truth_trades_snapshot_http_response_with_query_policy(
+    response: &CancelBrokerTruthReadonlyHttpResponse,
+    request: &CancelBrokerTruthFetchRequestSnapshot,
+    observed_ts: DateTime<Utc>,
+    freshness_policy: &CancelBrokerTruthFreshnessPolicy,
+    query_policy: FinamRealReadonlyBrokerTruthQueryPolicy,
+) -> CancelBrokerTruthFetchResult {
     if let Some(reason) = readonly_http_status_failure(response.status) {
         return readonly_fetch_missing(
             CancelBrokerTruthSource::TradesSnapshot,
@@ -2317,6 +2365,7 @@ pub fn map_cancel_broker_truth_trades_snapshot_http_response(
                 )
             }
         };
+    let page_full = trades_response.trades.len() >= query_policy.trades_limit as usize;
     let fallback_account_id = request
         .account_id
         .as_ref()
@@ -2362,6 +2411,17 @@ pub fn map_cancel_broker_truth_trades_snapshot_http_response(
         return readonly_fetch_missing(
             CancelBrokerTruthSource::TradesSnapshot,
             reason,
+            observed_ts,
+        );
+    }
+    if page_full
+        && !scoped_trades.iter().any(|trade| {
+            trade_matches_cancel(trade, &request.order_id, request.client_order_id.as_ref())
+        })
+    {
+        return readonly_fetch_missing(
+            CancelBrokerTruthSource::TradesSnapshot,
+            CancelBrokerTruthFetchReason::TradesSnapshotIncomplete,
             observed_ts,
         );
     }
@@ -2547,6 +2607,7 @@ pub struct FinamRealReadonlyRouteDiagnostic {
     pub query_keys: Vec<&'static str>,
     pub account_id_present: bool,
     pub account_id_len: Option<usize>,
+    pub account_id_sha256: Option<String>,
     pub order_id_present: bool,
     pub order_id_len: Option<usize>,
     pub client_order_id_present: bool,
@@ -2756,6 +2817,10 @@ pub fn build_finam_real_readonly_route_with_query_policy(
             .account_id
             .as_ref()
             .map(|account_id| account_id.as_str().len()),
+        account_id_sha256: request
+            .account_id
+            .as_ref()
+            .map(|account_id| sha256_hex(account_id.as_str().as_bytes())),
         order_id_present: true,
         order_id_len: Some(request.order_id.as_str().len()),
         client_order_id_present: request.client_order_id.is_some(),
@@ -2880,7 +2945,7 @@ pub trait CancelBrokerTruthReadonlyHttpClient {
 pub trait FinamRealReadonlyBrokerTruthTransport: Send {
     async fn send_finam_real_readonly(
         &mut self,
-        gate: &RealReadonlyBrokerTruthGateApproved,
+        run_approval: &RealReadonlyBrokerTruthRunApproved,
         route: FinamRealReadonlyRoute,
     ) -> CancelBrokerTruthReadonlyCapturedResponse;
 }
@@ -3021,6 +3086,83 @@ pub fn evaluate_finam_real_readonly_operator_guardrails(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RealReadonlyBrokerTruthRunApprovalError {
+    #[error("FINAM real-readonly run approval is blocked: {decision:?}")]
+    GuardrailsBlocked {
+        decision: FinamRealReadonlyOperatorGuardrailDecision,
+    },
+    #[error("FINAM real-readonly run approval requires a requested account hash")]
+    MissingAccountIdentity,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct RealReadonlyBrokerTruthRunApproved {
+    gate: RealReadonlyBrokerTruthGateApproved,
+    account_id_len: usize,
+    account_id_sha256: String,
+    request_timeout_ms: u64,
+    min_request_interval_ms: u64,
+    _private: (),
+}
+
+impl std::fmt::Debug for RealReadonlyBrokerTruthRunApproved {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RealReadonlyBrokerTruthRunApproved")
+            .field("gate", &self.gate)
+            .field("account_id_len", &self.account_id_len)
+            .field("account_id_sha256", &self.account_id_sha256)
+            .field("request_timeout_ms", &self.request_timeout_ms)
+            .field("min_request_interval_ms", &self.min_request_interval_ms)
+            .finish()
+    }
+}
+
+impl RealReadonlyBrokerTruthRunApproved {
+    pub fn try_from_gate_and_guardrails(
+        gate: RealReadonlyBrokerTruthGateApproved,
+        decision: &FinamRealReadonlyOperatorGuardrailDecision,
+    ) -> Result<Self, RealReadonlyBrokerTruthRunApprovalError> {
+        if !decision.allowed || !decision.blocking_reasons.is_empty() {
+            return Err(RealReadonlyBrokerTruthRunApprovalError::GuardrailsBlocked {
+                decision: decision.clone(),
+            });
+        }
+        let account_id_len = decision
+            .requested_account_id_len
+            .ok_or(RealReadonlyBrokerTruthRunApprovalError::MissingAccountIdentity)?;
+        let account_id_sha256 = decision
+            .requested_account_id_sha256
+            .clone()
+            .ok_or(RealReadonlyBrokerTruthRunApprovalError::MissingAccountIdentity)?;
+        Ok(Self {
+            gate,
+            account_id_len,
+            account_id_sha256,
+            request_timeout_ms: decision.request_timeout_ms,
+            min_request_interval_ms: decision.min_request_interval_ms,
+            _private: (),
+        })
+    }
+
+    pub fn gate(&self) -> &RealReadonlyBrokerTruthGateApproved {
+        &self.gate
+    }
+
+    fn allows_request(&self, request: &CancelBrokerTruthFetchRequestSnapshot) -> bool {
+        request.account_id.as_ref().is_some_and(|account_id| {
+            account_id.as_str().len() == self.account_id_len
+                && sha256_hex(account_id.as_str().as_bytes()) == self.account_id_sha256
+        })
+    }
+
+    fn allows_route(&self, route: &FinamRealReadonlyRouteDiagnostic) -> bool {
+        route.account_id_len == Some(self.account_id_len)
+            && route.account_id_sha256.as_ref() == Some(&self.account_id_sha256)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum FinamRealReadonlyBrokerTruthTransportInitError {
     #[error("FINAM real-readonly access token is empty")]
     EmptyAccessToken,
@@ -3078,6 +3220,7 @@ impl ReqwestFinamRealReadonlyBrokerTruthTransport {
     pub fn try_new(
         config: FinamRealReadonlyBrokerTruthTransportConfig,
         access_token: broker_finam::AccessToken,
+        _run_approval: &RealReadonlyBrokerTruthRunApproved,
     ) -> Result<Self, FinamRealReadonlyBrokerTruthTransportInitError> {
         if access_token.is_empty() {
             return Err(FinamRealReadonlyBrokerTruthTransportInitError::EmptyAccessToken);
@@ -3161,32 +3304,75 @@ impl ReqwestFinamRealReadonlyBrokerTruthTransport {
                     }
                     Ok(bytes) => CancelBrokerTruthReadonlyHttpResponse::raw(status, bytes.to_vec()),
                     Err(error) if error.is_timeout() => {
-                        CancelBrokerTruthReadonlyHttpResponse::empty(504)
+                        CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
+                            504,
+                            FinamRealReadonlyTransportErrorCategory::Timeout,
+                        )
                     }
-                    Err(_) => CancelBrokerTruthReadonlyHttpResponse::empty(502),
+                    Err(_) => CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
+                        502,
+                        FinamRealReadonlyTransportErrorCategory::BodyReadError,
+                    ),
                 }
             }
-            Err(error) if error.is_timeout() => CancelBrokerTruthReadonlyHttpResponse::empty(504),
-            Err(_) => CancelBrokerTruthReadonlyHttpResponse::empty(502),
+            Err(error) if error.is_timeout() => {
+                CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
+                    504,
+                    FinamRealReadonlyTransportErrorCategory::Timeout,
+                )
+            }
+            Err(error) => CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
+                502,
+                classify_finam_real_readonly_send_error(&error),
+            ),
         }
     }
+}
+
+fn classify_finam_real_readonly_send_error(
+    error: &reqwest::Error,
+) -> FinamRealReadonlyTransportErrorCategory {
+    if error.is_timeout() {
+        return FinamRealReadonlyTransportErrorCategory::Timeout;
+    }
+    if error.is_connect() {
+        let rendered = error.to_string().to_ascii_lowercase();
+        if rendered.contains("tls") || rendered.contains("certificate") || rendered.contains("cert")
+        {
+            return FinamRealReadonlyTransportErrorCategory::TlsError;
+        }
+        return FinamRealReadonlyTransportErrorCategory::DnsOrConnectError;
+    }
+    FinamRealReadonlyTransportErrorCategory::HttpSendError
 }
 
 #[async_trait]
 impl FinamRealReadonlyBrokerTruthTransport for ReqwestFinamRealReadonlyBrokerTruthTransport {
     async fn send_finam_real_readonly(
         &mut self,
-        _gate: &RealReadonlyBrokerTruthGateApproved,
+        run_approval: &RealReadonlyBrokerTruthRunApproved,
         route: FinamRealReadonlyRoute,
     ) -> CancelBrokerTruthReadonlyCapturedResponse {
         let source = route.diagnostic().source;
+        if !run_approval.allows_route(route.diagnostic()) {
+            return CancelBrokerTruthReadonlyCapturedResponse::new(
+                source,
+                CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
+                    403,
+                    FinamRealReadonlyTransportErrorCategory::AccountNotAllowed,
+                ),
+            );
+        }
         let parts = route.request_parts();
         let response = match self.build_url(&parts) {
             Ok(url) => {
                 self.wait_for_rate_limit().await;
                 self.send_get(url).await
             }
-            Err(_) => CancelBrokerTruthReadonlyHttpResponse::empty(400),
+            Err(_) => CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
+                400,
+                FinamRealReadonlyTransportErrorCategory::RequestBuildError,
+            ),
         };
         CancelBrokerTruthReadonlyCapturedResponse::new(source, response)
     }
@@ -3227,12 +3413,21 @@ impl LocalMockFinamRealReadonlyBrokerTruthTransport {
 impl FinamRealReadonlyBrokerTruthTransport for LocalMockFinamRealReadonlyBrokerTruthTransport {
     async fn send_finam_real_readonly(
         &mut self,
-        _gate: &RealReadonlyBrokerTruthGateApproved,
+        run_approval: &RealReadonlyBrokerTruthRunApproved,
         route: FinamRealReadonlyRoute,
     ) -> CancelBrokerTruthReadonlyCapturedResponse {
         self.sent_diagnostics.push(route.diagnostic().clone());
         self.sent_request_parts.push(route.request_parts());
         let source = route.diagnostic().source;
+        if !run_approval.allows_route(route.diagnostic()) {
+            return CancelBrokerTruthReadonlyCapturedResponse::new(
+                source,
+                CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
+                    403,
+                    FinamRealReadonlyTransportErrorCategory::AccountNotAllowed,
+                ),
+            );
+        }
         let response = self
             .responses
             .iter()
@@ -3259,10 +3454,12 @@ pub struct FinamRealReadonlyBrokerTruthAuditRecord {
     pub client_order_id_len: Option<usize>,
     pub instrument_symbol_present: bool,
     pub instrument_symbol_len: Option<usize>,
-    pub http_status: u16,
+    pub route_build_failed: bool,
+    pub http_status: Option<u16>,
     pub http_body_present: bool,
     pub http_body_len: Option<usize>,
     pub http_body_sha256: Option<String>,
+    pub transport_error_category: Option<FinamRealReadonlyTransportErrorCategory>,
     pub fetch_reason: Option<CancelBrokerTruthFetchReason>,
     pub safe_details: String,
 }
@@ -3294,11 +3491,55 @@ impl FinamRealReadonlyBrokerTruthAuditRecord {
             client_order_id_len: route.client_order_id_len,
             instrument_symbol_present: route.instrument_symbol_present,
             instrument_symbol_len: route.instrument_symbol_len,
-            http_status: http.status,
+            route_build_failed: false,
+            http_status: Some(http.status),
             http_body_present: http.body_present,
             http_body_len: http.body_len,
             http_body_sha256: http.body_sha256.clone(),
+            transport_error_category: http.transport_error_category,
             fetch_reason: cancel_broker_truth_fetch_result_reason(result),
+            safe_details: "finam_real_readonly_broker_truth".to_string(),
+        }
+    }
+
+    fn from_route_build_failure(
+        source: CancelBrokerTruthSource,
+        request: &CancelBrokerTruthFetchRequestSnapshot,
+        reason: CancelBrokerTruthFetchReason,
+        ts: DateTime<Utc>,
+    ) -> Self {
+        let (path_template, query_keys) = finam_real_readonly_route_template(source);
+        Self {
+            ts,
+            source,
+            method: CancelBrokerTruthReadonlyHttpMethod::Get,
+            path_template: path_template.to_string(),
+            route_source: FinamRealReadonlyRouteSource::FinamRestDocs20260701,
+            query_keys: query_keys
+                .iter()
+                .map(|key| (*key).to_string())
+                .collect::<Vec<_>>(),
+            account_id_present: request.account_id.is_some(),
+            account_id_len: request
+                .account_id
+                .as_ref()
+                .map(|account_id| account_id.as_str().len()),
+            order_id_present: true,
+            order_id_len: Some(request.order_id.as_str().len()),
+            client_order_id_present: request.client_order_id.is_some(),
+            client_order_id_len: request
+                .client_order_id
+                .as_ref()
+                .map(|client_order_id| client_order_id.as_str().len()),
+            instrument_symbol_present: true,
+            instrument_symbol_len: Some(request.instrument.symbol.len()),
+            route_build_failed: true,
+            http_status: None,
+            http_body_present: false,
+            http_body_len: None,
+            http_body_sha256: None,
+            transport_error_category: None,
+            fetch_reason: Some(reason),
             safe_details: "finam_real_readonly_broker_truth".to_string(),
         }
     }
@@ -3339,10 +3580,12 @@ impl SqliteFinamRealReadonlyBrokerTruthAuditStore {
                     client_order_id_len INTEGER,
                     instrument_symbol_present INTEGER NOT NULL,
                     instrument_symbol_len INTEGER,
-                    http_status INTEGER NOT NULL,
+                    route_build_failed INTEGER NOT NULL,
+                    http_status INTEGER,
                     http_body_present INTEGER NOT NULL,
                     http_body_len INTEGER,
                     http_body_sha256 TEXT,
+                    transport_error_category TEXT,
                     fetch_reason TEXT,
                     safe_details TEXT NOT NULL
                 );",
@@ -3366,9 +3609,9 @@ impl SqliteFinamRealReadonlyBrokerTruthAuditStore {
                     ts, source, method, path_template, route_source, query_keys_json,
                     account_id_present, account_id_len, order_id_present, order_id_len,
                     client_order_id_present, client_order_id_len, instrument_symbol_present,
-                    instrument_symbol_len, http_status, http_body_present, http_body_len, http_body_sha256,
-                    fetch_reason, safe_details
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+                    instrument_symbol_len, route_build_failed, http_status, http_body_present, http_body_len, http_body_sha256,
+                    transport_error_category, fetch_reason, safe_details
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
                 rusqlite::params![
                     record.ts.to_rfc3339(),
                     format!("{:?}", record.source),
@@ -3384,10 +3627,12 @@ impl SqliteFinamRealReadonlyBrokerTruthAuditStore {
                     record.client_order_id_len.map(|value| value as i64),
                     record.instrument_symbol_present,
                     record.instrument_symbol_len.map(|value| value as i64),
-                    i64::from(record.http_status),
+                    record.route_build_failed,
+                    record.http_status.map(i64::from),
                     record.http_body_present,
                     record.http_body_len.map(|value| value as i64),
                     record.http_body_sha256.as_deref(),
+                    record.transport_error_category.map(|category| format!("{category:?}")),
                     record.fetch_reason.map(|reason| format!("{reason:?}")),
                     record.safe_details.as_str(),
                 ],
@@ -3445,7 +3690,7 @@ fn cancel_broker_truth_fetch_result_reason(
 
 pub struct FinamRealReadonlyBrokerTruthAsyncFetcher<T> {
     transport: T,
-    gate: RealReadonlyBrokerTruthGateApproved,
+    run_approval: RealReadonlyBrokerTruthRunApproved,
     freshness_policy: CancelBrokerTruthFreshnessPolicy,
     query_policy: FinamRealReadonlyBrokerTruthQueryPolicy,
     observed_ts: DateTime<Utc>,
@@ -3460,14 +3705,14 @@ where
 {
     pub fn new(
         transport: T,
-        gate: RealReadonlyBrokerTruthGateApproved,
+        run_approval: RealReadonlyBrokerTruthRunApproved,
         freshness_policy: CancelBrokerTruthFreshnessPolicy,
         query_policy: FinamRealReadonlyBrokerTruthQueryPolicy,
         observed_ts: DateTime<Utc>,
     ) -> Self {
         Self {
             transport,
-            gate,
+            run_approval,
             freshness_policy,
             query_policy,
             observed_ts,
@@ -3498,25 +3743,49 @@ where
         source: CancelBrokerTruthSource,
         request: CancelBrokerTruthFetchRequestSnapshot,
     ) -> CancelBrokerTruthFetchResult {
+        if !self.run_approval.allows_request(&request) {
+            let result = CancelBrokerTruthFetchResult::missing(
+                source,
+                CancelBrokerTruthFetchReason::AccountMismatch,
+                self.observed_ts,
+            );
+            self.audit_records.push(
+                FinamRealReadonlyBrokerTruthAuditRecord::from_route_build_failure(
+                    source,
+                    &request,
+                    CancelBrokerTruthFetchReason::AccountMismatch,
+                    self.observed_ts,
+                ),
+            );
+            return result;
+        }
         let route = match build_finam_real_readonly_route_with_query_policy(
-            &self.gate,
+            self.run_approval.gate(),
             source,
             &request,
             self.query_policy,
         ) {
             Ok(route) => route,
             Err(_) => {
+                self.audit_records.push(
+                    FinamRealReadonlyBrokerTruthAuditRecord::from_route_build_failure(
+                        source,
+                        &request,
+                        CancelBrokerTruthFetchReason::InvalidRequest,
+                        self.observed_ts,
+                    ),
+                );
                 return CancelBrokerTruthFetchResult::missing(
                     source,
                     CancelBrokerTruthFetchReason::InvalidRequest,
                     self.observed_ts,
-                )
+                );
             }
         };
         let route_diagnostic = route.diagnostic().clone();
         let captured = self
             .transport
-            .send_finam_real_readonly(&self.gate, route)
+            .send_finam_real_readonly(&self.run_approval, route)
             .await;
         self.route_diagnostics.push(route_diagnostic.clone());
         self.captured_diagnostics
@@ -3538,11 +3807,12 @@ where
                 )
             }
             CancelBrokerTruthSource::TradesSnapshot => {
-                map_cancel_broker_truth_trades_snapshot_http_response(
+                map_cancel_broker_truth_trades_snapshot_http_response_with_query_policy(
                     &captured.response,
                     &request,
                     self.observed_ts,
                     &self.freshness_policy,
+                    self.query_policy,
                 )
             }
             CancelBrokerTruthSource::PositionSnapshot => {
@@ -3601,6 +3871,123 @@ where
     ) -> CancelBrokerTruthFetchResult {
         self.fetch_source(CancelBrokerTruthSource::PositionSnapshot, request)
             .await
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinamRealReadonlyContractProbeConfig {
+    pub enabled: bool,
+    pub sources: Vec<CancelBrokerTruthSource>,
+}
+
+impl Default for FinamRealReadonlyContractProbeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            sources: all_cancel_truth_sources().to_vec(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FinamRealReadonlyContractProbeBlock {
+    DisabledByDefault,
+    NoSources,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinamRealReadonlyContractProbeSourceDiagnostic {
+    pub source: CancelBrokerTruthSource,
+    pub attempted: bool,
+    pub outcome: CancelBrokerTruthFetchOutcomeKind,
+    pub reason: Option<CancelBrokerTruthFetchReason>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FinamRealReadonlyContractProbeReport {
+    pub enabled: bool,
+    pub blocking_reasons: Vec<FinamRealReadonlyContractProbeBlock>,
+    pub attempted_sources: Vec<CancelBrokerTruthSource>,
+    pub source_diagnostics: Vec<FinamRealReadonlyContractProbeSourceDiagnostic>,
+    pub route_diagnostics: Vec<FinamRealReadonlyRouteDiagnostic>,
+    pub captured_diagnostics: Vec<CancelBrokerTruthReadonlyHttpDiagnostic>,
+    pub audit_records: Vec<FinamRealReadonlyBrokerTruthAuditRecord>,
+}
+
+pub async fn run_finam_real_readonly_contract_probe<T>(
+    fetcher: &mut FinamRealReadonlyBrokerTruthAsyncFetcher<T>,
+    request: CancelBrokerTruthFetchRequestSnapshot,
+    config: &FinamRealReadonlyContractProbeConfig,
+) -> FinamRealReadonlyContractProbeReport
+where
+    T: FinamRealReadonlyBrokerTruthTransport,
+{
+    if !config.enabled {
+        return FinamRealReadonlyContractProbeReport {
+            enabled: false,
+            blocking_reasons: vec![FinamRealReadonlyContractProbeBlock::DisabledByDefault],
+            attempted_sources: Vec::new(),
+            source_diagnostics: Vec::new(),
+            route_diagnostics: Vec::new(),
+            captured_diagnostics: Vec::new(),
+            audit_records: Vec::new(),
+        };
+    }
+
+    let mut sources = config
+        .sources
+        .iter()
+        .copied()
+        .filter(|source| all_cancel_truth_sources().contains(source))
+        .collect::<Vec<_>>();
+    sources.dedup();
+    if sources.is_empty() {
+        return FinamRealReadonlyContractProbeReport {
+            enabled: true,
+            blocking_reasons: vec![FinamRealReadonlyContractProbeBlock::NoSources],
+            attempted_sources: Vec::new(),
+            source_diagnostics: Vec::new(),
+            route_diagnostics: Vec::new(),
+            captured_diagnostics: Vec::new(),
+            audit_records: Vec::new(),
+        };
+    }
+
+    let route_start = fetcher.route_diagnostics().len();
+    let captured_start = fetcher.captured_diagnostics().len();
+    let audit_start = fetcher.audit_records().len();
+    let mut source_diagnostics = Vec::new();
+
+    for source in sources.iter().copied() {
+        let result = match source {
+            CancelBrokerTruthSource::GetOrder => fetcher.fetch_get_order(request.clone()).await,
+            CancelBrokerTruthSource::OrdersSnapshot => {
+                fetcher.fetch_orders_snapshot(request.clone()).await
+            }
+            CancelBrokerTruthSource::TradesSnapshot => {
+                fetcher.fetch_trades_snapshot(request.clone()).await
+            }
+            CancelBrokerTruthSource::PositionSnapshot => {
+                fetcher.fetch_position_snapshot(request.clone()).await
+            }
+        };
+        let reason = cancel_broker_truth_fetch_result_reason(&result);
+        source_diagnostics.push(FinamRealReadonlyContractProbeSourceDiagnostic {
+            source,
+            attempted: true,
+            outcome: fetch_outcome_kind(reason),
+            reason,
+        });
+    }
+
+    FinamRealReadonlyContractProbeReport {
+        enabled: true,
+        blocking_reasons: Vec::new(),
+        attempted_sources: sources.clone(),
+        source_diagnostics,
+        route_diagnostics: fetcher.route_diagnostics()[route_start..].to_vec(),
+        captured_diagnostics: fetcher.captured_diagnostics()[captured_start..].to_vec(),
+        audit_records: fetcher.audit_records()[audit_start..].to_vec(),
     }
 }
 
@@ -4263,7 +4650,8 @@ fn fetch_outcome_kind(
             | CancelBrokerTruthFetchReason::MismatchedOrderIdentity
             | CancelBrokerTruthFetchReason::AccountMismatch
             | CancelBrokerTruthFetchReason::InstrumentMismatch
-            | CancelBrokerTruthFetchReason::WeakIdentityNeedsConfirmation,
+            | CancelBrokerTruthFetchReason::WeakIdentityNeedsConfirmation
+            | CancelBrokerTruthFetchReason::TradesSnapshotIncomplete,
         ) => CancelBrokerTruthFetchOutcomeKind::Error,
     }
 }
@@ -4292,7 +4680,8 @@ fn fetch_reason_operator_disarm_signal(
         | CancelBrokerTruthFetchReason::UnknownClientError
         | CancelBrokerTruthFetchReason::AccountMismatch
         | CancelBrokerTruthFetchReason::InstrumentMismatch
-        | CancelBrokerTruthFetchReason::WeakIdentityNeedsConfirmation => {
+        | CancelBrokerTruthFetchReason::WeakIdentityNeedsConfirmation
+        | CancelBrokerTruthFetchReason::TradesSnapshotIncomplete => {
             Some(OperatorDisarmSignal::UnknownPendingOrder)
         }
         _ => None,
@@ -9699,14 +10088,7 @@ mod tests {
             CancelPositionTruthGuardContext::default(),
         );
         let request_snapshot = CancelBrokerTruthFetchRequestSnapshot::from(&request);
-        let gate = RealReadonlyBrokerTruthGateApproved::try_from_decision(
-            &GatewayFeatureSet {
-                real_readonly_broker_truth_enabled: true,
-                ..GatewayFeatureSet::default()
-            }
-            .real_readonly_broker_truth_gate_decision(),
-        )
-        .expect("enabled read-only gate");
+        let run_approval = real_readonly_run_approval(&account_id, &request_snapshot);
 
         let policy = FinamRealReadonlyBrokerTruthQueryPolicy {
             trades_limit: 250,
@@ -9714,7 +10096,7 @@ mod tests {
             ..FinamRealReadonlyBrokerTruthQueryPolicy::default()
         };
         let route = build_finam_real_readonly_route_with_query_policy(
-            &gate,
+            run_approval.gate(),
             CancelBrokerTruthSource::TradesSnapshot,
             &request_snapshot,
             policy,
@@ -9753,7 +10135,7 @@ mod tests {
         };
         assert!(matches!(
             build_finam_real_readonly_route_with_query_policy(
-                &gate,
+                run_approval.gate(),
                 CancelBrokerTruthSource::TradesSnapshot,
                 &request_snapshot,
                 invalid_policy,
@@ -9784,14 +10166,7 @@ mod tests {
             CancelPositionTruthGuardContext::default(),
         );
         let request_snapshot = CancelBrokerTruthFetchRequestSnapshot::from(&request);
-        let gate = RealReadonlyBrokerTruthGateApproved::try_from_decision(
-            &GatewayFeatureSet {
-                real_readonly_broker_truth_enabled: true,
-                ..GatewayFeatureSet::default()
-            }
-            .real_readonly_broker_truth_gate_decision(),
-        )
-        .expect("enabled read-only gate");
+        let run_approval = real_readonly_run_approval(&account_id, &request_snapshot);
         let get_order_body = serde_json::json!({
             "executed_quantity": {"value": "0"},
             "initial_quantity": {"value": "1"},
@@ -9815,7 +10190,7 @@ mod tests {
         )]);
         let mut fetcher = FinamRealReadonlyBrokerTruthAsyncFetcher::new(
             transport,
-            gate,
+            run_approval,
             CancelBrokerTruthFreshnessPolicy::default(),
             FinamRealReadonlyBrokerTruthQueryPolicy::default(),
             now,
@@ -9839,7 +10214,7 @@ mod tests {
         assert_eq!(fetcher.captured_diagnostics().len(), 1);
         assert_eq!(fetcher.captured_diagnostics()[0].status, 200);
         assert_eq!(fetcher.audit_records().len(), 1);
-        assert_eq!(fetcher.audit_records()[0].http_status, 200);
+        assert_eq!(fetcher.audit_records()[0].http_status, Some(200));
         assert_eq!(fetcher.audit_records()[0].fetch_reason, None);
         assert!(fetcher.audit_records()[0].http_body_sha256.is_some());
 
@@ -9859,6 +10234,92 @@ mod tests {
             .expect("append audit");
         assert_eq!(store.count().expect("audit count"), 1);
         cleanup_sqlite_path(&path);
+    }
+
+    #[tokio::test]
+    async fn real_readonly_contract_probe_is_disabled_by_default_and_redacted_when_enabled() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 20, 30)
+            .single()
+            .expect("timestamp");
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let order_id = BrokerOrderId::new("BROKER_TEST_CONTRACT_PROBE");
+        let client_id = ClientOrderId::new("CID000000000000209").expect("client id");
+        let instrument = sample_instrument();
+        let request = truth_fetch_request_with_account(
+            &account_id,
+            &order_id,
+            Some(&client_id),
+            &instrument,
+            now,
+            CancelPositionTruthGuardContext::default(),
+        );
+        let request_snapshot = CancelBrokerTruthFetchRequestSnapshot::from(&request);
+        let run_approval = real_readonly_run_approval(&account_id, &request_snapshot);
+        let transport = LocalMockFinamRealReadonlyBrokerTruthTransport::new([
+            (
+                CancelBrokerTruthSource::GetOrder,
+                CancelBrokerTruthReadonlyHttpResponse::empty(404),
+            ),
+            (
+                CancelBrokerTruthSource::TradesSnapshot,
+                CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
+                    504,
+                    FinamRealReadonlyTransportErrorCategory::Timeout,
+                ),
+            ),
+        ]);
+        let mut fetcher = FinamRealReadonlyBrokerTruthAsyncFetcher::new(
+            transport,
+            run_approval,
+            CancelBrokerTruthFreshnessPolicy::default(),
+            FinamRealReadonlyBrokerTruthQueryPolicy::default(),
+            now,
+        );
+
+        let disabled_report = run_finam_real_readonly_contract_probe(
+            &mut fetcher,
+            request_snapshot.clone(),
+            &FinamRealReadonlyContractProbeConfig::default(),
+        )
+        .await;
+        assert_eq!(
+            disabled_report.blocking_reasons,
+            vec![FinamRealReadonlyContractProbeBlock::DisabledByDefault]
+        );
+        assert!(disabled_report.attempted_sources.is_empty());
+        assert!(fetcher.route_diagnostics().is_empty());
+
+        let enabled_report = run_finam_real_readonly_contract_probe(
+            &mut fetcher,
+            request_snapshot,
+            &FinamRealReadonlyContractProbeConfig {
+                enabled: true,
+                sources: vec![
+                    CancelBrokerTruthSource::GetOrder,
+                    CancelBrokerTruthSource::TradesSnapshot,
+                ],
+            },
+        )
+        .await;
+        assert_eq!(
+            enabled_report.attempted_sources,
+            vec![
+                CancelBrokerTruthSource::GetOrder,
+                CancelBrokerTruthSource::TradesSnapshot
+            ]
+        );
+        assert_eq!(enabled_report.route_diagnostics.len(), 2);
+        assert_eq!(enabled_report.captured_diagnostics.len(), 2);
+        assert_eq!(
+            enabled_report.captured_diagnostics[1].transport_error_category,
+            Some(FinamRealReadonlyTransportErrorCategory::Timeout)
+        );
+        assert_eq!(enabled_report.audit_records.len(), 2);
+        let report_json = serde_json::to_string(&enabled_report).expect("probe report serializes");
+        assert!(!report_json.contains(account_id.as_str()));
+        assert!(!report_json.contains(order_id.as_str()));
+        assert!(!report_json.contains(client_id.as_str()));
     }
 
     #[test]
@@ -9894,6 +10355,14 @@ mod tests {
         assert_eq!(decision.account_allowed, Some(true));
         assert_eq!(decision.account_allowlist_count, 1);
         assert!(decision.requested_account_id_sha256.is_some());
+        let gate = RealReadonlyBrokerTruthGateApproved::try_from_decision(
+            &features.real_readonly_broker_truth_gate_decision(),
+        )
+        .expect("enabled gate");
+        let run_approval =
+            RealReadonlyBrokerTruthRunApproved::try_from_gate_and_guardrails(gate, &decision)
+                .expect("guardrails allow run marker");
+        assert!(run_approval.allows_request(&request_snapshot));
         let decision_json = serde_json::to_string(&decision).expect("decision serializes");
         let config_debug = format!("{config:?}");
         assert!(!decision_json.contains(account_id.as_str()));
@@ -9934,14 +10403,101 @@ mod tests {
         assert!(blocked
             .blocking_reasons
             .contains(&FinamRealReadonlyOperatorGuardrailBlock::OrderFeatureFlagEnabled));
+        let unsafe_gate = RealReadonlyBrokerTruthGateApproved::try_from_decision(
+            &features.real_readonly_broker_truth_gate_decision(),
+        )
+        .expect("safe feature gate exists");
+        assert!(matches!(
+            RealReadonlyBrokerTruthRunApproved::try_from_gate_and_guardrails(unsafe_gate, &blocked)
+                .expect_err("blocked guardrails must not create run marker"),
+            RealReadonlyBrokerTruthRunApprovalError::GuardrailsBlocked { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn real_readonly_run_marker_enforces_account_and_audits_blocked_attempts() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 22, 30)
+            .single()
+            .expect("timestamp");
+        let allowed_account = BrokerAccountId::new("ACC_TEST_0001");
+        let other_account = BrokerAccountId::new("ACC_TEST_0002");
+        let order_id = BrokerOrderId::new("BROKER_TEST_RUN_MARKER");
+        let instrument = sample_instrument();
+        let allowed_request = truth_fetch_request_with_account(
+            &allowed_account,
+            &order_id,
+            None,
+            &instrument,
+            now,
+            CancelPositionTruthGuardContext::default(),
+        );
+        let allowed_snapshot = CancelBrokerTruthFetchRequestSnapshot::from(&allowed_request);
+        let other_request = truth_fetch_request_with_account(
+            &other_account,
+            &order_id,
+            None,
+            &instrument,
+            now,
+            CancelPositionTruthGuardContext::default(),
+        );
+        let other_snapshot = CancelBrokerTruthFetchRequestSnapshot::from(&other_request);
+        let run_approval = real_readonly_run_approval(&allowed_account, &allowed_snapshot);
+        let transport = LocalMockFinamRealReadonlyBrokerTruthTransport::new([(
+            CancelBrokerTruthSource::GetOrder,
+            CancelBrokerTruthReadonlyHttpResponse::empty(404),
+        )]);
+        let mut fetcher = FinamRealReadonlyBrokerTruthAsyncFetcher::new(
+            transport,
+            run_approval,
+            CancelBrokerTruthFreshnessPolicy::default(),
+            FinamRealReadonlyBrokerTruthQueryPolicy::default(),
+            now,
+        );
+
+        let result =
+            CancelBrokerTruthAsyncReadonlyFetcher::fetch_get_order(&mut fetcher, other_snapshot)
+                .await;
+        let CancelBrokerTruthFetchResult::Missing { reason, .. } = result else {
+            panic!("account mismatch should block before send");
+        };
+        assert_eq!(reason, CancelBrokerTruthFetchReason::AccountMismatch);
+        assert!(fetcher.route_diagnostics().is_empty());
+        assert!(fetcher.captured_diagnostics().is_empty());
+        assert_eq!(fetcher.audit_records().len(), 1);
+        assert!(fetcher.audit_records()[0].route_build_failed);
+        assert_eq!(fetcher.audit_records()[0].http_status, None);
+        assert_eq!(
+            fetcher.audit_records()[0].fetch_reason,
+            Some(CancelBrokerTruthFetchReason::AccountMismatch)
+        );
     }
 
     #[test]
     fn real_readonly_transport_init_and_source_scan_are_get_only() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 22, 0)
+            .single()
+            .expect("timestamp");
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let order_id = BrokerOrderId::new("BROKER_TEST_TRANSPORT_INIT");
+        let instrument = sample_instrument();
+        let request = truth_fetch_request_with_account(
+            &account_id,
+            &order_id,
+            None,
+            &instrument,
+            now,
+            CancelPositionTruthGuardContext::default(),
+        );
+        let request_snapshot = CancelBrokerTruthFetchRequestSnapshot::from(&request);
+        let run_approval = real_readonly_run_approval(&account_id, &request_snapshot);
+
         assert!(matches!(
             ReqwestFinamRealReadonlyBrokerTruthTransport::try_new(
                 FinamRealReadonlyBrokerTruthTransportConfig::default(),
-                broker_finam::AccessToken::new("")
+                broker_finam::AccessToken::new(""),
+                &run_approval,
             )
             .expect_err("empty access token should be rejected"),
             FinamRealReadonlyBrokerTruthTransportInitError::EmptyAccessToken
@@ -9952,7 +10508,8 @@ mod tests {
                     rest_base_url: "http://api.finam.local".to_string(),
                     ..FinamRealReadonlyBrokerTruthTransportConfig::default()
                 },
-                broker_finam::AccessToken::new("ACCESS_TOKEN_TEST")
+                broker_finam::AccessToken::new("ACCESS_TOKEN_TEST"),
+                &run_approval,
             )
             .expect_err("non-https base URL should be rejected"),
             FinamRealReadonlyBrokerTruthTransportInitError::NonHttpsBaseUrl { .. }
@@ -9960,6 +10517,7 @@ mod tests {
         let transport = ReqwestFinamRealReadonlyBrokerTruthTransport::try_new(
             FinamRealReadonlyBrokerTruthTransportConfig::default(),
             broker_finam::AccessToken::new("ACCESS_TOKEN_TEST"),
+            &run_approval,
         )
         .expect("https config and token should build transport");
         let transport_debug = format!("{transport:?}");
@@ -10318,6 +10876,82 @@ mod tests {
         let rendered = format!("{malformed:?}");
         assert!(!rendered.contains(order_id.as_str()));
         assert!(!rendered.contains("raw malformed body must not leak"));
+    }
+
+    #[test]
+    fn real_readonly_transport_error_category_is_redacted_and_maps_to_fetch_reason() {
+        let response = CancelBrokerTruthReadonlyHttpResponse::empty_with_transport_error(
+            504,
+            FinamRealReadonlyTransportErrorCategory::Timeout,
+        );
+        let diagnostic = response.diagnostic();
+        assert_eq!(
+            diagnostic.transport_error_category,
+            Some(FinamRealReadonlyTransportErrorCategory::Timeout)
+        );
+        assert_eq!(
+            readonly_http_status_failure(diagnostic.status),
+            Some(CancelBrokerTruthFetchReason::Timeout)
+        );
+        let rendered = format!("{response:?}");
+        assert!(rendered.contains("Timeout"));
+        assert!(!rendered.contains("https://"));
+        assert!(!rendered.contains("ACCESS_TOKEN_TEST"));
+    }
+
+    #[test]
+    fn trades_snapshot_full_page_without_identity_is_incomplete_not_absence() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 1, 12, 23, 0)
+            .single()
+            .expect("timestamp");
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let order_id = BrokerOrderId::new("BROKER_TEST_MISSING_FROM_FULL_PAGE");
+        let client_id = ClientOrderId::new("CID000000000000207").expect("client id");
+        let instrument = sample_instrument();
+        let request = truth_fetch_request_with_account(
+            &account_id,
+            &order_id,
+            Some(&client_id),
+            &instrument,
+            now,
+            CancelPositionTruthGuardContext::default(),
+        );
+        let request_snapshot = CancelBrokerTruthFetchRequestSnapshot::from(&request);
+        let trades_body = serde_json::json!({
+            "trades": [{
+                "account_id": account_id.as_str(),
+                "client_order_id": "CID000000000000208",
+                "order_id": "BROKER_TEST_OTHER_ORDER",
+                "price": {"value": "5000"},
+                "quantity": {"value": "1"},
+                "side": "SIDE_BUY",
+                "symbol": "TESTFUT@TEST",
+                "timestamp": "2026-07-01T09:23:00Z",
+                "trade_id": "TRADE_TEST_FULL_PAGE"
+            }]
+        });
+        let result = map_cancel_broker_truth_trades_snapshot_http_response_with_query_policy(
+            &CancelBrokerTruthReadonlyHttpResponse::json(200, &trades_body),
+            &request_snapshot,
+            now,
+            &CancelBrokerTruthFreshnessPolicy::default(),
+            FinamRealReadonlyBrokerTruthQueryPolicy {
+                trades_limit: 1,
+                ..FinamRealReadonlyBrokerTruthQueryPolicy::default()
+            },
+        );
+        let CancelBrokerTruthFetchResult::Missing { reason, .. } = result else {
+            panic!("full page without identity must be incomplete");
+        };
+        assert_eq!(
+            reason,
+            CancelBrokerTruthFetchReason::TradesSnapshotIncomplete
+        );
+        assert_eq!(
+            fetch_reason_operator_disarm_signal(reason),
+            Some(OperatorDisarmSignal::UnknownPendingOrder)
+        );
     }
 
     #[test]
@@ -11650,6 +12284,28 @@ mod tests {
             requested_at,
             position_guard_context,
         }
+    }
+
+    fn real_readonly_run_approval(
+        account_id: &BrokerAccountId,
+        request_snapshot: &CancelBrokerTruthFetchRequestSnapshot,
+    ) -> RealReadonlyBrokerTruthRunApproved {
+        let features = GatewayFeatureSet {
+            real_readonly_broker_truth_enabled: true,
+            ..GatewayFeatureSet::default()
+        };
+        let gate = RealReadonlyBrokerTruthGateApproved::try_from_decision(
+            &features.real_readonly_broker_truth_gate_decision(),
+        )
+        .expect("enabled real-readonly gate");
+        let config = FinamRealReadonlyBrokerTruthTransportConfig {
+            allowed_accounts: vec![account_id.clone()],
+            ..FinamRealReadonlyBrokerTruthTransportConfig::default()
+        };
+        let guardrails =
+            evaluate_finam_real_readonly_operator_guardrails(&features, &config, request_snapshot);
+        RealReadonlyBrokerTruthRunApproved::try_from_gate_and_guardrails(gate, &guardrails)
+            .expect("run approval")
     }
 
     fn place_store_and_approved(
