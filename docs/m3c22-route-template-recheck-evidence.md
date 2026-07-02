@@ -80,3 +80,10 @@ evidence_pending_count = 3
 - `LiveReady`;
 - first live micro;
 - stop/SLTP/bracket.
+
+## Follow-up in M3c-23
+
+M3c-23 addresses the positive GetOrder evidence slot. If a known existing
+broker order id is not safely available for a controlled read-only run, the next
+safe artifact is a reviewer-facing waiver package. The slot should move to
+`WaiverAccepted` only after reviewer acceptance.

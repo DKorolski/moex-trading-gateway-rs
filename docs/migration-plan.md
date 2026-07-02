@@ -2036,6 +2036,29 @@ M3c-22 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-23 positive GetOrder evidence / waiver package:
+
+- Added source-bound positive GetOrder waiver package helper
+  `scripts/m3c_positive_get_order_waiver_package.py`.
+- The helper records why real positive GetOrder evidence cannot be honestly
+  fabricated without a known existing broker order id, points to the existing
+  M3b-24 exact/mismatch GetOrder 200 fixture coverage, runs the forbidden
+  surface scan, and keeps all trading-boundary booleans closed.
+- The package is a reviewer-facing waiver candidate. Until reviewer acceptance,
+  `positive_get_order_evidence_or_waiver` remains `Pending`; after acceptance,
+  regenerate the gate report with `--positive-get-order-status waiver-accepted`.
+- Details are documented in `docs/m3c23-positive-get-order-waiver.md`.
+
+M3c-23 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.
