@@ -5,6 +5,10 @@ real-readonly probe. M3b-18 still does not authorize FINAM order
 placement/cancel, real command consumption, real CommandAck lifecycle, runtime
 attachment, `LiveReady`, live micro, stop/SLTP, or bracket behavior.
 
+M3b-19 follow-up binds the token/account preflight marker to the current
+redacted request snapshot and adds explicit request/source-order evidence. See
+`docs/m3b19-real-readonly-request-bound-evidence-gate.md`.
+
 ## Non-serializable token/account approval marker
 
 The token/account preflight remains available as a redacted diagnostic for

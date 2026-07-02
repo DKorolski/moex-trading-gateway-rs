@@ -1974,6 +1974,99 @@ impl From<&CancelBrokerTruthFetchRequest<'_>> for CancelBrokerTruthFetchRequestS
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CancelBrokerTruthFetchRequestRedactedDiagnostic {
+    pub request_snapshot_fingerprint: String,
+    pub request_account_id_present: bool,
+    pub request_account_id_len: Option<usize>,
+    pub request_account_id_sha256: Option<String>,
+    pub request_broker_order_id_len: usize,
+    pub request_broker_order_id_sha256: String,
+    pub request_client_order_id_present: bool,
+    pub request_client_order_id_len: Option<usize>,
+    pub request_client_order_id_sha256: Option<String>,
+    pub request_instrument_identity_len: usize,
+    pub request_instrument_identity_sha256: String,
+    pub requested_at: DateTime<Utc>,
+    pub position_guard_context: CancelPositionTruthGuardContext,
+}
+
+impl CancelBrokerTruthFetchRequestRedactedDiagnostic {
+    pub fn from_snapshot(request: &CancelBrokerTruthFetchRequestSnapshot) -> Self {
+        let instrument_identity = serde_json::to_vec(&request.instrument)
+            .expect("instrument identity is serializable for redacted diagnostics");
+        let request_account_id_len = request
+            .account_id
+            .as_ref()
+            .map(|account_id| account_id.as_str().len());
+        let request_account_id_sha256 = request
+            .account_id
+            .as_ref()
+            .map(|account_id| sha256_hex(account_id.as_str().as_bytes()));
+        let request_client_order_id_len = request
+            .client_order_id
+            .as_ref()
+            .map(|client_order_id| client_order_id.as_str().len());
+        let request_client_order_id_sha256 = request
+            .client_order_id
+            .as_ref()
+            .map(|client_order_id| sha256_hex(client_order_id.as_str().as_bytes()));
+        let mut diagnostic = Self {
+            request_snapshot_fingerprint: String::new(),
+            request_account_id_present: request.account_id.is_some(),
+            request_account_id_len,
+            request_account_id_sha256,
+            request_broker_order_id_len: request.order_id.as_str().len(),
+            request_broker_order_id_sha256: sha256_hex(request.order_id.as_str().as_bytes()),
+            request_client_order_id_present: request.client_order_id.is_some(),
+            request_client_order_id_len,
+            request_client_order_id_sha256,
+            request_instrument_identity_len: instrument_identity.len(),
+            request_instrument_identity_sha256: sha256_hex(&instrument_identity),
+            requested_at: request.requested_at,
+            position_guard_context: request.position_guard_context,
+        };
+        diagnostic.request_snapshot_fingerprint = diagnostic.fingerprint_without_self();
+        diagnostic
+    }
+
+    fn fingerprint_without_self(&self) -> String {
+        #[derive(Serialize)]
+        struct FingerprintMaterial<'a> {
+            request_account_id_len: Option<usize>,
+            request_account_id_sha256: &'a Option<String>,
+            request_broker_order_id_len: usize,
+            request_broker_order_id_sha256: &'a str,
+            request_client_order_id_len: Option<usize>,
+            request_client_order_id_sha256: &'a Option<String>,
+            request_instrument_identity_len: usize,
+            request_instrument_identity_sha256: &'a str,
+            requested_at: DateTime<Utc>,
+            position_guard_context: CancelPositionTruthGuardContext,
+        }
+
+        let material = FingerprintMaterial {
+            request_account_id_len: self.request_account_id_len,
+            request_account_id_sha256: &self.request_account_id_sha256,
+            request_broker_order_id_len: self.request_broker_order_id_len,
+            request_broker_order_id_sha256: &self.request_broker_order_id_sha256,
+            request_client_order_id_len: self.request_client_order_id_len,
+            request_client_order_id_sha256: &self.request_client_order_id_sha256,
+            request_instrument_identity_len: self.request_instrument_identity_len,
+            request_instrument_identity_sha256: &self.request_instrument_identity_sha256,
+            requested_at: self.requested_at,
+            position_guard_context: self.position_guard_context,
+        };
+        let bytes =
+            serde_json::to_vec(&material).expect("request fingerprint material is serializable");
+        sha256_hex(&bytes)
+    }
+
+    fn matches_snapshot(&self, request: &CancelBrokerTruthFetchRequestSnapshot) -> bool {
+        *self == Self::from_snapshot(request)
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub enum CancelBrokerTruthFetchResult {
     Observation(CancelBrokerTruthObservation),
@@ -4123,6 +4216,7 @@ pub struct FinamRealReadonlyTransportErrorOperatorActionDiagnostic {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FinamRealReadonlyTokenAccountPreflightDiagnostic {
+    pub request_snapshot_fingerprint: String,
     pub token_details_checked: bool,
     pub token_readonly_flag_present: bool,
     pub token_readonly_flag_value: Option<bool>,
@@ -4141,6 +4235,8 @@ impl FinamRealReadonlyTokenAccountPreflightDiagnostic {
         request: &CancelBrokerTruthFetchRequestSnapshot,
         token_details: Option<&broker_finam::dto::TokenDetailsResponse>,
     ) -> Self {
+        let request_diagnostic =
+            CancelBrokerTruthFetchRequestRedactedDiagnostic::from_snapshot(request);
         let requested_account_id_len = request
             .account_id
             .as_ref()
@@ -4158,6 +4254,7 @@ impl FinamRealReadonlyTokenAccountPreflightDiagnostic {
             },
         );
         Self {
+            request_snapshot_fingerprint: request_diagnostic.request_snapshot_fingerprint,
             token_details_checked: token_details.is_some(),
             token_readonly_flag_present: token_details
                 .and_then(|details| details.readonly)
@@ -4192,6 +4289,7 @@ impl FinamRealReadonlyTokenAccountPreflightDiagnostic {
 #[derive(Clone, PartialEq, Eq)]
 pub struct FinamRealReadonlyTokenAccountPreflightApproved {
     diagnostic: FinamRealReadonlyTokenAccountPreflightDiagnostic,
+    request_diagnostic: CancelBrokerTruthFetchRequestRedactedDiagnostic,
     _private: (),
 }
 
@@ -4200,6 +4298,7 @@ impl std::fmt::Debug for FinamRealReadonlyTokenAccountPreflightApproved {
         formatter
             .debug_struct("FinamRealReadonlyTokenAccountPreflightApproved")
             .field("diagnostic", &self.diagnostic)
+            .field("request_diagnostic", &self.request_diagnostic)
             .finish()
     }
 }
@@ -4218,6 +4317,9 @@ impl FinamRealReadonlyTokenAccountPreflightApproved {
         if diagnostic.allows_operator_probe() {
             Ok(Self {
                 diagnostic,
+                request_diagnostic: CancelBrokerTruthFetchRequestRedactedDiagnostic::from_snapshot(
+                    request,
+                ),
                 _private: (),
             })
         } else {
@@ -4231,6 +4333,14 @@ impl FinamRealReadonlyTokenAccountPreflightApproved {
 
     pub fn diagnostic(&self) -> &FinamRealReadonlyTokenAccountPreflightDiagnostic {
         &self.diagnostic
+    }
+
+    pub fn request_diagnostic(&self) -> &CancelBrokerTruthFetchRequestRedactedDiagnostic {
+        &self.request_diagnostic
+    }
+
+    fn allows_request(&self, request: &CancelBrokerTruthFetchRequestSnapshot) -> bool {
+        self.request_diagnostic.matches_snapshot(request)
     }
 }
 
@@ -4268,6 +4378,23 @@ pub struct FinamRealReadonlyContractProbeAttemptRecord {
     pub route_diagnostic: Option<FinamRealReadonlyRouteDiagnostic>,
     pub captured_diagnostic: Option<CancelBrokerTruthReadonlyHttpDiagnostic>,
     pub audit_record: Option<FinamRealReadonlyBrokerTruthAuditRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FinamRealReadonlyContractProbeSourceOrderDiagnostic {
+    pub ordered_sources: Vec<CancelBrokerTruthSource>,
+    pub ordered_sources_sha256: String,
+}
+
+impl FinamRealReadonlyContractProbeSourceOrderDiagnostic {
+    fn from_sources(sources: &[CancelBrokerTruthSource]) -> Self {
+        let bytes = serde_json::to_vec(sources)
+            .expect("real-readonly source order material is serializable");
+        Self {
+            ordered_sources: sources.to_vec(),
+            ordered_sources_sha256: sha256_hex(&bytes),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4325,6 +4452,7 @@ pub enum FinamRealReadonlyContractProbeOperatorRunBlock {
     TransportTaxonomyNotPreserved,
     TokenAccountPreflightMissing,
     TokenAccountPreflightFailed,
+    TokenAccountPreflightRequestMismatch,
     PersistentAuditModeNotAllowed,
 }
 
@@ -4344,6 +4472,8 @@ pub struct FinamRealReadonlyContractProbeOperatorRunReport {
     pub operator_disable_procedure_documented: bool,
     pub preserve_transport_error_taxonomy: bool,
     pub token_account_preflight: Option<FinamRealReadonlyTokenAccountPreflightDiagnostic>,
+    pub request_snapshot: CancelBrokerTruthFetchRequestRedactedDiagnostic,
+    pub source_order: FinamRealReadonlyContractProbeSourceOrderDiagnostic,
     pub attempt_count: usize,
     pub captured_response_count: usize,
     pub actual_http_send_started_count: usize,
@@ -4359,15 +4489,19 @@ pub struct FinamRealReadonlyContractProbeOperatorRunReport {
 fn build_finam_real_readonly_probe_run_identity(
     started_at: DateTime<Utc>,
     approval: &RealReadonlyBrokerTruthRunApprovalDiagnostic,
+    request: &CancelBrokerTruthFetchRequestRedactedDiagnostic,
+    source_order: &FinamRealReadonlyContractProbeSourceOrderDiagnostic,
     sources: &[CancelBrokerTruthSource],
     max_requests: usize,
 ) -> (String, String) {
     let seed = format!(
-        "{}:{}:{}:{}:{:?}:{}",
+        "{}:{}:{}:{}:{}:{}:{:?}:{}",
         started_at.to_rfc3339_opts(SecondsFormat::Millis, true),
         approval.account_id_sha256,
         approval.rest_base_url_sha256,
         approval.request_timeout_ms,
+        request.request_snapshot_fingerprint,
+        source_order.ordered_sources_sha256,
         sources,
         max_requests
     );
@@ -4552,10 +4686,16 @@ where
         .filter(|source| all_cancel_truth_sources().contains(source))
         .collect::<Vec<_>>();
     deduped_sources.dedup();
+    let request_diagnostic =
+        CancelBrokerTruthFetchRequestRedactedDiagnostic::from_snapshot(&request);
+    let source_order =
+        FinamRealReadonlyContractProbeSourceOrderDiagnostic::from_sources(&deduped_sources);
     let probe_run_started_at = fetcher.observed_ts;
     let (probe_run_id, probe_run_fingerprint) = build_finam_real_readonly_probe_run_identity(
         probe_run_started_at,
         &approval_diagnostic,
+        &request_diagnostic,
+        &source_order,
         &deduped_sources,
         config.max_requests,
     );
@@ -4592,7 +4732,12 @@ where
             .push(FinamRealReadonlyContractProbeOperatorRunBlock::TransportTaxonomyNotPreserved);
     }
     match &config.token_account_preflight {
-        Some(_) => {}
+        Some(preflight) if preflight.allows_request(&request) => {}
+        Some(_) => {
+            blocking_reasons.push(
+                FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightRequestMismatch,
+            );
+        }
         None => {
             blocking_reasons
                 .push(FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightMissing);
@@ -4622,6 +4767,8 @@ where
                 .token_account_preflight
                 .as_ref()
                 .map(|approval| approval.diagnostic().clone()),
+            request_snapshot: request_diagnostic,
+            source_order,
             attempt_count: 0,
             captured_response_count: 0,
             actual_http_send_started_count: 0,
@@ -4706,6 +4853,8 @@ where
             .token_account_preflight
             .as_ref()
             .map(|approval| approval.diagnostic().clone()),
+        request_snapshot: request_diagnostic,
+        source_order,
         attempt_count,
         captured_response_count,
         actual_http_send_started_count,
@@ -11245,6 +11394,23 @@ mod tests {
         assert_eq!(enabled.actual_send_count, 0);
         assert!(enabled.actual_send_count <= enabled.max_requests);
         assert_eq!(
+            enabled.request_snapshot.request_snapshot_fingerprint,
+            token_account_preflight
+                .request_diagnostic()
+                .request_snapshot_fingerprint
+        );
+        assert_eq!(
+            enabled.request_snapshot.request_account_id_sha256,
+            token_account_preflight
+                .diagnostic()
+                .requested_account_id_sha256
+        );
+        assert_eq!(
+            enabled.source_order.ordered_sources,
+            all_cancel_truth_sources()
+        );
+        assert!(!enabled.source_order.ordered_sources_sha256.is_empty());
+        assert_eq!(
             enabled.audit_store_mode,
             FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore
         );
@@ -11298,6 +11464,10 @@ mod tests {
         assert!(report_json.contains("token_details_checked"));
         assert!(report_json.contains("token_readonly_flag_value"));
         assert!(report_json.contains("probe_run_fingerprint"));
+        assert!(report_json.contains("request_snapshot_fingerprint"));
+        assert!(report_json.contains("request_broker_order_id_sha256"));
+        assert!(report_json.contains("request_instrument_identity_sha256"));
+        assert!(report_json.contains("ordered_sources_sha256"));
         assert!(report_json.contains("actual_http_send_started_count"));
         assert!(report_json.contains("captured_response_count"));
         assert!(report_json.contains("actual_send_count"));
@@ -11305,6 +11475,47 @@ mod tests {
         assert!(!report_json.contains(account_id.as_str()));
         assert!(!report_json.contains(order_id.as_str()));
         assert!(!report_json.contains(client_id.as_str()));
+
+        let mismatched_request_snapshot = CancelBrokerTruthFetchRequestSnapshot {
+            order_id: BrokerOrderId::new("BROKER_TEST_OTHER"),
+            ..request_snapshot.clone()
+        };
+        let blocked_by_marker_request = run_finam_real_readonly_operator_contract_probe(
+            &mut fetcher,
+            mismatched_request_snapshot.clone(),
+            &FinamRealReadonlyContractProbeOperatorRunConfig {
+                enabled: true,
+                sources: vec![CancelBrokerTruthSource::GetOrder],
+                max_requests: 1,
+                request_timeout_ms: 10_000,
+                min_request_interval_ms: 250,
+                redacted_output_location: Some(
+                    FinamRealReadonlyRedactedOutputLocation::from_path_label("redacted.json"),
+                ),
+                audit_store_mode: FinamRealReadonlyAuditStoreMode::EphemeralEvidenceStore,
+                retry_disabled: true,
+                background_loop_disabled: true,
+                scheduler_disabled: true,
+                operator_disable_procedure_documented: true,
+                preserve_transport_error_taxonomy: true,
+                token_account_preflight: Some(token_account_preflight.clone()),
+            },
+        )
+        .await;
+        assert!(blocked_by_marker_request.probe_report.is_none());
+        assert_eq!(blocked_by_marker_request.attempt_count, 0);
+        assert_eq!(blocked_by_marker_request.actual_send_count, 0);
+        assert!(blocked_by_marker_request.blocking_reasons.contains(
+            &FinamRealReadonlyContractProbeOperatorRunBlock::TokenAccountPreflightRequestMismatch
+        ));
+        assert_ne!(
+            blocked_by_marker_request
+                .request_snapshot
+                .request_snapshot_fingerprint,
+            token_account_preflight
+                .request_diagnostic()
+                .request_snapshot_fingerprint
+        );
 
         let blocked = run_finam_real_readonly_operator_contract_probe(
             &mut fetcher,

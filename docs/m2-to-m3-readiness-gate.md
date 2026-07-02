@@ -1135,3 +1135,27 @@ Still not implemented in M3b-18:
 - `LiveReady`;
 - live micro;
 - stop/SLTP/bracket.
+
+## M3b-19 real-readonly request-bound evidence gate status
+
+Implemented while still keeping all broker order endpoints disabled:
+
+- token/account preflight approval marker is bound to the redacted request
+  snapshot used at construction time;
+- operator run blocks with `TokenAccountPreflightRequestMismatch` if the marker
+  does not match the current request;
+- operator report includes redacted request snapshot fingerprint, account/order
+  / client id hash+length evidence, instrument identity hash+length evidence,
+  requested timestamp, and position guard context;
+- operator report includes ordered source list and `ordered_sources_sha256`;
+- probe-run fingerprint includes request snapshot and ordered source hashes.
+
+Still not implemented in M3b-19:
+
+- FINAM POST/DELETE order endpoint calls;
+- real command stream consumer connected to strategies;
+- real ACK lifecycle against FINAM endpoints;
+- runtime strategy attachment;
+- `LiveReady`;
+- live micro;
+- stop/SLTP/bracket.

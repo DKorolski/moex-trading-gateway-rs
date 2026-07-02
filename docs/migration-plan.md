@@ -1315,6 +1315,33 @@ M3b-18 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3b-19 real-readonly request-bound evidence gate:
+
+- Bound `FinamRealReadonlyTokenAccountPreflightApproved` to the exact redacted
+  request snapshot used at marker construction time.
+- Added `TokenAccountPreflightRequestMismatch` so operator runs block before
+  any attempt when a marker is reused for a different broker-truth target.
+- Added redacted `request_snapshot` evidence to operator reports:
+  request fingerprint, account/order/client id lengths and SHA-256 hashes,
+  instrument identity length/hash, requested timestamp, and position guard
+  context.
+- Added redacted `source_order` evidence with ordered sources and
+  `ordered_sources_sha256`.
+- Included `request_snapshot_fingerprint` and `ordered_sources_sha256` in the
+  probe-run fingerprint.
+- Details are documented in
+  `docs/m3b19-real-readonly-request-bound-evidence-gate.md`.
+
+M3b-19 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

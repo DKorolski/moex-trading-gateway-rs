@@ -205,6 +205,9 @@ send counters.
 M3b-18 converts token/account approval into a non-serializable marker, adds
 probe-run id/fingerprint correlation, and splits captured-response volume from
 actual HTTP send started/completed counts.
+M3b-19 binds that marker to the exact redacted request snapshot, exports
+request/source-order evidence, and includes those hashes in the probe-run
+fingerprint.
 
 The command consumer must reject unsupported commands without touching FINAM
 order endpoints.
