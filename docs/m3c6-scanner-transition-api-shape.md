@@ -235,6 +235,30 @@ redacted_diagnostics_only = true
 
 These markers are also design/report-only; they do not enable endpoint calls.
 
+M3c-20 records evidence closure package and route-template recheck markers:
+
+```text
+closure_package_design_only = true
+slot_count = 5
+all_slots_require_evidence_or_waiver = true
+undocumented_2xx_slot_present = true
+cancel_409_410_slot_present = true
+route_template_recheck_design_only = true
+exact_two_route_allowlist_required = true
+official_docs_or_waiver_required = true
+recheck_before_implementation_gate = true
+order_endpoint_calls_allowed_for_recheck = false
+evidence_report_readiness_design_only = true
+canonical_replay_golden_vector_sha256
+canonical_replay_vector_count
+readiness_implemented_tested_count
+readiness_pending_evidence_or_waiver_count
+operator_replay_runbook_case_count
+```
+
+The evidence report enrichment remains design/report-only and does not enable
+endpoint calls.
+
 ## Scanner transition spec
 
 The API shape exports:

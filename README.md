@@ -243,6 +243,7 @@ See:
 - [M3c-17 evidence closure and durable journal schema](docs/m3c17-evidence-closure-durable-journal-schema.md)
 - [M3c-18 migration runbook and canonical replay fingerprint](docs/m3c18-migration-runbook-canonical-replay-fingerprint.md)
 - [M3c-19 implementation-gate readiness and golden vectors](docs/m3c19-implementation-gate-readiness-golden-vectors.md)
+- [M3c-20 evidence slot closure package](docs/m3c20-evidence-slot-closure-package.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

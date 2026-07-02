@@ -1965,6 +1965,31 @@ M3c-19 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-20 evidence slot closure package / route-template recheck plan:
+
+- Added design/report-only closure package for release profile, positive
+  GetOrder, route-template recheck, undocumented `201/202/204`, and cancel
+  `409/410` evidence/waiver slots.
+- Added route-template recheck plan requiring exactly the two approved design
+  templates, official docs confirmation or waiver, reviewer acceptance, and no
+  rendered live route/account/order id export.
+- Extended `design-evidence.json` with M3c-19 summary fields:
+  canonical replay golden-vector SHA/count, readiness implemented/pending
+  counts, and operator replay runbook case count.
+- Added CLI status inputs for undocumented `2xx` and cancel `409/410` slots;
+  defaults remain pending.
+- Details are documented in `docs/m3c20-evidence-slot-closure-package.md`.
+
+M3c-20 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

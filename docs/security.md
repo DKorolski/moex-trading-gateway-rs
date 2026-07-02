@@ -267,6 +267,12 @@ release-profile evidence, positive GetOrder evidence, and route-template recheck
 pending before implementation gate; the golden vector is synthetic/hash-only;
 operator replay diagnostics stay redacted and never export raw endpoint-attempt
 ids.
+M3c-20 adds the design/report-only evidence closure package and route-template
+recheck plan. `design-evidence.json` now carries canonical replay/readiness/
+runbook summary fields and all five implementation-gate evidence slots,
+including undocumented `2xx` and cancel `409/410` semantics. Closure and recheck
+artifacts must remain redacted and source-archive-bound; order endpoint calls
+remain forbidden.
 
 M3 dry order-path durable-store fixtures must remain local/synthetic. They may
 persist broker-neutral request ids, derived client order ids, synthetic account

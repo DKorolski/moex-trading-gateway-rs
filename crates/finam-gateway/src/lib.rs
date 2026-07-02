@@ -315,6 +315,31 @@ pub struct M3cOrderEndpointGateDesignEvidence {
     pub release_profile_evidence_or_waiver: M3cOrderEndpointGateEvidenceStatus,
     pub positive_get_order_evidence_or_waiver: M3cOrderEndpointGateEvidenceStatus,
     pub route_template_recheck: M3cOrderEndpointGateEvidenceStatus,
+    pub undocumented_2xx_status_semantics: M3cOrderEndpointGateEvidenceStatus,
+    pub cancel_409_410_status_semantics: M3cOrderEndpointGateEvidenceStatus,
+    pub canonical_replay_golden_vector_sha256: String,
+    pub canonical_replay_vector_count: usize,
+    pub readiness_implemented_tested_count: usize,
+    pub readiness_pending_evidence_or_waiver_count: usize,
+    pub operator_replay_runbook_case_count: usize,
+    pub evidence_slot_count: usize,
+    pub evidence_pending_count: usize,
+    pub evidence_provided_or_waiver_count: usize,
+    pub route_template_recheck_plan: M3cRouteTemplateRecheckPlanEvidence,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3cRouteTemplateRecheckPlanEvidence {
+    pub route_template_recheck_design_only: bool,
+    pub route_count: usize,
+    pub exact_two_route_allowlist_required: bool,
+    pub official_docs_or_waiver_required: bool,
+    pub reviewer_acceptance_required: bool,
+    pub recheck_before_implementation_gate: bool,
+    pub route_templates_exported_as_design_data_only: bool,
+    pub rendered_routes_exported: bool,
+    pub raw_account_or_order_id_exported: bool,
+    pub order_endpoint_calls_allowed_for_recheck: bool,
 }
 
 impl Default for M3cOrderEndpointGateDesignEvidence {
@@ -332,6 +357,29 @@ impl Default for M3cOrderEndpointGateDesignEvidence {
             release_profile_evidence_or_waiver: M3cOrderEndpointGateEvidenceStatus::Pending,
             positive_get_order_evidence_or_waiver: M3cOrderEndpointGateEvidenceStatus::Pending,
             route_template_recheck: M3cOrderEndpointGateEvidenceStatus::Pending,
+            undocumented_2xx_status_semantics: M3cOrderEndpointGateEvidenceStatus::Pending,
+            cancel_409_410_status_semantics: M3cOrderEndpointGateEvidenceStatus::Pending,
+            canonical_replay_golden_vector_sha256:
+                "d467afd3b7d320c26966a1a400995e00664397ed47bb74320a418cfd2524abc6".to_string(),
+            canonical_replay_vector_count: 1,
+            readiness_implemented_tested_count: 7,
+            readiness_pending_evidence_or_waiver_count: 3,
+            operator_replay_runbook_case_count: 5,
+            evidence_slot_count: 5,
+            evidence_pending_count: 5,
+            evidence_provided_or_waiver_count: 0,
+            route_template_recheck_plan: M3cRouteTemplateRecheckPlanEvidence {
+                route_template_recheck_design_only: true,
+                route_count: 2,
+                exact_two_route_allowlist_required: true,
+                official_docs_or_waiver_required: true,
+                reviewer_acceptance_required: true,
+                recheck_before_implementation_gate: true,
+                route_templates_exported_as_design_data_only: true,
+                rendered_routes_exported: false,
+                raw_account_or_order_id_exported: false,
+                order_endpoint_calls_allowed_for_recheck: false,
+            },
         }
     }
 }
@@ -8739,6 +8787,41 @@ mod tests {
             report.evidence.forbidden_surface_scan.status,
             M3cOrderEndpointGateEvidenceStatus::NotRunInStaticReport
         );
+        assert_eq!(
+            report.evidence.undocumented_2xx_status_semantics,
+            M3cOrderEndpointGateEvidenceStatus::Pending
+        );
+        assert_eq!(
+            report.evidence.cancel_409_410_status_semantics,
+            M3cOrderEndpointGateEvidenceStatus::Pending
+        );
+        assert_eq!(
+            report.evidence.canonical_replay_golden_vector_sha256,
+            "d467afd3b7d320c26966a1a400995e00664397ed47bb74320a418cfd2524abc6"
+        );
+        assert_eq!(report.evidence.canonical_replay_vector_count, 1);
+        assert_eq!(report.evidence.readiness_implemented_tested_count, 7);
+        assert_eq!(
+            report.evidence.readiness_pending_evidence_or_waiver_count,
+            3
+        );
+        assert_eq!(report.evidence.operator_replay_runbook_case_count, 5);
+        assert_eq!(report.evidence.evidence_slot_count, 5);
+        assert_eq!(report.evidence.evidence_pending_count, 5);
+        assert_eq!(report.evidence.evidence_provided_or_waiver_count, 0);
+        assert!(
+            report
+                .evidence
+                .route_template_recheck_plan
+                .route_template_recheck_design_only
+        );
+        assert_eq!(report.evidence.route_template_recheck_plan.route_count, 2);
+        assert!(
+            !report
+                .evidence
+                .route_template_recheck_plan
+                .order_endpoint_calls_allowed_for_recheck
+        );
         assert_eq!(report.future_order_endpoint_allowlist.len(), 2);
         assert!(report.future_order_endpoint_allowlist.iter().any(|route| {
             route.purpose == M3cOrderEndpointRoutePurpose::PlaceOrder
@@ -8834,6 +8917,9 @@ mod tests {
         assert!(report_json.contains("future_order_endpoint_allowlist"));
         assert!(report_json.contains("negative_test_plan"));
         assert!(report_json.contains("implementation_transition_plan"));
+        assert!(report_json.contains("canonical_replay_golden_vector_sha256"));
+        assert!(report_json.contains("undocumented_2xx_status_semantics"));
+        assert!(report_json.contains("cancel_409_410_status_semantics"));
         assert!(report_json.contains("ApprovedOnlyCompileContract"));
         assert!(!report_json.contains("ACC_TEST_0001"));
 

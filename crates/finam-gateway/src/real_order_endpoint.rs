@@ -1202,6 +1202,65 @@ pub struct GatewayRealOrderEndpointOperatorReplayRunbookDesignShape {
     pub raw_endpoint_attempt_id_exported: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayRealOrderEndpointEvidenceClosurePackageStatus {
+    PendingEvidenceOrWaiver,
+    EvidenceProvided,
+    WaiverAccepted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointEvidenceClosurePackageEntry {
+    pub slot: GatewayRealOrderEndpointEvidenceSlot,
+    pub status: GatewayRealOrderEndpointEvidenceClosurePackageStatus,
+    pub evidence_or_waiver_required: bool,
+    pub reviewer_acceptance_required: bool,
+    pub source_archive_binding_required: bool,
+    pub order_endpoint_calls_allowed_for_closure: bool,
+    pub raw_values_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointEvidenceClosurePackageDesignShape {
+    pub closure_package_design_only: bool,
+    pub slot_count: usize,
+    pub release_profile_slot_present: bool,
+    pub positive_get_order_slot_present: bool,
+    pub route_template_recheck_slot_present: bool,
+    pub undocumented_2xx_slot_present: bool,
+    pub cancel_409_410_slot_present: bool,
+    pub all_slots_require_evidence_or_waiver: bool,
+    pub all_slots_require_reviewer_acceptance: bool,
+    pub source_archive_binding_required: bool,
+    pub order_endpoint_calls_allowed_for_closure: bool,
+    pub raw_values_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointRouteTemplateRecheckPlanDesignShape {
+    pub route_template_recheck_design_only: bool,
+    pub route_count: usize,
+    pub exact_two_route_allowlist_required: bool,
+    pub official_docs_or_waiver_required: bool,
+    pub reviewer_acceptance_required: bool,
+    pub recheck_before_implementation_gate: bool,
+    pub route_templates_exported_as_design_data_only: bool,
+    pub rendered_routes_exported: bool,
+    pub raw_account_or_order_id_exported: bool,
+    pub order_endpoint_calls_allowed_for_recheck: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayRealOrderEndpointEvidenceReportReadinessDesignShape {
+    pub evidence_report_readiness_design_only: bool,
+    pub canonical_replay_golden_vector_sha256: String,
+    pub canonical_replay_vector_count: usize,
+    pub readiness_implemented_tested_count: usize,
+    pub readiness_pending_evidence_or_waiver_count: usize,
+    pub operator_replay_runbook_case_count: usize,
+    pub raw_values_exported: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayRealOrderEndpointOutcomeStatePolicyDesignShape {
     pub matrix_serializable: bool,
@@ -1285,6 +1344,11 @@ pub struct GatewayRealOrderEndpointApiShape {
     pub canonical_replay_golden_vector_design:
         GatewayRealOrderEndpointCanonicalReplayGoldenVectorDesignShape,
     pub operator_replay_runbook_design: GatewayRealOrderEndpointOperatorReplayRunbookDesignShape,
+    pub evidence_closure_package_design: GatewayRealOrderEndpointEvidenceClosurePackageDesignShape,
+    pub route_template_recheck_plan_design:
+        GatewayRealOrderEndpointRouteTemplateRecheckPlanDesignShape,
+    pub evidence_report_readiness_design:
+        GatewayRealOrderEndpointEvidenceReportReadinessDesignShape,
     pub durable_checkpoint_capability_design:
         GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape,
     pub checkpoint_marker_creation_design:
@@ -1661,6 +1725,59 @@ pub fn api_shape() -> GatewayRealOrderEndpointApiShape {
             redacted_diagnostics_only: true,
             raw_endpoint_attempt_id_exported: false,
         },
+        evidence_closure_package_design:
+            GatewayRealOrderEndpointEvidenceClosurePackageDesignShape {
+                closure_package_design_only: true,
+                slot_count: evidence_closure_package_entries().len(),
+                release_profile_slot_present: true,
+                positive_get_order_slot_present: true,
+                route_template_recheck_slot_present: true,
+                undocumented_2xx_slot_present: true,
+                cancel_409_410_slot_present: true,
+                all_slots_require_evidence_or_waiver: true,
+                all_slots_require_reviewer_acceptance: true,
+                source_archive_binding_required: true,
+                order_endpoint_calls_allowed_for_closure: false,
+                raw_values_exported: false,
+            },
+        route_template_recheck_plan_design:
+            GatewayRealOrderEndpointRouteTemplateRecheckPlanDesignShape {
+                route_template_recheck_design_only: true,
+                route_count: 2,
+                exact_two_route_allowlist_required: true,
+                official_docs_or_waiver_required: true,
+                reviewer_acceptance_required: true,
+                recheck_before_implementation_gate: true,
+                route_templates_exported_as_design_data_only: true,
+                rendered_routes_exported: false,
+                raw_account_or_order_id_exported: false,
+                order_endpoint_calls_allowed_for_recheck: false,
+            },
+        evidence_report_readiness_design:
+            GatewayRealOrderEndpointEvidenceReportReadinessDesignShape {
+                evidence_report_readiness_design_only: true,
+                canonical_replay_golden_vector_sha256: canonical_replay_golden_vectors()
+                    .first()
+                    .map(|vector| vector.expected_sha256.clone())
+                    .unwrap_or_default(),
+                canonical_replay_vector_count: canonical_replay_golden_vectors().len(),
+                readiness_implemented_tested_count: implementation_gate_readiness_checklist()
+                    .iter()
+                    .filter(|entry| {
+                        entry.status
+                            == GatewayRealOrderEndpointImplementationGateReadinessStatus::ImplementedAndTested
+                    })
+                    .count(),
+                readiness_pending_evidence_or_waiver_count: implementation_gate_readiness_checklist()
+                    .iter()
+                    .filter(|entry| {
+                        entry.status
+                            == GatewayRealOrderEndpointImplementationGateReadinessStatus::PendingEvidenceOrWaiver
+                    })
+                    .count(),
+                operator_replay_runbook_case_count: operator_replay_runbook_entries().len(),
+                raw_values_exported: false,
+            },
         durable_checkpoint_capability_design:
             GatewayRealOrderEndpointDurableCheckpointCapabilityDesignShape {
                 place_capability_type_internal: true,
@@ -3633,6 +3750,33 @@ pub fn operator_replay_runbook_entries() -> Vec<GatewayRealOrderEndpointOperator
     ]
 }
 
+fn evidence_closure_package_entry(
+    slot: GatewayRealOrderEndpointEvidenceSlot,
+) -> GatewayRealOrderEndpointEvidenceClosurePackageEntry {
+    GatewayRealOrderEndpointEvidenceClosurePackageEntry {
+        slot,
+        status: GatewayRealOrderEndpointEvidenceClosurePackageStatus::PendingEvidenceOrWaiver,
+        evidence_or_waiver_required: true,
+        reviewer_acceptance_required: true,
+        source_archive_binding_required: true,
+        order_endpoint_calls_allowed_for_closure: false,
+        raw_values_exported: false,
+    }
+}
+
+pub fn evidence_closure_package_entries() -> Vec<GatewayRealOrderEndpointEvidenceClosurePackageEntry>
+{
+    use GatewayRealOrderEndpointEvidenceSlot as Slot;
+
+    vec![
+        evidence_closure_package_entry(Slot::ReleaseProfileEvidenceOrWaiver),
+        evidence_closure_package_entry(Slot::PositiveGetOrderEvidenceOrWaiver),
+        evidence_closure_package_entry(Slot::RouteTemplateRecheck),
+        evidence_closure_package_entry(Slot::Undocumented2xxStatusSemantics),
+        evidence_closure_package_entry(Slot::Cancel409410StatusSemantics),
+    ]
+}
+
 pub fn future_send_outcome_state_policy_matrix(
 ) -> Vec<GatewayRealOrderEndpointOutcomeStatePolicyEntry> {
     use GatewayRealOrderEndpointFutureSendOutcome as Outcome;
@@ -5334,6 +5478,140 @@ mod tests {
                 .operator_replay_runbook_design
                 .raw_endpoint_attempt_id_exported
         );
+        assert!(
+            shape
+                .evidence_closure_package_design
+                .closure_package_design_only
+        );
+        assert_eq!(shape.evidence_closure_package_design.slot_count, 5);
+        assert!(
+            shape
+                .evidence_closure_package_design
+                .release_profile_slot_present
+        );
+        assert!(
+            shape
+                .evidence_closure_package_design
+                .positive_get_order_slot_present
+        );
+        assert!(
+            shape
+                .evidence_closure_package_design
+                .route_template_recheck_slot_present
+        );
+        assert!(
+            shape
+                .evidence_closure_package_design
+                .undocumented_2xx_slot_present
+        );
+        assert!(
+            shape
+                .evidence_closure_package_design
+                .cancel_409_410_slot_present
+        );
+        assert!(
+            shape
+                .evidence_closure_package_design
+                .all_slots_require_evidence_or_waiver
+        );
+        assert!(
+            shape
+                .evidence_closure_package_design
+                .all_slots_require_reviewer_acceptance
+        );
+        assert!(
+            shape
+                .evidence_closure_package_design
+                .source_archive_binding_required
+        );
+        assert!(
+            !shape
+                .evidence_closure_package_design
+                .order_endpoint_calls_allowed_for_closure
+        );
+        assert!(!shape.evidence_closure_package_design.raw_values_exported);
+        assert!(
+            shape
+                .route_template_recheck_plan_design
+                .route_template_recheck_design_only
+        );
+        assert_eq!(shape.route_template_recheck_plan_design.route_count, 2);
+        assert!(
+            shape
+                .route_template_recheck_plan_design
+                .exact_two_route_allowlist_required
+        );
+        assert!(
+            shape
+                .route_template_recheck_plan_design
+                .official_docs_or_waiver_required
+        );
+        assert!(
+            shape
+                .route_template_recheck_plan_design
+                .reviewer_acceptance_required
+        );
+        assert!(
+            shape
+                .route_template_recheck_plan_design
+                .recheck_before_implementation_gate
+        );
+        assert!(
+            shape
+                .route_template_recheck_plan_design
+                .route_templates_exported_as_design_data_only
+        );
+        assert!(
+            !shape
+                .route_template_recheck_plan_design
+                .rendered_routes_exported
+        );
+        assert!(
+            !shape
+                .route_template_recheck_plan_design
+                .raw_account_or_order_id_exported
+        );
+        assert!(
+            !shape
+                .route_template_recheck_plan_design
+                .order_endpoint_calls_allowed_for_recheck
+        );
+        assert!(
+            shape
+                .evidence_report_readiness_design
+                .evidence_report_readiness_design_only
+        );
+        assert_eq!(
+            shape
+                .evidence_report_readiness_design
+                .canonical_replay_golden_vector_sha256,
+            "d467afd3b7d320c26966a1a400995e00664397ed47bb74320a418cfd2524abc6"
+        );
+        assert_eq!(
+            shape
+                .evidence_report_readiness_design
+                .canonical_replay_vector_count,
+            1
+        );
+        assert_eq!(
+            shape
+                .evidence_report_readiness_design
+                .readiness_implemented_tested_count,
+            7
+        );
+        assert_eq!(
+            shape
+                .evidence_report_readiness_design
+                .readiness_pending_evidence_or_waiver_count,
+            3
+        );
+        assert_eq!(
+            shape
+                .evidence_report_readiness_design
+                .operator_replay_runbook_case_count,
+            5
+        );
+        assert!(!shape.evidence_report_readiness_design.raw_values_exported);
         assert!(
             shape
                 .durable_checkpoint_capability_design
@@ -7354,6 +7632,39 @@ mod tests {
         assert!(!terminal.disarm_required);
 
         let rendered = serde_json::to_string(&entries).expect("runbook serializes");
+        assert!(!rendered.contains("ACC_TEST_0001"));
+        assert!(!rendered.contains("ORDER_TEST_0001"));
+        assert!(!rendered.contains("Bearer "));
+    }
+
+    #[test]
+    fn evidence_closure_package_keeps_all_slots_pending_and_order_calls_closed() {
+        use GatewayRealOrderEndpointEvidenceClosurePackageStatus as Status;
+        use GatewayRealOrderEndpointEvidenceSlot as Slot;
+
+        let entries = evidence_closure_package_entries();
+        assert_eq!(entries.len(), 5);
+
+        for slot in [
+            Slot::ReleaseProfileEvidenceOrWaiver,
+            Slot::PositiveGetOrderEvidenceOrWaiver,
+            Slot::RouteTemplateRecheck,
+            Slot::Undocumented2xxStatusSemantics,
+            Slot::Cancel409410StatusSemantics,
+        ] {
+            let entry = entries
+                .iter()
+                .find(|entry| entry.slot == slot)
+                .expect("closure package slot");
+            assert_eq!(entry.status, Status::PendingEvidenceOrWaiver);
+            assert!(entry.evidence_or_waiver_required);
+            assert!(entry.reviewer_acceptance_required);
+            assert!(entry.source_archive_binding_required);
+            assert!(!entry.order_endpoint_calls_allowed_for_closure);
+            assert!(!entry.raw_values_exported);
+        }
+
+        let rendered = serde_json::to_string(&entries).expect("closure package serializes");
         assert!(!rendered.contains("ACC_TEST_0001"));
         assert!(!rendered.contains("ORDER_TEST_0001"));
         assert!(!rendered.contains("Bearer "));

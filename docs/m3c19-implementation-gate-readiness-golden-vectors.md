@@ -68,6 +68,13 @@ terminal outcome new attempt -> new endpoint_attempt_id required
 All runbook diagnostics remain redacted. Raw endpoint-attempt ids are not
 exported.
 
+## Follow-up in M3c-20
+
+M3c-20 adds the self-contained evidence closure package, route-template recheck
+plan, and `design-evidence.json` enrichment with M3c-19 readiness/golden-vector
+summary fields. All five implementation-gate slots remain closable only by
+evidence or reviewer-accepted waiver, with order endpoint calls still forbidden.
+
 ## Still not allowed
 
 - FINAM real PlaceOrder `POST`;

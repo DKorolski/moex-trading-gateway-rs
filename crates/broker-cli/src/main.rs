@@ -25,10 +25,10 @@ use finam_gateway::{
     FinamRealReadonlyContractProbeOperatorRunConfig, FinamRealReadonlyRedactedOutputLocation,
     FinamRealReadonlyTokenAccountPreflightApproved, GatewayConfig, GatewayFeatureSet,
     M3cForbiddenSurfaceScanEvidence, M3cOrderEndpointGateDesignEvidence,
-    M3cOrderEndpointGateEvidenceStatus, M3cSourceEvidence, OrderSnapshot, ReadonlySnapshotSummary,
-    RealReadonlyBrokerTruthGateApproved, RealReadonlyBrokerTruthRunApproved,
-    RedisConnectionStreamSink, RedisRetentionConfig, RedisStreamConfig,
-    ReqwestFinamRealReadonlyBrokerTruthTransport, RuntimeBridgeConsumeOutcome,
+    M3cOrderEndpointGateEvidenceStatus, M3cRouteTemplateRecheckPlanEvidence, M3cSourceEvidence,
+    OrderSnapshot, ReadonlySnapshotSummary, RealReadonlyBrokerTruthGateApproved,
+    RealReadonlyBrokerTruthRunApproved, RedisConnectionStreamSink, RedisRetentionConfig,
+    RedisStreamConfig, ReqwestFinamRealReadonlyBrokerTruthTransport, RuntimeBridgeConsumeOutcome,
     RuntimeBridgeDeadLetter, RuntimeBridgeDlqReason, RuntimeBridgeDlqRecord,
     RuntimeBridgeDryConsumer, RuntimeBridgeReadinessSimulator, RuntimeBridgeStreamEntry,
 };
@@ -208,6 +208,12 @@ enum Command {
         /// Evidence slot status: pending, evidence-provided, waiver-accepted.
         #[arg(long, default_value = "pending")]
         route_template_recheck_status: String,
+        /// Evidence slot status: pending, evidence-provided, waiver-accepted.
+        #[arg(long, default_value = "pending")]
+        undocumented_2xx_status: String,
+        /// Evidence slot status: pending, evidence-provided, waiver-accepted.
+        #[arg(long, default_value = "pending")]
+        cancel_409_410_status: String,
     },
     /// Run one FINAM read-only shadow gateway pass and publish broker-truth events to Redis.
     #[command(name = "finam-gateway-shadow-once")]
@@ -875,6 +881,8 @@ async fn main() -> Result<()> {
             release_profile_status,
             positive_get_order_status,
             route_template_recheck_status,
+            undocumented_2xx_status,
+            cancel_409_410_status,
         } => {
             run_m3c_order_endpoint_gate_report(
                 output,
@@ -883,6 +891,8 @@ async fn main() -> Result<()> {
                     release_profile_status,
                     positive_get_order_status,
                     route_template_recheck_status,
+                    undocumented_2xx_status,
+                    cancel_409_410_status,
                 },
             )?;
         }
@@ -1018,6 +1028,8 @@ struct M3cEvidenceSlotArgs {
     release_profile_status: String,
     positive_get_order_status: String,
     route_template_recheck_status: String,
+    undocumented_2xx_status: String,
+    cancel_409_410_status: String,
 }
 
 struct BarFinalityGoldenArgs {
@@ -2124,6 +2136,40 @@ fn build_m3c_order_endpoint_gate_design_evidence(
         .get("exit_code")
         .and_then(serde_json::Value::as_i64)
         .and_then(|code| i32::try_from(code).ok());
+    let release_profile_evidence_or_waiver =
+        parse_m3c_evidence_slot_status(&slot_args.release_profile_status)?;
+    let positive_get_order_evidence_or_waiver =
+        parse_m3c_evidence_slot_status(&slot_args.positive_get_order_status)?;
+    let route_template_recheck =
+        parse_m3c_evidence_slot_status(&slot_args.route_template_recheck_status)?;
+    let undocumented_2xx_status_semantics =
+        parse_m3c_evidence_slot_status(&slot_args.undocumented_2xx_status)?;
+    let cancel_409_410_status_semantics =
+        parse_m3c_evidence_slot_status(&slot_args.cancel_409_410_status)?;
+    let evidence_statuses = [
+        release_profile_evidence_or_waiver,
+        positive_get_order_evidence_or_waiver,
+        route_template_recheck,
+        undocumented_2xx_status_semantics,
+        cancel_409_410_status_semantics,
+    ];
+    let evidence_pending_count = evidence_statuses
+        .iter()
+        .filter(|status| **status == M3cOrderEndpointGateEvidenceStatus::Pending)
+        .count();
+    let evidence_provided_or_waiver_count = evidence_statuses
+        .iter()
+        .filter(|status| {
+            matches!(
+                status,
+                M3cOrderEndpointGateEvidenceStatus::EvidenceProvided
+                    | M3cOrderEndpointGateEvidenceStatus::WaiverAccepted
+            )
+        })
+        .count();
+    let golden_vectors = finam_gateway::real_order_endpoint::canonical_replay_golden_vectors();
+    let readiness = finam_gateway::real_order_endpoint::implementation_gate_readiness_checklist();
+    let operator_runbook = finam_gateway::real_order_endpoint::operator_replay_runbook_entries();
 
     Ok(M3cOrderEndpointGateDesignEvidence {
         forbidden_surface_scan: M3cForbiddenSurfaceScanEvidence {
@@ -2141,15 +2187,46 @@ fn build_m3c_order_endpoint_gate_design_evidence(
             exit_code,
         },
         source: resolve_source_evidence(source_archive)?,
-        release_profile_evidence_or_waiver: parse_m3c_evidence_slot_status(
-            &slot_args.release_profile_status,
-        )?,
-        positive_get_order_evidence_or_waiver: parse_m3c_evidence_slot_status(
-            &slot_args.positive_get_order_status,
-        )?,
-        route_template_recheck: parse_m3c_evidence_slot_status(
-            &slot_args.route_template_recheck_status,
-        )?,
+        release_profile_evidence_or_waiver,
+        positive_get_order_evidence_or_waiver,
+        route_template_recheck,
+        undocumented_2xx_status_semantics,
+        cancel_409_410_status_semantics,
+        canonical_replay_golden_vector_sha256: golden_vectors
+            .first()
+            .map(|vector| vector.expected_sha256.clone())
+            .unwrap_or_default(),
+        canonical_replay_vector_count: golden_vectors.len(),
+        readiness_implemented_tested_count: readiness
+            .iter()
+            .filter(|entry| {
+                entry.status
+                    == finam_gateway::real_order_endpoint::GatewayRealOrderEndpointImplementationGateReadinessStatus::ImplementedAndTested
+            })
+            .count(),
+        readiness_pending_evidence_or_waiver_count: readiness
+            .iter()
+            .filter(|entry| {
+                entry.status
+                    == finam_gateway::real_order_endpoint::GatewayRealOrderEndpointImplementationGateReadinessStatus::PendingEvidenceOrWaiver
+            })
+            .count(),
+        operator_replay_runbook_case_count: operator_runbook.len(),
+        evidence_slot_count: evidence_statuses.len(),
+        evidence_pending_count,
+        evidence_provided_or_waiver_count,
+        route_template_recheck_plan: M3cRouteTemplateRecheckPlanEvidence {
+            route_template_recheck_design_only: true,
+            route_count: 2,
+            exact_two_route_allowlist_required: true,
+            official_docs_or_waiver_required: true,
+            reviewer_acceptance_required: true,
+            recheck_before_implementation_gate: true,
+            route_templates_exported_as_design_data_only: true,
+            rendered_routes_exported: false,
+            raw_account_or_order_id_exported: false,
+            order_endpoint_calls_allowed_for_recheck: false,
+        },
     })
 }
 

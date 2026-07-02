@@ -1365,6 +1365,11 @@ Implemented while still keeping all broker order endpoints disabled:
   evidence, and route-template recheck pending, adds a synthetic canonical
   replay golden vector with fixed SHA-256, and links replay/conflict/timeout/
   manual/terminal cases to redacted operator runbook actions;
+- M3c-20 evidence slot closure package / route-template recheck plan: records
+  all five implementation-gate slots, extends `design-evidence.json` with
+  readiness/golden-vector/runbook counts, and keeps route-template recheck as
+  exact-two-template design evidence without rendered live routes or order
+  endpoint calls;
 - `EndpointGateApproved` remains unconstructible.
 
 Still not implemented in M3c-3:
