@@ -2141,6 +2141,39 @@ M3c-26 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3d-0 implementation-transition decision:
+
+- Records reviewer acceptance of M3c-26 as the source-bound
+  pre-implementation gate package.
+- Adds `scripts/m3d0_implementation_transition_decision.py` to generate a
+  source-bound transition decision artifact after the current clean handoff
+  archive and M3c-26 package are regenerated.
+- Keeps the active scanner mode at `CurrentDenyAllOrderPostDelete`; any future
+  exact-two-route allowlist mode still requires separate explicit review.
+- Limits the future implementation module under review to
+  `crates/finam-gateway/src/real_order_endpoint.rs`.
+- Limits future route consideration to exactly:
+  `POST /v1/accounts/{account_id}/orders` and
+  `DELETE /v1/accounts/{account_id}/orders/{order_id}`.
+- Records required future negative scanner surfaces: extra routes, generic
+  request bypass, route-string bypass, non-reqwest order endpoint abstraction,
+  wrong-module order endpoints, stop/SLTP/bracket expansion, and runtime
+  command-consumer bypass.
+- Details are documented in
+  `docs/m3d0-implementation-transition-decision.md`.
+
+M3d-0 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Enabling exact-two-route allowlist scanner mode.
+- Making `EndpointGateApproved` constructible.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

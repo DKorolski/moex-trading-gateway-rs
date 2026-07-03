@@ -250,6 +250,7 @@ See:
 - [M3c-24 undocumented 2xx status evidence](docs/m3c24-undocumented-2xx-status-evidence.md)
 - [M3c-25 cancel 409/410 status evidence](docs/m3c25-cancel-409-410-status-evidence.md)
 - [M3c-26 pre-implementation gate package](docs/m3c26-pre-implementation-gate-package.md)
+- [M3d-0 implementation-transition decision](docs/m3d0-implementation-transition-decision.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

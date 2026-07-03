@@ -69,6 +69,13 @@ DELETE /v1/accounts/{account_id}/orders/{order_id}
 M3c-26 does not enable these routes. It only packages the evidence required for
 a reviewer to decide whether a future implementation step may begin.
 
+## Follow-up
+
+After reviewer acceptance, M3d-0 records the implementation-transition decision
+as a separate source-bound artifact. M3d-0 prepares the future exact-two-route
+scanner transition rules while keeping the active deny-all order endpoint
+scanner mode and the trading boundary closed.
+
 ## Still not allowed
 
 - FINAM real PlaceOrder `POST`;
