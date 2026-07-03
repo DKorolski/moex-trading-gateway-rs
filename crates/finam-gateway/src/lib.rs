@@ -5734,6 +5734,9 @@ pub struct M3h5ShadowReplayReport {
     pub schema_version: u16,
     pub generated_at: DateTime<Utc>,
     pub m3h_runtime_shadow_stage_closed: bool,
+    pub stage_closure_report: bool,
+    pub end_to_end_dry_path_to_m3e_ack: bool,
+    pub decision_tick_accounting_ok: bool,
     pub runtime_shadow_replay_ok: bool,
     pub dry_command_report_redacted: bool,
     pub pending_emission_operator_visibility_ok: bool,
@@ -5818,15 +5821,27 @@ pub fn m3h5_shadow_replay_report(input: M3h5ShadowReplayReportInput) -> M3h5Shad
             .runtime_consumer_report
             .external_order_endpoint_allowed
         && !input.runtime_consumer_report.real_finam_order_endpoint_used;
-    let runtime_shadow_replay_ok = input
+    let decision_tick_count = input
         .runtime_consumer_report
         .metrics
-        .strategy_decision_tick_count
-        >= input.dry_emitter_report.metrics.dry_command_published_count
+        .strategy_decision_tick_count;
+    let accounted_decision_count = input.dry_emitter_report.metrics.dry_command_published_count
+        + input.dry_emitter_report.metrics.non_emitted_count
+        + input.dry_emitter_report.metrics.duplicate_request_count;
+    let decision_tick_accounting_ok = decision_tick_count == accounted_decision_count;
+    let end_to_end_dry_path_to_m3e_ack =
+        input.dry_emitter_report.metrics.dry_command_published_count > 0 && m3e_dry_ack_count > 0;
+    let runtime_shadow_replay_ok = decision_tick_accounting_ok
         && input.dry_emitter_report.m3e_command_stream_only
         && no_live_boundary;
     let pending_emission_operator_visibility_ok =
         pending_records.is_empty() || oldest_pending_emission_age_ms.is_some();
+    let stage_closure_report = end_to_end_dry_path_to_m3e_ack
+        && decision_tick_accounting_ok
+        && dry_command_report_redacted
+        && pending_emission_operator_visibility_ok
+        && input.dry_emitter_report.m3e_command_stream_only
+        && no_live_boundary;
     let not_ready_suppression_count = input
         .lifecycle_records
         .iter()
@@ -5839,13 +5854,13 @@ pub fn m3h5_shadow_replay_report(input: M3h5ShadowReplayReportInput) -> M3h5Shad
         schema_version: SCHEMA_VERSION,
         generated_at: input.now,
         m3h_runtime_shadow_stage_closed: false,
+        stage_closure_report,
+        end_to_end_dry_path_to_m3e_ack,
+        decision_tick_accounting_ok,
         runtime_shadow_replay_ok,
         dry_command_report_redacted,
         pending_emission_operator_visibility_ok,
-        decision_tick_count: input
-            .runtime_consumer_report
-            .metrics
-            .strategy_decision_tick_count,
+        decision_tick_count,
         dry_command_published_count: input.dry_emitter_report.metrics.dry_command_published_count,
         duplicate_request_id_count: input.dry_emitter_report.metrics.duplicate_request_count,
         not_emitted_count: input.dry_emitter_report.metrics.non_emitted_count,
@@ -5877,15 +5892,7 @@ pub fn m3h5_shadow_replay_report(input: M3h5ShadowReplayReportInput) -> M3h5Shad
         m3e_command_stream_only: input.dry_emitter_report.m3e_command_stream_only,
     };
     M3h5ShadowReplayReport {
-        m3h_runtime_shadow_stage_closed: report.runtime_shadow_replay_ok
-            && report.dry_command_report_redacted
-            && report.pending_emission_operator_visibility_ok
-            && report.m3e_command_stream_only
-            && !report.runtime_live_attachment_allowed
-            && !report.live_ready_allowed
-            && !report.external_order_endpoint_allowed
-            && !report.real_finam_order_endpoint_used
-            && !report.stop_sltp_bracket_replace_multileg_allowed,
+        m3h_runtime_shadow_stage_closed: report.stage_closure_report,
         ..report
     }
 }
@@ -17383,6 +17390,9 @@ mod tests {
             now,
         });
         assert!(report.m3h_runtime_shadow_stage_closed);
+        assert!(report.stage_closure_report);
+        assert!(report.end_to_end_dry_path_to_m3e_ack);
+        assert!(report.decision_tick_accounting_ok);
         assert!(report.runtime_shadow_replay_ok);
         assert!(report.dry_command_report_redacted);
         assert!(report.pending_emission_operator_visibility_ok);
@@ -17452,10 +17462,13 @@ mod tests {
         assert_eq!(report.pending_request_hashes.len(), 1);
         assert!(report.pending_request_hashes[0].starts_with("sha256:"));
         assert!(!report.pending_request_hashes[0].contains("502"));
+        assert!(!report.end_to_end_dry_path_to_m3e_ack);
+        assert!(!report.stage_closure_report);
+        assert!(!report.m3h_runtime_shadow_stage_closed);
     }
 
     #[test]
-    fn m3h5_shadow_replay_report_redacts_dropped_duplicates_and_bar_diagnostics() {
+    fn m3h5a_shadow_replay_diagnostics_only_report_does_not_close_stage() {
         let now = Utc
             .with_ymd_and_hms(2026, 7, 3, 23, 22, 0)
             .single()
@@ -17494,7 +17507,11 @@ mod tests {
             now,
         });
 
-        assert!(report.m3h_runtime_shadow_stage_closed);
+        assert!(!report.m3h_runtime_shadow_stage_closed);
+        assert!(!report.stage_closure_report);
+        assert!(!report.end_to_end_dry_path_to_m3e_ack);
+        assert!(report.decision_tick_accounting_ok);
+        assert!(report.runtime_shadow_replay_ok);
         assert_eq!(report.duplicate_request_id_count, 1);
         assert_eq!(report.not_emitted_count, 1);
         assert_eq!(report.not_ready_suppression_count, 1);
@@ -17505,6 +17522,59 @@ mod tests {
         assert!(!report.raw_payload_exported);
         assert!(!report.raw_token_exported);
         assert!(!report.raw_body_exported);
+    }
+
+    #[test]
+    fn m3h5a_shadow_replay_decision_accounting_must_match_for_stage_closure() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 23, 23, 0)
+            .single()
+            .expect("timestamp");
+        let mut runtime_report =
+            M3hRuntimeShadowConsumer::from_gateway_config(&GatewayConfig::default()).report();
+        runtime_report.metrics.strategy_decision_tick_count = 2;
+        let mut emitter_report = M3hRuntimeDryCommandEmitter::from_gateway_config(
+            &GatewayConfig::default(),
+            InMemoryRedisStreamSink::default(),
+        )
+        .report();
+        emitter_report.metrics.dry_command_published_count = 1;
+        let m3e_report = M3eCommandConsumerDurableReport {
+            action: M3eCommandLifecycleAction::CommandReceived,
+            entry_id: "m3h5a-ack".to_string(),
+            request_id: Some(request_id(504)),
+            ack_status: Some(CommandAckStatus::Rejected),
+            ack_reason_code: Some(CommandAckReasonCode::DryRunOnly),
+            dlq_reason: None,
+            lifecycle_state: Some(M3eCommandLifecycleState::AckPublished),
+            command_received_persisted: true,
+            request_id_idempotency_store_hit: false,
+            duplicate_request: false,
+            duplicate_request_no_second_endpoint_attempt: true,
+            endpoint_attempt_count: 0,
+            ack_publish_before_xack: true,
+            xack_applied: true,
+            xack_after_ack_or_dlq_publish: true,
+            endpoint_transport_invoked: false,
+            external_order_endpoint_allowed: false,
+            raw_payload_exported: false,
+            raw_token_exported: false,
+            raw_body_exported: false,
+            raw_command_comment_exported: false,
+        };
+        let report = m3h5_shadow_replay_report(M3h5ShadowReplayReportInput {
+            runtime_consumer_report: runtime_report,
+            dry_emitter_report: emitter_report,
+            lifecycle_records: vec![],
+            m3e_report: Some(m3e_report),
+            now,
+        });
+
+        assert!(report.end_to_end_dry_path_to_m3e_ack);
+        assert!(!report.decision_tick_accounting_ok);
+        assert!(!report.runtime_shadow_replay_ok);
+        assert!(!report.stage_closure_report);
+        assert!(!report.m3h_runtime_shadow_stage_closed);
     }
 
     #[tokio::test]

@@ -111,6 +111,9 @@ def evidence_summary(root: Path) -> dict[str, Any]:
         "pub struct M3h5ShadowReplayReportInput",
         "pub fn m3h5_shadow_replay_report",
         "m3h_runtime_shadow_stage_closed",
+        "stage_closure_report",
+        "end_to_end_dry_path_to_m3e_ack",
+        "decision_tick_accounting_ok",
         "runtime_shadow_replay_ok",
         "dry_command_report_redacted",
         "pending_emission_operator_visibility_ok",
@@ -122,7 +125,8 @@ def evidence_summary(root: Path) -> dict[str, Any]:
         "m3h5_redacted_request_hash",
         "m3h5_shadow_replay_reports_e2e_dry_path_to_m3e_ack_without_live",
         "m3h5_shadow_replay_report_surfaces_pending_emission_operator_visibility",
-        "m3h5_shadow_replay_report_redacts_dropped_duplicates_and_bar_diagnostics",
+        "m3h5a_shadow_replay_diagnostics_only_report_does_not_close_stage",
+        "m3h5a_shadow_replay_decision_accounting_must_match_for_stage_closure",
         "runtime_live_attachment_allowed: false",
         "live_ready_allowed: false",
         "external_order_endpoint_allowed: false",
@@ -146,6 +150,16 @@ def evidence_summary(root: Path) -> dict[str, Any]:
             "m3h_runtime_shadow_stage_closed" in source
             and "m3h5_shadow_replay_reports_e2e_dry_path_to_m3e_ack_without_live"
             in source
+        ),
+        "stage_closure_report": "stage_closure_report" in source,
+        "end_to_end_dry_path_to_m3e_ack": "end_to_end_dry_path_to_m3e_ack"
+        in source,
+        "decision_tick_accounting_ok": "decision_tick_accounting_ok" in source
+        and "accounted_decision_count" in source,
+        "diagnostics_only_not_closed": (
+            "m3h5a_shadow_replay_diagnostics_only_report_does_not_close_stage"
+            in source
+            and "assert!(!report.m3h_runtime_shadow_stage_closed)" in source
         ),
         "runtime_shadow_replay_ok": "runtime_shadow_replay_ok" in source,
         "dry_command_report_redacted": "dry_command_report_redacted" in source,
@@ -218,6 +232,10 @@ def main() -> int:
         all(summary["required_patterns_present"].values())
         and all(summary["forbidden_patterns_absent"].values())
         and summary["m3h_runtime_shadow_stage_closed_evidence"]
+        and summary["stage_closure_report"]
+        and summary["end_to_end_dry_path_to_m3e_ack"]
+        and summary["decision_tick_accounting_ok"]
+        and summary["diagnostics_only_not_closed"]
         and summary["runtime_shadow_replay_ok"]
         and summary["dry_command_report_redacted"]
         and summary["pending_emission_operator_visibility_ok"]
@@ -248,6 +266,10 @@ def main() -> int:
         "m3h_runtime_shadow_stage_closed": summary[
             "m3h_runtime_shadow_stage_closed_evidence"
         ],
+        "stage_closure_report": summary["stage_closure_report"],
+        "end_to_end_dry_path_to_m3e_ack": summary["end_to_end_dry_path_to_m3e_ack"],
+        "decision_tick_accounting_ok": summary["decision_tick_accounting_ok"],
+        "diagnostics_only_not_closed": summary["diagnostics_only_not_closed"],
         "runtime_shadow_replay_ok": summary["runtime_shadow_replay_ok"],
         "dry_command_report_redacted": summary["dry_command_report_redacted"],
         "pending_emission_operator_visibility_ok": summary[
