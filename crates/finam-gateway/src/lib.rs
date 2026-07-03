@@ -938,6 +938,7 @@ pub struct M3fBrokerTruthOutcomeSnapshot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum M3fReconciliationOutcomeAction {
     RecoverByClientOrderId,
+    RecoverByClientOrderIdAndTerminal,
     MarkSubmitted,
     MarkTerminal,
     RecoverCancelTerminal,
@@ -962,6 +963,73 @@ pub struct M3fReconciliationOutcomeDecision {
     pub runtime_live_attachment_allowed: bool,
     pub live_ready_allowed: bool,
     pub raw_broker_payload_exported: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3fBrokerTruthSnapshotIssueKind {
+    SameIdentityDifferentRequestId,
+    OrphanBrokerOrder,
+    OrphanBrokerTrade,
+    PositionMismatch,
+    LocalPendingStale,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3fBrokerTruthSnapshotIssue {
+    pub kind: M3fBrokerTruthSnapshotIssueKind,
+    pub affected_request_id: Option<StrategyRequestId>,
+    pub broker_order_id_sha256: Option<String>,
+    pub client_order_id_sha256: Option<String>,
+    pub instrument_venue_symbol_sha256: Option<String>,
+    pub manual_intervention_required: bool,
+    pub raw_broker_payload_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3fBrokerTruthOrderSnapshot {
+    pub request_id: Option<StrategyRequestId>,
+    pub account_id_sha256: String,
+    pub client_order_id_sha256: Option<String>,
+    pub broker_order_id_sha256: Option<String>,
+    pub instrument_venue_symbol_sha256: Option<String>,
+    pub state_class: M3fBrokerTruthOrderStateClass,
+    pub raw_broker_payload_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3fBrokerTruthTradeSnapshot {
+    pub request_id: Option<StrategyRequestId>,
+    pub account_id_sha256: String,
+    pub client_order_id_sha256: Option<String>,
+    pub broker_order_id_sha256: Option<String>,
+    pub instrument_venue_symbol_sha256: Option<String>,
+    pub raw_broker_payload_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3fPositionConsistencySnapshot {
+    pub account_id_sha256: String,
+    pub instrument_venue_symbol_sha256: Option<String>,
+    pub mismatch: bool,
+    pub raw_position_payload_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3fSnapshotApplicationReport {
+    pub schema_version: u16,
+    pub checked_ts: DateTime<Utc>,
+    pub decisions: Vec<M3fReconciliationOutcomeDecision>,
+    pub issues: Vec<M3fBrokerTruthSnapshotIssue>,
+    pub decision_count: usize,
+    pub issue_count: usize,
+    pub manual_intervention_count: usize,
+    pub read_only_finam_surfaces_only: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub live_ready_allowed: bool,
+    pub raw_broker_payload_exported: bool,
+    pub raw_position_payload_exported: bool,
 }
 
 pub fn m3f_reconciliation_request_for_order_path_record(
@@ -1091,6 +1159,136 @@ pub fn m3f_apply_broker_truth_outcome_policy(
     }
 }
 
+pub fn m3f_apply_broker_truth_snapshots(
+    requests: &[M3fReconciliationRequest],
+    orders: &[M3fBrokerTruthOrderSnapshot],
+    trades: &[M3fBrokerTruthTradeSnapshot],
+    positions: &[M3fPositionConsistencySnapshot],
+    checked_ts: DateTime<Utc>,
+    max_pending_age: ChronoDuration,
+) -> M3fSnapshotApplicationReport {
+    let mut decisions = Vec::new();
+    let mut issues = Vec::new();
+
+    for request in requests {
+        let matching_order = orders
+            .iter()
+            .find(|order| m3f_order_snapshot_matches_request_identity(request, order));
+        let matching_trade = trades
+            .iter()
+            .find(|trade| m3f_trade_snapshot_matches_request_identity(request, trade));
+        let local_pending_stale =
+            checked_ts.signed_duration_since(request.created_ts) > max_pending_age;
+        let conflicting_identity = matching_order
+            .and_then(|order| order.request_id)
+            .is_some_and(|request_id| request_id != request.request_id)
+            || matching_trade
+                .and_then(|trade| trade.request_id)
+                .is_some_and(|request_id| request_id != request.request_id);
+
+        if conflicting_identity {
+            issues.push(m3f_snapshot_issue_for_request(
+                M3fBrokerTruthSnapshotIssueKind::SameIdentityDifferentRequestId,
+                request,
+                matching_order.and_then(|order| order.broker_order_id_sha256.clone()),
+            ));
+        }
+        if local_pending_stale {
+            issues.push(m3f_snapshot_issue_for_request(
+                M3fBrokerTruthSnapshotIssueKind::LocalPendingStale,
+                request,
+                request.identity.broker_order_id_sha256.clone(),
+            ));
+        }
+
+        let truth = M3fBrokerTruthOutcomeSnapshot {
+            order_found_by_broker_order_id: matching_order.is_some_and(|order| {
+                m3f_hashes_match(
+                    &request.identity.broker_order_id_sha256,
+                    &order.broker_order_id_sha256,
+                )
+            }),
+            order_found_by_client_order_id: matching_order.is_some_and(|order| {
+                m3f_hashes_match(
+                    &Some(request.identity.client_order_id_sha256.clone()),
+                    &order.client_order_id_sha256,
+                )
+            }),
+            trade_found_by_identity: matching_trade.is_some(),
+            order_state_class: matching_order
+                .map(|order| order.state_class)
+                .unwrap_or(M3fBrokerTruthOrderStateClass::Unknown),
+            broker_order_id_recovered: !request.identity.broker_order_id_present
+                && matching_order
+                    .and_then(|order| order.broker_order_id_sha256.as_ref())
+                    .is_some(),
+            conflicting_identity,
+            stale: local_pending_stale,
+            raw_broker_payload_exported: matching_order
+                .map(|order| order.raw_broker_payload_exported)
+                .unwrap_or(false)
+                || matching_trade
+                    .map(|trade| trade.raw_broker_payload_exported)
+                    .unwrap_or(false),
+        };
+        decisions.push(m3f_apply_broker_truth_outcome_policy(request, &truth));
+    }
+
+    for order in orders {
+        if !requests
+            .iter()
+            .any(|request| m3f_order_snapshot_matches_request_identity(request, order))
+        {
+            issues.push(m3f_snapshot_issue_for_order(
+                M3fBrokerTruthSnapshotIssueKind::OrphanBrokerOrder,
+                order,
+            ));
+        }
+    }
+    for trade in trades {
+        if !requests
+            .iter()
+            .any(|request| m3f_trade_snapshot_matches_request_identity(request, trade))
+        {
+            issues.push(m3f_snapshot_issue_for_trade(
+                M3fBrokerTruthSnapshotIssueKind::OrphanBrokerTrade,
+                trade,
+            ));
+        }
+    }
+    for position in positions {
+        if position.mismatch {
+            issues.push(m3f_snapshot_issue_for_position(position));
+        }
+    }
+
+    let manual_intervention_count = decisions
+        .iter()
+        .filter(|decision| decision.manual_intervention_required)
+        .count()
+        + issues
+            .iter()
+            .filter(|issue| issue.manual_intervention_required)
+            .count();
+
+    M3fSnapshotApplicationReport {
+        schema_version: SCHEMA_VERSION,
+        checked_ts,
+        decision_count: decisions.len(),
+        issue_count: issues.len(),
+        manual_intervention_count,
+        decisions,
+        issues,
+        read_only_finam_surfaces_only: true,
+        real_finam_order_endpoint_used: false,
+        external_order_endpoint_allowed: false,
+        runtime_live_attachment_allowed: false,
+        live_ready_allowed: false,
+        raw_broker_payload_exported: false,
+        raw_position_payload_exported: false,
+    }
+}
+
 fn m3f_reconciliation_request_kind(state: OrderPathState) -> Option<M3fReconciliationRequestKind> {
     match state {
         OrderPathState::SubmittedPendingBrokerOrderId => {
@@ -1156,12 +1354,21 @@ fn m3f_outcome_action_for_truth(
     match request.request_kind {
         M3fReconciliationRequestKind::SubmittedPendingBrokerOrderId => {
             if broker_order_id_recovery_allowed {
-                (
-                    M3fReconciliationOutcomeAction::RecoverByClientOrderId,
-                    OrderPathState::RecoveredByClientOrderId,
-                    false,
-                    false,
-                )
+                if truth.order_state_class == M3fBrokerTruthOrderStateClass::Terminal {
+                    (
+                        M3fReconciliationOutcomeAction::RecoverByClientOrderIdAndTerminal,
+                        OrderPathState::Terminal,
+                        false,
+                        false,
+                    )
+                } else {
+                    (
+                        M3fReconciliationOutcomeAction::RecoverByClientOrderId,
+                        OrderPathState::RecoveredByClientOrderId,
+                        false,
+                        false,
+                    )
+                }
             } else if order_found {
                 (
                     M3fReconciliationOutcomeAction::MarkSubmitted,
@@ -1180,12 +1387,21 @@ fn m3f_outcome_action_for_truth(
         }
         M3fReconciliationRequestKind::TimeoutUnknownPending => {
             if broker_order_id_recovery_allowed {
-                (
-                    M3fReconciliationOutcomeAction::RecoverByClientOrderId,
-                    OrderPathState::RecoveredByClientOrderId,
-                    false,
-                    false,
-                )
+                if truth.order_state_class == M3fBrokerTruthOrderStateClass::Terminal {
+                    (
+                        M3fReconciliationOutcomeAction::RecoverByClientOrderIdAndTerminal,
+                        OrderPathState::Terminal,
+                        false,
+                        false,
+                    )
+                } else {
+                    (
+                        M3fReconciliationOutcomeAction::RecoverByClientOrderId,
+                        OrderPathState::RecoveredByClientOrderId,
+                        false,
+                        false,
+                    )
+                }
             } else if order_found
                 && truth.order_state_class == M3fBrokerTruthOrderStateClass::Terminal
             {
@@ -1259,6 +1475,116 @@ fn m3f_outcome_action_for_truth(
                 )
             }
         }
+    }
+}
+
+fn m3f_order_snapshot_matches_request_identity(
+    request: &M3fReconciliationRequest,
+    order: &M3fBrokerTruthOrderSnapshot,
+) -> bool {
+    m3f_account_and_instrument_match(
+        request,
+        &order.account_id_sha256,
+        &order.instrument_venue_symbol_sha256,
+    ) && (m3f_hashes_match(
+        &request.identity.broker_order_id_sha256,
+        &order.broker_order_id_sha256,
+    ) || m3f_hashes_match(
+        &Some(request.identity.client_order_id_sha256.clone()),
+        &order.client_order_id_sha256,
+    ))
+}
+
+fn m3f_trade_snapshot_matches_request_identity(
+    request: &M3fReconciliationRequest,
+    trade: &M3fBrokerTruthTradeSnapshot,
+) -> bool {
+    m3f_account_and_instrument_match(
+        request,
+        &trade.account_id_sha256,
+        &trade.instrument_venue_symbol_sha256,
+    ) && (m3f_hashes_match(
+        &request.identity.broker_order_id_sha256,
+        &trade.broker_order_id_sha256,
+    ) || m3f_hashes_match(
+        &Some(request.identity.client_order_id_sha256.clone()),
+        &trade.client_order_id_sha256,
+    ))
+}
+
+fn m3f_account_and_instrument_match(
+    request: &M3fReconciliationRequest,
+    account_id_sha256: &str,
+    instrument_venue_symbol_sha256: &Option<String>,
+) -> bool {
+    request.identity.account_id_sha256 == account_id_sha256
+        && m3f_hashes_match(
+            &request.identity.instrument_venue_symbol_sha256,
+            instrument_venue_symbol_sha256,
+        )
+}
+
+fn m3f_hashes_match(left: &Option<String>, right: &Option<String>) -> bool {
+    matches!((left, right), (Some(left), Some(right)) if left == right)
+}
+
+fn m3f_snapshot_issue_for_request(
+    kind: M3fBrokerTruthSnapshotIssueKind,
+    request: &M3fReconciliationRequest,
+    broker_order_id_sha256: Option<String>,
+) -> M3fBrokerTruthSnapshotIssue {
+    M3fBrokerTruthSnapshotIssue {
+        kind,
+        affected_request_id: Some(request.request_id),
+        broker_order_id_sha256,
+        client_order_id_sha256: Some(request.identity.client_order_id_sha256.clone()),
+        instrument_venue_symbol_sha256: request.identity.instrument_venue_symbol_sha256.clone(),
+        manual_intervention_required: true,
+        raw_broker_payload_exported: false,
+    }
+}
+
+fn m3f_snapshot_issue_for_order(
+    kind: M3fBrokerTruthSnapshotIssueKind,
+    order: &M3fBrokerTruthOrderSnapshot,
+) -> M3fBrokerTruthSnapshotIssue {
+    M3fBrokerTruthSnapshotIssue {
+        kind,
+        affected_request_id: order.request_id,
+        broker_order_id_sha256: order.broker_order_id_sha256.clone(),
+        client_order_id_sha256: order.client_order_id_sha256.clone(),
+        instrument_venue_symbol_sha256: order.instrument_venue_symbol_sha256.clone(),
+        manual_intervention_required: true,
+        raw_broker_payload_exported: false,
+    }
+}
+
+fn m3f_snapshot_issue_for_trade(
+    kind: M3fBrokerTruthSnapshotIssueKind,
+    trade: &M3fBrokerTruthTradeSnapshot,
+) -> M3fBrokerTruthSnapshotIssue {
+    M3fBrokerTruthSnapshotIssue {
+        kind,
+        affected_request_id: trade.request_id,
+        broker_order_id_sha256: trade.broker_order_id_sha256.clone(),
+        client_order_id_sha256: trade.client_order_id_sha256.clone(),
+        instrument_venue_symbol_sha256: trade.instrument_venue_symbol_sha256.clone(),
+        manual_intervention_required: true,
+        raw_broker_payload_exported: false,
+    }
+}
+
+fn m3f_snapshot_issue_for_position(
+    position: &M3fPositionConsistencySnapshot,
+) -> M3fBrokerTruthSnapshotIssue {
+    M3fBrokerTruthSnapshotIssue {
+        kind: M3fBrokerTruthSnapshotIssueKind::PositionMismatch,
+        affected_request_id: None,
+        broker_order_id_sha256: None,
+        client_order_id_sha256: None,
+        instrument_venue_symbol_sha256: position.instrument_venue_symbol_sha256.clone(),
+        manual_intervention_required: true,
+        raw_broker_payload_exported: false,
     }
 }
 
@@ -11983,6 +12309,177 @@ mod tests {
         assert_eq!(deduped.len(), 2);
         assert_eq!(deduped[0].request_id, request_id(823));
         assert_eq!(deduped[1].request_id, request_id(824));
+    }
+
+    #[test]
+    fn m3f3_same_broker_identity_different_request_id_requires_manual_intervention() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 17, 20, 0)
+            .single()
+            .expect("now");
+        let mut cancel_submitted = submitted_record(
+            &sample_place_order(request_id(830), "CID000000000000830", now),
+            now,
+            BrokerOrderId::new("BROKER_TEST_M3F3_830"),
+        );
+        cancel_submitted.state = OrderPathState::CancelSubmitted;
+        let request = m3f_reconciliation_request_for_order_path_record(&cancel_submitted, now)
+            .request
+            .expect("request");
+        let order = M3fBrokerTruthOrderSnapshot {
+            request_id: Some(request_id(1830)),
+            account_id_sha256: request.identity.account_id_sha256.clone(),
+            client_order_id_sha256: Some(request.identity.client_order_id_sha256.clone()),
+            broker_order_id_sha256: request.identity.broker_order_id_sha256.clone(),
+            instrument_venue_symbol_sha256: request.identity.instrument_venue_symbol_sha256.clone(),
+            state_class: M3fBrokerTruthOrderStateClass::Active,
+            raw_broker_payload_exported: false,
+        };
+
+        let report = m3f_apply_broker_truth_snapshots(
+            &[request],
+            &[order],
+            &[],
+            &[],
+            now,
+            ChronoDuration::minutes(5),
+        );
+
+        assert_eq!(report.decision_count, 1);
+        assert_eq!(
+            report.decisions[0].action,
+            M3fReconciliationOutcomeAction::ManualInterventionRequired
+        );
+        assert_eq!(
+            report.issues[0].kind,
+            M3fBrokerTruthSnapshotIssueKind::SameIdentityDifferentRequestId
+        );
+        assert!(report.decisions[0].manual_intervention_required);
+        assert!(report.read_only_finam_surfaces_only);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.external_order_endpoint_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.live_ready_allowed);
+    }
+
+    #[test]
+    fn m3f3_terminal_client_order_recovery_is_one_step_terminal_policy() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 17, 25, 0)
+            .single()
+            .expect("now");
+        let mut submitted_pending = OrderPathRecord::from_place_order(
+            &sample_place_order(request_id(831), "CID000000000000831", now),
+            now,
+            None,
+        );
+        submitted_pending.state = OrderPathState::SubmittedPendingBrokerOrderId;
+        let request = m3f_reconciliation_request_for_order_path_record(&submitted_pending, now)
+            .request
+            .expect("request");
+        let order = M3fBrokerTruthOrderSnapshot {
+            request_id: Some(request.request_id),
+            account_id_sha256: request.identity.account_id_sha256.clone(),
+            client_order_id_sha256: Some(request.identity.client_order_id_sha256.clone()),
+            broker_order_id_sha256: Some(sha256_hex(b"BROKER_TEST_M3F3_RECOVERED_831")),
+            instrument_venue_symbol_sha256: request.identity.instrument_venue_symbol_sha256.clone(),
+            state_class: M3fBrokerTruthOrderStateClass::Terminal,
+            raw_broker_payload_exported: false,
+        };
+
+        let report = m3f_apply_broker_truth_snapshots(
+            &[request],
+            &[order],
+            &[],
+            &[],
+            now,
+            ChronoDuration::minutes(5),
+        );
+
+        assert_eq!(
+            report.decisions[0].action,
+            M3fReconciliationOutcomeAction::RecoverByClientOrderIdAndTerminal
+        );
+        assert_eq!(report.decisions[0].target_state, OrderPathState::Terminal);
+        assert!(report.decisions[0].broker_order_id_recovery_allowed);
+        assert!(!report.decisions[0].manual_intervention_required);
+        assert!(!report.decisions[0].retry_allowed);
+    }
+
+    #[test]
+    fn m3f3_orphan_trade_order_position_and_stale_pending_are_redacted() {
+        let created_ts = Utc
+            .with_ymd_and_hms(2026, 7, 3, 17, 30, 0)
+            .single()
+            .expect("created");
+        let checked_ts = created_ts + ChronoDuration::minutes(11);
+        let mut timeout_unknown = OrderPathRecord::from_place_order(
+            &sample_place_order(request_id(832), "CID000000000000832", created_ts),
+            created_ts,
+            None,
+        );
+        timeout_unknown.state = OrderPathState::TimeoutUnknownPending;
+        let request =
+            m3f_reconciliation_request_for_order_path_record(&timeout_unknown, created_ts)
+                .request
+                .expect("request");
+        let orphan_order = M3fBrokerTruthOrderSnapshot {
+            request_id: Some(request_id(1832)),
+            account_id_sha256: request.identity.account_id_sha256.clone(),
+            client_order_id_sha256: Some(sha256_hex(b"CID_ORPHAN_M3F3_832")),
+            broker_order_id_sha256: Some(sha256_hex(b"BROKER_ORPHAN_M3F3_832")),
+            instrument_venue_symbol_sha256: request.identity.instrument_venue_symbol_sha256.clone(),
+            state_class: M3fBrokerTruthOrderStateClass::Active,
+            raw_broker_payload_exported: false,
+        };
+        let orphan_trade = M3fBrokerTruthTradeSnapshot {
+            request_id: Some(request_id(2832)),
+            account_id_sha256: request.identity.account_id_sha256.clone(),
+            client_order_id_sha256: Some(sha256_hex(b"CID_ORPHAN_TRADE_M3F3_832")),
+            broker_order_id_sha256: Some(sha256_hex(b"BROKER_ORPHAN_TRADE_M3F3_832")),
+            instrument_venue_symbol_sha256: request.identity.instrument_venue_symbol_sha256.clone(),
+            raw_broker_payload_exported: false,
+        };
+        let mismatch_position = M3fPositionConsistencySnapshot {
+            account_id_sha256: request.identity.account_id_sha256.clone(),
+            instrument_venue_symbol_sha256: request.identity.instrument_venue_symbol_sha256.clone(),
+            mismatch: true,
+            raw_position_payload_exported: false,
+        };
+
+        let report = m3f_apply_broker_truth_snapshots(
+            &[request],
+            &[orphan_order],
+            &[orphan_trade],
+            &[mismatch_position],
+            checked_ts,
+            ChronoDuration::minutes(5),
+        );
+
+        assert_eq!(
+            report.decisions[0].action,
+            M3fReconciliationOutcomeAction::ManualInterventionRequired
+        );
+        assert_eq!(
+            report.decisions[0].target_state,
+            OrderPathState::ManualInterventionRequired
+        );
+        let issue_kinds: HashSet<_> = report.issues.iter().map(|issue| issue.kind).collect();
+        assert!(issue_kinds.contains(&M3fBrokerTruthSnapshotIssueKind::LocalPendingStale));
+        assert!(issue_kinds.contains(&M3fBrokerTruthSnapshotIssueKind::OrphanBrokerOrder));
+        assert!(issue_kinds.contains(&M3fBrokerTruthSnapshotIssueKind::OrphanBrokerTrade));
+        assert!(issue_kinds.contains(&M3fBrokerTruthSnapshotIssueKind::PositionMismatch));
+        assert_eq!(report.issue_count, 4);
+        assert_eq!(report.manual_intervention_count, 5);
+        assert!(!report.raw_broker_payload_exported);
+        assert!(!report.raw_position_payload_exported);
+
+        let serialized = serde_json::to_string(&report).expect("serialize m3f3 report");
+        assert!(!serialized.contains("CID000000000000832"));
+        assert!(!serialized.contains("CID_ORPHAN_M3F3_832"));
+        assert!(!serialized.contains("BROKER_ORPHAN_M3F3_832"));
+        assert!(!serialized.contains("CID_ORPHAN_TRADE_M3F3_832"));
+        assert!(!serialized.contains("BROKER_ORPHAN_TRADE_M3F3_832"));
     }
 
     #[tokio::test]
