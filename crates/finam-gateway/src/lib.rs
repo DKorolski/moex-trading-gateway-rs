@@ -26,7 +26,7 @@ use broker_core::command::{
     BrokerCommand, CommandAck, CommandAckReason, CommandAckReasonCode, CommandAckStatus,
 };
 use broker_core::envelope::{Envelope, MessageType, SCHEMA_VERSION};
-use broker_core::event::{MarketDataEvent, MarketDataSourceKind};
+use broker_core::event::{Bar, MarketDataEvent, MarketDataSourceKind};
 use broker_core::ids::{BrokerAccountId, BrokerOrderId, ClientOrderId, StrategyRequestId};
 use broker_core::instrument::InstrumentId;
 use broker_core::order::{Order, OrderStatus, Trade};
@@ -1161,6 +1161,52 @@ pub struct M3gReadinessContractReport {
     pub stop_sltp_bracket_enabled: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3gFirstLiveBarGateRejectReason {
+    Missing,
+    HistoricalOrReadOnlySource,
+    NotFinal,
+    Stale,
+    OutOfSession,
+    Duplicate,
+    NonMonotonic,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct M3gFirstLiveBarGateState {
+    pub last_accepted_open_ts: Option<DateTime<Utc>>,
+    pub accepted_bar_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct M3gFirstLiveBarGateInput {
+    pub bar: Option<Bar>,
+    pub checked_ts: DateTime<Utc>,
+    pub max_allowed_age: ChronoDuration,
+    pub session_open_ts: Option<DateTime<Utc>>,
+    pub session_close_ts: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3gFirstLiveBarGateReport {
+    pub schema_version: u16,
+    pub accepted: bool,
+    pub reject_reason: Option<M3gFirstLiveBarGateRejectReason>,
+    pub source_kind: Option<MarketDataSourceKind>,
+    pub open_ts: Option<DateTime<Utc>>,
+    pub close_ts: Option<DateTime<Utc>>,
+    pub is_final: Option<bool>,
+    pub age_secs: Option<i64>,
+    pub session_valid: bool,
+    pub monotonic: bool,
+    pub duplicate: bool,
+    pub bar_key_sha256: Option<String>,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub external_order_endpoint_allowed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum M3fReconciliationRunnerError {
     #[error("order-path record not found during M3f reconciliation runner: {0}")]
@@ -1631,6 +1677,165 @@ fn m3g_broker_truth_input_accepted(status: M3gBrokerTruthInputStatus) -> bool {
         status,
         M3gBrokerTruthInputStatus::StreamFresh | M3gBrokerTruthInputStatus::PollingFallbackFresh
     )
+}
+
+pub fn m3g2_evaluate_first_live_bar_gate(
+    state: &mut M3gFirstLiveBarGateState,
+    input: &M3gFirstLiveBarGateInput,
+) -> M3gFirstLiveBarGateReport {
+    let Some(bar) = input.bar.as_ref() else {
+        return m3g2_rejected_first_live_bar_report(
+            input,
+            None,
+            M3gFirstLiveBarGateRejectReason::Missing,
+            false,
+            true,
+            false,
+        );
+    };
+    let key = m3g_live_bar_dedupe_key(bar);
+    let duplicate = state.accepted_bar_keys.iter().any(|seen| seen == &key);
+    let monotonic = match state.last_accepted_open_ts {
+        Some(last_open_ts) => bar.open_ts > last_open_ts,
+        None => true,
+    };
+    let session_valid = m3g_bar_is_inside_session(
+        bar,
+        input.session_open_ts.as_ref(),
+        input.session_close_ts.as_ref(),
+    );
+    let age = input.checked_ts.signed_duration_since(bar.close_ts);
+    let reject_reason = if bar.source_kind != MarketDataSourceKind::LiveStream {
+        Some(M3gFirstLiveBarGateRejectReason::HistoricalOrReadOnlySource)
+    } else if !bar.is_final {
+        Some(M3gFirstLiveBarGateRejectReason::NotFinal)
+    } else if age < ChronoDuration::zero() || age > input.max_allowed_age {
+        Some(M3gFirstLiveBarGateRejectReason::Stale)
+    } else if !session_valid {
+        Some(M3gFirstLiveBarGateRejectReason::OutOfSession)
+    } else if duplicate {
+        Some(M3gFirstLiveBarGateRejectReason::Duplicate)
+    } else if !monotonic {
+        Some(M3gFirstLiveBarGateRejectReason::NonMonotonic)
+    } else {
+        None
+    };
+
+    let accepted = reject_reason.is_none();
+    if accepted {
+        state.last_accepted_open_ts = Some(bar.open_ts);
+        state.accepted_bar_keys.push(key.clone());
+    }
+
+    M3gFirstLiveBarGateReport {
+        schema_version: SCHEMA_VERSION,
+        accepted,
+        reject_reason,
+        source_kind: Some(bar.source_kind),
+        open_ts: Some(bar.open_ts),
+        close_ts: Some(bar.close_ts),
+        is_final: Some(bar.is_final),
+        age_secs: Some(age.num_seconds()),
+        session_valid,
+        monotonic,
+        duplicate,
+        bar_key_sha256: Some(sha256_hex(key.as_bytes())),
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        real_finam_order_endpoint_used: false,
+        external_order_endpoint_allowed: false,
+    }
+}
+
+pub fn m3g2_evaluate_readiness_with_first_live_bar_gate(
+    input: &M3gReadinessContractInput,
+    gate_report: &M3gFirstLiveBarGateReport,
+    checked_ts: DateTime<Utc>,
+) -> M3gReadinessContractReport {
+    let mut gate_input = input.clone();
+    gate_input.first_live_bar_observed = gate_report.accepted;
+    gate_input.first_live_bar_source_kind = gate_report.source_kind;
+    gate_input.stream_stale = input.stream_stale
+        || gate_report.reject_reason == Some(M3gFirstLiveBarGateRejectReason::Stale);
+    let mut report = m3g1_evaluate_readiness_contract(&gate_input, checked_ts);
+    if !gate_report.accepted {
+        report.readiness.phase = ReadinessPhase::Blocked;
+        if !report
+            .readiness
+            .reasons
+            .contains(&ReadinessReason::FirstLiveBarMissing)
+        {
+            report
+                .readiness
+                .reasons
+                .push(ReadinessReason::FirstLiveBarMissing);
+        }
+    }
+    report.first_live_bar_gate_satisfied = gate_report.accepted;
+    report.live_ready_blocked_by_contract = true;
+    report.live_ready_allowed = false;
+    report.runtime_live_attachment_allowed = false;
+    report.real_finam_order_endpoint_used = false;
+    report.external_order_endpoint_allowed = false;
+    report
+}
+
+fn m3g2_rejected_first_live_bar_report(
+    input: &M3gFirstLiveBarGateInput,
+    bar: Option<&Bar>,
+    reject_reason: M3gFirstLiveBarGateRejectReason,
+    session_valid: bool,
+    monotonic: bool,
+    duplicate: bool,
+) -> M3gFirstLiveBarGateReport {
+    M3gFirstLiveBarGateReport {
+        schema_version: SCHEMA_VERSION,
+        accepted: false,
+        reject_reason: Some(reject_reason),
+        source_kind: bar.map(|bar| bar.source_kind),
+        open_ts: bar.map(|bar| bar.open_ts),
+        close_ts: bar.map(|bar| bar.close_ts),
+        is_final: bar.map(|bar| bar.is_final),
+        age_secs: bar.map(|bar| {
+            input
+                .checked_ts
+                .signed_duration_since(bar.close_ts)
+                .num_seconds()
+        }),
+        session_valid,
+        monotonic,
+        duplicate,
+        bar_key_sha256: bar.map(|bar| sha256_hex(m3g_live_bar_dedupe_key(bar).as_bytes())),
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        real_finam_order_endpoint_used: false,
+        external_order_endpoint_allowed: false,
+    }
+}
+
+fn m3g_live_bar_dedupe_key(bar: &Bar) -> String {
+    format!(
+        "{}:{}:{}:{}:{}",
+        bar.source_kind as u8,
+        bar.instrument
+            .venue_symbol
+            .as_deref()
+            .unwrap_or("missing-symbol"),
+        bar.timeframe_sec,
+        bar.open_ts.to_rfc3339(),
+        bar.is_final
+    )
+}
+
+fn m3g_bar_is_inside_session(
+    bar: &Bar,
+    session_open_ts: Option<&DateTime<Utc>>,
+    session_close_ts: Option<&DateTime<Utc>>,
+) -> bool {
+    match (session_open_ts, session_close_ts) {
+        (Some(open), Some(close)) => bar.open_ts >= *open && bar.close_ts <= *close,
+        _ => false,
+    }
 }
 
 fn m3f_reconciliation_request_kind(state: OrderPathState) -> Option<M3fReconciliationRequestKind> {
@@ -13518,6 +13723,188 @@ mod tests {
         assert!(report.live_ready_blocked_by_contract);
         assert!(!report.live_ready_allowed);
         assert_ne!(report.readiness.phase, ReadinessPhase::LiveReady);
+    }
+
+    #[test]
+    fn m3g2_rejects_historical_or_stale_or_out_of_session_first_live_bar() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 19, 20, 0)
+            .single()
+            .expect("now");
+        let mut state = M3gFirstLiveBarGateState::default();
+        let mut historical = sample_bar(MarketDataSourceKind::HistoricalPoll, true);
+        historical.open_ts = now - ChronoDuration::minutes(1);
+        historical.close_ts = now;
+        let historical_report = m3g2_evaluate_first_live_bar_gate(
+            &mut state,
+            &M3gFirstLiveBarGateInput {
+                bar: Some(historical),
+                checked_ts: now,
+                max_allowed_age: ChronoDuration::minutes(2),
+                session_open_ts: Some(now - ChronoDuration::hours(1)),
+                session_close_ts: Some(now + ChronoDuration::hours(1)),
+            },
+        );
+        assert!(!historical_report.accepted);
+        assert_eq!(
+            historical_report.reject_reason,
+            Some(M3gFirstLiveBarGateRejectReason::HistoricalOrReadOnlySource)
+        );
+
+        let mut stale = sample_bar(MarketDataSourceKind::LiveStream, true);
+        stale.open_ts = now - ChronoDuration::minutes(10);
+        stale.close_ts = now - ChronoDuration::minutes(9);
+        let stale_report = m3g2_evaluate_first_live_bar_gate(
+            &mut state,
+            &M3gFirstLiveBarGateInput {
+                bar: Some(stale),
+                checked_ts: now,
+                max_allowed_age: ChronoDuration::minutes(2),
+                session_open_ts: Some(now - ChronoDuration::hours(1)),
+                session_close_ts: Some(now + ChronoDuration::hours(1)),
+            },
+        );
+        assert!(!stale_report.accepted);
+        assert_eq!(
+            stale_report.reject_reason,
+            Some(M3gFirstLiveBarGateRejectReason::Stale)
+        );
+
+        let mut out_of_session = sample_bar(MarketDataSourceKind::LiveStream, true);
+        out_of_session.open_ts = now - ChronoDuration::minutes(1);
+        out_of_session.close_ts = now;
+        let out_of_session_report = m3g2_evaluate_first_live_bar_gate(
+            &mut state,
+            &M3gFirstLiveBarGateInput {
+                bar: Some(out_of_session),
+                checked_ts: now,
+                max_allowed_age: ChronoDuration::minutes(2),
+                session_open_ts: Some(now + ChronoDuration::minutes(1)),
+                session_close_ts: Some(now + ChronoDuration::hours(1)),
+            },
+        );
+        assert!(!out_of_session_report.accepted);
+        assert_eq!(
+            out_of_session_report.reject_reason,
+            Some(M3gFirstLiveBarGateRejectReason::OutOfSession)
+        );
+        assert!(state.accepted_bar_keys.is_empty());
+    }
+
+    #[test]
+    fn m3g2_live_bar_gate_dedupes_and_rejects_non_monotonic_bars() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 19, 30, 0)
+            .single()
+            .expect("now");
+        let mut state = M3gFirstLiveBarGateState::default();
+        let mut first = sample_bar(MarketDataSourceKind::LiveStream, true);
+        first.open_ts = now - ChronoDuration::minutes(1);
+        first.close_ts = now;
+        let input = M3gFirstLiveBarGateInput {
+            bar: Some(first.clone()),
+            checked_ts: now + ChronoDuration::seconds(1),
+            max_allowed_age: ChronoDuration::minutes(2),
+            session_open_ts: Some(now - ChronoDuration::hours(1)),
+            session_close_ts: Some(now + ChronoDuration::hours(1)),
+        };
+        let accepted = m3g2_evaluate_first_live_bar_gate(&mut state, &input);
+        assert!(accepted.accepted);
+        assert_eq!(state.accepted_bar_keys.len(), 1);
+
+        let duplicate = m3g2_evaluate_first_live_bar_gate(&mut state, &input);
+        assert!(!duplicate.accepted);
+        assert_eq!(
+            duplicate.reject_reason,
+            Some(M3gFirstLiveBarGateRejectReason::Duplicate)
+        );
+
+        let mut older = sample_bar(MarketDataSourceKind::LiveStream, true);
+        older.open_ts = now - ChronoDuration::minutes(2);
+        older.close_ts = now - ChronoDuration::minutes(1);
+        let older_report = m3g2_evaluate_first_live_bar_gate(
+            &mut state,
+            &M3gFirstLiveBarGateInput {
+                bar: Some(older),
+                checked_ts: now,
+                max_allowed_age: ChronoDuration::minutes(2),
+                session_open_ts: Some(now - ChronoDuration::hours(1)),
+                session_close_ts: Some(now + ChronoDuration::hours(1)),
+            },
+        );
+        assert!(!older_report.accepted);
+        assert_eq!(
+            older_report.reject_reason,
+            Some(M3gFirstLiveBarGateRejectReason::NonMonotonic)
+        );
+    }
+
+    #[test]
+    fn m3g2_first_live_bar_missing_hard_blocks_readiness_but_live_ready_remains_forbidden() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 19, 40, 0)
+            .single()
+            .expect("now");
+        let base_input = M3gReadinessContractInput {
+            auth_ok: true,
+            token_stale: false,
+            account_available: true,
+            instrument_registry_validated: true,
+            schedule_loaded: true,
+            broker_truth_reconciliation_clean: true,
+            reconciliation_blocker_count: 0,
+            orders_input: M3gBrokerTruthInputStatus::StreamFresh,
+            trades_input: M3gBrokerTruthInputStatus::StreamFresh,
+            positions_snapshot_fresh: true,
+            first_live_bar_observed: false,
+            first_live_bar_source_kind: None,
+            stream_stale: false,
+        };
+        let missing_gate = m3g2_evaluate_first_live_bar_gate(
+            &mut M3gFirstLiveBarGateState::default(),
+            &M3gFirstLiveBarGateInput {
+                bar: None,
+                checked_ts: now,
+                max_allowed_age: ChronoDuration::minutes(2),
+                session_open_ts: Some(now - ChronoDuration::hours(1)),
+                session_close_ts: Some(now + ChronoDuration::hours(1)),
+            },
+        );
+        let blocked =
+            m3g2_evaluate_readiness_with_first_live_bar_gate(&base_input, &missing_gate, now);
+        assert_eq!(blocked.readiness.phase, ReadinessPhase::Blocked);
+        assert!(blocked
+            .readiness
+            .reasons
+            .contains(&ReadinessReason::FirstLiveBarMissing));
+        assert!(!blocked.first_live_bar_gate_satisfied);
+        assert!(!blocked.live_ready_allowed);
+
+        let mut state = M3gFirstLiveBarGateState::default();
+        let mut live = sample_bar(MarketDataSourceKind::LiveStream, true);
+        live.open_ts = now - ChronoDuration::minutes(1);
+        live.close_ts = now;
+        let accepted_gate = m3g2_evaluate_first_live_bar_gate(
+            &mut state,
+            &M3gFirstLiveBarGateInput {
+                bar: Some(live),
+                checked_ts: now + ChronoDuration::seconds(1),
+                max_allowed_age: ChronoDuration::minutes(2),
+                session_open_ts: Some(now - ChronoDuration::hours(1)),
+                session_close_ts: Some(now + ChronoDuration::hours(1)),
+            },
+        );
+        let readyish =
+            m3g2_evaluate_readiness_with_first_live_bar_gate(&base_input, &accepted_gate, now);
+        assert!(readyish.first_live_bar_gate_satisfied);
+        assert_eq!(readyish.readiness.phase, ReadinessPhase::Reconciliation);
+        assert_eq!(
+            readyish.readiness.reasons,
+            vec![ReadinessReason::OperatorLiveArmMissing]
+        );
+        assert!(readyish.live_ready_blocked_by_contract);
+        assert!(!readyish.live_ready_allowed);
+        assert_ne!(readyish.readiness.phase, ReadinessPhase::LiveReady);
     }
 
     #[tokio::test]
