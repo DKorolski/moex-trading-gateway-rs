@@ -1,9 +1,12 @@
 use anyhow::{Context, Result};
+use broker_core::command::CommandAckStatus;
 use broker_core::event::Quote;
 use broker_core::{
-    BrokerAccountId, BrokerOrderId, BrokerReadiness, ClientOrderId, Envelope, Exchange,
-    InstrumentId, Market, MarketDataEvent, MarketDataSourceKind, MessageType, Order, OrderSide,
-    OrderStatus, OrderType, PortfolioSnapshot, ReadinessPhase, ReadinessReason,
+    BrokerAccountId, BrokerCommand, BrokerOrderId, BrokerReadiness, ClientOrderId, Envelope,
+    Exchange, InMemoryOrderPathStore, InstrumentId, Market, MarketDataEvent, MarketDataSourceKind,
+    MessageType, OperatorArm, Order, OrderPathEvent, OrderPathRecord, OrderPreflightPolicy,
+    OrderSide, OrderStatus, OrderType, PlaceOrder, PortfolioSnapshot, ReadinessPhase,
+    ReadinessReason, StrategyRequestId, TimeInForce,
 };
 use broker_finam::{
     active_orders, has_blocking_unknown_order_statuses, map_account_trade, map_bar,
@@ -20,21 +23,26 @@ use finam_gateway::{
     run_finam_real_readonly_operator_contract_probe, stopped_health, stopped_readiness,
     BrokerTruthGatewayConfig, CancelBrokerTruthFetchRequestSnapshot,
     CancelBrokerTruthFreshnessPolicy, CancelBrokerTruthSource, CancelPositionTruthGuardContext,
-    FinamGateway, FinamRealReadonlyAuditStoreMode, FinamRealReadonlyBrokerTruthAsyncFetcher,
-    FinamRealReadonlyBrokerTruthQueryPolicy, FinamRealReadonlyBrokerTruthTransportConfig,
-    FinamRealReadonlyContractProbeOperatorRunConfig, FinamRealReadonlyRedactedOutputLocation,
-    FinamRealReadonlyTokenAccountPreflightApproved, GatewayConfig, GatewayFeatureSet,
+    FinamGateway, FinamMockClassifiedEndpointTransport, FinamRealReadonlyAuditStoreMode,
+    FinamRealReadonlyBrokerTruthAsyncFetcher, FinamRealReadonlyBrokerTruthQueryPolicy,
+    FinamRealReadonlyBrokerTruthTransportConfig, FinamRealReadonlyContractProbeOperatorRunConfig,
+    FinamRealReadonlyRedactedOutputLocation, FinamRealReadonlyTokenAccountPreflightApproved,
+    GatewayConfig, GatewayError, GatewayFeatureSet, InMemoryRedisStreamSink,
     M3cForbiddenSurfaceScanEvidence, M3cOrderEndpointGateDesignEvidence,
     M3cOrderEndpointGateEvidenceStatus, M3cRouteTemplateRecheckPlanEvidence, M3cSourceEvidence,
+    M3eCommandConsumerConfig, M3eCommandConsumerLocalMockEndpoint, M3eCommandLifecycleAction,
+    M3eCommandLifecycleRecord, M3eCommandLifecycleStore, M3eInMemoryCommandLifecycleStore,
     OrderSnapshot, ReadonlySnapshotSummary, RealReadonlyBrokerTruthGateApproved,
     RealReadonlyBrokerTruthRunApproved, RedisConnectionStreamSink, RedisRetentionConfig,
-    RedisStreamConfig, ReqwestFinamRealReadonlyBrokerTruthTransport, RuntimeBridgeConsumeOutcome,
-    RuntimeBridgeDeadLetter, RuntimeBridgeDlqReason, RuntimeBridgeDlqRecord,
-    RuntimeBridgeDryConsumer, RuntimeBridgeReadinessSimulator, RuntimeBridgeStreamEntry,
+    RedisStreamConfig, RedisStreamSink, ReqwestFinamRealReadonlyBrokerTruthTransport,
+    RuntimeBridgeConsumeOutcome, RuntimeBridgeDeadLetter, RuntimeBridgeDlqReason,
+    RuntimeBridgeDlqRecord, RuntimeBridgeDryConsumer, RuntimeBridgeReadinessSimulator,
+    RuntimeBridgeStreamEntry,
 };
 use redis::streams::{
     StreamAutoClaimReply, StreamId, StreamPendingCountReply, StreamRangeReply, StreamReadReply,
 };
+use rust_decimal::Decimal;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -44,6 +52,7 @@ use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 use std::sync::Mutex;
 use std::time::{Duration as StdDuration, Instant};
+use uuid::Uuid;
 
 const JSON_SHAPE_MAX_DEPTH: usize = 4;
 
@@ -340,6 +349,20 @@ enum Command {
         redis_url: String,
         /// Prefix for unique synthetic stream names.
         #[arg(long, default_value = "broker.m2i.runtime_bridge_smoke")]
+        prefix: String,
+    },
+    /// Publish synthetic M3e commands and verify real Redis XREADGROUP/XACK/XAUTOCLAIM lifecycle.
+    #[command(name = "m3e-command-consumer-redis-smoke")]
+    M3eCommandConsumerRedisSmoke {
+        /// Redis connection URL.
+        #[arg(
+            long,
+            env = "FINAM_GATEWAY_REDIS_URL",
+            default_value = "redis://127.0.0.1:6379/"
+        )]
+        redis_url: String,
+        /// Prefix for unique synthetic stream names.
+        #[arg(long, default_value = "broker.m3e.command_consumer_smoke")]
         prefix: String,
     },
 }
@@ -980,6 +1003,9 @@ async fn main() -> Result<()> {
         Command::RuntimeBridgeRedisSmoke { redis_url, prefix } => {
             run_runtime_bridge_redis_smoke(redis_url, prefix).await?;
         }
+        Command::M3eCommandConsumerRedisSmoke { redis_url, prefix } => {
+            run_m3e_command_consumer_redis_smoke(redis_url, prefix).await?;
+        }
     }
     Ok(())
 }
@@ -1051,6 +1077,23 @@ struct ResolvedRuntimeBridgeDryConfig {
     block_ms: u64,
     max_iterations: u64,
     claim_stale_ms: Option<u64>,
+}
+
+#[derive(Debug, Default)]
+struct M3eRedisSmokeMetrics {
+    xreadgroup_entries: u64,
+    xautoclaim_entries: u64,
+    real_xack_count: u64,
+    ack_publish_failure_left_pending: bool,
+    dlq_publish_failure_left_pending: bool,
+    duplicate_after_xautoclaim_no_second_endpoint_attempt: bool,
+    command_received_replay_no_second_endpoint_attempt: bool,
+    endpoint_attempt_before_ack_replay_no_blind_retry: bool,
+    ack_published_before_xack_replay_no_second_endpoint_attempt: bool,
+    poison_dlq_redacted_then_xack: bool,
+    expired_ack_no_endpoint_then_xack: bool,
+    place_ok: bool,
+    cancel_ok: bool,
 }
 
 struct ResolvedGatewayShadowConfig {
@@ -2556,6 +2599,856 @@ async fn run_runtime_bridge_redis_smoke(redis_url: String, prefix: String) -> Re
         "retention": retention_result,
     }))?;
     Ok(())
+}
+
+async fn run_m3e_command_consumer_redis_smoke(redis_url: String, prefix: String) -> Result<()> {
+    let run_id = Utc::now().timestamp_millis();
+    let stream_prefix = non_empty_or_default(prefix, "broker.m3e.command_consumer_smoke");
+    let config = m3e_redis_smoke_config(&redis_url, &format!("{stream_prefix}.{run_id}"));
+    let group = format!("m3e-command-consumer-smoke-{run_id}");
+    let consumer = "m3e-smoke-consumer";
+    let mut manager = redis::Client::open(redis_url.as_str())
+        .context("m3e Redis smoke URL invalid")?
+        .get_connection_manager()
+        .await
+        .context("m3e Redis smoke connection failed")?;
+    ensure_runtime_bridge_group(&mut manager, &config.command_stream, &group, "0").await?;
+
+    let mut metrics = M3eRedisSmokeMetrics::default();
+    let sink = RedisConnectionStreamSink::from_connection_manager(manager.clone());
+    let lifecycle_store = M3eInMemoryCommandLifecycleStore::default();
+    let command_consumer =
+        M3eCommandConsumerLocalMockEndpoint::new(config.clone(), sink, lifecycle_store.clone());
+    let mut order_store = InMemoryOrderPathStore::default();
+    let mut transport = M3eCliCountingClassifiedTransport::accepted("BROKER_TEST_M3E4_PLACE");
+    let now = Utc::now();
+    let policy = m3e_smoke_preflight_policy(now);
+
+    let place_command = BrokerCommand::PlaceOrder(m3e_smoke_place_order(
+        m3e_smoke_request_id(8_001),
+        "CID000000000008001",
+        now,
+        Some(60_000),
+    )?);
+    let place_id = m3e_redis_xadd_command(&mut manager, &config, &place_command).await?;
+    let place_stream_id = m3e_redis_xreadgroup_one(&mut manager, &config, &group, consumer).await?;
+    anyhow::ensure!(
+        place_stream_id.id == place_id,
+        "m3e place XREADGROUP id mismatch"
+    );
+    metrics.xreadgroup_entries += 1;
+    let place_report = m3e_process_stream_id(
+        &command_consumer,
+        &config,
+        &mut order_store,
+        &mut transport,
+        &policy,
+        &place_stream_id,
+        now,
+    )
+    .await?;
+    anyhow::ensure!(
+        place_report.action == M3eCommandLifecycleAction::LocalMockEndpointAckPublished,
+        "m3e place did not reach local mock endpoint"
+    );
+    anyhow::ensure!(
+        place_report.local_mock_endpoint_only
+            && !place_report.external_order_endpoint_allowed
+            && !place_report.non_loopback_endpoint_allowed,
+        "m3e place opened a forbidden endpoint boundary"
+    );
+    metrics.real_xack_count += runtime_bridge_xack(
+        &mut manager,
+        &config.command_stream,
+        &group,
+        &place_stream_id.id,
+    )
+    .await?;
+    metrics.place_ok = true;
+
+    let cancel_broker_id = BrokerOrderId::new("BROKER_TEST_M3E4_CANCEL");
+    let cancel_place_order = m3e_smoke_place_order(
+        m3e_smoke_request_id(8_002),
+        "CID000000000008002",
+        now,
+        Some(60_000),
+    )?;
+    let mut submitted = OrderPathRecord::from_place_order(&cancel_place_order, now, None);
+    submitted.broker_order_id = Some(cancel_broker_id.clone());
+    submitted.transition(OrderPathEvent::BeginSubmit, now)?;
+    submitted.transition(
+        OrderPathEvent::SubmitAccepted,
+        now + ChronoDuration::milliseconds(1),
+    )?;
+    order_store.insert_intent(submitted)?;
+    let cancel_command = BrokerCommand::CancelOrder(broker_core::CancelOrder {
+        request_id: m3e_smoke_request_id(8_003),
+        created_ts: now,
+        ttl_ms: Some(60_000),
+        account_id: BrokerAccountId::new("ACC_TEST_0001"),
+        order_id: cancel_broker_id.clone(),
+        client_order_id: None,
+    });
+    let cancel_stream_id =
+        m3e_redis_xadd_and_read(&mut manager, &config, &group, consumer, &cancel_command).await?;
+    metrics.xreadgroup_entries += 1;
+    let cancel_report = m3e_process_stream_id(
+        &command_consumer,
+        &config,
+        &mut order_store,
+        &mut transport,
+        &policy,
+        &cancel_stream_id,
+        now + ChronoDuration::milliseconds(2),
+    )
+    .await?;
+    anyhow::ensure!(
+        cancel_report.action == M3eCommandLifecycleAction::LocalMockEndpointAckPublished,
+        "m3e cancel did not reach local mock endpoint"
+    );
+    metrics.real_xack_count += runtime_bridge_xack(
+        &mut manager,
+        &config.command_stream,
+        &group,
+        &cancel_stream_id.id,
+    )
+    .await?;
+    metrics.cancel_ok = true;
+
+    let duplicate_command = BrokerCommand::PlaceOrder(m3e_smoke_place_order(
+        m3e_smoke_request_id(8_001),
+        "CID000000000008001",
+        now,
+        Some(60_000),
+    )?);
+    let duplicate_pending = m3e_redis_xadd_and_make_pending(
+        &mut manager,
+        &config,
+        &group,
+        "m3e-crashed-before-duplicate",
+        &duplicate_command,
+    )
+    .await?;
+    let claimed = m3e_redis_xautoclaim_one(&mut manager, &config, &group, consumer).await?;
+    anyhow::ensure!(
+        claimed.id == duplicate_pending,
+        "m3e duplicate XAUTOCLAIM id mismatch"
+    );
+    metrics.xautoclaim_entries += 1;
+    let duplicate_report = m3e_process_stream_id(
+        &command_consumer,
+        &config,
+        &mut order_store,
+        &mut transport,
+        &policy,
+        &claimed,
+        now + ChronoDuration::seconds(1),
+    )
+    .await?;
+    anyhow::ensure!(
+        duplicate_report.duplicate_request_no_second_endpoint_attempt
+            && !duplicate_report.endpoint_transport_invoked,
+        "m3e duplicate after XAUTOCLAIM invoked endpoint"
+    );
+    metrics.real_xack_count +=
+        runtime_bridge_xack(&mut manager, &config.command_stream, &group, &claimed.id).await?;
+    metrics.duplicate_after_xautoclaim_no_second_endpoint_attempt = true;
+
+    let received_only_command = BrokerCommand::PlaceOrder(m3e_smoke_place_order(
+        m3e_smoke_request_id(8_004),
+        "CID000000000008004",
+        now,
+        Some(60_000),
+    )?);
+    lifecycle_store.insert_received(M3eCommandLifecycleRecord::command_received(
+        "synthetic-before-endpoint",
+        &received_only_command,
+        now,
+    ))?;
+    let received_only_pending = m3e_redis_xadd_and_make_pending(
+        &mut manager,
+        &config,
+        &group,
+        "m3e-crashed-after-received",
+        &received_only_command,
+    )
+    .await?;
+    let claimed_received =
+        m3e_redis_xautoclaim_one(&mut manager, &config, &group, consumer).await?;
+    anyhow::ensure!(
+        claimed_received.id == received_only_pending,
+        "m3e received-only XAUTOCLAIM id mismatch"
+    );
+    metrics.xautoclaim_entries += 1;
+    let received_report = m3e_process_stream_id(
+        &command_consumer,
+        &config,
+        &mut order_store,
+        &mut transport,
+        &policy,
+        &claimed_received,
+        now + ChronoDuration::seconds(2),
+    )
+    .await?;
+    anyhow::ensure!(
+        matches!(
+            received_report.action,
+            M3eCommandLifecycleAction::DuplicateAckPublished
+                | M3eCommandLifecycleAction::RecoveredAckPublished
+        ) && !received_report.endpoint_transport_invoked,
+        "m3e CommandReceived replay was not conservative"
+    );
+    metrics.real_xack_count += runtime_bridge_xack(
+        &mut manager,
+        &config.command_stream,
+        &group,
+        &claimed_received.id,
+    )
+    .await?;
+    metrics.command_received_replay_no_second_endpoint_attempt = true;
+
+    let endpoint_before_ack_command = BrokerCommand::PlaceOrder(m3e_smoke_place_order(
+        m3e_smoke_request_id(8_005),
+        "CID000000000008005",
+        now,
+        Some(60_000),
+    )?);
+    let mut planned = M3eCommandLifecycleRecord::command_received(
+        "synthetic-after-endpoint-before-ack",
+        &endpoint_before_ack_command,
+        now,
+    );
+    planned.mark_ack_publish_planned(
+        CommandAckStatus::UnknownPending,
+        Some(broker_core::CommandAckReasonCode::ReconciliationRequired),
+        now,
+        1,
+    );
+    lifecycle_store.upsert(planned)?;
+    let endpoint_before_ack_pending = m3e_redis_xadd_and_make_pending(
+        &mut manager,
+        &config,
+        &group,
+        "m3e-crashed-after-endpoint-before-ack",
+        &endpoint_before_ack_command,
+    )
+    .await?;
+    let claimed_endpoint =
+        m3e_redis_xautoclaim_one(&mut manager, &config, &group, consumer).await?;
+    anyhow::ensure!(
+        claimed_endpoint.id == endpoint_before_ack_pending,
+        "m3e endpoint-before-ack XAUTOCLAIM id mismatch"
+    );
+    metrics.xautoclaim_entries += 1;
+    let endpoint_replay_report = m3e_process_stream_id(
+        &command_consumer,
+        &config,
+        &mut order_store,
+        &mut transport,
+        &policy,
+        &claimed_endpoint,
+        now + ChronoDuration::seconds(3),
+    )
+    .await?;
+    anyhow::ensure!(
+        endpoint_replay_report.action == M3eCommandLifecycleAction::RecoveredAckPublished
+            && endpoint_replay_report.endpoint_attempt_count == 1
+            && !endpoint_replay_report.endpoint_transport_invoked,
+        "m3e endpoint-before-ack replay blindly retried endpoint"
+    );
+    metrics.real_xack_count += runtime_bridge_xack(
+        &mut manager,
+        &config.command_stream,
+        &group,
+        &claimed_endpoint.id,
+    )
+    .await?;
+    metrics.endpoint_attempt_before_ack_replay_no_blind_retry = true;
+
+    let ack_before_xack_command = BrokerCommand::PlaceOrder(m3e_smoke_place_order(
+        m3e_smoke_request_id(8_006),
+        "CID000000000008006",
+        now,
+        Some(60_000),
+    )?);
+    let ack_before_xack_pending = m3e_redis_xadd_and_make_pending(
+        &mut manager,
+        &config,
+        &group,
+        "m3e-crashed-after-ack-before-xack",
+        &ack_before_xack_command,
+    )
+    .await?;
+    let first_pending = m3e_stream_id_by_id(
+        &mut manager,
+        &config.command_stream,
+        &ack_before_xack_pending,
+    )
+    .await?;
+    let first_pending_report = m3e_process_stream_id(
+        &command_consumer,
+        &config,
+        &mut order_store,
+        &mut transport,
+        &policy,
+        &first_pending,
+        now + ChronoDuration::seconds(4),
+    )
+    .await?;
+    anyhow::ensure!(
+        first_pending_report.action == M3eCommandLifecycleAction::LocalMockEndpointAckPublished,
+        "m3e ack-before-xack setup did not publish first ACK"
+    );
+    let claimed_ack_before_xack =
+        m3e_redis_xautoclaim_one(&mut manager, &config, &group, consumer).await?;
+    anyhow::ensure!(
+        claimed_ack_before_xack.id == ack_before_xack_pending,
+        "m3e ack-before-xack XAUTOCLAIM id mismatch"
+    );
+    metrics.xautoclaim_entries += 1;
+    let replay_ack_before_xack_report = m3e_process_stream_id(
+        &command_consumer,
+        &config,
+        &mut order_store,
+        &mut transport,
+        &policy,
+        &claimed_ack_before_xack,
+        now + ChronoDuration::seconds(5),
+    )
+    .await?;
+    anyhow::ensure!(
+        replay_ack_before_xack_report.action == M3eCommandLifecycleAction::DuplicateAckPublished
+            && !replay_ack_before_xack_report.endpoint_transport_invoked,
+        "m3e ACK-before-XACK replay invoked endpoint"
+    );
+    metrics.real_xack_count += runtime_bridge_xack(
+        &mut manager,
+        &config.command_stream,
+        &group,
+        &claimed_ack_before_xack.id,
+    )
+    .await?;
+    metrics.ack_published_before_xack_replay_no_second_endpoint_attempt = true;
+
+    let expired_command = BrokerCommand::PlaceOrder(m3e_smoke_place_order(
+        m3e_smoke_request_id(8_007),
+        "CID000000000008007",
+        now - ChronoDuration::seconds(10),
+        Some(1),
+    )?);
+    let expired_id =
+        m3e_redis_xadd_and_read(&mut manager, &config, &group, consumer, &expired_command).await?;
+    metrics.xreadgroup_entries += 1;
+    let expired_report = m3e_process_stream_id(
+        &command_consumer,
+        &config,
+        &mut order_store,
+        &mut transport,
+        &policy,
+        &expired_id,
+        now,
+    )
+    .await?;
+    anyhow::ensure!(
+        expired_report.ack_status == Some(CommandAckStatus::Expired)
+            && !expired_report.endpoint_transport_invoked,
+        "m3e expired command attempted endpoint"
+    );
+    metrics.real_xack_count +=
+        runtime_bridge_xack(&mut manager, &config.command_stream, &group, &expired_id.id).await?;
+    metrics.expired_ack_no_endpoint_then_xack = true;
+
+    let poison_payload = "raw poison payload with SECRET_TOKEN and ACC_TEST_0001";
+    let poison_id =
+        m3e_redis_xadd_payload(&mut manager, &config.command_stream, poison_payload).await?;
+    let poison_stream_id =
+        m3e_redis_xreadgroup_one(&mut manager, &config, &group, consumer).await?;
+    anyhow::ensure!(
+        poison_stream_id.id == poison_id,
+        "m3e poison XREADGROUP id mismatch"
+    );
+    metrics.xreadgroup_entries += 1;
+    let poison_report = m3e_process_stream_id(
+        &command_consumer,
+        &config,
+        &mut order_store,
+        &mut transport,
+        &policy,
+        &poison_stream_id,
+        now,
+    )
+    .await?;
+    anyhow::ensure!(
+        poison_report.action == M3eCommandLifecycleAction::DlqPublished,
+        "m3e poison command did not publish DLQ"
+    );
+    let dlq_payload = latest_m3e_dlq_payload(&mut manager, &config).await?;
+    anyhow::ensure!(
+        !dlq_payload.contains(poison_payload)
+            && !dlq_payload.contains("SECRET_TOKEN")
+            && !dlq_payload.contains("ACC_TEST_0001"),
+        "m3e poison DLQ leaked raw payload"
+    );
+    metrics.real_xack_count += runtime_bridge_xack(
+        &mut manager,
+        &config.command_stream,
+        &group,
+        &poison_stream_id.id,
+    )
+    .await?;
+    metrics.poison_dlq_redacted_then_xack = true;
+
+    let failing_ack_sink = M3eCliFailingRedisStreamSink::new(config.command_ack_stream.clone());
+    let failing_ack_consumer = M3eCommandConsumerLocalMockEndpoint::new(
+        config.clone(),
+        failing_ack_sink,
+        M3eInMemoryCommandLifecycleStore::default(),
+    );
+    let ack_fail_command = BrokerCommand::PlaceOrder(m3e_smoke_place_order(
+        m3e_smoke_request_id(8_008),
+        "CID000000000008008",
+        now,
+        Some(60_000),
+    )?);
+    let ack_fail_id =
+        m3e_redis_xadd_and_read(&mut manager, &config, &group, consumer, &ack_fail_command).await?;
+    metrics.xreadgroup_entries += 1;
+    let ack_fail_result = m3e_process_stream_id(
+        &failing_ack_consumer,
+        &config,
+        &mut InMemoryOrderPathStore::default(),
+        &mut M3eCliCountingClassifiedTransport::accepted("BROKER_TEST_M3E4_ACK_FAIL"),
+        &policy,
+        &ack_fail_id,
+        now,
+    )
+    .await;
+    anyhow::ensure!(
+        ack_fail_result.is_err(),
+        "m3e ACK publish failure did not fail"
+    );
+    metrics.ack_publish_failure_left_pending =
+        m3e_pending_count(&mut manager, &config.command_stream, &group).await? > 0;
+
+    let failing_dlq_sink = M3eCliFailingRedisStreamSink::new(config.command_dlq_stream.clone());
+    let failing_dlq_consumer = M3eCommandConsumerLocalMockEndpoint::new(
+        config.clone(),
+        failing_dlq_sink,
+        M3eInMemoryCommandLifecycleStore::default(),
+    );
+    let dlq_fail_payload = "not-json-dlq-failure";
+    let dlq_fail_id =
+        m3e_redis_xadd_payload(&mut manager, &config.command_stream, dlq_fail_payload).await?;
+    let dlq_fail_stream_id =
+        m3e_redis_xreadgroup_one(&mut manager, &config, &group, consumer).await?;
+    metrics.xreadgroup_entries += 1;
+    anyhow::ensure!(
+        dlq_fail_stream_id.id == dlq_fail_id,
+        "m3e DLQ failure id mismatch"
+    );
+    let dlq_fail_result = m3e_process_stream_id(
+        &failing_dlq_consumer,
+        &config,
+        &mut InMemoryOrderPathStore::default(),
+        &mut M3eCliCountingClassifiedTransport::accepted("BROKER_TEST_M3E4_DLQ_FAIL"),
+        &policy,
+        &dlq_fail_stream_id,
+        now,
+    )
+    .await;
+    anyhow::ensure!(
+        dlq_fail_result.is_err(),
+        "m3e DLQ publish failure did not fail"
+    );
+    metrics.dlq_publish_failure_left_pending =
+        m3e_pending_count(&mut manager, &config.command_stream, &group).await? >= 2;
+
+    let pending_count = m3e_pending_count(&mut manager, &config.command_stream, &group).await?;
+    print_json(serde_json::json!({
+        "m3e4_redis_command_consumer_smoke": true,
+        "m3e4_redis_consumer_lifecycle_ok": metrics.place_ok
+            && metrics.cancel_ok
+            && metrics.ack_publish_failure_left_pending
+            && metrics.dlq_publish_failure_left_pending
+            && metrics.duplicate_after_xautoclaim_no_second_endpoint_attempt
+            && metrics.command_received_replay_no_second_endpoint_attempt
+            && metrics.endpoint_attempt_before_ack_replay_no_blind_retry
+            && metrics.ack_published_before_xack_replay_no_second_endpoint_attempt
+            && metrics.poison_dlq_redacted_then_xack
+            && metrics.expired_ack_no_endpoint_then_xack,
+        "xreadgroup_consume_ok": metrics.xreadgroup_entries >= 5,
+        "xack_after_ack_or_dlq_publish_ok": true,
+        "xautoclaim_recovery_ok": metrics.xautoclaim_entries >= 4,
+        "pending_replay_no_second_endpoint_attempt": metrics.duplicate_after_xautoclaim_no_second_endpoint_attempt
+            && metrics.command_received_replay_no_second_endpoint_attempt
+            && metrics.endpoint_attempt_before_ack_replay_no_blind_retry
+            && metrics.ack_published_before_xack_replay_no_second_endpoint_attempt,
+        "place_and_cancel_redis_lifecycle_ok": metrics.place_ok && metrics.cancel_ok,
+        "ack_publish_failure_no_xack": metrics.ack_publish_failure_left_pending,
+        "dlq_publish_failure_no_xack": metrics.dlq_publish_failure_left_pending,
+        "redis_real_xack_count": metrics.real_xack_count,
+        "redis_pending_count_after_failure_cases": pending_count,
+        "local_mock_endpoint_only": true,
+        "external_order_endpoint_allowed": false,
+        "non_loopback_endpoint_allowed": false,
+        "runtime_live_attachment_allowed": false,
+        "live_ready_allowed": false,
+        "stop_sltp_bracket_enabled": false,
+        "real_finam_order_endpoint_used": false,
+        "transport_place_call_count": transport.place_call_count,
+        "transport_cancel_call_count": transport.cancel_call_count,
+        "command_stream": config.command_stream,
+        "ack_stream": config.command_ack_stream,
+        "dlq_stream": config.command_dlq_stream,
+    }))?;
+    Ok(())
+}
+
+fn m3e_redis_smoke_config(_redis_url: &str, prefix: &str) -> M3eCommandConsumerConfig {
+    M3eCommandConsumerConfig {
+        command_stream: format!("{prefix}.commands"),
+        command_ack_stream: format!("{prefix}.command_acks"),
+        command_dlq_stream: format!("{prefix}.commands.dlq"),
+        command_ack_maxlen: Some(100),
+        command_dlq_maxlen: Some(100),
+        source: "m3e-command-consumer-redis-smoke".to_string(),
+        consumer_group: "m3e-command-consumer-smoke".to_string(),
+        consumer_name: "m3e-smoke-consumer".to_string(),
+    }
+}
+
+async fn m3e_redis_xadd_and_read(
+    manager: &mut redis::aio::ConnectionManager,
+    config: &M3eCommandConsumerConfig,
+    group: &str,
+    consumer: &str,
+    command: &BrokerCommand,
+) -> Result<StreamId> {
+    let message_id = m3e_redis_xadd_command(manager, config, command).await?;
+    let stream_id = m3e_redis_xreadgroup_one(manager, config, group, consumer).await?;
+    anyhow::ensure!(
+        stream_id.id == message_id,
+        "m3e XREADGROUP returned unexpected id"
+    );
+    Ok(stream_id)
+}
+
+async fn m3e_redis_xadd_and_make_pending(
+    manager: &mut redis::aio::ConnectionManager,
+    config: &M3eCommandConsumerConfig,
+    group: &str,
+    consumer: &str,
+    command: &BrokerCommand,
+) -> Result<String> {
+    let message_id = m3e_redis_xadd_command(manager, config, command).await?;
+    let stream_id = m3e_redis_xreadgroup_one(manager, config, group, consumer).await?;
+    anyhow::ensure!(
+        stream_id.id == message_id,
+        "m3e pending setup returned unexpected id"
+    );
+    Ok(message_id)
+}
+
+async fn m3e_redis_xadd_command(
+    manager: &mut redis::aio::ConnectionManager,
+    config: &M3eCommandConsumerConfig,
+    command: &BrokerCommand,
+) -> Result<String> {
+    let payload = serde_json::to_string(&Envelope::new(
+        "strategy-test",
+        MessageType::Command,
+        command,
+    ))?;
+    m3e_redis_xadd_payload(manager, &config.command_stream, &payload).await
+}
+
+async fn m3e_redis_xadd_payload(
+    manager: &mut redis::aio::ConnectionManager,
+    stream: &str,
+    payload: &str,
+) -> Result<String> {
+    redis::cmd("XADD")
+        .arg(stream)
+        .arg("*")
+        .arg("payload")
+        .arg(payload)
+        .query_async(manager)
+        .await
+        .context("m3e Redis XADD failed")
+}
+
+async fn m3e_redis_xreadgroup_one(
+    manager: &mut redis::aio::ConnectionManager,
+    config: &M3eCommandConsumerConfig,
+    group: &str,
+    consumer: &str,
+) -> Result<StreamId> {
+    let reply: StreamReadReply = redis::cmd("XREADGROUP")
+        .arg("GROUP")
+        .arg(group)
+        .arg(consumer)
+        .arg("COUNT")
+        .arg(1)
+        .arg("BLOCK")
+        .arg(1)
+        .arg("STREAMS")
+        .arg(&config.command_stream)
+        .arg(">")
+        .query_async(manager)
+        .await
+        .context("m3e Redis XREADGROUP failed")?;
+    reply
+        .keys
+        .first()
+        .and_then(|key| key.ids.first())
+        .cloned()
+        .context("m3e Redis XREADGROUP returned no entry")
+}
+
+async fn m3e_redis_xautoclaim_one(
+    manager: &mut redis::aio::ConnectionManager,
+    config: &M3eCommandConsumerConfig,
+    group: &str,
+    consumer: &str,
+) -> Result<StreamId> {
+    let reply: StreamAutoClaimReply = redis::cmd("XAUTOCLAIM")
+        .arg(&config.command_stream)
+        .arg(group)
+        .arg(consumer)
+        .arg(0)
+        .arg("0-0")
+        .arg("COUNT")
+        .arg(1)
+        .query_async(manager)
+        .await
+        .context("m3e Redis XAUTOCLAIM failed")?;
+    reply
+        .claimed
+        .first()
+        .cloned()
+        .context("m3e Redis XAUTOCLAIM returned no entry")
+}
+
+async fn m3e_stream_id_by_id(
+    manager: &mut redis::aio::ConnectionManager,
+    stream: &str,
+    id: &str,
+) -> Result<StreamId> {
+    let reply: StreamRangeReply = redis::cmd("XRANGE")
+        .arg(stream)
+        .arg(id)
+        .arg(id)
+        .query_async(manager)
+        .await
+        .context("m3e Redis XRANGE failed")?;
+    reply
+        .ids
+        .first()
+        .cloned()
+        .context("m3e XRANGE entry missing")
+}
+
+async fn m3e_process_stream_id<S, L>(
+    consumer: &M3eCommandConsumerLocalMockEndpoint<S, L>,
+    config: &M3eCommandConsumerConfig,
+    order_store: &mut InMemoryOrderPathStore,
+    transport: &mut M3eCliCountingClassifiedTransport,
+    policy: &OrderPreflightPolicy,
+    id: &StreamId,
+    now: chrono::DateTime<Utc>,
+) -> Result<finam_gateway::M3eLocalMockEndpointCommandReport>
+where
+    S: RedisStreamSink,
+    L: M3eCommandLifecycleStore,
+{
+    let payload = id
+        .get::<String>("payload")
+        .context("m3e Redis stream entry has no payload")?;
+    consumer
+        .process_entry(
+            RuntimeBridgeStreamEntry {
+                stream: config.command_stream.clone(),
+                entry_id: id.id.clone(),
+                payload,
+            },
+            order_store,
+            transport,
+            policy,
+            now,
+        )
+        .await
+        .context("m3e command consumer processing failed")
+}
+
+async fn latest_m3e_dlq_payload(
+    manager: &mut redis::aio::ConnectionManager,
+    config: &M3eCommandConsumerConfig,
+) -> Result<String> {
+    let reply: StreamRangeReply = redis::cmd("XREVRANGE")
+        .arg(&config.command_dlq_stream)
+        .arg("+")
+        .arg("-")
+        .arg("COUNT")
+        .arg(1)
+        .query_async(manager)
+        .await
+        .context("m3e DLQ read failed")?;
+    reply
+        .ids
+        .first()
+        .and_then(|id| id.get::<String>("payload"))
+        .context("m3e DLQ latest payload missing")
+}
+
+async fn m3e_pending_count(
+    manager: &mut redis::aio::ConnectionManager,
+    stream: &str,
+    group: &str,
+) -> Result<i64> {
+    let value: redis::Value = redis::cmd("XPENDING")
+        .arg(stream)
+        .arg(group)
+        .query_async(manager)
+        .await
+        .context("m3e XPENDING failed")?;
+    Ok(pending_count_from_value(&value).unwrap_or_default())
+}
+
+fn m3e_smoke_request_id(n: u128) -> StrategyRequestId {
+    StrategyRequestId::from(Uuid::from_u128(n))
+}
+
+fn m3e_smoke_place_order(
+    request_id: StrategyRequestId,
+    client_order_id: &str,
+    now: chrono::DateTime<Utc>,
+    ttl_ms: Option<u64>,
+) -> Result<PlaceOrder> {
+    Ok(PlaceOrder {
+        request_id,
+        created_ts: now,
+        ttl_ms,
+        account_id: BrokerAccountId::new("ACC_TEST_0001"),
+        client_order_id: ClientOrderId::new(client_order_id).context("m3e client order id")?,
+        instrument: smoke_instrument(),
+        side: OrderSide::Buy,
+        order_type: OrderType::Limit,
+        qty: Decimal::ONE,
+        limit_price: Some(Decimal::new(5000, 0)),
+        time_in_force: TimeInForce::Day,
+        comment: None,
+    })
+}
+
+fn m3e_smoke_preflight_policy(now: chrono::DateTime<Utc>) -> OrderPreflightPolicy {
+    OrderPreflightPolicy {
+        allowed_accounts: vec![BrokerAccountId::new("ACC_TEST_0001")],
+        allowed_venue_symbols: vec!["TESTFUT@TEST".to_string()],
+        allowed_order_types: vec![OrderType::Market, OrderType::Limit],
+        allowed_time_in_force: vec![TimeInForce::Day],
+        min_qty: Decimal::ONE,
+        qty_step: Decimal::ONE,
+        max_qty: Decimal::new(3, 0),
+        price_step: Some(Decimal::ONE),
+        max_market_qty: Decimal::ONE,
+        max_notional_per_order: None,
+        max_notional_per_run: None,
+        max_limit_deviation_bps: None,
+        max_reference_age_ms: 1_000,
+        allow_cancel_by_broker_order_id_without_mapping: false,
+        operator_arm: OperatorArm {
+            session_id: "ARM_TEST_M3E4".to_string(),
+            armed_until: now + ChronoDuration::minutes(5),
+            endpoint_calls_enabled: true,
+            one_shot: false,
+            endpoint_attempted: false,
+            preflight_digest: "m3e4-smoke-digest".to_string(),
+        },
+    }
+}
+
+#[derive(Debug)]
+struct M3eCliCountingClassifiedTransport {
+    broker_order_id_prefix: String,
+    place_call_count: usize,
+    cancel_call_count: usize,
+}
+
+impl M3eCliCountingClassifiedTransport {
+    fn accepted(broker_order_id: &str) -> Self {
+        Self {
+            broker_order_id_prefix: broker_order_id.to_string(),
+            place_call_count: 0,
+            cancel_call_count: 0,
+        }
+    }
+
+    fn accepted_response(
+        &self,
+        suffix: &str,
+    ) -> broker_finam::FinamOrderEndpointClassifiedResponse {
+        let fixture = broker_finam::FinamOrderEndpointFixture::Accepted(
+            broker_finam::FinamOrderEndpointAcceptedDto {
+                broker_order_id: Some(format!("{}_{}", self.broker_order_id_prefix, suffix)),
+            },
+        );
+        broker_finam::FinamOrderEndpointClassifiedResponse {
+            result: fixture.map_fixture().expect("m3e accepted fixture maps"),
+            diagnostic: fixture.redacted_diagnostic(),
+        }
+    }
+}
+
+impl FinamMockClassifiedEndpointTransport for M3eCliCountingClassifiedTransport {
+    fn place_order_endpoint_classified(
+        &mut self,
+        spec: broker_finam::FinamPlaceOrderRequestSpec,
+    ) -> broker_finam::FinamOrderEndpointClassifiedResponse {
+        assert!(!spec.account_id.is_empty());
+        self.place_call_count += 1;
+        self.accepted_response(&format!("P{}", self.place_call_count))
+    }
+
+    fn cancel_order_endpoint_classified(
+        &mut self,
+        spec: broker_finam::FinamCancelOrderRequestSpec,
+    ) -> broker_finam::FinamOrderEndpointClassifiedResponse {
+        assert!(!spec.account_id.is_empty());
+        self.cancel_call_count += 1;
+        self.accepted_response(&format!("C{}", self.cancel_call_count))
+    }
+}
+
+#[derive(Debug, Clone)]
+struct M3eCliFailingRedisStreamSink {
+    inner: InMemoryRedisStreamSink,
+    fail_stream: String,
+}
+
+impl M3eCliFailingRedisStreamSink {
+    fn new(fail_stream: impl Into<String>) -> Self {
+        Self {
+            inner: InMemoryRedisStreamSink::default(),
+            fail_stream: fail_stream.into(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl RedisStreamSink for M3eCliFailingRedisStreamSink {
+    async fn publish_json<T: serde::Serialize + Send + Sync>(
+        &self,
+        stream: &str,
+        value: &T,
+        maxlen: Option<usize>,
+    ) -> Result<(), GatewayError> {
+        if stream == self.fail_stream {
+            return Err(GatewayError::InternalState {
+                message: "injected m3e redis publish failure",
+            });
+        }
+        self.inner.publish_json(stream, value, maxlen).await
+    }
 }
 
 async fn consume_runtime_bridge_dry(
