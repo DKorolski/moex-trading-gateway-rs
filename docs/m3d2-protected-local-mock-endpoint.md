@@ -264,3 +264,34 @@ python3 scripts/m3d2e_closure_evidence.py \
 If the evidence is green, M3d-2 is closed as a protected local-mock endpoint
 stage. Even then, M3e must still remain non-live: no external FINAM order calls,
 no strategy runtime attachment, no `LiveReady`, and no stop/SLTP/bracket.
+
+## M3d-2f external firewall hardening
+
+M3d-2f closes the final pre-M3e firewall gap: not only `api.finam.ru`, but any
+non-loopback order endpoint is blocked during the protected endpoint stage.
+
+Firewall policy:
+
+- `LocalMockOnly` allows only loopback hosts;
+- `ExternalFinamDisabled` also allows only loopback hosts;
+- `OtherExternal`, for example `https://example.com`, is explicitly blocked;
+- `FutureExternalFinamRequiresLiveGate` remains blocked even for loopback;
+- loopback remains available only for approved local mock tests.
+
+Generate M3d-2f evidence with:
+
+```bash
+python3 scripts/m3d2f_firewall_evidence.py \
+  --source-archive reports/handoff/moex-trading-project-<commit>.zip
+```
+
+Required evidence fields:
+
+- `external_other_endpoint_blocked = true`;
+- `no_non_loopback_order_endpoint_allowed = true`;
+- `m3d2_protected_endpoint_stage_closed = true`.
+
+After M3d-2f, M3d-2 can be treated as closed for protected endpoint purposes,
+and M3e may start as a non-live command consumer / ACK-DLQ lifecycle stage.
+External broker calls, runtime live attachment, `LiveReady`, and stop/SLTP/
+bracket functionality remain blocked.

@@ -468,7 +468,7 @@ pub fn external_endpoint_firewall_allows(
             base_url_kind == M3d2OrderEndpointBaseUrlKind::Loopback
         }
         M3d2ExternalOrderEndpointMode::ExternalFinamDisabled => {
-            base_url_kind != M3d2OrderEndpointBaseUrlKind::ExternalFinam
+            base_url_kind == M3d2OrderEndpointBaseUrlKind::Loopback
         }
         M3d2ExternalOrderEndpointMode::FutureExternalFinamRequiresLiveGate => false,
     }

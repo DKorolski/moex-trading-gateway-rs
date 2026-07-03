@@ -1762,6 +1762,21 @@ mod tests {
             }
         );
 
+        let blocked_other_external_local_mock =
+            M3d2RealOrderEndpointTransport::try_new(M3d2RealOrderEndpointTransportConfig {
+                rest_base_url: "https://example.com".to_string(),
+                external_endpoint_mode: M3d2ExternalOrderEndpointMode::LocalMockOnly,
+                ..M3d2RealOrderEndpointTransportConfig::default()
+            })
+            .expect_err("local mock mode must block arbitrary external hosts");
+        assert_eq!(
+            blocked_other_external_local_mock,
+            M3d2RealOrderEndpointTransportError::ExternalOrderEndpointBlocked {
+                mode: M3d2ExternalOrderEndpointMode::LocalMockOnly,
+                base_url_kind: M3d2OrderEndpointBaseUrlKind::OtherExternal,
+            }
+        );
+
         let blocked_external =
             M3d2RealOrderEndpointTransport::try_new(M3d2RealOrderEndpointTransportConfig {
                 rest_base_url: "https://api.finam.ru".to_string(),
@@ -1774,6 +1789,21 @@ mod tests {
             M3d2RealOrderEndpointTransportError::ExternalOrderEndpointBlocked {
                 mode: M3d2ExternalOrderEndpointMode::ExternalFinamDisabled,
                 base_url_kind: M3d2OrderEndpointBaseUrlKind::ExternalFinam,
+            }
+        );
+
+        let blocked_other_external_disabled =
+            M3d2RealOrderEndpointTransport::try_new(M3d2RealOrderEndpointTransportConfig {
+                rest_base_url: "https://example.com".to_string(),
+                external_endpoint_mode: M3d2ExternalOrderEndpointMode::ExternalFinamDisabled,
+                ..M3d2RealOrderEndpointTransportConfig::default()
+            })
+            .expect_err("external disabled mode must block arbitrary external hosts");
+        assert_eq!(
+            blocked_other_external_disabled,
+            M3d2RealOrderEndpointTransportError::ExternalOrderEndpointBlocked {
+                mode: M3d2ExternalOrderEndpointMode::ExternalFinamDisabled,
+                base_url_kind: M3d2OrderEndpointBaseUrlKind::OtherExternal,
             }
         );
 
@@ -1807,5 +1837,67 @@ mod tests {
         );
         assert!(gateway_source.contains("command_consumer_enabled: false"));
         assert!(gateway_source.contains("real_order_endpoint_enabled: false"));
+    }
+
+    #[test]
+    fn m3d2f_external_firewall_blocks_all_non_loopback_order_endpoints() {
+        for (mode, url, expected_kind) in [
+            (
+                M3d2ExternalOrderEndpointMode::LocalMockOnly,
+                "https://api.finam.ru",
+                M3d2OrderEndpointBaseUrlKind::ExternalFinam,
+            ),
+            (
+                M3d2ExternalOrderEndpointMode::LocalMockOnly,
+                "https://example.com",
+                M3d2OrderEndpointBaseUrlKind::OtherExternal,
+            ),
+            (
+                M3d2ExternalOrderEndpointMode::ExternalFinamDisabled,
+                "https://api.finam.ru",
+                M3d2OrderEndpointBaseUrlKind::ExternalFinam,
+            ),
+            (
+                M3d2ExternalOrderEndpointMode::ExternalFinamDisabled,
+                "https://example.com",
+                M3d2OrderEndpointBaseUrlKind::OtherExternal,
+            ),
+            (
+                M3d2ExternalOrderEndpointMode::FutureExternalFinamRequiresLiveGate,
+                "http://127.0.0.1:1",
+                M3d2OrderEndpointBaseUrlKind::Loopback,
+            ),
+        ] {
+            let error =
+                M3d2RealOrderEndpointTransport::try_new(M3d2RealOrderEndpointTransportConfig {
+                    rest_base_url: url.to_string(),
+                    external_endpoint_mode: mode,
+                    ..M3d2RealOrderEndpointTransportConfig::default()
+                })
+                .expect_err("non-loopback or future live-gate endpoint must be blocked");
+            assert_eq!(
+                error,
+                M3d2RealOrderEndpointTransportError::ExternalOrderEndpointBlocked {
+                    mode,
+                    base_url_kind: expected_kind,
+                }
+            );
+        }
+
+        for mode in [
+            M3d2ExternalOrderEndpointMode::LocalMockOnly,
+            M3d2ExternalOrderEndpointMode::ExternalFinamDisabled,
+        ] {
+            let transport =
+                M3d2RealOrderEndpointTransport::try_new(M3d2RealOrderEndpointTransportConfig {
+                    rest_base_url: "http://127.0.0.1:1".to_string(),
+                    external_endpoint_mode: mode,
+                    ..M3d2RealOrderEndpointTransportConfig::default()
+                });
+            assert!(
+                transport.is_ok(),
+                "loopback must remain available for {mode:?}"
+            );
+        }
     }
 }
