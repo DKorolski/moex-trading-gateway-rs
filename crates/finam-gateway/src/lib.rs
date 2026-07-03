@@ -5729,6 +5729,174 @@ fn m3h3_runtime_dry_command_shape_supported(command: &BrokerCommand) -> bool {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3h5ShadowReplayReport {
+    pub schema_version: u16,
+    pub generated_at: DateTime<Utc>,
+    pub m3h_runtime_shadow_stage_closed: bool,
+    pub runtime_shadow_replay_ok: bool,
+    pub dry_command_report_redacted: bool,
+    pub pending_emission_operator_visibility_ok: bool,
+    pub decision_tick_count: u64,
+    pub dry_command_published_count: u64,
+    pub duplicate_request_id_count: u64,
+    pub not_emitted_count: u64,
+    pub pending_emission_count: u64,
+    pub oldest_pending_emission_age_ms: Option<i64>,
+    pub pending_request_hashes: Vec<String>,
+    pub maybe_published_not_finalized_count: u64,
+    pub not_ready_suppression_count: u64,
+    pub inbound_live_ready_blocked_count: u64,
+    pub bar_duplicate_count: u64,
+    pub bar_non_monotonic_count: u64,
+    pub m3e_dry_ack_count: u64,
+    pub m3e_duplicate_ack_count: u64,
+    pub runtime_live_attachment_allowed: bool,
+    pub live_ready_allowed: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub raw_request_ids_exported: bool,
+    pub raw_payload_exported: bool,
+    pub raw_token_exported: bool,
+    pub raw_body_exported: bool,
+    pub m3e_command_stream_only: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct M3h5ShadowReplayReportInput {
+    pub runtime_consumer_report: M3hRuntimeShadowConsumerReport,
+    pub dry_emitter_report: M3hRuntimeDryCommandEmitterReport,
+    pub lifecycle_records: Vec<M3hRuntimeDryCommandLifecycleRecord>,
+    pub m3e_report: Option<M3eCommandConsumerDurableReport>,
+    pub now: DateTime<Utc>,
+}
+
+pub fn m3h5_shadow_replay_report(input: M3h5ShadowReplayReportInput) -> M3h5ShadowReplayReport {
+    let pending_records: Vec<_> = input
+        .lifecycle_records
+        .iter()
+        .filter(|record| record.state == M3hRuntimeDryCommandLifecycleState::PendingEmission)
+        .collect();
+    let oldest_pending_emission_age_ms = pending_records
+        .iter()
+        .map(|record| (input.now - record.created_ts).num_milliseconds())
+        .max();
+    let pending_request_hashes = pending_records
+        .iter()
+        .map(|record| m3h5_redacted_request_hash(record.request_id))
+        .collect::<Vec<_>>();
+    let m3e_dry_ack_count = input.m3e_report.as_ref().is_some_and(|report| {
+        report.ack_status == Some(CommandAckStatus::Rejected)
+            && report.ack_reason_code == Some(CommandAckReasonCode::DryRunOnly)
+            && !report.endpoint_transport_invoked
+            && !report.external_order_endpoint_allowed
+    }) as u64;
+    let m3e_duplicate_ack_count = input
+        .m3e_report
+        .as_ref()
+        .is_some_and(|report| report.ack_status == Some(CommandAckStatus::Duplicate))
+        as u64;
+    let dry_command_report_redacted = input.m3e_report.as_ref().map_or(true, |report| {
+        !report.raw_payload_exported
+            && !report.raw_token_exported
+            && !report.raw_body_exported
+            && !report.raw_command_comment_exported
+    });
+    let no_live_boundary = !input.dry_emitter_report.runtime_live_attachment_allowed
+        && !input.dry_emitter_report.live_ready_allowed
+        && !input.dry_emitter_report.external_order_endpoint_allowed
+        && !input.dry_emitter_report.real_finam_order_endpoint_used
+        && !input
+            .dry_emitter_report
+            .stop_sltp_bracket_replace_multileg_allowed
+        && !input
+            .runtime_consumer_report
+            .runtime_live_attachment_allowed
+        && !input.runtime_consumer_report.live_ready_allowed
+        && !input
+            .runtime_consumer_report
+            .external_order_endpoint_allowed
+        && !input.runtime_consumer_report.real_finam_order_endpoint_used;
+    let runtime_shadow_replay_ok = input
+        .runtime_consumer_report
+        .metrics
+        .strategy_decision_tick_count
+        >= input.dry_emitter_report.metrics.dry_command_published_count
+        && input.dry_emitter_report.m3e_command_stream_only
+        && no_live_boundary;
+    let pending_emission_operator_visibility_ok =
+        pending_records.is_empty() || oldest_pending_emission_age_ms.is_some();
+    let not_ready_suppression_count = input
+        .lifecycle_records
+        .iter()
+        .filter(|record| {
+            record.non_emission_reason
+                == Some(M3hRuntimeDryCommandNonEmissionReason::ReadinessNotDryReady)
+        })
+        .count() as u64;
+    let report = M3h5ShadowReplayReport {
+        schema_version: SCHEMA_VERSION,
+        generated_at: input.now,
+        m3h_runtime_shadow_stage_closed: false,
+        runtime_shadow_replay_ok,
+        dry_command_report_redacted,
+        pending_emission_operator_visibility_ok,
+        decision_tick_count: input
+            .runtime_consumer_report
+            .metrics
+            .strategy_decision_tick_count,
+        dry_command_published_count: input.dry_emitter_report.metrics.dry_command_published_count,
+        duplicate_request_id_count: input.dry_emitter_report.metrics.duplicate_request_count,
+        not_emitted_count: input.dry_emitter_report.metrics.non_emitted_count,
+        pending_emission_count: pending_records.len() as u64,
+        oldest_pending_emission_age_ms,
+        pending_request_hashes,
+        maybe_published_not_finalized_count: pending_records.len() as u64,
+        not_ready_suppression_count,
+        inbound_live_ready_blocked_count: input
+            .runtime_consumer_report
+            .metrics
+            .live_ready_seen_blocked_count,
+        bar_duplicate_count: input.runtime_consumer_report.metrics.duplicate_bar_count,
+        bar_non_monotonic_count: input
+            .runtime_consumer_report
+            .metrics
+            .non_monotonic_bar_count,
+        m3e_dry_ack_count,
+        m3e_duplicate_ack_count,
+        runtime_live_attachment_allowed: false,
+        live_ready_allowed: false,
+        external_order_endpoint_allowed: false,
+        real_finam_order_endpoint_used: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+        raw_request_ids_exported: false,
+        raw_payload_exported: false,
+        raw_token_exported: false,
+        raw_body_exported: false,
+        m3e_command_stream_only: input.dry_emitter_report.m3e_command_stream_only,
+    };
+    M3h5ShadowReplayReport {
+        m3h_runtime_shadow_stage_closed: report.runtime_shadow_replay_ok
+            && report.dry_command_report_redacted
+            && report.pending_emission_operator_visibility_ok
+            && report.m3e_command_stream_only
+            && !report.runtime_live_attachment_allowed
+            && !report.live_ready_allowed
+            && !report.external_order_endpoint_allowed
+            && !report.real_finam_order_endpoint_used
+            && !report.stop_sltp_bracket_replace_multileg_allowed,
+        ..report
+    }
+}
+
+fn m3h5_redacted_request_hash(request_id: StrategyRequestId) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(request_id.to_string().as_bytes());
+    let digest = hasher.finalize();
+    format!("sha256:{digest:x}")
+}
+
 #[derive(Debug, Clone)]
 pub struct RuntimeBridgeDryConsumer {
     config: RedisStreamConfig,
@@ -17136,6 +17304,207 @@ mod tests {
             }
         );
         assert!(second_sink.entries().expect("entries").is_empty());
+    }
+
+    #[tokio::test]
+    async fn m3h5_shadow_replay_reports_e2e_dry_path_to_m3e_ack_without_live() {
+        let gateway_config = GatewayConfig::default();
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 23, 20, 0)
+            .single()
+            .expect("timestamp");
+        let mut runtime_consumer = M3hRuntimeShadowConsumer::from_gateway_config(&gateway_config);
+        let mut bar = sample_bar(MarketDataSourceKind::LiveStream, true);
+        bar.open_ts = now;
+        bar.close_ts = now + ChronoDuration::minutes(1);
+        let decision = runtime_consumer.consume_entry(m3h1_runtime_entry(
+            &gateway_config.redis.market_data_stream,
+            "m3h5-1",
+            MessageType::MarketData,
+            MarketDataEvent::Bar(bar),
+        ));
+        assert!(matches!(
+            decision,
+            M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick { .. }
+        ));
+
+        let command_sink = InMemoryRedisStreamSink::default();
+        let runtime_lifecycle_store = M3hInMemoryRuntimeDryCommandLifecycleStore::default();
+        let mut emitter = M3hRuntimeDryCommandEmitter::from_gateway_config_with_store(
+            &gateway_config,
+            command_sink.clone(),
+            runtime_lifecycle_store,
+        );
+        let mut candidate = sample_m3h_dry_command_candidate(request_id(501), now);
+        if let M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick { entry_id, bar_key } =
+            &decision
+        {
+            candidate.decision_entry_id = entry_id.clone();
+            candidate.decision_bar_key = bar_key.clone();
+        }
+        assert!(matches!(
+            emitter
+                .emit_candidate(&decision, &m3h_dry_ready_decision(), candidate, now)
+                .await
+                .expect("emit dry command"),
+            M3hRuntimeDryCommandEmitOutcome::CommandPublished { .. }
+        ));
+
+        let command_entries = command_sink.entries().expect("command entries");
+        assert_eq!(command_entries.len(), 1);
+        let m3e_entry = runtime_entries(command_entries)
+            .into_iter()
+            .next()
+            .expect("m3e command entry");
+        let m3e_config = M3eCommandConsumerConfig::from_gateway_config(&gateway_config);
+        let ack_sink = InMemoryRedisStreamSink::default();
+        let m3e_consumer = M3eCommandConsumerDurableDryRun::new(
+            m3e_config,
+            ack_sink.clone(),
+            M3eInMemoryCommandLifecycleStore::default(),
+        );
+        let m3e_report = m3e_consumer
+            .process_entry(m3e_entry, now)
+            .await
+            .expect("m3e dry ack");
+        assert_eq!(m3e_report.ack_status, Some(CommandAckStatus::Rejected));
+        assert_eq!(
+            m3e_report.ack_reason_code,
+            Some(CommandAckReasonCode::DryRunOnly)
+        );
+        assert!(!m3e_report.endpoint_transport_invoked);
+        assert!(!m3e_report.external_order_endpoint_allowed);
+
+        let report = m3h5_shadow_replay_report(M3h5ShadowReplayReportInput {
+            runtime_consumer_report: runtime_consumer.report(),
+            dry_emitter_report: emitter.report(),
+            lifecycle_records: emitter.lifecycle_records().expect("records"),
+            m3e_report: Some(m3e_report),
+            now,
+        });
+        assert!(report.m3h_runtime_shadow_stage_closed);
+        assert!(report.runtime_shadow_replay_ok);
+        assert!(report.dry_command_report_redacted);
+        assert!(report.pending_emission_operator_visibility_ok);
+        assert_eq!(report.decision_tick_count, 1);
+        assert_eq!(report.dry_command_published_count, 1);
+        assert_eq!(report.m3e_dry_ack_count, 1);
+        assert_eq!(report.pending_emission_count, 0);
+        assert_eq!(report.maybe_published_not_finalized_count, 0);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.external_order_endpoint_allowed);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(ack_sink
+            .entries()
+            .expect("ack entries")
+            .iter()
+            .any(|entry| entry.stream == gateway_config.redis.command_ack_stream));
+    }
+
+    #[test]
+    fn m3h5_shadow_replay_report_surfaces_pending_emission_operator_visibility() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 23, 21, 0)
+            .single()
+            .expect("timestamp");
+        let mut runtime_report =
+            M3hRuntimeShadowConsumer::from_gateway_config(&GatewayConfig::default()).report();
+        runtime_report.metrics.strategy_decision_tick_count = 1;
+        let mut emitter = M3hRuntimeDryCommandEmitterReport {
+            schema_version: SCHEMA_VERSION,
+            metrics: M3hRuntimeDryCommandEmitterMetrics::default(),
+            command_stream: "finam:commands".to_string(),
+            m3e_command_stream_only: true,
+            broker_neutral_command_envelope: true,
+            dry_shadow_mode_only: true,
+            runtime_live_attachment_allowed: false,
+            live_ready_allowed: false,
+            external_order_endpoint_allowed: false,
+            real_finam_order_endpoint_used: false,
+            stop_sltp_bracket_replace_multileg_allowed: false,
+        };
+        emitter.metrics.non_emitted_count = 1;
+        let pending_created = now - ChronoDuration::seconds(75);
+        let report = m3h5_shadow_replay_report(M3h5ShadowReplayReportInput {
+            runtime_consumer_report: runtime_report,
+            dry_emitter_report: emitter,
+            lifecycle_records: vec![M3hRuntimeDryCommandLifecycleRecord {
+                request_id: request_id(502),
+                command_kind: M3eCommandKind::PlaceOrder,
+                decision_entry_id: "m3h5-pending".to_string(),
+                decision_bar_key: "TESTFUT|60".to_string(),
+                state: M3hRuntimeDryCommandLifecycleState::PendingEmission,
+                non_emission_reason: None,
+                command_stream: "finam:commands".to_string(),
+                created_ts: pending_created,
+                updated_ts: pending_created,
+                publish_attempt_count: 0,
+            }],
+            m3e_report: None,
+            now,
+        });
+
+        assert!(report.pending_emission_operator_visibility_ok);
+        assert_eq!(report.pending_emission_count, 1);
+        assert_eq!(report.maybe_published_not_finalized_count, 1);
+        assert_eq!(report.oldest_pending_emission_age_ms, Some(75_000));
+        assert_eq!(report.pending_request_hashes.len(), 1);
+        assert!(report.pending_request_hashes[0].starts_with("sha256:"));
+        assert!(!report.pending_request_hashes[0].contains("502"));
+    }
+
+    #[test]
+    fn m3h5_shadow_replay_report_redacts_dropped_duplicates_and_bar_diagnostics() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 23, 22, 0)
+            .single()
+            .expect("timestamp");
+        let mut runtime_report =
+            M3hRuntimeShadowConsumer::from_gateway_config(&GatewayConfig::default()).report();
+        runtime_report.metrics.strategy_decision_tick_count = 2;
+        runtime_report.metrics.duplicate_bar_count = 1;
+        runtime_report.metrics.non_monotonic_bar_count = 1;
+        runtime_report.metrics.live_ready_seen_blocked_count = 1;
+        let mut emitter_report = M3hRuntimeDryCommandEmitter::from_gateway_config(
+            &GatewayConfig::default(),
+            InMemoryRedisStreamSink::default(),
+        )
+        .report();
+        emitter_report.metrics.duplicate_request_count = 1;
+        emitter_report.metrics.non_emitted_count = 1;
+        let report = m3h5_shadow_replay_report(M3h5ShadowReplayReportInput {
+            runtime_consumer_report: runtime_report,
+            dry_emitter_report: emitter_report,
+            lifecycle_records: vec![M3hRuntimeDryCommandLifecycleRecord {
+                request_id: request_id(503),
+                command_kind: M3eCommandKind::PlaceOrder,
+                decision_entry_id: "m3h5-dropped".to_string(),
+                decision_bar_key: "TESTFUT|60".to_string(),
+                state: M3hRuntimeDryCommandLifecycleState::NotEmitted,
+                non_emission_reason: Some(
+                    M3hRuntimeDryCommandNonEmissionReason::ReadinessNotDryReady,
+                ),
+                command_stream: "finam:commands".to_string(),
+                created_ts: now,
+                updated_ts: now,
+                publish_attempt_count: 0,
+            }],
+            m3e_report: None,
+            now,
+        });
+
+        assert!(report.m3h_runtime_shadow_stage_closed);
+        assert_eq!(report.duplicate_request_id_count, 1);
+        assert_eq!(report.not_emitted_count, 1);
+        assert_eq!(report.not_ready_suppression_count, 1);
+        assert_eq!(report.inbound_live_ready_blocked_count, 1);
+        assert_eq!(report.bar_duplicate_count, 1);
+        assert_eq!(report.bar_non_monotonic_count, 1);
+        assert!(!report.raw_request_ids_exported);
+        assert!(!report.raw_payload_exported);
+        assert!(!report.raw_token_exported);
+        assert!(!report.raw_body_exported);
     }
 
     #[tokio::test]
