@@ -2059,6 +2059,34 @@ M3c-23 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-24 undocumented `201/202/204` status evidence:
+
+- Added source-bound undocumented-2xx status evidence helper
+  `scripts/m3c_undocumented_2xx_status_evidence.py`.
+- The helper fetches official FINAM REST docs, records the docs SHA-256,
+  verifies PlaceOrder and CancelOrder sections, confirms documented `200`
+  success, confirms undocumented `201/202/204` absence in those endpoint
+  sections, records per-section hashes, and runs the forbidden-surface scan.
+- The closure relies on the existing defensive status matrix: undocumented
+  `201/202/204` stays `DecodeError` /
+  `ManualInterventionRequired` /
+  `OrderEndpointDecodeError`, with state-machine transition, no blind retry, and
+  broker-truth reconciliation required.
+- M3c-24 closes `undocumented_2xx_status_semantics` as `EvidenceProvided`;
+  cancel `409/410` remains pending.
+- Details are documented in
+  `docs/m3c24-undocumented-2xx-status-evidence.md`.
+
+M3c-24 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.

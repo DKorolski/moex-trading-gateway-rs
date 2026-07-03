@@ -118,3 +118,10 @@ must not enable POST/DELETE order endpoints.
 - `LiveReady`;
 - first live micro;
 - stop/SLTP/bracket.
+
+## Follow-up in M3c-24
+
+M3c-24 closes the undocumented `201/202/204` status semantics slot with
+source-bound evidence from the official FINAM REST documentation plus the
+existing defensive status matrix. The closure remains evidence-only and does
+not authorize real order endpoints.

@@ -247,6 +247,7 @@ See:
 - [M3c-21 release-profile evidence](docs/m3c21-release-profile-evidence.md)
 - [M3c-22 route-template recheck evidence](docs/m3c22-route-template-recheck-evidence.md)
 - [M3c-23 positive GetOrder waiver package](docs/m3c23-positive-get-order-waiver.md)
+- [M3c-24 undocumented 2xx status evidence](docs/m3c24-undocumented-2xx-status-evidence.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)
