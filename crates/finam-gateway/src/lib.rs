@@ -1253,6 +1253,15 @@ pub enum M3gSnapshotStreamWatermarkStatus {
     GapAbsenceNotProven,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3gSnapshotStreamGapAbsenceSource {
+    Sequence,
+    BrokerTimestamp,
+    ReplayWindow,
+    OperatorWaiver,
+    Unknown,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct M3gSnapshotStreamWatermarkInput {
     pub stream_subscribed_ts: Option<DateTime<Utc>>,
@@ -1260,6 +1269,7 @@ pub struct M3gSnapshotStreamWatermarkInput {
     pub snapshot_completed_ts: Option<DateTime<Utc>>,
     pub first_stream_event_ts: Option<DateTime<Utc>>,
     pub gap_absence_proven: bool,
+    pub gap_absence_source: Option<M3gSnapshotStreamGapAbsenceSource>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1271,6 +1281,7 @@ pub struct M3gSnapshotStreamWatermarkReport {
     pub snapshot_completed_ts: Option<DateTime<Utc>>,
     pub first_stream_event_ts: Option<DateTime<Utc>>,
     pub gap_absence_proven: bool,
+    pub gap_absence_source: Option<M3gSnapshotStreamGapAbsenceSource>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1344,6 +1355,71 @@ pub struct M3gBrokerTruthStreamReadinessReport {
 pub struct M3gBrokerTruthFeedBlockerSummary {
     pub blocker: M3gBrokerTruthFeedBlockerKind,
     pub count: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3g4ReadinessInputKind {
+    Auth,
+    Token,
+    Account,
+    InstrumentRegistry,
+    Schedule,
+    Reconciliation,
+    OwnOrders,
+    OwnTrades,
+    Positions,
+    FirstLiveBar,
+    Stream,
+    OperatorArm,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3g4ReadinessBlockerKind {
+    MissingToken,
+    AuthExpired,
+    AccountUnavailable,
+    InstrumentMapNotValidated,
+    ScheduleNotLoaded,
+    ReconciliationStale,
+    OrdersNotLoaded,
+    TradesNotLoaded,
+    PositionsNotLoaded,
+    FirstLiveBarMissing,
+    TransportDisconnected,
+    OperatorLiveArmMissing,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3g4OperatorReadinessBlockerSummary {
+    pub blocker: M3g4ReadinessBlockerKind,
+    pub affected_inputs: Vec<M3g4ReadinessInputKind>,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct M3g4ReadinessSimulationInput {
+    pub readiness_contract: M3gReadinessContractInput,
+    pub first_live_bar_gate: M3gFirstLiveBarGateReport,
+    pub orders: M3gBrokerTruthFeedInput,
+    pub trades: M3gBrokerTruthFeedInput,
+    pub positions: M3gPositionsFreshnessInput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3g4ReadinessSimulationReport {
+    pub schema_version: u16,
+    pub checked_ts: DateTime<Utc>,
+    pub readiness: BrokerReadiness,
+    pub broker_truth_report: M3gBrokerTruthStreamReadinessReport,
+    pub operator_blocker_summary: Vec<M3g4OperatorReadinessBlockerSummary>,
+    pub all_inputs_ok: bool,
+    pub deterministic_blocker_matrix: bool,
+    pub read_only_finam_surfaces_only: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub live_ready_allowed: bool,
+    pub stop_sltp_bracket_enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -2171,6 +2247,197 @@ pub fn m3g3a_evaluate_snapshot_stream_watermark(
         snapshot_completed_ts: input.snapshot_completed_ts,
         first_stream_event_ts: input.first_stream_event_ts,
         gap_absence_proven: input.gap_absence_proven,
+        gap_absence_source: input.gap_absence_source,
+    }
+}
+
+pub fn m3g4_simulate_readiness_package(
+    input: &M3g4ReadinessSimulationInput,
+    checked_ts: DateTime<Utc>,
+) -> M3g4ReadinessSimulationReport {
+    let broker_truth_report = m3g3_evaluate_broker_truth_stream_readiness(
+        &input.readiness_contract,
+        &input.first_live_bar_gate,
+        &input.orders,
+        &input.trades,
+        &input.positions,
+        checked_ts,
+    );
+    let readiness = broker_truth_report.readiness.clone();
+    let operator_blocker_summary =
+        m3g4_operator_blocker_summary(&input.readiness_contract, &broker_truth_report);
+    let all_inputs_ok = input.readiness_contract.auth_ok
+        && !input.readiness_contract.token_stale
+        && input.readiness_contract.account_available
+        && input.readiness_contract.instrument_registry_validated
+        && input.readiness_contract.schedule_loaded
+        && input.readiness_contract.broker_truth_reconciliation_clean
+        && input.readiness_contract.reconciliation_blocker_count == 0
+        && broker_truth_report.orders.fresh
+        && broker_truth_report.trades.fresh
+        && broker_truth_report.positions_fresh
+        && input.first_live_bar_gate.accepted
+        && !input.readiness_contract.stream_stale;
+
+    M3g4ReadinessSimulationReport {
+        schema_version: SCHEMA_VERSION,
+        checked_ts,
+        readiness,
+        broker_truth_report,
+        operator_blocker_summary,
+        all_inputs_ok,
+        deterministic_blocker_matrix: true,
+        read_only_finam_surfaces_only: true,
+        real_finam_order_endpoint_used: false,
+        external_order_endpoint_allowed: false,
+        runtime_live_attachment_allowed: false,
+        live_ready_allowed: false,
+        stop_sltp_bracket_enabled: false,
+    }
+}
+
+fn m3g4_operator_blocker_summary(
+    contract: &M3gReadinessContractInput,
+    broker_truth_report: &M3gBrokerTruthStreamReadinessReport,
+) -> Vec<M3g4OperatorReadinessBlockerSummary> {
+    let mut summary = Vec::new();
+    if !contract.auth_ok {
+        m3g4_push_operator_blocker(
+            &mut summary,
+            M3g4ReadinessBlockerKind::MissingToken,
+            M3g4ReadinessInputKind::Auth,
+        );
+    }
+    if contract.token_stale {
+        m3g4_push_operator_blocker(
+            &mut summary,
+            M3g4ReadinessBlockerKind::AuthExpired,
+            M3g4ReadinessInputKind::Token,
+        );
+    }
+    if !contract.account_available {
+        m3g4_push_operator_blocker(
+            &mut summary,
+            M3g4ReadinessBlockerKind::AccountUnavailable,
+            M3g4ReadinessInputKind::Account,
+        );
+    }
+    if !contract.instrument_registry_validated {
+        m3g4_push_operator_blocker(
+            &mut summary,
+            M3g4ReadinessBlockerKind::InstrumentMapNotValidated,
+            M3g4ReadinessInputKind::InstrumentRegistry,
+        );
+    }
+    if !contract.schedule_loaded {
+        m3g4_push_operator_blocker(
+            &mut summary,
+            M3g4ReadinessBlockerKind::ScheduleNotLoaded,
+            M3g4ReadinessInputKind::Schedule,
+        );
+    }
+    if !contract.broker_truth_reconciliation_clean || contract.reconciliation_blocker_count > 0 {
+        m3g4_push_operator_blocker(
+            &mut summary,
+            M3g4ReadinessBlockerKind::ReconciliationStale,
+            M3g4ReadinessInputKind::Reconciliation,
+        );
+    }
+    if !broker_truth_report.orders.fresh {
+        m3g4_push_operator_blocker(
+            &mut summary,
+            M3g4ReadinessBlockerKind::OrdersNotLoaded,
+            M3g4ReadinessInputKind::OwnOrders,
+        );
+    }
+    if !broker_truth_report.trades.fresh {
+        m3g4_push_operator_blocker(
+            &mut summary,
+            M3g4ReadinessBlockerKind::TradesNotLoaded,
+            M3g4ReadinessInputKind::OwnTrades,
+        );
+    }
+    if !broker_truth_report.positions_fresh {
+        m3g4_push_operator_blocker(
+            &mut summary,
+            M3g4ReadinessBlockerKind::PositionsNotLoaded,
+            M3g4ReadinessInputKind::Positions,
+        );
+    }
+    if broker_truth_report
+        .readiness
+        .reasons
+        .contains(&ReadinessReason::FirstLiveBarMissing)
+    {
+        m3g4_push_operator_blocker(
+            &mut summary,
+            M3g4ReadinessBlockerKind::FirstLiveBarMissing,
+            M3g4ReadinessInputKind::FirstLiveBar,
+        );
+    }
+    if contract.stream_stale {
+        m3g4_push_operator_blocker(
+            &mut summary,
+            M3g4ReadinessBlockerKind::TransportDisconnected,
+            M3g4ReadinessInputKind::Stream,
+        );
+    }
+    if m3g4_feed_has_transport_blocker(&broker_truth_report.orders) {
+        m3g4_push_operator_blocker(
+            &mut summary,
+            M3g4ReadinessBlockerKind::TransportDisconnected,
+            M3g4ReadinessInputKind::OwnOrders,
+        );
+    }
+    if m3g4_feed_has_transport_blocker(&broker_truth_report.trades) {
+        m3g4_push_operator_blocker(
+            &mut summary,
+            M3g4ReadinessBlockerKind::TransportDisconnected,
+            M3g4ReadinessInputKind::OwnTrades,
+        );
+    }
+    if broker_truth_report
+        .readiness
+        .reasons
+        .contains(&ReadinessReason::OperatorLiveArmMissing)
+    {
+        m3g4_push_operator_blocker(
+            &mut summary,
+            M3g4ReadinessBlockerKind::OperatorLiveArmMissing,
+            M3g4ReadinessInputKind::OperatorArm,
+        );
+    }
+    summary
+}
+
+fn m3g4_feed_has_transport_blocker(report: &M3gBrokerTruthFeedReport) -> bool {
+    report.blockers.iter().any(|blocker| {
+        matches!(
+            blocker,
+            M3gBrokerTruthFeedBlockerKind::StreamDisconnected
+                | M3gBrokerTruthFeedBlockerKind::StreamReconnecting
+                | M3gBrokerTruthFeedBlockerKind::StreamResubscribing
+                | M3gBrokerTruthFeedBlockerKind::SnapshotStreamRace
+        )
+    })
+}
+
+fn m3g4_push_operator_blocker(
+    summary: &mut Vec<M3g4OperatorReadinessBlockerSummary>,
+    blocker: M3g4ReadinessBlockerKind,
+    affected_input: M3g4ReadinessInputKind,
+) {
+    if let Some(existing) = summary.iter_mut().find(|item| item.blocker == blocker) {
+        if !existing.affected_inputs.contains(&affected_input) {
+            existing.affected_inputs.push(affected_input);
+            existing.count = existing.affected_inputs.len();
+        }
+    } else {
+        summary.push(M3g4OperatorReadinessBlockerSummary {
+            blocker,
+            affected_inputs: vec![affected_input],
+            count: 1,
+        });
     }
 }
 
@@ -14712,6 +14979,7 @@ mod tests {
             snapshot_completed_ts: Some(now - ChronoDuration::seconds(10)),
             first_stream_event_ts: Some(now - ChronoDuration::seconds(5)),
             gap_absence_proven: true,
+            gap_absence_source: Some(M3gSnapshotStreamGapAbsenceSource::ReplayWindow),
         });
         assert_eq!(
             ordered.status,
@@ -14725,6 +14993,7 @@ mod tests {
             snapshot_completed_ts: Some(now - ChronoDuration::seconds(10)),
             first_stream_event_ts: Some(now - ChronoDuration::seconds(3)),
             gap_absence_proven: true,
+            gap_absence_source: Some(M3gSnapshotStreamGapAbsenceSource::ReplayWindow),
         });
         assert_eq!(
             gap.status,
@@ -14754,6 +15023,7 @@ mod tests {
                 snapshot_completed_ts: Some(now - ChronoDuration::seconds(10)),
                 first_stream_event_ts: Some(now - ChronoDuration::seconds(3)),
                 gap_absence_proven: true,
+                gap_absence_source: Some(M3gSnapshotStreamGapAbsenceSource::ReplayWindow),
             }),
             max_allowed_age: ChronoDuration::seconds(30),
         };
@@ -14794,6 +15064,211 @@ mod tests {
             M3gSnapshotStreamWatermarkStatus::SubscriptionAfterSnapshotStart
         );
         assert!(!report.live_ready_allowed);
+    }
+
+    #[test]
+    fn m3g4_all_inputs_ok_still_does_not_emit_live_ready() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 21, 0, 0)
+            .single()
+            .expect("now");
+        let report = m3g4_simulate_readiness_package(
+            &M3g4ReadinessSimulationInput {
+                readiness_contract: m3g3_base_readiness_input(),
+                first_live_bar_gate: m3g3_accepted_first_live_bar_gate(now),
+                orders: m3g3_fresh_stream_feed(M3gBrokerTruthFeedKind::OwnOrders, now),
+                trades: m3g3_fresh_stream_feed(M3gBrokerTruthFeedKind::OwnTrades, now),
+                positions: M3gPositionsFreshnessInput {
+                    snapshot_ts: Some(now),
+                    max_allowed_age: ChronoDuration::seconds(30),
+                },
+            },
+            now,
+        );
+
+        assert!(report.all_inputs_ok);
+        assert!(report.deterministic_blocker_matrix);
+        assert_eq!(report.readiness.phase, ReadinessPhase::Reconciliation);
+        assert_eq!(
+            report.readiness.reasons,
+            vec![ReadinessReason::OperatorLiveArmMissing]
+        );
+        assert!(report.operator_blocker_summary.iter().any(|summary| {
+            summary.blocker == M3g4ReadinessBlockerKind::OperatorLiveArmMissing
+                && summary.affected_inputs == vec![M3g4ReadinessInputKind::OperatorArm]
+                && summary.count == 1
+        }));
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.external_order_endpoint_allowed);
+        assert_ne!(report.readiness.phase, ReadinessPhase::LiveReady);
+    }
+
+    #[test]
+    fn m3g4_full_blocker_matrix_maps_to_deterministic_readiness_reasons() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 21, 10, 0)
+            .single()
+            .expect("now");
+        let mut contract = m3g3_base_readiness_input();
+        contract.auth_ok = false;
+        contract.token_stale = true;
+        contract.account_available = false;
+        contract.instrument_registry_validated = false;
+        contract.schedule_loaded = false;
+        contract.broker_truth_reconciliation_clean = false;
+        contract.reconciliation_blocker_count = 1;
+        contract.stream_stale = true;
+
+        let report = m3g4_simulate_readiness_package(
+            &M3g4ReadinessSimulationInput {
+                readiness_contract: contract,
+                first_live_bar_gate: m3g2_evaluate_first_live_bar_gate(
+                    &mut M3gFirstLiveBarGateState::default(),
+                    &M3gFirstLiveBarGateInput {
+                        bar: None,
+                        checked_ts: now,
+                        max_allowed_age: ChronoDuration::minutes(2),
+                        session_open_ts: Some(now - ChronoDuration::hours(1)),
+                        session_close_ts: Some(now + ChronoDuration::hours(1)),
+                    },
+                ),
+                orders: M3gBrokerTruthFeedInput {
+                    kind: M3gBrokerTruthFeedKind::OwnOrders,
+                    status: M3gBrokerTruthInputStatus::Missing,
+                    stream_last_seen_ts: None,
+                    polling: None,
+                    stream_connection_state: M3gStreamConnectionState::Disconnected,
+                    snapshot_ts: None,
+                    first_stream_event_ts: None,
+                    snapshot_stream_watermark: None,
+                    max_allowed_age: ChronoDuration::seconds(30),
+                },
+                trades: M3gBrokerTruthFeedInput {
+                    kind: M3gBrokerTruthFeedKind::OwnTrades,
+                    status: M3gBrokerTruthInputStatus::Stale,
+                    stream_last_seen_ts: Some(now - ChronoDuration::minutes(5)),
+                    polling: None,
+                    stream_connection_state: M3gStreamConnectionState::Disconnected,
+                    snapshot_ts: None,
+                    first_stream_event_ts: None,
+                    snapshot_stream_watermark: None,
+                    max_allowed_age: ChronoDuration::seconds(30),
+                },
+                positions: M3gPositionsFreshnessInput {
+                    snapshot_ts: None,
+                    max_allowed_age: ChronoDuration::seconds(30),
+                },
+            },
+            now,
+        );
+
+        assert!(!report.all_inputs_ok);
+        assert!(report.deterministic_blocker_matrix);
+        assert_eq!(report.readiness.phase, ReadinessPhase::Blocked);
+        for reason in [
+            ReadinessReason::MissingToken,
+            ReadinessReason::AuthExpired,
+            ReadinessReason::AccountUnavailable,
+            ReadinessReason::InstrumentMapNotValidated,
+            ReadinessReason::ScheduleNotLoaded,
+            ReadinessReason::ReconciliationStale,
+            ReadinessReason::OrdersNotLoaded,
+            ReadinessReason::TradesNotLoaded,
+            ReadinessReason::PositionsNotLoaded,
+            ReadinessReason::FirstLiveBarMissing,
+            ReadinessReason::TransportDisconnected,
+        ] {
+            assert!(report.readiness.reasons.contains(&reason));
+        }
+        for blocker in [
+            M3g4ReadinessBlockerKind::MissingToken,
+            M3g4ReadinessBlockerKind::AuthExpired,
+            M3g4ReadinessBlockerKind::AccountUnavailable,
+            M3g4ReadinessBlockerKind::InstrumentMapNotValidated,
+            M3g4ReadinessBlockerKind::ScheduleNotLoaded,
+            M3g4ReadinessBlockerKind::ReconciliationStale,
+            M3g4ReadinessBlockerKind::OrdersNotLoaded,
+            M3g4ReadinessBlockerKind::TradesNotLoaded,
+            M3g4ReadinessBlockerKind::PositionsNotLoaded,
+            M3g4ReadinessBlockerKind::FirstLiveBarMissing,
+            M3g4ReadinessBlockerKind::TransportDisconnected,
+        ] {
+            assert!(report
+                .operator_blocker_summary
+                .iter()
+                .any(|summary| summary.blocker == blocker));
+        }
+        assert!(!report.live_ready_allowed);
+    }
+
+    #[test]
+    fn m3g4_operator_blocker_summary_counts_affected_feeds() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 21, 20, 0)
+            .single()
+            .expect("now");
+        let mut orders = m3g3_fresh_stream_feed(M3gBrokerTruthFeedKind::OwnOrders, now);
+        orders.stream_connection_state = M3gStreamConnectionState::Disconnected;
+        let mut trades = m3g3_fresh_stream_feed(M3gBrokerTruthFeedKind::OwnTrades, now);
+        trades.stream_connection_state = M3gStreamConnectionState::Disconnected;
+
+        let report = m3g4_simulate_readiness_package(
+            &M3g4ReadinessSimulationInput {
+                readiness_contract: m3g3_base_readiness_input(),
+                first_live_bar_gate: m3g3_accepted_first_live_bar_gate(now),
+                orders,
+                trades,
+                positions: M3gPositionsFreshnessInput {
+                    snapshot_ts: Some(now),
+                    max_allowed_age: ChronoDuration::seconds(30),
+                },
+            },
+            now,
+        );
+
+        let transport = report
+            .operator_blocker_summary
+            .iter()
+            .find(|summary| summary.blocker == M3g4ReadinessBlockerKind::TransportDisconnected)
+            .expect("transport summary");
+        assert_eq!(transport.count, 2);
+        assert!(transport
+            .affected_inputs
+            .contains(&M3g4ReadinessInputKind::OwnOrders));
+        assert!(transport
+            .affected_inputs
+            .contains(&M3g4ReadinessInputKind::OwnTrades));
+        assert_eq!(report.readiness.phase, ReadinessPhase::Blocked);
+        assert!(!report.live_ready_allowed);
+    }
+
+    #[test]
+    fn m3g4_gap_absence_source_is_reported_for_watermark_evidence() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 21, 30, 0)
+            .single()
+            .expect("now");
+        let watermark =
+            m3g3a_evaluate_snapshot_stream_watermark(&M3gSnapshotStreamWatermarkInput {
+                stream_subscribed_ts: Some(now - ChronoDuration::seconds(30)),
+                snapshot_started_ts: Some(now - ChronoDuration::seconds(20)),
+                snapshot_completed_ts: Some(now - ChronoDuration::seconds(10)),
+                first_stream_event_ts: Some(now - ChronoDuration::seconds(5)),
+                gap_absence_proven: true,
+                gap_absence_source: Some(M3gSnapshotStreamGapAbsenceSource::Sequence),
+            });
+
+        assert_eq!(
+            watermark.status,
+            M3gSnapshotStreamWatermarkStatus::OrderedNoGap
+        );
+        assert_eq!(
+            watermark.gap_absence_source,
+            Some(M3gSnapshotStreamGapAbsenceSource::Sequence)
+        );
+        assert!(!watermark.race_detected);
     }
 
     #[tokio::test]
