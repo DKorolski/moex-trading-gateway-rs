@@ -26,7 +26,7 @@ use broker_core::command::{
     BrokerCommand, CommandAck, CommandAckReason, CommandAckReasonCode, CommandAckStatus,
 };
 use broker_core::envelope::{Envelope, MessageType, SCHEMA_VERSION};
-use broker_core::event::MarketDataEvent;
+use broker_core::event::{MarketDataEvent, MarketDataSourceKind};
 use broker_core::ids::{BrokerAccountId, BrokerOrderId, ClientOrderId, StrategyRequestId};
 use broker_core::instrument::InstrumentId;
 use broker_core::order::{Order, OrderStatus, Trade};
@@ -1116,6 +1116,51 @@ pub struct M3fReconciliationRunnerReport {
     pub raw_position_payload_exported: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3gBrokerTruthInputStatus {
+    StreamFresh,
+    PollingFallbackFresh,
+    Missing,
+    Stale,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3gReadinessContractInput {
+    pub auth_ok: bool,
+    pub token_stale: bool,
+    pub account_available: bool,
+    pub instrument_registry_validated: bool,
+    pub schedule_loaded: bool,
+    pub broker_truth_reconciliation_clean: bool,
+    pub reconciliation_blocker_count: usize,
+    pub orders_input: M3gBrokerTruthInputStatus,
+    pub trades_input: M3gBrokerTruthInputStatus,
+    pub positions_snapshot_fresh: bool,
+    pub first_live_bar_observed: bool,
+    pub first_live_bar_source_kind: Option<MarketDataSourceKind>,
+    pub stream_stale: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3gReadinessContractReport {
+    pub schema_version: u16,
+    pub checked_ts: DateTime<Utc>,
+    pub readiness: BrokerReadiness,
+    pub orders_input_accepted: bool,
+    pub trades_input_accepted: bool,
+    pub positions_snapshot_fresh: bool,
+    pub first_live_bar_gate_satisfied: bool,
+    pub broker_truth_reconciliation_clean: bool,
+    pub reconciliation_blocker_count: usize,
+    pub live_ready_blocked_by_contract: bool,
+    pub read_only_finam_surfaces_only: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub live_ready_allowed: bool,
+    pub stop_sltp_bracket_enabled: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum M3fReconciliationRunnerError {
     #[error("order-path record not found during M3f reconciliation runner: {0}")]
@@ -1490,6 +1535,102 @@ pub fn m3f_write_reconciliation_runner_report_json(
     }
     fs::write(path, json)
         .map_err(|error| M3fReconciliationRunnerError::ReportSink(error.to_string()))
+}
+
+pub fn m3g1_evaluate_readiness_contract(
+    input: &M3gReadinessContractInput,
+    checked_ts: DateTime<Utc>,
+) -> M3gReadinessContractReport {
+    let mut reasons = Vec::new();
+    if !input.auth_ok {
+        reasons.push(ReadinessReason::MissingToken);
+    }
+    if input.token_stale {
+        reasons.push(ReadinessReason::AuthExpired);
+    }
+    if !input.account_available {
+        reasons.push(ReadinessReason::AccountUnavailable);
+    }
+    if !input.instrument_registry_validated {
+        reasons.push(ReadinessReason::InstrumentMapNotValidated);
+    }
+    if !input.schedule_loaded {
+        reasons.push(ReadinessReason::ScheduleNotLoaded);
+    }
+    if !input.broker_truth_reconciliation_clean || input.reconciliation_blocker_count > 0 {
+        reasons.push(ReadinessReason::ReconciliationStale);
+    }
+    if !m3g_broker_truth_input_accepted(input.orders_input) {
+        reasons.push(ReadinessReason::OrdersNotLoaded);
+    }
+    if !m3g_broker_truth_input_accepted(input.trades_input) {
+        reasons.push(ReadinessReason::TradesNotLoaded);
+    }
+    if !input.positions_snapshot_fresh {
+        reasons.push(ReadinessReason::PositionsNotLoaded);
+    }
+    let first_live_bar_gate_satisfied = input.first_live_bar_observed
+        && input.first_live_bar_source_kind == Some(MarketDataSourceKind::LiveStream);
+    if !first_live_bar_gate_satisfied {
+        reasons.push(ReadinessReason::FirstLiveBarMissing);
+    }
+    if input.stream_stale {
+        reasons.push(ReadinessReason::TransportDisconnected);
+    }
+    if reasons.is_empty() {
+        reasons.push(ReadinessReason::OperatorLiveArmMissing);
+    }
+
+    let hard_blocked = reasons.iter().any(|reason| {
+        matches!(
+            reason,
+            ReadinessReason::MissingToken
+                | ReadinessReason::AuthExpired
+                | ReadinessReason::AccountUnavailable
+                | ReadinessReason::InstrumentMapNotValidated
+                | ReadinessReason::ScheduleNotLoaded
+                | ReadinessReason::ReconciliationStale
+                | ReadinessReason::OrdersNotLoaded
+                | ReadinessReason::TradesNotLoaded
+                | ReadinessReason::PositionsNotLoaded
+                | ReadinessReason::TransportDisconnected
+        )
+    });
+    let phase = if hard_blocked {
+        ReadinessPhase::Blocked
+    } else {
+        ReadinessPhase::Reconciliation
+    };
+
+    M3gReadinessContractReport {
+        schema_version: SCHEMA_VERSION,
+        checked_ts,
+        readiness: BrokerReadiness {
+            phase,
+            reasons,
+            checked_ts,
+        },
+        orders_input_accepted: m3g_broker_truth_input_accepted(input.orders_input),
+        trades_input_accepted: m3g_broker_truth_input_accepted(input.trades_input),
+        positions_snapshot_fresh: input.positions_snapshot_fresh,
+        first_live_bar_gate_satisfied,
+        broker_truth_reconciliation_clean: input.broker_truth_reconciliation_clean,
+        reconciliation_blocker_count: input.reconciliation_blocker_count,
+        live_ready_blocked_by_contract: true,
+        read_only_finam_surfaces_only: true,
+        real_finam_order_endpoint_used: false,
+        external_order_endpoint_allowed: false,
+        runtime_live_attachment_allowed: false,
+        live_ready_allowed: false,
+        stop_sltp_bracket_enabled: false,
+    }
+}
+
+fn m3g_broker_truth_input_accepted(status: M3gBrokerTruthInputStatus) -> bool {
+    matches!(
+        status,
+        M3gBrokerTruthInputStatus::StreamFresh | M3gBrokerTruthInputStatus::PollingFallbackFresh
+    )
 }
 
 fn m3f_reconciliation_request_kind(state: OrderPathState) -> Option<M3fReconciliationRequestKind> {
@@ -13253,6 +13394,130 @@ mod tests {
         assert!(!report_json.contains("CID000000000000850"));
         assert!(!report_json.contains("CID000000000000851"));
         assert!(!report_json.contains("BROKER_TEST_M3F4A_850"));
+    }
+
+    #[test]
+    fn m3g1_readiness_contract_blocks_on_missing_inputs_and_reconciliation() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 19, 0, 0)
+            .single()
+            .expect("now");
+        let report = m3g1_evaluate_readiness_contract(
+            &M3gReadinessContractInput {
+                auth_ok: false,
+                token_stale: true,
+                account_available: false,
+                instrument_registry_validated: false,
+                schedule_loaded: false,
+                broker_truth_reconciliation_clean: false,
+                reconciliation_blocker_count: 2,
+                orders_input: M3gBrokerTruthInputStatus::Missing,
+                trades_input: M3gBrokerTruthInputStatus::Stale,
+                positions_snapshot_fresh: false,
+                first_live_bar_observed: false,
+                first_live_bar_source_kind: None,
+                stream_stale: true,
+            },
+            now,
+        );
+
+        assert_eq!(report.readiness.phase, ReadinessPhase::Blocked);
+        for reason in [
+            ReadinessReason::MissingToken,
+            ReadinessReason::AuthExpired,
+            ReadinessReason::AccountUnavailable,
+            ReadinessReason::InstrumentMapNotValidated,
+            ReadinessReason::ScheduleNotLoaded,
+            ReadinessReason::ReconciliationStale,
+            ReadinessReason::OrdersNotLoaded,
+            ReadinessReason::TradesNotLoaded,
+            ReadinessReason::PositionsNotLoaded,
+            ReadinessReason::FirstLiveBarMissing,
+            ReadinessReason::TransportDisconnected,
+        ] {
+            assert!(report.readiness.reasons.contains(&reason));
+        }
+        assert!(!report.orders_input_accepted);
+        assert!(!report.trades_input_accepted);
+        assert!(!report.first_live_bar_gate_satisfied);
+        assert!(report.live_ready_blocked_by_contract);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.external_order_endpoint_allowed);
+    }
+
+    #[test]
+    fn m3g1_polling_fallback_is_accepted_but_live_ready_stays_blocked() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 19, 5, 0)
+            .single()
+            .expect("now");
+        let report = m3g1_evaluate_readiness_contract(
+            &M3gReadinessContractInput {
+                auth_ok: true,
+                token_stale: false,
+                account_available: true,
+                instrument_registry_validated: true,
+                schedule_loaded: true,
+                broker_truth_reconciliation_clean: true,
+                reconciliation_blocker_count: 0,
+                orders_input: M3gBrokerTruthInputStatus::PollingFallbackFresh,
+                trades_input: M3gBrokerTruthInputStatus::StreamFresh,
+                positions_snapshot_fresh: true,
+                first_live_bar_observed: true,
+                first_live_bar_source_kind: Some(MarketDataSourceKind::HistoricalPoll),
+                stream_stale: false,
+            },
+            now,
+        );
+
+        assert!(report.orders_input_accepted);
+        assert!(report.trades_input_accepted);
+        assert!(!report.first_live_bar_gate_satisfied);
+        assert_eq!(report.readiness.phase, ReadinessPhase::Reconciliation);
+        assert_eq!(
+            report.readiness.reasons,
+            vec![ReadinessReason::FirstLiveBarMissing]
+        );
+        assert!(report.live_ready_blocked_by_contract);
+        assert!(!report.live_ready_allowed);
+    }
+
+    #[test]
+    fn m3g1_all_inputs_with_live_bar_still_cannot_emit_live_ready() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 19, 10, 0)
+            .single()
+            .expect("now");
+        let report = m3g1_evaluate_readiness_contract(
+            &M3gReadinessContractInput {
+                auth_ok: true,
+                token_stale: false,
+                account_available: true,
+                instrument_registry_validated: true,
+                schedule_loaded: true,
+                broker_truth_reconciliation_clean: true,
+                reconciliation_blocker_count: 0,
+                orders_input: M3gBrokerTruthInputStatus::StreamFresh,
+                trades_input: M3gBrokerTruthInputStatus::StreamFresh,
+                positions_snapshot_fresh: true,
+                first_live_bar_observed: true,
+                first_live_bar_source_kind: Some(MarketDataSourceKind::LiveStream),
+                stream_stale: false,
+            },
+            now,
+        );
+
+        assert!(report.first_live_bar_gate_satisfied);
+        assert_eq!(report.readiness.phase, ReadinessPhase::Reconciliation);
+        assert_eq!(
+            report.readiness.reasons,
+            vec![ReadinessReason::OperatorLiveArmMissing]
+        );
+        assert!(report.live_ready_blocked_by_contract);
+        assert!(!report.live_ready_allowed);
+        assert_ne!(report.readiness.phase, ReadinessPhase::LiveReady);
     }
 
     #[tokio::test]
