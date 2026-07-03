@@ -2214,6 +2214,29 @@ M3d-1 explicitly still not allowed:
 - Runtime/live attachment or `LiveReady`.
 - Stop/SLTP/bracket.
 
+M3d-2a protected exact-two-route local mock endpoint harness:
+
+- Adds `crates/finam-gateway/src/m3d2_local_mock_endpoint.rs`.
+- Proves the future exact-two-route boundary against a loopback local mock:
+  `POST /v1/accounts/{account_id}/orders` and
+  `DELETE /v1/accounts/{account_id}/orders/{order_id}`.
+- Unit tests assert actual method/path/header/body on the local socket while
+  exported diagnostics remain redacted: no raw token, raw path, rendered
+  account id, rendered order id, or raw body.
+- The raw socket helper is test-only under `#[cfg(test)]`; no production FINAM
+  order transport is added.
+- Evidence generation is documented in
+  `docs/m3d2-protected-local-mock-endpoint.md`.
+
+M3d-2a explicitly still not allowed:
+
+- Real FINAM order endpoint calls.
+- Scanner allowlist mode.
+- Constructible `EndpointGateApproved`.
+- Command consumer connected to strategies.
+- Runtime/live attachment or `LiveReady`.
+- SLTP, bracket, replace, or multi-leg order surfaces.
+
 M3d+ required sequence to operational parity:
 
 1. M3d-1 FINAM contract alignment.
