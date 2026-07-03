@@ -1238,6 +1238,41 @@ pub enum M3gFirstLiveBarRestartPolicy {
     ResetRequiresNewLiveStreamFinalBar,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3gPollingFallbackStreamPolicy {
+    AuxiliaryRequiresConnectedStream,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3gSnapshotStreamWatermarkStatus {
+    OrderedNoGap,
+    MissingWatermark,
+    SubscriptionAfterSnapshotStart,
+    SnapshotCompletedBeforeStart,
+    FirstStreamEventBeforeSnapshotStart,
+    GapAbsenceNotProven,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct M3gSnapshotStreamWatermarkInput {
+    pub stream_subscribed_ts: Option<DateTime<Utc>>,
+    pub snapshot_started_ts: Option<DateTime<Utc>>,
+    pub snapshot_completed_ts: Option<DateTime<Utc>>,
+    pub first_stream_event_ts: Option<DateTime<Utc>>,
+    pub gap_absence_proven: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3gSnapshotStreamWatermarkReport {
+    pub status: M3gSnapshotStreamWatermarkStatus,
+    pub race_detected: bool,
+    pub stream_subscribed_ts: Option<DateTime<Utc>>,
+    pub snapshot_started_ts: Option<DateTime<Utc>>,
+    pub snapshot_completed_ts: Option<DateTime<Utc>>,
+    pub first_stream_event_ts: Option<DateTime<Utc>>,
+    pub gap_absence_proven: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct M3gPollingFallbackSla {
     pub max_allowed_age: ChronoDuration,
@@ -1255,6 +1290,7 @@ pub struct M3gBrokerTruthFeedInput {
     pub stream_connection_state: M3gStreamConnectionState,
     pub snapshot_ts: Option<DateTime<Utc>>,
     pub first_stream_event_ts: Option<DateTime<Utc>>,
+    pub snapshot_stream_watermark: Option<M3gSnapshotStreamWatermarkInput>,
     pub max_allowed_age: ChronoDuration,
 }
 
@@ -1271,9 +1307,11 @@ pub struct M3gBrokerTruthFeedReport {
     pub fresh: bool,
     pub age_secs: Option<i64>,
     pub polling_fallback_used: bool,
+    pub polling_fallback_stream_policy: M3gPollingFallbackStreamPolicy,
     pub stream_connection_state: M3gStreamConnectionState,
     pub reconnect_or_resubscribe_in_progress: bool,
     pub snapshot_stream_race_detected: bool,
+    pub snapshot_stream_watermark: Option<M3gSnapshotStreamWatermarkReport>,
     pub blockers: Vec<M3gBrokerTruthFeedBlockerKind>,
     pub read_only_finam_surfaces_only: bool,
     pub real_finam_order_endpoint_used: bool,
@@ -1291,6 +1329,7 @@ pub struct M3gBrokerTruthStreamReadinessReport {
     pub positions_fresh: bool,
     pub positions_age_secs: Option<i64>,
     pub blockers: Vec<M3gBrokerTruthFeedBlockerKind>,
+    pub operator_blocker_summary: Vec<M3gBrokerTruthFeedBlockerSummary>,
     pub first_live_bar_restart_policy: M3gFirstLiveBarRestartPolicy,
     pub readiness: BrokerReadiness,
     pub read_only_finam_surfaces_only: bool,
@@ -1299,6 +1338,12 @@ pub struct M3gBrokerTruthStreamReadinessReport {
     pub runtime_live_attachment_allowed: bool,
     pub live_ready_allowed: bool,
     pub stop_sltp_bracket_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3gBrokerTruthFeedBlockerSummary {
+    pub blocker: M3gBrokerTruthFeedBlockerKind,
+    pub count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -1944,10 +1989,17 @@ pub fn m3g3_evaluate_broker_truth_feed(
         }
     }
 
-    let snapshot_stream_race_detected = match (input.snapshot_ts, input.first_stream_event_ts) {
-        (Some(snapshot_ts), Some(first_stream_event_ts)) => first_stream_event_ts < snapshot_ts,
-        _ => false,
-    };
+    let snapshot_stream_watermark = input
+        .snapshot_stream_watermark
+        .as_ref()
+        .map(m3g3a_evaluate_snapshot_stream_watermark);
+    let snapshot_stream_race_detected = snapshot_stream_watermark
+        .as_ref()
+        .map(|report| report.race_detected)
+        .unwrap_or_else(|| match (input.snapshot_ts, input.first_stream_event_ts) {
+            (Some(snapshot_ts), Some(first_stream_event_ts)) => first_stream_event_ts < snapshot_ts,
+            _ => false,
+        });
     if snapshot_stream_race_detected {
         m3g3_push_blocker(
             &mut blockers,
@@ -1966,9 +2018,12 @@ pub fn m3g3_evaluate_broker_truth_feed(
         fresh: blockers.is_empty() && m3g_broker_truth_input_accepted(input.status),
         age_secs,
         polling_fallback_used,
+        polling_fallback_stream_policy:
+            M3gPollingFallbackStreamPolicy::AuxiliaryRequiresConnectedStream,
         stream_connection_state: input.stream_connection_state,
         reconnect_or_resubscribe_in_progress,
         snapshot_stream_race_detected,
+        snapshot_stream_watermark,
         blockers,
         read_only_finam_surfaces_only: true,
         real_finam_order_endpoint_used: false,
@@ -2065,6 +2120,7 @@ pub fn m3g3_evaluate_broker_truth_stream_readiness(
         trades: trades_report,
         positions_fresh,
         positions_age_secs,
+        operator_blocker_summary: m3g3_operator_blocker_summary(&blockers),
         blockers,
         first_live_bar_restart_policy:
             M3gFirstLiveBarRestartPolicy::ResetRequiresNewLiveStreamFinalBar,
@@ -2075,6 +2131,46 @@ pub fn m3g3_evaluate_broker_truth_stream_readiness(
         runtime_live_attachment_allowed: false,
         live_ready_allowed: false,
         stop_sltp_bracket_enabled: false,
+    }
+}
+
+pub fn m3g3a_evaluate_snapshot_stream_watermark(
+    input: &M3gSnapshotStreamWatermarkInput,
+) -> M3gSnapshotStreamWatermarkReport {
+    let status = match (
+        input.stream_subscribed_ts,
+        input.snapshot_started_ts,
+        input.snapshot_completed_ts,
+        input.first_stream_event_ts,
+    ) {
+        (
+            Some(stream_subscribed_ts),
+            Some(snapshot_started_ts),
+            Some(snapshot_completed_ts),
+            Some(first_stream_event_ts),
+        ) => {
+            if stream_subscribed_ts > snapshot_started_ts {
+                M3gSnapshotStreamWatermarkStatus::SubscriptionAfterSnapshotStart
+            } else if snapshot_completed_ts < snapshot_started_ts {
+                M3gSnapshotStreamWatermarkStatus::SnapshotCompletedBeforeStart
+            } else if first_stream_event_ts < snapshot_started_ts {
+                M3gSnapshotStreamWatermarkStatus::FirstStreamEventBeforeSnapshotStart
+            } else if !input.gap_absence_proven {
+                M3gSnapshotStreamWatermarkStatus::GapAbsenceNotProven
+            } else {
+                M3gSnapshotStreamWatermarkStatus::OrderedNoGap
+            }
+        }
+        _ => M3gSnapshotStreamWatermarkStatus::MissingWatermark,
+    };
+    M3gSnapshotStreamWatermarkReport {
+        status,
+        race_detected: status != M3gSnapshotStreamWatermarkStatus::OrderedNoGap,
+        stream_subscribed_ts: input.stream_subscribed_ts,
+        snapshot_started_ts: input.snapshot_started_ts,
+        snapshot_completed_ts: input.snapshot_completed_ts,
+        first_stream_event_ts: input.first_stream_event_ts,
+        gap_absence_proven: input.gap_absence_proven,
     }
 }
 
@@ -2112,6 +2208,23 @@ fn m3g3_push_blocker(
     if !blockers.contains(&blocker) {
         blockers.push(blocker);
     }
+}
+
+fn m3g3_operator_blocker_summary(
+    blockers: &[M3gBrokerTruthFeedBlockerKind],
+) -> Vec<M3gBrokerTruthFeedBlockerSummary> {
+    let mut summary: Vec<M3gBrokerTruthFeedBlockerSummary> = Vec::new();
+    for blocker in blockers {
+        if let Some(existing) = summary.iter_mut().find(|item| item.blocker == *blocker) {
+            existing.count += 1;
+        } else {
+            summary.push(M3gBrokerTruthFeedBlockerSummary {
+                blocker: *blocker,
+                count: 1,
+            });
+        }
+    }
+    summary
 }
 
 fn m3g3_push_readiness_reason(reasons: &mut Vec<ReadinessReason>, reason: ReadinessReason) {
@@ -14297,6 +14410,7 @@ mod tests {
                 stream_connection_state: M3gStreamConnectionState::Connected,
                 snapshot_ts: Some(now - ChronoDuration::seconds(20)),
                 first_stream_event_ts: Some(now - ChronoDuration::seconds(10)),
+                snapshot_stream_watermark: None,
                 max_allowed_age: ChronoDuration::seconds(30),
             },
             &M3gBrokerTruthFeedInput {
@@ -14312,6 +14426,7 @@ mod tests {
                 stream_connection_state: M3gStreamConnectionState::Connected,
                 snapshot_ts: Some(now - ChronoDuration::seconds(20)),
                 first_stream_event_ts: Some(now - ChronoDuration::seconds(10)),
+                snapshot_stream_watermark: None,
                 max_allowed_age: ChronoDuration::seconds(30),
             },
             &M3gPositionsFreshnessInput {
@@ -14360,6 +14475,7 @@ mod tests {
                 stream_connection_state: M3gStreamConnectionState::Connected,
                 snapshot_ts: Some(now - ChronoDuration::minutes(3)),
                 first_stream_event_ts: Some(now - ChronoDuration::minutes(2)),
+                snapshot_stream_watermark: None,
                 max_allowed_age: ChronoDuration::seconds(30),
             },
             &M3gBrokerTruthFeedInput {
@@ -14375,6 +14491,7 @@ mod tests {
                 stream_connection_state: M3gStreamConnectionState::Connected,
                 snapshot_ts: None,
                 first_stream_event_ts: None,
+                snapshot_stream_watermark: None,
                 max_allowed_age: ChronoDuration::seconds(30),
             },
             &M3gPositionsFreshnessInput {
@@ -14423,6 +14540,7 @@ mod tests {
                 stream_connection_state: M3gStreamConnectionState::Reconnecting,
                 snapshot_ts: Some(now - ChronoDuration::seconds(10)),
                 first_stream_event_ts: Some(now - ChronoDuration::seconds(5)),
+                snapshot_stream_watermark: None,
                 max_allowed_age: ChronoDuration::seconds(30),
             },
             &M3gBrokerTruthFeedInput {
@@ -14433,6 +14551,7 @@ mod tests {
                 stream_connection_state: M3gStreamConnectionState::Resubscribing,
                 snapshot_ts: Some(now),
                 first_stream_event_ts: Some(now - ChronoDuration::seconds(1)),
+                snapshot_stream_watermark: None,
                 max_allowed_age: ChronoDuration::seconds(30),
             },
             &M3gPositionsFreshnessInput {
@@ -14504,6 +14623,177 @@ mod tests {
         assert!(report.positions_fresh);
         assert!(!report.live_ready_allowed);
         assert_ne!(report.readiness.phase, ReadinessPhase::LiveReady);
+    }
+
+    #[test]
+    fn m3g3a_polling_fallback_disconnected_stream_policy_is_explicit() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 20, 40, 0)
+            .single()
+            .expect("now");
+        let report = m3g3_evaluate_broker_truth_feed(
+            &M3gBrokerTruthFeedInput {
+                kind: M3gBrokerTruthFeedKind::OwnOrders,
+                status: M3gBrokerTruthInputStatus::PollingFallbackFresh,
+                stream_last_seen_ts: None,
+                polling: Some(M3gPollingFallbackSla {
+                    max_allowed_age: ChronoDuration::seconds(30),
+                    max_failure_count: 1,
+                    last_success_ts: Some(now - ChronoDuration::seconds(5)),
+                    failure_count: 0,
+                }),
+                stream_connection_state: M3gStreamConnectionState::Disconnected,
+                snapshot_ts: Some(now),
+                first_stream_event_ts: Some(now),
+                snapshot_stream_watermark: None,
+                max_allowed_age: ChronoDuration::seconds(30),
+            },
+            now,
+        );
+
+        assert_eq!(
+            report.polling_fallback_stream_policy,
+            M3gPollingFallbackStreamPolicy::AuxiliaryRequiresConnectedStream
+        );
+        assert!(report.polling_fallback_used);
+        assert!(!report.fresh);
+        assert!(report
+            .blockers
+            .contains(&M3gBrokerTruthFeedBlockerKind::StreamDisconnected));
+        assert!(!report.live_ready_allowed);
+        assert!(!report.real_finam_order_endpoint_used);
+    }
+
+    #[test]
+    fn m3g3a_polling_fallback_connected_stream_policy_is_explicit() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 20, 45, 0)
+            .single()
+            .expect("now");
+        let report = m3g3_evaluate_broker_truth_feed(
+            &M3gBrokerTruthFeedInput {
+                kind: M3gBrokerTruthFeedKind::OwnTrades,
+                status: M3gBrokerTruthInputStatus::PollingFallbackFresh,
+                stream_last_seen_ts: None,
+                polling: Some(M3gPollingFallbackSla {
+                    max_allowed_age: ChronoDuration::seconds(30),
+                    max_failure_count: 1,
+                    last_success_ts: Some(now - ChronoDuration::seconds(5)),
+                    failure_count: 0,
+                }),
+                stream_connection_state: M3gStreamConnectionState::Connected,
+                snapshot_ts: Some(now),
+                first_stream_event_ts: Some(now),
+                snapshot_stream_watermark: None,
+                max_allowed_age: ChronoDuration::seconds(30),
+            },
+            now,
+        );
+
+        assert_eq!(
+            report.polling_fallback_stream_policy,
+            M3gPollingFallbackStreamPolicy::AuxiliaryRequiresConnectedStream
+        );
+        assert!(report.polling_fallback_used);
+        assert!(report.fresh);
+        assert!(report.blockers.is_empty());
+        assert!(!report.live_ready_allowed);
+    }
+
+    #[test]
+    fn m3g3a_snapshot_stream_watermark_detects_gap_and_accepts_ordered_no_gap() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 20, 50, 0)
+            .single()
+            .expect("now");
+        let ordered = m3g3a_evaluate_snapshot_stream_watermark(&M3gSnapshotStreamWatermarkInput {
+            stream_subscribed_ts: Some(now - ChronoDuration::seconds(30)),
+            snapshot_started_ts: Some(now - ChronoDuration::seconds(20)),
+            snapshot_completed_ts: Some(now - ChronoDuration::seconds(10)),
+            first_stream_event_ts: Some(now - ChronoDuration::seconds(5)),
+            gap_absence_proven: true,
+        });
+        assert_eq!(
+            ordered.status,
+            M3gSnapshotStreamWatermarkStatus::OrderedNoGap
+        );
+        assert!(!ordered.race_detected);
+
+        let gap = m3g3a_evaluate_snapshot_stream_watermark(&M3gSnapshotStreamWatermarkInput {
+            stream_subscribed_ts: Some(now - ChronoDuration::seconds(5)),
+            snapshot_started_ts: Some(now - ChronoDuration::seconds(20)),
+            snapshot_completed_ts: Some(now - ChronoDuration::seconds(10)),
+            first_stream_event_ts: Some(now - ChronoDuration::seconds(3)),
+            gap_absence_proven: true,
+        });
+        assert_eq!(
+            gap.status,
+            M3gSnapshotStreamWatermarkStatus::SubscriptionAfterSnapshotStart
+        );
+        assert!(gap.race_detected);
+    }
+
+    #[test]
+    fn m3g3a_operator_blocker_summary_surfaces_counts_and_kinds() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 20, 55, 0)
+            .single()
+            .expect("now");
+        let gate = m3g3_accepted_first_live_bar_gate(now);
+        let stale_orders = M3gBrokerTruthFeedInput {
+            kind: M3gBrokerTruthFeedKind::OwnOrders,
+            status: M3gBrokerTruthInputStatus::StreamFresh,
+            stream_last_seen_ts: Some(now),
+            polling: None,
+            stream_connection_state: M3gStreamConnectionState::Connected,
+            snapshot_ts: Some(now - ChronoDuration::seconds(20)),
+            first_stream_event_ts: Some(now - ChronoDuration::seconds(10)),
+            snapshot_stream_watermark: Some(M3gSnapshotStreamWatermarkInput {
+                stream_subscribed_ts: Some(now - ChronoDuration::seconds(5)),
+                snapshot_started_ts: Some(now - ChronoDuration::seconds(20)),
+                snapshot_completed_ts: Some(now - ChronoDuration::seconds(10)),
+                first_stream_event_ts: Some(now - ChronoDuration::seconds(3)),
+                gap_absence_proven: true,
+            }),
+            max_allowed_age: ChronoDuration::seconds(30),
+        };
+        let report = m3g3_evaluate_broker_truth_stream_readiness(
+            &m3g3_base_readiness_input(),
+            &gate,
+            &stale_orders,
+            &stale_orders,
+            &M3gPositionsFreshnessInput {
+                snapshot_ts: Some(now - ChronoDuration::minutes(5)),
+                max_allowed_age: ChronoDuration::seconds(30),
+            },
+            now,
+        );
+
+        assert_eq!(report.readiness.phase, ReadinessPhase::Blocked);
+        assert!(report
+            .operator_blocker_summary
+            .iter()
+            .any(
+                |summary| summary.blocker == M3gBrokerTruthFeedBlockerKind::SnapshotStreamRace
+                    && summary.count == 1
+            ));
+        assert!(report
+            .operator_blocker_summary
+            .iter()
+            .any(|summary| summary.blocker
+                == M3gBrokerTruthFeedBlockerKind::PositionsSnapshotStale
+                && summary.count == 1));
+        assert!(report.orders.snapshot_stream_race_detected);
+        assert_eq!(
+            report
+                .orders
+                .snapshot_stream_watermark
+                .as_ref()
+                .expect("watermark")
+                .status,
+            M3gSnapshotStreamWatermarkStatus::SubscriptionAfterSnapshotStart
+        );
+        assert!(!report.live_ready_allowed);
     }
 
     #[tokio::test]
@@ -21106,6 +21396,7 @@ mod tests {
             stream_connection_state: M3gStreamConnectionState::Connected,
             snapshot_ts: Some(now - ChronoDuration::seconds(20)),
             first_stream_event_ts: Some(now - ChronoDuration::seconds(10)),
+            snapshot_stream_watermark: None,
             max_allowed_age: ChronoDuration::seconds(30),
         }
     }
