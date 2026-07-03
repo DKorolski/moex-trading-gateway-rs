@@ -33,6 +33,22 @@ DELETE /v1/accounts/{account_id}/orders/{order_id}
 M3d-0 does not enable these routes. They remain design data until a later
 review explicitly approves executable endpoint source.
 
+## Audit-driven follow-up
+
+The 2026-07-03 ALOR-to-FINAM engineering audit v2 accepts M3d-0 as a safe
+transition gate but changes the next work item from endpoint implementation to
+M3d-1 FINAM contract alignment. Before executable order endpoint source is
+added, the project must align:
+
+- `TimeInForce` enum mapping;
+- FINAM order status classification;
+- instrument registry / schedule validation as a `LiveReady` blocker;
+- pinned FINAM spec fixtures and drift tests.
+
+The broader plan is recorded in
+`docs/m3d-operational-parity-roadmap.md`; the next sprint ticket is
+`docs/m3d1-finam-contract-alignment.md`.
+
 ## Required future scanner failures
 
 A future allowlist scanner must still fail on:

@@ -2174,22 +2174,71 @@ M3d-0 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
-Future M3 targets after dry-order-path review acceptance:
+Audit v2 operational-parity roadmap:
 
-- Operator-armed order-emitting mode after M2m acceptance.
-- Market and limit order placement with short client order id and comment.
-- Cancel command and terminal-state handling.
-- ACK lifecycle separate from fill lifecycle.
-- USDRUBF-like simple market lifecycle.
+- Accepted planning input:
+  `audit_alor_to_finam_full_report_v2_peer_review_2026-07-03.md`.
+- ALOR remains the behavioral oracle for operational maturity, failure
+  scenarios, live guard, broker-truth bootstrap, persisted state/restart
+  semantics, and close-only behavior.
+- FINAM current status is M3/M3d pre-endpoint implementation-transition gate:
+  design/safety boundary green, implementation readiness amber, live readiness
+  red.
+- Details are documented in
+  `docs/m3d-operational-parity-roadmap.md`.
 
-Exit criteria:
+M3d-1 FINAM contract alignment before real order endpoint:
 
-- Durable id mapping survives restart/replay.
-- No-blind-retry behavior is proven by tests.
-- Operator arming and automatic disarm are proven by tests.
-- One or more micro live cycles complete and reconcile.
-- No bracket/stop semantics yet.
-- No blind duplicate after ambiguous place-order timeout.
+- The next work item is contract alignment, not live enablement and not runtime
+  attachment.
+- Fix and golden-test FINAM `TimeInForce` mapping:
+  `ImmediateOrCancel -> TIME_IN_FORCE_IOC`,
+  `FillOrKill -> TIME_IN_FORCE_FOK`, and `GoodTillDate` blocked until explicit
+  `ValidBefore` support is reviewed.
+- Add explicit FINAM order status classifier: terminal rejected, active/pending,
+  cancel pending, terminal filled, policy-required, degraded/manual, and
+  unknown.
+- Add `InstrumentRegistryValidator` as a `LiveReady` blocker using assets,
+  asset params, schedule, tick/quantity/lot, tradability, session, and expiry
+  metadata.
+- Add pinned FINAM enum/status/spec fixtures and drift tests.
+- Details are documented in
+  `docs/m3d1-finam-contract-alignment.md`.
+
+M3d-1 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Enabling exact-two-route allowlist scanner mode.
+- Making `EndpointGateApproved` constructible.
+- Real command stream consumer connected to strategies.
+- Runtime/live attachment or `LiveReady`.
+- Stop/SLTP/bracket.
+
+M3d+ required sequence to operational parity:
+
+1. M3d-1 FINAM contract alignment.
+2. M3d-2 protected exact-two-route endpoint vertical slice, disabled by
+   default and tested against a local mock endpoint.
+3. M3e command consumer and ACK lifecycle without strategies.
+4. M3f broker-truth reconciliation loop and dirty-startup policy.
+5. M3g market-data / own-order stream parity or proven polling substitute.
+6. M3h runtime shadow integration and ops parity.
+7. M3i first live micro: one account, one instrument, minimal quantity,
+   MARKET/LIMIT/CANCEL only.
+
+Release Gate R1 before first live micro:
+
+- No live decision before broker-truth orders snapshot, positions snapshot, and
+  first live bar.
+- Dropped or non-emitted intent rolls back strategy state.
+- Duplicate request id cannot create duplicate broker order.
+- Timeout after place order enters unknown pending, not retry loop.
+- Accepted response without broker order id requires reconciliation.
+- Cancel ACK is not treated as terminal cancel.
+- Unknown broker order status blocks readiness.
+- Instrument params and schedule are validated before `LiveReady`.
+- Rate limit or auth uncertainty disarms unsafe order emission.
+- Stop/SLTP/brackets remain disabled until their own contract tests pass.
 
 ## M4 — stop/bracket research and implementation
 

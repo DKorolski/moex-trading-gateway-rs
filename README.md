@@ -16,7 +16,9 @@ The first target adapter is Finam Trade API. The project is developed with gatew
 1. M0 — workspace, contracts, docs, serialization tests.
 2. M1 — Finam read-only: auth, accounts, positions, orders, trades, historical import.
 3. M2 — stream/shadow mode and reconciliation.
-4. M3 — micro live MARKET/LIMIT/CANCEL.
+4. M3 — gated path to micro live MARKET/LIMIT/CANCEL.
+   Current next step after the 2026-07-03 engineering audit is M3d-1:
+   FINAM contract alignment before any real order endpoint implementation.
 5. M4 — stop/SLTP/bracket lifecycle.
 6. M5 — strategy migration for the target MOEX futures systems.
 
@@ -25,6 +27,8 @@ The first target adapter is Finam Trade API. The project is developed with gatew
 No live trading functionality should be enabled until:
 
 - read-only Finam behavior is characterized;
+- FINAM `TimeInForce`, order status, instrument registry, and schedule
+  semantics are aligned and tested;
 - REST requests use `Authorization: Bearer <jwt>` and do not log raw tokens;
 - REST API errors are redacted by default;
 - token types do not expose secret/JWT values through debug/display/JSON export;
@@ -251,6 +255,8 @@ See:
 - [M3c-25 cancel 409/410 status evidence](docs/m3c25-cancel-409-410-status-evidence.md)
 - [M3c-26 pre-implementation gate package](docs/m3c26-pre-implementation-gate-package.md)
 - [M3d-0 implementation-transition decision](docs/m3d0-implementation-transition-decision.md)
+- [M3d operational parity roadmap](docs/m3d-operational-parity-roadmap.md)
+- [M3d-1 FINAM contract alignment](docs/m3d1-finam-contract-alignment.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)
