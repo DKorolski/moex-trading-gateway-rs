@@ -3181,6 +3181,55 @@ pub enum RuntimeBridgePayloadKind {
     MarketData,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3hRuntimeShadowInputKind {
+    Health,
+    Readiness,
+    PortfolioSnapshot,
+    OrderSnapshot,
+    BarEvent,
+    NonBarMarketData,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3hRuntimeShadowBarSourceClass {
+    LiveFinal,
+    LiveUpdating,
+    HistoricalOrReadOnly,
+    RecoveryOrUnknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct M3hRuntimeShadowBarEvent {
+    pub bar: Bar,
+    pub source_class: M3hRuntimeShadowBarSourceClass,
+    pub first_live_bar_unlock_candidate: bool,
+    pub historical_or_readonly: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct M3hRuntimeShadowInput {
+    pub schema_version: u16,
+    pub entry_id: String,
+    pub kind: M3hRuntimeShadowInputKind,
+    pub bar_event: Option<M3hRuntimeShadowBarEvent>,
+    pub readiness_phase: Option<ReadinessPhase>,
+    pub order_snapshot_unknown_orders: Option<bool>,
+    pub broker_neutral_payload_only: bool,
+    pub finam_dto_visible_to_runtime: bool,
+    pub emits_broker_command: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub live_ready_allowed: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub external_order_endpoint_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum M3hRuntimeShadowAdapterOutcome {
+    Accepted(M3hRuntimeShadowInput),
+    DeadLetter(RuntimeBridgeDeadLetter),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RuntimeBridgeDlqReason {
     UnknownStream,
@@ -4778,6 +4827,154 @@ impl RuntimeBridgeReadinessSimulator {
             }
             _ => Err(RuntimeBridgeDlqReason::UnsupportedMessageType),
         }
+    }
+}
+
+pub fn m3h1_adapt_runtime_shadow_entry(
+    config: &RedisStreamConfig,
+    entry: &RuntimeBridgeStreamEntry,
+) -> M3hRuntimeShadowAdapterOutcome {
+    match m3h1_try_adapt_runtime_shadow_entry(config, entry) {
+        Ok(input) => M3hRuntimeShadowAdapterOutcome::Accepted(input),
+        Err(reason) => M3hRuntimeShadowAdapterOutcome::DeadLetter(dead_letter(entry, reason)),
+    }
+}
+
+fn m3h1_try_adapt_runtime_shadow_entry(
+    config: &RedisStreamConfig,
+    entry: &RuntimeBridgeStreamEntry,
+) -> Result<M3hRuntimeShadowInput, RuntimeBridgeDlqReason> {
+    let expected = expected_message_type_for_stream(config, &entry.stream)
+        .ok_or(RuntimeBridgeDlqReason::UnknownStream)?;
+    let envelope_value: serde_json::Value =
+        serde_json::from_str(&entry.payload).map_err(|_| RuntimeBridgeDlqReason::InvalidJson)?;
+    validate_envelope_header(&envelope_value, &expected)?;
+
+    match expected {
+        MessageType::Health => {
+            decode_envelope::<GatewayHealth>(&entry.payload, RuntimeBridgePayloadKind::Health)?;
+            Ok(m3h1_shadow_input(
+                entry,
+                M3hRuntimeShadowInputKind::Health,
+                None,
+                None,
+                None,
+            ))
+        }
+        MessageType::Readiness => {
+            let envelope = decode_envelope::<BrokerReadiness>(
+                &entry.payload,
+                RuntimeBridgePayloadKind::Readiness,
+            )?;
+            Ok(m3h1_shadow_input(
+                entry,
+                M3hRuntimeShadowInputKind::Readiness,
+                None,
+                Some(envelope.payload.phase),
+                None,
+            ))
+        }
+        MessageType::PortfolioSnapshot => {
+            decode_envelope::<PortfolioSnapshot>(
+                &entry.payload,
+                RuntimeBridgePayloadKind::PortfolioSnapshot,
+            )?;
+            Ok(m3h1_shadow_input(
+                entry,
+                M3hRuntimeShadowInputKind::PortfolioSnapshot,
+                None,
+                None,
+                None,
+            ))
+        }
+        MessageType::OrderSnapshot => {
+            let envelope = decode_envelope::<OrderSnapshot>(
+                &entry.payload,
+                RuntimeBridgePayloadKind::OrderSnapshot,
+            )?;
+            if order_snapshot_has_raw_comments(&envelope.payload) {
+                return Err(RuntimeBridgeDlqReason::RawOrderCommentPresent);
+            }
+            Ok(m3h1_shadow_input(
+                entry,
+                M3hRuntimeShadowInputKind::OrderSnapshot,
+                None,
+                None,
+                Some(envelope.payload.blocking_unknown_status_present),
+            ))
+        }
+        MessageType::MarketData => {
+            let envelope = decode_envelope::<MarketDataEvent>(
+                &entry.payload,
+                RuntimeBridgePayloadKind::MarketData,
+            )?;
+            match envelope.payload {
+                MarketDataEvent::Bar(bar) => {
+                    let source_class = m3h1_bar_source_class(&bar);
+                    let first_live_bar_unlock_candidate =
+                        source_class == M3hRuntimeShadowBarSourceClass::LiveFinal;
+                    let historical_or_readonly =
+                        source_class == M3hRuntimeShadowBarSourceClass::HistoricalOrReadOnly;
+                    Ok(m3h1_shadow_input(
+                        entry,
+                        M3hRuntimeShadowInputKind::BarEvent,
+                        Some(M3hRuntimeShadowBarEvent {
+                            bar,
+                            source_class,
+                            first_live_bar_unlock_candidate,
+                            historical_or_readonly,
+                        }),
+                        None,
+                        None,
+                    ))
+                }
+                _ => Ok(m3h1_shadow_input(
+                    entry,
+                    M3hRuntimeShadowInputKind::NonBarMarketData,
+                    None,
+                    None,
+                    None,
+                )),
+            }
+        }
+        _ => Err(RuntimeBridgeDlqReason::UnsupportedMessageType),
+    }
+}
+
+fn m3h1_bar_source_class(bar: &Bar) -> M3hRuntimeShadowBarSourceClass {
+    match (bar.source_kind, bar.is_final) {
+        (MarketDataSourceKind::LiveStream, true) => M3hRuntimeShadowBarSourceClass::LiveFinal,
+        (MarketDataSourceKind::LiveStream, false) => M3hRuntimeShadowBarSourceClass::LiveUpdating,
+        (MarketDataSourceKind::HistoricalPoll | MarketDataSourceKind::ReadOnlyPoll, _) => {
+            M3hRuntimeShadowBarSourceClass::HistoricalOrReadOnly
+        }
+        (MarketDataSourceKind::Recovery | MarketDataSourceKind::Unknown, _) => {
+            M3hRuntimeShadowBarSourceClass::RecoveryOrUnknown
+        }
+    }
+}
+
+fn m3h1_shadow_input(
+    entry: &RuntimeBridgeStreamEntry,
+    kind: M3hRuntimeShadowInputKind,
+    bar_event: Option<M3hRuntimeShadowBarEvent>,
+    readiness_phase: Option<ReadinessPhase>,
+    order_snapshot_unknown_orders: Option<bool>,
+) -> M3hRuntimeShadowInput {
+    M3hRuntimeShadowInput {
+        schema_version: SCHEMA_VERSION,
+        entry_id: entry.entry_id.clone(),
+        kind,
+        bar_event,
+        readiness_phase,
+        order_snapshot_unknown_orders,
+        broker_neutral_payload_only: true,
+        finam_dto_visible_to_runtime: false,
+        emits_broker_command: false,
+        runtime_live_attachment_allowed: false,
+        live_ready_allowed: false,
+        real_finam_order_endpoint_used: false,
+        external_order_endpoint_allowed: false,
     }
 }
 
@@ -15271,6 +15468,153 @@ mod tests {
         assert!(!watermark.race_detected);
     }
 
+    #[test]
+    fn m3h1_runtime_adapter_accepts_live_final_bar_without_live_unlock() {
+        let config = GatewayConfig::default();
+        let mut bar = sample_bar(MarketDataSourceKind::LiveStream, true);
+        bar.open_ts = Utc
+            .with_ymd_and_hms(2026, 7, 3, 21, 40, 0)
+            .single()
+            .expect("timestamp");
+        bar.close_ts = bar.open_ts + ChronoDuration::minutes(1);
+        let entry = m3h1_runtime_entry(
+            &config.redis.market_data_stream,
+            "1-0",
+            MessageType::MarketData,
+            MarketDataEvent::Bar(bar.clone()),
+        );
+
+        let outcome = m3h1_adapt_runtime_shadow_entry(&config.redis, &entry);
+        let M3hRuntimeShadowAdapterOutcome::Accepted(input) = outcome else {
+            panic!("expected accepted runtime shadow input");
+        };
+        assert_eq!(input.kind, M3hRuntimeShadowInputKind::BarEvent);
+        let bar_event = input.bar_event.expect("bar event");
+        assert_eq!(bar_event.bar, bar);
+        assert_eq!(
+            bar_event.source_class,
+            M3hRuntimeShadowBarSourceClass::LiveFinal
+        );
+        assert!(bar_event.first_live_bar_unlock_candidate);
+        assert!(!bar_event.historical_or_readonly);
+        assert!(input.broker_neutral_payload_only);
+        assert!(!input.finam_dto_visible_to_runtime);
+        assert!(!input.emits_broker_command);
+        assert!(!input.runtime_live_attachment_allowed);
+        assert!(!input.live_ready_allowed);
+        assert!(!input.real_finam_order_endpoint_used);
+        assert!(!input.external_order_endpoint_allowed);
+    }
+
+    #[test]
+    fn m3h1_runtime_adapter_rejects_historical_or_readonly_as_live_unlock() {
+        let config = GatewayConfig::default();
+        for source_kind in [
+            MarketDataSourceKind::HistoricalPoll,
+            MarketDataSourceKind::ReadOnlyPoll,
+        ] {
+            let entry = m3h1_runtime_entry(
+                &config.redis.market_data_stream,
+                "2-0",
+                MessageType::MarketData,
+                MarketDataEvent::Bar(sample_bar(source_kind, true)),
+            );
+            let outcome = m3h1_adapt_runtime_shadow_entry(&config.redis, &entry);
+            let M3hRuntimeShadowAdapterOutcome::Accepted(input) = outcome else {
+                panic!("expected accepted historical/read-only shadow bar");
+            };
+            let bar_event = input.bar_event.expect("bar event");
+            assert_eq!(
+                bar_event.source_class,
+                M3hRuntimeShadowBarSourceClass::HistoricalOrReadOnly
+            );
+            assert!(!bar_event.first_live_bar_unlock_candidate);
+            assert!(bar_event.historical_or_readonly);
+            assert!(!input.live_ready_allowed);
+            assert!(!input.emits_broker_command);
+        }
+    }
+
+    #[test]
+    fn m3h1_runtime_adapter_keeps_readiness_and_order_snapshot_broker_neutral() {
+        let config = GatewayConfig::default();
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 21, 50, 0)
+            .single()
+            .expect("timestamp");
+        let readiness_entry = m3h1_runtime_entry(
+            &config.redis.readiness_stream,
+            "3-0",
+            MessageType::Readiness,
+            BrokerReadiness {
+                phase: ReadinessPhase::Reconciliation,
+                reasons: vec![ReadinessReason::OperatorLiveArmMissing],
+                checked_ts: now,
+            },
+        );
+        let readiness_outcome = m3h1_adapt_runtime_shadow_entry(&config.redis, &readiness_entry);
+        let M3hRuntimeShadowAdapterOutcome::Accepted(readiness_input) = readiness_outcome else {
+            panic!("expected accepted readiness input");
+        };
+        assert_eq!(readiness_input.kind, M3hRuntimeShadowInputKind::Readiness);
+        assert_eq!(
+            readiness_input.readiness_phase,
+            Some(ReadinessPhase::Reconciliation)
+        );
+        assert!(!readiness_input.live_ready_allowed);
+        assert!(!readiness_input.emits_broker_command);
+
+        let order_snapshot = build_order_snapshot(
+            vec![sample_order_with_status(
+                OrderStatus::Working,
+                "BROKER_TEST_M3H1_1",
+                now,
+            )],
+            now,
+        );
+        let order_entry = m3h1_runtime_entry(
+            &config.redis.order_snapshot_stream,
+            "4-0",
+            MessageType::OrderSnapshot,
+            order_snapshot,
+        );
+        let order_outcome = m3h1_adapt_runtime_shadow_entry(&config.redis, &order_entry);
+        let M3hRuntimeShadowAdapterOutcome::Accepted(order_input) = order_outcome else {
+            panic!("expected accepted order snapshot input");
+        };
+        assert_eq!(order_input.kind, M3hRuntimeShadowInputKind::OrderSnapshot);
+        assert_eq!(order_input.order_snapshot_unknown_orders, Some(false));
+        assert!(order_input.broker_neutral_payload_only);
+        assert!(!order_input.finam_dto_visible_to_runtime);
+        assert!(!order_input.emits_broker_command);
+        let json = serde_json::to_string(&order_input).expect("serialize shadow input");
+        assert!(!json.contains("broker_native"));
+        assert!(!json.contains("raw_payload"));
+        assert!(!json.contains("raw_body"));
+    }
+
+    #[test]
+    fn m3h1_runtime_adapter_deadletters_wrong_stream_contract() {
+        let config = GatewayConfig::default();
+        let entry = m3h1_runtime_entry(
+            &config.redis.health_stream,
+            "5-0",
+            MessageType::MarketData,
+            MarketDataEvent::Bar(sample_bar(MarketDataSourceKind::LiveStream, true)),
+        );
+        let outcome = m3h1_adapt_runtime_shadow_entry(&config.redis, &entry);
+        let M3hRuntimeShadowAdapterOutcome::DeadLetter(dead_letter) = outcome else {
+            panic!("expected dead letter");
+        };
+        assert_eq!(
+            dead_letter.reason,
+            RuntimeBridgeDlqReason::MessageTypeMismatch {
+                expected: MessageType::Health,
+                actual: Some(MessageType::MarketData)
+            }
+        );
+    }
+
     #[tokio::test]
     async fn dry_command_ack_publisher_refuses_order_enabled_modes() {
         fn enable_command_consumer(features: &mut GatewayFeatureSet) {
@@ -21873,6 +22217,20 @@ mod tests {
             first_stream_event_ts: Some(now - ChronoDuration::seconds(10)),
             snapshot_stream_watermark: None,
             max_allowed_age: ChronoDuration::seconds(30),
+        }
+    }
+
+    fn m3h1_runtime_entry<T: Serialize>(
+        stream: &str,
+        entry_id: &str,
+        msg_type: MessageType,
+        payload: T,
+    ) -> RuntimeBridgeStreamEntry {
+        RuntimeBridgeStreamEntry {
+            stream: stream.to_string(),
+            entry_id: entry_id.to_string(),
+            payload: serde_json::to_string(&Envelope::new("finam-gateway", msg_type, payload))
+                .expect("serialize runtime shadow envelope"),
         }
     }
 
