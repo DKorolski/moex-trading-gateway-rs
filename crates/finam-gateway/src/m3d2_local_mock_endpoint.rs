@@ -36,12 +36,23 @@ pub struct M3d2LocalMockPlaceBodyDiagnostic {
     pub body_kind: M3d2LocalMockPlaceBodyKind,
     pub json_object: bool,
     pub symbol_present: bool,
+    pub symbol_format_ok: bool,
     pub side_present: bool,
+    pub side_official_finam_enum: bool,
     pub quantity_present: bool,
+    pub quantity_value_decimal_string: bool,
     pub order_type_present: bool,
+    pub order_type_official_finam_enum: bool,
     pub time_in_force_present: bool,
+    pub time_in_force_plain_order_allowed: bool,
     pub client_order_id_present: bool,
+    pub client_order_id_finam_safe: bool,
     pub limit_price_present: bool,
+    pub limit_price_value_decimal_string: bool,
+    pub forbidden_plain_order_field_present: bool,
+    pub comment_present: bool,
+    pub comment_string: bool,
+    pub strict_contract_rejection: Option<String>,
     pub raw_body_exported: bool,
 }
 
@@ -51,12 +62,23 @@ impl Default for M3d2LocalMockPlaceBodyDiagnostic {
             body_kind: M3d2LocalMockPlaceBodyKind::NotPlaceBody,
             json_object: false,
             symbol_present: false,
+            symbol_format_ok: false,
             side_present: false,
+            side_official_finam_enum: false,
             quantity_present: false,
+            quantity_value_decimal_string: false,
             order_type_present: false,
+            order_type_official_finam_enum: false,
             time_in_force_present: false,
+            time_in_force_plain_order_allowed: false,
             client_order_id_present: false,
+            client_order_id_finam_safe: false,
             limit_price_present: false,
+            limit_price_value_decimal_string: false,
+            forbidden_plain_order_field_present: false,
+            comment_present: false,
+            comment_string: false,
+            strict_contract_rejection: None,
             raw_body_exported: false,
         }
     }
@@ -157,6 +179,28 @@ pub fn classify_m3d2_local_mock_wire_request(raw_request: &str) -> M3d2LocalMock
     }
 }
 
+pub fn classify_m3d2_local_mock_place_spec(
+    spec: &broker_finam::FinamPlaceOrderRequestSpec,
+) -> M3d2LocalMockWireDiagnostic {
+    let body = serde_json::to_string(&spec.body).unwrap_or_else(|_| "{}".to_string());
+    let path = format!("/{}", spec.rest_path_segments().join("/"));
+    let raw_request = format!(
+        "POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer REDACTED_LOCAL_MOCK_TOKEN\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    classify_m3d2_local_mock_wire_request(&raw_request)
+}
+
+pub fn classify_m3d2_local_mock_cancel_spec(
+    spec: &broker_finam::FinamCancelOrderRequestSpec,
+) -> M3d2LocalMockWireDiagnostic {
+    let path = format!("/{}", spec.rest_path_segments().join("/"));
+    let raw_request = format!(
+        "DELETE {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer REDACTED_LOCAL_MOCK_TOKEN\r\nContent-Length: 0\r\n\r\n"
+    );
+    classify_m3d2_local_mock_wire_request(&raw_request)
+}
+
 struct RouteClassification {
     operation: M3d2LocalMockOrderOperation,
     route_template: Option<&'static str>,
@@ -229,25 +273,96 @@ fn classify_place_body(body: &str) -> M3d2LocalMockPlaceBodyDiagnostic {
     };
 
     let symbol_present = object.contains_key("symbol");
+    let symbol_format_ok = object
+        .get("symbol")
+        .and_then(Value::as_str)
+        .is_some_and(is_pinned_broker_symbol);
     let side_present = object.contains_key("side");
+    let side_official_finam_enum = object
+        .get("side")
+        .and_then(Value::as_str)
+        .is_some_and(|value| matches!(value, "SIDE_BUY" | "SIDE_SELL"));
     let quantity_present = object.contains_key("quantity");
-    let order_type_present = object.contains_key("order_type") || object.contains_key("type");
+    let quantity_value_decimal_string = decimal_value_field_ok(object.get("quantity"));
+    let order_type_present = object.contains_key("type");
+    let order_type_official_finam_enum = object
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|value| matches!(value, "ORDER_TYPE_MARKET" | "ORDER_TYPE_LIMIT"));
     let time_in_force_present = object.contains_key("time_in_force");
+    let time_in_force_plain_order_allowed = object
+        .get("time_in_force")
+        .and_then(Value::as_str)
+        .is_some_and(|value| {
+            matches!(
+                value,
+                "TIME_IN_FORCE_DAY"
+                    | "TIME_IN_FORCE_GOOD_TILL_CANCEL"
+                    | "TIME_IN_FORCE_IOC"
+                    | "TIME_IN_FORCE_FOK"
+            )
+        });
     let client_order_id_present = object.contains_key("client_order_id");
+    let client_order_id_finam_safe = object
+        .get("client_order_id")
+        .and_then(Value::as_str)
+        .is_some_and(is_finam_safe_client_order_id);
     let limit_price_present = object.contains_key("limit_price");
+    let limit_price_value_decimal_string = decimal_value_field_ok(object.get("limit_price"));
+    let forbidden_plain_order_field_present = object.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "symbol"
+                | "quantity"
+                | "side"
+                | "type"
+                | "time_in_force"
+                | "limit_price"
+                | "client_order_id"
+                | "comment"
+        ) || matches!(
+            key.as_str(),
+            "order_type"
+                | "stop_price"
+                | "stop_condition"
+                | "stop_loss"
+                | "take_profit"
+                | "legs"
+                | "sltp"
+                | "valid_before"
+        )
+    });
+    let comment_present = object.contains_key("comment");
+    let comment_string = object.get("comment").is_some_and(Value::is_string);
     let order_type = object
-        .get("order_type")
-        .or_else(|| object.get("type"))
+        .get("type")
         .and_then(Value::as_str)
         .unwrap_or_default()
-        .to_ascii_uppercase();
+        .to_string();
     let core_fields_present =
         symbol_present && side_present && quantity_present && order_type_present;
-    let body_kind = if !core_fields_present {
+    let strict_contract_rejection = strict_place_body_rejection(
+        core_fields_present,
+        symbol_format_ok,
+        side_official_finam_enum,
+        quantity_value_decimal_string,
+        order_type_official_finam_enum,
+        time_in_force_present,
+        time_in_force_plain_order_allowed,
+        client_order_id_present,
+        client_order_id_finam_safe,
+        limit_price_present,
+        limit_price_value_decimal_string,
+        forbidden_plain_order_field_present,
+        comment_present,
+        comment_string,
+        &order_type,
+    );
+    let body_kind = if strict_contract_rejection.is_some() {
         M3d2LocalMockPlaceBodyKind::Unknown
-    } else if order_type.contains("LIMIT") && limit_price_present {
+    } else if order_type == "ORDER_TYPE_LIMIT" {
         M3d2LocalMockPlaceBodyKind::Limit
-    } else if order_type.contains("MARKET") && !limit_price_present {
+    } else if order_type == "ORDER_TYPE_MARKET" {
         M3d2LocalMockPlaceBodyKind::Market
     } else {
         M3d2LocalMockPlaceBodyKind::Unknown
@@ -257,14 +372,136 @@ fn classify_place_body(body: &str) -> M3d2LocalMockPlaceBodyDiagnostic {
         body_kind,
         json_object: true,
         symbol_present,
+        symbol_format_ok,
         side_present,
+        side_official_finam_enum,
         quantity_present,
+        quantity_value_decimal_string,
         order_type_present,
+        order_type_official_finam_enum,
         time_in_force_present,
+        time_in_force_plain_order_allowed,
         client_order_id_present,
+        client_order_id_finam_safe,
         limit_price_present,
+        limit_price_value_decimal_string,
+        forbidden_plain_order_field_present,
+        comment_present,
+        comment_string,
+        strict_contract_rejection,
         raw_body_exported: false,
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn strict_place_body_rejection(
+    core_fields_present: bool,
+    symbol_format_ok: bool,
+    side_official_finam_enum: bool,
+    quantity_value_decimal_string: bool,
+    order_type_official_finam_enum: bool,
+    time_in_force_present: bool,
+    time_in_force_plain_order_allowed: bool,
+    client_order_id_present: bool,
+    client_order_id_finam_safe: bool,
+    limit_price_present: bool,
+    limit_price_value_decimal_string: bool,
+    forbidden_plain_order_field_present: bool,
+    comment_present: bool,
+    comment_string: bool,
+    order_type: &str,
+) -> Option<String> {
+    if !core_fields_present {
+        return Some("required_plain_order_field_missing".to_string());
+    }
+    if forbidden_plain_order_field_present {
+        return Some("plain_order_field_not_allowed".to_string());
+    }
+    if !symbol_format_ok {
+        return Some("symbol_format_not_pinned_broker_symbol".to_string());
+    }
+    if !quantity_value_decimal_string {
+        return Some("quantity_value_not_decimal_string".to_string());
+    }
+    if !side_official_finam_enum {
+        return Some("side_not_official_finam_enum".to_string());
+    }
+    if !order_type_official_finam_enum {
+        return Some("order_type_not_official_finam_enum".to_string());
+    }
+    if !time_in_force_present {
+        return Some("time_in_force_missing".to_string());
+    }
+    if !time_in_force_plain_order_allowed {
+        return Some("time_in_force_not_plain_order_allowed".to_string());
+    }
+    if !client_order_id_present {
+        return Some("client_order_id_missing".to_string());
+    }
+    if !client_order_id_finam_safe {
+        return Some("client_order_id_not_finam_safe".to_string());
+    }
+    if comment_present && !comment_string {
+        return Some("comment_not_string".to_string());
+    }
+    if order_type == "ORDER_TYPE_LIMIT" && !limit_price_present {
+        return Some("limit_price_missing_for_limit".to_string());
+    }
+    if order_type == "ORDER_TYPE_LIMIT" && !limit_price_value_decimal_string {
+        return Some("limit_price_value_not_decimal_string".to_string());
+    }
+    if order_type == "ORDER_TYPE_MARKET" && limit_price_present {
+        return Some("limit_price_forbidden_for_market".to_string());
+    }
+    None
+}
+
+fn decimal_value_field_ok(value: Option<&Value>) -> bool {
+    value
+        .and_then(Value::as_object)
+        .and_then(|object| object.get("value"))
+        .and_then(Value::as_str)
+        .is_some_and(is_decimal_like_string)
+}
+
+fn is_decimal_like_string(value: &str) -> bool {
+    if value.is_empty() || value.starts_with('-') || value.ends_with('.') {
+        return false;
+    }
+    let mut dot_count = 0usize;
+    let mut digit_count = 0usize;
+    for character in value.chars() {
+        if character == '.' {
+            dot_count += 1;
+            if dot_count > 1 {
+                return false;
+            }
+        } else if character.is_ascii_digit() {
+            digit_count += 1;
+        } else {
+            return false;
+        }
+    }
+    digit_count > 0
+}
+
+fn is_finam_safe_client_order_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= broker_core::CLIENT_ORDER_ID_MAX_LEN
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+}
+
+fn is_pinned_broker_symbol(value: &str) -> bool {
+    let Some((symbol, market)) = value.split_once('@') else {
+        return false;
+    };
+    !symbol.is_empty()
+        && !market.is_empty()
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '@' | '.')
+        })
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -279,11 +516,27 @@ fn sha256_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use broker_core::{
+        AccountId, BrokerOrderId, CancelOrder, CancelPreflightApproval, ClientOrderId, Exchange,
+        InstrumentId, Market, OperatorArm, OrderPathEvent, OrderPathRecord, OrderPathState,
+        OrderPreflightContext, OrderPreflightPolicy, OrderReferencePrice, OrderSide, OrderType,
+        PlaceOrder, StrategyRequestId, TimeInForce,
+    };
+    use broker_finam::{
+        build_cancel_order_request, build_place_order_request,
+        classify_order_endpoint_local_http_response_for_context, FinamOrderEndpointContext,
+        FinamOrderEndpointLocalHttpResponse, FinamOrderEndpointMappedResult,
+        FinamOrderEndpointResponseKind, FinamOrderExecutionOutcome,
+    };
+    use chrono::{DateTime, TimeZone, Utc};
+    use rust_decimal::Decimal;
+    use serde_json::{json, Value};
     use std::io::{Read, Write};
     use std::net::{Shutdown, TcpListener, TcpStream};
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use uuid::Uuid;
 
     fn run_local_mock_once(raw_request: String) -> (M3d2LocalMockWireDiagnostic, String) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind local mock endpoint");
@@ -342,19 +595,198 @@ mod tests {
         (diagnostic, response)
     }
 
+    fn request_id(n: u128) -> StrategyRequestId {
+        StrategyRequestId::from(Uuid::from_u128(n))
+    }
+
+    fn instrument() -> InstrumentId {
+        InstrumentId {
+            symbol: "TESTFUT".to_string(),
+            venue_symbol: Some("TESTFUT@TEST".to_string()),
+            exchange: Exchange::Other("TEST".to_string()),
+            market: Market::Futures,
+        }
+    }
+
+    fn place_order(order_type: OrderType) -> PlaceOrder {
+        let limit_price = if order_type == OrderType::Limit {
+            Some(Decimal::new(10_050, 2))
+        } else {
+            None
+        };
+        PlaceOrder {
+            request_id: request_id(10),
+            created_ts: Utc
+                .with_ymd_and_hms(2026, 7, 3, 9, 10, 0)
+                .single()
+                .expect("timestamp"),
+            ttl_ms: Some(1_000),
+            account_id: AccountId::new("ACC_TEST_0001"),
+            client_order_id: ClientOrderId::new("CID000000000000010").expect("client id"),
+            instrument: instrument(),
+            side: OrderSide::Buy,
+            order_type,
+            qty: Decimal::new(1, 0),
+            limit_price,
+            time_in_force: TimeInForce::Day,
+            comment: None,
+        }
+    }
+
+    fn sample_arm(now: DateTime<Utc>) -> OperatorArm {
+        OperatorArm {
+            session_id: "ARM_TEST_M3D2".to_string(),
+            armed_until: now + chrono::Duration::minutes(5),
+            endpoint_calls_enabled: true,
+            one_shot: false,
+            endpoint_attempted: false,
+            preflight_digest: "digest-test".to_string(),
+        }
+    }
+
+    fn preflight_policy(now: DateTime<Utc>) -> OrderPreflightPolicy {
+        OrderPreflightPolicy {
+            allowed_accounts: vec![AccountId::new("ACC_TEST_0001")],
+            allowed_venue_symbols: vec!["TESTFUT@TEST".to_string()],
+            allowed_order_types: vec![OrderType::Market, OrderType::Limit],
+            allowed_time_in_force: vec![TimeInForce::Day],
+            min_qty: Decimal::new(1, 0),
+            qty_step: Decimal::new(1, 0),
+            max_qty: Decimal::new(3, 0),
+            price_step: Some(Decimal::new(1, 2)),
+            max_market_qty: Decimal::new(1, 0),
+            max_notional_per_order: None,
+            max_notional_per_run: None,
+            max_limit_deviation_bps: None,
+            max_reference_age_ms: 1_000,
+            allow_cancel_by_broker_order_id_without_mapping: false,
+            operator_arm: sample_arm(now),
+        }
+    }
+
+    fn approve_place(order: &PlaceOrder) -> broker_core::PreflightApprovedPlaceOrder {
+        let now = order.created_ts + chrono::Duration::milliseconds(1);
+        let context = OrderPreflightContext {
+            reference_price: Some(OrderReferencePrice {
+                price: order.limit_price.unwrap_or(Decimal::new(10_050, 2)),
+                received_ts: now,
+            }),
+            current_run_notional: Decimal::ZERO,
+        };
+        preflight_policy(now)
+            .approve_place_order_with_context(order, now, &context)
+            .expect("place preflight approval")
+    }
+
+    fn approve_cancel(cancel: &CancelOrder) -> broker_core::PreflightApprovedCancelOrder {
+        let now = cancel.created_ts + chrono::Duration::milliseconds(1);
+        let mut existing = OrderPathRecord::from_place_order(
+            &place_order(OrderType::Limit),
+            cancel.created_ts,
+            None,
+        );
+        existing.broker_order_id = Some(cancel.order_id.clone());
+        existing
+            .transition(OrderPathEvent::BeginSubmit, now)
+            .expect("begin submit");
+        existing
+            .transition(OrderPathEvent::SubmitAccepted, now)
+            .expect("submitted");
+        assert_eq!(existing.state, OrderPathState::Submitted);
+        match preflight_policy(now)
+            .approve_cancel_order(cancel, now, Some(&existing))
+            .expect("cancel preflight approval")
+        {
+            CancelPreflightApproval::Submit(approved) => approved,
+            CancelPreflightApproval::AlreadyTerminal => panic!("expected submit approval"),
+        }
+    }
+
     fn place_limit_request() -> String {
-        let body = r#"{"symbol":"IMOEXF","side":"BUY","quantity":{"value":"1"},"order_type":"LIMIT","limit_price":{"value":"3000.0"},"time_in_force":"TIME_IN_FORCE_DAY","client_order_id":"CID_TEST_0001"}"#;
+        request_from_body(strict_limit_body(), true, Some("application/json"))
+    }
+
+    fn request_from_body(body: Value, authorization: bool, content_type: Option<&str>) -> String {
+        let body = serde_json::to_string(&body).expect("body json");
+        raw_request_from_body(
+            "POST",
+            "/v1/accounts/ACC_TEST_0001/orders",
+            authorization,
+            content_type,
+            &body,
+        )
+    }
+
+    fn raw_request_from_body(
+        method: &str,
+        path: &str,
+        authorization: bool,
+        content_type: Option<&str>,
+        body: &str,
+    ) -> String {
+        let authorization_header = if authorization {
+            "Authorization: Bearer REDACTED_TEST_TOKEN\r\n"
+        } else {
+            ""
+        };
+        let content_type_header = content_type
+            .map(|value| format!("Content-Type: {value}\r\n"))
+            .unwrap_or_default();
         format!(
-            "POST /v1/accounts/ACC_TEST_0001/orders HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer REDACTED_TEST_TOKEN\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n{authorization_header}{content_type_header}Content-Length: {}\r\n\r\n{body}",
             body.len()
         )
     }
 
-    #[test]
-    fn local_mock_endpoint_accepts_exact_place_limit_wire_request() {
-        let (diagnostic, response) = run_local_mock_once(place_limit_request());
+    fn strict_limit_body() -> Value {
+        json!({
+            "symbol": "TESTFUT@TEST",
+            "quantity": { "value": "1" },
+            "side": "SIDE_BUY",
+            "type": "ORDER_TYPE_LIMIT",
+            "time_in_force": "TIME_IN_FORCE_DAY",
+            "limit_price": { "value": "100.5" },
+            "client_order_id": "CID000000000000010"
+        })
+    }
 
-        assert!(response.starts_with("HTTP/1.1 200 OK"));
+    fn strict_market_body() -> Value {
+        json!({
+            "symbol": "TESTFUT@TEST",
+            "quantity": { "value": "1" },
+            "side": "SIDE_SELL",
+            "type": "ORDER_TYPE_MARKET",
+            "time_in_force": "TIME_IN_FORCE_DAY",
+            "client_order_id": "CID000000000000011"
+        })
+    }
+
+    fn assert_place_rejected(request: String, body_rejection: Option<&str>) {
+        let (diagnostic, response) = run_local_mock_once(request);
+        assert!(response.starts_with("HTTP/1.1 400 Bad Request"));
+        assert_eq!(
+            diagnostic.operation,
+            M3d2LocalMockOrderOperation::PlaceOrder
+        );
+        assert!(!diagnostic.accepted_by_m3d2a_mock);
+        if let Some(expected) = body_rejection {
+            assert_eq!(
+                diagnostic.body.strict_contract_rejection.as_deref(),
+                Some(expected)
+            );
+        }
+        assert!(!diagnostic.raw_path_exported);
+        assert!(!diagnostic.raw_authorization_exported);
+        assert!(!diagnostic.body.raw_body_exported);
+    }
+
+    #[test]
+    fn local_mock_endpoint_accepts_exact_place_limit_finam_body() {
+        let order = place_order(OrderType::Limit);
+        let approved = approve_place(&order);
+        let spec = build_place_order_request(&approved, None).expect("request spec");
+        let diagnostic = classify_m3d2_local_mock_place_spec(&spec);
+
         assert_eq!(
             diagnostic.operation,
             M3d2LocalMockOrderOperation::PlaceOrder
@@ -370,20 +802,87 @@ mod tests {
         assert!(diagnostic.authorization_present);
         assert_eq!(
             diagnostic.authorization_len,
-            Some("Bearer REDACTED_TEST_TOKEN".len())
+            Some("Bearer REDACTED_LOCAL_MOCK_TOKEN".len())
         );
         assert!(diagnostic.content_type_json);
         assert_eq!(diagnostic.body.body_kind, M3d2LocalMockPlaceBodyKind::Limit);
         assert!(diagnostic.body.symbol_present);
+        assert!(diagnostic.body.symbol_format_ok);
         assert!(diagnostic.body.side_present);
+        assert!(diagnostic.body.side_official_finam_enum);
         assert!(diagnostic.body.quantity_present);
+        assert!(diagnostic.body.quantity_value_decimal_string);
+        assert!(diagnostic.body.time_in_force_plain_order_allowed);
+        assert!(diagnostic.body.client_order_id_finam_safe);
         assert!(diagnostic.body.limit_price_present);
+        assert!(diagnostic.body.limit_price_value_decimal_string);
+        assert_eq!(diagnostic.body.strict_contract_rejection, None);
         assert!(diagnostic.accepted_by_m3d2a_mock);
-        assert!(!format!("{diagnostic:?}").contains("REDACTED_TEST_TOKEN"));
+        assert!(!format!("{diagnostic:?}").contains("REDACTED_LOCAL_MOCK_TOKEN"));
+        let (wire_diagnostic, response) = run_local_mock_once(place_limit_request());
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert_eq!(
+            wire_diagnostic.body.body_kind,
+            M3d2LocalMockPlaceBodyKind::Limit
+        );
+    }
+
+    #[test]
+    fn local_mock_endpoint_accepts_exact_place_market_finam_body() {
+        let mut order = place_order(OrderType::Market);
+        order.side = OrderSide::Sell;
+        order.client_order_id = ClientOrderId::new("CID000000000000011").expect("client id");
+        let approved = approve_place(&order);
+        let spec = build_place_order_request(&approved, None).expect("request spec");
+        let diagnostic = classify_m3d2_local_mock_place_spec(&spec);
+
+        assert_eq!(
+            diagnostic.operation,
+            M3d2LocalMockOrderOperation::PlaceOrder
+        );
+        assert_eq!(diagnostic.method_name, "POST");
+        assert_eq!(
+            diagnostic.body.body_kind,
+            M3d2LocalMockPlaceBodyKind::Market
+        );
+        assert!(diagnostic.body.symbol_format_ok);
+        assert!(diagnostic.body.quantity_value_decimal_string);
+        assert!(diagnostic.body.side_official_finam_enum);
+        assert!(diagnostic.body.order_type_official_finam_enum);
+        assert!(diagnostic.body.time_in_force_plain_order_allowed);
+        assert!(diagnostic.body.client_order_id_finam_safe);
+        assert!(!diagnostic.body.limit_price_present);
+        assert!(diagnostic.accepted_by_m3d2a_mock);
+        let (wire_diagnostic, response) = run_local_mock_once(request_from_body(
+            strict_market_body(),
+            true,
+            Some("application/json"),
+        ));
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert_eq!(
+            wire_diagnostic.body.body_kind,
+            M3d2LocalMockPlaceBodyKind::Market
+        );
     }
 
     #[test]
     fn local_mock_endpoint_accepts_exact_cancel_wire_request() {
+        let cancel = CancelOrder {
+            request_id: request_id(11),
+            created_ts: Utc
+                .with_ymd_and_hms(2026, 7, 3, 9, 11, 0)
+                .single()
+                .expect("timestamp"),
+            ttl_ms: Some(1_000),
+            account_id: AccountId::new("ACC_TEST_0001"),
+            order_id: BrokerOrderId::new("BROKER_TEST_ORDER"),
+            client_order_id: Some(ClientOrderId::new("CID000000000000010").expect("client id")),
+        };
+        let approved = approve_cancel(&cancel);
+        let spec = build_cancel_order_request(&approved).expect("cancel spec");
+        let spec_diagnostic = classify_m3d2_local_mock_cancel_spec(&spec);
+        assert!(spec_diagnostic.accepted_by_m3d2a_mock);
+
         let request = "DELETE /v1/accounts/ACC_TEST_0001/orders/BROKER_TEST_ORDER HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer REDACTED_TEST_TOKEN\r\nContent-Length: 0\r\n\r\n".to_string();
         let (diagnostic, response) = run_local_mock_once(request);
 
@@ -426,5 +925,279 @@ mod tests {
         assert!(!diagnostic.raw_authorization_exported);
         assert!(!diagnostic.body.raw_body_exported);
         assert!(!format!("{diagnostic:?}").contains("REDACTED_TEST_TOKEN"));
+    }
+
+    #[test]
+    fn local_mock_endpoint_rejects_missing_client_order_id() {
+        let mut body = strict_limit_body();
+        body.as_object_mut()
+            .expect("object")
+            .remove("client_order_id");
+        assert_place_rejected(
+            request_from_body(body, true, Some("application/json")),
+            Some("client_order_id_missing"),
+        );
+    }
+
+    #[test]
+    fn local_mock_endpoint_rejects_missing_time_in_force() {
+        let mut body = strict_limit_body();
+        body.as_object_mut()
+            .expect("object")
+            .remove("time_in_force");
+        assert_place_rejected(
+            request_from_body(body, true, Some("application/json")),
+            Some("time_in_force_missing"),
+        );
+    }
+
+    #[test]
+    fn local_mock_endpoint_rejects_side_buy_alias_instead_of_finam_enum() {
+        let mut body = strict_limit_body();
+        body["side"] = json!("BUY");
+        assert_place_rejected(
+            request_from_body(body, true, Some("application/json")),
+            Some("side_not_official_finam_enum"),
+        );
+    }
+
+    #[test]
+    fn local_mock_endpoint_rejects_order_type_limit_alias_instead_of_finam_enum() {
+        let mut body = strict_limit_body();
+        body["type"] = json!("LIMIT");
+        assert_place_rejected(
+            request_from_body(body, true, Some("application/json")),
+            Some("order_type_not_official_finam_enum"),
+        );
+    }
+
+    #[test]
+    fn local_mock_endpoint_rejects_market_with_limit_price() {
+        let mut body = strict_market_body();
+        body["limit_price"] = json!({ "value": "100.5" });
+        assert_place_rejected(
+            request_from_body(body, true, Some("application/json")),
+            Some("limit_price_forbidden_for_market"),
+        );
+    }
+
+    #[test]
+    fn local_mock_endpoint_rejects_limit_without_limit_price() {
+        let mut body = strict_limit_body();
+        body.as_object_mut().expect("object").remove("limit_price");
+        assert_place_rejected(
+            request_from_body(body, true, Some("application/json")),
+            Some("limit_price_missing_for_limit"),
+        );
+    }
+
+    #[test]
+    fn local_mock_endpoint_rejects_stop_price_legs_and_sltp_fields() {
+        for forbidden_field in ["stop_price", "legs", "sltp", "valid_before"] {
+            let mut body = strict_limit_body();
+            body[forbidden_field] = json!("forbidden");
+            assert_place_rejected(
+                request_from_body(body, true, Some("application/json")),
+                Some("plain_order_field_not_allowed"),
+            );
+        }
+    }
+
+    #[test]
+    fn local_mock_endpoint_rejects_wrong_route_extra_segment() {
+        let request = raw_request_from_body(
+            "POST",
+            "/v1/accounts/ACC_TEST_0001/orders/EXTRA",
+            true,
+            Some("application/json"),
+            &serde_json::to_string(&strict_limit_body()).expect("body"),
+        );
+        let (diagnostic, response) = run_local_mock_once(request);
+        assert!(response.starts_with("HTTP/1.1 400 Bad Request"));
+        assert_eq!(
+            diagnostic.operation,
+            M3d2LocalMockOrderOperation::CancelOrder
+        );
+        assert_eq!(
+            diagnostic.rejection_reason.as_deref(),
+            Some("cancel_method_not_delete")
+        );
+        assert!(!diagnostic.raw_path_exported);
+    }
+
+    #[test]
+    fn local_mock_endpoint_rejects_missing_authorization() {
+        assert_place_rejected(
+            request_from_body(strict_limit_body(), false, Some("application/json")),
+            None,
+        );
+    }
+
+    #[test]
+    fn local_mock_endpoint_rejects_wrong_content_type() {
+        assert_place_rejected(
+            request_from_body(strict_limit_body(), true, Some("text/plain")),
+            None,
+        );
+    }
+
+    #[test]
+    fn local_mock_endpoint_rejects_non_json_body() {
+        assert_place_rejected(
+            raw_request_from_body(
+                "POST",
+                "/v1/accounts/ACC_TEST_0001/orders",
+                true,
+                Some("application/json"),
+                "not-json",
+            ),
+            None,
+        );
+    }
+
+    #[test]
+    fn local_mock_response_matrix_covers_required_endpoint_outcomes() {
+        let classify = |context, response| {
+            classify_order_endpoint_local_http_response_for_context(context, &response)
+        };
+
+        let accepted = classify(
+            FinamOrderEndpointContext::Place,
+            FinamOrderEndpointLocalHttpResponse::Response {
+                status: 200,
+                body: r#"{"broker_order_id":"BROKER_TEST_ORDER"}"#.to_string(),
+                retry_after_ms: None,
+            },
+        );
+        assert_eq!(
+            accepted.diagnostic.kind,
+            FinamOrderEndpointResponseKind::Accepted
+        );
+        assert!(accepted.diagnostic.broker_order_id_present);
+        assert!(matches!(
+            accepted.result,
+            FinamOrderEndpointMappedResult::Execution(FinamOrderExecutionOutcome::Accepted { .. })
+        ));
+
+        let accepted_without_id = classify(
+            FinamOrderEndpointContext::Place,
+            FinamOrderEndpointLocalHttpResponse::Response {
+                status: 202,
+                body: "{}".to_string(),
+                retry_after_ms: None,
+            },
+        );
+        assert_eq!(
+            accepted_without_id.diagnostic.kind,
+            FinamOrderEndpointResponseKind::Accepted
+        );
+        assert!(!accepted_without_id.diagnostic.broker_order_id_present);
+
+        let malformed_2xx = classify(
+            FinamOrderEndpointContext::Place,
+            FinamOrderEndpointLocalHttpResponse::Response {
+                status: 200,
+                body: "not-json".to_string(),
+                retry_after_ms: None,
+            },
+        );
+        assert_eq!(
+            malformed_2xx.diagnostic.kind,
+            FinamOrderEndpointResponseKind::DecodeError
+        );
+
+        let rejected_400 = classify(
+            FinamOrderEndpointContext::Place,
+            FinamOrderEndpointLocalHttpResponse::Response {
+                status: 400,
+                body: r#"{"error":"bad_request"}"#.to_string(),
+                retry_after_ms: None,
+            },
+        );
+        assert_eq!(
+            rejected_400.diagnostic.kind,
+            FinamOrderEndpointResponseKind::Rejected
+        );
+
+        let unauthorized = classify(
+            FinamOrderEndpointContext::Place,
+            FinamOrderEndpointLocalHttpResponse::Response {
+                status: 401,
+                body: r#"{"error":"unauthorized"}"#.to_string(),
+                retry_after_ms: None,
+            },
+        );
+        assert_eq!(
+            unauthorized.diagnostic.kind,
+            FinamOrderEndpointResponseKind::Unauthorized
+        );
+
+        for status in [404, 409, 410] {
+            let reconciliation = classify(
+                FinamOrderEndpointContext::Cancel,
+                FinamOrderEndpointLocalHttpResponse::Response {
+                    status,
+                    body: r#"{"error":"requires_reconciliation"}"#.to_string(),
+                    retry_after_ms: None,
+                },
+            );
+            assert_eq!(
+                reconciliation.diagnostic.kind,
+                FinamOrderEndpointResponseKind::ReconciliationRequired
+            );
+        }
+
+        let rate_limited = classify(
+            FinamOrderEndpointContext::Place,
+            FinamOrderEndpointLocalHttpResponse::Response {
+                status: 429,
+                body: r#"{"error":"rate_limit"}"#.to_string(),
+                retry_after_ms: Some(1_000),
+            },
+        );
+        assert_eq!(
+            rate_limited.diagnostic.kind,
+            FinamOrderEndpointResponseKind::RateLimited
+        );
+        assert!(rate_limited.diagnostic.retry_after_ms_present);
+
+        for status in [500, 503] {
+            let maintenance = classify(
+                FinamOrderEndpointContext::Place,
+                FinamOrderEndpointLocalHttpResponse::Response {
+                    status,
+                    body: r#"{"error":"maintenance"}"#.to_string(),
+                    retry_after_ms: None,
+                },
+            );
+            assert_eq!(
+                maintenance.diagnostic.kind,
+                FinamOrderEndpointResponseKind::Maintenance
+            );
+        }
+
+        for response in [
+            FinamOrderEndpointLocalHttpResponse::Response {
+                status: 504,
+                body: r#"{"error":"deadline"}"#.to_string(),
+                retry_after_ms: None,
+            },
+            FinamOrderEndpointLocalHttpResponse::Timeout,
+        ] {
+            let timeout = classify(FinamOrderEndpointContext::Place, response);
+            assert_eq!(
+                timeout.diagnostic.kind,
+                FinamOrderEndpointResponseKind::Timeout
+            );
+        }
+
+        let closed_connection = classify(
+            FinamOrderEndpointContext::Place,
+            FinamOrderEndpointLocalHttpResponse::BodyReadFailed { status: Some(200) },
+        );
+        assert_eq!(
+            closed_connection.diagnostic.kind,
+            FinamOrderEndpointResponseKind::DecodeError
+        );
     }
 }

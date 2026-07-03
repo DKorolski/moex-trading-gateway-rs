@@ -64,3 +64,49 @@ Required green checks:
 - `bash scripts/redis_shadow_smoke.sh`;
 - `bash scripts/runtime_bridge_dry_smoke.sh`.
 
+## M3d-2b strict contract hardening
+
+M3d-2b extends the M3d-2a route/redaction harness into a strict FINAM
+plain-order contract harness. It still does not add real FINAM `POST` or
+`DELETE` transport.
+
+Request hardening:
+
+- `symbol` must use the pinned broker-symbol shape used by the instrument
+  registry policy;
+- `quantity.value` must be a decimal-like string;
+- `side` must be `SIDE_BUY` or `SIDE_SELL`;
+- `type` must be `ORDER_TYPE_MARKET` or `ORDER_TYPE_LIMIT`;
+- `time_in_force` must be present and one of the plain-order allowed FINAM
+  values;
+- `client_order_id` must be present and FINAM-safe;
+- LIMIT requires `limit_price.value`;
+- MARKET rejects `limit_price`;
+- `stop_price`, `stop_condition`, `legs`, `sltp`, `valid_before`, and unknown
+  plain-order fields are rejected.
+
+Renderer binding:
+
+- positive place/cancel tests go through preflight approval and the existing
+  `broker-finam` request builders before local mock classification;
+- hand-written raw strings remain only as negative/wire fixtures.
+
+Response matrix:
+
+- accepted with broker order id;
+- accepted without broker order id;
+- malformed 2xx body;
+- 400 reject;
+- 401 unauthorized;
+- cancel 404/409/410 reconciliation-required;
+- 429 rate limit;
+- 500/503 maintenance;
+- 504 and local timeout;
+- body read failure / closed connection.
+
+Generate M3d-2b evidence with:
+
+```bash
+python3 scripts/m3d2b_strict_contract_evidence.py \
+  --source-archive reports/handoff/moex-trading-project-<commit>.zip
+```

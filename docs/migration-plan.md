@@ -2237,6 +2237,31 @@ M3d-2a explicitly still not allowed:
 - Runtime/live attachment or `LiveReady`.
 - SLTP, bracket, replace, or multi-leg order surfaces.
 
+M3d-2b strict FINAM request/response contract harness:
+
+- Strengthens the local mock from route/body-shape smoke into strict FINAM
+  plain-order request validation.
+- Positive place/cancel tests bind through existing preflight and
+  `broker-finam` request builders before local mock classification.
+- Adds market positive coverage and strict negative coverage for missing
+  `client_order_id`, missing `time_in_force`, non-official side/type aliases,
+  market-with-limit-price, limit-without-limit-price, SLTP/legs/stop fields,
+  wrong route, missing auth, wrong content type, and non-JSON body.
+- Adds response matrix coverage for accepted, accepted-without-id, malformed
+  2xx, 400, 401, cancel 404/409/410 reconciliation, 429, 5xx/504, timeout, and
+  closed-connection/body-read failure.
+- Adds source-derived boundary checks in
+  `scripts/m3d2b_strict_contract_evidence.py`.
+
+M3d-2b explicitly still not allowed:
+
+- Real FINAM order endpoint transport.
+- Scanner allowlist mode.
+- Constructible `EndpointGateApproved`.
+- Command consumer connected to strategies.
+- Runtime/live attachment or `LiveReady`.
+- SLTP, bracket, replace, or multi-leg order surfaces.
+
 M3d+ required sequence to operational parity:
 
 1. M3d-1 FINAM contract alignment.
