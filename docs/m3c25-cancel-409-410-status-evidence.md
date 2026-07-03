@@ -102,3 +102,9 @@ evidence_pending_count = 0
 - `LiveReady`;
 - first live micro;
 - stop/SLTP/bracket.
+
+## Follow-up in M3c-26
+
+M3c-26 packages the five closed implementation-gate evidence slots into a
+single source-bound pre-implementation review artifact. It remains a review
+package only and does not make `EndpointGateApproved` constructible.

@@ -2116,6 +2116,31 @@ M3c-25 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-26 pre-implementation gate package:
+
+- Added source-bound pre-implementation gate package helper
+  `scripts/m3c_pre_implementation_gate_package.py`.
+- The helper aggregates `design-evidence.json` plus the five closure artifacts:
+  release profile evidence, route-template recheck evidence, positive GetOrder
+  waiver, undocumented `201/202/204` evidence, and cancel `409/410` evidence.
+- It verifies all artifacts bind to the same source commit/archive/SHA-256, all
+  five evidence slots are closed, scanner status is green, and the trading
+  boundary remains closed.
+- It prepares an implementation decision request for the future exact-two-route
+  allowlist but does not authorize or add real order endpoint calls.
+- Details are documented in
+  `docs/m3c26-pre-implementation-gate-package.md`.
+
+M3c-26 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.
