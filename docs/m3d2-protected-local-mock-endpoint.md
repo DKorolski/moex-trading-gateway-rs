@@ -150,3 +150,61 @@ Generate M3d-2c evidence with:
 python3 scripts/m3d2c_real_transport_evidence.py \
   --source-archive reports/handoff/moex-trading-project-<commit>.zip
 ```
+
+## M3d-2d durable real-transport lifecycle, local mock only
+
+M3d-2d binds the M3d-2c real `reqwest` transport to the durable order-path
+state machine and SQLite transition audit. This is still not live trading:
+every transport test uses a loopback local mock server, while production
+`EndpointGateApproved` remains unconstructible.
+
+Lifecycle scope:
+
+- PLACE persists `IntentRecorded` and then `BeginSubmit` before the HTTP send;
+- CANCEL persists `RequestCancel` before the HTTP send;
+- successful PLACE with broker id becomes `Submitted`;
+- PLACE 2xx without broker id becomes `SubmittedPendingBrokerOrderId` and
+  schedules reconciliation;
+- timeout and ambiguous post-send outcomes become unknown-pending /
+  reconciliation-required, with no blind retry;
+- CANCEL accepted is only a submitted cancel candidate pending broker-truth
+  reconciliation, never terminal canceled;
+- cancel conflict / 404-like / ambiguous outcomes require broker-truth
+  reconciliation or manual intervention.
+
+The exported report is redacted: it exposes only ACK status/reason and id
+presence/length diagnostics. Raw JWT, path, body, account id, client order id,
+and broker order id are not exported from the review report.
+
+Crash-window tests cover:
+
+- crash before send: durable intent remains `IntentRecorded`;
+- crash after `BeginSubmit` before send: restart recovers conservatively to
+  `TimeoutUnknownPending`;
+- crash after send before classified outcome persistence: restart also recovers
+  conservatively, without retrying the order;
+- crash after classified outcome before external ACK publication: durable
+  terminal/intermediate state is already recoverable from SQLite.
+
+Additional scanner/evidence hardening:
+
+- exact send surface remains unchanged: one `.post(`, one `.delete(`, one
+  `.send(` in the reviewed M3d-2c transport module;
+- direct `EndpointGateApproved { _private: () }` construction is forbidden by
+  scanner;
+- tests must pass dynamic loopback mock base URLs.
+
+Generate M3d-2d evidence with:
+
+```bash
+python3 scripts/m3d2d_lifecycle_evidence.py \
+  --source-archive reports/handoff/moex-trading-project-<commit>.zip
+```
+
+M3d-2d explicitly still does not allow:
+
+- real external FINAM order endpoint calls;
+- command consumer connected to strategies;
+- runtime/live attachment or `LiveReady`;
+- SLTP, bracket, replace, or multi-leg order surfaces;
+- blind retry after timeout or ambiguous post-send outcome.

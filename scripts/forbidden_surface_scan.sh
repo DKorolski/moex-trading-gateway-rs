@@ -43,6 +43,12 @@ if rg -n --glob 'crates/**/*.rs' 'OrderEndpointHttp(Client|Transport|Adapter|Bac
 fi
 rm -f /tmp/moex_forbidden_order_http_abstraction.$$
 
+if rg -n --glob 'crates/**/*.rs' 'EndpointGateApproved[[:space:]]*\{[[:space:]]*_private:[[:space:]]*\(\)' crates >/tmp/moex_forbidden_endpoint_gate_literal.$$; then
+  cat /tmp/moex_forbidden_endpoint_gate_literal.$$ >&2
+  report_failure "direct EndpointGateApproved literal construction is forbidden outside reviewed constructors"
+fi
+rm -f /tmp/moex_forbidden_endpoint_gate_literal.$$
+
 python3 - <<'PY'
 from pathlib import Path
 import sys

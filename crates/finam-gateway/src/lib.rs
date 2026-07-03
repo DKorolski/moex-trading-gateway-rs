@@ -10,6 +10,7 @@
 
 pub mod m3d2_local_mock_endpoint;
 pub mod m3d2_real_order_transport;
+pub mod m3d2_real_transport_lifecycle;
 pub mod real_order_endpoint;
 
 use std::collections::HashSet;

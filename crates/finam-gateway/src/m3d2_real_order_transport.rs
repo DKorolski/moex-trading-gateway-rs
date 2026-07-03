@@ -108,9 +108,20 @@ impl M3d2RealOrderEndpointTransport {
         access_token: &AccessToken,
         spec: &FinamPlaceOrderRequestSpec,
     ) -> M3d2RealOrderEndpointTransportOutcome {
+        self.place_order_execution(_gate, access_token, spec)
+            .await
+            .redacted_outcome()
+    }
+
+    pub async fn place_order_execution(
+        &self,
+        _gate: &EndpointGateApproved,
+        access_token: &AccessToken,
+        spec: &FinamPlaceOrderRequestSpec,
+    ) -> M3d2RealOrderEndpointTransportExecution {
         let request = match self.place_request(access_token, spec) {
             Ok(request) => request,
-            Err(error) => return M3d2RealOrderEndpointTransportOutcome::not_sent(error),
+            Err(error) => return M3d2RealOrderEndpointTransportExecution::not_sent(error),
         };
         self.execute_after_gate(FinamOrderEndpointContext::Place, request)
             .await
@@ -122,9 +133,20 @@ impl M3d2RealOrderEndpointTransport {
         access_token: &AccessToken,
         spec: &FinamCancelOrderRequestSpec,
     ) -> M3d2RealOrderEndpointTransportOutcome {
+        self.cancel_order_execution(_gate, access_token, spec)
+            .await
+            .redacted_outcome()
+    }
+
+    pub async fn cancel_order_execution(
+        &self,
+        _gate: &EndpointGateApproved,
+        access_token: &AccessToken,
+        spec: &FinamCancelOrderRequestSpec,
+    ) -> M3d2RealOrderEndpointTransportExecution {
         let request = match self.cancel_request(access_token, spec) {
             Ok(request) => request,
-            Err(error) => return M3d2RealOrderEndpointTransportOutcome::not_sent(error),
+            Err(error) => return M3d2RealOrderEndpointTransportExecution::not_sent(error),
         };
         self.execute_after_gate(FinamOrderEndpointContext::Cancel, request)
             .await
@@ -190,7 +212,7 @@ impl M3d2RealOrderEndpointTransport {
         &self,
         context: FinamOrderEndpointContext,
         request: reqwest::RequestBuilder,
-    ) -> M3d2RealOrderEndpointTransportOutcome {
+    ) -> M3d2RealOrderEndpointTransportExecution {
         let response = match request.send().await {
             Ok(response) => response,
             Err(error) if error.is_timeout() => {
@@ -199,13 +221,13 @@ impl M3d2RealOrderEndpointTransport {
                         context,
                         &FinamOrderEndpointLocalHttpResponse::Timeout,
                     );
-                return M3d2RealOrderEndpointTransportOutcome::sent(
+                return M3d2RealOrderEndpointTransportExecution::sent(
                     classified,
                     M3d2PostSendOrderOutcomeSemantics::TimeoutUnknownPending,
                 );
             }
             Err(error) => {
-                return M3d2RealOrderEndpointTransportOutcome::sent_error(
+                return M3d2RealOrderEndpointTransportExecution::sent_error(
                     M3d2RealOrderEndpointTransportError::HttpSend {
                         error_kind: error_kind(&error),
                     },
@@ -235,7 +257,84 @@ impl M3d2RealOrderEndpointTransport {
             &local_response,
         );
         let semantics = post_send_semantics(context, &classified);
-        M3d2RealOrderEndpointTransportOutcome::sent(classified, semantics)
+        M3d2RealOrderEndpointTransportExecution::sent(classified, semantics)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct M3d2RealOrderEndpointTransportExecution {
+    pub request_sent: bool,
+    pub classified_response: Option<FinamOrderEndpointClassifiedResponse>,
+    pub post_send_semantics: M3d2PostSendOrderOutcomeSemantics,
+    pub error: Option<M3d2RealOrderEndpointTransportError>,
+}
+
+impl std::fmt::Debug for M3d2RealOrderEndpointTransportExecution {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("M3d2RealOrderEndpointTransportExecution")
+            .field("request_sent", &self.request_sent)
+            .field(
+                "classified_response_present",
+                &self.classified_response.is_some(),
+            )
+            .field("post_send_semantics", &self.post_send_semantics)
+            .field("error", &self.error)
+            .field("raw_token_exported", &false)
+            .field("raw_path_exported", &false)
+            .field("raw_body_exported", &false)
+            .finish()
+    }
+}
+
+impl M3d2RealOrderEndpointTransportExecution {
+    fn not_sent(error: M3d2RealOrderEndpointTransportError) -> Self {
+        Self {
+            request_sent: false,
+            classified_response: None,
+            post_send_semantics: M3d2PostSendOrderOutcomeSemantics::NotSent,
+            error: Some(error),
+        }
+    }
+
+    fn sent(
+        classified: FinamOrderEndpointClassifiedResponse,
+        post_send_semantics: M3d2PostSendOrderOutcomeSemantics,
+    ) -> Self {
+        Self {
+            request_sent: true,
+            classified_response: Some(classified),
+            post_send_semantics,
+            error: None,
+        }
+    }
+
+    fn sent_error(
+        error: M3d2RealOrderEndpointTransportError,
+        post_send_semantics: M3d2PostSendOrderOutcomeSemantics,
+    ) -> Self {
+        Self {
+            request_sent: true,
+            classified_response: None,
+            post_send_semantics,
+            error: Some(error),
+        }
+    }
+
+    pub fn redacted_outcome(&self) -> M3d2RealOrderEndpointTransportOutcome {
+        M3d2RealOrderEndpointTransportOutcome {
+            request_sent: self.request_sent,
+            classified_response_present: self.classified_response.is_some(),
+            response_kind: self
+                .classified_response
+                .as_ref()
+                .map(|classified| classified.diagnostic.kind),
+            post_send_semantics: self.post_send_semantics,
+            error: self.error.clone(),
+            raw_token_exported: false,
+            raw_path_exported: false,
+            raw_body_exported: false,
+        }
     }
 }
 
@@ -249,53 +348,6 @@ pub struct M3d2RealOrderEndpointTransportOutcome {
     pub raw_token_exported: bool,
     pub raw_path_exported: bool,
     pub raw_body_exported: bool,
-}
-
-impl M3d2RealOrderEndpointTransportOutcome {
-    fn not_sent(error: M3d2RealOrderEndpointTransportError) -> Self {
-        Self {
-            request_sent: false,
-            classified_response_present: false,
-            response_kind: None,
-            post_send_semantics: M3d2PostSendOrderOutcomeSemantics::NotSent,
-            error: Some(error),
-            raw_token_exported: false,
-            raw_path_exported: false,
-            raw_body_exported: false,
-        }
-    }
-
-    fn sent(
-        classified: FinamOrderEndpointClassifiedResponse,
-        post_send_semantics: M3d2PostSendOrderOutcomeSemantics,
-    ) -> Self {
-        Self {
-            request_sent: true,
-            classified_response_present: true,
-            response_kind: Some(classified.diagnostic.kind),
-            post_send_semantics,
-            error: None,
-            raw_token_exported: false,
-            raw_path_exported: false,
-            raw_body_exported: false,
-        }
-    }
-
-    fn sent_error(
-        error: M3d2RealOrderEndpointTransportError,
-        post_send_semantics: M3d2PostSendOrderOutcomeSemantics,
-    ) -> Self {
-        Self {
-            request_sent: true,
-            classified_response_present: false,
-            response_kind: None,
-            post_send_semantics,
-            error: Some(error),
-            raw_token_exported: false,
-            raw_path_exported: false,
-            raw_body_exported: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -312,7 +364,7 @@ pub enum M3d2PostSendOrderOutcomeSemantics {
     BrokerRejectedTerminal,
 }
 
-fn post_send_semantics(
+pub fn post_send_semantics(
     context: FinamOrderEndpointContext,
     classified: &FinamOrderEndpointClassifiedResponse,
 ) -> M3d2PostSendOrderOutcomeSemantics {
