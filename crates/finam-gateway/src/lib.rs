@@ -33,8 +33,9 @@ use broker_core::order::{Order, OrderStatus, Trade};
 use broker_core::readiness::{BrokerReadiness, ReadinessPhase, ReadinessReason};
 use broker_core::{
     OperatorArm, OperatorDisarmDecision, OperatorDisarmSignal, OrderPathErrorKind, OrderPathEvent,
-    OrderPathState, OrderPathStore, OrderPathStoreError, OrderPathTransitionError,
-    OutgoingOrderComment, PreflightApprovedCancelOrder, PreflightApprovedPlaceOrder,
+    OrderPathRecord, OrderPathState, OrderPathStore, OrderPathStoreError, OrderPathTransitionError,
+    OrderPreflightPolicy, OutgoingOrderComment, PreflightApprovedCancelOrder,
+    PreflightApprovedPlaceOrder,
 };
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use serde::de::DeserializeOwned;
@@ -1024,6 +1025,7 @@ pub enum M3eCommandKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum M3eCommandLifecycleState {
     CommandReceived,
+    AckPublishPlanned,
     AckPublished,
     ExpiredAckPublished,
 }
@@ -1031,6 +1033,8 @@ pub enum M3eCommandLifecycleState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum M3eCommandLifecycleAction {
     CommandReceived,
+    LocalMockEndpointAckPublished,
+    LocalRejectAckPublished,
     DuplicateAckPublished,
     RecoveredAckPublished,
     ExpiredAckPublished,
@@ -1103,6 +1107,20 @@ impl M3eCommandLifecycleRecord {
         if xack_applied {
             self.xack_count = self.xack_count.saturating_add(1);
         }
+    }
+
+    pub fn mark_ack_publish_planned(
+        &mut self,
+        status: CommandAckStatus,
+        reason_code: Option<CommandAckReasonCode>,
+        updated_ts: DateTime<Utc>,
+        endpoint_attempt_count: u32,
+    ) {
+        self.state = M3eCommandLifecycleState::AckPublishPlanned;
+        self.updated_ts = updated_ts;
+        self.ack_status = Some(status);
+        self.ack_reason_code = reason_code;
+        self.endpoint_attempt_count = endpoint_attempt_count;
     }
 
     pub fn mark_duplicate_ack_published(&mut self, updated_ts: DateTime<Utc>) {
@@ -1289,6 +1307,58 @@ pub struct M3eCommandConsumerDurableReport {
     pub raw_token_exported: bool,
     pub raw_body_exported: bool,
     pub raw_command_comment_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct M3eLocalMockEndpointCommandReport {
+    pub action: M3eCommandLifecycleAction,
+    pub entry_id: String,
+    pub request_id: Option<StrategyRequestId>,
+    pub ack_status: Option<CommandAckStatus>,
+    pub ack_reason_code: Option<CommandAckReasonCode>,
+    pub dlq_reason: Option<M3eCommandDlqReason>,
+    pub lifecycle_state: Option<M3eCommandLifecycleState>,
+    pub order_path_state: Option<OrderPathState>,
+    pub endpoint_outcome: Option<EndpointResponseIntegrationOutcomeKind>,
+    pub command_received_persisted: bool,
+    pub request_id_idempotency_store_hit: bool,
+    pub duplicate_request: bool,
+    pub duplicate_request_no_second_endpoint_attempt: bool,
+    pub preflight_local_reject_before_endpoint: bool,
+    pub begin_submit_or_request_cancel_persisted_before_endpoint: bool,
+    pub endpoint_attempt_count: u32,
+    pub endpoint_attempt_count_incremented_only_after_durable_boundary: bool,
+    pub local_mock_endpoint_only: bool,
+    pub non_loopback_endpoint_allowed: bool,
+    pub ack_publish_planned_before_ack: bool,
+    pub ack_publish_before_xack: bool,
+    pub xack_applied: bool,
+    pub xack_after_ack_or_dlq_publish: bool,
+    pub endpoint_transport_invoked: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub raw_payload_exported: bool,
+    pub raw_token_exported: bool,
+    pub raw_body_exported: bool,
+    pub raw_command_comment_exported: bool,
+}
+
+struct M3eLocalMockEndpointRuntime<'a, OS, T> {
+    order_store: &'a mut OS,
+    transport: &'a mut T,
+    preflight_policy: &'a OrderPreflightPolicy,
+    now: DateTime<Utc>,
+}
+
+struct M3ePlannedAckReportInput {
+    entry: RuntimeBridgeStreamEntry,
+    lifecycle_record: M3eCommandLifecycleRecord,
+    ack: CommandAck,
+    action: M3eCommandLifecycleAction,
+    order_path_state: Option<OrderPathState>,
+    endpoint_outcome: Option<EndpointResponseIntegrationOutcomeKind>,
+    preflight_local_reject_before_endpoint: bool,
+    endpoint_attempt_count: u32,
+    now: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone)]
@@ -1556,6 +1626,388 @@ where
             duplicate_request: false,
             duplicate_request_no_second_endpoint_attempt: true,
             endpoint_attempt_count: 0,
+            ack_publish_before_xack: true,
+            xack_applied: true,
+            xack_after_ack_or_dlq_publish: true,
+            endpoint_transport_invoked: false,
+            external_order_endpoint_allowed: false,
+            raw_payload_exported: false,
+            raw_token_exported: false,
+            raw_body_exported: false,
+            raw_command_comment_exported: false,
+        })
+    }
+
+    async fn publish_ack(&self, ack: CommandAck) -> Result<(), GatewayError> {
+        self.sink
+            .publish_json(
+                &self.config.command_ack_stream,
+                &Envelope::new(
+                    self.config.source.clone(),
+                    MessageType::CommandAck,
+                    redact_command_ack_for_redis(ack),
+                ),
+                self.config.command_ack_maxlen,
+            )
+            .await
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct M3eCommandConsumerLocalMockEndpoint<S, L> {
+    config: M3eCommandConsumerConfig,
+    sink: S,
+    lifecycle_store: L,
+}
+
+impl<S, L> M3eCommandConsumerLocalMockEndpoint<S, L>
+where
+    S: RedisStreamSink,
+    L: M3eCommandLifecycleStore,
+{
+    pub fn new(config: M3eCommandConsumerConfig, sink: S, lifecycle_store: L) -> Self {
+        Self {
+            config,
+            sink,
+            lifecycle_store,
+        }
+    }
+
+    pub async fn process_entry<OS, T>(
+        &self,
+        entry: RuntimeBridgeStreamEntry,
+        order_store: &mut OS,
+        transport: &mut T,
+        preflight_policy: &OrderPreflightPolicy,
+        now: DateTime<Utc>,
+    ) -> Result<M3eLocalMockEndpointCommandReport, GatewayError>
+    where
+        OS: OrderPathStore,
+        T: FinamMockClassifiedEndpointTransport,
+    {
+        let runtime = M3eLocalMockEndpointRuntime {
+            order_store,
+            transport,
+            preflight_policy,
+            now,
+        };
+        match decode_m3e_command_entry(&entry, &self.config, now) {
+            Ok(command_decision) => {
+                self.process_typed_command(entry, command_decision, runtime)
+                    .await
+            }
+            Err(dead_letter) => self.publish_dlq(entry, dead_letter).await,
+        }
+    }
+
+    async fn process_typed_command<OS, T>(
+        &self,
+        entry: RuntimeBridgeStreamEntry,
+        command_decision: M3eCommandDecision,
+        runtime: M3eLocalMockEndpointRuntime<'_, OS, T>,
+    ) -> Result<M3eLocalMockEndpointCommandReport, GatewayError>
+    where
+        OS: OrderPathStore,
+        T: FinamMockClassifiedEndpointTransport,
+    {
+        let now = runtime.now;
+        let request_id = command_decision.request_id();
+        if let Some(existing) = self.lifecycle_store.load_by_request_id(request_id)? {
+            return self.publish_duplicate_ack(entry, existing, now).await;
+        }
+
+        let lifecycle_record = M3eCommandLifecycleRecord::command_received(
+            entry.entry_id.clone(),
+            command_decision.command(),
+            now,
+        );
+        let inserted = self
+            .lifecycle_store
+            .insert_received(lifecycle_record.clone())?;
+        if !inserted {
+            let existing = self.lifecycle_store.load_by_request_id(request_id)?.ok_or(
+                GatewayError::InternalState {
+                    message: "m3e local mock lifecycle duplicate disappeared",
+                },
+            )?;
+            return self.publish_duplicate_ack(entry, existing, now).await;
+        }
+
+        if matches!(command_decision, M3eCommandDecision::Expired(_)) {
+            let ack = command_decision.into_ack(now);
+            return self
+                .publish_planned_ack_report(M3ePlannedAckReportInput {
+                    entry,
+                    lifecycle_record,
+                    ack,
+                    action: M3eCommandLifecycleAction::ExpiredAckPublished,
+                    order_path_state: None,
+                    endpoint_outcome: None,
+                    preflight_local_reject_before_endpoint: false,
+                    endpoint_attempt_count: 0,
+                    now,
+                })
+                .await;
+        }
+
+        match command_decision.command() {
+            BrokerCommand::PlaceOrder(order) => {
+                self.process_place_order(entry, order.clone(), lifecycle_record, runtime)
+                    .await
+            }
+            BrokerCommand::CancelOrder(_) => {
+                let ack = CommandAck {
+                    request_id,
+                    client_order_id: command_client_order_id(command_decision.command()),
+                    broker_order_id: None,
+                    status: CommandAckStatus::Rejected,
+                    reason: Some(CommandAckReason::new(
+                        CommandAckReasonCode::LocalValidationRejected,
+                    )),
+                    received_ts: now,
+                };
+                self.publish_planned_ack_report(M3ePlannedAckReportInput {
+                    entry,
+                    lifecycle_record,
+                    ack,
+                    action: M3eCommandLifecycleAction::LocalRejectAckPublished,
+                    order_path_state: None,
+                    endpoint_outcome: None,
+                    preflight_local_reject_before_endpoint: true,
+                    endpoint_attempt_count: 0,
+                    now,
+                })
+                .await
+            }
+        }
+    }
+
+    async fn process_place_order<OS, T>(
+        &self,
+        entry: RuntimeBridgeStreamEntry,
+        order: broker_core::PlaceOrder,
+        lifecycle_record: M3eCommandLifecycleRecord,
+        runtime: M3eLocalMockEndpointRuntime<'_, OS, T>,
+    ) -> Result<M3eLocalMockEndpointCommandReport, GatewayError>
+    where
+        OS: OrderPathStore,
+        T: FinamMockClassifiedEndpointTransport,
+    {
+        let now = runtime.now;
+        let approved = match runtime.preflight_policy.approve_place_order(&order, now) {
+            Ok(approved) => approved,
+            Err(_error) => {
+                let ack = CommandAck {
+                    request_id: order.request_id,
+                    client_order_id: Some(order.client_order_id.clone()),
+                    broker_order_id: None,
+                    status: CommandAckStatus::Rejected,
+                    reason: Some(CommandAckReason::new(
+                        CommandAckReasonCode::LocalValidationRejected,
+                    )),
+                    received_ts: now,
+                };
+                return self
+                    .publish_planned_ack_report(M3ePlannedAckReportInput {
+                        entry,
+                        lifecycle_record,
+                        ack,
+                        action: M3eCommandLifecycleAction::LocalRejectAckPublished,
+                        order_path_state: None,
+                        endpoint_outcome: None,
+                        preflight_local_reject_before_endpoint: true,
+                        endpoint_attempt_count: 0,
+                        now,
+                    })
+                    .await;
+            }
+        };
+
+        runtime
+            .order_store
+            .insert_intent(OrderPathRecord::from_place_order(&order, now, None))?;
+        let endpoint_report = simulate_place_order_endpoint_classified_transport(
+            runtime.order_store,
+            runtime.transport,
+            &approved,
+            None,
+            None,
+            now,
+            now,
+        )?;
+        let ack = endpoint_report.ack.clone();
+        let endpoint_attempt_count = endpoint_report.submit_attempt_count;
+        self.publish_planned_ack_report(M3ePlannedAckReportInput {
+            entry,
+            lifecycle_record,
+            ack,
+            action: M3eCommandLifecycleAction::LocalMockEndpointAckPublished,
+            order_path_state: Some(endpoint_report.state),
+            endpoint_outcome: Some(endpoint_report.outcome),
+            preflight_local_reject_before_endpoint: false,
+            endpoint_attempt_count,
+            now,
+        })
+        .await
+    }
+
+    async fn publish_planned_ack_report(
+        &self,
+        input: M3ePlannedAckReportInput,
+    ) -> Result<M3eLocalMockEndpointCommandReport, GatewayError> {
+        let M3ePlannedAckReportInput {
+            entry,
+            mut lifecycle_record,
+            ack,
+            action,
+            order_path_state,
+            endpoint_outcome,
+            preflight_local_reject_before_endpoint,
+            endpoint_attempt_count,
+            now,
+        } = input;
+        let ack_status = ack.status;
+        let ack_reason_code = ack.reason.as_ref().map(|reason| reason.code);
+        lifecycle_record.mark_ack_publish_planned(
+            ack_status,
+            ack_reason_code,
+            now,
+            endpoint_attempt_count,
+        );
+        self.lifecycle_store.upsert(lifecycle_record.clone())?;
+        self.publish_ack(ack).await?;
+        lifecycle_record.mark_ack_published(ack_status, ack_reason_code, now, true);
+        self.lifecycle_store.upsert(lifecycle_record.clone())?;
+
+        Ok(M3eLocalMockEndpointCommandReport {
+            action,
+            entry_id: entry.entry_id,
+            request_id: Some(lifecycle_record.request_id),
+            ack_status: Some(ack_status),
+            ack_reason_code,
+            dlq_reason: None,
+            lifecycle_state: Some(lifecycle_record.state),
+            order_path_state,
+            endpoint_outcome,
+            command_received_persisted: true,
+            request_id_idempotency_store_hit: false,
+            duplicate_request: false,
+            duplicate_request_no_second_endpoint_attempt: true,
+            preflight_local_reject_before_endpoint,
+            begin_submit_or_request_cancel_persisted_before_endpoint: endpoint_attempt_count > 0,
+            endpoint_attempt_count,
+            endpoint_attempt_count_incremented_only_after_durable_boundary: true,
+            local_mock_endpoint_only: true,
+            non_loopback_endpoint_allowed: false,
+            ack_publish_planned_before_ack: true,
+            ack_publish_before_xack: true,
+            xack_applied: true,
+            xack_after_ack_or_dlq_publish: true,
+            endpoint_transport_invoked: endpoint_attempt_count > 0,
+            external_order_endpoint_allowed: false,
+            raw_payload_exported: false,
+            raw_token_exported: false,
+            raw_body_exported: false,
+            raw_command_comment_exported: false,
+        })
+    }
+
+    async fn publish_duplicate_ack(
+        &self,
+        entry: RuntimeBridgeStreamEntry,
+        mut existing: M3eCommandLifecycleRecord,
+        now: DateTime<Utc>,
+    ) -> Result<M3eLocalMockEndpointCommandReport, GatewayError> {
+        let action = if existing.state == M3eCommandLifecycleState::AckPublishPlanned {
+            M3eCommandLifecycleAction::RecoveredAckPublished
+        } else {
+            M3eCommandLifecycleAction::DuplicateAckPublished
+        };
+        let prior_endpoint_attempt_count = existing.endpoint_attempt_count;
+        let ack = CommandAck {
+            request_id: existing.request_id,
+            client_order_id: None,
+            broker_order_id: None,
+            status: CommandAckStatus::Duplicate,
+            reason: Some(CommandAckReason::new(
+                CommandAckReasonCode::DuplicateCommand,
+            )),
+            received_ts: now,
+        };
+        self.publish_ack(ack).await?;
+        existing.mark_duplicate_ack_published(now);
+        self.lifecycle_store.upsert(existing.clone())?;
+
+        Ok(M3eLocalMockEndpointCommandReport {
+            action,
+            entry_id: entry.entry_id,
+            request_id: Some(existing.request_id),
+            ack_status: Some(CommandAckStatus::Duplicate),
+            ack_reason_code: Some(CommandAckReasonCode::DuplicateCommand),
+            dlq_reason: None,
+            lifecycle_state: Some(existing.state),
+            order_path_state: None,
+            endpoint_outcome: None,
+            command_received_persisted: true,
+            request_id_idempotency_store_hit: true,
+            duplicate_request: true,
+            duplicate_request_no_second_endpoint_attempt: true,
+            preflight_local_reject_before_endpoint: false,
+            begin_submit_or_request_cancel_persisted_before_endpoint: prior_endpoint_attempt_count
+                > 0,
+            endpoint_attempt_count: prior_endpoint_attempt_count,
+            endpoint_attempt_count_incremented_only_after_durable_boundary: true,
+            local_mock_endpoint_only: true,
+            non_loopback_endpoint_allowed: false,
+            ack_publish_planned_before_ack: existing.state
+                == M3eCommandLifecycleState::AckPublishPlanned,
+            ack_publish_before_xack: true,
+            xack_applied: true,
+            xack_after_ack_or_dlq_publish: true,
+            endpoint_transport_invoked: false,
+            external_order_endpoint_allowed: false,
+            raw_payload_exported: false,
+            raw_token_exported: false,
+            raw_body_exported: false,
+            raw_command_comment_exported: false,
+        })
+    }
+
+    async fn publish_dlq(
+        &self,
+        entry: RuntimeBridgeStreamEntry,
+        dead_letter: M3eCommandDeadLetter,
+    ) -> Result<M3eLocalMockEndpointCommandReport, GatewayError> {
+        let reason = dead_letter.reason.clone();
+        let record = M3eCommandDlqRecord::new(&self.config, dead_letter);
+        self.sink
+            .publish_json(
+                &self.config.command_dlq_stream,
+                &record,
+                self.config.command_dlq_maxlen,
+            )
+            .await?;
+        Ok(M3eLocalMockEndpointCommandReport {
+            action: M3eCommandLifecycleAction::DlqPublished,
+            entry_id: entry.entry_id,
+            request_id: None,
+            ack_status: None,
+            ack_reason_code: None,
+            dlq_reason: Some(reason),
+            lifecycle_state: None,
+            order_path_state: None,
+            endpoint_outcome: None,
+            command_received_persisted: false,
+            request_id_idempotency_store_hit: false,
+            duplicate_request: false,
+            duplicate_request_no_second_endpoint_attempt: true,
+            preflight_local_reject_before_endpoint: false,
+            begin_submit_or_request_cancel_persisted_before_endpoint: false,
+            endpoint_attempt_count: 0,
+            endpoint_attempt_count_incremented_only_after_durable_boundary: true,
+            local_mock_endpoint_only: true,
+            non_loopback_endpoint_allowed: false,
+            ack_publish_planned_before_ack: false,
             ack_publish_before_xack: true,
             xack_applied: true,
             xack_after_ack_or_dlq_publish: true,
@@ -2303,6 +2755,12 @@ pub enum GatewayError {
     Redis(#[from] redis::RedisError),
     #[error("gateway io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("gateway order preflight error: {reason}")]
+    OrderPreflight { reason: String },
+    #[error("gateway endpoint integration error: {0}")]
+    EndpointIntegration(#[from] EndpointResponseIntegrationSimulatorError),
+    #[error("gateway order-path store error: {0}")]
+    OrderPathStore(#[from] OrderPathStoreError),
     #[error("gateway internal state error: {message}")]
     InternalState { message: &'static str },
     #[error("gateway feature disabled: {feature}")]
@@ -9690,6 +10148,110 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone)]
+    struct FailingCommandLifecycleStore {
+        inner: M3eInMemoryCommandLifecycleStore,
+        fail_on_upsert_call: usize,
+        upsert_calls: std::sync::Arc<Mutex<usize>>,
+    }
+
+    impl FailingCommandLifecycleStore {
+        fn new(fail_on_upsert_call: usize) -> Self {
+            Self {
+                inner: M3eInMemoryCommandLifecycleStore::default(),
+                fail_on_upsert_call,
+                upsert_calls: std::sync::Arc::new(Mutex::new(0)),
+            }
+        }
+
+        fn healthy_inner(&self) -> M3eInMemoryCommandLifecycleStore {
+            self.inner.clone()
+        }
+    }
+
+    impl M3eCommandLifecycleStore for FailingCommandLifecycleStore {
+        fn load_by_request_id(
+            &self,
+            request_id: StrategyRequestId,
+        ) -> Result<Option<M3eCommandLifecycleRecord>, GatewayError> {
+            self.inner.load_by_request_id(request_id)
+        }
+
+        fn insert_received(&self, record: M3eCommandLifecycleRecord) -> Result<bool, GatewayError> {
+            self.inner.insert_received(record)
+        }
+
+        fn upsert(&self, record: M3eCommandLifecycleRecord) -> Result<(), GatewayError> {
+            let mut calls = self
+                .upsert_calls
+                .lock()
+                .map_err(|_| GatewayError::InternalState {
+                    message: "failing lifecycle store mutex poisoned",
+                })?;
+            *calls += 1;
+            if *calls == self.fail_on_upsert_call {
+                return Err(GatewayError::InternalState {
+                    message: "injected lifecycle upsert failure",
+                });
+            }
+            drop(calls);
+            self.inner.upsert(record)
+        }
+
+        fn records(&self) -> Result<Vec<M3eCommandLifecycleRecord>, GatewayError> {
+            self.inner.records()
+        }
+    }
+
+    #[derive(Debug)]
+    struct CountingClassifiedTransport {
+        classified: broker_finam::FinamOrderEndpointClassifiedResponse,
+        place_call_count: usize,
+        cancel_call_count: usize,
+    }
+
+    impl CountingClassifiedTransport {
+        fn accepted(broker_order_id: &str) -> Self {
+            Self {
+                classified: accepted_classified_response(broker_order_id),
+                place_call_count: 0,
+                cancel_call_count: 0,
+            }
+        }
+    }
+
+    impl FinamMockClassifiedEndpointTransport for CountingClassifiedTransport {
+        fn place_order_endpoint_classified(
+            &mut self,
+            spec: broker_finam::FinamPlaceOrderRequestSpec,
+        ) -> broker_finam::FinamOrderEndpointClassifiedResponse {
+            assert!(!spec.account_id.is_empty());
+            self.place_call_count += 1;
+            self.classified.clone()
+        }
+
+        fn cancel_order_endpoint_classified(
+            &mut self,
+            spec: broker_finam::FinamCancelOrderRequestSpec,
+        ) -> broker_finam::FinamOrderEndpointClassifiedResponse {
+            assert!(!spec.account_id.is_empty());
+            self.cancel_call_count += 1;
+            self.classified.clone()
+        }
+    }
+
+    fn accepted_classified_response(
+        broker_order_id: &str,
+    ) -> broker_finam::FinamOrderEndpointClassifiedResponse {
+        let fixture = FinamOrderEndpointFixture::Accepted(FinamOrderEndpointAcceptedDto {
+            broker_order_id: Some(broker_order_id.to_string()),
+        });
+        broker_finam::FinamOrderEndpointClassifiedResponse {
+            result: fixture.map_fixture().expect("accepted fixture maps"),
+            diagnostic: fixture.redacted_diagnostic(),
+        }
+    }
+
     fn temp_m3e2_lifecycle_path(name: &str) -> PathBuf {
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -9972,6 +10534,298 @@ mod tests {
         assert!(result.is_err());
         assert!(sink.entries().expect("entries").is_empty());
         assert!(store.records().expect("records").is_empty());
+    }
+
+    #[tokio::test]
+    async fn m3e3_place_command_reaches_local_mock_endpoint_after_durable_boundaries() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let lifecycle_store = M3eInMemoryCommandLifecycleStore::default();
+        let consumer = M3eCommandConsumerLocalMockEndpoint::new(
+            config.clone(),
+            sink.clone(),
+            lifecycle_store.clone(),
+        );
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 14, 0, 0)
+            .single()
+            .expect("now");
+        let command = BrokerCommand::PlaceOrder(sample_place_order(
+            request_id(730),
+            "CID000000000000730",
+            now,
+        ));
+        let mut order_store = InMemoryOrderPathStore::default();
+        let mut transport = CountingClassifiedTransport::accepted("BROKER_TEST_M3E3_730");
+        let policy = dry_preflight_policy(now);
+
+        let report = consumer
+            .process_entry(
+                m3e_command_entry(&config, command),
+                &mut order_store,
+                &mut transport,
+                &policy,
+                now,
+            )
+            .await
+            .expect("local mock endpoint command");
+
+        assert_eq!(
+            report.action,
+            M3eCommandLifecycleAction::LocalMockEndpointAckPublished
+        );
+        assert_eq!(report.ack_status, Some(CommandAckStatus::Submitted));
+        assert_eq!(
+            report.ack_reason_code,
+            Some(CommandAckReasonCode::SyntheticSubmitted)
+        );
+        assert_eq!(report.order_path_state, Some(OrderPathState::Submitted));
+        assert_eq!(
+            report.endpoint_outcome,
+            Some(EndpointResponseIntegrationOutcomeKind::Submitted)
+        );
+        assert!(report.command_received_persisted);
+        assert!(report.begin_submit_or_request_cancel_persisted_before_endpoint);
+        assert_eq!(report.endpoint_attempt_count, 1);
+        assert!(report.endpoint_attempt_count_incremented_only_after_durable_boundary);
+        assert!(report.local_mock_endpoint_only);
+        assert!(!report.non_loopback_endpoint_allowed);
+        assert!(report.ack_publish_planned_before_ack);
+        assert!(report.ack_publish_before_xack);
+        assert!(report.xack_after_ack_or_dlq_publish);
+        assert!(report.endpoint_transport_invoked);
+        assert!(!report.external_order_endpoint_allowed);
+        assert_eq!(transport.place_call_count, 1);
+
+        let lifecycle_record = lifecycle_store
+            .load_by_request_id(request_id(730))
+            .expect("load lifecycle")
+            .expect("lifecycle record");
+        assert_eq!(
+            lifecycle_record.state,
+            M3eCommandLifecycleState::AckPublished
+        );
+        assert_eq!(lifecycle_record.endpoint_attempt_count, 1);
+        assert_eq!(lifecycle_record.ack_publish_count, 1);
+        assert_eq!(lifecycle_record.xack_count, 1);
+        assert_eq!(
+            order_store
+                .load_by_request_id(request_id(730))
+                .expect("order path")
+                .state,
+            OrderPathState::Submitted
+        );
+
+        let entries = sink.entries().expect("entries");
+        assert_eq!(entries.len(), 1);
+        let envelope: Envelope<CommandAck> =
+            serde_json::from_str(&entries[0].payload).expect("ack envelope");
+        assert_eq!(envelope.payload.status, CommandAckStatus::Submitted);
+        assert!(envelope.payload.client_order_id.is_none());
+        assert!(envelope.payload.broker_order_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn m3e3_duplicate_request_after_local_mock_does_not_call_endpoint_again() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let lifecycle_store = M3eInMemoryCommandLifecycleStore::default();
+        let consumer = M3eCommandConsumerLocalMockEndpoint::new(
+            config.clone(),
+            sink.clone(),
+            lifecycle_store.clone(),
+        );
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 14, 5, 0)
+            .single()
+            .expect("now");
+        let command = BrokerCommand::PlaceOrder(sample_place_order(
+            request_id(731),
+            "CID000000000000731",
+            now,
+        ));
+        let mut order_store = InMemoryOrderPathStore::default();
+        let mut transport = CountingClassifiedTransport::accepted("BROKER_TEST_M3E3_731");
+        let policy = dry_preflight_policy(now);
+
+        consumer
+            .process_entry(
+                m3e_command_entry(&config, command.clone()),
+                &mut order_store,
+                &mut transport,
+                &policy,
+                now,
+            )
+            .await
+            .expect("first command");
+        let duplicate_report = consumer
+            .process_entry(
+                m3e_command_entry(&config, command),
+                &mut order_store,
+                &mut transport,
+                &policy,
+                now + chrono::Duration::seconds(1),
+            )
+            .await
+            .expect("duplicate command");
+
+        assert_eq!(
+            duplicate_report.action,
+            M3eCommandLifecycleAction::DuplicateAckPublished
+        );
+        assert_eq!(
+            duplicate_report.ack_reason_code,
+            Some(CommandAckReasonCode::DuplicateCommand)
+        );
+        assert!(duplicate_report.request_id_idempotency_store_hit);
+        assert!(duplicate_report.duplicate_request);
+        assert!(duplicate_report.duplicate_request_no_second_endpoint_attempt);
+        assert_eq!(duplicate_report.endpoint_attempt_count, 1);
+        assert!(!duplicate_report.endpoint_transport_invoked);
+        assert_eq!(transport.place_call_count, 1);
+        assert_eq!(sink.entries().expect("entries").len(), 2);
+    }
+
+    #[tokio::test]
+    async fn m3e3_preflight_rejects_before_local_mock_endpoint_attempt() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let lifecycle_store = M3eInMemoryCommandLifecycleStore::default();
+        let consumer = M3eCommandConsumerLocalMockEndpoint::new(
+            config.clone(),
+            sink.clone(),
+            lifecycle_store.clone(),
+        );
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 14, 10, 0)
+            .single()
+            .expect("now");
+        let mut order = sample_place_order(request_id(732), "CID000000000000732", now);
+        order.comment = Some("raw comment blocks preflight".to_string());
+        let mut order_store = InMemoryOrderPathStore::default();
+        let mut transport = CountingClassifiedTransport::accepted("BROKER_TEST_M3E3_732");
+        let policy = dry_preflight_policy(now);
+
+        let report = consumer
+            .process_entry(
+                m3e_command_entry(&config, BrokerCommand::PlaceOrder(order)),
+                &mut order_store,
+                &mut transport,
+                &policy,
+                now,
+            )
+            .await
+            .expect("preflight reject command");
+
+        assert_eq!(
+            report.action,
+            M3eCommandLifecycleAction::LocalRejectAckPublished
+        );
+        assert_eq!(report.ack_status, Some(CommandAckStatus::Rejected));
+        assert_eq!(
+            report.ack_reason_code,
+            Some(CommandAckReasonCode::LocalValidationRejected)
+        );
+        assert!(report.preflight_local_reject_before_endpoint);
+        assert_eq!(report.endpoint_attempt_count, 0);
+        assert!(!report.endpoint_transport_invoked);
+        assert_eq!(transport.place_call_count, 0);
+        assert!(order_store.all_records().is_empty());
+        assert!(!sink.entries().expect("entries")[0]
+            .payload
+            .contains("raw comment blocks preflight"));
+        let lifecycle_record = lifecycle_store
+            .load_by_request_id(request_id(732))
+            .expect("load")
+            .expect("record");
+        assert_eq!(
+            lifecycle_record.state,
+            M3eCommandLifecycleState::AckPublished
+        );
+        assert_eq!(lifecycle_record.endpoint_attempt_count, 0);
+    }
+
+    #[tokio::test]
+    async fn m3e3_ack_published_but_lifecycle_update_failed_recovery_is_explicit() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let failing_store = FailingCommandLifecycleStore::new(2);
+        let consumer = M3eCommandConsumerLocalMockEndpoint::new(
+            config.clone(),
+            sink.clone(),
+            failing_store.clone(),
+        );
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 14, 15, 0)
+            .single()
+            .expect("now");
+        let command = BrokerCommand::PlaceOrder(sample_place_order(
+            request_id(733),
+            "CID000000000000733",
+            now,
+        ));
+        let mut order_store = InMemoryOrderPathStore::default();
+        let mut first_transport = CountingClassifiedTransport::accepted("BROKER_TEST_M3E3_733");
+        let policy = dry_preflight_policy(now);
+
+        let first_result = consumer
+            .process_entry(
+                m3e_command_entry(&config, command.clone()),
+                &mut order_store,
+                &mut first_transport,
+                &policy,
+                now,
+            )
+            .await;
+
+        assert!(first_result.is_err());
+        assert_eq!(first_transport.place_call_count, 1);
+        assert_eq!(sink.entries().expect("entries").len(), 1);
+        let planned = failing_store
+            .load_by_request_id(request_id(733))
+            .expect("load")
+            .expect("planned record");
+        assert_eq!(planned.state, M3eCommandLifecycleState::AckPublishPlanned);
+        assert_eq!(planned.endpoint_attempt_count, 1);
+        assert_eq!(planned.ack_publish_count, 0);
+        assert_eq!(planned.xack_count, 0);
+
+        let recovered_store = failing_store.healthy_inner();
+        let recovery_consumer = M3eCommandConsumerLocalMockEndpoint::new(
+            config.clone(),
+            sink.clone(),
+            recovered_store.clone(),
+        );
+        let mut second_transport = CountingClassifiedTransport::accepted("BROKER_TEST_M3E3_733_B");
+        let recovery_report = recovery_consumer
+            .process_entry(
+                m3e_command_entry(&config, command),
+                &mut order_store,
+                &mut second_transport,
+                &policy,
+                now + chrono::Duration::seconds(1),
+            )
+            .await
+            .expect("recovery duplicate");
+
+        assert_eq!(
+            recovery_report.action,
+            M3eCommandLifecycleAction::RecoveredAckPublished
+        );
+        assert_eq!(
+            recovery_report.ack_status,
+            Some(CommandAckStatus::Duplicate)
+        );
+        assert_eq!(
+            recovery_report.ack_reason_code,
+            Some(CommandAckReasonCode::DuplicateCommand)
+        );
+        assert!(recovery_report.request_id_idempotency_store_hit);
+        assert!(recovery_report.duplicate_request_no_second_endpoint_attempt);
+        assert_eq!(recovery_report.endpoint_attempt_count, 1);
+        assert!(!recovery_report.endpoint_transport_invoked);
+        assert_eq!(second_transport.place_call_count, 0);
+        assert_eq!(sink.entries().expect("entries").len(), 2);
     }
 
     #[tokio::test]
