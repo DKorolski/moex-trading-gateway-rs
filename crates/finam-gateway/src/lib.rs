@@ -913,6 +913,305 @@ impl RuntimeBridgeDlqRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3eCommandConsumerConfig {
+    pub command_stream: String,
+    pub command_ack_stream: String,
+    pub command_dlq_stream: String,
+    pub command_ack_maxlen: Option<usize>,
+    pub command_dlq_maxlen: Option<usize>,
+    pub source: String,
+    pub consumer_group: String,
+    pub consumer_name: String,
+}
+
+impl M3eCommandConsumerConfig {
+    pub fn from_gateway_config(config: &GatewayConfig) -> Self {
+        Self {
+            command_stream: "finam:commands".to_string(),
+            command_ack_stream: config.redis.command_ack_stream.clone(),
+            command_dlq_stream: "finam:commands:dlq".to_string(),
+            command_ack_maxlen: config.redis.retention.command_ack_maxlen,
+            command_dlq_maxlen: Some(1_000),
+            source: config.source.clone(),
+            consumer_group: "finam-gateway-command-consumer".to_string(),
+            consumer_name: "m3e-command-consumer-dry".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3eCommandDlqReason {
+    UnknownStream,
+    InvalidJson,
+    MissingSchemaVersion,
+    UnsupportedSchemaVersion {
+        expected: u16,
+        actual: u64,
+    },
+    MissingMessageType,
+    MissingPayload,
+    UnsupportedMessageType,
+    MessageTypeMismatch {
+        expected: MessageType,
+        actual: Option<MessageType>,
+    },
+    TypedDecodeFailed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3eCommandDeadLetter {
+    pub stream: String,
+    pub entry_id: String,
+    pub reason: M3eCommandDlqReason,
+    pub payload_len: usize,
+    pub raw_payload_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3eCommandDlqRecord {
+    pub schema_version: u16,
+    pub ts_utc: DateTime<Utc>,
+    pub source: String,
+    pub consumer_group: String,
+    pub consumer_name: String,
+    pub dead_letter: M3eCommandDeadLetter,
+}
+
+impl M3eCommandDlqRecord {
+    pub fn new(config: &M3eCommandConsumerConfig, dead_letter: M3eCommandDeadLetter) -> Self {
+        Self {
+            schema_version: SCHEMA_VERSION,
+            ts_utc: Utc::now(),
+            source: config.source.clone(),
+            consumer_group: config.consumer_group.clone(),
+            consumer_name: config.consumer_name.clone(),
+            dead_letter,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3eCommandConsumerAction {
+    AckPublished,
+    DlqPublished,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3eCommandConsumerReport {
+    pub action: M3eCommandConsumerAction,
+    pub entry_id: String,
+    pub ack_status: Option<CommandAckStatus>,
+    pub ack_reason_code: Option<CommandAckReasonCode>,
+    pub dlq_reason: Option<M3eCommandDlqReason>,
+    pub xack_applied: bool,
+    pub xack_after_ack_or_dlq_publish: bool,
+    pub endpoint_transport_invoked: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub raw_payload_exported: bool,
+    pub raw_token_exported: bool,
+    pub raw_body_exported: bool,
+    pub raw_command_comment_exported: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct M3eCommandConsumerDryRun<S> {
+    config: M3eCommandConsumerConfig,
+    sink: S,
+}
+
+impl<S> M3eCommandConsumerDryRun<S>
+where
+    S: RedisStreamSink,
+{
+    pub fn new(config: M3eCommandConsumerConfig, sink: S) -> Self {
+        Self { config, sink }
+    }
+
+    pub fn from_gateway_config(config: &GatewayConfig, sink: S) -> Self {
+        Self::new(M3eCommandConsumerConfig::from_gateway_config(config), sink)
+    }
+
+    pub async fn process_entry(
+        &self,
+        entry: RuntimeBridgeStreamEntry,
+        now: DateTime<Utc>,
+    ) -> Result<M3eCommandConsumerReport, GatewayError> {
+        match decode_m3e_command_entry(&entry, &self.config, now) {
+            Ok(command_decision) => {
+                let ack = command_decision.into_ack(now);
+                let ack_status = ack.status;
+                let ack_reason_code = ack.reason.as_ref().map(|reason| reason.code);
+                self.sink
+                    .publish_json(
+                        &self.config.command_ack_stream,
+                        &Envelope::new(
+                            self.config.source.clone(),
+                            MessageType::CommandAck,
+                            redact_command_ack_for_redis(ack),
+                        ),
+                        self.config.command_ack_maxlen,
+                    )
+                    .await?;
+                Ok(M3eCommandConsumerReport {
+                    action: M3eCommandConsumerAction::AckPublished,
+                    entry_id: entry.entry_id,
+                    ack_status: Some(ack_status),
+                    ack_reason_code,
+                    dlq_reason: None,
+                    xack_applied: true,
+                    xack_after_ack_or_dlq_publish: true,
+                    endpoint_transport_invoked: false,
+                    external_order_endpoint_allowed: false,
+                    raw_payload_exported: false,
+                    raw_token_exported: false,
+                    raw_body_exported: false,
+                    raw_command_comment_exported: false,
+                })
+            }
+            Err(dead_letter) => {
+                let reason = dead_letter.reason.clone();
+                let record = M3eCommandDlqRecord::new(&self.config, dead_letter);
+                self.sink
+                    .publish_json(
+                        &self.config.command_dlq_stream,
+                        &record,
+                        self.config.command_dlq_maxlen,
+                    )
+                    .await?;
+                Ok(M3eCommandConsumerReport {
+                    action: M3eCommandConsumerAction::DlqPublished,
+                    entry_id: entry.entry_id,
+                    ack_status: None,
+                    ack_reason_code: None,
+                    dlq_reason: Some(reason),
+                    xack_applied: true,
+                    xack_after_ack_or_dlq_publish: true,
+                    endpoint_transport_invoked: false,
+                    external_order_endpoint_allowed: false,
+                    raw_payload_exported: false,
+                    raw_token_exported: false,
+                    raw_body_exported: false,
+                    raw_command_comment_exported: false,
+                })
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum M3eCommandDecision {
+    DryRunRejected(BrokerCommand),
+    Expired(BrokerCommand),
+}
+
+impl M3eCommandDecision {
+    fn into_ack(self, now: DateTime<Utc>) -> CommandAck {
+        match self {
+            Self::DryRunRejected(command) => CommandAck {
+                request_id: command_request_id(&command),
+                client_order_id: command_client_order_id(&command),
+                broker_order_id: None,
+                status: CommandAckStatus::Rejected,
+                reason: Some(CommandAckReason::new(CommandAckReasonCode::DryRunOnly)),
+                received_ts: now,
+            },
+            Self::Expired(command) => CommandAck {
+                request_id: command_request_id(&command),
+                client_order_id: command_client_order_id(&command),
+                broker_order_id: None,
+                status: CommandAckStatus::Expired,
+                reason: Some(CommandAckReason::new(CommandAckReasonCode::ExpiredCommand)),
+                received_ts: now,
+            },
+        }
+    }
+}
+
+fn decode_m3e_command_entry(
+    entry: &RuntimeBridgeStreamEntry,
+    config: &M3eCommandConsumerConfig,
+    now: DateTime<Utc>,
+) -> Result<M3eCommandDecision, M3eCommandDeadLetter> {
+    if entry.stream != config.command_stream {
+        return Err(m3e_command_dead_letter(
+            entry,
+            M3eCommandDlqReason::UnknownStream,
+        ));
+    }
+    let value = serde_json::from_str::<serde_json::Value>(&entry.payload)
+        .map_err(|_| m3e_command_dead_letter(entry, M3eCommandDlqReason::InvalidJson))?;
+    let schema_version = value
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64);
+    let Some(schema_version) = schema_version else {
+        return Err(m3e_command_dead_letter(
+            entry,
+            M3eCommandDlqReason::MissingSchemaVersion,
+        ));
+    };
+    if schema_version != u64::from(SCHEMA_VERSION) {
+        return Err(m3e_command_dead_letter(
+            entry,
+            M3eCommandDlqReason::UnsupportedSchemaVersion {
+                expected: SCHEMA_VERSION,
+                actual: schema_version,
+            },
+        ));
+    }
+    let msg_type = value.get("msg_type");
+    let Some(msg_type) = msg_type else {
+        return Err(m3e_command_dead_letter(
+            entry,
+            M3eCommandDlqReason::MissingMessageType,
+        ));
+    };
+    let actual_msg_type = serde_json::from_value::<MessageType>(msg_type.clone()).ok();
+    if actual_msg_type != Some(MessageType::Command) {
+        return Err(m3e_command_dead_letter(
+            entry,
+            M3eCommandDlqReason::MessageTypeMismatch {
+                expected: MessageType::Command,
+                actual: actual_msg_type,
+            },
+        ));
+    }
+    if value.get("payload").is_none() {
+        return Err(m3e_command_dead_letter(
+            entry,
+            M3eCommandDlqReason::MissingPayload,
+        ));
+    }
+    let envelope = serde_json::from_value::<Envelope<BrokerCommand>>(value)
+        .map_err(|_| m3e_command_dead_letter(entry, M3eCommandDlqReason::TypedDecodeFailed))?;
+    if command_expired(&envelope.payload, now) {
+        Ok(M3eCommandDecision::Expired(envelope.payload))
+    } else {
+        Ok(M3eCommandDecision::DryRunRejected(envelope.payload))
+    }
+}
+
+fn m3e_command_dead_letter(
+    entry: &RuntimeBridgeStreamEntry,
+    reason: M3eCommandDlqReason,
+) -> M3eCommandDeadLetter {
+    M3eCommandDeadLetter {
+        stream: entry.stream.clone(),
+        entry_id: entry.entry_id.clone(),
+        reason,
+        payload_len: entry.payload.len(),
+        raw_payload_exported: false,
+    }
+}
+
+fn command_expired(command: &BrokerCommand, now: DateTime<Utc>) -> bool {
+    let (created_ts, ttl_ms) = match command {
+        BrokerCommand::PlaceOrder(order) => (order.created_ts, order.ttl_ms),
+        BrokerCommand::CancelOrder(order) => (order.created_ts, order.ttl_ms),
+    };
+    ttl_ms.is_some_and(|ttl_ms| created_ts + ChronoDuration::milliseconds(ttl_ms as i64) < now)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RuntimeBridgeConsumeOutcome {
     Accepted {
         kind: RuntimeBridgePayloadKind,
@@ -8634,6 +8933,207 @@ mod tests {
         );
         assert!(envelope.payload.client_order_id.is_none());
         assert!(envelope.payload.broker_order_id.is_none());
+    }
+
+    fn sample_m3e_place_command(
+        id: u128,
+        created_ts: DateTime<Utc>,
+        ttl_ms: Option<u64>,
+        comment: Option<String>,
+    ) -> BrokerCommand {
+        BrokerCommand::PlaceOrder(broker_core::PlaceOrder {
+            request_id: request_id(id),
+            created_ts,
+            ttl_ms,
+            account_id: broker_core::BrokerAccountId::new("ACC_TEST_0001"),
+            client_order_id: ClientOrderId::new(format!("CID{id:017}")).expect("client id"),
+            instrument: sample_instrument(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: Decimal::ONE,
+            limit_price: Some(Decimal::new(5000, 0)),
+            time_in_force: TimeInForce::Day,
+            comment,
+        })
+    }
+
+    fn m3e_command_entry(
+        config: &M3eCommandConsumerConfig,
+        command: BrokerCommand,
+    ) -> RuntimeBridgeStreamEntry {
+        RuntimeBridgeStreamEntry {
+            stream: config.command_stream.clone(),
+            entry_id: "1-0".to_string(),
+            payload: serde_json::to_string(&Envelope::new(
+                "strategy-test",
+                MessageType::Command,
+                command,
+            ))
+            .expect("command envelope"),
+        }
+    }
+
+    #[tokio::test]
+    async fn m3e1_valid_command_publishes_redacted_dry_ack_then_xack_without_endpoint() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let consumer = M3eCommandConsumerDryRun::new(config.clone(), sink.clone());
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 12, 0, 0)
+            .single()
+            .expect("now");
+        let command = sample_m3e_place_command(
+            700,
+            now - chrono::Duration::milliseconds(100),
+            Some(10_000),
+            Some("raw strategy comment must not leak".to_string()),
+        );
+
+        let report = consumer
+            .process_entry(m3e_command_entry(&config, command), now)
+            .await
+            .expect("process command");
+
+        assert_eq!(report.action, M3eCommandConsumerAction::AckPublished);
+        assert_eq!(report.ack_status, Some(CommandAckStatus::Rejected));
+        assert_eq!(
+            report.ack_reason_code,
+            Some(CommandAckReasonCode::DryRunOnly)
+        );
+        assert!(report.xack_applied);
+        assert!(report.xack_after_ack_or_dlq_publish);
+        assert!(!report.endpoint_transport_invoked);
+        assert!(!report.external_order_endpoint_allowed);
+        assert!(!report.raw_payload_exported);
+        assert!(!report.raw_command_comment_exported);
+
+        let entries = sink.entries().expect("entries");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].stream, config.command_ack_stream);
+        assert!(!entries[0].payload.contains("CID000000000000700"));
+        assert!(!entries[0].payload.contains("raw strategy comment"));
+        let envelope: Envelope<CommandAck> =
+            serde_json::from_str(&entries[0].payload).expect("ack envelope");
+        assert_eq!(envelope.msg_type, MessageType::CommandAck);
+        assert_eq!(envelope.payload.status, CommandAckStatus::Rejected);
+        assert_eq!(
+            envelope.payload.reason.expect("reason").code,
+            CommandAckReasonCode::DryRunOnly
+        );
+        assert!(envelope.payload.client_order_id.is_none());
+        assert!(envelope.payload.broker_order_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn m3e1_expired_command_publishes_expired_ack_then_xack() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let consumer = M3eCommandConsumerDryRun::new(config.clone(), sink.clone());
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 12, 0, 0)
+            .single()
+            .expect("now");
+        let command = sample_m3e_place_command(
+            701,
+            now - chrono::Duration::milliseconds(10_000),
+            Some(100),
+            None,
+        );
+
+        let report = consumer
+            .process_entry(m3e_command_entry(&config, command), now)
+            .await
+            .expect("process expired command");
+
+        assert_eq!(report.action, M3eCommandConsumerAction::AckPublished);
+        assert_eq!(report.ack_status, Some(CommandAckStatus::Expired));
+        assert_eq!(
+            report.ack_reason_code,
+            Some(CommandAckReasonCode::ExpiredCommand)
+        );
+        assert!(report.xack_after_ack_or_dlq_publish);
+        let entries = sink.entries().expect("entries");
+        let envelope: Envelope<CommandAck> =
+            serde_json::from_str(&entries[0].payload).expect("ack envelope");
+        assert_eq!(envelope.payload.status, CommandAckStatus::Expired);
+        assert_eq!(
+            envelope.payload.reason.expect("reason").code,
+            CommandAckReasonCode::ExpiredCommand
+        );
+    }
+
+    #[tokio::test]
+    async fn m3e1_invalid_command_payload_publishes_redacted_dlq_then_xack() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let consumer = M3eCommandConsumerDryRun::new(config.clone(), sink.clone());
+        let raw_payload = "raw Redis payload with SECRET_TOKEN and account ACC_TEST_0001";
+        let entry = RuntimeBridgeStreamEntry {
+            stream: config.command_stream.clone(),
+            entry_id: "2-0".to_string(),
+            payload: raw_payload.to_string(),
+        };
+
+        let report = consumer
+            .process_entry(entry, Utc::now())
+            .await
+            .expect("process invalid command");
+
+        assert_eq!(report.action, M3eCommandConsumerAction::DlqPublished);
+        assert_eq!(report.dlq_reason, Some(M3eCommandDlqReason::InvalidJson));
+        assert!(report.xack_applied);
+        assert!(report.xack_after_ack_or_dlq_publish);
+        assert!(!report.endpoint_transport_invoked);
+        assert!(!report.raw_payload_exported);
+
+        let entries = sink.entries().expect("entries");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].stream, config.command_dlq_stream);
+        assert!(!entries[0].payload.contains("SECRET_TOKEN"));
+        assert!(!entries[0].payload.contains("ACC_TEST_0001"));
+        assert!(!entries[0].payload.contains(raw_payload));
+        let dlq: M3eCommandDlqRecord =
+            serde_json::from_str(&entries[0].payload).expect("dlq record");
+        assert_eq!(dlq.schema_version, SCHEMA_VERSION);
+        assert_eq!(dlq.dead_letter.reason, M3eCommandDlqReason::InvalidJson);
+        assert_eq!(dlq.dead_letter.payload_len, raw_payload.len());
+        assert!(!dlq.dead_letter.raw_payload_exported);
+    }
+
+    #[tokio::test]
+    async fn m3e1_wrong_message_type_goes_to_dlq_without_ack_or_endpoint() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let consumer = M3eCommandConsumerDryRun::new(config.clone(), sink.clone());
+        let entry = RuntimeBridgeStreamEntry {
+            stream: config.command_stream.clone(),
+            entry_id: "3-0".to_string(),
+            payload: serde_json::to_string(&Envelope::new(
+                "strategy-test",
+                MessageType::MarketData,
+                serde_json::json!({"kind": "not-a-command"}),
+            ))
+            .expect("wrong type envelope"),
+        };
+
+        let report = consumer
+            .process_entry(entry, Utc::now())
+            .await
+            .expect("process wrong type");
+
+        assert_eq!(report.action, M3eCommandConsumerAction::DlqPublished);
+        assert_eq!(
+            report.dlq_reason,
+            Some(M3eCommandDlqReason::MessageTypeMismatch {
+                expected: MessageType::Command,
+                actual: Some(MessageType::MarketData),
+            })
+        );
+        assert!(report.xack_after_ack_or_dlq_publish);
+        assert!(!report.endpoint_transport_invoked);
+        let entries = sink.entries().expect("entries");
+        assert_eq!(entries[0].stream, config.command_dlq_stream);
+        assert!(!entries[0].payload.contains("not-a-command"));
     }
 
     #[tokio::test]
