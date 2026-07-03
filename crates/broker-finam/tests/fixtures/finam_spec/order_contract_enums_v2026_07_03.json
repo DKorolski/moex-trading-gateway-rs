@@ -1,0 +1,60 @@
+{
+  "source": {
+    "description": "Pinned FINAM order contract enum fixture for M3d-1 mapper drift tests.",
+    "captured_at": "2026-07-03",
+    "rest_docs_url": "https://api.finam.ru/docs/rest/",
+    "notes": [
+      "Plain PlaceOrder supports TIME_IN_FORCE_IOC and TIME_IN_FORCE_FOK.",
+      "VALID_BEFORE_GOOD_TILL_DATE is documented for SL/TP orders, not plain PlaceOrder.",
+      "This fixture is intentionally enum-only and contains no account, token, order, or broker payload values."
+    ]
+  },
+  "time_in_force": [
+    "TIME_IN_FORCE_UNSPECIFIED",
+    "TIME_IN_FORCE_DAY",
+    "TIME_IN_FORCE_GOOD_TILL_CANCEL",
+    "TIME_IN_FORCE_GOOD_TILL_CROSSING",
+    "TIME_IN_FORCE_EXT",
+    "TIME_IN_FORCE_ON_OPEN",
+    "TIME_IN_FORCE_ON_CLOSE",
+    "TIME_IN_FORCE_IOC",
+    "TIME_IN_FORCE_FOK"
+  ],
+  "valid_before": [
+    "VALID_BEFORE_UNSPECIFIED",
+    "VALID_BEFORE_END_OF_DAY",
+    "VALID_BEFORE_GOOD_TILL_CANCEL",
+    "VALID_BEFORE_GOOD_TILL_DATE"
+  ],
+  "order_status": [
+    "ORDER_STATUS_UNSPECIFIED",
+    "ORDER_STATUS_NEW",
+    "ORDER_STATUS_PARTIALLY_FILLED",
+    "ORDER_STATUS_FILLED",
+    "ORDER_STATUS_DONE_FOR_DAY",
+    "ORDER_STATUS_CANCELED",
+    "ORDER_STATUS_REPLACED",
+    "ORDER_STATUS_PENDING_CANCEL",
+    "ORDER_STATUS_REJECTED",
+    "ORDER_STATUS_SUSPENDED",
+    "ORDER_STATUS_PENDING_NEW",
+    "ORDER_STATUS_EXPIRED",
+    "ORDER_STATUS_FAILED",
+    "ORDER_STATUS_FORWARDING",
+    "ORDER_STATUS_WAIT",
+    "ORDER_STATUS_DENIED_BY_BROKER",
+    "ORDER_STATUS_REJECTED_BY_EXCHANGE",
+    "ORDER_STATUS_WATCHING",
+    "ORDER_STATUS_EXECUTED",
+    "ORDER_STATUS_DISABLED",
+    "ORDER_STATUS_LINK_WAIT",
+    "ORDER_STATUS_SL_GUARD_TIME",
+    "ORDER_STATUS_SL_EXECUTED",
+    "ORDER_STATUS_SL_FORWARDING",
+    "ORDER_STATUS_TP_GUARD_TIME",
+    "ORDER_STATUS_TP_EXECUTED",
+    "ORDER_STATUS_TP_CORRECTION",
+    "ORDER_STATUS_TP_FORWARDING",
+    "ORDER_STATUS_TP_CORR_GUARD_TIME"
+  ]
+}

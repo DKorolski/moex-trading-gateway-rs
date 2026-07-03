@@ -1045,9 +1045,9 @@ fn finam_time_in_force(
     match time_in_force {
         TimeInForce::Day => Ok("TIME_IN_FORCE_DAY"),
         TimeInForce::GoodTillCancel => Ok("TIME_IN_FORCE_GOOD_TILL_CANCEL"),
-        TimeInForce::GoodTillDate => Ok("TIME_IN_FORCE_GOOD_TILL_DATE"),
-        TimeInForce::FillOrKill => Ok("TIME_IN_FORCE_FILL_OR_KILL"),
-        TimeInForce::ImmediateOrCancel => Ok("TIME_IN_FORCE_IMMEDIATE_OR_CANCEL"),
+        TimeInForce::GoodTillDate => Err(FinamOrderRequestBuildError::UnsupportedTimeInForce),
+        TimeInForce::FillOrKill => Ok("TIME_IN_FORCE_FOK"),
+        TimeInForce::ImmediateOrCancel => Ok("TIME_IN_FORCE_IOC"),
     }
 }
 
@@ -1127,6 +1127,16 @@ mod tests {
             max_reference_age_ms: 1_000,
             allow_cancel_by_broker_order_id_without_mapping: false,
             operator_arm: sample_arm(now),
+        }
+    }
+
+    fn preflight_policy_with_tif(
+        now: DateTime<Utc>,
+        allowed_time_in_force: Vec<TimeInForce>,
+    ) -> OrderPreflightPolicy {
+        OrderPreflightPolicy {
+            allowed_time_in_force,
+            ..preflight_policy(now)
         }
     }
 
@@ -1222,6 +1232,77 @@ mod tests {
                 .approve_place_order(&order, order.created_ts)
                 .expect_err("raw comment"),
             broker_core::OrderPreflightError::RawCommandCommentNotAllowed
+        );
+    }
+
+    #[test]
+    fn maps_supported_finam_time_in_force_to_pinned_wire_enums() {
+        assert_eq!(
+            finam_time_in_force(TimeInForce::Day).expect("day"),
+            "TIME_IN_FORCE_DAY"
+        );
+        assert_eq!(
+            finam_time_in_force(TimeInForce::GoodTillCancel).expect("gtc"),
+            "TIME_IN_FORCE_GOOD_TILL_CANCEL"
+        );
+        assert_eq!(
+            finam_time_in_force(TimeInForce::ImmediateOrCancel).expect("ioc"),
+            "TIME_IN_FORCE_IOC"
+        );
+        assert_eq!(
+            finam_time_in_force(TimeInForce::FillOrKill).expect("fok"),
+            "TIME_IN_FORCE_FOK"
+        );
+    }
+
+    #[test]
+    fn blocks_good_till_date_for_plain_place_order_until_valid_before_support() {
+        let mut order = place_order();
+        order.time_in_force = TimeInForce::GoodTillDate;
+        let now = order.created_ts + chrono::Duration::milliseconds(1);
+        let context = OrderPreflightContext {
+            reference_price: Some(OrderReferencePrice {
+                price: order.limit_price.expect("limit price"),
+                received_ts: now,
+            }),
+            current_run_notional: Decimal::ZERO,
+        };
+        let approved = preflight_policy_with_tif(now, vec![TimeInForce::GoodTillDate])
+            .approve_place_order_with_context(&order, now, &context)
+            .expect("preflight can be configured to allow GoodTillDate");
+
+        assert_eq!(
+            build_place_order_request(&approved, None).expect_err("blocked by FINAM mapper"),
+            FinamOrderRequestBuildError::UnsupportedTimeInForce
+        );
+    }
+
+    #[test]
+    fn pinned_finam_spec_fixture_contains_supported_time_in_force_enums() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/finam_spec/order_contract_enums_v2026_07_03.json"
+        ))
+        .expect("fixture json");
+        let values = fixture["time_in_force"]
+            .as_array()
+            .expect("time_in_force array");
+
+        for expected in [
+            "TIME_IN_FORCE_DAY",
+            "TIME_IN_FORCE_GOOD_TILL_CANCEL",
+            "TIME_IN_FORCE_IOC",
+            "TIME_IN_FORCE_FOK",
+        ] {
+            assert!(
+                values.iter().any(|value| value == expected),
+                "missing pinned FINAM TIF enum {expected}"
+            );
+        }
+        assert!(
+            !values
+                .iter()
+                .any(|value| value == "TIME_IN_FORCE_GOOD_TILL_DATE"),
+            "plain order GoodTillDate must not be introduced silently"
         );
     }
 

@@ -52,6 +52,15 @@ Acceptance:
   implemented and tested;
 - mapper tests fail on unknown enum/string drift.
 
+Implementation status:
+
+- `broker-finam` now serializes IOC/FOK as `TIME_IN_FORCE_IOC` /
+  `TIME_IN_FORCE_FOK`.
+- Plain-order `GoodTillDate` now returns `UnsupportedTimeInForce`; the current
+  FINAM docs describe `VALID_BEFORE_GOOD_TILL_DATE` as SL/TP-only.
+- The pinned enum fixture is
+  `crates/broker-finam/tests/fixtures/finam_spec/order_contract_enums_v2026_07_03.json`.
+
 ## M3d-1.2 OrderStatus classifier
 
 The classifier must be explicit. Production statuses must not silently collapse
@@ -138,6 +147,15 @@ Acceptance:
 - USDRUBF, IMOEXF, and RI/RTS resolve independently; RI/RTS remain last in
   migration order.
 
+Implementation status:
+
+- `broker-finam::instrument_registry` contains a pure
+  `FinamInstrumentRegistryValidator` over `InstrumentMapEntry`,
+  `AssetResponse`, `AssetParamsResponse`, and `AssetScheduleResponse`.
+- The validator emits `ReadinessReason::InstrumentMapNotValidated` and
+  `ReadinessReason::ScheduleNotLoaded` blockers without making network calls
+  and without enabling order endpoints.
+
 ## M3d-1.4 Pinned spec fixtures and drift harness
 
 Work:
@@ -153,6 +171,12 @@ Acceptance:
 - unsupported enum becomes local reject or degraded/manual review, not live
   pass-through;
 - evidence package shows fixture version/hash.
+
+Implementation status:
+
+- M3d-1 starts with an enum-only pinned fixture. Future real-shape body fixtures
+  must remain redacted and must not contain account ids, tokens, broker order
+  ids, client order ids, raw comments, or raw broker payloads.
 
 ## Definition of done
 

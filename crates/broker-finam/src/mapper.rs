@@ -29,6 +29,20 @@ pub enum OrderSnapshotClass {
     BlockingUnknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FinamOrderStatusClass {
+    ActiveOrPending,
+    CancelPending,
+    TerminalFilled,
+    TerminalCanceled,
+    TerminalRejected,
+    TerminalExpired,
+    NeedsPolicy,
+    ManualOrDegraded,
+    BlockingUnknown,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum FinamMapperError {
     #[error("finam mapper missing required field: {field}")]
@@ -75,17 +89,46 @@ pub fn map_order_type(native: &str) -> Result<OrderType, FinamMapperError> {
     }
 }
 
+fn normalized_order_status(native: &str) -> &str {
+    native
+        .strip_prefix("ORDER_STATUS_")
+        .unwrap_or(native)
+        .trim()
+}
+
+pub fn classify_finam_order_status(native: &str) -> FinamOrderStatusClass {
+    match normalized_order_status(native) {
+        "NEW" | "ACCEPTED" | "ACTIVE" | "WORKING" | "MATCHING" | "WAIT" | "FORWARDING"
+        | "WATCHING" | "PENDING_NEW" | "PARTIALLY_FILLED" => FinamOrderStatusClass::ActiveOrPending,
+        "PENDING_CANCEL" => FinamOrderStatusClass::CancelPending,
+        "FILLED" | "EXECUTED" | "SL_EXECUTED" | "TP_EXECUTED" => {
+            FinamOrderStatusClass::TerminalFilled
+        }
+        "CANCELED" | "CANCELLED" => FinamOrderStatusClass::TerminalCanceled,
+        "REJECTED" | "FAILED" | "DENIED_BY_BROKER" | "REJECTED_BY_EXCHANGE" => {
+            FinamOrderStatusClass::TerminalRejected
+        }
+        "EXPIRED" => FinamOrderStatusClass::TerminalExpired,
+        "DONE_FOR_DAY" | "REPLACED" => FinamOrderStatusClass::NeedsPolicy,
+        "SUSPENDED" | "DISABLED" => FinamOrderStatusClass::ManualOrDegraded,
+        _ => FinamOrderStatusClass::BlockingUnknown,
+    }
+}
+
 pub fn map_order_status(native: &str) -> OrderStatus {
-    match native {
-        "ORDER_STATUS_NEW" | "ORDER_STATUS_ACCEPTED" => OrderStatus::New,
-        "ORDER_STATUS_ACTIVE" | "ORDER_STATUS_WORKING" | "ORDER_STATUS_MATCHING" => {
+    match normalized_order_status(native) {
+        "NEW" | "ACCEPTED" => OrderStatus::New,
+        "ACTIVE" | "WORKING" | "MATCHING" | "WAIT" | "FORWARDING" | "WATCHING" | "PENDING_NEW" => {
             OrderStatus::Working
         }
-        "ORDER_STATUS_PARTIALLY_FILLED" => OrderStatus::PartiallyFilled,
-        "ORDER_STATUS_FILLED" | "ORDER_STATUS_EXECUTED" => OrderStatus::Filled,
-        "ORDER_STATUS_CANCELED" | "ORDER_STATUS_CANCELLED" => OrderStatus::Canceled,
-        "ORDER_STATUS_REJECTED" => OrderStatus::Rejected,
-        "ORDER_STATUS_EXPIRED" => OrderStatus::Expired,
+        "PENDING_CANCEL" => OrderStatus::Working,
+        "PARTIALLY_FILLED" => OrderStatus::PartiallyFilled,
+        "FILLED" | "EXECUTED" | "SL_EXECUTED" | "TP_EXECUTED" => OrderStatus::Filled,
+        "CANCELED" | "CANCELLED" => OrderStatus::Canceled,
+        "REJECTED" | "FAILED" | "DENIED_BY_BROKER" | "REJECTED_BY_EXCHANGE" => {
+            OrderStatus::Rejected
+        }
+        "EXPIRED" => OrderStatus::Expired,
         value => OrderStatus::Unknown(value.to_string()),
     }
 }
@@ -104,7 +147,18 @@ pub fn classify_order_status(status: &OrderStatus) -> OrderSnapshotClass {
 }
 
 pub fn classify_native_order_status(native: &str) -> OrderSnapshotClass {
-    classify_order_status(&map_order_status(native))
+    match classify_finam_order_status(native) {
+        FinamOrderStatusClass::ActiveOrPending | FinamOrderStatusClass::CancelPending => {
+            OrderSnapshotClass::Active
+        }
+        FinamOrderStatusClass::TerminalFilled
+        | FinamOrderStatusClass::TerminalCanceled
+        | FinamOrderStatusClass::TerminalRejected
+        | FinamOrderStatusClass::TerminalExpired => OrderSnapshotClass::Terminal,
+        FinamOrderStatusClass::NeedsPolicy
+        | FinamOrderStatusClass::ManualOrDegraded
+        | FinamOrderStatusClass::BlockingUnknown => OrderSnapshotClass::BlockingUnknown,
+    }
 }
 
 pub fn has_blocking_unknown_order_statuses(orders: &[Order]) -> bool {
@@ -484,9 +538,81 @@ mod tests {
             map_order_status("ORDER_STATUS_CANCELED"),
             OrderStatus::Canceled
         );
+        assert_eq!(map_order_status("ORDER_STATUS_WAIT"), OrderStatus::Working);
+        assert_eq!(map_order_status("WAIT"), OrderStatus::Working);
+        assert_eq!(
+            map_order_status("ORDER_STATUS_DENIED_BY_BROKER"),
+            OrderStatus::Rejected
+        );
+        assert_eq!(
+            map_order_status("ORDER_STATUS_SL_EXECUTED"),
+            OrderStatus::Filled
+        );
         assert_eq!(
             map_order_status("BROKER_NEW_STATUS"),
             OrderStatus::Unknown("BROKER_NEW_STATUS".to_string())
+        );
+    }
+
+    #[test]
+    fn classifies_finam_order_statuses_by_explicit_m3d1_buckets() {
+        for status in [
+            "ORDER_STATUS_WAIT",
+            "ORDER_STATUS_FORWARDING",
+            "ORDER_STATUS_WATCHING",
+            "ORDER_STATUS_PENDING_NEW",
+        ] {
+            assert_eq!(
+                classify_finam_order_status(status),
+                FinamOrderStatusClass::ActiveOrPending,
+                "{status}"
+            );
+        }
+        assert_eq!(
+            classify_finam_order_status("ORDER_STATUS_PENDING_CANCEL"),
+            FinamOrderStatusClass::CancelPending
+        );
+        for status in [
+            "ORDER_STATUS_FAILED",
+            "ORDER_STATUS_DENIED_BY_BROKER",
+            "ORDER_STATUS_REJECTED_BY_EXCHANGE",
+        ] {
+            assert_eq!(
+                classify_finam_order_status(status),
+                FinamOrderStatusClass::TerminalRejected,
+                "{status}"
+            );
+        }
+        for status in [
+            "ORDER_STATUS_EXECUTED",
+            "ORDER_STATUS_SL_EXECUTED",
+            "TP_EXECUTED",
+        ] {
+            assert_eq!(
+                classify_finam_order_status(status),
+                FinamOrderStatusClass::TerminalFilled,
+                "{status}"
+            );
+        }
+        assert_eq!(
+            classify_finam_order_status("ORDER_STATUS_DONE_FOR_DAY"),
+            FinamOrderStatusClass::NeedsPolicy
+        );
+        assert_eq!(
+            classify_finam_order_status("ORDER_STATUS_REPLACED"),
+            FinamOrderStatusClass::NeedsPolicy
+        );
+        assert_eq!(
+            classify_finam_order_status("ORDER_STATUS_SUSPENDED"),
+            FinamOrderStatusClass::ManualOrDegraded
+        );
+        assert_eq!(
+            classify_finam_order_status("ORDER_STATUS_DISABLED"),
+            FinamOrderStatusClass::ManualOrDegraded
+        );
+        assert_eq!(
+            classify_finam_order_status("BROKER_NEW_STATUS"),
+            FinamOrderStatusClass::BlockingUnknown
         );
     }
 
@@ -509,9 +635,55 @@ mod tests {
             OrderSnapshotClass::Terminal
         );
         assert_eq!(
+            classify_native_order_status("ORDER_STATUS_PENDING_CANCEL"),
+            OrderSnapshotClass::Active
+        );
+        assert_eq!(
+            classify_native_order_status("ORDER_STATUS_DONE_FOR_DAY"),
+            OrderSnapshotClass::BlockingUnknown
+        );
+        assert_eq!(
+            classify_native_order_status("ORDER_STATUS_DISABLED"),
+            OrderSnapshotClass::BlockingUnknown
+        );
+        assert_eq!(
             classify_native_order_status("BROKER_NEW_STATUS"),
             OrderSnapshotClass::BlockingUnknown
         );
+    }
+
+    #[test]
+    fn pinned_finam_spec_fixture_contains_statuses_used_by_classifier() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/finam_spec/order_contract_enums_v2026_07_03.json"
+        ))
+        .expect("fixture json");
+        let values = fixture["order_status"]
+            .as_array()
+            .expect("order_status array");
+
+        for expected in [
+            "ORDER_STATUS_WAIT",
+            "ORDER_STATUS_FORWARDING",
+            "ORDER_STATUS_WATCHING",
+            "ORDER_STATUS_PENDING_NEW",
+            "ORDER_STATUS_PENDING_CANCEL",
+            "ORDER_STATUS_FAILED",
+            "ORDER_STATUS_DENIED_BY_BROKER",
+            "ORDER_STATUS_REJECTED_BY_EXCHANGE",
+            "ORDER_STATUS_EXECUTED",
+            "ORDER_STATUS_SL_EXECUTED",
+            "ORDER_STATUS_TP_EXECUTED",
+            "ORDER_STATUS_DONE_FOR_DAY",
+            "ORDER_STATUS_REPLACED",
+            "ORDER_STATUS_SUSPENDED",
+            "ORDER_STATUS_DISABLED",
+        ] {
+            assert!(
+                values.iter().any(|value| value == expected),
+                "missing pinned FINAM order status enum {expected}"
+            );
+        }
     }
 
     #[test]

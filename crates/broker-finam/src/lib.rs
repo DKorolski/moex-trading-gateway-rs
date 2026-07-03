@@ -10,9 +10,11 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 pub mod dto;
+pub mod instrument_registry;
 pub mod mapper;
 pub mod order_request;
 pub use dto::*;
+pub use instrument_registry::*;
 pub use mapper::*;
 pub use order_request::*;
 
