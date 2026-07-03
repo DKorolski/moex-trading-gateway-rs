@@ -3235,6 +3235,12 @@ pub enum M3hRuntimeShadowBlockedReason {
     InboundLiveReadyForbidden,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3hRuntimeShadowNonDecisionReason {
+    NonMonotonicLiveFinal,
+    NonFinalOrNonLiveSource,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum M3hRuntimeShadowConsumerOutcome {
     Accepted {
@@ -3250,6 +3256,11 @@ pub enum M3hRuntimeShadowConsumerOutcome {
         entry_id: String,
         bar_key: String,
     },
+    NonDecisionBar {
+        entry_id: String,
+        bar_key: String,
+        reason: M3hRuntimeShadowNonDecisionReason,
+    },
     Blocked {
         entry_id: String,
         reason: M3hRuntimeShadowBlockedReason,
@@ -3263,16 +3274,24 @@ pub struct M3hRuntimeShadowConsumerMetrics {
     pub accepted_count: u64,
     pub strategy_decision_tick_count: u64,
     pub duplicate_bar_count: u64,
+    pub non_decision_bar_count: u64,
+    pub non_monotonic_bar_count: u64,
     pub blocked_count: u64,
     pub dead_letter_count: u64,
     pub broker_command_emitted_count: u64,
     pub live_ready_seen_blocked_count: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3hRuntimeShadowWatermarkRestartPolicy {
+    EphemeralRequiresReplayOrBootstrap,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct M3hRuntimeShadowConsumerReport {
     pub schema_version: u16,
     pub metrics: M3hRuntimeShadowConsumerMetrics,
+    pub watermark_restart_policy: M3hRuntimeShadowWatermarkRestartPolicy,
     pub broker_neutral_payload_only: bool,
     pub finam_dto_visible_to_runtime: bool,
     pub emits_broker_command: bool,
@@ -5034,6 +5053,7 @@ fn m3h1_shadow_input(
 pub struct M3hRuntimeShadowConsumer {
     config: RedisStreamConfig,
     seen_bar_keys: HashSet<String>,
+    last_decision_bar_open_ts: HashMap<String, DateTime<Utc>>,
     metrics: M3hRuntimeShadowConsumerMetrics,
 }
 
@@ -5042,6 +5062,7 @@ impl M3hRuntimeShadowConsumer {
         Self {
             config,
             seen_bar_keys: HashSet::new(),
+            last_decision_bar_open_ts: HashMap::new(),
             metrics: M3hRuntimeShadowConsumerMetrics::default(),
         }
     }
@@ -5058,6 +5079,8 @@ impl M3hRuntimeShadowConsumer {
         M3hRuntimeShadowConsumerReport {
             schema_version: SCHEMA_VERSION,
             metrics: self.metrics.clone(),
+            watermark_restart_policy:
+                M3hRuntimeShadowWatermarkRestartPolicy::EphemeralRequiresReplayOrBootstrap,
             broker_neutral_payload_only: true,
             finam_dto_visible_to_runtime: false,
             emits_broker_command: false,
@@ -5102,12 +5125,32 @@ impl M3hRuntimeShadowConsumer {
                 };
             }
             if bar_event.source_class == M3hRuntimeShadowBarSourceClass::LiveFinal {
+                let watermark_key = m3h2_runtime_watermark_key(&bar_event.bar);
+                if let Some(last_open_ts) = self.last_decision_bar_open_ts.get(&watermark_key) {
+                    if bar_event.bar.open_ts <= *last_open_ts {
+                        self.metrics.non_decision_bar_count += 1;
+                        self.metrics.non_monotonic_bar_count += 1;
+                        return M3hRuntimeShadowConsumerOutcome::NonDecisionBar {
+                            entry_id: input.entry_id,
+                            bar_key,
+                            reason: M3hRuntimeShadowNonDecisionReason::NonMonotonicLiveFinal,
+                        };
+                    }
+                }
+                self.last_decision_bar_open_ts
+                    .insert(watermark_key, bar_event.bar.open_ts);
                 self.metrics.strategy_decision_tick_count += 1;
                 return M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick {
                     entry_id: input.entry_id,
                     bar_key,
                 };
             }
+            self.metrics.non_decision_bar_count += 1;
+            return M3hRuntimeShadowConsumerOutcome::NonDecisionBar {
+                entry_id: input.entry_id,
+                bar_key,
+                reason: M3hRuntimeShadowNonDecisionReason::NonFinalOrNonLiveSource,
+            };
         }
 
         self.metrics.accepted_count += 1;
@@ -5117,6 +5160,10 @@ impl M3hRuntimeShadowConsumer {
             strategy_decision_tick: false,
         }
     }
+}
+
+fn m3h2_runtime_watermark_key(bar: &Bar) -> String {
+    format!("{}|{}", bar.instrument.symbol, bar.timeframe_sec)
 }
 
 fn m3h2_runtime_bar_key(bar: &Bar) -> String {
@@ -15800,29 +15847,35 @@ mod tests {
     fn m3h2_runtime_shadow_consumer_keeps_updating_and_historical_bars_non_decision() {
         let config = GatewayConfig::default();
         let mut consumer = M3hRuntimeShadowConsumer::from_gateway_config(&config);
-        for (entry_id, source_kind, is_final) in [
+        for (idx, (entry_id, source_kind, is_final)) in [
             ("7-0", MarketDataSourceKind::LiveStream, false),
             ("8-0", MarketDataSourceKind::HistoricalPoll, true),
             ("9-0", MarketDataSourceKind::ReadOnlyPoll, true),
             ("10-0", MarketDataSourceKind::Recovery, true),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut bar = sample_bar(source_kind, is_final);
+            bar.open_ts += ChronoDuration::minutes(idx as i64);
+            bar.close_ts = bar.open_ts + ChronoDuration::minutes(1);
             let entry = m3h1_runtime_entry(
                 &config.redis.market_data_stream,
                 entry_id,
                 MessageType::MarketData,
-                MarketDataEvent::Bar(sample_bar(source_kind, is_final)),
+                MarketDataEvent::Bar(bar),
             );
             let outcome = consumer.consume_entry(entry);
-            assert_eq!(
+            assert!(matches!(
                 outcome,
-                M3hRuntimeShadowConsumerOutcome::Accepted {
-                    kind: M3hRuntimeShadowInputKind::BarEvent,
-                    entry_id: entry_id.to_string(),
-                    strategy_decision_tick: false,
+                M3hRuntimeShadowConsumerOutcome::NonDecisionBar {
+                    reason: M3hRuntimeShadowNonDecisionReason::NonFinalOrNonLiveSource,
+                    ..
                 }
-            );
+            ));
         }
-        assert_eq!(consumer.metrics().accepted_count, 4);
+        assert_eq!(consumer.metrics().accepted_count, 0);
+        assert_eq!(consumer.metrics().non_decision_bar_count, 4);
         assert_eq!(consumer.metrics().strategy_decision_tick_count, 0);
         assert_eq!(consumer.metrics().broker_command_emitted_count, 0);
     }
@@ -15888,6 +15941,200 @@ mod tests {
         assert_eq!(consumer.metrics().strategy_decision_tick_count, 1);
         assert_eq!(consumer.metrics().duplicate_bar_count, 1);
         assert_eq!(consumer.metrics().broker_command_emitted_count, 0);
+    }
+
+    #[test]
+    fn m3h2a_runtime_shadow_consumer_rejects_non_monotonic_live_final() {
+        let config = GatewayConfig::default();
+        let mut consumer = M3hRuntimeShadowConsumer::from_gateway_config(&config);
+        let base_ts = Utc
+            .with_ymd_and_hms(2026, 7, 3, 10, 0, 0)
+            .single()
+            .expect("timestamp");
+        let mut later = sample_bar(MarketDataSourceKind::LiveStream, true);
+        later.open_ts = base_ts + ChronoDuration::minutes(5);
+        later.close_ts = later.open_ts + ChronoDuration::minutes(1);
+        let mut older = sample_bar(MarketDataSourceKind::LiveStream, true);
+        older.open_ts = base_ts;
+        older.close_ts = older.open_ts + ChronoDuration::minutes(1);
+
+        assert!(matches!(
+            consumer.consume_entry(m3h1_runtime_entry(
+                &config.redis.market_data_stream,
+                "14-0",
+                MessageType::MarketData,
+                MarketDataEvent::Bar(later),
+            )),
+            M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick { .. }
+        ));
+        let outcome = consumer.consume_entry(m3h1_runtime_entry(
+            &config.redis.market_data_stream,
+            "15-0",
+            MessageType::MarketData,
+            MarketDataEvent::Bar(older),
+        ));
+
+        assert!(matches!(
+            outcome,
+            M3hRuntimeShadowConsumerOutcome::NonDecisionBar {
+                reason: M3hRuntimeShadowNonDecisionReason::NonMonotonicLiveFinal,
+                ..
+            }
+        ));
+        assert_eq!(consumer.metrics().strategy_decision_tick_count, 1);
+        assert_eq!(consumer.metrics().non_decision_bar_count, 1);
+        assert_eq!(consumer.metrics().non_monotonic_bar_count, 1);
+        assert_eq!(consumer.metrics().broker_command_emitted_count, 0);
+    }
+
+    #[test]
+    fn m3h2a_live_updating_and_historical_do_not_advance_decision_watermark() {
+        let config = GatewayConfig::default();
+        let mut consumer = M3hRuntimeShadowConsumer::from_gateway_config(&config);
+        let base_ts = Utc
+            .with_ymd_and_hms(2026, 7, 3, 10, 0, 0)
+            .single()
+            .expect("timestamp");
+        let mut live_updating = sample_bar(MarketDataSourceKind::LiveStream, false);
+        live_updating.open_ts = base_ts + ChronoDuration::minutes(5);
+        live_updating.close_ts = live_updating.open_ts + ChronoDuration::minutes(1);
+        let mut live_final_same_bar = live_updating.clone();
+        live_final_same_bar.is_final = true;
+
+        let mut historical = sample_bar(MarketDataSourceKind::HistoricalPoll, true);
+        historical.open_ts = base_ts + ChronoDuration::minutes(10);
+        historical.close_ts = historical.open_ts + ChronoDuration::minutes(1);
+        let mut live_final_after_historical = historical.clone();
+        live_final_after_historical.source_kind = MarketDataSourceKind::LiveStream;
+
+        assert!(matches!(
+            consumer.consume_entry(m3h1_runtime_entry(
+                &config.redis.market_data_stream,
+                "16-0",
+                MessageType::MarketData,
+                MarketDataEvent::Bar(live_updating),
+            )),
+            M3hRuntimeShadowConsumerOutcome::NonDecisionBar {
+                reason: M3hRuntimeShadowNonDecisionReason::NonFinalOrNonLiveSource,
+                ..
+            }
+        ));
+        assert!(matches!(
+            consumer.consume_entry(m3h1_runtime_entry(
+                &config.redis.market_data_stream,
+                "17-0",
+                MessageType::MarketData,
+                MarketDataEvent::Bar(live_final_same_bar),
+            )),
+            M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick { .. }
+        ));
+        assert!(matches!(
+            consumer.consume_entry(m3h1_runtime_entry(
+                &config.redis.market_data_stream,
+                "18-0",
+                MessageType::MarketData,
+                MarketDataEvent::Bar(historical),
+            )),
+            M3hRuntimeShadowConsumerOutcome::NonDecisionBar {
+                reason: M3hRuntimeShadowNonDecisionReason::NonFinalOrNonLiveSource,
+                ..
+            }
+        ));
+        assert!(matches!(
+            consumer.consume_entry(m3h1_runtime_entry(
+                &config.redis.market_data_stream,
+                "19-0",
+                MessageType::MarketData,
+                MarketDataEvent::Bar(live_final_after_historical),
+            )),
+            M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick { .. }
+        ));
+        assert_eq!(consumer.metrics().strategy_decision_tick_count, 2);
+        assert_eq!(consumer.metrics().non_decision_bar_count, 2);
+        assert_eq!(consumer.metrics().non_monotonic_bar_count, 0);
+        assert_eq!(consumer.metrics().broker_command_emitted_count, 0);
+    }
+
+    #[test]
+    fn m3h2a_runtime_shadow_consumer_watermarks_instrument_and_timeframe_independently() {
+        let config = GatewayConfig::default();
+        let mut consumer = M3hRuntimeShadowConsumer::from_gateway_config(&config);
+        let base_ts = Utc
+            .with_ymd_and_hms(2026, 7, 3, 10, 0, 0)
+            .single()
+            .expect("timestamp");
+        let mut first = sample_bar(MarketDataSourceKind::LiveStream, true);
+        first.open_ts = base_ts + ChronoDuration::minutes(10);
+        first.close_ts = first.open_ts + ChronoDuration::minutes(1);
+
+        let mut older_same_key = first.clone();
+        older_same_key.open_ts = base_ts + ChronoDuration::minutes(5);
+        older_same_key.close_ts = older_same_key.open_ts + ChronoDuration::minutes(1);
+
+        let mut different_instrument = older_same_key.clone();
+        different_instrument.instrument.symbol = "OTHERFUT".to_string();
+
+        let mut different_timeframe = older_same_key.clone();
+        different_timeframe.timeframe_sec = 300;
+
+        assert!(matches!(
+            consumer.consume_entry(m3h1_runtime_entry(
+                &config.redis.market_data_stream,
+                "20-0",
+                MessageType::MarketData,
+                MarketDataEvent::Bar(first),
+            )),
+            M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick { .. }
+        ));
+        assert!(matches!(
+            consumer.consume_entry(m3h1_runtime_entry(
+                &config.redis.market_data_stream,
+                "21-0",
+                MessageType::MarketData,
+                MarketDataEvent::Bar(older_same_key),
+            )),
+            M3hRuntimeShadowConsumerOutcome::NonDecisionBar {
+                reason: M3hRuntimeShadowNonDecisionReason::NonMonotonicLiveFinal,
+                ..
+            }
+        ));
+        assert!(matches!(
+            consumer.consume_entry(m3h1_runtime_entry(
+                &config.redis.market_data_stream,
+                "22-0",
+                MessageType::MarketData,
+                MarketDataEvent::Bar(different_instrument),
+            )),
+            M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick { .. }
+        ));
+        assert!(matches!(
+            consumer.consume_entry(m3h1_runtime_entry(
+                &config.redis.market_data_stream,
+                "23-0",
+                MessageType::MarketData,
+                MarketDataEvent::Bar(different_timeframe),
+            )),
+            M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick { .. }
+        ));
+        assert_eq!(consumer.metrics().strategy_decision_tick_count, 3);
+        assert_eq!(consumer.metrics().non_monotonic_bar_count, 1);
+        assert_eq!(consumer.metrics().broker_command_emitted_count, 0);
+    }
+
+    #[test]
+    fn m3h2a_runtime_shadow_consumer_restart_policy_is_explicit() {
+        let report =
+            M3hRuntimeShadowConsumer::from_gateway_config(&GatewayConfig::default()).report();
+
+        assert_eq!(
+            report.watermark_restart_policy,
+            M3hRuntimeShadowWatermarkRestartPolicy::EphemeralRequiresReplayOrBootstrap
+        );
+        assert!(!report.emits_broker_command);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.external_order_endpoint_allowed);
     }
 
     #[tokio::test]
