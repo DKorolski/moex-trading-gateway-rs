@@ -5178,6 +5178,293 @@ fn m3h2_runtime_bar_key(bar: &Bar) -> String {
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3hRuntimeDryCommandLifecycleState {
+    PendingEmission,
+    PublishedToM3eCommandStream,
+    NotEmitted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3hRuntimeDryCommandNonEmissionReason {
+    NoStrategyDecisionTick,
+    ReadinessNotDryReady,
+    LiveReadyForbidden,
+    UnsafeLiveBoundary,
+    UnsupportedCommandKind,
+    UnsupportedOrderShape,
+    DuplicateRequestId,
+    PublishFailed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3hRuntimeDryCommandLifecycleRecord {
+    pub request_id: StrategyRequestId,
+    pub command_kind: M3eCommandKind,
+    pub decision_entry_id: String,
+    pub decision_bar_key: String,
+    pub state: M3hRuntimeDryCommandLifecycleState,
+    pub non_emission_reason: Option<M3hRuntimeDryCommandNonEmissionReason>,
+    pub command_stream: String,
+    pub created_ts: DateTime<Utc>,
+    pub updated_ts: DateTime<Utc>,
+    pub publish_attempt_count: u32,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3hRuntimeDryCommandEmitterMetrics {
+    pub candidates_seen: u64,
+    pub pending_record_count: u64,
+    pub dry_command_published_count: u64,
+    pub non_emitted_count: u64,
+    pub duplicate_request_count: u64,
+    pub publish_failed_count: u64,
+    pub broker_command_emitted_count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3hRuntimeDryCommandEmitterReport {
+    pub schema_version: u16,
+    pub metrics: M3hRuntimeDryCommandEmitterMetrics,
+    pub command_stream: String,
+    pub m3e_command_stream_only: bool,
+    pub broker_neutral_command_envelope: bool,
+    pub dry_shadow_mode_only: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub live_ready_allowed: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct M3hRuntimeDryCommandCandidate {
+    pub command: BrokerCommand,
+    pub decision_entry_id: String,
+    pub decision_bar_key: String,
+    pub runtime_live_attachment_allowed: bool,
+    pub live_ready_allowed: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub stop_sltp_bracket_replace_multileg_requested: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3hRuntimeDryCommandEmitOutcome {
+    CommandPublished {
+        request_id: StrategyRequestId,
+        command_kind: M3eCommandKind,
+        stream: String,
+        state: M3hRuntimeDryCommandLifecycleState,
+    },
+    DuplicateRequest {
+        request_id: StrategyRequestId,
+        state: M3hRuntimeDryCommandLifecycleState,
+    },
+    NotEmitted {
+        request_id: Option<StrategyRequestId>,
+        reason: M3hRuntimeDryCommandNonEmissionReason,
+        pending_state_preserved: bool,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct M3hRuntimeDryCommandEmitter<S> {
+    config: M3eCommandConsumerConfig,
+    sink: S,
+    lifecycle_records: HashMap<StrategyRequestId, M3hRuntimeDryCommandLifecycleRecord>,
+    metrics: M3hRuntimeDryCommandEmitterMetrics,
+}
+
+impl<S> M3hRuntimeDryCommandEmitter<S>
+where
+    S: RedisStreamSink,
+{
+    pub fn new(config: M3eCommandConsumerConfig, sink: S) -> Self {
+        Self {
+            config,
+            sink,
+            lifecycle_records: HashMap::new(),
+            metrics: M3hRuntimeDryCommandEmitterMetrics::default(),
+        }
+    }
+
+    pub fn from_gateway_config(config: &GatewayConfig, sink: S) -> Self {
+        Self::new(M3eCommandConsumerConfig::from_gateway_config(config), sink)
+    }
+
+    pub fn metrics(&self) -> &M3hRuntimeDryCommandEmitterMetrics {
+        &self.metrics
+    }
+
+    pub fn lifecycle_records(&self) -> Vec<M3hRuntimeDryCommandLifecycleRecord> {
+        let mut records: Vec<_> = self.lifecycle_records.values().cloned().collect();
+        records.sort_by(|left, right| {
+            left.request_id
+                .to_string()
+                .cmp(&right.request_id.to_string())
+        });
+        records
+    }
+
+    pub fn report(&self) -> M3hRuntimeDryCommandEmitterReport {
+        M3hRuntimeDryCommandEmitterReport {
+            schema_version: SCHEMA_VERSION,
+            metrics: self.metrics.clone(),
+            command_stream: self.config.command_stream.clone(),
+            m3e_command_stream_only: true,
+            broker_neutral_command_envelope: true,
+            dry_shadow_mode_only: true,
+            runtime_live_attachment_allowed: false,
+            live_ready_allowed: false,
+            external_order_endpoint_allowed: false,
+            real_finam_order_endpoint_used: false,
+            stop_sltp_bracket_replace_multileg_allowed: false,
+        }
+    }
+
+    pub async fn emit_candidate(
+        &mut self,
+        decision: &M3hRuntimeShadowConsumerOutcome,
+        readiness: &RuntimeBridgeReadinessDecision,
+        candidate: M3hRuntimeDryCommandCandidate,
+        now: DateTime<Utc>,
+    ) -> Result<M3hRuntimeDryCommandEmitOutcome, GatewayError> {
+        self.metrics.candidates_seen += 1;
+        let request_id = command_request_id(&candidate.command);
+        let command_kind = command_kind(&candidate.command);
+
+        let (decision_entry_id, decision_bar_key) = match decision {
+            M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick { entry_id, bar_key } => {
+                (entry_id.clone(), bar_key.clone())
+            }
+            _ => {
+                self.metrics.non_emitted_count += 1;
+                return Ok(M3hRuntimeDryCommandEmitOutcome::NotEmitted {
+                    request_id: Some(request_id),
+                    reason: M3hRuntimeDryCommandNonEmissionReason::NoStrategyDecisionTick,
+                    pending_state_preserved: false,
+                });
+            }
+        };
+
+        if readiness.live_ready {
+            self.metrics.non_emitted_count += 1;
+            return Ok(M3hRuntimeDryCommandEmitOutcome::NotEmitted {
+                request_id: Some(request_id),
+                reason: M3hRuntimeDryCommandNonEmissionReason::LiveReadyForbidden,
+                pending_state_preserved: false,
+            });
+        }
+        if readiness.phase != RuntimeBridgeDryReadinessPhase::DryReady {
+            self.metrics.non_emitted_count += 1;
+            return Ok(M3hRuntimeDryCommandEmitOutcome::NotEmitted {
+                request_id: Some(request_id),
+                reason: M3hRuntimeDryCommandNonEmissionReason::ReadinessNotDryReady,
+                pending_state_preserved: false,
+            });
+        }
+        if candidate.runtime_live_attachment_allowed
+            || candidate.live_ready_allowed
+            || candidate.external_order_endpoint_allowed
+            || candidate.real_finam_order_endpoint_used
+            || candidate.stop_sltp_bracket_replace_multileg_requested
+        {
+            self.metrics.non_emitted_count += 1;
+            return Ok(M3hRuntimeDryCommandEmitOutcome::NotEmitted {
+                request_id: Some(request_id),
+                reason: M3hRuntimeDryCommandNonEmissionReason::UnsafeLiveBoundary,
+                pending_state_preserved: false,
+            });
+        }
+        if decision_entry_id != candidate.decision_entry_id
+            || decision_bar_key != candidate.decision_bar_key
+        {
+            self.metrics.non_emitted_count += 1;
+            return Ok(M3hRuntimeDryCommandEmitOutcome::NotEmitted {
+                request_id: Some(request_id),
+                reason: M3hRuntimeDryCommandNonEmissionReason::NoStrategyDecisionTick,
+                pending_state_preserved: false,
+            });
+        }
+        if !m3h3_runtime_dry_command_shape_supported(&candidate.command) {
+            self.metrics.non_emitted_count += 1;
+            return Ok(M3hRuntimeDryCommandEmitOutcome::NotEmitted {
+                request_id: Some(request_id),
+                reason: M3hRuntimeDryCommandNonEmissionReason::UnsupportedOrderShape,
+                pending_state_preserved: false,
+            });
+        }
+        if let Some(existing) = self.lifecycle_records.get(&request_id) {
+            self.metrics.duplicate_request_count += 1;
+            self.metrics.non_emitted_count += 1;
+            return Ok(M3hRuntimeDryCommandEmitOutcome::DuplicateRequest {
+                request_id,
+                state: existing.state,
+            });
+        }
+
+        let mut record = M3hRuntimeDryCommandLifecycleRecord {
+            request_id,
+            command_kind,
+            decision_entry_id,
+            decision_bar_key,
+            state: M3hRuntimeDryCommandLifecycleState::PendingEmission,
+            non_emission_reason: None,
+            command_stream: self.config.command_stream.clone(),
+            created_ts: now,
+            updated_ts: now,
+            publish_attempt_count: 0,
+        };
+        self.lifecycle_records.insert(request_id, record.clone());
+        self.metrics.pending_record_count += 1;
+
+        let envelope = Envelope::new(
+            self.config.source.clone(),
+            MessageType::Command,
+            candidate.command,
+        );
+        record.publish_attempt_count = record.publish_attempt_count.saturating_add(1);
+        if let Err(error) = self
+            .sink
+            .publish_json(&self.config.command_stream, &envelope, None)
+            .await
+        {
+            record.state = M3hRuntimeDryCommandLifecycleState::NotEmitted;
+            record.non_emission_reason = Some(M3hRuntimeDryCommandNonEmissionReason::PublishFailed);
+            record.updated_ts = now;
+            self.lifecycle_records.insert(request_id, record);
+            self.metrics.non_emitted_count += 1;
+            self.metrics.publish_failed_count += 1;
+            return Err(error);
+        }
+
+        record.state = M3hRuntimeDryCommandLifecycleState::PublishedToM3eCommandStream;
+        record.updated_ts = now;
+        self.lifecycle_records.insert(request_id, record);
+        self.metrics.dry_command_published_count += 1;
+        self.metrics.broker_command_emitted_count += 1;
+        Ok(M3hRuntimeDryCommandEmitOutcome::CommandPublished {
+            request_id,
+            command_kind,
+            stream: self.config.command_stream.clone(),
+            state: M3hRuntimeDryCommandLifecycleState::PublishedToM3eCommandStream,
+        })
+    }
+}
+
+fn m3h3_runtime_dry_command_shape_supported(command: &BrokerCommand) -> bool {
+    match command {
+        BrokerCommand::PlaceOrder(order) => {
+            matches!(
+                order.order_type,
+                broker_core::order::OrderType::Market | broker_core::order::OrderType::Limit
+            ) && order.comment.is_none()
+        }
+        BrokerCommand::CancelOrder(_) => false,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RuntimeBridgeDryConsumer {
     config: RedisStreamConfig,
@@ -16138,6 +16425,273 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn m3h3_runtime_dry_command_emitter_publishes_broker_neutral_command_to_m3e_stream() {
+        let config = GatewayConfig::default();
+        let sink = InMemoryRedisStreamSink::default();
+        let mut emitter = M3hRuntimeDryCommandEmitter::from_gateway_config(&config, sink.clone());
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 23, 0, 0)
+            .single()
+            .expect("timestamp");
+        let decision = sample_m3h_strategy_decision_tick();
+        let candidate = sample_m3h_dry_command_candidate(request_id(300), now);
+        let outcome = emitter
+            .emit_candidate(&decision, &m3h_dry_ready_decision(), candidate.clone(), now)
+            .await
+            .expect("dry command publish");
+
+        assert_eq!(
+            outcome,
+            M3hRuntimeDryCommandEmitOutcome::CommandPublished {
+                request_id: request_id(300),
+                command_kind: M3eCommandKind::PlaceOrder,
+                stream: "finam:commands".to_string(),
+                state: M3hRuntimeDryCommandLifecycleState::PublishedToM3eCommandStream,
+            }
+        );
+        let entries = sink.entries().expect("sink entries");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].stream, "finam:commands");
+        let envelope: Envelope<BrokerCommand> =
+            serde_json::from_str(&entries[0].payload).expect("command envelope");
+        assert_eq!(envelope.schema_version, SCHEMA_VERSION);
+        assert_eq!(envelope.msg_type, MessageType::Command);
+        assert_eq!(envelope.payload, candidate.command);
+        assert_eq!(emitter.metrics().dry_command_published_count, 1);
+        assert_eq!(emitter.metrics().broker_command_emitted_count, 1);
+
+        let report = emitter.report();
+        assert!(report.m3e_command_stream_only);
+        assert!(report.broker_neutral_command_envelope);
+        assert!(report.dry_shadow_mode_only);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.external_order_endpoint_allowed);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+    }
+
+    #[tokio::test]
+    async fn m3h3_runtime_dry_command_emitter_dedupes_request_id_without_second_publish() {
+        let config = GatewayConfig::default();
+        let sink = InMemoryRedisStreamSink::default();
+        let mut emitter = M3hRuntimeDryCommandEmitter::from_gateway_config(&config, sink.clone());
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 23, 1, 0)
+            .single()
+            .expect("timestamp");
+        let decision = sample_m3h_strategy_decision_tick();
+        let candidate = sample_m3h_dry_command_candidate(request_id(301), now);
+
+        assert!(matches!(
+            emitter
+                .emit_candidate(&decision, &m3h_dry_ready_decision(), candidate.clone(), now,)
+                .await
+                .expect("first publish"),
+            M3hRuntimeDryCommandEmitOutcome::CommandPublished { .. }
+        ));
+        assert_eq!(
+            emitter
+                .emit_candidate(&decision, &m3h_dry_ready_decision(), candidate, now)
+                .await
+                .expect("duplicate is non-fatal"),
+            M3hRuntimeDryCommandEmitOutcome::DuplicateRequest {
+                request_id: request_id(301),
+                state: M3hRuntimeDryCommandLifecycleState::PublishedToM3eCommandStream,
+            }
+        );
+        assert_eq!(sink.entries().expect("sink entries").len(), 1);
+        assert_eq!(emitter.metrics().duplicate_request_count, 1);
+        assert_eq!(emitter.metrics().dry_command_published_count, 1);
+    }
+
+    #[tokio::test]
+    async fn m3h3_runtime_dry_command_emitter_blocks_non_decision_and_bad_readiness() {
+        let config = GatewayConfig::default();
+        let sink = InMemoryRedisStreamSink::default();
+        let mut emitter = M3hRuntimeDryCommandEmitter::from_gateway_config(&config, sink.clone());
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 23, 2, 0)
+            .single()
+            .expect("timestamp");
+        let duplicate_decision = M3hRuntimeShadowConsumerOutcome::DuplicateBar {
+            entry_id: "m3h-dup".to_string(),
+            bar_key: "TESTFUT|60".to_string(),
+        };
+        let candidate = sample_m3h_dry_command_candidate(request_id(302), now);
+        assert_eq!(
+            emitter
+                .emit_candidate(
+                    &duplicate_decision,
+                    &m3h_dry_ready_decision(),
+                    candidate,
+                    now,
+                )
+                .await
+                .expect("non-decision does not publish"),
+            M3hRuntimeDryCommandEmitOutcome::NotEmitted {
+                request_id: Some(request_id(302)),
+                reason: M3hRuntimeDryCommandNonEmissionReason::NoStrategyDecisionTick,
+                pending_state_preserved: false,
+            }
+        );
+
+        let mut not_ready = m3h_dry_ready_decision();
+        not_ready.phase = RuntimeBridgeDryReadinessPhase::WaitingForInputs;
+        let blocked = emitter
+            .emit_candidate(
+                &sample_m3h_strategy_decision_tick(),
+                &not_ready,
+                sample_m3h_dry_command_candidate(request_id(303), now),
+                now,
+            )
+            .await
+            .expect("not-ready does not publish");
+        assert!(matches!(
+            blocked,
+            M3hRuntimeDryCommandEmitOutcome::NotEmitted {
+                reason: M3hRuntimeDryCommandNonEmissionReason::ReadinessNotDryReady,
+                ..
+            }
+        ));
+
+        let mut live_ready = m3h_dry_ready_decision();
+        live_ready.live_ready = true;
+        live_ready.phase = RuntimeBridgeDryReadinessPhase::DryReady;
+        let live_ready_blocked = emitter
+            .emit_candidate(
+                &sample_m3h_strategy_decision_tick(),
+                &live_ready,
+                sample_m3h_dry_command_candidate(request_id(304), now),
+                now,
+            )
+            .await
+            .expect("live-ready is forbidden");
+        assert!(matches!(
+            live_ready_blocked,
+            M3hRuntimeDryCommandEmitOutcome::NotEmitted {
+                reason: M3hRuntimeDryCommandNonEmissionReason::LiveReadyForbidden,
+                ..
+            }
+        ));
+        assert!(sink.entries().expect("sink entries").is_empty());
+        assert_eq!(emitter.metrics().dry_command_published_count, 0);
+        assert_eq!(emitter.metrics().non_emitted_count, 3);
+    }
+
+    #[tokio::test]
+    async fn m3h3_runtime_dry_command_emitter_blocks_unsafe_or_unsupported_shapes() {
+        let config = GatewayConfig::default();
+        let sink = InMemoryRedisStreamSink::default();
+        let mut emitter = M3hRuntimeDryCommandEmitter::from_gateway_config(&config, sink.clone());
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 23, 3, 0)
+            .single()
+            .expect("timestamp");
+        let mut unsafe_candidate = sample_m3h_dry_command_candidate(request_id(305), now);
+        unsafe_candidate.runtime_live_attachment_allowed = true;
+        assert!(matches!(
+            emitter
+                .emit_candidate(
+                    &sample_m3h_strategy_decision_tick(),
+                    &m3h_dry_ready_decision(),
+                    unsafe_candidate,
+                    now,
+                )
+                .await
+                .expect("unsafe candidate is blocked"),
+            M3hRuntimeDryCommandEmitOutcome::NotEmitted {
+                reason: M3hRuntimeDryCommandNonEmissionReason::UnsafeLiveBoundary,
+                ..
+            }
+        ));
+
+        let cancel_candidate = M3hRuntimeDryCommandCandidate {
+            command: BrokerCommand::CancelOrder(sample_cancel_order(
+                request_id(306),
+                "BROKER_TEST_M3H3_CANCEL",
+                now,
+            )),
+            decision_entry_id: "m3h-entry-1".to_string(),
+            decision_bar_key: "TESTFUT|60|2026-07-03T23:00:00.000Z".to_string(),
+            runtime_live_attachment_allowed: false,
+            live_ready_allowed: false,
+            external_order_endpoint_allowed: false,
+            real_finam_order_endpoint_used: false,
+            stop_sltp_bracket_replace_multileg_requested: false,
+        };
+        assert!(matches!(
+            emitter
+                .emit_candidate(
+                    &sample_m3h_strategy_decision_tick(),
+                    &m3h_dry_ready_decision(),
+                    cancel_candidate,
+                    now,
+                )
+                .await
+                .expect("cancel candidate is blocked in m3h3"),
+            M3hRuntimeDryCommandEmitOutcome::NotEmitted {
+                reason: M3hRuntimeDryCommandNonEmissionReason::UnsupportedOrderShape,
+                ..
+            }
+        ));
+        assert!(sink.entries().expect("sink entries").is_empty());
+        assert_eq!(emitter.metrics().dry_command_published_count, 0);
+    }
+
+    #[tokio::test]
+    async fn m3h3_runtime_dry_command_emitter_preserves_not_emitted_state_on_publish_failure() {
+        #[derive(Debug, Clone)]
+        struct FailingSink;
+
+        #[async_trait]
+        impl RedisStreamSink for FailingSink {
+            async fn publish_json<T: Serialize + Send + Sync>(
+                &self,
+                _stream: &str,
+                _value: &T,
+                _maxlen: Option<usize>,
+            ) -> Result<(), GatewayError> {
+                Err(GatewayError::InternalState {
+                    message: "m3h3 failing sink",
+                })
+            }
+        }
+
+        let config = GatewayConfig::default();
+        let mut emitter = M3hRuntimeDryCommandEmitter::from_gateway_config(&config, FailingSink);
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 23, 4, 0)
+            .single()
+            .expect("timestamp");
+        let error = emitter
+            .emit_candidate(
+                &sample_m3h_strategy_decision_tick(),
+                &m3h_dry_ready_decision(),
+                sample_m3h_dry_command_candidate(request_id(307), now),
+                now,
+            )
+            .await
+            .expect_err("publish failure is surfaced");
+        assert!(matches!(error, GatewayError::InternalState { .. }));
+        let records = emitter.lifecycle_records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].request_id, request_id(307));
+        assert_eq!(
+            records[0].state,
+            M3hRuntimeDryCommandLifecycleState::NotEmitted
+        );
+        assert_eq!(
+            records[0].non_emission_reason,
+            Some(M3hRuntimeDryCommandNonEmissionReason::PublishFailed)
+        );
+        assert_eq!(records[0].publish_attempt_count, 1);
+        assert_eq!(emitter.metrics().pending_record_count, 1);
+        assert_eq!(emitter.metrics().publish_failed_count, 1);
+        assert_eq!(emitter.metrics().dry_command_published_count, 0);
+    }
+
+    #[tokio::test]
     async fn dry_command_ack_publisher_refuses_order_enabled_modes() {
         fn enable_command_consumer(features: &mut GatewayFeatureSet) {
             features.command_consumer_enabled = true;
@@ -22687,6 +23241,62 @@ mod tests {
             close: Decimal::new(5005, 0),
             volume: Decimal::new(10, 0),
             is_final,
+        }
+    }
+
+    fn sample_m3h_strategy_decision_tick() -> M3hRuntimeShadowConsumerOutcome {
+        M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick {
+            entry_id: "m3h-entry-1".to_string(),
+            bar_key: "TESTFUT|60|2026-07-03T23:00:00.000Z".to_string(),
+        }
+    }
+
+    fn m3h_dry_ready_decision() -> RuntimeBridgeReadinessDecision {
+        RuntimeBridgeReadinessDecision {
+            schema_version: SCHEMA_VERSION,
+            live_ready: false,
+            phase: RuntimeBridgeDryReadinessPhase::DryReady,
+            reasons: vec![],
+            state: RuntimeBridgeReadinessState {
+                health_seen: true,
+                health_status: Some(GatewayHealthStatus::ReadOnly),
+                gateway_readiness_seen: true,
+                gateway_readiness_phase: Some(ReadinessPhase::Reconciliation),
+                portfolio_snapshot_seen: true,
+                order_snapshot_seen: true,
+                market_data_seen: true,
+                blocking_unknown_orders: false,
+                dead_letter_count: 0,
+            },
+        }
+    }
+
+    fn sample_m3h_dry_command_candidate(
+        request_id: StrategyRequestId,
+        now: DateTime<Utc>,
+    ) -> M3hRuntimeDryCommandCandidate {
+        M3hRuntimeDryCommandCandidate {
+            command: BrokerCommand::PlaceOrder(PlaceOrder {
+                request_id,
+                created_ts: now,
+                ttl_ms: Some(1_000),
+                account_id: broker_core::BrokerAccountId::new("ACC_TEST_0001"),
+                client_order_id: ClientOrderId::from_strategy_request(request_id),
+                instrument: sample_instrument(),
+                side: OrderSide::Buy,
+                order_type: OrderType::Market,
+                qty: Decimal::ONE,
+                limit_price: None,
+                time_in_force: TimeInForce::Day,
+                comment: None,
+            }),
+            decision_entry_id: "m3h-entry-1".to_string(),
+            decision_bar_key: "TESTFUT|60|2026-07-03T23:00:00.000Z".to_string(),
+            runtime_live_attachment_allowed: false,
+            live_ready_allowed: false,
+            external_order_endpoint_allowed: false,
+            real_finam_order_endpoint_used: false,
+            stop_sltp_bracket_replace_multileg_requested: false,
         }
     }
 
