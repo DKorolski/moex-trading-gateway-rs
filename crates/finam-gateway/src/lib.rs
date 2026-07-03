@@ -991,6 +991,8 @@ pub struct M3fBrokerTruthOrderSnapshot {
     pub account_id_sha256: String,
     pub client_order_id_sha256: Option<String>,
     pub broker_order_id_sha256: Option<String>,
+    #[serde(skip)]
+    pub broker_order_id_for_persistence: Option<BrokerOrderId>,
     pub instrument_venue_symbol_sha256: Option<String>,
     pub state_class: M3fBrokerTruthOrderStateClass,
     pub raw_broker_payload_exported: bool,
@@ -1032,9 +1034,88 @@ pub struct M3fSnapshotApplicationReport {
     pub raw_position_payload_exported: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3fReconciliationReadinessBlockerKind {
+    SameIdentityDifferentRequestId,
+    OrphanBrokerOrder,
+    OrphanBrokerTrade,
+    PositionMismatch,
+    LocalPendingStale,
+    ManualInterventionRequired,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3fReconciliationReadinessBlocker {
+    pub kind: M3fReconciliationReadinessBlockerKind,
+    pub affected_request_id: Option<StrategyRequestId>,
+    pub client_order_id_sha256: Option<String>,
+    pub broker_order_id_sha256: Option<String>,
+    pub instrument_venue_symbol_sha256: Option<String>,
+    pub blocks_live_ready: bool,
+    pub raw_broker_payload_exported: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3fReconciliationPersistenceAction {
+    NoopKeepPending,
+    RecoveredByClientOrderId,
+    RecoveredByClientOrderIdAndTerminal,
+    MarkedSubmitted,
+    MarkedTerminal,
+    RecoveredCancelTerminal,
+    ManualInterventionRequired,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3fReconciliationPersistenceRecord {
+    pub request_id: StrategyRequestId,
+    pub action: M3fReconciliationPersistenceAction,
+    pub from_state: OrderPathState,
+    pub to_state: OrderPathState,
+    pub broker_order_id_recovered_atomically: bool,
+    pub terminal_state_persisted_atomically: bool,
+    pub raw_broker_payload_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3fReconciliationRunnerReport {
+    pub schema_version: u16,
+    pub checked_ts: DateTime<Utc>,
+    pub scheduled_count: usize,
+    pub decision_count: usize,
+    pub persisted_transition_count: usize,
+    pub persistence_records: Vec<M3fReconciliationPersistenceRecord>,
+    pub readiness_blocker_count: usize,
+    pub readiness_blockers: Vec<M3fReconciliationReadinessBlocker>,
+    pub readiness: BrokerReadiness,
+    pub snapshot_report: M3fSnapshotApplicationReport,
+    pub read_only_finam_surfaces_only: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub live_ready_allowed: bool,
+    pub raw_account_id_exported: bool,
+    pub raw_client_order_id_exported: bool,
+    pub raw_broker_order_id_exported: bool,
+    pub raw_broker_payload_exported: bool,
+    pub raw_position_payload_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum M3fReconciliationRunnerError {
+    #[error("order-path record not found during M3f reconciliation runner: {0}")]
+    MissingOrderPathRecord(StrategyRequestId),
+    #[error("broker order id required for M3f reconciliation persistence: {0}")]
+    MissingBrokerOrderIdForPersistence(StrategyRequestId),
+    #[error("order-path transition error during M3f reconciliation runner: {0}")]
+    Transition(#[from] OrderPathTransitionError),
+    #[error("order-path store error during M3f reconciliation runner: {0}")]
+    Store(#[from] OrderPathStoreError),
+}
+
 pub fn m3f_reconciliation_request_for_order_path_record(
     record: &OrderPathRecord,
-    checked_ts: DateTime<Utc>,
+    _checked_ts: DateTime<Utc>,
 ) -> M3fReconciliationSchedulerRecord {
     let Some(request_kind) = m3f_reconciliation_request_kind(record.state) else {
         return M3fReconciliationSchedulerRecord {
@@ -1051,7 +1132,7 @@ pub fn m3f_reconciliation_request_for_order_path_record(
         source_state: record.state,
         required_inputs: m3f_required_broker_truth_inputs(request_kind, record),
         identity: m3f_reconciliation_identity_diagnostic(record),
-        created_ts: checked_ts,
+        created_ts: record.last_update_ts,
         read_only_finam_surfaces_only: true,
         real_finam_order_endpoint_used: false,
         external_order_endpoint_allowed: false,
@@ -1287,6 +1368,92 @@ pub fn m3f_apply_broker_truth_snapshots(
         raw_broker_payload_exported: false,
         raw_position_payload_exported: false,
     }
+}
+
+pub fn m3f_run_reconciliation_once<S>(
+    store: &mut S,
+    orders: &[M3fBrokerTruthOrderSnapshot],
+    trades: &[M3fBrokerTruthTradeSnapshot],
+    positions: &[M3fPositionConsistencySnapshot],
+    checked_ts: DateTime<Utc>,
+    max_pending_age: ChronoDuration,
+) -> Result<M3fReconciliationRunnerReport, M3fReconciliationRunnerError>
+where
+    S: OrderPathStore,
+{
+    let records = store.all_records();
+    let requests = m3f_reconciliation_scheduler_report(&records, checked_ts).scheduled;
+    let snapshot_report = m3f_apply_broker_truth_snapshots(
+        &requests,
+        orders,
+        trades,
+        positions,
+        checked_ts,
+        max_pending_age,
+    );
+    let mut persistence_records = Vec::new();
+
+    for decision in &snapshot_report.decisions {
+        let Some(request) = requests
+            .iter()
+            .find(|request| request.request_id == decision.request_id)
+        else {
+            return Err(M3fReconciliationRunnerError::MissingOrderPathRecord(
+                decision.request_id,
+            ));
+        };
+        let matching_order = orders
+            .iter()
+            .find(|order| m3f_order_snapshot_matches_request_identity(request, order));
+        let persistence_record = m3f_persist_reconciliation_decision(
+            store,
+            request,
+            decision,
+            matching_order,
+            checked_ts,
+        )?;
+        if let Some(persistence_record) = persistence_record {
+            persistence_records.push(persistence_record);
+        }
+    }
+
+    let readiness_blockers = m3f_readiness_blockers_from_snapshot_report(&snapshot_report);
+    let readiness = if readiness_blockers.is_empty() {
+        BrokerReadiness {
+            phase: ReadinessPhase::Reconciliation,
+            reasons: vec![ReadinessReason::OperatorLiveArmMissing],
+            checked_ts,
+        }
+    } else {
+        BrokerReadiness {
+            phase: ReadinessPhase::Blocked,
+            reasons: vec![ReadinessReason::ReconciliationStale],
+            checked_ts,
+        }
+    };
+
+    Ok(M3fReconciliationRunnerReport {
+        schema_version: SCHEMA_VERSION,
+        checked_ts,
+        scheduled_count: requests.len(),
+        decision_count: snapshot_report.decisions.len(),
+        persisted_transition_count: persistence_records.len(),
+        persistence_records,
+        readiness_blocker_count: readiness_blockers.len(),
+        readiness_blockers,
+        readiness,
+        snapshot_report,
+        read_only_finam_surfaces_only: true,
+        real_finam_order_endpoint_used: false,
+        external_order_endpoint_allowed: false,
+        runtime_live_attachment_allowed: false,
+        live_ready_allowed: false,
+        raw_account_id_exported: false,
+        raw_client_order_id_exported: false,
+        raw_broker_order_id_exported: false,
+        raw_broker_payload_exported: false,
+        raw_position_payload_exported: false,
+    })
 }
 
 fn m3f_reconciliation_request_kind(state: OrderPathState) -> Option<M3fReconciliationRequestKind> {
@@ -1585,6 +1752,156 @@ fn m3f_snapshot_issue_for_position(
         instrument_venue_symbol_sha256: position.instrument_venue_symbol_sha256.clone(),
         manual_intervention_required: true,
         raw_broker_payload_exported: false,
+    }
+}
+
+fn m3f_persist_reconciliation_decision<S>(
+    store: &mut S,
+    request: &M3fReconciliationRequest,
+    decision: &M3fReconciliationOutcomeDecision,
+    matching_order: Option<&M3fBrokerTruthOrderSnapshot>,
+    checked_ts: DateTime<Utc>,
+) -> Result<Option<M3fReconciliationPersistenceRecord>, M3fReconciliationRunnerError>
+where
+    S: OrderPathStore,
+{
+    let mut record = store.load_by_request_id(decision.request_id).ok_or(
+        M3fReconciliationRunnerError::MissingOrderPathRecord(decision.request_id),
+    )?;
+    let from_state = record.state;
+    let mut broker_order_id_recovered_atomically = false;
+    let mut terminal_state_persisted_atomically = false;
+    let persistence_action = match decision.action {
+        M3fReconciliationOutcomeAction::KeepPending => {
+            record.last_update_ts = checked_ts;
+            M3fReconciliationPersistenceAction::NoopKeepPending
+        }
+        M3fReconciliationOutcomeAction::RecoverByClientOrderId => {
+            let broker_order_id = matching_order
+                .and_then(|order| order.broker_order_id_for_persistence.clone())
+                .ok_or(
+                    M3fReconciliationRunnerError::MissingBrokerOrderIdForPersistence(
+                        decision.request_id,
+                    ),
+                )?;
+            if record.broker_order_id.is_none() {
+                record.broker_order_id = Some(broker_order_id);
+                broker_order_id_recovered_atomically = true;
+            }
+            record.transition(OrderPathEvent::RecoverByClientOrderId, checked_ts)?;
+            M3fReconciliationPersistenceAction::RecoveredByClientOrderId
+        }
+        M3fReconciliationOutcomeAction::RecoverByClientOrderIdAndTerminal => {
+            let broker_order_id = matching_order
+                .and_then(|order| order.broker_order_id_for_persistence.clone())
+                .ok_or(
+                    M3fReconciliationRunnerError::MissingBrokerOrderIdForPersistence(
+                        decision.request_id,
+                    ),
+                )?;
+            if record.broker_order_id.is_none() {
+                record.broker_order_id = Some(broker_order_id);
+                broker_order_id_recovered_atomically = true;
+            }
+            record.transition(OrderPathEvent::RecoverByClientOrderId, checked_ts)?;
+            record.transition(OrderPathEvent::MarkTerminal, checked_ts)?;
+            terminal_state_persisted_atomically = true;
+            M3fReconciliationPersistenceAction::RecoveredByClientOrderIdAndTerminal
+        }
+        M3fReconciliationOutcomeAction::MarkSubmitted => {
+            record.state = OrderPathState::Submitted;
+            record.last_update_ts = checked_ts;
+            M3fReconciliationPersistenceAction::MarkedSubmitted
+        }
+        M3fReconciliationOutcomeAction::MarkTerminal => {
+            record.transition(OrderPathEvent::MarkTerminal, checked_ts)?;
+            terminal_state_persisted_atomically = true;
+            M3fReconciliationPersistenceAction::MarkedTerminal
+        }
+        M3fReconciliationOutcomeAction::RecoverCancelTerminal => {
+            record.transition(OrderPathEvent::RecoverCancelTerminal, checked_ts)?;
+            terminal_state_persisted_atomically = true;
+            M3fReconciliationPersistenceAction::RecoveredCancelTerminal
+        }
+        M3fReconciliationOutcomeAction::ManualInterventionRequired => {
+            if record.state != OrderPathState::ManualInterventionRequired {
+                record.transition(OrderPathEvent::RequireManualIntervention, checked_ts)?;
+            } else {
+                record.last_update_ts = checked_ts;
+            }
+            M3fReconciliationPersistenceAction::ManualInterventionRequired
+        }
+    };
+
+    let to_state = record.state;
+    let changed = from_state != to_state
+        || matches!(decision.action, M3fReconciliationOutcomeAction::KeepPending);
+    if changed {
+        store.update_record(record)?;
+        Ok(Some(M3fReconciliationPersistenceRecord {
+            request_id: request.request_id,
+            action: persistence_action,
+            from_state,
+            to_state,
+            broker_order_id_recovered_atomically,
+            terminal_state_persisted_atomically,
+            raw_broker_payload_exported: false,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+fn m3f_readiness_blockers_from_snapshot_report(
+    report: &M3fSnapshotApplicationReport,
+) -> Vec<M3fReconciliationReadinessBlocker> {
+    let mut blockers = Vec::new();
+    for issue in &report.issues {
+        blockers.push(M3fReconciliationReadinessBlocker {
+            kind: m3f_readiness_blocker_kind_from_issue(issue.kind),
+            affected_request_id: issue.affected_request_id,
+            client_order_id_sha256: issue.client_order_id_sha256.clone(),
+            broker_order_id_sha256: issue.broker_order_id_sha256.clone(),
+            instrument_venue_symbol_sha256: issue.instrument_venue_symbol_sha256.clone(),
+            blocks_live_ready: true,
+            raw_broker_payload_exported: false,
+        });
+    }
+    for decision in &report.decisions {
+        if decision.manual_intervention_required {
+            blockers.push(M3fReconciliationReadinessBlocker {
+                kind: M3fReconciliationReadinessBlockerKind::ManualInterventionRequired,
+                affected_request_id: Some(decision.request_id),
+                client_order_id_sha256: None,
+                broker_order_id_sha256: None,
+                instrument_venue_symbol_sha256: None,
+                blocks_live_ready: true,
+                raw_broker_payload_exported: false,
+            });
+        }
+    }
+    blockers
+}
+
+fn m3f_readiness_blocker_kind_from_issue(
+    issue_kind: M3fBrokerTruthSnapshotIssueKind,
+) -> M3fReconciliationReadinessBlockerKind {
+    match issue_kind {
+        M3fBrokerTruthSnapshotIssueKind::SameIdentityDifferentRequestId => {
+            M3fReconciliationReadinessBlockerKind::SameIdentityDifferentRequestId
+        }
+        M3fBrokerTruthSnapshotIssueKind::OrphanBrokerOrder => {
+            M3fReconciliationReadinessBlockerKind::OrphanBrokerOrder
+        }
+        M3fBrokerTruthSnapshotIssueKind::OrphanBrokerTrade => {
+            M3fReconciliationReadinessBlockerKind::OrphanBrokerTrade
+        }
+        M3fBrokerTruthSnapshotIssueKind::PositionMismatch => {
+            M3fReconciliationReadinessBlockerKind::PositionMismatch
+        }
+        M3fBrokerTruthSnapshotIssueKind::LocalPendingStale => {
+            M3fReconciliationReadinessBlockerKind::LocalPendingStale
+        }
     }
 }
 
@@ -12331,6 +12648,7 @@ mod tests {
             account_id_sha256: request.identity.account_id_sha256.clone(),
             client_order_id_sha256: Some(request.identity.client_order_id_sha256.clone()),
             broker_order_id_sha256: request.identity.broker_order_id_sha256.clone(),
+            broker_order_id_for_persistence: None,
             instrument_venue_symbol_sha256: request.identity.instrument_venue_symbol_sha256.clone(),
             state_class: M3fBrokerTruthOrderStateClass::Active,
             raw_broker_payload_exported: false,
@@ -12382,6 +12700,9 @@ mod tests {
             account_id_sha256: request.identity.account_id_sha256.clone(),
             client_order_id_sha256: Some(request.identity.client_order_id_sha256.clone()),
             broker_order_id_sha256: Some(sha256_hex(b"BROKER_TEST_M3F3_RECOVERED_831")),
+            broker_order_id_for_persistence: Some(BrokerOrderId::new(
+                "BROKER_TEST_M3F3_RECOVERED_831",
+            )),
             instrument_venue_symbol_sha256: request.identity.instrument_venue_symbol_sha256.clone(),
             state_class: M3fBrokerTruthOrderStateClass::Terminal,
             raw_broker_payload_exported: false,
@@ -12428,6 +12749,7 @@ mod tests {
             account_id_sha256: request.identity.account_id_sha256.clone(),
             client_order_id_sha256: Some(sha256_hex(b"CID_ORPHAN_M3F3_832")),
             broker_order_id_sha256: Some(sha256_hex(b"BROKER_ORPHAN_M3F3_832")),
+            broker_order_id_for_persistence: Some(BrokerOrderId::new("BROKER_ORPHAN_M3F3_832")),
             instrument_venue_symbol_sha256: request.identity.instrument_venue_symbol_sha256.clone(),
             state_class: M3fBrokerTruthOrderStateClass::Active,
             raw_broker_payload_exported: false,
@@ -12480,6 +12802,168 @@ mod tests {
         assert!(!serialized.contains("BROKER_ORPHAN_M3F3_832"));
         assert!(!serialized.contains("CID_ORPHAN_TRADE_M3F3_832"));
         assert!(!serialized.contains("BROKER_ORPHAN_TRADE_M3F3_832"));
+    }
+
+    #[test]
+    fn m3f4_runner_atomically_recovers_broker_id_and_terminal_state() {
+        let created_ts = Utc
+            .with_ymd_and_hms(2026, 7, 3, 18, 0, 0)
+            .single()
+            .expect("created");
+        let checked_ts = created_ts + ChronoDuration::minutes(1);
+        let order = sample_place_order(request_id(840), "CID000000000000840", created_ts);
+        let mut record = OrderPathRecord::from_place_order(&order, created_ts, None);
+        record
+            .transition(OrderPathEvent::BeginSubmit, created_ts)
+            .expect("begin submit");
+        record
+            .transition(
+                OrderPathEvent::SubmitAcceptedWithoutBrokerOrderId,
+                created_ts,
+            )
+            .expect("submitted pending broker id");
+
+        let mut store = InMemoryOrderPathStore::default();
+        store.insert_intent(record.clone()).expect("insert record");
+        let request = m3f_reconciliation_request_for_order_path_record(&record, checked_ts)
+            .request
+            .expect("request");
+        let broker_order_id = BrokerOrderId::new("BROKER_TEST_M3F4_840");
+        let broker_order = M3fBrokerTruthOrderSnapshot {
+            request_id: Some(request.request_id),
+            account_id_sha256: request.identity.account_id_sha256.clone(),
+            client_order_id_sha256: Some(request.identity.client_order_id_sha256.clone()),
+            broker_order_id_sha256: Some(sha256_hex(b"BROKER_TEST_M3F4_840")),
+            broker_order_id_for_persistence: Some(broker_order_id.clone()),
+            instrument_venue_symbol_sha256: request.identity.instrument_venue_symbol_sha256.clone(),
+            state_class: M3fBrokerTruthOrderStateClass::Terminal,
+            raw_broker_payload_exported: false,
+        };
+
+        let report = m3f_run_reconciliation_once(
+            &mut store,
+            std::slice::from_ref(&broker_order),
+            &[],
+            &[],
+            checked_ts,
+            ChronoDuration::minutes(5),
+        )
+        .expect("runner report");
+
+        let persisted = store
+            .load_by_request_id(request_id(840))
+            .expect("persisted record");
+        assert_eq!(persisted.broker_order_id, Some(broker_order_id));
+        assert_eq!(persisted.state, OrderPathState::Terminal);
+        assert_eq!(report.scheduled_count, 1);
+        assert_eq!(report.persisted_transition_count, 1);
+        assert_eq!(
+            report.persistence_records[0].action,
+            M3fReconciliationPersistenceAction::RecoveredByClientOrderIdAndTerminal
+        );
+        assert!(report.persistence_records[0].broker_order_id_recovered_atomically);
+        assert!(report.persistence_records[0].terminal_state_persisted_atomically);
+        assert_eq!(report.readiness.phase, ReadinessPhase::Reconciliation);
+        assert_eq!(
+            report.readiness.reasons,
+            vec![ReadinessReason::OperatorLiveArmMissing]
+        );
+        assert!(report.read_only_finam_surfaces_only);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.external_order_endpoint_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.live_ready_allowed);
+
+        let serialized_order = serde_json::to_string(&broker_order).expect("serialize order");
+        assert!(!serialized_order.contains("BROKER_TEST_M3F4_840"));
+        let serialized_report = serde_json::to_string(&report).expect("serialize report");
+        assert!(!serialized_report.contains("CID000000000000840"));
+        assert!(!serialized_report.contains("BROKER_TEST_M3F4_840"));
+    }
+
+    #[test]
+    fn m3f4_runner_persists_manual_intervention_and_blocks_readiness() {
+        let created_ts = Utc
+            .with_ymd_and_hms(2026, 7, 3, 18, 10, 0)
+            .single()
+            .expect("created");
+        let checked_ts = created_ts + ChronoDuration::minutes(10);
+        let mut timeout_unknown = OrderPathRecord::from_place_order(
+            &sample_place_order(request_id(841), "CID000000000000841", created_ts),
+            created_ts,
+            None,
+        );
+        timeout_unknown
+            .transition(OrderPathEvent::BeginSubmit, created_ts)
+            .expect("begin submit");
+        timeout_unknown
+            .transition(OrderPathEvent::SubmitTimedOut, created_ts)
+            .expect("timeout unknown");
+        let mut store = InMemoryOrderPathStore::default();
+        store
+            .insert_intent(timeout_unknown.clone())
+            .expect("insert timeout record");
+        let request =
+            m3f_reconciliation_request_for_order_path_record(&timeout_unknown, checked_ts)
+                .request
+                .expect("request");
+        let orphan_order = M3fBrokerTruthOrderSnapshot {
+            request_id: Some(request_id(1841)),
+            account_id_sha256: request.identity.account_id_sha256.clone(),
+            client_order_id_sha256: Some(sha256_hex(b"CID_ORPHAN_M3F4_841")),
+            broker_order_id_sha256: Some(sha256_hex(b"BROKER_ORPHAN_M3F4_841")),
+            broker_order_id_for_persistence: Some(BrokerOrderId::new("BROKER_ORPHAN_M3F4_841")),
+            instrument_venue_symbol_sha256: request.identity.instrument_venue_symbol_sha256.clone(),
+            state_class: M3fBrokerTruthOrderStateClass::Active,
+            raw_broker_payload_exported: false,
+        };
+        let mismatch_position = M3fPositionConsistencySnapshot {
+            account_id_sha256: request.identity.account_id_sha256.clone(),
+            instrument_venue_symbol_sha256: request.identity.instrument_venue_symbol_sha256.clone(),
+            mismatch: true,
+            raw_position_payload_exported: false,
+        };
+
+        let report = m3f_run_reconciliation_once(
+            &mut store,
+            &[orphan_order],
+            &[],
+            &[mismatch_position],
+            checked_ts,
+            ChronoDuration::minutes(5),
+        )
+        .expect("runner report");
+
+        let persisted = store
+            .load_by_request_id(request_id(841))
+            .expect("persisted manual record");
+        assert_eq!(persisted.state, OrderPathState::ManualInterventionRequired);
+        assert_eq!(report.readiness.phase, ReadinessPhase::Blocked);
+        assert_eq!(
+            report.readiness.reasons,
+            vec![ReadinessReason::ReconciliationStale]
+        );
+        assert!(report.readiness_blocker_count >= 3);
+        let blocker_kinds: HashSet<_> = report
+            .readiness_blockers
+            .iter()
+            .map(|blocker| blocker.kind)
+            .collect();
+        assert!(blocker_kinds.contains(&M3fReconciliationReadinessBlockerKind::LocalPendingStale));
+        assert!(blocker_kinds.contains(&M3fReconciliationReadinessBlockerKind::OrphanBrokerOrder));
+        assert!(blocker_kinds.contains(&M3fReconciliationReadinessBlockerKind::PositionMismatch));
+        assert!(blocker_kinds
+            .contains(&M3fReconciliationReadinessBlockerKind::ManualInterventionRequired));
+        assert!(!report.raw_account_id_exported);
+        assert!(!report.raw_client_order_id_exported);
+        assert!(!report.raw_broker_order_id_exported);
+        assert!(!report.raw_broker_payload_exported);
+        assert!(!report.raw_position_payload_exported);
+
+        let serialized_report = serde_json::to_string(&report).expect("serialize report");
+        assert!(!serialized_report.contains("CID000000000000841"));
+        assert!(!serialized_report.contains("CID_ORPHAN_M3F4_841"));
+        assert!(!serialized_report.contains("BROKER_ORPHAN_M3F4_841"));
     }
 
     #[tokio::test]
