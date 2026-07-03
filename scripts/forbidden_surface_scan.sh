@@ -11,9 +11,11 @@ report_failure() {
   failures=$((failures + 1))
 }
 
-if rg -n --glob 'crates/**/*.rs' '\.delete\(' crates >/tmp/moex_forbidden_delete.$$; then
+approved_order_transport="crates/finam-gateway/src/m3d2_real_order_transport.rs"
+
+if rg -n --glob 'crates/**/*.rs' '\.delete\(' crates | grep -v "^${approved_order_transport}:" >/tmp/moex_forbidden_delete.$$; then
   cat /tmp/moex_forbidden_delete.$$ >&2
-  report_failure "real HTTP DELETE surface is forbidden"
+  report_failure "real HTTP DELETE surface is forbidden outside the reviewed M3d-2c transport"
 fi
 rm -f /tmp/moex_forbidden_delete.$$
 
@@ -50,6 +52,14 @@ failures = 0
 for path in Path("crates").glob("**/*.rs"):
     source = path.read_text()
     if ".post(" not in source:
+        continue
+    if path == Path("crates/finam-gateway/src/m3d2_real_order_transport.rs"):
+        if source.count(".post(") != 1:
+            print(
+                "forbidden-surface-scan: M3d-2c transport must have exactly one .post(",
+                file=sys.stderr,
+            )
+            failures += 1
         continue
     if path != Path("crates/broker-finam/src/lib.rs"):
         for line_no, line in enumerate(source.splitlines(), start=1):
@@ -96,6 +106,42 @@ for path in Path("crates").glob("**/*.rs"):
             file=sys.stderr,
         )
         failures += 1
+
+transport_path = Path("crates/finam-gateway/src/m3d2_real_order_transport.rs")
+if transport_path.exists():
+    transport_source = transport_path.read_text()
+    expected_counts = {
+        ".post(": 1,
+        ".delete(": 1,
+        ".send(": 1,
+    }
+    for token, expected in expected_counts.items():
+        actual = transport_source.count(token)
+        if actual != expected:
+            print(
+                "forbidden-surface-scan: M3d-2c transport allowlist mismatch "
+                f"for {token}: actual={actual} expected={expected}",
+                file=sys.stderr,
+            )
+            failures += 1
+    required_transport_patterns = [
+        "EndpointGateApproved",
+        "FinamPlaceOrderRequestSpec",
+        "FinamCancelOrderRequestSpec",
+        "FinamAuthorizationHeaderMode::BearerJwt",
+        "post_send_semantics",
+        "raw_token_exported: false",
+        "raw_path_exported: false",
+        "raw_body_exported: false",
+    ]
+    for pattern in required_transport_patterns:
+        if pattern not in transport_source:
+            print(
+                "forbidden-surface-scan: M3d-2c transport missing required "
+                f"pattern {pattern!r}",
+                file=sys.stderr,
+            )
+            failures += 1
 
 source = Path("crates/finam-gateway/src/lib.rs").read_text()
 

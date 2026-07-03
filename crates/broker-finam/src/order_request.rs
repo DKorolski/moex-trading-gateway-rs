@@ -1954,6 +1954,16 @@ mod tests {
 
         assert!(!checked_files.is_empty());
         for path in checked_files {
+            if path.ends_with("crates/finam-gateway/src/m3d2_real_order_transport.rs") {
+                let source = std::fs::read_to_string(&path).expect("source file readable");
+                assert_eq!(source.matches(&[".", "post("].concat()).count(), 1);
+                assert_eq!(source.matches(&[".", "delete("].concat()).count(), 1);
+                assert_eq!(source.matches(&[".", "send("].concat()).count(), 1);
+                assert!(source.contains("EndpointGateApproved"));
+                assert!(source.contains("FinamPlaceOrderRequestSpec"));
+                assert!(source.contains("FinamCancelOrderRequestSpec"));
+                continue;
+            }
             let source = std::fs::read_to_string(&path).expect("source file readable");
             for pattern in &forbidden_patterns {
                 assert!(

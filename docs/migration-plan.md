@@ -2262,6 +2262,31 @@ M3d-2b explicitly still not allowed:
 - Runtime/live attachment or `LiveReady`.
 - SLTP, bracket, replace, or multi-leg order surfaces.
 
+M3d-2c real transport behind gate, disabled by default:
+
+- Adds the first real `reqwest` order endpoint transport in one reviewed module:
+  `crates/finam-gateway/src/m3d2_real_order_transport.rs`.
+- The transport requires `EndpointGateApproved`, `AccessToken`, and existing
+  `FinamPlaceOrderRequestSpec` / `FinamCancelOrderRequestSpec`.
+- `EndpointGateApproved` remains unconstructible in production config; the only
+  constructor used by transport tests is `#[cfg(test)]` and loopback-only.
+- Scanner allowlist is exact: one `.post(`, one `.delete(`, one `.send(` in the
+  reviewed M3d-2c transport module.
+- Authorization is pinned as `Authorization: Bearer <jwt>` with redacted
+  diagnostics.
+- Local mock tests exercise the actual reqwest code path and verify actual
+  method/path/header/body.
+- Post-send ambiguous outcomes preserve no-blind-retry semantics:
+  missing broker id, malformed 2xx, and body-read failure require
+  reconciliation; timeout enters timeout-unknown-pending semantics.
+
+M3d-2c explicitly still not allowed:
+
+- Production live order calls by default.
+- Command consumer connected to strategies.
+- Runtime/live attachment or `LiveReady`.
+- SLTP, bracket, replace, or multi-leg order surfaces.
+
 M3d+ required sequence to operational parity:
 
 1. M3d-1 FINAM contract alignment.

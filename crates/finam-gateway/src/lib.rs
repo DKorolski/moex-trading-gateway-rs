@@ -9,6 +9,7 @@
 //! publication, and approved-only execution simulation.
 
 pub mod m3d2_local_mock_endpoint;
+pub mod m3d2_real_order_transport;
 pub mod real_order_endpoint;
 
 use std::collections::HashSet;
@@ -514,6 +515,13 @@ impl EndpointGateApproved {
                 decision: decision.clone(),
             })
         }
+    }
+}
+
+#[cfg(test)]
+impl EndpointGateApproved {
+    pub(crate) fn m3d2c_test_only_for_loopback_transport() -> Self {
+        Self { _private: () }
     }
 }
 

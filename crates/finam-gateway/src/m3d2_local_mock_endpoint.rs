@@ -97,6 +97,7 @@ pub struct M3d2LocalMockWireDiagnostic {
     pub order_id_len: Option<usize>,
     pub authorization_present: bool,
     pub authorization_len: Option<usize>,
+    pub authorization_bearer_jwt_shape: bool,
     pub raw_authorization_exported: bool,
     pub content_type_json: bool,
     pub body_len: usize,
@@ -117,6 +118,9 @@ pub fn classify_m3d2_local_mock_wire_request(raw_request: &str) -> M3d2LocalMock
     let headers = parse_headers(lines);
     let route = classify_route(raw_path);
     let authorization_len = headers.get("authorization").map(|value| value.len());
+    let authorization_bearer_jwt_shape = headers
+        .get("authorization")
+        .is_some_and(|value| value.starts_with("Bearer ") && value.len() > "Bearer ".len());
     let content_type_json = headers
         .get("content-type")
         .map(|value| value.to_ascii_lowercase().contains("application/json"))
@@ -136,6 +140,8 @@ pub fn classify_m3d2_local_mock_wire_request(raw_request: &str) -> M3d2LocalMock
             rejection_reason = Some("place_method_not_post".to_string());
         } else if authorization_len.is_none() {
             rejection_reason = Some("authorization_missing".to_string());
+        } else if !authorization_bearer_jwt_shape {
+            rejection_reason = Some("authorization_not_bearer_jwt".to_string());
         } else if !content_type_json {
             rejection_reason = Some("content_type_not_json".to_string());
         } else if !matches!(
@@ -149,6 +155,8 @@ pub fn classify_m3d2_local_mock_wire_request(raw_request: &str) -> M3d2LocalMock
             rejection_reason = Some("cancel_method_not_delete".to_string());
         } else if authorization_len.is_none() {
             rejection_reason = Some("authorization_missing".to_string());
+        } else if !authorization_bearer_jwt_shape {
+            rejection_reason = Some("authorization_not_bearer_jwt".to_string());
         } else if !cancel_body_empty {
             rejection_reason = Some("cancel_body_not_empty".to_string());
         }
@@ -168,6 +176,7 @@ pub fn classify_m3d2_local_mock_wire_request(raw_request: &str) -> M3d2LocalMock
         order_id_len: route.order_id_len,
         authorization_present: authorization_len.is_some(),
         authorization_len,
+        authorization_bearer_jwt_shape,
         raw_authorization_exported: false,
         content_type_json,
         body_len: body.len(),

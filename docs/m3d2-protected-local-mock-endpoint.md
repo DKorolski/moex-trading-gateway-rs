@@ -110,3 +110,43 @@ Generate M3d-2b evidence with:
 python3 scripts/m3d2b_strict_contract_evidence.py \
   --source-archive reports/handoff/moex-trading-project-<commit>.zip
 ```
+
+## M3d-2c real transport behind gate, local mock only
+
+M3d-2c introduces the first real `reqwest` order endpoint transport source, but
+keeps it disabled by default and impossible to use in production without
+`EndpointGateApproved`.
+
+Transport scope:
+
+- only `POST /v1/accounts/{account_id}/orders`;
+- only `DELETE /v1/accounts/{account_id}/orders/{order_id}`;
+- only existing `FinamPlaceOrderRequestSpec` and `FinamCancelOrderRequestSpec`;
+- no SLTP, bracket, replace, or multi-leg routes.
+
+Authorization policy:
+
+- pinned as `Authorization: Bearer <jwt>`;
+- diagnostics export only policy/scheme/length facts, never raw JWT;
+- policy source is FINAM REST documentation / llms reference:
+  `https://api.finam.ru/docs/rest/llms.txt`.
+
+Post-send semantics:
+
+- PLACE 2xx with broker id -> submitted;
+- PLACE 2xx without broker id -> submitted pending broker id reconciliation;
+- malformed 2xx / body-read-failed after send -> reconciliation required;
+- timeout / 504 -> timeout unknown pending;
+- CANCEL accepted remains pending reconciliation, never terminal canceled.
+
+The transport is tested only against a loopback local mock server. The test-only
+gate constructor is behind `#[cfg(test)]`; production
+`EndpointGateApproved::try_from_decision()` remains blocked by
+`REAL_ORDER_ENDPOINT_IMPLEMENTATION_REVIEW_ACCEPTED = false`.
+
+Generate M3d-2c evidence with:
+
+```bash
+python3 scripts/m3d2c_real_transport_evidence.py \
+  --source-archive reports/handoff/moex-trading-project-<commit>.zip
+```
