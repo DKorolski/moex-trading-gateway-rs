@@ -13,8 +13,10 @@ pub mod m3d2_real_order_transport;
 pub mod m3d2_real_transport_lifecycle;
 pub mod real_order_endpoint;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -1013,6 +1015,282 @@ pub struct M3eCommandConsumerReport {
     pub raw_command_comment_exported: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3eCommandKind {
+    PlaceOrder,
+    CancelOrder,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3eCommandLifecycleState {
+    CommandReceived,
+    AckPublished,
+    ExpiredAckPublished,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3eCommandLifecycleAction {
+    CommandReceived,
+    DuplicateAckPublished,
+    RecoveredAckPublished,
+    ExpiredAckPublished,
+    DlqPublished,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3eCommandLifecycleRecord {
+    pub request_id: StrategyRequestId,
+    pub command_kind: M3eCommandKind,
+    pub state: M3eCommandLifecycleState,
+    pub source_entry_id: String,
+    pub command_created_ts: DateTime<Utc>,
+    pub command_ttl_ms: Option<u64>,
+    pub received_ts: DateTime<Utc>,
+    pub updated_ts: DateTime<Utc>,
+    pub ack_status: Option<CommandAckStatus>,
+    pub ack_reason_code: Option<CommandAckReasonCode>,
+    pub endpoint_attempt_count: u32,
+    pub ack_publish_count: u32,
+    pub duplicate_ack_publish_count: u32,
+    pub xack_count: u32,
+    pub raw_payload_exported: bool,
+    pub raw_command_comment_exported: bool,
+}
+
+impl M3eCommandLifecycleRecord {
+    pub fn command_received(
+        entry_id: impl Into<String>,
+        command: &BrokerCommand,
+        received_ts: DateTime<Utc>,
+    ) -> Self {
+        Self {
+            request_id: command_request_id(command),
+            command_kind: command_kind(command),
+            state: M3eCommandLifecycleState::CommandReceived,
+            source_entry_id: entry_id.into(),
+            command_created_ts: command_created_ts(command),
+            command_ttl_ms: command_ttl_ms(command),
+            received_ts,
+            updated_ts: received_ts,
+            ack_status: None,
+            ack_reason_code: None,
+            endpoint_attempt_count: 0,
+            ack_publish_count: 0,
+            duplicate_ack_publish_count: 0,
+            xack_count: 0,
+            raw_payload_exported: false,
+            raw_command_comment_exported: false,
+        }
+    }
+
+    pub fn mark_ack_published(
+        &mut self,
+        status: CommandAckStatus,
+        reason_code: Option<CommandAckReasonCode>,
+        updated_ts: DateTime<Utc>,
+        xack_applied: bool,
+    ) {
+        self.state = match (status, reason_code) {
+            (CommandAckStatus::Expired, Some(CommandAckReasonCode::ExpiredCommand)) => {
+                M3eCommandLifecycleState::ExpiredAckPublished
+            }
+            _ => M3eCommandLifecycleState::AckPublished,
+        };
+        self.updated_ts = updated_ts;
+        self.ack_status = Some(status);
+        self.ack_reason_code = reason_code;
+        self.ack_publish_count = self.ack_publish_count.saturating_add(1);
+        if xack_applied {
+            self.xack_count = self.xack_count.saturating_add(1);
+        }
+    }
+
+    pub fn mark_duplicate_ack_published(&mut self, updated_ts: DateTime<Utc>) {
+        self.updated_ts = updated_ts;
+        self.duplicate_ack_publish_count = self.duplicate_ack_publish_count.saturating_add(1);
+        self.xack_count = self.xack_count.saturating_add(1);
+    }
+}
+
+pub trait M3eCommandLifecycleStore: Clone + Send + Sync {
+    fn load_by_request_id(
+        &self,
+        request_id: StrategyRequestId,
+    ) -> Result<Option<M3eCommandLifecycleRecord>, GatewayError>;
+
+    fn insert_received(&self, record: M3eCommandLifecycleRecord) -> Result<bool, GatewayError>;
+
+    fn upsert(&self, record: M3eCommandLifecycleRecord) -> Result<(), GatewayError>;
+
+    fn records(&self) -> Result<Vec<M3eCommandLifecycleRecord>, GatewayError>;
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct M3eInMemoryCommandLifecycleStore {
+    records: Arc<Mutex<HashMap<StrategyRequestId, M3eCommandLifecycleRecord>>>,
+}
+
+impl M3eInMemoryCommandLifecycleStore {
+    pub fn from_records(records: Vec<M3eCommandLifecycleRecord>) -> Result<Self, GatewayError> {
+        let store = Self::default();
+        for record in records {
+            store.upsert(record)?;
+        }
+        Ok(store)
+    }
+}
+
+impl M3eCommandLifecycleStore for M3eInMemoryCommandLifecycleStore {
+    fn load_by_request_id(
+        &self,
+        request_id: StrategyRequestId,
+    ) -> Result<Option<M3eCommandLifecycleRecord>, GatewayError> {
+        self.records
+            .lock()
+            .map_err(|_| GatewayError::InternalState {
+                message: "m3e command lifecycle store mutex poisoned",
+            })
+            .map(|records| records.get(&request_id).cloned())
+    }
+
+    fn insert_received(&self, record: M3eCommandLifecycleRecord) -> Result<bool, GatewayError> {
+        let mut records = self
+            .records
+            .lock()
+            .map_err(|_| GatewayError::InternalState {
+                message: "m3e command lifecycle store mutex poisoned",
+            })?;
+        if records.contains_key(&record.request_id) {
+            return Ok(false);
+        }
+        records.insert(record.request_id, record);
+        Ok(true)
+    }
+
+    fn upsert(&self, record: M3eCommandLifecycleRecord) -> Result<(), GatewayError> {
+        self.records
+            .lock()
+            .map_err(|_| GatewayError::InternalState {
+                message: "m3e command lifecycle store mutex poisoned",
+            })?
+            .insert(record.request_id, record);
+        Ok(())
+    }
+
+    fn records(&self) -> Result<Vec<M3eCommandLifecycleRecord>, GatewayError> {
+        let mut records: Vec<_> = self
+            .records
+            .lock()
+            .map_err(|_| GatewayError::InternalState {
+                message: "m3e command lifecycle store mutex poisoned",
+            })?
+            .values()
+            .cloned()
+            .collect();
+        records.sort_by(|left, right| {
+            left.request_id
+                .to_string()
+                .cmp(&right.request_id.to_string())
+        });
+        Ok(records)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct M3eCommandLifecycleSnapshot {
+    schema_version: u16,
+    records: Vec<M3eCommandLifecycleRecord>,
+}
+
+#[derive(Debug, Clone)]
+pub struct M3eJsonCommandLifecycleStore {
+    path: Arc<PathBuf>,
+    inner: M3eInMemoryCommandLifecycleStore,
+}
+
+impl M3eJsonCommandLifecycleStore {
+    pub fn open(path: impl Into<PathBuf>) -> Result<Self, GatewayError> {
+        let path = path.into();
+        let records = if path.exists() {
+            let payload = fs::read_to_string(&path)?;
+            let snapshot: M3eCommandLifecycleSnapshot = serde_json::from_str(&payload)?;
+            snapshot.records
+        } else {
+            Vec::new()
+        };
+        Ok(Self {
+            path: Arc::new(path),
+            inner: M3eInMemoryCommandLifecycleStore::from_records(records)?,
+        })
+    }
+
+    fn persist(&self) -> Result<(), GatewayError> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let snapshot = M3eCommandLifecycleSnapshot {
+            schema_version: SCHEMA_VERSION,
+            records: self.inner.records()?,
+        };
+        let payload = serde_json::to_string_pretty(&snapshot)?;
+        let tmp_path = PathBuf::from(format!("{}.tmp", self.path.to_string_lossy()));
+        fs::write(&tmp_path, payload)?;
+        fs::rename(tmp_path, self.path.as_ref())?;
+        Ok(())
+    }
+}
+
+impl M3eCommandLifecycleStore for M3eJsonCommandLifecycleStore {
+    fn load_by_request_id(
+        &self,
+        request_id: StrategyRequestId,
+    ) -> Result<Option<M3eCommandLifecycleRecord>, GatewayError> {
+        self.inner.load_by_request_id(request_id)
+    }
+
+    fn insert_received(&self, record: M3eCommandLifecycleRecord) -> Result<bool, GatewayError> {
+        let inserted = self.inner.insert_received(record)?;
+        if inserted {
+            self.persist()?;
+        }
+        Ok(inserted)
+    }
+
+    fn upsert(&self, record: M3eCommandLifecycleRecord) -> Result<(), GatewayError> {
+        self.inner.upsert(record)?;
+        self.persist()
+    }
+
+    fn records(&self) -> Result<Vec<M3eCommandLifecycleRecord>, GatewayError> {
+        self.inner.records()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3eCommandConsumerDurableReport {
+    pub action: M3eCommandLifecycleAction,
+    pub entry_id: String,
+    pub request_id: Option<StrategyRequestId>,
+    pub ack_status: Option<CommandAckStatus>,
+    pub ack_reason_code: Option<CommandAckReasonCode>,
+    pub dlq_reason: Option<M3eCommandDlqReason>,
+    pub lifecycle_state: Option<M3eCommandLifecycleState>,
+    pub command_received_persisted: bool,
+    pub request_id_idempotency_store_hit: bool,
+    pub duplicate_request: bool,
+    pub duplicate_request_no_second_endpoint_attempt: bool,
+    pub endpoint_attempt_count: u32,
+    pub ack_publish_before_xack: bool,
+    pub xack_applied: bool,
+    pub xack_after_ack_or_dlq_publish: bool,
+    pub endpoint_transport_invoked: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub raw_payload_exported: bool,
+    pub raw_token_exported: bool,
+    pub raw_body_exported: bool,
+    pub raw_command_comment_exported: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct M3eCommandConsumerDryRun<S> {
     config: M3eCommandConsumerConfig,
@@ -1098,6 +1376,213 @@ where
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct M3eCommandConsumerDurableDryRun<S, L> {
+    config: M3eCommandConsumerConfig,
+    sink: S,
+    lifecycle_store: L,
+}
+
+impl<S, L> M3eCommandConsumerDurableDryRun<S, L>
+where
+    S: RedisStreamSink,
+    L: M3eCommandLifecycleStore,
+{
+    pub fn new(config: M3eCommandConsumerConfig, sink: S, lifecycle_store: L) -> Self {
+        Self {
+            config,
+            sink,
+            lifecycle_store,
+        }
+    }
+
+    pub fn from_gateway_config(config: &GatewayConfig, sink: S, lifecycle_store: L) -> Self {
+        Self::new(
+            M3eCommandConsumerConfig::from_gateway_config(config),
+            sink,
+            lifecycle_store,
+        )
+    }
+
+    pub async fn process_entry(
+        &self,
+        entry: RuntimeBridgeStreamEntry,
+        now: DateTime<Utc>,
+    ) -> Result<M3eCommandConsumerDurableReport, GatewayError> {
+        match decode_m3e_command_entry(&entry, &self.config, now) {
+            Ok(command_decision) => {
+                self.process_typed_command(entry, command_decision, now)
+                    .await
+            }
+            Err(dead_letter) => self.publish_dlq(entry, dead_letter).await,
+        }
+    }
+
+    async fn process_typed_command(
+        &self,
+        entry: RuntimeBridgeStreamEntry,
+        command_decision: M3eCommandDecision,
+        now: DateTime<Utc>,
+    ) -> Result<M3eCommandConsumerDurableReport, GatewayError> {
+        let request_id = command_decision.request_id();
+        if let Some(existing) = self.lifecycle_store.load_by_request_id(request_id)? {
+            return self.publish_duplicate_ack(entry, existing, now).await;
+        }
+
+        let mut record = M3eCommandLifecycleRecord::command_received(
+            entry.entry_id.clone(),
+            command_decision.command(),
+            now,
+        );
+        let inserted = self.lifecycle_store.insert_received(record.clone())?;
+        if !inserted {
+            let existing = self.lifecycle_store.load_by_request_id(request_id)?.ok_or(
+                GatewayError::InternalState {
+                    message: "m3e command lifecycle duplicate disappeared",
+                },
+            )?;
+            return self.publish_duplicate_ack(entry, existing, now).await;
+        }
+
+        let ack = command_decision.into_ack(now);
+        let ack_status = ack.status;
+        let ack_reason_code = ack.reason.as_ref().map(|reason| reason.code);
+        self.publish_ack(ack).await?;
+        record.mark_ack_published(ack_status, ack_reason_code, now, true);
+        self.lifecycle_store.upsert(record.clone())?;
+
+        Ok(M3eCommandConsumerDurableReport {
+            action: if ack_status == CommandAckStatus::Expired {
+                M3eCommandLifecycleAction::ExpiredAckPublished
+            } else {
+                M3eCommandLifecycleAction::CommandReceived
+            },
+            entry_id: entry.entry_id,
+            request_id: Some(request_id),
+            ack_status: Some(ack_status),
+            ack_reason_code,
+            dlq_reason: None,
+            lifecycle_state: Some(record.state),
+            command_received_persisted: true,
+            request_id_idempotency_store_hit: false,
+            duplicate_request: false,
+            duplicate_request_no_second_endpoint_attempt: true,
+            endpoint_attempt_count: record.endpoint_attempt_count,
+            ack_publish_before_xack: true,
+            xack_applied: true,
+            xack_after_ack_or_dlq_publish: true,
+            endpoint_transport_invoked: false,
+            external_order_endpoint_allowed: false,
+            raw_payload_exported: false,
+            raw_token_exported: false,
+            raw_body_exported: false,
+            raw_command_comment_exported: false,
+        })
+    }
+
+    async fn publish_duplicate_ack(
+        &self,
+        entry: RuntimeBridgeStreamEntry,
+        mut existing: M3eCommandLifecycleRecord,
+        now: DateTime<Utc>,
+    ) -> Result<M3eCommandConsumerDurableReport, GatewayError> {
+        let ack = CommandAck {
+            request_id: existing.request_id,
+            client_order_id: None,
+            broker_order_id: None,
+            status: CommandAckStatus::Duplicate,
+            reason: Some(CommandAckReason::new(
+                CommandAckReasonCode::DuplicateCommand,
+            )),
+            received_ts: now,
+        };
+        self.publish_ack(ack).await?;
+        existing.mark_duplicate_ack_published(now);
+        self.lifecycle_store.upsert(existing.clone())?;
+
+        Ok(M3eCommandConsumerDurableReport {
+            action: if existing.ack_publish_count == 0 {
+                M3eCommandLifecycleAction::RecoveredAckPublished
+            } else {
+                M3eCommandLifecycleAction::DuplicateAckPublished
+            },
+            entry_id: entry.entry_id,
+            request_id: Some(existing.request_id),
+            ack_status: Some(CommandAckStatus::Duplicate),
+            ack_reason_code: Some(CommandAckReasonCode::DuplicateCommand),
+            dlq_reason: None,
+            lifecycle_state: Some(existing.state),
+            command_received_persisted: true,
+            request_id_idempotency_store_hit: true,
+            duplicate_request: true,
+            duplicate_request_no_second_endpoint_attempt: existing.endpoint_attempt_count == 0,
+            endpoint_attempt_count: existing.endpoint_attempt_count,
+            ack_publish_before_xack: true,
+            xack_applied: true,
+            xack_after_ack_or_dlq_publish: true,
+            endpoint_transport_invoked: false,
+            external_order_endpoint_allowed: false,
+            raw_payload_exported: false,
+            raw_token_exported: false,
+            raw_body_exported: false,
+            raw_command_comment_exported: false,
+        })
+    }
+
+    async fn publish_dlq(
+        &self,
+        entry: RuntimeBridgeStreamEntry,
+        dead_letter: M3eCommandDeadLetter,
+    ) -> Result<M3eCommandConsumerDurableReport, GatewayError> {
+        let reason = dead_letter.reason.clone();
+        let record = M3eCommandDlqRecord::new(&self.config, dead_letter);
+        self.sink
+            .publish_json(
+                &self.config.command_dlq_stream,
+                &record,
+                self.config.command_dlq_maxlen,
+            )
+            .await?;
+        Ok(M3eCommandConsumerDurableReport {
+            action: M3eCommandLifecycleAction::DlqPublished,
+            entry_id: entry.entry_id,
+            request_id: None,
+            ack_status: None,
+            ack_reason_code: None,
+            dlq_reason: Some(reason),
+            lifecycle_state: None,
+            command_received_persisted: false,
+            request_id_idempotency_store_hit: false,
+            duplicate_request: false,
+            duplicate_request_no_second_endpoint_attempt: true,
+            endpoint_attempt_count: 0,
+            ack_publish_before_xack: true,
+            xack_applied: true,
+            xack_after_ack_or_dlq_publish: true,
+            endpoint_transport_invoked: false,
+            external_order_endpoint_allowed: false,
+            raw_payload_exported: false,
+            raw_token_exported: false,
+            raw_body_exported: false,
+            raw_command_comment_exported: false,
+        })
+    }
+
+    async fn publish_ack(&self, ack: CommandAck) -> Result<(), GatewayError> {
+        self.sink
+            .publish_json(
+                &self.config.command_ack_stream,
+                &Envelope::new(
+                    self.config.source.clone(),
+                    MessageType::CommandAck,
+                    redact_command_ack_for_redis(ack),
+                ),
+                self.config.command_ack_maxlen,
+            )
+            .await
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum M3eCommandDecision {
     DryRunRejected(BrokerCommand),
@@ -1105,6 +1590,16 @@ enum M3eCommandDecision {
 }
 
 impl M3eCommandDecision {
+    fn command(&self) -> &BrokerCommand {
+        match self {
+            Self::DryRunRejected(command) | Self::Expired(command) => command,
+        }
+    }
+
+    fn request_id(&self) -> StrategyRequestId {
+        command_request_id(self.command())
+    }
+
     fn into_ack(self, now: DateTime<Utc>) -> CommandAck {
         match self {
             Self::DryRunRejected(command) => CommandAck {
@@ -1806,6 +2301,8 @@ pub enum GatewayError {
     Serialization(#[from] serde_json::Error),
     #[error("gateway redis error: {0}")]
     Redis(#[from] redis::RedisError),
+    #[error("gateway io error: {0}")]
+    Io(#[from] std::io::Error),
     #[error("gateway internal state error: {message}")]
     InternalState { message: &'static str },
     #[error("gateway feature disabled: {feature}")]
@@ -8070,6 +8567,27 @@ fn command_request_id(command: &BrokerCommand) -> StrategyRequestId {
     }
 }
 
+fn command_kind(command: &BrokerCommand) -> M3eCommandKind {
+    match command {
+        BrokerCommand::PlaceOrder(_) => M3eCommandKind::PlaceOrder,
+        BrokerCommand::CancelOrder(_) => M3eCommandKind::CancelOrder,
+    }
+}
+
+fn command_created_ts(command: &BrokerCommand) -> DateTime<Utc> {
+    match command {
+        BrokerCommand::PlaceOrder(order) => order.created_ts,
+        BrokerCommand::CancelOrder(order) => order.created_ts,
+    }
+}
+
+fn command_ttl_ms(command: &BrokerCommand) -> Option<u64> {
+    match command {
+        BrokerCommand::PlaceOrder(order) => order.ttl_ms,
+        BrokerCommand::CancelOrder(order) => order.ttl_ms,
+    }
+}
+
 fn command_client_order_id(command: &BrokerCommand) -> Option<broker_core::ClientOrderId> {
     match command {
         BrokerCommand::PlaceOrder(order) => Some(order.client_order_id.clone()),
@@ -9134,6 +9652,326 @@ mod tests {
         let entries = sink.entries().expect("entries");
         assert_eq!(entries[0].stream, config.command_dlq_stream);
         assert!(!entries[0].payload.contains("not-a-command"));
+    }
+
+    #[derive(Debug, Clone)]
+    struct FailingRedisStreamSink {
+        inner: InMemoryRedisStreamSink,
+        fail_stream: String,
+    }
+
+    impl FailingRedisStreamSink {
+        fn new(fail_stream: impl Into<String>) -> Self {
+            Self {
+                inner: InMemoryRedisStreamSink::default(),
+                fail_stream: fail_stream.into(),
+            }
+        }
+
+        fn entries(&self) -> Result<Vec<RedisStreamEntry>, GatewayError> {
+            self.inner.entries()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl RedisStreamSink for FailingRedisStreamSink {
+        async fn publish_json<T: Serialize + Send + Sync>(
+            &self,
+            stream: &str,
+            value: &T,
+            maxlen: Option<usize>,
+        ) -> Result<(), GatewayError> {
+            if stream == self.fail_stream {
+                return Err(GatewayError::InternalState {
+                    message: "injected redis publish failure",
+                });
+            }
+            self.inner.publish_json(stream, value, maxlen).await
+        }
+    }
+
+    fn temp_m3e2_lifecycle_path(name: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let pid = std::process::id();
+        std::env::temp_dir().join(format!("moex_trading_m3e2_{name}_{pid}_{unique}.json"))
+    }
+
+    #[tokio::test]
+    async fn m3e2_first_valid_command_persists_received_then_dry_ack_without_endpoint() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let path = temp_m3e2_lifecycle_path("first_valid");
+        let store = M3eJsonCommandLifecycleStore::open(&path).expect("open store");
+        let consumer =
+            M3eCommandConsumerDurableDryRun::new(config.clone(), sink.clone(), store.clone());
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 13, 0, 0)
+            .single()
+            .expect("now");
+        let command = sample_m3e_place_command(720, now, Some(10_000), None);
+        let request_id = command_request_id(&command);
+
+        let report = consumer
+            .process_entry(m3e_command_entry(&config, command), now)
+            .await
+            .expect("process command");
+
+        assert_eq!(report.action, M3eCommandLifecycleAction::CommandReceived);
+        assert_eq!(report.request_id, Some(request_id));
+        assert_eq!(report.ack_status, Some(CommandAckStatus::Rejected));
+        assert_eq!(
+            report.ack_reason_code,
+            Some(CommandAckReasonCode::DryRunOnly)
+        );
+        assert!(report.command_received_persisted);
+        assert!(report.ack_publish_before_xack);
+        assert!(report.xack_after_ack_or_dlq_publish);
+        assert!(report.duplicate_request_no_second_endpoint_attempt);
+        assert_eq!(report.endpoint_attempt_count, 0);
+        assert!(!report.endpoint_transport_invoked);
+        assert!(!report.external_order_endpoint_allowed);
+
+        let records = store.records().expect("records");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].request_id, request_id);
+        assert_eq!(records[0].state, M3eCommandLifecycleState::AckPublished);
+        assert_eq!(records[0].ack_publish_count, 1);
+        assert_eq!(records[0].endpoint_attempt_count, 0);
+        assert_eq!(records[0].xack_count, 1);
+
+        let reopened = M3eJsonCommandLifecycleStore::open(&path).expect("reopen store");
+        assert!(reopened
+            .load_by_request_id(request_id)
+            .expect("load")
+            .is_some());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn m3e2_duplicate_after_ack_replays_duplicate_ack_without_second_endpoint_attempt() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let store = M3eInMemoryCommandLifecycleStore::default();
+        let consumer =
+            M3eCommandConsumerDurableDryRun::new(config.clone(), sink.clone(), store.clone());
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 13, 5, 0)
+            .single()
+            .expect("now");
+        let command = sample_m3e_place_command(721, now, Some(10_000), None);
+        let request_id = command_request_id(&command);
+
+        consumer
+            .process_entry(m3e_command_entry(&config, command.clone()), now)
+            .await
+            .expect("first command");
+        let duplicate_report = consumer
+            .process_entry(
+                m3e_command_entry(&config, command),
+                now + chrono::Duration::seconds(1),
+            )
+            .await
+            .expect("duplicate command");
+
+        assert_eq!(
+            duplicate_report.action,
+            M3eCommandLifecycleAction::DuplicateAckPublished
+        );
+        assert_eq!(duplicate_report.request_id, Some(request_id));
+        assert_eq!(
+            duplicate_report.ack_status,
+            Some(CommandAckStatus::Duplicate)
+        );
+        assert_eq!(
+            duplicate_report.ack_reason_code,
+            Some(CommandAckReasonCode::DuplicateCommand)
+        );
+        assert!(duplicate_report.request_id_idempotency_store_hit);
+        assert!(duplicate_report.duplicate_request);
+        assert!(duplicate_report.duplicate_request_no_second_endpoint_attempt);
+        assert_eq!(duplicate_report.endpoint_attempt_count, 0);
+        assert!(!duplicate_report.endpoint_transport_invoked);
+
+        let records = store.records().expect("records");
+        assert_eq!(records[0].ack_publish_count, 1);
+        assert_eq!(records[0].duplicate_ack_publish_count, 1);
+        assert_eq!(records[0].endpoint_attempt_count, 0);
+        assert_eq!(sink.entries().expect("entries").len(), 2);
+    }
+
+    #[tokio::test]
+    async fn m3e2_duplicate_before_ack_and_restart_recovers_without_endpoint_attempt() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let path = temp_m3e2_lifecycle_path("restart_before_ack");
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 13, 10, 0)
+            .single()
+            .expect("now");
+        let command = sample_m3e_place_command(722, now, Some(10_000), None);
+        let request_id = command_request_id(&command);
+        let store = M3eJsonCommandLifecycleStore::open(&path).expect("open store");
+        store
+            .insert_received(M3eCommandLifecycleRecord::command_received(
+                "10-0", &command, now,
+            ))
+            .expect("insert received");
+        drop(store);
+
+        let reopened = M3eJsonCommandLifecycleStore::open(&path).expect("reopen store");
+        let consumer =
+            M3eCommandConsumerDurableDryRun::new(config.clone(), sink.clone(), reopened.clone());
+        let report = consumer
+            .process_entry(
+                m3e_command_entry(&config, command),
+                now + chrono::Duration::seconds(2),
+            )
+            .await
+            .expect("recover duplicate");
+
+        assert_eq!(
+            report.action,
+            M3eCommandLifecycleAction::RecoveredAckPublished
+        );
+        assert_eq!(report.request_id, Some(request_id));
+        assert_eq!(report.ack_status, Some(CommandAckStatus::Duplicate));
+        assert!(report.request_id_idempotency_store_hit);
+        assert!(report.duplicate_request_no_second_endpoint_attempt);
+        assert_eq!(report.endpoint_attempt_count, 0);
+        let record = reopened
+            .load_by_request_id(request_id)
+            .expect("load")
+            .expect("record");
+        assert_eq!(record.ack_publish_count, 0);
+        assert_eq!(record.duplicate_ack_publish_count, 1);
+        assert_eq!(record.xack_count, 1);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn m3e2_expired_command_persists_terminal_local_outcome_without_endpoint() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let store = M3eInMemoryCommandLifecycleStore::default();
+        let consumer =
+            M3eCommandConsumerDurableDryRun::new(config.clone(), sink.clone(), store.clone());
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 13, 15, 0)
+            .single()
+            .expect("now");
+        let command = sample_m3e_place_command(
+            723,
+            now - chrono::Duration::milliseconds(5_000),
+            Some(100),
+            None,
+        );
+
+        let report = consumer
+            .process_entry(m3e_command_entry(&config, command), now)
+            .await
+            .expect("expired command");
+
+        assert_eq!(
+            report.action,
+            M3eCommandLifecycleAction::ExpiredAckPublished
+        );
+        assert_eq!(report.ack_status, Some(CommandAckStatus::Expired));
+        assert_eq!(
+            report.ack_reason_code,
+            Some(CommandAckReasonCode::ExpiredCommand)
+        );
+        assert_eq!(
+            report.lifecycle_state,
+            Some(M3eCommandLifecycleState::ExpiredAckPublished)
+        );
+        assert_eq!(report.endpoint_attempt_count, 0);
+        let records = store.records().expect("records");
+        assert_eq!(
+            records[0].state,
+            M3eCommandLifecycleState::ExpiredAckPublished
+        );
+        assert_eq!(records[0].endpoint_attempt_count, 0);
+    }
+
+    #[tokio::test]
+    async fn m3e2_invalid_command_goes_dlq_without_command_state_mutation() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let store = M3eInMemoryCommandLifecycleStore::default();
+        let consumer =
+            M3eCommandConsumerDurableDryRun::new(config.clone(), sink.clone(), store.clone());
+        let entry = RuntimeBridgeStreamEntry {
+            stream: config.command_stream.clone(),
+            entry_id: "20-0".to_string(),
+            payload: "raw invalid command SECRET_TOKEN".to_string(),
+        };
+
+        let report = consumer
+            .process_entry(entry, Utc::now())
+            .await
+            .expect("invalid command");
+
+        assert_eq!(report.action, M3eCommandLifecycleAction::DlqPublished);
+        assert_eq!(report.dlq_reason, Some(M3eCommandDlqReason::InvalidJson));
+        assert!(!report.command_received_persisted);
+        assert!(store.records().expect("records").is_empty());
+        assert_eq!(sink.entries().expect("entries").len(), 1);
+        assert!(!sink.entries().expect("entries")[0]
+            .payload
+            .contains("SECRET_TOKEN"));
+    }
+
+    #[tokio::test]
+    async fn m3e2_ack_publish_failure_blocks_xack_and_preserves_received_state() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = FailingRedisStreamSink::new(config.command_ack_stream.clone());
+        let store = M3eInMemoryCommandLifecycleStore::default();
+        let consumer =
+            M3eCommandConsumerDurableDryRun::new(config.clone(), sink.clone(), store.clone());
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 13, 20, 0)
+            .single()
+            .expect("now");
+        let command = sample_m3e_place_command(724, now, Some(10_000), None);
+        let request_id = command_request_id(&command);
+
+        let result = consumer
+            .process_entry(m3e_command_entry(&config, command), now)
+            .await;
+
+        assert!(result.is_err());
+        assert!(sink.entries().expect("entries").is_empty());
+        let record = store
+            .load_by_request_id(request_id)
+            .expect("load")
+            .expect("record");
+        assert_eq!(record.state, M3eCommandLifecycleState::CommandReceived);
+        assert_eq!(record.ack_publish_count, 0);
+        assert_eq!(record.xack_count, 0);
+        assert_eq!(record.endpoint_attempt_count, 0);
+    }
+
+    #[tokio::test]
+    async fn m3e2_dlq_publish_failure_blocks_xack_and_keeps_command_state_empty() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = FailingRedisStreamSink::new(config.command_dlq_stream.clone());
+        let store = M3eInMemoryCommandLifecycleStore::default();
+        let consumer =
+            M3eCommandConsumerDurableDryRun::new(config.clone(), sink.clone(), store.clone());
+        let entry = RuntimeBridgeStreamEntry {
+            stream: config.command_stream.clone(),
+            entry_id: "21-0".to_string(),
+            payload: "raw invalid command SECRET_TOKEN".to_string(),
+        };
+
+        let result = consumer.process_entry(entry, Utc::now()).await;
+
+        assert!(result.is_err());
+        assert!(sink.entries().expect("entries").is_empty());
+        assert!(store.records().expect("records").is_empty());
     }
 
     #[tokio::test]
