@@ -5211,6 +5211,161 @@ pub struct M3hRuntimeDryCommandLifecycleRecord {
     pub publish_attempt_count: u32,
 }
 
+pub trait M3hRuntimeDryCommandLifecycleStore: Clone + Send + Sync {
+    fn load_by_request_id(
+        &self,
+        request_id: StrategyRequestId,
+    ) -> Result<Option<M3hRuntimeDryCommandLifecycleRecord>, GatewayError>;
+
+    fn insert_new(&self, record: M3hRuntimeDryCommandLifecycleRecord)
+        -> Result<bool, GatewayError>;
+
+    fn upsert(&self, record: M3hRuntimeDryCommandLifecycleRecord) -> Result<(), GatewayError>;
+
+    fn records(&self) -> Result<Vec<M3hRuntimeDryCommandLifecycleRecord>, GatewayError>;
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct M3hInMemoryRuntimeDryCommandLifecycleStore {
+    records: Arc<Mutex<HashMap<StrategyRequestId, M3hRuntimeDryCommandLifecycleRecord>>>,
+}
+
+impl M3hRuntimeDryCommandLifecycleStore for M3hInMemoryRuntimeDryCommandLifecycleStore {
+    fn load_by_request_id(
+        &self,
+        request_id: StrategyRequestId,
+    ) -> Result<Option<M3hRuntimeDryCommandLifecycleRecord>, GatewayError> {
+        self.records
+            .lock()
+            .map_err(|_| GatewayError::InternalState {
+                message: "m3h runtime dry command lifecycle store mutex poisoned",
+            })
+            .map(|records| records.get(&request_id).cloned())
+    }
+
+    fn insert_new(
+        &self,
+        record: M3hRuntimeDryCommandLifecycleRecord,
+    ) -> Result<bool, GatewayError> {
+        let mut records = self
+            .records
+            .lock()
+            .map_err(|_| GatewayError::InternalState {
+                message: "m3h runtime dry command lifecycle store mutex poisoned",
+            })?;
+        if records.contains_key(&record.request_id) {
+            return Ok(false);
+        }
+        records.insert(record.request_id, record);
+        Ok(true)
+    }
+
+    fn upsert(&self, record: M3hRuntimeDryCommandLifecycleRecord) -> Result<(), GatewayError> {
+        self.records
+            .lock()
+            .map_err(|_| GatewayError::InternalState {
+                message: "m3h runtime dry command lifecycle store mutex poisoned",
+            })?
+            .insert(record.request_id, record);
+        Ok(())
+    }
+
+    fn records(&self) -> Result<Vec<M3hRuntimeDryCommandLifecycleRecord>, GatewayError> {
+        let mut records: Vec<_> = self
+            .records
+            .lock()
+            .map_err(|_| GatewayError::InternalState {
+                message: "m3h runtime dry command lifecycle store mutex poisoned",
+            })?
+            .values()
+            .cloned()
+            .collect();
+        records.sort_by(|left, right| {
+            left.request_id
+                .to_string()
+                .cmp(&right.request_id.to_string())
+        });
+        Ok(records)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct M3hRuntimeDryCommandLifecycleSnapshot {
+    schema_version: u16,
+    records: Vec<M3hRuntimeDryCommandLifecycleRecord>,
+}
+
+#[derive(Debug, Clone)]
+pub struct M3hJsonRuntimeDryCommandLifecycleStore {
+    path: Arc<PathBuf>,
+    inner: M3hInMemoryRuntimeDryCommandLifecycleStore,
+}
+
+impl M3hJsonRuntimeDryCommandLifecycleStore {
+    pub fn open(path: impl Into<PathBuf>) -> Result<Self, GatewayError> {
+        let path = path.into();
+        let records = if path.exists() {
+            let payload = fs::read_to_string(&path)?;
+            let snapshot: M3hRuntimeDryCommandLifecycleSnapshot = serde_json::from_str(&payload)?;
+            snapshot.records
+        } else {
+            Vec::new()
+        };
+        let inner = M3hInMemoryRuntimeDryCommandLifecycleStore::default();
+        for record in records {
+            inner.upsert(record)?;
+        }
+        Ok(Self {
+            path: Arc::new(path),
+            inner,
+        })
+    }
+
+    fn persist(&self) -> Result<(), GatewayError> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let snapshot = M3hRuntimeDryCommandLifecycleSnapshot {
+            schema_version: SCHEMA_VERSION,
+            records: self.inner.records()?,
+        };
+        let payload = serde_json::to_string_pretty(&snapshot)?;
+        let tmp_path = PathBuf::from(format!("{}.tmp", self.path.to_string_lossy()));
+        fs::write(&tmp_path, payload)?;
+        fs::rename(tmp_path, self.path.as_ref())?;
+        Ok(())
+    }
+}
+
+impl M3hRuntimeDryCommandLifecycleStore for M3hJsonRuntimeDryCommandLifecycleStore {
+    fn load_by_request_id(
+        &self,
+        request_id: StrategyRequestId,
+    ) -> Result<Option<M3hRuntimeDryCommandLifecycleRecord>, GatewayError> {
+        self.inner.load_by_request_id(request_id)
+    }
+
+    fn insert_new(
+        &self,
+        record: M3hRuntimeDryCommandLifecycleRecord,
+    ) -> Result<bool, GatewayError> {
+        let inserted = self.inner.insert_new(record)?;
+        if inserted {
+            self.persist()?;
+        }
+        Ok(inserted)
+    }
+
+    fn upsert(&self, record: M3hRuntimeDryCommandLifecycleRecord) -> Result<(), GatewayError> {
+        self.inner.upsert(record)?;
+        self.persist()
+    }
+
+    fn records(&self) -> Result<Vec<M3hRuntimeDryCommandLifecycleRecord>, GatewayError> {
+        self.inner.records()
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct M3hRuntimeDryCommandEmitterMetrics {
     pub candidates_seen: u64,
@@ -5269,10 +5424,10 @@ pub enum M3hRuntimeDryCommandEmitOutcome {
 }
 
 #[derive(Debug, Clone)]
-pub struct M3hRuntimeDryCommandEmitter<S> {
+pub struct M3hRuntimeDryCommandEmitter<S, L = M3hInMemoryRuntimeDryCommandLifecycleStore> {
     config: M3eCommandConsumerConfig,
     sink: S,
-    lifecycle_records: HashMap<StrategyRequestId, M3hRuntimeDryCommandLifecycleRecord>,
+    lifecycle_store: L,
     metrics: M3hRuntimeDryCommandEmitterMetrics,
 }
 
@@ -5281,30 +5436,52 @@ where
     S: RedisStreamSink,
 {
     pub fn new(config: M3eCommandConsumerConfig, sink: S) -> Self {
-        Self {
+        Self::new_with_store(
             config,
             sink,
-            lifecycle_records: HashMap::new(),
-            metrics: M3hRuntimeDryCommandEmitterMetrics::default(),
-        }
+            M3hInMemoryRuntimeDryCommandLifecycleStore::default(),
+        )
     }
 
     pub fn from_gateway_config(config: &GatewayConfig, sink: S) -> Self {
         Self::new(M3eCommandConsumerConfig::from_gateway_config(config), sink)
+    }
+}
+
+impl<S, L> M3hRuntimeDryCommandEmitter<S, L>
+where
+    S: RedisStreamSink,
+    L: M3hRuntimeDryCommandLifecycleStore,
+{
+    pub fn new_with_store(config: M3eCommandConsumerConfig, sink: S, lifecycle_store: L) -> Self {
+        Self {
+            config,
+            sink,
+            lifecycle_store,
+            metrics: M3hRuntimeDryCommandEmitterMetrics::default(),
+        }
+    }
+
+    pub fn from_gateway_config_with_store(
+        config: &GatewayConfig,
+        sink: S,
+        lifecycle_store: L,
+    ) -> Self {
+        Self::new_with_store(
+            M3eCommandConsumerConfig::from_gateway_config(config),
+            sink,
+            lifecycle_store,
+        )
     }
 
     pub fn metrics(&self) -> &M3hRuntimeDryCommandEmitterMetrics {
         &self.metrics
     }
 
-    pub fn lifecycle_records(&self) -> Vec<M3hRuntimeDryCommandLifecycleRecord> {
-        let mut records: Vec<_> = self.lifecycle_records.values().cloned().collect();
-        records.sort_by(|left, right| {
-            left.request_id
-                .to_string()
-                .cmp(&right.request_id.to_string())
-        });
-        records
+    pub fn lifecycle_records(
+        &self,
+    ) -> Result<Vec<M3hRuntimeDryCommandLifecycleRecord>, GatewayError> {
+        self.lifecycle_store.records()
     }
 
     pub fn report(&self) -> M3hRuntimeDryCommandEmitterReport {
@@ -5340,6 +5517,13 @@ where
             }
             _ => {
                 self.metrics.non_emitted_count += 1;
+                self.record_not_emitted(
+                    &candidate,
+                    M3hRuntimeDryCommandNonEmissionReason::NoStrategyDecisionTick,
+                    now,
+                    None,
+                    None,
+                )?;
                 return Ok(M3hRuntimeDryCommandEmitOutcome::NotEmitted {
                     request_id: Some(request_id),
                     reason: M3hRuntimeDryCommandNonEmissionReason::NoStrategyDecisionTick,
@@ -5350,6 +5534,13 @@ where
 
         if readiness.live_ready {
             self.metrics.non_emitted_count += 1;
+            self.record_not_emitted(
+                &candidate,
+                M3hRuntimeDryCommandNonEmissionReason::LiveReadyForbidden,
+                now,
+                Some(decision_entry_id),
+                Some(decision_bar_key),
+            )?;
             return Ok(M3hRuntimeDryCommandEmitOutcome::NotEmitted {
                 request_id: Some(request_id),
                 reason: M3hRuntimeDryCommandNonEmissionReason::LiveReadyForbidden,
@@ -5358,6 +5549,13 @@ where
         }
         if readiness.phase != RuntimeBridgeDryReadinessPhase::DryReady {
             self.metrics.non_emitted_count += 1;
+            self.record_not_emitted(
+                &candidate,
+                M3hRuntimeDryCommandNonEmissionReason::ReadinessNotDryReady,
+                now,
+                Some(decision_entry_id),
+                Some(decision_bar_key),
+            )?;
             return Ok(M3hRuntimeDryCommandEmitOutcome::NotEmitted {
                 request_id: Some(request_id),
                 reason: M3hRuntimeDryCommandNonEmissionReason::ReadinessNotDryReady,
@@ -5371,6 +5569,13 @@ where
             || candidate.stop_sltp_bracket_replace_multileg_requested
         {
             self.metrics.non_emitted_count += 1;
+            self.record_not_emitted(
+                &candidate,
+                M3hRuntimeDryCommandNonEmissionReason::UnsafeLiveBoundary,
+                now,
+                Some(decision_entry_id),
+                Some(decision_bar_key),
+            )?;
             return Ok(M3hRuntimeDryCommandEmitOutcome::NotEmitted {
                 request_id: Some(request_id),
                 reason: M3hRuntimeDryCommandNonEmissionReason::UnsafeLiveBoundary,
@@ -5381,6 +5586,13 @@ where
             || decision_bar_key != candidate.decision_bar_key
         {
             self.metrics.non_emitted_count += 1;
+            self.record_not_emitted(
+                &candidate,
+                M3hRuntimeDryCommandNonEmissionReason::NoStrategyDecisionTick,
+                now,
+                Some(decision_entry_id),
+                Some(decision_bar_key),
+            )?;
             return Ok(M3hRuntimeDryCommandEmitOutcome::NotEmitted {
                 request_id: Some(request_id),
                 reason: M3hRuntimeDryCommandNonEmissionReason::NoStrategyDecisionTick,
@@ -5389,13 +5601,20 @@ where
         }
         if !m3h3_runtime_dry_command_shape_supported(&candidate.command) {
             self.metrics.non_emitted_count += 1;
+            self.record_not_emitted(
+                &candidate,
+                M3hRuntimeDryCommandNonEmissionReason::UnsupportedOrderShape,
+                now,
+                Some(decision_entry_id),
+                Some(decision_bar_key),
+            )?;
             return Ok(M3hRuntimeDryCommandEmitOutcome::NotEmitted {
                 request_id: Some(request_id),
                 reason: M3hRuntimeDryCommandNonEmissionReason::UnsupportedOrderShape,
                 pending_state_preserved: false,
             });
         }
-        if let Some(existing) = self.lifecycle_records.get(&request_id) {
+        if let Some(existing) = self.lifecycle_store.load_by_request_id(request_id)? {
             self.metrics.duplicate_request_count += 1;
             self.metrics.non_emitted_count += 1;
             return Ok(M3hRuntimeDryCommandEmitOutcome::DuplicateRequest {
@@ -5416,7 +5635,18 @@ where
             updated_ts: now,
             publish_attempt_count: 0,
         };
-        self.lifecycle_records.insert(request_id, record.clone());
+        if !self.lifecycle_store.insert_new(record.clone())? {
+            self.metrics.duplicate_request_count += 1;
+            self.metrics.non_emitted_count += 1;
+            let existing = self
+                .lifecycle_store
+                .load_by_request_id(request_id)?
+                .expect("existing lifecycle record after duplicate insert");
+            return Ok(M3hRuntimeDryCommandEmitOutcome::DuplicateRequest {
+                request_id,
+                state: existing.state,
+            });
+        }
         self.metrics.pending_record_count += 1;
 
         let envelope = Envelope::new(
@@ -5433,7 +5663,7 @@ where
             record.state = M3hRuntimeDryCommandLifecycleState::NotEmitted;
             record.non_emission_reason = Some(M3hRuntimeDryCommandNonEmissionReason::PublishFailed);
             record.updated_ts = now;
-            self.lifecycle_records.insert(request_id, record);
+            self.lifecycle_store.upsert(record)?;
             self.metrics.non_emitted_count += 1;
             self.metrics.publish_failed_count += 1;
             return Err(error);
@@ -5441,7 +5671,7 @@ where
 
         record.state = M3hRuntimeDryCommandLifecycleState::PublishedToM3eCommandStream;
         record.updated_ts = now;
-        self.lifecycle_records.insert(request_id, record);
+        self.lifecycle_store.upsert(record)?;
         self.metrics.dry_command_published_count += 1;
         self.metrics.broker_command_emitted_count += 1;
         Ok(M3hRuntimeDryCommandEmitOutcome::CommandPublished {
@@ -5450,6 +5680,40 @@ where
             stream: self.config.command_stream.clone(),
             state: M3hRuntimeDryCommandLifecycleState::PublishedToM3eCommandStream,
         })
+    }
+
+    fn record_not_emitted(
+        &self,
+        candidate: &M3hRuntimeDryCommandCandidate,
+        reason: M3hRuntimeDryCommandNonEmissionReason,
+        now: DateTime<Utc>,
+        decision_entry_id: Option<String>,
+        decision_bar_key: Option<String>,
+    ) -> Result<(), GatewayError> {
+        let request_id = command_request_id(&candidate.command);
+        if self
+            .lifecycle_store
+            .load_by_request_id(request_id)?
+            .is_some()
+        {
+            return Ok(());
+        }
+        self.lifecycle_store
+            .insert_new(M3hRuntimeDryCommandLifecycleRecord {
+                request_id,
+                command_kind: command_kind(&candidate.command),
+                decision_entry_id: decision_entry_id
+                    .unwrap_or_else(|| candidate.decision_entry_id.clone()),
+                decision_bar_key: decision_bar_key
+                    .unwrap_or_else(|| candidate.decision_bar_key.clone()),
+                state: M3hRuntimeDryCommandLifecycleState::NotEmitted,
+                non_emission_reason: Some(reason),
+                command_stream: self.config.command_stream.clone(),
+                created_ts: now,
+                updated_ts: now,
+                publish_attempt_count: 0,
+            })?;
+        Ok(())
     }
 }
 
@@ -16674,7 +16938,7 @@ mod tests {
             .await
             .expect_err("publish failure is surfaced");
         assert!(matches!(error, GatewayError::InternalState { .. }));
-        let records = emitter.lifecycle_records();
+        let records = emitter.lifecycle_records().expect("lifecycle records");
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].request_id, request_id(307));
         assert_eq!(
@@ -16689,6 +16953,189 @@ mod tests {
         assert_eq!(emitter.metrics().pending_record_count, 1);
         assert_eq!(emitter.metrics().publish_failed_count, 1);
         assert_eq!(emitter.metrics().dry_command_published_count, 0);
+    }
+
+    #[tokio::test]
+    async fn m3h4_runtime_dry_emission_restore_after_published_does_not_republish() {
+        let config = GatewayConfig::default();
+        let path = temp_m3h4_lifecycle_path("published");
+        let store = M3hJsonRuntimeDryCommandLifecycleStore::open(&path).expect("open store");
+        let first_sink = InMemoryRedisStreamSink::default();
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 23, 10, 0)
+            .single()
+            .expect("timestamp");
+        {
+            let mut emitter = M3hRuntimeDryCommandEmitter::from_gateway_config_with_store(
+                &config,
+                first_sink.clone(),
+                store,
+            );
+            assert!(matches!(
+                emitter
+                    .emit_candidate(
+                        &sample_m3h_strategy_decision_tick(),
+                        &m3h_dry_ready_decision(),
+                        sample_m3h_dry_command_candidate(request_id(401), now),
+                        now,
+                    )
+                    .await
+                    .expect("publish"),
+                M3hRuntimeDryCommandEmitOutcome::CommandPublished { .. }
+            ));
+        }
+        assert_eq!(first_sink.entries().expect("first entries").len(), 1);
+
+        let reopened_store =
+            M3hJsonRuntimeDryCommandLifecycleStore::open(&path).expect("reopen store");
+        let second_sink = InMemoryRedisStreamSink::default();
+        let mut restarted = M3hRuntimeDryCommandEmitter::from_gateway_config_with_store(
+            &config,
+            second_sink.clone(),
+            reopened_store,
+        );
+        assert_eq!(
+            restarted
+                .emit_candidate(
+                    &sample_m3h_strategy_decision_tick(),
+                    &m3h_dry_ready_decision(),
+                    sample_m3h_dry_command_candidate(request_id(401), now),
+                    now,
+                )
+                .await
+                .expect("duplicate after restart"),
+            M3hRuntimeDryCommandEmitOutcome::DuplicateRequest {
+                request_id: request_id(401),
+                state: M3hRuntimeDryCommandLifecycleState::PublishedToM3eCommandStream,
+            }
+        );
+        assert!(second_sink.entries().expect("second entries").is_empty());
+        assert_eq!(restarted.metrics().duplicate_request_count, 1);
+    }
+
+    #[tokio::test]
+    async fn m3h4_runtime_dry_emission_restore_after_pending_is_conservative_no_republish() {
+        let config = GatewayConfig::default();
+        let path = temp_m3h4_lifecycle_path("pending");
+        let store = M3hJsonRuntimeDryCommandLifecycleStore::open(&path).expect("open store");
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 23, 11, 0)
+            .single()
+            .expect("timestamp");
+        store
+            .insert_new(M3hRuntimeDryCommandLifecycleRecord {
+                request_id: request_id(402),
+                command_kind: M3eCommandKind::PlaceOrder,
+                decision_entry_id: "m3h-entry-1".to_string(),
+                decision_bar_key: "TESTFUT|60|2026-07-03T23:00:00.000Z".to_string(),
+                state: M3hRuntimeDryCommandLifecycleState::PendingEmission,
+                non_emission_reason: None,
+                command_stream: "finam:commands".to_string(),
+                created_ts: now,
+                updated_ts: now,
+                publish_attempt_count: 0,
+            })
+            .expect("insert pending");
+
+        let reopened_store =
+            M3hJsonRuntimeDryCommandLifecycleStore::open(&path).expect("reopen store");
+        let sink = InMemoryRedisStreamSink::default();
+        let mut restarted = M3hRuntimeDryCommandEmitter::from_gateway_config_with_store(
+            &config,
+            sink.clone(),
+            reopened_store,
+        );
+        assert_eq!(
+            restarted
+                .emit_candidate(
+                    &sample_m3h_strategy_decision_tick(),
+                    &m3h_dry_ready_decision(),
+                    sample_m3h_dry_command_candidate(request_id(402), now),
+                    now,
+                )
+                .await
+                .expect("pending after restart"),
+            M3hRuntimeDryCommandEmitOutcome::DuplicateRequest {
+                request_id: request_id(402),
+                state: M3hRuntimeDryCommandLifecycleState::PendingEmission,
+            }
+        );
+        assert!(sink.entries().expect("entries").is_empty());
+        assert_eq!(restarted.metrics().duplicate_request_count, 1);
+    }
+
+    #[tokio::test]
+    async fn m3h4_runtime_dry_emission_not_emitted_rollback_policy_is_durable() {
+        let config = GatewayConfig::default();
+        let path = temp_m3h4_lifecycle_path("not_emitted");
+        let store = M3hJsonRuntimeDryCommandLifecycleStore::open(&path).expect("open store");
+        let sink = InMemoryRedisStreamSink::default();
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 23, 12, 0)
+            .single()
+            .expect("timestamp");
+        {
+            let mut emitter = M3hRuntimeDryCommandEmitter::from_gateway_config_with_store(
+                &config,
+                sink.clone(),
+                store,
+            );
+            let mut blocked_readiness = m3h_dry_ready_decision();
+            blocked_readiness.phase = RuntimeBridgeDryReadinessPhase::WaitingForInputs;
+            assert!(matches!(
+                emitter
+                    .emit_candidate(
+                        &sample_m3h_strategy_decision_tick(),
+                        &blocked_readiness,
+                        sample_m3h_dry_command_candidate(request_id(403), now),
+                        now,
+                    )
+                    .await
+                    .expect("blocked emission"),
+                M3hRuntimeDryCommandEmitOutcome::NotEmitted {
+                    reason: M3hRuntimeDryCommandNonEmissionReason::ReadinessNotDryReady,
+                    pending_state_preserved: false,
+                    ..
+                }
+            ));
+        }
+        assert!(sink.entries().expect("entries").is_empty());
+        let reopened_store =
+            M3hJsonRuntimeDryCommandLifecycleStore::open(&path).expect("reopen store");
+        let records = reopened_store.records().expect("records");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].request_id, request_id(403));
+        assert_eq!(
+            records[0].state,
+            M3hRuntimeDryCommandLifecycleState::NotEmitted
+        );
+        assert_eq!(
+            records[0].non_emission_reason,
+            Some(M3hRuntimeDryCommandNonEmissionReason::ReadinessNotDryReady)
+        );
+
+        let second_sink = InMemoryRedisStreamSink::default();
+        let mut restarted = M3hRuntimeDryCommandEmitter::from_gateway_config_with_store(
+            &config,
+            second_sink.clone(),
+            reopened_store,
+        );
+        assert_eq!(
+            restarted
+                .emit_candidate(
+                    &sample_m3h_strategy_decision_tick(),
+                    &m3h_dry_ready_decision(),
+                    sample_m3h_dry_command_candidate(request_id(403), now),
+                    now,
+                )
+                .await
+                .expect("not emitted after restart"),
+            M3hRuntimeDryCommandEmitOutcome::DuplicateRequest {
+                request_id: request_id(403),
+                state: M3hRuntimeDryCommandLifecycleState::NotEmitted,
+            }
+        );
+        assert!(second_sink.entries().expect("entries").is_empty());
     }
 
     #[tokio::test]
@@ -23298,6 +23745,15 @@ mod tests {
             real_finam_order_endpoint_used: false,
             stop_sltp_bracket_replace_multileg_requested: false,
         }
+    }
+
+    fn temp_m3h4_lifecycle_path(name: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let pid = std::process::id();
+        std::env::temp_dir().join(format!("moex_trading_m3h4_{name}_{pid}_{unique}.json"))
     }
 
     fn m3g3_base_readiness_input() -> M3gReadinessContractInput {
