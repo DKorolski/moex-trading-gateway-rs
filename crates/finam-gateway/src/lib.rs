@@ -32,10 +32,10 @@ use broker_core::instrument::InstrumentId;
 use broker_core::order::{Order, OrderStatus, Trade};
 use broker_core::readiness::{BrokerReadiness, ReadinessPhase, ReadinessReason};
 use broker_core::{
-    OperatorArm, OperatorDisarmDecision, OperatorDisarmSignal, OrderPathErrorKind, OrderPathEvent,
-    OrderPathRecord, OrderPathState, OrderPathStore, OrderPathStoreError, OrderPathTransitionError,
-    OrderPreflightPolicy, OutgoingOrderComment, PreflightApprovedCancelOrder,
-    PreflightApprovedPlaceOrder,
+    CancelPreflightApproval, OperatorArm, OperatorDisarmDecision, OperatorDisarmSignal,
+    OrderPathErrorKind, OrderPathEvent, OrderPathRecord, OrderPathState, OrderPathStore,
+    OrderPathStoreError, OrderPathTransitionError, OrderPreflightPolicy, OutgoingOrderComment,
+    PreflightApprovedCancelOrder, PreflightApprovedPlaceOrder,
 };
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use serde::de::DeserializeOwned;
@@ -1755,29 +1755,9 @@ where
                 self.process_place_order(entry, order.clone(), lifecycle_record, runtime)
                     .await
             }
-            BrokerCommand::CancelOrder(_) => {
-                let ack = CommandAck {
-                    request_id,
-                    client_order_id: command_client_order_id(command_decision.command()),
-                    broker_order_id: None,
-                    status: CommandAckStatus::Rejected,
-                    reason: Some(CommandAckReason::new(
-                        CommandAckReasonCode::LocalValidationRejected,
-                    )),
-                    received_ts: now,
-                };
-                self.publish_planned_ack_report(M3ePlannedAckReportInput {
-                    entry,
-                    lifecycle_record,
-                    ack,
-                    action: M3eCommandLifecycleAction::LocalRejectAckPublished,
-                    order_path_state: None,
-                    endpoint_outcome: None,
-                    preflight_local_reject_before_endpoint: true,
-                    endpoint_attempt_count: 0,
-                    now,
-                })
-                .await
+            BrokerCommand::CancelOrder(cancel) => {
+                self.process_cancel_order(entry, cancel.clone(), lifecycle_record, runtime)
+                    .await
             }
         }
     }
@@ -1837,6 +1817,85 @@ where
         )?;
         let ack = endpoint_report.ack.clone();
         let endpoint_attempt_count = endpoint_report.submit_attempt_count;
+        self.publish_planned_ack_report(M3ePlannedAckReportInput {
+            entry,
+            lifecycle_record,
+            ack,
+            action: M3eCommandLifecycleAction::LocalMockEndpointAckPublished,
+            order_path_state: Some(endpoint_report.state),
+            endpoint_outcome: Some(endpoint_report.outcome),
+            preflight_local_reject_before_endpoint: false,
+            endpoint_attempt_count,
+            now,
+        })
+        .await
+    }
+
+    async fn process_cancel_order<OS, T>(
+        &self,
+        entry: RuntimeBridgeStreamEntry,
+        cancel: broker_core::CancelOrder,
+        lifecycle_record: M3eCommandLifecycleRecord,
+        runtime: M3eLocalMockEndpointRuntime<'_, OS, T>,
+    ) -> Result<M3eLocalMockEndpointCommandReport, GatewayError>
+    where
+        OS: OrderPathStore,
+        T: FinamMockClassifiedEndpointTransport,
+    {
+        let now = runtime.now;
+        let existing = runtime
+            .order_store
+            .load_by_broker_order_id(&cancel.order_id);
+        let approved =
+            match runtime
+                .preflight_policy
+                .approve_cancel_order(&cancel, now, existing.as_ref())
+            {
+                Ok(CancelPreflightApproval::Submit(approved)) => approved,
+                Ok(CancelPreflightApproval::AlreadyTerminal) | Err(_) => {
+                    let ack = CommandAck {
+                        request_id: cancel.request_id,
+                        client_order_id: cancel.client_order_id.clone(),
+                        broker_order_id: Some(cancel.order_id.clone()),
+                        status: CommandAckStatus::Rejected,
+                        reason: Some(CommandAckReason::new(
+                            CommandAckReasonCode::LocalValidationRejected,
+                        )),
+                        received_ts: now,
+                    };
+                    return self
+                        .publish_planned_ack_report(M3ePlannedAckReportInput {
+                            entry,
+                            lifecycle_record,
+                            ack,
+                            action: M3eCommandLifecycleAction::LocalRejectAckPublished,
+                            order_path_state: existing.map(|record| record.state),
+                            endpoint_outcome: None,
+                            preflight_local_reject_before_endpoint: true,
+                            endpoint_attempt_count: 0,
+                            now,
+                        })
+                        .await;
+                }
+            };
+
+        let endpoint_report = simulate_cancel_order_endpoint_classified_transport(
+            runtime.order_store,
+            runtime.transport,
+            &approved,
+            None,
+            now,
+            now,
+        )?;
+        let ack = CommandAck {
+            request_id: cancel.request_id,
+            client_order_id: cancel.client_order_id.clone(),
+            broker_order_id: Some(cancel.order_id.clone()),
+            status: endpoint_report.ack.status,
+            reason: endpoint_report.ack.reason.clone(),
+            received_ts: endpoint_report.ack.received_ts,
+        };
+        let endpoint_attempt_count = endpoint_report.cancel_attempt_count;
         self.publish_planned_ack_report(M3ePlannedAckReportInput {
             entry,
             lifecycle_record,
@@ -10218,6 +10277,21 @@ mod tests {
                 cancel_call_count: 0,
             }
         }
+
+        fn cancel_response(status: u16) -> Self {
+            Self {
+                classified: broker_finam::classify_order_endpoint_local_http_response_for_context(
+                    broker_finam::FinamOrderEndpointContext::Cancel,
+                    &FinamOrderEndpointLocalHttpResponse::Response {
+                        status,
+                        body: serde_json::json!({"status": status}).to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                place_call_count: 0,
+                cancel_call_count: 0,
+            }
+        }
     }
 
     impl FinamMockClassifiedEndpointTransport for CountingClassifiedTransport {
@@ -10826,6 +10900,264 @@ mod tests {
         assert!(!recovery_report.endpoint_transport_invoked);
         assert_eq!(second_transport.place_call_count, 0);
         assert_eq!(sink.entries().expect("entries").len(), 2);
+    }
+
+    #[tokio::test]
+    async fn m3e3a_cancel_command_reaches_local_mock_endpoint_after_request_cancel() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let lifecycle_store = M3eInMemoryCommandLifecycleStore::default();
+        let consumer = M3eCommandConsumerLocalMockEndpoint::new(
+            config.clone(),
+            sink.clone(),
+            lifecycle_store.clone(),
+        );
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 14, 30, 0)
+            .single()
+            .expect("now");
+        let broker_order_id = BrokerOrderId::new("BROKER_TEST_M3E3A_740");
+        let (mut order_store, _approved_cancel, _place_request_id) =
+            submitted_store_and_approved_cancel(
+                now,
+                request_id(740),
+                request_id(741),
+                broker_order_id.clone(),
+            );
+        let cancel = sample_cancel_order(request_id(741), broker_order_id.as_str(), now);
+        let mut transport = CountingClassifiedTransport::accepted(broker_order_id.as_str());
+        let process_ts = now + chrono::Duration::milliseconds(2);
+        let policy = dry_preflight_policy(process_ts);
+
+        let report = consumer
+            .process_entry(
+                m3e_command_entry(&config, BrokerCommand::CancelOrder(cancel)),
+                &mut order_store,
+                &mut transport,
+                &policy,
+                process_ts,
+            )
+            .await
+            .expect("cancel local mock endpoint command");
+
+        assert_eq!(
+            report.action,
+            M3eCommandLifecycleAction::LocalMockEndpointAckPublished
+        );
+        assert_eq!(report.request_id, Some(request_id(741)));
+        assert_eq!(report.ack_status, Some(CommandAckStatus::Submitted));
+        assert_eq!(
+            report.ack_reason_code,
+            Some(CommandAckReasonCode::SyntheticSubmitted)
+        );
+        assert_eq!(
+            report.order_path_state,
+            Some(OrderPathState::CancelSubmitted)
+        );
+        assert_eq!(
+            report.endpoint_outcome,
+            Some(EndpointResponseIntegrationOutcomeKind::CancelSubmitted)
+        );
+        assert!(report.command_received_persisted);
+        assert!(report.begin_submit_or_request_cancel_persisted_before_endpoint);
+        assert_eq!(report.endpoint_attempt_count, 1);
+        assert!(report.local_mock_endpoint_only);
+        assert!(!report.non_loopback_endpoint_allowed);
+        assert!(report.ack_publish_planned_before_ack);
+        assert!(report.xack_after_ack_or_dlq_publish);
+        assert!(report.endpoint_transport_invoked);
+        assert!(!report.external_order_endpoint_allowed);
+        assert_eq!(transport.cancel_call_count, 1);
+        assert_eq!(
+            order_store
+                .load_by_request_id(request_id(740))
+                .expect("order path")
+                .state,
+            OrderPathState::CancelSubmitted
+        );
+        let lifecycle_record = lifecycle_store
+            .load_by_request_id(request_id(741))
+            .expect("load lifecycle")
+            .expect("lifecycle record");
+        assert_eq!(
+            lifecycle_record.state,
+            M3eCommandLifecycleState::AckPublished
+        );
+        assert_eq!(lifecycle_record.endpoint_attempt_count, 1);
+    }
+
+    #[tokio::test]
+    async fn m3e3a_duplicate_cancel_request_does_not_call_endpoint_again() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let lifecycle_store = M3eInMemoryCommandLifecycleStore::default();
+        let consumer = M3eCommandConsumerLocalMockEndpoint::new(
+            config.clone(),
+            sink.clone(),
+            lifecycle_store.clone(),
+        );
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 14, 35, 0)
+            .single()
+            .expect("now");
+        let broker_order_id = BrokerOrderId::new("BROKER_TEST_M3E3A_742");
+        let (mut order_store, _approved_cancel, _place_request_id) =
+            submitted_store_and_approved_cancel(
+                now,
+                request_id(742),
+                request_id(743),
+                broker_order_id.clone(),
+            );
+        let cancel = BrokerCommand::CancelOrder(sample_cancel_order(
+            request_id(743),
+            broker_order_id.as_str(),
+            now,
+        ));
+        let mut transport = CountingClassifiedTransport::accepted(broker_order_id.as_str());
+        let process_ts = now + chrono::Duration::milliseconds(2);
+        let policy = dry_preflight_policy(process_ts);
+
+        consumer
+            .process_entry(
+                m3e_command_entry(&config, cancel.clone()),
+                &mut order_store,
+                &mut transport,
+                &policy,
+                process_ts,
+            )
+            .await
+            .expect("first cancel");
+        let duplicate_report = consumer
+            .process_entry(
+                m3e_command_entry(&config, cancel),
+                &mut order_store,
+                &mut transport,
+                &policy,
+                process_ts + chrono::Duration::seconds(1),
+            )
+            .await
+            .expect("duplicate cancel");
+
+        assert_eq!(
+            duplicate_report.action,
+            M3eCommandLifecycleAction::DuplicateAckPublished
+        );
+        assert_eq!(
+            duplicate_report.ack_reason_code,
+            Some(CommandAckReasonCode::DuplicateCommand)
+        );
+        assert!(duplicate_report.request_id_idempotency_store_hit);
+        assert!(duplicate_report.duplicate_request_no_second_endpoint_attempt);
+        assert_eq!(duplicate_report.endpoint_attempt_count, 1);
+        assert!(!duplicate_report.endpoint_transport_invoked);
+        assert_eq!(transport.cancel_call_count, 1);
+    }
+
+    #[tokio::test]
+    async fn m3e3a_cancel_preflight_rejects_before_endpoint_attempt() {
+        let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+        let sink = InMemoryRedisStreamSink::default();
+        let lifecycle_store = M3eInMemoryCommandLifecycleStore::default();
+        let consumer = M3eCommandConsumerLocalMockEndpoint::new(
+            config.clone(),
+            sink.clone(),
+            lifecycle_store.clone(),
+        );
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 14, 40, 0)
+            .single()
+            .expect("now");
+        let cancel = sample_cancel_order(request_id(744), "BROKER_TEST_MISSING_744", now);
+        let mut order_store = InMemoryOrderPathStore::default();
+        let mut transport = CountingClassifiedTransport::accepted("BROKER_TEST_MISSING_744");
+        let policy = dry_preflight_policy(now);
+
+        let report = consumer
+            .process_entry(
+                m3e_command_entry(&config, BrokerCommand::CancelOrder(cancel)),
+                &mut order_store,
+                &mut transport,
+                &policy,
+                now,
+            )
+            .await
+            .expect("cancel preflight reject");
+
+        assert_eq!(
+            report.action,
+            M3eCommandLifecycleAction::LocalRejectAckPublished
+        );
+        assert_eq!(report.ack_status, Some(CommandAckStatus::Rejected));
+        assert_eq!(
+            report.ack_reason_code,
+            Some(CommandAckReasonCode::LocalValidationRejected)
+        );
+        assert!(report.preflight_local_reject_before_endpoint);
+        assert_eq!(report.endpoint_attempt_count, 0);
+        assert!(!report.endpoint_transport_invoked);
+        assert_eq!(transport.cancel_call_count, 0);
+        assert!(order_store.all_records().is_empty());
+    }
+
+    #[tokio::test]
+    async fn m3e3a_cancel_404_409_410_require_reconciliation_not_blind_success() {
+        for (index, status) in [404_u16, 409, 410].into_iter().enumerate() {
+            let config = M3eCommandConsumerConfig::from_gateway_config(&GatewayConfig::default());
+            let sink = InMemoryRedisStreamSink::default();
+            let lifecycle_store = M3eInMemoryCommandLifecycleStore::default();
+            let consumer = M3eCommandConsumerLocalMockEndpoint::new(
+                config.clone(),
+                sink.clone(),
+                lifecycle_store.clone(),
+            );
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 3, 14, 45, 0)
+                .single()
+                .expect("now")
+                + chrono::Duration::seconds(index as i64);
+            let place_request = request_id(745 + index as u128 * 2);
+            let cancel_request = request_id(746 + index as u128 * 2);
+            let broker_order_id = BrokerOrderId::new(format!("BROKER_TEST_M3E3A_{status}"));
+            let (mut order_store, _approved_cancel, _place_request_id) =
+                submitted_store_and_approved_cancel(
+                    now,
+                    place_request,
+                    cancel_request,
+                    broker_order_id.clone(),
+                );
+            let cancel = sample_cancel_order(cancel_request, broker_order_id.as_str(), now);
+            let mut transport = CountingClassifiedTransport::cancel_response(status);
+            let process_ts = now + chrono::Duration::milliseconds(2);
+            let policy = dry_preflight_policy(process_ts);
+
+            let report = consumer
+                .process_entry(
+                    m3e_command_entry(&config, BrokerCommand::CancelOrder(cancel)),
+                    &mut order_store,
+                    &mut transport,
+                    &policy,
+                    process_ts,
+                )
+                .await
+                .expect("cancel reconciliation response");
+
+            assert_eq!(report.ack_status, Some(CommandAckStatus::UnknownPending));
+            assert_eq!(
+                report.ack_reason_code,
+                Some(CommandAckReasonCode::ReconciliationRequired)
+            );
+            assert_eq!(
+                report.endpoint_outcome,
+                Some(EndpointResponseIntegrationOutcomeKind::ReconciliationRequired)
+            );
+            assert_eq!(
+                report.order_path_state,
+                Some(OrderPathState::ManualInterventionRequired)
+            );
+            assert_eq!(report.endpoint_attempt_count, 1);
+            assert_eq!(transport.cancel_call_count, 1);
+            assert_ne!(report.ack_status, Some(CommandAckStatus::Submitted));
+        }
     }
 
     #[tokio::test]
