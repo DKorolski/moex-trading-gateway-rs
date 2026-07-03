@@ -177,6 +177,30 @@ Implementation status:
 - M3d-1 starts with an enum-only pinned fixture. Future real-shape body fixtures
   must remain redacted and must not contain account ids, tokens, broker order
   ids, client order ids, raw comments, or raw broker payloads.
+- M3d-1a upgrades the fixture into a total policy matrix for order statuses,
+  plain-order time-in-force support, and `valid_before` handling. New enum
+  values must fail tests until a reviewed policy bucket is added.
+
+## M3d-1a review follow-up
+
+M3d-1a closes the conditional review findings from
+`review_m3d1_ca2cd7b_2026-07-03.md`:
+
+- every pinned FINAM order status has an explicit reviewed policy;
+- only `ORDER_STATUS_UNSPECIFIED` may remain `BlockingUnknown` by policy;
+- `LINK_WAIT` and SL/TP in-flight statuses are known-but-unsupported
+  `NeedsPolicy` statuses while SL/TP/bracket remains disabled;
+- every pinned plain-order `TimeInForce` and `valid_before` value has an
+  explicit supported/unsupported/SLTP-only policy;
+- instrument validation separates static contract validity from dynamic session
+  openness.
+
+Evidence helper:
+
+```bash
+python3 scripts/m3d1a_contract_alignment_evidence.py \
+  --source-archive reports/handoff/moex-trading-project-<commit>.zip
+```
 
 ## Definition of done
 

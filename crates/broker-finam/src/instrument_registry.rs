@@ -17,6 +17,12 @@ pub enum FinamInstrumentRegistryBlock {
     MissingQtyStep,
     QtyStepMismatch,
     MissingLotSize,
+    LotSizeMismatch,
+    MinQtyMismatch,
+    StepValueMissing,
+    AccountMismatch,
+    MarketTypeMismatch,
+    BoardMismatch,
     ExpiredContract,
     NotTradable,
     ScheduleMissing,
@@ -29,20 +35,23 @@ pub enum FinamInstrumentRegistryBlock {
 pub struct FinamInstrumentRegistryValidation {
     pub instrument_map_validated: bool,
     pub schedule_loaded: bool,
+    pub session_open: bool,
     pub blocks: Vec<FinamInstrumentRegistryBlock>,
     pub readiness_reasons: Vec<ReadinessReason>,
     pub fingerprint_sha256: String,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct FinamInstrumentRegistryValidator {
     pub require_open_session: bool,
+    pub expected_account_id: Option<String>,
 }
 
 impl Default for FinamInstrumentRegistryValidator {
     fn default() -> Self {
         Self {
             require_open_session: true,
+            expected_account_id: None,
         }
     }
 }
@@ -57,45 +66,60 @@ impl FinamInstrumentRegistryValidator {
         checked_at: DateTime<Utc>,
     ) -> FinamInstrumentRegistryValidation {
         let mut blocks = Vec::new();
+        let mut static_blocks = Vec::new();
+        let mut dynamic_blocks = Vec::new();
 
         if asset_venue_symbol(asset).as_deref() != Some(entry.broker_symbol.0.as_str())
             || params.symbol != entry.broker_symbol.0
         {
-            blocks.push(FinamInstrumentRegistryBlock::UnknownSymbol);
+            static_blocks.push(FinamInstrumentRegistryBlock::UnknownSymbol);
         }
         if schedule.symbol != entry.broker_symbol.0 {
-            blocks.push(FinamInstrumentRegistryBlock::ScheduleMissing);
+            static_blocks.push(FinamInstrumentRegistryBlock::ScheduleMissing);
         }
 
         let expected_mic = entry.broker_symbol.0.split_once('@').map(|(_, mic)| mic);
         match (expected_mic, asset.mic.as_deref()) {
-            (None, _) | (_, None) => blocks.push(FinamInstrumentRegistryBlock::MissingMic),
+            (None, _) | (_, None) => static_blocks.push(FinamInstrumentRegistryBlock::MissingMic),
             (Some(expected), Some(actual)) if expected != actual => {
-                blocks.push(FinamInstrumentRegistryBlock::MissingMic)
+                static_blocks.push(FinamInstrumentRegistryBlock::MissingMic)
             }
             _ => {}
         }
 
+        if !board_matches(entry, asset) {
+            static_blocks.push(FinamInstrumentRegistryBlock::BoardMismatch);
+        }
+        if !market_type_matches(entry, asset) {
+            static_blocks.push(FinamInstrumentRegistryBlock::MarketTypeMismatch);
+        }
+
         match asset_price_step(asset) {
-            None => blocks.push(FinamInstrumentRegistryBlock::MissingPriceStep),
+            None => static_blocks.push(FinamInstrumentRegistryBlock::MissingPriceStep),
             Some(price_step) if price_step != entry.price_step => {
-                blocks.push(FinamInstrumentRegistryBlock::PriceStepMismatch)
+                static_blocks.push(FinamInstrumentRegistryBlock::PriceStepMismatch)
             }
             _ => {}
         }
 
         if entry.qty_step <= Decimal::ZERO {
-            blocks.push(FinamInstrumentRegistryBlock::MissingQtyStep);
+            static_blocks.push(FinamInstrumentRegistryBlock::MissingQtyStep);
+        }
+        if entry.min_qty <= Decimal::ZERO {
+            static_blocks.push(FinamInstrumentRegistryBlock::MinQtyMismatch);
         }
         if entry.lot_size <= Decimal::ZERO {
-            blocks.push(FinamInstrumentRegistryBlock::MissingLotSize);
+            static_blocks.push(FinamInstrumentRegistryBlock::MissingLotSize);
         }
         match asset_lot_size(asset) {
-            None => blocks.push(FinamInstrumentRegistryBlock::MissingLotSize),
+            None => static_blocks.push(FinamInstrumentRegistryBlock::MissingLotSize),
             Some(lot_size) if lot_size != entry.lot_size => {
-                blocks.push(FinamInstrumentRegistryBlock::QtyStepMismatch)
+                static_blocks.push(FinamInstrumentRegistryBlock::LotSizeMismatch)
             }
             _ => {}
+        }
+        if entry.step_value <= Decimal::ZERO {
+            static_blocks.push(FinamInstrumentRegistryBlock::StepValueMissing);
         }
 
         if !params
@@ -103,34 +127,56 @@ impl FinamInstrumentRegistryValidator {
             .unwrap_or(params.tradeable.unwrap_or(false))
             || !entry.is_tradable
         {
-            blocks.push(FinamInstrumentRegistryBlock::NotTradable);
+            static_blocks.push(FinamInstrumentRegistryBlock::NotTradable);
+        }
+
+        match (
+            self.expected_account_id.as_deref(),
+            params.account_id.as_deref(),
+        ) {
+            (Some(expected), Some(actual)) if expected != actual => {
+                static_blocks.push(FinamInstrumentRegistryBlock::AccountMismatch)
+            }
+            (Some(_), None) => static_blocks.push(FinamInstrumentRegistryBlock::AccountMismatch),
+            (_, Some("")) => static_blocks.push(FinamInstrumentRegistryBlock::AccountMismatch),
+            _ => {}
         }
 
         match asset.quote_currency.as_deref() {
             Some(currency) if currency == entry.currency => {}
-            _ => blocks.push(FinamInstrumentRegistryBlock::CurrencyMismatch),
+            _ => static_blocks.push(FinamInstrumentRegistryBlock::CurrencyMismatch),
         }
 
         if is_expired(entry.expiration_date, asset, checked_at.date_naive()) {
-            blocks.push(FinamInstrumentRegistryBlock::ExpiredContract);
+            static_blocks.push(FinamInstrumentRegistryBlock::ExpiredContract);
         }
 
         if schedule.sessions.is_empty() {
-            blocks.push(FinamInstrumentRegistryBlock::ScheduleMissing);
+            static_blocks.push(FinamInstrumentRegistryBlock::ScheduleMissing);
         } else if self.require_open_session && !schedule_has_open_session(schedule, checked_at) {
-            blocks.push(FinamInstrumentRegistryBlock::SessionClosed);
+            dynamic_blocks.push(FinamInstrumentRegistryBlock::SessionClosed);
         }
 
+        blocks.extend(static_blocks.iter().copied());
+        blocks.extend(dynamic_blocks.iter().copied());
         dedup_blocks(&mut blocks);
-        let schedule_loaded = !blocks.contains(&FinamInstrumentRegistryBlock::ScheduleMissing);
-        let instrument_map_validated = blocks.is_empty();
-        let readiness_reasons =
-            readiness_reasons_for_instrument_registry(instrument_map_validated, schedule_loaded);
+        dedup_blocks(&mut static_blocks);
+        dedup_blocks(&mut dynamic_blocks);
+        let schedule_loaded =
+            !static_blocks.contains(&FinamInstrumentRegistryBlock::ScheduleMissing);
+        let instrument_map_validated = static_blocks.is_empty();
+        let session_open = !dynamic_blocks.contains(&FinamInstrumentRegistryBlock::SessionClosed);
+        let readiness_reasons = readiness_reasons_for_instrument_registry(
+            instrument_map_validated,
+            schedule_loaded,
+            session_open,
+        );
         let fingerprint_sha256 = instrument_registry_fingerprint(entry, asset, params, schedule);
 
         FinamInstrumentRegistryValidation {
             instrument_map_validated,
             schedule_loaded,
+            session_open,
             blocks,
             readiness_reasons,
             fingerprint_sha256,
@@ -141,6 +187,7 @@ impl FinamInstrumentRegistryValidator {
 fn readiness_reasons_for_instrument_registry(
     instrument_map_validated: bool,
     schedule_loaded: bool,
+    session_open: bool,
 ) -> Vec<ReadinessReason> {
     let mut reasons = Vec::new();
     if !instrument_map_validated {
@@ -148,6 +195,9 @@ fn readiness_reasons_for_instrument_registry(
     }
     if !schedule_loaded {
         reasons.push(ReadinessReason::ScheduleNotLoaded);
+    }
+    if !session_open {
+        reasons.push(ReadinessReason::BrokerMaintenance);
     }
     reasons
 }
@@ -176,6 +226,29 @@ fn asset_lot_size(asset: &AssetResponse) -> Option<Decimal> {
         .and_then(|future| future.lot_size.as_ref())
         .or(asset.lot_size.as_ref())
         .and_then(|value| Decimal::from_str(&value.value).ok())
+}
+
+fn board_matches(entry: &InstrumentMapEntry, asset: &AssetResponse) -> bool {
+    match asset.board.as_deref() {
+        Some(board) => board == entry.schedule_id || entry.schedule_id.contains(board),
+        None => true,
+    }
+}
+
+fn market_type_matches(entry: &InstrumentMapEntry, asset: &AssetResponse) -> bool {
+    let Some(asset_type) = asset.asset_type.as_deref() else {
+        return true;
+    };
+    match (&entry.market, asset_type) {
+        (broker_core::instrument::Market::Futures, value) => value.contains("FUT"),
+        (broker_core::instrument::Market::Options, value) => value.contains("OPTION"),
+        (broker_core::instrument::Market::Stocks, value) => {
+            value.contains("STOCK") || value.contains("SHARE")
+        }
+        (broker_core::instrument::Market::Currency, value) => value.contains("CURRENC"),
+        (broker_core::instrument::Market::Funds, value) => value.contains("FUND"),
+        (broker_core::instrument::Market::Other(_), _) => true,
+    }
 }
 
 fn decimal_like_value(value: &DecimalLike) -> Option<Decimal> {
@@ -280,7 +353,7 @@ mod tests {
             min_qty: Decimal::ONE,
             step_value: Decimal::ONE,
             currency: "RUB".to_string(),
-            schedule_id: "TEST_SCHEDULE".to_string(),
+            schedule_id: "TEST".to_string(),
             expiration_date: Some(NaiveDate::from_ymd_opt(2026, 9, 17).expect("date")),
             is_tradable: true,
         }
@@ -364,6 +437,7 @@ mod tests {
 
         assert!(validation.instrument_map_validated);
         assert!(validation.schedule_loaded);
+        assert!(validation.session_open);
         assert!(validation.blocks.is_empty());
         assert!(validation.readiness_reasons.is_empty());
         assert_eq!(validation.fingerprint_sha256.len(), 64);
@@ -374,6 +448,8 @@ mod tests {
         let mut entry = entry();
         entry.price_step = Decimal::new(5, 2);
         entry.lot_size = Decimal::new(10, 0);
+        entry.min_qty = Decimal::ZERO;
+        entry.step_value = Decimal::ZERO;
         entry.currency = "USD".to_string();
         let mut params = params();
         params.is_tradable = Some(false);
@@ -396,12 +472,19 @@ mod tests {
 
         assert!(!validation.instrument_map_validated);
         assert!(!validation.schedule_loaded);
+        assert!(validation.session_open);
         assert!(validation
             .blocks
             .contains(&FinamInstrumentRegistryBlock::PriceStepMismatch));
         assert!(validation
             .blocks
-            .contains(&FinamInstrumentRegistryBlock::QtyStepMismatch));
+            .contains(&FinamInstrumentRegistryBlock::LotSizeMismatch));
+        assert!(validation
+            .blocks
+            .contains(&FinamInstrumentRegistryBlock::MinQtyMismatch));
+        assert!(validation
+            .blocks
+            .contains(&FinamInstrumentRegistryBlock::StepValueMissing));
         assert!(validation
             .blocks
             .contains(&FinamInstrumentRegistryBlock::NotTradable));
@@ -417,6 +500,29 @@ mod tests {
         assert!(validation
             .readiness_reasons
             .contains(&ReadinessReason::ScheduleNotLoaded));
+    }
+
+    #[test]
+    fn instrument_registry_validator_blocks_account_mismatch_when_expected_account_is_known() {
+        let validator = FinamInstrumentRegistryValidator {
+            expected_account_id: Some("ACC_TEST_OTHER".to_string()),
+            ..FinamInstrumentRegistryValidator::default()
+        };
+        let checked_at = Utc
+            .with_ymd_and_hms(2026, 7, 3, 9, 10, 0)
+            .single()
+            .expect("timestamp");
+
+        let validation = validator.validate(&entry(), &asset(), &params(), &schedule(), checked_at);
+
+        assert!(!validation.instrument_map_validated);
+        assert!(validation
+            .blocks
+            .contains(&FinamInstrumentRegistryBlock::AccountMismatch));
+        assert_eq!(
+            validation.readiness_reasons,
+            vec![ReadinessReason::InstrumentMapNotValidated]
+        );
     }
 
     #[test]
@@ -437,6 +543,8 @@ mod tests {
         );
 
         assert!(!validation.instrument_map_validated);
+        assert!(validation.schedule_loaded);
+        assert!(!validation.session_open);
         assert!(validation
             .blocks
             .contains(&FinamInstrumentRegistryBlock::ExpiredContract));
@@ -446,5 +554,36 @@ mod tests {
         assert!(validation
             .readiness_reasons
             .contains(&ReadinessReason::InstrumentMapNotValidated));
+        assert!(validation
+            .readiness_reasons
+            .contains(&ReadinessReason::BrokerMaintenance));
+    }
+
+    #[test]
+    fn instrument_registry_validator_keeps_static_valid_when_only_session_closed() {
+        let checked_at = Utc
+            .with_ymd_and_hms(2026, 7, 3, 20, 0, 0)
+            .single()
+            .expect("timestamp");
+
+        let validation = FinamInstrumentRegistryValidator::default().validate(
+            &entry(),
+            &asset(),
+            &params(),
+            &schedule(),
+            checked_at,
+        );
+
+        assert!(validation.instrument_map_validated);
+        assert!(validation.schedule_loaded);
+        assert!(!validation.session_open);
+        assert_eq!(
+            validation.blocks,
+            vec![FinamInstrumentRegistryBlock::SessionClosed]
+        );
+        assert_eq!(
+            validation.readiness_reasons,
+            vec![ReadinessReason::BrokerMaintenance]
+        );
     }
 }

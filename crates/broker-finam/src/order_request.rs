@@ -1307,6 +1307,76 @@ mod tests {
     }
 
     #[test]
+    fn every_pinned_finam_time_in_force_has_plain_order_policy() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/finam_spec/order_contract_enums_v2026_07_03.json"
+        ))
+        .expect("fixture json");
+        let values = fixture["time_in_force"]
+            .as_array()
+            .expect("time_in_force array");
+        let policy = fixture["time_in_force_plain_order_policy"]
+            .as_object()
+            .expect("time_in_force_plain_order_policy object");
+
+        assert_eq!(values.len(), policy.len());
+        for value in values {
+            let value = value.as_str().expect("tif string");
+            let policy_value = policy
+                .get(value)
+                .and_then(|value| value.as_str())
+                .unwrap_or_else(|| panic!("missing TIF plain-order policy for {value}"));
+            match policy_value {
+                "supported" => assert!(matches!(
+                    value,
+                    "TIME_IN_FORCE_DAY"
+                        | "TIME_IN_FORCE_GOOD_TILL_CANCEL"
+                        | "TIME_IN_FORCE_IOC"
+                        | "TIME_IN_FORCE_FOK"
+                )),
+                "unsupported" => assert!(!matches!(
+                    value,
+                    "TIME_IN_FORCE_DAY"
+                        | "TIME_IN_FORCE_GOOD_TILL_CANCEL"
+                        | "TIME_IN_FORCE_IOC"
+                        | "TIME_IN_FORCE_FOK"
+                )),
+                other => panic!("unknown TIF plain-order policy {other}"),
+            }
+        }
+    }
+
+    #[test]
+    fn every_pinned_finam_valid_before_has_plain_order_policy() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/finam_spec/order_contract_enums_v2026_07_03.json"
+        ))
+        .expect("fixture json");
+        let values = fixture["valid_before"]
+            .as_array()
+            .expect("valid_before array");
+        let policy = fixture["valid_before_plain_order_policy"]
+            .as_object()
+            .expect("valid_before_plain_order_policy object");
+
+        assert_eq!(values.len(), policy.len());
+        for value in values {
+            let value = value.as_str().expect("valid_before string");
+            let policy_value = policy
+                .get(value)
+                .and_then(|value| value.as_str())
+                .unwrap_or_else(|| panic!("missing valid_before plain-order policy for {value}"));
+            match (value, policy_value) {
+                ("VALID_BEFORE_GOOD_TILL_DATE", "sltp_only") => {}
+                (_, "unsupported") => {}
+                (_, other) => {
+                    panic!("unexpected valid_before plain-order policy {other} for {value}")
+                }
+            }
+        }
+    }
+
+    #[test]
     fn uses_only_policy_generated_outgoing_comment() {
         let order = place_order();
         let policy = OutgoingOrderCommentPolicy {

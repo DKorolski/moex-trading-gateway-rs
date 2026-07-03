@@ -109,7 +109,10 @@ pub fn classify_finam_order_status(native: &str) -> FinamOrderStatusClass {
             FinamOrderStatusClass::TerminalRejected
         }
         "EXPIRED" => FinamOrderStatusClass::TerminalExpired,
-        "DONE_FOR_DAY" | "REPLACED" => FinamOrderStatusClass::NeedsPolicy,
+        "DONE_FOR_DAY" | "REPLACED" | "LINK_WAIT" | "SL_GUARD_TIME" | "SL_FORWARDING"
+        | "TP_GUARD_TIME" | "TP_CORRECTION" | "TP_FORWARDING" | "TP_CORR_GUARD_TIME" => {
+            FinamOrderStatusClass::NeedsPolicy
+        }
         "SUSPENDED" | "DISABLED" => FinamOrderStatusClass::ManualOrDegraded,
         _ => FinamOrderStatusClass::BlockingUnknown,
     }
@@ -683,6 +686,57 @@ mod tests {
                 values.iter().any(|value| value == expected),
                 "missing pinned FINAM order status enum {expected}"
             );
+        }
+    }
+
+    fn expected_status_class_from_policy(policy: &str) -> FinamOrderStatusClass {
+        match policy {
+            "active_or_pending" => FinamOrderStatusClass::ActiveOrPending,
+            "cancel_pending" => FinamOrderStatusClass::CancelPending,
+            "terminal_filled" => FinamOrderStatusClass::TerminalFilled,
+            "terminal_canceled" => FinamOrderStatusClass::TerminalCanceled,
+            "terminal_rejected" => FinamOrderStatusClass::TerminalRejected,
+            "terminal_expired" => FinamOrderStatusClass::TerminalExpired,
+            "needs_policy" => FinamOrderStatusClass::NeedsPolicy,
+            "manual_or_degraded" => FinamOrderStatusClass::ManualOrDegraded,
+            "blocking_unknown" => FinamOrderStatusClass::BlockingUnknown,
+            other => panic!("unknown pinned status policy {other}"),
+        }
+    }
+
+    #[test]
+    fn every_pinned_finam_order_status_has_explicit_m3d1_policy() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/finam_spec/order_contract_enums_v2026_07_03.json"
+        ))
+        .expect("fixture json");
+        let statuses = fixture["order_status"]
+            .as_array()
+            .expect("order_status array");
+        let policy = fixture["order_status_policy"]
+            .as_object()
+            .expect("order_status_policy object");
+
+        assert_eq!(statuses.len(), policy.len());
+        for status in statuses {
+            let status = status.as_str().expect("status string");
+            let expected_policy = policy
+                .get(status)
+                .and_then(|value| value.as_str())
+                .unwrap_or_else(|| panic!("missing policy for pinned FINAM status {status}"));
+            let expected_class = expected_status_class_from_policy(expected_policy);
+            assert_eq!(
+                classify_finam_order_status(status),
+                expected_class,
+                "{status}"
+            );
+
+            if expected_class == FinamOrderStatusClass::BlockingUnknown {
+                assert_eq!(
+                    status, "ORDER_STATUS_UNSPECIFIED",
+                    "only ORDER_STATUS_UNSPECIFIED may remain BlockingUnknown by reviewed policy"
+                );
+            }
         }
     }
 

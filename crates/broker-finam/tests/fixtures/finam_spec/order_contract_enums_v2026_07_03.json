@@ -20,12 +20,29 @@
     "TIME_IN_FORCE_IOC",
     "TIME_IN_FORCE_FOK"
   ],
+  "time_in_force_plain_order_policy": {
+    "TIME_IN_FORCE_UNSPECIFIED": "unsupported",
+    "TIME_IN_FORCE_DAY": "supported",
+    "TIME_IN_FORCE_GOOD_TILL_CANCEL": "supported",
+    "TIME_IN_FORCE_GOOD_TILL_CROSSING": "unsupported",
+    "TIME_IN_FORCE_EXT": "unsupported",
+    "TIME_IN_FORCE_ON_OPEN": "unsupported",
+    "TIME_IN_FORCE_ON_CLOSE": "unsupported",
+    "TIME_IN_FORCE_IOC": "supported",
+    "TIME_IN_FORCE_FOK": "supported"
+  },
   "valid_before": [
     "VALID_BEFORE_UNSPECIFIED",
     "VALID_BEFORE_END_OF_DAY",
     "VALID_BEFORE_GOOD_TILL_CANCEL",
     "VALID_BEFORE_GOOD_TILL_DATE"
   ],
+  "valid_before_plain_order_policy": {
+    "VALID_BEFORE_UNSPECIFIED": "unsupported",
+    "VALID_BEFORE_END_OF_DAY": "unsupported",
+    "VALID_BEFORE_GOOD_TILL_CANCEL": "unsupported",
+    "VALID_BEFORE_GOOD_TILL_DATE": "sltp_only"
+  },
   "order_status": [
     "ORDER_STATUS_UNSPECIFIED",
     "ORDER_STATUS_NEW",
@@ -56,5 +73,36 @@
     "ORDER_STATUS_TP_CORRECTION",
     "ORDER_STATUS_TP_FORWARDING",
     "ORDER_STATUS_TP_CORR_GUARD_TIME"
-  ]
+  ],
+  "order_status_policy": {
+    "ORDER_STATUS_UNSPECIFIED": "blocking_unknown",
+    "ORDER_STATUS_NEW": "active_or_pending",
+    "ORDER_STATUS_PARTIALLY_FILLED": "active_or_pending",
+    "ORDER_STATUS_FILLED": "terminal_filled",
+    "ORDER_STATUS_DONE_FOR_DAY": "needs_policy",
+    "ORDER_STATUS_CANCELED": "terminal_canceled",
+    "ORDER_STATUS_REPLACED": "needs_policy",
+    "ORDER_STATUS_PENDING_CANCEL": "cancel_pending",
+    "ORDER_STATUS_REJECTED": "terminal_rejected",
+    "ORDER_STATUS_SUSPENDED": "manual_or_degraded",
+    "ORDER_STATUS_PENDING_NEW": "active_or_pending",
+    "ORDER_STATUS_EXPIRED": "terminal_expired",
+    "ORDER_STATUS_FAILED": "terminal_rejected",
+    "ORDER_STATUS_FORWARDING": "active_or_pending",
+    "ORDER_STATUS_WAIT": "active_or_pending",
+    "ORDER_STATUS_DENIED_BY_BROKER": "terminal_rejected",
+    "ORDER_STATUS_REJECTED_BY_EXCHANGE": "terminal_rejected",
+    "ORDER_STATUS_WATCHING": "active_or_pending",
+    "ORDER_STATUS_EXECUTED": "terminal_filled",
+    "ORDER_STATUS_DISABLED": "manual_or_degraded",
+    "ORDER_STATUS_LINK_WAIT": "needs_policy",
+    "ORDER_STATUS_SL_GUARD_TIME": "needs_policy",
+    "ORDER_STATUS_SL_EXECUTED": "terminal_filled",
+    "ORDER_STATUS_SL_FORWARDING": "needs_policy",
+    "ORDER_STATUS_TP_GUARD_TIME": "needs_policy",
+    "ORDER_STATUS_TP_EXECUTED": "terminal_filled",
+    "ORDER_STATUS_TP_CORRECTION": "needs_policy",
+    "ORDER_STATUS_TP_FORWARDING": "needs_policy",
+    "ORDER_STATUS_TP_CORR_GUARD_TIME": "needs_policy"
+  }
 }
