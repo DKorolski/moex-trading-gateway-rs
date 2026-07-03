@@ -829,6 +829,212 @@ pub struct ReadonlyReconciliationReport {
     pub summary: ReadonlySnapshotSummary,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3fBrokerTruthInputKind {
+    GetOrders,
+    GetOrder,
+    Trades,
+    Positions,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3fReconciliationRequestKind {
+    SubmittedPendingBrokerOrderId,
+    TimeoutUnknownPending,
+    CancelSubmitted,
+    CancelTimeoutUnknownPending,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3fReconciliationSchedulerAction {
+    Scheduled,
+    IgnoredTerminalOrStable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3fReconciliationIdentityDiagnostic {
+    pub account_id_present: bool,
+    pub account_id_sha256: String,
+    pub client_order_id_present: bool,
+    pub client_order_id_sha256: String,
+    pub broker_order_id_present: bool,
+    pub broker_order_id_sha256: Option<String>,
+    pub instrument_venue_symbol_present: bool,
+    pub instrument_venue_symbol_sha256: Option<String>,
+    pub raw_account_id_exported: bool,
+    pub raw_client_order_id_exported: bool,
+    pub raw_broker_order_id_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3fReconciliationRequest {
+    pub schema_version: u16,
+    pub request_id: StrategyRequestId,
+    pub request_kind: M3fReconciliationRequestKind,
+    pub source_state: OrderPathState,
+    pub required_inputs: Vec<M3fBrokerTruthInputKind>,
+    pub identity: M3fReconciliationIdentityDiagnostic,
+    pub created_ts: DateTime<Utc>,
+    pub read_only_finam_surfaces_only: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub live_ready_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3fReconciliationSchedulerRecord {
+    pub action: M3fReconciliationSchedulerAction,
+    pub request: Option<M3fReconciliationRequest>,
+    pub source_state: OrderPathState,
+    pub requires_broker_truth: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3fReconciliationSchedulerReport {
+    pub schema_version: u16,
+    pub checked_ts: DateTime<Utc>,
+    pub records_scanned_count: usize,
+    pub scheduled_count: usize,
+    pub skipped_count: usize,
+    pub scheduled: Vec<M3fReconciliationRequest>,
+    pub read_only_finam_surfaces_only: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub live_ready_allowed: bool,
+    pub stop_sltp_bracket_enabled: bool,
+    pub raw_account_id_exported: bool,
+    pub raw_client_order_id_exported: bool,
+    pub raw_broker_order_id_exported: bool,
+}
+
+pub fn m3f_reconciliation_request_for_order_path_record(
+    record: &OrderPathRecord,
+    checked_ts: DateTime<Utc>,
+) -> M3fReconciliationSchedulerRecord {
+    let Some(request_kind) = m3f_reconciliation_request_kind(record.state) else {
+        return M3fReconciliationSchedulerRecord {
+            action: M3fReconciliationSchedulerAction::IgnoredTerminalOrStable,
+            request: None,
+            source_state: record.state,
+            requires_broker_truth: false,
+        };
+    };
+    let request = M3fReconciliationRequest {
+        schema_version: SCHEMA_VERSION,
+        request_id: record.request_id,
+        request_kind,
+        source_state: record.state,
+        required_inputs: m3f_required_broker_truth_inputs(request_kind, record),
+        identity: m3f_reconciliation_identity_diagnostic(record),
+        created_ts: checked_ts,
+        read_only_finam_surfaces_only: true,
+        real_finam_order_endpoint_used: false,
+        external_order_endpoint_allowed: false,
+        runtime_live_attachment_allowed: false,
+        live_ready_allowed: false,
+    };
+    M3fReconciliationSchedulerRecord {
+        action: M3fReconciliationSchedulerAction::Scheduled,
+        request: Some(request),
+        source_state: record.state,
+        requires_broker_truth: true,
+    }
+}
+
+pub fn m3f_reconciliation_scheduler_report(
+    records: &[OrderPathRecord],
+    checked_ts: DateTime<Utc>,
+) -> M3fReconciliationSchedulerReport {
+    let mut scheduled = Vec::new();
+    let mut skipped_count = 0;
+    for record in records {
+        let scheduler_record = m3f_reconciliation_request_for_order_path_record(record, checked_ts);
+        if let Some(request) = scheduler_record.request {
+            scheduled.push(request);
+        } else {
+            skipped_count += 1;
+        }
+    }
+    M3fReconciliationSchedulerReport {
+        schema_version: SCHEMA_VERSION,
+        checked_ts,
+        records_scanned_count: records.len(),
+        scheduled_count: scheduled.len(),
+        skipped_count,
+        scheduled,
+        read_only_finam_surfaces_only: true,
+        real_finam_order_endpoint_used: false,
+        external_order_endpoint_allowed: false,
+        runtime_live_attachment_allowed: false,
+        live_ready_allowed: false,
+        stop_sltp_bracket_enabled: false,
+        raw_account_id_exported: false,
+        raw_client_order_id_exported: false,
+        raw_broker_order_id_exported: false,
+    }
+}
+
+fn m3f_reconciliation_request_kind(state: OrderPathState) -> Option<M3fReconciliationRequestKind> {
+    match state {
+        OrderPathState::SubmittedPendingBrokerOrderId => {
+            Some(M3fReconciliationRequestKind::SubmittedPendingBrokerOrderId)
+        }
+        OrderPathState::TimeoutUnknownPending => {
+            Some(M3fReconciliationRequestKind::TimeoutUnknownPending)
+        }
+        OrderPathState::CancelSubmitted => Some(M3fReconciliationRequestKind::CancelSubmitted),
+        OrderPathState::CancelTimeoutUnknownPending => {
+            Some(M3fReconciliationRequestKind::CancelTimeoutUnknownPending)
+        }
+        _ => None,
+    }
+}
+
+fn m3f_required_broker_truth_inputs(
+    request_kind: M3fReconciliationRequestKind,
+    record: &OrderPathRecord,
+) -> Vec<M3fBrokerTruthInputKind> {
+    let mut inputs = vec![
+        M3fBrokerTruthInputKind::GetOrders,
+        M3fBrokerTruthInputKind::Trades,
+        M3fBrokerTruthInputKind::Positions,
+    ];
+    if record.broker_order_id.is_some()
+        || matches!(
+            request_kind,
+            M3fReconciliationRequestKind::CancelSubmitted
+                | M3fReconciliationRequestKind::CancelTimeoutUnknownPending
+        )
+    {
+        inputs.insert(1, M3fBrokerTruthInputKind::GetOrder);
+    }
+    inputs
+}
+
+fn m3f_reconciliation_identity_diagnostic(
+    record: &OrderPathRecord,
+) -> M3fReconciliationIdentityDiagnostic {
+    let venue_symbol = record.instrument.venue_symbol.as_deref();
+    M3fReconciliationIdentityDiagnostic {
+        account_id_present: true,
+        account_id_sha256: sha256_hex(record.account_id.as_str().as_bytes()),
+        client_order_id_present: true,
+        client_order_id_sha256: sha256_hex(record.client_order_id.as_str().as_bytes()),
+        broker_order_id_present: record.broker_order_id.is_some(),
+        broker_order_id_sha256: record
+            .broker_order_id
+            .as_ref()
+            .map(|value| sha256_hex(value.as_str().as_bytes())),
+        instrument_venue_symbol_present: venue_symbol.is_some(),
+        instrument_venue_symbol_sha256: venue_symbol.map(|value| sha256_hex(value.as_bytes())),
+        raw_account_id_exported: false,
+        raw_client_order_id_exported: false,
+        raw_broker_order_id_exported: false,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CommandConsumerMode {
     Absent,
@@ -11158,6 +11364,152 @@ mod tests {
             assert_eq!(transport.cancel_call_count, 1);
             assert_ne!(report.ack_status, Some(CommandAckStatus::Submitted));
         }
+    }
+
+    #[test]
+    fn m3f1_scheduler_creates_readonly_requests_for_reconciliation_states() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 16, 0, 0)
+            .single()
+            .expect("now");
+        let mut submitted_pending = OrderPathRecord::from_place_order(
+            &sample_place_order(request_id(810), "CID000000000000810", now),
+            now,
+            None,
+        );
+        submitted_pending.state = OrderPathState::SubmittedPendingBrokerOrderId;
+
+        let mut timeout_unknown = OrderPathRecord::from_place_order(
+            &sample_place_order(request_id(811), "CID000000000000811", now),
+            now,
+            None,
+        );
+        timeout_unknown.state = OrderPathState::TimeoutUnknownPending;
+
+        let mut cancel_submitted = submitted_record(
+            &sample_place_order(request_id(812), "CID000000000000812", now),
+            now,
+            BrokerOrderId::new("BROKER_TEST_M3F1_812"),
+        );
+        cancel_submitted.state = OrderPathState::CancelSubmitted;
+
+        let mut cancel_timeout = submitted_record(
+            &sample_place_order(request_id(813), "CID000000000000813", now),
+            now,
+            BrokerOrderId::new("BROKER_TEST_M3F1_813"),
+        );
+        cancel_timeout.state = OrderPathState::CancelTimeoutUnknownPending;
+
+        let report = m3f_reconciliation_scheduler_report(
+            &[
+                submitted_pending,
+                timeout_unknown,
+                cancel_submitted,
+                cancel_timeout,
+            ],
+            now,
+        );
+
+        assert_eq!(report.records_scanned_count, 4);
+        assert_eq!(report.scheduled_count, 4);
+        assert_eq!(report.skipped_count, 0);
+        assert_eq!(
+            report
+                .scheduled
+                .iter()
+                .map(|request| request.request_kind)
+                .collect::<Vec<_>>(),
+            vec![
+                M3fReconciliationRequestKind::SubmittedPendingBrokerOrderId,
+                M3fReconciliationRequestKind::TimeoutUnknownPending,
+                M3fReconciliationRequestKind::CancelSubmitted,
+                M3fReconciliationRequestKind::CancelTimeoutUnknownPending,
+            ]
+        );
+        assert!(!report.scheduled[0]
+            .required_inputs
+            .contains(&M3fBrokerTruthInputKind::GetOrder));
+        assert!(report.scheduled[2]
+            .required_inputs
+            .contains(&M3fBrokerTruthInputKind::GetOrder));
+        assert!(report.scheduled.iter().all(|request| request
+            .required_inputs
+            .contains(&M3fBrokerTruthInputKind::GetOrders)
+            && request
+                .required_inputs
+                .contains(&M3fBrokerTruthInputKind::Trades)
+            && request
+                .required_inputs
+                .contains(&M3fBrokerTruthInputKind::Positions)
+            && request.read_only_finam_surfaces_only
+            && !request.real_finam_order_endpoint_used
+            && !request.external_order_endpoint_allowed
+            && !request.runtime_live_attachment_allowed
+            && !request.live_ready_allowed));
+        assert!(report.read_only_finam_surfaces_only);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.external_order_endpoint_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.stop_sltp_bracket_enabled);
+    }
+
+    #[test]
+    fn m3f1_scheduler_ignores_stable_states_and_exports_redacted_identity_only() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 16, 5, 0)
+            .single()
+            .expect("now");
+        let stable = submitted_record(
+            &sample_place_order(request_id(814), "CID000000000000814", now),
+            now,
+            BrokerOrderId::new("BROKER_TEST_M3F1_814"),
+        );
+        let mut terminal = stable.clone();
+        terminal.state = OrderPathState::Terminal;
+
+        let mut cancel_timeout = submitted_record(
+            &sample_place_order(request_id(815), "CID000000000000815", now),
+            now,
+            BrokerOrderId::new("BROKER_TEST_M3F1_815"),
+        );
+        cancel_timeout.state = OrderPathState::CancelTimeoutUnknownPending;
+
+        let report = m3f_reconciliation_scheduler_report(&[stable, terminal, cancel_timeout], now);
+
+        assert_eq!(report.records_scanned_count, 3);
+        assert_eq!(report.scheduled_count, 1);
+        assert_eq!(report.skipped_count, 2);
+        let request = &report.scheduled[0];
+        assert_eq!(
+            request.request_kind,
+            M3fReconciliationRequestKind::CancelTimeoutUnknownPending
+        );
+        assert!(request.identity.account_id_present);
+        assert!(request.identity.client_order_id_present);
+        assert!(request.identity.broker_order_id_present);
+        assert_eq!(request.identity.account_id_sha256.len(), 64);
+        assert_eq!(request.identity.client_order_id_sha256.len(), 64);
+        assert_eq!(
+            request
+                .identity
+                .broker_order_id_sha256
+                .as_ref()
+                .expect("broker hash")
+                .len(),
+            64
+        );
+        assert!(!request.identity.raw_account_id_exported);
+        assert!(!request.identity.raw_client_order_id_exported);
+        assert!(!request.identity.raw_broker_order_id_exported);
+        assert!(!report.raw_account_id_exported);
+        assert!(!report.raw_client_order_id_exported);
+        assert!(!report.raw_broker_order_id_exported);
+
+        let serialized = serde_json::to_string(&report).expect("serialize report");
+        assert!(!serialized.contains("ACC_TEST_0001"));
+        assert!(!serialized.contains("CID000000000000815"));
+        assert!(!serialized.contains("BROKER_TEST_M3F1_815"));
     }
 
     #[tokio::test]
