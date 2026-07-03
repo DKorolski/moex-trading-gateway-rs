@@ -98,3 +98,10 @@ evidence_pending_count = 1
 - `LiveReady`;
 - first live micro;
 - stop/SLTP/bracket.
+
+## Follow-up in M3c-25
+
+M3c-25 closes the final implementation-gate evidence slot,
+`cancel_409_410_status_semantics`, with official FINAM REST documentation
+evidence plus the existing defensive cancel reconciliation policy. It remains
+evidence-only and does not authorize real order endpoints.

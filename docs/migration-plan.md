@@ -2087,6 +2087,35 @@ M3c-24 explicitly still not allowed:
 - First live micro.
 - Stop/SLTP/bracket.
 
+M3c-25 cancel `409/410` status evidence:
+
+- Added source-bound cancel `409/410` status evidence helper
+  `scripts/m3c_cancel_409_410_status_evidence.py`.
+- The helper fetches official FINAM REST docs, records the docs SHA-256,
+  verifies the CancelOrder section, confirms documented response statuses,
+  confirms `409/410` absence in that endpoint section, records the section
+  hash, and runs the forbidden-surface scan.
+- The closure relies on the existing defensive cancel status matrix:
+  `409/410` stays `TimeoutUnknownPending` /
+  `CancelTimeoutUnknownPending` /
+  `ReconciliationRequired`, with state-machine transition, no blind retry, and
+  cancel reconciliation required.
+- M3c-25 closes `cancel_409_410_status_semantics` as `EvidenceProvided`;
+  all five implementation-gate evidence slots are now closed by evidence or
+  waiver, while the implementation gate itself remains closed.
+- Details are documented in
+  `docs/m3c25-cancel-409-410-status-evidence.md`.
+
+M3c-25 explicitly still not allowed:
+
+- FINAM POST/DELETE order endpoint calls.
+- Real command stream consumer connected to strategies.
+- Real CommandAck lifecycle against FINAM endpoints.
+- Strategy runtime adaptation or invocation.
+- `LiveReady` publication.
+- First live micro.
+- Stop/SLTP/bracket.
+
 Future M3 targets after dry-order-path review acceptance:
 
 - Operator-armed order-emitting mode after M2m acceptance.
