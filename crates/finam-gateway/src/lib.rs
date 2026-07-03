@@ -5904,6 +5904,151 @@ fn m3h5_redacted_request_hash(request_id: StrategyRequestId) -> String {
     format!("sha256:{digest:x}")
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3iStrategyPaperInputRejectReason {
+    NoStrategyDecisionTick,
+    EntryOrBarKeyMismatch,
+    MissingBarEvent,
+    NonLiveFinalBar,
+    FinamDtoVisibleToStrategy,
+    RuntimeLiveAttachmentForbidden,
+    LiveReadyForbidden,
+    ExternalOrderEndpointForbidden,
+    RealFinamOrderEndpointForbidden,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct M3iStrategyPaperInput {
+    pub schema_version: u16,
+    pub strategy_id: String,
+    pub decision_entry_id: String,
+    pub decision_bar_key: String,
+    pub bar: Bar,
+    pub broker_neutral_payload_only: bool,
+    pub finam_dto_visible_to_strategy: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub live_ready_allowed: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum M3iStrategyPaperInputAdapterOutcome {
+    Accepted(Box<M3iStrategyPaperInput>),
+    Rejected {
+        reason: M3iStrategyPaperInputRejectReason,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3iStrategyPaperInputContractReport {
+    pub schema_version: u16,
+    pub strategy_receives_broker_neutral_inputs_only: bool,
+    pub finam_dto_visible_to_strategy: bool,
+    pub strategy_decisions_require_m3h_decision_tick: bool,
+    pub non_final_historical_recovery_bars_can_trigger_decision: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub live_ready_allowed: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+}
+
+pub fn m3i1_strategy_paper_input_contract_report() -> M3iStrategyPaperInputContractReport {
+    M3iStrategyPaperInputContractReport {
+        schema_version: SCHEMA_VERSION,
+        strategy_receives_broker_neutral_inputs_only: true,
+        finam_dto_visible_to_strategy: false,
+        strategy_decisions_require_m3h_decision_tick: true,
+        non_final_historical_recovery_bars_can_trigger_decision: false,
+        runtime_live_attachment_allowed: false,
+        live_ready_allowed: false,
+        external_order_endpoint_allowed: false,
+        real_finam_order_endpoint_used: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+    }
+}
+
+pub fn m3i1_adapt_strategy_paper_input(
+    strategy_id: impl Into<String>,
+    shadow_input: &M3hRuntimeShadowInput,
+    decision: &M3hRuntimeShadowConsumerOutcome,
+) -> M3iStrategyPaperInputAdapterOutcome {
+    let (decision_entry_id, decision_bar_key) = match decision {
+        M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick { entry_id, bar_key } => {
+            (entry_id.clone(), bar_key.clone())
+        }
+        _ => {
+            return M3iStrategyPaperInputAdapterOutcome::Rejected {
+                reason: M3iStrategyPaperInputRejectReason::NoStrategyDecisionTick,
+            };
+        }
+    };
+    if shadow_input.entry_id != decision_entry_id {
+        return M3iStrategyPaperInputAdapterOutcome::Rejected {
+            reason: M3iStrategyPaperInputRejectReason::EntryOrBarKeyMismatch,
+        };
+    }
+    if !shadow_input.broker_neutral_payload_only || shadow_input.finam_dto_visible_to_runtime {
+        return M3iStrategyPaperInputAdapterOutcome::Rejected {
+            reason: M3iStrategyPaperInputRejectReason::FinamDtoVisibleToStrategy,
+        };
+    }
+    if shadow_input.runtime_live_attachment_allowed {
+        return M3iStrategyPaperInputAdapterOutcome::Rejected {
+            reason: M3iStrategyPaperInputRejectReason::RuntimeLiveAttachmentForbidden,
+        };
+    }
+    if shadow_input.live_ready_allowed
+        || shadow_input.readiness_phase == Some(ReadinessPhase::LiveReady)
+    {
+        return M3iStrategyPaperInputAdapterOutcome::Rejected {
+            reason: M3iStrategyPaperInputRejectReason::LiveReadyForbidden,
+        };
+    }
+    if shadow_input.external_order_endpoint_allowed {
+        return M3iStrategyPaperInputAdapterOutcome::Rejected {
+            reason: M3iStrategyPaperInputRejectReason::ExternalOrderEndpointForbidden,
+        };
+    }
+    if shadow_input.real_finam_order_endpoint_used {
+        return M3iStrategyPaperInputAdapterOutcome::Rejected {
+            reason: M3iStrategyPaperInputRejectReason::RealFinamOrderEndpointForbidden,
+        };
+    }
+    let Some(bar_event) = &shadow_input.bar_event else {
+        return M3iStrategyPaperInputAdapterOutcome::Rejected {
+            reason: M3iStrategyPaperInputRejectReason::MissingBarEvent,
+        };
+    };
+    if bar_event.source_class != M3hRuntimeShadowBarSourceClass::LiveFinal {
+        return M3iStrategyPaperInputAdapterOutcome::Rejected {
+            reason: M3iStrategyPaperInputRejectReason::NonLiveFinalBar,
+        };
+    }
+    if m3h2_runtime_bar_key(&bar_event.bar) != decision_bar_key {
+        return M3iStrategyPaperInputAdapterOutcome::Rejected {
+            reason: M3iStrategyPaperInputRejectReason::EntryOrBarKeyMismatch,
+        };
+    }
+
+    M3iStrategyPaperInputAdapterOutcome::Accepted(Box::new(M3iStrategyPaperInput {
+        schema_version: SCHEMA_VERSION,
+        strategy_id: strategy_id.into(),
+        decision_entry_id,
+        decision_bar_key,
+        bar: bar_event.bar.clone(),
+        broker_neutral_payload_only: true,
+        finam_dto_visible_to_strategy: false,
+        runtime_live_attachment_allowed: false,
+        live_ready_allowed: false,
+        external_order_endpoint_allowed: false,
+        real_finam_order_endpoint_used: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+    }))
+}
+
 #[derive(Debug, Clone)]
 pub struct RuntimeBridgeDryConsumer {
     config: RedisStreamConfig,
@@ -17575,6 +17720,157 @@ mod tests {
         assert!(!report.runtime_shadow_replay_ok);
         assert!(!report.stage_closure_report);
         assert!(!report.m3h_runtime_shadow_stage_closed);
+    }
+
+    #[test]
+    fn m3i1_strategy_adapter_accepts_only_m3h_live_final_broker_neutral_input() {
+        let config = GatewayConfig::default();
+        let mut bar = sample_bar(MarketDataSourceKind::LiveStream, true);
+        bar.open_ts = Utc
+            .with_ymd_and_hms(2026, 7, 3, 23, 30, 0)
+            .single()
+            .expect("timestamp");
+        bar.close_ts = bar.open_ts + ChronoDuration::minutes(1);
+        let entry = m3h1_runtime_entry(
+            &config.redis.market_data_stream,
+            "m3i1-1",
+            MessageType::MarketData,
+            MarketDataEvent::Bar(bar.clone()),
+        );
+        let M3hRuntimeShadowAdapterOutcome::Accepted(input) =
+            m3h1_adapt_runtime_shadow_entry(&config.redis, &entry)
+        else {
+            panic!("expected accepted m3h input");
+        };
+        let decision = M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick {
+            entry_id: input.entry_id.clone(),
+            bar_key: m3h2_runtime_bar_key(&bar),
+        };
+
+        let outcome = m3i1_adapt_strategy_paper_input("paper-simple", &input, &decision);
+        let M3iStrategyPaperInputAdapterOutcome::Accepted(strategy_input) = outcome else {
+            panic!("expected accepted strategy input");
+        };
+        assert_eq!(strategy_input.strategy_id, "paper-simple");
+        assert_eq!(strategy_input.bar, bar);
+        assert!(strategy_input.broker_neutral_payload_only);
+        assert!(!strategy_input.finam_dto_visible_to_strategy);
+        assert!(!strategy_input.runtime_live_attachment_allowed);
+        assert!(!strategy_input.live_ready_allowed);
+        assert!(!strategy_input.external_order_endpoint_allowed);
+        assert!(!strategy_input.real_finam_order_endpoint_used);
+        assert!(!strategy_input.stop_sltp_bracket_replace_multileg_allowed);
+        let json = serde_json::to_string(&strategy_input).expect("strategy input json");
+        assert!(!json.contains("broker_native"));
+        assert!(!json.contains("raw_payload"));
+        assert!(!json.contains("raw_body"));
+    }
+
+    #[test]
+    fn m3i1_strategy_adapter_rejects_non_decision_and_non_live_final_inputs() {
+        let config = GatewayConfig::default();
+        let updating_entry = m3h1_runtime_entry(
+            &config.redis.market_data_stream,
+            "m3i1-2",
+            MessageType::MarketData,
+            MarketDataEvent::Bar(sample_bar(MarketDataSourceKind::LiveStream, false)),
+        );
+        let M3hRuntimeShadowAdapterOutcome::Accepted(updating_input) =
+            m3h1_adapt_runtime_shadow_entry(&config.redis, &updating_entry)
+        else {
+            panic!("expected accepted updating input");
+        };
+        assert_eq!(
+            m3i1_adapt_strategy_paper_input(
+                "paper-simple",
+                &updating_input,
+                &M3hRuntimeShadowConsumerOutcome::Accepted {
+                    kind: M3hRuntimeShadowInputKind::BarEvent,
+                    entry_id: updating_input.entry_id.clone(),
+                    strategy_decision_tick: false,
+                },
+            ),
+            M3iStrategyPaperInputAdapterOutcome::Rejected {
+                reason: M3iStrategyPaperInputRejectReason::NoStrategyDecisionTick
+            }
+        );
+        assert_eq!(
+            m3i1_adapt_strategy_paper_input(
+                "paper-simple",
+                &updating_input,
+                &M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick {
+                    entry_id: updating_input.entry_id.clone(),
+                    bar_key: m3h2_runtime_bar_key(
+                        &updating_input.bar_event.as_ref().expect("bar event").bar
+                    ),
+                },
+            ),
+            M3iStrategyPaperInputAdapterOutcome::Rejected {
+                reason: M3iStrategyPaperInputRejectReason::NonLiveFinalBar
+            }
+        );
+    }
+
+    #[test]
+    fn m3i1_strategy_adapter_rejects_finam_dto_live_ready_and_endpoint_flags() {
+        let config = GatewayConfig::default();
+        let bar = sample_bar(MarketDataSourceKind::LiveStream, true);
+        let entry = m3h1_runtime_entry(
+            &config.redis.market_data_stream,
+            "m3i1-3",
+            MessageType::MarketData,
+            MarketDataEvent::Bar(bar.clone()),
+        );
+        let M3hRuntimeShadowAdapterOutcome::Accepted(input) =
+            m3h1_adapt_runtime_shadow_entry(&config.redis, &entry)
+        else {
+            panic!("expected accepted live-final input");
+        };
+        let decision = M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick {
+            entry_id: input.entry_id.clone(),
+            bar_key: m3h2_runtime_bar_key(&bar),
+        };
+
+        let mut finam_visible = input.clone();
+        finam_visible.finam_dto_visible_to_runtime = true;
+        assert_eq!(
+            m3i1_adapt_strategy_paper_input("paper-simple", &finam_visible, &decision),
+            M3iStrategyPaperInputAdapterOutcome::Rejected {
+                reason: M3iStrategyPaperInputRejectReason::FinamDtoVisibleToStrategy
+            }
+        );
+
+        let mut live_ready = input.clone();
+        live_ready.live_ready_allowed = true;
+        assert_eq!(
+            m3i1_adapt_strategy_paper_input("paper-simple", &live_ready, &decision),
+            M3iStrategyPaperInputAdapterOutcome::Rejected {
+                reason: M3iStrategyPaperInputRejectReason::LiveReadyForbidden
+            }
+        );
+
+        let mut endpoint = input.clone();
+        endpoint.external_order_endpoint_allowed = true;
+        assert_eq!(
+            m3i1_adapt_strategy_paper_input("paper-simple", &endpoint, &decision),
+            M3iStrategyPaperInputAdapterOutcome::Rejected {
+                reason: M3iStrategyPaperInputRejectReason::ExternalOrderEndpointForbidden
+            }
+        );
+    }
+
+    #[test]
+    fn m3i1_strategy_interface_contract_report_keeps_paper_shadow_boundaries_closed() {
+        let report = m3i1_strategy_paper_input_contract_report();
+        assert!(report.strategy_receives_broker_neutral_inputs_only);
+        assert!(report.strategy_decisions_require_m3h_decision_tick);
+        assert!(!report.finam_dto_visible_to_strategy);
+        assert!(!report.non_final_historical_recovery_bars_can_trigger_decision);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.external_order_endpoint_allowed);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
     }
 
     #[tokio::test]
