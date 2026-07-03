@@ -3230,6 +3230,58 @@ pub enum M3hRuntimeShadowAdapterOutcome {
     DeadLetter(RuntimeBridgeDeadLetter),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3hRuntimeShadowBlockedReason {
+    InboundLiveReadyForbidden,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3hRuntimeShadowConsumerOutcome {
+    Accepted {
+        kind: M3hRuntimeShadowInputKind,
+        entry_id: String,
+        strategy_decision_tick: bool,
+    },
+    StrategyDecisionTick {
+        entry_id: String,
+        bar_key: String,
+    },
+    DuplicateBar {
+        entry_id: String,
+        bar_key: String,
+    },
+    Blocked {
+        entry_id: String,
+        reason: M3hRuntimeShadowBlockedReason,
+    },
+    DeadLetter(RuntimeBridgeDeadLetter),
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3hRuntimeShadowConsumerMetrics {
+    pub entries_seen: u64,
+    pub accepted_count: u64,
+    pub strategy_decision_tick_count: u64,
+    pub duplicate_bar_count: u64,
+    pub blocked_count: u64,
+    pub dead_letter_count: u64,
+    pub broker_command_emitted_count: u64,
+    pub live_ready_seen_blocked_count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3hRuntimeShadowConsumerReport {
+    pub schema_version: u16,
+    pub metrics: M3hRuntimeShadowConsumerMetrics,
+    pub broker_neutral_payload_only: bool,
+    pub finam_dto_visible_to_runtime: bool,
+    pub emits_broker_command: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub live_ready_allowed: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub external_order_endpoint_allowed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RuntimeBridgeDlqReason {
     UnknownStream,
@@ -4976,6 +5028,107 @@ fn m3h1_shadow_input(
         real_finam_order_endpoint_used: false,
         external_order_endpoint_allowed: false,
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct M3hRuntimeShadowConsumer {
+    config: RedisStreamConfig,
+    seen_bar_keys: HashSet<String>,
+    metrics: M3hRuntimeShadowConsumerMetrics,
+}
+
+impl M3hRuntimeShadowConsumer {
+    pub fn new(config: RedisStreamConfig) -> Self {
+        Self {
+            config,
+            seen_bar_keys: HashSet::new(),
+            metrics: M3hRuntimeShadowConsumerMetrics::default(),
+        }
+    }
+
+    pub fn from_gateway_config(config: &GatewayConfig) -> Self {
+        Self::new(config.redis.clone())
+    }
+
+    pub fn metrics(&self) -> &M3hRuntimeShadowConsumerMetrics {
+        &self.metrics
+    }
+
+    pub fn report(&self) -> M3hRuntimeShadowConsumerReport {
+        M3hRuntimeShadowConsumerReport {
+            schema_version: SCHEMA_VERSION,
+            metrics: self.metrics.clone(),
+            broker_neutral_payload_only: true,
+            finam_dto_visible_to_runtime: false,
+            emits_broker_command: false,
+            runtime_live_attachment_allowed: false,
+            live_ready_allowed: false,
+            real_finam_order_endpoint_used: false,
+            external_order_endpoint_allowed: false,
+        }
+    }
+
+    pub fn consume_entry(
+        &mut self,
+        entry: RuntimeBridgeStreamEntry,
+    ) -> M3hRuntimeShadowConsumerOutcome {
+        self.metrics.entries_seen += 1;
+        match m3h1_adapt_runtime_shadow_entry(&self.config, &entry) {
+            M3hRuntimeShadowAdapterOutcome::Accepted(input) => self.consume_input(input),
+            M3hRuntimeShadowAdapterOutcome::DeadLetter(dead_letter) => {
+                self.metrics.dead_letter_count += 1;
+                M3hRuntimeShadowConsumerOutcome::DeadLetter(dead_letter)
+            }
+        }
+    }
+
+    fn consume_input(&mut self, input: M3hRuntimeShadowInput) -> M3hRuntimeShadowConsumerOutcome {
+        if input.readiness_phase == Some(ReadinessPhase::LiveReady) {
+            self.metrics.blocked_count += 1;
+            self.metrics.live_ready_seen_blocked_count += 1;
+            return M3hRuntimeShadowConsumerOutcome::Blocked {
+                entry_id: input.entry_id,
+                reason: M3hRuntimeShadowBlockedReason::InboundLiveReadyForbidden,
+            };
+        }
+
+        if let Some(bar_event) = input.bar_event {
+            let bar_key = m3h2_runtime_bar_key(&bar_event.bar);
+            if !self.seen_bar_keys.insert(bar_key.clone()) {
+                self.metrics.duplicate_bar_count += 1;
+                return M3hRuntimeShadowConsumerOutcome::DuplicateBar {
+                    entry_id: input.entry_id,
+                    bar_key,
+                };
+            }
+            if bar_event.source_class == M3hRuntimeShadowBarSourceClass::LiveFinal {
+                self.metrics.strategy_decision_tick_count += 1;
+                return M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick {
+                    entry_id: input.entry_id,
+                    bar_key,
+                };
+            }
+        }
+
+        self.metrics.accepted_count += 1;
+        M3hRuntimeShadowConsumerOutcome::Accepted {
+            kind: input.kind,
+            entry_id: input.entry_id,
+            strategy_decision_tick: false,
+        }
+    }
+}
+
+fn m3h2_runtime_bar_key(bar: &Bar) -> String {
+    format!(
+        "{}|{}|{}|{}|{}|{}",
+        bar.instrument.symbol,
+        bar.source_kind as u8,
+        bar.timeframe_sec,
+        bar.open_ts.to_rfc3339_opts(SecondsFormat::Millis, true),
+        bar.close_ts.to_rfc3339_opts(SecondsFormat::Millis, true),
+        bar.is_final
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -15613,6 +15766,128 @@ mod tests {
                 actual: Some(MessageType::MarketData)
             }
         );
+    }
+
+    #[test]
+    fn m3h2_runtime_shadow_consumer_emits_decision_tick_only_for_live_final_bar() {
+        let config = GatewayConfig::default();
+        let mut consumer = M3hRuntimeShadowConsumer::from_gateway_config(&config);
+        let live_final = m3h1_runtime_entry(
+            &config.redis.market_data_stream,
+            "6-0",
+            MessageType::MarketData,
+            MarketDataEvent::Bar(sample_bar(MarketDataSourceKind::LiveStream, true)),
+        );
+        let outcome = consumer.consume_entry(live_final);
+        let M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick { entry_id, bar_key } = outcome
+        else {
+            panic!("expected strategy decision tick");
+        };
+        assert_eq!(entry_id, "6-0");
+        assert!(bar_key.contains("TESTFUT"));
+        assert_eq!(consumer.metrics().strategy_decision_tick_count, 1);
+        assert_eq!(consumer.metrics().broker_command_emitted_count, 0);
+
+        let report = consumer.report();
+        assert!(!report.emits_broker_command);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.external_order_endpoint_allowed);
+    }
+
+    #[test]
+    fn m3h2_runtime_shadow_consumer_keeps_updating_and_historical_bars_non_decision() {
+        let config = GatewayConfig::default();
+        let mut consumer = M3hRuntimeShadowConsumer::from_gateway_config(&config);
+        for (entry_id, source_kind, is_final) in [
+            ("7-0", MarketDataSourceKind::LiveStream, false),
+            ("8-0", MarketDataSourceKind::HistoricalPoll, true),
+            ("9-0", MarketDataSourceKind::ReadOnlyPoll, true),
+            ("10-0", MarketDataSourceKind::Recovery, true),
+        ] {
+            let entry = m3h1_runtime_entry(
+                &config.redis.market_data_stream,
+                entry_id,
+                MessageType::MarketData,
+                MarketDataEvent::Bar(sample_bar(source_kind, is_final)),
+            );
+            let outcome = consumer.consume_entry(entry);
+            assert_eq!(
+                outcome,
+                M3hRuntimeShadowConsumerOutcome::Accepted {
+                    kind: M3hRuntimeShadowInputKind::BarEvent,
+                    entry_id: entry_id.to_string(),
+                    strategy_decision_tick: false,
+                }
+            );
+        }
+        assert_eq!(consumer.metrics().accepted_count, 4);
+        assert_eq!(consumer.metrics().strategy_decision_tick_count, 0);
+        assert_eq!(consumer.metrics().broker_command_emitted_count, 0);
+    }
+
+    #[test]
+    fn m3h2_runtime_shadow_consumer_blocks_inbound_live_ready_until_live_gate() {
+        let config = GatewayConfig::default();
+        let mut consumer = M3hRuntimeShadowConsumer::from_gateway_config(&config);
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 3, 22, 0, 0)
+            .single()
+            .expect("timestamp");
+        let entry = m3h1_runtime_entry(
+            &config.redis.readiness_stream,
+            "11-0",
+            MessageType::Readiness,
+            BrokerReadiness {
+                phase: ReadinessPhase::LiveReady,
+                reasons: vec![],
+                checked_ts: now,
+            },
+        );
+        let outcome = consumer.consume_entry(entry);
+        assert_eq!(
+            outcome,
+            M3hRuntimeShadowConsumerOutcome::Blocked {
+                entry_id: "11-0".to_string(),
+                reason: M3hRuntimeShadowBlockedReason::InboundLiveReadyForbidden,
+            }
+        );
+        assert_eq!(consumer.metrics().blocked_count, 1);
+        assert_eq!(consumer.metrics().live_ready_seen_blocked_count, 1);
+        assert_eq!(consumer.metrics().broker_command_emitted_count, 0);
+        assert!(!consumer.report().live_ready_allowed);
+    }
+
+    #[test]
+    fn m3h2_runtime_shadow_consumer_dedupes_bars_before_runtime_decision() {
+        let config = GatewayConfig::default();
+        let mut consumer = M3hRuntimeShadowConsumer::from_gateway_config(&config);
+        let bar = sample_bar(MarketDataSourceKind::LiveStream, true);
+        let first = m3h1_runtime_entry(
+            &config.redis.market_data_stream,
+            "12-0",
+            MessageType::MarketData,
+            MarketDataEvent::Bar(bar.clone()),
+        );
+        let duplicate = m3h1_runtime_entry(
+            &config.redis.market_data_stream,
+            "13-0",
+            MessageType::MarketData,
+            MarketDataEvent::Bar(bar),
+        );
+        assert!(matches!(
+            consumer.consume_entry(first),
+            M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick { .. }
+        ));
+        let outcome = consumer.consume_entry(duplicate);
+        assert!(matches!(
+            outcome,
+            M3hRuntimeShadowConsumerOutcome::DuplicateBar { .. }
+        ));
+        assert_eq!(consumer.metrics().strategy_decision_tick_count, 1);
+        assert_eq!(consumer.metrics().duplicate_bar_count, 1);
+        assert_eq!(consumer.metrics().broker_command_emitted_count, 0);
     }
 
     #[tokio::test]
