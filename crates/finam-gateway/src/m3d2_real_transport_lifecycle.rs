@@ -518,8 +518,12 @@ mod tests {
     use std::time::Duration;
     use uuid::Uuid;
 
+    use broker_finam::{FinamOrderEndpointContext, FinamOrderEndpointLocalHttpResponse};
+
     use crate::m3d2_real_order_transport::{
-        M3d2RealOrderEndpointTransport, M3d2RealOrderEndpointTransportConfig,
+        post_send_semantics, M3d2ExternalOrderEndpointMode, M3d2OrderEndpointBaseUrlKind,
+        M3d2PostSendOrderOutcomeSemantics, M3d2RealOrderEndpointTransport,
+        M3d2RealOrderEndpointTransportConfig, M3d2RealOrderEndpointTransportError,
     };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -659,6 +663,7 @@ mod tests {
                 order.created_ts + chrono::Duration::milliseconds(2),
             )
             .expect("begin");
+        store.update_record(record.clone()).expect("update begin");
         record.broker_order_id = Some(BrokerOrderId::new(broker_order_id));
         record
             .transition(
@@ -1054,5 +1059,753 @@ mod tests {
             assert_eq!(loaded.state, OrderPathState::Submitted);
         }
         cleanup_sqlite(&after_classified_path);
+    }
+
+    fn classified_execution(
+        context: FinamOrderEndpointContext,
+        response: FinamOrderEndpointLocalHttpResponse,
+    ) -> M3d2RealOrderEndpointTransportExecution {
+        let classified = broker_finam::classify_order_endpoint_local_http_response_for_context(
+            context, &response,
+        );
+        let post_send_semantics = post_send_semantics(context, &classified);
+        M3d2RealOrderEndpointTransportExecution {
+            request_sent: true,
+            classified_response: Some(classified),
+            post_send_semantics,
+            error: None,
+        }
+    }
+
+    fn sent_error_execution() -> M3d2RealOrderEndpointTransportExecution {
+        M3d2RealOrderEndpointTransportExecution {
+            request_sent: true,
+            classified_response: None,
+            post_send_semantics: M3d2PostSendOrderOutcomeSemantics::ReconciliationRequired,
+            error: Some(M3d2RealOrderEndpointTransportError::HttpSend {
+                error_kind: "connect".to_string(),
+            }),
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct LifecycleExpectation {
+        state: OrderPathState,
+        outcome: M3d2dLifecycleOutcomeKind,
+        status: CommandAckStatus,
+        reason: Option<CommandAckReasonCode>,
+        reconciliation_scheduled: bool,
+        audit_last_event: &'static str,
+        submit_attempt_count: u32,
+        cancel_attempt_count: u32,
+    }
+
+    fn assert_report_matches(
+        label: &str,
+        report: &M3d2dRealTransportLifecycleReport,
+        expected: &LifecycleExpectation,
+    ) {
+        assert_eq!(report.state, expected.state, "{label}: state");
+        assert_eq!(report.outcome, expected.outcome, "{label}: outcome");
+        assert_eq!(
+            report.ack_candidate.status, expected.status,
+            "{label}: ack status"
+        );
+        assert_eq!(
+            report.ack_candidate.reason_code, expected.reason,
+            "{label}: ack reason"
+        );
+        assert_eq!(
+            report.reconciliation_scheduled, expected.reconciliation_scheduled,
+            "{label}: reconciliation flag"
+        );
+        assert_eq!(
+            report.submit_attempt_count, expected.submit_attempt_count,
+            "{label}: submit attempts"
+        );
+        assert_eq!(
+            report.cancel_attempt_count, expected.cancel_attempt_count,
+            "{label}: cancel attempts"
+        );
+        assert!(report.request_sent, "{label}: request sent");
+        assert!(!report.raw_token_exported, "{label}: raw token");
+        assert!(!report.raw_path_exported, "{label}: raw path");
+        assert!(!report.raw_body_exported, "{label}: raw body");
+        assert!(
+            !report.ack_candidate.raw_client_order_id_exported,
+            "{label}: raw client id"
+        );
+        assert!(
+            !report.ack_candidate.raw_broker_order_id_exported,
+            "{label}: raw broker id"
+        );
+        assert!(
+            !report.ack_candidate.raw_account_id_exported,
+            "{label}: raw account id"
+        );
+    }
+
+    #[test]
+    fn m3d2e_lifecycle_matrix_maps_all_required_transport_outcomes() {
+        let place_cases: Vec<(
+            &str,
+            M3d2RealOrderEndpointTransportExecution,
+            LifecycleExpectation,
+        )> = vec![
+            (
+                "place_accepted_with_broker_id",
+                classified_execution(
+                    FinamOrderEndpointContext::Place,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 200,
+                        body: "{\"broker_order_id\":\"BROKER_TEST_PLACE_OK\"}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::Submitted,
+                    outcome: M3d2dLifecycleOutcomeKind::Submitted,
+                    status: CommandAckStatus::Submitted,
+                    reason: Some(CommandAckReasonCode::SyntheticSubmitted),
+                    reconciliation_scheduled: false,
+                    audit_last_event: "SubmitAccepted",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 0,
+                },
+            ),
+            (
+                "place_accepted_without_broker_id",
+                classified_execution(
+                    FinamOrderEndpointContext::Place,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 202,
+                        body: "{}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::SubmittedPendingBrokerOrderId,
+                    outcome: M3d2dLifecycleOutcomeKind::SubmittedPendingBrokerOrderIdReconciliation,
+                    status: CommandAckStatus::UnknownPending,
+                    reason: Some(CommandAckReasonCode::ReconciliationRequired),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "SubmitAcceptedWithoutBrokerOrderId",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 0,
+                },
+            ),
+            (
+                "place_validation_reject_400",
+                classified_execution(
+                    FinamOrderEndpointContext::Place,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 400,
+                        body: "{\"error\":\"validation\"}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::BrokerRejected,
+                    outcome: M3d2dLifecycleOutcomeKind::BrokerRejected,
+                    status: CommandAckStatus::Rejected,
+                    reason: Some(CommandAckReasonCode::BrokerRejected),
+                    reconciliation_scheduled: false,
+                    audit_last_event: "BrokerReject",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 0,
+                },
+            ),
+            (
+                "place_unauthorized_401",
+                classified_execution(
+                    FinamOrderEndpointContext::Place,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 401,
+                        body: "{\"error\":\"unauthorized\"}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome: M3d2dLifecycleOutcomeKind::UnauthorizedDisarm,
+                    status: CommandAckStatus::Error,
+                    reason: Some(CommandAckReasonCode::Unauthorized),
+                    reconciliation_scheduled: false,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 0,
+                },
+            ),
+            (
+                "place_rate_limited_429",
+                classified_execution(
+                    FinamOrderEndpointContext::Place,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 429,
+                        body: "{\"error\":\"rate\"}".to_string(),
+                        retry_after_ms: Some(1_000),
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome: M3d2dLifecycleOutcomeKind::RateLimitedDisarm,
+                    status: CommandAckStatus::Error,
+                    reason: Some(CommandAckReasonCode::RateLimited),
+                    reconciliation_scheduled: false,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 0,
+                },
+            ),
+            (
+                "place_maintenance_500",
+                classified_execution(
+                    FinamOrderEndpointContext::Place,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 500,
+                        body: "{\"error\":\"server\"}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome: M3d2dLifecycleOutcomeKind::MaintenanceDisarm,
+                    status: CommandAckStatus::Error,
+                    reason: Some(CommandAckReasonCode::BrokerMaintenance),
+                    reconciliation_scheduled: false,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 0,
+                },
+            ),
+            (
+                "place_service_interval_503",
+                classified_execution(
+                    FinamOrderEndpointContext::Place,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 503,
+                        body: "{\"error\":\"service\"}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome: M3d2dLifecycleOutcomeKind::MaintenanceDisarm,
+                    status: CommandAckStatus::Error,
+                    reason: Some(CommandAckReasonCode::BrokerMaintenance),
+                    reconciliation_scheduled: false,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 0,
+                },
+            ),
+            (
+                "place_malformed_2xx",
+                classified_execution(
+                    FinamOrderEndpointContext::Place,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 200,
+                        body: "not-json".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome: M3d2dLifecycleOutcomeKind::ReconciliationRequired,
+                    status: CommandAckStatus::UnknownPending,
+                    reason: Some(CommandAckReasonCode::ReconciliationRequired),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 0,
+                },
+            ),
+            (
+                "place_body_read_failed",
+                classified_execution(
+                    FinamOrderEndpointContext::Place,
+                    FinamOrderEndpointLocalHttpResponse::BodyReadFailed { status: Some(200) },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome: M3d2dLifecycleOutcomeKind::ReconciliationRequired,
+                    status: CommandAckStatus::UnknownPending,
+                    reason: Some(CommandAckReasonCode::ReconciliationRequired),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 0,
+                },
+            ),
+            (
+                "place_timeout_504",
+                classified_execution(
+                    FinamOrderEndpointContext::Place,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 504,
+                        body: "{\"error\":\"timeout\"}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::TimeoutUnknownPending,
+                    outcome: M3d2dLifecycleOutcomeKind::TimeoutUnknownPending,
+                    status: CommandAckStatus::Timeout,
+                    reason: Some(CommandAckReasonCode::TransportTimeout),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "SubmitTimedOut",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 0,
+                },
+            ),
+            (
+                "place_send_error_after_possible_send",
+                sent_error_execution(),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome: M3d2dLifecycleOutcomeKind::ReconciliationRequired,
+                    status: CommandAckStatus::UnknownPending,
+                    reason: Some(CommandAckReasonCode::ReconciliationRequired),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 0,
+                },
+            ),
+        ];
+
+        for (index, (label, execution, expected)) in place_cases.into_iter().enumerate() {
+            let path = sqlite_path(label);
+            let mut store = SqliteOrderPathStore::open(&path).expect("open sqlite store");
+            let order = place_order_with_request(300 + index as u128);
+            insert_intent(&mut store, &order);
+            let approved = approve_place(&order);
+            let record = m3d2d_persist_place_begin_submit(
+                &mut store,
+                &approved,
+                order.created_ts + chrono::Duration::milliseconds(5),
+            )
+            .expect("begin persisted");
+            let report = m3d2d_apply_place_transport_execution(
+                &mut store,
+                record,
+                execution,
+                order.created_ts + chrono::Duration::milliseconds(6),
+            )
+            .expect(label);
+            assert_report_matches(label, &report, &expected);
+            let audit = store.transition_audit().expect("audit");
+            assert_eq!(audit[0].event, "InsertIntent", "{label}: audit insert");
+            assert_eq!(audit[1].event, "BeginSubmit", "{label}: audit begin");
+            assert_eq!(
+                audit.last().expect("last audit").event,
+                expected.audit_last_event,
+                "{label}: audit last"
+            );
+            drop(store);
+            cleanup_sqlite(&path);
+        }
+
+        let cancel_cases: Vec<(
+            &str,
+            M3d2RealOrderEndpointTransportExecution,
+            LifecycleExpectation,
+        )> = vec![
+            (
+                "cancel_accepted_200_without_id",
+                classified_execution(
+                    FinamOrderEndpointContext::Cancel,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 200,
+                        body: "{}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::CancelSubmitted,
+                    outcome: M3d2dLifecycleOutcomeKind::CancelSubmittedPendingReconciliation,
+                    status: CommandAckStatus::Submitted,
+                    reason: Some(CommandAckReasonCode::SyntheticSubmitted),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "CancelAccepted",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 1,
+                },
+            ),
+            (
+                "cancel_accepted_202_without_id",
+                classified_execution(
+                    FinamOrderEndpointContext::Cancel,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 202,
+                        body: "{}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::CancelSubmitted,
+                    outcome: M3d2dLifecycleOutcomeKind::CancelSubmittedPendingReconciliation,
+                    status: CommandAckStatus::Submitted,
+                    reason: Some(CommandAckReasonCode::SyntheticSubmitted),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "CancelAccepted",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 1,
+                },
+            ),
+            (
+                "cancel_accepted_204_no_body",
+                classified_execution(
+                    FinamOrderEndpointContext::Cancel,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 204,
+                        body: String::new(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::CancelSubmitted,
+                    outcome: M3d2dLifecycleOutcomeKind::CancelSubmittedPendingReconciliation,
+                    status: CommandAckStatus::Submitted,
+                    reason: Some(CommandAckReasonCode::SyntheticSubmitted),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "CancelAccepted",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 1,
+                },
+            ),
+            (
+                "cancel_accepted_same_broker_id",
+                classified_execution(
+                    FinamOrderEndpointContext::Cancel,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 200,
+                        body: "{\"broker_order_id\":\"BROKER_TEST_M3D2E_CANCEL\"}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::CancelSubmitted,
+                    outcome: M3d2dLifecycleOutcomeKind::CancelSubmittedPendingReconciliation,
+                    status: CommandAckStatus::Submitted,
+                    reason: Some(CommandAckReasonCode::SyntheticSubmitted),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "CancelAccepted",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 1,
+                },
+            ),
+            (
+                "cancel_accepted_different_broker_id",
+                classified_execution(
+                    FinamOrderEndpointContext::Cancel,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 200,
+                        body: "{\"broker_order_id\":\"BROKER_TEST_OTHER\"}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome:
+                        M3d2dLifecycleOutcomeKind::CancelBrokerOrderIdMismatchManualIntervention,
+                    status: CommandAckStatus::UnknownPending,
+                    reason: Some(CommandAckReasonCode::ManualInterventionRequired),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 1,
+                },
+            ),
+            (
+                "cancel_404_requires_reconciliation",
+                classified_execution(
+                    FinamOrderEndpointContext::Cancel,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 404,
+                        body: "{\"error\":\"not_found\"}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome: M3d2dLifecycleOutcomeKind::ReconciliationRequired,
+                    status: CommandAckStatus::UnknownPending,
+                    reason: Some(CommandAckReasonCode::ReconciliationRequired),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 1,
+                },
+            ),
+            (
+                "cancel_409_requires_reconciliation",
+                classified_execution(
+                    FinamOrderEndpointContext::Cancel,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 409,
+                        body: "{\"error\":\"conflict\"}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome: M3d2dLifecycleOutcomeKind::ReconciliationRequired,
+                    status: CommandAckStatus::UnknownPending,
+                    reason: Some(CommandAckReasonCode::ReconciliationRequired),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 1,
+                },
+            ),
+            (
+                "cancel_410_requires_reconciliation",
+                classified_execution(
+                    FinamOrderEndpointContext::Cancel,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 410,
+                        body: "{\"error\":\"gone\"}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome: M3d2dLifecycleOutcomeKind::ReconciliationRequired,
+                    status: CommandAckStatus::UnknownPending,
+                    reason: Some(CommandAckReasonCode::ReconciliationRequired),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 1,
+                },
+            ),
+            (
+                "cancel_unauthorized_401",
+                classified_execution(
+                    FinamOrderEndpointContext::Cancel,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 401,
+                        body: "{\"error\":\"unauthorized\"}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome: M3d2dLifecycleOutcomeKind::UnauthorizedDisarm,
+                    status: CommandAckStatus::Error,
+                    reason: Some(CommandAckReasonCode::Unauthorized),
+                    reconciliation_scheduled: false,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 1,
+                },
+            ),
+            (
+                "cancel_rate_limited_429",
+                classified_execution(
+                    FinamOrderEndpointContext::Cancel,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 429,
+                        body: "{\"error\":\"rate\"}".to_string(),
+                        retry_after_ms: Some(1_000),
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome: M3d2dLifecycleOutcomeKind::RateLimitedDisarm,
+                    status: CommandAckStatus::Error,
+                    reason: Some(CommandAckReasonCode::RateLimited),
+                    reconciliation_scheduled: false,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 1,
+                },
+            ),
+            (
+                "cancel_maintenance_503",
+                classified_execution(
+                    FinamOrderEndpointContext::Cancel,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 503,
+                        body: "{\"error\":\"service\"}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome: M3d2dLifecycleOutcomeKind::MaintenanceDisarm,
+                    status: CommandAckStatus::Error,
+                    reason: Some(CommandAckReasonCode::BrokerMaintenance),
+                    reconciliation_scheduled: false,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 1,
+                },
+            ),
+            (
+                "cancel_timeout_504",
+                classified_execution(
+                    FinamOrderEndpointContext::Cancel,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 504,
+                        body: "{\"error\":\"timeout\"}".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::CancelTimeoutUnknownPending,
+                    outcome: M3d2dLifecycleOutcomeKind::CancelTimeoutUnknownPending,
+                    status: CommandAckStatus::Timeout,
+                    reason: Some(CommandAckReasonCode::TransportTimeout),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "CancelTimedOut",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 1,
+                },
+            ),
+            (
+                "cancel_decode_failure",
+                classified_execution(
+                    FinamOrderEndpointContext::Cancel,
+                    FinamOrderEndpointLocalHttpResponse::Response {
+                        status: 200,
+                        body: "not-json".to_string(),
+                        retry_after_ms: None,
+                    },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome: M3d2dLifecycleOutcomeKind::ReconciliationRequired,
+                    status: CommandAckStatus::UnknownPending,
+                    reason: Some(CommandAckReasonCode::ReconciliationRequired),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 1,
+                },
+            ),
+            (
+                "cancel_body_read_failed",
+                classified_execution(
+                    FinamOrderEndpointContext::Cancel,
+                    FinamOrderEndpointLocalHttpResponse::BodyReadFailed { status: Some(200) },
+                ),
+                LifecycleExpectation {
+                    state: OrderPathState::ManualInterventionRequired,
+                    outcome: M3d2dLifecycleOutcomeKind::ReconciliationRequired,
+                    status: CommandAckStatus::UnknownPending,
+                    reason: Some(CommandAckReasonCode::ReconciliationRequired),
+                    reconciliation_scheduled: true,
+                    audit_last_event: "RequireManualIntervention",
+                    submit_attempt_count: 1,
+                    cancel_attempt_count: 1,
+                },
+            ),
+        ];
+
+        for (index, (label, execution, expected)) in cancel_cases.into_iter().enumerate() {
+            let path = sqlite_path(label);
+            let mut store = SqliteOrderPathStore::open(&path).expect("open sqlite store");
+            let order = place_order_with_request(500 + index as u128);
+            let existing = submitted_record(&mut store, &order, "BROKER_TEST_M3D2E_CANCEL");
+            let cancel = CancelOrder {
+                request_id: request_id(1500 + index as u128),
+                created_ts: order.created_ts + chrono::Duration::seconds(1),
+                ttl_ms: Some(1_000),
+                account_id: AccountId::new("ACC_TEST_0001"),
+                order_id: BrokerOrderId::new("BROKER_TEST_M3D2E_CANCEL"),
+                client_order_id: Some(order.client_order_id.clone()),
+            };
+            let approved = approve_cancel(&cancel, &existing);
+            let record = m3d2d_persist_cancel_request(
+                &mut store,
+                &approved,
+                cancel.created_ts + chrono::Duration::milliseconds(5),
+            )
+            .expect("cancel request persisted");
+            let report = m3d2d_apply_cancel_transport_execution(
+                &mut store,
+                record,
+                &approved,
+                execution,
+                cancel.created_ts + chrono::Duration::milliseconds(6),
+            )
+            .expect(label);
+            assert_report_matches(label, &report, &expected);
+            let audit = store.transition_audit().expect("audit");
+            assert_eq!(audit[0].event, "InsertIntent", "{label}: audit insert");
+            assert_eq!(audit[1].event, "BeginSubmit", "{label}: audit begin");
+            assert_eq!(audit[2].event, "SubmitAccepted", "{label}: audit submitted");
+            assert_eq!(audit[3].event, "RequestCancel", "{label}: audit cancel");
+            assert_eq!(
+                audit.last().expect("last audit").event,
+                expected.audit_last_event,
+                "{label}: audit last"
+            );
+            drop(store);
+            cleanup_sqlite(&path);
+        }
+    }
+
+    #[test]
+    fn m3d2e_command_consumer_cannot_route_to_real_transport_by_default() {
+        let blocked_default = M3d2RealOrderEndpointTransport::try_new(
+            M3d2RealOrderEndpointTransportConfig::default(),
+        )
+        .expect_err("default api.finam.ru endpoint must be blocked");
+        assert_eq!(
+            blocked_default,
+            M3d2RealOrderEndpointTransportError::ExternalOrderEndpointBlocked {
+                mode: M3d2ExternalOrderEndpointMode::LocalMockOnly,
+                base_url_kind: M3d2OrderEndpointBaseUrlKind::ExternalFinam,
+            }
+        );
+
+        let blocked_external =
+            M3d2RealOrderEndpointTransport::try_new(M3d2RealOrderEndpointTransportConfig {
+                rest_base_url: "https://api.finam.ru".to_string(),
+                external_endpoint_mode: M3d2ExternalOrderEndpointMode::ExternalFinamDisabled,
+                ..M3d2RealOrderEndpointTransportConfig::default()
+            })
+            .expect_err("explicit external FINAM disabled mode must block api.finam.ru");
+        assert_eq!(
+            blocked_external,
+            M3d2RealOrderEndpointTransportError::ExternalOrderEndpointBlocked {
+                mode: M3d2ExternalOrderEndpointMode::ExternalFinamDisabled,
+                base_url_kind: M3d2OrderEndpointBaseUrlKind::ExternalFinam,
+            }
+        );
+
+        let future_live_gate_blocked =
+            M3d2RealOrderEndpointTransport::try_new(M3d2RealOrderEndpointTransportConfig {
+                rest_base_url: "http://127.0.0.1:1".to_string(),
+                external_endpoint_mode:
+                    M3d2ExternalOrderEndpointMode::FutureExternalFinamRequiresLiveGate,
+                ..M3d2RealOrderEndpointTransportConfig::default()
+            })
+            .expect_err("future live gate mode must remain blocked in M3d-2e");
+        assert_eq!(
+            future_live_gate_blocked,
+            M3d2RealOrderEndpointTransportError::ExternalOrderEndpointBlocked {
+                mode: M3d2ExternalOrderEndpointMode::FutureExternalFinamRequiresLiveGate,
+                base_url_kind: M3d2OrderEndpointBaseUrlKind::Loopback,
+            }
+        );
+
+        let loopback_transport =
+            M3d2RealOrderEndpointTransport::try_new(M3d2RealOrderEndpointTransportConfig {
+                rest_base_url: "http://127.0.0.1:1".to_string(),
+                ..M3d2RealOrderEndpointTransportConfig::default()
+            });
+        assert!(loopback_transport.is_ok());
+
+        let gateway_source = include_str!("lib.rs");
+        assert!(
+            !gateway_source.contains("M3d2RealOrderEndpointTransport::try_new"),
+            "command consumer/gateway lib must not instantiate real order transport"
+        );
+        assert!(gateway_source.contains("command_consumer_enabled: false"));
+        assert!(gateway_source.contains("real_order_endpoint_enabled: false"));
     }
 }

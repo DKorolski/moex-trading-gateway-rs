@@ -149,6 +149,35 @@ if transport_path.exists():
             )
             failures += 1
 
+approved_real_transport_test_files = {
+    Path("crates/finam-gateway/src/m3d2_real_order_transport.rs"),
+    Path("crates/finam-gateway/src/m3d2_real_transport_lifecycle.rs"),
+}
+
+for path in Path("crates").glob("**/*.rs"):
+    source = path.read_text()
+    test_module_idx = source.find("#[cfg(test)]\nmod tests")
+    for token in (
+        "M3d2RealOrderEndpointTransport::try_new",
+        "M3d2RealOrderEndpointTransportConfig::default()",
+    ):
+        search_from = 0
+        while True:
+            idx = source.find(token, search_from)
+            if idx == -1:
+                break
+            before = source[:idx]
+            line_no = before.count("\n") + 1
+            in_test_module = test_module_idx != -1 and idx > test_module_idx
+            if path not in approved_real_transport_test_files or not in_test_module:
+                print(
+                    "forbidden-surface-scan: real order transport construction/default "
+                    f"token {token!r} outside approved test modules at {path}:{line_no}",
+                    file=sys.stderr,
+                )
+                failures += 1
+            search_from = idx + len(token)
+
 source = Path("crates/finam-gateway/src/lib.rs").read_text()
 
 scopes = {

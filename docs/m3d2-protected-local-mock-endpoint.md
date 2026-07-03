@@ -208,3 +208,59 @@ M3d-2d explicitly still does not allow:
 - runtime/live attachment or `LiveReady`;
 - SLTP, bracket, replace, or multi-leg order surfaces;
 - blind retry after timeout or ambiguous post-send outcome.
+
+## M3d-2e protected endpoint closure
+
+M3d-2e closes the protected M3d-2 endpoint stage before any M3e command
+consumer work. It does not add command consumption or live trading. It adds
+two final hardening pieces:
+
+1. A lifecycle outcome matrix proving durable state/ACK/reconciliation mapping
+   for the required PLACE and CANCEL endpoint outcomes.
+2. An explicit external endpoint enablement firewall around the real transport
+   config.
+
+Lifecycle matrix coverage:
+
+- PLACE accepted with broker id -> `Submitted`;
+- PLACE accepted without broker id -> `SubmittedPendingBrokerOrderId` +
+  reconciliation;
+- PLACE 400 -> `BrokerRejected`, no retry;
+- PLACE 401 / 429 / 500 / 503 -> manual/disarm class, no blind retry;
+- PLACE malformed 2xx / body read failure -> reconciliation required;
+- PLACE timeout / 504 -> `TimeoutUnknownPending`;
+- PLACE send error after possible send -> reconciliation required.
+
+CANCEL matrix coverage:
+
+- CANCEL 200 / 202 / 204 accepted -> `CancelSubmitted`, reconciliation
+  scheduled;
+- CANCEL accepted with same broker id -> `CancelSubmitted`;
+- CANCEL accepted with different broker id -> manual intervention;
+- CANCEL 404 / 409 / 410 -> reconciliation/manual path;
+- CANCEL 401 / 429 / 503 -> manual/disarm class, no blind retry;
+- CANCEL timeout / 504 -> `CancelTimeoutUnknownPending`;
+- CANCEL decode / body read failure -> reconciliation required.
+
+External endpoint firewall:
+
+- `M3d2RealOrderEndpointTransportConfig::default()` remains
+  `https://api.finam.ru`, but its default endpoint mode is `LocalMockOnly`, so
+  constructing the real transport with default config is blocked.
+- Loopback local mock URLs are allowed only through `LocalMockOnly`.
+- Explicit `ExternalFinamDisabled` blocks `api.finam.ru`.
+- `FutureExternalFinamRequiresLiveGate` is still blocked in M3d-2e.
+- Scanner/evidence forbid real transport construction/default config usage
+  outside approved test modules.
+- The gateway/command-consumer surface does not instantiate the real transport.
+
+Generate M3d-2e evidence with:
+
+```bash
+python3 scripts/m3d2e_closure_evidence.py \
+  --source-archive reports/handoff/moex-trading-project-<commit>.zip
+```
+
+If the evidence is green, M3d-2 is closed as a protected local-mock endpoint
+stage. Even then, M3e must still remain non-live: no external FINAM order calls,
+no strategy runtime attachment, no `LiveReady`, and no stop/SLTP/bracket.

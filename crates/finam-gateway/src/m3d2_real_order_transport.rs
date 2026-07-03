@@ -47,6 +47,7 @@ pub struct M3d2RealOrderEndpointTransportConfig {
     pub rest_base_url: String,
     pub request_timeout_ms: u64,
     pub authorization_header_mode: FinamAuthorizationHeaderMode,
+    pub external_endpoint_mode: M3d2ExternalOrderEndpointMode,
 }
 
 impl Default for M3d2RealOrderEndpointTransportConfig {
@@ -55,8 +56,23 @@ impl Default for M3d2RealOrderEndpointTransportConfig {
             rest_base_url: "https://api.finam.ru".to_string(),
             request_timeout_ms: 10_000,
             authorization_header_mode: FinamAuthorizationHeaderMode::BearerJwt,
+            external_endpoint_mode: M3d2ExternalOrderEndpointMode::LocalMockOnly,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3d2ExternalOrderEndpointMode {
+    LocalMockOnly,
+    ExternalFinamDisabled,
+    FutureExternalFinamRequiresLiveGate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3d2OrderEndpointBaseUrlKind {
+    Loopback,
+    ExternalFinam,
+    OtherExternal,
 }
 
 #[derive(Clone)]
@@ -76,6 +92,7 @@ impl std::fmt::Debug for M3d2RealOrderEndpointTransport {
                 &self.authorization_header_mode.redacted_diagnostic(),
             )
             .field("raw_token_exported", &false)
+            .field("external_finam_order_calls_allowed_by_default", &false)
             .finish()
     }
 }
@@ -84,6 +101,18 @@ impl M3d2RealOrderEndpointTransport {
     pub fn try_new(
         config: M3d2RealOrderEndpointTransportConfig,
     ) -> Result<Self, M3d2RealOrderEndpointTransportError> {
+        let base_url =
+            reqwest::Url::parse(&format!("{}/", config.rest_base_url.trim_end_matches('/')))
+                .map_err(|_| M3d2RealOrderEndpointTransportError::InvalidBaseUrl)?;
+        let base_url_kind = classify_order_endpoint_base_url(&base_url);
+        if !external_endpoint_firewall_allows(config.external_endpoint_mode, base_url_kind) {
+            return Err(
+                M3d2RealOrderEndpointTransportError::ExternalOrderEndpointBlocked {
+                    mode: config.external_endpoint_mode,
+                    base_url_kind,
+                },
+            );
+        }
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(
                 config.request_timeout_ms.max(1),
@@ -92,9 +121,6 @@ impl M3d2RealOrderEndpointTransport {
             .map_err(|error| M3d2RealOrderEndpointTransportError::ClientBuild {
                 error_kind: error_kind(&error),
             })?;
-        let base_url =
-            reqwest::Url::parse(&format!("{}/", config.rest_base_url.trim_end_matches('/')))
-                .map_err(|_| M3d2RealOrderEndpointTransportError::InvalidBaseUrl)?;
         Ok(Self {
             http,
             base_url,
@@ -408,8 +434,44 @@ pub fn post_send_semantics(
 pub enum M3d2RealOrderEndpointTransportError {
     MissingToken,
     InvalidBaseUrl,
-    ClientBuild { error_kind: String },
-    HttpSend { error_kind: String },
+    ExternalOrderEndpointBlocked {
+        mode: M3d2ExternalOrderEndpointMode,
+        base_url_kind: M3d2OrderEndpointBaseUrlKind,
+    },
+    ClientBuild {
+        error_kind: String,
+    },
+    HttpSend {
+        error_kind: String,
+    },
+}
+
+pub fn classify_order_endpoint_base_url(url: &reqwest::Url) -> M3d2OrderEndpointBaseUrlKind {
+    let Some(host) = url.host_str() else {
+        return M3d2OrderEndpointBaseUrlKind::OtherExternal;
+    };
+    if matches!(host, "127.0.0.1" | "::1" | "localhost") {
+        return M3d2OrderEndpointBaseUrlKind::Loopback;
+    }
+    if host.eq_ignore_ascii_case("api.finam.ru") {
+        return M3d2OrderEndpointBaseUrlKind::ExternalFinam;
+    }
+    M3d2OrderEndpointBaseUrlKind::OtherExternal
+}
+
+pub fn external_endpoint_firewall_allows(
+    mode: M3d2ExternalOrderEndpointMode,
+    base_url_kind: M3d2OrderEndpointBaseUrlKind,
+) -> bool {
+    match mode {
+        M3d2ExternalOrderEndpointMode::LocalMockOnly => {
+            base_url_kind == M3d2OrderEndpointBaseUrlKind::Loopback
+        }
+        M3d2ExternalOrderEndpointMode::ExternalFinamDisabled => {
+            base_url_kind != M3d2OrderEndpointBaseUrlKind::ExternalFinam
+        }
+        M3d2ExternalOrderEndpointMode::FutureExternalFinamRequiresLiveGate => false,
+    }
 }
 
 fn error_kind(error: &reqwest::Error) -> String {

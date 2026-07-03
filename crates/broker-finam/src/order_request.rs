@@ -755,6 +755,12 @@ pub fn classify_order_endpoint_local_http_response_for_context(
             }
         }
         FinamOrderEndpointLocalHttpResponse::Response { status, body, .. }
+            if context == FinamOrderEndpointContext::Cancel
+                && (body.trim().is_empty() || *status == 204) =>
+        {
+            classify_success_order_endpoint_response(*status, r#"{"broker_order_id":null}"#)
+        }
+        FinamOrderEndpointLocalHttpResponse::Response { status, body, .. }
             if (200..300).contains(status) =>
         {
             classify_success_order_endpoint_response(*status, body)
