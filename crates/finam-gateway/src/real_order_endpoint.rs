@@ -438,6 +438,64 @@ pub struct M3j12RuntimeLiveAttachDryRehearsalReport {
     pub blockers: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3j13NoSendPreExecutionRunbookDecision {
+    Blocked,
+    RunbookReady,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j13NoSendPreExecutionRunbookInput {
+    pub generated_at_label: String,
+    pub m3j12_dry_attach_rehearsal_accepted: bool,
+    pub operator_runbook_present: bool,
+    pub exact_stop_conditions_present: bool,
+    pub kill_switch_blocks_runtime_path: bool,
+    pub kill_switch_blocks_command_consumer_path: bool,
+    pub kill_switch_blocks_endpoint_path: bool,
+    pub authorization_bound: bool,
+    pub immediate_readonly_evidence_bound: bool,
+    pub config_digest_bound: bool,
+    pub session_digest_bound: bool,
+    pub strategy_digest_bound: bool,
+    pub durable_audit_before_boundary_record_format_present: bool,
+    pub post_run_reconciliation_template_ready: bool,
+    pub eod_report_template_ready: bool,
+    pub attach_boundary_separation_explicit: bool,
+    pub scanner_blocks_unguarded_post_delete_send: bool,
+    pub redacted_artifacts_only: bool,
+    pub boundary_invocation_requested: bool,
+    pub real_finam_order_endpoint_requested: bool,
+    pub runtime_live_attachment_requested: bool,
+    pub command_consumer_to_real_finam_requested: bool,
+    pub non_loopback_order_endpoint_requested: bool,
+    pub stop_sltp_bracket_replace_multileg_requested: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j13NoSendPreExecutionRunbookReport {
+    pub m3j_step: String,
+    pub final_no_send_pre_execution_runbook_only: bool,
+    pub decision: M3j13NoSendPreExecutionRunbookDecision,
+    pub runbook_ready: bool,
+    pub runbook_ok: bool,
+    pub kill_switch_coverage_ok: bool,
+    pub binding_ok: bool,
+    pub audit_record_format_ok: bool,
+    pub post_run_templates_ok: bool,
+    pub attach_boundary_separation_ok: bool,
+    pub scanner_and_redaction_ok: bool,
+    pub live_micro_go: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub boundary_invocation_performed: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub command_consumer_to_real_finam_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub unsafe_execution_input_detected: bool,
+    pub blockers: Vec<String>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct GatewayRealOrderEndpointInternalRouteShape {
     pub operation: GatewayRealOrderEndpointOperation,
@@ -1121,6 +1179,102 @@ pub fn m3j12_runtime_live_attach_dry_rehearsal_report(
         non_loopback_order_endpoint_allowed: false,
         stop_sltp_bracket_replace_multileg_allowed: false,
         unsafe_boundary_input_detected,
+        blockers,
+    }
+}
+
+pub fn m3j13_no_send_pre_execution_runbook_report(
+    input: M3j13NoSendPreExecutionRunbookInput,
+) -> M3j13NoSendPreExecutionRunbookReport {
+    let runbook_ok = input.operator_runbook_present && input.exact_stop_conditions_present;
+    let kill_switch_coverage_ok = input.kill_switch_blocks_runtime_path
+        && input.kill_switch_blocks_command_consumer_path
+        && input.kill_switch_blocks_endpoint_path;
+    let binding_ok = input.authorization_bound
+        && input.immediate_readonly_evidence_bound
+        && input.config_digest_bound
+        && input.session_digest_bound
+        && input.strategy_digest_bound;
+    let audit_record_format_ok = input.durable_audit_before_boundary_record_format_present;
+    let post_run_templates_ok =
+        input.post_run_reconciliation_template_ready && input.eod_report_template_ready;
+    let attach_boundary_separation_ok = input.attach_boundary_separation_explicit;
+    let scanner_and_redaction_ok =
+        input.scanner_blocks_unguarded_post_delete_send && input.redacted_artifacts_only;
+    let unsafe_execution_input_detected = input.boundary_invocation_requested
+        || input.real_finam_order_endpoint_requested
+        || input.runtime_live_attachment_requested
+        || input.command_consumer_to_real_finam_requested
+        || input.non_loopback_order_endpoint_requested
+        || input.stop_sltp_bracket_replace_multileg_requested;
+
+    let runbook_ready = input.m3j12_dry_attach_rehearsal_accepted
+        && runbook_ok
+        && kill_switch_coverage_ok
+        && binding_ok
+        && audit_record_format_ok
+        && post_run_templates_ok
+        && attach_boundary_separation_ok
+        && scanner_and_redaction_ok
+        && !unsafe_execution_input_detected;
+
+    let mut blockers = Vec::new();
+    if !input.m3j12_dry_attach_rehearsal_accepted {
+        blockers.push("M3j-12 dry attach rehearsal is not accepted".to_string());
+    }
+    if !runbook_ok {
+        blockers.push("operator runbook or exact stop conditions are missing".to_string());
+    }
+    if !kill_switch_coverage_ok {
+        blockers
+            .push("kill switch does not cover runtime, consumer, and endpoint paths".to_string());
+    }
+    if !binding_ok {
+        blockers.push(
+            "authorization, readonly evidence, config, session, or strategy binding is incomplete"
+                .to_string(),
+        );
+    }
+    if !audit_record_format_ok {
+        blockers.push("durable audit-before-boundary record format is missing".to_string());
+    }
+    if !post_run_templates_ok {
+        blockers.push("post-run reconciliation or EOD report template is missing".to_string());
+    }
+    if !attach_boundary_separation_ok {
+        blockers.push("attach-to-boundary separation is not explicit".to_string());
+    }
+    if !scanner_and_redaction_ok {
+        blockers.push("scanner coverage or redaction requirement is incomplete".to_string());
+    }
+    if unsafe_execution_input_detected {
+        blockers.push("live execution, real endpoint, or advanced order semantics requested in no-send runbook".to_string());
+    }
+
+    M3j13NoSendPreExecutionRunbookReport {
+        m3j_step: "M3j-13".to_string(),
+        final_no_send_pre_execution_runbook_only: true,
+        decision: if runbook_ready {
+            M3j13NoSendPreExecutionRunbookDecision::RunbookReady
+        } else {
+            M3j13NoSendPreExecutionRunbookDecision::Blocked
+        },
+        runbook_ready,
+        runbook_ok,
+        kill_switch_coverage_ok,
+        binding_ok,
+        audit_record_format_ok,
+        post_run_templates_ok,
+        attach_boundary_separation_ok,
+        scanner_and_redaction_ok,
+        live_micro_go: false,
+        runtime_live_attachment_allowed: false,
+        boundary_invocation_performed: false,
+        real_finam_order_endpoint_used: false,
+        command_consumer_to_real_finam_allowed: false,
+        non_loopback_order_endpoint_allowed: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+        unsafe_execution_input_detected,
         blockers,
     }
 }
@@ -9535,6 +9689,73 @@ mod tests {
         assert!(!report.live_ready_allowed);
     }
 
+    #[test]
+    fn m3j13_no_send_runbook_ready_but_execution_boundary_stays_closed() {
+        let report =
+            m3j13_no_send_pre_execution_runbook_report(sample_m3j13_no_send_runbook_input());
+        assert_eq!(report.m3j_step, "M3j-13");
+        assert!(report.final_no_send_pre_execution_runbook_only);
+        assert_eq!(
+            report.decision,
+            M3j13NoSendPreExecutionRunbookDecision::RunbookReady
+        );
+        assert!(report.runbook_ready);
+        assert!(report.runbook_ok);
+        assert!(report.kill_switch_coverage_ok);
+        assert!(report.binding_ok);
+        assert!(report.audit_record_format_ok);
+        assert!(report.post_run_templates_ok);
+        assert!(report.attach_boundary_separation_ok);
+        assert!(report.scanner_and_redaction_ok);
+        assert!(!report.live_micro_go);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.boundary_invocation_performed);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.command_consumer_to_real_finam_allowed);
+        assert!(!report.non_loopback_order_endpoint_allowed);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+        assert!(!report.unsafe_execution_input_detected);
+        assert!(report.blockers.is_empty());
+    }
+
+    #[test]
+    fn m3j13_missing_stop_conditions_binding_or_real_endpoint_blocks_runbook() {
+        let mut missing_stop_conditions = sample_m3j13_no_send_runbook_input();
+        missing_stop_conditions.exact_stop_conditions_present = false;
+        let report = m3j13_no_send_pre_execution_runbook_report(missing_stop_conditions);
+        assert_eq!(
+            report.decision,
+            M3j13NoSendPreExecutionRunbookDecision::Blocked
+        );
+        assert!(!report.runbook_ok);
+        assert!(!report.runbook_ready);
+
+        let mut missing_binding = sample_m3j13_no_send_runbook_input();
+        missing_binding.immediate_readonly_evidence_bound = false;
+        let report = m3j13_no_send_pre_execution_runbook_report(missing_binding);
+        assert_eq!(
+            report.decision,
+            M3j13NoSendPreExecutionRunbookDecision::Blocked
+        );
+        assert!(!report.binding_ok);
+        assert!(!report.runbook_ready);
+
+        let mut unsafe_request = sample_m3j13_no_send_runbook_input();
+        unsafe_request.real_finam_order_endpoint_requested = true;
+        unsafe_request.runtime_live_attachment_requested = true;
+        unsafe_request.stop_sltp_bracket_replace_multileg_requested = true;
+        let report = m3j13_no_send_pre_execution_runbook_report(unsafe_request);
+        assert_eq!(
+            report.decision,
+            M3j13NoSendPreExecutionRunbookDecision::Blocked
+        );
+        assert!(report.unsafe_execution_input_detected);
+        assert!(!report.runbook_ready);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+    }
+
     fn sample_m3j7_skeleton_input() -> M3j7TinyLiveOrderPathSkeletonInput {
         M3j7TinyLiveOrderPathSkeletonInput {
             generated_at_label: "synthetic-m3j7-test".to_string(),
@@ -9749,6 +9970,35 @@ mod tests {
             raw_authorization_exported: false,
             raw_broker_payload_exported: false,
             raw_account_exported: false,
+        }
+    }
+
+    fn sample_m3j13_no_send_runbook_input() -> M3j13NoSendPreExecutionRunbookInput {
+        M3j13NoSendPreExecutionRunbookInput {
+            generated_at_label: "synthetic-m3j13-test".to_string(),
+            m3j12_dry_attach_rehearsal_accepted: true,
+            operator_runbook_present: true,
+            exact_stop_conditions_present: true,
+            kill_switch_blocks_runtime_path: true,
+            kill_switch_blocks_command_consumer_path: true,
+            kill_switch_blocks_endpoint_path: true,
+            authorization_bound: true,
+            immediate_readonly_evidence_bound: true,
+            config_digest_bound: true,
+            session_digest_bound: true,
+            strategy_digest_bound: true,
+            durable_audit_before_boundary_record_format_present: true,
+            post_run_reconciliation_template_ready: true,
+            eod_report_template_ready: true,
+            attach_boundary_separation_explicit: true,
+            scanner_blocks_unguarded_post_delete_send: true,
+            redacted_artifacts_only: true,
+            boundary_invocation_requested: false,
+            real_finam_order_endpoint_requested: false,
+            runtime_live_attachment_requested: false,
+            command_consumer_to_real_finam_requested: false,
+            non_loopback_order_endpoint_requested: false,
+            stop_sltp_bracket_replace_multileg_requested: false,
         }
     }
 }
