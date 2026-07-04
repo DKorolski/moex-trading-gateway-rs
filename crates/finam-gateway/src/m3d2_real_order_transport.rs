@@ -66,6 +66,8 @@ pub enum M3d2ExternalOrderEndpointMode {
     LocalMockOnly,
     ExternalFinamDisabled,
     FutureExternalFinamRequiresLiveGate,
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    M3j16ActualOneShotExternalFinam,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -471,6 +473,10 @@ pub fn external_endpoint_firewall_allows(
             base_url_kind == M3d2OrderEndpointBaseUrlKind::Loopback
         }
         M3d2ExternalOrderEndpointMode::FutureExternalFinamRequiresLiveGate => false,
+        #[cfg(feature = "m3j16-actual-one-shot")]
+        M3d2ExternalOrderEndpointMode::M3j16ActualOneShotExternalFinam => {
+            base_url_kind == M3d2OrderEndpointBaseUrlKind::ExternalFinam
+        }
     }
 }
 

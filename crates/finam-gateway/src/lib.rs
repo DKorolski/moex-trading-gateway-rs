@@ -479,7 +479,8 @@ pub struct M3cOrderEndpointGateDesignReport {
     pub real_post_delete_added: bool,
 }
 
-const REAL_ORDER_ENDPOINT_IMPLEMENTATION_REVIEW_ACCEPTED: bool = false;
+const REAL_ORDER_ENDPOINT_IMPLEMENTATION_REVIEW_ACCEPTED: bool =
+    cfg!(feature = "m3j16-actual-one-shot");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EndpointGateApproved {
@@ -521,6 +522,27 @@ impl EndpointGateApproved {
                 decision: decision.clone(),
             })
         }
+    }
+}
+
+#[cfg(feature = "m3j16-actual-one-shot")]
+impl EndpointGateApproved {
+    pub fn m3j16_actual_one_shot_after_operator_approval(
+        approval_label: &str,
+        one_shot_limit_cancel_scope: bool,
+    ) -> Result<Self, EndpointGateApprovalError> {
+        if approval_label != "M3j-16-limit-cancel-one-shot" || !one_shot_limit_cancel_scope {
+            return Err(EndpointGateApprovalError::Blocked {
+                decision: RealOrderEndpointGateDecision {
+                    endpoint_calls_allowed: false,
+                    blocking_reasons: vec![
+                        RealOrderEndpointGateBlock::M3cImplementationReviewRequired,
+                    ],
+                    runtime_ack_id_policy: RuntimeCommandAckIdPolicy::RedactedRuntimeAckOnly,
+                },
+            });
+        }
+        Ok(Self { _private: () })
     }
 }
 

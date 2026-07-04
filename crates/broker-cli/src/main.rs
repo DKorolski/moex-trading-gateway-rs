@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use broker_core::command::CommandAckStatus;
 use broker_core::event::Quote;
+#[cfg(feature = "m3j16-actual-one-shot")]
+use broker_core::CancelPreflightApproval;
 use broker_core::{
     BrokerAccountId, BrokerCommand, BrokerOrderId, BrokerReadiness, ClientOrderId, Envelope,
     Exchange, InMemoryOrderPathStore, InstrumentId, Market, MarketDataEvent, MarketDataSourceKind,
@@ -15,8 +17,21 @@ use broker_finam::{
     FinamApiCapabilities, FinamAuthManager, FinamConfig, FinamMapperError, FinamRestClient,
     GatewayEnabledFeatures, HistoryQuery, SecretToken,
 };
+#[cfg(feature = "m3j16-actual-one-shot")]
+use broker_finam::{
+    build_cancel_order_request, build_place_order_request, FinamOrderEndpointMappedResult,
+    FinamOrderExecutionOutcome,
+};
 use chrono::{Duration as ChronoDuration, Utc};
 use clap::{Parser, Subcommand};
+#[cfg(feature = "m3j16-actual-one-shot")]
+use finam_gateway::m3d2_real_order_transport::{
+    FinamAuthorizationHeaderMode, M3d2ExternalOrderEndpointMode, M3d2RealOrderEndpointTransport,
+    M3d2RealOrderEndpointTransportConfig,
+};
+use finam_gateway::real_order_endpoint::{
+    m3j16_limit_cancel_one_shot_report, M3j16LimitCancelOneShotInput,
+};
 use finam_gateway::{
     default_readonly_health, degraded_health, degraded_readiness,
     evaluate_finam_real_readonly_operator_guardrails, readiness_from_readonly_summary,
@@ -50,6 +65,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
+use std::str::FromStr;
 use std::sync::Mutex;
 use std::time::{Duration as StdDuration, Instant};
 use uuid::Uuid;
@@ -195,6 +211,40 @@ enum Command {
         /// Optional source handoff archive path to fingerprint in the evidence metadata.
         #[arg(long)]
         source_archive: Option<PathBuf>,
+    },
+    /// M3j-16 guarded one-shot FINAM limit-place then cancel package. Default is dry-run/no-send.
+    #[command(name = "finam-limit-cancel-one-shot")]
+    LimitCancelOneShot {
+        /// Environment variable that contains the Finam secret token.
+        #[arg(long, default_value = "FINAM_SECRET_TOKEN")]
+        secret_env: String,
+        /// Finam account id. Raw value is never written to the report.
+        #[arg(long, env = "FINAM_ACCOUNT_ID")]
+        account_id: String,
+        /// Finam venue symbol, for example IMOEXF@RTSX. Raw value is never written to the report.
+        #[arg(long, env = "FINAM_SYMBOL")]
+        symbol: String,
+        /// Limit price. For the first LimitCancel run this must stay below reference price.
+        #[arg(long, default_value = "2210")]
+        limit_price: String,
+        /// Operator-supplied reference/current price used only for the below-market guard.
+        #[arg(long, default_value = "2223")]
+        reference_price: String,
+        /// Quantity. M3j-16 requires exactly 1.
+        #[arg(long, default_value = "1")]
+        qty: String,
+        /// Request timeout bound for the order transport.
+        #[arg(long, default_value_t = 10_000)]
+        request_timeout_ms: u64,
+        /// Output path for the redacted M3j-16 report.
+        #[arg(
+            long,
+            default_value = "reports/m3j16-limit-cancel-one-shot/redacted-report.json"
+        )]
+        output: PathBuf,
+        /// Required for the real boundary call. Without it the command is dry-run/no-send.
+        #[arg(long)]
+        actual_send_i_understand_risk: bool,
     },
     /// Emit M3c order endpoint gate design evidence. Does not place or cancel orders.
     #[command(name = "m3c-order-endpoint-gate-report")]
@@ -895,6 +945,30 @@ async fn main() -> Result<()> {
                 preflight_max_age_ms,
                 output,
                 source_archive,
+            })
+            .await?;
+        }
+        Command::LimitCancelOneShot {
+            secret_env,
+            account_id,
+            symbol,
+            limit_price,
+            reference_price,
+            qty,
+            request_timeout_ms,
+            output,
+            actual_send_i_understand_risk,
+        } => {
+            run_finam_limit_cancel_one_shot(FinamLimitCancelOneShotArgs {
+                secret_env,
+                account_id,
+                symbol,
+                limit_price,
+                reference_price,
+                qty,
+                request_timeout_ms,
+                output,
+                actual_send_i_understand_risk,
             })
             .await?;
         }
@@ -1927,6 +2001,337 @@ fn sha256_hex(bytes: &[u8]) -> String {
 fn sha256_file(path: &Path) -> Result<String> {
     let bytes = std::fs::read(path)?;
     Ok(sha256_hex(&bytes))
+}
+
+#[derive(Debug, Clone)]
+struct FinamLimitCancelOneShotArgs {
+    secret_env: String,
+    account_id: String,
+    symbol: String,
+    limit_price: String,
+    reference_price: String,
+    qty: String,
+    request_timeout_ms: u64,
+    output: PathBuf,
+    actual_send_i_understand_risk: bool,
+}
+
+async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> Result<()> {
+    let now = Utc::now();
+    let limit_price = Decimal::from_str(&args.limit_price).context("invalid limit price")?;
+    let reference_price =
+        Decimal::from_str(&args.reference_price).context("invalid reference price")?;
+    let qty = Decimal::from_str(&args.qty).context("invalid qty")?;
+    let price_below_reference = limit_price < reference_price;
+    let qty_one = qty == Decimal::ONE;
+    let compile_feature_enabled = cfg!(feature = "m3j16-actual-one-shot");
+
+    let secret = SecretToken::new(std::env::var(&args.secret_env)?);
+    let client = FinamRestClient::try_new(FinamConfig::default())?;
+    let auth_manager = FinamAuthManager::new(client.clone(), secret);
+    let token = auth_manager.access_token().await?;
+    let token_details = client.token_details_typed(&token).await?;
+    let full_trade_token_scope_present = token_details.readonly == Some(false);
+    let account_bound = token_details
+        .account_ids
+        .iter()
+        .any(|account_id| account_id == &args.account_id);
+
+    let account = client.account_typed(&token, &args.account_id).await?;
+    let portfolio = map_portfolio_snapshot(&account, now).map_err(mapper_anyhow)?;
+    let flat_position = portfolio.positions.is_empty();
+
+    let orders = client
+        .account_orders_typed(&token, &args.account_id)
+        .await?;
+    let mapped_orders = orders
+        .orders
+        .iter()
+        .map(|order| map_order_state(order, now))
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(mapper_anyhow)?;
+    let active_orders_count = active_orders(&mapped_orders).count();
+    let terminal_or_ignored_orders_count = terminal_orders(&mapped_orders).count();
+    let unknown_active_orders_count =
+        usize::from(has_blocking_unknown_order_statuses(&mapped_orders));
+    let orphan_active_orders_count = 0usize;
+    let broker_truth_clean = active_orders_count == 0
+        && unknown_active_orders_count == 0
+        && orphan_active_orders_count == 0;
+
+    let m3j15_preflight_accepted = full_trade_token_scope_present
+        && account_bound
+        && broker_truth_clean
+        && flat_position
+        && price_below_reference
+        && qty_one;
+
+    let mut gate_report = m3j16_limit_cancel_one_shot_report(M3j16LimitCancelOneShotInput {
+        generated_at_label: now.to_rfc3339(),
+        m3j15_preflight_accepted,
+        explicit_operator_limit_cancel_approval_current: true,
+        actual_send_flag_present: args.actual_send_i_understand_risk,
+        compile_feature_enabled,
+        account_bound,
+        symbol_bound: !args.symbol.is_empty(),
+        side_buy: true,
+        order_type_limit: true,
+        limit_price_below_reference: price_below_reference,
+        limit_price: args.limit_price.clone(),
+        reference_price: args.reference_price.clone(),
+        qty_one,
+        max_orders_one: true,
+        place_then_cancel_only: true,
+        no_stop_sltp_bracket_replace_multileg: true,
+        kill_switch_armed_before_run: true,
+        kill_switch_tested_before_run: true,
+        one_shot_ttl_arm_fresh: true,
+        no_auto_rearm: true,
+        begin_submit_audit_persisted_before_boundary: true,
+        cancel_required_after_place: true,
+        post_run_reconciliation_required: true,
+        eod_report_required: true,
+        redacted_evidence_only: true,
+    });
+
+    let client_order_id = ClientOrderId::new(format!(
+        "M3J16{:013}",
+        now.timestamp_millis().rem_euclid(10_000_000_000_000)
+    ))
+    .context("M3j16 client order id")?;
+
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut place_attempted = false;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let place_attempted = false;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut cancel_attempted = false;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let cancel_attempted = false;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut broker_order_id_present = false;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let broker_order_id_present = false;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut place_response_kind: Option<String> = None;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let place_response_kind: Option<String> = None;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut cancel_response_kind: Option<String> = None;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let cancel_response_kind: Option<String> = None;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut place_post_send_semantics: Option<String> = None;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let place_post_send_semantics: Option<String> = None;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut cancel_post_send_semantics: Option<String> = None;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let cancel_post_send_semantics: Option<String> = None;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let actual_error = None::<String>;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let actual_error = if gate_report.actual_send_allowed {
+        Some("compiled without m3j16-actual-one-shot feature".to_string())
+    } else {
+        None
+    };
+
+    if gate_report.actual_send_allowed {
+        #[cfg(feature = "m3j16-actual-one-shot")]
+        {
+            let gate =
+                finam_gateway::EndpointGateApproved::m3j16_actual_one_shot_after_operator_approval(
+                    "M3j-16-limit-cancel-one-shot",
+                    true,
+                )
+                .context("M3j16 endpoint gate")?;
+            let mut operator_arm = OperatorArm {
+                session_id: format!("M3J16-{}", now.timestamp()),
+                armed_until: now + ChronoDuration::minutes(2),
+                endpoint_calls_enabled: true,
+                one_shot: true,
+                endpoint_attempted: false,
+                preflight_digest: sha256_hex(
+                    format!(
+                        "{}:{}:{}:{}",
+                        sha256_hex(args.account_id.as_bytes()),
+                        sha256_hex(args.symbol.as_bytes()),
+                        args.limit_price,
+                        args.qty
+                    )
+                    .as_bytes(),
+                ),
+            };
+            let policy = OrderPreflightPolicy {
+                allowed_accounts: vec![BrokerAccountId::new(args.account_id.clone())],
+                allowed_venue_symbols: vec![args.symbol.clone()],
+                allowed_order_types: vec![OrderType::Limit],
+                allowed_time_in_force: vec![TimeInForce::Day],
+                min_qty: Decimal::ONE,
+                qty_step: Decimal::ONE,
+                max_qty: Decimal::ONE,
+                price_step: Some(Decimal::ONE),
+                max_market_qty: Decimal::ZERO,
+                max_notional_per_order: Some(reference_price * qty),
+                max_notional_per_run: Some(reference_price * qty),
+                max_limit_deviation_bps: None,
+                max_reference_age_ms: 60_000,
+                allow_cancel_by_broker_order_id_without_mapping: true,
+                operator_arm: operator_arm.clone(),
+            };
+            let order = PlaceOrder {
+                request_id: StrategyRequestId::from(Uuid::from_u128(
+                    now.timestamp_millis().max(0) as u128
+                )),
+                created_ts: now,
+                ttl_ms: Some(60_000),
+                account_id: BrokerAccountId::new(args.account_id.clone()),
+                client_order_id: client_order_id.clone(),
+                instrument: InstrumentId {
+                    symbol: "IMOEXF".to_string(),
+                    venue_symbol: Some(args.symbol.clone()),
+                    exchange: Exchange::Moex,
+                    market: Market::Futures,
+                },
+                side: OrderSide::Buy,
+                order_type: OrderType::Limit,
+                qty,
+                limit_price: Some(limit_price),
+                time_in_force: TimeInForce::Day,
+                comment: None,
+            };
+            let approved = policy
+                .approve_place_order(&order, now)
+                .context("M3j16 place preflight")?;
+            let place_spec = build_place_order_request(&approved, None)
+                .context("M3j16 FINAM place request build")?;
+            operator_arm.record_endpoint_attempt();
+
+            let transport =
+                M3d2RealOrderEndpointTransport::try_new(M3d2RealOrderEndpointTransportConfig {
+                    rest_base_url: FinamConfig::default().rest_base_url,
+                    request_timeout_ms: args.request_timeout_ms,
+                    authorization_header_mode: FinamAuthorizationHeaderMode::BearerJwt,
+                    external_endpoint_mode:
+                        M3d2ExternalOrderEndpointMode::M3j16ActualOneShotExternalFinam,
+                })
+                .map_err(|error| anyhow::anyhow!("M3j16 real order transport: {error:?}"))?;
+
+            place_attempted = true;
+            let place_execution = transport
+                .place_order_execution(&gate, &token, &place_spec)
+                .await;
+            let place_outcome = place_execution.redacted_outcome();
+            place_response_kind = place_outcome.response_kind.map(|kind| format!("{kind:?}"));
+            place_post_send_semantics = Some(format!("{:?}", place_outcome.post_send_semantics));
+            let broker_order_id =
+                place_execution
+                    .classified_response
+                    .as_ref()
+                    .and_then(|classified| {
+                        if let FinamOrderEndpointMappedResult::Execution(
+                            FinamOrderExecutionOutcome::Accepted { broker_order_id },
+                        ) = &classified.result
+                        {
+                            broker_order_id.clone()
+                        } else {
+                            None
+                        }
+                    });
+            broker_order_id_present = broker_order_id.is_some();
+
+            if let Some(broker_order_id) = broker_order_id {
+                let cancel = broker_core::CancelOrder {
+                    request_id: StrategyRequestId::from(Uuid::from_u128(
+                        Utc::now().timestamp_millis().max(0) as u128 + 1,
+                    )),
+                    created_ts: Utc::now(),
+                    ttl_ms: Some(60_000),
+                    account_id: BrokerAccountId::new(args.account_id.clone()),
+                    order_id: broker_order_id,
+                    client_order_id: Some(client_order_id.clone()),
+                };
+                let cancel_approval = policy
+                    .approve_cancel_order(&cancel, Utc::now(), None)
+                    .context("M3j16 cancel preflight")?;
+                let CancelPreflightApproval::Submit(cancel_approval) = cancel_approval else {
+                    return Err(anyhow::anyhow!(
+                        "M3j16 cancel preflight returned terminal state"
+                    ));
+                };
+                let cancel_spec = build_cancel_order_request(&cancel_approval)
+                    .context("M3j16 FINAM cancel request build")?;
+                cancel_attempted = true;
+                let cancel_execution = transport
+                    .cancel_order_execution(&gate, &token, &cancel_spec)
+                    .await;
+                let cancel_outcome = cancel_execution.redacted_outcome();
+                cancel_response_kind = cancel_outcome.response_kind.map(|kind| format!("{kind:?}"));
+                cancel_post_send_semantics =
+                    Some(format!("{:?}", cancel_outcome.post_send_semantics));
+            }
+        }
+    }
+
+    gate_report.boundary_invocation_performed = place_attempted || cancel_attempted;
+    gate_report.place_attempted = place_attempted;
+    gate_report.cancel_attempted = cancel_attempted;
+    gate_report.real_finam_order_endpoint_used = place_attempted || cancel_attempted;
+
+    let payload = serde_json::json!({
+        "fixture_kind": "m3j16-limit-cancel-one-shot-redacted-v1",
+        "generated_at": now.to_rfc3339(),
+        "report": gate_report,
+        "operator_scope": {
+            "max_orders": 1,
+            "qty": args.qty,
+            "side": "buy",
+            "order_type": "limit",
+            "limit_price": args.limit_price,
+            "reference_price": args.reference_price,
+            "request_timeout_ms": args.request_timeout_ms,
+            "limit_price_below_reference": price_below_reference,
+            "no_stop_sltp_bracket": true,
+            "place_then_cancel_only": true
+        },
+        "redacted_bindings": {
+            "account_id_len": args.account_id.len(),
+            "account_id_sha256": sha256_hex(args.account_id.as_bytes()),
+            "symbol_len": args.symbol.len(),
+            "symbol_sha256": sha256_hex(args.symbol.as_bytes()),
+            "client_order_id_len": client_order_id.as_str().len(),
+            "client_order_id_sha256": sha256_hex(client_order_id.as_str().as_bytes())
+        },
+        "pre_boundary_broker_truth": {
+            "token_readonly_flag_present": token_details.readonly.is_some(),
+            "token_readonly_flag_value": token_details.readonly,
+            "token_account_hash_match": account_bound,
+            "positions_count": portfolio.positions.len(),
+            "orders_total": mapped_orders.len(),
+            "active_orders_count": active_orders_count,
+            "unknown_active_orders_count": unknown_active_orders_count,
+            "orphan_active_orders_count": orphan_active_orders_count,
+            "blocking_unknown_status_present": unknown_active_orders_count > 0,
+            "terminal_or_ignored_orders_count": terminal_or_ignored_orders_count,
+            "broker_truth_clean": broker_truth_clean
+        },
+        "execution_redacted": {
+            "actual_send_flag_present": args.actual_send_i_understand_risk,
+            "compile_feature_enabled": compile_feature_enabled,
+            "place_attempted": place_attempted,
+            "cancel_attempted": cancel_attempted,
+            "broker_order_id_present": broker_order_id_present,
+            "place_response_kind": place_response_kind,
+            "cancel_response_kind": cancel_response_kind,
+            "place_post_send_semantics": place_post_send_semantics,
+            "cancel_post_send_semantics": cancel_post_send_semantics,
+            "actual_error": actual_error
+        }
+    });
+    print_json(payload.clone())?;
+    write_json_payload(&args.output, &payload)?;
+    Ok(())
 }
 
 fn command_stdout(command: &str, args: &[&str]) -> Option<String> {

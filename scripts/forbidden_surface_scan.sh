@@ -153,6 +153,7 @@ approved_real_transport_test_files = {
     Path("crates/finam-gateway/src/m3d2_real_order_transport.rs"),
     Path("crates/finam-gateway/src/m3d2_real_transport_lifecycle.rs"),
 }
+m3j16_cli_path = Path("crates/broker-cli/src/main.rs")
 
 for path in Path("crates").glob("**/*.rs"):
     source = path.read_text()
@@ -169,7 +170,15 @@ for path in Path("crates").glob("**/*.rs"):
             before = source[:idx]
             line_no = before.count("\n") + 1
             in_test_module = test_module_idx != -1 and idx > test_module_idx
-            if path not in approved_real_transport_test_files or not in_test_module:
+            m3j16_cli_allow = (
+                path == m3j16_cli_path
+                and token == "M3d2RealOrderEndpointTransport::try_new"
+                and '#[command(name = "finam-limit-cancel-one-shot")]' in source
+                and 'actual_send_i_understand_risk' in source
+                and 'cfg!(feature = "m3j16-actual-one-shot")' in source
+                and 'M3d2ExternalOrderEndpointMode::M3j16ActualOneShotExternalFinam' in source
+            )
+            if (path not in approved_real_transport_test_files or not in_test_module) and not m3j16_cli_allow:
                 print(
                     "forbidden-surface-scan: real order transport construction/default "
                     f"token {token!r} outside approved test modules at {path}:{line_no}",

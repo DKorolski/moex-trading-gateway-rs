@@ -25,3 +25,7 @@ uuid.workspace = true
 [[bin]]
 name = "broker-cli"
 path = "src/main.rs"
+
+[features]
+default = []
+m3j16-actual-one-shot = ["finam-gateway/m3j16-actual-one-shot"]

@@ -637,6 +637,64 @@ pub struct M3j15ActualInvocationPreflightReport {
     pub blockers: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3j16LimitCancelOneShotDecision {
+    Blocked,
+    DryRunNoSend,
+    ActualSendAllowed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j16LimitCancelOneShotInput {
+    pub generated_at_label: String,
+    pub m3j15_preflight_accepted: bool,
+    pub explicit_operator_limit_cancel_approval_current: bool,
+    pub actual_send_flag_present: bool,
+    pub compile_feature_enabled: bool,
+    pub account_bound: bool,
+    pub symbol_bound: bool,
+    pub side_buy: bool,
+    pub order_type_limit: bool,
+    pub limit_price_below_reference: bool,
+    pub limit_price: String,
+    pub reference_price: String,
+    pub qty_one: bool,
+    pub max_orders_one: bool,
+    pub place_then_cancel_only: bool,
+    pub no_stop_sltp_bracket_replace_multileg: bool,
+    pub kill_switch_armed_before_run: bool,
+    pub kill_switch_tested_before_run: bool,
+    pub one_shot_ttl_arm_fresh: bool,
+    pub no_auto_rearm: bool,
+    pub begin_submit_audit_persisted_before_boundary: bool,
+    pub cancel_required_after_place: bool,
+    pub post_run_reconciliation_required: bool,
+    pub eod_report_required: bool,
+    pub redacted_evidence_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j16LimitCancelOneShotReport {
+    pub m3j_step: String,
+    pub limit_cancel_one_shot_only: bool,
+    pub decision: M3j16LimitCancelOneShotDecision,
+    pub dry_run_no_send: bool,
+    pub actual_send_allowed: bool,
+    pub scope_ok: bool,
+    pub price_guard_ok: bool,
+    pub risk_controls_ok: bool,
+    pub audit_and_reconciliation_ok: bool,
+    pub redaction_ok: bool,
+    pub boundary_invocation_performed: bool,
+    pub place_attempted: bool,
+    pub cancel_attempted: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub command_consumer_to_real_finam_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub blockers: Vec<String>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct GatewayRealOrderEndpointInternalRouteShape {
     pub operation: GatewayRealOrderEndpointOperation,
@@ -1649,6 +1707,91 @@ pub fn m3j15_actual_invocation_preflight_report(
         no_stop_sltp_bracket: true,
         stop_sltp_bracket_replace_multileg_allowed: false,
         unsafe_execution_input_detected,
+        blockers,
+    }
+}
+
+pub fn m3j16_limit_cancel_one_shot_report(
+    input: M3j16LimitCancelOneShotInput,
+) -> M3j16LimitCancelOneShotReport {
+    let scope_ok = input.m3j15_preflight_accepted
+        && input.explicit_operator_limit_cancel_approval_current
+        && input.account_bound
+        && input.symbol_bound
+        && input.side_buy
+        && input.order_type_limit
+        && input.qty_one
+        && input.max_orders_one
+        && input.place_then_cancel_only
+        && input.no_stop_sltp_bracket_replace_multileg;
+    let price_guard_ok = input.limit_price_below_reference;
+    let risk_controls_ok = input.kill_switch_armed_before_run
+        && input.kill_switch_tested_before_run
+        && input.one_shot_ttl_arm_fresh
+        && input.no_auto_rearm;
+    let audit_and_reconciliation_ok = input.begin_submit_audit_persisted_before_boundary
+        && input.cancel_required_after_place
+        && input.post_run_reconciliation_required
+        && input.eod_report_required;
+    let redaction_ok = input.redacted_evidence_only;
+    let base_ok = scope_ok
+        && price_guard_ok
+        && risk_controls_ok
+        && audit_and_reconciliation_ok
+        && redaction_ok;
+    let actual_send_allowed =
+        base_ok && input.actual_send_flag_present && input.compile_feature_enabled;
+    let dry_run_no_send = base_ok && !input.actual_send_flag_present;
+
+    let mut blockers = Vec::new();
+    if !scope_ok {
+        blockers.push("M3j-16 limit-cancel one-shot scope is incomplete".to_string());
+    }
+    if !price_guard_ok {
+        blockers.push("limit price is not below the supplied reference price".to_string());
+    }
+    if !risk_controls_ok {
+        blockers.push("kill switch, TTL arm, or no-auto-rearm control is missing".to_string());
+    }
+    if !audit_and_reconciliation_ok {
+        blockers.push(
+            "begin-submit audit, cancel requirement, reconciliation, or EOD requirement is missing"
+                .to_string(),
+        );
+    }
+    if !redaction_ok {
+        blockers.push("redacted evidence requirement is incomplete".to_string());
+    }
+    if input.actual_send_flag_present && !input.compile_feature_enabled {
+        blockers.push(
+            "actual-send flag is present but m3j16-actual-one-shot feature is disabled".to_string(),
+        );
+    }
+
+    M3j16LimitCancelOneShotReport {
+        m3j_step: "M3j-16".to_string(),
+        limit_cancel_one_shot_only: true,
+        decision: if actual_send_allowed {
+            M3j16LimitCancelOneShotDecision::ActualSendAllowed
+        } else if dry_run_no_send {
+            M3j16LimitCancelOneShotDecision::DryRunNoSend
+        } else {
+            M3j16LimitCancelOneShotDecision::Blocked
+        },
+        dry_run_no_send,
+        actual_send_allowed,
+        scope_ok,
+        price_guard_ok,
+        risk_controls_ok,
+        audit_and_reconciliation_ok,
+        redaction_ok,
+        boundary_invocation_performed: false,
+        place_attempted: false,
+        cancel_attempted: false,
+        real_finam_order_endpoint_used: false,
+        runtime_live_attachment_allowed: false,
+        command_consumer_to_real_finam_allowed: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
         blockers,
     }
 }
@@ -10271,6 +10414,55 @@ mod tests {
         assert!(!report.command_consumer_to_real_finam_allowed);
     }
 
+    #[test]
+    fn m3j16_limit_cancel_defaults_to_dry_run_no_send() {
+        let report =
+            m3j16_limit_cancel_one_shot_report(sample_m3j16_limit_cancel_input(false, false));
+        assert_eq!(report.m3j_step, "M3j-16");
+        assert!(report.limit_cancel_one_shot_only);
+        assert_eq!(
+            report.decision,
+            M3j16LimitCancelOneShotDecision::DryRunNoSend
+        );
+        assert!(report.dry_run_no_send);
+        assert!(!report.actual_send_allowed);
+        assert!(report.scope_ok);
+        assert!(report.price_guard_ok);
+        assert!(report.risk_controls_ok);
+        assert!(report.audit_and_reconciliation_ok);
+        assert!(report.redaction_ok);
+        assert!(!report.boundary_invocation_performed);
+        assert!(!report.place_attempted);
+        assert!(!report.cancel_attempted);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.command_consumer_to_real_finam_allowed);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+    }
+
+    #[test]
+    fn m3j16_limit_cancel_actual_requires_feature_flag_and_below_market_guard() {
+        let report =
+            m3j16_limit_cancel_one_shot_report(sample_m3j16_limit_cancel_input(true, true));
+        assert_eq!(
+            report.decision,
+            M3j16LimitCancelOneShotDecision::ActualSendAllowed
+        );
+        assert!(report.actual_send_allowed);
+        assert!(!report.boundary_invocation_performed);
+
+        let mut not_below_market = sample_m3j16_limit_cancel_input(true, true);
+        not_below_market.limit_price_below_reference = false;
+        let report = m3j16_limit_cancel_one_shot_report(not_below_market);
+        assert_eq!(report.decision, M3j16LimitCancelOneShotDecision::Blocked);
+        assert!(!report.price_guard_ok);
+
+        let report =
+            m3j16_limit_cancel_one_shot_report(sample_m3j16_limit_cancel_input(true, false));
+        assert_eq!(report.decision, M3j16LimitCancelOneShotDecision::Blocked);
+        assert!(!report.actual_send_allowed);
+    }
+
     fn sample_m3j7_skeleton_input() -> M3j7TinyLiveOrderPathSkeletonInput {
         M3j7TinyLiveOrderPathSkeletonInput {
             generated_at_label: "synthetic-m3j7-test".to_string(),
@@ -10590,6 +10782,39 @@ mod tests {
             continuous_command_consumer_requested: false,
             non_loopback_order_endpoint_requested: false,
             stop_sltp_bracket_replace_multileg_requested: false,
+        }
+    }
+
+    fn sample_m3j16_limit_cancel_input(
+        actual_send_flag_present: bool,
+        compile_feature_enabled: bool,
+    ) -> M3j16LimitCancelOneShotInput {
+        M3j16LimitCancelOneShotInput {
+            generated_at_label: "synthetic-m3j16-test".to_string(),
+            m3j15_preflight_accepted: true,
+            explicit_operator_limit_cancel_approval_current: true,
+            actual_send_flag_present,
+            compile_feature_enabled,
+            account_bound: true,
+            symbol_bound: true,
+            side_buy: true,
+            order_type_limit: true,
+            limit_price_below_reference: true,
+            limit_price: "2210".to_string(),
+            reference_price: "2223".to_string(),
+            qty_one: true,
+            max_orders_one: true,
+            place_then_cancel_only: true,
+            no_stop_sltp_bracket_replace_multileg: true,
+            kill_switch_armed_before_run: true,
+            kill_switch_tested_before_run: true,
+            one_shot_ttl_arm_fresh: true,
+            no_auto_rearm: true,
+            begin_submit_audit_persisted_before_boundary: true,
+            cancel_required_after_place: true,
+            post_run_reconciliation_required: true,
+            eod_report_required: true,
+            redacted_evidence_only: true,
         }
     }
 }
