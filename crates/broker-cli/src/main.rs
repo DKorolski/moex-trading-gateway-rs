@@ -260,6 +260,15 @@ enum Command {
         /// Sensitive local-only raw FINAM order endpoint response capture path. Do not put in handoff.
         #[arg(long)]
         raw_response_output: Option<PathBuf>,
+        /// M3j-20: poll readonly orders until the placed order is observed as active/working before cancel.
+        #[arg(long)]
+        observe_working_before_cancel: bool,
+        /// M3j-20: max milliseconds to wait for active/working observation before cancel.
+        #[arg(long, default_value_t = 5_000)]
+        working_observation_timeout_ms: u64,
+        /// M3j-20: poll interval milliseconds for active/working observation.
+        #[arg(long, default_value_t = 250)]
+        working_observation_poll_ms: u64,
     },
     /// Emit M3c order endpoint gate design evidence. Does not place or cancel orders.
     #[command(name = "m3c-order-endpoint-gate-report")]
@@ -977,6 +986,9 @@ async fn main() -> Result<()> {
             actual_send_i_understand_risk,
             pre_actual_gate_only,
             raw_response_output,
+            observe_working_before_cancel,
+            working_observation_timeout_ms,
+            working_observation_poll_ms,
         } => {
             run_finam_limit_cancel_one_shot(FinamLimitCancelOneShotArgs {
                 secret_env,
@@ -992,6 +1004,9 @@ async fn main() -> Result<()> {
                 actual_send_i_understand_risk,
                 pre_actual_gate_only,
                 raw_response_output,
+                observe_working_before_cancel,
+                working_observation_timeout_ms,
+                working_observation_poll_ms,
             })
             .await?;
         }
@@ -2041,6 +2056,9 @@ struct FinamLimitCancelOneShotArgs {
     actual_send_i_understand_risk: bool,
     pre_actual_gate_only: bool,
     raw_response_output: Option<PathBuf>,
+    observe_working_before_cancel: bool,
+    working_observation_timeout_ms: u64,
+    working_observation_poll_ms: u64,
 }
 
 async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> Result<()> {
@@ -2202,6 +2220,30 @@ async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> R
     #[cfg(not(feature = "m3j16-actual-one-shot"))]
     let cancel_post_send_semantics: Option<String> = None;
     #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut working_observation_attempted = false;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let working_observation_attempted = false;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut working_observed = false;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let working_observed = false;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut working_observation_poll_count = 0usize;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let working_observation_poll_count = 0usize;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut working_observation_last_status: Option<String> = None;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let working_observation_last_status: Option<String> = None;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut working_observation_last_native_status: Option<String> = None;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let working_observation_last_native_status: Option<String> = None;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut working_observation_order_found = false;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let working_observation_order_found = false;
+    #[cfg(feature = "m3j16-actual-one-shot")]
     let actual_error = None::<String>;
     #[cfg(not(feature = "m3j16-actual-one-shot"))]
     let actual_error = if gate_report.actual_send_allowed {
@@ -2319,6 +2361,43 @@ async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> R
             broker_order_id_present = broker_order_id.is_some();
 
             if let Some(broker_order_id) = broker_order_id {
+                if args.observe_working_before_cancel {
+                    working_observation_attempted = true;
+                    let started = Instant::now();
+                    let timeout =
+                        StdDuration::from_millis(args.working_observation_timeout_ms.max(1));
+                    let poll_interval =
+                        StdDuration::from_millis(args.working_observation_poll_ms.max(1));
+                    loop {
+                        working_observation_poll_count += 1;
+                        let observation_now = Utc::now();
+                        let observed_orders = client
+                            .account_orders_typed(&token, &args.account_id)
+                            .await
+                            .context("M3j20 working observation orders poll")?;
+                        let matched_order = observed_orders.orders.iter().find(|order| {
+                            order.order_id.as_deref() == Some(broker_order_id.as_str())
+                                || order.order.client_order_id.as_deref()
+                                    == Some(client_order_id.as_str())
+                        });
+                        if let Some(order) = matched_order {
+                            working_observation_order_found = true;
+                            working_observation_last_native_status = Some(order.status.clone());
+                            let mapped = map_order_state(order, observation_now)
+                                .map_err(mapper_anyhow)
+                                .context("M3j20 working observation order map")?;
+                            working_observation_last_status = Some(format!("{:?}", mapped.status));
+                            if matches!(mapped.status, OrderStatus::New | OrderStatus::Working) {
+                                working_observed = true;
+                                break;
+                            }
+                        }
+                        if started.elapsed() >= timeout {
+                            break;
+                        }
+                        tokio::time::sleep(poll_interval).await;
+                    }
+                }
                 let cancel = broker_core::CancelOrder {
                     request_id: StrategyRequestId::from(Uuid::from_u128(
                         Utc::now().timestamp_millis().max(0) as u128 + 1,
@@ -2375,7 +2454,10 @@ async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> R
             "reference_quote_max_age_ms": args.reference_quote_max_age_ms,
             "limit_price_below_reference": price_below_reference,
             "no_stop_sltp_bracket": true,
-            "place_then_cancel_only": true
+            "place_then_cancel_only": true,
+            "observe_working_before_cancel": args.observe_working_before_cancel,
+            "working_observation_timeout_ms": args.working_observation_timeout_ms,
+            "working_observation_poll_ms": args.working_observation_poll_ms
         },
         "redacted_bindings": {
             "account_id_len": args.account_id.len(),
@@ -2419,8 +2501,14 @@ async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> R
             "cancel_response_kind": cancel_response_kind,
             "place_post_send_semantics": place_post_send_semantics,
             "cancel_post_send_semantics": cancel_post_send_semantics,
-            "actual_error": actual_error
-            ,"raw_response_capture_requested": args.raw_response_output.is_some()
+            "actual_error": actual_error,
+            "raw_response_capture_requested": args.raw_response_output.is_some(),
+            "working_observation_attempted": working_observation_attempted,
+            "working_observed": working_observed,
+            "working_observation_order_found": working_observation_order_found,
+            "working_observation_poll_count": working_observation_poll_count,
+            "working_observation_last_status": working_observation_last_status,
+            "working_observation_last_native_status": working_observation_last_native_status
         }
     });
     print_json(payload.clone())?;
