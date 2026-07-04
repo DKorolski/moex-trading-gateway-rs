@@ -6458,6 +6458,113 @@ pub struct M3j0AlorOracleReadinessComparisonReport {
     pub alor_oracle_items: Vec<(String, M3j0OracleItemStatus)>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3j1OperatorDisarmReason {
+    TtlExpired,
+    OneShotConsumed,
+    RestartObserved,
+    AccountMismatch,
+    SymbolMismatch,
+    ConfigDigestMismatch,
+    EndpointSessionDigestMismatch,
+    KillSwitchActive,
+    RiskLimitExceeded,
+    UnknownPendingOrders,
+    ReadinessDegraded,
+    ManualDisarm,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j1OperatorArmDesign {
+    pub one_shot: bool,
+    pub ttl_required: bool,
+    pub expected_account_digest_required: bool,
+    pub expected_symbol_digest_required: bool,
+    pub expected_config_digest_required: bool,
+    pub expected_endpoint_session_digest_required: bool,
+    pub no_auto_rearm_after_restart: bool,
+    pub explicit_disarm_reasons: Vec<M3j1OperatorDisarmReason>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j1KillSwitchDesign {
+    pub hard_global_order_emission_block: bool,
+    pub blocks_runtime: bool,
+    pub blocks_command_consumer: bool,
+    pub blocks_endpoint_path: bool,
+    pub persists_across_restart: bool,
+    pub redacted_operator_report: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j1RiskLimitsDesign {
+    pub max_orders_per_day_required: bool,
+    pub max_orders_per_session_required: bool,
+    pub max_qty_required: bool,
+    pub max_notional_placeholder: bool,
+    pub max_loss_stop_out_placeholder: bool,
+    pub max_unknown_pending_count: u32,
+    pub ri_rts_allowed_initially: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j1ScopeControlsDesign {
+    pub account_allowlist_count: u32,
+    pub symbol_allowlist_count: u32,
+    pub timeframe_scope_count: u32,
+    pub strategy_scope_count: u32,
+    pub market_orders_allowed: bool,
+    pub limit_orders_allowed: bool,
+    pub stop_orders_allowed: bool,
+    pub sltp_allowed: bool,
+    pub bracket_allowed: bool,
+    pub replace_allowed: bool,
+    pub multi_leg_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j1LiveGateDesignInput {
+    pub generated_at: DateTime<Utc>,
+    pub operator_arm: M3j1OperatorArmDesign,
+    pub kill_switch: M3j1KillSwitchDesign,
+    pub risk_limits: M3j1RiskLimitsDesign,
+    pub scope_controls: M3j1ScopeControlsDesign,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub external_finam_post_delete_allowed: bool,
+    pub command_consumer_to_real_finam_transport_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j1LiveGateDesignReport {
+    pub schema_version: u16,
+    pub generated_at: DateTime<Utc>,
+    pub m3j_step: String,
+    pub pre_live_design_only: bool,
+    pub m3j1_live_gate_design_ok: bool,
+    pub operator_arm_design_ready: bool,
+    pub kill_switch_design_ready: bool,
+    pub max_orders_qty_loss_limits_ready: bool,
+    pub scope_controls_ready: bool,
+    pub one_account_one_symbol_scope_ready: bool,
+    pub market_limit_only: bool,
+    pub max_unknown_pending_count_zero: bool,
+    pub no_ri_rts_initially: bool,
+    pub no_live_boundary: bool,
+    pub live_micro_go: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub external_finam_post_delete_allowed: bool,
+    pub command_consumer_to_real_finam_transport_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub disarm_reasons_covered: Vec<M3j1OperatorDisarmReason>,
+    pub blocked_surfaces: Vec<String>,
+    pub next_required_steps: Vec<String>,
+}
+
 pub fn m3i2_strategy_output_contract_report() -> M3iPaperStrategyOutputContractReport {
     M3iPaperStrategyOutputContractReport {
         schema_version: SCHEMA_VERSION,
@@ -7237,6 +7344,110 @@ pub fn m3j0_alor_oracle_readiness_comparison(
         stop_sltp_bracket_replace_multileg_allowed: false,
         next_required_steps,
         alor_oracle_items,
+    }
+}
+
+pub fn m3j1_live_gate_design_report(input: M3j1LiveGateDesignInput) -> M3j1LiveGateDesignReport {
+    let required_disarm_reasons = vec![
+        M3j1OperatorDisarmReason::TtlExpired,
+        M3j1OperatorDisarmReason::OneShotConsumed,
+        M3j1OperatorDisarmReason::RestartObserved,
+        M3j1OperatorDisarmReason::AccountMismatch,
+        M3j1OperatorDisarmReason::SymbolMismatch,
+        M3j1OperatorDisarmReason::ConfigDigestMismatch,
+        M3j1OperatorDisarmReason::EndpointSessionDigestMismatch,
+        M3j1OperatorDisarmReason::KillSwitchActive,
+        M3j1OperatorDisarmReason::RiskLimitExceeded,
+        M3j1OperatorDisarmReason::UnknownPendingOrders,
+        M3j1OperatorDisarmReason::ReadinessDegraded,
+        M3j1OperatorDisarmReason::ManualDisarm,
+    ];
+    let disarm_reasons_complete = required_disarm_reasons
+        .iter()
+        .all(|reason| input.operator_arm.explicit_disarm_reasons.contains(reason));
+    let operator_arm_design_ready = input.operator_arm.one_shot
+        && input.operator_arm.ttl_required
+        && input.operator_arm.expected_account_digest_required
+        && input.operator_arm.expected_symbol_digest_required
+        && input.operator_arm.expected_config_digest_required
+        && input.operator_arm.expected_endpoint_session_digest_required
+        && input.operator_arm.no_auto_rearm_after_restart
+        && disarm_reasons_complete;
+    let kill_switch_design_ready = input.kill_switch.hard_global_order_emission_block
+        && input.kill_switch.blocks_runtime
+        && input.kill_switch.blocks_command_consumer
+        && input.kill_switch.blocks_endpoint_path
+        && input.kill_switch.persists_across_restart
+        && input.kill_switch.redacted_operator_report;
+    let max_unknown_pending_count_zero = input.risk_limits.max_unknown_pending_count == 0;
+    let no_ri_rts_initially = !input.risk_limits.ri_rts_allowed_initially;
+    let max_orders_qty_loss_limits_ready = input.risk_limits.max_orders_per_day_required
+        && input.risk_limits.max_orders_per_session_required
+        && input.risk_limits.max_qty_required
+        && input.risk_limits.max_notional_placeholder
+        && input.risk_limits.max_loss_stop_out_placeholder
+        && max_unknown_pending_count_zero
+        && no_ri_rts_initially;
+    let one_account_one_symbol_scope_ready = input.scope_controls.account_allowlist_count == 1
+        && input.scope_controls.symbol_allowlist_count == 1
+        && input.scope_controls.timeframe_scope_count == 1
+        && input.scope_controls.strategy_scope_count == 1;
+    let market_limit_only = input.scope_controls.market_orders_allowed
+        && input.scope_controls.limit_orders_allowed
+        && !input.scope_controls.stop_orders_allowed
+        && !input.scope_controls.sltp_allowed
+        && !input.scope_controls.bracket_allowed
+        && !input.scope_controls.replace_allowed
+        && !input.scope_controls.multi_leg_allowed;
+    let scope_controls_ready = one_account_one_symbol_scope_ready && market_limit_only;
+    let no_live_boundary = !input.live_ready_allowed
+        && !input.runtime_live_attachment_allowed
+        && !input.external_finam_post_delete_allowed
+        && !input.command_consumer_to_real_finam_transport_allowed
+        && !input.non_loopback_order_endpoint_allowed
+        && !input.stop_sltp_bracket_replace_multileg_allowed;
+    let m3j1_live_gate_design_ok = operator_arm_design_ready
+        && kill_switch_design_ready
+        && max_orders_qty_loss_limits_ready
+        && scope_controls_ready
+        && no_live_boundary;
+    M3j1LiveGateDesignReport {
+        schema_version: SCHEMA_VERSION,
+        generated_at: input.generated_at,
+        m3j_step: "M3j-1".to_string(),
+        pre_live_design_only: true,
+        m3j1_live_gate_design_ok,
+        operator_arm_design_ready,
+        kill_switch_design_ready,
+        max_orders_qty_loss_limits_ready,
+        scope_controls_ready,
+        one_account_one_symbol_scope_ready,
+        market_limit_only,
+        max_unknown_pending_count_zero,
+        no_ri_rts_initially,
+        no_live_boundary,
+        live_micro_go: false,
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        external_finam_post_delete_allowed: false,
+        command_consumer_to_real_finam_transport_allowed: false,
+        non_loopback_order_endpoint_allowed: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+        disarm_reasons_covered: required_disarm_reasons,
+        blocked_surfaces: vec![
+            "LiveReady".to_string(),
+            "runtime live attachment".to_string(),
+            "external FINAM POST/DELETE".to_string(),
+            "command consumer to real FINAM transport".to_string(),
+            "non-loopback order endpoint".to_string(),
+            "Stop/SLTP/bracket/replace/multi-leg".to_string(),
+            "RI/RTS initial live micro scope".to_string(),
+        ],
+        next_required_steps: vec![
+            "M3j-2 fresh read-only FINAM evidence".to_string(),
+            "M3j-3 one-symbol dry shadow session report".to_string(),
+            "M3j-4 explicit pre-live NO-GO/GO decision package".to_string(),
+        ],
     }
 }
 
@@ -20123,6 +20334,82 @@ mod tests {
         assert!(!report.live_micro_go);
     }
 
+    #[test]
+    fn m3j1_live_gate_design_is_ready_but_still_no_go() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 12, 0, 0)
+            .single()
+            .expect("timestamp");
+        let report = m3j1_live_gate_design_report(sample_m3j1_input(now));
+        assert_eq!(report.m3j_step, "M3j-1");
+        assert!(report.pre_live_design_only);
+        assert!(report.m3j1_live_gate_design_ok);
+        assert!(report.operator_arm_design_ready);
+        assert!(report.kill_switch_design_ready);
+        assert!(report.max_orders_qty_loss_limits_ready);
+        assert!(report.scope_controls_ready);
+        assert!(report.one_account_one_symbol_scope_ready);
+        assert!(report.market_limit_only);
+        assert!(report.max_unknown_pending_count_zero);
+        assert!(report.no_ri_rts_initially);
+        assert!(report.no_live_boundary);
+        assert!(!report.live_micro_go);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.external_finam_post_delete_allowed);
+        assert!(!report.command_consumer_to_real_finam_transport_allowed);
+        assert!(!report.non_loopback_order_endpoint_allowed);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+        assert!(report
+            .disarm_reasons_covered
+            .contains(&M3j1OperatorDisarmReason::EndpointSessionDigestMismatch));
+        assert!(report
+            .blocked_surfaces
+            .iter()
+            .any(|surface| surface.contains("POST/DELETE")));
+        assert_eq!(report.next_required_steps.len(), 3);
+    }
+
+    #[test]
+    fn m3j1_missing_controls_or_live_boundary_cannot_pass_design_gate() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 12, 1, 0)
+            .single()
+            .expect("timestamp");
+
+        let mut missing_ttl = sample_m3j1_input(now);
+        missing_ttl.operator_arm.ttl_required = false;
+        let report = m3j1_live_gate_design_report(missing_ttl);
+        assert!(!report.m3j1_live_gate_design_ok);
+        assert!(!report.operator_arm_design_ready);
+        assert!(!report.live_micro_go);
+
+        let mut non_persistent_kill_switch = sample_m3j1_input(now);
+        non_persistent_kill_switch
+            .kill_switch
+            .persists_across_restart = false;
+        let report = m3j1_live_gate_design_report(non_persistent_kill_switch);
+        assert!(!report.m3j1_live_gate_design_ok);
+        assert!(!report.kill_switch_design_ready);
+
+        let mut unknown_pending_allowed = sample_m3j1_input(now);
+        unknown_pending_allowed
+            .risk_limits
+            .max_unknown_pending_count = 1;
+        let report = m3j1_live_gate_design_report(unknown_pending_allowed);
+        assert!(!report.m3j1_live_gate_design_ok);
+        assert!(!report.max_orders_qty_loss_limits_ready);
+        assert!(!report.max_unknown_pending_count_zero);
+
+        let mut live_ready_attempt = sample_m3j1_input(now);
+        live_ready_attempt.live_ready_allowed = true;
+        let report = m3j1_live_gate_design_report(live_ready_attempt);
+        assert!(!report.m3j1_live_gate_design_ok);
+        assert!(!report.no_live_boundary);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.live_micro_go);
+    }
+
     #[tokio::test]
     async fn dry_command_ack_publisher_refuses_order_enabled_modes() {
         fn enable_command_consumer(features: &mut GatewayFeatureSet) {
@@ -26881,6 +27168,71 @@ mod tests {
             runtime_live_attachment_allowed: false,
             external_finam_post_delete_allowed: false,
             command_consumer_to_real_finam_transport_allowed: false,
+            stop_sltp_bracket_replace_multileg_allowed: false,
+        }
+    }
+
+    fn sample_m3j1_input(now: DateTime<Utc>) -> M3j1LiveGateDesignInput {
+        M3j1LiveGateDesignInput {
+            generated_at: now,
+            operator_arm: M3j1OperatorArmDesign {
+                one_shot: true,
+                ttl_required: true,
+                expected_account_digest_required: true,
+                expected_symbol_digest_required: true,
+                expected_config_digest_required: true,
+                expected_endpoint_session_digest_required: true,
+                no_auto_rearm_after_restart: true,
+                explicit_disarm_reasons: vec![
+                    M3j1OperatorDisarmReason::TtlExpired,
+                    M3j1OperatorDisarmReason::OneShotConsumed,
+                    M3j1OperatorDisarmReason::RestartObserved,
+                    M3j1OperatorDisarmReason::AccountMismatch,
+                    M3j1OperatorDisarmReason::SymbolMismatch,
+                    M3j1OperatorDisarmReason::ConfigDigestMismatch,
+                    M3j1OperatorDisarmReason::EndpointSessionDigestMismatch,
+                    M3j1OperatorDisarmReason::KillSwitchActive,
+                    M3j1OperatorDisarmReason::RiskLimitExceeded,
+                    M3j1OperatorDisarmReason::UnknownPendingOrders,
+                    M3j1OperatorDisarmReason::ReadinessDegraded,
+                    M3j1OperatorDisarmReason::ManualDisarm,
+                ],
+            },
+            kill_switch: M3j1KillSwitchDesign {
+                hard_global_order_emission_block: true,
+                blocks_runtime: true,
+                blocks_command_consumer: true,
+                blocks_endpoint_path: true,
+                persists_across_restart: true,
+                redacted_operator_report: true,
+            },
+            risk_limits: M3j1RiskLimitsDesign {
+                max_orders_per_day_required: true,
+                max_orders_per_session_required: true,
+                max_qty_required: true,
+                max_notional_placeholder: true,
+                max_loss_stop_out_placeholder: true,
+                max_unknown_pending_count: 0,
+                ri_rts_allowed_initially: false,
+            },
+            scope_controls: M3j1ScopeControlsDesign {
+                account_allowlist_count: 1,
+                symbol_allowlist_count: 1,
+                timeframe_scope_count: 1,
+                strategy_scope_count: 1,
+                market_orders_allowed: true,
+                limit_orders_allowed: true,
+                stop_orders_allowed: false,
+                sltp_allowed: false,
+                bracket_allowed: false,
+                replace_allowed: false,
+                multi_leg_allowed: false,
+            },
+            live_ready_allowed: false,
+            runtime_live_attachment_allowed: false,
+            external_finam_post_delete_allowed: false,
+            command_consumer_to_real_finam_transport_allowed: false,
+            non_loopback_order_endpoint_allowed: false,
             stop_sltp_bracket_replace_multileg_allowed: false,
         }
     }
