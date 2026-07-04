@@ -377,6 +377,67 @@ pub struct M3j11FinalOperatorRunAuthorizationReport {
     pub blockers: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3j12RuntimeLiveAttachDryRehearsalDecision {
+    Blocked,
+    DryAttachRehearsalReady,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j12RuntimeLiveAttachDryRehearsalInput {
+    pub generated_at_label: String,
+    pub m3j11_final_authorization_accepted: bool,
+    pub final_authorization_state_bound: bool,
+    pub final_authorization_not_expired: bool,
+    pub one_shot_ttl_arm_present: bool,
+    pub one_shot_ttl_not_expired: bool,
+    pub no_auto_rearm: bool,
+    pub kill_switch_armed: bool,
+    pub kill_switch_trip_tested: bool,
+    pub durable_audit_before_boundary_persisted: bool,
+    pub dry_runtime_attach_requested: bool,
+    pub dry_command_consumer_attach_requested: bool,
+    pub dry_attach_loopback_only: bool,
+    pub dry_attach_rehearsal_redacted: bool,
+    pub post_run_reconciliation_template_ready: bool,
+    pub eod_report_template_ready: bool,
+    pub boundary_invocation_requested: bool,
+    pub real_finam_order_endpoint_requested: bool,
+    pub non_loopback_order_endpoint_requested: bool,
+    pub command_consumer_to_real_finam_requested: bool,
+    pub live_ready_requested: bool,
+    pub stop_sltp_bracket_replace_multileg_requested: bool,
+    pub raw_authorization_exported: bool,
+    pub raw_broker_payload_exported: bool,
+    pub raw_account_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j12RuntimeLiveAttachDryRehearsalReport {
+    pub m3j_step: String,
+    pub runtime_live_attach_dry_gate_only: bool,
+    pub decision: M3j12RuntimeLiveAttachDryRehearsalDecision,
+    pub dry_attach_rehearsal_ready: bool,
+    pub authorization_binding_ok: bool,
+    pub one_shot_arm_ok: bool,
+    pub kill_switch_ok: bool,
+    pub audit_ok: bool,
+    pub dry_attach_scope_ok: bool,
+    pub post_run_templates_ok: bool,
+    pub redaction_ok: bool,
+    pub live_micro_go: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub dry_runtime_attachment_rehearsed: bool,
+    pub boundary_invocation_performed: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub command_consumer_to_real_finam_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub unsafe_boundary_input_detected: bool,
+    pub blockers: Vec<String>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct GatewayRealOrderEndpointInternalRouteShape {
     pub operation: GatewayRealOrderEndpointOperation,
@@ -964,6 +1025,102 @@ pub fn m3j11_final_operator_run_authorization_report(
         non_loopback_order_endpoint_allowed: false,
         stop_sltp_bracket_replace_multileg_allowed: false,
         unsafe_runtime_or_boundary_input_detected,
+        blockers,
+    }
+}
+
+pub fn m3j12_runtime_live_attach_dry_rehearsal_report(
+    input: M3j12RuntimeLiveAttachDryRehearsalInput,
+) -> M3j12RuntimeLiveAttachDryRehearsalReport {
+    let authorization_binding_ok = input.m3j11_final_authorization_accepted
+        && input.final_authorization_state_bound
+        && input.final_authorization_not_expired;
+    let one_shot_arm_ok =
+        input.one_shot_ttl_arm_present && input.one_shot_ttl_not_expired && input.no_auto_rearm;
+    let kill_switch_ok = input.kill_switch_armed && input.kill_switch_trip_tested;
+    let audit_ok = input.durable_audit_before_boundary_persisted;
+    let dry_attach_scope_ok = input.dry_runtime_attach_requested
+        && input.dry_command_consumer_attach_requested
+        && input.dry_attach_loopback_only
+        && input.dry_attach_rehearsal_redacted;
+    let post_run_templates_ok =
+        input.post_run_reconciliation_template_ready && input.eod_report_template_ready;
+    let redaction_ok = !input.raw_authorization_exported
+        && !input.raw_broker_payload_exported
+        && !input.raw_account_exported;
+    let unsafe_boundary_input_detected = input.boundary_invocation_requested
+        || input.real_finam_order_endpoint_requested
+        || input.non_loopback_order_endpoint_requested
+        || input.command_consumer_to_real_finam_requested
+        || input.live_ready_requested
+        || input.stop_sltp_bracket_replace_multileg_requested;
+
+    let dry_attach_rehearsal_ready = authorization_binding_ok
+        && one_shot_arm_ok
+        && kill_switch_ok
+        && audit_ok
+        && dry_attach_scope_ok
+        && post_run_templates_ok
+        && redaction_ok
+        && !unsafe_boundary_input_detected;
+
+    let mut blockers = Vec::new();
+    if !authorization_binding_ok {
+        blockers.push("M3j-11 authorization state is missing, unbound, or expired".to_string());
+    }
+    if !one_shot_arm_ok {
+        blockers.push("one-shot TTL arm is missing, expired, or auto-rearm is allowed".to_string());
+    }
+    if !kill_switch_ok {
+        blockers.push("kill switch is not armed or trip-tested".to_string());
+    }
+    if !audit_ok {
+        blockers.push("durable audit-before-boundary proof is missing".to_string());
+    }
+    if !dry_attach_scope_ok {
+        blockers.push("dry attach rehearsal scope is not loopback-only and redacted".to_string());
+    }
+    if !post_run_templates_ok {
+        blockers.push("post-run reconciliation or EOD report template is missing".to_string());
+    }
+    if !redaction_ok {
+        blockers.push(
+            "raw authorization, broker payload, or account data would be exported".to_string(),
+        );
+    }
+    if unsafe_boundary_input_detected {
+        blockers.push(
+            "boundary invocation or real endpoint access is requested in dry attach gate"
+                .to_string(),
+        );
+    }
+
+    M3j12RuntimeLiveAttachDryRehearsalReport {
+        m3j_step: "M3j-12".to_string(),
+        runtime_live_attach_dry_gate_only: true,
+        decision: if dry_attach_rehearsal_ready {
+            M3j12RuntimeLiveAttachDryRehearsalDecision::DryAttachRehearsalReady
+        } else {
+            M3j12RuntimeLiveAttachDryRehearsalDecision::Blocked
+        },
+        dry_attach_rehearsal_ready,
+        authorization_binding_ok,
+        one_shot_arm_ok,
+        kill_switch_ok,
+        audit_ok,
+        dry_attach_scope_ok,
+        post_run_templates_ok,
+        redaction_ok,
+        live_micro_go: false,
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        dry_runtime_attachment_rehearsed: dry_attach_rehearsal_ready,
+        boundary_invocation_performed: false,
+        real_finam_order_endpoint_used: false,
+        command_consumer_to_real_finam_allowed: false,
+        non_loopback_order_endpoint_allowed: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+        unsafe_boundary_input_detected,
         blockers,
     }
 }
@@ -9307,6 +9464,77 @@ mod tests {
         assert!(!report.live_micro_go);
     }
 
+    #[test]
+    fn m3j12_dry_attach_rehearsal_ready_without_live_or_boundary_invocation() {
+        let report = m3j12_runtime_live_attach_dry_rehearsal_report(
+            sample_m3j12_dry_attach_rehearsal_input(),
+        );
+        assert_eq!(report.m3j_step, "M3j-12");
+        assert!(report.runtime_live_attach_dry_gate_only);
+        assert_eq!(
+            report.decision,
+            M3j12RuntimeLiveAttachDryRehearsalDecision::DryAttachRehearsalReady
+        );
+        assert!(report.dry_attach_rehearsal_ready);
+        assert!(report.authorization_binding_ok);
+        assert!(report.one_shot_arm_ok);
+        assert!(report.kill_switch_ok);
+        assert!(report.audit_ok);
+        assert!(report.dry_attach_scope_ok);
+        assert!(report.post_run_templates_ok);
+        assert!(report.redaction_ok);
+        assert!(!report.live_micro_go);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(report.dry_runtime_attachment_rehearsed);
+        assert!(!report.boundary_invocation_performed);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.command_consumer_to_real_finam_allowed);
+        assert!(!report.non_loopback_order_endpoint_allowed);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+        assert!(!report.unsafe_boundary_input_detected);
+        assert!(report.blockers.is_empty());
+    }
+
+    #[test]
+    fn m3j12_expired_authorization_missing_kill_switch_or_real_boundary_blocks_rehearsal() {
+        let mut expired = sample_m3j12_dry_attach_rehearsal_input();
+        expired.final_authorization_not_expired = false;
+        let report = m3j12_runtime_live_attach_dry_rehearsal_report(expired);
+        assert_eq!(
+            report.decision,
+            M3j12RuntimeLiveAttachDryRehearsalDecision::Blocked
+        );
+        assert!(!report.authorization_binding_ok);
+        assert!(!report.dry_attach_rehearsal_ready);
+        assert!(!report.dry_runtime_attachment_rehearsed);
+
+        let mut missing_kill = sample_m3j12_dry_attach_rehearsal_input();
+        missing_kill.kill_switch_trip_tested = false;
+        let report = m3j12_runtime_live_attach_dry_rehearsal_report(missing_kill);
+        assert_eq!(
+            report.decision,
+            M3j12RuntimeLiveAttachDryRehearsalDecision::Blocked
+        );
+        assert!(!report.kill_switch_ok);
+        assert!(!report.dry_attach_rehearsal_ready);
+
+        let mut real_boundary = sample_m3j12_dry_attach_rehearsal_input();
+        real_boundary.boundary_invocation_requested = true;
+        real_boundary.real_finam_order_endpoint_requested = true;
+        real_boundary.live_ready_requested = true;
+        let report = m3j12_runtime_live_attach_dry_rehearsal_report(real_boundary);
+        assert_eq!(
+            report.decision,
+            M3j12RuntimeLiveAttachDryRehearsalDecision::Blocked
+        );
+        assert!(report.unsafe_boundary_input_detected);
+        assert!(!report.dry_attach_rehearsal_ready);
+        assert!(!report.boundary_invocation_performed);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.live_ready_allowed);
+    }
+
     fn sample_m3j7_skeleton_input() -> M3j7TinyLiveOrderPathSkeletonInput {
         M3j7TinyLiveOrderPathSkeletonInput {
             generated_at_label: "synthetic-m3j7-test".to_string(),
@@ -9490,6 +9718,36 @@ mod tests {
             stop_sltp_bracket_replace_multileg_requested: false,
             raw_operator_go_exported: false,
             raw_broker_truth_exported: false,
+            raw_account_exported: false,
+        }
+    }
+
+    fn sample_m3j12_dry_attach_rehearsal_input() -> M3j12RuntimeLiveAttachDryRehearsalInput {
+        M3j12RuntimeLiveAttachDryRehearsalInput {
+            generated_at_label: "synthetic-m3j12-test".to_string(),
+            m3j11_final_authorization_accepted: true,
+            final_authorization_state_bound: true,
+            final_authorization_not_expired: true,
+            one_shot_ttl_arm_present: true,
+            one_shot_ttl_not_expired: true,
+            no_auto_rearm: true,
+            kill_switch_armed: true,
+            kill_switch_trip_tested: true,
+            durable_audit_before_boundary_persisted: true,
+            dry_runtime_attach_requested: true,
+            dry_command_consumer_attach_requested: true,
+            dry_attach_loopback_only: true,
+            dry_attach_rehearsal_redacted: true,
+            post_run_reconciliation_template_ready: true,
+            eod_report_template_ready: true,
+            boundary_invocation_requested: false,
+            real_finam_order_endpoint_requested: false,
+            non_loopback_order_endpoint_requested: false,
+            command_consumer_to_real_finam_requested: false,
+            live_ready_requested: false,
+            stop_sltp_bracket_replace_multileg_requested: false,
+            raw_authorization_exported: false,
+            raw_broker_payload_exported: false,
             raw_account_exported: false,
         }
     }
