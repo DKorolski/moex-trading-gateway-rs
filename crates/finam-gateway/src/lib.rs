@@ -6343,6 +6343,55 @@ pub struct M3i4PaperShadowReplayAckReport {
     pub raw_body_exported: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3i5PaperShadowClosureInput {
+    pub input_contract_report: M3iStrategyPaperInputContractReport,
+    pub output_contract_report: M3iPaperStrategyOutputContractReport,
+    pub replay_report: M3iPaperStrategyReplayReport,
+    pub ack_report: M3i4PaperShadowReplayAckReport,
+    pub ack_correlation_requires_pending: bool,
+    pub duplicate_ack_replay_idempotent: bool,
+    pub unknown_ack_no_state_mutation: bool,
+    pub non_pending_duplicate_no_false_accounting: bool,
+    pub diagnostics_only_report: bool,
+    pub strategy_direct_publish_attempt_blocked: bool,
+    pub strategy_reqwest_or_finam_endpoint_reachable: bool,
+    pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3i5PaperShadowClosureReport {
+    pub schema_version: u16,
+    pub generated_at: DateTime<Utc>,
+    pub m3i_paper_shadow_stage_closed: bool,
+    pub stage_closure_report: bool,
+    pub paper_shadow_e2e_replay_ok: bool,
+    pub strategy_input_contract_ok: bool,
+    pub strategy_output_contract_ok: bool,
+    pub strategy_state_restore_ok: bool,
+    pub ack_application_matrix_ok: bool,
+    pub ack_correlation_idempotency_ok: bool,
+    pub request_id_fingerprint_hardened: bool,
+    pub no_direct_strategy_publish: bool,
+    pub only_m3h_output_path: bool,
+    pub no_live_boundary: bool,
+    pub no_stop_sltp_bracket: bool,
+    pub diagnostics_only_report_cannot_close: bool,
+    pub unknown_ack_no_state_mutation: bool,
+    pub already_resolved_ack_no_double_count: bool,
+    pub non_pending_duplicate_no_false_accounting: bool,
+    pub strategy_cannot_reach_reqwest_or_finam_endpoint: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub direct_strategy_publish_allowed: bool,
+    pub raw_request_ids_exported: bool,
+    pub raw_payload_exported: bool,
+    pub raw_token_exported: bool,
+    pub raw_body_exported: bool,
+}
+
 pub fn m3i2_strategy_output_contract_report() -> M3iPaperStrategyOutputContractReport {
     M3iPaperStrategyOutputContractReport {
         schema_version: SCHEMA_VERSION,
@@ -6856,6 +6905,134 @@ pub fn m3i4_paper_shadow_replay_ack_report(
         external_order_endpoint_allowed: false,
         real_finam_order_endpoint_used: false,
         stop_sltp_bracket_replace_multileg_allowed: false,
+        raw_request_ids_exported: false,
+        raw_payload_exported: false,
+        raw_token_exported: false,
+        raw_body_exported: false,
+    }
+}
+
+pub fn m3i5_paper_shadow_closure_report(
+    input: M3i5PaperShadowClosureInput,
+) -> M3i5PaperShadowClosureReport {
+    let strategy_input_contract_ok = input
+        .input_contract_report
+        .strategy_receives_broker_neutral_inputs_only
+        && input
+            .input_contract_report
+            .strategy_decisions_require_m3h_decision_tick
+        && !input.input_contract_report.finam_dto_visible_to_strategy
+        && !input
+            .input_contract_report
+            .non_final_historical_recovery_bars_can_trigger_decision;
+    let strategy_output_contract_ok = input.output_contract_report.strategy_output_broker_neutral
+        && !input.output_contract_report.finam_dto_visible_to_strategy
+        && !input
+            .output_contract_report
+            .strategy_can_publish_directly_to_m3e
+        && !input
+            .output_contract_report
+            .strategy_can_emit_broker_command_directly
+        && input
+            .output_contract_report
+            .m3h_dry_command_emitter_required;
+    let strategy_state_restore_ok = input.replay_report.dry_ack_applied_count > 0
+        && !input.replay_report.raw_request_ids_exported
+        && !input.replay_report.raw_payload_exported;
+    let ack_application_matrix_ok = input.ack_report.m3e_dry_ack_count > 0
+        && input.ack_report.duplicate_ack_count > 0
+        && input.ack_report.expired_ack_count > 0
+        && input.ack_report.rejected_ack_count > 0
+        && input.ack_report.missing_or_stale_ack_count > 0;
+    let ack_correlation_idempotency_ok = input.ack_correlation_requires_pending
+        && input.duplicate_ack_replay_idempotent
+        && input.unknown_ack_no_state_mutation
+        && input.non_pending_duplicate_no_false_accounting
+        && input.ack_report.already_resolved_ack_count > 0
+        && input.ack_report.ack_for_unknown_count > 0;
+    let request_id_fingerprint_hardened = input
+        .output_contract_report
+        .request_id_includes_account_instrument_and_strategy_version
+        && input.output_contract_report.request_id_deterministic;
+    let no_direct_strategy_publish = !input.ack_report.direct_strategy_publish_allowed
+        && input.strategy_direct_publish_attempt_blocked;
+    let only_m3h_output_path = input.ack_report.only_m3h_output_path
+        && input.replay_report.m3h_dry_command_emitter_required;
+    let no_live_boundary = !input.input_contract_report.live_ready_allowed
+        && !input.input_contract_report.runtime_live_attachment_allowed
+        && !input.input_contract_report.external_order_endpoint_allowed
+        && !input.input_contract_report.real_finam_order_endpoint_used
+        && !input.output_contract_report.live_ready_allowed
+        && !input.output_contract_report.runtime_live_attachment_allowed
+        && !input.output_contract_report.external_order_endpoint_allowed
+        && !input.output_contract_report.real_finam_order_endpoint_used
+        && !input.ack_report.live_ready_allowed
+        && !input.ack_report.runtime_live_attachment_allowed
+        && !input.ack_report.external_order_endpoint_allowed
+        && !input.ack_report.real_finam_order_endpoint_used;
+    let no_stop_sltp_bracket = !input
+        .input_contract_report
+        .stop_sltp_bracket_replace_multileg_allowed
+        && !input
+            .output_contract_report
+            .stop_sltp_bracket_replace_multileg_allowed
+        && !input.ack_report.stop_sltp_bracket_replace_multileg_allowed;
+    let paper_shadow_e2e_replay_ok = input.ack_report.live_final_bar_fixture_count > 0
+        && input.ack_report.strategy_signal_count > 0
+        && input.ack_report.output_candidate_count > 0
+        && input.ack_report.dry_command_published_count > 0
+        && input.ack_report.m3e_dry_ack_count > 0;
+    let diagnostics_only_report_cannot_close = !input.diagnostics_only_report;
+    let strategy_cannot_reach_reqwest_or_finam_endpoint =
+        !input.strategy_reqwest_or_finam_endpoint_reachable;
+    let redacted = !input.replay_report.raw_request_ids_exported
+        && !input.replay_report.raw_payload_exported
+        && !input.replay_report.raw_token_exported
+        && !input.replay_report.raw_body_exported
+        && !input.ack_report.raw_request_ids_exported
+        && !input.ack_report.raw_payload_exported
+        && !input.ack_report.raw_token_exported
+        && !input.ack_report.raw_body_exported;
+    let stage_closure_report = paper_shadow_e2e_replay_ok
+        && strategy_input_contract_ok
+        && strategy_output_contract_ok
+        && strategy_state_restore_ok
+        && ack_application_matrix_ok
+        && ack_correlation_idempotency_ok
+        && request_id_fingerprint_hardened
+        && no_direct_strategy_publish
+        && only_m3h_output_path
+        && no_live_boundary
+        && no_stop_sltp_bracket
+        && diagnostics_only_report_cannot_close
+        && strategy_cannot_reach_reqwest_or_finam_endpoint
+        && redacted;
+    M3i5PaperShadowClosureReport {
+        schema_version: SCHEMA_VERSION,
+        generated_at: input.generated_at,
+        m3i_paper_shadow_stage_closed: stage_closure_report,
+        stage_closure_report,
+        paper_shadow_e2e_replay_ok,
+        strategy_input_contract_ok,
+        strategy_output_contract_ok,
+        strategy_state_restore_ok,
+        ack_application_matrix_ok,
+        ack_correlation_idempotency_ok,
+        request_id_fingerprint_hardened,
+        no_direct_strategy_publish,
+        only_m3h_output_path,
+        no_live_boundary,
+        no_stop_sltp_bracket,
+        diagnostics_only_report_cannot_close,
+        unknown_ack_no_state_mutation: input.unknown_ack_no_state_mutation,
+        already_resolved_ack_no_double_count: input.duplicate_ack_replay_idempotent,
+        non_pending_duplicate_no_false_accounting: input.non_pending_duplicate_no_false_accounting,
+        strategy_cannot_reach_reqwest_or_finam_endpoint,
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        external_order_endpoint_allowed: false,
+        real_finam_order_endpoint_used: false,
+        direct_strategy_publish_allowed: false,
         raw_request_ids_exported: false,
         raw_payload_exported: false,
         raw_token_exported: false,
@@ -19613,6 +19790,69 @@ mod tests {
         assert_eq!(state.stale_or_missing_ack_request_hashes.len(), 1);
     }
 
+    #[test]
+    fn m3i5_stage_closure_package_combines_all_m3i_invariants() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 10, 20, 0)
+            .single()
+            .expect("timestamp");
+        let closure = m3i5_paper_shadow_closure_report(sample_m3i5_closure_input(now, false));
+        assert!(closure.m3i_paper_shadow_stage_closed);
+        assert!(closure.stage_closure_report);
+        assert!(closure.paper_shadow_e2e_replay_ok);
+        assert!(closure.strategy_input_contract_ok);
+        assert!(closure.strategy_output_contract_ok);
+        assert!(closure.strategy_state_restore_ok);
+        assert!(closure.ack_application_matrix_ok);
+        assert!(closure.ack_correlation_idempotency_ok);
+        assert!(closure.request_id_fingerprint_hardened);
+        assert!(closure.no_direct_strategy_publish);
+        assert!(closure.only_m3h_output_path);
+        assert!(closure.no_live_boundary);
+        assert!(closure.no_stop_sltp_bracket);
+        assert!(closure.diagnostics_only_report_cannot_close);
+        assert!(closure.unknown_ack_no_state_mutation);
+        assert!(closure.already_resolved_ack_no_double_count);
+        assert!(closure.non_pending_duplicate_no_false_accounting);
+        assert!(closure.strategy_cannot_reach_reqwest_or_finam_endpoint);
+        assert!(!closure.live_ready_allowed);
+        assert!(!closure.runtime_live_attachment_allowed);
+        assert!(!closure.external_order_endpoint_allowed);
+        assert!(!closure.real_finam_order_endpoint_used);
+        assert!(!closure.direct_strategy_publish_allowed);
+        assert!(!closure.raw_request_ids_exported);
+    }
+
+    #[test]
+    fn m3i5_diagnostics_only_or_unsafe_boundaries_cannot_close_stage() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 10, 21, 0)
+            .single()
+            .expect("timestamp");
+        let diagnostics_only =
+            m3i5_paper_shadow_closure_report(sample_m3i5_closure_input(now, true));
+        assert!(!diagnostics_only.m3i_paper_shadow_stage_closed);
+        assert!(!diagnostics_only.diagnostics_only_report_cannot_close);
+
+        let mut missing_ack_hardening = sample_m3i5_closure_input(now, false);
+        missing_ack_hardening.unknown_ack_no_state_mutation = false;
+        let report = m3i5_paper_shadow_closure_report(missing_ack_hardening);
+        assert!(!report.m3i_paper_shadow_stage_closed);
+        assert!(!report.ack_correlation_idempotency_ok);
+
+        let mut direct_publish = sample_m3i5_closure_input(now, false);
+        direct_publish.ack_report.direct_strategy_publish_allowed = true;
+        let report = m3i5_paper_shadow_closure_report(direct_publish);
+        assert!(!report.m3i_paper_shadow_stage_closed);
+        assert!(!report.no_direct_strategy_publish);
+
+        let mut live_ready = sample_m3i5_closure_input(now, false);
+        live_ready.input_contract_report.live_ready_allowed = true;
+        let report = m3i5_paper_shadow_closure_report(live_ready);
+        assert!(!report.m3i_paper_shadow_stage_closed);
+        assert!(!report.no_live_boundary);
+    }
+
     #[tokio::test]
     async fn dry_command_ack_publisher_refuses_order_enabled_modes() {
         fn enable_command_consumer(features: &mut GatewayFeatureSet) {
@@ -26286,6 +26526,61 @@ mod tests {
             raw_token_exported: false,
             raw_body_exported: false,
             raw_command_comment_exported: false,
+        }
+    }
+
+    fn sample_m3i5_closure_input(
+        now: DateTime<Utc>,
+        diagnostics_only_report: bool,
+    ) -> M3i5PaperShadowClosureInput {
+        let mut state = M3iPaperStrategyState::default();
+        state
+            .acknowledged_request_hashes
+            .push(m3h5_redacted_request_hash(request_id(800)));
+        state
+            .dropped_request_hashes
+            .push(m3h5_redacted_request_hash(request_id(801)));
+        state
+            .duplicate_request_hashes
+            .push(m3h5_redacted_request_hash(request_id(802)));
+        state
+            .stale_or_missing_ack_request_hashes
+            .push(m3h5_redacted_request_hash(request_id(803)));
+        state
+            .manual_policy_request_hashes
+            .push(m3h5_redacted_request_hash(request_id(804)));
+        let replay_report = m3i2_paper_strategy_replay_report(&state, 5, 4, 3, 1, now);
+        let ack_report = m3i4_paper_shadow_replay_ack_report(
+            &state,
+            now,
+            2,
+            5,
+            4,
+            3,
+            &[
+                M3iPaperStrategyAckApplyOutcomeKind::DryRunAcknowledged,
+                M3iPaperStrategyAckApplyOutcomeKind::DuplicateAcknowledged,
+                M3iPaperStrategyAckApplyOutcomeKind::ExpiredDropped,
+                M3iPaperStrategyAckApplyOutcomeKind::RejectedDropped,
+                M3iPaperStrategyAckApplyOutcomeKind::MissingOrStaleAck,
+                M3iPaperStrategyAckApplyOutcomeKind::ManualPolicyRequired,
+                M3iPaperStrategyAckApplyOutcomeKind::AlreadyResolved,
+                M3iPaperStrategyAckApplyOutcomeKind::UnknownAckIgnored,
+            ],
+        );
+        M3i5PaperShadowClosureInput {
+            input_contract_report: m3i1_strategy_paper_input_contract_report(),
+            output_contract_report: m3i2_strategy_output_contract_report(),
+            replay_report,
+            ack_report,
+            ack_correlation_requires_pending: true,
+            duplicate_ack_replay_idempotent: true,
+            unknown_ack_no_state_mutation: true,
+            non_pending_duplicate_no_false_accounting: true,
+            diagnostics_only_report,
+            strategy_direct_publish_attempt_blocked: true,
+            strategy_reqwest_or_finam_endpoint_reachable: false,
+            generated_at: now,
         }
     }
 
