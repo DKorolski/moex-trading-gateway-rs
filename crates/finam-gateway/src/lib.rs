@@ -6625,6 +6625,74 @@ pub struct M3j2FreshReadonlyEvidenceReport {
     pub next_required_steps: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j3OneSymbolDryShadowSessionInput {
+    pub generated_at: DateTime<Utc>,
+    pub account_allowlist_count: u32,
+    pub symbol_allowlist_count: u32,
+    pub timeframe_scope_count: u32,
+    pub strategy_scope_count: u32,
+    pub live_final_bar_count: u64,
+    pub paper_signal_count: u64,
+    pub dry_command_count: u64,
+    pub m3e_dry_ack_count: u64,
+    pub suppression_count: u64,
+    pub duplicate_request_count: u64,
+    pub pending_count: u64,
+    pub dropped_count: u64,
+    pub broker_truth_clean_before: bool,
+    pub broker_truth_clean_after: bool,
+    pub reconciliation_clean: bool,
+    pub typed_required_records_ok: bool,
+    pub typed_optional_failures_present: bool,
+    pub typed_optional_failure_count: u32,
+    pub typed_optional_failures_waived: bool,
+    pub raw_request_ids_exported: bool,
+    pub raw_payload_exported: bool,
+    pub raw_token_exported: bool,
+    pub raw_body_exported: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub external_finam_post_delete_allowed: bool,
+    pub command_consumer_to_real_finam_transport_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j3OneSymbolDryShadowSessionReport {
+    pub schema_version: u16,
+    pub generated_at: DateTime<Utc>,
+    pub m3j_step: String,
+    pub one_symbol_dry_shadow_session_ok: bool,
+    pub one_symbol_scope_ok: bool,
+    pub live_final_to_signal_ok: bool,
+    pub signal_to_dry_command_ok: bool,
+    pub dry_command_to_m3e_ack_ok: bool,
+    pub clean_reconciliation_ok: bool,
+    pub no_unresolved_strategy_state: bool,
+    pub typed_optional_failures_acknowledged: bool,
+    pub redaction_ok: bool,
+    pub no_live_boundary: bool,
+    pub live_final_bar_count: u64,
+    pub paper_signal_count: u64,
+    pub dry_command_count: u64,
+    pub m3e_dry_ack_count: u64,
+    pub suppression_count: u64,
+    pub duplicate_request_count: u64,
+    pub pending_count: u64,
+    pub dropped_count: u64,
+    pub typed_optional_failure_count: u32,
+    pub live_micro_go: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub external_finam_post_delete_allowed: bool,
+    pub command_consumer_to_real_finam_transport_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub next_required_steps: Vec<String>,
+}
+
 pub fn m3i2_strategy_output_contract_report() -> M3iPaperStrategyOutputContractReport {
     M3iPaperStrategyOutputContractReport {
         schema_version: SCHEMA_VERSION,
@@ -7575,6 +7643,79 @@ pub fn m3j2_fresh_readonly_evidence_report(
             "M3j-3 one-symbol dry shadow session report".to_string(),
             "M3j-4 explicit pre-live NO-GO/GO decision package".to_string(),
         ],
+    }
+}
+
+pub fn m3j3_one_symbol_dry_shadow_session_report(
+    input: M3j3OneSymbolDryShadowSessionInput,
+) -> M3j3OneSymbolDryShadowSessionReport {
+    let one_symbol_scope_ok = input.account_allowlist_count == 1
+        && input.symbol_allowlist_count == 1
+        && input.timeframe_scope_count == 1
+        && input.strategy_scope_count == 1;
+    let live_final_to_signal_ok = input.live_final_bar_count > 0 && input.paper_signal_count > 0;
+    let signal_to_dry_command_ok = live_final_to_signal_ok
+        && input.dry_command_count > 0
+        && input.dry_command_count <= input.paper_signal_count;
+    let dry_command_to_m3e_ack_ok =
+        input.m3e_dry_ack_count > 0 && input.m3e_dry_ack_count == input.dry_command_count;
+    let clean_reconciliation_ok = input.broker_truth_clean_before
+        && input.broker_truth_clean_after
+        && input.reconciliation_clean;
+    let no_unresolved_strategy_state =
+        input.pending_count == 0 && input.dropped_count == 0 && input.duplicate_request_count == 0;
+    let typed_optional_failures_acknowledged = input.typed_required_records_ok
+        && (!input.typed_optional_failures_present || input.typed_optional_failures_waived);
+    let redaction_ok = !input.raw_request_ids_exported
+        && !input.raw_payload_exported
+        && !input.raw_token_exported
+        && !input.raw_body_exported;
+    let no_live_boundary = !input.live_ready_allowed
+        && !input.runtime_live_attachment_allowed
+        && !input.external_finam_post_delete_allowed
+        && !input.command_consumer_to_real_finam_transport_allowed
+        && !input.non_loopback_order_endpoint_allowed
+        && !input.stop_sltp_bracket_replace_multileg_allowed;
+    let one_symbol_dry_shadow_session_ok = one_symbol_scope_ok
+        && live_final_to_signal_ok
+        && signal_to_dry_command_ok
+        && dry_command_to_m3e_ack_ok
+        && clean_reconciliation_ok
+        && no_unresolved_strategy_state
+        && typed_optional_failures_acknowledged
+        && redaction_ok
+        && no_live_boundary;
+    M3j3OneSymbolDryShadowSessionReport {
+        schema_version: SCHEMA_VERSION,
+        generated_at: input.generated_at,
+        m3j_step: "M3j-3".to_string(),
+        one_symbol_dry_shadow_session_ok,
+        one_symbol_scope_ok,
+        live_final_to_signal_ok,
+        signal_to_dry_command_ok,
+        dry_command_to_m3e_ack_ok,
+        clean_reconciliation_ok,
+        no_unresolved_strategy_state,
+        typed_optional_failures_acknowledged,
+        redaction_ok,
+        no_live_boundary,
+        live_final_bar_count: input.live_final_bar_count,
+        paper_signal_count: input.paper_signal_count,
+        dry_command_count: input.dry_command_count,
+        m3e_dry_ack_count: input.m3e_dry_ack_count,
+        suppression_count: input.suppression_count,
+        duplicate_request_count: input.duplicate_request_count,
+        pending_count: input.pending_count,
+        dropped_count: input.dropped_count,
+        typed_optional_failure_count: input.typed_optional_failure_count,
+        live_micro_go: false,
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        external_finam_post_delete_allowed: false,
+        command_consumer_to_real_finam_transport_allowed: false,
+        non_loopback_order_endpoint_allowed: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+        next_required_steps: vec!["M3j-4 explicit pre-live NO-GO/GO decision package".to_string()],
     }
 }
 
@@ -20609,6 +20750,73 @@ mod tests {
         assert!(!report.live_micro_go);
     }
 
+    #[test]
+    fn m3j3_one_symbol_dry_shadow_session_closes_session_slot_but_still_no_go() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 14, 0, 0)
+            .single()
+            .expect("timestamp");
+        let report = m3j3_one_symbol_dry_shadow_session_report(sample_m3j3_input(now));
+        assert_eq!(report.m3j_step, "M3j-3");
+        assert!(report.one_symbol_dry_shadow_session_ok);
+        assert!(report.one_symbol_scope_ok);
+        assert!(report.live_final_to_signal_ok);
+        assert!(report.signal_to_dry_command_ok);
+        assert!(report.dry_command_to_m3e_ack_ok);
+        assert!(report.clean_reconciliation_ok);
+        assert!(report.no_unresolved_strategy_state);
+        assert!(report.typed_optional_failures_acknowledged);
+        assert!(report.redaction_ok);
+        assert!(report.no_live_boundary);
+        assert_eq!(report.live_final_bar_count, 3);
+        assert_eq!(report.paper_signal_count, 1);
+        assert_eq!(report.dry_command_count, 1);
+        assert_eq!(report.m3e_dry_ack_count, 1);
+        assert_eq!(report.typed_optional_failure_count, 3);
+        assert!(!report.live_micro_go);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.external_finam_post_delete_allowed);
+        assert!(!report.command_consumer_to_real_finam_transport_allowed);
+        assert!(!report.non_loopback_order_endpoint_allowed);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+        assert_eq!(report.next_required_steps.len(), 1);
+    }
+
+    #[test]
+    fn m3j3_unwaived_optional_failures_pending_state_or_live_boundary_block_session_slot() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 14, 1, 0)
+            .single()
+            .expect("timestamp");
+
+        let mut unwaived = sample_m3j3_input(now);
+        unwaived.typed_optional_failures_waived = false;
+        let report = m3j3_one_symbol_dry_shadow_session_report(unwaived);
+        assert!(!report.one_symbol_dry_shadow_session_ok);
+        assert!(!report.typed_optional_failures_acknowledged);
+
+        let mut pending = sample_m3j3_input(now);
+        pending.pending_count = 1;
+        let report = m3j3_one_symbol_dry_shadow_session_report(pending);
+        assert!(!report.one_symbol_dry_shadow_session_ok);
+        assert!(!report.no_unresolved_strategy_state);
+
+        let mut ack_mismatch = sample_m3j3_input(now);
+        ack_mismatch.m3e_dry_ack_count = 0;
+        let report = m3j3_one_symbol_dry_shadow_session_report(ack_mismatch);
+        assert!(!report.one_symbol_dry_shadow_session_ok);
+        assert!(!report.dry_command_to_m3e_ack_ok);
+
+        let mut endpoint_attempt = sample_m3j3_input(now);
+        endpoint_attempt.external_finam_post_delete_allowed = true;
+        let report = m3j3_one_symbol_dry_shadow_session_report(endpoint_attempt);
+        assert!(!report.one_symbol_dry_shadow_session_ok);
+        assert!(!report.no_live_boundary);
+        assert!(!report.external_finam_post_delete_allowed);
+        assert!(!report.live_micro_go);
+    }
+
     #[tokio::test]
     async fn dry_command_ack_publisher_refuses_order_enabled_modes() {
         fn enable_command_consumer(features: &mut GatewayFeatureSet) {
@@ -27459,6 +27667,41 @@ mod tests {
             raw_client_order_id_exported: false,
             raw_broker_order_id_exported: false,
             raw_position_payload_exported: false,
+            live_ready_allowed: false,
+            runtime_live_attachment_allowed: false,
+            external_finam_post_delete_allowed: false,
+            command_consumer_to_real_finam_transport_allowed: false,
+            non_loopback_order_endpoint_allowed: false,
+            stop_sltp_bracket_replace_multileg_allowed: false,
+        }
+    }
+
+    fn sample_m3j3_input(now: DateTime<Utc>) -> M3j3OneSymbolDryShadowSessionInput {
+        M3j3OneSymbolDryShadowSessionInput {
+            generated_at: now,
+            account_allowlist_count: 1,
+            symbol_allowlist_count: 1,
+            timeframe_scope_count: 1,
+            strategy_scope_count: 1,
+            live_final_bar_count: 3,
+            paper_signal_count: 1,
+            dry_command_count: 1,
+            m3e_dry_ack_count: 1,
+            suppression_count: 2,
+            duplicate_request_count: 0,
+            pending_count: 0,
+            dropped_count: 0,
+            broker_truth_clean_before: true,
+            broker_truth_clean_after: true,
+            reconciliation_clean: true,
+            typed_required_records_ok: true,
+            typed_optional_failures_present: true,
+            typed_optional_failure_count: 3,
+            typed_optional_failures_waived: true,
+            raw_request_ids_exported: false,
+            raw_payload_exported: false,
+            raw_token_exported: false,
+            raw_body_exported: false,
             live_ready_allowed: false,
             runtime_live_attachment_allowed: false,
             external_finam_post_delete_allowed: false,
