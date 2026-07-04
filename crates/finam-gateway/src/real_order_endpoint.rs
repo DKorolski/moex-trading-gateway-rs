@@ -81,6 +81,7 @@ pub struct M3j7TinyLiveOrderPathSkeletonReport {
     pub audit_rollback_reconciliation_ok: bool,
     pub scanner_and_redaction_ok: bool,
     pub no_live_boundary: bool,
+    pub unsafe_boundary_input_detected: bool,
     pub real_boundary_call_requested: bool,
     pub real_boundary_call_reachable: bool,
     pub live_micro_go: bool,
@@ -90,6 +91,67 @@ pub struct M3j7TinyLiveOrderPathSkeletonReport {
     pub command_consumer_to_real_finam_allowed: bool,
     pub non_loopback_order_endpoint_allowed: bool,
     pub skeleton_blockers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3j8GuardedTinyLiveBoundaryDecision {
+    Blocked,
+    CandidatePrepared,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j8GuardedTinyLiveOrderPathInput {
+    pub generated_at_label: String,
+    pub m3j7_skeleton_accepted: bool,
+    pub compile_time_gate_open_for_review_fixture: bool,
+    pub feature_gate_enabled_for_review_fixture: bool,
+    pub endpoint_gate_approved: bool,
+    pub operator_go_artifact_valid: bool,
+    pub immediate_pre_run_readonly_fresh_and_clean: bool,
+    pub kill_switch_disarmed_for_single_attempt: bool,
+    pub one_order_scope: bool,
+    pub one_account_scope: bool,
+    pub one_symbol_scope: bool,
+    pub tiny_qty_scope: bool,
+    pub market_limit_only: bool,
+    pub stop_sltp_bracket_replace_multileg_forbidden: bool,
+    pub durable_audit_persisted_before_boundary: bool,
+    pub rollback_plan_present: bool,
+    pub post_run_reconciliation_required: bool,
+    pub eod_report_required: bool,
+    pub guarded_boundary_method_shape_reviewed: bool,
+    pub raw_request_exported: bool,
+    pub raw_response_exported: bool,
+    pub real_boundary_invocation_requested: bool,
+    pub live_micro_go_allowed: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub command_consumer_to_real_finam_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j8GuardedTinyLiveOrderPathReport {
+    pub m3j_step: String,
+    pub guarded_implementation_diff: bool,
+    pub decision: M3j8GuardedTinyLiveBoundaryDecision,
+    pub all_gates_satisfied: bool,
+    pub boundary_candidate_prepared: bool,
+    pub boundary_invocation_performed: bool,
+    pub default_reachable: bool,
+    pub pre_boundary_audit_ok: bool,
+    pub first_micro_scope_ok: bool,
+    pub kill_switch_gate_ok: bool,
+    pub rollback_and_reconciliation_ok: bool,
+    pub redaction_ok: bool,
+    pub no_live_boundary: bool,
+    pub unsafe_boundary_input_detected: bool,
+    pub live_micro_go: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub command_consumer_to_real_finam_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub blockers: Vec<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -133,6 +195,12 @@ pub fn m3j7_tiny_live_order_path_skeleton_report(
         && !input.external_finam_order_calls_allowed
         && !input.command_consumer_to_real_finam_allowed
         && !input.non_loopback_order_endpoint_allowed;
+    let unsafe_boundary_input_detected = input.real_boundary_call_requested
+        || input.live_ready_allowed
+        || input.runtime_live_attachment_allowed
+        || input.external_finam_order_calls_allowed
+        || input.command_consumer_to_real_finam_allowed
+        || input.non_loopback_order_endpoint_allowed;
     let mut skeleton_blockers = Vec::new();
     if !default_unreachable_ok {
         skeleton_blockers.push("real boundary call is not default-unreachable".to_string());
@@ -181,6 +249,7 @@ pub fn m3j7_tiny_live_order_path_skeleton_report(
         audit_rollback_reconciliation_ok,
         scanner_and_redaction_ok,
         no_live_boundary,
+        unsafe_boundary_input_detected,
         real_boundary_call_requested: input.real_boundary_call_requested,
         real_boundary_call_reachable: false,
         live_micro_go: false,
@@ -190,6 +259,111 @@ pub fn m3j7_tiny_live_order_path_skeleton_report(
         command_consumer_to_real_finam_allowed: false,
         non_loopback_order_endpoint_allowed: false,
         skeleton_blockers,
+    }
+}
+
+pub fn m3j8_guarded_tiny_live_order_path_report(
+    input: M3j8GuardedTinyLiveOrderPathInput,
+) -> M3j8GuardedTinyLiveOrderPathReport {
+    let all_gates_satisfied = input.m3j7_skeleton_accepted
+        && input.compile_time_gate_open_for_review_fixture
+        && input.feature_gate_enabled_for_review_fixture
+        && input.endpoint_gate_approved
+        && input.operator_go_artifact_valid
+        && input.immediate_pre_run_readonly_fresh_and_clean;
+    let pre_boundary_audit_ok = input.durable_audit_persisted_before_boundary;
+    let first_micro_scope_ok = input.one_order_scope
+        && input.one_account_scope
+        && input.one_symbol_scope
+        && input.tiny_qty_scope
+        && input.market_limit_only
+        && input.stop_sltp_bracket_replace_multileg_forbidden;
+    let kill_switch_gate_ok = input.kill_switch_disarmed_for_single_attempt;
+    let rollback_and_reconciliation_ok = input.rollback_plan_present
+        && input.post_run_reconciliation_required
+        && input.eod_report_required;
+    let redaction_ok = !input.raw_request_exported && !input.raw_response_exported;
+    let no_live_boundary = !input.live_micro_go_allowed
+        && !input.live_ready_allowed
+        && !input.runtime_live_attachment_allowed
+        && !input.command_consumer_to_real_finam_allowed
+        && !input.non_loopback_order_endpoint_allowed;
+    let unsafe_boundary_input_detected = input.live_micro_go_allowed
+        || input.live_ready_allowed
+        || input.runtime_live_attachment_allowed
+        || input.command_consumer_to_real_finam_allowed
+        || input.non_loopback_order_endpoint_allowed;
+
+    let boundary_candidate_prepared = all_gates_satisfied
+        && pre_boundary_audit_ok
+        && first_micro_scope_ok
+        && kill_switch_gate_ok
+        && rollback_and_reconciliation_ok
+        && redaction_ok
+        && no_live_boundary
+        && input.guarded_boundary_method_shape_reviewed
+        && input.real_boundary_invocation_requested;
+
+    let mut blockers = Vec::new();
+    if !all_gates_satisfied {
+        blockers.push(
+            "compile, feature, endpoint, operator, or readonly gate is not satisfied".to_string(),
+        );
+    }
+    if !pre_boundary_audit_ok {
+        blockers.push("durable audit-before-boundary proof is missing".to_string());
+    }
+    if !first_micro_scope_ok {
+        blockers.push(
+            "first micro scope is not constrained to one tiny market/limit order".to_string(),
+        );
+    }
+    if !kill_switch_gate_ok {
+        blockers.push("single-attempt kill switch disarm is missing".to_string());
+    }
+    if !rollback_and_reconciliation_ok {
+        blockers.push("rollback, reconciliation, or EOD report requirement is missing".to_string());
+    }
+    if !redaction_ok {
+        blockers.push("raw request or response would be exported".to_string());
+    }
+    if !no_live_boundary {
+        blockers.push("live boundary is open outside the reviewed guarded candidate".to_string());
+    }
+    if !input.guarded_boundary_method_shape_reviewed {
+        blockers.push("guarded boundary method shape is not reviewed".to_string());
+    }
+    if !input.real_boundary_invocation_requested {
+        blockers.push(
+            "real boundary invocation is not requested for the reviewed candidate".to_string(),
+        );
+    }
+
+    M3j8GuardedTinyLiveOrderPathReport {
+        m3j_step: "M3j-8".to_string(),
+        guarded_implementation_diff: true,
+        decision: if boundary_candidate_prepared {
+            M3j8GuardedTinyLiveBoundaryDecision::CandidatePrepared
+        } else {
+            M3j8GuardedTinyLiveBoundaryDecision::Blocked
+        },
+        all_gates_satisfied,
+        boundary_candidate_prepared,
+        boundary_invocation_performed: false,
+        default_reachable: false,
+        pre_boundary_audit_ok,
+        first_micro_scope_ok,
+        kill_switch_gate_ok,
+        rollback_and_reconciliation_ok,
+        redaction_ok,
+        no_live_boundary,
+        unsafe_boundary_input_detected,
+        live_micro_go: false,
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        command_consumer_to_real_finam_allowed: false,
+        non_loopback_order_endpoint_allowed: false,
+        blockers,
     }
 }
 
@@ -8202,6 +8376,7 @@ mod tests {
         assert!(report.audit_rollback_reconciliation_ok);
         assert!(report.scanner_and_redaction_ok);
         assert!(report.no_live_boundary);
+        assert!(!report.unsafe_boundary_input_detected);
         assert!(!report.real_boundary_call_requested);
         assert!(!report.real_boundary_call_reachable);
         assert!(!report.live_micro_go);
@@ -8224,6 +8399,7 @@ mod tests {
             M3j7TinyLiveOrderPathSkeletonReachability::NotReachable
         );
         assert!(!report.default_unreachable_ok);
+        assert!(report.unsafe_boundary_input_detected);
         assert!(report.real_boundary_call_requested);
         assert!(!report.real_boundary_call_reachable);
         assert!(!report.live_micro_go);
@@ -8239,8 +8415,88 @@ mod tests {
         let report = m3j7_tiny_live_order_path_skeleton_report(open_boundary);
         assert!(!report.skeleton_ok);
         assert!(!report.no_live_boundary);
+        assert!(report.unsafe_boundary_input_detected);
         assert!(!report.external_finam_order_calls_allowed);
         assert!(!report.live_micro_go);
+    }
+
+    #[test]
+    fn m3j8_guarded_tiny_live_order_path_candidate_prepared_without_invocation() {
+        let report =
+            m3j8_guarded_tiny_live_order_path_report(sample_m3j8_guarded_candidate_input());
+        assert_eq!(report.m3j_step, "M3j-8");
+        assert!(report.guarded_implementation_diff);
+        assert_eq!(
+            report.decision,
+            M3j8GuardedTinyLiveBoundaryDecision::CandidatePrepared
+        );
+        assert!(report.all_gates_satisfied);
+        assert!(report.boundary_candidate_prepared);
+        assert!(!report.boundary_invocation_performed);
+        assert!(!report.default_reachable);
+        assert!(report.pre_boundary_audit_ok);
+        assert!(report.first_micro_scope_ok);
+        assert!(report.kill_switch_gate_ok);
+        assert!(report.rollback_and_reconciliation_ok);
+        assert!(report.redaction_ok);
+        assert!(report.no_live_boundary);
+        assert!(!report.unsafe_boundary_input_detected);
+        assert!(!report.live_micro_go);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.command_consumer_to_real_finam_allowed);
+        assert!(!report.non_loopback_order_endpoint_allowed);
+        assert!(report.blockers.is_empty());
+    }
+
+    #[test]
+    fn m3j8_missing_gate_audit_or_open_boundary_blocks_guarded_candidate() {
+        let mut missing_operator_go = sample_m3j8_guarded_candidate_input();
+        missing_operator_go.operator_go_artifact_valid = false;
+        let report = m3j8_guarded_tiny_live_order_path_report(missing_operator_go);
+        assert_eq!(
+            report.decision,
+            M3j8GuardedTinyLiveBoundaryDecision::Blocked
+        );
+        assert!(!report.all_gates_satisfied);
+        assert!(!report.boundary_candidate_prepared);
+        assert!(!report.boundary_invocation_performed);
+        assert!(!report.live_micro_go);
+
+        let mut missing_readonly = sample_m3j8_guarded_candidate_input();
+        missing_readonly.immediate_pre_run_readonly_fresh_and_clean = false;
+        let report = m3j8_guarded_tiny_live_order_path_report(missing_readonly);
+        assert_eq!(
+            report.decision,
+            M3j8GuardedTinyLiveBoundaryDecision::Blocked
+        );
+        assert!(!report.all_gates_satisfied);
+        assert!(!report.boundary_candidate_prepared);
+
+        let mut missing_audit = sample_m3j8_guarded_candidate_input();
+        missing_audit.durable_audit_persisted_before_boundary = false;
+        let report = m3j8_guarded_tiny_live_order_path_report(missing_audit);
+        assert_eq!(
+            report.decision,
+            M3j8GuardedTinyLiveBoundaryDecision::Blocked
+        );
+        assert!(!report.pre_boundary_audit_ok);
+        assert!(!report.boundary_candidate_prepared);
+
+        let mut open_live_boundary = sample_m3j8_guarded_candidate_input();
+        open_live_boundary.live_micro_go_allowed = true;
+        open_live_boundary.non_loopback_order_endpoint_allowed = true;
+        let report = m3j8_guarded_tiny_live_order_path_report(open_live_boundary);
+        assert_eq!(
+            report.decision,
+            M3j8GuardedTinyLiveBoundaryDecision::Blocked
+        );
+        assert!(!report.no_live_boundary);
+        assert!(report.unsafe_boundary_input_detected);
+        assert!(!report.boundary_candidate_prepared);
+        assert!(!report.boundary_invocation_performed);
+        assert!(!report.live_micro_go);
+        assert!(!report.non_loopback_order_endpoint_allowed);
     }
 
     fn sample_m3j7_skeleton_input() -> M3j7TinyLiveOrderPathSkeletonInput {
@@ -8271,6 +8527,38 @@ mod tests {
             live_ready_allowed: false,
             runtime_live_attachment_allowed: false,
             external_finam_order_calls_allowed: false,
+            command_consumer_to_real_finam_allowed: false,
+            non_loopback_order_endpoint_allowed: false,
+        }
+    }
+
+    fn sample_m3j8_guarded_candidate_input() -> M3j8GuardedTinyLiveOrderPathInput {
+        M3j8GuardedTinyLiveOrderPathInput {
+            generated_at_label: "synthetic-m3j8-test".to_string(),
+            m3j7_skeleton_accepted: true,
+            compile_time_gate_open_for_review_fixture: true,
+            feature_gate_enabled_for_review_fixture: true,
+            endpoint_gate_approved: true,
+            operator_go_artifact_valid: true,
+            immediate_pre_run_readonly_fresh_and_clean: true,
+            kill_switch_disarmed_for_single_attempt: true,
+            one_order_scope: true,
+            one_account_scope: true,
+            one_symbol_scope: true,
+            tiny_qty_scope: true,
+            market_limit_only: true,
+            stop_sltp_bracket_replace_multileg_forbidden: true,
+            durable_audit_persisted_before_boundary: true,
+            rollback_plan_present: true,
+            post_run_reconciliation_required: true,
+            eod_report_required: true,
+            guarded_boundary_method_shape_reviewed: true,
+            raw_request_exported: false,
+            raw_response_exported: false,
+            real_boundary_invocation_requested: true,
+            live_micro_go_allowed: false,
+            live_ready_allowed: false,
+            runtime_live_attachment_allowed: false,
             command_consumer_to_real_finam_allowed: false,
             non_loopback_order_endpoint_allowed: false,
         }
