@@ -1,0 +1,10 @@
+{
+  "fixture_kind": "synthetic_alor_readiness_snapshot_synced_v1",
+  "gateway_phase": "LiveReady",
+  "positions_synced": true,
+  "orders_synced": true,
+  "stop_orders_synced": true,
+  "bars_live_seen": true,
+  "scheduler_state": "Open",
+  "event_sink_degraded": false
+}

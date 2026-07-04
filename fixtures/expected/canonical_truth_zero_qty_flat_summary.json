@@ -1,0 +1,7 @@
+{
+  "fixture_kind": "expected_canonical_truth_zero_qty_flat_summary_v1",
+  "target_symbol": "IMOEXF@RTSX",
+  "target_open_positions_count": 0,
+  "account_open_positions_count": 1,
+  "position_truth": "target_instrument_nonzero_qty"
+}

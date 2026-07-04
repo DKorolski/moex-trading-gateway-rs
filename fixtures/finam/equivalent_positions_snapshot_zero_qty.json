@@ -1,0 +1,32 @@
+{
+  "fixture_kind": "synthetic_finam_account_positions_zero_qty_v1",
+  "account_id": "ACC_TEST_0001",
+  "positions": [
+    {
+      "symbol": "IMOEXF@RTSX",
+      "asset_type": "FUTURES",
+      "quantity": {
+        "value": "0"
+      },
+      "average_price": {
+        "value": "2227.5"
+      },
+      "unrealized_profit": {
+        "value": "0"
+      }
+    },
+    {
+      "symbol": "RIU6@RTSX",
+      "asset_type": "FUTURES",
+      "quantity": {
+        "value": "1"
+      },
+      "average_price": {
+        "value": "100000"
+      },
+      "unrealized_profit": {
+        "value": "0"
+      }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "fixture_kind": "synthetic_alor_positions_snapshot_zero_qty_v1",
+  "positions": {
+    "IMOEXF": {
+      "symbol": "IMOEXF",
+      "qty": 0.0,
+      "avg_price": 2227.5,
+      "ts_utc": 1783177200
+    },
+    "RIU6": {
+      "symbol": "RIU6",
+      "qty": 1.0,
+      "avg_price": 100000.0,
+      "ts_utc": 1783177200
+    }
+  }
+}

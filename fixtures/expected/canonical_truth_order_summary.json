@@ -1,0 +1,12 @@
+{
+  "fixture_kind": "expected_canonical_truth_order_summary_v1",
+  "target_symbol": "IMOEXF@RTSX",
+  "target_active_orders_count": 0,
+  "target_unknown_orders_count": 0,
+  "target_terminal_orders_count": 1,
+  "account_active_orders_count": 1,
+  "account_unknown_orders_count": 0,
+  "account_orphan_orders_count": 0,
+  "other_symbol_active_orders_count": 1,
+  "order_truth": "target_lifecycle_and_account_safety_are_separate"
+}

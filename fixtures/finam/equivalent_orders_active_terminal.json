@@ -1,0 +1,43 @@
+{
+  "fixture_kind": "synthetic_finam_orders_active_terminal_v1",
+  "orders": [
+    {
+      "order_id": "2001",
+      "status": "ORDER_STATUS_FILLED",
+      "order": {
+        "account_id": "ACC_TEST_0001",
+        "symbol": "IMOEXF@RTSX",
+        "quantity": {
+          "value": "1"
+        },
+        "side": "SIDE_BUY",
+        "type": "ORDER_TYPE_MARKET"
+      },
+      "executed_quantity": {
+        "value": "1"
+      },
+      "remaining_quantity": {
+        "value": "0"
+      }
+    },
+    {
+      "order_id": "2002",
+      "status": "ORDER_STATUS_NEW",
+      "order": {
+        "account_id": "ACC_TEST_0001",
+        "symbol": "RIU6@RTSX",
+        "quantity": {
+          "value": "1"
+        },
+        "side": "SIDE_BUY",
+        "type": "ORDER_TYPE_LIMIT"
+      },
+      "executed_quantity": {
+        "value": "0"
+      },
+      "remaining_quantity": {
+        "value": "1"
+      }
+    }
+  ]
+}

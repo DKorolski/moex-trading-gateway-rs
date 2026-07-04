@@ -1,0 +1,21 @@
+{
+  "fixture_kind": "synthetic_alor_orders_active_terminal_v1",
+  "orders": {
+    "1001": {
+      "order_id": 1001,
+      "symbol": "IMOEXF",
+      "status": "filled",
+      "filled": 1.0,
+      "price": 2227.5,
+      "ts_utc": 1783177200
+    },
+    "1002": {
+      "order_id": 1002,
+      "symbol": "RIU6",
+      "status": "working",
+      "filled": 0.0,
+      "price": 100000.0,
+      "ts_utc": 1783177200
+    }
+  }
+}

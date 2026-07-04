@@ -34,7 +34,8 @@ pub use instrument::{
 };
 pub use operational_snapshot::{
     instrument_identity_matches, BrokerCashSnapshot, BrokerInstrumentSpec, BrokerOrderLifecycle,
-    BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeSnapshot, BrokerTruthSnapshot,
+    BrokerOrderQuantityTruth, BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeSnapshot,
+    BrokerTruthInstrumentSummary, BrokerTruthSnapshot,
 };
 pub use order::{
     Order, OrderId, OrderSide, OrderStatus, OrderType, RedactedValueFingerprint, StopKind,
