@@ -6693,6 +6693,76 @@ pub struct M3j3OneSymbolDryShadowSessionReport {
     pub next_required_steps: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3j4PreLiveDecision {
+    NoGo,
+    GoCandidate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j4PreLiveDecisionInput {
+    pub generated_at: DateTime<Utc>,
+    pub m3j0_closed: bool,
+    pub m3j1_live_gate_design_ok: bool,
+    pub m3j2_fresh_readonly_evidence_ok: bool,
+    pub m3j3_one_symbol_dry_shadow_session_ok: bool,
+    pub readonly_evidence_age_ms: u64,
+    pub readonly_evidence_max_age_ms: u64,
+    pub active_orders_zero: bool,
+    pub no_unknown_active_orders: bool,
+    pub no_orphan_active_orders: bool,
+    pub flat_or_expected_position: bool,
+    pub one_account_scope: bool,
+    pub one_symbol_scope: bool,
+    pub one_timeframe_scope: bool,
+    pub one_strategy_scope: bool,
+    pub operator_arm_one_shot_ttl_digest_bound: bool,
+    pub operator_arm_no_auto_rearm: bool,
+    pub kill_switch_persistent_blocks_all_paths: bool,
+    pub max_qty_limit_set: bool,
+    pub max_orders_limit_set: bool,
+    pub max_loss_or_notional_placeholder_set: bool,
+    pub daily_eod_reconciliation_plan_ready: bool,
+    pub typed_optional_failures_fixed_or_waived: bool,
+    pub typed_optional_failure_count: u32,
+    pub operator_explicit_go: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub external_finam_post_delete_allowed: bool,
+    pub command_consumer_to_real_finam_transport_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j4PreLiveDecisionReport {
+    pub schema_version: u16,
+    pub generated_at: DateTime<Utc>,
+    pub m3j_step: String,
+    pub decision: M3j4PreLiveDecision,
+    pub pre_live_decision_package_ok: bool,
+    pub dependencies_closed: bool,
+    pub readonly_evidence_still_fresh: bool,
+    pub broker_truth_clean: bool,
+    pub scope_enforced: bool,
+    pub operator_controls_ready: bool,
+    pub risk_limits_ready: bool,
+    pub daily_eod_reconciliation_plan_ready: bool,
+    pub typed_optional_failures_fixed_or_waived: bool,
+    pub typed_optional_failure_count: u32,
+    pub operator_explicit_go: bool,
+    pub no_live_boundary: bool,
+    pub live_micro_go: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub external_finam_post_delete_allowed: bool,
+    pub command_consumer_to_real_finam_transport_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub no_go_reasons: Vec<String>,
+    pub post_decision_required_steps: Vec<String>,
+}
+
 pub fn m3i2_strategy_output_contract_report() -> M3iPaperStrategyOutputContractReport {
     M3iPaperStrategyOutputContractReport {
         schema_version: SCHEMA_VERSION,
@@ -7716,6 +7786,112 @@ pub fn m3j3_one_symbol_dry_shadow_session_report(
         non_loopback_order_endpoint_allowed: false,
         stop_sltp_bracket_replace_multileg_allowed: false,
         next_required_steps: vec!["M3j-4 explicit pre-live NO-GO/GO decision package".to_string()],
+    }
+}
+
+pub fn m3j4_pre_live_decision_report(input: M3j4PreLiveDecisionInput) -> M3j4PreLiveDecisionReport {
+    let dependencies_closed = input.m3j0_closed
+        && input.m3j1_live_gate_design_ok
+        && input.m3j2_fresh_readonly_evidence_ok
+        && input.m3j3_one_symbol_dry_shadow_session_ok;
+    let readonly_evidence_still_fresh = input.readonly_evidence_max_age_ms > 0
+        && input.readonly_evidence_age_ms <= input.readonly_evidence_max_age_ms;
+    let broker_truth_clean = input.active_orders_zero
+        && input.no_unknown_active_orders
+        && input.no_orphan_active_orders
+        && input.flat_or_expected_position;
+    let scope_enforced = input.one_account_scope
+        && input.one_symbol_scope
+        && input.one_timeframe_scope
+        && input.one_strategy_scope;
+    let operator_controls_ready = input.operator_arm_one_shot_ttl_digest_bound
+        && input.operator_arm_no_auto_rearm
+        && input.kill_switch_persistent_blocks_all_paths;
+    let risk_limits_ready = input.max_qty_limit_set
+        && input.max_orders_limit_set
+        && input.max_loss_or_notional_placeholder_set;
+    let no_live_boundary = !input.live_ready_allowed
+        && !input.runtime_live_attachment_allowed
+        && !input.external_finam_post_delete_allowed
+        && !input.command_consumer_to_real_finam_transport_allowed
+        && !input.non_loopback_order_endpoint_allowed
+        && !input.stop_sltp_bracket_replace_multileg_allowed;
+    let mut no_go_reasons = Vec::new();
+    if !dependencies_closed {
+        no_go_reasons.push("M3j dependencies are not all closed".to_string());
+    }
+    if !readonly_evidence_still_fresh {
+        no_go_reasons.push("fresh read-only evidence is stale or missing".to_string());
+    }
+    if !broker_truth_clean {
+        no_go_reasons.push("broker-truth state is not clean".to_string());
+    }
+    if !scope_enforced {
+        no_go_reasons.push(
+            "one-account/one-symbol/one-timeframe/one-strategy scope is not enforced".to_string(),
+        );
+    }
+    if !operator_controls_ready {
+        no_go_reasons.push("operator arm or kill switch controls are incomplete".to_string());
+    }
+    if !risk_limits_ready {
+        no_go_reasons.push("risk limits are incomplete".to_string());
+    }
+    if !input.daily_eod_reconciliation_plan_ready {
+        no_go_reasons.push("daily/EOD reconciliation plan is not ready".to_string());
+    }
+    if !input.typed_optional_failures_fixed_or_waived {
+        no_go_reasons.push("typed optional failures are not fixed or waived".to_string());
+    }
+    if !input.operator_explicit_go {
+        no_go_reasons.push("operator explicit GO is absent".to_string());
+    }
+    if !no_live_boundary {
+        no_go_reasons.push("live/order boundary is not closed".to_string());
+    }
+    let pre_live_decision_package_ok = dependencies_closed
+        && readonly_evidence_still_fresh
+        && broker_truth_clean
+        && scope_enforced
+        && operator_controls_ready
+        && risk_limits_ready
+        && input.daily_eod_reconciliation_plan_ready
+        && input.typed_optional_failures_fixed_or_waived
+        && no_live_boundary;
+    let decision = if pre_live_decision_package_ok && input.operator_explicit_go {
+        M3j4PreLiveDecision::GoCandidate
+    } else {
+        M3j4PreLiveDecision::NoGo
+    };
+    M3j4PreLiveDecisionReport {
+        schema_version: SCHEMA_VERSION,
+        generated_at: input.generated_at,
+        m3j_step: "M3j-4".to_string(),
+        decision,
+        pre_live_decision_package_ok,
+        dependencies_closed,
+        readonly_evidence_still_fresh,
+        broker_truth_clean,
+        scope_enforced,
+        operator_controls_ready,
+        risk_limits_ready,
+        daily_eod_reconciliation_plan_ready: input.daily_eod_reconciliation_plan_ready,
+        typed_optional_failures_fixed_or_waived: input.typed_optional_failures_fixed_or_waived,
+        typed_optional_failure_count: input.typed_optional_failure_count,
+        operator_explicit_go: input.operator_explicit_go,
+        no_live_boundary,
+        live_micro_go: false,
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        external_finam_post_delete_allowed: false,
+        command_consumer_to_real_finam_transport_allowed: false,
+        non_loopback_order_endpoint_allowed: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+        no_go_reasons,
+        post_decision_required_steps: vec![
+            "If decision remains NO-GO: refresh evidence or close listed no-go reasons before any live-micro attempt".to_string(),
+            "If decision becomes GO-candidate: require a separate operator-run live-micro authorization without enabling Stop/SLTP/bracket".to_string(),
+        ],
     }
 }
 
@@ -20817,6 +20993,88 @@ mod tests {
         assert!(!report.live_micro_go);
     }
 
+    #[test]
+    fn m3j4_pre_live_decision_defaults_no_go_without_operator_explicit_go() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 15, 0, 0)
+            .single()
+            .expect("timestamp");
+        let report = m3j4_pre_live_decision_report(sample_m3j4_input(now, false));
+        assert_eq!(report.m3j_step, "M3j-4");
+        assert_eq!(report.decision, M3j4PreLiveDecision::NoGo);
+        assert!(report.pre_live_decision_package_ok);
+        assert!(report.dependencies_closed);
+        assert!(report.readonly_evidence_still_fresh);
+        assert!(report.broker_truth_clean);
+        assert!(report.scope_enforced);
+        assert!(report.operator_controls_ready);
+        assert!(report.risk_limits_ready);
+        assert!(report.daily_eod_reconciliation_plan_ready);
+        assert!(report.typed_optional_failures_fixed_or_waived);
+        assert_eq!(report.typed_optional_failure_count, 3);
+        assert!(!report.operator_explicit_go);
+        assert!(report.no_live_boundary);
+        assert!(report
+            .no_go_reasons
+            .iter()
+            .any(|reason| reason.contains("operator explicit GO")));
+        assert!(!report.live_micro_go);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.external_finam_post_delete_allowed);
+    }
+
+    #[test]
+    fn m3j4_go_candidate_still_does_not_enable_live_boundary() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 15, 1, 0)
+            .single()
+            .expect("timestamp");
+        let report = m3j4_pre_live_decision_report(sample_m3j4_input(now, true));
+        assert_eq!(report.decision, M3j4PreLiveDecision::GoCandidate);
+        assert!(report.pre_live_decision_package_ok);
+        assert!(report.no_go_reasons.is_empty());
+        assert!(report.operator_explicit_go);
+        assert!(!report.live_micro_go);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.external_finam_post_delete_allowed);
+        assert!(!report.command_consumer_to_real_finam_transport_allowed);
+        assert!(!report.non_loopback_order_endpoint_allowed);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+    }
+
+    #[test]
+    fn m3j4_stale_readonly_missing_eod_or_live_boundary_forces_no_go() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 15, 2, 0)
+            .single()
+            .expect("timestamp");
+
+        let mut stale = sample_m3j4_input(now, true);
+        stale.readonly_evidence_age_ms = stale.readonly_evidence_max_age_ms + 1;
+        let report = m3j4_pre_live_decision_report(stale);
+        assert_eq!(report.decision, M3j4PreLiveDecision::NoGo);
+        assert!(!report.pre_live_decision_package_ok);
+        assert!(!report.readonly_evidence_still_fresh);
+
+        let mut missing_eod = sample_m3j4_input(now, true);
+        missing_eod.daily_eod_reconciliation_plan_ready = false;
+        let report = m3j4_pre_live_decision_report(missing_eod);
+        assert_eq!(report.decision, M3j4PreLiveDecision::NoGo);
+        assert!(!report.pre_live_decision_package_ok);
+        assert!(!report.daily_eod_reconciliation_plan_ready);
+
+        let mut endpoint_attempt = sample_m3j4_input(now, true);
+        endpoint_attempt.external_finam_post_delete_allowed = true;
+        let report = m3j4_pre_live_decision_report(endpoint_attempt);
+        assert_eq!(report.decision, M3j4PreLiveDecision::NoGo);
+        assert!(!report.pre_live_decision_package_ok);
+        assert!(!report.no_live_boundary);
+        assert!(!report.external_finam_post_delete_allowed);
+        assert!(!report.live_micro_go);
+    }
+
     #[tokio::test]
     async fn dry_command_ack_publisher_refuses_order_enabled_modes() {
         fn enable_command_consumer(features: &mut GatewayFeatureSet) {
@@ -27702,6 +27960,45 @@ mod tests {
             raw_payload_exported: false,
             raw_token_exported: false,
             raw_body_exported: false,
+            live_ready_allowed: false,
+            runtime_live_attachment_allowed: false,
+            external_finam_post_delete_allowed: false,
+            command_consumer_to_real_finam_transport_allowed: false,
+            non_loopback_order_endpoint_allowed: false,
+            stop_sltp_bracket_replace_multileg_allowed: false,
+        }
+    }
+
+    fn sample_m3j4_input(
+        now: DateTime<Utc>,
+        operator_explicit_go: bool,
+    ) -> M3j4PreLiveDecisionInput {
+        M3j4PreLiveDecisionInput {
+            generated_at: now,
+            m3j0_closed: true,
+            m3j1_live_gate_design_ok: true,
+            m3j2_fresh_readonly_evidence_ok: true,
+            m3j3_one_symbol_dry_shadow_session_ok: true,
+            readonly_evidence_age_ms: 30_000,
+            readonly_evidence_max_age_ms: 120_000,
+            active_orders_zero: true,
+            no_unknown_active_orders: true,
+            no_orphan_active_orders: true,
+            flat_or_expected_position: true,
+            one_account_scope: true,
+            one_symbol_scope: true,
+            one_timeframe_scope: true,
+            one_strategy_scope: true,
+            operator_arm_one_shot_ttl_digest_bound: true,
+            operator_arm_no_auto_rearm: true,
+            kill_switch_persistent_blocks_all_paths: true,
+            max_qty_limit_set: true,
+            max_orders_limit_set: true,
+            max_loss_or_notional_placeholder_set: true,
+            daily_eod_reconciliation_plan_ready: true,
+            typed_optional_failures_fixed_or_waived: true,
+            typed_optional_failure_count: 3,
+            operator_explicit_go,
             live_ready_allowed: false,
             runtime_live_attachment_allowed: false,
             external_finam_post_delete_allowed: false,
