@@ -154,6 +154,77 @@ pub struct M3j8GuardedTinyLiveOrderPathReport {
     pub blockers: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3j9PreAuthorizationDecision {
+    Blocked,
+    EvidenceBundleReady,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j9OperatorRunPreAuthorizationInput {
+    pub generated_at_label: String,
+    pub m3j8_guarded_candidate_accepted: bool,
+    pub explicit_operator_go_artifact_present: bool,
+    pub operator_go_artifact_redacted: bool,
+    pub timestamp_bound: bool,
+    pub account_bound: bool,
+    pub symbol_bound: bool,
+    pub timeframe_bound: bool,
+    pub strategy_bound: bool,
+    pub config_digest_bound: bool,
+    pub session_digest_bound: bool,
+    pub immediate_readonly_fresh: bool,
+    pub immediate_readonly_clean: bool,
+    pub active_orders_zero: bool,
+    pub unknown_orders_zero: bool,
+    pub orphan_orders_zero: bool,
+    pub flat_or_expected_position: bool,
+    pub one_shot_ttl_arm_present: bool,
+    pub no_auto_rearm: bool,
+    pub kill_switch_tested: bool,
+    pub kill_switch_armed_policy_documented: bool,
+    pub max_orders_per_session_documented: bool,
+    pub max_qty_documented: bool,
+    pub notional_or_loss_micro_limit_documented: bool,
+    pub durable_audit_before_boundary_persisted: bool,
+    pub post_run_broker_truth_reconciliation_ready: bool,
+    pub eod_report_template_ready: bool,
+    pub raw_secret_exported: bool,
+    pub raw_account_exported: bool,
+    pub raw_broker_payload_exported: bool,
+    pub live_micro_go_requested: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub command_consumer_to_real_finam_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j9OperatorRunPreAuthorizationReport {
+    pub m3j_step: String,
+    pub pre_authorization_evidence_only: bool,
+    pub decision: M3j9PreAuthorizationDecision,
+    pub evidence_bundle_ready: bool,
+    pub operator_go_ok: bool,
+    pub binding_ok: bool,
+    pub readonly_ok: bool,
+    pub broker_truth_ok: bool,
+    pub position_ok: bool,
+    pub one_shot_arm_ok: bool,
+    pub kill_switch_ok: bool,
+    pub micro_limits_ok: bool,
+    pub audit_ok: bool,
+    pub post_run_controls_ok: bool,
+    pub redaction_ok: bool,
+    pub live_micro_go: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub command_consumer_to_real_finam_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub unsafe_live_input_detected: bool,
+    pub blockers: Vec<String>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct GatewayRealOrderEndpointInternalRouteShape {
     pub operation: GatewayRealOrderEndpointOperation,
@@ -363,6 +434,127 @@ pub fn m3j8_guarded_tiny_live_order_path_report(
         runtime_live_attachment_allowed: false,
         command_consumer_to_real_finam_allowed: false,
         non_loopback_order_endpoint_allowed: false,
+        blockers,
+    }
+}
+
+pub fn m3j9_operator_run_pre_authorization_report(
+    input: M3j9OperatorRunPreAuthorizationInput,
+) -> M3j9OperatorRunPreAuthorizationReport {
+    let operator_go_ok =
+        input.explicit_operator_go_artifact_present && input.operator_go_artifact_redacted;
+    let binding_ok = input.timestamp_bound
+        && input.account_bound
+        && input.symbol_bound
+        && input.timeframe_bound
+        && input.strategy_bound
+        && input.config_digest_bound
+        && input.session_digest_bound;
+    let readonly_ok = input.immediate_readonly_fresh && input.immediate_readonly_clean;
+    let broker_truth_ok =
+        input.active_orders_zero && input.unknown_orders_zero && input.orphan_orders_zero;
+    let position_ok = input.flat_or_expected_position;
+    let one_shot_arm_ok = input.one_shot_ttl_arm_present && input.no_auto_rearm;
+    let kill_switch_ok = input.kill_switch_tested && input.kill_switch_armed_policy_documented;
+    let micro_limits_ok = input.max_orders_per_session_documented
+        && input.max_qty_documented
+        && input.notional_or_loss_micro_limit_documented;
+    let audit_ok = input.durable_audit_before_boundary_persisted;
+    let post_run_controls_ok =
+        input.post_run_broker_truth_reconciliation_ready && input.eod_report_template_ready;
+    let redaction_ok = !input.raw_secret_exported
+        && !input.raw_account_exported
+        && !input.raw_broker_payload_exported;
+    let unsafe_live_input_detected = input.live_micro_go_requested
+        || input.live_ready_allowed
+        || input.runtime_live_attachment_allowed
+        || input.command_consumer_to_real_finam_allowed
+        || input.non_loopback_order_endpoint_allowed;
+
+    let evidence_bundle_ready = input.m3j8_guarded_candidate_accepted
+        && operator_go_ok
+        && binding_ok
+        && readonly_ok
+        && broker_truth_ok
+        && position_ok
+        && one_shot_arm_ok
+        && kill_switch_ok
+        && micro_limits_ok
+        && audit_ok
+        && post_run_controls_ok
+        && redaction_ok
+        && !unsafe_live_input_detected;
+
+    let mut blockers = Vec::new();
+    if !input.m3j8_guarded_candidate_accepted {
+        blockers.push("M3j-8 guarded candidate is not accepted".to_string());
+    }
+    if !operator_go_ok {
+        blockers.push("explicit redacted operator GO artifact is missing".to_string());
+    }
+    if !binding_ok {
+        blockers.push(
+            "timestamp/account/symbol/timeframe/strategy/config/session binding is incomplete"
+                .to_string(),
+        );
+    }
+    if !readonly_ok {
+        blockers.push("immediate read-only evidence is stale or not clean".to_string());
+    }
+    if !broker_truth_ok {
+        blockers.push("active, unknown, or orphan broker orders are not zero".to_string());
+    }
+    if !position_ok {
+        blockers.push("position is not flat or expected".to_string());
+    }
+    if !one_shot_arm_ok {
+        blockers.push("one-shot TTL arm or no-auto-rearm proof is missing".to_string());
+    }
+    if !kill_switch_ok {
+        blockers.push("kill-switch test or armed policy proof is missing".to_string());
+    }
+    if !micro_limits_ok {
+        blockers.push("max orders, quantity, or micro loss/notional limit is missing".to_string());
+    }
+    if !audit_ok {
+        blockers.push("durable audit-before-boundary proof is missing".to_string());
+    }
+    if !post_run_controls_ok {
+        blockers.push("post-run reconciliation or EOD report template is missing".to_string());
+    }
+    if !redaction_ok {
+        blockers.push("raw secret, account, or broker payload would be exported".to_string());
+    }
+    if unsafe_live_input_detected {
+        blockers.push("live boundary input is present in pre-authorization evidence".to_string());
+    }
+
+    M3j9OperatorRunPreAuthorizationReport {
+        m3j_step: "M3j-9".to_string(),
+        pre_authorization_evidence_only: true,
+        decision: if evidence_bundle_ready {
+            M3j9PreAuthorizationDecision::EvidenceBundleReady
+        } else {
+            M3j9PreAuthorizationDecision::Blocked
+        },
+        evidence_bundle_ready,
+        operator_go_ok,
+        binding_ok,
+        readonly_ok,
+        broker_truth_ok,
+        position_ok,
+        one_shot_arm_ok,
+        kill_switch_ok,
+        micro_limits_ok,
+        audit_ok,
+        post_run_controls_ok,
+        redaction_ok,
+        live_micro_go: false,
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        command_consumer_to_real_finam_allowed: false,
+        non_loopback_order_endpoint_allowed: false,
+        unsafe_live_input_detected,
         blockers,
     }
 }
@@ -8499,6 +8691,66 @@ mod tests {
         assert!(!report.non_loopback_order_endpoint_allowed);
     }
 
+    #[test]
+    fn m3j9_pre_authorization_bundle_ready_but_live_micro_still_blocked() {
+        let report =
+            m3j9_operator_run_pre_authorization_report(sample_m3j9_pre_authorization_input());
+        assert_eq!(report.m3j_step, "M3j-9");
+        assert!(report.pre_authorization_evidence_only);
+        assert_eq!(
+            report.decision,
+            M3j9PreAuthorizationDecision::EvidenceBundleReady
+        );
+        assert!(report.evidence_bundle_ready);
+        assert!(report.operator_go_ok);
+        assert!(report.binding_ok);
+        assert!(report.readonly_ok);
+        assert!(report.broker_truth_ok);
+        assert!(report.position_ok);
+        assert!(report.one_shot_arm_ok);
+        assert!(report.kill_switch_ok);
+        assert!(report.micro_limits_ok);
+        assert!(report.audit_ok);
+        assert!(report.post_run_controls_ok);
+        assert!(report.redaction_ok);
+        assert!(!report.live_micro_go);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.command_consumer_to_real_finam_allowed);
+        assert!(!report.non_loopback_order_endpoint_allowed);
+        assert!(!report.unsafe_live_input_detected);
+        assert!(report.blockers.is_empty());
+    }
+
+    #[test]
+    fn m3j9_stale_readonly_broker_truth_or_live_input_blocks_bundle() {
+        let mut stale_readonly = sample_m3j9_pre_authorization_input();
+        stale_readonly.immediate_readonly_fresh = false;
+        let report = m3j9_operator_run_pre_authorization_report(stale_readonly);
+        assert_eq!(report.decision, M3j9PreAuthorizationDecision::Blocked);
+        assert!(!report.evidence_bundle_ready);
+        assert!(!report.readonly_ok);
+        assert!(!report.live_micro_go);
+
+        let mut broker_truth_not_clean = sample_m3j9_pre_authorization_input();
+        broker_truth_not_clean.active_orders_zero = false;
+        broker_truth_not_clean.orphan_orders_zero = false;
+        let report = m3j9_operator_run_pre_authorization_report(broker_truth_not_clean);
+        assert_eq!(report.decision, M3j9PreAuthorizationDecision::Blocked);
+        assert!(!report.broker_truth_ok);
+        assert!(!report.evidence_bundle_ready);
+
+        let mut live_input = sample_m3j9_pre_authorization_input();
+        live_input.live_micro_go_requested = true;
+        live_input.command_consumer_to_real_finam_allowed = true;
+        let report = m3j9_operator_run_pre_authorization_report(live_input);
+        assert_eq!(report.decision, M3j9PreAuthorizationDecision::Blocked);
+        assert!(report.unsafe_live_input_detected);
+        assert!(!report.evidence_bundle_ready);
+        assert!(!report.live_micro_go);
+        assert!(!report.command_consumer_to_real_finam_allowed);
+    }
+
     fn sample_m3j7_skeleton_input() -> M3j7TinyLiveOrderPathSkeletonInput {
         M3j7TinyLiveOrderPathSkeletonInput {
             generated_at_label: "synthetic-m3j7-test".to_string(),
@@ -8557,6 +8809,46 @@ mod tests {
             raw_response_exported: false,
             real_boundary_invocation_requested: true,
             live_micro_go_allowed: false,
+            live_ready_allowed: false,
+            runtime_live_attachment_allowed: false,
+            command_consumer_to_real_finam_allowed: false,
+            non_loopback_order_endpoint_allowed: false,
+        }
+    }
+
+    fn sample_m3j9_pre_authorization_input() -> M3j9OperatorRunPreAuthorizationInput {
+        M3j9OperatorRunPreAuthorizationInput {
+            generated_at_label: "synthetic-m3j9-test".to_string(),
+            m3j8_guarded_candidate_accepted: true,
+            explicit_operator_go_artifact_present: true,
+            operator_go_artifact_redacted: true,
+            timestamp_bound: true,
+            account_bound: true,
+            symbol_bound: true,
+            timeframe_bound: true,
+            strategy_bound: true,
+            config_digest_bound: true,
+            session_digest_bound: true,
+            immediate_readonly_fresh: true,
+            immediate_readonly_clean: true,
+            active_orders_zero: true,
+            unknown_orders_zero: true,
+            orphan_orders_zero: true,
+            flat_or_expected_position: true,
+            one_shot_ttl_arm_present: true,
+            no_auto_rearm: true,
+            kill_switch_tested: true,
+            kill_switch_armed_policy_documented: true,
+            max_orders_per_session_documented: true,
+            max_qty_documented: true,
+            notional_or_loss_micro_limit_documented: true,
+            durable_audit_before_boundary_persisted: true,
+            post_run_broker_truth_reconciliation_ready: true,
+            eod_report_template_ready: true,
+            raw_secret_exported: false,
+            raw_account_exported: false,
+            raw_broker_payload_exported: false,
+            live_micro_go_requested: false,
             live_ready_allowed: false,
             runtime_live_attachment_allowed: false,
             command_consumer_to_real_finam_allowed: false,
