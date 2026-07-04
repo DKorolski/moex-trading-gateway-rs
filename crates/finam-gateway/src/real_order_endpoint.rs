@@ -299,6 +299,84 @@ pub struct M3j10OperatorGoReadonlyRefreshReport {
     pub blockers: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3j11FinalAuthorizationDecision {
+    Blocked,
+    OneShotAuthorizationReady,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3j11LiveMicroGoDecision {
+    NotAuthorized,
+    AuthorizedForOneShotButNotAttached,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j11FinalOperatorRunAuthorizationInput {
+    pub generated_at_label: String,
+    pub m3j10_refresh_package_accepted: bool,
+    pub actual_operator_go_artifact_present: bool,
+    pub actual_operator_go_artifact_redacted: bool,
+    pub actual_operator_go_timestamp_bound: bool,
+    pub actual_broker_truth_artifact_present: bool,
+    pub actual_broker_truth_fresh: bool,
+    pub actual_broker_truth_redacted: bool,
+    pub active_orders_zero: bool,
+    pub unknown_active_orders_zero: bool,
+    pub orphan_active_orders_zero: bool,
+    pub flat_or_expected_position: bool,
+    pub one_shot_ttl_arm_present: bool,
+    pub one_shot_ttl_not_expired: bool,
+    pub no_auto_rearm: bool,
+    pub kill_switch_verified_at_runtime: bool,
+    pub kill_switch_armed_policy_bound: bool,
+    pub micro_limits_bound_to_session_digest: bool,
+    pub max_orders_one: bool,
+    pub tiny_qty_limit_bound: bool,
+    pub notional_or_loss_micro_limit_bound: bool,
+    pub durable_audit_before_boundary_persisted: bool,
+    pub final_authorization_decision_explicit: bool,
+    pub final_authorization_operator_signed: bool,
+    pub final_authorization_one_attempt_only: bool,
+    pub final_authorization_expires_after_ttl: bool,
+    pub runtime_live_attachment_requested: bool,
+    pub boundary_invocation_requested: bool,
+    pub command_consumer_to_real_finam_requested: bool,
+    pub non_loopback_order_endpoint_requested: bool,
+    pub stop_sltp_bracket_replace_multileg_requested: bool,
+    pub raw_operator_go_exported: bool,
+    pub raw_broker_truth_exported: bool,
+    pub raw_account_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j11FinalOperatorRunAuthorizationReport {
+    pub m3j_step: String,
+    pub final_authorization_gate_only: bool,
+    pub decision: M3j11FinalAuthorizationDecision,
+    pub live_micro_go_decision: M3j11LiveMicroGoDecision,
+    pub authorization_ready: bool,
+    pub operator_artifact_ok: bool,
+    pub broker_truth_artifact_ok: bool,
+    pub broker_truth_zero_orders_ok: bool,
+    pub position_ok: bool,
+    pub one_shot_arm_ok: bool,
+    pub kill_switch_ok: bool,
+    pub micro_limits_ok: bool,
+    pub audit_ok: bool,
+    pub explicit_final_decision_ok: bool,
+    pub redaction_ok: bool,
+    pub live_micro_go: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub boundary_invocation_performed: bool,
+    pub command_consumer_to_real_finam_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub unsafe_runtime_or_boundary_input_detected: bool,
+    pub blockers: Vec<String>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct GatewayRealOrderEndpointInternalRouteShape {
     pub operation: GatewayRealOrderEndpointOperation,
@@ -756,6 +834,136 @@ pub fn m3j10_operator_go_readonly_refresh_report(
         command_consumer_to_real_finam_allowed: false,
         non_loopback_order_endpoint_allowed: false,
         unsafe_live_input_detected,
+        blockers,
+    }
+}
+
+pub fn m3j11_final_operator_run_authorization_report(
+    input: M3j11FinalOperatorRunAuthorizationInput,
+) -> M3j11FinalOperatorRunAuthorizationReport {
+    let operator_artifact_ok = input.actual_operator_go_artifact_present
+        && input.actual_operator_go_artifact_redacted
+        && input.actual_operator_go_timestamp_bound;
+    let broker_truth_artifact_ok = input.actual_broker_truth_artifact_present
+        && input.actual_broker_truth_fresh
+        && input.actual_broker_truth_redacted;
+    let broker_truth_zero_orders_ok = input.active_orders_zero
+        && input.unknown_active_orders_zero
+        && input.orphan_active_orders_zero;
+    let position_ok = input.flat_or_expected_position;
+    let one_shot_arm_ok =
+        input.one_shot_ttl_arm_present && input.one_shot_ttl_not_expired && input.no_auto_rearm;
+    let kill_switch_ok =
+        input.kill_switch_verified_at_runtime && input.kill_switch_armed_policy_bound;
+    let micro_limits_ok = input.micro_limits_bound_to_session_digest
+        && input.max_orders_one
+        && input.tiny_qty_limit_bound
+        && input.notional_or_loss_micro_limit_bound;
+    let audit_ok = input.durable_audit_before_boundary_persisted;
+    let explicit_final_decision_ok = input.final_authorization_decision_explicit
+        && input.final_authorization_operator_signed
+        && input.final_authorization_one_attempt_only
+        && input.final_authorization_expires_after_ttl;
+    let redaction_ok = !input.raw_operator_go_exported
+        && !input.raw_broker_truth_exported
+        && !input.raw_account_exported;
+    let unsafe_runtime_or_boundary_input_detected = input.runtime_live_attachment_requested
+        || input.boundary_invocation_requested
+        || input.command_consumer_to_real_finam_requested
+        || input.non_loopback_order_endpoint_requested
+        || input.stop_sltp_bracket_replace_multileg_requested;
+
+    let authorization_ready = input.m3j10_refresh_package_accepted
+        && operator_artifact_ok
+        && broker_truth_artifact_ok
+        && broker_truth_zero_orders_ok
+        && position_ok
+        && one_shot_arm_ok
+        && kill_switch_ok
+        && micro_limits_ok
+        && audit_ok
+        && explicit_final_decision_ok
+        && redaction_ok
+        && !unsafe_runtime_or_boundary_input_detected;
+
+    let mut blockers = Vec::new();
+    if !input.m3j10_refresh_package_accepted {
+        blockers.push("M3j-10 refresh package is not accepted".to_string());
+    }
+    if !operator_artifact_ok {
+        blockers
+            .push("actual timestamp-bound redacted operator GO artifact is missing".to_string());
+    }
+    if !broker_truth_artifact_ok {
+        blockers.push("actual fresh redacted broker-truth artifact is missing".to_string());
+    }
+    if !broker_truth_zero_orders_ok {
+        blockers.push("active, unknown active, or orphan active orders are not zero".to_string());
+    }
+    if !position_ok {
+        blockers.push("position is not flat or expected".to_string());
+    }
+    if !one_shot_arm_ok {
+        blockers.push("one-shot TTL arm is missing, expired, or auto-rearm is allowed".to_string());
+    }
+    if !kill_switch_ok {
+        blockers.push(
+            "runtime kill switch verification or armed policy binding is missing".to_string(),
+        );
+    }
+    if !micro_limits_ok {
+        blockers
+            .push("session-bound one-order, tiny-qty, or micro limit proof is missing".to_string());
+    }
+    if !audit_ok {
+        blockers.push("durable audit-before-boundary proof is missing".to_string());
+    }
+    if !explicit_final_decision_ok {
+        blockers.push("explicit signed one-attempt final authorization is missing".to_string());
+    }
+    if !redaction_ok {
+        blockers
+            .push("raw operator GO, broker truth, or account data would be exported".to_string());
+    }
+    if unsafe_runtime_or_boundary_input_detected {
+        blockers.push(
+            "runtime attachment or boundary invocation is requested inside authorization gate"
+                .to_string(),
+        );
+    }
+
+    M3j11FinalOperatorRunAuthorizationReport {
+        m3j_step: "M3j-11".to_string(),
+        final_authorization_gate_only: true,
+        decision: if authorization_ready {
+            M3j11FinalAuthorizationDecision::OneShotAuthorizationReady
+        } else {
+            M3j11FinalAuthorizationDecision::Blocked
+        },
+        live_micro_go_decision: if authorization_ready {
+            M3j11LiveMicroGoDecision::AuthorizedForOneShotButNotAttached
+        } else {
+            M3j11LiveMicroGoDecision::NotAuthorized
+        },
+        authorization_ready,
+        operator_artifact_ok,
+        broker_truth_artifact_ok,
+        broker_truth_zero_orders_ok,
+        position_ok,
+        one_shot_arm_ok,
+        kill_switch_ok,
+        micro_limits_ok,
+        audit_ok,
+        explicit_final_decision_ok,
+        redaction_ok,
+        live_micro_go: false,
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        boundary_invocation_performed: false,
+        command_consumer_to_real_finam_allowed: false,
+        non_loopback_order_endpoint_allowed: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+        unsafe_runtime_or_boundary_input_detected,
         blockers,
     }
 }
@@ -9030,6 +9238,75 @@ mod tests {
         assert!(!report.non_loopback_order_endpoint_allowed);
     }
 
+    #[test]
+    fn m3j11_final_authorization_ready_but_not_attached_or_invoked() {
+        let report =
+            m3j11_final_operator_run_authorization_report(sample_m3j11_final_authorization_input());
+        assert_eq!(report.m3j_step, "M3j-11");
+        assert!(report.final_authorization_gate_only);
+        assert_eq!(
+            report.decision,
+            M3j11FinalAuthorizationDecision::OneShotAuthorizationReady
+        );
+        assert_eq!(
+            report.live_micro_go_decision,
+            M3j11LiveMicroGoDecision::AuthorizedForOneShotButNotAttached
+        );
+        assert!(report.authorization_ready);
+        assert!(report.operator_artifact_ok);
+        assert!(report.broker_truth_artifact_ok);
+        assert!(report.broker_truth_zero_orders_ok);
+        assert!(report.position_ok);
+        assert!(report.one_shot_arm_ok);
+        assert!(report.kill_switch_ok);
+        assert!(report.micro_limits_ok);
+        assert!(report.audit_ok);
+        assert!(report.explicit_final_decision_ok);
+        assert!(report.redaction_ok);
+        assert!(!report.live_micro_go);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.boundary_invocation_performed);
+        assert!(!report.command_consumer_to_real_finam_allowed);
+        assert!(!report.non_loopback_order_endpoint_allowed);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+        assert!(!report.unsafe_runtime_or_boundary_input_detected);
+        assert!(report.blockers.is_empty());
+    }
+
+    #[test]
+    fn m3j11_missing_actual_artifact_or_boundary_request_blocks_authorization() {
+        let mut stale_broker_truth = sample_m3j11_final_authorization_input();
+        stale_broker_truth.actual_broker_truth_fresh = false;
+        let report = m3j11_final_operator_run_authorization_report(stale_broker_truth);
+        assert_eq!(report.decision, M3j11FinalAuthorizationDecision::Blocked);
+        assert_eq!(
+            report.live_micro_go_decision,
+            M3j11LiveMicroGoDecision::NotAuthorized
+        );
+        assert!(!report.broker_truth_artifact_ok);
+        assert!(!report.authorization_ready);
+        assert!(!report.live_micro_go);
+
+        let mut missing_final_signature = sample_m3j11_final_authorization_input();
+        missing_final_signature.final_authorization_operator_signed = false;
+        let report = m3j11_final_operator_run_authorization_report(missing_final_signature);
+        assert_eq!(report.decision, M3j11FinalAuthorizationDecision::Blocked);
+        assert!(!report.explicit_final_decision_ok);
+        assert!(!report.authorization_ready);
+
+        let mut boundary_request = sample_m3j11_final_authorization_input();
+        boundary_request.boundary_invocation_requested = true;
+        boundary_request.runtime_live_attachment_requested = true;
+        let report = m3j11_final_operator_run_authorization_report(boundary_request);
+        assert_eq!(report.decision, M3j11FinalAuthorizationDecision::Blocked);
+        assert!(report.unsafe_runtime_or_boundary_input_detected);
+        assert!(!report.authorization_ready);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.boundary_invocation_performed);
+        assert!(!report.live_micro_go);
+    }
+
     fn sample_m3j7_skeleton_input() -> M3j7TinyLiveOrderPathSkeletonInput {
         M3j7TinyLiveOrderPathSkeletonInput {
             generated_at_label: "synthetic-m3j7-test".to_string(),
@@ -9175,6 +9452,45 @@ mod tests {
             runtime_live_attachment_allowed: false,
             command_consumer_to_real_finam_allowed: false,
             non_loopback_order_endpoint_allowed: false,
+        }
+    }
+
+    fn sample_m3j11_final_authorization_input() -> M3j11FinalOperatorRunAuthorizationInput {
+        M3j11FinalOperatorRunAuthorizationInput {
+            generated_at_label: "synthetic-m3j11-test".to_string(),
+            m3j10_refresh_package_accepted: true,
+            actual_operator_go_artifact_present: true,
+            actual_operator_go_artifact_redacted: true,
+            actual_operator_go_timestamp_bound: true,
+            actual_broker_truth_artifact_present: true,
+            actual_broker_truth_fresh: true,
+            actual_broker_truth_redacted: true,
+            active_orders_zero: true,
+            unknown_active_orders_zero: true,
+            orphan_active_orders_zero: true,
+            flat_or_expected_position: true,
+            one_shot_ttl_arm_present: true,
+            one_shot_ttl_not_expired: true,
+            no_auto_rearm: true,
+            kill_switch_verified_at_runtime: true,
+            kill_switch_armed_policy_bound: true,
+            micro_limits_bound_to_session_digest: true,
+            max_orders_one: true,
+            tiny_qty_limit_bound: true,
+            notional_or_loss_micro_limit_bound: true,
+            durable_audit_before_boundary_persisted: true,
+            final_authorization_decision_explicit: true,
+            final_authorization_operator_signed: true,
+            final_authorization_one_attempt_only: true,
+            final_authorization_expires_after_ttl: true,
+            runtime_live_attachment_requested: false,
+            boundary_invocation_requested: false,
+            command_consumer_to_real_finam_requested: false,
+            non_loopback_order_endpoint_requested: false,
+            stop_sltp_bracket_replace_multileg_requested: false,
+            raw_operator_go_exported: false,
+            raw_broker_truth_exported: false,
+            raw_account_exported: false,
         }
     }
 }
