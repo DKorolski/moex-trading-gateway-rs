@@ -2618,6 +2618,24 @@ struct FinamTinyPositionMarketOneShotArgs {
     raw_response_output: Option<PathBuf>,
 }
 
+fn portfolio_positions_count_for_symbol(
+    portfolio: &PortfolioSnapshot,
+    venue_symbol: &str,
+) -> usize {
+    let ticker = venue_symbol
+        .split_once('@')
+        .map(|(ticker, _)| ticker)
+        .unwrap_or(venue_symbol);
+    portfolio
+        .positions
+        .iter()
+        .filter(|position| {
+            position.instrument.venue_symbol.as_deref() == Some(venue_symbol)
+                || position.instrument.symbol == ticker
+        })
+        .count()
+}
+
 async fn run_finam_tiny_position_market_one_shot(
     args: FinamTinyPositionMarketOneShotArgs,
 ) -> Result<()> {
@@ -2654,7 +2672,8 @@ async fn run_finam_tiny_position_market_one_shot(
 
     let account = client.account_typed(&token, &args.account_id).await?;
     let portfolio = map_portfolio_snapshot(&account, now).map_err(mapper_anyhow)?;
-    let initial_positions_count = portfolio.positions.len();
+    let initial_account_positions_count = portfolio.positions.len();
+    let initial_positions_count = portfolio_positions_count_for_symbol(&portfolio, &args.symbol);
     let flat_position = initial_positions_count == 0;
     let orders = client
         .account_orders_typed(&token, &args.account_id)
@@ -2770,6 +2789,10 @@ async fn run_finam_tiny_position_market_one_shot(
     let mut final_positions_count: Option<usize> = None;
     #[cfg(not(feature = "m3j16-actual-one-shot"))]
     let final_positions_count: Option<usize> = None;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut final_account_positions_count: Option<usize> = None;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let final_account_positions_count: Option<usize> = None;
     #[cfg(feature = "m3j16-actual-one-shot")]
     let mut actual_error: Option<String> = None;
     #[cfg(not(feature = "m3j16-actual-one-shot"))]
@@ -2906,7 +2929,8 @@ async fn run_finam_tiny_position_market_one_shot(
                     let account = client.account_typed(&token, &args.account_id).await?;
                     let snapshot =
                         map_portfolio_snapshot(&account, Utc::now()).map_err(mapper_anyhow)?;
-                    observed_positions_count = snapshot.positions.len();
+                    observed_positions_count =
+                        portfolio_positions_count_for_symbol(&snapshot, &args.symbol);
                     if observed_positions_count > 0 {
                         position_observed = true;
                         break;
@@ -3004,7 +3028,11 @@ async fn run_finam_tiny_position_market_one_shot(
             let final_account = client.account_typed(&token, &args.account_id).await?;
             let final_snapshot =
                 map_portfolio_snapshot(&final_account, Utc::now()).map_err(mapper_anyhow)?;
-            final_positions_count = Some(final_snapshot.positions.len());
+            final_account_positions_count = Some(final_snapshot.positions.len());
+            final_positions_count = Some(portfolio_positions_count_for_symbol(
+                &final_snapshot,
+                &args.symbol,
+            ));
             let final_orders = client
                 .account_orders_typed(&token, &args.account_id)
                 .await?;
@@ -3059,6 +3087,8 @@ async fn run_finam_tiny_position_market_one_shot(
             "token_readonly_flag_value": token_details.readonly,
             "token_account_hash_match": account_bound,
             "positions_count": initial_positions_count,
+            "account_positions_count": initial_account_positions_count,
+            "positions_scope": "target_symbol_nonzero",
             "orders_total": mapped_orders.len(),
             "active_orders_count": active_orders_count,
             "unknown_active_orders_count": unknown_active_orders_count,
@@ -3085,12 +3115,15 @@ async fn run_finam_tiny_position_market_one_shot(
             "position_observed": position_observed,
             "position_observation_poll_count": position_observation_poll_count,
             "observed_positions_count": observed_positions_count,
+            "observed_positions_scope": "target_symbol_nonzero",
             "exit_attempted": exit_attempted,
             "exit_response_kind": exit_response_kind,
             "exit_post_send_semantics": exit_post_send_semantics,
             "exit_broker_order_id_present": exit_broker_order_id_present,
             "final_active_orders_count": final_active_orders_count,
             "final_positions_count": final_positions_count,
+            "final_account_positions_count": final_account_positions_count,
+            "final_positions_scope": "target_symbol_nonzero",
             "actual_error": actual_error,
             "raw_response_capture_requested": args.raw_response_output.is_some()
         }
