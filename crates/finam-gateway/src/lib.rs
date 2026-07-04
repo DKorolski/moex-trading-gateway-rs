@@ -6062,6 +6062,10 @@ pub enum M3iPaperStrategySignalKind {
 pub enum M3iPaperStrategyOutputRejectReason {
     SuppressedByStrategy,
     UnsafeStrategyInput,
+    MarketWithLimitPrice,
+    LimitWithoutLimitPrice,
+    NonPositiveQty,
+    UnsupportedTimeInForce,
     StopSltpBracketReplaceMultilegForbidden,
     DirectPublishForbidden,
 }
@@ -6088,6 +6092,8 @@ pub struct M3iPaperStrategySignal {
 pub struct M3iPaperStrategyOutputCandidate {
     pub schema_version: u16,
     pub strategy_id: String,
+    pub strategy_version: String,
+    pub strategy_params_hash: String,
     pub request_id: StrategyRequestId,
     pub decision_entry_id: String,
     pub decision_bar_key: String,
@@ -6108,6 +6114,27 @@ pub struct M3iPaperStrategyOutputCandidate {
     pub external_order_endpoint_allowed: bool,
     pub real_finam_order_endpoint_used: bool,
     pub stop_sltp_bracket_replace_multileg_requested: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3iPaperStrategyIdentityContext {
+    pub account_id: BrokerAccountId,
+    pub strategy_version: String,
+    pub strategy_params_hash: String,
+}
+
+impl M3iPaperStrategyIdentityContext {
+    pub fn new(
+        account_id: BrokerAccountId,
+        strategy_version: impl Into<String>,
+        strategy_params_hash: impl Into<String>,
+    ) -> Self {
+        Self {
+            account_id,
+            strategy_version: strategy_version.into(),
+            strategy_params_hash: strategy_params_hash.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -6141,6 +6168,69 @@ pub struct M3iPaperStrategyStateTransition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct M3iPaperStrategyStateSnapshot {
+    schema_version: u16,
+    state: M3iPaperStrategyState,
+}
+
+#[derive(Debug, Clone)]
+pub struct M3iJsonPaperStrategyStateStore {
+    path: Arc<PathBuf>,
+    state: Arc<Mutex<M3iPaperStrategyState>>,
+}
+
+impl M3iJsonPaperStrategyStateStore {
+    pub fn open(path: impl Into<PathBuf>) -> Result<Self, GatewayError> {
+        let path = path.into();
+        let state = if path.exists() {
+            let payload = fs::read_to_string(&path)?;
+            let snapshot: M3iPaperStrategyStateSnapshot = serde_json::from_str(&payload)?;
+            snapshot.state
+        } else {
+            M3iPaperStrategyState::default()
+        };
+        Ok(Self {
+            path: Arc::new(path),
+            state: Arc::new(Mutex::new(state)),
+        })
+    }
+
+    pub fn load(&self) -> Result<M3iPaperStrategyState, GatewayError> {
+        self.state
+            .lock()
+            .map_err(|_| GatewayError::InternalState {
+                message: "m3i paper strategy state store mutex poisoned",
+            })
+            .map(|state| state.clone())
+    }
+
+    pub fn save(&self, state: M3iPaperStrategyState) -> Result<(), GatewayError> {
+        {
+            let mut guard = self.state.lock().map_err(|_| GatewayError::InternalState {
+                message: "m3i paper strategy state store mutex poisoned",
+            })?;
+            *guard = state;
+        }
+        self.persist()
+    }
+
+    fn persist(&self) -> Result<(), GatewayError> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let snapshot = M3iPaperStrategyStateSnapshot {
+            schema_version: SCHEMA_VERSION,
+            state: self.load()?,
+        };
+        let payload = serde_json::to_string_pretty(&snapshot)?;
+        let tmp_path = PathBuf::from(format!("{}.tmp", self.path.to_string_lossy()));
+        fs::write(&tmp_path, payload)?;
+        fs::rename(tmp_path, self.path.as_ref())?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct M3iPaperStrategyOutputContractReport {
     pub schema_version: u16,
     pub strategy_output_broker_neutral: bool,
@@ -6149,7 +6239,9 @@ pub struct M3iPaperStrategyOutputContractReport {
     pub strategy_can_emit_broker_command_directly: bool,
     pub m3h_dry_command_emitter_required: bool,
     pub request_id_deterministic: bool,
+    pub request_id_includes_account_instrument_and_strategy_version: bool,
     pub request_id_allocated_before_pending_mutation: bool,
+    pub local_shape_validation_at_strategy_boundary: bool,
     pub duplicate_request_id_creates_second_output: bool,
     pub not_emitted_or_publish_failed_rolls_back_pending: bool,
     pub runtime_live_attachment_allowed: bool,
@@ -6196,7 +6288,9 @@ pub fn m3i2_strategy_output_contract_report() -> M3iPaperStrategyOutputContractR
         strategy_can_emit_broker_command_directly: false,
         m3h_dry_command_emitter_required: true,
         request_id_deterministic: true,
+        request_id_includes_account_instrument_and_strategy_version: true,
         request_id_allocated_before_pending_mutation: true,
+        local_shape_validation_at_strategy_boundary: true,
         duplicate_request_id_creates_second_output: false,
         not_emitted_or_publish_failed_rolls_back_pending: true,
         runtime_live_attachment_allowed: false,
@@ -6211,11 +6305,38 @@ pub fn m3i2_deterministic_request_id(
     strategy_input: &M3iStrategyPaperInput,
     signal: &M3iPaperStrategySignal,
 ) -> StrategyRequestId {
+    m3i3_deterministic_request_id(
+        strategy_input,
+        signal,
+        &M3iPaperStrategyIdentityContext::new(
+            BrokerAccountId::new("ACC_TEST_0001"),
+            "strategy-version-unspecified",
+            "params-unspecified",
+        ),
+    )
+}
+
+pub fn m3i3_deterministic_request_id(
+    strategy_input: &M3iStrategyPaperInput,
+    signal: &M3iPaperStrategySignal,
+    identity: &M3iPaperStrategyIdentityContext,
+) -> StrategyRequestId {
     let mut fingerprint = String::new();
     let _ = write!(
         &mut fingerprint,
-        "m3i2|{}|{}|{}|{:?}|{}|{:?}|{:?}|{:?}",
+        "m3i3|{}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{:?}|{:?}|{:?}",
         strategy_input.strategy_id,
+        identity.strategy_version,
+        identity.strategy_params_hash,
+        identity.account_id.as_str(),
+        strategy_input.bar.instrument.symbol,
+        strategy_input
+            .bar
+            .instrument
+            .venue_symbol
+            .as_deref()
+            .unwrap_or(""),
+        strategy_input.bar.timeframe_sec,
         strategy_input.decision_entry_id,
         strategy_input.decision_bar_key,
         signal.kind,
@@ -6227,16 +6348,59 @@ pub fn m3i2_deterministic_request_id(
     StrategyRequestId::from(Uuid::new_v5(&Uuid::NAMESPACE_OID, fingerprint.as_bytes()))
 }
 
+pub fn m3i3_validate_paper_strategy_signal(
+    signal: &M3iPaperStrategySignal,
+) -> Result<(), M3iPaperStrategyOutputRejectReason> {
+    if signal.qty <= Decimal::ZERO {
+        return Err(M3iPaperStrategyOutputRejectReason::NonPositiveQty);
+    }
+    match signal.order_type {
+        OrderType::Market if signal.limit_price.is_some() => {
+            return Err(M3iPaperStrategyOutputRejectReason::MarketWithLimitPrice);
+        }
+        OrderType::Limit if signal.limit_price.is_none() => {
+            return Err(M3iPaperStrategyOutputRejectReason::LimitWithoutLimitPrice);
+        }
+        OrderType::Market | OrderType::Limit => {}
+        _ => {
+            return Err(
+                M3iPaperStrategyOutputRejectReason::StopSltpBracketReplaceMultilegForbidden,
+            );
+        }
+    }
+    if signal.time_in_force != TimeInForce::Day {
+        return Err(M3iPaperStrategyOutputRejectReason::UnsupportedTimeInForce);
+    }
+    Ok(())
+}
+
 pub fn m3i2_build_paper_strategy_output(
     strategy_input: &M3iStrategyPaperInput,
     signal: M3iPaperStrategySignal,
     account_id: BrokerAccountId,
     created_ts: DateTime<Utc>,
 ) -> M3iPaperStrategyOutputOutcome {
+    m3i3_build_paper_strategy_output(
+        strategy_input,
+        signal,
+        M3iPaperStrategyIdentityContext::new(account_id, "paper-strategy-v1", "params:default"),
+        created_ts,
+    )
+}
+
+pub fn m3i3_build_paper_strategy_output(
+    strategy_input: &M3iStrategyPaperInput,
+    signal: M3iPaperStrategySignal,
+    identity: M3iPaperStrategyIdentityContext,
+    created_ts: DateTime<Utc>,
+) -> M3iPaperStrategyOutputOutcome {
     if signal.kind == M3iPaperStrategySignalKind::Suppress {
         return M3iPaperStrategyOutputOutcome::Suppressed {
             reason: M3iPaperStrategyOutputRejectReason::SuppressedByStrategy,
         };
+    }
+    if let Err(reason) = m3i3_validate_paper_strategy_signal(&signal) {
+        return M3iPaperStrategyOutputOutcome::Suppressed { reason };
     }
     if !strategy_input.broker_neutral_payload_only
         || strategy_input.finam_dto_visible_to_strategy
@@ -6259,14 +6423,16 @@ pub fn m3i2_build_paper_strategy_output(
         M3iPaperStrategySignalKind::EnterShort => OrderSide::Sell,
         M3iPaperStrategySignalKind::Suppress => unreachable!("handled above"),
     };
-    let request_id = m3i2_deterministic_request_id(strategy_input, &signal);
+    let request_id = m3i3_deterministic_request_id(strategy_input, &signal, &identity);
     M3iPaperStrategyOutputOutcome::Candidate(Box::new(M3iPaperStrategyOutputCandidate {
         schema_version: SCHEMA_VERSION,
         strategy_id: strategy_input.strategy_id.clone(),
+        strategy_version: identity.strategy_version,
+        strategy_params_hash: identity.strategy_params_hash,
         request_id,
         decision_entry_id: strategy_input.decision_entry_id.clone(),
         decision_bar_key: strategy_input.decision_bar_key.clone(),
-        account_id,
+        account_id: identity.account_id,
         instrument: strategy_input.bar.instrument.clone(),
         side,
         order_type: signal.order_type,
@@ -18526,7 +18692,9 @@ mod tests {
         assert!(!report.strategy_can_emit_broker_command_directly);
         assert!(report.m3h_dry_command_emitter_required);
         assert!(report.request_id_deterministic);
+        assert!(report.request_id_includes_account_instrument_and_strategy_version);
         assert!(report.request_id_allocated_before_pending_mutation);
+        assert!(report.local_shape_validation_at_strategy_boundary);
         assert!(!report.duplicate_request_id_creates_second_output);
         assert!(report.not_emitted_or_publish_failed_rolls_back_pending);
         assert!(!report.runtime_live_attachment_allowed);
@@ -18555,6 +18723,250 @@ mod tests {
                 reason: M3iPaperStrategyOutputRejectReason::SuppressedByStrategy
             }
         );
+    }
+
+    #[test]
+    fn m3i3_request_id_explicitly_includes_account_instrument_and_strategy_version() {
+        let input = sample_m3i_strategy_input();
+        let signal = M3iPaperStrategySignal {
+            kind: M3iPaperStrategySignalKind::EnterLong,
+            order_type: OrderType::Market,
+            qty: Decimal::ONE,
+            limit_price: None,
+            time_in_force: TimeInForce::Day,
+            suppress_reason: None,
+        };
+        let base = M3iPaperStrategyIdentityContext::new(
+            BrokerAccountId::new("ACC_TEST_0001"),
+            "strategy-v1",
+            "params:a",
+        );
+        let base_id = m3i3_deterministic_request_id(&input, &signal, &base);
+        assert_ne!(
+            base_id,
+            m3i3_deterministic_request_id(
+                &input,
+                &signal,
+                &M3iPaperStrategyIdentityContext::new(
+                    BrokerAccountId::new("ACC_TEST_0002"),
+                    "strategy-v1",
+                    "params:a",
+                ),
+            )
+        );
+        assert_ne!(
+            base_id,
+            m3i3_deterministic_request_id(
+                &input,
+                &signal,
+                &M3iPaperStrategyIdentityContext::new(
+                    BrokerAccountId::new("ACC_TEST_0001"),
+                    "strategy-v2",
+                    "params:a",
+                ),
+            )
+        );
+        let mut other_instrument = input.clone();
+        other_instrument.bar.instrument.symbol = "OTHERFUT".to_string();
+        other_instrument.decision_bar_key = m3h2_runtime_bar_key(&other_instrument.bar);
+        assert_ne!(
+            base_id,
+            m3i3_deterministic_request_id(&other_instrument, &signal, &base)
+        );
+    }
+
+    #[test]
+    fn m3i3_local_shape_validation_rejects_impossible_paper_outputs() {
+        let valid = M3iPaperStrategySignal {
+            kind: M3iPaperStrategySignalKind::EnterLong,
+            order_type: OrderType::Limit,
+            qty: Decimal::ONE,
+            limit_price: Some(Decimal::new(5000, 0)),
+            time_in_force: TimeInForce::Day,
+            suppress_reason: None,
+        };
+        assert_eq!(m3i3_validate_paper_strategy_signal(&valid), Ok(()));
+
+        for (signal, reason) in [
+            (
+                M3iPaperStrategySignal {
+                    order_type: OrderType::Market,
+                    limit_price: Some(Decimal::new(5000, 0)),
+                    ..valid.clone()
+                },
+                M3iPaperStrategyOutputRejectReason::MarketWithLimitPrice,
+            ),
+            (
+                M3iPaperStrategySignal {
+                    order_type: OrderType::Limit,
+                    limit_price: None,
+                    ..valid.clone()
+                },
+                M3iPaperStrategyOutputRejectReason::LimitWithoutLimitPrice,
+            ),
+            (
+                M3iPaperStrategySignal {
+                    qty: Decimal::ZERO,
+                    ..valid.clone()
+                },
+                M3iPaperStrategyOutputRejectReason::NonPositiveQty,
+            ),
+            (
+                M3iPaperStrategySignal {
+                    order_type: OrderType::Stop,
+                    ..valid.clone()
+                },
+                M3iPaperStrategyOutputRejectReason::StopSltpBracketReplaceMultilegForbidden,
+            ),
+            (
+                M3iPaperStrategySignal {
+                    time_in_force: TimeInForce::ImmediateOrCancel,
+                    ..valid.clone()
+                },
+                M3iPaperStrategyOutputRejectReason::UnsupportedTimeInForce,
+            ),
+        ] {
+            assert_eq!(m3i3_validate_paper_strategy_signal(&signal), Err(reason));
+            assert!(matches!(
+                m3i3_build_paper_strategy_output(
+                    &sample_m3i_strategy_input(),
+                    signal,
+                    M3iPaperStrategyIdentityContext::new(
+                        BrokerAccountId::new("ACC_TEST_0001"),
+                        "strategy-v1",
+                        "params:a",
+                    ),
+                    Utc.with_ymd_and_hms(2026, 7, 4, 10, 4, 0)
+                        .single()
+                        .expect("timestamp"),
+                ),
+                M3iPaperStrategyOutputOutcome::Suppressed { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn m3i3_json_state_restore_keeps_pending_published_and_dropped_terminal() {
+        let path = temp_m3i3_state_path("restore");
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 10, 5, 0)
+            .single()
+            .expect("timestamp");
+        let input = sample_m3i_strategy_input();
+        let M3iPaperStrategyOutputOutcome::Candidate(pending_candidate) =
+            m3i3_build_paper_strategy_output(
+                &input,
+                M3iPaperStrategySignal {
+                    kind: M3iPaperStrategySignalKind::EnterLong,
+                    order_type: OrderType::Market,
+                    qty: Decimal::ONE,
+                    limit_price: None,
+                    time_in_force: TimeInForce::Day,
+                    suppress_reason: None,
+                },
+                M3iPaperStrategyIdentityContext::new(
+                    BrokerAccountId::new("ACC_TEST_0001"),
+                    "strategy-v1",
+                    "params:a",
+                ),
+                now,
+            )
+        else {
+            panic!("expected pending candidate");
+        };
+        let store = M3iJsonPaperStrategyStateStore::open(&path).expect("open m3i state");
+        let mut state = store.load().expect("load initial state");
+        assert_eq!(
+            m3i2_stage_pending_before_m3h_emission(&mut state, &pending_candidate).action,
+            M3iPaperStrategyStateAction::PendingStaged
+        );
+        store.save(state).expect("save pending");
+
+        let restored = M3iJsonPaperStrategyStateStore::open(&path).expect("reopen pending");
+        let mut restored_state = restored.load().expect("load pending");
+        assert_eq!(
+            m3i2_stage_pending_before_m3h_emission(&mut restored_state, &pending_candidate).action,
+            M3iPaperStrategyStateAction::DuplicateIgnored
+        );
+
+        let published = M3hRuntimeDryCommandEmitOutcome::CommandPublished {
+            request_id: pending_candidate.request_id,
+            command_kind: M3eCommandKind::PlaceOrder,
+            stream: "finam:commands".to_string(),
+            state: M3hRuntimeDryCommandLifecycleState::PublishedToM3eCommandStream,
+        };
+        assert_eq!(
+            m3i2_apply_m3h_emit_outcome_to_strategy_state(
+                &mut restored_state,
+                pending_candidate.request_id,
+                &published,
+            )
+            .action,
+            M3iPaperStrategyStateAction::PublishedPendingDryAck
+        );
+        restored.save(restored_state).expect("save published");
+        let after_published =
+            M3iJsonPaperStrategyStateStore::open(&path).expect("reopen published");
+        let mut after_published_state = after_published.load().expect("load published");
+        assert_eq!(
+            m3i2_stage_pending_before_m3h_emission(&mut after_published_state, &pending_candidate,)
+                .action,
+            M3iPaperStrategyStateAction::DuplicateIgnored
+        );
+
+        let M3iPaperStrategyOutputOutcome::Candidate(dropped_candidate) =
+            m3i3_build_paper_strategy_output(
+                &input,
+                M3iPaperStrategySignal {
+                    kind: M3iPaperStrategySignalKind::EnterShort,
+                    order_type: OrderType::Market,
+                    qty: Decimal::ONE,
+                    limit_price: None,
+                    time_in_force: TimeInForce::Day,
+                    suppress_reason: None,
+                },
+                M3iPaperStrategyIdentityContext::new(
+                    BrokerAccountId::new("ACC_TEST_0001"),
+                    "strategy-v1",
+                    "params:a",
+                ),
+                now,
+            )
+        else {
+            panic!("expected dropped candidate");
+        };
+        m3i2_stage_pending_before_m3h_emission(&mut after_published_state, &dropped_candidate);
+        assert_eq!(
+            m3i2_apply_m3h_emit_outcome_to_strategy_state(
+                &mut after_published_state,
+                dropped_candidate.request_id,
+                &M3hRuntimeDryCommandEmitOutcome::NotEmitted {
+                    request_id: Some(dropped_candidate.request_id),
+                    reason: M3hRuntimeDryCommandNonEmissionReason::ReadinessNotDryReady,
+                    pending_state_preserved: false,
+                },
+            )
+            .action,
+            M3iPaperStrategyStateAction::PendingDroppedAfterNotEmitted
+        );
+        after_published
+            .save(after_published_state)
+            .expect("save dropped");
+        let terminal = M3iJsonPaperStrategyStateStore::open(&path)
+            .expect("reopen terminal")
+            .load()
+            .expect("load terminal");
+        assert!(terminal
+            .pending_request_ids
+            .contains(&pending_candidate.request_id));
+        assert!(!terminal
+            .pending_request_ids
+            .contains(&dropped_candidate.request_id));
+        assert_eq!(terminal.dropped_request_hashes.len(), 1);
+        let report = m3i2_paper_strategy_replay_report(&terminal, 2, 2, 1, 0, now);
+        assert_eq!(report.pending_request_hashes.len(), 1);
+        assert_eq!(report.dropped_intent_count, 1);
+        assert!(!report.raw_request_ids_exported);
     }
 
     #[tokio::test]
@@ -25196,6 +25608,15 @@ mod tests {
             .as_nanos();
         let pid = std::process::id();
         std::env::temp_dir().join(format!("moex_trading_m3h4_{name}_{pid}_{unique}.json"))
+    }
+
+    fn temp_m3i3_state_path(name: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let pid = std::process::id();
+        std::env::temp_dir().join(format!("moex_trading_m3i3_{name}_{pid}_{unique}.json"))
     }
 
     fn m3g3_base_readiness_input() -> M3gReadinessContractInput {
