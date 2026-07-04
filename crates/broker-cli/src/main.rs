@@ -10,6 +10,8 @@ use broker_core::{
     OrderSide, OrderStatus, OrderType, PlaceOrder, PortfolioSnapshot, ReadinessPhase,
     ReadinessReason, StrategyRequestId, TimeInForce,
 };
+#[cfg(feature = "m3j16-actual-one-shot")]
+use broker_core::{OrderPreflightContext, OrderReferencePrice};
 use broker_finam::{
     active_orders, has_blocking_unknown_order_statuses, map_account_trade, map_bar,
     map_latest_market_trade, map_order_state, map_portfolio_snapshot, map_quote,
@@ -269,6 +271,55 @@ enum Command {
         /// M3j-20: poll interval milliseconds for active/working observation.
         #[arg(long, default_value_t = 250)]
         working_observation_poll_ms: u64,
+    },
+    /// M4-1c guarded tiny position lifecycle: market entry -> position snapshot -> market exit. Default is no-send.
+    #[command(name = "finam-tiny-position-market-one-shot")]
+    TinyPositionMarketOneShot {
+        /// Environment variable that contains the Finam secret token.
+        #[arg(long, default_value = "FINAM_SECRET_TOKEN")]
+        secret_env: String,
+        /// Finam account id. Raw value is never written to the report.
+        #[arg(long, env = "FINAM_ACCOUNT_ID")]
+        account_id: String,
+        /// Finam venue symbol, for example IMOEXF@RTSX.
+        #[arg(long, env = "FINAM_SYMBOL")]
+        symbol: String,
+        /// Exact approved venue symbol for this M4-1c run.
+        #[arg(long, default_value = "IMOEXF@RTSX")]
+        expected_symbol: String,
+        /// Entry side. M4-1c currently supports buy entry with sell exit.
+        #[arg(long, default_value = "buy")]
+        entry_side: String,
+        /// Quantity. M4-1c requires exactly 1.
+        #[arg(long, default_value = "1")]
+        qty: String,
+        /// Maximum source/received quote age for market notional guard.
+        #[arg(long, default_value_t = 180_000)]
+        reference_quote_max_age_ms: i64,
+        /// Request timeout bound for each order transport call.
+        #[arg(long, default_value_t = 10_000)]
+        request_timeout_ms: u64,
+        /// Max milliseconds to wait for broker position snapshot after entry.
+        #[arg(long, default_value_t = 10_000)]
+        position_observation_timeout_ms: u64,
+        /// Poll interval milliseconds for broker position snapshot.
+        #[arg(long, default_value_t = 250)]
+        position_observation_poll_ms: u64,
+        /// Output path for the redacted M4-1c report.
+        #[arg(
+            long,
+            default_value = "reports/m4/m4-1c-tiny-position-market-report.json"
+        )]
+        output: PathBuf,
+        /// Required for the real entry/exit boundary calls. Without it the command is no-send.
+        #[arg(long)]
+        actual_entry_exit_i_understand_risk: bool,
+        /// Prove the final actual gate without performing POST/DELETE.
+        #[arg(long)]
+        pre_actual_gate_only: bool,
+        /// Sensitive local-only raw FINAM response capture base path. Do not put raw files in handoff.
+        #[arg(long)]
+        raw_response_output: Option<PathBuf>,
     },
     /// Emit M3c order endpoint gate design evidence. Does not place or cancel orders.
     #[command(name = "m3c-order-endpoint-gate-report")]
@@ -1007,6 +1058,40 @@ async fn main() -> Result<()> {
                 observe_working_before_cancel,
                 working_observation_timeout_ms,
                 working_observation_poll_ms,
+            })
+            .await?;
+        }
+        Command::TinyPositionMarketOneShot {
+            secret_env,
+            account_id,
+            symbol,
+            expected_symbol,
+            entry_side,
+            qty,
+            reference_quote_max_age_ms,
+            request_timeout_ms,
+            position_observation_timeout_ms,
+            position_observation_poll_ms,
+            output,
+            actual_entry_exit_i_understand_risk,
+            pre_actual_gate_only,
+            raw_response_output,
+        } => {
+            run_finam_tiny_position_market_one_shot(FinamTinyPositionMarketOneShotArgs {
+                secret_env,
+                account_id,
+                symbol,
+                expected_symbol,
+                entry_side,
+                qty,
+                reference_quote_max_age_ms,
+                request_timeout_ms,
+                position_observation_timeout_ms,
+                position_observation_poll_ms,
+                output,
+                actual_entry_exit_i_understand_risk,
+                pre_actual_gate_only,
+                raw_response_output,
             })
             .await?;
         }
@@ -2514,6 +2599,518 @@ async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> R
     print_json(payload.clone())?;
     write_json_payload(&args.output, &payload)?;
     Ok(())
+}
+
+struct FinamTinyPositionMarketOneShotArgs {
+    secret_env: String,
+    account_id: String,
+    symbol: String,
+    expected_symbol: String,
+    entry_side: String,
+    qty: String,
+    reference_quote_max_age_ms: i64,
+    request_timeout_ms: u64,
+    position_observation_timeout_ms: u64,
+    position_observation_poll_ms: u64,
+    output: PathBuf,
+    actual_entry_exit_i_understand_risk: bool,
+    pre_actual_gate_only: bool,
+    raw_response_output: Option<PathBuf>,
+}
+
+async fn run_finam_tiny_position_market_one_shot(
+    args: FinamTinyPositionMarketOneShotArgs,
+) -> Result<()> {
+    let now = Utc::now();
+    let qty = Decimal::from_str(&args.qty).context("invalid qty")?;
+    let qty_one = qty == Decimal::ONE;
+    let entry_side_buy = args.entry_side.eq_ignore_ascii_case("buy");
+    let symbol_exact_match = args.symbol == args.expected_symbol;
+    let compile_feature_enabled = cfg!(feature = "m3j16-actual-one-shot");
+
+    let secret = SecretToken::new(std::env::var(&args.secret_env)?);
+    let client = FinamRestClient::try_new(FinamConfig::default())?;
+    let auth_manager = FinamAuthManager::new(client.clone(), secret);
+    let token = auth_manager.access_token().await?;
+    let token_details = client.token_details_typed(&token).await?;
+    let full_trade_token_scope_present = token_details.readonly == Some(false);
+    let account_bound = token_details
+        .account_ids
+        .iter()
+        .any(|account_id| account_id == &args.account_id);
+
+    let quote = client.last_quote_typed(&token, &args.symbol).await?;
+    let mapped_quote = map_quote(&quote, now).map_err(mapper_anyhow)?;
+    let quote_reference_price = mapped_quote
+        .last
+        .or(mapped_quote.ask)
+        .or(mapped_quote.bid)
+        .context("M4-1c quote has no last/ask/bid reference price")?;
+    let quote_ts = mapped_quote.source_ts.unwrap_or(mapped_quote.received_ts);
+    let quote_age_ms = now.signed_duration_since(quote_ts).num_milliseconds();
+    let reference_quote_fresh =
+        quote_age_ms >= 0 && quote_age_ms <= args.reference_quote_max_age_ms;
+    let reference_quote_bound_to_fresh_artifact = reference_quote_fresh;
+
+    let account = client.account_typed(&token, &args.account_id).await?;
+    let portfolio = map_portfolio_snapshot(&account, now).map_err(mapper_anyhow)?;
+    let initial_positions_count = portfolio.positions.len();
+    let flat_position = initial_positions_count == 0;
+    let orders = client
+        .account_orders_typed(&token, &args.account_id)
+        .await?;
+    let mapped_orders = orders
+        .orders
+        .iter()
+        .map(|order| map_order_state(order, now))
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(mapper_anyhow)?;
+    let active_orders_count = active_orders(&mapped_orders).count();
+    let terminal_or_ignored_orders_count = terminal_orders(&mapped_orders).count();
+    let unknown_active_orders_count =
+        usize::from(has_blocking_unknown_order_statuses(&mapped_orders));
+    let orphan_active_orders_count = 0usize;
+    let broker_truth_clean = active_orders_count == 0
+        && unknown_active_orders_count == 0
+        && orphan_active_orders_count == 0
+        && flat_position;
+
+    let actual_send_allowed = compile_feature_enabled
+        && args.actual_entry_exit_i_understand_risk
+        && full_trade_token_scope_present
+        && account_bound
+        && symbol_exact_match
+        && entry_side_buy
+        && qty_one
+        && broker_truth_clean
+        && reference_quote_bound_to_fresh_artifact;
+
+    let mut blockers = Vec::new();
+    if !compile_feature_enabled {
+        blockers.push("compiled without m3j16-actual-one-shot feature");
+    }
+    if !args.actual_entry_exit_i_understand_risk {
+        blockers.push("actual entry/exit flag is not present");
+    }
+    if !full_trade_token_scope_present {
+        blockers.push("token is not full-trade scoped");
+    }
+    if !account_bound {
+        blockers.push("token is not bound to account");
+    }
+    if !symbol_exact_match {
+        blockers.push("symbol does not match expected symbol");
+    }
+    if !entry_side_buy {
+        blockers.push("only buy entry / sell exit is supported in M4-1c");
+    }
+    if !qty_one {
+        blockers.push("qty must be exactly 1");
+    }
+    if !broker_truth_clean {
+        blockers.push("broker truth is not flat/clean");
+    }
+    if !reference_quote_bound_to_fresh_artifact {
+        blockers.push("reference quote is not fresh");
+    }
+
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut entry_attempted = false;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let entry_attempted = false;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut exit_attempted = false;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let exit_attempted = false;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut entry_response_kind: Option<String> = None;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let entry_response_kind: Option<String> = None;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut exit_response_kind: Option<String> = None;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let exit_response_kind: Option<String> = None;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut entry_post_send_semantics: Option<String> = None;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let entry_post_send_semantics: Option<String> = None;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut exit_post_send_semantics: Option<String> = None;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let exit_post_send_semantics: Option<String> = None;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut entry_broker_order_id_present = false;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let entry_broker_order_id_present = false;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut exit_broker_order_id_present = false;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let exit_broker_order_id_present = false;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut position_observation_attempted = false;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let position_observation_attempted = false;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut position_observed = false;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let position_observed = false;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut position_observation_poll_count = 0usize;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let position_observation_poll_count = 0usize;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut observed_positions_count = 0usize;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let observed_positions_count = 0usize;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut final_active_orders_count: Option<usize> = None;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let final_active_orders_count: Option<usize> = None;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut final_positions_count: Option<usize> = None;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let final_positions_count: Option<usize> = None;
+    #[cfg(feature = "m3j16-actual-one-shot")]
+    let mut actual_error: Option<String> = None;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let actual_error: Option<String> = None;
+
+    if actual_send_allowed && !args.pre_actual_gate_only {
+        #[cfg(feature = "m3j16-actual-one-shot")]
+        {
+            let gate =
+                finam_gateway::EndpointGateApproved::m3j16_actual_one_shot_after_operator_approval(
+                    "M4-1c-tiny-position-market-one-shot",
+                    true,
+                )
+                .context("M4-1c endpoint gate")?;
+            let operator_arm = OperatorArm {
+                session_id: format!("M4-1C-{}", now.timestamp()),
+                armed_until: now + ChronoDuration::minutes(2),
+                endpoint_calls_enabled: true,
+                one_shot: true,
+                endpoint_attempted: false,
+                preflight_digest: sha256_hex(
+                    format!(
+                        "{}:{}:{}:{}",
+                        sha256_hex(args.account_id.as_bytes()),
+                        sha256_hex(args.symbol.as_bytes()),
+                        args.entry_side,
+                        args.qty
+                    )
+                    .as_bytes(),
+                ),
+            };
+            let policy = OrderPreflightPolicy {
+                allowed_accounts: vec![BrokerAccountId::new(args.account_id.clone())],
+                allowed_venue_symbols: vec![args.symbol.clone()],
+                allowed_order_types: vec![OrderType::Market],
+                allowed_time_in_force: vec![TimeInForce::Day],
+                min_qty: Decimal::ONE,
+                qty_step: Decimal::ONE,
+                max_qty: Decimal::ONE,
+                price_step: None,
+                max_market_qty: Decimal::ONE,
+                max_notional_per_order: Some(quote_reference_price * qty),
+                max_notional_per_run: Some(quote_reference_price * qty * Decimal::new(2, 0)),
+                max_limit_deviation_bps: None,
+                max_reference_age_ms: args.reference_quote_max_age_ms as u64,
+                allow_cancel_by_broker_order_id_without_mapping: false,
+                operator_arm,
+            };
+            let preflight_context = OrderPreflightContext {
+                reference_price: Some(OrderReferencePrice {
+                    price: quote_reference_price,
+                    received_ts: quote_ts,
+                }),
+                current_run_notional: Decimal::ZERO,
+            };
+
+            let entry_client_order_id = ClientOrderId::new(format!(
+                "M41CE{:012}",
+                now.timestamp_millis().rem_euclid(1_000_000_000_000)
+            ))
+            .context("M4-1c entry client order id")?;
+            let entry_order = PlaceOrder {
+                request_id: StrategyRequestId::from(Uuid::from_u128(
+                    now.timestamp_millis().max(0) as u128
+                )),
+                created_ts: now,
+                ttl_ms: Some(60_000),
+                account_id: BrokerAccountId::new(args.account_id.clone()),
+                client_order_id: entry_client_order_id,
+                instrument: InstrumentId {
+                    symbol: "IMOEXF".to_string(),
+                    venue_symbol: Some(args.symbol.clone()),
+                    exchange: Exchange::Moex,
+                    market: Market::Futures,
+                },
+                side: OrderSide::Buy,
+                order_type: OrderType::Market,
+                qty,
+                limit_price: None,
+                time_in_force: TimeInForce::Day,
+                comment: None,
+            };
+            let approved_entry = policy
+                .approve_place_order_with_context(&entry_order, now, &preflight_context)
+                .context("M4-1c entry market preflight")?;
+            let entry_spec = build_place_order_request(&approved_entry, None)
+                .context("M4-1c FINAM entry request build")?;
+            let entry_capture = args.raw_response_output.as_ref().map(|path| {
+                context_named_capture_path(path, "entry")
+                    .display()
+                    .to_string()
+            });
+            let entry_transport =
+                M3d2RealOrderEndpointTransport::try_new(M3d2RealOrderEndpointTransportConfig {
+                    rest_base_url: FinamConfig::default().rest_base_url,
+                    request_timeout_ms: args.request_timeout_ms,
+                    authorization_header_mode: FinamAuthorizationHeaderMode::BearerJwt,
+                    external_endpoint_mode:
+                        M3d2ExternalOrderEndpointMode::M3j16ActualOneShotExternalFinam,
+                    raw_response_capture_path: entry_capture,
+                })
+                .map_err(|error| anyhow::anyhow!("M4-1c entry transport: {error:?}"))?;
+            entry_attempted = true;
+            let entry_execution = entry_transport
+                .place_order_execution(&gate, &token, &entry_spec)
+                .await;
+            let entry_outcome = entry_execution.redacted_outcome();
+            entry_response_kind = entry_outcome.response_kind.map(|kind| format!("{kind:?}"));
+            entry_post_send_semantics = Some(format!("{:?}", entry_outcome.post_send_semantics));
+            let entry_broker_order_id =
+                entry_execution
+                    .classified_response
+                    .as_ref()
+                    .and_then(|classified| {
+                        if let FinamOrderEndpointMappedResult::Execution(
+                            FinamOrderExecutionOutcome::Accepted { broker_order_id },
+                        ) = &classified.result
+                        {
+                            broker_order_id.clone()
+                        } else {
+                            None
+                        }
+                    });
+            entry_broker_order_id_present = entry_broker_order_id.is_some();
+
+            if entry_broker_order_id.is_some() {
+                position_observation_attempted = true;
+                let started = Instant::now();
+                let timeout = StdDuration::from_millis(args.position_observation_timeout_ms.max(1));
+                let poll_interval =
+                    StdDuration::from_millis(args.position_observation_poll_ms.max(1));
+                loop {
+                    position_observation_poll_count += 1;
+                    let account = client.account_typed(&token, &args.account_id).await?;
+                    let snapshot =
+                        map_portfolio_snapshot(&account, Utc::now()).map_err(mapper_anyhow)?;
+                    observed_positions_count = snapshot.positions.len();
+                    if observed_positions_count > 0 {
+                        position_observed = true;
+                        break;
+                    }
+                    if started.elapsed() >= timeout {
+                        break;
+                    }
+                    tokio::time::sleep(poll_interval).await;
+                }
+            }
+
+            if position_observed {
+                let exit_now = Utc::now();
+                let exit_client_order_id = ClientOrderId::new(format!(
+                    "M41CX{:012}",
+                    exit_now.timestamp_millis().rem_euclid(1_000_000_000_000)
+                ))
+                .context("M4-1c exit client order id")?;
+                let exit_order = PlaceOrder {
+                    request_id: StrategyRequestId::from(Uuid::from_u128(
+                        exit_now.timestamp_millis().max(0) as u128 + 1,
+                    )),
+                    created_ts: exit_now,
+                    ttl_ms: Some(60_000),
+                    account_id: BrokerAccountId::new(args.account_id.clone()),
+                    client_order_id: exit_client_order_id,
+                    instrument: InstrumentId {
+                        symbol: "IMOEXF".to_string(),
+                        venue_symbol: Some(args.symbol.clone()),
+                        exchange: Exchange::Moex,
+                        market: Market::Futures,
+                    },
+                    side: OrderSide::Sell,
+                    order_type: OrderType::Market,
+                    qty,
+                    limit_price: None,
+                    time_in_force: TimeInForce::Day,
+                    comment: None,
+                };
+                let exit_context = OrderPreflightContext {
+                    reference_price: Some(OrderReferencePrice {
+                        price: quote_reference_price,
+                        received_ts: quote_ts,
+                    }),
+                    current_run_notional: quote_reference_price * qty,
+                };
+                let approved_exit = policy
+                    .approve_place_order_with_context(&exit_order, exit_now, &exit_context)
+                    .context("M4-1c exit market preflight")?;
+                let exit_spec = build_place_order_request(&approved_exit, None)
+                    .context("M4-1c FINAM exit request build")?;
+                let exit_capture = args.raw_response_output.as_ref().map(|path| {
+                    context_named_capture_path(path, "exit")
+                        .display()
+                        .to_string()
+                });
+                let exit_transport =
+                    M3d2RealOrderEndpointTransport::try_new(M3d2RealOrderEndpointTransportConfig {
+                        rest_base_url: FinamConfig::default().rest_base_url,
+                        request_timeout_ms: args.request_timeout_ms,
+                        authorization_header_mode: FinamAuthorizationHeaderMode::BearerJwt,
+                        external_endpoint_mode:
+                            M3d2ExternalOrderEndpointMode::M3j16ActualOneShotExternalFinam,
+                        raw_response_capture_path: exit_capture,
+                    })
+                    .map_err(|error| anyhow::anyhow!("M4-1c exit transport: {error:?}"))?;
+                exit_attempted = true;
+                let exit_execution = exit_transport
+                    .place_order_execution(&gate, &token, &exit_spec)
+                    .await;
+                let exit_outcome = exit_execution.redacted_outcome();
+                exit_response_kind = exit_outcome.response_kind.map(|kind| format!("{kind:?}"));
+                exit_post_send_semantics = Some(format!("{:?}", exit_outcome.post_send_semantics));
+                exit_broker_order_id_present = exit_execution
+                    .classified_response
+                    .as_ref()
+                    .and_then(|classified| {
+                        if let FinamOrderEndpointMappedResult::Execution(
+                            FinamOrderExecutionOutcome::Accepted { broker_order_id },
+                        ) = &classified.result
+                        {
+                            broker_order_id.clone()
+                        } else {
+                            None
+                        }
+                    })
+                    .is_some();
+            } else if entry_attempted {
+                actual_error = Some(
+                    "entry accepted but position snapshot was not observed; exit not sent"
+                        .to_string(),
+                );
+            }
+
+            let final_account = client.account_typed(&token, &args.account_id).await?;
+            let final_snapshot =
+                map_portfolio_snapshot(&final_account, Utc::now()).map_err(mapper_anyhow)?;
+            final_positions_count = Some(final_snapshot.positions.len());
+            let final_orders = client
+                .account_orders_typed(&token, &args.account_id)
+                .await?;
+            let final_mapped_orders = final_orders
+                .orders
+                .iter()
+                .map(|order| map_order_state(order, Utc::now()))
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(mapper_anyhow)?;
+            final_active_orders_count = Some(active_orders(&final_mapped_orders).count());
+        }
+    }
+
+    let final_flat = final_positions_count.unwrap_or(initial_positions_count) == 0;
+    let final_no_active_orders = final_active_orders_count.unwrap_or(active_orders_count) == 0;
+    let payload = serde_json::json!({
+        "fixture_kind": "m4-1c-tiny-position-market-one-shot-redacted-v1",
+        "generated_at": now.to_rfc3339(),
+        "report": {
+            "m4_step": "M4-1c",
+            "actual_send_allowed": actual_send_allowed,
+            "decision": if actual_send_allowed { "ActualSendAllowed" } else { "Blocked" },
+            "blockers": blockers,
+            "boundary_invocation_performed": entry_attempted || exit_attempted,
+            "real_finam_order_endpoint_used": entry_attempted || exit_attempted,
+            "runtime_live_attachment_allowed": false,
+            "command_consumer_to_real_finam_allowed": false,
+            "stop_sltp_bracket_replace_multileg_allowed": false,
+            "market_order_authorized_by_operator": args.actual_entry_exit_i_understand_risk,
+            "position_lifecycle_only": true,
+            "final_flat": final_flat,
+            "final_no_active_orders": final_no_active_orders
+        },
+        "operator_scope": {
+            "symbol_len": args.symbol.len(),
+            "symbol_sha256": sha256_hex(args.symbol.as_bytes()),
+            "expected_symbol_len": args.expected_symbol.len(),
+            "expected_symbol_sha256": sha256_hex(args.expected_symbol.as_bytes()),
+            "entry_side": "buy",
+            "entry_type": "market",
+            "exit_side": "sell",
+            "exit_type": "market",
+            "qty": args.qty,
+            "max_orders_total": 2,
+            "position_observation_timeout_ms": args.position_observation_timeout_ms,
+            "position_observation_poll_ms": args.position_observation_poll_ms,
+            "request_timeout_ms": args.request_timeout_ms,
+            "reference_quote_max_age_ms": args.reference_quote_max_age_ms
+        },
+        "pre_boundary_broker_truth": {
+            "token_readonly_flag_present": token_details.readonly.is_some(),
+            "token_readonly_flag_value": token_details.readonly,
+            "token_account_hash_match": account_bound,
+            "positions_count": initial_positions_count,
+            "orders_total": mapped_orders.len(),
+            "active_orders_count": active_orders_count,
+            "unknown_active_orders_count": unknown_active_orders_count,
+            "orphan_active_orders_count": orphan_active_orders_count,
+            "terminal_or_ignored_orders_count": terminal_or_ignored_orders_count,
+            "broker_truth_clean": broker_truth_clean
+        },
+        "reference_quote_redacted": {
+            "quote_reference_price": quote_reference_price.to_string(),
+            "quote_ts_present": true,
+            "quote_age_ms": quote_age_ms,
+            "reference_quote_fresh": reference_quote_fresh,
+            "reference_quote_bound_to_fresh_artifact": reference_quote_bound_to_fresh_artifact
+        },
+        "execution_redacted": {
+            "actual_entry_exit_flag_present": args.actual_entry_exit_i_understand_risk,
+            "pre_actual_gate_only": args.pre_actual_gate_only,
+            "compile_feature_enabled": compile_feature_enabled,
+            "entry_attempted": entry_attempted,
+            "entry_response_kind": entry_response_kind,
+            "entry_post_send_semantics": entry_post_send_semantics,
+            "entry_broker_order_id_present": entry_broker_order_id_present,
+            "position_observation_attempted": position_observation_attempted,
+            "position_observed": position_observed,
+            "position_observation_poll_count": position_observation_poll_count,
+            "observed_positions_count": observed_positions_count,
+            "exit_attempted": exit_attempted,
+            "exit_response_kind": exit_response_kind,
+            "exit_post_send_semantics": exit_post_send_semantics,
+            "exit_broker_order_id_present": exit_broker_order_id_present,
+            "final_active_orders_count": final_active_orders_count,
+            "final_positions_count": final_positions_count,
+            "actual_error": actual_error,
+            "raw_response_capture_requested": args.raw_response_output.is_some()
+        }
+    });
+    print_json(payload.clone())?;
+    write_json_payload(&args.output, &payload)?;
+    Ok(())
+}
+
+#[cfg(feature = "m3j16-actual-one-shot")]
+fn context_named_capture_path(path: &std::path::Path, label: &str) -> std::path::PathBuf {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("raw-order-response.json");
+    let context_file_name = file_name
+        .strip_suffix(".json")
+        .map(|stem| format!("{stem}.{label}.json"))
+        .unwrap_or_else(|| format!("{file_name}.{label}.json"));
+    path.with_file_name(context_file_name)
 }
 
 fn command_stdout(command: &str, args: &[&str]) -> Option<String> {
