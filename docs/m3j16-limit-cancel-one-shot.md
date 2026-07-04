@@ -44,6 +44,9 @@ Hard boundaries:
 Before actual send the report must show:
 
 ```text
+symbol_exact_match_or_hash = true
+account_operator_binding_ok = true
+reference_quote_bound_to_fresh_artifact = true
 positions_count = 0
 active_orders_count = 0
 unknown_active_orders_count = 0
@@ -52,7 +55,23 @@ broker_truth_clean = true
 limit_price_below_reference = true
 ```
 
+M3j-16a final gate can be proven without sending by building with the feature
+and passing the actual flag plus `--pre-actual-gate-only`:
+
+```bash
+cargo run -p broker-cli --features m3j16-actual-one-shot -- \
+  finam-limit-cancel-one-shot \
+  --limit-price 2210 \
+  --reference-price 2223 \
+  --qty 1 \
+  --actual-send-i-understand-risk \
+  --pre-actual-gate-only \
+  --output reports/m3j16-limit-cancel-one-shot/redacted-pre-actual-gate-report.json
+```
+
+That mode may show `actual_send_allowed = true`, but still records
+`boundary_invocation_performed = false`.
+
 If place succeeds but FINAM does not return a broker order id, the package does
 not guess a cancel id. It records `broker_order_id_present = false`,
 `cancel_attempted = false`, and requires post-run reconciliation/manual review.
-

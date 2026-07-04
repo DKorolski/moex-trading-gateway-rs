@@ -230,6 +230,12 @@ enum Command {
         /// Operator-supplied reference/current price used only for the below-market guard.
         #[arg(long, default_value = "2223")]
         reference_price: String,
+        /// Exact approved venue symbol for this M3j-16a run.
+        #[arg(long, default_value = "IMOEXF@RTSX")]
+        expected_symbol: String,
+        /// Maximum source/received quote age for quote-bound reference guard.
+        #[arg(long, default_value_t = 60_000)]
+        reference_quote_max_age_ms: i64,
         /// Quantity. M3j-16 requires exactly 1.
         #[arg(long, default_value = "1")]
         qty: String,
@@ -245,6 +251,9 @@ enum Command {
         /// Required for the real boundary call. Without it the command is dry-run/no-send.
         #[arg(long)]
         actual_send_i_understand_risk: bool,
+        /// Prove the final actual-send gate without performing POST/DELETE.
+        #[arg(long)]
+        pre_actual_gate_only: bool,
     },
     /// Emit M3c order endpoint gate design evidence. Does not place or cancel orders.
     #[command(name = "m3c-order-endpoint-gate-report")]
@@ -954,10 +963,13 @@ async fn main() -> Result<()> {
             symbol,
             limit_price,
             reference_price,
+            expected_symbol,
+            reference_quote_max_age_ms,
             qty,
             request_timeout_ms,
             output,
             actual_send_i_understand_risk,
+            pre_actual_gate_only,
         } => {
             run_finam_limit_cancel_one_shot(FinamLimitCancelOneShotArgs {
                 secret_env,
@@ -965,10 +977,13 @@ async fn main() -> Result<()> {
                 symbol,
                 limit_price,
                 reference_price,
+                expected_symbol,
+                reference_quote_max_age_ms,
                 qty,
                 request_timeout_ms,
                 output,
                 actual_send_i_understand_risk,
+                pre_actual_gate_only,
             })
             .await?;
         }
@@ -2010,21 +2025,24 @@ struct FinamLimitCancelOneShotArgs {
     symbol: String,
     limit_price: String,
     reference_price: String,
+    expected_symbol: String,
+    reference_quote_max_age_ms: i64,
     qty: String,
     request_timeout_ms: u64,
     output: PathBuf,
     actual_send_i_understand_risk: bool,
+    pre_actual_gate_only: bool,
 }
 
 async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> Result<()> {
     let now = Utc::now();
     let limit_price = Decimal::from_str(&args.limit_price).context("invalid limit price")?;
-    let reference_price =
+    let operator_reference_price =
         Decimal::from_str(&args.reference_price).context("invalid reference price")?;
     let qty = Decimal::from_str(&args.qty).context("invalid qty")?;
-    let price_below_reference = limit_price < reference_price;
     let qty_one = qty == Decimal::ONE;
     let compile_feature_enabled = cfg!(feature = "m3j16-actual-one-shot");
+    let symbol_exact_match = args.symbol == args.expected_symbol;
 
     let secret = SecretToken::new(std::env::var(&args.secret_env)?);
     let client = FinamRestClient::try_new(FinamConfig::default())?;
@@ -2036,6 +2054,46 @@ async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> R
         .account_ids
         .iter()
         .any(|account_id| account_id == &args.account_id);
+
+    let quote = client.last_quote_typed(&token, &args.symbol).await?;
+    let mapped_quote = map_quote(&quote, now).map_err(mapper_anyhow)?;
+    let quote_reference_price = mapped_quote
+        .last
+        .or(mapped_quote.bid)
+        .or(mapped_quote.ask)
+        .context("M3j16 quote has no last/bid/ask reference price")?;
+    let quote_ts = mapped_quote.source_ts.unwrap_or(mapped_quote.received_ts);
+    let quote_age_ms = now.signed_duration_since(quote_ts).num_milliseconds();
+    let reference_quote_fresh =
+        quote_age_ms >= 0 && quote_age_ms <= args.reference_quote_max_age_ms;
+    let reference_quote_artifact_digest = sha256_hex(
+        format!(
+            "{}:{}:{}:{}:{}",
+            sha256_hex(args.symbol.as_bytes()),
+            quote_reference_price,
+            quote_ts.to_rfc3339(),
+            args.reference_quote_max_age_ms,
+            now.to_rfc3339()
+        )
+        .as_bytes(),
+    );
+    let operator_approval_digest = sha256_hex(
+        format!(
+            "{}:{}:{}:{}:{}:{}",
+            sha256_hex(args.account_id.as_bytes()),
+            sha256_hex(args.symbol.as_bytes()),
+            args.limit_price,
+            args.qty,
+            args.reference_price,
+            reference_quote_artifact_digest
+        )
+        .as_bytes(),
+    );
+    let account_operator_binding_ok =
+        account_bound && !operator_approval_digest.is_empty() && symbol_exact_match;
+    let reference_quote_bound_to_fresh_artifact =
+        reference_quote_fresh && !reference_quote_artifact_digest.is_empty();
+    let price_below_reference = limit_price < quote_reference_price;
 
     let account = client.account_typed(&token, &args.account_id).await?;
     let portfolio = map_portfolio_snapshot(&account, now).map_err(mapper_anyhow)?;
@@ -2064,7 +2122,10 @@ async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> R
         && broker_truth_clean
         && flat_position
         && price_below_reference
-        && qty_one;
+        && qty_one
+        && symbol_exact_match
+        && account_operator_binding_ok
+        && reference_quote_bound_to_fresh_artifact;
 
     let mut gate_report = m3j16_limit_cancel_one_shot_report(M3j16LimitCancelOneShotInput {
         generated_at_label: now.to_rfc3339(),
@@ -2074,6 +2135,9 @@ async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> R
         compile_feature_enabled,
         account_bound,
         symbol_bound: !args.symbol.is_empty(),
+        symbol_exact_match_or_hash: symbol_exact_match,
+        account_operator_binding_ok,
+        reference_quote_bound_to_fresh_artifact,
         side_buy: true,
         order_type_limit: true,
         limit_price_below_reference: price_below_reference,
@@ -2137,7 +2201,7 @@ async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> R
         None
     };
 
-    if gate_report.actual_send_allowed {
+    if gate_report.actual_send_allowed && !args.pre_actual_gate_only {
         #[cfg(feature = "m3j16-actual-one-shot")]
         {
             let gate =
@@ -2173,8 +2237,8 @@ async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> R
                 max_qty: Decimal::ONE,
                 price_step: Some(Decimal::ONE),
                 max_market_qty: Decimal::ZERO,
-                max_notional_per_order: Some(reference_price * qty),
-                max_notional_per_run: Some(reference_price * qty),
+                max_notional_per_order: Some(operator_reference_price * qty),
+                max_notional_per_run: Some(operator_reference_price * qty),
                 max_limit_deviation_bps: None,
                 max_reference_age_ms: 60_000,
                 allow_cancel_by_broker_order_id_without_mapping: true,
@@ -2290,7 +2354,12 @@ async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> R
             "order_type": "limit",
             "limit_price": args.limit_price,
             "reference_price": args.reference_price,
+            "operator_reference_price": operator_reference_price.to_string(),
+            "quote_reference_price": quote_reference_price.to_string(),
+            "expected_symbol_len": args.expected_symbol.len(),
+            "expected_symbol_sha256": sha256_hex(args.expected_symbol.as_bytes()),
             "request_timeout_ms": args.request_timeout_ms,
+            "reference_quote_max_age_ms": args.reference_quote_max_age_ms,
             "limit_price_below_reference": price_below_reference,
             "no_stop_sltp_bracket": true,
             "place_then_cancel_only": true
@@ -2300,6 +2369,9 @@ async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> R
             "account_id_sha256": sha256_hex(args.account_id.as_bytes()),
             "symbol_len": args.symbol.len(),
             "symbol_sha256": sha256_hex(args.symbol.as_bytes()),
+            "symbol_exact_match_or_hash": symbol_exact_match,
+            "operator_approval_digest": operator_approval_digest,
+            "reference_quote_artifact_digest": reference_quote_artifact_digest,
             "client_order_id_len": client_order_id.as_str().len(),
             "client_order_id_sha256": sha256_hex(client_order_id.as_str().as_bytes())
         },
@@ -2316,8 +2388,16 @@ async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> R
             "terminal_or_ignored_orders_count": terminal_or_ignored_orders_count,
             "broker_truth_clean": broker_truth_clean
         },
+        "reference_quote_redacted": {
+            "quote_reference_price": quote_reference_price.to_string(),
+            "quote_ts_present": true,
+            "quote_age_ms": quote_age_ms,
+            "reference_quote_fresh": reference_quote_fresh,
+            "reference_quote_bound_to_fresh_artifact": reference_quote_bound_to_fresh_artifact
+        },
         "execution_redacted": {
             "actual_send_flag_present": args.actual_send_i_understand_risk,
+            "pre_actual_gate_only": args.pre_actual_gate_only,
             "compile_feature_enabled": compile_feature_enabled,
             "place_attempted": place_attempted,
             "cancel_attempted": cancel_attempted,

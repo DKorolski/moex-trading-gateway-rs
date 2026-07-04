@@ -653,6 +653,9 @@ pub struct M3j16LimitCancelOneShotInput {
     pub compile_feature_enabled: bool,
     pub account_bound: bool,
     pub symbol_bound: bool,
+    pub symbol_exact_match_or_hash: bool,
+    pub account_operator_binding_ok: bool,
+    pub reference_quote_bound_to_fresh_artifact: bool,
     pub side_buy: bool,
     pub order_type_limit: bool,
     pub limit_price_below_reference: bool,
@@ -681,6 +684,8 @@ pub struct M3j16LimitCancelOneShotReport {
     pub dry_run_no_send: bool,
     pub actual_send_allowed: bool,
     pub scope_ok: bool,
+    pub binding_ok: bool,
+    pub reference_quote_ok: bool,
     pub price_guard_ok: bool,
     pub risk_controls_ok: bool,
     pub audit_and_reconciliation_ok: bool,
@@ -1718,13 +1723,17 @@ pub fn m3j16_limit_cancel_one_shot_report(
         && input.explicit_operator_limit_cancel_approval_current
         && input.account_bound
         && input.symbol_bound
+        && input.symbol_exact_match_or_hash
+        && input.account_operator_binding_ok
         && input.side_buy
         && input.order_type_limit
         && input.qty_one
         && input.max_orders_one
         && input.place_then_cancel_only
         && input.no_stop_sltp_bracket_replace_multileg;
-    let price_guard_ok = input.limit_price_below_reference;
+    let binding_ok = input.symbol_exact_match_or_hash && input.account_operator_binding_ok;
+    let reference_quote_ok = input.reference_quote_bound_to_fresh_artifact;
+    let price_guard_ok = input.limit_price_below_reference && reference_quote_ok;
     let risk_controls_ok = input.kill_switch_armed_before_run
         && input.kill_switch_tested_before_run
         && input.one_shot_ttl_arm_fresh
@@ -1736,6 +1745,8 @@ pub fn m3j16_limit_cancel_one_shot_report(
     let redaction_ok = input.redacted_evidence_only;
     let base_ok = scope_ok
         && price_guard_ok
+        && binding_ok
+        && reference_quote_ok
         && risk_controls_ok
         && audit_and_reconciliation_ok
         && redaction_ok;
@@ -1747,8 +1758,14 @@ pub fn m3j16_limit_cancel_one_shot_report(
     if !scope_ok {
         blockers.push("M3j-16 limit-cancel one-shot scope is incomplete".to_string());
     }
+    if !binding_ok {
+        blockers.push("exact symbol or account operator binding is incomplete".to_string());
+    }
+    if !reference_quote_ok {
+        blockers.push("reference price is not bound to a fresh quote artifact".to_string());
+    }
     if !price_guard_ok {
-        blockers.push("limit price is not below the supplied reference price".to_string());
+        blockers.push("limit price is not below the fresh quote-bound reference price".to_string());
     }
     if !risk_controls_ok {
         blockers.push("kill switch, TTL arm, or no-auto-rearm control is missing".to_string());
@@ -1781,6 +1798,8 @@ pub fn m3j16_limit_cancel_one_shot_report(
         dry_run_no_send,
         actual_send_allowed,
         scope_ok,
+        binding_ok,
+        reference_quote_ok,
         price_guard_ok,
         risk_controls_ok,
         audit_and_reconciliation_ok,
@@ -10797,6 +10816,9 @@ mod tests {
             compile_feature_enabled,
             account_bound: true,
             symbol_bound: true,
+            symbol_exact_match_or_hash: true,
+            account_operator_binding_ok: true,
+            reference_quote_bound_to_fresh_artifact: true,
             side_buy: true,
             order_type_limit: true,
             limit_price_below_reference: true,
