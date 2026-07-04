@@ -6392,6 +6392,72 @@ pub struct M3i5PaperShadowClosureReport {
     pub raw_body_exported: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3j0OracleItemStatus {
+    Satisfied,
+    Pending,
+    Blocked,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j0AlorOracleReadinessComparisonInput {
+    pub generated_at: DateTime<Utc>,
+    pub m3i_paper_shadow_stage_closed: bool,
+    pub broker_truth_reconciliation_closed: bool,
+    pub market_data_first_live_bar_gate_closed: bool,
+    pub runtime_shadow_stage_closed: bool,
+    pub command_ack_lifecycle_closed: bool,
+    pub request_id_before_strategy_mutation: bool,
+    pub dropped_intent_rollback: bool,
+    pub duplicate_request_id_blocked: bool,
+    pub unknown_order_blocks_readiness: bool,
+    pub active_orders_startup_policy_present: bool,
+    pub schedule_blocks_trading: bool,
+    pub instrument_params_validated_before_live: bool,
+    pub readonly_finam_evidence_fresh: bool,
+    pub no_unknown_active_orders_evidence: bool,
+    pub flat_or_expected_position_evidence: bool,
+    pub operator_arm_design_ready: bool,
+    pub kill_switch_design_ready: bool,
+    pub max_orders_qty_loss_limits_ready: bool,
+    pub one_symbol_one_account_scope_ready: bool,
+    pub end_of_day_reconciliation_plan_ready: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub external_finam_post_delete_allowed: bool,
+    pub command_consumer_to_real_finam_transport_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j0AlorOracleReadinessComparisonReport {
+    pub schema_version: u16,
+    pub generated_at: DateTime<Utc>,
+    pub m3j_step: String,
+    pub pre_live_evidence_only: bool,
+    pub alor_oracle_comparison_ok: bool,
+    pub m3i_closed_dependency_ok: bool,
+    pub broker_truth_reconciliation_ok: bool,
+    pub market_data_first_live_bar_gate_ok: bool,
+    pub runtime_shadow_ok: bool,
+    pub command_ack_lifecycle_ok: bool,
+    pub strategy_lifecycle_parity_ok: bool,
+    pub dirty_startup_policy_ok: bool,
+    pub schedule_and_instrument_guards_ok: bool,
+    pub readonly_evidence_pending: bool,
+    pub operator_risk_controls_pending: bool,
+    pub first_live_micro_scope_pending: bool,
+    pub end_of_day_reconciliation_pending: bool,
+    pub live_micro_go: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub external_finam_post_delete_allowed: bool,
+    pub command_consumer_to_real_finam_transport_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub next_required_steps: Vec<String>,
+    pub alor_oracle_items: Vec<(String, M3j0OracleItemStatus)>,
+}
+
 pub fn m3i2_strategy_output_contract_report() -> M3iPaperStrategyOutputContractReport {
     M3iPaperStrategyOutputContractReport {
         schema_version: SCHEMA_VERSION,
@@ -7037,6 +7103,148 @@ pub fn m3i5_paper_shadow_closure_report(
         raw_payload_exported: false,
         raw_token_exported: false,
         raw_body_exported: false,
+    }
+}
+
+pub fn m3j0_alor_oracle_readiness_comparison(
+    input: M3j0AlorOracleReadinessComparisonInput,
+) -> M3j0AlorOracleReadinessComparisonReport {
+    let m3i_closed_dependency_ok = input.m3i_paper_shadow_stage_closed;
+    let broker_truth_reconciliation_ok = input.broker_truth_reconciliation_closed;
+    let market_data_first_live_bar_gate_ok = input.market_data_first_live_bar_gate_closed;
+    let runtime_shadow_ok = input.runtime_shadow_stage_closed;
+    let command_ack_lifecycle_ok = input.command_ack_lifecycle_closed;
+    let strategy_lifecycle_parity_ok = input.request_id_before_strategy_mutation
+        && input.dropped_intent_rollback
+        && input.duplicate_request_id_blocked;
+    let dirty_startup_policy_ok =
+        input.unknown_order_blocks_readiness && input.active_orders_startup_policy_present;
+    let schedule_and_instrument_guards_ok =
+        input.schedule_blocks_trading && input.instrument_params_validated_before_live;
+    let readonly_evidence_pending = !input.readonly_finam_evidence_fresh
+        || !input.no_unknown_active_orders_evidence
+        || !input.flat_or_expected_position_evidence;
+    let operator_risk_controls_pending = !input.operator_arm_design_ready
+        || !input.kill_switch_design_ready
+        || !input.max_orders_qty_loss_limits_ready;
+    let first_live_micro_scope_pending = !input.one_symbol_one_account_scope_ready;
+    let end_of_day_reconciliation_pending = !input.end_of_day_reconciliation_plan_ready;
+    let live_boundary_closed = !input.live_ready_allowed
+        && !input.runtime_live_attachment_allowed
+        && !input.external_finam_post_delete_allowed
+        && !input.command_consumer_to_real_finam_transport_allowed
+        && !input.stop_sltp_bracket_replace_multileg_allowed;
+    let alor_oracle_comparison_ok = m3i_closed_dependency_ok
+        && broker_truth_reconciliation_ok
+        && market_data_first_live_bar_gate_ok
+        && runtime_shadow_ok
+        && command_ack_lifecycle_ok
+        && strategy_lifecycle_parity_ok
+        && dirty_startup_policy_ok
+        && schedule_and_instrument_guards_ok
+        && live_boundary_closed;
+    let next_required_steps = vec![
+        "M3j-1 live gate design: operator arm, kill switch, max orders, max qty, max loss".to_string(),
+        "M3j-2 fresh read-only FINAM evidence: auth/account/instruments/schedule/positions/orders/trades".to_string(),
+        "M3j-3 one-symbol dry shadow session report with clean reconciliation".to_string(),
+        "M3j-4 explicit pre-live NO-GO/GO decision package".to_string(),
+    ];
+    let alor_oracle_items = vec![
+        (
+            "M3i paper/shadow strategy stage closed".to_string(),
+            status_bool(input.m3i_paper_shadow_stage_closed),
+        ),
+        (
+            "Broker-truth reconciliation closed".to_string(),
+            status_bool(input.broker_truth_reconciliation_closed),
+        ),
+        (
+            "First live bar gate closed".to_string(),
+            status_bool(input.market_data_first_live_bar_gate_closed),
+        ),
+        (
+            "Runtime shadow stage closed".to_string(),
+            status_bool(input.runtime_shadow_stage_closed),
+        ),
+        (
+            "Command ACK lifecycle closed".to_string(),
+            status_bool(input.command_ack_lifecycle_closed),
+        ),
+        (
+            "request_id known before strategy pending mutation".to_string(),
+            status_bool(input.request_id_before_strategy_mutation),
+        ),
+        (
+            "Dropped/non-emitted intent rollback".to_string(),
+            status_bool(input.dropped_intent_rollback),
+        ),
+        (
+            "Duplicate request_id cannot create duplicate order".to_string(),
+            status_bool(input.duplicate_request_id_blocked),
+        ),
+        (
+            "Unknown order blocks readiness".to_string(),
+            status_bool(input.unknown_order_blocks_readiness),
+        ),
+        (
+            "Fresh real FINAM read-only evidence".to_string(),
+            if input.readonly_finam_evidence_fresh {
+                M3j0OracleItemStatus::Satisfied
+            } else {
+                M3j0OracleItemStatus::Pending
+            },
+        ),
+        (
+            "Operator arm / kill switch / limits".to_string(),
+            if !operator_risk_controls_pending {
+                M3j0OracleItemStatus::Satisfied
+            } else {
+                M3j0OracleItemStatus::Pending
+            },
+        ),
+        (
+            "External FINAM POST/DELETE remains blocked".to_string(),
+            if input.external_finam_post_delete_allowed {
+                M3j0OracleItemStatus::Blocked
+            } else {
+                M3j0OracleItemStatus::Satisfied
+            },
+        ),
+    ];
+    M3j0AlorOracleReadinessComparisonReport {
+        schema_version: SCHEMA_VERSION,
+        generated_at: input.generated_at,
+        m3j_step: "M3j-0".to_string(),
+        pre_live_evidence_only: true,
+        alor_oracle_comparison_ok,
+        m3i_closed_dependency_ok,
+        broker_truth_reconciliation_ok,
+        market_data_first_live_bar_gate_ok,
+        runtime_shadow_ok,
+        command_ack_lifecycle_ok,
+        strategy_lifecycle_parity_ok,
+        dirty_startup_policy_ok,
+        schedule_and_instrument_guards_ok,
+        readonly_evidence_pending,
+        operator_risk_controls_pending,
+        first_live_micro_scope_pending,
+        end_of_day_reconciliation_pending,
+        live_micro_go: false,
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        external_finam_post_delete_allowed: false,
+        command_consumer_to_real_finam_transport_allowed: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+        next_required_steps,
+        alor_oracle_items,
+    }
+}
+
+fn status_bool(value: bool) -> M3j0OracleItemStatus {
+    if value {
+        M3j0OracleItemStatus::Satisfied
+    } else {
+        M3j0OracleItemStatus::Pending
     }
 }
 
@@ -19853,6 +20061,68 @@ mod tests {
         assert!(!report.no_live_boundary);
     }
 
+    #[test]
+    fn m3j0_alor_oracle_comparison_is_pre_live_evidence_only_no_go() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 11, 0, 0)
+            .single()
+            .expect("timestamp");
+        let report = m3j0_alor_oracle_readiness_comparison(sample_m3j0_input(now));
+        assert_eq!(report.m3j_step, "M3j-0");
+        assert!(report.pre_live_evidence_only);
+        assert!(report.alor_oracle_comparison_ok);
+        assert!(report.m3i_closed_dependency_ok);
+        assert!(report.broker_truth_reconciliation_ok);
+        assert!(report.market_data_first_live_bar_gate_ok);
+        assert!(report.runtime_shadow_ok);
+        assert!(report.command_ack_lifecycle_ok);
+        assert!(report.strategy_lifecycle_parity_ok);
+        assert!(report.dirty_startup_policy_ok);
+        assert!(report.schedule_and_instrument_guards_ok);
+        assert!(report.readonly_evidence_pending);
+        assert!(report.operator_risk_controls_pending);
+        assert!(report.first_live_micro_scope_pending);
+        assert!(report.end_of_day_reconciliation_pending);
+        assert!(!report.live_micro_go);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.external_finam_post_delete_allowed);
+        assert!(!report.command_consumer_to_real_finam_transport_allowed);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+        assert_eq!(report.next_required_steps.len(), 4);
+        assert!(report
+            .alor_oracle_items
+            .iter()
+            .any(|(name, status)| name.contains("Fresh real FINAM")
+                && *status == M3j0OracleItemStatus::Pending));
+    }
+
+    #[test]
+    fn m3j0_live_or_endpoint_flags_block_oracle_comparison() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 11, 1, 0)
+            .single()
+            .expect("timestamp");
+        let mut input = sample_m3j0_input(now);
+        input.external_finam_post_delete_allowed = true;
+        let report = m3j0_alor_oracle_readiness_comparison(input);
+        assert!(!report.alor_oracle_comparison_ok);
+        assert!(!report.external_finam_post_delete_allowed);
+        assert!(!report.live_micro_go);
+        assert!(report
+            .alor_oracle_items
+            .iter()
+            .any(|(name, status)| name.contains("POST/DELETE")
+                && *status == M3j0OracleItemStatus::Blocked));
+
+        let mut input = sample_m3j0_input(now);
+        input.live_ready_allowed = true;
+        let report = m3j0_alor_oracle_readiness_comparison(input);
+        assert!(!report.alor_oracle_comparison_ok);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.live_micro_go);
+    }
+
     #[tokio::test]
     async fn dry_command_ack_publisher_refuses_order_enabled_modes() {
         fn enable_command_consumer(features: &mut GatewayFeatureSet) {
@@ -26581,6 +26851,37 @@ mod tests {
             strategy_direct_publish_attempt_blocked: true,
             strategy_reqwest_or_finam_endpoint_reachable: false,
             generated_at: now,
+        }
+    }
+
+    fn sample_m3j0_input(now: DateTime<Utc>) -> M3j0AlorOracleReadinessComparisonInput {
+        M3j0AlorOracleReadinessComparisonInput {
+            generated_at: now,
+            m3i_paper_shadow_stage_closed: true,
+            broker_truth_reconciliation_closed: true,
+            market_data_first_live_bar_gate_closed: true,
+            runtime_shadow_stage_closed: true,
+            command_ack_lifecycle_closed: true,
+            request_id_before_strategy_mutation: true,
+            dropped_intent_rollback: true,
+            duplicate_request_id_blocked: true,
+            unknown_order_blocks_readiness: true,
+            active_orders_startup_policy_present: true,
+            schedule_blocks_trading: true,
+            instrument_params_validated_before_live: true,
+            readonly_finam_evidence_fresh: false,
+            no_unknown_active_orders_evidence: false,
+            flat_or_expected_position_evidence: false,
+            operator_arm_design_ready: false,
+            kill_switch_design_ready: false,
+            max_orders_qty_loss_limits_ready: false,
+            one_symbol_one_account_scope_ready: false,
+            end_of_day_reconciliation_plan_ready: false,
+            live_ready_allowed: false,
+            runtime_live_attachment_allowed: false,
+            external_finam_post_delete_allowed: false,
+            command_consumer_to_real_finam_transport_allowed: false,
+            stop_sltp_bracket_replace_multileg_allowed: false,
         }
     }
 
