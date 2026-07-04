@@ -6833,6 +6833,63 @@ pub struct M3j5OperatorRunAuthorizationReport {
     pub required_next_steps: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j6TinyLiveOrderPathDiffDesignInput {
+    pub generated_at: DateTime<Utc>,
+    pub m3j5_authorization_package_accepted: bool,
+    pub real_send_default_disabled: bool,
+    pub compile_time_or_feature_gate_required: bool,
+    pub endpoint_gate_required: bool,
+    pub operator_go_artifact_required: bool,
+    pub immediate_pre_run_readonly_required: bool,
+    pub kill_switch_blocks_runtime: bool,
+    pub kill_switch_blocks_command_consumer: bool,
+    pub kill_switch_blocks_endpoint: bool,
+    pub one_order_scope_enforced: bool,
+    pub one_symbol_scope_enforced: bool,
+    pub one_account_scope_enforced: bool,
+    pub tiny_qty_scope_enforced: bool,
+    pub market_limit_only: bool,
+    pub stop_sltp_bracket_replace_multileg_disabled: bool,
+    pub durable_audit_required: bool,
+    pub rollback_plan_required: bool,
+    pub post_run_reconciliation_required: bool,
+    pub eod_report_required: bool,
+    pub scanner_must_block_unguarded_post_delete: bool,
+    pub redaction_required: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub external_finam_post_delete_allowed: bool,
+    pub command_consumer_to_real_finam_transport_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub real_send_reachable_by_default: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j6TinyLiveOrderPathDiffDesignReport {
+    pub schema_version: u16,
+    pub generated_at: DateTime<Utc>,
+    pub m3j_step: String,
+    pub tiny_live_order_path_diff_design_ok: bool,
+    pub default_disabled_ok: bool,
+    pub all_gates_required: bool,
+    pub kill_switch_coverage_ok: bool,
+    pub first_micro_scope_ok: bool,
+    pub rollback_and_reconciliation_ok: bool,
+    pub scanner_and_redaction_ok: bool,
+    pub no_live_boundary: bool,
+    pub real_send_reachable_by_default: bool,
+    pub live_micro_go: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub external_finam_post_delete_allowed: bool,
+    pub command_consumer_to_real_finam_transport_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub design_blockers: Vec<String>,
+    pub required_next_steps: Vec<String>,
+}
+
 pub fn m3i2_strategy_output_contract_report() -> M3iPaperStrategyOutputContractReport {
     M3iPaperStrategyOutputContractReport {
         schema_version: SCHEMA_VERSION,
@@ -8075,6 +8132,105 @@ pub fn m3j5_operator_run_authorization_report(
             "Refresh read-only broker-truth evidence immediately before the run".to_string(),
             "Submit any live order path diff as a separate reviewed change before enabling transport".to_string(),
             "Keep Stop/SLTP/bracket/replace/multi-leg out of first live micro".to_string(),
+        ],
+    }
+}
+
+pub fn m3j6_tiny_live_order_path_diff_design_report(
+    input: M3j6TinyLiveOrderPathDiffDesignInput,
+) -> M3j6TinyLiveOrderPathDiffDesignReport {
+    let default_disabled_ok = input.real_send_default_disabled
+        && input.compile_time_or_feature_gate_required
+        && !input.real_send_reachable_by_default;
+    let all_gates_required = input.m3j5_authorization_package_accepted
+        && input.endpoint_gate_required
+        && input.operator_go_artifact_required
+        && input.immediate_pre_run_readonly_required;
+    let kill_switch_coverage_ok = input.kill_switch_blocks_runtime
+        && input.kill_switch_blocks_command_consumer
+        && input.kill_switch_blocks_endpoint;
+    let first_micro_scope_ok = input.one_order_scope_enforced
+        && input.one_symbol_scope_enforced
+        && input.one_account_scope_enforced
+        && input.tiny_qty_scope_enforced
+        && input.market_limit_only
+        && input.stop_sltp_bracket_replace_multileg_disabled;
+    let rollback_and_reconciliation_ok = input.durable_audit_required
+        && input.rollback_plan_required
+        && input.post_run_reconciliation_required
+        && input.eod_report_required;
+    let scanner_and_redaction_ok =
+        input.scanner_must_block_unguarded_post_delete && input.redaction_required;
+    let no_live_boundary = !input.live_ready_allowed
+        && !input.runtime_live_attachment_allowed
+        && !input.external_finam_post_delete_allowed
+        && !input.command_consumer_to_real_finam_transport_allowed
+        && !input.non_loopback_order_endpoint_allowed
+        && !input.real_send_reachable_by_default;
+    let mut design_blockers = Vec::new();
+    if !default_disabled_ok {
+        design_blockers
+            .push("real send is not default-disabled or is reachable by default".to_string());
+    }
+    if !all_gates_required {
+        design_blockers.push("not all M3j-6 gates are required".to_string());
+    }
+    if !kill_switch_coverage_ok {
+        design_blockers.push(
+            "kill switch does not cover runtime, command consumer, and endpoint paths".to_string(),
+        );
+    }
+    if !first_micro_scope_ok {
+        design_blockers.push("first live micro scope is not limited to one order / one symbol / tiny qty / Market-Limit only".to_string());
+    }
+    if !rollback_and_reconciliation_ok {
+        design_blockers.push(
+            "rollback, durable audit, post-run reconciliation, or EOD report is missing"
+                .to_string(),
+        );
+    }
+    if !scanner_and_redaction_ok {
+        design_blockers.push("scanner or redaction requirements are incomplete".to_string());
+    }
+    if !no_live_boundary {
+        design_blockers.push("live/order boundary is open in design package".to_string());
+    }
+    let tiny_live_order_path_diff_design_ok = default_disabled_ok
+        && all_gates_required
+        && kill_switch_coverage_ok
+        && first_micro_scope_ok
+        && rollback_and_reconciliation_ok
+        && scanner_and_redaction_ok
+        && no_live_boundary;
+    M3j6TinyLiveOrderPathDiffDesignReport {
+        schema_version: SCHEMA_VERSION,
+        generated_at: input.generated_at,
+        m3j_step: "M3j-6".to_string(),
+        tiny_live_order_path_diff_design_ok,
+        default_disabled_ok,
+        all_gates_required,
+        kill_switch_coverage_ok,
+        first_micro_scope_ok,
+        rollback_and_reconciliation_ok,
+        scanner_and_redaction_ok,
+        no_live_boundary,
+        real_send_reachable_by_default: false,
+        live_micro_go: false,
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        external_finam_post_delete_allowed: false,
+        command_consumer_to_real_finam_transport_allowed: false,
+        non_loopback_order_endpoint_allowed: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+        design_blockers,
+        required_next_steps: vec![
+            "Implement any real transport as a separate tiny diff after review approval"
+                .to_string(),
+            "Keep real send default-disabled and unreachable without simultaneous gates"
+                .to_string(),
+            "Run refreshed read-only evidence immediately before any future operator-run"
+                .to_string(),
+            "Require post-run broker-truth reconciliation and EOD report".to_string(),
         ],
     }
 }
@@ -21341,6 +21497,63 @@ mod tests {
         assert!(!report.live_micro_go);
     }
 
+    #[test]
+    fn m3j6_tiny_live_order_path_diff_design_is_ok_but_still_no_live() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 17, 0, 0)
+            .single()
+            .expect("timestamp");
+        let report = m3j6_tiny_live_order_path_diff_design_report(sample_m3j6_input(now));
+        assert_eq!(report.m3j_step, "M3j-6");
+        assert!(report.tiny_live_order_path_diff_design_ok);
+        assert!(report.default_disabled_ok);
+        assert!(report.all_gates_required);
+        assert!(report.kill_switch_coverage_ok);
+        assert!(report.first_micro_scope_ok);
+        assert!(report.rollback_and_reconciliation_ok);
+        assert!(report.scanner_and_redaction_ok);
+        assert!(report.no_live_boundary);
+        assert!(!report.real_send_reachable_by_default);
+        assert!(!report.live_micro_go);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.external_finam_post_delete_allowed);
+        assert!(!report.command_consumer_to_real_finam_transport_allowed);
+        assert!(!report.non_loopback_order_endpoint_allowed);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+        assert!(report.design_blockers.is_empty());
+    }
+
+    #[test]
+    fn m3j6_reachable_send_missing_kill_switch_or_open_boundary_blocks_design() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 17, 1, 0)
+            .single()
+            .expect("timestamp");
+
+        let mut reachable = sample_m3j6_input(now);
+        reachable.real_send_reachable_by_default = true;
+        reachable.real_send_default_disabled = false;
+        let report = m3j6_tiny_live_order_path_diff_design_report(reachable);
+        assert!(!report.tiny_live_order_path_diff_design_ok);
+        assert!(!report.default_disabled_ok);
+        assert!(!report.no_live_boundary);
+        assert!(!report.live_micro_go);
+
+        let mut missing_kill = sample_m3j6_input(now);
+        missing_kill.kill_switch_blocks_endpoint = false;
+        let report = m3j6_tiny_live_order_path_diff_design_report(missing_kill);
+        assert!(!report.tiny_live_order_path_diff_design_ok);
+        assert!(!report.kill_switch_coverage_ok);
+
+        let mut endpoint_open = sample_m3j6_input(now);
+        endpoint_open.non_loopback_order_endpoint_allowed = true;
+        let report = m3j6_tiny_live_order_path_diff_design_report(endpoint_open);
+        assert!(!report.tiny_live_order_path_diff_design_ok);
+        assert!(!report.no_live_boundary);
+        assert!(!report.non_loopback_order_endpoint_allowed);
+    }
+
     #[tokio::test]
     async fn dry_command_ack_publisher_refuses_order_enabled_modes() {
         fn enable_command_consumer(features: &mut GatewayFeatureSet) {
@@ -28313,6 +28526,39 @@ mod tests {
             command_consumer_to_real_finam_transport_allowed: false,
             non_loopback_order_endpoint_allowed: false,
             stop_sltp_bracket_replace_multileg_allowed: false,
+        }
+    }
+
+    fn sample_m3j6_input(now: DateTime<Utc>) -> M3j6TinyLiveOrderPathDiffDesignInput {
+        M3j6TinyLiveOrderPathDiffDesignInput {
+            generated_at: now,
+            m3j5_authorization_package_accepted: true,
+            real_send_default_disabled: true,
+            compile_time_or_feature_gate_required: true,
+            endpoint_gate_required: true,
+            operator_go_artifact_required: true,
+            immediate_pre_run_readonly_required: true,
+            kill_switch_blocks_runtime: true,
+            kill_switch_blocks_command_consumer: true,
+            kill_switch_blocks_endpoint: true,
+            one_order_scope_enforced: true,
+            one_symbol_scope_enforced: true,
+            one_account_scope_enforced: true,
+            tiny_qty_scope_enforced: true,
+            market_limit_only: true,
+            stop_sltp_bracket_replace_multileg_disabled: true,
+            durable_audit_required: true,
+            rollback_plan_required: true,
+            post_run_reconciliation_required: true,
+            eod_report_required: true,
+            scanner_must_block_unguarded_post_delete: true,
+            redaction_required: true,
+            live_ready_allowed: false,
+            runtime_live_attachment_allowed: false,
+            external_finam_post_delete_allowed: false,
+            command_consumer_to_real_finam_transport_allowed: false,
+            non_loopback_order_endpoint_allowed: false,
+            real_send_reachable_by_default: false,
         }
     }
 
