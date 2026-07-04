@@ -496,6 +496,75 @@ pub struct M3j13NoSendPreExecutionRunbookReport {
     pub blockers: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3j14OneShotMicroExecutionGateDecision {
+    Blocked,
+    GateReadyNoSend,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j14OneShotMicroExecutionGateInput {
+    pub generated_at_label: String,
+    pub m3j13_no_send_runbook_accepted: bool,
+    pub explicit_operator_approval_artifact_referenced: bool,
+    pub fresh_immediate_readonly_evidence_referenced: bool,
+    pub readonly_token_scope_used_for_gate: bool,
+    pub full_trade_token_loaded: bool,
+    pub trade_token_required_for_actual_invocation: bool,
+    pub one_account_bound: bool,
+    pub one_symbol_bound: bool,
+    pub one_timeframe_bound: bool,
+    pub one_strategy_bound: bool,
+    pub tiny_qty_bound: bool,
+    pub max_orders_one: bool,
+    pub order_type_market_or_limit_only: bool,
+    pub active_orders_zero: bool,
+    pub unknown_active_orders_zero: bool,
+    pub orphan_active_orders_zero: bool,
+    pub flat_or_expected_position: bool,
+    pub kill_switch_armed_and_tested: bool,
+    pub one_shot_ttl_arm_present_and_fresh: bool,
+    pub begin_submit_durable_audit_before_boundary_required: bool,
+    pub post_run_reconciliation_required: bool,
+    pub eod_report_required: bool,
+    pub redacted_evidence_only: bool,
+    pub scanner_blocks_unguarded_post_delete_send: bool,
+    pub boundary_invocation_requested: bool,
+    pub real_finam_order_endpoint_requested: bool,
+    pub runtime_live_attachment_requested: bool,
+    pub continuous_command_consumer_requested: bool,
+    pub non_loopback_order_endpoint_requested: bool,
+    pub stop_sltp_bracket_replace_multileg_requested: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j14OneShotMicroExecutionGateReport {
+    pub m3j_step: String,
+    pub one_shot_micro_execution_gate_only: bool,
+    pub decision: M3j14OneShotMicroExecutionGateDecision,
+    pub gate_ready_no_send: bool,
+    pub operator_and_readonly_evidence_ok: bool,
+    pub token_scope_ok: bool,
+    pub scope_ok: bool,
+    pub broker_truth_ok: bool,
+    pub position_ok: bool,
+    pub risk_controls_ok: bool,
+    pub audit_and_post_run_ok: bool,
+    pub scanner_and_redaction_ok: bool,
+    pub live_micro_go: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub boundary_invocation_performed: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub command_consumer_to_real_finam_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub no_stop_sltp_bracket: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub trade_token_required_for_actual_invocation: bool,
+    pub unsafe_execution_input_detected: bool,
+    pub blockers: Vec<String>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct GatewayRealOrderEndpointInternalRouteShape {
     pub operation: GatewayRealOrderEndpointOperation,
@@ -1274,6 +1343,122 @@ pub fn m3j13_no_send_pre_execution_runbook_report(
         command_consumer_to_real_finam_allowed: false,
         non_loopback_order_endpoint_allowed: false,
         stop_sltp_bracket_replace_multileg_allowed: false,
+        unsafe_execution_input_detected,
+        blockers,
+    }
+}
+
+pub fn m3j14_one_shot_micro_execution_gate_report(
+    input: M3j14OneShotMicroExecutionGateInput,
+) -> M3j14OneShotMicroExecutionGateReport {
+    let operator_and_readonly_evidence_ok = input.explicit_operator_approval_artifact_referenced
+        && input.fresh_immediate_readonly_evidence_referenced;
+    let token_scope_ok = input.readonly_token_scope_used_for_gate
+        && !input.full_trade_token_loaded
+        && input.trade_token_required_for_actual_invocation;
+    let scope_ok = input.one_account_bound
+        && input.one_symbol_bound
+        && input.one_timeframe_bound
+        && input.one_strategy_bound
+        && input.tiny_qty_bound
+        && input.max_orders_one
+        && input.order_type_market_or_limit_only;
+    let broker_truth_ok = input.active_orders_zero
+        && input.unknown_active_orders_zero
+        && input.orphan_active_orders_zero;
+    let position_ok = input.flat_or_expected_position;
+    let risk_controls_ok =
+        input.kill_switch_armed_and_tested && input.one_shot_ttl_arm_present_and_fresh;
+    let audit_and_post_run_ok = input.begin_submit_durable_audit_before_boundary_required
+        && input.post_run_reconciliation_required
+        && input.eod_report_required;
+    let scanner_and_redaction_ok =
+        input.redacted_evidence_only && input.scanner_blocks_unguarded_post_delete_send;
+    let unsafe_execution_input_detected = input.boundary_invocation_requested
+        || input.real_finam_order_endpoint_requested
+        || input.runtime_live_attachment_requested
+        || input.continuous_command_consumer_requested
+        || input.non_loopback_order_endpoint_requested
+        || input.stop_sltp_bracket_replace_multileg_requested
+        || input.full_trade_token_loaded;
+
+    let gate_ready_no_send = input.m3j13_no_send_runbook_accepted
+        && operator_and_readonly_evidence_ok
+        && token_scope_ok
+        && scope_ok
+        && broker_truth_ok
+        && position_ok
+        && risk_controls_ok
+        && audit_and_post_run_ok
+        && scanner_and_redaction_ok
+        && !unsafe_execution_input_detected;
+
+    let mut blockers = Vec::new();
+    if !input.m3j13_no_send_runbook_accepted {
+        blockers.push("M3j-13 no-send runbook is not accepted".to_string());
+    }
+    if !operator_and_readonly_evidence_ok {
+        blockers
+            .push("operator approval artifact or fresh readonly evidence is missing".to_string());
+    }
+    if !token_scope_ok {
+        blockers.push(
+            "token scope is unsafe for no-send gate or trade-token requirement is not explicit"
+                .to_string(),
+        );
+    }
+    if !scope_ok {
+        blockers.push("one-account/symbol/timeframe/strategy tiny max-one market-or-limit scope is incomplete".to_string());
+    }
+    if !broker_truth_ok {
+        blockers.push("active, unknown active, or orphan active orders are not zero".to_string());
+    }
+    if !position_ok {
+        blockers.push("position is not flat or expected".to_string());
+    }
+    if !risk_controls_ok {
+        blockers.push("kill switch or one-shot TTL arm is missing or stale".to_string());
+    }
+    if !audit_and_post_run_ok {
+        blockers.push(
+            "audit-before-boundary, reconciliation, or EOD requirement is missing".to_string(),
+        );
+    }
+    if !scanner_and_redaction_ok {
+        blockers.push("scanner coverage or redaction requirement is incomplete".to_string());
+    }
+    if unsafe_execution_input_detected {
+        blockers.push("real invocation, live attach, continuous consumer, advanced order semantics, or full trade token is present in no-send gate".to_string());
+    }
+
+    M3j14OneShotMicroExecutionGateReport {
+        m3j_step: "M3j-14".to_string(),
+        one_shot_micro_execution_gate_only: true,
+        decision: if gate_ready_no_send {
+            M3j14OneShotMicroExecutionGateDecision::GateReadyNoSend
+        } else {
+            M3j14OneShotMicroExecutionGateDecision::Blocked
+        },
+        gate_ready_no_send,
+        operator_and_readonly_evidence_ok,
+        token_scope_ok,
+        scope_ok,
+        broker_truth_ok,
+        position_ok,
+        risk_controls_ok,
+        audit_and_post_run_ok,
+        scanner_and_redaction_ok,
+        live_micro_go: false,
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        boundary_invocation_performed: false,
+        real_finam_order_endpoint_used: false,
+        command_consumer_to_real_finam_allowed: false,
+        non_loopback_order_endpoint_allowed: false,
+        no_stop_sltp_bracket: true,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+        trade_token_required_for_actual_invocation: input
+            .trade_token_required_for_actual_invocation,
         unsafe_execution_input_detected,
         blockers,
     }
@@ -9756,6 +9941,77 @@ mod tests {
         assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
     }
 
+    #[test]
+    fn m3j14_one_shot_micro_gate_ready_with_readonly_scope_but_no_send() {
+        let report = m3j14_one_shot_micro_execution_gate_report(sample_m3j14_micro_gate_input());
+        assert_eq!(report.m3j_step, "M3j-14");
+        assert!(report.one_shot_micro_execution_gate_only);
+        assert_eq!(
+            report.decision,
+            M3j14OneShotMicroExecutionGateDecision::GateReadyNoSend
+        );
+        assert!(report.gate_ready_no_send);
+        assert!(report.operator_and_readonly_evidence_ok);
+        assert!(report.token_scope_ok);
+        assert!(report.scope_ok);
+        assert!(report.broker_truth_ok);
+        assert!(report.position_ok);
+        assert!(report.risk_controls_ok);
+        assert!(report.audit_and_post_run_ok);
+        assert!(report.scanner_and_redaction_ok);
+        assert!(!report.live_micro_go);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.boundary_invocation_performed);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.command_consumer_to_real_finam_allowed);
+        assert!(!report.non_loopback_order_endpoint_allowed);
+        assert!(report.no_stop_sltp_bracket);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+        assert!(report.trade_token_required_for_actual_invocation);
+        assert!(!report.unsafe_execution_input_detected);
+        assert!(report.blockers.is_empty());
+    }
+
+    #[test]
+    fn m3j14_missing_approval_trade_token_or_boundary_request_blocks_gate() {
+        let mut missing_approval = sample_m3j14_micro_gate_input();
+        missing_approval.explicit_operator_approval_artifact_referenced = false;
+        let report = m3j14_one_shot_micro_execution_gate_report(missing_approval);
+        assert_eq!(
+            report.decision,
+            M3j14OneShotMicroExecutionGateDecision::Blocked
+        );
+        assert!(!report.operator_and_readonly_evidence_ok);
+        assert!(!report.gate_ready_no_send);
+
+        let mut trade_token_loaded = sample_m3j14_micro_gate_input();
+        trade_token_loaded.full_trade_token_loaded = true;
+        let report = m3j14_one_shot_micro_execution_gate_report(trade_token_loaded);
+        assert_eq!(
+            report.decision,
+            M3j14OneShotMicroExecutionGateDecision::Blocked
+        );
+        assert!(!report.token_scope_ok);
+        assert!(report.unsafe_execution_input_detected);
+        assert!(!report.gate_ready_no_send);
+        assert!(!report.real_finam_order_endpoint_used);
+
+        let mut boundary_request = sample_m3j14_micro_gate_input();
+        boundary_request.boundary_invocation_requested = true;
+        boundary_request.runtime_live_attachment_requested = true;
+        boundary_request.stop_sltp_bracket_replace_multileg_requested = true;
+        let report = m3j14_one_shot_micro_execution_gate_report(boundary_request);
+        assert_eq!(
+            report.decision,
+            M3j14OneShotMicroExecutionGateDecision::Blocked
+        );
+        assert!(report.unsafe_execution_input_detected);
+        assert!(!report.boundary_invocation_performed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+    }
+
     fn sample_m3j7_skeleton_input() -> M3j7TinyLiveOrderPathSkeletonInput {
         M3j7TinyLiveOrderPathSkeletonInput {
             generated_at_label: "synthetic-m3j7-test".to_string(),
@@ -9997,6 +10253,42 @@ mod tests {
             real_finam_order_endpoint_requested: false,
             runtime_live_attachment_requested: false,
             command_consumer_to_real_finam_requested: false,
+            non_loopback_order_endpoint_requested: false,
+            stop_sltp_bracket_replace_multileg_requested: false,
+        }
+    }
+
+    fn sample_m3j14_micro_gate_input() -> M3j14OneShotMicroExecutionGateInput {
+        M3j14OneShotMicroExecutionGateInput {
+            generated_at_label: "synthetic-m3j14-test".to_string(),
+            m3j13_no_send_runbook_accepted: true,
+            explicit_operator_approval_artifact_referenced: true,
+            fresh_immediate_readonly_evidence_referenced: true,
+            readonly_token_scope_used_for_gate: true,
+            full_trade_token_loaded: false,
+            trade_token_required_for_actual_invocation: true,
+            one_account_bound: true,
+            one_symbol_bound: true,
+            one_timeframe_bound: true,
+            one_strategy_bound: true,
+            tiny_qty_bound: true,
+            max_orders_one: true,
+            order_type_market_or_limit_only: true,
+            active_orders_zero: true,
+            unknown_active_orders_zero: true,
+            orphan_active_orders_zero: true,
+            flat_or_expected_position: true,
+            kill_switch_armed_and_tested: true,
+            one_shot_ttl_arm_present_and_fresh: true,
+            begin_submit_durable_audit_before_boundary_required: true,
+            post_run_reconciliation_required: true,
+            eod_report_required: true,
+            redacted_evidence_only: true,
+            scanner_blocks_unguarded_post_delete_send: true,
+            boundary_invocation_requested: false,
+            real_finam_order_endpoint_requested: false,
+            runtime_live_attachment_requested: false,
+            continuous_command_consumer_requested: false,
             non_loopback_order_endpoint_requested: false,
             stop_sltp_bracket_replace_multileg_requested: false,
         }
