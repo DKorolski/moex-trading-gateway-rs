@@ -565,6 +565,78 @@ pub struct M3j14OneShotMicroExecutionGateReport {
     pub blockers: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M3j15ActualInvocationPreflightDecision {
+    Blocked,
+    PreflightReadyNoSend,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j15ActualInvocationPreflightInput {
+    pub generated_at_label: String,
+    pub m3j14_gate_accepted: bool,
+    pub explicit_operator_approval_current: bool,
+    pub full_trade_token_scope_present: bool,
+    pub full_trade_token_redacted: bool,
+    pub full_trade_token_not_exported: bool,
+    pub immediate_readonly_refresh_current: bool,
+    pub immediate_readonly_refresh_clean: bool,
+    pub active_orders_zero: bool,
+    pub unknown_active_orders_zero: bool,
+    pub orphan_active_orders_zero: bool,
+    pub flat_or_expected_position: bool,
+    pub one_account_bound: bool,
+    pub one_symbol_bound: bool,
+    pub one_timeframe_bound: bool,
+    pub one_strategy_bound: bool,
+    pub config_digest_bound: bool,
+    pub session_digest_bound: bool,
+    pub tiny_qty_bound: bool,
+    pub max_orders_one: bool,
+    pub order_type_market_or_limit_only: bool,
+    pub kill_switch_armed: bool,
+    pub kill_switch_tested: bool,
+    pub one_shot_ttl_arm_fresh: bool,
+    pub no_auto_rearm: bool,
+    pub begin_submit_durable_audit_persisted_before_boundary: bool,
+    pub post_run_reconciliation_required: bool,
+    pub eod_report_required: bool,
+    pub scanner_blocks_unguarded_post_delete_send: bool,
+    pub redacted_evidence_only: bool,
+    pub boundary_invocation_requested: bool,
+    pub runtime_live_attachment_requested: bool,
+    pub continuous_command_consumer_requested: bool,
+    pub non_loopback_order_endpoint_requested: bool,
+    pub stop_sltp_bracket_replace_multileg_requested: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j15ActualInvocationPreflightReport {
+    pub m3j_step: String,
+    pub actual_invocation_preflight_only: bool,
+    pub decision: M3j15ActualInvocationPreflightDecision,
+    pub preflight_ready_no_send: bool,
+    pub operator_approval_ok: bool,
+    pub trade_token_scope_ok: bool,
+    pub readonly_broker_truth_ok: bool,
+    pub position_ok: bool,
+    pub scope_ok: bool,
+    pub risk_controls_ok: bool,
+    pub audit_and_post_run_ok: bool,
+    pub scanner_and_redaction_ok: bool,
+    pub live_micro_go: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub boundary_invocation_performed: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub command_consumer_to_real_finam_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub no_stop_sltp_bracket: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub unsafe_execution_input_detected: bool,
+    pub blockers: Vec<String>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct GatewayRealOrderEndpointInternalRouteShape {
     pub operation: GatewayRealOrderEndpointOperation,
@@ -1459,6 +1531,123 @@ pub fn m3j14_one_shot_micro_execution_gate_report(
         stop_sltp_bracket_replace_multileg_allowed: false,
         trade_token_required_for_actual_invocation: input
             .trade_token_required_for_actual_invocation,
+        unsafe_execution_input_detected,
+        blockers,
+    }
+}
+
+pub fn m3j15_actual_invocation_preflight_report(
+    input: M3j15ActualInvocationPreflightInput,
+) -> M3j15ActualInvocationPreflightReport {
+    let operator_approval_ok = input.explicit_operator_approval_current;
+    let trade_token_scope_ok = input.full_trade_token_scope_present
+        && input.full_trade_token_redacted
+        && input.full_trade_token_not_exported;
+    let readonly_broker_truth_ok = input.immediate_readonly_refresh_current
+        && input.immediate_readonly_refresh_clean
+        && input.active_orders_zero
+        && input.unknown_active_orders_zero
+        && input.orphan_active_orders_zero;
+    let position_ok = input.flat_or_expected_position;
+    let scope_ok = input.one_account_bound
+        && input.one_symbol_bound
+        && input.one_timeframe_bound
+        && input.one_strategy_bound
+        && input.config_digest_bound
+        && input.session_digest_bound
+        && input.tiny_qty_bound
+        && input.max_orders_one
+        && input.order_type_market_or_limit_only;
+    let risk_controls_ok = input.kill_switch_armed
+        && input.kill_switch_tested
+        && input.one_shot_ttl_arm_fresh
+        && input.no_auto_rearm;
+    let audit_and_post_run_ok = input.begin_submit_durable_audit_persisted_before_boundary
+        && input.post_run_reconciliation_required
+        && input.eod_report_required;
+    let scanner_and_redaction_ok =
+        input.scanner_blocks_unguarded_post_delete_send && input.redacted_evidence_only;
+    let unsafe_execution_input_detected = input.boundary_invocation_requested
+        || input.runtime_live_attachment_requested
+        || input.continuous_command_consumer_requested
+        || input.non_loopback_order_endpoint_requested
+        || input.stop_sltp_bracket_replace_multileg_requested;
+
+    let preflight_ready_no_send = input.m3j14_gate_accepted
+        && operator_approval_ok
+        && trade_token_scope_ok
+        && readonly_broker_truth_ok
+        && position_ok
+        && scope_ok
+        && risk_controls_ok
+        && audit_and_post_run_ok
+        && scanner_and_redaction_ok
+        && !unsafe_execution_input_detected;
+
+    let mut blockers = Vec::new();
+    if !input.m3j14_gate_accepted {
+        blockers.push("M3j-14 one-shot gate is not accepted".to_string());
+    }
+    if !operator_approval_ok {
+        blockers.push("current explicit operator approval is missing".to_string());
+    }
+    if !trade_token_scope_ok {
+        blockers.push("full trade token scope is missing, unredacted, or exportable".to_string());
+    }
+    if !readonly_broker_truth_ok {
+        blockers.push(
+            "immediate readonly broker truth is stale, not clean, or has active orders".to_string(),
+        );
+    }
+    if !position_ok {
+        blockers.push("position is not flat or expected".to_string());
+    }
+    if !scope_ok {
+        blockers.push(
+            "one-account/symbol/timeframe/strategy/config/session tiny max-one scope is incomplete"
+                .to_string(),
+        );
+    }
+    if !risk_controls_ok {
+        blockers.push("kill switch, TTL arm, or no-auto-rearm control is missing".to_string());
+    }
+    if !audit_and_post_run_ok {
+        blockers
+            .push("begin-submit audit, reconciliation, or EOD requirement is missing".to_string());
+    }
+    if !scanner_and_redaction_ok {
+        blockers.push("scanner coverage or redaction requirement is incomplete".to_string());
+    }
+    if unsafe_execution_input_detected {
+        blockers.push("actual boundary, runtime attach, continuous consumer, non-loopback endpoint, or advanced order semantics requested in preflight".to_string());
+    }
+
+    M3j15ActualInvocationPreflightReport {
+        m3j_step: "M3j-15".to_string(),
+        actual_invocation_preflight_only: true,
+        decision: if preflight_ready_no_send {
+            M3j15ActualInvocationPreflightDecision::PreflightReadyNoSend
+        } else {
+            M3j15ActualInvocationPreflightDecision::Blocked
+        },
+        preflight_ready_no_send,
+        operator_approval_ok,
+        trade_token_scope_ok,
+        readonly_broker_truth_ok,
+        position_ok,
+        scope_ok,
+        risk_controls_ok,
+        audit_and_post_run_ok,
+        scanner_and_redaction_ok,
+        live_micro_go: false,
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        boundary_invocation_performed: false,
+        real_finam_order_endpoint_used: false,
+        command_consumer_to_real_finam_allowed: false,
+        non_loopback_order_endpoint_allowed: false,
+        no_stop_sltp_bracket: true,
+        stop_sltp_bracket_replace_multileg_allowed: false,
         unsafe_execution_input_detected,
         blockers,
     }
@@ -10012,6 +10201,76 @@ mod tests {
         assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
     }
 
+    #[test]
+    fn m3j15_trade_token_preflight_ready_but_no_boundary_invocation() {
+        let report =
+            m3j15_actual_invocation_preflight_report(sample_m3j15_invocation_preflight_input());
+        assert_eq!(report.m3j_step, "M3j-15");
+        assert!(report.actual_invocation_preflight_only);
+        assert_eq!(
+            report.decision,
+            M3j15ActualInvocationPreflightDecision::PreflightReadyNoSend
+        );
+        assert!(report.preflight_ready_no_send);
+        assert!(report.operator_approval_ok);
+        assert!(report.trade_token_scope_ok);
+        assert!(report.readonly_broker_truth_ok);
+        assert!(report.position_ok);
+        assert!(report.scope_ok);
+        assert!(report.risk_controls_ok);
+        assert!(report.audit_and_post_run_ok);
+        assert!(report.scanner_and_redaction_ok);
+        assert!(!report.live_micro_go);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.boundary_invocation_performed);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.command_consumer_to_real_finam_allowed);
+        assert!(!report.non_loopback_order_endpoint_allowed);
+        assert!(report.no_stop_sltp_bracket);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+        assert!(!report.unsafe_execution_input_detected);
+        assert!(report.blockers.is_empty());
+    }
+
+    #[test]
+    fn m3j15_missing_approval_stale_readonly_or_boundary_request_blocks_preflight() {
+        let mut missing_approval = sample_m3j15_invocation_preflight_input();
+        missing_approval.explicit_operator_approval_current = false;
+        let report = m3j15_actual_invocation_preflight_report(missing_approval);
+        assert_eq!(
+            report.decision,
+            M3j15ActualInvocationPreflightDecision::Blocked
+        );
+        assert!(!report.operator_approval_ok);
+        assert!(!report.preflight_ready_no_send);
+
+        let mut stale_truth = sample_m3j15_invocation_preflight_input();
+        stale_truth.immediate_readonly_refresh_current = false;
+        stale_truth.active_orders_zero = false;
+        let report = m3j15_actual_invocation_preflight_report(stale_truth);
+        assert_eq!(
+            report.decision,
+            M3j15ActualInvocationPreflightDecision::Blocked
+        );
+        assert!(!report.readonly_broker_truth_ok);
+        assert!(!report.preflight_ready_no_send);
+
+        let mut boundary_request = sample_m3j15_invocation_preflight_input();
+        boundary_request.boundary_invocation_requested = true;
+        boundary_request.runtime_live_attachment_requested = true;
+        boundary_request.continuous_command_consumer_requested = true;
+        let report = m3j15_actual_invocation_preflight_report(boundary_request);
+        assert_eq!(
+            report.decision,
+            M3j15ActualInvocationPreflightDecision::Blocked
+        );
+        assert!(report.unsafe_execution_input_detected);
+        assert!(!report.boundary_invocation_performed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.command_consumer_to_real_finam_allowed);
+    }
+
     fn sample_m3j7_skeleton_input() -> M3j7TinyLiveOrderPathSkeletonInput {
         M3j7TinyLiveOrderPathSkeletonInput {
             generated_at_label: "synthetic-m3j7-test".to_string(),
@@ -10287,6 +10546,46 @@ mod tests {
             scanner_blocks_unguarded_post_delete_send: true,
             boundary_invocation_requested: false,
             real_finam_order_endpoint_requested: false,
+            runtime_live_attachment_requested: false,
+            continuous_command_consumer_requested: false,
+            non_loopback_order_endpoint_requested: false,
+            stop_sltp_bracket_replace_multileg_requested: false,
+        }
+    }
+
+    fn sample_m3j15_invocation_preflight_input() -> M3j15ActualInvocationPreflightInput {
+        M3j15ActualInvocationPreflightInput {
+            generated_at_label: "synthetic-m3j15-test".to_string(),
+            m3j14_gate_accepted: true,
+            explicit_operator_approval_current: true,
+            full_trade_token_scope_present: true,
+            full_trade_token_redacted: true,
+            full_trade_token_not_exported: true,
+            immediate_readonly_refresh_current: true,
+            immediate_readonly_refresh_clean: true,
+            active_orders_zero: true,
+            unknown_active_orders_zero: true,
+            orphan_active_orders_zero: true,
+            flat_or_expected_position: true,
+            one_account_bound: true,
+            one_symbol_bound: true,
+            one_timeframe_bound: true,
+            one_strategy_bound: true,
+            config_digest_bound: true,
+            session_digest_bound: true,
+            tiny_qty_bound: true,
+            max_orders_one: true,
+            order_type_market_or_limit_only: true,
+            kill_switch_armed: true,
+            kill_switch_tested: true,
+            one_shot_ttl_arm_fresh: true,
+            no_auto_rearm: true,
+            begin_submit_durable_audit_persisted_before_boundary: true,
+            post_run_reconciliation_required: true,
+            eod_report_required: true,
+            scanner_blocks_unguarded_post_delete_send: true,
+            redacted_evidence_only: true,
+            boundary_invocation_requested: false,
             runtime_live_attachment_requested: false,
             continuous_command_consumer_requested: false,
             non_loopback_order_endpoint_requested: false,
