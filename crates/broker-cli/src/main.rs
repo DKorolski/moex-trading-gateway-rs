@@ -2779,7 +2779,7 @@ async fn run_finam_tiny_position_market_one_shot(
         #[cfg(feature = "m3j16-actual-one-shot")]
         {
             let gate =
-                finam_gateway::EndpointGateApproved::m3j16_actual_one_shot_after_operator_approval(
+                finam_gateway::EndpointGateApproved::m4_1c_tiny_position_market_after_operator_approval(
                     "M4-1c-tiny-position-market-one-shot",
                     true,
                 )

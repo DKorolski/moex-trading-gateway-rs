@@ -544,6 +544,24 @@ impl EndpointGateApproved {
         }
         Ok(Self { _private: () })
     }
+
+    pub fn m4_1c_tiny_position_market_after_operator_approval(
+        approval_label: &str,
+        one_shot_entry_exit_scope: bool,
+    ) -> Result<Self, EndpointGateApprovalError> {
+        if approval_label != "M4-1c-tiny-position-market-one-shot" || !one_shot_entry_exit_scope {
+            return Err(EndpointGateApprovalError::Blocked {
+                decision: RealOrderEndpointGateDecision {
+                    endpoint_calls_allowed: false,
+                    blocking_reasons: vec![
+                        RealOrderEndpointGateBlock::M3cImplementationReviewRequired,
+                    ],
+                    runtime_ack_id_policy: RuntimeCommandAckIdPolicy::RedactedRuntimeAckOnly,
+                },
+            });
+        }
+        Ok(Self { _private: () })
+    }
 }
 
 #[cfg(test)]
