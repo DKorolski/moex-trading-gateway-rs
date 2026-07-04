@@ -6763,6 +6763,76 @@ pub struct M3j4PreLiveDecisionReport {
     pub post_decision_required_steps: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3j5FirstLiveMicroAuthorization {
+    NotAuthorized,
+    OperatorRunCandidate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j5OperatorRunAuthorizationInput {
+    pub generated_at: DateTime<Utc>,
+    pub m3j4_closed_no_go_package_accepted: bool,
+    pub explicit_operator_go_artifact_present: bool,
+    pub operator_go_timestamp_present: bool,
+    pub account_digest_bound: bool,
+    pub symbol_digest_bound: bool,
+    pub timeframe_bound: bool,
+    pub strategy_bound: bool,
+    pub config_digest_bound: bool,
+    pub endpoint_session_digest_bound: bool,
+    pub readonly_evidence_refreshed_immediately_before_run: bool,
+    pub active_orders_zero: bool,
+    pub unknown_active_orders_zero: bool,
+    pub orphan_active_orders_zero: bool,
+    pub flat_or_expected_position: bool,
+    pub operator_arm_one_shot_ttl_enforced: bool,
+    pub operator_arm_no_auto_rearm_after_restart: bool,
+    pub persistent_kill_switch_tested_before_run: bool,
+    pub max_orders_per_session_enforced: bool,
+    pub max_qty_enforced: bool,
+    pub max_notional_or_loss_placeholder_enforced: bool,
+    pub one_account_scope: bool,
+    pub one_symbol_scope: bool,
+    pub one_timeframe_scope: bool,
+    pub one_strategy_scope: bool,
+    pub post_run_broker_truth_reconciliation_required: bool,
+    pub eod_report_required: bool,
+    pub tiny_live_order_path_diff_reviewed: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub external_finam_post_delete_allowed: bool,
+    pub command_consumer_to_real_finam_transport_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j5OperatorRunAuthorizationReport {
+    pub schema_version: u16,
+    pub generated_at: DateTime<Utc>,
+    pub m3j_step: String,
+    pub authorization: M3j5FirstLiveMicroAuthorization,
+    pub operator_run_authorization_package_ok: bool,
+    pub explicit_operator_go_artifact_ok: bool,
+    pub pre_run_readonly_clean: bool,
+    pub operator_arm_and_kill_switch_ok: bool,
+    pub risk_limits_ok: bool,
+    pub first_micro_scope_ok: bool,
+    pub post_run_controls_ok: bool,
+    pub live_order_path_review_ok: bool,
+    pub no_live_boundary: bool,
+    pub live_micro_go: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub external_finam_post_delete_allowed: bool,
+    pub command_consumer_to_real_finam_transport_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub authorization_blockers: Vec<String>,
+    pub required_next_steps: Vec<String>,
+}
+
 pub fn m3i2_strategy_output_contract_report() -> M3iPaperStrategyOutputContractReport {
     M3iPaperStrategyOutputContractReport {
         schema_version: SCHEMA_VERSION,
@@ -7891,6 +7961,120 @@ pub fn m3j4_pre_live_decision_report(input: M3j4PreLiveDecisionInput) -> M3j4Pre
         post_decision_required_steps: vec![
             "If decision remains NO-GO: refresh evidence or close listed no-go reasons before any live-micro attempt".to_string(),
             "If decision becomes GO-candidate: require a separate operator-run live-micro authorization without enabling Stop/SLTP/bracket".to_string(),
+        ],
+    }
+}
+
+pub fn m3j5_operator_run_authorization_report(
+    input: M3j5OperatorRunAuthorizationInput,
+) -> M3j5OperatorRunAuthorizationReport {
+    let explicit_operator_go_artifact_ok = input.explicit_operator_go_artifact_present
+        && input.operator_go_timestamp_present
+        && input.account_digest_bound
+        && input.symbol_digest_bound
+        && input.timeframe_bound
+        && input.strategy_bound
+        && input.config_digest_bound
+        && input.endpoint_session_digest_bound;
+    let pre_run_readonly_clean = input.readonly_evidence_refreshed_immediately_before_run
+        && input.active_orders_zero
+        && input.unknown_active_orders_zero
+        && input.orphan_active_orders_zero
+        && input.flat_or_expected_position;
+    let operator_arm_and_kill_switch_ok = input.operator_arm_one_shot_ttl_enforced
+        && input.operator_arm_no_auto_rearm_after_restart
+        && input.persistent_kill_switch_tested_before_run;
+    let risk_limits_ok = input.max_orders_per_session_enforced
+        && input.max_qty_enforced
+        && input.max_notional_or_loss_placeholder_enforced;
+    let first_micro_scope_ok = input.one_account_scope
+        && input.one_symbol_scope
+        && input.one_timeframe_scope
+        && input.one_strategy_scope
+        && !input.stop_sltp_bracket_replace_multileg_allowed;
+    let post_run_controls_ok =
+        input.post_run_broker_truth_reconciliation_required && input.eod_report_required;
+    let live_order_path_review_ok = input.tiny_live_order_path_diff_reviewed;
+    let no_live_boundary = !input.live_ready_allowed
+        && !input.runtime_live_attachment_allowed
+        && !input.external_finam_post_delete_allowed
+        && !input.command_consumer_to_real_finam_transport_allowed
+        && !input.non_loopback_order_endpoint_allowed
+        && !input.stop_sltp_bracket_replace_multileg_allowed;
+    let mut authorization_blockers = Vec::new();
+    if !input.m3j4_closed_no_go_package_accepted {
+        authorization_blockers.push("M3j-4 accepted NO-GO decision package is missing".to_string());
+    }
+    if !explicit_operator_go_artifact_ok {
+        authorization_blockers
+            .push("explicit operator GO artifact is missing or not fully digest-bound".to_string());
+    }
+    if !pre_run_readonly_clean {
+        authorization_blockers
+            .push("fresh immediate pre-run readonly evidence is not clean".to_string());
+    }
+    if !operator_arm_and_kill_switch_ok {
+        authorization_blockers
+            .push("operator arm or kill switch pre-run checks are incomplete".to_string());
+    }
+    if !risk_limits_ok {
+        authorization_blockers.push("risk limits are incomplete".to_string());
+    }
+    if !first_micro_scope_ok {
+        authorization_blockers.push("first live micro scope is not constrained".to_string());
+    }
+    if !post_run_controls_ok {
+        authorization_blockers
+            .push("post-run reconciliation or EOD report requirement is missing".to_string());
+    }
+    if !live_order_path_review_ok {
+        authorization_blockers.push("tiny live order path diff review is missing".to_string());
+    }
+    if !no_live_boundary {
+        authorization_blockers
+            .push("live/order boundary is already open before authorization".to_string());
+    }
+    let operator_run_authorization_package_ok = input.m3j4_closed_no_go_package_accepted
+        && explicit_operator_go_artifact_ok
+        && pre_run_readonly_clean
+        && operator_arm_and_kill_switch_ok
+        && risk_limits_ok
+        && first_micro_scope_ok
+        && post_run_controls_ok
+        && live_order_path_review_ok
+        && no_live_boundary;
+    let authorization = if operator_run_authorization_package_ok {
+        M3j5FirstLiveMicroAuthorization::OperatorRunCandidate
+    } else {
+        M3j5FirstLiveMicroAuthorization::NotAuthorized
+    };
+    M3j5OperatorRunAuthorizationReport {
+        schema_version: SCHEMA_VERSION,
+        generated_at: input.generated_at,
+        m3j_step: "M3j-5".to_string(),
+        authorization,
+        operator_run_authorization_package_ok,
+        explicit_operator_go_artifact_ok,
+        pre_run_readonly_clean,
+        operator_arm_and_kill_switch_ok,
+        risk_limits_ok,
+        first_micro_scope_ok,
+        post_run_controls_ok,
+        live_order_path_review_ok,
+        no_live_boundary,
+        live_micro_go: false,
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        external_finam_post_delete_allowed: false,
+        command_consumer_to_real_finam_transport_allowed: false,
+        non_loopback_order_endpoint_allowed: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+        authorization_blockers,
+        required_next_steps: vec![
+            "Provide explicit operator GO artifact immediately before any first-live-micro attempt".to_string(),
+            "Refresh read-only broker-truth evidence immediately before the run".to_string(),
+            "Submit any live order path diff as a separate reviewed change before enabling transport".to_string(),
+            "Keep Stop/SLTP/bracket/replace/multi-leg out of first live micro".to_string(),
         ],
     }
 }
@@ -21075,6 +21259,88 @@ mod tests {
         assert!(!report.live_micro_go);
     }
 
+    #[test]
+    fn m3j5_current_authorization_is_not_authorized_without_operator_go_artifact() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 16, 0, 0)
+            .single()
+            .expect("timestamp");
+        let report = m3j5_operator_run_authorization_report(sample_m3j5_input(now, false));
+        assert_eq!(report.m3j_step, "M3j-5");
+        assert_eq!(
+            report.authorization,
+            M3j5FirstLiveMicroAuthorization::NotAuthorized
+        );
+        assert!(!report.operator_run_authorization_package_ok);
+        assert!(!report.explicit_operator_go_artifact_ok);
+        assert!(report.pre_run_readonly_clean);
+        assert!(report.operator_arm_and_kill_switch_ok);
+        assert!(report.risk_limits_ok);
+        assert!(report.first_micro_scope_ok);
+        assert!(report.post_run_controls_ok);
+        assert!(report.live_order_path_review_ok);
+        assert!(report.no_live_boundary);
+        assert!(report
+            .authorization_blockers
+            .iter()
+            .any(|blocker| blocker.contains("operator GO artifact")));
+        assert!(!report.live_micro_go);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.external_finam_post_delete_allowed);
+    }
+
+    #[test]
+    fn m3j5_operator_run_candidate_still_does_not_enable_live_boundary() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 16, 1, 0)
+            .single()
+            .expect("timestamp");
+        let report = m3j5_operator_run_authorization_report(sample_m3j5_input(now, true));
+        assert_eq!(
+            report.authorization,
+            M3j5FirstLiveMicroAuthorization::OperatorRunCandidate
+        );
+        assert!(report.operator_run_authorization_package_ok);
+        assert!(report.authorization_blockers.is_empty());
+        assert!(!report.live_micro_go);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.external_finam_post_delete_allowed);
+        assert!(!report.command_consumer_to_real_finam_transport_allowed);
+        assert!(!report.non_loopback_order_endpoint_allowed);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+    }
+
+    #[test]
+    fn m3j5_missing_live_path_review_or_open_boundary_blocks_authorization() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 16, 2, 0)
+            .single()
+            .expect("timestamp");
+
+        let mut missing_review = sample_m3j5_input(now, true);
+        missing_review.tiny_live_order_path_diff_reviewed = false;
+        let report = m3j5_operator_run_authorization_report(missing_review);
+        assert_eq!(
+            report.authorization,
+            M3j5FirstLiveMicroAuthorization::NotAuthorized
+        );
+        assert!(!report.operator_run_authorization_package_ok);
+        assert!(!report.live_order_path_review_ok);
+
+        let mut endpoint_attempt = sample_m3j5_input(now, true);
+        endpoint_attempt.external_finam_post_delete_allowed = true;
+        let report = m3j5_operator_run_authorization_report(endpoint_attempt);
+        assert_eq!(
+            report.authorization,
+            M3j5FirstLiveMicroAuthorization::NotAuthorized
+        );
+        assert!(!report.no_live_boundary);
+        assert!(!report.external_finam_post_delete_allowed);
+        assert!(!report.live_micro_go);
+    }
+
     #[tokio::test]
     async fn dry_command_ack_publisher_refuses_order_enabled_modes() {
         fn enable_command_consumer(features: &mut GatewayFeatureSet) {
@@ -27999,6 +28265,48 @@ mod tests {
             typed_optional_failures_fixed_or_waived: true,
             typed_optional_failure_count: 3,
             operator_explicit_go,
+            live_ready_allowed: false,
+            runtime_live_attachment_allowed: false,
+            external_finam_post_delete_allowed: false,
+            command_consumer_to_real_finam_transport_allowed: false,
+            non_loopback_order_endpoint_allowed: false,
+            stop_sltp_bracket_replace_multileg_allowed: false,
+        }
+    }
+
+    fn sample_m3j5_input(
+        now: DateTime<Utc>,
+        explicit_operator_go_artifact_present: bool,
+    ) -> M3j5OperatorRunAuthorizationInput {
+        M3j5OperatorRunAuthorizationInput {
+            generated_at: now,
+            m3j4_closed_no_go_package_accepted: true,
+            explicit_operator_go_artifact_present,
+            operator_go_timestamp_present: explicit_operator_go_artifact_present,
+            account_digest_bound: explicit_operator_go_artifact_present,
+            symbol_digest_bound: explicit_operator_go_artifact_present,
+            timeframe_bound: explicit_operator_go_artifact_present,
+            strategy_bound: explicit_operator_go_artifact_present,
+            config_digest_bound: explicit_operator_go_artifact_present,
+            endpoint_session_digest_bound: explicit_operator_go_artifact_present,
+            readonly_evidence_refreshed_immediately_before_run: true,
+            active_orders_zero: true,
+            unknown_active_orders_zero: true,
+            orphan_active_orders_zero: true,
+            flat_or_expected_position: true,
+            operator_arm_one_shot_ttl_enforced: true,
+            operator_arm_no_auto_rearm_after_restart: true,
+            persistent_kill_switch_tested_before_run: true,
+            max_orders_per_session_enforced: true,
+            max_qty_enforced: true,
+            max_notional_or_loss_placeholder_enforced: true,
+            one_account_scope: true,
+            one_symbol_scope: true,
+            one_timeframe_scope: true,
+            one_strategy_scope: true,
+            post_run_broker_truth_reconciliation_required: true,
+            eod_report_required: true,
+            tiny_live_order_path_diff_reviewed: true,
             live_ready_allowed: false,
             runtime_live_attachment_allowed: false,
             external_finam_post_delete_allowed: false,
