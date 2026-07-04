@@ -6148,16 +6148,36 @@ pub enum M3iPaperStrategyOutputOutcome {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct M3iPaperStrategyState {
     pub pending_request_ids: HashSet<StrategyRequestId>,
+    #[serde(default)]
+    pub acknowledged_request_hashes: Vec<String>,
     pub dropped_request_hashes: Vec<String>,
     pub duplicate_request_hashes: Vec<String>,
+    #[serde(default)]
+    pub stale_or_missing_ack_request_hashes: Vec<String>,
+    #[serde(default)]
+    pub manual_policy_request_hashes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum M3iPaperStrategyStateAction {
     PendingStaged,
     PublishedPendingDryAck,
+    DryAckApplied,
     PendingDroppedAfterNotEmitted,
+    PendingDroppedAfterAck,
+    PendingAckMissingOrStale,
+    ManualPolicyRequired,
     DuplicateIgnored,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M3iPaperStrategyAckApplyOutcomeKind {
+    DryRunAcknowledged,
+    DuplicateAcknowledged,
+    ExpiredDropped,
+    RejectedDropped,
+    MissingOrStaleAck,
+    ManualPolicyRequired,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -6260,14 +6280,52 @@ pub struct M3iPaperStrategyReplayReport {
     pub emitted_dry_candidate_count: u64,
     pub dropped_intent_count: u64,
     pub duplicate_request_id_count: u64,
+    pub dry_ack_applied_count: u64,
+    pub stale_or_missing_ack_count: u64,
+    pub manual_policy_count: u64,
     pub suppression_count: u64,
     pub pending_request_hashes: Vec<String>,
+    pub acknowledged_request_hashes: Vec<String>,
     pub dropped_request_hashes: Vec<String>,
     pub duplicate_request_hashes: Vec<String>,
+    pub stale_or_missing_ack_request_hashes: Vec<String>,
+    pub manual_policy_request_hashes: Vec<String>,
     pub strategy_output_broker_neutral: bool,
     pub m3h_dry_command_emitter_required: bool,
     pub direct_m3e_publish_allowed: bool,
     pub broker_command_visible_to_strategy: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub live_ready_allowed: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub raw_request_ids_exported: bool,
+    pub raw_payload_exported: bool,
+    pub raw_token_exported: bool,
+    pub raw_body_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3i4PaperShadowReplayAckReport {
+    pub schema_version: u16,
+    pub generated_at: DateTime<Utc>,
+    pub live_final_bar_fixture_count: u64,
+    pub strategy_signal_count: u64,
+    pub output_candidate_count: u64,
+    pub dry_command_published_count: u64,
+    pub m3e_dry_ack_count: u64,
+    pub duplicate_ack_count: u64,
+    pub expired_ack_count: u64,
+    pub rejected_ack_count: u64,
+    pub missing_or_stale_ack_count: u64,
+    pub final_pending_count: u64,
+    pub final_acknowledged_count: u64,
+    pub final_dropped_count: u64,
+    pub final_duplicate_count: u64,
+    pub final_manual_policy_count: u64,
+    pub tif_policy_scope: String,
+    pub only_m3h_output_path: bool,
+    pub direct_strategy_publish_allowed: bool,
     pub runtime_live_attachment_allowed: bool,
     pub live_ready_allowed: bool,
     pub external_order_endpoint_allowed: bool,
@@ -6554,6 +6612,103 @@ pub fn m3i2_to_m3h_dry_command_candidate(
     })
 }
 
+pub fn m3i4_apply_m3e_ack_to_strategy_state(
+    state: &mut M3iPaperStrategyState,
+    request_id: StrategyRequestId,
+    report: Option<&M3eCommandConsumerDurableReport>,
+) -> (
+    M3iPaperStrategyStateTransition,
+    M3iPaperStrategyAckApplyOutcomeKind,
+) {
+    let request_id_hash = m3h5_redacted_request_hash(request_id);
+    let Some(report) = report else {
+        state
+            .stale_or_missing_ack_request_hashes
+            .push(request_id_hash.clone());
+        return (
+            M3iPaperStrategyStateTransition {
+                request_id_hash,
+                action: M3iPaperStrategyStateAction::PendingAckMissingOrStale,
+                pending_count: state.pending_request_ids.len(),
+            },
+            M3iPaperStrategyAckApplyOutcomeKind::MissingOrStaleAck,
+        );
+    };
+    if report.request_id != Some(request_id) || !report.ack_publish_before_xack {
+        state
+            .stale_or_missing_ack_request_hashes
+            .push(request_id_hash.clone());
+        return (
+            M3iPaperStrategyStateTransition {
+                request_id_hash,
+                action: M3iPaperStrategyStateAction::PendingAckMissingOrStale,
+                pending_count: state.pending_request_ids.len(),
+            },
+            M3iPaperStrategyAckApplyOutcomeKind::MissingOrStaleAck,
+        );
+    }
+    let (action, kind) = match (report.ack_status, report.ack_reason_code) {
+        (Some(CommandAckStatus::Rejected), Some(CommandAckReasonCode::DryRunOnly)) => {
+            state.pending_request_ids.remove(&request_id);
+            state
+                .acknowledged_request_hashes
+                .push(request_id_hash.clone());
+            (
+                M3iPaperStrategyStateAction::DryAckApplied,
+                M3iPaperStrategyAckApplyOutcomeKind::DryRunAcknowledged,
+            )
+        }
+        (Some(CommandAckStatus::Duplicate), Some(CommandAckReasonCode::DuplicateCommand)) => {
+            state.pending_request_ids.remove(&request_id);
+            state.duplicate_request_hashes.push(request_id_hash.clone());
+            (
+                M3iPaperStrategyStateAction::DuplicateIgnored,
+                M3iPaperStrategyAckApplyOutcomeKind::DuplicateAcknowledged,
+            )
+        }
+        (Some(CommandAckStatus::Expired), Some(CommandAckReasonCode::ExpiredCommand)) => {
+            state.pending_request_ids.remove(&request_id);
+            state.dropped_request_hashes.push(request_id_hash.clone());
+            (
+                M3iPaperStrategyStateAction::PendingDroppedAfterAck,
+                M3iPaperStrategyAckApplyOutcomeKind::ExpiredDropped,
+            )
+        }
+        (
+            Some(CommandAckStatus::Rejected | CommandAckStatus::Error),
+            Some(
+                CommandAckReasonCode::LocalValidationRejected
+                | CommandAckReasonCode::FeatureDisabled
+                | CommandAckReasonCode::BrokerRejected,
+            ),
+        ) => {
+            state.pending_request_ids.remove(&request_id);
+            state.dropped_request_hashes.push(request_id_hash.clone());
+            (
+                M3iPaperStrategyStateAction::PendingDroppedAfterAck,
+                M3iPaperStrategyAckApplyOutcomeKind::RejectedDropped,
+            )
+        }
+        _ => {
+            state
+                .manual_policy_request_hashes
+                .push(request_id_hash.clone());
+            (
+                M3iPaperStrategyStateAction::ManualPolicyRequired,
+                M3iPaperStrategyAckApplyOutcomeKind::ManualPolicyRequired,
+            )
+        }
+    };
+    (
+        M3iPaperStrategyStateTransition {
+            request_id_hash,
+            action,
+            pending_count: state.pending_request_ids.len(),
+        },
+        kind,
+    )
+}
+
 pub fn m3i2_paper_strategy_replay_report(
     state: &M3iPaperStrategyState,
     signal_count: u64,
@@ -6576,14 +6731,76 @@ pub fn m3i2_paper_strategy_replay_report(
         emitted_dry_candidate_count,
         dropped_intent_count: state.dropped_request_hashes.len() as u64,
         duplicate_request_id_count: state.duplicate_request_hashes.len() as u64,
+        dry_ack_applied_count: state.acknowledged_request_hashes.len() as u64,
+        stale_or_missing_ack_count: state.stale_or_missing_ack_request_hashes.len() as u64,
+        manual_policy_count: state.manual_policy_request_hashes.len() as u64,
         suppression_count,
         pending_request_hashes,
+        acknowledged_request_hashes: state.acknowledged_request_hashes.clone(),
         dropped_request_hashes: state.dropped_request_hashes.clone(),
         duplicate_request_hashes: state.duplicate_request_hashes.clone(),
+        stale_or_missing_ack_request_hashes: state.stale_or_missing_ack_request_hashes.clone(),
+        manual_policy_request_hashes: state.manual_policy_request_hashes.clone(),
         strategy_output_broker_neutral: true,
         m3h_dry_command_emitter_required: true,
         direct_m3e_publish_allowed: false,
         broker_command_visible_to_strategy: false,
+        runtime_live_attachment_allowed: false,
+        live_ready_allowed: false,
+        external_order_endpoint_allowed: false,
+        real_finam_order_endpoint_used: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+        raw_request_ids_exported: false,
+        raw_payload_exported: false,
+        raw_token_exported: false,
+        raw_body_exported: false,
+    }
+}
+
+pub fn m3i4_paper_shadow_replay_ack_report(
+    state: &M3iPaperStrategyState,
+    generated_at: DateTime<Utc>,
+    live_final_bar_fixture_count: u64,
+    strategy_signal_count: u64,
+    output_candidate_count: u64,
+    dry_command_published_count: u64,
+    ack_outcomes: &[M3iPaperStrategyAckApplyOutcomeKind],
+) -> M3i4PaperShadowReplayAckReport {
+    M3i4PaperShadowReplayAckReport {
+        schema_version: SCHEMA_VERSION,
+        generated_at,
+        live_final_bar_fixture_count,
+        strategy_signal_count,
+        output_candidate_count,
+        dry_command_published_count,
+        m3e_dry_ack_count: ack_outcomes
+            .iter()
+            .filter(|kind| **kind == M3iPaperStrategyAckApplyOutcomeKind::DryRunAcknowledged)
+            .count() as u64,
+        duplicate_ack_count: ack_outcomes
+            .iter()
+            .filter(|kind| **kind == M3iPaperStrategyAckApplyOutcomeKind::DuplicateAcknowledged)
+            .count() as u64,
+        expired_ack_count: ack_outcomes
+            .iter()
+            .filter(|kind| **kind == M3iPaperStrategyAckApplyOutcomeKind::ExpiredDropped)
+            .count() as u64,
+        rejected_ack_count: ack_outcomes
+            .iter()
+            .filter(|kind| **kind == M3iPaperStrategyAckApplyOutcomeKind::RejectedDropped)
+            .count() as u64,
+        missing_or_stale_ack_count: ack_outcomes
+            .iter()
+            .filter(|kind| **kind == M3iPaperStrategyAckApplyOutcomeKind::MissingOrStaleAck)
+            .count() as u64,
+        final_pending_count: state.pending_request_ids.len() as u64,
+        final_acknowledged_count: state.acknowledged_request_hashes.len() as u64,
+        final_dropped_count: state.dropped_request_hashes.len() as u64,
+        final_duplicate_count: state.duplicate_request_hashes.len() as u64,
+        final_manual_policy_count: state.manual_policy_request_hashes.len() as u64,
+        tif_policy_scope: "M3i paper strategy scope allows TimeInForce::Day only; IOC/FOK/GTC require an explicit future policy matrix before live-micro.".to_string(),
+        only_m3h_output_path: true,
+        direct_strategy_publish_allowed: false,
         runtime_live_attachment_allowed: false,
         live_ready_allowed: false,
         external_order_endpoint_allowed: false,
@@ -18970,6 +19187,253 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn m3i4_e2e_live_final_to_strategy_output_m3h_m3e_dry_ack_updates_state() {
+        let gateway_config = GatewayConfig::default();
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 10, 10, 0)
+            .single()
+            .expect("timestamp");
+        let mut runtime_consumer = M3hRuntimeShadowConsumer::from_gateway_config(&gateway_config);
+        let mut bar = sample_bar(MarketDataSourceKind::LiveStream, true);
+        bar.open_ts = now;
+        bar.close_ts = now + ChronoDuration::minutes(1);
+        let shadow_entry = m3h1_runtime_entry(
+            &gateway_config.redis.market_data_stream,
+            "m3i4-1",
+            MessageType::MarketData,
+            MarketDataEvent::Bar(bar.clone()),
+        );
+        let M3hRuntimeShadowAdapterOutcome::Accepted(shadow_input) =
+            m3h1_adapt_runtime_shadow_entry(&gateway_config.redis, &shadow_entry)
+        else {
+            panic!("expected m3h shadow input");
+        };
+        let decision = runtime_consumer.consume_entry(shadow_entry);
+        let M3iStrategyPaperInputAdapterOutcome::Accepted(strategy_input) =
+            m3i1_adapt_strategy_paper_input("paper-simple", &shadow_input, &decision)
+        else {
+            panic!("expected m3i strategy input");
+        };
+        let M3iPaperStrategyOutputOutcome::Candidate(candidate) = m3i3_build_paper_strategy_output(
+            &strategy_input,
+            M3iPaperStrategySignal {
+                kind: M3iPaperStrategySignalKind::EnterLong,
+                order_type: OrderType::Market,
+                qty: Decimal::ONE,
+                limit_price: None,
+                time_in_force: TimeInForce::Day,
+                suppress_reason: None,
+            },
+            M3iPaperStrategyIdentityContext::new(
+                BrokerAccountId::new("ACC_TEST_0001"),
+                "strategy-v1",
+                "params:a",
+            ),
+            now,
+        ) else {
+            panic!("expected paper output candidate");
+        };
+        let mut state = M3iPaperStrategyState::default();
+        assert_eq!(
+            m3i2_stage_pending_before_m3h_emission(&mut state, &candidate).action,
+            M3iPaperStrategyStateAction::PendingStaged
+        );
+        let command_sink = InMemoryRedisStreamSink::default();
+        let mut emitter =
+            M3hRuntimeDryCommandEmitter::from_gateway_config(&gateway_config, command_sink.clone());
+        let dry_candidate =
+            m3i2_to_m3h_dry_command_candidate(&candidate).expect("to m3h dry candidate");
+        let published = emitter
+            .emit_candidate(&decision, &m3h_dry_ready_decision(), dry_candidate, now)
+            .await
+            .expect("m3h dry emit");
+        assert!(matches!(
+            m3i2_apply_m3h_emit_outcome_to_strategy_state(
+                &mut state,
+                candidate.request_id,
+                &published,
+            )
+            .action,
+            M3iPaperStrategyStateAction::PublishedPendingDryAck
+        ));
+
+        let command_entries = command_sink.entries().expect("command entries");
+        assert_eq!(command_entries.len(), 1);
+        let m3e_entry = runtime_entries(command_entries)
+            .into_iter()
+            .next()
+            .expect("m3e command entry");
+        let m3e_consumer = M3eCommandConsumerDurableDryRun::new(
+            M3eCommandConsumerConfig::from_gateway_config(&gateway_config),
+            InMemoryRedisStreamSink::default(),
+            M3eInMemoryCommandLifecycleStore::default(),
+        );
+        let m3e_report = m3e_consumer
+            .process_entry(m3e_entry, now)
+            .await
+            .expect("m3e dry ack");
+        let (transition, ack_kind) = m3i4_apply_m3e_ack_to_strategy_state(
+            &mut state,
+            candidate.request_id,
+            Some(&m3e_report),
+        );
+        assert_eq!(
+            ack_kind,
+            M3iPaperStrategyAckApplyOutcomeKind::DryRunAcknowledged
+        );
+        assert_eq!(
+            transition.action,
+            M3iPaperStrategyStateAction::DryAckApplied
+        );
+        assert!(state.pending_request_ids.is_empty());
+        assert_eq!(state.acknowledged_request_hashes.len(), 1);
+
+        let report = m3i4_paper_shadow_replay_ack_report(&state, now, 1, 1, 1, 1, &[ack_kind]);
+        assert_eq!(report.live_final_bar_fixture_count, 1);
+        assert_eq!(report.m3e_dry_ack_count, 1);
+        assert_eq!(report.final_acknowledged_count, 1);
+        assert!(report.only_m3h_output_path);
+        assert!(!report.direct_strategy_publish_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.external_order_endpoint_allowed);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(report.tif_policy_scope.contains("TimeInForce::Day only"));
+    }
+
+    #[test]
+    fn m3i4_ack_outcome_matrix_updates_paper_state_without_live_boundary() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 10, 11, 0)
+            .single()
+            .expect("timestamp");
+        let mut state = M3iPaperStrategyState::default();
+        let dry_id = request_id(700);
+        state.pending_request_ids.insert(dry_id);
+        let (_, dry_kind) = m3i4_apply_m3e_ack_to_strategy_state(
+            &mut state,
+            dry_id,
+            Some(&sample_m3e_ack_report(
+                dry_id,
+                CommandAckStatus::Rejected,
+                Some(CommandAckReasonCode::DryRunOnly),
+                now,
+            )),
+        );
+        assert_eq!(
+            dry_kind,
+            M3iPaperStrategyAckApplyOutcomeKind::DryRunAcknowledged
+        );
+        assert!(!state.pending_request_ids.contains(&dry_id));
+
+        let duplicate_id = request_id(701);
+        state.pending_request_ids.insert(duplicate_id);
+        let (_, duplicate_kind) = m3i4_apply_m3e_ack_to_strategy_state(
+            &mut state,
+            duplicate_id,
+            Some(&sample_m3e_ack_report(
+                duplicate_id,
+                CommandAckStatus::Duplicate,
+                Some(CommandAckReasonCode::DuplicateCommand),
+                now,
+            )),
+        );
+        assert_eq!(
+            duplicate_kind,
+            M3iPaperStrategyAckApplyOutcomeKind::DuplicateAcknowledged
+        );
+        assert!(!state.pending_request_ids.contains(&duplicate_id));
+
+        let expired_id = request_id(702);
+        state.pending_request_ids.insert(expired_id);
+        let (_, expired_kind) = m3i4_apply_m3e_ack_to_strategy_state(
+            &mut state,
+            expired_id,
+            Some(&sample_m3e_ack_report(
+                expired_id,
+                CommandAckStatus::Expired,
+                Some(CommandAckReasonCode::ExpiredCommand),
+                now,
+            )),
+        );
+        assert_eq!(
+            expired_kind,
+            M3iPaperStrategyAckApplyOutcomeKind::ExpiredDropped
+        );
+        assert!(!state.pending_request_ids.contains(&expired_id));
+
+        let rejected_id = request_id(703);
+        state.pending_request_ids.insert(rejected_id);
+        let (_, rejected_kind) = m3i4_apply_m3e_ack_to_strategy_state(
+            &mut state,
+            rejected_id,
+            Some(&sample_m3e_ack_report(
+                rejected_id,
+                CommandAckStatus::Rejected,
+                Some(CommandAckReasonCode::LocalValidationRejected),
+                now,
+            )),
+        );
+        assert_eq!(
+            rejected_kind,
+            M3iPaperStrategyAckApplyOutcomeKind::RejectedDropped
+        );
+        assert!(!state.pending_request_ids.contains(&rejected_id));
+
+        let missing_id = request_id(704);
+        state.pending_request_ids.insert(missing_id);
+        let (_, missing_kind) = m3i4_apply_m3e_ack_to_strategy_state(&mut state, missing_id, None);
+        assert_eq!(
+            missing_kind,
+            M3iPaperStrategyAckApplyOutcomeKind::MissingOrStaleAck
+        );
+        assert!(state.pending_request_ids.contains(&missing_id));
+
+        let manual_id = request_id(705);
+        state.pending_request_ids.insert(manual_id);
+        let (_, manual_kind) = m3i4_apply_m3e_ack_to_strategy_state(
+            &mut state,
+            manual_id,
+            Some(&sample_m3e_ack_report(
+                manual_id,
+                CommandAckStatus::UnknownPending,
+                Some(CommandAckReasonCode::TimeoutUnknownPending),
+                now,
+            )),
+        );
+        assert_eq!(
+            manual_kind,
+            M3iPaperStrategyAckApplyOutcomeKind::ManualPolicyRequired
+        );
+        assert!(state.pending_request_ids.contains(&manual_id));
+
+        let report = m3i4_paper_shadow_replay_ack_report(
+            &state,
+            now,
+            1,
+            6,
+            6,
+            4,
+            &[
+                dry_kind,
+                duplicate_kind,
+                expired_kind,
+                rejected_kind,
+                missing_kind,
+                manual_kind,
+            ],
+        );
+        assert_eq!(report.m3e_dry_ack_count, 1);
+        assert_eq!(report.duplicate_ack_count, 1);
+        assert_eq!(report.expired_ack_count, 1);
+        assert_eq!(report.rejected_ack_count, 1);
+        assert_eq!(report.missing_or_stale_ack_count, 1);
+        assert_eq!(report.final_manual_policy_count, 1);
+        assert_eq!(report.final_pending_count, 2);
+        assert!(!report.raw_request_ids_exported);
+    }
+
+    #[tokio::test]
     async fn dry_command_ack_publisher_refuses_order_enabled_modes() {
         fn enable_command_consumer(features: &mut GatewayFeatureSet) {
             features.command_consumer_enabled = true;
@@ -25598,6 +26062,50 @@ mod tests {
             external_order_endpoint_allowed: false,
             real_finam_order_endpoint_used: false,
             stop_sltp_bracket_replace_multileg_requested: false,
+        }
+    }
+
+    fn sample_m3e_ack_report(
+        request_id: StrategyRequestId,
+        status: CommandAckStatus,
+        reason_code: Option<CommandAckReasonCode>,
+        _now: DateTime<Utc>,
+    ) -> M3eCommandConsumerDurableReport {
+        M3eCommandConsumerDurableReport {
+            action: match (status, reason_code) {
+                (CommandAckStatus::Duplicate, Some(CommandAckReasonCode::DuplicateCommand)) => {
+                    M3eCommandLifecycleAction::DuplicateAckPublished
+                }
+                (CommandAckStatus::Expired, Some(CommandAckReasonCode::ExpiredCommand)) => {
+                    M3eCommandLifecycleAction::ExpiredAckPublished
+                }
+                _ => M3eCommandLifecycleAction::LocalRejectAckPublished,
+            },
+            entry_id: "m3i4-ack".to_string(),
+            request_id: Some(request_id),
+            ack_status: Some(status),
+            ack_reason_code: reason_code,
+            dlq_reason: None,
+            lifecycle_state: Some(match (status, reason_code) {
+                (CommandAckStatus::Expired, Some(CommandAckReasonCode::ExpiredCommand)) => {
+                    M3eCommandLifecycleState::ExpiredAckPublished
+                }
+                _ => M3eCommandLifecycleState::AckPublished,
+            }),
+            command_received_persisted: true,
+            request_id_idempotency_store_hit: false,
+            duplicate_request: status == CommandAckStatus::Duplicate,
+            duplicate_request_no_second_endpoint_attempt: true,
+            endpoint_attempt_count: 0,
+            ack_publish_before_xack: true,
+            xack_applied: true,
+            xack_after_ack_or_dlq_publish: true,
+            endpoint_transport_invoked: false,
+            external_order_endpoint_allowed: false,
+            raw_payload_exported: false,
+            raw_token_exported: false,
+            raw_body_exported: false,
+            raw_command_comment_exported: false,
         }
     }
 
