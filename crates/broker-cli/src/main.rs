@@ -90,6 +90,9 @@ enum Command {
         /// Environment variable that contains the Finam secret token.
         #[arg(long, default_value = "FINAM_SECRET_TOKEN")]
         secret_env: String,
+        /// Optional output path for a single JSON evidence object.
+        #[arg(long)]
+        output: Option<PathBuf>,
     },
     /// Run a redacted read-only Finam probe. Does not place or cancel orders.
     #[command(name = "finam-readonly-check")]
@@ -441,54 +444,54 @@ async fn main() -> Result<()> {
             });
             println!("{}", serde_json::to_string_pretty(&payload)?);
         }
-        Command::AuthCheck { secret_env } => {
+        Command::AuthCheck { secret_env, output } => {
             let secret = SecretToken::new(std::env::var(&secret_env)?);
             let client = FinamRestClient::try_new(FinamConfig::default())?;
             let auth_manager = FinamAuthManager::new(client.clone(), secret);
-            match auth_manager.access_token().await {
+            let payload = match auth_manager.access_token().await {
                 Ok(token) => {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&serde_json::json!({
+                    let auth = serde_json::json!({
                             "auth_http": 200,
                             "jwt_present": !token.is_empty(),
                             "jwt_len": token.len(),
-                        }))?
-                    );
-                    match client.token_details(&token).await {
+                    });
+                    let details = match client.token_details(&token).await {
                         Ok(details) => {
                             let detail_keys = details
                                 .as_object()
                                 .map(|object| object.keys().cloned().collect::<Vec<_>>())
                                 .unwrap_or_default();
-                            println!(
-                                "{}",
-                                serde_json::to_string_pretty(&serde_json::json!({
-                                    "details_http": 200,
-                                    "details_keys": detail_keys,
-                                }))?
-                            );
+                            serde_json::json!({
+                                "details_http": 200,
+                                "details_keys": detail_keys,
+                            })
                         }
-                        Err(error) => {
-                            println!(
-                                "{}",
-                                serde_json::to_string_pretty(&serde_json::json!({
-                                    "details_error_kind": error.kind(),
-                                    "details_error": error.to_redacted_string(),
-                                }))?
-                            );
-                        }
-                    }
+                        Err(error) => serde_json::json!({
+                            "details_error_kind": error.kind(),
+                            "details_error": error.to_redacted_string(),
+                        }),
+                    };
+                    serde_json::json!({
+                        "fixture_kind": "finam-auth-check-redacted-v2",
+                        "auth": auth,
+                        "details": details,
+                        "raw_secret_exported": false,
+                        "raw_jwt_exported": false,
+                    })
                 }
-                Err(error) => {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&serde_json::json!({
+                Err(error) => serde_json::json!({
+                    "fixture_kind": "finam-auth-check-redacted-v2",
+                    "auth": {
                             "auth_error_kind": error.kind(),
                             "auth_error": error.to_redacted_string(),
-                        }))?
-                    );
-                }
+                    },
+                    "raw_secret_exported": false,
+                    "raw_jwt_exported": false,
+                }),
+            };
+            print_json(payload.clone())?;
+            if let Some(output) = output {
+                write_json_payload(&output, &payload)?;
             }
         }
         Command::ReadonlyCheck {
