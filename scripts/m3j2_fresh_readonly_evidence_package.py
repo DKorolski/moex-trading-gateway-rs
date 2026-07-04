@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate M3j-1 live gate / operator-risk-controls design evidence."""
+"""Generate M3j-2 fresh read-only FINAM evidence package metadata."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from zipfile import ZipFile
 
 
 GATEWAY_LIB = Path("crates/finam-gateway/src/lib.rs")
-DOC = Path("docs/m3j1-live-gate-risk-controls-design.md")
+DOC = Path("docs/m3j2-fresh-readonly-evidence-package.md")
 
 CHECKS = [
     ["cargo", "fmt", "--all", "--check"],
@@ -25,7 +25,7 @@ CHECKS = [
     ["bash", "scripts/forbidden_surface_scan.sh"],
     ["bash", "scripts/forbidden_surface_negative_harness.sh"],
     ["bash", "scripts/order_endpoint_scanner_transition_spec.sh"],
-    ["python3", "-m", "py_compile", "scripts/m3j1_live_gate_risk_controls_evidence.py"],
+    ["python3", "-m", "py_compile", "scripts/m3j2_fresh_readonly_evidence_package.py"],
 ]
 
 
@@ -99,93 +99,135 @@ def contains_all(source: str, patterns: list[str]) -> dict[str, bool]:
     return {pattern: pattern in source for pattern in patterns}
 
 
+def load_json(path: Path) -> Any:
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def runtime_broker_truth_summary(path: Path | None) -> dict[str, Any]:
+    if path is None:
+        return {"provided": False, "ok": False}
+    payload = load_json(path)
+    operator_report = payload.get("operator_report", {})
+    evidence_matrix = operator_report.get("evidence_matrix", [])
+    route_templates = {
+        row.get("route_template")
+        for row in evidence_matrix
+        if isinstance(row, dict) and row.get("route_template")
+    }
+    statuses = [
+        row.get("http_status")
+        for row in evidence_matrix
+        if isinstance(row, dict) and row.get("http_status") is not None
+    ]
+    required_sources = {"GetOrder", "OrdersSnapshot", "TradesSnapshot", "PositionSnapshot"}
+    observed_sources = {
+        row.get("source")
+        for row in evidence_matrix
+        if isinstance(row, dict) and row.get("source")
+    }
+    ok = (
+        payload.get("fixture_kind") == "finam-real-readonly-contract-probe-evidence-v1"
+        and payload.get("live_trading_enabled") is False
+        and payload.get("order_endpoints_used") is False
+        and payload.get("scope", {}).get("real_order_post_delete_enabled") is False
+        and operator_report.get("blocking_reasons") == []
+        and operator_report.get("actual_http_send_started_count", 999) <= 4
+        and required_sources.issubset(observed_sources)
+        and all(
+            isinstance(route, str) and route.startswith("/v1/")
+            for route in route_templates
+        )
+    )
+    return {
+        "provided": True,
+        "path": str(path),
+        "sha256": sha256_file(path),
+        "ok": ok,
+        "fixture_kind": payload.get("fixture_kind"),
+        "live_trading_enabled": payload.get("live_trading_enabled"),
+        "order_endpoints_used": payload.get("order_endpoints_used"),
+        "blocking_reasons_count": len(operator_report.get("blocking_reasons", [])),
+        "actual_http_send_started_count": operator_report.get(
+            "actual_http_send_started_count"
+        ),
+        "actual_http_send_completed_count": operator_report.get(
+            "actual_http_send_completed_count"
+        ),
+        "observed_sources": sorted(str(source) for source in observed_sources),
+        "route_templates": sorted(route_templates),
+        "http_statuses": statuses,
+    }
+
+
+def typed_readonly_summary(path: Path | None) -> dict[str, Any]:
+    if path is None:
+        return {"provided": False, "ok": False}
+    payload = load_json(path)
+    records = payload.get("records", [])
+    record_names = {
+        record.get("name") or record.get("probe") or record.get("kind")
+        for record in records
+        if isinstance(record, dict)
+    }
+    encoded = json.dumps(payload, sort_keys=True)
+    ok_records = {
+        record.get("probe")
+        for record in records
+        if isinstance(record, dict) and record.get("ok") is True
+    }
+    ok = (
+        payload.get("fixture_kind") == "finam-typed-readonly-redacted-v1"
+        and "asset_params_typed" in ok_records
+        and "asset_schedule_typed" in ok_records
+        and "account_typed" in record_names
+        and "account_orders_typed" in ok_records
+        and "latest_trades_typed" in ok_records
+        and "asset_typed" in ok_records
+        and "raw_token" not in encoded
+    )
+    return {
+        "provided": True,
+        "path": str(path),
+        "sha256": sha256_file(path),
+        "ok": ok,
+        "fixture_kind": payload.get("fixture_kind"),
+        "record_names": sorted(str(name) for name in record_names if name),
+        "ok_record_names": sorted(str(name) for name in ok_records if name),
+    }
+
+
 def evidence_summary(root: Path) -> dict[str, Any]:
     source = (root / GATEWAY_LIB).read_text(encoding="utf-8")
     doc = (root / DOC).read_text(encoding="utf-8")
     required_patterns = [
-        "pub enum M3j1OperatorDisarmReason",
-        "pub struct M3j1OperatorArmDesign",
-        "pub struct M3j1KillSwitchDesign",
-        "pub struct M3j1RiskLimitsDesign",
-        "pub struct M3j1ScopeControlsDesign",
-        "pub struct M3j1LiveGateDesignInput",
-        "pub struct M3j1LiveGateDesignReport",
-        "pub fn m3j1_live_gate_design_report",
-        "m3j_step: \"M3j-1\"",
-        "pre_live_design_only: true",
+        "pub struct M3j2FreshReadonlyEvidenceInput",
+        "pub struct M3j2FreshReadonlyEvidenceReport",
+        "pub fn m3j2_fresh_readonly_evidence_report",
+        "m3j_step: \"M3j-2\"",
+        "real_finam_readonly_evidence: true",
+        "m3j2_fresh_readonly_evidence_ok",
+        "evidence_fresh",
+        "account_scope_exactly_one",
+        "symbol_scope_exactly_one",
+        "readonly_sources_complete",
+        "no_unknown_active_orders_evidence",
+        "no_orphan_active_orders_evidence",
+        "flat_or_expected_position_evidence",
+        "schedule_session_loaded",
+        "instrument_params_validated",
+        "broker_truth_snapshots_fresh",
+        "redaction_ok",
         "live_micro_go: false",
-        "operator_arm_design_ready",
-        "kill_switch_design_ready",
-        "max_orders_qty_loss_limits_ready",
-        "scope_controls_ready",
-        "max_unknown_pending_count == 0",
-        "ri_rts_allowed_initially",
-        "external_finam_post_delete_allowed: false",
-        "command_consumer_to_real_finam_transport_allowed: false",
-        "non_loopback_order_endpoint_allowed: false",
-        "m3j1_live_gate_design_is_ready_but_still_no_go",
-        "m3j1_missing_controls_or_live_boundary_cannot_pass_design_gate",
+        "m3j2_fresh_readonly_evidence_closes_readonly_slot_but_still_no_go",
+        "m3j2_stale_unredacted_scope_or_live_boundary_cannot_close_readonly_slot",
     ]
     forbidden_patterns = [
-        "M3j1LiveGateDesignReport::reqwest",
-        "M3j1LiveGateDesignReport::POST",
-        "M3j1LiveGateDesignReport::DELETE",
+        "M3j2FreshReadonlyEvidenceReport::reqwest",
+        "M3j2FreshReadonlyEvidenceReport::POST",
+        "M3j2FreshReadonlyEvidenceReport::DELETE",
         "api.finam.ru/order",
     ]
-    operator_arm_ready = all(
-        pattern in source
-        for pattern in [
-            "one_shot",
-            "ttl_required",
-            "expected_account_digest_required",
-            "expected_symbol_digest_required",
-            "expected_config_digest_required",
-            "expected_endpoint_session_digest_required",
-            "no_auto_rearm_after_restart",
-            "TtlExpired",
-            "OneShotConsumed",
-            "EndpointSessionDigestMismatch",
-            "ManualDisarm",
-        ]
-    )
-    kill_switch_ready = all(
-        pattern in source
-        for pattern in [
-            "hard_global_order_emission_block",
-            "blocks_runtime",
-            "blocks_command_consumer",
-            "blocks_endpoint_path",
-            "persists_across_restart",
-            "redacted_operator_report",
-        ]
-    )
-    risk_limits_ready = all(
-        pattern in source
-        for pattern in [
-            "max_orders_per_day_required",
-            "max_orders_per_session_required",
-            "max_qty_required",
-            "max_notional_placeholder",
-            "max_loss_stop_out_placeholder",
-            "max_unknown_pending_count_zero",
-            "no_ri_rts_initially",
-        ]
-    )
-    scope_controls_ready = all(
-        pattern in source
-        for pattern in [
-            "account_allowlist_count == 1",
-            "symbol_allowlist_count == 1",
-            "timeframe_scope_count == 1",
-            "strategy_scope_count == 1",
-            "market_limit_only",
-            "stop_orders_allowed",
-            "sltp_allowed",
-            "bracket_allowed",
-            "replace_allowed",
-            "multi_leg_allowed",
-        ]
-    )
     return {
         "gateway_lib_sha256": sha256_file(root / GATEWAY_LIB),
         "doc_sha256": sha256_file(root / DOC),
@@ -193,11 +235,8 @@ def evidence_summary(root: Path) -> dict[str, Any]:
         "forbidden_patterns_absent": {
             pattern: pattern not in source for pattern in forbidden_patterns
         },
-        "m3j1_live_gate_design_ok": "m3j1_live_gate_design_ok" in source,
-        "operator_arm_design_ready": operator_arm_ready,
-        "kill_switch_design_ready": kill_switch_ready,
-        "max_orders_qty_loss_limits_ready": risk_limits_ready,
-        "scope_controls_ready": scope_controls_ready,
+        "m3j2_fresh_readonly_evidence_ok": "m3j2_fresh_readonly_evidence_ok" in source,
+        "redaction_ok": "redaction_ok" in source,
         "live_micro_go_false": "live_micro_go: false" in source,
         "no_live_boundary": (
             "live_ready_allowed: false" in source
@@ -208,8 +247,7 @@ def evidence_summary(root: Path) -> dict[str, Any]:
         ),
         "no_stop_sltp_bracket": "stop_sltp_bracket_replace_multileg_allowed: false"
         in source,
-        "no_real_finam_order_endpoint_used": True,
-        "closure_documented": "M3j-1 closes the design part" in doc,
+        "closure_documented": "M3j-2 closes the fresh read-only evidence slot" in doc,
         "real_finam_order_endpoint_used": False,
         "external_order_endpoint_allowed": False,
         "runtime_live_attachment_allowed": False,
@@ -219,17 +257,15 @@ def evidence_summary(root: Path) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Generate M3j-1 live gate / operator-risk-controls evidence."
+        description="Generate M3j-2 fresh read-only FINAM evidence package."
     )
-    parser.add_argument(
-        "--source-archive",
-        type=Path,
-        help="Optional clean handoff archive to bind into evidence.",
-    )
+    parser.add_argument("--source-archive", type=Path)
+    parser.add_argument("--runtime-readonly-evidence", type=Path)
+    parser.add_argument("--typed-readonly-fixture", type=Path)
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("reports/m3j-pre-live/m3j1-live-gate-risk-controls-evidence.json"),
+        default=Path("reports/m3j-pre-live/m3j2-fresh-readonly-evidence-package.json"),
     )
     args = parser.parse_args()
 
@@ -241,6 +277,7 @@ def main() -> int:
 
     source_commit = git["stdout_tail"].strip()
     checks = [run_text(command, root) for command in CHECKS]
+
     archive_summary = None
     if args.source_archive:
         archive_path = (root / args.source_archive).resolve()
@@ -249,25 +286,33 @@ def main() -> int:
             return 2
         archive_summary = clean_handoff_summary(archive_path, source_commit)
 
+    runtime_summary = runtime_broker_truth_summary(
+        (root / args.runtime_readonly_evidence).resolve()
+        if args.runtime_readonly_evidence
+        else None
+    )
+    typed_summary = typed_readonly_summary(
+        (root / args.typed_readonly_fixture).resolve()
+        if args.typed_readonly_fixture
+        else None
+    )
     summary = evidence_summary(root)
     all_checks_ok = all(check["exit_code"] == 0 for check in checks)
     archive_ok = archive_summary is None or archive_summary["clean"]
     policy_ok = (
         all(summary["required_patterns_present"].values())
         and all(summary["forbidden_patterns_absent"].values())
-        and summary["m3j1_live_gate_design_ok"]
-        and summary["operator_arm_design_ready"]
-        and summary["kill_switch_design_ready"]
-        and summary["max_orders_qty_loss_limits_ready"]
-        and summary["scope_controls_ready"]
+        and summary["m3j2_fresh_readonly_evidence_ok"]
+        and summary["redaction_ok"]
         and summary["live_micro_go_false"]
         and summary["no_live_boundary"]
         and summary["no_stop_sltp_bracket"]
         and summary["closure_documented"]
     )
-    evidence_ready = all_checks_ok and archive_ok and policy_ok
+    runtime_ok = runtime_summary["ok"] and typed_summary["ok"]
+    evidence_ready = all_checks_ok and archive_ok and policy_ok and runtime_ok
     evidence = {
-        "m3j_step": "M3j-1",
+        "m3j_step": "M3j-2",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "source_commit_full_sha": source_commit,
         "source_archive": archive_summary,
@@ -281,17 +326,16 @@ def main() -> int:
         if archive_summary
         else False,
         "summary": summary,
+        "runtime_readonly_evidence": runtime_summary,
+        "typed_readonly_fixture": typed_summary,
         "checks": checks,
         "all_checks_ok": all_checks_ok,
-        "m3j1_live_gate_design_ok": summary["m3j1_live_gate_design_ok"],
-        "operator_arm_design_ready": summary["operator_arm_design_ready"],
-        "kill_switch_design_ready": summary["kill_switch_design_ready"],
-        "max_orders_qty_loss_limits_ready": summary["max_orders_qty_loss_limits_ready"],
-        "scope_controls_ready": summary["scope_controls_ready"],
+        "runtime_evidence_ok": runtime_ok,
+        "m3j2_fresh_readonly_evidence_ok": summary["m3j2_fresh_readonly_evidence_ok"]
+        and runtime_ok,
         "live_micro_go": False,
         "no_live_boundary": summary["no_live_boundary"],
         "no_stop_sltp_bracket": summary["no_stop_sltp_bracket"],
-        "no_real_finam_order_endpoint_used": summary["no_real_finam_order_endpoint_used"],
         "real_finam_order_endpoint_used": False,
         "external_order_endpoint_allowed": False,
         "runtime_live_attachment_allowed": False,

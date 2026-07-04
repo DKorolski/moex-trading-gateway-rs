@@ -6565,6 +6565,66 @@ pub struct M3j1LiveGateDesignReport {
     pub next_required_steps: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j2FreshReadonlyEvidenceInput {
+    pub generated_at: DateTime<Utc>,
+    pub evidence_age_ms: u64,
+    pub max_evidence_age_ms: u64,
+    pub account_allowlist_count: u32,
+    pub symbol_allowlist_count: u32,
+    pub get_accounts_or_account_details_observed: bool,
+    pub get_orders_observed: bool,
+    pub get_order_checked_if_applicable: bool,
+    pub trades_observed: bool,
+    pub positions_observed: bool,
+    pub schedule_loaded: bool,
+    pub instrument_params_validated: bool,
+    pub no_unknown_active_orders: bool,
+    pub no_orphan_active_orders: bool,
+    pub flat_or_expected_position: bool,
+    pub broker_truth_snapshots_fresh: bool,
+    pub raw_token_exported: bool,
+    pub raw_account_id_exported: bool,
+    pub raw_client_order_id_exported: bool,
+    pub raw_broker_order_id_exported: bool,
+    pub raw_position_payload_exported: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub external_finam_post_delete_allowed: bool,
+    pub command_consumer_to_real_finam_transport_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M3j2FreshReadonlyEvidenceReport {
+    pub schema_version: u16,
+    pub generated_at: DateTime<Utc>,
+    pub m3j_step: String,
+    pub real_finam_readonly_evidence: bool,
+    pub m3j2_fresh_readonly_evidence_ok: bool,
+    pub evidence_fresh: bool,
+    pub account_scope_exactly_one: bool,
+    pub symbol_scope_exactly_one: bool,
+    pub readonly_sources_complete: bool,
+    pub no_unknown_active_orders_evidence: bool,
+    pub no_orphan_active_orders_evidence: bool,
+    pub flat_or_expected_position_evidence: bool,
+    pub schedule_session_loaded: bool,
+    pub instrument_params_validated: bool,
+    pub broker_truth_snapshots_fresh: bool,
+    pub redaction_ok: bool,
+    pub no_live_boundary: bool,
+    pub live_micro_go: bool,
+    pub live_ready_allowed: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub external_finam_post_delete_allowed: bool,
+    pub command_consumer_to_real_finam_transport_allowed: bool,
+    pub non_loopback_order_endpoint_allowed: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub next_required_steps: Vec<String>,
+}
+
 pub fn m3i2_strategy_output_contract_report() -> M3iPaperStrategyOutputContractReport {
     M3iPaperStrategyOutputContractReport {
         schema_version: SCHEMA_VERSION,
@@ -7445,6 +7505,73 @@ pub fn m3j1_live_gate_design_report(input: M3j1LiveGateDesignInput) -> M3j1LiveG
         ],
         next_required_steps: vec![
             "M3j-2 fresh read-only FINAM evidence".to_string(),
+            "M3j-3 one-symbol dry shadow session report".to_string(),
+            "M3j-4 explicit pre-live NO-GO/GO decision package".to_string(),
+        ],
+    }
+}
+
+pub fn m3j2_fresh_readonly_evidence_report(
+    input: M3j2FreshReadonlyEvidenceInput,
+) -> M3j2FreshReadonlyEvidenceReport {
+    let evidence_fresh =
+        input.max_evidence_age_ms > 0 && input.evidence_age_ms <= input.max_evidence_age_ms;
+    let account_scope_exactly_one = input.account_allowlist_count == 1;
+    let symbol_scope_exactly_one = input.symbol_allowlist_count == 1;
+    let readonly_sources_complete = input.get_accounts_or_account_details_observed
+        && input.get_orders_observed
+        && input.get_order_checked_if_applicable
+        && input.trades_observed
+        && input.positions_observed;
+    let redaction_ok = !input.raw_token_exported
+        && !input.raw_account_id_exported
+        && !input.raw_client_order_id_exported
+        && !input.raw_broker_order_id_exported
+        && !input.raw_position_payload_exported;
+    let no_live_boundary = !input.live_ready_allowed
+        && !input.runtime_live_attachment_allowed
+        && !input.external_finam_post_delete_allowed
+        && !input.command_consumer_to_real_finam_transport_allowed
+        && !input.non_loopback_order_endpoint_allowed
+        && !input.stop_sltp_bracket_replace_multileg_allowed;
+    let m3j2_fresh_readonly_evidence_ok = evidence_fresh
+        && account_scope_exactly_one
+        && symbol_scope_exactly_one
+        && readonly_sources_complete
+        && input.no_unknown_active_orders
+        && input.no_orphan_active_orders
+        && input.flat_or_expected_position
+        && input.schedule_loaded
+        && input.instrument_params_validated
+        && input.broker_truth_snapshots_fresh
+        && redaction_ok
+        && no_live_boundary;
+    M3j2FreshReadonlyEvidenceReport {
+        schema_version: SCHEMA_VERSION,
+        generated_at: input.generated_at,
+        m3j_step: "M3j-2".to_string(),
+        real_finam_readonly_evidence: true,
+        m3j2_fresh_readonly_evidence_ok,
+        evidence_fresh,
+        account_scope_exactly_one,
+        symbol_scope_exactly_one,
+        readonly_sources_complete,
+        no_unknown_active_orders_evidence: input.no_unknown_active_orders,
+        no_orphan_active_orders_evidence: input.no_orphan_active_orders,
+        flat_or_expected_position_evidence: input.flat_or_expected_position,
+        schedule_session_loaded: input.schedule_loaded,
+        instrument_params_validated: input.instrument_params_validated,
+        broker_truth_snapshots_fresh: input.broker_truth_snapshots_fresh,
+        redaction_ok,
+        no_live_boundary,
+        live_micro_go: false,
+        live_ready_allowed: false,
+        runtime_live_attachment_allowed: false,
+        external_finam_post_delete_allowed: false,
+        command_consumer_to_real_finam_transport_allowed: false,
+        non_loopback_order_endpoint_allowed: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+        next_required_steps: vec![
             "M3j-3 one-symbol dry shadow session report".to_string(),
             "M3j-4 explicit pre-live NO-GO/GO decision package".to_string(),
         ],
@@ -20410,6 +20537,78 @@ mod tests {
         assert!(!report.live_micro_go);
     }
 
+    #[test]
+    fn m3j2_fresh_readonly_evidence_closes_readonly_slot_but_still_no_go() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 13, 0, 0)
+            .single()
+            .expect("timestamp");
+        let report = m3j2_fresh_readonly_evidence_report(sample_m3j2_input(now));
+        assert_eq!(report.m3j_step, "M3j-2");
+        assert!(report.real_finam_readonly_evidence);
+        assert!(report.m3j2_fresh_readonly_evidence_ok);
+        assert!(report.evidence_fresh);
+        assert!(report.account_scope_exactly_one);
+        assert!(report.symbol_scope_exactly_one);
+        assert!(report.readonly_sources_complete);
+        assert!(report.no_unknown_active_orders_evidence);
+        assert!(report.no_orphan_active_orders_evidence);
+        assert!(report.flat_or_expected_position_evidence);
+        assert!(report.schedule_session_loaded);
+        assert!(report.instrument_params_validated);
+        assert!(report.broker_truth_snapshots_fresh);
+        assert!(report.redaction_ok);
+        assert!(report.no_live_boundary);
+        assert!(!report.live_micro_go);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.external_finam_post_delete_allowed);
+        assert!(!report.command_consumer_to_real_finam_transport_allowed);
+        assert!(!report.non_loopback_order_endpoint_allowed);
+        assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+        assert_eq!(report.next_required_steps.len(), 2);
+    }
+
+    #[test]
+    fn m3j2_stale_unredacted_scope_or_live_boundary_cannot_close_readonly_slot() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 13, 1, 0)
+            .single()
+            .expect("timestamp");
+
+        let mut stale = sample_m3j2_input(now);
+        stale.evidence_age_ms = stale.max_evidence_age_ms + 1;
+        let report = m3j2_fresh_readonly_evidence_report(stale);
+        assert!(!report.m3j2_fresh_readonly_evidence_ok);
+        assert!(!report.evidence_fresh);
+
+        let mut broad_scope = sample_m3j2_input(now);
+        broad_scope.symbol_allowlist_count = 2;
+        let report = m3j2_fresh_readonly_evidence_report(broad_scope);
+        assert!(!report.m3j2_fresh_readonly_evidence_ok);
+        assert!(!report.symbol_scope_exactly_one);
+
+        let mut raw_account = sample_m3j2_input(now);
+        raw_account.raw_account_id_exported = true;
+        let report = m3j2_fresh_readonly_evidence_report(raw_account);
+        assert!(!report.m3j2_fresh_readonly_evidence_ok);
+        assert!(!report.redaction_ok);
+
+        let mut unknown_order = sample_m3j2_input(now);
+        unknown_order.no_unknown_active_orders = false;
+        let report = m3j2_fresh_readonly_evidence_report(unknown_order);
+        assert!(!report.m3j2_fresh_readonly_evidence_ok);
+        assert!(!report.no_unknown_active_orders_evidence);
+
+        let mut live_ready_attempt = sample_m3j2_input(now);
+        live_ready_attempt.external_finam_post_delete_allowed = true;
+        let report = m3j2_fresh_readonly_evidence_report(live_ready_attempt);
+        assert!(!report.m3j2_fresh_readonly_evidence_ok);
+        assert!(!report.no_live_boundary);
+        assert!(!report.external_finam_post_delete_allowed);
+        assert!(!report.live_micro_go);
+    }
+
     #[tokio::test]
     async fn dry_command_ack_publisher_refuses_order_enabled_modes() {
         fn enable_command_consumer(features: &mut GatewayFeatureSet) {
@@ -27228,6 +27427,38 @@ mod tests {
                 replace_allowed: false,
                 multi_leg_allowed: false,
             },
+            live_ready_allowed: false,
+            runtime_live_attachment_allowed: false,
+            external_finam_post_delete_allowed: false,
+            command_consumer_to_real_finam_transport_allowed: false,
+            non_loopback_order_endpoint_allowed: false,
+            stop_sltp_bracket_replace_multileg_allowed: false,
+        }
+    }
+
+    fn sample_m3j2_input(now: DateTime<Utc>) -> M3j2FreshReadonlyEvidenceInput {
+        M3j2FreshReadonlyEvidenceInput {
+            generated_at: now,
+            evidence_age_ms: 30_000,
+            max_evidence_age_ms: 120_000,
+            account_allowlist_count: 1,
+            symbol_allowlist_count: 1,
+            get_accounts_or_account_details_observed: true,
+            get_orders_observed: true,
+            get_order_checked_if_applicable: true,
+            trades_observed: true,
+            positions_observed: true,
+            schedule_loaded: true,
+            instrument_params_validated: true,
+            no_unknown_active_orders: true,
+            no_orphan_active_orders: true,
+            flat_or_expected_position: true,
+            broker_truth_snapshots_fresh: true,
+            raw_token_exported: false,
+            raw_account_id_exported: false,
+            raw_client_order_id_exported: false,
+            raw_broker_order_id_exported: false,
+            raw_position_payload_exported: false,
             live_ready_allowed: false,
             runtime_live_attachment_allowed: false,
             external_finam_post_delete_allowed: false,
