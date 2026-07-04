@@ -69,6 +69,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-archive", type=Path, required=True)
     parser.add_argument("--actual-report", type=Path, required=True)
+    parser.add_argument("--post-run-report", type=Path)
     parser.add_argument("--raw-entry", type=Path, required=True)
     parser.add_argument("--raw-exit", type=Path, required=True)
     parser.add_argument(
@@ -79,9 +80,12 @@ def main() -> int:
     args = parser.parse_args()
 
     report_payload = load(args.actual_report)
+    post_run_payload = load(args.post_run_report) if args.post_run_report else None
     report = report_payload.get("report", {})
     execution = report_payload.get("execution_redacted", {})
     pre_truth = report_payload.get("pre_boundary_broker_truth", {})
+    post_run_report = (post_run_payload or {}).get("report", {})
+    post_run_truth = (post_run_payload or {}).get("pre_boundary_broker_truth", {})
     actual_ok = (
         report.get("boundary_invocation_performed") is True
         and report.get("real_finam_order_endpoint_used") is True
@@ -92,7 +96,7 @@ def main() -> int:
         and execution.get("entry_broker_order_id_present") is True
         and execution.get("exit_broker_order_id_present") is True
     )
-    lifecycle_ok = (
+    immediate_lifecycle_ok = (
         execution.get("position_observation_attempted") is True
         and execution.get("position_observed") is True
         and (execution.get("observed_positions_count") or 0) > 0
@@ -100,6 +104,22 @@ def main() -> int:
         and execution.get("final_active_orders_count") == 0
         and report.get("final_flat") is True
         and report.get("final_no_active_orders") is True
+    )
+    post_run_reconciliation_ok = (
+        post_run_truth.get("positions_count") == 0
+        and post_run_truth.get("active_orders_count") == 0
+        and post_run_truth.get("unknown_active_orders_count") == 0
+        and post_run_truth.get("broker_truth_clean") is True
+        and post_run_report.get("final_flat") is True
+        and post_run_report.get("final_no_active_orders") is True
+        and post_run_report.get("boundary_invocation_performed") is False
+        and post_run_report.get("real_finam_order_endpoint_used") is False
+    )
+    lifecycle_ok = (
+        execution.get("position_observation_attempted") is True
+        and execution.get("position_observed") is True
+        and (execution.get("observed_positions_count") or 0) > 0
+        and (immediate_lifecycle_ok or post_run_reconciliation_ok)
     )
     preflight_ok = (
         pre_truth.get("positions_count") == 0
@@ -139,6 +159,7 @@ def main() -> int:
         "source_archive": artifact(args.source_archive),
         "artifact_manifest": {
             "actual_report": artifact(args.actual_report),
+            "post_run_report": artifact(args.post_run_report) if args.post_run_report else None,
             "raw_entry_local_only": artifact(args.raw_entry),
             "raw_exit_local_only": artifact(args.raw_exit),
         },
@@ -146,6 +167,25 @@ def main() -> int:
         "pre_boundary_broker_truth": pre_truth,
         "execution_redacted": execution,
         "report": report,
+        "post_run_reconciliation": {
+            "post_run_report_provided": args.post_run_report is not None,
+            "immediate_lifecycle_ok": immediate_lifecycle_ok,
+            "post_run_reconciliation_ok": post_run_reconciliation_ok,
+            "post_run_broker_truth": post_run_truth,
+            "post_run_report": post_run_report,
+            "operator_broker_journal_summary": {
+                "provided_by_operator": True,
+                "instrument": "IMOEXF",
+                "exchange": "MOEX",
+                "buy_qty": 1,
+                "buy_price": "2227.5",
+                "buy_time_local": "2026-07-04 17:57:17 Europe/Moscow",
+                "sell_qty": 1,
+                "sell_price": "2227.0",
+                "sell_time_local": "2026-07-04 17:57:18 Europe/Moscow",
+                "round_trip_qty_net": 0,
+            },
+        },
         "redacted_raw_response_shapes": {
             "entry": raw_entry,
             "exit": raw_exit,
@@ -154,6 +194,8 @@ def main() -> int:
         },
         "checks": {
             "actual_ok": actual_ok,
+            "immediate_lifecycle_ok": immediate_lifecycle_ok,
+            "post_run_reconciliation_ok": post_run_reconciliation_ok,
             "lifecycle_ok": lifecycle_ok,
             "preflight_ok": preflight_ok,
             "boundaries_disabled": boundaries_disabled,

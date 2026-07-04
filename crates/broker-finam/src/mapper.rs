@@ -247,6 +247,12 @@ pub fn map_portfolio_snapshot(
         .positions
         .iter()
         .map(|position| map_account_position(&account.account_id, position))
+        .filter(|position| {
+            position
+                .as_ref()
+                .map(|position| position.qty != Decimal::ZERO)
+                .unwrap_or(true)
+        })
         .collect::<Result<Vec<_>, FinamMapperError>>()?;
 
     Ok(PortfolioSnapshot {
@@ -937,5 +943,32 @@ mod tests {
         assert_eq!(position.qty, Decimal::new(2, 0));
         assert_eq!(position.avg_price, Some(Decimal::new(50005, 1)));
         assert_eq!(position.unrealized_pnl, Some(Decimal::new(-125, 1)));
+    }
+
+    #[test]
+    fn maps_zero_quantity_account_position_as_flat_snapshot() {
+        let account: dto::AccountResponse = serde_json::from_value(serde_json::json!({
+            "account_id": "ACC_TEST_0001",
+            "cash": [
+                {"currency_code": "RUB", "units": "6000", "nanos": 0}
+            ],
+            "positions": [
+                {
+                    "symbol": "TESTFUT@TEST",
+                    "asset_type": "FUTURES",
+                    "quantity": {"value": "0"},
+                    "average_price": {"value": "5000.5"},
+                    "unrealized_profit": {"value": "0"}
+                }
+            ],
+            "status": "ACCOUNT_ACTIVE",
+            "type": "UNION"
+        }))
+        .expect("account dto");
+        let received_ts = parse_timestamp("test", "2026-06-29T09:10:01Z").expect("timestamp");
+
+        let snapshot = map_portfolio_snapshot(&account, received_ts).expect("snapshot");
+
+        assert!(snapshot.positions.is_empty());
     }
 }
