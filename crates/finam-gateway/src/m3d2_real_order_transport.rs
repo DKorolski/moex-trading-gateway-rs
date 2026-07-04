@@ -48,6 +48,7 @@ pub struct M3d2RealOrderEndpointTransportConfig {
     pub request_timeout_ms: u64,
     pub authorization_header_mode: FinamAuthorizationHeaderMode,
     pub external_endpoint_mode: M3d2ExternalOrderEndpointMode,
+    pub raw_response_capture_path: Option<String>,
 }
 
 impl Default for M3d2RealOrderEndpointTransportConfig {
@@ -57,6 +58,7 @@ impl Default for M3d2RealOrderEndpointTransportConfig {
             request_timeout_ms: 10_000,
             authorization_header_mode: FinamAuthorizationHeaderMode::BearerJwt,
             external_endpoint_mode: M3d2ExternalOrderEndpointMode::LocalMockOnly,
+            raw_response_capture_path: None,
         }
     }
 }
@@ -82,6 +84,7 @@ pub struct M3d2RealOrderEndpointTransport {
     http: reqwest::Client,
     base_url: reqwest::Url,
     authorization_header_mode: FinamAuthorizationHeaderMode,
+    raw_response_capture_path: Option<String>,
 }
 
 impl std::fmt::Debug for M3d2RealOrderEndpointTransport {
@@ -95,6 +98,10 @@ impl std::fmt::Debug for M3d2RealOrderEndpointTransport {
             )
             .field("raw_token_exported", &false)
             .field("external_finam_order_calls_allowed_by_default", &false)
+            .field(
+                "raw_response_capture_path_present",
+                &self.raw_response_capture_path.is_some(),
+            )
             .finish()
     }
 }
@@ -127,6 +134,7 @@ impl M3d2RealOrderEndpointTransport {
             http,
             base_url,
             authorization_header_mode: config.authorization_header_mode,
+            raw_response_capture_path: config.raw_response_capture_path,
         })
     }
 
@@ -255,6 +263,7 @@ impl M3d2RealOrderEndpointTransport {
                 );
             }
             Err(error) => {
+                self.capture_raw_send_error(context, &error_kind(&error));
                 return M3d2RealOrderEndpointTransportExecution::sent_error(
                     M3d2RealOrderEndpointTransportError::HttpSend {
                         error_kind: error_kind(&error),
@@ -280,6 +289,7 @@ impl M3d2RealOrderEndpointTransport {
                 status: Some(status),
             },
         };
+        self.capture_raw_response(context, &local_response);
         let classified = broker_finam::classify_order_endpoint_local_http_response_for_context(
             context,
             &local_response,
@@ -287,6 +297,90 @@ impl M3d2RealOrderEndpointTransport {
         let semantics = post_send_semantics(context, &classified);
         M3d2RealOrderEndpointTransportExecution::sent(classified, semantics)
     }
+
+    fn capture_raw_send_error(&self, context: FinamOrderEndpointContext, error_kind: &str) {
+        let Some(path) = &self.raw_response_capture_path else {
+            return;
+        };
+        let payload = serde_json::json!({
+            "capture_kind": "m3j16_raw_order_endpoint_send_error_v1",
+            "context": format!("{context:?}"),
+            "request_sent": true,
+            "http_response_present": false,
+            "error_kind": error_kind,
+        });
+        let _ = write_raw_capture(path, context, &payload);
+    }
+
+    fn capture_raw_response(
+        &self,
+        context: FinamOrderEndpointContext,
+        response: &FinamOrderEndpointLocalHttpResponse,
+    ) {
+        let Some(path) = &self.raw_response_capture_path else {
+            return;
+        };
+        let payload = match response {
+            FinamOrderEndpointLocalHttpResponse::Response {
+                status,
+                body,
+                retry_after_ms,
+            } => serde_json::json!({
+                "capture_kind": "m3j16_raw_order_endpoint_response_v1",
+                "context": format!("{context:?}"),
+                "request_sent": true,
+                "http_response_present": true,
+                "status": status,
+                "retry_after_ms": retry_after_ms,
+                "raw_body": body,
+            }),
+            FinamOrderEndpointLocalHttpResponse::BodyReadFailed { status } => serde_json::json!({
+                "capture_kind": "m3j16_raw_order_endpoint_body_read_failed_v1",
+                "context": format!("{context:?}"),
+                "request_sent": true,
+                "http_response_present": true,
+                "status": status,
+                "raw_body": null,
+            }),
+            FinamOrderEndpointLocalHttpResponse::Timeout => serde_json::json!({
+                "capture_kind": "m3j16_raw_order_endpoint_timeout_v1",
+                "context": format!("{context:?}"),
+                "request_sent": true,
+                "http_response_present": false,
+                "raw_body": null,
+            }),
+        };
+        let _ = write_raw_capture(path, context, &payload);
+    }
+}
+
+fn write_raw_capture(
+    path: &str,
+    context: FinamOrderEndpointContext,
+    payload: &serde_json::Value,
+) -> std::io::Result<()> {
+    let path = context_raw_capture_path(path, context);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, serde_json::to_string_pretty(payload)?)
+}
+
+fn context_raw_capture_path(path: &str, context: FinamOrderEndpointContext) -> std::path::PathBuf {
+    let path = std::path::Path::new(path);
+    let suffix = match context {
+        FinamOrderEndpointContext::Place => "place",
+        FinamOrderEndpointContext::Cancel => "cancel",
+    };
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("raw-order-response.json");
+    let context_file_name = file_name
+        .strip_suffix(".json")
+        .map(|stem| format!("{stem}.{suffix}.json"))
+        .unwrap_or_else(|| format!("{file_name}.{suffix}.json"));
+    path.with_file_name(context_file_name)
 }
 
 #[derive(Clone, PartialEq, Eq)]

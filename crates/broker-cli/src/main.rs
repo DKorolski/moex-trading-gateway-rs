@@ -254,6 +254,9 @@ enum Command {
         /// Prove the final actual-send gate without performing POST/DELETE.
         #[arg(long)]
         pre_actual_gate_only: bool,
+        /// Sensitive local-only raw FINAM order endpoint response capture path. Do not put in handoff.
+        #[arg(long)]
+        raw_response_output: Option<PathBuf>,
     },
     /// Emit M3c order endpoint gate design evidence. Does not place or cancel orders.
     #[command(name = "m3c-order-endpoint-gate-report")]
@@ -970,6 +973,7 @@ async fn main() -> Result<()> {
             output,
             actual_send_i_understand_risk,
             pre_actual_gate_only,
+            raw_response_output,
         } => {
             run_finam_limit_cancel_one_shot(FinamLimitCancelOneShotArgs {
                 secret_env,
@@ -984,6 +988,7 @@ async fn main() -> Result<()> {
                 output,
                 actual_send_i_understand_risk,
                 pre_actual_gate_only,
+                raw_response_output,
             })
             .await?;
         }
@@ -2032,6 +2037,7 @@ struct FinamLimitCancelOneShotArgs {
     output: PathBuf,
     actual_send_i_understand_risk: bool,
     pre_actual_gate_only: bool,
+    raw_response_output: Option<PathBuf>,
 }
 
 async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> Result<()> {
@@ -2279,6 +2285,10 @@ async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> R
                     authorization_header_mode: FinamAuthorizationHeaderMode::BearerJwt,
                     external_endpoint_mode:
                         M3d2ExternalOrderEndpointMode::M3j16ActualOneShotExternalFinam,
+                    raw_response_capture_path: args
+                        .raw_response_output
+                        .as_ref()
+                        .map(|path| path.display().to_string()),
                 })
                 .map_err(|error| anyhow::anyhow!("M3j16 real order transport: {error:?}"))?;
 
@@ -2407,6 +2417,7 @@ async fn run_finam_limit_cancel_one_shot(args: FinamLimitCancelOneShotArgs) -> R
             "place_post_send_semantics": place_post_send_semantics,
             "cancel_post_send_semantics": cancel_post_send_semantics,
             "actual_error": actual_error
+            ,"raw_response_capture_requested": args.raw_response_output.is_some()
         }
     });
     print_json(payload.clone())?;
