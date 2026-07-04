@@ -6167,6 +6167,8 @@ pub enum M3iPaperStrategyStateAction {
     PendingDroppedAfterAck,
     PendingAckMissingOrStale,
     ManualPolicyRequired,
+    AlreadyResolvedAck,
+    AckForUnknownRequest,
     DuplicateIgnored,
 }
 
@@ -6178,6 +6180,8 @@ pub enum M3iPaperStrategyAckApplyOutcomeKind {
     RejectedDropped,
     MissingOrStaleAck,
     ManualPolicyRequired,
+    AlreadyResolved,
+    UnknownAckIgnored,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -6318,6 +6322,8 @@ pub struct M3i4PaperShadowReplayAckReport {
     pub expired_ack_count: u64,
     pub rejected_ack_count: u64,
     pub missing_or_stale_ack_count: u64,
+    pub already_resolved_ack_count: u64,
+    pub ack_for_unknown_count: u64,
     pub final_pending_count: u64,
     pub final_acknowledged_count: u64,
     pub final_dropped_count: u64,
@@ -6571,6 +6577,23 @@ pub fn m3i2_mark_publish_failed_in_strategy_state(
     }
 }
 
+fn m3i4_push_hash_once(target: &mut Vec<String>, request_id_hash: &str) {
+    if !target.iter().any(|hash| hash == request_id_hash) {
+        target.push(request_id_hash.to_string());
+    }
+}
+
+fn m3i4_state_has_terminal_hash(state: &M3iPaperStrategyState, request_id_hash: &str) -> bool {
+    state
+        .acknowledged_request_hashes
+        .iter()
+        .chain(state.dropped_request_hashes.iter())
+        .chain(state.duplicate_request_hashes.iter())
+        .chain(state.stale_or_missing_ack_request_hashes.iter())
+        .chain(state.manual_policy_request_hashes.iter())
+        .any(|hash| hash == request_id_hash)
+}
+
 pub fn m3i2_to_m3h_dry_command_candidate(
     candidate: &M3iPaperStrategyOutputCandidate,
 ) -> Result<M3hRuntimeDryCommandCandidate, M3iPaperStrategyOutputRejectReason> {
@@ -6621,10 +6644,32 @@ pub fn m3i4_apply_m3e_ack_to_strategy_state(
     M3iPaperStrategyAckApplyOutcomeKind,
 ) {
     let request_id_hash = m3h5_redacted_request_hash(request_id);
+    if !state.pending_request_ids.contains(&request_id) {
+        let (action, kind) = if m3i4_state_has_terminal_hash(state, &request_id_hash) {
+            (
+                M3iPaperStrategyStateAction::AlreadyResolvedAck,
+                M3iPaperStrategyAckApplyOutcomeKind::AlreadyResolved,
+            )
+        } else {
+            (
+                M3iPaperStrategyStateAction::AckForUnknownRequest,
+                M3iPaperStrategyAckApplyOutcomeKind::UnknownAckIgnored,
+            )
+        };
+        return (
+            M3iPaperStrategyStateTransition {
+                request_id_hash,
+                action,
+                pending_count: state.pending_request_ids.len(),
+            },
+            kind,
+        );
+    }
     let Some(report) = report else {
-        state
-            .stale_or_missing_ack_request_hashes
-            .push(request_id_hash.clone());
+        m3i4_push_hash_once(
+            &mut state.stale_or_missing_ack_request_hashes,
+            &request_id_hash,
+        );
         return (
             M3iPaperStrategyStateTransition {
                 request_id_hash,
@@ -6635,9 +6680,10 @@ pub fn m3i4_apply_m3e_ack_to_strategy_state(
         );
     };
     if report.request_id != Some(request_id) || !report.ack_publish_before_xack {
-        state
-            .stale_or_missing_ack_request_hashes
-            .push(request_id_hash.clone());
+        m3i4_push_hash_once(
+            &mut state.stale_or_missing_ack_request_hashes,
+            &request_id_hash,
+        );
         return (
             M3iPaperStrategyStateTransition {
                 request_id_hash,
@@ -6650,9 +6696,7 @@ pub fn m3i4_apply_m3e_ack_to_strategy_state(
     let (action, kind) = match (report.ack_status, report.ack_reason_code) {
         (Some(CommandAckStatus::Rejected), Some(CommandAckReasonCode::DryRunOnly)) => {
             state.pending_request_ids.remove(&request_id);
-            state
-                .acknowledged_request_hashes
-                .push(request_id_hash.clone());
+            m3i4_push_hash_once(&mut state.acknowledged_request_hashes, &request_id_hash);
             (
                 M3iPaperStrategyStateAction::DryAckApplied,
                 M3iPaperStrategyAckApplyOutcomeKind::DryRunAcknowledged,
@@ -6660,7 +6704,7 @@ pub fn m3i4_apply_m3e_ack_to_strategy_state(
         }
         (Some(CommandAckStatus::Duplicate), Some(CommandAckReasonCode::DuplicateCommand)) => {
             state.pending_request_ids.remove(&request_id);
-            state.duplicate_request_hashes.push(request_id_hash.clone());
+            m3i4_push_hash_once(&mut state.duplicate_request_hashes, &request_id_hash);
             (
                 M3iPaperStrategyStateAction::DuplicateIgnored,
                 M3iPaperStrategyAckApplyOutcomeKind::DuplicateAcknowledged,
@@ -6668,7 +6712,7 @@ pub fn m3i4_apply_m3e_ack_to_strategy_state(
         }
         (Some(CommandAckStatus::Expired), Some(CommandAckReasonCode::ExpiredCommand)) => {
             state.pending_request_ids.remove(&request_id);
-            state.dropped_request_hashes.push(request_id_hash.clone());
+            m3i4_push_hash_once(&mut state.dropped_request_hashes, &request_id_hash);
             (
                 M3iPaperStrategyStateAction::PendingDroppedAfterAck,
                 M3iPaperStrategyAckApplyOutcomeKind::ExpiredDropped,
@@ -6683,16 +6727,14 @@ pub fn m3i4_apply_m3e_ack_to_strategy_state(
             ),
         ) => {
             state.pending_request_ids.remove(&request_id);
-            state.dropped_request_hashes.push(request_id_hash.clone());
+            m3i4_push_hash_once(&mut state.dropped_request_hashes, &request_id_hash);
             (
                 M3iPaperStrategyStateAction::PendingDroppedAfterAck,
                 M3iPaperStrategyAckApplyOutcomeKind::RejectedDropped,
             )
         }
         _ => {
-            state
-                .manual_policy_request_hashes
-                .push(request_id_hash.clone());
+            m3i4_push_hash_once(&mut state.manual_policy_request_hashes, &request_id_hash);
             (
                 M3iPaperStrategyStateAction::ManualPolicyRequired,
                 M3iPaperStrategyAckApplyOutcomeKind::ManualPolicyRequired,
@@ -6792,6 +6834,14 @@ pub fn m3i4_paper_shadow_replay_ack_report(
         missing_or_stale_ack_count: ack_outcomes
             .iter()
             .filter(|kind| **kind == M3iPaperStrategyAckApplyOutcomeKind::MissingOrStaleAck)
+            .count() as u64,
+        already_resolved_ack_count: ack_outcomes
+            .iter()
+            .filter(|kind| **kind == M3iPaperStrategyAckApplyOutcomeKind::AlreadyResolved)
+            .count() as u64,
+        ack_for_unknown_count: ack_outcomes
+            .iter()
+            .filter(|kind| **kind == M3iPaperStrategyAckApplyOutcomeKind::UnknownAckIgnored)
             .count() as u64,
         final_pending_count: state.pending_request_ids.len() as u64,
         final_acknowledged_count: state.acknowledged_request_hashes.len() as u64,
@@ -19431,6 +19481,136 @@ mod tests {
         assert_eq!(report.final_manual_policy_count, 1);
         assert_eq!(report.final_pending_count, 2);
         assert!(!report.raw_request_ids_exported);
+    }
+
+    #[test]
+    fn m3i4a_ack_application_requires_pending_and_replay_is_idempotent() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 10, 12, 0)
+            .single()
+            .expect("timestamp");
+        let mut state = M3iPaperStrategyState::default();
+        let ack_request_id = request_id(710);
+        state.pending_request_ids.insert(ack_request_id);
+        let dry_ack = sample_m3e_ack_report(
+            ack_request_id,
+            CommandAckStatus::Rejected,
+            Some(CommandAckReasonCode::DryRunOnly),
+            now,
+        );
+        let (first_transition, first_kind) =
+            m3i4_apply_m3e_ack_to_strategy_state(&mut state, ack_request_id, Some(&dry_ack));
+        assert_eq!(
+            first_transition.action,
+            M3iPaperStrategyStateAction::DryAckApplied
+        );
+        assert_eq!(
+            first_kind,
+            M3iPaperStrategyAckApplyOutcomeKind::DryRunAcknowledged
+        );
+        assert_eq!(state.acknowledged_request_hashes.len(), 1);
+        assert!(state.pending_request_ids.is_empty());
+
+        let before_replay = state.clone();
+        let (replay_transition, replay_kind) =
+            m3i4_apply_m3e_ack_to_strategy_state(&mut state, ack_request_id, Some(&dry_ack));
+        assert_eq!(
+            replay_transition.action,
+            M3iPaperStrategyStateAction::AlreadyResolvedAck
+        );
+        assert_eq!(
+            replay_kind,
+            M3iPaperStrategyAckApplyOutcomeKind::AlreadyResolved
+        );
+        assert_eq!(state, before_replay);
+
+        let unknown_id = request_id(711);
+        let unknown_ack = sample_m3e_ack_report(
+            unknown_id,
+            CommandAckStatus::Rejected,
+            Some(CommandAckReasonCode::DryRunOnly),
+            now,
+        );
+        let before_unknown = state.clone();
+        let (unknown_transition, unknown_kind) =
+            m3i4_apply_m3e_ack_to_strategy_state(&mut state, unknown_id, Some(&unknown_ack));
+        assert_eq!(
+            unknown_transition.action,
+            M3iPaperStrategyStateAction::AckForUnknownRequest
+        );
+        assert_eq!(
+            unknown_kind,
+            M3iPaperStrategyAckApplyOutcomeKind::UnknownAckIgnored
+        );
+        assert_eq!(state, before_unknown);
+
+        let report = m3i4_paper_shadow_replay_ack_report(
+            &state,
+            now,
+            1,
+            1,
+            1,
+            1,
+            &[first_kind, replay_kind, unknown_kind],
+        );
+        assert_eq!(report.m3e_dry_ack_count, 1);
+        assert_eq!(report.already_resolved_ack_count, 1);
+        assert_eq!(report.ack_for_unknown_count, 1);
+        assert_eq!(report.final_acknowledged_count, 1);
+    }
+
+    #[test]
+    fn m3i4a_non_pending_duplicate_and_missing_ack_do_not_create_false_accounting() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 4, 10, 13, 0)
+            .single()
+            .expect("timestamp");
+        let mut state = M3iPaperStrategyState::default();
+        let stray_duplicate_id = request_id(712);
+        let stray_duplicate = sample_m3e_ack_report(
+            stray_duplicate_id,
+            CommandAckStatus::Duplicate,
+            Some(CommandAckReasonCode::DuplicateCommand),
+            now,
+        );
+        let (stray_transition, stray_kind) = m3i4_apply_m3e_ack_to_strategy_state(
+            &mut state,
+            stray_duplicate_id,
+            Some(&stray_duplicate),
+        );
+        assert_eq!(
+            stray_transition.action,
+            M3iPaperStrategyStateAction::AckForUnknownRequest
+        );
+        assert_eq!(
+            stray_kind,
+            M3iPaperStrategyAckApplyOutcomeKind::UnknownAckIgnored
+        );
+        assert!(state.duplicate_request_hashes.is_empty());
+
+        let missing_non_pending_id = request_id(713);
+        let (_, missing_non_pending_kind) =
+            m3i4_apply_m3e_ack_to_strategy_state(&mut state, missing_non_pending_id, None);
+        assert_eq!(
+            missing_non_pending_kind,
+            M3iPaperStrategyAckApplyOutcomeKind::UnknownAckIgnored
+        );
+        assert!(state.stale_or_missing_ack_request_hashes.is_empty());
+
+        let pending_missing_id = request_id(714);
+        state.pending_request_ids.insert(pending_missing_id);
+        let (pending_missing_transition, pending_missing_kind) =
+            m3i4_apply_m3e_ack_to_strategy_state(&mut state, pending_missing_id, None);
+        assert_eq!(
+            pending_missing_transition.action,
+            M3iPaperStrategyStateAction::PendingAckMissingOrStale
+        );
+        assert_eq!(
+            pending_missing_kind,
+            M3iPaperStrategyAckApplyOutcomeKind::MissingOrStaleAck
+        );
+        assert!(state.pending_request_ids.contains(&pending_missing_id));
+        assert_eq!(state.stale_or_missing_ack_request_hashes.len(), 1);
     }
 
     #[tokio::test]
