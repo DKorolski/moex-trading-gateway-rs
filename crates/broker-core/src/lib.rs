@@ -37,12 +37,13 @@ pub use operational_config::{
     BrokerCapabilityMatrix, BrokerFeedFreshness, BrokerFreshnessConfig, BrokerLifecycleConfig,
     BrokerLiveEntryBlock, BrokerLiveEntryDecision, BrokerLiveEntryScope, BrokerMarketSessionState,
     BrokerOperationalConfig, BrokerOrderIntentKind, BrokerReadinessSnapshot, BrokerRiskLimitConfig,
-    BrokerScopeConfig, BrokerTimeoutConfig,
+    BrokerScopeConfig, BrokerStopOrderReadiness, BrokerTimeoutConfig,
 };
 pub use operational_snapshot::{
-    instrument_identity_matches, BrokerCashSnapshot, BrokerInstrumentSpec, BrokerMarginSufficiency,
-    BrokerOrderLifecycle, BrokerOrderQuantityTruth, BrokerOrderSnapshot, BrokerPositionSnapshot,
-    BrokerTradeSnapshot, BrokerTruthInstrumentSummary, BrokerTruthSnapshot,
+    instrument_identity_matches, instrument_spec_identity_matches, BrokerCashSnapshot,
+    BrokerInstrumentSpec, BrokerMarginSufficiency, BrokerOrderLifecycle, BrokerOrderQuantityTruth,
+    BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeSnapshot, BrokerTruthInstrumentSummary,
+    BrokerTruthSnapshot,
 };
 pub use order::{
     Order, OrderId, OrderSide, OrderStatus, OrderType, RedactedValueFingerprint, StopKind,

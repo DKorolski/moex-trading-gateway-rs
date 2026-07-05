@@ -66,6 +66,10 @@ pub struct BrokerCashSnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrokerInstrumentSpec {
     pub instrument: InstrumentMapEntry,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub broker_asset_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -337,6 +341,19 @@ impl BrokerCashSnapshot {
     }
 }
 
+impl BrokerInstrumentSpec {
+    pub fn canonical_identity_matches(&self, other: &BrokerInstrumentSpec) -> bool {
+        self.instrument.broker == other.instrument.broker
+            && self.instrument.broker_symbol == other.instrument.broker_symbol
+            && self.instrument.exchange == other.instrument.exchange
+            && self.instrument.market == other.instrument.market
+            && self.instrument.schedule_id == other.instrument.schedule_id
+            && self.board == other.board
+            && self.instrument.expiration_date == other.instrument.expiration_date
+            && self.broker_asset_id == other.broker_asset_id
+    }
+}
+
 pub fn instrument_identity_matches(left: &InstrumentId, right: &InstrumentId) -> bool {
     if left.venue_symbol.is_some() && right.venue_symbol.is_some() {
         return left.venue_symbol == right.venue_symbol;
@@ -344,10 +361,20 @@ pub fn instrument_identity_matches(left: &InstrumentId, right: &InstrumentId) ->
     left.symbol == right.symbol && left.exchange == right.exchange && left.market == right.market
 }
 
+pub fn instrument_spec_identity_matches(
+    left: &BrokerInstrumentSpec,
+    right: &BrokerInstrumentSpec,
+) -> bool {
+    left.canonical_identity_matches(right)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::broker::BrokerKind;
+    use crate::instrument::{BrokerSymbol, InternalSymbol};
     use crate::instrument::{Exchange, Market};
+    use chrono::NaiveDate;
 
     fn instrument(symbol: &str, venue_symbol: Option<&str>) -> InstrumentId {
         InstrumentId {
@@ -658,5 +685,75 @@ mod tests {
             no_free_cash.margin_sufficiency_for_order(Decimal::ONE),
             BrokerMarginSufficiency::MissingFreeCash
         );
+    }
+
+    fn instrument_spec(
+        broker_symbol: &str,
+        asset_id: &str,
+        board: &str,
+        expiration_date: NaiveDate,
+    ) -> BrokerInstrumentSpec {
+        BrokerInstrumentSpec {
+            instrument: InstrumentMapEntry {
+                internal_symbol: InternalSymbol("IMOEXF".to_string()),
+                broker: BrokerKind::Finam,
+                broker_symbol: BrokerSymbol(broker_symbol.to_string()),
+                exchange: Exchange::Moex,
+                market: Market::Futures,
+                price_step: Decimal::new(5, 1),
+                qty_step: Decimal::ONE,
+                lot_size: Decimal::ONE,
+                min_qty: Decimal::ONE,
+                step_value: Decimal::new(5, 0),
+                currency: "RUB".to_string(),
+                schedule_id: board.to_string(),
+                expiration_date: Some(expiration_date),
+                is_tradable: true,
+            },
+            broker_asset_id: Some(asset_id.to_string()),
+            board: Some(board.to_string()),
+        }
+    }
+
+    #[test]
+    fn instrument_spec_identity_includes_board_expiry_and_asset_id() {
+        let base = instrument_spec(
+            "IMOEXF@RTSX",
+            "ASSET-2026-09",
+            "RTSX",
+            NaiveDate::from_ymd_opt(2026, 9, 17).expect("date"),
+        );
+        let same = instrument_spec(
+            "IMOEXF@RTSX",
+            "ASSET-2026-09",
+            "RTSX",
+            NaiveDate::from_ymd_opt(2026, 9, 17).expect("date"),
+        );
+        let different_expiry = instrument_spec(
+            "IMOEXF@RTSX",
+            "ASSET-2026-09",
+            "RTSX",
+            NaiveDate::from_ymd_opt(2026, 12, 17).expect("date"),
+        );
+        let different_asset_id = instrument_spec(
+            "IMOEXF@RTSX",
+            "ASSET-2026-12",
+            "RTSX",
+            NaiveDate::from_ymd_opt(2026, 9, 17).expect("date"),
+        );
+        let different_board = instrument_spec(
+            "IMOEXF@RTSX",
+            "ASSET-2026-09",
+            "FUT",
+            NaiveDate::from_ymd_opt(2026, 9, 17).expect("date"),
+        );
+
+        assert!(instrument_spec_identity_matches(&base, &same));
+        assert!(!instrument_spec_identity_matches(&base, &different_expiry));
+        assert!(!instrument_spec_identity_matches(
+            &base,
+            &different_asset_id
+        ));
+        assert!(!instrument_spec_identity_matches(&base, &different_board));
     }
 }

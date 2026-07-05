@@ -110,6 +110,14 @@ pub enum BrokerMarketSessionState {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BrokerStopOrderReadiness {
+    SupportedFresh,
+    UnsupportedBlocked,
+    Stale,
+    Missing,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BrokerReadinessSnapshot {
     pub account: BrokerFeedFreshness,
@@ -123,6 +131,11 @@ pub struct BrokerReadinessSnapshot {
     pub unknown_order_count: usize,
     pub cash_margin_present: bool,
     pub instrument_spec_validated: bool,
+    pub live_market_data_seen: bool,
+    pub subscription_ready: bool,
+    pub stream_or_polling_connected: bool,
+    pub event_sink_degraded: bool,
+    pub stop_order_readiness: BrokerStopOrderReadiness,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -138,6 +151,13 @@ pub enum BrokerLiveEntryBlock {
     UnknownOrdersPresent,
     CashMarginMissing,
     InstrumentSpecNotValidated,
+    FirstLiveMarketDataNotSeen,
+    SubscriptionNotReady,
+    StreamOrPollingNotConnected,
+    EventSinkDegraded,
+    StopOrderReadinessMissing,
+    StopOrderReadinessStale,
+    StopOrderUnsupportedBlocked,
     MarketOrdersUnsupported,
     LimitOrdersUnsupported,
     OrderTypeNotAllowed,
@@ -212,6 +232,30 @@ impl BrokerReadinessSnapshot {
         }
         if !self.instrument_spec_validated {
             blocks.push(BrokerLiveEntryBlock::InstrumentSpecNotValidated);
+        }
+        if !self.live_market_data_seen {
+            blocks.push(BrokerLiveEntryBlock::FirstLiveMarketDataNotSeen);
+        }
+        if !self.subscription_ready {
+            blocks.push(BrokerLiveEntryBlock::SubscriptionNotReady);
+        }
+        if !self.stream_or_polling_connected {
+            blocks.push(BrokerLiveEntryBlock::StreamOrPollingNotConnected);
+        }
+        if self.event_sink_degraded {
+            blocks.push(BrokerLiveEntryBlock::EventSinkDegraded);
+        }
+        match self.stop_order_readiness {
+            BrokerStopOrderReadiness::SupportedFresh => {}
+            BrokerStopOrderReadiness::UnsupportedBlocked => {
+                blocks.push(BrokerLiveEntryBlock::StopOrderUnsupportedBlocked);
+            }
+            BrokerStopOrderReadiness::Stale => {
+                blocks.push(BrokerLiveEntryBlock::StopOrderReadinessStale);
+            }
+            BrokerStopOrderReadiness::Missing => {
+                blocks.push(BrokerLiveEntryBlock::StopOrderReadinessMissing);
+            }
         }
         if scope.order_type.eq_ignore_ascii_case("market") && !capabilities.supports_market_order {
             blocks.push(BrokerLiveEntryBlock::MarketOrdersUnsupported);
@@ -357,6 +401,11 @@ mod tests {
             unknown_order_count: 0,
             cash_margin_present: true,
             instrument_spec_validated: true,
+            live_market_data_seen: true,
+            subscription_ready: true,
+            stream_or_polling_connected: true,
+            event_sink_degraded: false,
+            stop_order_readiness: BrokerStopOrderReadiness::SupportedFresh,
         }
     }
 
@@ -465,5 +514,35 @@ mod tests {
         assert!(decision
             .blocks
             .contains(&BrokerLiveEntryBlock::OrderTypeNotAllowed));
+    }
+
+    #[test]
+    fn alor_parity_runtime_gate_blocks_missing_live_bar_subscription_sink_and_stop_readiness() {
+        let now = Utc::now();
+        let mut readiness = readiness(now);
+        readiness.live_market_data_seen = false;
+        readiness.subscription_ready = false;
+        readiness.stream_or_polling_connected = false;
+        readiness.event_sink_degraded = true;
+        readiness.stop_order_readiness = BrokerStopOrderReadiness::UnsupportedBlocked;
+
+        let decision = readiness.live_entry_allowed(now, &config(), &capabilities(), &scope());
+
+        assert!(!decision.allowed);
+        assert!(decision
+            .blocks
+            .contains(&BrokerLiveEntryBlock::FirstLiveMarketDataNotSeen));
+        assert!(decision
+            .blocks
+            .contains(&BrokerLiveEntryBlock::SubscriptionNotReady));
+        assert!(decision
+            .blocks
+            .contains(&BrokerLiveEntryBlock::StreamOrPollingNotConnected));
+        assert!(decision
+            .blocks
+            .contains(&BrokerLiveEntryBlock::EventSinkDegraded));
+        assert!(decision
+            .blocks
+            .contains(&BrokerLiveEntryBlock::StopOrderUnsupportedBlocked));
     }
 }

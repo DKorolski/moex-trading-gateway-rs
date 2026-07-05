@@ -11,6 +11,7 @@ use broker_core::instrument::{
 };
 use broker_core::operational_config::{
     BrokerFeedFreshness, BrokerMarketSessionState, BrokerReadinessSnapshot,
+    BrokerStopOrderReadiness,
 };
 use broker_core::operational_snapshot::{
     BrokerCashSnapshot, BrokerInstrumentSpec, BrokerOrderSnapshot, BrokerPositionSnapshot,
@@ -425,6 +426,8 @@ pub fn map_finam_instrument_spec(
             expiration_date,
             is_tradable,
         },
+        broker_asset_id: asset.id.clone(),
+        board: asset.board.clone(),
     })
 }
 
@@ -476,6 +479,11 @@ pub fn map_finam_broker_readiness_snapshot(
         unknown_order_count,
         cash_margin_present,
         instrument_spec_validated,
+        live_market_data_seen: quote_observed_ts.is_some(),
+        subscription_ready: quote.is_some() || schedule.is_some(),
+        stream_or_polling_connected: quote.is_some(),
+        event_sink_degraded: false,
+        stop_order_readiness: BrokerStopOrderReadiness::UnsupportedBlocked,
     })
 }
 
@@ -1707,6 +1715,11 @@ mod tests {
         assert_eq!(truth.trades.len(), 2);
         assert_eq!(truth.instruments.len(), 1);
         assert_eq!(
+            truth.instruments[0].broker_asset_id.as_deref(),
+            Some("ASSET_IMOEXF_TEST")
+        );
+        assert_eq!(truth.instruments[0].board.as_deref(), Some("RTSX"));
+        assert_eq!(
             truth.instruments[0].instrument.price_step,
             Decimal::new(5, 1)
         );
@@ -1720,6 +1733,10 @@ mod tests {
         assert_eq!(readiness.unknown_order_count, 0);
         assert!(readiness.cash_margin_present);
         assert!(readiness.instrument_spec_validated);
+        assert_eq!(
+            readiness.stop_order_readiness,
+            BrokerStopOrderReadiness::UnsupportedBlocked
+        );
     }
 
     #[test]

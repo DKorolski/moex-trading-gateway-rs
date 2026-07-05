@@ -6740,6 +6740,67 @@ mod tests {
         );
     }
 
+    #[test]
+    fn m4_1c_canonical_report_golden_requires_broker_truth_snapshot_source() {
+        let report = serde_json::json!({
+            "fixture_kind": "m4-1c-tiny-position-market-one-shot-redacted-v1",
+            "pre_boundary_broker_truth": {
+                "truth_source": "BrokerTruthSnapshot",
+                "positions_count": 0,
+                "account_positions_count": 1,
+                "positions_scope": "target_symbol_nonzero",
+                "target_position_qty": "0",
+                "target_is_flat": true,
+                "active_orders_count": 0,
+                "unknown_active_orders_count": 0,
+                "broker_truth_clean": true,
+                "canonical_summary": {
+                    "target_open_positions_count": 0,
+                    "account_open_positions_count": 1,
+                    "target_active_orders_count": 0,
+                    "target_unknown_orders_count": 0,
+                    "target_terminal_orders_count": 1,
+                    "target_inconsistent_orders_count": 0,
+                    "account_active_orders_count": 0,
+                    "account_unknown_orders_count": 0,
+                    "account_orphan_orders_count": 0,
+                    "other_symbol_active_orders_count": 0
+                }
+            },
+            "execution_redacted": {
+                "final_truth_source": "BrokerTruthSnapshot",
+                "final_positions_count": 0,
+                "final_active_orders_count": 0
+            }
+        });
+        let truth = &report["pre_boundary_broker_truth"];
+        let summary = &truth["canonical_summary"];
+
+        assert_eq!(truth["truth_source"], "BrokerTruthSnapshot");
+        assert_eq!(
+            truth["positions_count"],
+            summary["target_open_positions_count"]
+        );
+        assert_eq!(
+            truth["account_positions_count"],
+            summary["account_open_positions_count"]
+        );
+        assert_eq!(
+            truth["active_orders_count"],
+            summary["account_active_orders_count"]
+        );
+        assert_eq!(
+            truth["unknown_active_orders_count"],
+            summary["account_unknown_orders_count"]
+        );
+        assert_eq!(truth["target_position_qty"], "0");
+        assert_eq!(truth["target_is_flat"], true);
+        assert_eq!(
+            report["execution_redacted"]["final_truth_source"],
+            "BrokerTruthSnapshot"
+        );
+    }
+
     fn sample_finam_bar(timestamp: &str) -> broker_finam::Bar {
         broker_finam::Bar {
             close: decimal_value("5001"),
