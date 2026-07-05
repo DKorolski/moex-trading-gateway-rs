@@ -409,13 +409,13 @@ pub fn map_finam_broker_truth_snapshot_with_readonly_artifacts(
                 .unwrap_or(true)
         })
         .collect::<Result<Vec<_>, FinamMapperError>>()?;
-    let orders = orders
+    let mut orders = orders
         .orders
         .iter()
         .map(|order| map_order_state_to_broker_order_snapshot(order, received_ts))
         .collect::<Result<Vec<_>, FinamMapperError>>()?;
     let cash = Some(map_account_cash_snapshot(account, received_ts)?);
-    let trades = trades
+    let mut trades = trades
         .map(|trades| {
             trades
                 .trades
@@ -437,6 +437,8 @@ pub fn map_finam_broker_truth_snapshot_with_readonly_artifacts(
             map_finam_instrument_spec(artifacts.asset, artifacts.params, artifacts.schedule)
         })
         .collect::<Result<Vec<_>, FinamMapperError>>()?;
+    enrich_order_identities_from_instrument_specs(&mut orders, &instruments);
+    enrich_trade_identities_from_instrument_specs(&mut trades, &instruments);
 
     Ok(BrokerTruthSnapshot {
         account_id,
@@ -447,6 +449,40 @@ pub fn map_finam_broker_truth_snapshot_with_readonly_artifacts(
         instruments,
         received_ts,
     })
+}
+
+fn enrich_order_identities_from_instrument_specs(
+    orders: &mut [BrokerOrderSnapshot],
+    instruments: &[BrokerInstrumentSpec],
+) {
+    for order in orders {
+        let matching_specs = instruments
+            .iter()
+            .filter(|spec| spec.matches_instrument_id(&order.instrument))
+            .collect::<Vec<_>>();
+        if let [spec] = matching_specs.as_slice() {
+            order.broker_asset_id = spec.broker_asset_id.clone();
+            order.board = spec.board.clone();
+            order.expiration_date = spec.instrument.expiration_date;
+        }
+    }
+}
+
+fn enrich_trade_identities_from_instrument_specs(
+    trades: &mut [BrokerTradeSnapshot],
+    instruments: &[BrokerInstrumentSpec],
+) {
+    for trade in trades {
+        let matching_specs = instruments
+            .iter()
+            .filter(|spec| spec.matches_instrument_id(&trade.instrument))
+            .collect::<Vec<_>>();
+        if let [spec] = matching_specs.as_slice() {
+            trade.broker_asset_id = spec.broker_asset_id.clone();
+            trade.board = spec.board.clone();
+            trade.expiration_date = spec.instrument.expiration_date;
+        }
+    }
 }
 
 pub fn map_finam_instrument_spec(
@@ -474,7 +510,7 @@ pub fn map_finam_instrument_spec(
     let market = market_from_asset_type(asset.asset_type.as_deref());
     let price_step = asset_price_step(asset)?;
     let lot_size = asset_lot_size(asset)?;
-    let step_value = asset_step_value(asset)?;
+    let step_value = asset_step_value(asset, price_step)?;
     let currency = asset
         .quote_currency
         .clone()
@@ -762,6 +798,9 @@ pub fn map_order_state_to_broker_order_snapshot(
         filled_qty: mapped.filled_qty,
         remaining_qty,
         limit_price: mapped.limit_price,
+        broker_asset_id: None,
+        board: None,
+        expiration_date: None,
         source_ts: mapped.source_ts,
         received_ts: mapped.received_ts,
     })
@@ -857,6 +896,9 @@ pub fn map_account_trade_to_broker_trade_snapshot(
         price: mapped.price,
         gross_amount: mapped.gross_amount,
         commission: mapped.commission,
+        broker_asset_id: None,
+        board: None,
+        expiration_date: None,
         source_ts: mapped.source_ts,
         received_ts: mapped.received_ts,
     })
@@ -964,15 +1006,37 @@ fn asset_lot_size(asset: &dto::AssetResponse) -> Result<Decimal, FinamMapperErro
         .and_then(|value| decimal_value("asset.lot_size", value))
 }
 
-fn asset_step_value(asset: &dto::AssetResponse) -> Result<Decimal, FinamMapperError> {
-    asset
+fn asset_step_value(
+    asset: &dto::AssetResponse,
+    price_step: Decimal,
+) -> Result<Decimal, FinamMapperError> {
+    if let Some(step_price) = asset
         .future_details
         .as_ref()
         .and_then(|future| future.step_price.as_ref())
-        .ok_or(FinamMapperError::MissingField {
+    {
+        return decimal_like("asset.future_details.step_price", step_price);
+    }
+    let multiplier = if let Some(contract_size) = asset
+        .future_details
+        .as_ref()
+        .and_then(|future| future.contract_size.as_ref())
+    {
+        decimal_value("asset.future_details.contract_size", contract_size)?
+    } else if let Some(future_lot_size) = asset
+        .future_details
+        .as_ref()
+        .and_then(|future| future.lot_size.as_ref())
+    {
+        decimal_value("asset.future_details.lot_size", future_lot_size)?
+    } else if let Some(asset_lot_size) = asset.lot_size.as_ref() {
+        decimal_value("asset.lot_size", asset_lot_size)?
+    } else {
+        return Err(FinamMapperError::MissingField {
             field: "asset.future_details.step_price",
-        })
-        .and_then(|value| decimal_like("asset.future_details.step_price", value))
+        });
+    };
+    Ok(price_step * multiplier)
 }
 
 fn exchange_from_mic(mic: &str) -> Exchange {
@@ -1905,6 +1969,25 @@ mod tests {
         );
         assert_eq!(truth.instruments[0].board.as_deref(), Some("RTSX"));
         assert_eq!(
+            truth.orders[0].broker_asset_id.as_deref(),
+            Some("ASSET_IMOEXF_TEST")
+        );
+        assert_eq!(truth.orders[0].board.as_deref(), Some("RTSX"));
+        assert_eq!(
+            truth.orders[0].expiration_date,
+            truth.instruments[0].instrument.expiration_date
+        );
+        assert_eq!(
+            truth.trades[0].broker_asset_id.as_deref(),
+            Some("ASSET_IMOEXF_TEST")
+        );
+        assert_eq!(truth.trades[0].board.as_deref(), Some("RTSX"));
+        assert_eq!(
+            truth.trades[0].expiration_date,
+            truth.instruments[0].instrument.expiration_date
+        );
+        assert_eq!(summary.account_orphan_orders_count, 0);
+        assert_eq!(
             truth.instruments[0].instrument.price_step,
             Decimal::new(5, 1)
         );
@@ -1922,6 +2005,25 @@ mod tests {
             readiness.stop_order_readiness,
             BrokerStopOrderReadiness::UnsupportedBlocked
         );
+    }
+
+    #[test]
+    fn m4_2h_missing_future_step_price_uses_contract_size_fallback() {
+        let mut asset = m4_2d_asset();
+        let future = asset
+            .future_details
+            .as_mut()
+            .expect("future details fixture");
+        future.step_price = None;
+        future.contract_size = Some(dto::DecimalValue {
+            value: "10".to_string(),
+        });
+
+        let spec = map_finam_instrument_spec(&asset, &m4_2d_params(), &m4_2d_schedule())
+            .expect("instrument spec maps with fallback step value");
+
+        assert_eq!(spec.instrument.price_step, Decimal::new(5, 1));
+        assert_eq!(spec.instrument.step_value, Decimal::new(5, 0));
     }
 
     #[test]

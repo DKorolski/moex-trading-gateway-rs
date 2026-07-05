@@ -4,11 +4,13 @@ use broker_core::event::Quote;
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::CancelPreflightApproval;
 use broker_core::{
-    BrokerAccountId, BrokerCommand, BrokerOrderId, BrokerReadiness, ClientOrderId, Envelope,
-    Exchange, InMemoryOrderPathStore, InstrumentId, Market, MarketDataEvent, MarketDataSourceKind,
-    MessageType, OperatorArm, Order, OrderPathEvent, OrderPathRecord, OrderPreflightPolicy,
-    OrderSide, OrderStatus, OrderType, PlaceOrder, PortfolioSnapshot, ReadinessPhase,
-    ReadinessReason, StrategyRequestId, TimeInForce,
+    BrokerAccountId, BrokerCapabilityMatrix, BrokerCommand, BrokerFreshnessConfig,
+    BrokerLifecycleConfig, BrokerLiveEntryScope, BrokerOperationalConfig, BrokerOrderId,
+    BrokerReadiness, BrokerRiskLimitConfig, BrokerScopeConfig, BrokerTimeoutConfig, ClientOrderId,
+    Envelope, Exchange, InMemoryOrderPathStore, InstrumentId, Market, MarketDataEvent,
+    MarketDataSourceKind, MessageType, OperatorArm, Order, OrderPathEvent, OrderPathRecord,
+    OrderPreflightPolicy, OrderSide, OrderStatus, OrderType, PlaceOrder, PortfolioSnapshot,
+    ReadinessPhase, ReadinessReason, StrategyRequestId, TimeInForce,
 };
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::{OrderPreflightContext, OrderReferencePrice};
@@ -16,15 +18,16 @@ use broker_finam::{
     active_orders, has_blocking_unknown_order_statuses, instrument_id_from_symbol,
     map_account_trade, map_bar, map_finam_broker_truth_snapshot, map_latest_market_trade,
     map_order_state, map_portfolio_snapshot, map_quote, redact_json_key_for_diagnostics,
-    terminal_orders, AllAssetsQuery, BarsQuery, FinamApiCapabilities, FinamAuthManager,
-    FinamConfig, FinamMapperError, FinamRestClient, GatewayEnabledFeatures, HistoryQuery,
-    SecretToken,
+    terminal_orders, AccessToken, AllAssetsQuery, BarsQuery, FinamApiCapabilities,
+    FinamAuthManager, FinamConfig, FinamError, FinamInstrumentSpecArtifacts, FinamMapperError,
+    FinamRestClient, GatewayEnabledFeatures, HistoryQuery, SecretToken,
 };
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_finam::{
     build_cancel_order_request, build_place_order_request, FinamOrderEndpointMappedResult,
     FinamOrderExecutionOutcome,
 };
+use broker_finam::{build_finam_canonical_readiness_package, FinamCanonicalReadinessPackageInput};
 use chrono::{Duration as ChronoDuration, Utc};
 use clap::{Parser, Subcommand};
 #[cfg(feature = "m3j16-actual-one-shot")]
@@ -958,6 +961,25 @@ async fn main() -> Result<()> {
                                 }))
                             },
                         )?;
+                    }
+
+                    if let (Some(account_id), Some(symbol)) =
+                        (account_id.as_deref(), symbol.as_deref())
+                    {
+                        let history_query = HistoryQuery {
+                            limit: Some(limit),
+                            start_time: start_time.as_deref(),
+                            end_time: end_time.as_deref(),
+                        };
+                        let record = run_typed_canonical_readiness_package_probe(
+                            &client,
+                            &token,
+                            account_id,
+                            symbol,
+                            history_query,
+                        )
+                        .await;
+                        emit_record(&mut records, record)?;
                     }
                 }
                 Err(error) => {
@@ -6036,6 +6058,237 @@ where
         }),
     };
     emit_record(records, payload)
+}
+
+async fn run_typed_canonical_readiness_package_probe(
+    client: &FinamRestClient,
+    token: &AccessToken,
+    account_id: &str,
+    symbol: &str,
+    history_query: HistoryQuery<'_>,
+) -> serde_json::Value {
+    let account = match client.account_typed(token, account_id).await {
+        Ok(account) => account,
+        Err(error) => return canonical_readiness_package_error_record("account_typed", &error),
+    };
+    let orders = match client.account_orders_typed(token, account_id).await {
+        Ok(orders) => orders,
+        Err(error) => {
+            return canonical_readiness_package_error_record("account_orders_typed", &error)
+        }
+    };
+    let trades_result = client
+        .account_trades_typed(token, account_id, history_query)
+        .await;
+    let asset = match client.asset_typed(token, symbol, Some(account_id)).await {
+        Ok(asset) => asset,
+        Err(error) => return canonical_readiness_package_error_record("asset_typed", &error),
+    };
+    let params = match client
+        .asset_params_typed(token, symbol, Some(account_id))
+        .await
+    {
+        Ok(params) => params,
+        Err(error) => {
+            return canonical_readiness_package_error_record("asset_params_typed", &error)
+        }
+    };
+    let schedule = match client.asset_schedule_typed(token, symbol).await {
+        Ok(schedule) => schedule,
+        Err(error) => {
+            return canonical_readiness_package_error_record("asset_schedule_typed", &error)
+        }
+    };
+    let quote = match client.last_quote_typed(token, symbol).await {
+        Ok(quote) => quote,
+        Err(error) => return canonical_readiness_package_error_record("last_quote_typed", &error),
+    };
+    let trades_error = trades_result
+        .as_ref()
+        .err()
+        .map(FinamError::to_redacted_string);
+    let trades = trades_result.ok();
+    let received_ts = Utc::now();
+    let instrument_artifacts = [FinamInstrumentSpecArtifacts {
+        asset: &asset,
+        params: &params,
+        schedule: &schedule,
+    }];
+    let target = instrument_id_from_symbol(symbol, Some("FUTURES"));
+    let scope = BrokerLiveEntryScope {
+        account_id: BrokerAccountId::new(account_id),
+        symbol: symbol.to_string(),
+        order_type: "market".to_string(),
+    };
+    let operational_config = typed_readonly_canonical_operational_config(account_id, symbol);
+    let capabilities = typed_readonly_canonical_capabilities();
+    let package =
+        match build_finam_canonical_readiness_package(FinamCanonicalReadinessPackageInput {
+            account: &account,
+            orders: &orders,
+            trades: trades.as_ref(),
+            quote: Some(&quote),
+            instruments: &instrument_artifacts,
+            schedule: Some(&schedule),
+            target_instrument: &target,
+            side: OrderSide::Buy,
+            qty: Decimal::ONE,
+            reference_price: Decimal::ONE,
+            operational_config: &operational_config,
+            capabilities: &capabilities,
+            live_entry_scope: &scope,
+            stop_order_waiver_policy: None,
+            received_ts,
+        }) {
+            Ok(package) => package,
+            Err(error) => {
+                return serde_json::json!({
+                    "probe": "canonical_readiness_package_typed",
+                    "ok": false,
+                    "error_kind": "mapper_error",
+                    "error": error.to_string(),
+                    "live_trading_enabled": false,
+                    "order_endpoints_used": false,
+                    "typed_probe": true,
+                })
+            }
+        };
+    let enriched_orders_count = package
+        .broker_truth
+        .orders
+        .iter()
+        .filter(|order| {
+            order.broker_asset_id.is_some()
+                || order.board.is_some()
+                || order.expiration_date.is_some()
+        })
+        .count();
+    let enriched_trades_count = package
+        .broker_truth
+        .trades
+        .iter()
+        .filter(|trade| {
+            trade.broker_asset_id.is_some()
+                || trade.board.is_some()
+                || trade.expiration_date.is_some()
+        })
+        .count();
+
+    serde_json::json!({
+        "probe": "canonical_readiness_package_typed",
+        "ok": true,
+        "summary": {
+            "truth_source": "BrokerTruthSnapshot",
+            "readiness_source": "BrokerReadinessSnapshot",
+            "package_source": "FinamCanonicalReadinessPackage",
+            "orders_count": package.broker_truth.orders.len(),
+            "positions_count": package.broker_truth.positions.len(),
+            "trades_count": package.broker_truth.trades.len(),
+            "instruments_count": package.broker_truth.instruments.len(),
+            "enriched_orders_count": enriched_orders_count,
+            "enriched_trades_count": enriched_trades_count,
+            "account_orphan_orders_count": package
+                .canonical_preflight_decision
+                .truth_summary
+                .account_orphan_orders_count,
+            "target_active_orders_count": package
+                .canonical_preflight_decision
+                .truth_summary
+                .target_active_orders_count,
+            "account_active_orders_count": package
+                .canonical_preflight_decision
+                .truth_summary
+                .account_active_orders_count,
+            "canonical_preflight_allowed": package.canonical_preflight_decision.allowed,
+            "canonical_preflight_blocks_count": package.canonical_preflight_decision.blocks.len(),
+            "margin_sufficiency": format!("{:?}", package.margin_sufficiency),
+            "stop_order_waiver_applied": package
+                .canonical_preflight_decision
+                .stop_order_waiver_decision
+                .applied,
+            "no_live_authorization": package.no_live_authorization,
+            "trades_probe_ok": trades_error.is_none(),
+            "trades_error_present": trades_error.is_some(),
+        },
+        "live_trading_enabled": false,
+        "order_endpoints_used": false,
+        "typed_probe": true,
+    })
+}
+
+fn canonical_readiness_package_error_record(stage: &str, error: &FinamError) -> serde_json::Value {
+    serde_json::json!({
+        "probe": "canonical_readiness_package_typed",
+        "ok": false,
+        "error_stage": stage,
+        "error_kind": error.kind(),
+        "error": error.to_redacted_string(),
+        "live_trading_enabled": false,
+        "order_endpoints_used": false,
+        "typed_probe": true,
+    })
+}
+
+fn typed_readonly_canonical_operational_config(
+    account_id: &str,
+    symbol: &str,
+) -> BrokerOperationalConfig {
+    BrokerOperationalConfig {
+        timeouts: BrokerTimeoutConfig {
+            connect_timeout_ms: 5_000,
+            request_timeout_ms: 10_000,
+            order_submit_timeout_ms: 10_000,
+            cancel_timeout_ms: 10_000,
+            reconcile_timeout_ms: 30_000,
+            stream_heartbeat_timeout_ms: 70_000,
+        },
+        freshness: BrokerFreshnessConfig {
+            account_snapshot_max_age_ms: 120_000,
+            positions_max_age_ms: 120_000,
+            orders_max_age_ms: 120_000,
+            trades_max_age_ms: 120_000,
+            quotes_max_age_ms: 30_000,
+            instrument_spec_max_age_ms: 86_400_000,
+            schedule_max_age_ms: 86_400_000,
+        },
+        risk_limits: BrokerRiskLimitConfig {
+            max_orders_per_run: 1,
+            max_position_qty: Decimal::ONE,
+            max_position_lifetime_sec: 60,
+            require_cash_margin_sufficiency: true,
+        },
+        scope: BrokerScopeConfig {
+            allowed_accounts: vec![BrokerAccountId::new(account_id)],
+            allowed_symbols: vec![symbol.to_string()],
+            allowed_order_types: vec!["market".to_string(), "limit".to_string()],
+            allowed_sessions: vec!["main".to_string()],
+        },
+        lifecycle: BrokerLifecycleConfig {
+            begin_submit_persistence_required: true,
+            request_cancel_persistence_required: true,
+            idempotency_marker_required: true,
+            one_shot_marker_required: true,
+            crash_recovery_state_required: true,
+            blind_retry_after_ambiguous_send_allowed: false,
+        },
+    }
+}
+
+fn typed_readonly_canonical_capabilities() -> BrokerCapabilityMatrix {
+    BrokerCapabilityMatrix {
+        supports_market_order: true,
+        supports_limit_order: true,
+        supports_cancel: true,
+        supports_replace: false,
+        supports_stop_sltp: false,
+        supports_brackets: false,
+        supports_multi_leg: false,
+        supports_readonly_orders: true,
+        supports_readonly_trades: true,
+        supports_readonly_positions: true,
+        supports_streaming_order_updates: false,
+        supports_streaming_position_updates: false,
+    }
 }
 
 fn emit_record(records: &mut Vec<serde_json::Value>, value: serde_json::Value) -> Result<()> {

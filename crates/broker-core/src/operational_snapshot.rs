@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
@@ -25,7 +25,9 @@ pub enum BrokerOrderQuantityTruth {
 pub enum BrokerOrderOrphanReason {
     AccountMismatch,
     MissingCorrelationId,
+    MissingInstrumentRegistry,
     UnknownInstrumentIdentity,
+    AmbiguousInstrumentIdentity,
     FilledQuantityWithoutMatchingTrade,
     MatchingTradeAccountMismatch,
     MatchingTradeInstrumentMismatch,
@@ -48,6 +50,12 @@ pub struct BrokerOrderSnapshot {
     pub filled_qty: Quantity,
     pub remaining_qty: Option<Quantity>,
     pub limit_price: Option<Price>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub broker_asset_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expiration_date: Option<NaiveDate>,
     pub source_ts: Option<DateTime<Utc>>,
     pub received_ts: DateTime<Utc>,
 }
@@ -100,6 +108,12 @@ pub struct BrokerTradeSnapshot {
     pub price: Price,
     pub gross_amount: Option<Money>,
     pub commission: Option<Money>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub broker_asset_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expiration_date: Option<NaiveDate>,
     pub source_ts: DateTime<Utc>,
     pub received_ts: DateTime<Utc>,
 }
@@ -316,9 +330,7 @@ impl BrokerTruthSnapshot {
         if !order.has_correlation_id() {
             reasons.push(BrokerOrderOrphanReason::MissingCorrelationId);
         }
-        if !self.order_instrument_identity_is_known(order) {
-            reasons.push(BrokerOrderOrphanReason::UnknownInstrumentIdentity);
-        }
+        reasons.extend(self.order_instrument_identity_reasons(order));
 
         if order.filled_qty > Decimal::ZERO {
             let matching_trades = self.trades_matching_order_identity(order);
@@ -333,7 +345,7 @@ impl BrokerTruthSnapshot {
                 }
                 if matching_trades
                     .iter()
-                    .any(|trade| !instrument_identity_matches(&trade.instrument, &order.instrument))
+                    .any(|trade| !order_trade_instrument_identity_matches(order, trade))
                 {
                     reasons.push(BrokerOrderOrphanReason::MatchingTradeInstrumentMismatch);
                 }
@@ -344,7 +356,7 @@ impl BrokerTruthSnapshot {
                     .iter()
                     .filter(|trade| {
                         trade.account_id == order.account_id
-                            && instrument_identity_matches(&trade.instrument, &order.instrument)
+                            && order_trade_instrument_identity_matches(order, trade)
                             && trade.side == order.side
                     })
                     .map(|trade| trade.qty)
@@ -359,15 +371,26 @@ impl BrokerTruthSnapshot {
         reasons
     }
 
-    fn order_instrument_identity_is_known(&self, order: &BrokerOrderSnapshot) -> bool {
+    fn order_instrument_identity_reasons(
+        &self,
+        order: &BrokerOrderSnapshot,
+    ) -> Vec<BrokerOrderOrphanReason> {
         if order.instrument.venue_symbol.is_none() {
-            return false;
+            return vec![BrokerOrderOrphanReason::UnknownInstrumentIdentity];
         }
-        self.instruments.is_empty()
-            || self
-                .instruments
-                .iter()
-                .any(|spec| spec.matches_instrument_id(&order.instrument))
+        if self.instruments.is_empty() {
+            return vec![BrokerOrderOrphanReason::MissingInstrumentRegistry];
+        }
+        let matching_specs = self
+            .instruments
+            .iter()
+            .filter(|spec| spec.matches_order_identity(order))
+            .collect::<Vec<_>>();
+        match matching_specs.len() {
+            0 => vec![BrokerOrderOrphanReason::UnknownInstrumentIdentity],
+            1 => Vec::new(),
+            _ => vec![BrokerOrderOrphanReason::AmbiguousInstrumentIdentity],
+        }
     }
 
     fn trades_matching_order_identity<'a>(
@@ -584,6 +607,26 @@ impl BrokerInstrumentSpec {
         instrument_identity_matches(&self.instrument_id(), instrument)
     }
 
+    pub fn matches_order_identity(&self, order: &BrokerOrderSnapshot) -> bool {
+        self.matches_instrument_id(&order.instrument)
+            && optional_string_identity_matches(&order.broker_asset_id, &self.broker_asset_id)
+            && optional_string_identity_matches(&order.board, &self.board)
+            && optional_date_identity_matches(
+                &order.expiration_date,
+                &self.instrument.expiration_date,
+            )
+    }
+
+    pub fn matches_trade_identity(&self, trade: &BrokerTradeSnapshot) -> bool {
+        self.matches_instrument_id(&trade.instrument)
+            && optional_string_identity_matches(&trade.broker_asset_id, &self.broker_asset_id)
+            && optional_string_identity_matches(&trade.board, &self.board)
+            && optional_date_identity_matches(
+                &trade.expiration_date,
+                &self.instrument.expiration_date,
+            )
+    }
+
     pub fn canonical_identity_matches(&self, other: &BrokerInstrumentSpec) -> bool {
         self.instrument.broker == other.instrument.broker
             && self.instrument.broker_symbol == other.instrument.broker_symbol
@@ -594,6 +637,49 @@ impl BrokerInstrumentSpec {
             && self.instrument.expiration_date == other.instrument.expiration_date
             && self.broker_asset_id == other.broker_asset_id
     }
+}
+
+fn optional_string_identity_matches(actual: &Option<String>, expected: &Option<String>) -> bool {
+    match actual.as_deref() {
+        Some(actual) => expected.as_deref() == Some(actual),
+        None => true,
+    }
+}
+
+fn optional_date_identity_matches(
+    actual: &Option<NaiveDate>,
+    expected: &Option<NaiveDate>,
+) -> bool {
+    match actual {
+        Some(actual) => expected == &Some(*actual),
+        None => true,
+    }
+}
+
+fn optional_string_identity_compatible(left: &Option<String>, right: &Option<String>) -> bool {
+    match (left.as_deref(), right.as_deref()) {
+        (Some(left), Some(right)) => left == right,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn optional_date_identity_compatible(left: &Option<NaiveDate>, right: &Option<NaiveDate>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => left == right,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn order_trade_instrument_identity_matches(
+    order: &BrokerOrderSnapshot,
+    trade: &BrokerTradeSnapshot,
+) -> bool {
+    instrument_identity_matches(&trade.instrument, &order.instrument)
+        && optional_string_identity_compatible(&trade.broker_asset_id, &order.broker_asset_id)
+        && optional_string_identity_compatible(&trade.board, &order.board)
+        && optional_date_identity_compatible(&trade.expiration_date, &order.expiration_date)
 }
 
 pub fn instrument_identity_matches(left: &InstrumentId, right: &InstrumentId) -> bool {
@@ -650,6 +736,9 @@ mod tests {
                 .unwrap_or(Decimal::ZERO),
             remaining_qty,
             limit_price: None,
+            broker_asset_id: None,
+            board: None,
+            expiration_date: None,
             source_ts: None,
             received_ts: now,
         }
@@ -687,6 +776,9 @@ mod tests {
             price: Decimal::new(1000, 0),
             gross_amount: None,
             commission: None,
+            broker_asset_id: None,
+            board: None,
+            expiration_date: None,
             source_ts: now,
             received_ts: now,
         }
@@ -1032,6 +1124,154 @@ mod tests {
         assert!(mismatched_reasons
             .contains(&BrokerOrderOrphanReason::MatchingTradeQuantityLessThanFilledQuantity));
         assert_eq!(truth.account_orphan_order_count(), 2);
+    }
+
+    #[test]
+    fn orphan_order_truth_blocks_missing_instrument_registry() {
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let target = instrument("IMOEXF", Some("IMOEXF@RTSX"));
+        let order = order(
+            &account_id,
+            target.clone(),
+            OrderStatus::Working,
+            Some(Decimal::ONE),
+        );
+        let truth = empty_truth(account_id, vec![order.clone()]);
+
+        let reasons = truth.orphan_reasons_for_order(&order);
+        assert!(reasons.contains(&BrokerOrderOrphanReason::MissingInstrumentRegistry));
+        assert_eq!(
+            truth
+                .summarize_for_instrument(&target)
+                .account_orphan_orders_count,
+            1
+        );
+    }
+
+    #[test]
+    fn orphan_order_truth_blocks_ambiguous_same_venue_instrument_registry() {
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let target = instrument("IMOEXF", Some("IMOEXF@RTSX"));
+        let order = order(
+            &account_id,
+            target.clone(),
+            OrderStatus::Working,
+            Some(Decimal::ONE),
+        );
+        let truth = BrokerTruthSnapshot {
+            account_id,
+            orders: vec![order.clone()],
+            positions: Vec::new(),
+            cash: None,
+            trades: Vec::new(),
+            instruments: vec![
+                instrument_spec(
+                    "IMOEXF@RTSX",
+                    "ASSET-2026-09",
+                    "RTSX",
+                    NaiveDate::from_ymd_opt(2026, 9, 17).expect("date"),
+                ),
+                instrument_spec(
+                    "IMOEXF@RTSX",
+                    "ASSET-2026-12",
+                    "FORTS",
+                    NaiveDate::from_ymd_opt(2026, 12, 17).expect("date"),
+                ),
+            ],
+            received_ts: Utc::now(),
+        };
+
+        assert!(truth
+            .orphan_reasons_for_order(&order)
+            .contains(&BrokerOrderOrphanReason::AmbiguousInstrumentIdentity));
+        assert_eq!(truth.account_orphan_order_count(), 1);
+    }
+
+    #[test]
+    fn enriched_order_identity_disambiguates_same_venue_instrument_registry() {
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let target = instrument("IMOEXF", Some("IMOEXF@RTSX"));
+        let mut order = order(
+            &account_id,
+            target,
+            OrderStatus::Working,
+            Some(Decimal::ONE),
+        );
+        order.broker_asset_id = Some("ASSET-2026-09".to_string());
+        order.board = Some("RTSX".to_string());
+        order.expiration_date = Some(NaiveDate::from_ymd_opt(2026, 9, 17).expect("date"));
+        let truth = BrokerTruthSnapshot {
+            account_id,
+            orders: vec![order.clone()],
+            positions: Vec::new(),
+            cash: None,
+            trades: Vec::new(),
+            instruments: vec![
+                instrument_spec(
+                    "IMOEXF@RTSX",
+                    "ASSET-2026-09",
+                    "RTSX",
+                    NaiveDate::from_ymd_opt(2026, 9, 17).expect("date"),
+                ),
+                instrument_spec(
+                    "IMOEXF@RTSX",
+                    "ASSET-2026-12",
+                    "FORTS",
+                    NaiveDate::from_ymd_opt(2026, 12, 17).expect("date"),
+                ),
+            ],
+            received_ts: Utc::now(),
+        };
+
+        assert!(truth.orphan_reasons_for_order(&order).is_empty());
+        assert_eq!(truth.account_orphan_order_count(), 0);
+    }
+
+    #[test]
+    fn enriched_order_trade_identity_blocks_same_venue_different_contract_mismatch() {
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let target = instrument("IMOEXF", Some("IMOEXF@RTSX"));
+        let mut order = order_with_broker_order_id(
+            &account_id,
+            target.clone(),
+            OrderStatus::Filled,
+            Some(Decimal::ZERO),
+            "BROKER-SAME-VENUE",
+        );
+        order.broker_asset_id = Some("ASSET-2026-09".to_string());
+        order.board = Some("RTSX".to_string());
+        order.expiration_date = Some(NaiveDate::from_ymd_opt(2026, 9, 17).expect("date"));
+        let mut trade = trade(
+            &account_id,
+            "BROKER-SAME-VENUE",
+            target,
+            OrderSide::Buy,
+            Decimal::ONE,
+        );
+        trade.broker_asset_id = Some("ASSET-2026-12".to_string());
+        trade.board = Some("FORTS".to_string());
+        trade.expiration_date = Some(NaiveDate::from_ymd_opt(2026, 12, 17).expect("date"));
+        let truth = BrokerTruthSnapshot {
+            account_id,
+            orders: vec![order.clone()],
+            positions: Vec::new(),
+            cash: None,
+            trades: vec![trade],
+            instruments: vec![instrument_spec(
+                "IMOEXF@RTSX",
+                "ASSET-2026-09",
+                "RTSX",
+                NaiveDate::from_ymd_opt(2026, 9, 17).expect("date"),
+            )],
+            received_ts: Utc::now(),
+        };
+
+        let reasons = truth.orphan_reasons_for_order(&order);
+        assert!(reasons.contains(&BrokerOrderOrphanReason::MatchingTradeInstrumentMismatch));
+        assert!(
+            reasons.contains(&BrokerOrderOrphanReason::MatchingTradeQuantityLessThanFilledQuantity)
+        );
+        assert_eq!(truth.account_orphan_order_count(), 1);
     }
 
     #[test]
