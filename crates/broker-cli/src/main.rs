@@ -21,8 +21,8 @@ use broker_finam::{
     map_order_state, map_portfolio_snapshot, map_quote, map_ws_market_data_events,
     redact_json_key_for_diagnostics, terminal_orders, AccessToken, AllAssetsQuery, BarsQuery,
     FinamApiCapabilities, FinamAuthManager, FinamConfig, FinamError, FinamInstrumentSpecArtifacts,
-    FinamMapperError, FinamRestClient, FinamWsEnvelope, GatewayEnabledFeatures, HistoryQuery,
-    SecretToken,
+    FinamMapperError, FinamRestClient, FinamWsEnvelope, FinamWsMapperError, GatewayEnabledFeatures,
+    HistoryQuery, SecretToken,
 };
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_finam::{
@@ -1750,6 +1750,9 @@ struct FinamWsShadowMetrics {
     pong_count: u64,
     first_decode_error_text_len: Option<usize>,
     first_decode_error_shape: Option<serde_json::Value>,
+    first_mapper_error_kind: Option<String>,
+    first_mapper_error_subscription_type: Option<String>,
+    first_mapper_error_payload_shape: Option<serde_json::Value>,
 }
 
 struct FinamWsShadowIterationReport {
@@ -2074,8 +2077,15 @@ async fn handle_finam_ws_text_message(
         Utc::now(),
     ) {
         Ok(events) => events,
-        Err(_) => {
+        Err(error) => {
             metrics.mapper_error_count += 1;
+            if metrics.first_mapper_error_kind.is_none() {
+                metrics.first_mapper_error_kind =
+                    Some(finam_ws_mapper_error_kind(&error).to_string());
+                metrics.first_mapper_error_subscription_type = envelope.subscription_type.clone();
+                metrics.first_mapper_error_payload_shape =
+                    envelope.payload.as_ref().map(json_shape);
+            }
             return Ok(());
         }
     };
@@ -2161,7 +2171,21 @@ fn finam_ws_shadow_metrics_json(metrics: &FinamWsShadowMetrics) -> serde_json::V
         "pong_count": metrics.pong_count,
         "first_decode_error_text_len": metrics.first_decode_error_text_len,
         "first_decode_error_shape": metrics.first_decode_error_shape,
+        "first_mapper_error_kind": metrics.first_mapper_error_kind,
+        "first_mapper_error_subscription_type": metrics.first_mapper_error_subscription_type,
+        "first_mapper_error_payload_shape": metrics.first_mapper_error_payload_shape,
     })
+}
+
+fn finam_ws_mapper_error_kind(error: &FinamWsMapperError) -> &'static str {
+    match error {
+        FinamWsMapperError::NotData => "NotData",
+        FinamWsMapperError::UnsupportedSubscriptionType(_) => "UnsupportedSubscriptionType",
+        FinamWsMapperError::MissingPayload => "MissingPayload",
+        FinamWsMapperError::MissingSymbol => "MissingSymbol",
+        FinamWsMapperError::Decode(_) => "Decode",
+        FinamWsMapperError::Mapper(_) => "Mapper",
+    }
 }
 
 async fn setup_gateway_shadow_runtime(args: GatewayShadowOnceArgs) -> Result<GatewayShadowRuntime> {
