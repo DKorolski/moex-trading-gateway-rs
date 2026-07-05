@@ -15,6 +15,7 @@ import json
 import os
 import shlex
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -109,21 +110,28 @@ def ssh_base(args: argparse.Namespace) -> list[str]:
 
 
 def ssh(args: argparse.Namespace, remote_command: str, *, timeout: int = 120) -> str:
-    completed = subprocess.run(
-        ssh_base(args) + ["bash", "-lc", remote_command],
-        cwd=ROOT,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-        timeout=timeout,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(
-            f"ssh command failed: {remote_command}\n"
-            f"stdout={completed.stdout[-1000:]}\nstderr={completed.stderr[-1000:]}"
+    attempts = max(1, int(getattr(args, "ssh_retries", 3)))
+    last_completed: subprocess.CompletedProcess[str] | None = None
+    for attempt in range(1, attempts + 1):
+        completed = subprocess.run(
+            ssh_base(args) + ["bash", "-lc", remote_command],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=timeout,
         )
-    return completed.stdout.strip()
+        if completed.returncode == 0:
+            return completed.stdout.strip()
+        last_completed = completed
+        if attempt < attempts:
+            time.sleep(min(2 * attempt, 5))
+    assert last_completed is not None
+    raise RuntimeError(
+        f"ssh command failed after {attempts} attempts: {remote_command}\n"
+        f"stdout={last_completed.stdout[-1000:]}\nstderr={last_completed.stderr[-1000:]}"
+    )
 
 
 def safe_host_identity(host: str) -> dict[str, Any]:
@@ -426,6 +434,7 @@ def main() -> int:
     parser.add_argument("--service", default=DEFAULT_SERVICE)
     parser.add_argument("--rest-service", default=DEFAULT_REST_SERVICE)
     parser.add_argument("--redis-container", default=DEFAULT_REDIS_CONTAINER)
+    parser.add_argument("--ssh-retries", type=int, default=3)
     parser.add_argument("--max-duration-seconds", type=int, default=30)
     parser.add_argument("--max-messages", type=int, default=20)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
