@@ -162,6 +162,10 @@ M4-3e gates FINAM WS strategy bar publication: stale WS final-bar backlog is
 still counted and reported, but only fresh final live bars are published as
 strategy market-data bars. This prevents stale WebSocket backlog from reaching
 downstream runtime consumers as strategy-ready input.
+M4-3f adds an ALOR-style FINAM WS data-quality ledger to stdout reports:
+`received = emitted + dropped + ignored + pending` for bars and quotes, with
+explicit imbalance diagnostics. Suppressed stale WS backlog is now accounted as
+dropped rather than silently disappearing.
 M2d adds shadow hardening only: historical-bar watermark/dedupe, market-data
 source kind, typed Redis XREAD smoke, handoff content scanning, and draft active
 order startup policy.
@@ -350,6 +354,7 @@ See:
 - [M4-3c5 FINAM WS reconnect/gap-recovery parity](docs/m4-3c5-finam-ws-reconnect-gap-recovery.md)
 - [M4-3d FINAM WS freshness and gap diagnostics](docs/m4-3d-finam-ws-freshness-gap-diagnostics.md)
 - [M4-3e FINAM WS stale backlog publish gate](docs/m4-3e-finam-ws-stale-backlog-publish-gate.md)
+- [M4-3f FINAM WS data-quality ledger](docs/m4-3f-finam-ws-data-quality-ledger.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

@@ -1805,6 +1805,33 @@ struct FinamWsShadowIterationReport {
     readiness_reasons: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FinamWsDataQualityImbalance {
+    category: &'static str,
+    received: u64,
+    emitted: u64,
+    dropped: u64,
+    ignored: u64,
+    pending: u64,
+    delta: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FinamWsDataQualityLedger {
+    bars_received: u64,
+    bars_emitted: u64,
+    bars_dropped: u64,
+    bars_ignored: u64,
+    bars_pending: u64,
+    bars_balanced: bool,
+    bars_delta: i64,
+    quotes_received: u64,
+    quotes_emitted: u64,
+    quotes_balanced: bool,
+    quotes_delta: i64,
+    imbalances: Vec<FinamWsDataQualityImbalance>,
+}
+
 async fn run_finam_ws_shadow_once(args: FinamWsShadowArgs) -> Result<()> {
     let runtime = setup_finam_ws_shadow_runtime(args).await?;
     let report = run_finam_ws_shadow_iteration(&runtime, 1).await?;
@@ -2388,6 +2415,119 @@ fn max_datetime(current: Option<DateTime<Utc>>, candidate: DateTime<Utc>) -> Dat
     current.map_or(candidate, |current| current.max(candidate))
 }
 
+fn finam_ws_data_quality_ledger(metrics: &FinamWsShadowMetrics) -> FinamWsDataQualityLedger {
+    let bars_received = metrics.final_bar_event_count + metrics.forming_bar_event_count;
+    let bars_emitted = metrics.published_strategy_bar_count;
+    let bars_dropped = metrics.stale_ws_final_bar_suppressed_count
+        + metrics.duplicate_final_suppressed_count
+        + metrics.non_monotonic_forming_dropped_count;
+    let bars_ignored = metrics.unknown_source_bar_event_count;
+    let bars_pending = metrics.forming_bar_suppressed_count.saturating_sub(
+        metrics.closed_bar_finalized_count + metrics.non_monotonic_forming_dropped_count,
+    );
+    let bars_delta = data_quality_delta(
+        bars_received,
+        bars_emitted,
+        bars_dropped,
+        bars_ignored,
+        bars_pending,
+    );
+
+    let quotes_received = metrics.quote_event_count;
+    let quotes_emitted = metrics.quote_event_count;
+    let quotes_delta = data_quality_delta(quotes_received, quotes_emitted, 0, 0, 0);
+
+    let mut imbalances = Vec::new();
+    if bars_delta != 0 {
+        imbalances.push(FinamWsDataQualityImbalance {
+            category: "bars",
+            received: bars_received,
+            emitted: bars_emitted,
+            dropped: bars_dropped,
+            ignored: bars_ignored,
+            pending: bars_pending,
+            delta: bars_delta,
+        });
+    }
+    if quotes_delta != 0 {
+        imbalances.push(FinamWsDataQualityImbalance {
+            category: "quotes",
+            received: quotes_received,
+            emitted: quotes_emitted,
+            dropped: 0,
+            ignored: 0,
+            pending: 0,
+            delta: quotes_delta,
+        });
+    }
+
+    FinamWsDataQualityLedger {
+        bars_received,
+        bars_emitted,
+        bars_dropped,
+        bars_ignored,
+        bars_pending,
+        bars_balanced: bars_delta == 0,
+        bars_delta,
+        quotes_received,
+        quotes_emitted,
+        quotes_balanced: quotes_delta == 0,
+        quotes_delta,
+        imbalances,
+    }
+}
+
+fn data_quality_delta(
+    received: u64,
+    emitted: u64,
+    dropped: u64,
+    ignored: u64,
+    pending: u64,
+) -> i64 {
+    received as i64 - (emitted + dropped + ignored + pending) as i64
+}
+
+fn finam_ws_data_quality_ledger_json(ledger: &FinamWsDataQualityLedger) -> serde_json::Value {
+    let imbalances: Vec<_> = ledger
+        .imbalances
+        .iter()
+        .map(|imbalance| {
+            serde_json::json!({
+                "category": imbalance.category,
+                "received": imbalance.received,
+                "emitted": imbalance.emitted,
+                "dropped": imbalance.dropped,
+                "ignored": imbalance.ignored,
+                "pending": imbalance.pending,
+                "delta": imbalance.delta,
+            })
+        })
+        .collect();
+
+    serde_json::json!({
+        "schema": "received_equals_emitted_plus_dropped_plus_ignored_plus_pending",
+        "bars": {
+            "received": ledger.bars_received,
+            "emitted": ledger.bars_emitted,
+            "dropped": ledger.bars_dropped,
+            "ignored": ledger.bars_ignored,
+            "pending": ledger.bars_pending,
+            "balanced": ledger.bars_balanced,
+            "delta": ledger.bars_delta,
+        },
+        "quotes": {
+            "received": ledger.quotes_received,
+            "emitted": ledger.quotes_emitted,
+            "dropped": 0,
+            "ignored": 0,
+            "pending": 0,
+            "balanced": ledger.quotes_balanced,
+            "delta": ledger.quotes_delta,
+        },
+        "imbalances": imbalances,
+    })
+}
+
 fn record_closed_bar_finalizer_action(
     metrics: &mut FinamWsShadowMetrics,
     action: ClosedBarFinalizerActionKind,
@@ -2428,6 +2568,7 @@ fn finam_ws_shadow_report_json(
     });
     let market_data_lifecycle =
         serde_json::to_value(&report.market_data_lifecycle).expect("lifecycle serializes");
+    let data_quality_ledger = finam_ws_data_quality_ledger(&report.metrics);
     let market_data = serde_json::json!({
         "source_kind": "LiveStream",
         "closed_bar_finalizer_enabled": true,
@@ -2512,6 +2653,7 @@ fn finam_ws_shadow_report_json(
         "readiness_reasons": report.readiness_reasons,
         "market_data_lifecycle": market_data_lifecycle,
         "market_data": market_data,
+        "data_quality": finam_ws_data_quality_ledger_json(&data_quality_ledger),
         "metrics": metrics,
     })
 }
@@ -8394,6 +8536,46 @@ mod tests {
         assert_eq!(metrics.published_strategy_bar_count, 0);
         assert_eq!(metrics.stale_ws_final_bar_suppressed_count, 1);
         assert_eq!(metrics.stale_live_final_bar_count, 1);
+    }
+
+    #[test]
+    fn finam_ws_data_quality_ledger_balances_suppressed_stale_backlog() {
+        let metrics = FinamWsShadowMetrics {
+            final_bar_event_count: 300,
+            stale_ws_final_bar_suppressed_count: 300,
+            quote_event_count: 1,
+            published_market_data_count: 1,
+            ..FinamWsShadowMetrics::default()
+        };
+
+        let ledger = finam_ws_data_quality_ledger(&metrics);
+
+        assert_eq!(ledger.bars_received, 300);
+        assert_eq!(ledger.bars_emitted, 0);
+        assert_eq!(ledger.bars_dropped, 300);
+        assert_eq!(ledger.bars_delta, 0);
+        assert!(ledger.bars_balanced);
+        assert_eq!(ledger.quotes_received, 1);
+        assert_eq!(ledger.quotes_emitted, 1);
+        assert!(ledger.quotes_balanced);
+        assert!(ledger.imbalances.is_empty());
+    }
+
+    #[test]
+    fn finam_ws_data_quality_ledger_reports_imbalances() {
+        let metrics = FinamWsShadowMetrics {
+            final_bar_event_count: 2,
+            published_strategy_bar_count: 1,
+            ..FinamWsShadowMetrics::default()
+        };
+
+        let ledger = finam_ws_data_quality_ledger(&metrics);
+
+        assert!(!ledger.bars_balanced);
+        assert_eq!(ledger.bars_delta, 1);
+        assert_eq!(ledger.imbalances.len(), 1);
+        assert_eq!(ledger.imbalances[0].category, "bars");
+        assert_eq!(ledger.imbalances[0].delta, 1);
     }
 
     #[test]
