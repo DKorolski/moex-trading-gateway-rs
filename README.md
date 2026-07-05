@@ -112,6 +112,17 @@ cargo run -p broker-cli -- finam-ws-shadow-loop \
 
 WS shadow remains no-live: no command consumer, no order placement, no cancel,
 no runtime/live attachment, and no Stop/SLTP/bracket.
+M4-3b-a adds the bounded VPS runtime evidence collector for this no-live WS
+shadow:
+
+```bash
+python3 scripts/m4_3ba_vps_ws_runtime_evidence.py \
+  --ssh-host root@VPS_HOST \
+  --output reports/m4/m4-3b-a-vps-ws-runtime-evidence.json
+```
+
+The report captures redacted systemd/Redis/one-shot evidence and still does not
+authorize runtime-live, order commands, or FINAM cutover.
 M2d adds shadow hardening only: historical-bar watermark/dedupe, market-data
 source kind, typed Redis XREAD smoke, handoff content scanning, and draft active
 order startup policy.
@@ -291,6 +302,7 @@ See:
 - [M3d-1 FINAM contract alignment](docs/m3d1-finam-contract-alignment.md)
 - [M4-3a dual-broker shadow parity foundation](docs/m4-3a-dual-broker-shadow-parity.md)
 - [M4-3b FINAM WebSocket stream shadow](docs/m4-3b-finam-websocket-stream-shadow.md)
+- [M4-3b-a VPS WebSocket runtime evidence](docs/m4-3b-a-vps-ws-runtime-evidence.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)
