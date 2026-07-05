@@ -124,6 +124,7 @@ pub fn map_ws_market_data_events(
         .payload
         .clone()
         .ok_or(FinamWsMapperError::MissingPayload)?;
+    let payload = normalize_ws_payload(payload)?;
 
     match subscription_type {
         subscription if subscription.eq_ignore_ascii_case("QUOTES") => {
@@ -135,6 +136,16 @@ pub fn map_ws_market_data_events(
         other => Err(FinamWsMapperError::UnsupportedSubscriptionType(
             other.to_string(),
         )),
+    }
+}
+
+fn normalize_ws_payload(
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, FinamWsMapperError> {
+    match payload {
+        serde_json::Value::String(value) => serde_json::from_str(&value)
+            .map_err(|error| FinamWsMapperError::Decode(error.to_string())),
+        other => Ok(other),
     }
 }
 
@@ -316,6 +327,47 @@ mod tests {
                 assert!(closed.is_final);
             }
             other => panic!("unexpected events: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn websocket_bar_envelope_accepts_json_encoded_payload_string() {
+        let payload = json!({
+            "symbol": "IMOEXF@RTSX",
+            "bars": [{
+                "timestamp": "2026-07-05T12:40:00Z",
+                "open": {"value": "2248.0"},
+                "high": {"value": "2249.0"},
+                "low": {"value": "2248.0"},
+                "close": {"value": "2248.5"},
+                "volume": {"value": "10"}
+            }]
+        });
+        let envelope: FinamWsEnvelope = serde_json::from_value(json!({
+            "type": "DATA",
+            "subscription_type": "BARS",
+            "timestamp": 1783255200,
+            "payload": payload.to_string()
+        }))
+        .expect("envelope");
+
+        let events = map_ws_market_data_events(
+            &envelope,
+            None,
+            60,
+            Utc.with_ymd_and_hms(2026, 7, 5, 12, 41, 0)
+                .single()
+                .expect("ts"),
+        )
+        .expect("mapped");
+
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            MarketDataEvent::Bar(bar) => {
+                assert_eq!(bar.source_kind, MarketDataSourceKind::LiveStream);
+                assert!(bar.is_final);
+            }
+            other => panic!("unexpected event: {other:?}"),
         }
     }
 }
