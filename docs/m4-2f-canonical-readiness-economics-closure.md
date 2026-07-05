@@ -73,8 +73,15 @@ from:
 - target instrument identity;
 - order side;
 - quantity;
-- reference price guardrail;
+- reference price sanity guardrail;
 - instrument initial-margin fields.
+
+For the current M4 futures micro preflight, `reference_price` is validated as
+positive but is not used as the formula multiplier. The derived amount is:
+
+```text
+required_margin = broker_provided_initial_margin_per_contract * qty
+```
 
 `BrokerTruthSnapshot::margin_sufficiency_for_instrument_order(...)` returns a
 structured `BrokerOrderMarginSufficiency`:

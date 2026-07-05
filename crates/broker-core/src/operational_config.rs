@@ -3,6 +3,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::BrokerAccountId;
+use crate::operational_snapshot::{BrokerOrderMarginSufficiency, BrokerTruthInstrumentSummary};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BrokerOrderIntentKind {
@@ -179,6 +180,107 @@ pub struct BrokerLiveEntryScope {
 pub struct BrokerLiveEntryDecision {
     pub allowed: bool,
     pub blocks: Vec<BrokerLiveEntryBlock>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BrokerCanonicalPreflightBlock {
+    Readiness(BrokerLiveEntryBlock),
+    MarginInsufficient,
+    MissingCashSnapshot,
+    MissingFreeCash,
+    MissingInstrumentSpec,
+    MissingInitialMargin,
+    InvalidQuantity,
+    InvalidReferencePrice,
+    TargetPositionNotFlat,
+    TargetActiveOrdersPresent,
+    TargetUnknownOrdersPresent,
+    AccountActiveOrdersPresent,
+    AccountUnknownOrdersPresent,
+    AccountOrphanOrdersPresent,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrokerCanonicalPreflightDecision {
+    pub readiness_decision: BrokerLiveEntryDecision,
+    pub margin_sufficiency: BrokerOrderMarginSufficiency,
+    pub truth_summary: BrokerTruthInstrumentSummary,
+    pub allowed: bool,
+    pub blocks: Vec<BrokerCanonicalPreflightBlock>,
+}
+
+impl BrokerCanonicalPreflightDecision {
+    pub fn from_readiness_margin_and_truth(
+        readiness_decision: BrokerLiveEntryDecision,
+        margin_sufficiency: BrokerOrderMarginSufficiency,
+        truth_summary: BrokerTruthInstrumentSummary,
+    ) -> Self {
+        let mut blocks = readiness_decision
+            .blocks
+            .iter()
+            .copied()
+            .map(BrokerCanonicalPreflightBlock::Readiness)
+            .collect::<Vec<_>>();
+
+        if let Some(block) = Self::margin_sufficiency_block(margin_sufficiency) {
+            blocks.push(block);
+        }
+        if truth_summary.target_open_positions_count > 0 {
+            blocks.push(BrokerCanonicalPreflightBlock::TargetPositionNotFlat);
+        }
+        if truth_summary.target_active_orders_count > 0 {
+            blocks.push(BrokerCanonicalPreflightBlock::TargetActiveOrdersPresent);
+        }
+        if truth_summary.target_unknown_orders_count > 0 {
+            blocks.push(BrokerCanonicalPreflightBlock::TargetUnknownOrdersPresent);
+        }
+        if truth_summary.account_active_orders_count > 0 {
+            blocks.push(BrokerCanonicalPreflightBlock::AccountActiveOrdersPresent);
+        }
+        if truth_summary.account_unknown_orders_count > 0 {
+            blocks.push(BrokerCanonicalPreflightBlock::AccountUnknownOrdersPresent);
+        }
+        if truth_summary.account_orphan_orders_count > 0 {
+            blocks.push(BrokerCanonicalPreflightBlock::AccountOrphanOrdersPresent);
+        }
+
+        Self {
+            readiness_decision,
+            margin_sufficiency,
+            truth_summary,
+            allowed: blocks.is_empty(),
+            blocks,
+        }
+    }
+
+    pub fn margin_sufficiency_block(
+        margin_sufficiency: BrokerOrderMarginSufficiency,
+    ) -> Option<BrokerCanonicalPreflightBlock> {
+        match margin_sufficiency {
+            BrokerOrderMarginSufficiency::Sufficient { .. } => None,
+            BrokerOrderMarginSufficiency::Insufficient { .. } => {
+                Some(BrokerCanonicalPreflightBlock::MarginInsufficient)
+            }
+            BrokerOrderMarginSufficiency::MissingCashSnapshot => {
+                Some(BrokerCanonicalPreflightBlock::MissingCashSnapshot)
+            }
+            BrokerOrderMarginSufficiency::MissingFreeCash => {
+                Some(BrokerCanonicalPreflightBlock::MissingFreeCash)
+            }
+            BrokerOrderMarginSufficiency::MissingInstrumentSpec => {
+                Some(BrokerCanonicalPreflightBlock::MissingInstrumentSpec)
+            }
+            BrokerOrderMarginSufficiency::MissingInitialMargin => {
+                Some(BrokerCanonicalPreflightBlock::MissingInitialMargin)
+            }
+            BrokerOrderMarginSufficiency::InvalidQuantity => {
+                Some(BrokerCanonicalPreflightBlock::InvalidQuantity)
+            }
+            BrokerOrderMarginSufficiency::InvalidReferencePrice => {
+                Some(BrokerCanonicalPreflightBlock::InvalidReferencePrice)
+            }
+        }
+    }
 }
 
 impl BrokerReadinessSnapshot {
@@ -417,6 +519,16 @@ mod tests {
         }
     }
 
+    fn sufficient_margin() -> BrokerOrderMarginSufficiency {
+        BrokerOrderMarginSufficiency::Sufficient {
+            required_margin: Decimal::new(5000, 0),
+        }
+    }
+
+    fn clean_truth_summary() -> BrokerTruthInstrumentSummary {
+        BrokerTruthInstrumentSummary::default()
+    }
+
     #[test]
     fn fresh_canonical_readiness_allows_scoped_market_entry() {
         let now = Utc::now();
@@ -544,5 +656,137 @@ mod tests {
         assert!(decision
             .blocks
             .contains(&BrokerLiveEntryBlock::StopOrderUnsupportedBlocked));
+    }
+
+    #[test]
+    fn combined_canonical_preflight_allows_only_when_readiness_margin_and_truth_are_clean() {
+        let now = Utc::now();
+        let readiness_decision =
+            readiness(now).live_entry_allowed(now, &config(), &capabilities(), &scope());
+
+        let decision = BrokerCanonicalPreflightDecision::from_readiness_margin_and_truth(
+            readiness_decision,
+            sufficient_margin(),
+            clean_truth_summary(),
+        );
+
+        assert!(decision.allowed);
+        assert!(decision.blocks.is_empty());
+    }
+
+    #[test]
+    fn combined_canonical_preflight_preserves_readiness_blocks() {
+        let now = Utc::now();
+        let mut readiness = readiness(now);
+        readiness.stop_order_readiness = BrokerStopOrderReadiness::UnsupportedBlocked;
+        let readiness_decision =
+            readiness.live_entry_allowed(now, &config(), &capabilities(), &scope());
+
+        let decision = BrokerCanonicalPreflightDecision::from_readiness_margin_and_truth(
+            readiness_decision,
+            sufficient_margin(),
+            clean_truth_summary(),
+        );
+
+        assert!(!decision.allowed);
+        assert!(decision
+            .blocks
+            .contains(&BrokerCanonicalPreflightBlock::Readiness(
+                BrokerLiveEntryBlock::StopOrderUnsupportedBlocked
+            )));
+    }
+
+    #[test]
+    fn combined_canonical_preflight_blocks_all_margin_failures_even_when_readiness_is_clean() {
+        let now = Utc::now();
+        let readiness_decision =
+            readiness(now).live_entry_allowed(now, &config(), &capabilities(), &scope());
+
+        let cases = [
+            (
+                BrokerOrderMarginSufficiency::Insufficient {
+                    required_margin: Decimal::new(7000, 0),
+                },
+                BrokerCanonicalPreflightBlock::MarginInsufficient,
+            ),
+            (
+                BrokerOrderMarginSufficiency::MissingCashSnapshot,
+                BrokerCanonicalPreflightBlock::MissingCashSnapshot,
+            ),
+            (
+                BrokerOrderMarginSufficiency::MissingFreeCash,
+                BrokerCanonicalPreflightBlock::MissingFreeCash,
+            ),
+            (
+                BrokerOrderMarginSufficiency::MissingInstrumentSpec,
+                BrokerCanonicalPreflightBlock::MissingInstrumentSpec,
+            ),
+            (
+                BrokerOrderMarginSufficiency::MissingInitialMargin,
+                BrokerCanonicalPreflightBlock::MissingInitialMargin,
+            ),
+            (
+                BrokerOrderMarginSufficiency::InvalidQuantity,
+                BrokerCanonicalPreflightBlock::InvalidQuantity,
+            ),
+            (
+                BrokerOrderMarginSufficiency::InvalidReferencePrice,
+                BrokerCanonicalPreflightBlock::InvalidReferencePrice,
+            ),
+        ];
+
+        for (margin_sufficiency, expected_block) in cases {
+            let decision = BrokerCanonicalPreflightDecision::from_readiness_margin_and_truth(
+                readiness_decision.clone(),
+                margin_sufficiency,
+                clean_truth_summary(),
+            );
+
+            assert!(!decision.allowed);
+            assert!(
+                decision.blocks.contains(&expected_block),
+                "missing expected block {expected_block:?} for {margin_sufficiency:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn combined_canonical_preflight_blocks_target_and_account_order_safety_gaps() {
+        let now = Utc::now();
+        let readiness_decision =
+            readiness(now).live_entry_allowed(now, &config(), &capabilities(), &scope());
+        let mut summary = clean_truth_summary();
+        summary.target_open_positions_count = 1;
+        summary.target_active_orders_count = 1;
+        summary.target_unknown_orders_count = 1;
+        summary.account_active_orders_count = 1;
+        summary.account_unknown_orders_count = 1;
+        summary.account_orphan_orders_count = 1;
+
+        let decision = BrokerCanonicalPreflightDecision::from_readiness_margin_and_truth(
+            readiness_decision,
+            sufficient_margin(),
+            summary,
+        );
+
+        assert!(!decision.allowed);
+        assert!(decision
+            .blocks
+            .contains(&BrokerCanonicalPreflightBlock::TargetPositionNotFlat));
+        assert!(decision
+            .blocks
+            .contains(&BrokerCanonicalPreflightBlock::TargetActiveOrdersPresent));
+        assert!(decision
+            .blocks
+            .contains(&BrokerCanonicalPreflightBlock::TargetUnknownOrdersPresent));
+        assert!(decision
+            .blocks
+            .contains(&BrokerCanonicalPreflightBlock::AccountActiveOrdersPresent));
+        assert!(decision
+            .blocks
+            .contains(&BrokerCanonicalPreflightBlock::AccountUnknownOrdersPresent));
+        assert!(decision
+            .blocks
+            .contains(&BrokerCanonicalPreflightBlock::AccountOrphanOrdersPresent));
     }
 }

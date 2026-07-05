@@ -10,9 +10,9 @@ use broker_core::instrument::{
     BrokerSymbol, Exchange, InstrumentId, InstrumentMapEntry, InternalSymbol, Market, Money,
 };
 use broker_core::operational_config::{
-    BrokerCapabilityMatrix, BrokerFeedFreshness, BrokerLiveEntryDecision, BrokerLiveEntryScope,
-    BrokerMarketSessionState, BrokerOperationalConfig, BrokerReadinessSnapshot,
-    BrokerStopOrderReadiness,
+    BrokerCanonicalPreflightDecision, BrokerCapabilityMatrix, BrokerFeedFreshness,
+    BrokerLiveEntryDecision, BrokerLiveEntryScope, BrokerMarketSessionState,
+    BrokerOperationalConfig, BrokerReadinessSnapshot, BrokerStopOrderReadiness,
 };
 use broker_core::operational_snapshot::{
     BrokerCashSnapshot, BrokerInstrumentSpec, BrokerOrderMarginSufficiency, BrokerOrderSnapshot,
@@ -310,6 +310,7 @@ pub struct FinamCanonicalReadinessPackage {
     pub broker_readiness: BrokerReadinessSnapshot,
     pub margin_sufficiency: BrokerOrderMarginSufficiency,
     pub live_entry_decision: BrokerLiveEntryDecision,
+    pub canonical_preflight_decision: BrokerCanonicalPreflightDecision,
     pub stop_order_policy: BrokerStopOrderReadiness,
     pub no_live_authorization: bool,
 }
@@ -362,12 +363,20 @@ pub fn build_finam_canonical_readiness_package(
         input.capabilities,
         input.live_entry_scope,
     );
+    let truth_summary = broker_truth.summarize_for_instrument(input.target_instrument);
+    let canonical_preflight_decision =
+        BrokerCanonicalPreflightDecision::from_readiness_margin_and_truth(
+            live_entry_decision.clone(),
+            margin_sufficiency,
+            truth_summary,
+        );
     Ok(FinamCanonicalReadinessPackage {
         broker_truth,
         stop_order_policy: broker_readiness.stop_order_readiness,
         broker_readiness,
         margin_sufficiency,
         live_entry_decision,
+        canonical_preflight_decision,
         no_live_authorization: true,
     })
 }
@@ -1066,8 +1075,8 @@ fn redact_core_value(value: &str) -> RedactedValueFingerprint {
 mod tests {
     use super::*;
     use broker_core::{
-        instrument_identity_matches, BrokerLiveEntryBlock, BrokerOrderIntentKind,
-        BrokerScopeConfig, BrokerTimeoutConfig,
+        instrument_identity_matches, BrokerCanonicalPreflightBlock, BrokerLiveEntryBlock,
+        BrokerOrderIntentKind, BrokerScopeConfig, BrokerTimeoutConfig,
     };
     use rust_decimal::Decimal;
 
@@ -1986,6 +1995,16 @@ mod tests {
             .live_entry_decision
             .blocks
             .contains(&BrokerLiveEntryBlock::StopOrderUnsupportedBlocked));
+        assert_eq!(
+            package.canonical_preflight_decision.margin_sufficiency,
+            package.margin_sufficiency
+        );
+        assert!(!package.canonical_preflight_decision.allowed);
+        assert!(package.canonical_preflight_decision.blocks.contains(
+            &BrokerCanonicalPreflightBlock::Readiness(
+                BrokerLiveEntryBlock::StopOrderUnsupportedBlocked
+            )
+        ));
         let _intent = BrokerOrderIntentKind::Entry;
     }
 
@@ -2038,5 +2057,66 @@ mod tests {
         );
         assert!(package.no_live_authorization);
         assert!(!package.live_entry_decision.allowed);
+        assert!(!package.canonical_preflight_decision.allowed);
+        assert!(package
+            .canonical_preflight_decision
+            .blocks
+            .contains(&BrokerCanonicalPreflightBlock::MissingInitialMargin));
+    }
+
+    #[test]
+    fn m4_2fa_canonical_preflight_decision_blocks_insufficient_margin() {
+        let received_ts = parse_timestamp("test", "2026-07-04T14:57:18Z").expect("timestamp");
+        let account = m4_2d_account();
+        let orders = m4_2d_orders();
+        let trades = m4_2d_trades();
+        let asset = m4_2d_asset();
+        let params = m4_2d_params();
+        let schedule = m4_2d_schedule();
+        let quote = m4_2d_quote();
+        let instrument_artifacts = [FinamInstrumentSpecArtifacts {
+            asset: &asset,
+            params: &params,
+            schedule: &schedule,
+        }];
+        let target = instrument_id_from_symbol("IMOEXF@RTSX", Some("FUTURES"));
+        let scope = BrokerLiveEntryScope {
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            symbol: "IMOEXF@RTSX".to_string(),
+            order_type: "market".to_string(),
+        };
+        let config = m4_2f_operational_config();
+        let capabilities = m4_2f_capabilities();
+
+        let package =
+            build_finam_canonical_readiness_package(FinamCanonicalReadinessPackageInput {
+                account: &account,
+                orders: &orders,
+                trades: Some(&trades),
+                quote: Some(&quote),
+                instruments: &instrument_artifacts,
+                schedule: Some(&schedule),
+                target_instrument: &target,
+                side: OrderSide::Buy,
+                qty: Decimal::new(2, 0),
+                reference_price: Decimal::new(22275, 1),
+                operational_config: &config,
+                capabilities: &capabilities,
+                live_entry_scope: &scope,
+                received_ts,
+            })
+            .expect("canonical readiness package");
+
+        assert_eq!(
+            package.margin_sufficiency,
+            BrokerOrderMarginSufficiency::Insufficient {
+                required_margin: Decimal::new(10000, 0)
+            }
+        );
+        assert!(!package.canonical_preflight_decision.allowed);
+        assert!(package
+            .canonical_preflight_decision
+            .blocks
+            .contains(&BrokerCanonicalPreflightBlock::MarginInsufficient));
     }
 }

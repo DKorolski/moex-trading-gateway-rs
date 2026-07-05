@@ -34,8 +34,9 @@ pub use instrument::{
     Money, Price, Quantity,
 };
 pub use operational_config::{
-    BrokerCapabilityMatrix, BrokerFeedFreshness, BrokerFreshnessConfig, BrokerLifecycleConfig,
-    BrokerLiveEntryBlock, BrokerLiveEntryDecision, BrokerLiveEntryScope, BrokerMarketSessionState,
+    BrokerCanonicalPreflightBlock, BrokerCanonicalPreflightDecision, BrokerCapabilityMatrix,
+    BrokerFeedFreshness, BrokerFreshnessConfig, BrokerLifecycleConfig, BrokerLiveEntryBlock,
+    BrokerLiveEntryDecision, BrokerLiveEntryScope, BrokerMarketSessionState,
     BrokerOperationalConfig, BrokerOrderIntentKind, BrokerReadinessSnapshot, BrokerRiskLimitConfig,
     BrokerScopeConfig, BrokerStopOrderReadiness, BrokerTimeoutConfig,
 };
