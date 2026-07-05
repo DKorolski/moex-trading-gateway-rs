@@ -13,11 +13,12 @@ use broker_core::{
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::{OrderPreflightContext, OrderReferencePrice};
 use broker_finam::{
-    active_orders, has_blocking_unknown_order_statuses, map_account_trade, map_bar,
-    map_latest_market_trade, map_order_state, map_portfolio_snapshot, map_quote,
-    redact_json_key_for_diagnostics, terminal_orders, AllAssetsQuery, BarsQuery,
-    FinamApiCapabilities, FinamAuthManager, FinamConfig, FinamMapperError, FinamRestClient,
-    GatewayEnabledFeatures, HistoryQuery, SecretToken,
+    active_orders, has_blocking_unknown_order_statuses, instrument_id_from_symbol,
+    map_account_trade, map_bar, map_finam_broker_truth_snapshot, map_latest_market_trade,
+    map_order_state, map_portfolio_snapshot, map_quote, redact_json_key_for_diagnostics,
+    terminal_orders, AllAssetsQuery, BarsQuery, FinamApiCapabilities, FinamAuthManager,
+    FinamConfig, FinamMapperError, FinamRestClient, GatewayEnabledFeatures, HistoryQuery,
+    SecretToken,
 };
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_finam::{
@@ -2618,24 +2619,6 @@ struct FinamTinyPositionMarketOneShotArgs {
     raw_response_output: Option<PathBuf>,
 }
 
-fn portfolio_positions_count_for_symbol(
-    portfolio: &PortfolioSnapshot,
-    venue_symbol: &str,
-) -> usize {
-    let ticker = venue_symbol
-        .split_once('@')
-        .map(|(ticker, _)| ticker)
-        .unwrap_or(venue_symbol);
-    portfolio
-        .positions
-        .iter()
-        .filter(|position| {
-            position.instrument.venue_symbol.as_deref() == Some(venue_symbol)
-                || position.instrument.symbol == ticker
-        })
-        .count()
-}
-
 async fn run_finam_tiny_position_market_one_shot(
     args: FinamTinyPositionMarketOneShotArgs,
 ) -> Result<()> {
@@ -2671,28 +2654,25 @@ async fn run_finam_tiny_position_market_one_shot(
     let reference_quote_bound_to_fresh_artifact = reference_quote_fresh;
 
     let account = client.account_typed(&token, &args.account_id).await?;
-    let portfolio = map_portfolio_snapshot(&account, now).map_err(mapper_anyhow)?;
-    let initial_account_positions_count = portfolio.positions.len();
-    let initial_positions_count = portfolio_positions_count_for_symbol(&portfolio, &args.symbol);
-    let flat_position = initial_positions_count == 0;
     let orders = client
         .account_orders_typed(&token, &args.account_id)
         .await?;
-    let mapped_orders = orders
-        .orders
-        .iter()
-        .map(|order| map_order_state(order, now))
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(mapper_anyhow)?;
-    let active_orders_count = active_orders(&mapped_orders).count();
-    let terminal_or_ignored_orders_count = terminal_orders(&mapped_orders).count();
-    let unknown_active_orders_count =
-        usize::from(has_blocking_unknown_order_statuses(&mapped_orders));
+    let target_instrument = instrument_id_from_symbol(&args.symbol, Some("FUTURES"));
+    let broker_truth =
+        map_finam_broker_truth_snapshot(&account, &orders, now).map_err(mapper_anyhow)?;
+    let canonical_summary = broker_truth.summarize_for_instrument(&target_instrument);
+    let initial_account_positions_count = canonical_summary.account_open_positions_count;
+    let initial_positions_count = canonical_summary.target_open_positions_count;
+    let flat_position = broker_truth.target_is_flat(&target_instrument);
+    let active_orders_count = canonical_summary.account_active_orders_count;
+    let terminal_or_ignored_orders_count = canonical_summary.target_terminal_orders_count;
+    let unknown_active_orders_count = canonical_summary.account_unknown_orders_count;
     let orphan_active_orders_count = 0usize;
     let broker_truth_clean = active_orders_count == 0
         && unknown_active_orders_count == 0
         && orphan_active_orders_count == 0
         && flat_position;
+    let target_position_qty = broker_truth.target_position_qty(&target_instrument);
 
     let actual_send_allowed = compile_feature_enabled
         && args.actual_entry_exit_i_understand_risk
@@ -2927,10 +2907,15 @@ async fn run_finam_tiny_position_market_one_shot(
                 loop {
                     position_observation_poll_count += 1;
                     let account = client.account_typed(&token, &args.account_id).await?;
-                    let snapshot =
-                        map_portfolio_snapshot(&account, Utc::now()).map_err(mapper_anyhow)?;
-                    observed_positions_count =
-                        portfolio_positions_count_for_symbol(&snapshot, &args.symbol);
+                    let observation_orders = client
+                        .account_orders_typed(&token, &args.account_id)
+                        .await?;
+                    let observation_truth =
+                        map_finam_broker_truth_snapshot(&account, &observation_orders, Utc::now())
+                            .map_err(mapper_anyhow)?;
+                    observed_positions_count = observation_truth
+                        .summarize_for_instrument(&target_instrument)
+                        .target_open_positions_count;
                     if observed_positions_count > 0 {
                         position_observed = true;
                         break;
@@ -3026,28 +3011,27 @@ async fn run_finam_tiny_position_market_one_shot(
             }
 
             let final_account = client.account_typed(&token, &args.account_id).await?;
-            let final_snapshot =
-                map_portfolio_snapshot(&final_account, Utc::now()).map_err(mapper_anyhow)?;
-            final_account_positions_count = Some(final_snapshot.positions.len());
-            final_positions_count = Some(portfolio_positions_count_for_symbol(
-                &final_snapshot,
-                &args.symbol,
-            ));
             let final_orders = client
                 .account_orders_typed(&token, &args.account_id)
                 .await?;
-            let final_mapped_orders = final_orders
-                .orders
-                .iter()
-                .map(|order| map_order_state(order, Utc::now()))
-                .collect::<std::result::Result<Vec<_>, _>>()
-                .map_err(mapper_anyhow)?;
-            final_active_orders_count = Some(active_orders(&final_mapped_orders).count());
+            let final_truth =
+                map_finam_broker_truth_snapshot(&final_account, &final_orders, Utc::now())
+                    .map_err(mapper_anyhow)?;
+            let final_summary = final_truth.summarize_for_instrument(&target_instrument);
+            final_account_positions_count = Some(final_summary.account_open_positions_count);
+            final_positions_count = Some(final_summary.target_open_positions_count);
+            final_active_orders_count = Some(final_summary.account_active_orders_count);
         }
     }
 
+    #[cfg(feature = "m3j16-actual-one-shot")]
     let final_flat = final_positions_count.unwrap_or(initial_positions_count) == 0;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let final_flat = initial_positions_count == 0;
+    #[cfg(feature = "m3j16-actual-one-shot")]
     let final_no_active_orders = final_active_orders_count.unwrap_or(active_orders_count) == 0;
+    #[cfg(not(feature = "m3j16-actual-one-shot"))]
+    let final_no_active_orders = active_orders_count == 0;
     let payload = serde_json::json!({
         "fixture_kind": "m4-1c-tiny-position-market-one-shot-redacted-v1",
         "generated_at": now.to_rfc3339(),
@@ -3083,17 +3067,32 @@ async fn run_finam_tiny_position_market_one_shot(
             "reference_quote_max_age_ms": args.reference_quote_max_age_ms
         },
         "pre_boundary_broker_truth": {
+            "truth_source": "BrokerTruthSnapshot",
             "token_readonly_flag_present": token_details.readonly.is_some(),
             "token_readonly_flag_value": token_details.readonly,
             "token_account_hash_match": account_bound,
             "positions_count": initial_positions_count,
             "account_positions_count": initial_account_positions_count,
             "positions_scope": "target_symbol_nonzero",
-            "orders_total": mapped_orders.len(),
+            "target_position_qty": target_position_qty.to_string(),
+            "target_is_flat": flat_position,
+            "orders_total": orders.orders.len(),
             "active_orders_count": active_orders_count,
             "unknown_active_orders_count": unknown_active_orders_count,
             "orphan_active_orders_count": orphan_active_orders_count,
             "terminal_or_ignored_orders_count": terminal_or_ignored_orders_count,
+            "canonical_summary": {
+                "target_open_positions_count": canonical_summary.target_open_positions_count,
+                "account_open_positions_count": canonical_summary.account_open_positions_count,
+                "target_active_orders_count": canonical_summary.target_active_orders_count,
+                "target_unknown_orders_count": canonical_summary.target_unknown_orders_count,
+                "target_terminal_orders_count": canonical_summary.target_terminal_orders_count,
+                "target_inconsistent_orders_count": canonical_summary.target_inconsistent_orders_count,
+                "account_active_orders_count": canonical_summary.account_active_orders_count,
+                "account_unknown_orders_count": canonical_summary.account_unknown_orders_count,
+                "account_orphan_orders_count": canonical_summary.account_orphan_orders_count,
+                "other_symbol_active_orders_count": canonical_summary.other_symbol_active_orders_count
+            },
             "broker_truth_clean": broker_truth_clean
         },
         "reference_quote_redacted": {
@@ -3124,6 +3123,7 @@ async fn run_finam_tiny_position_market_one_shot(
             "final_positions_count": final_positions_count,
             "final_account_positions_count": final_account_positions_count,
             "final_positions_scope": "target_symbol_nonzero",
+            "final_truth_source": "BrokerTruthSnapshot",
             "actual_error": actual_error,
             "raw_response_capture_requested": args.raw_response_output.is_some()
         }

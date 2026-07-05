@@ -1,18 +1,25 @@
 use std::str::FromStr;
 
 use broker_core::account::{CashPosition, PortfolioSnapshot, Position};
+use broker_core::broker::BrokerKind;
 use broker_core::event::{
     Bar as CoreBar, LatestMarketTrade, MarketDataSourceKind, Quote as CoreQuote,
 };
 use broker_core::ids::{BrokerAccountId, BrokerOrderId, BrokerTradeId, ClientOrderId};
-use broker_core::instrument::{Exchange, InstrumentId, Market, Money};
+use broker_core::instrument::{
+    BrokerSymbol, Exchange, InstrumentId, InstrumentMapEntry, InternalSymbol, Market, Money,
+};
+use broker_core::operational_config::{
+    BrokerFeedFreshness, BrokerMarketSessionState, BrokerReadinessSnapshot,
+};
 use broker_core::operational_snapshot::{
-    BrokerCashSnapshot, BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTruthSnapshot,
+    BrokerCashSnapshot, BrokerInstrumentSpec, BrokerOrderSnapshot, BrokerPositionSnapshot,
+    BrokerTradeSnapshot, BrokerTruthSnapshot,
 };
 use broker_core::order::{
     Order, OrderSide, OrderStatus, OrderType, RedactedValueFingerprint, TimeInForce, Trade,
 };
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
@@ -285,6 +292,23 @@ pub fn map_finam_broker_truth_snapshot(
     orders: &dto::AccountOrdersResponse,
     received_ts: DateTime<Utc>,
 ) -> Result<BrokerTruthSnapshot, FinamMapperError> {
+    map_finam_broker_truth_snapshot_with_readonly_artifacts(account, orders, None, &[], received_ts)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FinamInstrumentSpecArtifacts<'a> {
+    pub asset: &'a dto::AssetResponse,
+    pub params: &'a dto::AssetParamsResponse,
+    pub schedule: &'a dto::AssetScheduleResponse,
+}
+
+pub fn map_finam_broker_truth_snapshot_with_readonly_artifacts(
+    account: &dto::AccountResponse,
+    orders: &dto::AccountOrdersResponse,
+    trades: Option<&dto::AccountTradesResponse>,
+    instruments: &[FinamInstrumentSpecArtifacts<'_>],
+    received_ts: DateTime<Utc>,
+) -> Result<BrokerTruthSnapshot, FinamMapperError> {
     let account_id = BrokerAccountId::new(account.account_id.clone());
     let positions = account
         .positions
@@ -305,15 +329,153 @@ pub fn map_finam_broker_truth_snapshot(
         .map(|order| map_order_state_to_broker_order_snapshot(order, received_ts))
         .collect::<Result<Vec<_>, FinamMapperError>>()?;
     let cash = Some(map_account_cash_snapshot(account, received_ts)?);
+    let trades = trades
+        .map(|trades| {
+            trades
+                .trades
+                .iter()
+                .map(|trade| {
+                    map_account_trade_to_broker_trade_snapshot(
+                        &account.account_id,
+                        trade,
+                        received_ts,
+                    )
+                })
+                .collect::<Result<Vec<_>, FinamMapperError>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let instruments = instruments
+        .iter()
+        .map(|artifacts| {
+            map_finam_instrument_spec(artifacts.asset, artifacts.params, artifacts.schedule)
+        })
+        .collect::<Result<Vec<_>, FinamMapperError>>()?;
 
     Ok(BrokerTruthSnapshot {
         account_id,
         orders,
         positions,
         cash,
-        trades: Vec::new(),
-        instruments: Vec::new(),
+        trades,
+        instruments,
         received_ts,
+    })
+}
+
+pub fn map_finam_instrument_spec(
+    asset: &dto::AssetResponse,
+    params: &dto::AssetParamsResponse,
+    schedule: &dto::AssetScheduleResponse,
+) -> Result<BrokerInstrumentSpec, FinamMapperError> {
+    let ticker = asset
+        .ticker
+        .as_deref()
+        .ok_or(FinamMapperError::MissingField {
+            field: "asset.ticker",
+        })?;
+    let mic = asset
+        .mic
+        .as_deref()
+        .ok_or(FinamMapperError::MissingField { field: "asset.mic" })?;
+    let venue_symbol = format!("{ticker}@{mic}");
+    if params.symbol != venue_symbol {
+        return Err(unsupported_value("asset_params.symbol", &params.symbol));
+    }
+    if schedule.symbol != venue_symbol {
+        return Err(unsupported_value("asset_schedule.symbol", &schedule.symbol));
+    }
+    let market = market_from_asset_type(asset.asset_type.as_deref());
+    let price_step = asset_price_step(asset)?;
+    let lot_size = asset_lot_size(asset)?;
+    let step_value = asset_step_value(asset)?;
+    let currency = asset
+        .quote_currency
+        .clone()
+        .ok_or(FinamMapperError::MissingField {
+            field: "asset.quote_currency",
+        })?;
+    let expiration_date = asset
+        .future_details
+        .as_ref()
+        .and_then(|future| {
+            future
+                .expiration_date
+                .as_deref()
+                .or(future.last_trade_date.as_deref())
+        })
+        .map(|value| parse_date("asset.future_details.expiration_date", value))
+        .transpose()?;
+    let is_tradable = params.tradeable.or(params.is_tradable).unwrap_or(false);
+
+    Ok(BrokerInstrumentSpec {
+        instrument: InstrumentMapEntry {
+            internal_symbol: InternalSymbol(ticker.to_string()),
+            broker: BrokerKind::Finam,
+            broker_symbol: BrokerSymbol(venue_symbol),
+            exchange: exchange_from_mic(mic),
+            market,
+            price_step,
+            qty_step: Decimal::ONE,
+            lot_size,
+            min_qty: Decimal::ONE,
+            step_value,
+            currency,
+            schedule_id: asset.board.clone().unwrap_or_else(|| mic.to_string()),
+            expiration_date,
+            is_tradable,
+        },
+    })
+}
+
+pub fn map_finam_broker_readiness_snapshot(
+    account: &dto::AccountResponse,
+    orders: &dto::AccountOrdersResponse,
+    trades: Option<&dto::AccountTradesResponse>,
+    quote: Option<&dto::LastQuoteResponse>,
+    instrument_specs: &[BrokerInstrumentSpec],
+    schedule: Option<&dto::AssetScheduleResponse>,
+    received_ts: DateTime<Utc>,
+) -> Result<BrokerReadinessSnapshot, FinamMapperError> {
+    let quote_observed_ts = quote
+        .and_then(|quote| quote.quote.timestamp.as_deref())
+        .map(|timestamp| parse_timestamp("quote.timestamp", timestamp))
+        .transpose()?
+        .or_else(|| quote.map(|_| received_ts));
+    let market_session = schedule
+        .map(|schedule| finam_schedule_market_session(schedule, received_ts))
+        .unwrap_or(BrokerMarketSessionState::Unknown);
+    let unknown_order_count = orders
+        .orders
+        .iter()
+        .filter(|order| {
+            classify_native_order_status(&order.status) == OrderSnapshotClass::BlockingUnknown
+        })
+        .count();
+    let cash_margin_present = account.portfolio_mc.as_ref().is_some_and(|portfolio| {
+        portfolio.available_cash.is_some()
+            && (portfolio.initial_margin.is_some() || portfolio.maintenance_margin.is_some())
+    });
+    let instrument_spec_validated = !instrument_specs.is_empty()
+        && instrument_specs
+            .iter()
+            .all(|spec| spec.instrument.is_tradable);
+
+    Ok(BrokerReadinessSnapshot {
+        account: freshness(Some(received_ts), 120_000),
+        positions: freshness(Some(received_ts), 120_000),
+        orders: freshness(Some(received_ts), 120_000),
+        trades: freshness(trades.map(|_| received_ts), 120_000),
+        quotes: freshness(quote_observed_ts, 30_000),
+        instrument_spec: freshness(
+            (!instrument_specs.is_empty()).then_some(received_ts),
+            86_400_000,
+        ),
+        schedule: freshness(schedule.map(|_| received_ts), 86_400_000),
+        market_session,
+        unknown_order_count,
+        cash_margin_present,
+        instrument_spec_validated,
     })
 }
 
@@ -573,6 +735,28 @@ pub fn map_account_trade(
     })
 }
 
+pub fn map_account_trade_to_broker_trade_snapshot(
+    account_id: &str,
+    trade: &dto::AccountTrade,
+    received_ts: DateTime<Utc>,
+) -> Result<BrokerTradeSnapshot, FinamMapperError> {
+    let mapped = map_account_trade(account_id, trade, received_ts)?;
+    Ok(BrokerTradeSnapshot {
+        account_id: mapped.account_id,
+        broker_trade_id: mapped.trade_id,
+        broker_order_id: mapped.order_id,
+        client_order_id: mapped.client_order_id,
+        instrument: mapped.instrument,
+        side: mapped.side,
+        qty: mapped.qty,
+        price: mapped.price,
+        gross_amount: mapped.gross_amount,
+        commission: mapped.commission,
+        source_ts: mapped.source_ts,
+        received_ts: mapped.received_ts,
+    })
+}
+
 pub fn map_bar(
     symbol: &str,
     bar: &dto::Bar,
@@ -633,8 +817,115 @@ fn optional_decimal(
     value.map(|value| decimal_value(field, value)).transpose()
 }
 
+fn decimal_like(
+    field: &'static str,
+    value: &dto::DecimalLike,
+) -> Result<Decimal, FinamMapperError> {
+    match value {
+        dto::DecimalLike::Value(value) => decimal_value(field, value),
+        dto::DecimalLike::String(value) => parse_decimal(field, value),
+    }
+}
+
 fn parse_decimal(field: &'static str, value: &str) -> Result<Decimal, FinamMapperError> {
     Decimal::from_str(value).map_err(|_| invalid_decimal(field, value))
+}
+
+fn parse_date(field: &'static str, value: &str) -> Result<NaiveDate, FinamMapperError> {
+    NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| invalid_timestamp(field, value))
+}
+
+fn asset_price_step(asset: &dto::AssetResponse) -> Result<Decimal, FinamMapperError> {
+    asset
+        .future_details
+        .as_ref()
+        .and_then(|future| future.min_step.as_ref())
+        .or(asset.min_step.as_ref())
+        .ok_or(FinamMapperError::MissingField {
+            field: "asset.min_step",
+        })
+        .and_then(|value| decimal_like("asset.min_step", value))
+}
+
+fn asset_lot_size(asset: &dto::AssetResponse) -> Result<Decimal, FinamMapperError> {
+    asset
+        .future_details
+        .as_ref()
+        .and_then(|future| future.lot_size.as_ref())
+        .or(asset.lot_size.as_ref())
+        .ok_or(FinamMapperError::MissingField {
+            field: "asset.lot_size",
+        })
+        .and_then(|value| decimal_value("asset.lot_size", value))
+}
+
+fn asset_step_value(asset: &dto::AssetResponse) -> Result<Decimal, FinamMapperError> {
+    asset
+        .future_details
+        .as_ref()
+        .and_then(|future| future.step_price.as_ref())
+        .ok_or(FinamMapperError::MissingField {
+            field: "asset.future_details.step_price",
+        })
+        .and_then(|value| decimal_like("asset.future_details.step_price", value))
+}
+
+fn exchange_from_mic(mic: &str) -> Exchange {
+    match mic {
+        "RTSX" | "MISX" | "MOEX" => Exchange::Moex,
+        value => Exchange::Other(value.to_string()),
+    }
+}
+
+fn market_from_asset_type(asset_type: Option<&str>) -> Market {
+    match asset_type {
+        Some(value) if value.contains("FUT") => Market::Futures,
+        Some(value) if value.contains("OPTION") => Market::Options,
+        Some(value) if value.contains("STOCK") || value.contains("SHARE") => Market::Stocks,
+        Some(value) if value.contains("CURRENC") || value.contains("FOREX") => Market::Currency,
+        Some(value) if value.contains("FUND") => Market::Funds,
+        Some(value) => Market::Other(value.to_string()),
+        None => Market::Other("unknown".to_string()),
+    }
+}
+
+fn finam_schedule_market_session(
+    schedule: &dto::AssetScheduleResponse,
+    checked_at: DateTime<Utc>,
+) -> BrokerMarketSessionState {
+    if schedule.sessions.is_empty() {
+        return BrokerMarketSessionState::Unknown;
+    }
+    let has_open_session = schedule.sessions.iter().any(|session| {
+        let Some(interval) = &session.interval else {
+            return false;
+        };
+        let Some(start_time) = interval.start_time.as_deref() else {
+            return false;
+        };
+        let Some(end_time) = interval.end_time.as_deref() else {
+            return false;
+        };
+        let Ok(start) = DateTime::parse_from_rfc3339(start_time) else {
+            return false;
+        };
+        let Ok(end) = DateTime::parse_from_rfc3339(end_time) else {
+            return false;
+        };
+        checked_at >= start.with_timezone(&Utc) && checked_at < end.with_timezone(&Utc)
+    });
+    if has_open_session {
+        BrokerMarketSessionState::Open
+    } else {
+        BrokerMarketSessionState::Closed
+    }
+}
+
+fn freshness(observed_ts: Option<DateTime<Utc>>, max_age_ms: u64) -> BrokerFeedFreshness {
+    BrokerFeedFreshness {
+        observed_ts,
+        max_age_ms,
+    }
 }
 
 fn map_client_order_id_if_core_safe(value: &str) -> Option<ClientOrderId> {
@@ -685,6 +976,7 @@ fn redact_core_value(value: &str) -> RedactedValueFingerprint {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use broker_core::instrument_identity_matches;
     use rust_decimal::Decimal;
 
     #[test]
@@ -1219,5 +1511,247 @@ mod tests {
             broker_core::BrokerOrderLifecycle::Terminal
         );
         assert!(!mapped.is_active_for_lifecycle());
+    }
+
+    fn m4_2d_account() -> dto::AccountResponse {
+        serde_json::from_value(serde_json::json!({
+            "account_id": "ACC_TEST_0001",
+            "cash": [
+                {"currency_code": "RUB", "units": "6000", "nanos": 0}
+            ],
+            "equity": {"value": "6000"},
+            "portfolio_mc": {
+                "available_cash": {"value": "6000"},
+                "initial_margin": {"value": "5000"},
+                "maintenance_margin": {"value": "4000"}
+            },
+            "positions": [
+                {
+                    "symbol": "IMOEXF@RTSX",
+                    "asset_type": "FUTURES",
+                    "quantity": {"value": "0"},
+                    "average_price": {"value": "2227.5"},
+                    "unrealized_profit": {"value": "0"}
+                }
+            ],
+            "status": "ACCOUNT_ACTIVE",
+            "type": "UNION"
+        }))
+        .expect("account dto")
+    }
+
+    fn m4_2d_orders() -> dto::AccountOrdersResponse {
+        serde_json::from_value(serde_json::json!({
+            "orders": [
+                {
+                    "executed_quantity": {"value": "1"},
+                    "initial_quantity": {"value": "1"},
+                    "remaining_quantity": {"value": "0"},
+                    "order": {
+                        "account_id": "ACC_TEST_0001",
+                        "legs": [],
+                        "quantity": {"value": "1"},
+                        "side": "SIDE_BUY",
+                        "symbol": "IMOEXF@RTSX",
+                        "time_in_force": "TIME_IN_FORCE_DAY",
+                        "type": "ORDER_TYPE_MARKET"
+                    },
+                    "order_id": "BROKER-ENTRY",
+                    "status": "ORDER_STATUS_FILLED",
+                    "transact_at": "2026-07-04T14:57:17Z"
+                }
+            ]
+        }))
+        .expect("orders dto")
+    }
+
+    fn m4_2d_trades() -> dto::AccountTradesResponse {
+        serde_json::from_value(serde_json::json!({
+            "trades": [
+                {
+                    "trade_id": "TRADE-BUY",
+                    "order_id": "BROKER-ENTRY",
+                    "account_id": "ACC_TEST_0001",
+                    "symbol": "IMOEXF@RTSX",
+                    "side": "SIDE_BUY",
+                    "quantity": {"value": "1"},
+                    "price": {"value": "2227.5"},
+                    "amount": {"value": "22275"},
+                    "commission": {"currency_code": "RUB", "units": "1", "nanos": 0},
+                    "timestamp": "2026-07-04T14:57:17Z"
+                },
+                {
+                    "trade_id": "TRADE-SELL",
+                    "order_id": "BROKER-EXIT",
+                    "account_id": "ACC_TEST_0001",
+                    "symbol": "IMOEXF@RTSX",
+                    "side": "SIDE_SELL",
+                    "quantity": {"value": "1"},
+                    "price": {"value": "2227.0"},
+                    "amount": {"value": "22270"},
+                    "commission": {"currency_code": "RUB", "units": "1", "nanos": 0},
+                    "timestamp": "2026-07-04T14:57:18Z"
+                }
+            ]
+        }))
+        .expect("trades dto")
+    }
+
+    fn m4_2d_asset() -> dto::AssetResponse {
+        serde_json::from_value(serde_json::json!({
+            "board": "RTSX",
+            "decimals": 1,
+            "future_details": {
+                "contract_size": {"value": "1"},
+                "expiration_date": "2026-09-17",
+                "first_trade_date": "2026-06-01",
+                "last_trade_date": "2026-09-17",
+                "lot_size": {"value": "1"},
+                "min_step": "0.5",
+                "step_price": "5"
+            },
+            "id": "ASSET_IMOEXF_TEST",
+            "lot_size": {"value": "1"},
+            "mic": "RTSX",
+            "min_step": "0.5",
+            "name": "Synthetic IMOEX future",
+            "quote_currency": "RUB",
+            "ticker": "IMOEXF",
+            "type": "ASSET_TYPE_FUTURES"
+        }))
+        .expect("asset dto")
+    }
+
+    fn m4_2d_params() -> dto::AssetParamsResponse {
+        serde_json::from_value(serde_json::json!({
+            "account_id": "ACC_TEST_0001",
+            "is_tradable": true,
+            "long_initial_margin": {"currency_code": "RUB", "units": "5000", "nanos": 0},
+            "price_type": "PRICE_TYPE_PRICE",
+            "short_initial_margin": {"currency_code": "RUB", "units": "5000", "nanos": 0},
+            "symbol": "IMOEXF@RTSX",
+            "tradeable": true
+        }))
+        .expect("params dto")
+    }
+
+    fn m4_2d_schedule() -> dto::AssetScheduleResponse {
+        serde_json::from_value(serde_json::json!({
+            "symbol": "IMOEXF@RTSX",
+            "sessions": [
+                {
+                    "interval": {
+                        "start_time": "2026-07-04T06:00:00Z",
+                        "end_time": "2026-07-04T20:00:00Z"
+                    },
+                    "type": "SESSION_TYPE_MAIN"
+                }
+            ]
+        }))
+        .expect("schedule dto")
+    }
+
+    fn m4_2d_quote() -> dto::LastQuoteResponse {
+        serde_json::from_value(serde_json::json!({
+            "symbol": "IMOEXF@RTSX",
+            "quote": {
+                "ask": {"value": "2227.5"},
+                "bid": {"value": "2227.0"},
+                "last": {"value": "2227.5"},
+                "symbol": "IMOEXF@RTSX",
+                "timestamp": "2026-07-04T14:57:16Z"
+            }
+        }))
+        .expect("quote dto")
+    }
+
+    #[test]
+    fn m4_2d_enriched_broker_truth_maps_trades_instrument_spec_and_readiness() {
+        let received_ts = parse_timestamp("test", "2026-07-04T14:57:18Z").expect("timestamp");
+        let account = m4_2d_account();
+        let orders = m4_2d_orders();
+        let trades = m4_2d_trades();
+        let asset = m4_2d_asset();
+        let params = m4_2d_params();
+        let schedule = m4_2d_schedule();
+        let quote = m4_2d_quote();
+        let instrument_artifacts = [FinamInstrumentSpecArtifacts {
+            asset: &asset,
+            params: &params,
+            schedule: &schedule,
+        }];
+
+        let truth = map_finam_broker_truth_snapshot_with_readonly_artifacts(
+            &account,
+            &orders,
+            Some(&trades),
+            &instrument_artifacts,
+            received_ts,
+        )
+        .expect("enriched broker truth");
+        let target = instrument_id_from_symbol("IMOEXF@RTSX", Some("FUTURES"));
+        let summary = truth.summarize_for_instrument(&target);
+        let readiness = map_finam_broker_readiness_snapshot(
+            &account,
+            &orders,
+            Some(&trades),
+            Some(&quote),
+            &truth.instruments,
+            Some(&schedule),
+            received_ts,
+        )
+        .expect("readiness");
+
+        assert!(truth.target_is_flat(&target));
+        assert_eq!(summary.target_open_positions_count, 0);
+        assert_eq!(truth.trades.len(), 2);
+        assert_eq!(truth.instruments.len(), 1);
+        assert_eq!(
+            truth.instruments[0].instrument.price_step,
+            Decimal::new(5, 1)
+        );
+        assert_eq!(
+            truth.instruments[0].instrument.step_value,
+            Decimal::new(5, 0)
+        );
+        assert_eq!(truth.cash_by_currency("RUB"), Some(Decimal::new(6000, 0)));
+        assert_eq!(readiness.market_session, BrokerMarketSessionState::Open);
+        assert!(readiness.broker_truth_is_fresh(received_ts));
+        assert_eq!(readiness.unknown_order_count, 0);
+        assert!(readiness.cash_margin_present);
+        assert!(readiness.instrument_spec_validated);
+    }
+
+    #[test]
+    fn m4_2d_same_ticker_different_mic_is_not_same_instrument() {
+        let rtsx = instrument_id_from_symbol("IMOEXF@RTSX", Some("FUTURES"));
+        let misx = instrument_id_from_symbol("IMOEXF@MISX", Some("FUTURES"));
+
+        assert_eq!(rtsx.symbol, misx.symbol);
+        assert_ne!(rtsx.venue_symbol, misx.venue_symbol);
+        assert!(!instrument_identity_matches(&rtsx, &misx));
+    }
+
+    #[test]
+    fn m4_2d_round_trip_trades_explain_flat_position_delta() {
+        let received_ts = parse_timestamp("test", "2026-07-04T14:57:18Z").expect("timestamp");
+        let trades = m4_2d_trades();
+        let mapped = trades
+            .trades
+            .iter()
+            .map(|trade| {
+                map_account_trade_to_broker_trade_snapshot("ACC_TEST_0001", trade, received_ts)
+            })
+            .collect::<Result<Vec<_>, FinamMapperError>>()
+            .expect("mapped trades");
+        let net_qty: Decimal = mapped
+            .iter()
+            .map(|trade| match trade.side {
+                OrderSide::Buy => trade.qty,
+                OrderSide::Sell => -trade.qty,
+            })
+            .sum();
+
+        assert_eq!(net_qty, Decimal::ZERO);
     }
 }

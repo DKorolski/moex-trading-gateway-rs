@@ -65,6 +65,20 @@ def git_head() -> str:
     return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 
 
+def canonical_truth_ok(truth: dict[str, Any]) -> bool:
+    summary = truth.get("canonical_summary", {})
+    return (
+        truth.get("truth_source") == "BrokerTruthSnapshot"
+        and isinstance(summary, dict)
+        and truth.get("positions_count") == summary.get("target_open_positions_count")
+        and truth.get("account_positions_count") == summary.get("account_open_positions_count")
+        and truth.get("active_orders_count") == summary.get("account_active_orders_count")
+        and truth.get("unknown_active_orders_count") == summary.get("account_unknown_orders_count")
+        and truth.get("target_is_flat") is True
+        and str(truth.get("target_position_qty")) in {"0", "0.0", "0.00"}
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-archive", type=Path, required=True)
@@ -86,6 +100,8 @@ def main() -> int:
     pre_truth = report_payload.get("pre_boundary_broker_truth", {})
     post_run_report = (post_run_payload or {}).get("report", {})
     post_run_truth = (post_run_payload or {}).get("pre_boundary_broker_truth", {})
+    pre_truth_canonical_ok = canonical_truth_ok(pre_truth)
+    post_run_truth_canonical_ok = canonical_truth_ok(post_run_truth) if post_run_truth else False
     actual_ok = (
         report.get("boundary_invocation_performed") is True
         and report.get("real_finam_order_endpoint_used") is True
@@ -100,6 +116,7 @@ def main() -> int:
         execution.get("position_observation_attempted") is True
         and execution.get("position_observed") is True
         and (execution.get("observed_positions_count") or 0) > 0
+        and execution.get("final_truth_source") == "BrokerTruthSnapshot"
         and execution.get("final_positions_count") == 0
         and execution.get("final_active_orders_count") == 0
         and report.get("final_flat") is True
@@ -110,6 +127,7 @@ def main() -> int:
         and post_run_truth.get("active_orders_count") == 0
         and post_run_truth.get("unknown_active_orders_count") == 0
         and post_run_truth.get("broker_truth_clean") is True
+        and post_run_truth_canonical_ok
         and post_run_report.get("final_flat") is True
         and post_run_report.get("final_no_active_orders") is True
         and post_run_report.get("boundary_invocation_performed") is False
@@ -126,6 +144,7 @@ def main() -> int:
         and pre_truth.get("active_orders_count") == 0
         and pre_truth.get("unknown_active_orders_count") == 0
         and pre_truth.get("broker_truth_clean") is True
+        and pre_truth_canonical_ok
     )
     boundaries_disabled = (
         report.get("runtime_live_attachment_allowed") is False
@@ -171,6 +190,8 @@ def main() -> int:
             "post_run_report_provided": args.post_run_report is not None,
             "immediate_lifecycle_ok": immediate_lifecycle_ok,
             "post_run_reconciliation_ok": post_run_reconciliation_ok,
+            "pre_truth_canonical_ok": pre_truth_canonical_ok,
+            "post_run_truth_canonical_ok": post_run_truth_canonical_ok,
             "post_run_broker_truth": post_run_truth,
             "post_run_report": post_run_report,
             "operator_broker_journal_summary": {
@@ -198,6 +219,8 @@ def main() -> int:
             "post_run_reconciliation_ok": post_run_reconciliation_ok,
             "lifecycle_ok": lifecycle_ok,
             "preflight_ok": preflight_ok,
+            "pre_truth_canonical_ok": pre_truth_canonical_ok,
+            "post_run_truth_canonical_ok": post_run_truth_canonical_ok,
             "boundaries_disabled": boundaries_disabled,
             "raw_ok": raw_ok,
         },
