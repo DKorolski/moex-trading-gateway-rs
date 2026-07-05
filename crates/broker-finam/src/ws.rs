@@ -39,7 +39,7 @@ pub struct FinamWsEnvelope {
     pub subscription_key: Option<String>,
     #[serde(alias = "subscriptionType")]
     pub subscription_type: Option<String>,
-    pub timestamp: Option<i64>,
+    pub timestamp: Option<serde_json::Value>,
     #[serde(alias = "data")]
     pub payload: Option<serde_json::Value>,
     #[serde(alias = "errorInfo")]
