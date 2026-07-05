@@ -10,6 +10,7 @@ pub mod envelope;
 pub mod event;
 pub mod ids;
 pub mod instrument;
+pub mod observability;
 pub mod operational_config;
 pub mod operational_snapshot;
 pub mod order;
@@ -33,6 +34,12 @@ pub use ids::{
 pub use instrument::{
     BrokerSymbol, Exchange, Instrument, InstrumentId, InstrumentMapEntry, InternalSymbol, Market,
     Money, Price, Quantity,
+};
+pub use observability::{
+    live_required_channel_kinds, required_channel_kinds, BrokerConsumerGroupSnapshot,
+    BrokerObservabilityBlocker, BrokerObservabilityChannel, BrokerObservabilityChannelKind,
+    BrokerObservabilityContourRole, BrokerObservabilityContract, BrokerObservabilityOwner,
+    BrokerObservabilityReadinessReport, OBSERVABILITY_SCHEMA_VERSION,
 };
 pub use operational_config::{
     BrokerCanonicalPreflightBlock, BrokerCanonicalPreflightDecision, BrokerCapabilityMatrix,
