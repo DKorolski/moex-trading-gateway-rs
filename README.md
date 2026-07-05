@@ -129,6 +129,11 @@ canonical channel kinds: gateway health/readiness, broker truth, market data,
 command ACK lifecycle, runtime state, and consumer-group ops state. This is the
 foundation for an IMOEXF hybrid shadow/dry runtime attachment, not permission
 for continuous live trading.
+M4-3c1 makes FINAM WebSocket `BARS` the explicit strategy market-data source
+for parity. REST bars/quotes remain diagnostic or broker-truth support only;
+quotes alone cannot satisfy runtime parity readiness. The WS loop reports
+`strategy_market_data_source = FinamWebSocketBarsLiveStream` and degrades
+readiness when no bar events arrive.
 M2d adds shadow hardening only: historical-bar watermark/dedupe, market-data
 source kind, typed Redis XREAD smoke, handoff content scanning, and draft active
 order startup policy.
@@ -310,6 +315,7 @@ See:
 - [M4-3b FINAM WebSocket stream shadow](docs/m4-3b-finam-websocket-stream-shadow.md)
 - [M4-3b-a VPS WebSocket runtime evidence](docs/m4-3b-a-vps-ws-runtime-evidence.md)
 - [M4-3c0 broker-neutral observability contract](docs/m4-3c0-broker-neutral-observability-contract.md)
+- [M4-3c1 FINAM WS bars stream source](docs/m4-3c1-finam-ws-bars-stream-source.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

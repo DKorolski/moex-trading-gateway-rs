@@ -452,7 +452,7 @@ enum Command {
         /// Subscribe to FINAM WebSocket BARS.
         #[arg(long, default_value_t = true)]
         subscribe_bars: bool,
-        /// Subscribe to FINAM WebSocket QUOTES.
+        /// Subscribe to FINAM WebSocket QUOTES as diagnostics. Strategy parity uses BARS.
         #[arg(long, default_value_t = true)]
         subscribe_quotes: bool,
         /// Stop after this many received WebSocket messages.
@@ -483,14 +483,14 @@ enum Command {
         /// Subscribe to FINAM WebSocket BARS.
         #[arg(long, default_value_t = true)]
         subscribe_bars: bool,
-        /// Subscribe to FINAM WebSocket QUOTES.
-        #[arg(long, default_value_t = true)]
+        /// Subscribe to FINAM WebSocket QUOTES as diagnostics. Disabled by default for loop.
+        #[arg(long, default_value_t = false)]
         subscribe_quotes: bool,
         /// Per-connection message budget before reconnecting.
-        #[arg(long, default_value_t = 1000)]
+        #[arg(long, default_value_t = 10000)]
         max_messages: u64,
         /// Per-connection duration before reconnecting.
-        #[arg(long, default_value_t = 900)]
+        #[arg(long, default_value_t = 3600)]
         max_duration_seconds: u64,
         /// Reconnect delay after each connection pass.
         #[arg(long, default_value_t = 5)]
@@ -2016,12 +2016,9 @@ async fn run_finam_ws_shadow_iteration(
 
     runtime
         .gateway
-        .publish_readiness(BrokerReadiness {
-            phase: ReadinessPhase::Reconciliation,
-            reasons: vec![ReadinessReason::OperatorLiveArmMissing],
-            checked_ts: Utc::now(),
-        })
+        .publish_readiness(finam_ws_shadow_readiness(runtime, &metrics))
         .await?;
+    let readiness = finam_ws_shadow_readiness(runtime, &metrics);
     metrics.success_count = 1;
 
     Ok(FinamWsShadowIterationReport {
@@ -2029,9 +2026,39 @@ async fn run_finam_ws_shadow_iteration(
         elapsed_ms: started_at.elapsed().as_millis(),
         stop_reason,
         metrics,
-        readiness_phase: "Reconciliation".to_string(),
-        readiness_reasons: vec!["OperatorLiveArmMissing".to_string()],
+        readiness_phase: format!("{:?}", readiness.phase),
+        readiness_reasons: readiness
+            .reasons
+            .iter()
+            .map(|reason| format!("{reason:?}"))
+            .collect(),
     })
+}
+
+fn finam_ws_shadow_readiness(
+    runtime: &FinamWsShadowRuntime,
+    metrics: &FinamWsShadowMetrics,
+) -> BrokerReadiness {
+    finam_ws_shadow_readiness_from_metrics(runtime.resolved.subscribe_bars, metrics)
+}
+
+fn finam_ws_shadow_readiness_from_metrics(
+    subscribe_bars: bool,
+    metrics: &FinamWsShadowMetrics,
+) -> BrokerReadiness {
+    if subscribe_bars && metrics.bar_event_count == 0 {
+        BrokerReadiness {
+            phase: ReadinessPhase::Degraded,
+            reasons: vec![ReadinessReason::MarketDataNotLive],
+            checked_ts: Utc::now(),
+        }
+    } else {
+        BrokerReadiness {
+            phase: ReadinessPhase::Reconciliation,
+            reasons: vec![ReadinessReason::OperatorLiveArmMissing],
+            checked_ts: Utc::now(),
+        }
+    }
 }
 
 async fn handle_finam_ws_text_message(
@@ -2132,6 +2159,19 @@ fn finam_ws_shadow_report_json(
         "timeframe": runtime.resolved.timeframe,
         "subscribe_bars": runtime.resolved.subscribe_bars,
         "subscribe_quotes": runtime.resolved.subscribe_quotes,
+        "strategy_market_data_source": if runtime.resolved.subscribe_bars {
+            "FinamWebSocketBarsLiveStream"
+        } else {
+            "NoStrategyMarketDataSource"
+        },
+        "rest_bars_used_for_strategy": false,
+        "rest_market_data_used_for_strategy": false,
+        "quotes_role": if runtime.resolved.subscribe_quotes {
+            "diagnostic_only"
+        } else {
+            "disabled"
+        },
+        "bars_stream_required_for_strategy_parity": true,
         "streams": {
             "health": runtime.gateway.config().redis.health_stream,
             "readiness": runtime.gateway.config().redis.readiness_stream,
@@ -7777,6 +7817,33 @@ mod tests {
         assert_eq!(
             resolved.gateway_config.redis.command_ack_stream,
             "finam_ws_shadow:command_acks_disabled"
+        );
+    }
+
+    #[test]
+    fn finam_ws_shadow_bars_are_required_for_strategy_parity_readiness() {
+        let no_bars = finam_ws_shadow_readiness_from_metrics(
+            true,
+            &FinamWsShadowMetrics {
+                quote_event_count: 5,
+                ..FinamWsShadowMetrics::default()
+            },
+        );
+        assert_eq!(no_bars.phase, ReadinessPhase::Degraded);
+        assert_eq!(no_bars.reasons, vec![ReadinessReason::MarketDataNotLive]);
+
+        let with_bars = finam_ws_shadow_readiness_from_metrics(
+            true,
+            &FinamWsShadowMetrics {
+                bar_event_count: 1,
+                final_bar_event_count: 1,
+                ..FinamWsShadowMetrics::default()
+            },
+        );
+        assert_eq!(with_bars.phase, ReadinessPhase::Reconciliation);
+        assert_eq!(
+            with_bars.reasons,
+            vec![ReadinessReason::OperatorLiveArmMissing]
         );
     }
 
