@@ -363,8 +363,40 @@ def collect_one_shot(args: argparse.Namespace) -> dict[str, Any]:
         f"--max-duration-seconds {int(args.max_duration_seconds)} "
         f"--max-messages {int(args.max_messages)}"
     )
-    output = ssh(args, command, timeout=max(90, int(args.max_duration_seconds) + 60))
-    return json.loads(output)
+    attempts = max(1, int(args.one_shot_retries))
+    last_error: str | None = None
+    for attempt in range(1, attempts + 1):
+        output = ssh(args, command, timeout=max(90, int(args.max_duration_seconds) + 60))
+        try:
+            report = parse_json_object(output)
+            if report.get("market_data", {}).get("published_market_data_count", 0) > 0:
+                return report
+            last_error = "one-shot report had no market data"
+        except ValueError as error:
+            last_error = str(error)
+        if attempt < attempts:
+            time.sleep(2)
+    raise RuntimeError(f"failed to collect one-shot JSON report: {last_error}")
+
+
+def parse_json_object(output: str) -> dict[str, Any]:
+    start = output.find("{")
+    end = output.rfind("}")
+    if start < 0 or end < start:
+        raise ValueError(
+            "stdout does not contain a JSON object "
+            f"(len={len(output)}, sha256={sha256_text(output)})"
+        )
+    try:
+        value = json.loads(output[start : end + 1])
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            "stdout JSON object decode failed "
+            f"(len={len(output)}, sha256={sha256_text(output)}, error={error})"
+        ) from error
+    if not isinstance(value, dict):
+        raise ValueError("stdout JSON value is not an object")
+    return value
 
 
 def local_forbidden_surface_scan() -> dict[str, Any]:
@@ -437,6 +469,7 @@ def main() -> int:
     parser.add_argument("--ssh-retries", type=int, default=3)
     parser.add_argument("--max-duration-seconds", type=int, default=30)
     parser.add_argument("--max-messages", type=int, default=20)
+    parser.add_argument("--one-shot-retries", type=int, default=2)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--skip-cargo", action="store_true")
     args = parser.parse_args()
