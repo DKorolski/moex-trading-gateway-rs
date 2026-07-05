@@ -32,8 +32,17 @@ The typed canonical record must include:
 - `actual_send_allowed = false`;
 - `order_post_delete_calls_performed = false`;
 - `live_order_calls_performed = false`.
+- quote freshness diagnostics:
+  - `package_received_ts`;
+  - `quote_observed_ts`;
+  - `quote_age_ms_at_package_ts`;
+  - `quote_max_age_ms`;
+  - `quote_fresh_at_package_ts`;
+  - `quotes_stale_block_present`.
 
 If the operator-approved no-send waiver is supplied, the final canonical preflight may become `allowed = true`, but `no_live_authorization` must remain true and the report decision must remain `NoSendPreAuthorizationReady`, not actual execution.
+
+If the waiver removes `StopOrderUnsupportedBlocked` but `QuotesStale` remains, the report must stay `NoSendBlocked`. This is a freshness guard, not a waiver target.
 
 ## Operator approval boundary
 

@@ -6254,6 +6254,20 @@ async fn run_typed_canonical_readiness_package_probe(
     let m4_2j_no_send_pre_authorization_ready = plain_micro_stop_waiver_operator_approved_no_send
         && package.canonical_preflight_decision.allowed
         && package.no_live_authorization;
+    let quote_observed_ts = package.broker_readiness.quotes.observed_ts;
+    let quote_age_ms_at_package_ts = quote_observed_ts.map(|observed_ts| {
+        received_ts
+            .signed_duration_since(observed_ts)
+            .num_milliseconds()
+    });
+    let quote_fresh_at_package_ts = package.broker_readiness.quotes.is_fresh_at(received_ts);
+    let quote_timestamp_present = quote.quote.timestamp.is_some();
+    let quotes_stale_block_present = package
+        .canonical_preflight_decision
+        .readiness_decision
+        .blocks
+        .iter()
+        .any(|block| format!("{block:?}") == "QuotesStale");
     let final_decision = if m4_2j_no_send_pre_authorization_ready {
         "NoSendPreAuthorizationReady"
     } else {
@@ -6374,6 +6388,32 @@ async fn run_typed_canonical_readiness_package_probe(
     summary_map.insert(
         "margin_sufficiency".to_string(),
         json_value(format!("{:?}", package.margin_sufficiency)),
+    );
+    summary_map.insert("package_received_ts".to_string(), json_value(received_ts));
+    summary_map.insert("quote_probe_ok".to_string(), json_value(true));
+    summary_map.insert(
+        "quote_timestamp_present".to_string(),
+        json_value(quote_timestamp_present),
+    );
+    summary_map.insert(
+        "quote_observed_ts".to_string(),
+        json_value(quote_observed_ts),
+    );
+    summary_map.insert(
+        "quote_age_ms_at_package_ts".to_string(),
+        json_value(quote_age_ms_at_package_ts),
+    );
+    summary_map.insert(
+        "quote_max_age_ms".to_string(),
+        json_value(package.broker_readiness.quotes.max_age_ms),
+    );
+    summary_map.insert(
+        "quote_fresh_at_package_ts".to_string(),
+        json_value(quote_fresh_at_package_ts),
+    );
+    summary_map.insert(
+        "quotes_stale_block_present".to_string(),
+        json_value(quotes_stale_block_present),
     );
     summary_map.insert(
         "plain_micro_stop_waiver_requested".to_string(),

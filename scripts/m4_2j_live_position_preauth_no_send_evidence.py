@@ -30,6 +30,8 @@ DOC_MARKERS = [
     "plain_micro_stop_waiver_operator_approval_present",
     "StopOrderNotRequiredForPlainMicro",
     "actual_send_allowed = false",
+    "quote_age_ms_at_package_ts",
+    "quotes_stale_block_present",
     "order_post_delete_calls_performed = false",
     "Live expansion remains blocked after M4-2j",
 ]
@@ -45,6 +47,9 @@ CLI_MARKERS = [
     "pre_authorization_evidence_only",
     "actual_send_allowed",
     "NoSendPreAuthorizationReady",
+    "quote_age_ms_at_package_ts",
+    "quote_fresh_at_package_ts",
+    "quotes_stale_block_present",
 ]
 
 CORE_CONFIG_MARKERS = [
@@ -170,6 +175,10 @@ def validate_typed_readonly_report(path: Path | None, required: bool) -> dict[st
             summary.get("final_decision") == "NoSendPreAuthorizationReady",
             summary.get("actual_send_allowed") is False,
             summary.get("no_live_authorization") is True,
+            isinstance(summary.get("quote_age_ms_at_package_ts"), int),
+            isinstance(summary.get("quote_max_age_ms"), int),
+            summary.get("quote_fresh_at_package_ts") is True,
+            summary.get("quotes_stale_block_present") is False,
             summary.get("order_post_delete_calls_performed") is False,
             summary.get("live_order_calls_performed") is False,
             summary.get("trades_window_explicit") is True,
