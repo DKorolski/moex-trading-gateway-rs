@@ -6,11 +6,11 @@ use broker_core::CancelPreflightApproval;
 use broker_core::{
     BrokerAccountId, BrokerCapabilityMatrix, BrokerCommand, BrokerFreshnessConfig,
     BrokerLifecycleConfig, BrokerLiveEntryScope, BrokerOperationalConfig, BrokerOrderId,
-    BrokerReadiness, BrokerRiskLimitConfig, BrokerScopeConfig, BrokerTimeoutConfig, ClientOrderId,
-    Envelope, Exchange, InMemoryOrderPathStore, InstrumentId, Market, MarketDataEvent,
-    MarketDataSourceKind, MessageType, OperatorArm, Order, OrderPathEvent, OrderPathRecord,
-    OrderPreflightPolicy, OrderSide, OrderStatus, OrderType, PlaceOrder, PortfolioSnapshot,
-    ReadinessPhase, ReadinessReason, StrategyRequestId, TimeInForce,
+    BrokerReadiness, BrokerRiskLimitConfig, BrokerScopeConfig, BrokerTimeoutConfig,
+    BrokerTruthSnapshot, ClientOrderId, Envelope, Exchange, InMemoryOrderPathStore, InstrumentId,
+    Market, MarketDataEvent, MarketDataSourceKind, MessageType, OperatorArm, Order, OrderPathEvent,
+    OrderPathRecord, OrderPreflightPolicy, OrderSide, OrderStatus, OrderType, PlaceOrder,
+    PortfolioSnapshot, ReadinessPhase, ReadinessReason, StrategyRequestId, TimeInForce,
 };
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::{OrderPreflightContext, OrderReferencePrice};
@@ -6080,6 +6080,9 @@ async fn run_typed_canonical_readiness_package_probe(
     let trades_result = client
         .account_trades_typed(token, account_id, history_query)
         .await;
+    let transactions_result = client
+        .account_transactions_typed(token, account_id, history_query)
+        .await;
     let asset = match client.asset_typed(token, symbol, Some(account_id)).await {
         Ok(asset) => asset,
         Err(error) => return canonical_readiness_package_error_record("asset_typed", &error),
@@ -6108,6 +6111,14 @@ async fn run_typed_canonical_readiness_package_probe(
         .err()
         .map(FinamError::to_redacted_string);
     let trades = trades_result.ok();
+    let transactions_error = transactions_result
+        .as_ref()
+        .err()
+        .map(FinamError::to_redacted_string);
+    let transactions_count = transactions_result
+        .as_ref()
+        .ok()
+        .map(|transactions| transactions.transactions.len());
     let received_ts = Utc::now();
     let instrument_artifacts = [FinamInstrumentSpecArtifacts {
         asset: &asset,
@@ -6173,6 +6184,19 @@ async fn run_typed_canonical_readiness_package_probe(
                 || trade.expiration_date.is_some()
         })
         .count();
+    let orphan_order_reasons_by_kind = orphan_order_reasons_by_kind(&package.broker_truth);
+    let filled_orders_count = package
+        .broker_truth
+        .orders
+        .iter()
+        .filter(|order| order.filled_qty > Decimal::ZERO)
+        .count();
+    let canonical_preflight_blocks = package
+        .canonical_preflight_decision
+        .blocks
+        .iter()
+        .map(|block| format!("{block:?}"))
+        .collect::<Vec<_>>();
 
     serde_json::json!({
         "probe": "canonical_readiness_package_typed",
@@ -6201,19 +6225,56 @@ async fn run_typed_canonical_readiness_package_probe(
                 .account_active_orders_count,
             "canonical_preflight_allowed": package.canonical_preflight_decision.allowed,
             "canonical_preflight_blocks_count": package.canonical_preflight_decision.blocks.len(),
+            "canonical_preflight_blocks": canonical_preflight_blocks,
             "margin_sufficiency": format!("{:?}", package.margin_sufficiency),
             "stop_order_waiver_applied": package
                 .canonical_preflight_decision
                 .stop_order_waiver_decision
                 .applied,
             "no_live_authorization": package.no_live_authorization,
+            "filled_orders_count": filled_orders_count,
+            "orphan_order_reasons_by_kind": orphan_order_reasons_by_kind,
+            "trades_window_start_ts": history_query.start_time,
+            "trades_window_end_ts": history_query.end_time,
+            "trades_window_explicit": history_query.start_time.is_some()
+                && history_query.end_time.is_some(),
             "trades_probe_ok": trades_error.is_none(),
             "trades_error_present": trades_error.is_some(),
+            "transactions_probe_ok": transactions_error.is_none(),
+            "transactions_error_present": transactions_error.is_some(),
+            "transactions_count": transactions_count,
+            "account_orders_history_window": {
+                "kind": "account_orders_unwindowed_current_endpoint",
+                "explicit_window_supported_by_current_cli": false,
+            },
+            "readonly_broker_calls_performed": true,
+            "readonly_broker_call_kinds": [
+                "account",
+                "account_orders",
+                "account_trades",
+                "account_transactions",
+                "asset",
+                "asset_params",
+                "asset_schedule",
+                "last_quote"
+            ],
+            "order_post_delete_calls_performed": false,
+            "live_order_calls_performed": false,
         },
         "live_trading_enabled": false,
         "order_endpoints_used": false,
         "typed_probe": true,
     })
+}
+
+fn orphan_order_reasons_by_kind(truth: &BrokerTruthSnapshot) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for order in truth.account_orphan_orders() {
+        for reason in truth.orphan_reasons_for_order(order) {
+            *counts.entry(format!("{reason:?}")).or_insert(0) += 1;
+        }
+    }
+    counts
 }
 
 fn canonical_readiness_package_error_record(stage: &str, error: &FinamError) -> serde_json::Value {
