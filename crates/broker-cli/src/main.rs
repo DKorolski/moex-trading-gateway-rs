@@ -6,11 +6,12 @@ use broker_core::CancelPreflightApproval;
 use broker_core::{
     BrokerAccountId, BrokerCapabilityMatrix, BrokerCommand, BrokerFreshnessConfig,
     BrokerLifecycleConfig, BrokerLiveEntryScope, BrokerOperationalConfig, BrokerOrderId,
-    BrokerReadiness, BrokerRiskLimitConfig, BrokerScopeConfig, BrokerTimeoutConfig,
-    BrokerTruthSnapshot, ClientOrderId, Envelope, Exchange, InMemoryOrderPathStore, InstrumentId,
-    Market, MarketDataEvent, MarketDataSourceKind, MessageType, OperatorArm, Order, OrderPathEvent,
-    OrderPathRecord, OrderPreflightPolicy, OrderSide, OrderStatus, OrderType, PlaceOrder,
-    PortfolioSnapshot, ReadinessPhase, ReadinessReason, StrategyRequestId, TimeInForce,
+    BrokerPlainMicroStopOrderWaiverPolicy, BrokerReadiness, BrokerRiskLimitConfig,
+    BrokerScopeConfig, BrokerTimeoutConfig, BrokerTruthSnapshot, ClientOrderId, Envelope, Exchange,
+    InMemoryOrderPathStore, InstrumentId, Market, MarketDataEvent, MarketDataSourceKind,
+    MessageType, OperatorArm, Order, OrderPathEvent, OrderPathRecord, OrderPreflightPolicy,
+    OrderSide, OrderStatus, OrderType, PlaceOrder, PortfolioSnapshot, ReadinessPhase,
+    ReadinessReason, StrategyRequestId, TimeInForce,
 };
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::{OrderPreflightContext, OrderReferencePrice};
@@ -155,6 +156,9 @@ enum Command {
         /// Optional file path for saving typed redacted probe records as JSON.
         #[arg(long)]
         output: Option<PathBuf>,
+        /// M4-2j no-send only: evaluate explicit plain-micro stop-order waiver in canonical package.
+        #[arg(long, default_value_t = false)]
+        plain_micro_stop_waiver_operator_approved_no_send: bool,
     },
     /// Run a read-only FINAM bar timestamp/finality golden-test harness.
     #[command(name = "finam-bar-finality-golden-check")]
@@ -717,6 +721,7 @@ async fn main() -> Result<()> {
             end_time,
             limit,
             output,
+            plain_micro_stop_waiver_operator_approved_no_send,
         } => {
             let mut records = Vec::new();
             let secret = SecretToken::new(std::env::var(&secret_env)?);
@@ -977,6 +982,7 @@ async fn main() -> Result<()> {
                             account_id,
                             symbol,
                             history_query,
+                            plain_micro_stop_waiver_operator_approved_no_send,
                         )
                         .await;
                         emit_record(&mut records, record)?;
@@ -6066,6 +6072,7 @@ async fn run_typed_canonical_readiness_package_probe(
     account_id: &str,
     symbol: &str,
     history_query: HistoryQuery<'_>,
+    plain_micro_stop_waiver_operator_approved_no_send: bool,
 ) -> serde_json::Value {
     let account = match client.account_typed(token, account_id).await {
         Ok(account) => account,
@@ -6133,7 +6140,7 @@ async fn run_typed_canonical_readiness_package_probe(
     };
     let operational_config = typed_readonly_canonical_operational_config(account_id, symbol);
     let capabilities = typed_readonly_canonical_capabilities();
-    let package =
+    let pre_waiver_package =
         match build_finam_canonical_readiness_package(FinamCanonicalReadinessPackageInput {
             account: &account,
             orders: &orders,
@@ -6149,6 +6156,39 @@ async fn run_typed_canonical_readiness_package_probe(
             capabilities: &capabilities,
             live_entry_scope: &scope,
             stop_order_waiver_policy: None,
+            received_ts,
+        }) {
+            Ok(package) => package,
+            Err(error) => {
+                return serde_json::json!({
+                    "probe": "canonical_readiness_package_typed",
+                    "ok": false,
+                    "error_kind": "mapper_error",
+                    "error": error.to_string(),
+                    "live_trading_enabled": false,
+                    "order_endpoints_used": false,
+                    "typed_probe": true,
+                })
+            }
+        };
+    let waiver_policy = plain_micro_stop_waiver_operator_approved_no_send
+        .then(|| typed_readonly_plain_micro_stop_waiver_policy(account_id, symbol));
+    let package =
+        match build_finam_canonical_readiness_package(FinamCanonicalReadinessPackageInput {
+            account: &account,
+            orders: &orders,
+            trades: trades.as_ref(),
+            quote: Some(&quote),
+            instruments: &instrument_artifacts,
+            schedule: Some(&schedule),
+            target_instrument: &target,
+            side: OrderSide::Buy,
+            qty: Decimal::ONE,
+            reference_price: Decimal::ONE,
+            operational_config: &operational_config,
+            capabilities: &capabilities,
+            live_entry_scope: &scope,
+            stop_order_waiver_policy: waiver_policy.as_ref(),
             received_ts,
         }) {
             Ok(package) => package,
@@ -6197,70 +6237,248 @@ async fn run_typed_canonical_readiness_package_probe(
         .iter()
         .map(|block| format!("{block:?}"))
         .collect::<Vec<_>>();
+    let pre_waiver_canonical_preflight_blocks = pre_waiver_package
+        .canonical_preflight_decision
+        .blocks
+        .iter()
+        .map(|block| format!("{block:?}"))
+        .collect::<Vec<_>>();
+    let waiver_decision = &package
+        .canonical_preflight_decision
+        .stop_order_waiver_decision;
+    let waiver_rejections = waiver_decision
+        .rejections
+        .iter()
+        .map(|rejection| format!("{rejection:?}"))
+        .collect::<Vec<_>>();
+    let m4_2j_no_send_pre_authorization_ready = plain_micro_stop_waiver_operator_approved_no_send
+        && package.canonical_preflight_decision.allowed
+        && package.no_live_authorization;
+    let final_decision = if m4_2j_no_send_pre_authorization_ready {
+        "NoSendPreAuthorizationReady"
+    } else {
+        "NoSendBlocked"
+    };
+    let operator_scope = serde_json::json!({
+        "qty": "1",
+        "side": "buy",
+        "order_type": "market",
+        "one_account": true,
+        "one_symbol": true,
+        "runtime_live_enabled": false,
+        "command_consumer_to_real_finam_enabled": false,
+        "stop_sltp_bracket_replace_multi_leg_enabled": false
+    });
+    let account_orders_history_window = serde_json::json!({
+        "kind": "account_orders_unwindowed_current_endpoint",
+        "explicit_window_supported_by_current_cli": false,
+    });
+    let readonly_broker_call_kinds = serde_json::json!([
+        "account",
+        "account_orders",
+        "account_trades",
+        "account_transactions",
+        "asset",
+        "asset_params",
+        "asset_schedule",
+        "last_quote"
+    ]);
+    let mut summary_map = serde_json::Map::new();
+    summary_map.insert(
+        "truth_source".to_string(),
+        json_value("BrokerTruthSnapshot"),
+    );
+    summary_map.insert(
+        "readiness_source".to_string(),
+        json_value("BrokerReadinessSnapshot"),
+    );
+    summary_map.insert(
+        "package_source".to_string(),
+        json_value("FinamCanonicalReadinessPackage"),
+    );
+    summary_map.insert(
+        "orders_count".to_string(),
+        json_value(package.broker_truth.orders.len()),
+    );
+    summary_map.insert(
+        "positions_count".to_string(),
+        json_value(package.broker_truth.positions.len()),
+    );
+    summary_map.insert(
+        "trades_count".to_string(),
+        json_value(package.broker_truth.trades.len()),
+    );
+    summary_map.insert(
+        "instruments_count".to_string(),
+        json_value(package.broker_truth.instruments.len()),
+    );
+    summary_map.insert(
+        "enriched_orders_count".to_string(),
+        json_value(enriched_orders_count),
+    );
+    summary_map.insert(
+        "enriched_trades_count".to_string(),
+        json_value(enriched_trades_count),
+    );
+    summary_map.insert(
+        "account_orphan_orders_count".to_string(),
+        json_value(
+            package
+                .canonical_preflight_decision
+                .truth_summary
+                .account_orphan_orders_count,
+        ),
+    );
+    summary_map.insert(
+        "target_active_orders_count".to_string(),
+        json_value(
+            package
+                .canonical_preflight_decision
+                .truth_summary
+                .target_active_orders_count,
+        ),
+    );
+    summary_map.insert(
+        "account_active_orders_count".to_string(),
+        json_value(
+            package
+                .canonical_preflight_decision
+                .truth_summary
+                .account_active_orders_count,
+        ),
+    );
+    summary_map.insert(
+        "pre_waiver_canonical_preflight_allowed".to_string(),
+        json_value(pre_waiver_package.canonical_preflight_decision.allowed),
+    );
+    summary_map.insert(
+        "pre_waiver_canonical_preflight_blocks_count".to_string(),
+        json_value(pre_waiver_package.canonical_preflight_decision.blocks.len()),
+    );
+    summary_map.insert(
+        "pre_waiver_canonical_preflight_blocks".to_string(),
+        json_value(pre_waiver_canonical_preflight_blocks),
+    );
+    summary_map.insert(
+        "canonical_preflight_allowed".to_string(),
+        json_value(package.canonical_preflight_decision.allowed),
+    );
+    summary_map.insert(
+        "canonical_preflight_blocks_count".to_string(),
+        json_value(package.canonical_preflight_decision.blocks.len()),
+    );
+    summary_map.insert(
+        "canonical_preflight_blocks".to_string(),
+        json_value(canonical_preflight_blocks),
+    );
+    summary_map.insert(
+        "margin_sufficiency".to_string(),
+        json_value(format!("{:?}", package.margin_sufficiency)),
+    );
+    summary_map.insert(
+        "plain_micro_stop_waiver_requested".to_string(),
+        json_value(plain_micro_stop_waiver_operator_approved_no_send),
+    );
+    summary_map.insert(
+        "plain_micro_stop_waiver_operator_approval_present".to_string(),
+        json_value(plain_micro_stop_waiver_operator_approved_no_send),
+    );
+    summary_map.insert(
+        "plain_micro_stop_waiver_source".to_string(),
+        json_value(format!("{:?}", waiver_decision.source)),
+    );
+    summary_map.insert(
+        "stop_order_waiver_applied".to_string(),
+        json_value(
+            package
+                .canonical_preflight_decision
+                .stop_order_waiver_decision
+                .applied,
+        ),
+    );
+    summary_map.insert(
+        "plain_micro_stop_waiver_rejections".to_string(),
+        json_value(waiver_rejections),
+    );
+    summary_map.insert("m4_2j_pre_authorization_gate".to_string(), json_value(true));
+    summary_map.insert(
+        "m4_2j_no_send_pre_authorization_ready".to_string(),
+        json_value(m4_2j_no_send_pre_authorization_ready),
+    );
+    summary_map.insert(
+        "pre_authorization_evidence_only".to_string(),
+        json_value(true),
+    );
+    summary_map.insert("final_decision".to_string(), json_value(final_decision));
+    summary_map.insert("actual_send_allowed".to_string(), json_value(false));
+    summary_map.insert("operator_scope".to_string(), operator_scope);
+    summary_map.insert(
+        "no_live_authorization".to_string(),
+        json_value(package.no_live_authorization),
+    );
+    summary_map.insert(
+        "filled_orders_count".to_string(),
+        json_value(filled_orders_count),
+    );
+    summary_map.insert(
+        "orphan_order_reasons_by_kind".to_string(),
+        json_value(orphan_order_reasons_by_kind),
+    );
+    summary_map.insert(
+        "trades_window_start_ts".to_string(),
+        json_value(history_query.start_time),
+    );
+    summary_map.insert(
+        "trades_window_end_ts".to_string(),
+        json_value(history_query.end_time),
+    );
+    summary_map.insert(
+        "trades_window_explicit".to_string(),
+        json_value(history_query.start_time.is_some() && history_query.end_time.is_some()),
+    );
+    summary_map.insert(
+        "trades_probe_ok".to_string(),
+        json_value(trades_error.is_none()),
+    );
+    summary_map.insert(
+        "trades_error_present".to_string(),
+        json_value(trades_error.is_some()),
+    );
+    summary_map.insert(
+        "transactions_probe_ok".to_string(),
+        json_value(transactions_error.is_none()),
+    );
+    summary_map.insert(
+        "transactions_error_present".to_string(),
+        json_value(transactions_error.is_some()),
+    );
+    summary_map.insert(
+        "transactions_count".to_string(),
+        json_value(transactions_count),
+    );
+    summary_map.insert(
+        "account_orders_history_window".to_string(),
+        account_orders_history_window,
+    );
+    summary_map.insert(
+        "readonly_broker_calls_performed".to_string(),
+        json_value(true),
+    );
+    summary_map.insert(
+        "readonly_broker_call_kinds".to_string(),
+        readonly_broker_call_kinds,
+    );
+    summary_map.insert(
+        "order_post_delete_calls_performed".to_string(),
+        json_value(false),
+    );
+    summary_map.insert("live_order_calls_performed".to_string(), json_value(false));
+    let summary = serde_json::Value::Object(summary_map);
 
     serde_json::json!({
         "probe": "canonical_readiness_package_typed",
         "ok": true,
-        "summary": {
-            "truth_source": "BrokerTruthSnapshot",
-            "readiness_source": "BrokerReadinessSnapshot",
-            "package_source": "FinamCanonicalReadinessPackage",
-            "orders_count": package.broker_truth.orders.len(),
-            "positions_count": package.broker_truth.positions.len(),
-            "trades_count": package.broker_truth.trades.len(),
-            "instruments_count": package.broker_truth.instruments.len(),
-            "enriched_orders_count": enriched_orders_count,
-            "enriched_trades_count": enriched_trades_count,
-            "account_orphan_orders_count": package
-                .canonical_preflight_decision
-                .truth_summary
-                .account_orphan_orders_count,
-            "target_active_orders_count": package
-                .canonical_preflight_decision
-                .truth_summary
-                .target_active_orders_count,
-            "account_active_orders_count": package
-                .canonical_preflight_decision
-                .truth_summary
-                .account_active_orders_count,
-            "canonical_preflight_allowed": package.canonical_preflight_decision.allowed,
-            "canonical_preflight_blocks_count": package.canonical_preflight_decision.blocks.len(),
-            "canonical_preflight_blocks": canonical_preflight_blocks,
-            "margin_sufficiency": format!("{:?}", package.margin_sufficiency),
-            "stop_order_waiver_applied": package
-                .canonical_preflight_decision
-                .stop_order_waiver_decision
-                .applied,
-            "no_live_authorization": package.no_live_authorization,
-            "filled_orders_count": filled_orders_count,
-            "orphan_order_reasons_by_kind": orphan_order_reasons_by_kind,
-            "trades_window_start_ts": history_query.start_time,
-            "trades_window_end_ts": history_query.end_time,
-            "trades_window_explicit": history_query.start_time.is_some()
-                && history_query.end_time.is_some(),
-            "trades_probe_ok": trades_error.is_none(),
-            "trades_error_present": trades_error.is_some(),
-            "transactions_probe_ok": transactions_error.is_none(),
-            "transactions_error_present": transactions_error.is_some(),
-            "transactions_count": transactions_count,
-            "account_orders_history_window": {
-                "kind": "account_orders_unwindowed_current_endpoint",
-                "explicit_window_supported_by_current_cli": false,
-            },
-            "readonly_broker_calls_performed": true,
-            "readonly_broker_call_kinds": [
-                "account",
-                "account_orders",
-                "account_trades",
-                "account_transactions",
-                "asset",
-                "asset_params",
-                "asset_schedule",
-                "last_quote"
-            ],
-            "order_post_delete_calls_performed": false,
-            "live_order_calls_performed": false,
-        },
+        "summary": summary,
         "live_trading_enabled": false,
         "order_endpoints_used": false,
         "typed_probe": true,
@@ -6275,6 +6493,27 @@ fn orphan_order_reasons_by_kind(truth: &BrokerTruthSnapshot) -> BTreeMap<String,
         }
     }
     counts
+}
+
+fn typed_readonly_plain_micro_stop_waiver_policy(
+    account_id: &str,
+    symbol: &str,
+) -> BrokerPlainMicroStopOrderWaiverPolicy {
+    BrokerPlainMicroStopOrderWaiverPolicy {
+        enabled: true,
+        operator_approved: true,
+        max_qty: Decimal::ONE,
+        allowed_accounts: vec![BrokerAccountId::new(account_id)],
+        allowed_symbols: vec![symbol.to_string()],
+        allowed_order_types: vec!["market".to_string(), "limit".to_string()],
+        runtime_live_enabled: false,
+        command_consumer_to_real_finam_enabled: false,
+        stop_sltp_bracket_replace_multi_leg_enabled: false,
+    }
+}
+
+fn json_value<T: serde::Serialize>(value: T) -> serde_json::Value {
+    serde_json::to_value(value).expect("redacted diagnostic JSON value must serialize")
 }
 
 fn canonical_readiness_package_error_record(stage: &str, error: &FinamError) -> serde_json::Value {
