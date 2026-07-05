@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Generate M4-2f-a combined canonical preflight decision evidence.
+"""Generate M4-2g stop-order plain-micro waiver policy evidence.
 
-No broker calls are performed. The script validates that package-level
-preflight uses a single combined decision over readiness, margin sufficiency,
-and canonical truth/order safety.
+No broker calls are performed. The script validates that stop-order unsupported
+can be waived only by an explicit narrow plain market/limit micro policy, while
+runtime-live and command-consumer-to-real-FINAM remain disabled.
 """
 
 from __future__ import annotations
@@ -19,59 +19,55 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 
-DOC = Path("docs/m4-2f-a-combined-canonical-preflight-decision.md")
-M4_2F_DOC = Path("docs/m4-2f-canonical-readiness-economics-closure.md")
+DOC = Path("docs/m4-2g-canonical-live-entry-policy-stop-order-waiver.md")
 BROKER_CORE_CONFIG = Path("crates/broker-core/src/operational_config.rs")
 BROKER_CORE_LIB = Path("crates/broker-core/src/lib.rs")
 BROKER_FINAM_MAPPER = Path("crates/broker-finam/src/mapper.rs")
 BROKER_CLI = Path("crates/broker-cli/src/main.rs")
 
 DOC_MARKERS = [
-    "BrokerCanonicalPreflightDecision",
-    "FinamCanonicalReadinessPackage",
-    "canonical_preflight_decision",
-    "final_preflight_allowed",
-    "MarginInsufficient",
-    "MissingInitialMargin",
-    "TargetPositionNotFlat",
-    "AccountActiveOrdersPresent",
-    "reference_price is a sanity guardrail input",
-    "Live expansion remains blocked after M4-2f-a",
-]
-
-M4_2F_DOC_MARKERS = [
-    "reference price sanity guardrail",
-    "required_margin = broker_provided_initial_margin_per_contract * qty",
+    "StopOrderNotRequiredForPlainMicro waiver may exist",
+    "BrokerStopOrderWaiverSource::StopOrderNotRequiredForPlainMicro",
+    "BrokerPlainMicroStopOrderWaiverPolicy",
+    "BrokerStopOrderWaiverDecision",
+    "BrokerCanonicalPreflightDecision.stop_order_waiver_decision",
+    "qty <= 1",
+    "explicit operator approval",
+    "runtime-live is disabled",
+    "command-consumer-to-real-FINAM is disabled",
+    "Stop/SLTP/bracket/replace/multi-leg features are disabled",
+    "BrokerCanonicalPreflightBlock::StopOrderWaiverRejected",
+    "no_live_authorization = true",
+    "New live-position tests remain blocked",
 ]
 
 CORE_CONFIG_MARKERS = [
-    "BrokerCanonicalPreflightBlock",
-    "BrokerCanonicalPreflightDecision",
-    "from_readiness_margin_and_truth",
-    "margin_sufficiency_block",
-    "Readiness(BrokerLiveEntryBlock)",
-    "MarginInsufficient",
-    "MissingInitialMargin",
-    "TargetPositionNotFlat",
-    "AccountActiveOrdersPresent",
-    "combined_canonical_preflight_allows_only_when_readiness_margin_and_truth_are_clean",
-    "combined_canonical_preflight_blocks_all_margin_failures_even_when_readiness_is_clean",
-    "combined_canonical_preflight_blocks_target_and_account_order_safety_gaps",
+    "BrokerStopOrderWaiverSource",
+    "StopOrderNotRequiredForPlainMicro",
+    "BrokerStopOrderWaiverRejection",
+    "BrokerStopOrderWaiverDecision",
+    "BrokerPlainMicroStopOrderWaiverPolicy",
+    "StopOrderWaiverRejected",
+    "from_readiness_margin_truth_and_stop_order_waiver",
+    "strict_plain_micro_waiver_suppresses_only_stop_order_unsupported_block",
+    "plain_micro_waiver_rejects_out_of_scope_or_unsafe_runtime",
+    "plain_micro_waiver_does_not_suppress_missing_or_stale_stop_readiness",
 ]
 
 CORE_LIB_MARKERS = [
-    "BrokerCanonicalPreflightBlock",
-    "BrokerCanonicalPreflightDecision",
+    "BrokerPlainMicroStopOrderWaiverPolicy",
+    "BrokerStopOrderWaiverDecision",
+    "BrokerStopOrderWaiverRejection",
+    "BrokerStopOrderWaiverSource",
 ]
 
 FINAM_MAPPER_MARKERS = [
-    "BrokerCanonicalPreflightDecision",
-    "canonical_preflight_decision",
-    "from_readiness_margin_truth_and_stop_order_waiver",
-    "summarize_for_instrument",
-    "m4_2f_canonical_readiness_package_derives_margin_but_keeps_live_blocked",
-    "m4_2f_canonical_readiness_package_blocks_missing_initial_margin",
-    "m4_2fa_canonical_preflight_decision_blocks_insufficient_margin",
+    "stop_order_waiver_policy",
+    "BrokerPlainMicroStopOrderWaiverPolicy",
+    "BrokerStopOrderWaiverDecision::not_requested",
+    "m4_2g_plain_micro_stop_order_waiver_policy",
+    "m4_2g_plain_micro_stop_order_waiver_allows_preflight_but_not_live_authorization",
+    "no_live_authorization",
 ]
 
 CLI_MARKERS = [
@@ -134,29 +130,28 @@ def main() -> int:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("reports/m4/m4-2fa-combined-canonical-preflight-evidence.json"),
+        default=Path("reports/m4/m4-2g-stop-order-waiver-policy-evidence.json"),
     )
     args = parser.parse_args()
 
     artifacts = [
         artifact(DOC),
-        artifact(M4_2F_DOC),
         artifact(BROKER_CORE_CONFIG),
         artifact(BROKER_CORE_LIB),
         artifact(BROKER_FINAM_MAPPER),
         artifact(BROKER_CLI),
     ]
     doc_check = marker_check(DOC, DOC_MARKERS)
-    m4_2f_doc_check = marker_check(M4_2F_DOC, M4_2F_DOC_MARKERS)
     core_config_check = marker_check(BROKER_CORE_CONFIG, CORE_CONFIG_MARKERS)
     core_lib_check = marker_check(BROKER_CORE_LIB, CORE_LIB_MARKERS)
     finam_mapper_check = marker_check(BROKER_FINAM_MAPPER, FINAM_MAPPER_MARKERS)
     cli_check = marker_check(BROKER_CLI, CLI_MARKERS)
 
+    broker_core_plain_micro = run(["cargo", "test", "-p", "broker-core", "plain_micro"])
     broker_core_combined = run(["cargo", "test", "-p", "broker-core", "combined_canonical_preflight"])
     broker_core_operational = run(["cargo", "test", "-p", "broker-core", "operational"])
+    broker_finam_m4_2g = run(["cargo", "test", "-p", "broker-finam", "m4_2g"])
     broker_finam_m4_2f = run(["cargo", "test", "-p", "broker-finam", "m4_2f"])
-    broker_finam_m4_2fa = run(["cargo", "test", "-p", "broker-finam", "m4_2fa"])
     broker_cli_m4_1c = run(
         ["cargo", "test", "-p", "broker-cli", "m4_1c", "--no-default-features"]
     )
@@ -168,20 +163,19 @@ def main() -> int:
         "artifacts_present": all(item["exists"] for item in artifacts),
         "no_broker_calls_performed": True,
         "no_live_calls_performed": True,
-        "combined_preflight_type_exported_ok": core_config_check["ok"] and core_lib_check["ok"],
-        "readiness_blocks_preserved_ok": broker_core_combined["exit_code"] == 0
-        and core_config_check["ok"],
-        "margin_failures_block_combined_decision_ok": broker_core_combined["exit_code"] == 0
-        and broker_finam_m4_2fa["exit_code"] == 0,
-        "missing_initial_margin_blocks_combined_decision_ok": broker_finam_m4_2f["exit_code"] == 0,
-        "insufficient_margin_blocks_combined_decision_ok": broker_finam_m4_2fa["exit_code"] == 0,
-        "target_account_truth_safety_blocks_ok": broker_core_combined["exit_code"] == 0,
-        "finam_package_carries_combined_decision_ok": finam_mapper_check["ok"]
-        and broker_finam_m4_2f["exit_code"] == 0,
+        "waiver_source_policy_decision_exported_ok": core_config_check["ok"]
+        and core_lib_check["ok"],
+        "strict_plain_micro_waiver_positive_ok": broker_core_plain_micro["exit_code"] == 0
+        and broker_finam_m4_2g["exit_code"] == 0,
+        "out_of_scope_waiver_rejected_ok": broker_core_plain_micro["exit_code"] == 0,
+        "stale_missing_stop_order_not_waived_ok": broker_core_plain_micro["exit_code"] == 0,
+        "combined_preflight_preserves_non_stop_blocks_ok": broker_core_combined["exit_code"] == 0
+        and broker_core_operational["exit_code"] == 0,
+        "finam_package_carries_waiver_decision_ok": finam_mapper_check["ok"]
+        and broker_finam_m4_2g["exit_code"] == 0,
+        "m4_2f_regression_ok": broker_finam_m4_2f["exit_code"] == 0,
         "m4_1c_canonical_report_regression_ok": cli_check["ok"]
         and broker_cli_m4_1c["exit_code"] == 0,
-        "broker_core_operational_regression_ok": broker_core_operational["exit_code"] == 0,
-        "reference_price_guardrail_doc_ok": m4_2f_doc_check["ok"] and doc_check["ok"],
         "forbidden_surface_scan_ok": forbidden_scan["exit_code"] == 0,
         "forbidden_surface_negative_harness_ok": forbidden_negative["exit_code"] == 0,
         "order_endpoint_transition_scan_ok": order_transition_scan["exit_code"] == 0,
@@ -191,7 +185,7 @@ def main() -> int:
     evidence_ready = all(checks.values())
     head = git_head()
     payload: dict[str, Any] = {
-        "evidence_kind": "m4-2f-a-combined-canonical-preflight-decision-v1",
+        "evidence_kind": "m4-2g-stop-order-plain-micro-waiver-policy-v1",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "source_commit_full_sha": head,
         "source_commit_short_sha": head[:7],
@@ -203,34 +197,39 @@ def main() -> int:
             "command_consumer_to_real_finam_allowed": False,
             "stop_sltp_bracket_replace_multi_leg_allowed": False,
         },
-        "combined_decision_policy": {
-            "package_level_decision": "FinamCanonicalReadinessPackage.canonical_preflight_decision",
-            "final_allowed_source": "BrokerCanonicalPreflightDecision.allowed",
-            "readiness_only_decision_as_final_allowed": False,
-            "margin_sufficiency_required": "Sufficient",
-            "target_flat_required": True,
-            "account_active_unknown_orphan_orders_block": True,
-            "stop_order_unsupported_blocks_via_readiness": True,
+        "waiver_policy": {
+            "source": "StopOrderNotRequiredForPlainMicro",
+            "scope_limited": True,
+            "max_qty": "1",
+            "allowed_order_types": ["market", "limit"],
+            "operator_approval_required": True,
+            "one_account_required": True,
+            "one_symbol_required": True,
+            "runtime_live_must_be_disabled": True,
+            "command_consumer_to_real_finam_must_be_disabled": True,
+            "stop_sltp_bracket_replace_multi_leg_must_be_disabled": True,
+            "suppresses_only": "BrokerLiveEntryBlock::StopOrderUnsupportedBlocked",
         },
-        "reference_price_policy": {
-            "used_as_formula_multiplier": False,
-            "used_as_positive_sanity_guardrail": True,
-            "required_margin_formula": "initial_margin_per_contract * qty",
+        "package_policy": {
+            "preflight_allowed_source": "BrokerCanonicalPreflightDecision.allowed",
+            "waiver_evidence_source": "BrokerCanonicalPreflightDecision.stop_order_waiver_decision",
+            "finam_package_field": "FinamCanonicalReadinessPackage.canonical_preflight_decision",
+            "no_live_authorization_remains_true": True,
         },
         "artifacts": artifacts,
         "marker_checks": {
             "doc": doc_check,
-            "m4_2f_doc": m4_2f_doc_check,
             "broker_core_config": core_config_check,
             "broker_core_lib": core_lib_check,
             "broker_finam_mapper": finam_mapper_check,
             "broker_cli": cli_check,
         },
         "test_commands": {
+            "broker_core_plain_micro": broker_core_plain_micro,
             "broker_core_combined_canonical_preflight": broker_core_combined,
             "broker_core_operational": broker_core_operational,
+            "broker_finam_m4_2g": broker_finam_m4_2g,
             "broker_finam_m4_2f": broker_finam_m4_2f,
-            "broker_finam_m4_2fa": broker_finam_m4_2fa,
             "broker_cli_m4_1c_no_default_features": broker_cli_m4_1c,
             "forbidden_surface_scan": forbidden_scan,
             "forbidden_surface_negative_harness": forbidden_negative,

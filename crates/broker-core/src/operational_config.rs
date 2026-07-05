@@ -183,8 +183,133 @@ pub struct BrokerLiveEntryDecision {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BrokerStopOrderWaiverSource {
+    None,
+    StopOrderNotRequiredForPlainMicro,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BrokerStopOrderWaiverRejection {
+    PolicyDisabled,
+    StopOrderUnsupportedBlockAbsent,
+    OperatorApprovalMissing,
+    InvalidQuantity,
+    QuantityExceedsMax,
+    AccountNotAllowed,
+    SymbolNotAllowed,
+    OrderTypeNotPlainMarketLimit,
+    RuntimeLiveEnabled,
+    CommandConsumerToRealFinamEnabled,
+    StopSltpBracketReplaceMultiLegEnabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrokerStopOrderWaiverDecision {
+    pub source: BrokerStopOrderWaiverSource,
+    pub applied: bool,
+    pub rejections: Vec<BrokerStopOrderWaiverRejection>,
+}
+
+impl BrokerStopOrderWaiverDecision {
+    pub fn not_requested() -> Self {
+        Self {
+            source: BrokerStopOrderWaiverSource::None,
+            applied: false,
+            rejections: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrokerPlainMicroStopOrderWaiverPolicy {
+    pub enabled: bool,
+    pub operator_approved: bool,
+    pub max_qty: Decimal,
+    pub allowed_accounts: Vec<BrokerAccountId>,
+    pub allowed_symbols: Vec<String>,
+    pub allowed_order_types: Vec<String>,
+    pub runtime_live_enabled: bool,
+    pub command_consumer_to_real_finam_enabled: bool,
+    pub stop_sltp_bracket_replace_multi_leg_enabled: bool,
+}
+
+impl BrokerPlainMicroStopOrderWaiverPolicy {
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            operator_approved: false,
+            max_qty: Decimal::ONE,
+            allowed_accounts: Vec::new(),
+            allowed_symbols: Vec::new(),
+            allowed_order_types: vec!["market".to_string(), "limit".to_string()],
+            runtime_live_enabled: false,
+            command_consumer_to_real_finam_enabled: false,
+            stop_sltp_bracket_replace_multi_leg_enabled: false,
+        }
+    }
+
+    pub fn evaluate(
+        &self,
+        readiness_decision: &BrokerLiveEntryDecision,
+        scope: &BrokerLiveEntryScope,
+        qty: Decimal,
+    ) -> BrokerStopOrderWaiverDecision {
+        let mut rejections = Vec::new();
+        if !readiness_decision
+            .blocks
+            .contains(&BrokerLiveEntryBlock::StopOrderUnsupportedBlocked)
+        {
+            rejections.push(BrokerStopOrderWaiverRejection::StopOrderUnsupportedBlockAbsent);
+        }
+        if !self.enabled {
+            rejections.push(BrokerStopOrderWaiverRejection::PolicyDisabled);
+        }
+        if !self.operator_approved {
+            rejections.push(BrokerStopOrderWaiverRejection::OperatorApprovalMissing);
+        }
+        if qty <= Decimal::ZERO {
+            rejections.push(BrokerStopOrderWaiverRejection::InvalidQuantity);
+        }
+        if qty > self.max_qty {
+            rejections.push(BrokerStopOrderWaiverRejection::QuantityExceedsMax);
+        }
+        if !self.allowed_accounts.contains(&scope.account_id) {
+            rejections.push(BrokerStopOrderWaiverRejection::AccountNotAllowed);
+        }
+        if !self.allowed_symbols.contains(&scope.symbol) {
+            rejections.push(BrokerStopOrderWaiverRejection::SymbolNotAllowed);
+        }
+        let order_type_allowed = self
+            .allowed_order_types
+            .iter()
+            .any(|allowed| allowed.eq_ignore_ascii_case(&scope.order_type));
+        let order_type_is_plain_market_or_limit = scope.order_type.eq_ignore_ascii_case("market")
+            || scope.order_type.eq_ignore_ascii_case("limit");
+        if !order_type_allowed || !order_type_is_plain_market_or_limit {
+            rejections.push(BrokerStopOrderWaiverRejection::OrderTypeNotPlainMarketLimit);
+        }
+        if self.runtime_live_enabled {
+            rejections.push(BrokerStopOrderWaiverRejection::RuntimeLiveEnabled);
+        }
+        if self.command_consumer_to_real_finam_enabled {
+            rejections.push(BrokerStopOrderWaiverRejection::CommandConsumerToRealFinamEnabled);
+        }
+        if self.stop_sltp_bracket_replace_multi_leg_enabled {
+            rejections.push(BrokerStopOrderWaiverRejection::StopSltpBracketReplaceMultiLegEnabled);
+        }
+
+        BrokerStopOrderWaiverDecision {
+            source: BrokerStopOrderWaiverSource::StopOrderNotRequiredForPlainMicro,
+            applied: rejections.is_empty(),
+            rejections,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BrokerCanonicalPreflightBlock {
     Readiness(BrokerLiveEntryBlock),
+    StopOrderWaiverRejected,
     MarginInsufficient,
     MissingCashSnapshot,
     MissingFreeCash,
@@ -205,6 +330,7 @@ pub struct BrokerCanonicalPreflightDecision {
     pub readiness_decision: BrokerLiveEntryDecision,
     pub margin_sufficiency: BrokerOrderMarginSufficiency,
     pub truth_summary: BrokerTruthInstrumentSummary,
+    pub stop_order_waiver_decision: BrokerStopOrderWaiverDecision,
     pub allowed: bool,
     pub blocks: Vec<BrokerCanonicalPreflightBlock>,
 }
@@ -215,13 +341,41 @@ impl BrokerCanonicalPreflightDecision {
         margin_sufficiency: BrokerOrderMarginSufficiency,
         truth_summary: BrokerTruthInstrumentSummary,
     ) -> Self {
+        Self::from_readiness_margin_truth_and_stop_order_waiver(
+            readiness_decision,
+            margin_sufficiency,
+            truth_summary,
+            BrokerStopOrderWaiverDecision::not_requested(),
+        )
+    }
+
+    pub fn from_readiness_margin_truth_and_stop_order_waiver(
+        readiness_decision: BrokerLiveEntryDecision,
+        margin_sufficiency: BrokerOrderMarginSufficiency,
+        truth_summary: BrokerTruthInstrumentSummary,
+        stop_order_waiver_decision: BrokerStopOrderWaiverDecision,
+    ) -> Self {
+        let stop_order_unsupported_present = readiness_decision
+            .blocks
+            .contains(&BrokerLiveEntryBlock::StopOrderUnsupportedBlocked);
         let mut blocks = readiness_decision
             .blocks
             .iter()
             .copied()
+            .filter(|block| {
+                !(*block == BrokerLiveEntryBlock::StopOrderUnsupportedBlocked
+                    && stop_order_waiver_decision.applied)
+            })
             .map(BrokerCanonicalPreflightBlock::Readiness)
             .collect::<Vec<_>>();
 
+        if stop_order_unsupported_present
+            && stop_order_waiver_decision.source
+                == BrokerStopOrderWaiverSource::StopOrderNotRequiredForPlainMicro
+            && !stop_order_waiver_decision.applied
+        {
+            blocks.push(BrokerCanonicalPreflightBlock::StopOrderWaiverRejected);
+        }
         if let Some(block) = Self::margin_sufficiency_block(margin_sufficiency) {
             blocks.push(block);
         }
@@ -248,6 +402,7 @@ impl BrokerCanonicalPreflightDecision {
             readiness_decision,
             margin_sufficiency,
             truth_summary,
+            stop_order_waiver_decision,
             allowed: blocks.is_empty(),
             blocks,
         }
@@ -529,6 +684,20 @@ mod tests {
         BrokerTruthInstrumentSummary::default()
     }
 
+    fn plain_micro_stop_order_waiver_policy() -> BrokerPlainMicroStopOrderWaiverPolicy {
+        BrokerPlainMicroStopOrderWaiverPolicy {
+            enabled: true,
+            operator_approved: true,
+            max_qty: Decimal::ONE,
+            allowed_accounts: vec![BrokerAccountId::new("ACC_TEST_0001")],
+            allowed_symbols: vec!["IMOEXF@RTSX".to_string()],
+            allowed_order_types: vec!["market".to_string(), "limit".to_string()],
+            runtime_live_enabled: false,
+            command_consumer_to_real_finam_enabled: false,
+            stop_sltp_bracket_replace_multi_leg_enabled: false,
+        }
+    }
+
     #[test]
     fn fresh_canonical_readiness_allows_scoped_market_entry() {
         let now = Utc::now();
@@ -693,6 +862,141 @@ mod tests {
             .blocks
             .contains(&BrokerCanonicalPreflightBlock::Readiness(
                 BrokerLiveEntryBlock::StopOrderUnsupportedBlocked
+            )));
+    }
+
+    #[test]
+    fn combined_canonical_preflight_keeps_stop_order_block_without_waiver() {
+        let now = Utc::now();
+        let mut readiness = readiness(now);
+        readiness.stop_order_readiness = BrokerStopOrderReadiness::UnsupportedBlocked;
+        let readiness_decision =
+            readiness.live_entry_allowed(now, &config(), &capabilities(), &scope());
+
+        let decision = BrokerCanonicalPreflightDecision::from_readiness_margin_and_truth(
+            readiness_decision,
+            sufficient_margin(),
+            clean_truth_summary(),
+        );
+
+        assert!(!decision.allowed);
+        assert_eq!(
+            decision.stop_order_waiver_decision,
+            BrokerStopOrderWaiverDecision::not_requested()
+        );
+        assert!(decision
+            .blocks
+            .contains(&BrokerCanonicalPreflightBlock::Readiness(
+                BrokerLiveEntryBlock::StopOrderUnsupportedBlocked
+            )));
+    }
+
+    #[test]
+    fn strict_plain_micro_waiver_suppresses_only_stop_order_unsupported_block() {
+        let now = Utc::now();
+        let mut readiness = readiness(now);
+        readiness.stop_order_readiness = BrokerStopOrderReadiness::UnsupportedBlocked;
+        let readiness_decision =
+            readiness.live_entry_allowed(now, &config(), &capabilities(), &scope());
+        let waiver = plain_micro_stop_order_waiver_policy().evaluate(
+            &readiness_decision,
+            &scope(),
+            Decimal::ONE,
+        );
+
+        let decision =
+            BrokerCanonicalPreflightDecision::from_readiness_margin_truth_and_stop_order_waiver(
+                readiness_decision,
+                sufficient_margin(),
+                clean_truth_summary(),
+                waiver,
+            );
+
+        assert!(decision.stop_order_waiver_decision.applied);
+        assert!(decision.allowed);
+        assert!(!decision
+            .blocks
+            .contains(&BrokerCanonicalPreflightBlock::Readiness(
+                BrokerLiveEntryBlock::StopOrderUnsupportedBlocked
+            )));
+    }
+
+    #[test]
+    fn plain_micro_waiver_rejects_out_of_scope_or_unsafe_runtime() {
+        let now = Utc::now();
+        let mut readiness = readiness(now);
+        readiness.stop_order_readiness = BrokerStopOrderReadiness::UnsupportedBlocked;
+        let readiness_decision =
+            readiness.live_entry_allowed(now, &config(), &capabilities(), &scope());
+
+        let mut policy = plain_micro_stop_order_waiver_policy();
+        policy.operator_approved = false;
+        policy.command_consumer_to_real_finam_enabled = true;
+        let waiver = policy.evaluate(&readiness_decision, &scope(), Decimal::new(2, 0));
+
+        let decision =
+            BrokerCanonicalPreflightDecision::from_readiness_margin_truth_and_stop_order_waiver(
+                readiness_decision,
+                sufficient_margin(),
+                clean_truth_summary(),
+                waiver,
+            );
+
+        assert!(!decision.stop_order_waiver_decision.applied);
+        assert!(decision
+            .stop_order_waiver_decision
+            .rejections
+            .contains(&BrokerStopOrderWaiverRejection::OperatorApprovalMissing));
+        assert!(decision
+            .stop_order_waiver_decision
+            .rejections
+            .contains(&BrokerStopOrderWaiverRejection::QuantityExceedsMax));
+        assert!(decision
+            .stop_order_waiver_decision
+            .rejections
+            .contains(&BrokerStopOrderWaiverRejection::CommandConsumerToRealFinamEnabled));
+        assert!(!decision.allowed);
+        assert!(decision
+            .blocks
+            .contains(&BrokerCanonicalPreflightBlock::StopOrderWaiverRejected));
+        assert!(decision
+            .blocks
+            .contains(&BrokerCanonicalPreflightBlock::Readiness(
+                BrokerLiveEntryBlock::StopOrderUnsupportedBlocked
+            )));
+    }
+
+    #[test]
+    fn plain_micro_waiver_does_not_suppress_missing_or_stale_stop_readiness() {
+        let now = Utc::now();
+        let mut readiness = readiness(now);
+        readiness.stop_order_readiness = BrokerStopOrderReadiness::Stale;
+        let readiness_decision =
+            readiness.live_entry_allowed(now, &config(), &capabilities(), &scope());
+        let waiver = plain_micro_stop_order_waiver_policy().evaluate(
+            &readiness_decision,
+            &scope(),
+            Decimal::ONE,
+        );
+
+        let decision =
+            BrokerCanonicalPreflightDecision::from_readiness_margin_truth_and_stop_order_waiver(
+                readiness_decision,
+                sufficient_margin(),
+                clean_truth_summary(),
+                waiver,
+            );
+
+        assert!(!decision.stop_order_waiver_decision.applied);
+        assert!(decision
+            .stop_order_waiver_decision
+            .rejections
+            .contains(&BrokerStopOrderWaiverRejection::StopOrderUnsupportedBlockAbsent));
+        assert!(!decision.allowed);
+        assert!(decision
+            .blocks
+            .contains(&BrokerCanonicalPreflightBlock::Readiness(
+                BrokerLiveEntryBlock::StopOrderReadinessStale
             )));
     }
 

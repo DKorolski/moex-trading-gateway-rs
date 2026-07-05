@@ -12,7 +12,8 @@ use broker_core::instrument::{
 use broker_core::operational_config::{
     BrokerCanonicalPreflightDecision, BrokerCapabilityMatrix, BrokerFeedFreshness,
     BrokerLiveEntryDecision, BrokerLiveEntryScope, BrokerMarketSessionState,
-    BrokerOperationalConfig, BrokerReadinessSnapshot, BrokerStopOrderReadiness,
+    BrokerOperationalConfig, BrokerPlainMicroStopOrderWaiverPolicy, BrokerReadinessSnapshot,
+    BrokerStopOrderReadiness, BrokerStopOrderWaiverDecision,
 };
 use broker_core::operational_snapshot::{
     BrokerCashSnapshot, BrokerInstrumentSpec, BrokerOrderMarginSufficiency, BrokerOrderSnapshot,
@@ -329,6 +330,7 @@ pub struct FinamCanonicalReadinessPackageInput<'a> {
     pub operational_config: &'a BrokerOperationalConfig,
     pub capabilities: &'a BrokerCapabilityMatrix,
     pub live_entry_scope: &'a BrokerLiveEntryScope,
+    pub stop_order_waiver_policy: Option<&'a BrokerPlainMicroStopOrderWaiverPolicy>,
     pub received_ts: DateTime<Utc>,
 }
 
@@ -364,11 +366,16 @@ pub fn build_finam_canonical_readiness_package(
         input.live_entry_scope,
     );
     let truth_summary = broker_truth.summarize_for_instrument(input.target_instrument);
+    let stop_order_waiver_decision = input
+        .stop_order_waiver_policy
+        .map(|policy| policy.evaluate(&live_entry_decision, input.live_entry_scope, input.qty))
+        .unwrap_or_else(BrokerStopOrderWaiverDecision::not_requested);
     let canonical_preflight_decision =
-        BrokerCanonicalPreflightDecision::from_readiness_margin_and_truth(
+        BrokerCanonicalPreflightDecision::from_readiness_margin_truth_and_stop_order_waiver(
             live_entry_decision.clone(),
             margin_sufficiency,
             truth_summary,
+            stop_order_waiver_decision,
         );
     Ok(FinamCanonicalReadinessPackage {
         broker_truth,
@@ -1076,7 +1083,8 @@ mod tests {
     use super::*;
     use broker_core::{
         instrument_identity_matches, BrokerCanonicalPreflightBlock, BrokerLiveEntryBlock,
-        BrokerOrderIntentKind, BrokerScopeConfig, BrokerTimeoutConfig,
+        BrokerOrderIntentKind, BrokerPlainMicroStopOrderWaiverPolicy, BrokerScopeConfig,
+        BrokerStopOrderWaiverSource, BrokerTimeoutConfig,
     };
     use rust_decimal::Decimal;
 
@@ -1836,6 +1844,20 @@ mod tests {
         }
     }
 
+    fn m4_2g_plain_micro_stop_order_waiver_policy() -> BrokerPlainMicroStopOrderWaiverPolicy {
+        BrokerPlainMicroStopOrderWaiverPolicy {
+            enabled: true,
+            operator_approved: true,
+            max_qty: Decimal::ONE,
+            allowed_accounts: vec![BrokerAccountId::new("ACC_TEST_0001")],
+            allowed_symbols: vec!["IMOEXF@RTSX".to_string()],
+            allowed_order_types: vec!["market".to_string(), "limit".to_string()],
+            runtime_live_enabled: false,
+            command_consumer_to_real_finam_enabled: false,
+            stop_sltp_bracket_replace_multi_leg_enabled: false,
+        }
+    }
+
     #[test]
     fn m4_2d_enriched_broker_truth_maps_trades_instrument_spec_and_readiness() {
         let received_ts = parse_timestamp("test", "2026-07-04T14:57:18Z").expect("timestamp");
@@ -1974,6 +1996,7 @@ mod tests {
                 operational_config: &config,
                 capabilities: &capabilities,
                 live_entry_scope: &scope,
+                stop_order_waiver_policy: None,
                 received_ts,
             })
             .expect("canonical readiness package");
@@ -2047,6 +2070,7 @@ mod tests {
                 operational_config: &config,
                 capabilities: &capabilities,
                 live_entry_scope: &scope,
+                stop_order_waiver_policy: None,
                 received_ts,
             })
             .expect("canonical readiness package");
@@ -2103,6 +2127,7 @@ mod tests {
                 operational_config: &config,
                 capabilities: &capabilities,
                 live_entry_scope: &scope,
+                stop_order_waiver_policy: None,
                 received_ts,
             })
             .expect("canonical readiness package");
@@ -2118,5 +2143,71 @@ mod tests {
             .canonical_preflight_decision
             .blocks
             .contains(&BrokerCanonicalPreflightBlock::MarginInsufficient));
+    }
+
+    #[test]
+    fn m4_2g_plain_micro_stop_order_waiver_allows_preflight_but_not_live_authorization() {
+        let received_ts = parse_timestamp("test", "2026-07-04T14:57:18Z").expect("timestamp");
+        let account = m4_2d_account();
+        let orders = m4_2d_orders();
+        let trades = m4_2d_trades();
+        let asset = m4_2d_asset();
+        let params = m4_2d_params();
+        let schedule = m4_2d_schedule();
+        let quote = m4_2d_quote();
+        let instrument_artifacts = [FinamInstrumentSpecArtifacts {
+            asset: &asset,
+            params: &params,
+            schedule: &schedule,
+        }];
+        let target = instrument_id_from_symbol("IMOEXF@RTSX", Some("FUTURES"));
+        let scope = BrokerLiveEntryScope {
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            symbol: "IMOEXF@RTSX".to_string(),
+            order_type: "market".to_string(),
+        };
+        let config = m4_2f_operational_config();
+        let capabilities = m4_2f_capabilities();
+        let waiver_policy = m4_2g_plain_micro_stop_order_waiver_policy();
+
+        let package =
+            build_finam_canonical_readiness_package(FinamCanonicalReadinessPackageInput {
+                account: &account,
+                orders: &orders,
+                trades: Some(&trades),
+                quote: Some(&quote),
+                instruments: &instrument_artifacts,
+                schedule: Some(&schedule),
+                target_instrument: &target,
+                side: OrderSide::Buy,
+                qty: Decimal::ONE,
+                reference_price: Decimal::new(22275, 1),
+                operational_config: &config,
+                capabilities: &capabilities,
+                live_entry_scope: &scope,
+                stop_order_waiver_policy: Some(&waiver_policy),
+                received_ts,
+            })
+            .expect("canonical readiness package");
+
+        assert_eq!(
+            package.stop_order_policy,
+            BrokerStopOrderReadiness::UnsupportedBlocked
+        );
+        assert_eq!(
+            package
+                .canonical_preflight_decision
+                .stop_order_waiver_decision
+                .source,
+            BrokerStopOrderWaiverSource::StopOrderNotRequiredForPlainMicro
+        );
+        assert!(
+            package
+                .canonical_preflight_decision
+                .stop_order_waiver_decision
+                .applied
+        );
+        assert!(package.canonical_preflight_decision.allowed);
+        assert!(package.no_live_authorization);
     }
 }

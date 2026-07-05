@@ -37,8 +37,10 @@ pub use operational_config::{
     BrokerCanonicalPreflightBlock, BrokerCanonicalPreflightDecision, BrokerCapabilityMatrix,
     BrokerFeedFreshness, BrokerFreshnessConfig, BrokerLifecycleConfig, BrokerLiveEntryBlock,
     BrokerLiveEntryDecision, BrokerLiveEntryScope, BrokerMarketSessionState,
-    BrokerOperationalConfig, BrokerOrderIntentKind, BrokerReadinessSnapshot, BrokerRiskLimitConfig,
-    BrokerScopeConfig, BrokerStopOrderReadiness, BrokerTimeoutConfig,
+    BrokerOperationalConfig, BrokerOrderIntentKind, BrokerPlainMicroStopOrderWaiverPolicy,
+    BrokerReadinessSnapshot, BrokerRiskLimitConfig, BrokerScopeConfig, BrokerStopOrderReadiness,
+    BrokerStopOrderWaiverDecision, BrokerStopOrderWaiverRejection, BrokerStopOrderWaiverSource,
+    BrokerTimeoutConfig,
 };
 pub use operational_snapshot::{
     instrument_identity_matches, instrument_spec_identity_matches, BrokerCashSnapshot,
