@@ -1739,6 +1739,7 @@ struct FinamWsShadowMetrics {
     connection_count: u64,
     success_count: u64,
     failure_count: u64,
+    old_generation_message_count: u64,
     text_message_count: u64,
     data_envelope_count: u64,
     event_envelope_count: u64,
@@ -1767,6 +1768,12 @@ struct FinamWsShadowMetrics {
     stale_ws_final_bar_suppressed_count: u64,
     ping_count: u64,
     pong_count: u64,
+    bars_subscription_event_confirmed: bool,
+    bars_subscription_data_confirmed: bool,
+    quotes_subscription_event_confirmed: bool,
+    quotes_subscription_data_confirmed: bool,
+    first_subscription_event_type: Option<String>,
+    first_subscription_data_type: Option<String>,
     first_live_bar_seen: bool,
     first_live_final_bar_seen: bool,
     first_live_final_bar_close_ts: Option<DateTime<Utc>>,
@@ -1806,6 +1813,48 @@ struct FinamWsShadowIterationReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+enum FinamWsSubscriptionStatus {
+    Disabled,
+    Pending,
+    EventConfirmed,
+    DataConfirmed,
+    TimeoutDegraded,
+}
+
+impl FinamWsSubscriptionStatus {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Disabled => "Disabled",
+            Self::Pending => "Pending",
+            Self::EventConfirmed => "EventConfirmed",
+            Self::DataConfirmed => "DataConfirmed",
+            Self::TimeoutDegraded => "TimeoutDegraded",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FinamWsSubscriptionConfirmation {
+    subscription_type: &'static str,
+    desired: bool,
+    active: bool,
+    pending: bool,
+    status: FinamWsSubscriptionStatus,
+    confirmation_source: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FinamWsGenerationSubscriptionState {
+    ws_generation_id: String,
+    desired_subscriptions: Vec<&'static str>,
+    active_subscriptions: Vec<&'static str>,
+    pending_subscriptions: Vec<&'static str>,
+    timeout_degraded_subscriptions: Vec<&'static str>,
+    old_generation_message_count: u64,
+    confirmations: Vec<FinamWsSubscriptionConfirmation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct FinamWsDataQualityImbalance {
     category: &'static str,
     received: u64,
@@ -1823,6 +1872,12 @@ struct FinamWsDataQualityLedger {
     bars_dropped: u64,
     bars_ignored: u64,
     bars_pending: u64,
+    bars_dropped_stale_backlog: u64,
+    bars_dropped_duplicate_or_old: u64,
+    bars_dropped_non_monotonic: u64,
+    bars_ignored_unknown_source: u64,
+    bars_pending_forming: u64,
+    old_generation_messages_ignored: u64,
     bars_balanced: bool,
     bars_delta: i64,
     quotes_received: u64,
@@ -1991,6 +2046,7 @@ async fn run_finam_ws_shadow_iteration(
     iteration: u64,
 ) -> Result<FinamWsShadowIterationReport> {
     let started_at = Instant::now();
+    let ws_generation_id = finam_ws_generation_id(iteration);
     let token = runtime.auth_manager.access_token().await?;
     let mut request = FinamConfig::default()
         .websocket_endpoint
@@ -2061,6 +2117,7 @@ async fn run_finam_ws_shadow_iteration(
                         metrics.text_message_count += 1;
                         handle_finam_ws_text_message(
                             runtime,
+                            &ws_generation_id,
                             text.as_ref(),
                             timeframe_sec,
                             &mut metrics,
@@ -2189,13 +2246,21 @@ fn finam_ws_shadow_freshness_threshold_sec(timeframe_sec: u32) -> u64 {
     u64::from(timeframe_sec).saturating_mul(3).max(60)
 }
 
+fn finam_ws_generation_id(iteration: u64) -> String {
+    format!("finam-ws-generation-{iteration}")
+}
+
 async fn handle_finam_ws_text_message(
     runtime: &FinamWsShadowRuntime,
+    ws_generation_id: &str,
     text: &str,
     timeframe_sec: u32,
     metrics: &mut FinamWsShadowMetrics,
     closed_bar_finalizer: &mut ClosedBarFinalizer,
 ) -> Result<()> {
+    if !record_finam_ws_generation_gate(metrics, ws_generation_id, ws_generation_id) {
+        return Ok(());
+    }
     let envelope = match serde_json::from_str::<FinamWsEnvelope>(text) {
         Ok(envelope) => envelope,
         Err(_) => {
@@ -2219,12 +2284,17 @@ async fn handle_finam_ws_text_message(
     }
     if envelope.envelope_type.eq_ignore_ascii_case("EVENT") {
         metrics.event_envelope_count += 1;
+        record_finam_ws_subscription_event_confirmation(
+            metrics,
+            envelope.subscription_type.as_deref(),
+        );
         return Ok(());
     }
     if !envelope.envelope_type.eq_ignore_ascii_case("DATA") {
         return Ok(());
     }
     metrics.data_envelope_count += 1;
+    record_finam_ws_subscription_data_confirmation(metrics, envelope.subscription_type.as_deref());
 
     let events = match map_ws_market_data_events(
         &envelope,
@@ -2298,6 +2368,52 @@ async fn handle_finam_ws_text_message(
     }
 
     Ok(())
+}
+
+fn record_finam_ws_generation_gate(
+    metrics: &mut FinamWsShadowMetrics,
+    active_generation_id: &str,
+    message_generation_id: &str,
+) -> bool {
+    if message_generation_id != active_generation_id {
+        metrics.old_generation_message_count += 1;
+        return false;
+    }
+    true
+}
+
+fn record_finam_ws_subscription_event_confirmation(
+    metrics: &mut FinamWsShadowMetrics,
+    subscription_type: Option<&str>,
+) {
+    let Some(subscription_type) = subscription_type else {
+        return;
+    };
+    if metrics.first_subscription_event_type.is_none() {
+        metrics.first_subscription_event_type = Some(subscription_type.to_string());
+    }
+    if subscription_type.eq_ignore_ascii_case("BARS") {
+        metrics.bars_subscription_event_confirmed = true;
+    } else if subscription_type.eq_ignore_ascii_case("QUOTES") {
+        metrics.quotes_subscription_event_confirmed = true;
+    }
+}
+
+fn record_finam_ws_subscription_data_confirmation(
+    metrics: &mut FinamWsShadowMetrics,
+    subscription_type: Option<&str>,
+) {
+    let Some(subscription_type) = subscription_type else {
+        return;
+    };
+    if metrics.first_subscription_data_type.is_none() {
+        metrics.first_subscription_data_type = Some(subscription_type.to_string());
+    }
+    if subscription_type.eq_ignore_ascii_case("BARS") {
+        metrics.bars_subscription_data_confirmed = true;
+    } else if subscription_type.eq_ignore_ascii_case("QUOTES") {
+        metrics.quotes_subscription_data_confirmed = true;
+    }
 }
 
 fn record_inbound_ws_bar_metrics(metrics: &mut FinamWsShadowMetrics, bar: &Bar) {
@@ -2411,6 +2527,126 @@ fn is_fresh_live_final_bar(
         && live_final_bar_stale_for_sec(close_ts, observed_ts) <= freshness_threshold_sec
 }
 
+fn finam_ws_generation_subscription_state(
+    subscribe_bars: bool,
+    subscribe_quotes: bool,
+    metrics: &FinamWsShadowMetrics,
+    ws_generation_id: &str,
+    stop_reason: &str,
+) -> FinamWsGenerationSubscriptionState {
+    let bars = finam_ws_subscription_confirmation(
+        "BARS",
+        subscribe_bars,
+        metrics.bars_subscription_event_confirmed,
+        metrics.bars_subscription_data_confirmed,
+        stop_reason,
+    );
+    let quotes = finam_ws_subscription_confirmation(
+        "QUOTES",
+        subscribe_quotes,
+        metrics.quotes_subscription_event_confirmed,
+        metrics.quotes_subscription_data_confirmed,
+        stop_reason,
+    );
+    let confirmations = vec![bars, quotes];
+    let desired_subscriptions = confirmations
+        .iter()
+        .filter(|confirmation| confirmation.desired)
+        .map(|confirmation| confirmation.subscription_type)
+        .collect();
+    let active_subscriptions = confirmations
+        .iter()
+        .filter(|confirmation| confirmation.active)
+        .map(|confirmation| confirmation.subscription_type)
+        .collect();
+    let pending_subscriptions = confirmations
+        .iter()
+        .filter(|confirmation| confirmation.pending)
+        .map(|confirmation| confirmation.subscription_type)
+        .collect();
+    let timeout_degraded_subscriptions = confirmations
+        .iter()
+        .filter(|confirmation| confirmation.status == FinamWsSubscriptionStatus::TimeoutDegraded)
+        .map(|confirmation| confirmation.subscription_type)
+        .collect();
+
+    FinamWsGenerationSubscriptionState {
+        ws_generation_id: ws_generation_id.to_string(),
+        desired_subscriptions,
+        active_subscriptions,
+        pending_subscriptions,
+        timeout_degraded_subscriptions,
+        old_generation_message_count: metrics.old_generation_message_count,
+        confirmations,
+    }
+}
+
+fn finam_ws_subscription_confirmation(
+    subscription_type: &'static str,
+    desired: bool,
+    event_confirmed: bool,
+    data_confirmed: bool,
+    stop_reason: &str,
+) -> FinamWsSubscriptionConfirmation {
+    let active = desired && (event_confirmed || data_confirmed);
+    let pending = desired && !active && stop_reason != "max_duration";
+    let status = if !desired {
+        FinamWsSubscriptionStatus::Disabled
+    } else if data_confirmed {
+        FinamWsSubscriptionStatus::DataConfirmed
+    } else if event_confirmed {
+        FinamWsSubscriptionStatus::EventConfirmed
+    } else if stop_reason == "max_duration" {
+        FinamWsSubscriptionStatus::TimeoutDegraded
+    } else {
+        FinamWsSubscriptionStatus::Pending
+    };
+    let confirmation_source = if data_confirmed {
+        Some("DATA")
+    } else if event_confirmed {
+        Some("EVENT")
+    } else {
+        None
+    };
+
+    FinamWsSubscriptionConfirmation {
+        subscription_type,
+        desired,
+        active,
+        pending,
+        status,
+        confirmation_source,
+    }
+}
+
+fn finam_ws_generation_subscription_state_json(
+    state: &FinamWsGenerationSubscriptionState,
+) -> serde_json::Value {
+    let confirmations: Vec<_> = state
+        .confirmations
+        .iter()
+        .map(|confirmation| {
+            serde_json::json!({
+                "subscription_type": confirmation.subscription_type,
+                "desired": confirmation.desired,
+                "active": confirmation.active,
+                "pending": confirmation.pending,
+                "status": confirmation.status.as_str(),
+                "confirmation_source": confirmation.confirmation_source,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "ws_generation_id": state.ws_generation_id,
+        "desired_subscriptions": state.desired_subscriptions,
+        "active_subscriptions": state.active_subscriptions,
+        "pending_subscriptions": state.pending_subscriptions,
+        "timeout_degraded_subscriptions": state.timeout_degraded_subscriptions,
+        "old_generation_message_count": state.old_generation_message_count,
+        "confirmations": confirmations,
+    })
+}
+
 fn max_datetime(current: Option<DateTime<Utc>>, candidate: DateTime<Utc>) -> DateTime<Utc> {
     current.map_or(candidate, |current| current.max(candidate))
 }
@@ -2418,13 +2654,18 @@ fn max_datetime(current: Option<DateTime<Utc>>, candidate: DateTime<Utc>) -> Dat
 fn finam_ws_data_quality_ledger(metrics: &FinamWsShadowMetrics) -> FinamWsDataQualityLedger {
     let bars_received = metrics.final_bar_event_count + metrics.forming_bar_event_count;
     let bars_emitted = metrics.published_strategy_bar_count;
-    let bars_dropped = metrics.stale_ws_final_bar_suppressed_count
-        + metrics.duplicate_final_suppressed_count
-        + metrics.non_monotonic_forming_dropped_count;
-    let bars_ignored = metrics.unknown_source_bar_event_count;
+    let bars_dropped_stale_backlog = metrics.stale_ws_final_bar_suppressed_count;
+    let bars_dropped_duplicate_or_old = metrics.duplicate_final_suppressed_count;
+    let bars_dropped_non_monotonic = metrics.non_monotonic_forming_dropped_count;
+    let bars_dropped =
+        bars_dropped_stale_backlog + bars_dropped_duplicate_or_old + bars_dropped_non_monotonic;
+    let bars_ignored_unknown_source = metrics.unknown_source_bar_event_count;
+    let old_generation_messages_ignored = metrics.old_generation_message_count;
+    let bars_ignored = bars_ignored_unknown_source;
     let bars_pending = metrics.forming_bar_suppressed_count.saturating_sub(
         metrics.closed_bar_finalized_count + metrics.non_monotonic_forming_dropped_count,
     );
+    let bars_pending_forming = bars_pending;
     let bars_delta = data_quality_delta(
         bars_received,
         bars_emitted,
@@ -2467,6 +2708,12 @@ fn finam_ws_data_quality_ledger(metrics: &FinamWsShadowMetrics) -> FinamWsDataQu
         bars_dropped,
         bars_ignored,
         bars_pending,
+        bars_dropped_stale_backlog,
+        bars_dropped_duplicate_or_old,
+        bars_dropped_non_monotonic,
+        bars_ignored_unknown_source,
+        bars_pending_forming,
+        old_generation_messages_ignored,
         bars_balanced: bars_delta == 0,
         bars_delta,
         quotes_received,
@@ -2514,6 +2761,14 @@ fn finam_ws_data_quality_ledger_json(ledger: &FinamWsDataQualityLedger) -> serde
             "pending": ledger.bars_pending,
             "balanced": ledger.bars_balanced,
             "delta": ledger.bars_delta,
+            "reason_buckets": {
+                "DroppedStaleBacklog": ledger.bars_dropped_stale_backlog,
+                "DuplicateOrOld": ledger.bars_dropped_duplicate_or_old,
+                "NonMonotonic": ledger.bars_dropped_non_monotonic,
+                "UnknownSource": ledger.bars_ignored_unknown_source,
+                "PendingForming": ledger.bars_pending_forming,
+                "OldGeneration": ledger.old_generation_messages_ignored,
+            },
         },
         "quotes": {
             "received": ledger.quotes_received,
@@ -2569,6 +2824,13 @@ fn finam_ws_shadow_report_json(
     let market_data_lifecycle =
         serde_json::to_value(&report.market_data_lifecycle).expect("lifecycle serializes");
     let data_quality_ledger = finam_ws_data_quality_ledger(&report.metrics);
+    let ws_generation = finam_ws_generation_subscription_state(
+        runtime.resolved.subscribe_bars,
+        runtime.resolved.subscribe_quotes,
+        &report.metrics,
+        &finam_ws_generation_id(report.iteration),
+        &report.stop_reason,
+    );
     let market_data = serde_json::json!({
         "source_kind": "LiveStream",
         "closed_bar_finalizer_enabled": true,
@@ -2651,6 +2913,7 @@ fn finam_ws_shadow_report_json(
         "streams": streams,
         "readiness_phase": report.readiness_phase,
         "readiness_reasons": report.readiness_reasons,
+        "ws_generation": finam_ws_generation_subscription_state_json(&ws_generation),
         "market_data_lifecycle": market_data_lifecycle,
         "market_data": market_data,
         "data_quality": finam_ws_data_quality_ledger_json(&data_quality_ledger),
@@ -2663,6 +2926,7 @@ fn finam_ws_shadow_metrics_json(metrics: &FinamWsShadowMetrics) -> serde_json::V
         "connection_count": metrics.connection_count,
         "success_count": metrics.success_count,
         "failure_count": metrics.failure_count,
+        "old_generation_message_count": metrics.old_generation_message_count,
         "text_message_count": metrics.text_message_count,
         "data_envelope_count": metrics.data_envelope_count,
         "event_envelope_count": metrics.event_envelope_count,
@@ -2691,6 +2955,12 @@ fn finam_ws_shadow_metrics_json(metrics: &FinamWsShadowMetrics) -> serde_json::V
         "stale_ws_final_bar_suppressed_count": metrics.stale_ws_final_bar_suppressed_count,
         "ping_count": metrics.ping_count,
         "pong_count": metrics.pong_count,
+        "bars_subscription_event_confirmed": metrics.bars_subscription_event_confirmed,
+        "bars_subscription_data_confirmed": metrics.bars_subscription_data_confirmed,
+        "quotes_subscription_event_confirmed": metrics.quotes_subscription_event_confirmed,
+        "quotes_subscription_data_confirmed": metrics.quotes_subscription_data_confirmed,
+        "first_subscription_event_type": metrics.first_subscription_event_type,
+        "first_subscription_data_type": metrics.first_subscription_data_type,
         "first_live_bar_seen": metrics.first_live_bar_seen,
         "first_live_final_bar_seen": metrics.first_live_final_bar_seen,
         "first_live_final_bar_close_ts": metrics.first_live_final_bar_close_ts,
@@ -8559,6 +8829,9 @@ mod tests {
         assert_eq!(ledger.quotes_emitted, 1);
         assert!(ledger.quotes_balanced);
         assert!(ledger.imbalances.is_empty());
+        assert_eq!(ledger.bars_dropped_stale_backlog, 300);
+        assert_eq!(ledger.bars_dropped_duplicate_or_old, 0);
+        assert_eq!(ledger.bars_pending_forming, 0);
     }
 
     #[test]
@@ -8576,6 +8849,81 @@ mod tests {
         assert_eq!(ledger.imbalances.len(), 1);
         assert_eq!(ledger.imbalances[0].category, "bars");
         assert_eq!(ledger.imbalances[0].delta, 1);
+    }
+
+    #[test]
+    fn finam_ws_generation_model_confirms_subscription_by_event_or_data() {
+        let mut metrics = FinamWsShadowMetrics::default();
+        record_finam_ws_subscription_event_confirmation(&mut metrics, Some("QUOTES"));
+        record_finam_ws_subscription_data_confirmation(&mut metrics, Some("BARS"));
+
+        let state = finam_ws_generation_subscription_state(
+            true,
+            true,
+            &metrics,
+            "generation-1",
+            "max_messages",
+        );
+
+        assert_eq!(state.ws_generation_id, "generation-1");
+        assert_eq!(state.desired_subscriptions, vec!["BARS", "QUOTES"]);
+        assert_eq!(state.active_subscriptions, vec!["BARS", "QUOTES"]);
+        assert!(state.pending_subscriptions.is_empty());
+        assert!(state.timeout_degraded_subscriptions.is_empty());
+        assert_eq!(
+            state.confirmations[0].status,
+            FinamWsSubscriptionStatus::DataConfirmed
+        );
+        assert_eq!(
+            state.confirmations[1].status,
+            FinamWsSubscriptionStatus::EventConfirmed
+        );
+        assert_eq!(state.confirmations[0].confirmation_source, Some("DATA"));
+        assert_eq!(state.confirmations[1].confirmation_source, Some("EVENT"));
+    }
+
+    #[test]
+    fn finam_ws_generation_model_marks_unconfirmed_desired_subscription_timeout_degraded() {
+        let metrics = FinamWsShadowMetrics::default();
+
+        let state = finam_ws_generation_subscription_state(
+            true,
+            false,
+            &metrics,
+            "generation-2",
+            "max_duration",
+        );
+
+        assert_eq!(state.desired_subscriptions, vec!["BARS"]);
+        assert!(state.active_subscriptions.is_empty());
+        assert!(state.pending_subscriptions.is_empty());
+        assert_eq!(state.timeout_degraded_subscriptions, vec!["BARS"]);
+        assert_eq!(
+            state.confirmations[0].status,
+            FinamWsSubscriptionStatus::TimeoutDegraded
+        );
+        assert_eq!(
+            state.confirmations[1].status,
+            FinamWsSubscriptionStatus::Disabled
+        );
+    }
+
+    #[test]
+    fn finam_ws_generation_gate_counts_old_generation_messages_without_strategy_emit() {
+        let mut metrics = FinamWsShadowMetrics::default();
+
+        assert!(!record_finam_ws_generation_gate(
+            &mut metrics,
+            "generation-2",
+            "generation-1"
+        ));
+        assert_eq!(metrics.old_generation_message_count, 1);
+
+        let ledger = finam_ws_data_quality_ledger(&metrics);
+        assert_eq!(ledger.old_generation_messages_ignored, 1);
+        assert_eq!(ledger.bars_received, 0);
+        assert_eq!(ledger.bars_emitted, 0);
+        assert!(ledger.bars_balanced);
     }
 
     #[test]
