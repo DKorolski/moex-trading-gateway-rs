@@ -1748,6 +1748,8 @@ struct FinamWsShadowMetrics {
     published_market_data_count: u64,
     ping_count: u64,
     pong_count: u64,
+    first_decode_error_text_len: Option<usize>,
+    first_decode_error_shape: Option<serde_json::Value>,
 }
 
 struct FinamWsShadowIterationReport {
@@ -2039,6 +2041,16 @@ async fn handle_finam_ws_text_message(
         Ok(envelope) => envelope,
         Err(_) => {
             metrics.decode_error_count += 1;
+            if metrics.first_decode_error_shape.is_none() {
+                metrics.first_decode_error_text_len = Some(text.len());
+                metrics.first_decode_error_shape = Some(match serde_json::from_str(text) {
+                    Ok(value) => json_shape(&value),
+                    Err(_) => serde_json::json!({
+                        "kind": "non_json_text",
+                        "utf8_len": text.len(),
+                    }),
+                });
+            }
             return Ok(());
         }
     };
@@ -2147,6 +2159,8 @@ fn finam_ws_shadow_metrics_json(metrics: &FinamWsShadowMetrics) -> serde_json::V
         "published_market_data_count": metrics.published_market_data_count,
         "ping_count": metrics.ping_count,
         "pong_count": metrics.pong_count,
+        "first_decode_error_text_len": metrics.first_decode_error_text_len,
+        "first_decode_error_shape": metrics.first_decode_error_shape,
     })
 }
 

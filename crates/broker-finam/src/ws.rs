@@ -33,13 +33,18 @@ impl FinamWsSubscriptionType {
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct FinamWsEnvelope {
-    #[serde(rename = "type")]
+    #[serde(rename = "type", alias = "message_type", alias = "messageType")]
     pub envelope_type: String,
+    #[serde(alias = "subscriptionKey")]
     pub subscription_key: Option<String>,
+    #[serde(alias = "subscriptionType")]
     pub subscription_type: Option<String>,
     pub timestamp: Option<i64>,
+    #[serde(alias = "data")]
     pub payload: Option<serde_json::Value>,
+    #[serde(alias = "errorInfo")]
     pub error_info: Option<serde_json::Value>,
+    #[serde(alias = "eventInfo")]
     pub event_info: Option<serde_json::Value>,
 }
 
@@ -244,6 +249,25 @@ mod tests {
             }
             other => panic!("unexpected event: {other:?}"),
         }
+    }
+
+    #[test]
+    fn websocket_envelope_accepts_camel_case_aliases() {
+        let envelope: FinamWsEnvelope = serde_json::from_value(json!({
+            "messageType": "EVENT",
+            "subscriptionKey": "synthetic-key",
+            "subscriptionType": "QUOTES",
+            "timestamp": 1783255200,
+            "data": {"event": "HANDSHAKE_SUCCESS"},
+            "eventInfo": {"kind": "synthetic"}
+        }))
+        .expect("envelope");
+
+        assert_eq!(envelope.envelope_type, "EVENT");
+        assert_eq!(envelope.subscription_key.as_deref(), Some("synthetic-key"));
+        assert_eq!(envelope.subscription_type.as_deref(), Some("QUOTES"));
+        assert!(envelope.payload.is_some());
+        assert!(envelope.event_info.is_some());
     }
 
     #[test]
