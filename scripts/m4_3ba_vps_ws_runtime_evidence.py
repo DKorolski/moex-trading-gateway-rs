@@ -114,7 +114,7 @@ def ssh(args: argparse.Namespace, remote_command: str, *, timeout: int = 120) ->
     last_completed: subprocess.CompletedProcess[str] | None = None
     for attempt in range(1, attempts + 1):
         completed = subprocess.run(
-            ssh_base(args) + ["bash", "-lc", remote_command],
+            ssh_base(args) + [f"bash -lc {shlex.quote(remote_command)}"],
             cwd=ROOT,
             text=True,
             stdout=subprocess.PIPE,
