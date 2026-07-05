@@ -380,23 +380,30 @@ def collect_one_shot(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def parse_json_object(output: str) -> dict[str, Any]:
-    start = output.find("{")
-    end = output.rfind("}")
-    if start < 0 or end < start:
+    decoder = json.JSONDecoder()
+    candidates: list[dict[str, Any]] = []
+    for start, char in enumerate(output):
+        if char != "{":
+            continue
+        try:
+            value, _end = decoder.raw_decode(output[start:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            candidates.append(value)
+            if value.get("finam_ws_shadow") is True:
+                return value
+    if candidates:
+        return candidates[-1]
+    if "{" not in output:
         raise ValueError(
             "stdout does not contain a JSON object "
             f"(len={len(output)}, sha256={sha256_text(output)})"
         )
-    try:
-        value = json.loads(output[start : end + 1])
-    except json.JSONDecodeError as error:
-        raise ValueError(
-            "stdout JSON object decode failed "
-            f"(len={len(output)}, sha256={sha256_text(output)}, error={error})"
-        ) from error
-    if not isinstance(value, dict):
-        raise ValueError("stdout JSON value is not an object")
-    return value
+    raise ValueError(
+        "stdout contains brace characters but no valid JSON object "
+        f"(len={len(output)}, sha256={sha256_text(output)})"
+    )
 
 
 def local_forbidden_surface_scan() -> dict[str, Any]:
