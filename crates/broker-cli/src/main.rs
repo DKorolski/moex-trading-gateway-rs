@@ -1768,10 +1768,23 @@ struct FinamWsShadowMetrics {
     first_live_bar_seen: bool,
     first_live_final_bar_seen: bool,
     first_live_final_bar_close_ts: Option<DateTime<Utc>>,
+    fresh_live_final_bar_seen: bool,
+    first_fresh_live_final_bar_close_ts: Option<DateTime<Utc>>,
     last_history_bar_close_ts: Option<DateTime<Utc>>,
     last_recovery_bar_close_ts: Option<DateTime<Utc>>,
     last_live_bar_close_ts: Option<DateTime<Utc>>,
     last_final_live_bar_close_ts: Option<DateTime<Utc>>,
+    last_fresh_live_final_bar_close_ts: Option<DateTime<Utc>>,
+    latest_ws_bar_close_ts: Option<DateTime<Utc>>,
+    latest_ws_final_bar_close_ts: Option<DateTime<Utc>>,
+    latest_live_final_bar_stale_for_sec: Option<u64>,
+    max_live_final_bar_stale_for_sec: Option<u64>,
+    stale_live_final_bar_count: u64,
+    final_bar_gap_detected_count: u64,
+    first_final_bar_gap_expected_close_ts: Option<DateTime<Utc>>,
+    first_final_bar_gap_actual_close_ts: Option<DateTime<Utc>>,
+    last_final_bar_gap_expected_close_ts: Option<DateTime<Utc>>,
+    last_final_bar_gap_actual_close_ts: Option<DateTime<Utc>>,
     last_bar_source_kind: Option<MarketDataSourceKind>,
     first_decode_error_text_len: Option<usize>,
     first_decode_error_shape: Option<serde_json::Value>,
@@ -2117,6 +2130,7 @@ fn finam_ws_shadow_market_data_lifecycle_from_metrics(
     timeframe_sec: u32,
     checked_ts: DateTime<Utc>,
 ) -> BrokerMarketDataLifecycleSnapshot {
+    let stale_after_sec = finam_ws_shadow_freshness_threshold_sec(timeframe_sec);
     broker_core::evaluate_market_data_lifecycle(BrokerMarketDataLifecycleInput {
         bars_subscription_enabled: subscribe_bars,
         quotes_subscription_enabled: subscribe_quotes,
@@ -2137,9 +2151,13 @@ fn finam_ws_shadow_market_data_lifecycle_from_metrics(
         last_recovery_bar_close_ts: metrics.last_recovery_bar_close_ts,
         last_live_bar_close_ts: metrics.last_live_bar_close_ts,
         last_final_live_bar_close_ts: metrics.last_final_live_bar_close_ts,
-        stale_after_sec: Some(u64::from(timeframe_sec).saturating_mul(3).max(60)),
+        stale_after_sec: Some(stale_after_sec),
         checked_ts,
     })
+}
+
+fn finam_ws_shadow_freshness_threshold_sec(timeframe_sec: u32) -> u64 {
+    u64::from(timeframe_sec).saturating_mul(3).max(60)
 }
 
 async fn handle_finam_ws_text_message(
@@ -2214,7 +2232,12 @@ async fn handle_finam_ws_text_message(
                 let action = closed_bar_finalizer.observe_bar(bar);
                 record_closed_bar_finalizer_action(metrics, action.kind);
                 if let Some(final_bar) = action.emitted {
-                    record_canonical_ws_bar_metrics(metrics, &final_bar);
+                    record_canonical_ws_bar_metrics(
+                        metrics,
+                        &final_bar,
+                        Utc::now(),
+                        finam_ws_shadow_freshness_threshold_sec(timeframe_sec),
+                    );
                     runtime
                         .gateway
                         .publish_market_data_event(MarketDataEvent::Bar(final_bar))
@@ -2244,8 +2267,14 @@ async fn handle_finam_ws_text_message(
 
 fn record_inbound_ws_bar_metrics(metrics: &mut FinamWsShadowMetrics, bar: &Bar) {
     metrics.bar_event_count += 1;
+    metrics.latest_ws_bar_close_ts =
+        Some(max_datetime(metrics.latest_ws_bar_close_ts, bar.close_ts));
     if bar.is_final {
         metrics.final_bar_event_count += 1;
+        metrics.latest_ws_final_bar_close_ts = Some(max_datetime(
+            metrics.latest_ws_final_bar_close_ts,
+            bar.close_ts,
+        ));
     } else {
         metrics.forming_bar_event_count += 1;
     }
@@ -2277,7 +2306,13 @@ fn record_inbound_ws_bar_metrics(metrics: &mut FinamWsShadowMetrics, bar: &Bar) 
     }
 }
 
-fn record_canonical_ws_bar_metrics(metrics: &mut FinamWsShadowMetrics, bar: &Bar) {
+fn record_canonical_ws_bar_metrics(
+    metrics: &mut FinamWsShadowMetrics,
+    bar: &Bar,
+    observed_ts: DateTime<Utc>,
+    freshness_threshold_sec: u64,
+) {
+    record_final_bar_gap_metrics(metrics, bar);
     if bar.source_kind == MarketDataSourceKind::LiveStream && bar.is_final {
         metrics.final_live_bar_event_count += 1;
         metrics.last_final_live_bar_close_ts = Some(bar.close_ts);
@@ -2285,7 +2320,62 @@ fn record_canonical_ws_bar_metrics(metrics: &mut FinamWsShadowMetrics, bar: &Bar
             metrics.first_live_final_bar_seen = true;
             metrics.first_live_final_bar_close_ts = Some(bar.close_ts);
         }
+        let stale_for_sec = live_final_bar_stale_for_sec(bar.close_ts, observed_ts);
+        metrics.latest_live_final_bar_stale_for_sec = Some(stale_for_sec);
+        metrics.max_live_final_bar_stale_for_sec = Some(
+            metrics
+                .max_live_final_bar_stale_for_sec
+                .map_or(stale_for_sec, |previous| previous.max(stale_for_sec)),
+        );
+        if is_fresh_live_final_bar(bar.close_ts, observed_ts, freshness_threshold_sec) {
+            metrics.fresh_live_final_bar_seen = true;
+            metrics.last_fresh_live_final_bar_close_ts = Some(bar.close_ts);
+            if metrics.first_fresh_live_final_bar_close_ts.is_none() {
+                metrics.first_fresh_live_final_bar_close_ts = Some(bar.close_ts);
+            }
+        } else {
+            metrics.stale_live_final_bar_count += 1;
+        }
     }
+}
+
+fn record_final_bar_gap_metrics(metrics: &mut FinamWsShadowMetrics, bar: &Bar) {
+    if !bar.is_final || bar.timeframe_sec == 0 {
+        return;
+    }
+    if let Some(previous_close_ts) = metrics.last_final_live_bar_close_ts {
+        let expected_close_ts =
+            previous_close_ts + ChronoDuration::seconds(i64::from(bar.timeframe_sec));
+        if bar.close_ts > expected_close_ts {
+            metrics.final_bar_gap_detected_count += 1;
+            metrics.last_final_bar_gap_expected_close_ts = Some(expected_close_ts);
+            metrics.last_final_bar_gap_actual_close_ts = Some(bar.close_ts);
+            if metrics.first_final_bar_gap_expected_close_ts.is_none() {
+                metrics.first_final_bar_gap_expected_close_ts = Some(expected_close_ts);
+                metrics.first_final_bar_gap_actual_close_ts = Some(bar.close_ts);
+            }
+        }
+    }
+}
+
+fn live_final_bar_stale_for_sec(close_ts: DateTime<Utc>, observed_ts: DateTime<Utc>) -> u64 {
+    observed_ts
+        .signed_duration_since(close_ts)
+        .num_seconds()
+        .max(0) as u64
+}
+
+fn is_fresh_live_final_bar(
+    close_ts: DateTime<Utc>,
+    observed_ts: DateTime<Utc>,
+    freshness_threshold_sec: u64,
+) -> bool {
+    close_ts <= observed_ts
+        && live_final_bar_stale_for_sec(close_ts, observed_ts) <= freshness_threshold_sec
+}
+
+fn max_datetime(current: Option<DateTime<Utc>>, candidate: DateTime<Utc>) -> DateTime<Utc> {
+    current.map_or(candidate, |current| current.max(candidate))
 }
 
 fn record_closed_bar_finalizer_action(
@@ -2333,6 +2423,7 @@ fn finam_ws_shadow_report_json(
         "closed_bar_finalizer_enabled": true,
         "strategy_bars_are_final_only": true,
         "raw_forming_bars_published_for_strategy": false,
+        "freshness_threshold_sec": finam_ws_shadow_freshness_threshold_sec(timeframe_seconds(&runtime.resolved.timeframe).unwrap_or(60)),
         "published_market_data_count": report.metrics.published_market_data_count,
         "quote_event_count": report.metrics.quote_event_count,
         "bar_event_count": report.metrics.bar_event_count,
@@ -2354,8 +2445,23 @@ fn finam_ws_shadow_report_json(
         "first_live_bar_seen": report.metrics.first_live_bar_seen,
         "first_live_final_bar_seen": report.metrics.first_live_final_bar_seen,
         "first_live_final_bar_close_ts": report.metrics.first_live_final_bar_close_ts,
+        "fresh_live_final_bar_seen": report.metrics.fresh_live_final_bar_seen,
+        "first_fresh_live_final_bar_close_ts": report.metrics.first_fresh_live_final_bar_close_ts,
         "last_live_bar_close_ts": report.metrics.last_live_bar_close_ts,
         "last_final_live_bar_close_ts": report.metrics.last_final_live_bar_close_ts,
+        "last_fresh_live_final_bar_close_ts": report.metrics.last_fresh_live_final_bar_close_ts,
+        "latest_ws_bar_close_ts": report.metrics.latest_ws_bar_close_ts,
+        "latest_ws_final_bar_close_ts": report.metrics.latest_ws_final_bar_close_ts,
+        "latest_live_final_bar_stale_for_sec": report.metrics.latest_live_final_bar_stale_for_sec,
+        "max_live_final_bar_stale_for_sec": report.metrics.max_live_final_bar_stale_for_sec,
+        "stale_live_final_bar_count": report.metrics.stale_live_final_bar_count,
+        "final_bar_gap_detected_count": report.metrics.final_bar_gap_detected_count,
+        "first_final_bar_gap_expected_close_ts": report.metrics.first_final_bar_gap_expected_close_ts,
+        "first_final_bar_gap_actual_close_ts": report.metrics.first_final_bar_gap_actual_close_ts,
+        "last_final_bar_gap_expected_close_ts": report.metrics.last_final_bar_gap_expected_close_ts,
+        "last_final_bar_gap_actual_close_ts": report.metrics.last_final_bar_gap_actual_close_ts,
+        "ws_backlog_or_stale_bars_detected": report.metrics.stale_live_final_bar_count > 0,
+        "fresh_live_readiness_evidence_missing": !report.metrics.fresh_live_final_bar_seen,
         "last_bar_source_kind": report.metrics.last_bar_source_kind,
     });
     let metrics = finam_ws_shadow_metrics_json(&report.metrics);
@@ -2431,10 +2537,23 @@ fn finam_ws_shadow_metrics_json(metrics: &FinamWsShadowMetrics) -> serde_json::V
         "first_live_bar_seen": metrics.first_live_bar_seen,
         "first_live_final_bar_seen": metrics.first_live_final_bar_seen,
         "first_live_final_bar_close_ts": metrics.first_live_final_bar_close_ts,
+        "fresh_live_final_bar_seen": metrics.fresh_live_final_bar_seen,
+        "first_fresh_live_final_bar_close_ts": metrics.first_fresh_live_final_bar_close_ts,
         "last_history_bar_close_ts": metrics.last_history_bar_close_ts,
         "last_recovery_bar_close_ts": metrics.last_recovery_bar_close_ts,
         "last_live_bar_close_ts": metrics.last_live_bar_close_ts,
         "last_final_live_bar_close_ts": metrics.last_final_live_bar_close_ts,
+        "last_fresh_live_final_bar_close_ts": metrics.last_fresh_live_final_bar_close_ts,
+        "latest_ws_bar_close_ts": metrics.latest_ws_bar_close_ts,
+        "latest_ws_final_bar_close_ts": metrics.latest_ws_final_bar_close_ts,
+        "latest_live_final_bar_stale_for_sec": metrics.latest_live_final_bar_stale_for_sec,
+        "max_live_final_bar_stale_for_sec": metrics.max_live_final_bar_stale_for_sec,
+        "stale_live_final_bar_count": metrics.stale_live_final_bar_count,
+        "final_bar_gap_detected_count": metrics.final_bar_gap_detected_count,
+        "first_final_bar_gap_expected_close_ts": metrics.first_final_bar_gap_expected_close_ts,
+        "first_final_bar_gap_actual_close_ts": metrics.first_final_bar_gap_actual_close_ts,
+        "last_final_bar_gap_expected_close_ts": metrics.last_final_bar_gap_expected_close_ts,
+        "last_final_bar_gap_actual_close_ts": metrics.last_final_bar_gap_actual_close_ts,
         "last_bar_source_kind": metrics.last_bar_source_kind,
         "first_decode_error_text_len": metrics.first_decode_error_text_len,
         "first_decode_error_shape": metrics.first_decode_error_shape,
@@ -7651,6 +7770,7 @@ fn print_json(value: serde_json::Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
     use finam_gateway::{
         CancelBrokerTruthFreshnessPolicy, CancelBrokerTruthIdentityPolicy,
         CancelBrokerTruthOrchestrationPolicy, CancelBrokerTruthPrecedencePolicy,
@@ -8142,6 +8262,97 @@ mod tests {
             with_bars.reasons,
             vec![ReadinessReason::OperatorLiveArmMissing]
         );
+    }
+
+    fn sample_live_final_bar(close_ts: DateTime<Utc>) -> Bar {
+        Bar {
+            instrument: InstrumentId {
+                symbol: "IMOEXF".to_string(),
+                venue_symbol: Some("IMOEXF@RTSX".to_string()),
+                exchange: Exchange::Moex,
+                market: Market::Futures,
+            },
+            source_kind: MarketDataSourceKind::LiveStream,
+            timeframe_sec: 60,
+            open_ts: close_ts - ChronoDuration::seconds(60),
+            close_ts,
+            open: rust_decimal::Decimal::new(2250, 0),
+            high: rust_decimal::Decimal::new(2251, 0),
+            low: rust_decimal::Decimal::new(2249, 0),
+            close: rust_decimal::Decimal::new(2250, 0),
+            volume: rust_decimal::Decimal::new(1, 0),
+            is_final: true,
+        }
+    }
+
+    #[test]
+    fn finam_ws_shadow_metrics_distinguish_fresh_and_stale_live_final_bars() {
+        let close_ts = Utc.with_ymd_and_hms(2026, 7, 5, 10, 0, 0).unwrap();
+        let fresh_observed_ts = Utc.with_ymd_and_hms(2026, 7, 5, 10, 1, 0).unwrap();
+        let stale_observed_ts = Utc.with_ymd_and_hms(2026, 7, 5, 10, 10, 0).unwrap();
+
+        let mut fresh_metrics = FinamWsShadowMetrics::default();
+        record_canonical_ws_bar_metrics(
+            &mut fresh_metrics,
+            &sample_live_final_bar(close_ts),
+            fresh_observed_ts,
+            180,
+        );
+
+        assert!(fresh_metrics.fresh_live_final_bar_seen);
+        assert_eq!(
+            fresh_metrics.first_fresh_live_final_bar_close_ts,
+            Some(close_ts)
+        );
+        assert_eq!(fresh_metrics.stale_live_final_bar_count, 0);
+        assert_eq!(fresh_metrics.latest_live_final_bar_stale_for_sec, Some(60));
+
+        let mut stale_metrics = FinamWsShadowMetrics::default();
+        record_canonical_ws_bar_metrics(
+            &mut stale_metrics,
+            &sample_live_final_bar(close_ts),
+            stale_observed_ts,
+            180,
+        );
+
+        assert!(stale_metrics.first_live_final_bar_seen);
+        assert!(!stale_metrics.fresh_live_final_bar_seen);
+        assert_eq!(stale_metrics.stale_live_final_bar_count, 1);
+        assert_eq!(stale_metrics.latest_live_final_bar_stale_for_sec, Some(600));
+    }
+
+    #[test]
+    fn finam_ws_shadow_metrics_detect_final_bar_close_ts_gap() {
+        let first_close = Utc.with_ymd_and_hms(2026, 7, 5, 10, 1, 0).unwrap();
+        let gap_close = Utc.with_ymd_and_hms(2026, 7, 5, 10, 3, 0).unwrap();
+        let observed_ts = Utc.with_ymd_and_hms(2026, 7, 5, 10, 3, 5).unwrap();
+        let expected_missing_close = Utc.with_ymd_and_hms(2026, 7, 5, 10, 2, 0).unwrap();
+        let mut metrics = FinamWsShadowMetrics::default();
+
+        record_canonical_ws_bar_metrics(
+            &mut metrics,
+            &sample_live_final_bar(first_close),
+            observed_ts,
+            180,
+        );
+        record_canonical_ws_bar_metrics(
+            &mut metrics,
+            &sample_live_final_bar(gap_close),
+            observed_ts,
+            180,
+        );
+
+        assert_eq!(metrics.final_bar_gap_detected_count, 1);
+        assert_eq!(
+            metrics.first_final_bar_gap_expected_close_ts,
+            Some(expected_missing_close)
+        );
+        assert_eq!(metrics.first_final_bar_gap_actual_close_ts, Some(gap_close));
+        assert_eq!(
+            metrics.last_final_bar_gap_expected_close_ts,
+            Some(expected_missing_close)
+        );
+        assert_eq!(metrics.last_final_bar_gap_actual_close_ts, Some(gap_close));
     }
 
     #[test]
