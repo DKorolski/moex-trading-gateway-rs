@@ -6,8 +6,11 @@ use broker_core::event::{
 };
 use broker_core::ids::{BrokerAccountId, BrokerOrderId, BrokerTradeId, ClientOrderId};
 use broker_core::instrument::{Exchange, InstrumentId, Market, Money};
+use broker_core::operational_snapshot::{
+    BrokerCashSnapshot, BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTruthSnapshot,
+};
 use broker_core::order::{
-    Order, OrderSide, OrderStatus, OrderType, RedactedValueFingerprint, Trade,
+    Order, OrderSide, OrderStatus, OrderType, RedactedValueFingerprint, TimeInForce, Trade,
 };
 use chrono::{DateTime, Duration, Utc};
 use rust_decimal::Decimal;
@@ -86,6 +89,19 @@ pub fn map_order_type(native: &str) -> Result<OrderType, FinamMapperError> {
         "ORDER_TYPE_TAKE_PROFIT" | "TAKE_PROFIT" => Ok(OrderType::TakeProfit),
         "ORDER_TYPE_TAKE_PROFIT_LIMIT" | "TAKE_PROFIT_LIMIT" => Ok(OrderType::TakeProfitLimit),
         _ => Err(unsupported_value("order.type", native)),
+    }
+}
+
+pub fn map_time_in_force(native: &str) -> Result<TimeInForce, FinamMapperError> {
+    match native {
+        "TIME_IN_FORCE_DAY" | "DAY" => Ok(TimeInForce::Day),
+        "TIME_IN_FORCE_GOOD_TILL_CANCEL" | "GOOD_TILL_CANCEL" | "GTC" => {
+            Ok(TimeInForce::GoodTillCancel)
+        }
+        "TIME_IN_FORCE_GOOD_TILL_DATE" | "GOOD_TILL_DATE" | "GTD" => Ok(TimeInForce::GoodTillDate),
+        "TIME_IN_FORCE_FOK" | "FOK" => Ok(TimeInForce::FillOrKill),
+        "TIME_IN_FORCE_IOC" | "IOC" => Ok(TimeInForce::ImmediateOrCancel),
+        _ => Err(unsupported_value("order.time_in_force", native)),
     }
 }
 
@@ -264,6 +280,106 @@ pub fn map_portfolio_snapshot(
     })
 }
 
+pub fn map_finam_broker_truth_snapshot(
+    account: &dto::AccountResponse,
+    orders: &dto::AccountOrdersResponse,
+    received_ts: DateTime<Utc>,
+) -> Result<BrokerTruthSnapshot, FinamMapperError> {
+    let account_id = BrokerAccountId::new(account.account_id.clone());
+    let positions = account
+        .positions
+        .iter()
+        .map(|position| {
+            map_account_position_to_broker_position(&account.account_id, position, received_ts)
+        })
+        .filter(|position| {
+            position
+                .as_ref()
+                .map(|position| position.qty != Decimal::ZERO)
+                .unwrap_or(true)
+        })
+        .collect::<Result<Vec<_>, FinamMapperError>>()?;
+    let orders = orders
+        .orders
+        .iter()
+        .map(|order| map_order_state_to_broker_order_snapshot(order, received_ts))
+        .collect::<Result<Vec<_>, FinamMapperError>>()?;
+    let cash = Some(map_account_cash_snapshot(account, received_ts)?);
+
+    Ok(BrokerTruthSnapshot {
+        account_id,
+        orders,
+        positions,
+        cash,
+        trades: Vec::new(),
+        instruments: Vec::new(),
+        received_ts,
+    })
+}
+
+pub fn map_account_position_to_broker_position(
+    account_id: &str,
+    position: &dto::AccountPosition,
+    received_ts: DateTime<Utc>,
+) -> Result<BrokerPositionSnapshot, FinamMapperError> {
+    let position = map_account_position(account_id, position)?;
+    Ok(BrokerPositionSnapshot {
+        account_id: position.account_id,
+        instrument: position.instrument,
+        qty: position.qty,
+        avg_price: position.avg_price,
+        unrealized_pnl: position.unrealized_pnl,
+        source_ts: position.source_ts,
+        received_ts,
+    })
+}
+
+pub fn map_account_cash_snapshot(
+    account: &dto::AccountResponse,
+    received_ts: DateTime<Utc>,
+) -> Result<BrokerCashSnapshot, FinamMapperError> {
+    let cash = account
+        .cash
+        .iter()
+        .map(|cash| {
+            Ok(CashPosition {
+                currency: cash.currency_code.clone(),
+                amount: money_amount("cash", cash)?,
+            })
+        })
+        .collect::<Result<Vec<_>, FinamMapperError>>()?;
+    let equity = optional_decimal("account.equity", account.equity.as_ref())?;
+    let free_cash = account
+        .portfolio_mc
+        .as_ref()
+        .and_then(|portfolio| portfolio.available_cash.as_ref())
+        .map(|value| decimal_value("account.portfolio_mc.available_cash", value))
+        .transpose()?;
+    let initial_margin = account
+        .portfolio_mc
+        .as_ref()
+        .and_then(|portfolio| portfolio.initial_margin.as_ref())
+        .map(|value| decimal_value("account.portfolio_mc.initial_margin", value))
+        .transpose()?;
+    let maintenance_margin = account
+        .portfolio_mc
+        .as_ref()
+        .and_then(|portfolio| portfolio.maintenance_margin.as_ref())
+        .map(|value| decimal_value("account.portfolio_mc.maintenance_margin", value))
+        .transpose()?;
+
+    Ok(BrokerCashSnapshot {
+        account_id: BrokerAccountId::new(account.account_id.clone()),
+        cash,
+        equity,
+        free_cash,
+        initial_margin,
+        maintenance_margin,
+        source_ts: None,
+        received_ts,
+    })
+}
+
 pub fn map_account_position(
     account_id: &str,
     position: &dto::AccountPosition,
@@ -345,6 +461,42 @@ pub fn map_order_state(
         comment: None,
         source_ts,
         received_ts,
+    })
+}
+
+pub fn map_order_state_to_broker_order_snapshot(
+    order: &dto::OrderState,
+    received_ts: DateTime<Utc>,
+) -> Result<BrokerOrderSnapshot, FinamMapperError> {
+    let mapped = map_order_state(order, received_ts)?;
+    let remaining_qty = optional_decimal(
+        "order.remaining_quantity",
+        order.remaining_quantity.as_ref(),
+    )?;
+    let time_in_force = order
+        .order
+        .time_in_force
+        .as_deref()
+        .map(map_time_in_force)
+        .transpose()?;
+    let lifecycle = BrokerOrderSnapshot::lifecycle_for(&mapped.status);
+
+    Ok(BrokerOrderSnapshot {
+        account_id: mapped.account_id,
+        broker_order_id: mapped.order_id,
+        client_order_id: mapped.client_order_id,
+        instrument: mapped.instrument,
+        side: mapped.side,
+        order_type: mapped.order_type,
+        time_in_force,
+        status: mapped.status,
+        lifecycle,
+        qty: mapped.qty,
+        filled_qty: mapped.filled_qty,
+        remaining_qty,
+        limit_price: mapped.limit_price,
+        source_ts: mapped.source_ts,
+        received_ts: mapped.received_ts,
     })
 }
 
@@ -970,5 +1122,102 @@ mod tests {
         let snapshot = map_portfolio_snapshot(&account, received_ts).expect("snapshot");
 
         assert!(snapshot.positions.is_empty());
+    }
+
+    #[test]
+    fn m4_2b_finam_fixtures_map_to_canonical_broker_truth_summary() {
+        let account: dto::AccountResponse = serde_json::from_str(include_str!(
+            "../../../fixtures/finam/equivalent_positions_snapshot_zero_qty.json"
+        ))
+        .expect("finam account fixture");
+        let orders: dto::AccountOrdersResponse = serde_json::from_str(include_str!(
+            "../../../fixtures/finam/equivalent_orders_active_terminal.json"
+        ))
+        .expect("finam orders fixture");
+        let expected_position: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/expected/canonical_truth_zero_qty_flat_summary.json"
+        ))
+        .expect("expected position summary");
+        let expected_order: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/expected/canonical_truth_order_summary.json"
+        ))
+        .expect("expected order summary");
+        let received_ts = parse_timestamp("test", "2026-07-04T15:00:00Z").expect("timestamp");
+
+        let truth = map_finam_broker_truth_snapshot(&account, &orders, received_ts).expect("truth");
+        let target = instrument_id_from_symbol("IMOEXF@RTSX", Some("FUTURES"));
+        let summary = truth.summarize_for_instrument(&target);
+
+        assert_eq!(truth.account_id.as_str(), "ACC_TEST_0001");
+        assert_eq!(
+            summary.target_open_positions_count,
+            expected_position["target_open_positions_count"]
+                .as_u64()
+                .expect("target open positions") as usize
+        );
+        assert_eq!(
+            summary.account_open_positions_count,
+            expected_position["account_open_positions_count"]
+                .as_u64()
+                .expect("account open positions") as usize
+        );
+        assert_eq!(
+            summary.target_active_orders_count,
+            expected_order["target_active_orders_count"]
+                .as_u64()
+                .expect("target active orders") as usize
+        );
+        assert_eq!(
+            summary.target_terminal_orders_count,
+            expected_order["target_terminal_orders_count"]
+                .as_u64()
+                .expect("target terminal orders") as usize
+        );
+        assert_eq!(
+            summary.account_active_orders_count,
+            expected_order["account_active_orders_count"]
+                .as_u64()
+                .expect("account active orders") as usize
+        );
+        assert_eq!(
+            summary.other_symbol_active_orders_count,
+            expected_order["other_symbol_active_orders_count"]
+                .as_u64()
+                .expect("other symbol active orders") as usize
+        );
+    }
+
+    #[test]
+    fn m4_2b_finam_canonical_order_mapper_preserves_remaining_qty_truth() {
+        let order: dto::OrderState = serde_json::from_value(serde_json::json!({
+            "executed_quantity": {"value": "1"},
+            "initial_quantity": {"value": "1"},
+            "remaining_quantity": {"value": "0"},
+            "order": {
+                "account_id": "ACC_TEST_0001",
+                "legs": [],
+                "quantity": {"value": "1"},
+                "side": "SIDE_BUY",
+                "symbol": "IMOEXF@RTSX",
+                "time_in_force": "TIME_IN_FORCE_DAY",
+                "type": "ORDER_TYPE_MARKET"
+            },
+            "order_id": "BROKER-ORDER-FILLED",
+            "status": "ORDER_STATUS_FILLED",
+            "transact_at": "2026-07-04T15:00:00Z"
+        }))
+        .expect("order dto");
+        let received_ts = parse_timestamp("test", "2026-07-04T15:00:01Z").expect("timestamp");
+
+        let mapped =
+            map_order_state_to_broker_order_snapshot(&order, received_ts).expect("broker order");
+
+        assert_eq!(mapped.remaining_qty, Some(Decimal::ZERO));
+        assert_eq!(mapped.time_in_force, Some(TimeInForce::Day));
+        assert_eq!(
+            mapped.lifecycle,
+            broker_core::BrokerOrderLifecycle::Terminal
+        );
+        assert!(!mapped.is_active_for_lifecycle());
     }
 }
