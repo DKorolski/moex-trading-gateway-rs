@@ -14,6 +14,7 @@ pub mod operational_config;
 pub mod operational_snapshot;
 pub mod order;
 pub mod order_path;
+pub mod parity;
 pub mod readiness;
 pub mod subscription;
 pub mod time;
@@ -65,6 +66,10 @@ pub use order_path::{
     PreflightApprovedCancelOrder, PreflightApprovedPlaceOrder, SqliteOrderPathReadStore,
     SqliteOrderPathRedactedRecord, SqliteOrderPathStore, SqliteOrderPathTransitionAudit,
     SqliteRuntimeDirectoryIssue, SqliteWriterLockMetadata,
+};
+pub use parity::{
+    compare_broker_truth_for_instrument, compare_final_bars_for_instrument, BrokerBarParityReport,
+    BrokerParityIssue, BrokerParityIssueKind, BrokerTruthParityReport,
 };
 pub use readiness::{BrokerReadiness, ReadinessPhase, ReadinessReason};
 pub use subscription::{SubscriptionIntent, SubscriptionKind, SubscriptionState};

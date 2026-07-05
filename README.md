@@ -80,6 +80,21 @@ inputs only in local `.env` or an ignored local config file.
 The periodic loop remains shadow/read-only: it refreshes health/readiness,
 publishes degraded/stopped states, and applies Redis stream retention, but it
 does not consume commands or emit broker order actions.
+M4-3a starts the dual-broker shadow parity foundation for migration from ALOR
+oracle to FINAM standalone operation. On VPS the new contour is allowed only as
+FINAM read-only shadow publication, for example:
+
+```bash
+cargo run -p broker-cli -- finam-gateway-shadow-loop \
+  --config config/finam-gateway-shadow.vps.example.json \
+  --account-id "$FINAM_ACCOUNT_ID" \
+  --symbol "$FINAM_SYMBOL" \
+  --max-iterations 3
+```
+
+This publishes FINAM shadow health/readiness/truth/market-data streams under
+the `finam_shadow:*` namespace and still does not consume commands or place /
+cancel orders.
 M2d adds shadow hardening only: historical-bar watermark/dedupe, market-data
 source kind, typed Redis XREAD smoke, handoff content scanning, and draft active
 order startup policy.
@@ -257,6 +272,7 @@ See:
 - [M3d-0 implementation-transition decision](docs/m3d0-implementation-transition-decision.md)
 - [M3d operational parity roadmap](docs/m3d-operational-parity-roadmap.md)
 - [M3d-1 FINAM contract alignment](docs/m3d1-finam-contract-alignment.md)
+- [M4-3a dual-broker shadow parity foundation](docs/m4-3a-dual-broker-shadow-parity.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

@@ -1,0 +1,57 @@
+{
+  "redis_url": "redis://127.0.0.1:6379/",
+  "source": "finam-gateway-shadow-vps",
+  "account_id": "ACC_TEST_0001",
+  "symbol": "TICKER@MIC",
+  "timeframe": "TIME_FRAME_M10",
+  "bars_lookback_minutes": 90,
+  "interval_seconds": 30,
+  "max_iterations": 3,
+  "streams": {
+    "health": "finam_shadow:health",
+    "readiness": "finam_shadow:readiness",
+    "portfolio": "finam_shadow:portfolio:snapshot",
+    "orders_snapshot": "finam_shadow:orders:snapshot",
+    "market_data": "finam_shadow:market_data",
+    "command_ack": "finam_shadow:command_acks_disabled",
+    "runtime_bridge_dlq": "finam_shadow:runtime_bridge:dlq"
+  },
+  "retention": {
+    "health_maxlen": 2000,
+    "readiness_maxlen": 2000,
+    "portfolio_maxlen": 2000,
+    "order_snapshot_maxlen": 2000,
+    "market_data_maxlen": 20000,
+    "command_ack_maxlen": 100,
+    "runtime_bridge_dlq_maxlen": 1000
+  },
+  "broker_truth": {
+    "cancel_reconciliation": {
+      "precedence_version": "m4-3a-shadow-vps-example-v1",
+      "freshness": {
+        "get_order_max_age_ms": 1000,
+        "orders_snapshot_max_age_ms": 2000,
+        "trades_snapshot_max_age_ms": 5000,
+        "position_snapshot_max_age_ms": 5000
+      },
+      "precedence": {
+        "ordered_sources": [
+          "GetOrder",
+          "OrdersSnapshot",
+          "TradesSnapshot",
+          "PositionSnapshot"
+        ]
+      },
+      "position_guard": {
+        "require_instrument_match": true,
+        "require_intent_context": true,
+        "require_expected_position_delta": true,
+        "require_strategy_state": true,
+        "require_order_or_trade_absent_or_stale": true
+      },
+      "identity": {
+        "accept_client_order_id_fallback_as_strong": false
+      }
+    }
+  }
+}
