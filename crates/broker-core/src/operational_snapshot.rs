@@ -70,6 +70,10 @@ pub struct BrokerInstrumentSpec {
     pub broker_asset_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_initial_margin: Option<Money>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_initial_margin: Option<Money>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -119,6 +123,32 @@ pub enum BrokerMarginSufficiency {
     Insufficient,
     MissingCashSnapshot,
     MissingFreeCash,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrokerRequiredMarginFailure {
+    MissingInstrumentSpec,
+    MissingInitialMargin,
+    InvalidQuantity,
+    InvalidReferencePrice,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum BrokerRequiredMargin {
+    Derived { amount: Money },
+    Missing(BrokerRequiredMarginFailure),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum BrokerOrderMarginSufficiency {
+    Sufficient { required_margin: Money },
+    Insufficient { required_margin: Money },
+    MissingCashSnapshot,
+    MissingFreeCash,
+    MissingInstrumentSpec,
+    MissingInitialMargin,
+    InvalidQuantity,
+    InvalidReferencePrice,
 }
 
 impl BrokerOrderSnapshot {
@@ -260,6 +290,90 @@ impl BrokerTruthSnapshot {
         cash.margin_sufficiency_for_required_margin(required_margin)
     }
 
+    pub fn required_margin_for_order(
+        &self,
+        instrument: &InstrumentId,
+        side: OrderSide,
+        qty: Quantity,
+        reference_price: Price,
+    ) -> BrokerRequiredMargin {
+        if qty <= Decimal::ZERO {
+            return BrokerRequiredMargin::Missing(BrokerRequiredMarginFailure::InvalidQuantity);
+        }
+        if reference_price <= Decimal::ZERO {
+            return BrokerRequiredMargin::Missing(
+                BrokerRequiredMarginFailure::InvalidReferencePrice,
+            );
+        }
+        let Some(spec) = self
+            .instruments
+            .iter()
+            .find(|spec| spec.matches_instrument_id(instrument))
+        else {
+            return BrokerRequiredMargin::Missing(
+                BrokerRequiredMarginFailure::MissingInstrumentSpec,
+            );
+        };
+        let initial_margin = match side {
+            OrderSide::Buy => spec.long_initial_margin,
+            OrderSide::Sell => spec.short_initial_margin,
+        };
+        let Some(initial_margin) = initial_margin else {
+            return BrokerRequiredMargin::Missing(
+                BrokerRequiredMarginFailure::MissingInitialMargin,
+            );
+        };
+        let _reference_notional = reference_price * qty;
+        BrokerRequiredMargin::Derived {
+            amount: initial_margin * qty,
+        }
+    }
+
+    pub fn margin_sufficiency_for_instrument_order(
+        &self,
+        instrument: &InstrumentId,
+        side: OrderSide,
+        qty: Quantity,
+        reference_price: Price,
+    ) -> BrokerOrderMarginSufficiency {
+        let required_margin =
+            match self.required_margin_for_order(instrument, side, qty, reference_price) {
+                BrokerRequiredMargin::Derived { amount } => amount,
+                BrokerRequiredMargin::Missing(
+                    BrokerRequiredMarginFailure::MissingInstrumentSpec,
+                ) => {
+                    return BrokerOrderMarginSufficiency::MissingInstrumentSpec;
+                }
+                BrokerRequiredMargin::Missing(
+                    BrokerRequiredMarginFailure::MissingInitialMargin,
+                ) => {
+                    return BrokerOrderMarginSufficiency::MissingInitialMargin;
+                }
+                BrokerRequiredMargin::Missing(BrokerRequiredMarginFailure::InvalidQuantity) => {
+                    return BrokerOrderMarginSufficiency::InvalidQuantity;
+                }
+                BrokerRequiredMargin::Missing(
+                    BrokerRequiredMarginFailure::InvalidReferencePrice,
+                ) => {
+                    return BrokerOrderMarginSufficiency::InvalidReferencePrice;
+                }
+            };
+        match self.margin_sufficiency_for_order(required_margin) {
+            BrokerMarginSufficiency::Sufficient => {
+                BrokerOrderMarginSufficiency::Sufficient { required_margin }
+            }
+            BrokerMarginSufficiency::Insufficient => {
+                BrokerOrderMarginSufficiency::Insufficient { required_margin }
+            }
+            BrokerMarginSufficiency::MissingCashSnapshot => {
+                BrokerOrderMarginSufficiency::MissingCashSnapshot
+            }
+            BrokerMarginSufficiency::MissingFreeCash => {
+                BrokerOrderMarginSufficiency::MissingFreeCash
+            }
+        }
+    }
+
     pub fn summarize_for_instrument(
         &self,
         instrument: &InstrumentId,
@@ -342,6 +456,19 @@ impl BrokerCashSnapshot {
 }
 
 impl BrokerInstrumentSpec {
+    pub fn instrument_id(&self) -> InstrumentId {
+        InstrumentId {
+            symbol: self.instrument.internal_symbol.0.clone(),
+            venue_symbol: Some(self.instrument.broker_symbol.0.clone()),
+            exchange: self.instrument.exchange.clone(),
+            market: self.instrument.market.clone(),
+        }
+    }
+
+    pub fn matches_instrument_id(&self, instrument: &InstrumentId) -> bool {
+        instrument_identity_matches(&self.instrument_id(), instrument)
+    }
+
     pub fn canonical_identity_matches(&self, other: &BrokerInstrumentSpec) -> bool {
         self.instrument.broker == other.instrument.broker
             && self.instrument.broker_symbol == other.instrument.broker_symbol
@@ -712,6 +839,8 @@ mod tests {
             },
             broker_asset_id: Some(asset_id.to_string()),
             board: Some(board.to_string()),
+            long_initial_margin: Some(Decimal::new(5000, 0)),
+            short_initial_margin: Some(Decimal::new(5200, 0)),
         }
     }
 
@@ -755,5 +884,115 @@ mod tests {
             &different_asset_id
         ));
         assert!(!instrument_spec_identity_matches(&base, &different_board));
+    }
+
+    #[test]
+    fn instrument_derived_required_margin_uses_side_qty_and_reference_price_guardrails() {
+        let now = Utc::now();
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let target = instrument("IMOEXF", Some("IMOEXF@RTSX"));
+        let truth = BrokerTruthSnapshot {
+            account_id: account_id.clone(),
+            orders: Vec::new(),
+            positions: Vec::new(),
+            cash: Some(BrokerCashSnapshot {
+                account_id,
+                cash: vec![CashPosition {
+                    currency: "RUB".to_string(),
+                    amount: Decimal::new(6000, 0),
+                }],
+                equity: Some(Decimal::new(6000, 0)),
+                free_cash: Some(Decimal::new(6000, 0)),
+                initial_margin: Some(Decimal::new(5000, 0)),
+                maintenance_margin: Some(Decimal::new(4000, 0)),
+                source_ts: None,
+                received_ts: now,
+            }),
+            trades: Vec::new(),
+            instruments: vec![instrument_spec(
+                "IMOEXF@RTSX",
+                "ASSET-2026-09",
+                "RTSX",
+                NaiveDate::from_ymd_opt(2026, 9, 17).expect("date"),
+            )],
+            received_ts: now,
+        };
+
+        assert_eq!(
+            truth.required_margin_for_order(
+                &target,
+                OrderSide::Buy,
+                Decimal::ONE,
+                Decimal::new(22275, 1),
+            ),
+            BrokerRequiredMargin::Derived {
+                amount: Decimal::new(5000, 0)
+            }
+        );
+        assert_eq!(
+            truth.margin_sufficiency_for_instrument_order(
+                &target,
+                OrderSide::Sell,
+                Decimal::ONE,
+                Decimal::new(22275, 1),
+            ),
+            BrokerOrderMarginSufficiency::Sufficient {
+                required_margin: Decimal::new(5200, 0)
+            }
+        );
+        assert_eq!(
+            truth.margin_sufficiency_for_instrument_order(
+                &target,
+                OrderSide::Buy,
+                Decimal::new(2, 0),
+                Decimal::new(22275, 1),
+            ),
+            BrokerOrderMarginSufficiency::Insufficient {
+                required_margin: Decimal::new(10000, 0)
+            }
+        );
+        assert_eq!(
+            truth.required_margin_for_order(&target, OrderSide::Buy, Decimal::ZERO, Decimal::ONE),
+            BrokerRequiredMargin::Missing(BrokerRequiredMarginFailure::InvalidQuantity)
+        );
+        assert_eq!(
+            truth.required_margin_for_order(&target, OrderSide::Buy, Decimal::ONE, Decimal::ZERO),
+            BrokerRequiredMargin::Missing(BrokerRequiredMarginFailure::InvalidReferencePrice)
+        );
+    }
+
+    #[test]
+    fn missing_instrument_margin_is_explicit_not_silent_sufficient() {
+        let target = instrument("IMOEXF", Some("IMOEXF@RTSX"));
+        let mut spec = instrument_spec(
+            "IMOEXF@RTSX",
+            "ASSET-2026-09",
+            "RTSX",
+            NaiveDate::from_ymd_opt(2026, 9, 17).expect("date"),
+        );
+        spec.long_initial_margin = None;
+        let truth = BrokerTruthSnapshot {
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            orders: Vec::new(),
+            positions: Vec::new(),
+            cash: None,
+            trades: Vec::new(),
+            instruments: vec![spec],
+            received_ts: Utc::now(),
+        };
+
+        assert_eq!(
+            truth.required_margin_for_order(&target, OrderSide::Buy, Decimal::ONE, Decimal::ONE),
+            BrokerRequiredMargin::Missing(BrokerRequiredMarginFailure::MissingInitialMargin)
+        );
+        assert_eq!(
+            truth.margin_sufficiency_for_instrument_order(
+                &target,
+                OrderSide::Buy,
+                Decimal::ONE,
+                Decimal::ONE,
+            ),
+            BrokerOrderMarginSufficiency::MissingInitialMargin
+        );
     }
 }
