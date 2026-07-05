@@ -4,6 +4,7 @@
 //! shapes. Adapters translate broker payloads into these contracts.
 
 pub mod account;
+pub mod bar_aggregation;
 pub mod bar_finalizer;
 pub mod broker;
 pub mod command;
@@ -23,6 +24,9 @@ pub mod subscription;
 pub mod time;
 
 pub use account::{AccountId, PortfolioSnapshot, Position};
+pub use bar_aggregation::{
+    BarAggregationAction, BarAggregationRejectReason, CanonicalBarAggregator,
+};
 pub use bar_finalizer::{
     ClosedBarFinalizer, ClosedBarFinalizerAction, ClosedBarFinalizerActionKind, ClosedBarStreamKey,
 };

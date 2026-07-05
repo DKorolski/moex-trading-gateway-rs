@@ -143,6 +143,10 @@ M4-3c3 adds the FINAM WS closed-bar finalizer. Raw forming `BARS` updates are
 counted as diagnostics but are not published as strategy bars; the strategy
 market-data stream receives only canonical finalized bars. This preserves the
 closed-bar / next-bar-open parity contract before any runtime attachment.
+M4-3c4 starts the next source-only parity step: canonical final M1 bars can be
+strictly aggregated into final 10-minute buckets for comparison with the
+existing ALOR 10m strategy oracle. Fresh online FINAM evidence and ALOR-vs-FINAM
+10m comparison still require an active market session.
 M2d adds shadow hardening only: historical-bar watermark/dedupe, market-data
 source kind, typed Redis XREAD smoke, handoff content scanning, and draft active
 order startup policy.
@@ -327,6 +331,7 @@ See:
 - [M4-3c1 FINAM WS bars stream source](docs/m4-3c1-finam-ws-bars-stream-source.md)
 - [M4-3c2 ALOR-style market-data lifecycle](docs/m4-3c2-alor-style-market-data-lifecycle.md)
 - [M4-3c3 FINAM WS closed-bar finalizer](docs/m4-3c3-finam-ws-closed-bar-finalizer.md)
+- [M4-3c4 fresh-online final bar and M1-to-10m parity](docs/m4-3c4-fresh-online-final-bar-and-m1-to-m10-parity.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)
