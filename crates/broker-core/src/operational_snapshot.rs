@@ -109,6 +109,14 @@ pub struct BrokerTruthInstrumentSummary {
     pub other_symbol_active_orders_count: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrokerMarginSufficiency {
+    Sufficient,
+    Insufficient,
+    MissingCashSnapshot,
+    MissingFreeCash,
+}
+
 impl BrokerOrderSnapshot {
     pub fn lifecycle_for(status: &OrderStatus) -> BrokerOrderLifecycle {
         match status {
@@ -162,6 +170,18 @@ impl BrokerPositionSnapshot {
 }
 
 impl BrokerTruthSnapshot {
+    pub fn target_position_qty(&self, instrument: &InstrumentId) -> Quantity {
+        self.positions
+            .iter()
+            .filter(|position| position.matches_instrument(instrument))
+            .map(|position| position.qty)
+            .sum()
+    }
+
+    pub fn target_is_flat(&self, instrument: &InstrumentId) -> bool {
+        self.target_position_qty(instrument) == Decimal::ZERO
+    }
+
     pub fn open_positions_for_instrument(
         &self,
         instrument: &InstrumentId,
@@ -198,11 +218,42 @@ impl BrokerTruthSnapshot {
             .collect()
     }
 
+    pub fn target_active_orders(&self, instrument: &InstrumentId) -> Vec<&BrokerOrderSnapshot> {
+        self.active_orders_for_instrument(instrument)
+    }
+
+    pub fn account_active_orders(&self) -> Vec<&BrokerOrderSnapshot> {
+        self.orders
+            .iter()
+            .filter(|order| order.is_active_for_lifecycle())
+            .collect()
+    }
+
+    pub fn unknown_orders(&self) -> Vec<&BrokerOrderSnapshot> {
+        self.orders
+            .iter()
+            .filter(|order| order.lifecycle == BrokerOrderLifecycle::Unknown)
+            .collect()
+    }
+
     pub fn account_wide_active_order_count(&self) -> usize {
         self.orders
             .iter()
             .filter(|order| order.is_active_for_lifecycle())
             .count()
+    }
+
+    pub fn cash_by_currency(&self, currency: &str) -> Option<Money> {
+        self.cash
+            .as_ref()
+            .and_then(|cash| cash.cash_by_currency(currency))
+    }
+
+    pub fn margin_sufficiency_for_order(&self, required_margin: Money) -> BrokerMarginSufficiency {
+        let Some(cash) = &self.cash else {
+            return BrokerMarginSufficiency::MissingCashSnapshot;
+        };
+        cash.margin_sufficiency_for_required_margin(required_margin)
     }
 
     pub fn summarize_for_instrument(
@@ -259,6 +310,29 @@ impl BrokerTruthSnapshot {
             account_unknown_orders_count,
             account_orphan_orders_count: 0,
             other_symbol_active_orders_count,
+        }
+    }
+}
+
+impl BrokerCashSnapshot {
+    pub fn cash_by_currency(&self, currency: &str) -> Option<Money> {
+        self.cash
+            .iter()
+            .find(|cash| cash.currency.eq_ignore_ascii_case(currency))
+            .map(|cash| cash.amount)
+    }
+
+    pub fn margin_sufficiency_for_required_margin(
+        &self,
+        required_margin: Money,
+    ) -> BrokerMarginSufficiency {
+        let Some(free_cash) = self.free_cash else {
+            return BrokerMarginSufficiency::MissingFreeCash;
+        };
+        if free_cash >= required_margin {
+            BrokerMarginSufficiency::Sufficient
+        } else {
+            BrokerMarginSufficiency::Insufficient
         }
     }
 }
@@ -495,5 +569,94 @@ mod tests {
         assert_eq!(summary.target_terminal_orders_count, 1);
         assert_eq!(summary.account_active_orders_count, 1);
         assert_eq!(summary.other_symbol_active_orders_count, 1);
+    }
+
+    #[test]
+    fn canonical_truth_exposes_target_flat_and_cash_margin_helpers() {
+        let now = Utc::now();
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let target = instrument("IMOEXF", Some("IMOEXF@RTSX"));
+        let truth = BrokerTruthSnapshot {
+            account_id: account_id.clone(),
+            orders: Vec::new(),
+            positions: vec![BrokerPositionSnapshot {
+                account_id: account_id.clone(),
+                instrument: target.clone(),
+                qty: Decimal::ZERO,
+                avg_price: None,
+                unrealized_pnl: None,
+                source_ts: None,
+                received_ts: now,
+            }],
+            cash: Some(BrokerCashSnapshot {
+                account_id,
+                cash: vec![CashPosition {
+                    currency: "RUB".to_string(),
+                    amount: Decimal::new(6000, 0),
+                }],
+                equity: Some(Decimal::new(6000, 0)),
+                free_cash: Some(Decimal::new(6000, 0)),
+                initial_margin: Some(Decimal::new(5000, 0)),
+                maintenance_margin: Some(Decimal::new(4000, 0)),
+                source_ts: None,
+                received_ts: now,
+            }),
+            trades: Vec::new(),
+            instruments: Vec::new(),
+            received_ts: now,
+        };
+
+        assert!(truth.target_is_flat(&target));
+        assert_eq!(truth.cash_by_currency("rub"), Some(Decimal::new(6000, 0)));
+        assert_eq!(
+            truth.margin_sufficiency_for_order(Decimal::new(5000, 0)),
+            BrokerMarginSufficiency::Sufficient
+        );
+        assert_eq!(
+            truth.margin_sufficiency_for_order(Decimal::new(7000, 0)),
+            BrokerMarginSufficiency::Insufficient
+        );
+    }
+
+    #[test]
+    fn missing_cash_or_free_cash_blocks_margin_sufficiency() {
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let now = Utc::now();
+        let no_cash = BrokerTruthSnapshot {
+            account_id: account_id.clone(),
+            orders: Vec::new(),
+            positions: Vec::new(),
+            cash: None,
+            trades: Vec::new(),
+            instruments: Vec::new(),
+            received_ts: now,
+        };
+        let no_free_cash = BrokerTruthSnapshot {
+            account_id: account_id.clone(),
+            orders: Vec::new(),
+            positions: Vec::new(),
+            cash: Some(BrokerCashSnapshot {
+                account_id,
+                cash: Vec::new(),
+                equity: None,
+                free_cash: None,
+                initial_margin: None,
+                maintenance_margin: None,
+                source_ts: None,
+                received_ts: now,
+            }),
+            trades: Vec::new(),
+            instruments: Vec::new(),
+            received_ts: now,
+        };
+
+        assert_eq!(
+            no_cash.margin_sufficiency_for_order(Decimal::ONE),
+            BrokerMarginSufficiency::MissingCashSnapshot
+        );
+        assert_eq!(
+            no_free_cash.margin_sufficiency_for_order(Decimal::ONE),
+            BrokerMarginSufficiency::MissingFreeCash
+        );
     }
 }

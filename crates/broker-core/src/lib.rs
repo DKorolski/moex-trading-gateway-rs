@@ -10,6 +10,7 @@ pub mod envelope;
 pub mod event;
 pub mod ids;
 pub mod instrument;
+pub mod operational_config;
 pub mod operational_snapshot;
 pub mod order;
 pub mod order_path;
@@ -32,10 +33,16 @@ pub use instrument::{
     BrokerSymbol, Exchange, Instrument, InstrumentId, InstrumentMapEntry, InternalSymbol, Market,
     Money, Price, Quantity,
 };
+pub use operational_config::{
+    BrokerCapabilityMatrix, BrokerFeedFreshness, BrokerFreshnessConfig, BrokerLifecycleConfig,
+    BrokerLiveEntryBlock, BrokerLiveEntryDecision, BrokerLiveEntryScope, BrokerMarketSessionState,
+    BrokerOperationalConfig, BrokerOrderIntentKind, BrokerReadinessSnapshot, BrokerRiskLimitConfig,
+    BrokerScopeConfig, BrokerTimeoutConfig,
+};
 pub use operational_snapshot::{
-    instrument_identity_matches, BrokerCashSnapshot, BrokerInstrumentSpec, BrokerOrderLifecycle,
-    BrokerOrderQuantityTruth, BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeSnapshot,
-    BrokerTruthInstrumentSummary, BrokerTruthSnapshot,
+    instrument_identity_matches, BrokerCashSnapshot, BrokerInstrumentSpec, BrokerMarginSufficiency,
+    BrokerOrderLifecycle, BrokerOrderQuantityTruth, BrokerOrderSnapshot, BrokerPositionSnapshot,
+    BrokerTradeSnapshot, BrokerTruthInstrumentSummary, BrokerTruthSnapshot,
 };
 pub use order::{
     Order, OrderId, OrderSide, OrderStatus, OrderType, RedactedValueFingerprint, StopKind,
