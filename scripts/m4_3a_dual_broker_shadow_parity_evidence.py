@@ -62,6 +62,7 @@ VPS_CONFIG_EXPECTED = {
     "account_id": "ACC_TEST_0001",
     "symbol": "TICKER@MIC",
     "source": "finam-gateway-shadow-vps",
+    "timeframe": "TIME_FRAME_M1",
 }
 
 

@@ -94,7 +94,9 @@ cargo run -p broker-cli -- finam-gateway-shadow-loop \
 
 This publishes FINAM shadow health/readiness/truth/market-data streams under
 the `finam_shadow:*` namespace and still does not consume commands or place /
-cancel orders.
+cancel orders. The VPS example starts with `TIME_FRAME_M1`; strategy parity for
+the existing 10-minute systems requires M4-3b canonical M1-to-10m aggregation
+or a separately characterized FINAM-native 10-minute endpoint.
 M2d adds shadow hardening only: historical-bar watermark/dedupe, market-data
 source kind, typed Redis XREAD smoke, handoff content scanning, and draft active
 order startup policy.

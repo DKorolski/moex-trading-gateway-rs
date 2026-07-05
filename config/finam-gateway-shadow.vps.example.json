@@ -3,7 +3,7 @@
   "source": "finam-gateway-shadow-vps",
   "account_id": "ACC_TEST_0001",
   "symbol": "TICKER@MIC",
-  "timeframe": "TIME_FRAME_M10",
+  "timeframe": "TIME_FRAME_M1",
   "bars_lookback_minutes": 90,
   "interval_seconds": 30,
   "max_iterations": 3,

@@ -88,6 +88,7 @@ The VPS contour may run `finam-gateway-shadow-loop` with:
 - read-only token;
 - Redis shadow streams namespaced away from the current ALOR live streams;
 - explicit account/symbol configuration supplied by local `.env` or CLI flags;
+- initial `TIME_FRAME_M1` bars for the seed shadow feed;
 - `order_placement_enabled = false`;
 - `cancel_enabled = false`;
 - `command_consumer_enabled = false`;
@@ -102,6 +103,12 @@ The shadow loop may publish:
 - `MarketData`.
 
 It must not consume order commands.
+
+The production strategy parity target is still 10-minute closed-bar behavior.
+M4-3a does not assume that FINAM exposes a broker-native `TIME_FRAME_M10`
+history endpoint for every instrument. If direct M10 fetch is unavailable, M4-3b
+must build a canonical M1-to-10m final-bar aggregator and compare those derived
+10m bars against the ALOR oracle stream before any strategy runtime cutover.
 
 ## Instrument rollout order
 
