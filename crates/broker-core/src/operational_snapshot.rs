@@ -21,6 +21,18 @@ pub enum BrokerOrderQuantityTruth {
     RemainingUnknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BrokerOrderOrphanReason {
+    AccountMismatch,
+    MissingCorrelationId,
+    UnknownInstrumentIdentity,
+    FilledQuantityWithoutMatchingTrade,
+    MatchingTradeAccountMismatch,
+    MatchingTradeInstrumentMismatch,
+    MatchingTradeSideMismatch,
+    MatchingTradeQuantityLessThanFilledQuantity,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrokerOrderSnapshot {
     pub account_id: BrokerAccountId,
@@ -191,6 +203,10 @@ impl BrokerOrderSnapshot {
         self.lifecycle == BrokerOrderLifecycle::Active
             && self.quantity_truth() == BrokerOrderQuantityTruth::RemainingZero
     }
+
+    pub fn has_correlation_id(&self) -> bool {
+        self.broker_order_id.is_some() || self.client_order_id.is_some()
+    }
 }
 
 impl BrokerPositionSnapshot {
@@ -275,6 +291,104 @@ impl BrokerTruthSnapshot {
             .iter()
             .filter(|order| order.is_active_for_lifecycle())
             .count()
+    }
+
+    pub fn account_orphan_orders(&self) -> Vec<&BrokerOrderSnapshot> {
+        self.orders
+            .iter()
+            .filter(|order| !self.orphan_reasons_for_order(order).is_empty())
+            .collect()
+    }
+
+    pub fn account_orphan_order_count(&self) -> usize {
+        self.account_orphan_orders().len()
+    }
+
+    pub fn orphan_reasons_for_order(
+        &self,
+        order: &BrokerOrderSnapshot,
+    ) -> Vec<BrokerOrderOrphanReason> {
+        let mut reasons = Vec::new();
+
+        if order.account_id != self.account_id {
+            reasons.push(BrokerOrderOrphanReason::AccountMismatch);
+        }
+        if !order.has_correlation_id() {
+            reasons.push(BrokerOrderOrphanReason::MissingCorrelationId);
+        }
+        if !self.order_instrument_identity_is_known(order) {
+            reasons.push(BrokerOrderOrphanReason::UnknownInstrumentIdentity);
+        }
+
+        if order.filled_qty > Decimal::ZERO {
+            let matching_trades = self.trades_matching_order_identity(order);
+            if matching_trades.is_empty() {
+                reasons.push(BrokerOrderOrphanReason::FilledQuantityWithoutMatchingTrade);
+            } else {
+                if matching_trades
+                    .iter()
+                    .any(|trade| trade.account_id != order.account_id)
+                {
+                    reasons.push(BrokerOrderOrphanReason::MatchingTradeAccountMismatch);
+                }
+                if matching_trades
+                    .iter()
+                    .any(|trade| !instrument_identity_matches(&trade.instrument, &order.instrument))
+                {
+                    reasons.push(BrokerOrderOrphanReason::MatchingTradeInstrumentMismatch);
+                }
+                if matching_trades.iter().any(|trade| trade.side != order.side) {
+                    reasons.push(BrokerOrderOrphanReason::MatchingTradeSideMismatch);
+                }
+                let consistent_trade_qty: Quantity = matching_trades
+                    .iter()
+                    .filter(|trade| {
+                        trade.account_id == order.account_id
+                            && instrument_identity_matches(&trade.instrument, &order.instrument)
+                            && trade.side == order.side
+                    })
+                    .map(|trade| trade.qty)
+                    .sum();
+                if consistent_trade_qty < order.filled_qty {
+                    reasons
+                        .push(BrokerOrderOrphanReason::MatchingTradeQuantityLessThanFilledQuantity);
+                }
+            }
+        }
+
+        reasons
+    }
+
+    fn order_instrument_identity_is_known(&self, order: &BrokerOrderSnapshot) -> bool {
+        if order.instrument.venue_symbol.is_none() {
+            return false;
+        }
+        self.instruments.is_empty()
+            || self
+                .instruments
+                .iter()
+                .any(|spec| spec.matches_instrument_id(&order.instrument))
+    }
+
+    fn trades_matching_order_identity<'a>(
+        &'a self,
+        order: &BrokerOrderSnapshot,
+    ) -> Vec<&'a BrokerTradeSnapshot> {
+        self.trades
+            .iter()
+            .filter(|trade| {
+                order
+                    .broker_order_id
+                    .as_ref()
+                    .zip(trade.broker_order_id.as_ref())
+                    .is_some_and(|(order_id, trade_order_id)| order_id == trade_order_id)
+                    || order
+                        .client_order_id
+                        .as_ref()
+                        .zip(trade.client_order_id.as_ref())
+                        .is_some_and(|(order_id, trade_order_id)| order_id == trade_order_id)
+            })
+            .collect()
     }
 
     pub fn cash_by_currency(&self, currency: &str) -> Option<Money> {
@@ -408,6 +522,7 @@ impl BrokerTruthSnapshot {
             .iter()
             .filter(|order| order.lifecycle == BrokerOrderLifecycle::Unknown)
             .count();
+        let account_orphan_orders_count = self.account_orphan_order_count();
         let other_symbol_active_orders_count = self
             .orders
             .iter()
@@ -426,7 +541,7 @@ impl BrokerTruthSnapshot {
             target_inconsistent_orders_count,
             account_active_orders_count,
             account_unknown_orders_count,
-            account_orphan_orders_count: 0,
+            account_orphan_orders_count,
             other_symbol_active_orders_count,
         }
     }
@@ -521,7 +636,7 @@ mod tests {
         let now = Utc::now();
         BrokerOrderSnapshot {
             account_id: account_id.clone(),
-            broker_order_id: None,
+            broker_order_id: Some(BrokerOrderId::new("BROKER-ORDER-TEST")),
             client_order_id: None,
             instrument,
             side: OrderSide::Buy,
@@ -536,6 +651,43 @@ mod tests {
             remaining_qty,
             limit_price: None,
             source_ts: None,
+            received_ts: now,
+        }
+    }
+
+    fn order_with_broker_order_id(
+        account_id: &BrokerAccountId,
+        instrument: InstrumentId,
+        status: OrderStatus,
+        remaining_qty: Option<Decimal>,
+        broker_order_id: &str,
+    ) -> BrokerOrderSnapshot {
+        BrokerOrderSnapshot {
+            broker_order_id: Some(BrokerOrderId::new(broker_order_id)),
+            ..order(account_id, instrument, status, remaining_qty)
+        }
+    }
+
+    fn trade(
+        account_id: &BrokerAccountId,
+        broker_order_id: &str,
+        instrument: InstrumentId,
+        side: OrderSide,
+        qty: Decimal,
+    ) -> BrokerTradeSnapshot {
+        let now = Utc::now();
+        BrokerTradeSnapshot {
+            account_id: account_id.clone(),
+            broker_trade_id: BrokerTradeId::new(format!("TRADE-{broker_order_id}")),
+            broker_order_id: Some(BrokerOrderId::new(broker_order_id)),
+            client_order_id: None,
+            instrument,
+            side,
+            qty,
+            price: Decimal::new(1000, 0),
+            gross_amount: None,
+            commission: None,
+            source_ts: now,
             received_ts: now,
         }
     }
@@ -723,6 +875,201 @@ mod tests {
         assert_eq!(summary.target_terminal_orders_count, 1);
         assert_eq!(summary.account_active_orders_count, 1);
         assert_eq!(summary.other_symbol_active_orders_count, 1);
+    }
+
+    #[test]
+    fn orphan_order_truth_is_derived_from_account_instrument_and_correlation() {
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let other_account = BrokerAccountId::new("ACC_TEST_0002");
+        let target = instrument("IMOEXF", Some("IMOEXF@RTSX"));
+        let unknown_without_venue = instrument("IMOEXF", None);
+        let unknown_contract = instrument("RI", Some("RIU6@RTSX"));
+        let mut missing_correlation = order(
+            &account_id,
+            target.clone(),
+            OrderStatus::Working,
+            Some(Decimal::ONE),
+        );
+        missing_correlation.broker_order_id = None;
+        missing_correlation.client_order_id = None;
+        let other_account_order = order(
+            &other_account,
+            target.clone(),
+            OrderStatus::Working,
+            Some(Decimal::ONE),
+        );
+        let missing_instrument_identity = order(
+            &account_id,
+            unknown_without_venue,
+            OrderStatus::Working,
+            Some(Decimal::ONE),
+        );
+        let unknown_instrument_identity = order(
+            &account_id,
+            unknown_contract,
+            OrderStatus::Working,
+            Some(Decimal::ONE),
+        );
+        let truth = BrokerTruthSnapshot {
+            account_id: account_id.clone(),
+            orders: vec![
+                order(
+                    &account_id,
+                    target.clone(),
+                    OrderStatus::Working,
+                    Some(Decimal::ONE),
+                ),
+                missing_correlation.clone(),
+                other_account_order.clone(),
+                missing_instrument_identity.clone(),
+                unknown_instrument_identity.clone(),
+            ],
+            positions: Vec::new(),
+            cash: None,
+            trades: Vec::new(),
+            instruments: vec![instrument_spec(
+                "IMOEXF@RTSX",
+                "ASSET-2026-09",
+                "RTSX",
+                NaiveDate::from_ymd_opt(2026, 9, 17).expect("date"),
+            )],
+            received_ts: Utc::now(),
+        };
+
+        assert!(truth.orphan_reasons_for_order(&truth.orders[0]).is_empty());
+        assert!(truth
+            .orphan_reasons_for_order(&missing_correlation)
+            .contains(&BrokerOrderOrphanReason::MissingCorrelationId));
+        assert!(truth
+            .orphan_reasons_for_order(&other_account_order)
+            .contains(&BrokerOrderOrphanReason::AccountMismatch));
+        assert!(truth
+            .orphan_reasons_for_order(&missing_instrument_identity)
+            .contains(&BrokerOrderOrphanReason::UnknownInstrumentIdentity));
+        assert!(truth
+            .orphan_reasons_for_order(&unknown_instrument_identity)
+            .contains(&BrokerOrderOrphanReason::UnknownInstrumentIdentity));
+        assert_eq!(truth.account_orphan_order_count(), 4);
+        assert_eq!(
+            truth
+                .summarize_for_instrument(&target)
+                .account_orphan_orders_count,
+            4
+        );
+    }
+
+    #[test]
+    fn orphan_order_truth_is_derived_from_order_trade_mismatch() {
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let other_account = BrokerAccountId::new("ACC_TEST_0002");
+        let target = instrument("IMOEXF", Some("IMOEXF@RTSX"));
+        let ri = instrument("RI", Some("RIU6@RTSX"));
+        let clean_order = order_with_broker_order_id(
+            &account_id,
+            target.clone(),
+            OrderStatus::Filled,
+            Some(Decimal::ZERO),
+            "BROKER-CLEAN",
+        );
+        let missing_trade_order = order_with_broker_order_id(
+            &account_id,
+            target.clone(),
+            OrderStatus::Filled,
+            Some(Decimal::ZERO),
+            "BROKER-MISSING-TRADE",
+        );
+        let mismatched_trade_order = order_with_broker_order_id(
+            &account_id,
+            target.clone(),
+            OrderStatus::Filled,
+            Some(Decimal::ZERO),
+            "BROKER-BAD-TRADE",
+        );
+        let truth = BrokerTruthSnapshot {
+            account_id: account_id.clone(),
+            orders: vec![
+                clean_order.clone(),
+                missing_trade_order.clone(),
+                mismatched_trade_order.clone(),
+            ],
+            positions: Vec::new(),
+            cash: None,
+            trades: vec![
+                trade(
+                    &account_id,
+                    "BROKER-CLEAN",
+                    target.clone(),
+                    OrderSide::Buy,
+                    Decimal::ONE,
+                ),
+                trade(
+                    &other_account,
+                    "BROKER-BAD-TRADE",
+                    ri,
+                    OrderSide::Sell,
+                    Decimal::new(5, 1),
+                ),
+            ],
+            instruments: vec![instrument_spec(
+                "IMOEXF@RTSX",
+                "ASSET-2026-09",
+                "RTSX",
+                NaiveDate::from_ymd_opt(2026, 9, 17).expect("date"),
+            )],
+            received_ts: Utc::now(),
+        };
+
+        assert!(truth.orphan_reasons_for_order(&clean_order).is_empty());
+        assert!(truth
+            .orphan_reasons_for_order(&missing_trade_order)
+            .contains(&BrokerOrderOrphanReason::FilledQuantityWithoutMatchingTrade));
+        let mismatched_reasons = truth.orphan_reasons_for_order(&mismatched_trade_order);
+        assert!(mismatched_reasons.contains(&BrokerOrderOrphanReason::MatchingTradeAccountMismatch));
+        assert!(
+            mismatched_reasons.contains(&BrokerOrderOrphanReason::MatchingTradeInstrumentMismatch)
+        );
+        assert!(mismatched_reasons.contains(&BrokerOrderOrphanReason::MatchingTradeSideMismatch));
+        assert!(mismatched_reasons
+            .contains(&BrokerOrderOrphanReason::MatchingTradeQuantityLessThanFilledQuantity));
+        assert_eq!(truth.account_orphan_order_count(), 2);
+    }
+
+    #[test]
+    fn derived_orphan_order_count_blocks_combined_preflight_decision() {
+        use crate::operational_config::{
+            BrokerCanonicalPreflightBlock, BrokerCanonicalPreflightDecision,
+            BrokerLiveEntryDecision,
+        };
+
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let target = instrument("IMOEXF", Some("IMOEXF@RTSX"));
+        let mut orphan_order = order(
+            &account_id,
+            target.clone(),
+            OrderStatus::Working,
+            Some(Decimal::ONE),
+        );
+        orphan_order.broker_order_id = None;
+        orphan_order.client_order_id = None;
+        let truth = empty_truth(account_id, vec![orphan_order]);
+        let summary = truth.summarize_for_instrument(&target);
+
+        assert_eq!(summary.account_orphan_orders_count, 1);
+        let decision = BrokerCanonicalPreflightDecision::from_readiness_margin_and_truth(
+            BrokerLiveEntryDecision {
+                allowed: true,
+                blocks: Vec::new(),
+            },
+            BrokerOrderMarginSufficiency::Sufficient {
+                required_margin: Decimal::ONE,
+            },
+            summary,
+        );
+
+        assert!(!decision.allowed);
+        assert!(decision
+            .blocks
+            .contains(&BrokerCanonicalPreflightBlock::AccountOrphanOrdersPresent));
     }
 
     #[test]

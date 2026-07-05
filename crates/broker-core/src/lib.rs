@@ -45,9 +45,9 @@ pub use operational_config::{
 pub use operational_snapshot::{
     instrument_identity_matches, instrument_spec_identity_matches, BrokerCashSnapshot,
     BrokerInstrumentSpec, BrokerMarginSufficiency, BrokerOrderLifecycle,
-    BrokerOrderMarginSufficiency, BrokerOrderQuantityTruth, BrokerOrderSnapshot,
-    BrokerPositionSnapshot, BrokerRequiredMargin, BrokerRequiredMarginFailure, BrokerTradeSnapshot,
-    BrokerTruthInstrumentSummary, BrokerTruthSnapshot,
+    BrokerOrderMarginSufficiency, BrokerOrderOrphanReason, BrokerOrderQuantityTruth,
+    BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerRequiredMargin, BrokerRequiredMarginFailure,
+    BrokerTradeSnapshot, BrokerTruthInstrumentSummary, BrokerTruthSnapshot,
 };
 pub use order::{
     Order, OrderId, OrderSide, OrderStatus, OrderType, RedactedValueFingerprint, StopKind,
