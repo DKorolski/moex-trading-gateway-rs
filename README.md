@@ -139,6 +139,10 @@ history/recovery/live bar counters, first-live-final-bar gate, stale diagnostics
 and explicit `market_data_lifecycle.phase`. This makes FINAM and ALOR comparable
 at the data-readiness layer while keeping gateway readiness no-live /
 operator-arm blocked.
+M4-3c3 adds the FINAM WS closed-bar finalizer. Raw forming `BARS` updates are
+counted as diagnostics but are not published as strategy bars; the strategy
+market-data stream receives only canonical finalized bars. This preserves the
+closed-bar / next-bar-open parity contract before any runtime attachment.
 M2d adds shadow hardening only: historical-bar watermark/dedupe, market-data
 source kind, typed Redis XREAD smoke, handoff content scanning, and draft active
 order startup policy.
@@ -322,6 +326,7 @@ See:
 - [M4-3c0 broker-neutral observability contract](docs/m4-3c0-broker-neutral-observability-contract.md)
 - [M4-3c1 FINAM WS bars stream source](docs/m4-3c1-finam-ws-bars-stream-source.md)
 - [M4-3c2 ALOR-style market-data lifecycle](docs/m4-3c2-alor-style-market-data-lifecycle.md)
+- [M4-3c3 FINAM WS closed-bar finalizer](docs/m4-3c3-finam-ws-closed-bar-finalizer.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

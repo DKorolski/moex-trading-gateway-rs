@@ -1,6 +1,8 @@
+#![recursion_limit = "256"]
+
 use anyhow::{Context, Result};
 use broker_core::command::CommandAckStatus;
-use broker_core::event::Quote;
+use broker_core::event::{Bar, Quote};
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::CancelPreflightApproval;
 use broker_core::{
@@ -8,11 +10,12 @@ use broker_core::{
     BrokerLifecycleConfig, BrokerLiveEntryScope, BrokerMarketDataLifecycleInput,
     BrokerMarketDataLifecycleSnapshot, BrokerOperationalConfig, BrokerOrderId,
     BrokerPlainMicroStopOrderWaiverPolicy, BrokerReadiness, BrokerRiskLimitConfig,
-    BrokerScopeConfig, BrokerTimeoutConfig, BrokerTruthSnapshot, ClientOrderId, Envelope, Exchange,
-    InMemoryOrderPathStore, InstrumentId, Market, MarketDataEvent, MarketDataLifecyclePhase,
-    MarketDataSourceKind, MessageType, OperatorArm, Order, OrderPathEvent, OrderPathRecord,
-    OrderPreflightPolicy, OrderSide, OrderStatus, OrderType, PlaceOrder, PortfolioSnapshot,
-    ReadinessPhase, ReadinessReason, StrategyRequestId, TimeInForce,
+    BrokerScopeConfig, BrokerTimeoutConfig, BrokerTruthSnapshot, ClientOrderId, ClosedBarFinalizer,
+    ClosedBarFinalizerActionKind, Envelope, Exchange, InMemoryOrderPathStore, InstrumentId, Market,
+    MarketDataEvent, MarketDataLifecyclePhase, MarketDataSourceKind, MessageType, OperatorArm,
+    Order, OrderPathEvent, OrderPathRecord, OrderPreflightPolicy, OrderSide, OrderStatus,
+    OrderType, PlaceOrder, PortfolioSnapshot, ReadinessPhase, ReadinessReason, StrategyRequestId,
+    TimeInForce,
 };
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::{OrderPreflightContext, OrderReferencePrice};
@@ -1753,6 +1756,12 @@ struct FinamWsShadowMetrics {
     final_live_bar_event_count: u64,
     forming_live_bar_event_count: u64,
     unknown_source_bar_event_count: u64,
+    closed_bar_finalized_count: u64,
+    final_bar_passthrough_count: u64,
+    forming_bar_suppressed_count: u64,
+    duplicate_final_suppressed_count: u64,
+    non_monotonic_forming_dropped_count: u64,
+    non_live_bar_passthrough_count: u64,
     published_market_data_count: u64,
     ping_count: u64,
     pong_count: u64,
@@ -1956,6 +1965,7 @@ async fn run_finam_ws_shadow_iteration(
         connection_count: 1,
         ..FinamWsShadowMetrics::default()
     };
+    let mut closed_bar_finalizer = ClosedBarFinalizer::default();
 
     runtime
         .gateway
@@ -2012,6 +2022,7 @@ async fn run_finam_ws_shadow_iteration(
                             text.as_ref(),
                             timeframe_sec,
                             &mut metrics,
+                            &mut closed_bar_finalizer,
                         ).await?;
                     }
                     WsMessage::Ping(payload) => {
@@ -2136,6 +2147,7 @@ async fn handle_finam_ws_text_message(
     text: &str,
     timeframe_sec: u32,
     metrics: &mut FinamWsShadowMetrics,
+    closed_bar_finalizer: &mut ClosedBarFinalizer,
 ) -> Result<()> {
     let envelope = match serde_json::from_str::<FinamWsEnvelope>(text) {
         Ok(envelope) => envelope,
@@ -2188,58 +2200,120 @@ async fn handle_finam_ws_text_message(
     };
 
     for event in events {
-        match &event {
-            MarketDataEvent::Quote(_) => {
+        match event {
+            MarketDataEvent::Quote(quote) => {
                 metrics.quote_event_count += 1;
+                runtime
+                    .gateway
+                    .publish_market_data_event(MarketDataEvent::Quote(quote))
+                    .await?;
+                metrics.published_market_data_count += 1;
             }
             MarketDataEvent::Bar(bar) => {
-                metrics.bar_event_count += 1;
-                if bar.is_final {
-                    metrics.final_bar_event_count += 1;
-                } else {
-                    metrics.forming_bar_event_count += 1;
-                }
-                metrics.last_bar_source_kind = Some(bar.source_kind);
-                match bar.source_kind {
-                    MarketDataSourceKind::HistoricalPoll => {
-                        metrics.history_bar_event_count += 1;
-                        metrics.last_history_bar_close_ts = Some(bar.close_ts);
-                    }
-                    MarketDataSourceKind::ReadOnlyPoll => {
-                        metrics.read_only_bar_event_count += 1;
-                        metrics.last_history_bar_close_ts = Some(bar.close_ts);
-                    }
-                    MarketDataSourceKind::Recovery => {
-                        metrics.recovery_bar_event_count += 1;
-                        metrics.last_recovery_bar_close_ts = Some(bar.close_ts);
-                    }
-                    MarketDataSourceKind::LiveStream => {
-                        metrics.live_bar_event_count += 1;
-                        metrics.first_live_bar_seen = true;
-                        metrics.last_live_bar_close_ts = Some(bar.close_ts);
-                        if bar.is_final {
-                            metrics.final_live_bar_event_count += 1;
-                            metrics.last_final_live_bar_close_ts = Some(bar.close_ts);
-                            if !metrics.first_live_final_bar_seen {
-                                metrics.first_live_final_bar_seen = true;
-                                metrics.first_live_final_bar_close_ts = Some(bar.close_ts);
-                            }
-                        } else {
-                            metrics.forming_live_bar_event_count += 1;
-                        }
-                    }
-                    MarketDataSourceKind::Unknown => {
-                        metrics.unknown_source_bar_event_count += 1;
-                    }
+                record_inbound_ws_bar_metrics(metrics, &bar);
+                let action = closed_bar_finalizer.observe_bar(bar);
+                record_closed_bar_finalizer_action(metrics, action.kind);
+                if let Some(final_bar) = action.emitted {
+                    record_canonical_ws_bar_metrics(metrics, &final_bar);
+                    runtime
+                        .gateway
+                        .publish_market_data_event(MarketDataEvent::Bar(final_bar))
+                        .await?;
+                    metrics.published_market_data_count += 1;
                 }
             }
-            MarketDataEvent::OrderBook(_) | MarketDataEvent::LatestTrade(_) => {}
+            MarketDataEvent::OrderBook(order_book) => {
+                runtime
+                    .gateway
+                    .publish_market_data_event(MarketDataEvent::OrderBook(order_book))
+                    .await?;
+                metrics.published_market_data_count += 1;
+            }
+            MarketDataEvent::LatestTrade(trade) => {
+                runtime
+                    .gateway
+                    .publish_market_data_event(MarketDataEvent::LatestTrade(trade))
+                    .await?;
+                metrics.published_market_data_count += 1;
+            }
         }
-        runtime.gateway.publish_market_data_event(event).await?;
-        metrics.published_market_data_count += 1;
     }
 
     Ok(())
+}
+
+fn record_inbound_ws_bar_metrics(metrics: &mut FinamWsShadowMetrics, bar: &Bar) {
+    metrics.bar_event_count += 1;
+    if bar.is_final {
+        metrics.final_bar_event_count += 1;
+    } else {
+        metrics.forming_bar_event_count += 1;
+    }
+    metrics.last_bar_source_kind = Some(bar.source_kind);
+    match bar.source_kind {
+        MarketDataSourceKind::HistoricalPoll => {
+            metrics.history_bar_event_count += 1;
+            metrics.last_history_bar_close_ts = Some(bar.close_ts);
+        }
+        MarketDataSourceKind::ReadOnlyPoll => {
+            metrics.read_only_bar_event_count += 1;
+            metrics.last_history_bar_close_ts = Some(bar.close_ts);
+        }
+        MarketDataSourceKind::Recovery => {
+            metrics.recovery_bar_event_count += 1;
+            metrics.last_recovery_bar_close_ts = Some(bar.close_ts);
+        }
+        MarketDataSourceKind::LiveStream => {
+            metrics.live_bar_event_count += 1;
+            metrics.first_live_bar_seen = true;
+            metrics.last_live_bar_close_ts = Some(bar.close_ts);
+            if !bar.is_final {
+                metrics.forming_live_bar_event_count += 1;
+            }
+        }
+        MarketDataSourceKind::Unknown => {
+            metrics.unknown_source_bar_event_count += 1;
+        }
+    }
+}
+
+fn record_canonical_ws_bar_metrics(metrics: &mut FinamWsShadowMetrics, bar: &Bar) {
+    if bar.source_kind == MarketDataSourceKind::LiveStream && bar.is_final {
+        metrics.final_live_bar_event_count += 1;
+        metrics.last_final_live_bar_close_ts = Some(bar.close_ts);
+        if !metrics.first_live_final_bar_seen {
+            metrics.first_live_final_bar_seen = true;
+            metrics.first_live_final_bar_close_ts = Some(bar.close_ts);
+        }
+    }
+}
+
+fn record_closed_bar_finalizer_action(
+    metrics: &mut FinamWsShadowMetrics,
+    action: ClosedBarFinalizerActionKind,
+) {
+    match action {
+        ClosedBarFinalizerActionKind::BufferedForming
+        | ClosedBarFinalizerActionKind::UpdatedForming => {
+            metrics.forming_bar_suppressed_count += 1;
+        }
+        ClosedBarFinalizerActionKind::EmittedClosedFromNextBar => {
+            metrics.closed_bar_finalized_count += 1;
+            metrics.forming_bar_suppressed_count += 1;
+        }
+        ClosedBarFinalizerActionKind::PassedThroughFinal => {
+            metrics.final_bar_passthrough_count += 1;
+        }
+        ClosedBarFinalizerActionKind::SuppressedDuplicateFinal => {
+            metrics.duplicate_final_suppressed_count += 1;
+        }
+        ClosedBarFinalizerActionKind::DroppedNonMonotonicForming => {
+            metrics.non_monotonic_forming_dropped_count += 1;
+        }
+        ClosedBarFinalizerActionKind::PassedThroughNonLiveSource => {
+            metrics.non_live_bar_passthrough_count += 1;
+        }
+    }
 }
 
 fn finam_ws_shadow_report_json(
@@ -2256,6 +2330,9 @@ fn finam_ws_shadow_report_json(
         serde_json::to_value(&report.market_data_lifecycle).expect("lifecycle serializes");
     let market_data = serde_json::json!({
         "source_kind": "LiveStream",
+        "closed_bar_finalizer_enabled": true,
+        "strategy_bars_are_final_only": true,
+        "raw_forming_bars_published_for_strategy": false,
         "published_market_data_count": report.metrics.published_market_data_count,
         "quote_event_count": report.metrics.quote_event_count,
         "bar_event_count": report.metrics.bar_event_count,
@@ -2268,6 +2345,12 @@ fn finam_ws_shadow_report_json(
         "final_live_bar_event_count": report.metrics.final_live_bar_event_count,
         "forming_live_bar_event_count": report.metrics.forming_live_bar_event_count,
         "unknown_source_bar_event_count": report.metrics.unknown_source_bar_event_count,
+        "closed_bar_finalized_count": report.metrics.closed_bar_finalized_count,
+        "final_bar_passthrough_count": report.metrics.final_bar_passthrough_count,
+        "forming_bar_suppressed_count": report.metrics.forming_bar_suppressed_count,
+        "duplicate_final_suppressed_count": report.metrics.duplicate_final_suppressed_count,
+        "non_monotonic_forming_dropped_count": report.metrics.non_monotonic_forming_dropped_count,
+        "non_live_bar_passthrough_count": report.metrics.non_live_bar_passthrough_count,
         "first_live_bar_seen": report.metrics.first_live_bar_seen,
         "first_live_final_bar_seen": report.metrics.first_live_final_bar_seen,
         "first_live_final_bar_close_ts": report.metrics.first_live_final_bar_close_ts,
@@ -2336,6 +2419,12 @@ fn finam_ws_shadow_metrics_json(metrics: &FinamWsShadowMetrics) -> serde_json::V
         "final_live_bar_event_count": metrics.final_live_bar_event_count,
         "forming_live_bar_event_count": metrics.forming_live_bar_event_count,
         "unknown_source_bar_event_count": metrics.unknown_source_bar_event_count,
+        "closed_bar_finalized_count": metrics.closed_bar_finalized_count,
+        "final_bar_passthrough_count": metrics.final_bar_passthrough_count,
+        "forming_bar_suppressed_count": metrics.forming_bar_suppressed_count,
+        "duplicate_final_suppressed_count": metrics.duplicate_final_suppressed_count,
+        "non_monotonic_forming_dropped_count": metrics.non_monotonic_forming_dropped_count,
+        "non_live_bar_passthrough_count": metrics.non_live_bar_passthrough_count,
         "published_market_data_count": metrics.published_market_data_count,
         "ping_count": metrics.ping_count,
         "pong_count": metrics.pong_count,
