@@ -1763,6 +1763,8 @@ struct FinamWsShadowMetrics {
     non_monotonic_forming_dropped_count: u64,
     non_live_bar_passthrough_count: u64,
     published_market_data_count: u64,
+    published_strategy_bar_count: u64,
+    stale_ws_final_bar_suppressed_count: u64,
     ping_count: u64,
     pong_count: u64,
     first_live_bar_seen: bool,
@@ -2232,17 +2234,23 @@ async fn handle_finam_ws_text_message(
                 let action = closed_bar_finalizer.observe_bar(bar);
                 record_closed_bar_finalizer_action(metrics, action.kind);
                 if let Some(final_bar) = action.emitted {
-                    record_canonical_ws_bar_metrics(
+                    let observed_ts = Utc::now();
+                    let publish_strategy_bar = record_canonical_ws_bar_metrics(
                         metrics,
                         &final_bar,
-                        Utc::now(),
+                        observed_ts,
                         finam_ws_shadow_freshness_threshold_sec(timeframe_sec),
                     );
-                    runtime
-                        .gateway
-                        .publish_market_data_event(MarketDataEvent::Bar(final_bar))
-                        .await?;
-                    metrics.published_market_data_count += 1;
+                    if publish_strategy_bar {
+                        runtime
+                            .gateway
+                            .publish_market_data_event(MarketDataEvent::Bar(final_bar))
+                            .await?;
+                        metrics.published_market_data_count += 1;
+                        metrics.published_strategy_bar_count += 1;
+                    } else {
+                        metrics.stale_ws_final_bar_suppressed_count += 1;
+                    }
                 }
             }
             MarketDataEvent::OrderBook(order_book) => {
@@ -2311,7 +2319,7 @@ fn record_canonical_ws_bar_metrics(
     bar: &Bar,
     observed_ts: DateTime<Utc>,
     freshness_threshold_sec: u64,
-) {
+) -> bool {
     record_final_bar_gap_metrics(metrics, bar);
     if bar.source_kind == MarketDataSourceKind::LiveStream && bar.is_final {
         metrics.final_live_bar_event_count += 1;
@@ -2333,10 +2341,12 @@ fn record_canonical_ws_bar_metrics(
             if metrics.first_fresh_live_final_bar_close_ts.is_none() {
                 metrics.first_fresh_live_final_bar_close_ts = Some(bar.close_ts);
             }
+            return true;
         } else {
             metrics.stale_live_final_bar_count += 1;
         }
     }
+    false
 }
 
 fn record_final_bar_gap_metrics(metrics: &mut FinamWsShadowMetrics, bar: &Bar) {
@@ -2423,8 +2433,11 @@ fn finam_ws_shadow_report_json(
         "closed_bar_finalizer_enabled": true,
         "strategy_bars_are_final_only": true,
         "raw_forming_bars_published_for_strategy": false,
+        "stale_ws_final_bars_published_for_strategy": false,
         "freshness_threshold_sec": finam_ws_shadow_freshness_threshold_sec(timeframe_seconds(&runtime.resolved.timeframe).unwrap_or(60)),
         "published_market_data_count": report.metrics.published_market_data_count,
+        "published_strategy_bar_count": report.metrics.published_strategy_bar_count,
+        "stale_ws_final_bar_suppressed_count": report.metrics.stale_ws_final_bar_suppressed_count,
         "quote_event_count": report.metrics.quote_event_count,
         "bar_event_count": report.metrics.bar_event_count,
         "final_bar_event_count": report.metrics.final_bar_event_count,
@@ -2532,6 +2545,8 @@ fn finam_ws_shadow_metrics_json(metrics: &FinamWsShadowMetrics) -> serde_json::V
         "non_monotonic_forming_dropped_count": metrics.non_monotonic_forming_dropped_count,
         "non_live_bar_passthrough_count": metrics.non_live_bar_passthrough_count,
         "published_market_data_count": metrics.published_market_data_count,
+        "published_strategy_bar_count": metrics.published_strategy_bar_count,
+        "stale_ws_final_bar_suppressed_count": metrics.stale_ws_final_bar_suppressed_count,
         "ping_count": metrics.ping_count,
         "pong_count": metrics.pong_count,
         "first_live_bar_seen": metrics.first_live_bar_seen,
@@ -8292,13 +8307,14 @@ mod tests {
         let stale_observed_ts = Utc.with_ymd_and_hms(2026, 7, 5, 10, 10, 0).unwrap();
 
         let mut fresh_metrics = FinamWsShadowMetrics::default();
-        record_canonical_ws_bar_metrics(
+        let fresh_publish_allowed = record_canonical_ws_bar_metrics(
             &mut fresh_metrics,
             &sample_live_final_bar(close_ts),
             fresh_observed_ts,
             180,
         );
 
+        assert!(fresh_publish_allowed);
         assert!(fresh_metrics.fresh_live_final_bar_seen);
         assert_eq!(
             fresh_metrics.first_fresh_live_final_bar_close_ts,
@@ -8308,13 +8324,14 @@ mod tests {
         assert_eq!(fresh_metrics.latest_live_final_bar_stale_for_sec, Some(60));
 
         let mut stale_metrics = FinamWsShadowMetrics::default();
-        record_canonical_ws_bar_metrics(
+        let stale_publish_allowed = record_canonical_ws_bar_metrics(
             &mut stale_metrics,
             &sample_live_final_bar(close_ts),
             stale_observed_ts,
             180,
         );
 
+        assert!(!stale_publish_allowed);
         assert!(stale_metrics.first_live_final_bar_seen);
         assert!(!stale_metrics.fresh_live_final_bar_seen);
         assert_eq!(stale_metrics.stale_live_final_bar_count, 1);
@@ -8329,13 +8346,13 @@ mod tests {
         let expected_missing_close = Utc.with_ymd_and_hms(2026, 7, 5, 10, 2, 0).unwrap();
         let mut metrics = FinamWsShadowMetrics::default();
 
-        record_canonical_ws_bar_metrics(
+        let _ = record_canonical_ws_bar_metrics(
             &mut metrics,
             &sample_live_final_bar(first_close),
             observed_ts,
             180,
         );
-        record_canonical_ws_bar_metrics(
+        let _ = record_canonical_ws_bar_metrics(
             &mut metrics,
             &sample_live_final_bar(gap_close),
             observed_ts,
@@ -8353,6 +8370,30 @@ mod tests {
             Some(expected_missing_close)
         );
         assert_eq!(metrics.last_final_bar_gap_actual_close_ts, Some(gap_close));
+    }
+
+    #[test]
+    fn finam_ws_shadow_strategy_publish_policy_suppresses_stale_backlog_bars() {
+        let close_ts = Utc.with_ymd_and_hms(2026, 7, 5, 10, 0, 0).unwrap();
+        let stale_observed_ts = Utc.with_ymd_and_hms(2026, 7, 5, 10, 10, 0).unwrap();
+        let mut metrics = FinamWsShadowMetrics::default();
+        let publish_allowed = record_canonical_ws_bar_metrics(
+            &mut metrics,
+            &sample_live_final_bar(close_ts),
+            stale_observed_ts,
+            180,
+        );
+
+        if publish_allowed {
+            metrics.published_strategy_bar_count += 1;
+        } else {
+            metrics.stale_ws_final_bar_suppressed_count += 1;
+        }
+
+        assert!(!publish_allowed);
+        assert_eq!(metrics.published_strategy_bar_count, 0);
+        assert_eq!(metrics.stale_ws_final_bar_suppressed_count, 1);
+        assert_eq!(metrics.stale_live_final_bar_count, 1);
     }
 
     #[test]
