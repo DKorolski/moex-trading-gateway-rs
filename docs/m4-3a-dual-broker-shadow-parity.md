@@ -106,9 +106,11 @@ It must not consume order commands.
 
 The production strategy parity target is still 10-minute closed-bar behavior.
 M4-3a does not assume that FINAM exposes a broker-native `TIME_FRAME_M10`
-history endpoint for every instrument. If direct M10 fetch is unavailable, M4-3b
-must build a canonical M1-to-10m final-bar aggregator and compare those derived
-10m bars against the ALOR oracle stream before any strategy runtime cutover.
+history endpoint for every instrument. M4-3b first moves FINAM shadow
+market-data input to WebSocket `LiveStream`. If direct M10 fetch/stream is
+unavailable, the next parity step must build a canonical M1-to-10m final-bar
+aggregator and compare those derived 10m bars against the ALOR oracle stream
+before any strategy runtime cutover.
 
 ## Instrument rollout order
 

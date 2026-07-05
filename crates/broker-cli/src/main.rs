@@ -18,10 +18,11 @@ use broker_core::{OrderPreflightContext, OrderReferencePrice};
 use broker_finam::{
     active_orders, has_blocking_unknown_order_statuses, instrument_id_from_symbol,
     map_account_trade, map_bar, map_finam_broker_truth_snapshot, map_latest_market_trade,
-    map_order_state, map_portfolio_snapshot, map_quote, redact_json_key_for_diagnostics,
-    terminal_orders, AccessToken, AllAssetsQuery, BarsQuery, FinamApiCapabilities,
-    FinamAuthManager, FinamConfig, FinamError, FinamInstrumentSpecArtifacts, FinamMapperError,
-    FinamRestClient, GatewayEnabledFeatures, HistoryQuery, SecretToken,
+    map_order_state, map_portfolio_snapshot, map_quote, map_ws_market_data_events,
+    redact_json_key_for_diagnostics, terminal_orders, AccessToken, AllAssetsQuery, BarsQuery,
+    FinamApiCapabilities, FinamAuthManager, FinamConfig, FinamError, FinamInstrumentSpecArtifacts,
+    FinamMapperError, FinamRestClient, FinamWsEnvelope, GatewayEnabledFeatures, HistoryQuery,
+    SecretToken,
 };
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_finam::{
@@ -61,6 +62,7 @@ use finam_gateway::{
     RuntimeBridgeDlqRecord, RuntimeBridgeDryConsumer, RuntimeBridgeReadinessSimulator,
     RuntimeBridgeStreamEntry,
 };
+use futures_util::{SinkExt, StreamExt};
 use redis::streams::{
     StreamAutoClaimReply, StreamId, StreamPendingCountReply, StreamRangeReply, StreamReadReply,
 };
@@ -75,6 +77,10 @@ use std::process::Command as ProcessCommand;
 use std::str::FromStr;
 use std::sync::Mutex;
 use std::time::{Duration as StdDuration, Instant};
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::http::HeaderValue;
+use tokio_tungstenite::tungstenite::Message as WsMessage;
 use uuid::Uuid;
 
 const JSON_SHAPE_MAX_DEPTH: usize = 4;
@@ -422,6 +428,74 @@ enum Command {
         #[arg(long)]
         interval_seconds: Option<u64>,
         /// Optional safety stop after N iterations. Omit for continuous loop.
+        #[arg(long)]
+        max_iterations: Option<u64>,
+    },
+    /// Run one FINAM WebSocket market-data shadow pass. Does not place or cancel orders.
+    #[command(name = "finam-ws-shadow-once")]
+    FinamWsShadowOnce {
+        /// Optional JSON config file with Redis streams and FINAM symbol/timeframe.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Environment variable that contains the Finam secret token.
+        #[arg(long, default_value = "FINAM_SECRET_TOKEN")]
+        secret_env: String,
+        /// Redis connection URL. Overrides config file.
+        #[arg(long, env = "FINAM_GATEWAY_REDIS_URL")]
+        redis_url: Option<String>,
+        /// Finam venue symbol, for example TICKER@MIC. Overrides config file.
+        #[arg(long, env = "FINAM_SYMBOL")]
+        symbol: Option<String>,
+        /// Bars timeframe value accepted by Finam WebSocket, for example TIME_FRAME_M1.
+        #[arg(long, env = "FINAM_TIMEFRAME")]
+        timeframe: Option<String>,
+        /// Subscribe to FINAM WebSocket BARS.
+        #[arg(long, default_value_t = true)]
+        subscribe_bars: bool,
+        /// Subscribe to FINAM WebSocket QUOTES.
+        #[arg(long, default_value_t = true)]
+        subscribe_quotes: bool,
+        /// Stop after this many received WebSocket messages.
+        #[arg(long, default_value_t = 20)]
+        max_messages: u64,
+        /// Stop after this many seconds even if fewer messages arrive.
+        #[arg(long, default_value_t = 60)]
+        max_duration_seconds: u64,
+    },
+    /// Run periodic/reconnecting FINAM WebSocket market-data shadow loop. No live orders.
+    #[command(name = "finam-ws-shadow-loop")]
+    FinamWsShadowLoop {
+        /// Optional JSON config file with Redis streams and FINAM symbol/timeframe.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Environment variable that contains the Finam secret token.
+        #[arg(long, default_value = "FINAM_SECRET_TOKEN")]
+        secret_env: String,
+        /// Redis connection URL. Overrides config file.
+        #[arg(long, env = "FINAM_GATEWAY_REDIS_URL")]
+        redis_url: Option<String>,
+        /// Finam venue symbol, for example TICKER@MIC. Overrides config file.
+        #[arg(long, env = "FINAM_SYMBOL")]
+        symbol: Option<String>,
+        /// Bars timeframe value accepted by Finam WebSocket, for example TIME_FRAME_M1.
+        #[arg(long, env = "FINAM_TIMEFRAME")]
+        timeframe: Option<String>,
+        /// Subscribe to FINAM WebSocket BARS.
+        #[arg(long, default_value_t = true)]
+        subscribe_bars: bool,
+        /// Subscribe to FINAM WebSocket QUOTES.
+        #[arg(long, default_value_t = true)]
+        subscribe_quotes: bool,
+        /// Per-connection message budget before reconnecting.
+        #[arg(long, default_value_t = 1000)]
+        max_messages: u64,
+        /// Per-connection duration before reconnecting.
+        #[arg(long, default_value_t = 900)]
+        max_duration_seconds: u64,
+        /// Reconnect delay after each connection pass.
+        #[arg(long, default_value_t = 5)]
+        reconnect_delay_seconds: u64,
+        /// Optional safety stop after N connection passes. Omit for continuous loop.
         #[arg(long)]
         max_iterations: Option<u64>,
     },
@@ -1199,6 +1273,60 @@ async fn main() -> Result<()> {
             })
             .await?;
         }
+        Command::FinamWsShadowOnce {
+            config,
+            secret_env,
+            redis_url,
+            symbol,
+            timeframe,
+            subscribe_bars,
+            subscribe_quotes,
+            max_messages,
+            max_duration_seconds,
+        } => {
+            run_finam_ws_shadow_once(FinamWsShadowArgs {
+                config,
+                secret_env,
+                redis_url,
+                symbol,
+                timeframe,
+                subscribe_bars,
+                subscribe_quotes,
+                max_messages,
+                max_duration_seconds,
+                reconnect_delay_seconds: 0,
+                max_iterations: Some(1),
+            })
+            .await?;
+        }
+        Command::FinamWsShadowLoop {
+            config,
+            secret_env,
+            redis_url,
+            symbol,
+            timeframe,
+            subscribe_bars,
+            subscribe_quotes,
+            max_messages,
+            max_duration_seconds,
+            reconnect_delay_seconds,
+            max_iterations,
+        } => {
+            run_finam_ws_shadow_loop(FinamWsShadowArgs {
+                config,
+                secret_env,
+                redis_url,
+                symbol,
+                timeframe,
+                subscribe_bars,
+                subscribe_quotes,
+                max_messages,
+                max_duration_seconds,
+                reconnect_delay_seconds,
+                max_iterations,
+            })
+            .await?;
+        }
         Command::GatewayRedisSmoke { redis_url, stream } => {
             run_gateway_redis_smoke(redis_url, stream).await?;
         }
@@ -1247,6 +1375,20 @@ struct GatewayShadowOnceArgs {
     end_time: Option<String>,
     bars_lookback_minutes: i64,
     interval_seconds: Option<u64>,
+    max_iterations: Option<u64>,
+}
+
+struct FinamWsShadowArgs {
+    config: Option<PathBuf>,
+    secret_env: String,
+    redis_url: Option<String>,
+    symbol: Option<String>,
+    timeframe: Option<String>,
+    subscribe_bars: bool,
+    subscribe_quotes: bool,
+    max_messages: u64,
+    max_duration_seconds: u64,
+    reconnect_delay_seconds: u64,
     max_iterations: Option<u64>,
 }
 
@@ -1332,6 +1474,19 @@ struct ResolvedGatewayShadowConfig {
     end_time: Option<String>,
     bars_lookback_minutes: i64,
     interval_seconds: u64,
+    max_iterations: Option<u64>,
+}
+
+struct ResolvedFinamWsShadowConfig {
+    secret_env: String,
+    gateway_config: GatewayConfig,
+    symbol: String,
+    timeframe: String,
+    subscribe_bars: bool,
+    subscribe_quotes: bool,
+    max_messages: u64,
+    max_duration_seconds: u64,
+    reconnect_delay_seconds: u64,
     max_iterations: Option<u64>,
 }
 
@@ -1567,6 +1722,432 @@ async fn run_gateway_shadow_loop(args: GatewayShadowOnceArgs) -> Result<()> {
         }
     }
     Ok(())
+}
+
+struct FinamWsShadowRuntime {
+    resolved: ResolvedFinamWsShadowConfig,
+    auth_manager: FinamAuthManager,
+    gateway: FinamGateway<RedisConnectionStreamSink>,
+}
+
+#[derive(Default, Clone)]
+struct FinamWsShadowMetrics {
+    connection_count: u64,
+    success_count: u64,
+    failure_count: u64,
+    text_message_count: u64,
+    data_envelope_count: u64,
+    event_envelope_count: u64,
+    error_envelope_count: u64,
+    decode_error_count: u64,
+    mapper_error_count: u64,
+    quote_event_count: u64,
+    bar_event_count: u64,
+    final_bar_event_count: u64,
+    forming_bar_event_count: u64,
+    published_market_data_count: u64,
+    ping_count: u64,
+    pong_count: u64,
+}
+
+struct FinamWsShadowIterationReport {
+    iteration: u64,
+    elapsed_ms: u128,
+    stop_reason: String,
+    metrics: FinamWsShadowMetrics,
+    readiness_phase: String,
+    readiness_reasons: Vec<String>,
+}
+
+async fn run_finam_ws_shadow_once(args: FinamWsShadowArgs) -> Result<()> {
+    let runtime = setup_finam_ws_shadow_runtime(args).await?;
+    let report = run_finam_ws_shadow_iteration(&runtime, 1).await?;
+    print_json(finam_ws_shadow_report_json("once", &runtime, &report))?;
+    Ok(())
+}
+
+async fn run_finam_ws_shadow_loop(args: FinamWsShadowArgs) -> Result<()> {
+    let runtime = setup_finam_ws_shadow_runtime(args).await?;
+    let started_at = Instant::now();
+    let mut iteration = 0_u64;
+    let mut success_count = 0_u64;
+    let mut failure_count = 0_u64;
+
+    loop {
+        iteration += 1;
+        match run_finam_ws_shadow_iteration(&runtime, iteration).await {
+            Ok(report) => {
+                success_count += 1;
+                print_json(finam_ws_shadow_report_json("loop", &runtime, &report))?;
+            }
+            Err(error) => {
+                failure_count += 1;
+                publish_degraded_state(
+                    &runtime.gateway,
+                    ReadinessReason::MarketDataNotLive,
+                    "finam_ws_shadow",
+                )
+                .await?;
+                print_json(serde_json::json!({
+                    "finam_ws_shadow": false,
+                    "mode": "loop",
+                    "iteration": iteration,
+                    "live_trading_enabled": false,
+                    "order_placement_enabled": false,
+                    "cancel_enabled": false,
+                    "command_consumer_enabled": false,
+                    "readiness_phase": "Degraded",
+                    "readiness_reasons": ["MarketDataNotLive"],
+                    "error_present": true,
+                    "error": error.to_string(),
+                }))?;
+            }
+        }
+
+        if runtime
+            .resolved
+            .max_iterations
+            .is_some_and(|max_iterations| iteration >= max_iterations)
+        {
+            publish_stopped_state(&runtime.gateway, "finam_ws_shadow_max_iterations").await?;
+            print_json(serde_json::json!({
+                "finam_ws_shadow_loop": "stopped",
+                "stop_reason": "max_iterations",
+                "elapsed_ms": started_at.elapsed().as_millis(),
+                "iterations": iteration,
+                "success_count": success_count,
+                "failure_count": failure_count,
+                "live_trading_enabled": false,
+            }))?;
+            break;
+        }
+
+        tokio::select! {
+            signal = tokio::signal::ctrl_c() => {
+                if signal.is_err() {
+                    emit_redis_degraded_stderr("finam_ws_ctrl_c_signal", &std::io::Error::other("ctrl_c signal failed"))?;
+                }
+                publish_stopped_state(&runtime.gateway, "finam_ws_shadow_ctrl_c").await?;
+                print_json(serde_json::json!({
+                    "finam_ws_shadow_loop": "stopped",
+                    "stop_reason": "ctrl_c",
+                    "elapsed_ms": started_at.elapsed().as_millis(),
+                    "iterations": iteration,
+                    "success_count": success_count,
+                    "failure_count": failure_count,
+                    "live_trading_enabled": false,
+                }))?;
+                break;
+            }
+            _ = tokio::time::sleep(StdDuration::from_secs(runtime.resolved.reconnect_delay_seconds)) => {}
+        }
+    }
+
+    Ok(())
+}
+
+async fn setup_finam_ws_shadow_runtime(args: FinamWsShadowArgs) -> Result<FinamWsShadowRuntime> {
+    let file_config = read_gateway_shadow_file_config(args.config.as_ref())?;
+    let resolved = resolve_finam_ws_shadow_config(args, file_config)?;
+    let redis_url = resolved.gateway_config.redis.url.clone();
+    let secret = SecretToken::new(std::env::var(&resolved.secret_env).with_context(|| {
+        format!(
+            "missing required environment variable {}",
+            resolved.secret_env
+        )
+    })?);
+    let client = FinamRestClient::try_new(FinamConfig::default())?;
+    let auth_manager = FinamAuthManager::new(client, secret);
+    let sink = RedisConnectionStreamSink::connect(&redis_url)
+        .await
+        .context("Redis connection failed for FINAM WS shadow gateway")?;
+    let gateway = FinamGateway::new(resolved.gateway_config.clone(), sink);
+    Ok(FinamWsShadowRuntime {
+        resolved,
+        auth_manager,
+        gateway,
+    })
+}
+
+fn resolve_finam_ws_shadow_config(
+    args: FinamWsShadowArgs,
+    file_config: GatewayShadowFileConfig,
+) -> Result<ResolvedFinamWsShadowConfig> {
+    anyhow::ensure!(
+        args.subscribe_bars || args.subscribe_quotes,
+        "at least one FINAM WS subscription must be enabled"
+    );
+    let mut gateway_config = GatewayConfig {
+        features: GatewayFeatureSet::default(),
+        ..GatewayConfig::default()
+    };
+    apply_gateway_shadow_file_config(&mut gateway_config, &file_config);
+    if let Some(redis_url) = args.redis_url {
+        gateway_config.redis.url = redis_url;
+    }
+    gateway_config.features.command_consumer_enabled = false;
+    gateway_config.features.order_placement_enabled = false;
+    gateway_config.features.cancel_enabled = false;
+    gateway_config.features.stop_sltp_bracket_enabled = false;
+
+    Ok(ResolvedFinamWsShadowConfig {
+        secret_env: args.secret_env,
+        gateway_config,
+        symbol: args
+            .symbol
+            .or(file_config.symbol)
+            .context("missing required FINAM symbol for WS shadow gateway")?,
+        timeframe: args
+            .timeframe
+            .or(file_config.timeframe)
+            .unwrap_or_else(|| "TIME_FRAME_M1".to_string()),
+        subscribe_bars: args.subscribe_bars,
+        subscribe_quotes: args.subscribe_quotes,
+        max_messages: args.max_messages.max(1),
+        max_duration_seconds: args.max_duration_seconds.max(1),
+        reconnect_delay_seconds: args.reconnect_delay_seconds.max(1),
+        max_iterations: args
+            .max_iterations
+            .or(file_config.max_iterations)
+            .filter(|value| *value > 0),
+    })
+}
+
+async fn run_finam_ws_shadow_iteration(
+    runtime: &FinamWsShadowRuntime,
+    iteration: u64,
+) -> Result<FinamWsShadowIterationReport> {
+    let started_at = Instant::now();
+    let token = runtime.auth_manager.access_token().await?;
+    let mut request = FinamConfig::default()
+        .websocket_endpoint
+        .into_client_request()
+        .context("FINAM WebSocket request build failed")?;
+    request.headers_mut().insert(
+        "Authorization",
+        HeaderValue::from_str(token.as_str()).context("FINAM WebSocket auth header failed")?,
+    );
+    let (mut ws, _response) = connect_async(request)
+        .await
+        .context("FINAM WebSocket connect failed")?;
+    let mut metrics = FinamWsShadowMetrics {
+        connection_count: 1,
+        ..FinamWsShadowMetrics::default()
+    };
+
+    runtime
+        .gateway
+        .publish_health(default_readonly_health(runtime.gateway.config()))
+        .await?;
+
+    if runtime.resolved.subscribe_quotes {
+        let request = broker_finam::build_ws_subscribe_quotes_request(
+            std::slice::from_ref(&runtime.resolved.symbol),
+            &token,
+        );
+        ws.send(WsMessage::Text(request.to_string()))
+            .await
+            .context("FINAM WebSocket quote subscribe send failed")?;
+    }
+    if runtime.resolved.subscribe_bars {
+        let request = broker_finam::build_ws_subscribe_bars_request(
+            &runtime.resolved.symbol,
+            &runtime.resolved.timeframe,
+            &token,
+        );
+        ws.send(WsMessage::Text(request.to_string()))
+            .await
+            .context("FINAM WebSocket bars subscribe send failed")?;
+    }
+
+    let timeframe_sec = timeframe_seconds(&runtime.resolved.timeframe)?;
+    let timeout = tokio::time::sleep(StdDuration::from_secs(
+        runtime.resolved.max_duration_seconds,
+    ));
+    tokio::pin!(timeout);
+    let mut stop_reason = "max_messages".to_string();
+
+    loop {
+        if metrics.text_message_count >= runtime.resolved.max_messages {
+            break;
+        }
+        tokio::select! {
+            _ = &mut timeout => {
+                stop_reason = "max_duration".to_string();
+                break;
+            }
+            next = ws.next() => {
+                let Some(message) = next else {
+                    stop_reason = "stream_closed".to_string();
+                    break;
+                };
+                let message = message.context("FINAM WebSocket receive failed")?;
+                match message {
+                    WsMessage::Text(text) => {
+                        metrics.text_message_count += 1;
+                        handle_finam_ws_text_message(
+                            runtime,
+                            text.as_ref(),
+                            timeframe_sec,
+                            &mut metrics,
+                        ).await?;
+                    }
+                    WsMessage::Ping(payload) => {
+                        metrics.ping_count += 1;
+                        ws.send(WsMessage::Pong(payload)).await.context("FINAM WebSocket pong send failed")?;
+                    }
+                    WsMessage::Pong(_) => {
+                        metrics.pong_count += 1;
+                    }
+                    WsMessage::Close(_) => {
+                        stop_reason = "close_frame".to_string();
+                        break;
+                    }
+                    WsMessage::Binary(_) | WsMessage::Frame(_) => {}
+                }
+            }
+        }
+    }
+
+    runtime
+        .gateway
+        .publish_readiness(BrokerReadiness {
+            phase: ReadinessPhase::Reconciliation,
+            reasons: vec![ReadinessReason::OperatorLiveArmMissing],
+            checked_ts: Utc::now(),
+        })
+        .await?;
+    metrics.success_count = 1;
+
+    Ok(FinamWsShadowIterationReport {
+        iteration,
+        elapsed_ms: started_at.elapsed().as_millis(),
+        stop_reason,
+        metrics,
+        readiness_phase: "Reconciliation".to_string(),
+        readiness_reasons: vec!["OperatorLiveArmMissing".to_string()],
+    })
+}
+
+async fn handle_finam_ws_text_message(
+    runtime: &FinamWsShadowRuntime,
+    text: &str,
+    timeframe_sec: u32,
+    metrics: &mut FinamWsShadowMetrics,
+) -> Result<()> {
+    let envelope = match serde_json::from_str::<FinamWsEnvelope>(text) {
+        Ok(envelope) => envelope,
+        Err(_) => {
+            metrics.decode_error_count += 1;
+            return Ok(());
+        }
+    };
+    if envelope.envelope_type.eq_ignore_ascii_case("ERROR") {
+        metrics.error_envelope_count += 1;
+        return Ok(());
+    }
+    if envelope.envelope_type.eq_ignore_ascii_case("EVENT") {
+        metrics.event_envelope_count += 1;
+        return Ok(());
+    }
+    if !envelope.envelope_type.eq_ignore_ascii_case("DATA") {
+        return Ok(());
+    }
+    metrics.data_envelope_count += 1;
+
+    let events = match map_ws_market_data_events(
+        &envelope,
+        Some(&runtime.resolved.symbol),
+        timeframe_sec,
+        Utc::now(),
+    ) {
+        Ok(events) => events,
+        Err(_) => {
+            metrics.mapper_error_count += 1;
+            return Ok(());
+        }
+    };
+
+    for event in events {
+        match &event {
+            MarketDataEvent::Quote(_) => {
+                metrics.quote_event_count += 1;
+            }
+            MarketDataEvent::Bar(bar) => {
+                metrics.bar_event_count += 1;
+                if bar.is_final {
+                    metrics.final_bar_event_count += 1;
+                } else {
+                    metrics.forming_bar_event_count += 1;
+                }
+            }
+            MarketDataEvent::OrderBook(_) | MarketDataEvent::LatestTrade(_) => {}
+        }
+        runtime.gateway.publish_market_data_event(event).await?;
+        metrics.published_market_data_count += 1;
+    }
+
+    Ok(())
+}
+
+fn finam_ws_shadow_report_json(
+    mode: &str,
+    runtime: &FinamWsShadowRuntime,
+    report: &FinamWsShadowIterationReport,
+) -> serde_json::Value {
+    serde_json::json!({
+        "finam_ws_shadow": true,
+        "mode": mode,
+        "iteration": report.iteration,
+        "elapsed_ms": report.elapsed_ms,
+        "stop_reason": report.stop_reason,
+        "live_trading_enabled": false,
+        "command_consumer_enabled": runtime.gateway.config().features.command_consumer_enabled,
+        "order_placement_enabled": runtime.gateway.config().features.order_placement_enabled,
+        "cancel_enabled": runtime.gateway.config().features.cancel_enabled,
+        "stop_sltp_bracket_enabled": runtime.gateway.config().features.stop_sltp_bracket_enabled,
+        "symbol_present": !runtime.resolved.symbol.is_empty(),
+        "timeframe": runtime.resolved.timeframe,
+        "subscribe_bars": runtime.resolved.subscribe_bars,
+        "subscribe_quotes": runtime.resolved.subscribe_quotes,
+        "streams": {
+            "health": runtime.gateway.config().redis.health_stream,
+            "readiness": runtime.gateway.config().redis.readiness_stream,
+            "market_data": runtime.gateway.config().redis.market_data_stream,
+        },
+        "readiness_phase": report.readiness_phase,
+        "readiness_reasons": report.readiness_reasons,
+        "market_data": {
+            "source_kind": "LiveStream",
+            "published_market_data_count": report.metrics.published_market_data_count,
+            "quote_event_count": report.metrics.quote_event_count,
+            "bar_event_count": report.metrics.bar_event_count,
+            "final_bar_event_count": report.metrics.final_bar_event_count,
+            "forming_bar_event_count": report.metrics.forming_bar_event_count,
+        },
+        "metrics": finam_ws_shadow_metrics_json(&report.metrics),
+    })
+}
+
+fn finam_ws_shadow_metrics_json(metrics: &FinamWsShadowMetrics) -> serde_json::Value {
+    serde_json::json!({
+        "connection_count": metrics.connection_count,
+        "success_count": metrics.success_count,
+        "failure_count": metrics.failure_count,
+        "text_message_count": metrics.text_message_count,
+        "data_envelope_count": metrics.data_envelope_count,
+        "event_envelope_count": metrics.event_envelope_count,
+        "error_envelope_count": metrics.error_envelope_count,
+        "decode_error_count": metrics.decode_error_count,
+        "mapper_error_count": metrics.mapper_error_count,
+        "quote_event_count": metrics.quote_event_count,
+        "bar_event_count": metrics.bar_event_count,
+        "final_bar_event_count": metrics.final_bar_event_count,
+        "forming_bar_event_count": metrics.forming_bar_event_count,
+        "published_market_data_count": metrics.published_market_data_count,
+        "ping_count": metrics.ping_count,
+        "pong_count": metrics.pong_count,
+    })
 }
 
 async fn setup_gateway_shadow_runtime(args: GatewayShadowOnceArgs) -> Result<GatewayShadowRuntime> {
@@ -7104,6 +7685,61 @@ mod tests {
         assert!(!resolved.gateway_config.features.cancel_enabled);
         assert!(!resolved.gateway_config.features.stop_sltp_bracket_enabled);
         assert_eq!(resolved.timeframe, "TIME_FRAME_M1");
+    }
+
+    #[test]
+    fn finam_ws_shadow_config_keeps_live_order_features_disabled() {
+        let resolved = resolve_finam_ws_shadow_config(
+            FinamWsShadowArgs {
+                config: None,
+                secret_env: "FINAM_SECRET_TOKEN".to_string(),
+                redis_url: None,
+                symbol: Some("TICKER@MIC".to_string()),
+                timeframe: None,
+                subscribe_bars: true,
+                subscribe_quotes: true,
+                max_messages: 0,
+                max_duration_seconds: 0,
+                reconnect_delay_seconds: 0,
+                max_iterations: None,
+            },
+            GatewayShadowFileConfig {
+                redis_url: Some("redis://127.0.0.1:6379/".to_string()),
+                source: Some("finam-ws-shadow-test".to_string()),
+                timeframe: Some("TIME_FRAME_M1".to_string()),
+                max_iterations: Some(3),
+                streams: Some(GatewayShadowStreamsFileConfig {
+                    health: Some("finam_ws_shadow:health".to_string()),
+                    readiness: Some("finam_ws_shadow:readiness".to_string()),
+                    portfolio: Some("finam_ws_shadow:portfolio:snapshot_disabled".to_string()),
+                    orders_snapshot: Some("finam_ws_shadow:orders:snapshot_disabled".to_string()),
+                    market_data: Some("finam_ws_shadow:market_data".to_string()),
+                    command_ack: Some("finam_ws_shadow:command_acks_disabled".to_string()),
+                    runtime_bridge_dlq: Some("finam_ws_shadow:runtime_bridge:dlq".to_string()),
+                }),
+                ..GatewayShadowFileConfig::default()
+            },
+        )
+        .expect("resolved ws config");
+
+        assert_eq!(resolved.gateway_config.source, "finam-ws-shadow-test");
+        assert_eq!(resolved.timeframe, "TIME_FRAME_M1");
+        assert_eq!(resolved.max_messages, 1);
+        assert_eq!(resolved.max_duration_seconds, 1);
+        assert_eq!(resolved.reconnect_delay_seconds, 1);
+        assert_eq!(resolved.max_iterations, Some(3));
+        assert!(!resolved.gateway_config.features.command_consumer_enabled);
+        assert!(!resolved.gateway_config.features.order_placement_enabled);
+        assert!(!resolved.gateway_config.features.cancel_enabled);
+        assert!(!resolved.gateway_config.features.stop_sltp_bracket_enabled);
+        assert_eq!(
+            resolved.gateway_config.redis.market_data_stream,
+            "finam_ws_shadow:market_data"
+        );
+        assert_eq!(
+            resolved.gateway_config.redis.command_ack_stream,
+            "finam_ws_shadow:command_acks_disabled"
+        );
     }
 
     #[test]

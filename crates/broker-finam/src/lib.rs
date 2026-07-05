@@ -13,10 +13,12 @@ pub mod dto;
 pub mod instrument_registry;
 pub mod mapper;
 pub mod order_request;
+pub mod ws;
 pub use dto::*;
 pub use instrument_registry::*;
 pub use mapper::*;
 pub use order_request::*;
+pub use ws::*;
 
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_JWT_TTL: Duration = Duration::from_secs(15 * 60);

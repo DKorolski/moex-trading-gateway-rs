@@ -95,8 +95,23 @@ cargo run -p broker-cli -- finam-gateway-shadow-loop \
 This publishes FINAM shadow health/readiness/truth/market-data streams under
 the `finam_shadow:*` namespace and still does not consume commands or place /
 cancel orders. The VPS example starts with `TIME_FRAME_M1`; strategy parity for
-the existing 10-minute systems requires M4-3b canonical M1-to-10m aggregation
-or a separately characterized FINAM-native 10-minute endpoint.
+the existing 10-minute systems requires FINAM WebSocket stream characterization
+plus canonical M1-to-10m aggregation or a separately characterized FINAM-native
+10-minute endpoint.
+M4-3b adds a FINAM WebSocket market-data shadow. It publishes only live-stream
+QUOTES/BARS events under the separate `finam_ws_shadow:*` namespace:
+
+```bash
+cargo run -p broker-cli -- finam-ws-shadow-once \
+  --config config/finam-ws-shadow.vps.example.json
+
+cargo run -p broker-cli -- finam-ws-shadow-loop \
+  --config config/finam-ws-shadow.vps.example.json \
+  --max-iterations 3
+```
+
+WS shadow remains no-live: no command consumer, no order placement, no cancel,
+no runtime/live attachment, and no Stop/SLTP/bracket.
 M2d adds shadow hardening only: historical-bar watermark/dedupe, market-data
 source kind, typed Redis XREAD smoke, handoff content scanning, and draft active
 order startup policy.
@@ -275,6 +290,7 @@ See:
 - [M3d operational parity roadmap](docs/m3d-operational-parity-roadmap.md)
 - [M3d-1 FINAM contract alignment](docs/m3d1-finam-contract-alignment.md)
 - [M4-3a dual-broker shadow parity foundation](docs/m4-3a-dual-broker-shadow-parity.md)
+- [M4-3b FINAM WebSocket stream shadow](docs/m4-3b-finam-websocket-stream-shadow.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

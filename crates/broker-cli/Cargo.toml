@@ -14,12 +14,14 @@ broker-finam = { path = "../broker-finam" }
 finam-gateway = { path = "../finam-gateway" }
 chrono.workspace = true
 clap = { workspace = true, features = ["env"] }
+futures-util.workspace = true
 redis.workspace = true
 rust_decimal.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tokio.workspace = true
+tokio-tungstenite.workspace = true
 uuid.workspace = true
 
 [[bin]]
