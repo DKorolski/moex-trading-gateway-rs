@@ -13,6 +13,7 @@ pub mod event;
 pub mod ids;
 pub mod instrument;
 pub mod market_data_lifecycle;
+pub mod market_data_recovery;
 pub mod observability;
 pub mod operational_config;
 pub mod operational_snapshot;
@@ -47,6 +48,11 @@ pub use instrument::{
 pub use market_data_lifecycle::{
     evaluate_market_data_lifecycle, BrokerMarketDataLifecycleInput,
     BrokerMarketDataLifecycleSnapshot, MarketDataLifecycleBlocker, MarketDataLifecyclePhase,
+};
+pub use market_data_recovery::{
+    evaluate_market_data_recovery, plan_market_data_recovery, MarketDataRecoveryBlocker,
+    MarketDataRecoveryInput, MarketDataRecoveryMode, MarketDataRecoveryPhase,
+    MarketDataRecoveryPlan, MarketDataRecoveryPlanInput, MarketDataRecoveryReport,
 };
 pub use observability::{
     live_required_channel_kinds, required_channel_kinds, BrokerConsumerGroupSnapshot,
