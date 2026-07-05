@@ -5,13 +5,14 @@ use broker_core::event::Quote;
 use broker_core::CancelPreflightApproval;
 use broker_core::{
     BrokerAccountId, BrokerCapabilityMatrix, BrokerCommand, BrokerFreshnessConfig,
-    BrokerLifecycleConfig, BrokerLiveEntryScope, BrokerOperationalConfig, BrokerOrderId,
+    BrokerLifecycleConfig, BrokerLiveEntryScope, BrokerMarketDataLifecycleInput,
+    BrokerMarketDataLifecycleSnapshot, BrokerOperationalConfig, BrokerOrderId,
     BrokerPlainMicroStopOrderWaiverPolicy, BrokerReadiness, BrokerRiskLimitConfig,
     BrokerScopeConfig, BrokerTimeoutConfig, BrokerTruthSnapshot, ClientOrderId, Envelope, Exchange,
-    InMemoryOrderPathStore, InstrumentId, Market, MarketDataEvent, MarketDataSourceKind,
-    MessageType, OperatorArm, Order, OrderPathEvent, OrderPathRecord, OrderPreflightPolicy,
-    OrderSide, OrderStatus, OrderType, PlaceOrder, PortfolioSnapshot, ReadinessPhase,
-    ReadinessReason, StrategyRequestId, TimeInForce,
+    InMemoryOrderPathStore, InstrumentId, Market, MarketDataEvent, MarketDataLifecyclePhase,
+    MarketDataSourceKind, MessageType, OperatorArm, Order, OrderPathEvent, OrderPathRecord,
+    OrderPreflightPolicy, OrderSide, OrderStatus, OrderType, PlaceOrder, PortfolioSnapshot,
+    ReadinessPhase, ReadinessReason, StrategyRequestId, TimeInForce,
 };
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::{OrderPreflightContext, OrderReferencePrice};
@@ -30,7 +31,7 @@ use broker_finam::{
     FinamOrderExecutionOutcome,
 };
 use broker_finam::{build_finam_canonical_readiness_package, FinamCanonicalReadinessPackageInput};
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use clap::{Parser, Subcommand};
 #[cfg(feature = "m3j16-actual-one-shot")]
 use finam_gateway::m3d2_real_order_transport::{
@@ -1745,9 +1746,24 @@ struct FinamWsShadowMetrics {
     bar_event_count: u64,
     final_bar_event_count: u64,
     forming_bar_event_count: u64,
+    history_bar_event_count: u64,
+    read_only_bar_event_count: u64,
+    recovery_bar_event_count: u64,
+    live_bar_event_count: u64,
+    final_live_bar_event_count: u64,
+    forming_live_bar_event_count: u64,
+    unknown_source_bar_event_count: u64,
     published_market_data_count: u64,
     ping_count: u64,
     pong_count: u64,
+    first_live_bar_seen: bool,
+    first_live_final_bar_seen: bool,
+    first_live_final_bar_close_ts: Option<DateTime<Utc>>,
+    last_history_bar_close_ts: Option<DateTime<Utc>>,
+    last_recovery_bar_close_ts: Option<DateTime<Utc>>,
+    last_live_bar_close_ts: Option<DateTime<Utc>>,
+    last_final_live_bar_close_ts: Option<DateTime<Utc>>,
+    last_bar_source_kind: Option<MarketDataSourceKind>,
     first_decode_error_text_len: Option<usize>,
     first_decode_error_shape: Option<serde_json::Value>,
     first_mapper_error_kind: Option<String>,
@@ -1760,6 +1776,7 @@ struct FinamWsShadowIterationReport {
     elapsed_ms: u128,
     stop_reason: String,
     metrics: FinamWsShadowMetrics,
+    market_data_lifecycle: BrokerMarketDataLifecycleSnapshot,
     readiness_phase: String,
     readiness_reasons: Vec<String>,
 }
@@ -2014,11 +2031,10 @@ async fn run_finam_ws_shadow_iteration(
         }
     }
 
-    runtime
-        .gateway
-        .publish_readiness(finam_ws_shadow_readiness(runtime, &metrics))
-        .await?;
-    let readiness = finam_ws_shadow_readiness(runtime, &metrics);
+    let market_data_lifecycle =
+        finam_ws_shadow_market_data_lifecycle(runtime, &metrics, timeframe_sec, Utc::now());
+    let readiness = finam_ws_shadow_readiness(runtime, &market_data_lifecycle);
+    runtime.gateway.publish_readiness(readiness.clone()).await?;
     metrics.success_count = 1;
 
     Ok(FinamWsShadowIterationReport {
@@ -2026,6 +2042,7 @@ async fn run_finam_ws_shadow_iteration(
         elapsed_ms: started_at.elapsed().as_millis(),
         stop_reason,
         metrics,
+        market_data_lifecycle,
         readiness_phase: format!("{:?}", readiness.phase),
         readiness_reasons: readiness
             .reasons
@@ -2037,19 +2054,25 @@ async fn run_finam_ws_shadow_iteration(
 
 fn finam_ws_shadow_readiness(
     runtime: &FinamWsShadowRuntime,
-    metrics: &FinamWsShadowMetrics,
+    lifecycle: &BrokerMarketDataLifecycleSnapshot,
 ) -> BrokerReadiness {
-    finam_ws_shadow_readiness_from_metrics(runtime.resolved.subscribe_bars, metrics)
+    finam_ws_shadow_readiness_from_lifecycle(runtime.resolved.subscribe_bars, lifecycle)
 }
 
-fn finam_ws_shadow_readiness_from_metrics(
+fn finam_ws_shadow_readiness_from_lifecycle(
     subscribe_bars: bool,
-    metrics: &FinamWsShadowMetrics,
+    lifecycle: &BrokerMarketDataLifecycleSnapshot,
 ) -> BrokerReadiness {
-    if subscribe_bars && metrics.bar_event_count == 0 {
+    if !subscribe_bars || lifecycle.phase == MarketDataLifecyclePhase::Degraded {
         BrokerReadiness {
             phase: ReadinessPhase::Degraded,
             reasons: vec![ReadinessReason::MarketDataNotLive],
+            checked_ts: Utc::now(),
+        }
+    } else if !lifecycle.first_live_final_bar_seen {
+        BrokerReadiness {
+            phase: ReadinessPhase::Degraded,
+            reasons: vec![ReadinessReason::FirstLiveBarMissing],
             checked_ts: Utc::now(),
         }
     } else {
@@ -2059,6 +2082,53 @@ fn finam_ws_shadow_readiness_from_metrics(
             checked_ts: Utc::now(),
         }
     }
+}
+
+fn finam_ws_shadow_market_data_lifecycle(
+    runtime: &FinamWsShadowRuntime,
+    metrics: &FinamWsShadowMetrics,
+    timeframe_sec: u32,
+    checked_ts: DateTime<Utc>,
+) -> BrokerMarketDataLifecycleSnapshot {
+    finam_ws_shadow_market_data_lifecycle_from_metrics(
+        runtime.resolved.subscribe_bars,
+        runtime.resolved.subscribe_quotes,
+        metrics,
+        timeframe_sec,
+        checked_ts,
+    )
+}
+
+fn finam_ws_shadow_market_data_lifecycle_from_metrics(
+    subscribe_bars: bool,
+    subscribe_quotes: bool,
+    metrics: &FinamWsShadowMetrics,
+    timeframe_sec: u32,
+    checked_ts: DateTime<Utc>,
+) -> BrokerMarketDataLifecycleSnapshot {
+    broker_core::evaluate_market_data_lifecycle(BrokerMarketDataLifecycleInput {
+        bars_subscription_enabled: subscribe_bars,
+        quotes_subscription_enabled: subscribe_quotes,
+        transport_connected: metrics.connection_count > 0,
+        strategy_source_kind: MarketDataSourceKind::LiveStream,
+        rest_bars_used_for_strategy: false,
+        rest_market_data_used_for_strategy: false,
+        history_bar_count: metrics.history_bar_event_count + metrics.read_only_bar_event_count,
+        recovery_bar_count: metrics.recovery_bar_event_count,
+        live_bar_count: metrics.live_bar_event_count,
+        live_final_bar_count: metrics.final_live_bar_event_count,
+        live_forming_bar_count: metrics.forming_live_bar_event_count,
+        quote_count: metrics.quote_event_count,
+        first_live_bar_seen: metrics.first_live_bar_seen,
+        first_live_final_bar_seen: metrics.first_live_final_bar_seen,
+        first_live_final_bar_close_ts: metrics.first_live_final_bar_close_ts,
+        last_history_bar_close_ts: metrics.last_history_bar_close_ts,
+        last_recovery_bar_close_ts: metrics.last_recovery_bar_close_ts,
+        last_live_bar_close_ts: metrics.last_live_bar_close_ts,
+        last_final_live_bar_close_ts: metrics.last_final_live_bar_close_ts,
+        stale_after_sec: Some(u64::from(timeframe_sec).saturating_mul(3).max(60)),
+        checked_ts,
+    })
 }
 
 async fn handle_finam_ws_text_message(
@@ -2129,6 +2199,39 @@ async fn handle_finam_ws_text_message(
                 } else {
                     metrics.forming_bar_event_count += 1;
                 }
+                metrics.last_bar_source_kind = Some(bar.source_kind);
+                match bar.source_kind {
+                    MarketDataSourceKind::HistoricalPoll => {
+                        metrics.history_bar_event_count += 1;
+                        metrics.last_history_bar_close_ts = Some(bar.close_ts);
+                    }
+                    MarketDataSourceKind::ReadOnlyPoll => {
+                        metrics.read_only_bar_event_count += 1;
+                        metrics.last_history_bar_close_ts = Some(bar.close_ts);
+                    }
+                    MarketDataSourceKind::Recovery => {
+                        metrics.recovery_bar_event_count += 1;
+                        metrics.last_recovery_bar_close_ts = Some(bar.close_ts);
+                    }
+                    MarketDataSourceKind::LiveStream => {
+                        metrics.live_bar_event_count += 1;
+                        metrics.first_live_bar_seen = true;
+                        metrics.last_live_bar_close_ts = Some(bar.close_ts);
+                        if bar.is_final {
+                            metrics.final_live_bar_event_count += 1;
+                            metrics.last_final_live_bar_close_ts = Some(bar.close_ts);
+                            if !metrics.first_live_final_bar_seen {
+                                metrics.first_live_final_bar_seen = true;
+                                metrics.first_live_final_bar_close_ts = Some(bar.close_ts);
+                            }
+                        } else {
+                            metrics.forming_live_bar_event_count += 1;
+                        }
+                    }
+                    MarketDataSourceKind::Unknown => {
+                        metrics.unknown_source_bar_event_count += 1;
+                    }
+                }
             }
             MarketDataEvent::OrderBook(_) | MarketDataEvent::LatestTrade(_) => {}
         }
@@ -2144,6 +2247,36 @@ fn finam_ws_shadow_report_json(
     runtime: &FinamWsShadowRuntime,
     report: &FinamWsShadowIterationReport,
 ) -> serde_json::Value {
+    let streams = serde_json::json!({
+        "health": runtime.gateway.config().redis.health_stream,
+        "readiness": runtime.gateway.config().redis.readiness_stream,
+        "market_data": runtime.gateway.config().redis.market_data_stream,
+    });
+    let market_data_lifecycle =
+        serde_json::to_value(&report.market_data_lifecycle).expect("lifecycle serializes");
+    let market_data = serde_json::json!({
+        "source_kind": "LiveStream",
+        "published_market_data_count": report.metrics.published_market_data_count,
+        "quote_event_count": report.metrics.quote_event_count,
+        "bar_event_count": report.metrics.bar_event_count,
+        "final_bar_event_count": report.metrics.final_bar_event_count,
+        "forming_bar_event_count": report.metrics.forming_bar_event_count,
+        "history_bar_event_count": report.metrics.history_bar_event_count,
+        "read_only_bar_event_count": report.metrics.read_only_bar_event_count,
+        "recovery_bar_event_count": report.metrics.recovery_bar_event_count,
+        "live_bar_event_count": report.metrics.live_bar_event_count,
+        "final_live_bar_event_count": report.metrics.final_live_bar_event_count,
+        "forming_live_bar_event_count": report.metrics.forming_live_bar_event_count,
+        "unknown_source_bar_event_count": report.metrics.unknown_source_bar_event_count,
+        "first_live_bar_seen": report.metrics.first_live_bar_seen,
+        "first_live_final_bar_seen": report.metrics.first_live_final_bar_seen,
+        "first_live_final_bar_close_ts": report.metrics.first_live_final_bar_close_ts,
+        "last_live_bar_close_ts": report.metrics.last_live_bar_close_ts,
+        "last_final_live_bar_close_ts": report.metrics.last_final_live_bar_close_ts,
+        "last_bar_source_kind": report.metrics.last_bar_source_kind,
+    });
+    let metrics = finam_ws_shadow_metrics_json(&report.metrics);
+
     serde_json::json!({
         "finam_ws_shadow": true,
         "mode": mode,
@@ -2172,22 +2305,12 @@ fn finam_ws_shadow_report_json(
             "disabled"
         },
         "bars_stream_required_for_strategy_parity": true,
-        "streams": {
-            "health": runtime.gateway.config().redis.health_stream,
-            "readiness": runtime.gateway.config().redis.readiness_stream,
-            "market_data": runtime.gateway.config().redis.market_data_stream,
-        },
+        "streams": streams,
         "readiness_phase": report.readiness_phase,
         "readiness_reasons": report.readiness_reasons,
-        "market_data": {
-            "source_kind": "LiveStream",
-            "published_market_data_count": report.metrics.published_market_data_count,
-            "quote_event_count": report.metrics.quote_event_count,
-            "bar_event_count": report.metrics.bar_event_count,
-            "final_bar_event_count": report.metrics.final_bar_event_count,
-            "forming_bar_event_count": report.metrics.forming_bar_event_count,
-        },
-        "metrics": finam_ws_shadow_metrics_json(&report.metrics),
+        "market_data_lifecycle": market_data_lifecycle,
+        "market_data": market_data,
+        "metrics": metrics,
     })
 }
 
@@ -2206,9 +2329,24 @@ fn finam_ws_shadow_metrics_json(metrics: &FinamWsShadowMetrics) -> serde_json::V
         "bar_event_count": metrics.bar_event_count,
         "final_bar_event_count": metrics.final_bar_event_count,
         "forming_bar_event_count": metrics.forming_bar_event_count,
+        "history_bar_event_count": metrics.history_bar_event_count,
+        "read_only_bar_event_count": metrics.read_only_bar_event_count,
+        "recovery_bar_event_count": metrics.recovery_bar_event_count,
+        "live_bar_event_count": metrics.live_bar_event_count,
+        "final_live_bar_event_count": metrics.final_live_bar_event_count,
+        "forming_live_bar_event_count": metrics.forming_live_bar_event_count,
+        "unknown_source_bar_event_count": metrics.unknown_source_bar_event_count,
         "published_market_data_count": metrics.published_market_data_count,
         "ping_count": metrics.ping_count,
         "pong_count": metrics.pong_count,
+        "first_live_bar_seen": metrics.first_live_bar_seen,
+        "first_live_final_bar_seen": metrics.first_live_final_bar_seen,
+        "first_live_final_bar_close_ts": metrics.first_live_final_bar_close_ts,
+        "last_history_bar_close_ts": metrics.last_history_bar_close_ts,
+        "last_recovery_bar_close_ts": metrics.last_recovery_bar_close_ts,
+        "last_live_bar_close_ts": metrics.last_live_bar_close_ts,
+        "last_final_live_bar_close_ts": metrics.last_final_live_bar_close_ts,
+        "last_bar_source_kind": metrics.last_bar_source_kind,
         "first_decode_error_text_len": metrics.first_decode_error_text_len,
         "first_decode_error_shape": metrics.first_decode_error_shape,
         "first_mapper_error_kind": metrics.first_mapper_error_kind,
@@ -7822,23 +7960,93 @@ mod tests {
 
     #[test]
     fn finam_ws_shadow_bars_are_required_for_strategy_parity_readiness() {
-        let no_bars = finam_ws_shadow_readiness_from_metrics(
+        let now = Utc::now();
+        let no_bars_lifecycle = finam_ws_shadow_market_data_lifecycle_from_metrics(
             true,
+            false,
             &FinamWsShadowMetrics {
+                connection_count: 1,
                 quote_event_count: 5,
                 ..FinamWsShadowMetrics::default()
             },
+            60,
+            now,
+        );
+        let no_bars = finam_ws_shadow_readiness_from_lifecycle(true, &no_bars_lifecycle);
+        assert_eq!(
+            no_bars_lifecycle.phase,
+            MarketDataLifecyclePhase::LiveSubscribing
         );
         assert_eq!(no_bars.phase, ReadinessPhase::Degraded);
-        assert_eq!(no_bars.reasons, vec![ReadinessReason::MarketDataNotLive]);
+        assert_eq!(no_bars.reasons, vec![ReadinessReason::FirstLiveBarMissing]);
 
-        let with_bars = finam_ws_shadow_readiness_from_metrics(
+        let forming_lifecycle = finam_ws_shadow_market_data_lifecycle_from_metrics(
             true,
+            false,
             &FinamWsShadowMetrics {
+                connection_count: 1,
                 bar_event_count: 1,
-                final_bar_event_count: 1,
+                forming_bar_event_count: 1,
+                live_bar_event_count: 1,
+                forming_live_bar_event_count: 1,
+                first_live_bar_seen: true,
+                last_live_bar_close_ts: Some(now),
                 ..FinamWsShadowMetrics::default()
             },
+            60,
+            now,
+        );
+        let forming = finam_ws_shadow_readiness_from_lifecycle(true, &forming_lifecycle);
+        assert_eq!(
+            forming_lifecycle.phase,
+            MarketDataLifecyclePhase::LiveSubscribing
+        );
+        assert_eq!(forming.phase, ReadinessPhase::Degraded);
+        assert_eq!(forming.reasons, vec![ReadinessReason::FirstLiveBarMissing]);
+
+        let no_bar_subscription_lifecycle = finam_ws_shadow_market_data_lifecycle_from_metrics(
+            false,
+            true,
+            &FinamWsShadowMetrics {
+                connection_count: 1,
+                quote_event_count: 5,
+                ..FinamWsShadowMetrics::default()
+            },
+            60,
+            now,
+        );
+        let no_bar_subscription =
+            finam_ws_shadow_readiness_from_lifecycle(false, &no_bar_subscription_lifecycle);
+        assert_eq!(no_bar_subscription.phase, ReadinessPhase::Degraded);
+        assert_eq!(
+            no_bar_subscription.reasons,
+            vec![ReadinessReason::MarketDataNotLive]
+        );
+
+        let close_ts = now - ChronoDuration::seconds(60);
+        let with_live_final_lifecycle = finam_ws_shadow_market_data_lifecycle_from_metrics(
+            true,
+            false,
+            &FinamWsShadowMetrics {
+                connection_count: 1,
+                bar_event_count: 1,
+                final_bar_event_count: 1,
+                live_bar_event_count: 1,
+                final_live_bar_event_count: 1,
+                first_live_bar_seen: true,
+                first_live_final_bar_seen: true,
+                first_live_final_bar_close_ts: Some(close_ts),
+                last_live_bar_close_ts: Some(close_ts),
+                last_final_live_bar_close_ts: Some(close_ts),
+                ..FinamWsShadowMetrics::default()
+            },
+            60,
+            now,
+        );
+        let with_bars = finam_ws_shadow_readiness_from_lifecycle(true, &with_live_final_lifecycle);
+        assert_eq!(
+            with_live_final_lifecycle.phase,
+            MarketDataLifecyclePhase::LiveReady
         );
         assert_eq!(with_bars.phase, ReadinessPhase::Reconciliation);
         assert_eq!(

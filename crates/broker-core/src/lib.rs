@@ -10,6 +10,7 @@ pub mod envelope;
 pub mod event;
 pub mod ids;
 pub mod instrument;
+pub mod market_data_lifecycle;
 pub mod observability;
 pub mod operational_config;
 pub mod operational_snapshot;
@@ -34,6 +35,10 @@ pub use ids::{
 pub use instrument::{
     BrokerSymbol, Exchange, Instrument, InstrumentId, InstrumentMapEntry, InternalSymbol, Market,
     Money, Price, Quantity,
+};
+pub use market_data_lifecycle::{
+    evaluate_market_data_lifecycle, BrokerMarketDataLifecycleInput,
+    BrokerMarketDataLifecycleSnapshot, MarketDataLifecycleBlocker, MarketDataLifecyclePhase,
 };
 pub use observability::{
     live_required_channel_kinds, required_channel_kinds, BrokerConsumerGroupSnapshot,
