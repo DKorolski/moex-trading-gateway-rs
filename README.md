@@ -356,6 +356,7 @@ See:
 - [M4-3e FINAM WS stale backlog publish gate](docs/m4-3e-finam-ws-stale-backlog-publish-gate.md)
 - [M4-3f FINAM WS data-quality ledger](docs/m4-3f-finam-ws-data-quality-ledger.md)
 - [M4-3g FINAM WS generation and subscription confirmation](docs/m4-3g-finam-ws-generation-subscription-confirmation.md)
+- [M4-3g-a active-session fresh final evidence](docs/m4-3g-a-active-session-fresh-final-evidence.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)
