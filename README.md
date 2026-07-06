@@ -179,6 +179,10 @@ shadow contour. It keeps Redis streams under `finam_ws_shadow_local:*`, expects
 safe no-live `Reconciliation + OperatorLiveArmMissing` rather than production
 `LiveReady`, and checks reconnect/resubscribe/gap diagnostics after a manual
 network break.
+M4-3p adds the repeatable post-patch evidence package for that boundary: a
+redacted generator consumes local reconnect, SIGTERM, and Ctrl-C stdout logs and
+verifies recovery `LiveReady`, empty recovery blockers, gap absence, and stopped
+summaries while keeping all live/order surfaces closed.
 M4-3i adds a session-aware bar silence watchdog: FINAM schedule data determines
 whether final-bar silence is an active-session feed problem or an expected
 closed/break/maintenance interval, without enabling runtime-live or order
@@ -433,6 +437,7 @@ See:
 - [M4-3h-b replay wiring loop evidence](docs/m4-3h-b-replay-wiring-loop-evidence.md)
 - [M4-3h-c controlled recovery acceptance evidence](docs/m4-3h-c-controlled-recovery-acceptance-evidence.md)
 - [M4-3o local FINAM WS Wi-Fi reconnect runbook](docs/m4-3o-local-finam-ws-wifi-reconnect-runbook.md)
+- [M4-3p repeatable FINAM WS reconnect evidence](docs/m4-3p-repeatable-finam-ws-reconnect-evidence.md)
 - [M4-3i session-aware bar silence watchdog](docs/m4-3i-session-aware-bar-silence-watchdog.md)
 - [M4-3j broker-neutral HTTP/debug health surface](docs/m4-3j-broker-neutral-http-debug-surface.md)
 - [M4-3j-a local HTTP/debug listener](docs/m4-3j-a-local-http-debug-listener.md)
