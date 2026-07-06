@@ -564,6 +564,233 @@ pub struct PaperRuntimeState {
     pub updated_ts: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperRuntimeStreams {
+    pub runtime_state_stream: String,
+    pub intents_stream: String,
+    pub paper_acks_stream: String,
+    pub orders_stream: String,
+    pub trades_stream: String,
+    pub positions_stream: String,
+}
+
+impl PaperRuntimeStreams {
+    pub fn finam_imoexf_paper() -> Self {
+        Self {
+            runtime_state_stream: "finam_imoexf_paper:runtime:state:hybrid_intraday:imoexf"
+                .to_string(),
+            intents_stream: "finam_imoexf_paper:runtime:intents".to_string(),
+            paper_acks_stream: "finam_imoexf_paper:runtime:paper_acks".to_string(),
+            orders_stream: "finam_imoexf_paper:runtime:orders_paper_only".to_string(),
+            trades_stream: "finam_imoexf_paper:runtime:trades_paper_only".to_string(),
+            positions_stream: "finam_imoexf_paper:runtime:positions_paper_only".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperRuntimeAdapterConfig {
+    pub ledger: PaperLedgerExecutorConfig,
+    pub streams: PaperRuntimeStreams,
+    pub required_provenance: String,
+    pub safety_boundary: PaperSafetyBoundary,
+}
+
+impl PaperRuntimeAdapterConfig {
+    pub fn finam_imoexf_paper(
+        strategy_id: impl Into<String>,
+        instrument: InstrumentId,
+        execution_mode: PaperExecutionMode,
+    ) -> Self {
+        Self {
+            ledger: PaperLedgerExecutorConfig::new(strategy_id, instrument, execution_mode, 600),
+            streams: PaperRuntimeStreams::finam_imoexf_paper(),
+            required_provenance: "FinamDerivedM1ToM10".to_string(),
+            safety_boundary: PaperSafetyBoundary::closed(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum PaperRuntimePublishPayload {
+    RuntimeState(Box<PaperRuntimeState>),
+    Intent(Box<PaperIntent>),
+    Ack(Box<PaperAck>),
+    Order(Box<PaperOrder>),
+    Trade(Box<PaperTrade>),
+    Position(Box<PaperPosition>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaperRuntimePublishRecord {
+    pub stream: String,
+    pub payload: PaperRuntimePublishPayload,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaperRuntimeAdapterOutcome {
+    pub publish_plan: Vec<PaperRuntimePublishRecord>,
+    pub filled_count: usize,
+    pub duplicate_count: usize,
+    pub state_only: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PaperRuntimeAdapter {
+    config: PaperRuntimeAdapterConfig,
+    ledger: PaperLedgerSnapshot,
+}
+
+impl PaperRuntimeAdapter {
+    pub fn new(
+        config: PaperRuntimeAdapterConfig,
+        received_ts: DateTime<Utc>,
+    ) -> Result<Self, PaperRuntimeAdapterError> {
+        validate_paper_runtime_adapter_config(&config)?;
+        let ledger = PaperLedgerSnapshot::empty(config.ledger.clone(), received_ts);
+        Ok(Self { config, ledger })
+    }
+
+    pub fn config(&self) -> &PaperRuntimeAdapterConfig {
+        &self.config
+    }
+
+    pub fn ledger(&self) -> &PaperLedgerSnapshot {
+        &self.ledger
+    }
+
+    pub fn observe_runtime_bar(
+        &mut self,
+        runtime_input: RuntimeBarInput,
+        intents: Vec<PaperIntent>,
+    ) -> Result<PaperRuntimeAdapterOutcome, PaperRuntimeAdapterError> {
+        self.validate_runtime_input(&runtime_input)?;
+
+        let mut publish_plan = Vec::new();
+        let mut filled_count = 0usize;
+        let mut duplicate_count = 0usize;
+
+        for intent in intents {
+            let intent_for_publish = intent.clone();
+            match self.ledger.apply_next_bar_open_market_intent(
+                &self.config.ledger,
+                intent,
+                &runtime_input,
+            )? {
+                PaperLedgerExecutionOutcome::Filled {
+                    order,
+                    trade,
+                    position,
+                    ack,
+                } => {
+                    filled_count += 1;
+                    publish_plan.push(PaperRuntimePublishRecord {
+                        stream: self.config.streams.intents_stream.clone(),
+                        payload: PaperRuntimePublishPayload::Intent(Box::new(intent_for_publish)),
+                    });
+                    publish_plan.push(PaperRuntimePublishRecord {
+                        stream: self.config.streams.orders_stream.clone(),
+                        payload: PaperRuntimePublishPayload::Order(order),
+                    });
+                    publish_plan.push(PaperRuntimePublishRecord {
+                        stream: self.config.streams.trades_stream.clone(),
+                        payload: PaperRuntimePublishPayload::Trade(trade),
+                    });
+                    publish_plan.push(PaperRuntimePublishRecord {
+                        stream: self.config.streams.positions_stream.clone(),
+                        payload: PaperRuntimePublishPayload::Position(position),
+                    });
+                    publish_plan.push(PaperRuntimePublishRecord {
+                        stream: self.config.streams.paper_acks_stream.clone(),
+                        payload: PaperRuntimePublishPayload::Ack(ack),
+                    });
+                }
+                PaperLedgerExecutionOutcome::DuplicateIgnored { ack } => {
+                    duplicate_count += 1;
+                    publish_plan.push(PaperRuntimePublishRecord {
+                        stream: self.config.streams.paper_acks_stream.clone(),
+                        payload: PaperRuntimePublishPayload::Ack(Box::new(ack)),
+                    });
+                }
+            }
+        }
+
+        let runtime_state = self.ledger.to_runtime_state(runtime_input.close_ts);
+        publish_plan.push(PaperRuntimePublishRecord {
+            stream: self.config.streams.runtime_state_stream.clone(),
+            payload: PaperRuntimePublishPayload::RuntimeState(Box::new(runtime_state)),
+        });
+
+        Ok(PaperRuntimeAdapterOutcome {
+            state_only: filled_count == 0 && duplicate_count == 0,
+            publish_plan,
+            filled_count,
+            duplicate_count,
+        })
+    }
+
+    fn validate_runtime_input(
+        &self,
+        runtime_input: &RuntimeBarInput,
+    ) -> Result<(), PaperRuntimeAdapterError> {
+        if !self.config.safety_boundary.is_closed() || !self.ledger.safety_boundary.is_closed() {
+            return Err(PaperRuntimeAdapterError::LiveBoundaryOpen);
+        }
+        if runtime_input.instrument != self.config.ledger.instrument {
+            return Err(PaperRuntimeAdapterError::InstrumentMismatch);
+        }
+        if runtime_input.provenance != self.config.required_provenance {
+            return Err(PaperRuntimeAdapterError::ProvenanceMismatch {
+                expected: self.config.required_provenance.clone(),
+                actual: runtime_input.provenance.clone(),
+            });
+        }
+        if !runtime_input.is_live_final_timeframe(self.config.ledger.expected_timeframe_sec) {
+            return Err(PaperRuntimeAdapterError::RuntimeInputNotEligible);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PaperRuntimeAdapterError {
+    #[error("paper runtime adapter safety boundary is open")]
+    LiveBoundaryOpen,
+    #[error("paper runtime adapter instrument mismatch")]
+    InstrumentMismatch,
+    #[error("paper runtime adapter execution mode mismatch")]
+    ExecutionModeMismatch,
+    #[error("paper runtime adapter invalid expected timeframe")]
+    InvalidExpectedTimeframe,
+    #[error("paper runtime adapter runtime input is not eligible")]
+    RuntimeInputNotEligible,
+    #[error("paper runtime adapter provenance mismatch: expected={expected} actual={actual}")]
+    ProvenanceMismatch { expected: String, actual: String },
+    #[error("paper ledger executor failed: {0}")]
+    Executor(#[from] PaperLedgerExecutorError),
+}
+
+fn validate_paper_runtime_adapter_config(
+    config: &PaperRuntimeAdapterConfig,
+) -> Result<(), PaperRuntimeAdapterError> {
+    if !config.safety_boundary.is_closed() || !config.ledger.safety_boundary.is_closed() {
+        return Err(PaperRuntimeAdapterError::LiveBoundaryOpen);
+    }
+    if config.ledger.expected_timeframe_sec == 0 {
+        return Err(PaperRuntimeAdapterError::InvalidExpectedTimeframe);
+    }
+    if config.ledger.expected_timeframe_sec != 600 {
+        return Err(PaperRuntimeAdapterError::InvalidExpectedTimeframe);
+    }
+    if config.required_provenance.trim().is_empty() {
+        return Err(PaperRuntimeAdapterError::ProvenanceMismatch {
+            expected: "non-empty".to_string(),
+            actual: config.required_provenance.clone(),
+        });
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaperLedgerSnapshot {
     pub schema_version: u16,
@@ -1351,6 +1578,18 @@ mod tests {
         .expect("valid paper runtime bar publisher")
     }
 
+    fn paper_runtime_adapter() -> PaperRuntimeAdapter {
+        PaperRuntimeAdapter::new(
+            PaperRuntimeAdapterConfig::finam_imoexf_paper(
+                "hybrid_imoexf_synthetic",
+                instrument(),
+                PaperExecutionMode::LiveOnly,
+            ),
+            ts(0),
+        )
+        .expect("valid paper runtime adapter")
+    }
+
     #[test]
     fn paper_execution_mode_matches_alor_live_only_vs_history_sim_gate() {
         assert!(PaperExecutionMode::LiveOnly.can_advance(RuntimeBarOrigin::Live));
@@ -1725,6 +1964,132 @@ mod tests {
         assert_eq!(
             PaperRuntimeBarPublisher::new(config).expect_err("open boundary rejected"),
             PaperRuntimeBarPublishRejectReason::LiveBoundaryOpen
+        );
+    }
+
+    #[test]
+    fn paper_runtime_adapter_state_only_publishes_runtime_state_plan_without_strategy_invocation() {
+        let mut adapter = paper_runtime_adapter();
+        let outcome = adapter
+            .observe_runtime_bar(runtime_bar(20, RuntimeBarOrigin::Live, 600), Vec::new())
+            .expect("state-only runtime bar accepted");
+
+        assert!(outcome.state_only);
+        assert_eq!(outcome.filled_count, 0);
+        assert_eq!(outcome.duplicate_count, 0);
+        assert_eq!(outcome.publish_plan.len(), 1);
+        assert_eq!(
+            outcome.publish_plan[0].stream,
+            "finam_imoexf_paper:runtime:state:hybrid_intraday:imoexf"
+        );
+        let PaperRuntimePublishPayload::RuntimeState(state) = &outcome.publish_plan[0].payload
+        else {
+            panic!("expected runtime state payload");
+        };
+        assert_eq!(state.strategy_id, "hybrid_imoexf_synthetic");
+        assert!(state.position.is_none());
+        assert_eq!(state.active_orders_count, 0);
+        assert!(adapter.ledger().target_is_flat());
+    }
+
+    #[test]
+    fn paper_runtime_adapter_applies_market_intent_and_returns_publish_plan() {
+        let mut adapter = paper_runtime_adapter();
+        let intent = PaperIntent::from_decision(
+            PaperIntentKind::Enter,
+            decision("decision-buy", OrderSide::Buy, 10),
+        );
+        let outcome = adapter
+            .observe_runtime_bar(runtime_bar(20, RuntimeBarOrigin::Live, 600), vec![intent])
+            .expect("paper intent applied");
+
+        assert!(!outcome.state_only);
+        assert_eq!(outcome.filled_count, 1);
+        assert_eq!(outcome.duplicate_count, 0);
+        assert_eq!(outcome.publish_plan.len(), 6);
+        let streams: Vec<&str> = outcome
+            .publish_plan
+            .iter()
+            .map(|record| record.stream.as_str())
+            .collect();
+        assert_eq!(
+            streams,
+            vec![
+                "finam_imoexf_paper:runtime:intents",
+                "finam_imoexf_paper:runtime:orders_paper_only",
+                "finam_imoexf_paper:runtime:trades_paper_only",
+                "finam_imoexf_paper:runtime:positions_paper_only",
+                "finam_imoexf_paper:runtime:paper_acks",
+                "finam_imoexf_paper:runtime:state:hybrid_intraday:imoexf",
+            ]
+        );
+        assert_eq!(adapter.ledger().target_position_qty(), Decimal::ONE);
+        let PaperRuntimePublishPayload::RuntimeState(state) =
+            &outcome.publish_plan.last().expect("state").payload
+        else {
+            panic!("expected final runtime state");
+        };
+        assert_eq!(state.position.as_ref().expect("position").qty, Decimal::ONE);
+    }
+
+    #[test]
+    fn paper_runtime_adapter_duplicate_intent_publishes_duplicate_ack_and_no_second_fill() {
+        let mut adapter = paper_runtime_adapter();
+        let intent = PaperIntent::from_decision(
+            PaperIntentKind::Enter,
+            decision("decision-buy", OrderSide::Buy, 10),
+        );
+        adapter
+            .observe_runtime_bar(
+                runtime_bar(20, RuntimeBarOrigin::Live, 600),
+                vec![intent.clone()],
+            )
+            .expect("first fill");
+        let duplicate = adapter
+            .observe_runtime_bar(runtime_bar(30, RuntimeBarOrigin::Live, 600), vec![intent])
+            .expect("duplicate is non-fatal");
+
+        assert_eq!(duplicate.filled_count, 0);
+        assert_eq!(duplicate.duplicate_count, 1);
+        assert_eq!(adapter.ledger().orders.len(), 1);
+        assert_eq!(adapter.ledger().trades.len(), 1);
+        assert_eq!(duplicate.publish_plan.len(), 2);
+        let PaperRuntimePublishPayload::Ack(ack) = &duplicate.publish_plan[0].payload else {
+            panic!("expected duplicate ack");
+        };
+        assert_eq!(ack.kind, PaperAckKind::DuplicateIgnored);
+    }
+
+    #[test]
+    fn paper_runtime_adapter_rejects_bad_provenance_non_live_and_open_boundary() {
+        let mut adapter = paper_runtime_adapter();
+        let mut bad_provenance = runtime_bar(20, RuntimeBarOrigin::Live, 600);
+        bad_provenance.provenance = "Unknown".to_string();
+        assert_eq!(
+            adapter.observe_runtime_bar(bad_provenance, Vec::new()),
+            Err(PaperRuntimeAdapterError::ProvenanceMismatch {
+                expected: "FinamDerivedM1ToM10".to_string(),
+                actual: "Unknown".to_string()
+            })
+        );
+
+        assert_eq!(
+            adapter.observe_runtime_bar(
+                runtime_bar(20, RuntimeBarOrigin::HistoryGap, 600),
+                Vec::new()
+            ),
+            Err(PaperRuntimeAdapterError::RuntimeInputNotEligible)
+        );
+
+        let mut config = PaperRuntimeAdapterConfig::finam_imoexf_paper(
+            "hybrid_imoexf_synthetic",
+            instrument(),
+            PaperExecutionMode::LiveOnly,
+        );
+        config.safety_boundary.live_orders_enabled = true;
+        assert_eq!(
+            PaperRuntimeAdapter::new(config, ts(0)).expect_err("open boundary rejected"),
+            PaperRuntimeAdapterError::LiveBoundaryOpen
         );
     }
 }
