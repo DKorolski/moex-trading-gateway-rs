@@ -6564,6 +6564,136 @@ pub fn m3i1_adapt_strategy_paper_input(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M43lStrategyBarSourceMode {
+    AlorNativeBarsGetAndSubscribeTf600,
+    FinamDerivedM1ToM10,
+    FinamNativeM10CharacterizationPending,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum M43lDryRuntimeAttachRejectReason {
+    StrategyTimeframeMismatch { expected_sec: u32, actual_sec: u32 },
+    MissingBarEvent,
+    M3iRejected(M3iStrategyPaperInputRejectReason),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum M43lDryRuntimeAttachOutcome {
+    Accepted(Box<M3iStrategyPaperInput>),
+    Rejected {
+        reason: M43lDryRuntimeAttachRejectReason,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct M43lDryRuntimeAttachParityReport {
+    pub schema_version: u16,
+    pub stage: String,
+    pub alor_oracle_source_mode: M43lStrategyBarSourceMode,
+    pub finam_source_mode: M43lStrategyBarSourceMode,
+    pub alor_gateway_native_tf_sec: u32,
+    pub finam_ws_source_tf_sec: u32,
+    pub strategy_timeframe_sec: u32,
+    pub alor_native_10m_subscription_confirmed: bool,
+    pub finam_m1_to_m10_aggregation_required: bool,
+    pub finam_native_m10_characterization_pending: bool,
+    pub raw_finam_m1_can_trigger_strategy_decision: bool,
+    pub canonical_m10_can_trigger_strategy_decision: bool,
+    pub strategy_receives_broker_neutral_inputs_only: bool,
+    pub finam_dto_visible_to_strategy: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub live_ready_allowed: bool,
+    pub external_order_endpoint_allowed: bool,
+    pub real_finam_order_endpoint_used: bool,
+    pub command_consumer_to_real_finam_enabled: bool,
+    pub stop_sltp_bracket_replace_multileg_allowed: bool,
+    pub parity_ok: bool,
+    pub next_stage: String,
+}
+
+pub fn m4_3l_adapt_strategy_10m_dry_input(
+    strategy_id: impl Into<String>,
+    target_timeframe_sec: u32,
+    shadow_input: &M3hRuntimeShadowInput,
+    decision: &M3hRuntimeShadowConsumerOutcome,
+) -> M43lDryRuntimeAttachOutcome {
+    let Some(bar_event) = &shadow_input.bar_event else {
+        return M43lDryRuntimeAttachOutcome::Rejected {
+            reason: M43lDryRuntimeAttachRejectReason::MissingBarEvent,
+        };
+    };
+    if bar_event.bar.timeframe_sec != target_timeframe_sec {
+        return M43lDryRuntimeAttachOutcome::Rejected {
+            reason: M43lDryRuntimeAttachRejectReason::StrategyTimeframeMismatch {
+                expected_sec: target_timeframe_sec,
+                actual_sec: bar_event.bar.timeframe_sec,
+            },
+        };
+    }
+
+    match m3i1_adapt_strategy_paper_input(strategy_id, shadow_input, decision) {
+        M3iStrategyPaperInputAdapterOutcome::Accepted(input) => {
+            M43lDryRuntimeAttachOutcome::Accepted(input)
+        }
+        M3iStrategyPaperInputAdapterOutcome::Rejected { reason } => {
+            M43lDryRuntimeAttachOutcome::Rejected {
+                reason: M43lDryRuntimeAttachRejectReason::M3iRejected(reason),
+            }
+        }
+    }
+}
+
+pub fn m4_3l_dry_runtime_attach_parity_report(
+    raw_finam_m1_outcome: &M43lDryRuntimeAttachOutcome,
+    canonical_m10_outcome: &M43lDryRuntimeAttachOutcome,
+) -> M43lDryRuntimeAttachParityReport {
+    let raw_finam_m1_can_trigger_strategy_decision = matches!(
+        raw_finam_m1_outcome,
+        M43lDryRuntimeAttachOutcome::Accepted(_)
+    );
+    let canonical_m10_can_trigger_strategy_decision = matches!(
+        canonical_m10_outcome,
+        M43lDryRuntimeAttachOutcome::Accepted(_)
+    );
+    let input_contract = m3i1_strategy_paper_input_contract_report();
+    let parity_ok = !raw_finam_m1_can_trigger_strategy_decision
+        && canonical_m10_can_trigger_strategy_decision
+        && input_contract.strategy_receives_broker_neutral_inputs_only
+        && !input_contract.finam_dto_visible_to_strategy
+        && !input_contract.runtime_live_attachment_allowed
+        && !input_contract.live_ready_allowed
+        && !input_contract.external_order_endpoint_allowed
+        && !input_contract.real_finam_order_endpoint_used
+        && !input_contract.stop_sltp_bracket_replace_multileg_allowed;
+
+    M43lDryRuntimeAttachParityReport {
+        schema_version: SCHEMA_VERSION,
+        stage: "M4-3l dry runtime attach / M1-M10 parity, no-live".to_string(),
+        alor_oracle_source_mode: M43lStrategyBarSourceMode::AlorNativeBarsGetAndSubscribeTf600,
+        finam_source_mode: M43lStrategyBarSourceMode::FinamDerivedM1ToM10,
+        alor_gateway_native_tf_sec: 600,
+        finam_ws_source_tf_sec: 60,
+        strategy_timeframe_sec: 600,
+        alor_native_10m_subscription_confirmed: true,
+        finam_m1_to_m10_aggregation_required: true,
+        finam_native_m10_characterization_pending: true,
+        raw_finam_m1_can_trigger_strategy_decision,
+        canonical_m10_can_trigger_strategy_decision,
+        strategy_receives_broker_neutral_inputs_only: input_contract
+            .strategy_receives_broker_neutral_inputs_only,
+        finam_dto_visible_to_strategy: input_contract.finam_dto_visible_to_strategy,
+        runtime_live_attachment_allowed: false,
+        live_ready_allowed: false,
+        external_order_endpoint_allowed: false,
+        real_finam_order_endpoint_used: false,
+        command_consumer_to_real_finam_enabled: false,
+        stop_sltp_bracket_replace_multileg_allowed: false,
+        parity_ok,
+        next_stage: "M4-3m active-session ALOR native 10m vs FINAM derived 10m evidence, still no live orders".to_string(),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum M3iPaperStrategySignalKind {
     EnterLong,
     EnterShort,
@@ -20835,6 +20965,157 @@ mod tests {
         assert!(!report.external_order_endpoint_allowed);
         assert!(!report.real_finam_order_endpoint_used);
         assert!(!report.stop_sltp_bracket_replace_multileg_allowed);
+    }
+
+    #[test]
+    fn m4_3l_rejects_raw_finam_m1_as_strategy_facing_10m_input() {
+        let config = GatewayConfig::default();
+        let mut consumer = M3hRuntimeShadowConsumer::from_gateway_config(&config);
+        let mut raw_m1 = sample_bar(MarketDataSourceKind::LiveStream, true);
+        raw_m1.open_ts = Utc
+            .with_ymd_and_hms(2026, 7, 6, 9, 0, 0)
+            .single()
+            .expect("timestamp");
+        raw_m1.close_ts = raw_m1.open_ts + ChronoDuration::minutes(1);
+        raw_m1.timeframe_sec = 60;
+
+        let entry = m3h1_runtime_entry(
+            &config.redis.market_data_stream,
+            "m4-3l-raw-m1",
+            MessageType::MarketData,
+            MarketDataEvent::Bar(raw_m1),
+        );
+        let M3hRuntimeShadowAdapterOutcome::Accepted(shadow_input) =
+            m3h1_adapt_runtime_shadow_entry(&config.redis, &entry)
+        else {
+            panic!("expected accepted shadow input");
+        };
+        let decision = consumer.consume_entry(entry);
+        assert!(matches!(
+            decision,
+            M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick { .. }
+        ));
+
+        let outcome = m4_3l_adapt_strategy_10m_dry_input(
+            "imoexf-hybrid-shadow",
+            600,
+            &shadow_input,
+            &decision,
+        );
+        assert_eq!(
+            outcome,
+            M43lDryRuntimeAttachOutcome::Rejected {
+                reason: M43lDryRuntimeAttachRejectReason::StrategyTimeframeMismatch {
+                    expected_sec: 600,
+                    actual_sec: 60,
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn m4_3l_accepts_canonical_m1_to_m10_bar_as_strategy_facing_dry_input() {
+        let config = GatewayConfig::default();
+        let mut aggregator = broker_core::CanonicalBarAggregator::new(600);
+        let mut emitted_m10 = None;
+        for minute in 0..10 {
+            let mut m1 = sample_bar(MarketDataSourceKind::LiveStream, true);
+            m1.open_ts = Utc
+                .with_ymd_and_hms(2026, 7, 6, 9, minute, 0)
+                .single()
+                .expect("timestamp");
+            m1.close_ts = m1.open_ts + ChronoDuration::minutes(1);
+            m1.timeframe_sec = 60;
+            if let broker_core::BarAggregationAction::Emitted { emitted } =
+                aggregator.observe_final_source_bar(m1)
+            {
+                emitted_m10 = Some(emitted);
+            }
+        }
+        let emitted_m10 = emitted_m10.expect("complete canonical m10 bucket");
+        assert_eq!(emitted_m10.timeframe_sec, 600);
+        assert_eq!(
+            emitted_m10.open_ts,
+            Utc.with_ymd_and_hms(2026, 7, 6, 9, 0, 0).single().unwrap()
+        );
+        assert_eq!(
+            emitted_m10.close_ts,
+            Utc.with_ymd_and_hms(2026, 7, 6, 9, 10, 0).single().unwrap()
+        );
+
+        let mut consumer = M3hRuntimeShadowConsumer::from_gateway_config(&config);
+        let entry = m3h1_runtime_entry(
+            &config.redis.market_data_stream,
+            "m4-3l-m10",
+            MessageType::MarketData,
+            MarketDataEvent::Bar(emitted_m10.clone()),
+        );
+        let M3hRuntimeShadowAdapterOutcome::Accepted(shadow_input) =
+            m3h1_adapt_runtime_shadow_entry(&config.redis, &entry)
+        else {
+            panic!("expected accepted shadow input");
+        };
+        let decision = consumer.consume_entry(entry);
+        let outcome = m4_3l_adapt_strategy_10m_dry_input(
+            "imoexf-hybrid-shadow",
+            600,
+            &shadow_input,
+            &decision,
+        );
+        let M43lDryRuntimeAttachOutcome::Accepted(strategy_input) = outcome else {
+            panic!("expected accepted canonical 10m strategy input");
+        };
+
+        assert_eq!(strategy_input.bar.timeframe_sec, 600);
+        assert_eq!(strategy_input.bar, emitted_m10);
+        assert!(!strategy_input.runtime_live_attachment_allowed);
+        assert!(!strategy_input.live_ready_allowed);
+        assert!(!strategy_input.external_order_endpoint_allowed);
+        assert!(!strategy_input.real_finam_order_endpoint_used);
+    }
+
+    #[test]
+    fn m4_3l_parity_report_requires_raw_m1_reject_and_canonical_m10_accept() {
+        let raw_outcome = M43lDryRuntimeAttachOutcome::Rejected {
+            reason: M43lDryRuntimeAttachRejectReason::StrategyTimeframeMismatch {
+                expected_sec: 600,
+                actual_sec: 60,
+            },
+        };
+        let mut canonical_bar = sample_bar(MarketDataSourceKind::LiveStream, true);
+        canonical_bar.timeframe_sec = 600;
+        canonical_bar.close_ts = canonical_bar.open_ts + ChronoDuration::minutes(10);
+        let canonical_input = M3iStrategyPaperInput {
+            schema_version: SCHEMA_VERSION,
+            strategy_id: "imoexf-hybrid-shadow".to_string(),
+            decision_entry_id: "m4-3l-m10".to_string(),
+            decision_bar_key: m3h2_runtime_bar_key(&canonical_bar),
+            bar: canonical_bar,
+            broker_neutral_payload_only: true,
+            finam_dto_visible_to_strategy: false,
+            runtime_live_attachment_allowed: false,
+            live_ready_allowed: false,
+            external_order_endpoint_allowed: false,
+            real_finam_order_endpoint_used: false,
+            stop_sltp_bracket_replace_multileg_allowed: false,
+        };
+        let canonical_outcome = M43lDryRuntimeAttachOutcome::Accepted(Box::new(canonical_input));
+
+        let report = m4_3l_dry_runtime_attach_parity_report(&raw_outcome, &canonical_outcome);
+        assert!(report.parity_ok);
+        assert_eq!(report.alor_gateway_native_tf_sec, 600);
+        assert_eq!(report.finam_ws_source_tf_sec, 60);
+        assert_eq!(report.strategy_timeframe_sec, 600);
+        assert!(report.alor_native_10m_subscription_confirmed);
+        assert!(report.finam_m1_to_m10_aggregation_required);
+        assert!(report.finam_native_m10_characterization_pending);
+        assert!(!report.raw_finam_m1_can_trigger_strategy_decision);
+        assert!(report.canonical_m10_can_trigger_strategy_decision);
+        assert!(!report.runtime_live_attachment_allowed);
+        assert!(!report.live_ready_allowed);
+        assert!(!report.external_order_endpoint_allowed);
+        assert!(!report.real_finam_order_endpoint_used);
+        assert!(!report.command_consumer_to_real_finam_enabled);
     }
 
     #[test]
