@@ -4,7 +4,11 @@ use std::fmt;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::bar_aggregation::{
+    BarAggregationAction, BarAggregationRejectReason, CanonicalBarAggregator,
+};
 use crate::envelope::SCHEMA_VERSION;
+use crate::event::{Bar, MarketDataSourceKind};
 use crate::ids::BrokerAccountId;
 use crate::instrument::{InstrumentId, Price, Quantity};
 use crate::order::{OrderSide, OrderType, TimeInForce};
@@ -193,6 +197,191 @@ impl RuntimeBarInput {
             && self.is_final
             && self.timeframe_sec == expected_timeframe_sec
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperRuntimeBarPublisherConfig {
+    pub strategy_id: String,
+    pub instrument: InstrumentId,
+    pub source_stream: String,
+    pub target_stream: String,
+    pub source_timeframe_sec: u32,
+    pub target_timeframe_sec: u32,
+    pub provenance: String,
+    pub safety_boundary: PaperSafetyBoundary,
+}
+
+impl PaperRuntimeBarPublisherConfig {
+    pub fn finam_m1_to_m10_paper(
+        strategy_id: impl Into<String>,
+        instrument: InstrumentId,
+        source_stream: impl Into<String>,
+        target_stream: impl Into<String>,
+    ) -> Self {
+        Self {
+            strategy_id: strategy_id.into(),
+            instrument,
+            source_stream: source_stream.into(),
+            target_stream: target_stream.into(),
+            source_timeframe_sec: 60,
+            target_timeframe_sec: 600,
+            provenance: "FinamDerivedM1ToM10".to_string(),
+            safety_boundary: PaperSafetyBoundary::closed(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PaperRuntimeBarPublisher {
+    config: PaperRuntimeBarPublisherConfig,
+    aggregator: CanonicalBarAggregator,
+}
+
+impl PaperRuntimeBarPublisher {
+    pub fn new(
+        config: PaperRuntimeBarPublisherConfig,
+    ) -> Result<Self, PaperRuntimeBarPublishRejectReason> {
+        validate_paper_runtime_bar_publisher_config(&config)?;
+        Ok(Self {
+            aggregator: CanonicalBarAggregator::new(config.target_timeframe_sec),
+            config,
+        })
+    }
+
+    pub fn config(&self) -> &PaperRuntimeBarPublisherConfig {
+        &self.config
+    }
+
+    pub fn observe_source_bar(&mut self, bar: Bar) -> PaperRuntimeBarPublishOutcome {
+        if !self.config.safety_boundary.is_closed() {
+            return PaperRuntimeBarPublishOutcome::Rejected {
+                reason: PaperRuntimeBarPublishRejectReason::LiveBoundaryOpen,
+            };
+        }
+        if bar.instrument != self.config.instrument {
+            return PaperRuntimeBarPublishOutcome::Rejected {
+                reason: PaperRuntimeBarPublishRejectReason::InstrumentMismatch,
+            };
+        }
+        if bar.source_kind != MarketDataSourceKind::LiveStream {
+            return PaperRuntimeBarPublishOutcome::Rejected {
+                reason: PaperRuntimeBarPublishRejectReason::NonLiveSourceKind {
+                    actual: bar.source_kind,
+                },
+            };
+        }
+        if bar.timeframe_sec != self.config.source_timeframe_sec {
+            return PaperRuntimeBarPublishOutcome::Rejected {
+                reason: PaperRuntimeBarPublishRejectReason::SourceTimeframeMismatch {
+                    expected_sec: self.config.source_timeframe_sec,
+                    actual_sec: bar.timeframe_sec,
+                },
+            };
+        }
+
+        match self.aggregator.observe_final_source_bar(bar) {
+            BarAggregationAction::Buffered {
+                bucket_open_ts,
+                buffered_count,
+            } => PaperRuntimeBarPublishOutcome::Buffered {
+                bucket_open_ts,
+                buffered_count,
+            },
+            BarAggregationAction::DroppedIncompleteBucket {
+                bucket_open_ts,
+                buffered_count,
+            } => PaperRuntimeBarPublishOutcome::DroppedIncompleteBucket {
+                bucket_open_ts,
+                buffered_count,
+            },
+            BarAggregationAction::Rejected { reason } => PaperRuntimeBarPublishOutcome::Rejected {
+                reason: PaperRuntimeBarPublishRejectReason::AggregationRejected(reason),
+            },
+            BarAggregationAction::Emitted { emitted } => {
+                let runtime_input = RuntimeBarInput {
+                    schema_version: SCHEMA_VERSION,
+                    instrument: emitted.instrument,
+                    origin: RuntimeBarOrigin::Live,
+                    timeframe_sec: emitted.timeframe_sec,
+                    open_ts: emitted.open_ts,
+                    close_ts: emitted.close_ts,
+                    open: emitted.open,
+                    high: emitted.high,
+                    low: emitted.low,
+                    close: emitted.close,
+                    volume: emitted.volume,
+                    is_final: emitted.is_final,
+                    source_stream: self.config.target_stream.clone(),
+                    provenance: self.config.provenance.clone(),
+                };
+                PaperRuntimeBarPublishOutcome::Published {
+                    target_stream: self.config.target_stream.clone(),
+                    runtime_input: Box::new(runtime_input),
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum PaperRuntimeBarPublishOutcome {
+    Buffered {
+        bucket_open_ts: DateTime<Utc>,
+        buffered_count: usize,
+    },
+    Published {
+        target_stream: String,
+        runtime_input: Box<RuntimeBarInput>,
+    },
+    DroppedIncompleteBucket {
+        bucket_open_ts: DateTime<Utc>,
+        buffered_count: usize,
+    },
+    Rejected {
+        reason: PaperRuntimeBarPublishRejectReason,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+pub enum PaperRuntimeBarPublishRejectReason {
+    #[error("paper runtime bar publisher safety boundary is open")]
+    LiveBoundaryOpen,
+    #[error("paper runtime bar publisher instrument mismatch")]
+    InstrumentMismatch,
+    #[error("paper runtime bar publisher source timeframe mismatch: expected={expected_sec} actual={actual_sec}")]
+    SourceTimeframeMismatch { expected_sec: u32, actual_sec: u32 },
+    #[error(
+        "paper runtime bar publisher target timeframe mismatch: expected 600 actual={actual_sec}"
+    )]
+    TargetTimeframeMismatch { actual_sec: u32 },
+    #[error("paper runtime bar publisher invalid timeframe")]
+    InvalidTimeframe,
+    #[error("paper runtime bar publisher non-live source kind: {actual:?}")]
+    NonLiveSourceKind { actual: MarketDataSourceKind },
+    #[error("paper runtime bar publisher aggregation rejected: {0:?}")]
+    AggregationRejected(BarAggregationRejectReason),
+}
+
+fn validate_paper_runtime_bar_publisher_config(
+    config: &PaperRuntimeBarPublisherConfig,
+) -> Result<(), PaperRuntimeBarPublishRejectReason> {
+    if !config.safety_boundary.is_closed() {
+        return Err(PaperRuntimeBarPublishRejectReason::LiveBoundaryOpen);
+    }
+    if config.source_timeframe_sec == 0 || config.target_timeframe_sec == 0 {
+        return Err(PaperRuntimeBarPublishRejectReason::InvalidTimeframe);
+    }
+    if config.source_timeframe_sec >= config.target_timeframe_sec {
+        return Err(PaperRuntimeBarPublishRejectReason::InvalidTimeframe);
+    }
+    if config.target_timeframe_sec != 600 {
+        return Err(
+            PaperRuntimeBarPublishRejectReason::TargetTimeframeMismatch {
+                actual_sec: config.target_timeframe_sec,
+            },
+        );
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -936,6 +1125,7 @@ fn unique_trade_ids<'a>(
 
 #[cfg(test)]
 mod tests {
+    use chrono::Duration;
     use chrono::TimeZone;
     use rust_decimal::Decimal;
 
@@ -1129,6 +1319,36 @@ mod tests {
             source_stream: "finam_imoexf_paper:md:bars:10m".to_string(),
             provenance: "FinamDerivedM1ToM10".to_string(),
         }
+    }
+
+    fn m1_bar(minute: u32, source_kind: MarketDataSourceKind, is_final: bool) -> Bar {
+        let open_ts = Utc
+            .with_ymd_and_hms(2026, 1, 1, 9, minute, 0)
+            .single()
+            .expect("timestamp");
+        Bar {
+            instrument: instrument(),
+            source_kind,
+            timeframe_sec: 60,
+            open_ts,
+            close_ts: open_ts + Duration::seconds(60),
+            open: Decimal::new(1000 + i64::from(minute), 0),
+            high: Decimal::new(1005 + i64::from(minute), 0),
+            low: Decimal::new(999 + i64::from(minute), 0),
+            close: Decimal::new(1002 + i64::from(minute), 0),
+            volume: Decimal::new(10 + i64::from(minute), 0),
+            is_final,
+        }
+    }
+
+    fn paper_bar_publisher() -> PaperRuntimeBarPublisher {
+        PaperRuntimeBarPublisher::new(PaperRuntimeBarPublisherConfig::finam_m1_to_m10_paper(
+            "hybrid_imoexf_synthetic",
+            instrument(),
+            "finam_imoexf_paper:ws:market_data",
+            "finam_imoexf_paper:md:bars:10m",
+        ))
+        .expect("valid paper runtime bar publisher")
     }
 
     #[test]
@@ -1401,6 +1621,110 @@ mod tests {
             Err(PaperLedgerExecutorError::UnsupportedOrderType(
                 OrderType::Limit
             ))
+        );
+    }
+
+    #[test]
+    fn paper_runtime_bar_publisher_buffers_m1_until_complete_m10_and_publishes_runtime_input() {
+        let mut publisher = paper_bar_publisher();
+        for minute in 0..9 {
+            assert!(matches!(
+                publisher.observe_source_bar(m1_bar(
+                    minute,
+                    MarketDataSourceKind::LiveStream,
+                    true
+                )),
+                PaperRuntimeBarPublishOutcome::Buffered { .. }
+            ));
+        }
+
+        let outcome =
+            publisher.observe_source_bar(m1_bar(9, MarketDataSourceKind::LiveStream, true));
+        let PaperRuntimeBarPublishOutcome::Published {
+            target_stream,
+            runtime_input,
+        } = outcome
+        else {
+            panic!("expected published m10 runtime input");
+        };
+        assert_eq!(target_stream, "finam_imoexf_paper:md:bars:10m");
+        assert_eq!(
+            runtime_input.source_stream,
+            "finam_imoexf_paper:md:bars:10m"
+        );
+        assert_eq!(runtime_input.provenance, "FinamDerivedM1ToM10");
+        assert_eq!(runtime_input.origin, RuntimeBarOrigin::Live);
+        assert_eq!(runtime_input.timeframe_sec, 600);
+        assert!(runtime_input.is_live_final_timeframe(600));
+        assert_eq!(runtime_input.open, Decimal::new(1000, 0));
+        assert_eq!(runtime_input.close, Decimal::new(1011, 0));
+        assert_eq!(runtime_input.volume, Decimal::new(145, 0));
+    }
+
+    #[test]
+    fn paper_runtime_bar_publisher_rejects_raw_non_final_non_live_and_native_m10_inputs() {
+        let mut publisher = paper_bar_publisher();
+        assert_eq!(
+            publisher.observe_source_bar(m1_bar(0, MarketDataSourceKind::LiveStream, false)),
+            PaperRuntimeBarPublishOutcome::Rejected {
+                reason: PaperRuntimeBarPublishRejectReason::AggregationRejected(
+                    BarAggregationRejectReason::NonFinalSourceBar
+                )
+            }
+        );
+        assert_eq!(
+            publisher.observe_source_bar(m1_bar(0, MarketDataSourceKind::Recovery, true)),
+            PaperRuntimeBarPublishOutcome::Rejected {
+                reason: PaperRuntimeBarPublishRejectReason::NonLiveSourceKind {
+                    actual: MarketDataSourceKind::Recovery
+                }
+            }
+        );
+        let mut native_m10 = m1_bar(0, MarketDataSourceKind::LiveStream, true);
+        native_m10.timeframe_sec = 600;
+        native_m10.close_ts = native_m10.open_ts + Duration::seconds(600);
+        assert_eq!(
+            publisher.observe_source_bar(native_m10),
+            PaperRuntimeBarPublishOutcome::Rejected {
+                reason: PaperRuntimeBarPublishRejectReason::SourceTimeframeMismatch {
+                    expected_sec: 60,
+                    actual_sec: 600
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn paper_runtime_bar_publisher_drops_incomplete_bucket_on_gap() {
+        let mut publisher = paper_bar_publisher();
+        assert!(matches!(
+            publisher.observe_source_bar(m1_bar(0, MarketDataSourceKind::LiveStream, true)),
+            PaperRuntimeBarPublishOutcome::Buffered {
+                buffered_count: 1,
+                ..
+            }
+        ));
+        assert_eq!(
+            publisher.observe_source_bar(m1_bar(10, MarketDataSourceKind::LiveStream, true)),
+            PaperRuntimeBarPublishOutcome::DroppedIncompleteBucket {
+                bucket_open_ts: Utc.with_ymd_and_hms(2026, 1, 1, 9, 0, 0).single().unwrap(),
+                buffered_count: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn paper_runtime_bar_publisher_rejects_open_safety_boundary() {
+        let mut config = PaperRuntimeBarPublisherConfig::finam_m1_to_m10_paper(
+            "hybrid_imoexf_synthetic",
+            instrument(),
+            "finam_imoexf_paper:ws:market_data",
+            "finam_imoexf_paper:md:bars:10m",
+        );
+        config.safety_boundary.live_orders_enabled = true;
+        assert_eq!(
+            PaperRuntimeBarPublisher::new(config).expect_err("open boundary rejected"),
+            PaperRuntimeBarPublishRejectReason::LiveBoundaryOpen
         );
     }
 }

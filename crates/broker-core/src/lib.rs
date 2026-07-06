@@ -98,9 +98,11 @@ pub use paper::{
     PaperAck, PaperAckKind, PaperExecutionMode, PaperFillPolicy, PaperIntent, PaperIntentKind,
     PaperLedgerExecutionOutcome, PaperLedgerExecutorConfig, PaperLedgerExecutorError,
     PaperLedgerInvariantError, PaperLedgerSnapshot, PaperOrder, PaperOrderId, PaperOrderStatus,
-    PaperPosition, PaperRuntimeState, PaperSafetyBoundary, PaperTrade, PaperTradeId,
-    RiskGatePaperLedgerRecord, RiskGatePaperState, RuntimeBarInput, RuntimeBarOrigin,
-    RuntimeDecisionId, RuntimeDecisionRecord, RuntimeSuppressionReason, RuntimeSuppressionRecord,
+    PaperPosition, PaperRuntimeBarPublishOutcome, PaperRuntimeBarPublishRejectReason,
+    PaperRuntimeBarPublisher, PaperRuntimeBarPublisherConfig, PaperRuntimeState,
+    PaperSafetyBoundary, PaperTrade, PaperTradeId, RiskGatePaperLedgerRecord, RiskGatePaperState,
+    RuntimeBarInput, RuntimeBarOrigin, RuntimeDecisionId, RuntimeDecisionRecord,
+    RuntimeSuppressionReason, RuntimeSuppressionRecord,
 };
 pub use parity::{
     compare_broker_truth_for_instrument, compare_final_bars_for_instrument, BrokerBarParityReport,
