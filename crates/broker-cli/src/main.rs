@@ -466,6 +466,12 @@ enum Command {
         /// Stop after this many seconds even if fewer messages arrive.
         #[arg(long, default_value_t = 60)]
         max_duration_seconds: u64,
+        /// Initialize recovery with a synthetic final-bar watermark N bars behind current aligned time.
+        #[arg(long)]
+        initial_final_watermark_lag_bars: Option<u32>,
+        /// Bound REST replay end N bars behind current time for controlled recovery acceptance evidence.
+        #[arg(long, default_value_t = 0)]
+        recovery_replay_end_lag_bars: u32,
     },
     /// Run periodic/reconnecting FINAM WebSocket market-data shadow loop. No live orders.
     #[command(name = "finam-ws-shadow-loop")]
@@ -503,6 +509,12 @@ enum Command {
         /// Optional safety stop after N connection passes. Omit for continuous loop.
         #[arg(long)]
         max_iterations: Option<u64>,
+        /// Initialize recovery with a synthetic final-bar watermark N bars behind current aligned time.
+        #[arg(long)]
+        initial_final_watermark_lag_bars: Option<u32>,
+        /// Bound REST replay end N bars behind current time for controlled recovery acceptance evidence.
+        #[arg(long, default_value_t = 0)]
+        recovery_replay_end_lag_bars: u32,
     },
     /// Publish a synthetic gateway envelope to Redis and read it back with XRANGE.
     #[command(name = "finam-gateway-redis-smoke")]
@@ -1288,6 +1300,8 @@ async fn main() -> Result<()> {
             subscribe_quotes,
             max_messages,
             max_duration_seconds,
+            initial_final_watermark_lag_bars,
+            recovery_replay_end_lag_bars,
         } => {
             run_finam_ws_shadow_once(FinamWsShadowArgs {
                 config,
@@ -1301,6 +1315,8 @@ async fn main() -> Result<()> {
                 max_duration_seconds,
                 reconnect_delay_seconds: 0,
                 max_iterations: Some(1),
+                initial_final_watermark_lag_bars,
+                recovery_replay_end_lag_bars,
             })
             .await?;
         }
@@ -1316,6 +1332,8 @@ async fn main() -> Result<()> {
             max_duration_seconds,
             reconnect_delay_seconds,
             max_iterations,
+            initial_final_watermark_lag_bars,
+            recovery_replay_end_lag_bars,
         } => {
             run_finam_ws_shadow_loop(FinamWsShadowArgs {
                 config,
@@ -1329,6 +1347,8 @@ async fn main() -> Result<()> {
                 max_duration_seconds,
                 reconnect_delay_seconds,
                 max_iterations,
+                initial_final_watermark_lag_bars,
+                recovery_replay_end_lag_bars,
             })
             .await?;
         }
@@ -1395,6 +1415,8 @@ struct FinamWsShadowArgs {
     max_duration_seconds: u64,
     reconnect_delay_seconds: u64,
     max_iterations: Option<u64>,
+    initial_final_watermark_lag_bars: Option<u32>,
+    recovery_replay_end_lag_bars: u32,
 }
 
 struct RuntimeBridgeDryConsumeArgs {
@@ -1493,6 +1515,8 @@ struct ResolvedFinamWsShadowConfig {
     max_duration_seconds: u64,
     reconnect_delay_seconds: u64,
     max_iterations: Option<u64>,
+    initial_final_watermark_lag_bars: Option<u32>,
+    recovery_replay_end_lag_bars: u32,
 }
 
 #[derive(Default)]
@@ -2018,6 +2042,10 @@ async fn setup_finam_ws_shadow_runtime(args: FinamWsShadowArgs) -> Result<FinamW
     let file_config = read_gateway_shadow_file_config(args.config.as_ref())?;
     let resolved = resolve_finam_ws_shadow_config(args, file_config)?;
     let redis_url = resolved.gateway_config.redis.url.clone();
+    let timeframe_sec = timeframe_seconds(&resolved.timeframe)?;
+    let initial_final_bar_watermark = resolved
+        .initial_final_watermark_lag_bars
+        .map(|lag_bars| finam_ws_aligned_close_ts_before(Utc::now(), timeframe_sec, lag_bars));
     let secret = SecretToken::new(std::env::var(&resolved.secret_env).with_context(|| {
         format!(
             "missing required environment variable {}",
@@ -2035,7 +2063,7 @@ async fn setup_finam_ws_shadow_runtime(args: FinamWsShadowArgs) -> Result<FinamW
         client,
         auth_manager,
         gateway,
-        final_bar_watermark: Mutex::new(None),
+        final_bar_watermark: Mutex::new(initial_final_bar_watermark),
     })
 }
 
@@ -2080,6 +2108,8 @@ fn resolve_finam_ws_shadow_config(
             .max_iterations
             .or(file_config.max_iterations)
             .filter(|value| *value > 0),
+        initial_final_watermark_lag_bars: args.initial_final_watermark_lag_bars,
+        recovery_replay_end_lag_bars: args.recovery_replay_end_lag_bars,
     })
 }
 
@@ -2718,6 +2748,18 @@ fn finam_ws_final_bar_watermark(runtime: &FinamWsShadowRuntime) -> Option<DateTi
         .expect("FINAM WS final bar watermark mutex not poisoned")
 }
 
+fn finam_ws_aligned_close_ts_before(
+    now: DateTime<Utc>,
+    timeframe_sec: u32,
+    lag_bars: u32,
+) -> DateTime<Utc> {
+    let timeframe_sec = i64::from(timeframe_sec.max(1));
+    let aligned_timestamp = now.timestamp() - now.timestamp().rem_euclid(timeframe_sec);
+    let lag_seconds = timeframe_sec.saturating_mul(i64::from(lag_bars));
+    DateTime::<Utc>::from_timestamp(aligned_timestamp.saturating_sub(lag_seconds), 0)
+        .expect("aligned FINAM WS watermark timestamp is valid")
+}
+
 fn mark_finam_ws_final_bar_watermark(runtime: &FinamWsShadowRuntime, close_ts: DateTime<Utc>) {
     let mut watermark = runtime
         .final_bar_watermark
@@ -2732,7 +2774,11 @@ async fn run_finam_ws_recovery_replay(
     timeframe_sec: u32,
     previous_watermark_close_ts: Option<DateTime<Utc>>,
 ) -> FinamWsRecoveryReplaySummary {
-    let checked_ts = Utc::now();
+    let checked_ts = Utc::now()
+        - ChronoDuration::seconds(
+            i64::from(timeframe_sec.max(1))
+                .saturating_mul(i64::from(runtime.resolved.recovery_replay_end_lag_bars)),
+        );
     let plan = finam_ws_recovery_plan(timeframe_sec, 2, previous_watermark_close_ts, checked_ts);
     let request_start_time =
         plan.replay_from_ts - ChronoDuration::seconds(i64::from(timeframe_sec.max(1)));
@@ -8929,6 +8975,8 @@ mod tests {
                 max_duration_seconds: 0,
                 reconnect_delay_seconds: 0,
                 max_iterations: None,
+                initial_final_watermark_lag_bars: None,
+                recovery_replay_end_lag_bars: 0,
             },
             GatewayShadowFileConfig {
                 redis_url: Some("redis://127.0.0.1:6379/".to_string()),
@@ -8955,6 +9003,8 @@ mod tests {
         assert_eq!(resolved.max_duration_seconds, 1);
         assert_eq!(resolved.reconnect_delay_seconds, 1);
         assert_eq!(resolved.max_iterations, Some(3));
+        assert_eq!(resolved.initial_final_watermark_lag_bars, None);
+        assert_eq!(resolved.recovery_replay_end_lag_bars, 0);
         assert!(!resolved.gateway_config.features.command_consumer_enabled);
         assert!(!resolved.gateway_config.features.order_placement_enabled);
         assert!(!resolved.gateway_config.features.cancel_enabled);
@@ -8966,6 +9016,20 @@ mod tests {
         assert_eq!(
             resolved.gateway_config.redis.command_ack_stream,
             "finam_ws_shadow:command_acks_disabled"
+        );
+    }
+
+    #[test]
+    fn finam_ws_initial_watermark_lag_aligns_to_timeframe_close() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 6, 7, 3, 46).unwrap();
+
+        assert_eq!(
+            finam_ws_aligned_close_ts_before(now, 60, 10),
+            Utc.with_ymd_and_hms(2026, 7, 6, 6, 53, 0).unwrap()
+        );
+        assert_eq!(
+            finam_ws_aligned_close_ts_before(now, 600, 2),
+            Utc.with_ymd_and_hms(2026, 7, 6, 6, 40, 0).unwrap()
         );
     }
 
