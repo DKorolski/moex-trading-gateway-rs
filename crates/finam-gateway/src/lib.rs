@@ -900,6 +900,8 @@ pub struct BrokerNeutralReadinessHttpResponse {
     pub health: GatewayHealth,
     pub broker: String,
     pub gateway_source: String,
+    pub synthetic_readiness: bool,
+    pub not_for_systemd_readiness: bool,
     pub command_consumer_to_real_broker_enabled: bool,
     pub runtime_live_attachment_allowed: bool,
     pub order_post_delete_allowed: bool,
@@ -912,6 +914,8 @@ pub struct BrokerNeutralDebugTransportResponse {
     pub gateway_source: String,
     pub transports: Vec<BrokerNeutralDebugTransportSnapshot>,
     pub redacted: bool,
+    pub synthetic_readiness: bool,
+    pub not_for_systemd_readiness: bool,
     pub raw_secrets_exported: bool,
     pub raw_tokens_exported: bool,
     pub raw_account_ids_exported: bool,
@@ -930,6 +934,8 @@ pub struct BrokerNeutralHttpDebugSurfaceInput {
     pub command_consumer_to_real_broker_enabled: bool,
     pub runtime_live_attachment_allowed: bool,
     pub order_post_delete_allowed: bool,
+    pub synthetic_readiness: bool,
+    pub not_for_systemd_readiness: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1008,6 +1014,8 @@ pub fn build_broker_neutral_http_debug_surface(
             health: input.health,
             broker: input.broker.clone(),
             gateway_source: input.gateway_source.clone(),
+            synthetic_readiness: input.synthetic_readiness,
+            not_for_systemd_readiness: input.not_for_systemd_readiness,
             command_consumer_to_real_broker_enabled: input.command_consumer_to_real_broker_enabled,
             runtime_live_attachment_allowed: input.runtime_live_attachment_allowed,
             order_post_delete_allowed: input.order_post_delete_allowed,
@@ -1018,6 +1026,8 @@ pub fn build_broker_neutral_http_debug_surface(
             gateway_source: input.gateway_source,
             transports: input.transports,
             redacted: true,
+            synthetic_readiness: input.synthetic_readiness,
+            not_for_systemd_readiness: input.not_for_systemd_readiness,
             raw_secrets_exported,
             raw_tokens_exported,
             raw_account_ids_exported,
@@ -15217,6 +15227,8 @@ mod tests {
             command_consumer_to_real_broker_enabled: false,
             runtime_live_attachment_allowed: false,
             order_post_delete_allowed: false,
+            synthetic_readiness: false,
+            not_for_systemd_readiness: false,
         });
 
         assert_eq!(report.schema, "m4_3j_broker_neutral_http_debug_surface");
@@ -15268,6 +15280,8 @@ mod tests {
             command_consumer_to_real_broker_enabled: false,
             runtime_live_attachment_allowed: false,
             order_post_delete_allowed: false,
+            synthetic_readiness: false,
+            not_for_systemd_readiness: false,
         });
 
         assert_eq!(report.readiness.http_status, 200);

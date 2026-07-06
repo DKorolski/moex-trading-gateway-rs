@@ -189,6 +189,10 @@ M4-3j-a adds the first local-only HTTP/debug listener for that surface:
 `finam-local-debug-http` binds to localhost by default, serves GET-only
 `/liveness`, `/readiness`, and `/debug/transport`, and keeps runtime-live,
 command-consumer-to-real-FINAM, and order POST/DELETE disabled.
+M4-3j-b hardens the listener readiness boundary: the normal CLI no longer has a
+synthetic `--live-ready` operator flag, synthetic readiness is marked
+`not_for_systemd_readiness`, and WS shadow reports now carry a real
+`broker_neutral_debug_surface` built from actual WS-loop state.
 M4-3e gates FINAM WS strategy bar publication: stale WS final-bar backlog is
 still counted and reported, but only fresh final live bars are published as
 strategy market-data bars. This prevents stale WebSocket backlog from reaching
@@ -395,6 +399,7 @@ See:
 - [M4-3i session-aware bar silence watchdog](docs/m4-3i-session-aware-bar-silence-watchdog.md)
 - [M4-3j broker-neutral HTTP/debug health surface](docs/m4-3j-broker-neutral-http-debug-surface.md)
 - [M4-3j-a local HTTP/debug listener](docs/m4-3j-a-local-http-debug-listener.md)
+- [M4-3j-b synthetic readiness guard](docs/m4-3j-b-synthetic-readiness-guard.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

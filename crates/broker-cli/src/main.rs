@@ -535,9 +535,6 @@ enum Command {
         /// Source label for the broker-neutral response.
         #[arg(long, default_value = "finam-local-debug")]
         source: String,
-        /// Emit a LiveReady response instead of the safe default Reconciliation/OperatorLiveArmMissing.
-        #[arg(long, default_value_t = false)]
-        live_ready: bool,
     },
     /// Publish a synthetic gateway envelope to Redis and read it back with XRANGE.
     #[command(name = "finam-gateway-redis-smoke")]
@@ -1380,14 +1377,12 @@ async fn main() -> Result<()> {
             allow_private_bind,
             max_requests,
             source,
-            live_ready,
         } => {
             run_finam_local_debug_http(FinamLocalDebugHttpArgs {
                 bind,
                 allow_private_bind,
                 max_requests,
                 source,
-                live_ready,
             })
             .await?;
         }
@@ -1463,7 +1458,6 @@ struct FinamLocalDebugHttpArgs {
     allow_private_bind: bool,
     max_requests: Option<u64>,
     source: String,
-    live_ready: bool,
 }
 
 struct RuntimeBridgeDryConsumeArgs {
@@ -2118,7 +2112,7 @@ async fn run_finam_local_debug_http(args: FinamLocalDebugHttpArgs) -> Result<()>
         .await
         .with_context(|| format!("bind FINAM local debug HTTP listener at {}", args.bind))?;
     let local_addr = listener.local_addr()?;
-    let report = build_finam_local_debug_http_report(&args.source, args.live_ready);
+    let report = build_finam_local_debug_http_report(&args.source, false);
     let mut served = 0u64;
     let max_requests = args.max_requests.unwrap_or(u64::MAX);
 
@@ -2182,10 +2176,10 @@ async fn run_finam_local_debug_http(args: FinamLocalDebugHttpArgs) -> Result<()>
 
 fn build_finam_local_debug_http_report(
     source: &str,
-    live_ready: bool,
+    mock_live_ready_for_test_only: bool,
 ) -> finam_gateway::BrokerNeutralHttpDebugSurfaceReport {
     let checked_ts = Utc::now();
-    let readiness = if live_ready {
+    let readiness = if mock_live_ready_for_test_only {
         BrokerReadiness {
             phase: ReadinessPhase::LiveReady,
             reasons: Vec::new(),
@@ -2253,8 +2247,8 @@ fn build_finam_local_debug_http_report(
                     "session_state": "UnknownLocalDebugNoMarketProbe",
                     "schedule_fetch_ok": null,
                     "silence_alert": false,
-                    "readiness_blocked": !live_ready,
-                    "readiness_block_reason": if live_ready {
+                    "readiness_blocked": !mock_live_ready_for_test_only,
+                    "readiness_block_reason": if mock_live_ready_for_test_only {
                         serde_json::Value::Null
                     } else {
                         serde_json::Value::String("OperatorLiveArmMissing".to_string())
@@ -2290,7 +2284,163 @@ fn build_finam_local_debug_http_report(
         command_consumer_to_real_broker_enabled: false,
         runtime_live_attachment_allowed: false,
         order_post_delete_allowed: false,
+        synthetic_readiness: mock_live_ready_for_test_only,
+        not_for_systemd_readiness: mock_live_ready_for_test_only,
     })
+}
+
+fn build_finam_ws_bound_debug_http_report(
+    runtime: &FinamWsShadowRuntime,
+    report: &FinamWsShadowIterationReport,
+) -> finam_gateway::BrokerNeutralHttpDebugSurfaceReport {
+    let checked_ts = Utc::now();
+    let timeframe_sec = timeframe_seconds(&runtime.resolved.timeframe).unwrap_or(60);
+    let ws_generation = finam_ws_generation_subscription_state(
+        runtime.resolved.subscribe_bars,
+        runtime.resolved.subscribe_quotes,
+        &report.metrics,
+        &finam_ws_generation_id(report.iteration),
+        &report.stop_reason,
+    );
+    let recovery_report = finam_ws_recovery_report_from_metrics(
+        &report.metrics,
+        &report.recovery_replay,
+        &ws_generation,
+        timeframe_sec,
+        checked_ts,
+    );
+    let recovery_source = finam_ws_recovery_source_summary();
+    let data_quality_ledger = finam_ws_data_quality_ledger(&report.metrics);
+    let readiness_phase = readiness_phase_from_label(&report.readiness_phase);
+
+    build_broker_neutral_http_debug_surface(BrokerNeutralHttpDebugSurfaceInput {
+        broker: "FINAM".to_string(),
+        gateway_source: runtime.gateway.config().source.clone(),
+        health: GatewayHealth {
+            status: GatewayHealthStatus::ReadOnly,
+            checked_ts,
+            redis_configured: true,
+            command_consumer_enabled: false,
+            order_placement_enabled: false,
+        },
+        readiness: BrokerReadiness {
+            phase: readiness_phase,
+            reasons: report
+                .readiness_reasons
+                .iter()
+                .map(|reason| readiness_reason_from_label(reason))
+                .collect(),
+            checked_ts,
+        },
+        transports: vec![
+            BrokerNeutralDebugTransportSnapshot {
+                transport_kind: BrokerNeutralDebugTransportKind::WebSocketMarketData,
+                connected: report.metrics.connection_count > 0,
+                authorized: report.metrics.connection_count > 0,
+                connection_generation: Some(ws_generation.ws_generation_id.clone()),
+                last_rx_ts: report.metrics.latest_ws_bar_close_ts,
+                last_tx_ts: None,
+                stale: report.market_data_lifecycle.phase == MarketDataLifecyclePhase::Degraded,
+                stale_reason: if report.market_data_lifecycle.phase
+                    == MarketDataLifecyclePhase::Degraded
+                {
+                    Some("MarketDataLifecycleDegraded".to_string())
+                } else {
+                    None
+                },
+                active_subscriptions_count: ws_generation.active_subscriptions.len() as u32,
+                desired_subscriptions_count: ws_generation.desired_subscriptions.len() as u32,
+                pending_subscriptions_count: ws_generation.pending_subscriptions.len() as u32,
+                reconnect_count: report.metrics.connection_count.saturating_sub(1),
+                data_quality_balanced: data_quality_ledger.bars_balanced
+                    && data_quality_ledger.quotes_balanced,
+                data_quality_ledger: finam_ws_data_quality_ledger_json(&data_quality_ledger),
+                recovery: finam_ws_recovery_report_json(&recovery_report, &recovery_source),
+                session_state: Some(format!(
+                    "{:?}",
+                    report.session_silence_watchdog.session_state
+                )),
+                session_watchdog: finam_ws_session_silence_watchdog_json(
+                    &report.session_silence_watchdog,
+                ),
+                raw_secret_exported: false,
+                raw_token_exported: false,
+                raw_account_id_exported: false,
+            },
+            BrokerNeutralDebugTransportSnapshot {
+                transport_kind: BrokerNeutralDebugTransportKind::CommandConsumer,
+                connected: false,
+                authorized: false,
+                connection_generation: None,
+                last_rx_ts: None,
+                last_tx_ts: None,
+                stale: false,
+                stale_reason: Some("FeatureDisabled".to_string()),
+                active_subscriptions_count: 0,
+                desired_subscriptions_count: 0,
+                pending_subscriptions_count: 0,
+                reconnect_count: 0,
+                data_quality_balanced: true,
+                data_quality_ledger: serde_json::json!({}),
+                recovery: serde_json::json!({}),
+                session_state: None,
+                session_watchdog: serde_json::json!({}),
+                raw_secret_exported: false,
+                raw_token_exported: false,
+                raw_account_id_exported: false,
+            },
+        ],
+        command_consumer_to_real_broker_enabled: false,
+        runtime_live_attachment_allowed: false,
+        order_post_delete_allowed: false,
+        synthetic_readiness: false,
+        not_for_systemd_readiness: false,
+    })
+}
+
+fn readiness_phase_from_label(label: &str) -> ReadinessPhase {
+    match label {
+        "Starting" => ReadinessPhase::Starting,
+        "AuthPending" => ReadinessPhase::AuthPending,
+        "AuthReady" => ReadinessPhase::AuthReady,
+        "ReferenceDataLoading" => ReadinessPhase::ReferenceDataLoading,
+        "StreamsConnecting" => ReadinessPhase::StreamsConnecting,
+        "StreamsSubscribed" => ReadinessPhase::StreamsSubscribed,
+        "SnapshotsLoading" => ReadinessPhase::SnapshotsLoading,
+        "Reconciliation" => ReadinessPhase::Reconciliation,
+        "LiveReady" => ReadinessPhase::LiveReady,
+        "Degraded" => ReadinessPhase::Degraded,
+        "Blocked" => ReadinessPhase::Blocked,
+        "Stopped" => ReadinessPhase::Stopped,
+        _ => ReadinessPhase::Degraded,
+    }
+}
+
+fn readiness_reason_from_label(label: &str) -> ReadinessReason {
+    match label {
+        "MissingToken" => ReadinessReason::MissingToken,
+        "AuthExpired" => ReadinessReason::AuthExpired,
+        "AccountUnavailable" => ReadinessReason::AccountUnavailable,
+        "ReferenceDataNotLoaded" => ReadinessReason::ReferenceDataNotLoaded,
+        "InstrumentMapNotValidated" => ReadinessReason::InstrumentMapNotValidated,
+        "ScheduleNotLoaded" => ReadinessReason::ScheduleNotLoaded,
+        "PositionsNotLoaded" => ReadinessReason::PositionsNotLoaded,
+        "OrdersNotLoaded" => ReadinessReason::OrdersNotLoaded,
+        "TradesNotLoaded" => ReadinessReason::TradesNotLoaded,
+        "FirstLiveBarMissing" => ReadinessReason::FirstLiveBarMissing,
+        "MarketDataNotLive" => ReadinessReason::MarketDataNotLive,
+        "MarketDataSessionUnknown" => ReadinessReason::MarketDataSessionUnknown,
+        "RedisUnavailable" => ReadinessReason::RedisUnavailable,
+        "ClockSkew" => ReadinessReason::ClockSkew,
+        "ReconciliationStale" => ReadinessReason::ReconciliationStale,
+        "UnknownOpenOrders" => ReadinessReason::UnknownOpenOrders,
+        "OperatorLiveArmMissing" => ReadinessReason::OperatorLiveArmMissing,
+        "BrokerMaintenance" => ReadinessReason::BrokerMaintenance,
+        "RateLimited" => ReadinessReason::RateLimited,
+        "TransportDisconnected" => ReadinessReason::TransportDisconnected,
+        "OperatorPaused" => ReadinessReason::OperatorPaused,
+        _ => ReadinessReason::Other(label.to_string()),
+    }
 }
 
 fn parse_http_get_path(request: &str) -> Option<String> {
@@ -3765,6 +3915,7 @@ fn finam_ws_shadow_report_json(
         "last_bar_source_kind": report.metrics.last_bar_source_kind,
     });
     let metrics = finam_ws_shadow_metrics_json(&report.metrics);
+    let broker_neutral_debug_surface = build_finam_ws_bound_debug_http_report(runtime, report);
 
     serde_json::json!({
         "finam_ws_shadow": true,
@@ -3800,6 +3951,7 @@ fn finam_ws_shadow_report_json(
         "ws_generation": finam_ws_generation_subscription_state_json(&ws_generation),
         "market_data_lifecycle": market_data_lifecycle,
         "market_data": market_data,
+        "broker_neutral_debug_surface": broker_neutral_debug_surface,
         "session_silence_watchdog": finam_ws_session_silence_watchdog_json(&report.session_silence_watchdog),
         "data_quality": finam_ws_data_quality_ledger_json(&data_quality_ledger),
         "recovery": finam_ws_recovery_report_json(&recovery_report, &recovery_source),
@@ -9921,6 +10073,10 @@ mod tests {
 
         assert_eq!(report.liveness.broker, "FINAM");
         assert_eq!(report.readiness.http_status, 503);
+        assert!(!report.readiness.synthetic_readiness);
+        assert!(!report.readiness.not_for_systemd_readiness);
+        assert!(!report.debug_transport.synthetic_readiness);
+        assert!(!report.debug_transport.not_for_systemd_readiness);
         assert_eq!(
             report.readiness.readiness.phase,
             ReadinessPhase::Reconciliation
@@ -9954,6 +10110,34 @@ mod tests {
         assert!(ws.data_quality_balanced);
         assert_eq!(ws.recovery["phase"], "NotEvaluated");
         assert_eq!(ws.session_watchdog["silence_alert"], false);
+    }
+
+    #[test]
+    fn m4_3jb_synthetic_live_ready_is_test_only_and_marked_not_for_systemd() {
+        let report = build_finam_local_debug_http_report("finam-local-debug-test", true);
+
+        assert_eq!(report.readiness.http_status, 200);
+        assert_eq!(report.readiness.readiness.phase, ReadinessPhase::LiveReady);
+        assert!(report.readiness.synthetic_readiness);
+        assert!(report.readiness.not_for_systemd_readiness);
+        assert!(report.debug_transport.synthetic_readiness);
+        assert!(report.debug_transport.not_for_systemd_readiness);
+        assert!(report.no_live_boundary_expansion);
+        assert!(report.no_order_post_delete);
+        assert!(report.no_command_consumer_to_real_broker);
+    }
+
+    #[test]
+    fn m4_3jb_normal_listener_rejects_legacy_live_ready_cli_flag() {
+        let parsed = Cli::try_parse_from([
+            "broker-cli",
+            "finam-local-debug-http",
+            "--bind",
+            "127.0.0.1:18081",
+            "--live-ready",
+        ]);
+
+        assert!(parsed.is_err());
     }
 
     #[test]

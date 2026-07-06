@@ -156,6 +156,8 @@ def main() -> int:
                 "finam_ws_session_silence_watchdog_alerts_only_inside_open_session",
                 "finam_ws_shadow_readiness_blocks_unknown_or_failed_schedule",
                 "finam_ws_session_silence_watchdog_unknown_schedule_blocks_readiness",
+                "build_finam_ws_bound_debug_http_report",
+                "broker_neutral_debug_surface",
             ],
         ),
     }
@@ -190,6 +192,17 @@ def main() -> int:
     report = reports[-1] if reports else {}
     watchdog = report.get("session_silence_watchdog", {})
     market_data = report.get("market_data", {})
+    debug_surface = report.get("broker_neutral_debug_surface", {})
+    debug_transport = debug_surface.get("debug_transport", {})
+    debug_transports = debug_transport.get("transports") or []
+    ws_debug = next(
+        (
+            row
+            for row in debug_transports
+            if row.get("transport_kind") == "WebSocketMarketData"
+        ),
+        {},
+    )
     session_state = watchdog.get("session_state")
     open_session_ok = (
         session_state == "Open"
@@ -216,6 +229,13 @@ def main() -> int:
         "watchdog_present": bool(watchdog),
         "watchdog_schema": watchdog.get("schema") == "m4_3i_session_aware_bar_silence_watchdog",
         "watchdog_enabled": watchdog.get("enabled") is True,
+        "broker_neutral_debug_surface_present": bool(debug_surface),
+        "broker_neutral_debug_surface_not_synthetic": debug_surface.get("readiness", {}).get("synthetic_readiness") is False
+        and debug_transport.get("synthetic_readiness") is False,
+        "broker_neutral_debug_surface_has_ws_transport": bool(ws_debug),
+        "broker_neutral_debug_surface_has_data_quality": "data_quality_ledger" in ws_debug,
+        "broker_neutral_debug_surface_has_recovery": "recovery" in ws_debug,
+        "broker_neutral_debug_surface_has_session_watchdog": "session_watchdog" in ws_debug,
         "unknown_schedule_blocker_fields_present": "schedule_unknown_blocks_readiness" in watchdog
         and "schedule_fetch_failed_blocks_readiness" in watchdog
         and "readiness_blocked" in watchdog
