@@ -1859,6 +1859,10 @@ struct FinamWsSessionSilenceWatchdogReport {
     seconds_since_last_fresh_final: Option<u64>,
     silence_alert: bool,
     alert_reason: Option<&'static str>,
+    schedule_unknown_blocks_readiness: bool,
+    schedule_fetch_failed_blocks_readiness: bool,
+    readiness_blocked: bool,
+    readiness_block_reason: Option<&'static str>,
     session_closed_no_silence_alert: bool,
 }
 
@@ -2268,18 +2272,35 @@ fn finam_ws_shadow_readiness(
     finam_ws_shadow_readiness_from_lifecycle(
         runtime.resolved.subscribe_bars,
         lifecycle,
-        session_silence_watchdog.silence_alert,
+        session_silence_watchdog,
     )
 }
 
 fn finam_ws_shadow_readiness_from_lifecycle(
     subscribe_bars: bool,
     lifecycle: &BrokerMarketDataLifecycleSnapshot,
-    session_silence_alert: bool,
+    session_silence_watchdog: &FinamWsSessionSilenceWatchdogReport,
 ) -> BrokerReadiness {
+    if session_silence_watchdog.schedule_fetch_failed_blocks_readiness {
+        return BrokerReadiness {
+            phase: ReadinessPhase::Degraded,
+            reasons: vec![
+                ReadinessReason::ScheduleNotLoaded,
+                ReadinessReason::MarketDataSessionUnknown,
+            ],
+            checked_ts: Utc::now(),
+        };
+    }
+    if session_silence_watchdog.schedule_unknown_blocks_readiness {
+        return BrokerReadiness {
+            phase: ReadinessPhase::Degraded,
+            reasons: vec![ReadinessReason::MarketDataSessionUnknown],
+            checked_ts: Utc::now(),
+        };
+    }
     if !subscribe_bars
         || lifecycle.phase == MarketDataLifecyclePhase::Degraded
-        || session_silence_alert
+        || session_silence_watchdog.silence_alert
     {
         BrokerReadiness {
             phase: ReadinessPhase::Degraded,
@@ -2388,6 +2409,10 @@ async fn finam_ws_session_silence_watchdog(
             seconds_since_last_fresh_final,
             silence_alert: false,
             alert_reason: Some("ScheduleFetchFailed"),
+            schedule_unknown_blocks_readiness: false,
+            schedule_fetch_failed_blocks_readiness: true,
+            readiness_blocked: true,
+            readiness_block_reason: Some("ScheduleFetchFailed"),
             session_closed_no_silence_alert: false,
         },
     }
@@ -2413,6 +2438,14 @@ fn finam_ws_session_silence_watchdog_from_schedule(
     } else {
         None
     };
+    let schedule_unknown_blocks_readiness = session_state == BrokerMarketSessionState::Unknown;
+    let readiness_block_reason = if schedule_unknown_blocks_readiness {
+        Some("SessionUnknown")
+    } else if silence_alert {
+        alert_reason
+    } else {
+        None
+    };
 
     FinamWsSessionSilenceWatchdogReport {
         enabled: true,
@@ -2426,6 +2459,10 @@ fn finam_ws_session_silence_watchdog_from_schedule(
         seconds_since_last_fresh_final,
         silence_alert,
         alert_reason,
+        schedule_unknown_blocks_readiness,
+        schedule_fetch_failed_blocks_readiness: false,
+        readiness_blocked: schedule_unknown_blocks_readiness || silence_alert,
+        readiness_block_reason,
         session_closed_no_silence_alert: matches!(
             session_state,
             BrokerMarketSessionState::Closed
@@ -3487,6 +3524,10 @@ fn finam_ws_session_silence_watchdog_json(
         "seconds_since_last_fresh_final": watchdog.seconds_since_last_fresh_final,
         "silence_alert": watchdog.silence_alert,
         "alert_reason": watchdog.alert_reason,
+        "schedule_unknown_blocks_readiness": watchdog.schedule_unknown_blocks_readiness,
+        "schedule_fetch_failed_blocks_readiness": watchdog.schedule_fetch_failed_blocks_readiness,
+        "readiness_blocked": watchdog.readiness_blocked,
+        "readiness_block_reason": watchdog.readiness_block_reason,
         "session_closed_no_silence_alert": watchdog.session_closed_no_silence_alert,
         "order_post_delete_allowed": false,
         "live_orders_allowed": false,
@@ -9214,6 +9255,53 @@ mod tests {
         );
     }
 
+    fn sample_watchdog(
+        session_state: BrokerMarketSessionState,
+        schedule_fetch_ok: bool,
+        silence_alert: bool,
+    ) -> FinamWsSessionSilenceWatchdogReport {
+        let schedule_unknown_blocks_readiness =
+            session_state == BrokerMarketSessionState::Unknown && schedule_fetch_ok;
+        let schedule_fetch_failed_blocks_readiness = !schedule_fetch_ok;
+        let readiness_blocked = schedule_unknown_blocks_readiness
+            || schedule_fetch_failed_blocks_readiness
+            || silence_alert;
+        let readiness_block_reason = if schedule_fetch_failed_blocks_readiness {
+            Some("ScheduleFetchFailed")
+        } else if schedule_unknown_blocks_readiness {
+            Some("SessionUnknown")
+        } else if silence_alert {
+            Some("FreshFinalSilenceExceeded")
+        } else {
+            None
+        };
+        FinamWsSessionSilenceWatchdogReport {
+            enabled: true,
+            schedule_fetch_ok,
+            schedule_error_kind: (!schedule_fetch_ok).then_some("TransportHttp".to_string()),
+            session_state,
+            session_count: if schedule_fetch_ok { 1 } else { 0 },
+            checked_ts: Utc.with_ymd_and_hms(2026, 7, 6, 10, 10, 0).unwrap(),
+            silence_threshold_sec: 180,
+            last_fresh_live_final_bar_close_ts: Some(
+                Utc.with_ymd_and_hms(2026, 7, 6, 10, 9, 0).unwrap(),
+            ),
+            seconds_since_last_fresh_final: Some(60),
+            silence_alert,
+            alert_reason: readiness_block_reason,
+            schedule_unknown_blocks_readiness,
+            schedule_fetch_failed_blocks_readiness,
+            readiness_blocked,
+            readiness_block_reason,
+            session_closed_no_silence_alert: matches!(
+                session_state,
+                BrokerMarketSessionState::Closed
+                    | BrokerMarketSessionState::Break
+                    | BrokerMarketSessionState::Maintenance
+            ) && !silence_alert,
+        }
+    }
+
     #[test]
     fn finam_ws_shadow_bars_are_required_for_strategy_parity_readiness() {
         let now = Utc::now();
@@ -9228,7 +9316,9 @@ mod tests {
             60,
             now,
         );
-        let no_bars = finam_ws_shadow_readiness_from_lifecycle(true, &no_bars_lifecycle, false);
+        let open_watchdog = sample_watchdog(BrokerMarketSessionState::Open, true, false);
+        let no_bars =
+            finam_ws_shadow_readiness_from_lifecycle(true, &no_bars_lifecycle, &open_watchdog);
         assert_eq!(
             no_bars_lifecycle.phase,
             MarketDataLifecyclePhase::LiveSubscribing
@@ -9252,7 +9342,8 @@ mod tests {
             60,
             now,
         );
-        let forming = finam_ws_shadow_readiness_from_lifecycle(true, &forming_lifecycle, false);
+        let forming =
+            finam_ws_shadow_readiness_from_lifecycle(true, &forming_lifecycle, &open_watchdog);
         assert_eq!(
             forming_lifecycle.phase,
             MarketDataLifecyclePhase::LiveSubscribing
@@ -9271,8 +9362,11 @@ mod tests {
             60,
             now,
         );
-        let no_bar_subscription =
-            finam_ws_shadow_readiness_from_lifecycle(false, &no_bar_subscription_lifecycle, false);
+        let no_bar_subscription = finam_ws_shadow_readiness_from_lifecycle(
+            false,
+            &no_bar_subscription_lifecycle,
+            &open_watchdog,
+        );
         assert_eq!(no_bar_subscription.phase, ReadinessPhase::Degraded);
         assert_eq!(
             no_bar_subscription.reasons,
@@ -9299,8 +9393,11 @@ mod tests {
             60,
             now,
         );
-        let with_bars =
-            finam_ws_shadow_readiness_from_lifecycle(true, &with_live_final_lifecycle, false);
+        let with_bars = finam_ws_shadow_readiness_from_lifecycle(
+            true,
+            &with_live_final_lifecycle,
+            &open_watchdog,
+        );
         assert_eq!(
             with_live_final_lifecycle.phase,
             MarketDataLifecyclePhase::LiveReady
@@ -9309,6 +9406,61 @@ mod tests {
         assert_eq!(
             with_bars.reasons,
             vec![ReadinessReason::OperatorLiveArmMissing]
+        );
+    }
+
+    #[test]
+    fn finam_ws_shadow_readiness_blocks_unknown_or_failed_schedule() {
+        let now = Utc::now();
+        let close_ts = now - ChronoDuration::seconds(60);
+        let healthy_lifecycle = finam_ws_shadow_market_data_lifecycle_from_metrics(
+            true,
+            false,
+            &FinamWsShadowMetrics {
+                connection_count: 1,
+                bar_event_count: 1,
+                final_bar_event_count: 1,
+                live_bar_event_count: 1,
+                final_live_bar_event_count: 1,
+                first_live_bar_seen: true,
+                first_live_final_bar_seen: true,
+                first_live_final_bar_close_ts: Some(close_ts),
+                last_live_bar_close_ts: Some(close_ts),
+                last_final_live_bar_close_ts: Some(close_ts),
+                ..FinamWsShadowMetrics::default()
+            },
+            60,
+            now,
+        );
+        assert_eq!(healthy_lifecycle.phase, MarketDataLifecyclePhase::LiveReady);
+
+        let unknown_schedule_watchdog =
+            sample_watchdog(BrokerMarketSessionState::Unknown, true, false);
+        let unknown = finam_ws_shadow_readiness_from_lifecycle(
+            true,
+            &healthy_lifecycle,
+            &unknown_schedule_watchdog,
+        );
+        assert_eq!(unknown.phase, ReadinessPhase::Degraded);
+        assert_eq!(
+            unknown.reasons,
+            vec![ReadinessReason::MarketDataSessionUnknown]
+        );
+
+        let failed_schedule_watchdog =
+            sample_watchdog(BrokerMarketSessionState::Unknown, false, false);
+        let failed = finam_ws_shadow_readiness_from_lifecycle(
+            true,
+            &healthy_lifecycle,
+            &failed_schedule_watchdog,
+        );
+        assert_eq!(failed.phase, ReadinessPhase::Degraded);
+        assert_eq!(
+            failed.reasons,
+            vec![
+                ReadinessReason::ScheduleNotLoaded,
+                ReadinessReason::MarketDataSessionUnknown,
+            ]
         );
     }
 
@@ -9419,6 +9571,30 @@ mod tests {
             fresh_inside_session.seconds_since_last_fresh_final,
             Some(60)
         );
+    }
+
+    #[test]
+    fn finam_ws_session_silence_watchdog_unknown_schedule_blocks_readiness() {
+        let checked_ts = Utc.with_ymd_and_hms(2026, 7, 6, 10, 10, 0).unwrap();
+        let unknown_schedule = AssetScheduleResponse {
+            symbol: "IMOEXF@RTSX".to_string(),
+            sessions: Vec::new(),
+        };
+
+        let watchdog = finam_ws_session_silence_watchdog_from_schedule(
+            &unknown_schedule,
+            Some(Utc.with_ymd_and_hms(2026, 7, 6, 10, 9, 0).unwrap()),
+            180,
+            checked_ts,
+        );
+
+        assert_eq!(watchdog.session_state, BrokerMarketSessionState::Unknown);
+        assert!(!watchdog.silence_alert);
+        assert_eq!(watchdog.alert_reason, Some("SessionUnknown"));
+        assert!(watchdog.schedule_unknown_blocks_readiness);
+        assert!(!watchdog.schedule_fetch_failed_blocks_readiness);
+        assert!(watchdog.readiness_blocked);
+        assert_eq!(watchdog.readiness_block_reason, Some("SessionUnknown"));
     }
 
     #[test]

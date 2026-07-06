@@ -178,6 +178,9 @@ M4-3i adds a session-aware bar silence watchdog: FINAM schedule data determines
 whether final-bar silence is an active-session feed problem or an expected
 closed/break/maintenance interval, without enabling runtime-live or order
 surfaces.
+M4-3i-a hardens the watchdog unknown-schedule path: schedule fetch failure or
+unparseable/unknown schedule explicitly blocks readiness instead of remaining a
+soft diagnostic.
 M4-3e gates FINAM WS strategy bar publication: stale WS final-bar backlog is
 still counted and reported, but only fresh final live bars are published as
 strategy market-data bars. This prevents stale WebSocket backlog from reaching

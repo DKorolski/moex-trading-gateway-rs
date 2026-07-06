@@ -48,10 +48,23 @@ If schedule cannot be fetched or parsed:
 session_state = Unknown
 silence_alert = false
 alert_reason = ScheduleFetchFailed | SessionUnknown
+schedule_unknown_blocks_readiness = true
+schedule_fetch_failed_blocks_readiness = true when schedule GET fails
+readiness_blocked = true
+readiness_block_reason = ScheduleFetchFailed | SessionUnknown
 ```
 
-Unknown does not authorize live readiness; it is only a diagnostic no-false-alert
-state for this watchdog.
+Unknown does not authorize live readiness. M4-3i-a hardens this path so
+`ScheduleFetchFailed` and `SessionUnknown` are explicit readiness blockers even
+when the market-data lifecycle itself otherwise looks fresh.
+
+Readiness mapping:
+
+```text
+ScheduleFetchFailed -> ScheduleNotLoaded + MarketDataSessionUnknown
+SessionUnknown      -> MarketDataSessionUnknown
+Open-session silence -> MarketDataNotLive
+```
 
 ## Boundary
 

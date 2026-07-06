@@ -149,8 +149,13 @@ def main() -> int:
                 "FinamWsSessionSilenceWatchdogReport",
                 "finam_ws_session_silence_watchdog",
                 "session_closed_no_silence_alert",
+                "schedule_unknown_blocks_readiness",
+                "schedule_fetch_failed_blocks_readiness",
+                "MarketDataSessionUnknown",
                 "m4_3i_session_aware_bar_silence_watchdog",
                 "finam_ws_session_silence_watchdog_alerts_only_inside_open_session",
+                "finam_ws_shadow_readiness_blocks_unknown_or_failed_schedule",
+                "finam_ws_session_silence_watchdog_unknown_schedule_blocks_readiness",
             ],
         ),
     }
@@ -211,6 +216,10 @@ def main() -> int:
         "watchdog_present": bool(watchdog),
         "watchdog_schema": watchdog.get("schema") == "m4_3i_session_aware_bar_silence_watchdog",
         "watchdog_enabled": watchdog.get("enabled") is True,
+        "unknown_schedule_blocker_fields_present": "schedule_unknown_blocks_readiness" in watchdog
+        and "schedule_fetch_failed_blocks_readiness" in watchdog
+        and "readiness_blocked" in watchdog
+        and "readiness_block_reason" in watchdog,
         "session_state_known_or_safe_unknown": open_session_ok or closed_session_ok or unknown_session_ok,
         "open_session_no_silence_if_fresh": open_session_ok or session_state != "Open",
         "closed_session_no_false_alert": closed_session_ok or session_state not in {"Closed", "Break", "Maintenance"},
@@ -223,6 +232,7 @@ def main() -> int:
     commands = {
         "python_compile": run(["python3", "-m", "py_compile", "scripts/m4_3i_session_aware_bar_silence_watchdog_evidence.py"]),
         "broker_cli_watchdog_tests": run(["cargo", "test", "-p", "broker-cli", "finam_ws_session_silence_watchdog", "--", "--nocapture"]),
+        "broker_cli_readiness_blocker_tests": run(["cargo", "test", "-p", "broker-cli", "finam_ws_shadow_readiness_blocks_unknown_or_failed_schedule", "--", "--nocapture"]),
         "forbidden_surface_scan": run(["bash", "scripts/forbidden_surface_scan.sh"]),
         "forbidden_surface_negative_harness": run(["bash", "scripts/forbidden_surface_negative_harness.sh"]),
         "order_endpoint_scanner_transition_spec": run(["bash", "scripts/order_endpoint_scanner_transition_spec.sh"]),

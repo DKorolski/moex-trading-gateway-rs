@@ -36,6 +36,7 @@ pub enum ReadinessReason {
     TradesNotLoaded,
     FirstLiveBarMissing,
     MarketDataNotLive,
+    MarketDataSessionUnknown,
     RedisUnavailable,
     ClockSkew,
     ReconciliationStale,
