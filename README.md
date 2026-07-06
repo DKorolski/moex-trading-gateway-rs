@@ -217,6 +217,10 @@ reasons such as `MissingAlorOracleStream`. Optional ALOR M1-to-M10 assembly can
 be supplied as a native-vs-assembled cross-check. It exports no raw Redis
 payload and still keeps runtime-live, real command consumer, and order
 endpoints disabled.
+M4-3n adds the ALOR-internal timeframe stand evidence: a separate VPS
+diagnostic ALOR gateway publishes 1m bars into isolated Redis, while production
+native 10m remains the oracle. The report assembles stand M1-to-M10, compares
+overlapping OHLCV buckets, and verifies the stand command/ack streams are empty.
 M4-3e gates FINAM WS strategy bar publication: stale WS final-bar backlog is
 still counted and reported, but only fresh final live bars are published as
 strategy market-data bars. This prevents stale WebSocket backlog from reaching
