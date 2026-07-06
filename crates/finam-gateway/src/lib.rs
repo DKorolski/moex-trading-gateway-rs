@@ -845,6 +845,194 @@ pub enum GatewayHealthStatus {
     Stopped,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrokerNeutralDebugTransportKind {
+    WebSocketMarketData,
+    ReadOnlyHttp,
+    RedisPublisher,
+    CommandConsumer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrokerNeutralDebugTransportSnapshot {
+    pub transport_kind: BrokerNeutralDebugTransportKind,
+    pub connected: bool,
+    pub authorized: bool,
+    pub connection_generation: Option<String>,
+    pub last_rx_ts: Option<DateTime<Utc>>,
+    pub last_tx_ts: Option<DateTime<Utc>>,
+    pub stale: bool,
+    pub stale_reason: Option<String>,
+    pub active_subscriptions_count: u32,
+    pub desired_subscriptions_count: u32,
+    pub pending_subscriptions_count: u32,
+    pub reconnect_count: u64,
+    pub data_quality_balanced: bool,
+    pub session_state: Option<String>,
+    pub raw_secret_exported: bool,
+    pub raw_token_exported: bool,
+    pub raw_account_id_exported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrokerNeutralHttpRouteShape {
+    pub path: String,
+    pub method: String,
+    pub purpose: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrokerNeutralLivenessResponse {
+    pub alive: bool,
+    pub broker: String,
+    pub gateway_source: String,
+    pub schema_version: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrokerNeutralReadinessHttpResponse {
+    pub http_status: u16,
+    pub readiness: BrokerReadiness,
+    pub health: GatewayHealth,
+    pub broker: String,
+    pub gateway_source: String,
+    pub command_consumer_to_real_broker_enabled: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub order_post_delete_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrokerNeutralDebugTransportResponse {
+    pub http_status: u16,
+    pub broker: String,
+    pub gateway_source: String,
+    pub transports: Vec<BrokerNeutralDebugTransportSnapshot>,
+    pub redacted: bool,
+    pub raw_secrets_exported: bool,
+    pub raw_tokens_exported: bool,
+    pub raw_account_ids_exported: bool,
+    pub command_consumer_to_real_broker_enabled: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub order_post_delete_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrokerNeutralHttpDebugSurfaceInput {
+    pub broker: String,
+    pub gateway_source: String,
+    pub health: GatewayHealth,
+    pub readiness: BrokerReadiness,
+    pub transports: Vec<BrokerNeutralDebugTransportSnapshot>,
+    pub command_consumer_to_real_broker_enabled: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub order_post_delete_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrokerNeutralHttpDebugSurfaceReport {
+    pub schema: String,
+    pub design_only: bool,
+    pub actual_http_server_enabled: bool,
+    pub route_shapes: Vec<BrokerNeutralHttpRouteShape>,
+    pub liveness: BrokerNeutralLivenessResponse,
+    pub readiness: BrokerNeutralReadinessHttpResponse,
+    pub debug_transport: BrokerNeutralDebugTransportResponse,
+    pub alor_parity_routes: Vec<String>,
+    pub no_live_boundary_expansion: bool,
+    pub no_order_post_delete: bool,
+    pub no_command_consumer_to_real_broker: bool,
+}
+
+pub fn broker_neutral_http_debug_routes() -> Vec<BrokerNeutralHttpRouteShape> {
+    vec![
+        BrokerNeutralHttpRouteShape {
+            path: "/liveness".to_string(),
+            method: "GET".to_string(),
+            purpose: "process liveness probe".to_string(),
+            enabled: false,
+        },
+        BrokerNeutralHttpRouteShape {
+            path: "/readiness".to_string(),
+            method: "GET".to_string(),
+            purpose: "broker-neutral readiness probe".to_string(),
+            enabled: false,
+        },
+        BrokerNeutralHttpRouteShape {
+            path: "/debug/transport".to_string(),
+            method: "GET".to_string(),
+            purpose: "redacted broker-neutral transport diagnostics".to_string(),
+            enabled: false,
+        },
+    ]
+}
+
+pub fn build_broker_neutral_http_debug_surface(
+    input: BrokerNeutralHttpDebugSurfaceInput,
+) -> BrokerNeutralHttpDebugSurfaceReport {
+    let readiness_http_status = if input.readiness.phase == ReadinessPhase::LiveReady {
+        200
+    } else {
+        503
+    };
+    let raw_secrets_exported = input
+        .transports
+        .iter()
+        .any(|transport| transport.raw_secret_exported);
+    let raw_tokens_exported = input
+        .transports
+        .iter()
+        .any(|transport| transport.raw_token_exported);
+    let raw_account_ids_exported = input
+        .transports
+        .iter()
+        .any(|transport| transport.raw_account_id_exported);
+
+    BrokerNeutralHttpDebugSurfaceReport {
+        schema: "m4_3j_broker_neutral_http_debug_surface".to_string(),
+        design_only: true,
+        actual_http_server_enabled: false,
+        route_shapes: broker_neutral_http_debug_routes(),
+        liveness: BrokerNeutralLivenessResponse {
+            alive: true,
+            broker: input.broker.clone(),
+            gateway_source: input.gateway_source.clone(),
+            schema_version: SCHEMA_VERSION,
+        },
+        readiness: BrokerNeutralReadinessHttpResponse {
+            http_status: readiness_http_status,
+            readiness: input.readiness.clone(),
+            health: input.health,
+            broker: input.broker.clone(),
+            gateway_source: input.gateway_source.clone(),
+            command_consumer_to_real_broker_enabled: input.command_consumer_to_real_broker_enabled,
+            runtime_live_attachment_allowed: input.runtime_live_attachment_allowed,
+            order_post_delete_allowed: input.order_post_delete_allowed,
+        },
+        debug_transport: BrokerNeutralDebugTransportResponse {
+            http_status: readiness_http_status,
+            broker: input.broker,
+            gateway_source: input.gateway_source,
+            transports: input.transports,
+            redacted: true,
+            raw_secrets_exported,
+            raw_tokens_exported,
+            raw_account_ids_exported,
+            command_consumer_to_real_broker_enabled: input.command_consumer_to_real_broker_enabled,
+            runtime_live_attachment_allowed: input.runtime_live_attachment_allowed,
+            order_post_delete_allowed: input.order_post_delete_allowed,
+        },
+        alor_parity_routes: vec![
+            "/liveness".to_string(),
+            "/readiness".to_string(),
+            "/debug/cws -> /debug/transport".to_string(),
+        ],
+        no_live_boundary_expansion: !input.runtime_live_attachment_allowed,
+        no_order_post_delete: !input.order_post_delete_allowed,
+        no_command_consumer_to_real_broker: !input.command_consumer_to_real_broker_enabled,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OrderSnapshot {
     pub orders: Vec<Order>,
@@ -14972,6 +15160,106 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+
+    #[test]
+    fn m4_3j_broker_neutral_http_debug_surface_maps_readiness_and_keeps_boundary_closed() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 6, 11, 5, 0).unwrap();
+        let report = build_broker_neutral_http_debug_surface(BrokerNeutralHttpDebugSurfaceInput {
+            broker: "FINAM".to_string(),
+            gateway_source: "finam-ws-shadow-vps".to_string(),
+            health: GatewayHealth {
+                status: GatewayHealthStatus::ReadOnly,
+                checked_ts: now,
+                redis_configured: true,
+                command_consumer_enabled: false,
+                order_placement_enabled: false,
+            },
+            readiness: BrokerReadiness {
+                phase: ReadinessPhase::Reconciliation,
+                reasons: vec![ReadinessReason::OperatorLiveArmMissing],
+                checked_ts: now,
+            },
+            transports: vec![BrokerNeutralDebugTransportSnapshot {
+                transport_kind: BrokerNeutralDebugTransportKind::WebSocketMarketData,
+                connected: true,
+                authorized: true,
+                connection_generation: Some("finam-ws-generation-1".to_string()),
+                last_rx_ts: Some(now),
+                last_tx_ts: None,
+                stale: false,
+                stale_reason: None,
+                active_subscriptions_count: 2,
+                desired_subscriptions_count: 2,
+                pending_subscriptions_count: 0,
+                reconnect_count: 0,
+                data_quality_balanced: true,
+                session_state: Some("Open".to_string()),
+                raw_secret_exported: false,
+                raw_token_exported: false,
+                raw_account_id_exported: false,
+            }],
+            command_consumer_to_real_broker_enabled: false,
+            runtime_live_attachment_allowed: false,
+            order_post_delete_allowed: false,
+        });
+
+        assert_eq!(report.schema, "m4_3j_broker_neutral_http_debug_surface");
+        assert!(report.design_only);
+        assert!(!report.actual_http_server_enabled);
+        assert_eq!(report.liveness.schema_version, SCHEMA_VERSION);
+        assert_eq!(report.readiness.http_status, 503);
+        assert_eq!(report.debug_transport.http_status, 503);
+        assert!(report.debug_transport.redacted);
+        assert!(!report.debug_transport.raw_secrets_exported);
+        assert!(!report.debug_transport.raw_tokens_exported);
+        assert!(!report.debug_transport.raw_account_ids_exported);
+        assert!(report.no_live_boundary_expansion);
+        assert!(report.no_order_post_delete);
+        assert!(report.no_command_consumer_to_real_broker);
+        assert_eq!(
+            report
+                .route_shapes
+                .iter()
+                .map(|route| route.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["/liveness", "/readiness", "/debug/transport"]
+        );
+        assert!(report.route_shapes.iter().all(|route| !route.enabled));
+        assert!(report
+            .alor_parity_routes
+            .contains(&"/debug/cws -> /debug/transport".to_string()));
+    }
+
+    #[test]
+    fn m4_3j_broker_neutral_http_debug_surface_returns_200_only_for_live_ready() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 6, 11, 6, 0).unwrap();
+        let report = build_broker_neutral_http_debug_surface(BrokerNeutralHttpDebugSurfaceInput {
+            broker: "FINAM".to_string(),
+            gateway_source: "finam-ws-shadow-vps".to_string(),
+            health: GatewayHealth {
+                status: GatewayHealthStatus::ReadOnly,
+                checked_ts: now,
+                redis_configured: true,
+                command_consumer_enabled: false,
+                order_placement_enabled: false,
+            },
+            readiness: BrokerReadiness {
+                phase: ReadinessPhase::LiveReady,
+                reasons: Vec::new(),
+                checked_ts: now,
+            },
+            transports: Vec::new(),
+            command_consumer_to_real_broker_enabled: false,
+            runtime_live_attachment_allowed: false,
+            order_post_delete_allowed: false,
+        });
+
+        assert_eq!(report.readiness.http_status, 200);
+        assert_eq!(report.debug_transport.http_status, 200);
+        assert!(report.no_live_boundary_expansion);
+        assert!(report.no_order_post_delete);
+        assert!(report.no_command_consumer_to_real_broker);
+    }
 
     #[tokio::test]
     async fn publishes_health_and_readiness_to_configured_streams() {

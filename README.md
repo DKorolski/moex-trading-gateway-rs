@@ -181,6 +181,10 @@ surfaces.
 M4-3i-a hardens the watchdog unknown-schedule path: schedule fetch failure or
 unparseable/unknown schedule explicitly blocks readiness instead of remaining a
 soft diagnostic.
+M4-3j defines the broker-neutral HTTP/debug health surface shape for FINAM:
+`/liveness`, `/readiness`, and redacted `/debug/transport`, mapped from the ALOR
+`/debug/cws` pattern, without starting an actual HTTP listener or expanding
+runtime-live/order boundaries.
 M4-3e gates FINAM WS strategy bar publication: stale WS final-bar backlog is
 still counted and reported, but only fresh final live bars are published as
 strategy market-data bars. This prevents stale WebSocket backlog from reaching
@@ -385,6 +389,7 @@ See:
 - [M4-3h-b replay wiring loop evidence](docs/m4-3h-b-replay-wiring-loop-evidence.md)
 - [M4-3h-c controlled recovery acceptance evidence](docs/m4-3h-c-controlled-recovery-acceptance-evidence.md)
 - [M4-3i session-aware bar silence watchdog](docs/m4-3i-session-aware-bar-silence-watchdog.md)
+- [M4-3j broker-neutral HTTP/debug health surface](docs/m4-3j-broker-neutral-http-debug-surface.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)
