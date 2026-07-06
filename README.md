@@ -197,6 +197,8 @@ M4-3k adds the ALOR↔FINAM observability parity report: ALOR `/debug/cws` and
 FINAM `/debug/transport` are compared through broker-neutral capability buckets
 for routes, readiness semantics, WS generation, subscriptions, data-quality,
 recovery, session watchdog, redaction, and no-live/no-order flags.
+M4-3k-a hardens readiness HTTP semantics in that parity model: `LiveReady` must
+map to HTTP `200`, and every non-`LiveReady` phase must map to HTTP `503`.
 M4-3e gates FINAM WS strategy bar publication: stale WS final-bar backlog is
 still counted and reported, but only fresh final live bars are published as
 strategy market-data bars. This prevents stale WebSocket backlog from reaching
@@ -405,6 +407,7 @@ See:
 - [M4-3j-a local HTTP/debug listener](docs/m4-3j-a-local-http-debug-listener.md)
 - [M4-3j-b synthetic readiness guard](docs/m4-3j-b-synthetic-readiness-guard.md)
 - [M4-3k ALOR-FINAM observability parity](docs/m4-3k-alor-finam-observability-parity.md)
+- [M4-3k-a readiness HTTP semantics strictness](docs/m4-3k-a-readiness-http-semantics-strictness.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

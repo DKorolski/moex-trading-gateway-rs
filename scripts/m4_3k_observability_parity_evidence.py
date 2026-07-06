@@ -73,6 +73,8 @@ def main() -> int:
                 "build_broker_neutral_observability_parity_report",
                 "m4_3k_alor_finam_observability_parity_passes_on_neutral_surface",
                 "m4_3k_alor_finam_observability_parity_detects_missing_session_watchdog",
+                "m4_3ka_observability_parity_rejects_non_live_ready_http_200",
+                "m4_3ka_observability_parity_rejects_live_ready_http_503",
             ],
         ),
         "doc_markers": marker_check(
@@ -86,10 +88,20 @@ def main() -> int:
                 "M4-3l dry runtime attach",
             ],
         ),
+        "strictness_doc_markers": marker_check(
+            ROOT / "docs" / "m4-3k-a-readiness-http-semantics-strictness.md",
+            [
+                "M4-3k-a",
+                "ReadinessPhase::LiveReady -> HTTP 200",
+                "any other readiness phase -> HTTP 503",
+                "Reconciliation + HTTP 200",
+                "LiveReady      + HTTP 503",
+            ],
+        ),
     }
     commands = {
         "python_compile": run(["python3", "-m", "py_compile", "scripts/m4_3k_observability_parity_evidence.py"]),
-        "targeted_parity_tests": run(["cargo", "test", "-p", "finam-gateway", "m4_3k_alor_finam_observability_parity", "--", "--nocapture"]),
+        "targeted_parity_tests": run(["cargo", "test", "-p", "finam-gateway", "m4_3k", "--", "--nocapture"]),
         "forbidden_surface_scan": run(["bash", "scripts/forbidden_surface_scan.sh"]),
         "forbidden_surface_negative_harness": run(["bash", "scripts/forbidden_surface_negative_harness.sh"]),
         "order_endpoint_scanner_transition_spec": run(["bash", "scripts/order_endpoint_scanner_transition_spec.sh"]),
@@ -101,10 +113,12 @@ def main() -> int:
         "artifacts": [
             {"path": "crates/finam-gateway/src/lib.rs", "sha256": sha256_file(ROOT / "crates" / "finam-gateway" / "src" / "lib.rs")},
             {"path": "docs/m4-3k-alor-finam-observability-parity.md", "sha256": sha256_file(ROOT / "docs" / "m4-3k-alor-finam-observability-parity.md")},
+            {"path": "docs/m4-3k-a-readiness-http-semantics-strictness.md", "sha256": sha256_file(ROOT / "docs" / "m4-3k-a-readiness-http-semantics-strictness.md")},
         ],
         "source_checks": source_checks,
         "commands": commands,
         "parity_schema": "m4_3k_alor_finam_observability_parity",
+        "m4_3ka_readiness_http_semantics_strict": True,
         "critical_capabilities": [
             "LivenessRoute",
             "ReadinessRoute",

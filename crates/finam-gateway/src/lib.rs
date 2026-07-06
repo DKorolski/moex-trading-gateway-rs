@@ -1162,8 +1162,10 @@ pub fn finam_observability_source_shape_from_debug_surface(
         } else {
             String::new()
         },
-        readiness_200_only_when_live_ready: surface.readiness.http_status == 200
-            || surface.readiness.readiness.phase != ReadinessPhase::LiveReady,
+        readiness_200_only_when_live_ready: match surface.readiness.readiness.phase {
+            ReadinessPhase::LiveReady => surface.readiness.http_status == 200,
+            _ => surface.readiness.http_status == 503,
+        },
         transport_connected_present: ws_transport.is_some(),
         ws_generation_present: ws_transport
             .and_then(|transport| transport.connection_generation.as_ref())
@@ -15560,63 +15562,74 @@ mod tests {
         assert!(report.no_command_consumer_to_real_broker);
     }
 
+    fn m4_3k_sample_finam_surface(
+        now: DateTime<Utc>,
+        phase: ReadinessPhase,
+    ) -> BrokerNeutralHttpDebugSurfaceReport {
+        let reasons = if phase == ReadinessPhase::LiveReady {
+            Vec::new()
+        } else {
+            vec![ReadinessReason::OperatorLiveArmMissing]
+        };
+        build_broker_neutral_http_debug_surface(BrokerNeutralHttpDebugSurfaceInput {
+            broker: "FINAM".to_string(),
+            gateway_source: "finam-ws-shadow-vps".to_string(),
+            health: GatewayHealth {
+                status: GatewayHealthStatus::ReadOnly,
+                checked_ts: now,
+                redis_configured: true,
+                command_consumer_enabled: false,
+                order_placement_enabled: false,
+            },
+            readiness: BrokerReadiness {
+                phase,
+                reasons,
+                checked_ts: now,
+            },
+            transports: vec![BrokerNeutralDebugTransportSnapshot {
+                transport_kind: BrokerNeutralDebugTransportKind::WebSocketMarketData,
+                connected: true,
+                authorized: true,
+                connection_generation: Some("finam-ws-generation-1".to_string()),
+                last_rx_ts: Some(now),
+                last_tx_ts: None,
+                stale: false,
+                stale_reason: None,
+                active_subscriptions_count: 2,
+                desired_subscriptions_count: 2,
+                pending_subscriptions_count: 0,
+                reconnect_count: 0,
+                data_quality_balanced: true,
+                data_quality_ledger: serde_json::json!({
+                    "bars": {"balanced": true},
+                    "quotes": {"balanced": true}
+                }),
+                recovery: serde_json::json!({
+                    "phase": "LiveReady",
+                    "blockers": []
+                }),
+                session_state: Some("Open".to_string()),
+                session_watchdog: serde_json::json!({
+                    "enabled": true,
+                    "session_state": "Open",
+                    "silence_alert": false
+                }),
+                raw_secret_exported: false,
+                raw_token_exported: false,
+                raw_account_id_exported: false,
+            }],
+            command_consumer_to_real_broker_enabled: false,
+            runtime_live_attachment_allowed: false,
+            order_post_delete_allowed: false,
+            synthetic_readiness: false,
+            not_for_systemd_readiness: false,
+        })
+    }
+
     #[test]
     fn m4_3k_alor_finam_observability_parity_passes_on_neutral_surface() {
         let now = Utc.with_ymd_and_hms(2026, 7, 6, 12, 0, 0).unwrap();
-        let finam_surface =
-            build_broker_neutral_http_debug_surface(BrokerNeutralHttpDebugSurfaceInput {
-                broker: "FINAM".to_string(),
-                gateway_source: "finam-ws-shadow-vps".to_string(),
-                health: GatewayHealth {
-                    status: GatewayHealthStatus::ReadOnly,
-                    checked_ts: now,
-                    redis_configured: true,
-                    command_consumer_enabled: false,
-                    order_placement_enabled: false,
-                },
-                readiness: BrokerReadiness {
-                    phase: ReadinessPhase::Reconciliation,
-                    reasons: vec![ReadinessReason::OperatorLiveArmMissing],
-                    checked_ts: now,
-                },
-                transports: vec![BrokerNeutralDebugTransportSnapshot {
-                    transport_kind: BrokerNeutralDebugTransportKind::WebSocketMarketData,
-                    connected: true,
-                    authorized: true,
-                    connection_generation: Some("finam-ws-generation-1".to_string()),
-                    last_rx_ts: Some(now),
-                    last_tx_ts: None,
-                    stale: false,
-                    stale_reason: None,
-                    active_subscriptions_count: 2,
-                    desired_subscriptions_count: 2,
-                    pending_subscriptions_count: 0,
-                    reconnect_count: 0,
-                    data_quality_balanced: true,
-                    data_quality_ledger: serde_json::json!({
-                        "bars": {"balanced": true},
-                        "quotes": {"balanced": true}
-                    }),
-                    recovery: serde_json::json!({
-                        "phase": "LiveReady",
-                        "blockers": []
-                    }),
-                    session_state: Some("Open".to_string()),
-                    session_watchdog: serde_json::json!({
-                        "enabled": true,
-                        "session_state": "Open",
-                        "silence_alert": false
-                    }),
-                    raw_secret_exported: false,
-                    raw_token_exported: false,
-                    raw_account_id_exported: false,
-                }],
-                command_consumer_to_real_broker_enabled: false,
-                runtime_live_attachment_allowed: false,
-                order_post_delete_allowed: false,
-                synthetic_readiness: false,
-                not_for_systemd_readiness: false,
-            });
+        let finam_surface = m4_3k_sample_finam_surface(now, ReadinessPhase::Reconciliation);
         let report = build_broker_neutral_observability_parity_report(
             alor_debug_cws_observability_source_shape(),
             finam_observability_source_shape_from_debug_surface(&finam_surface),
@@ -15647,6 +15660,44 @@ mod tests {
         assert_eq!(report.critical_missing_count, 1);
         assert!(report.items.iter().any(|item| {
             item.capability == BrokerNeutralObservabilityCapability::SessionWatchdog
+                && !item.parity_ok
+                && item.critical
+        }));
+    }
+
+    #[test]
+    fn m4_3ka_observability_parity_rejects_non_live_ready_http_200() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 6, 12, 5, 0).unwrap();
+        let mut finam_surface = m4_3k_sample_finam_surface(now, ReadinessPhase::Reconciliation);
+        finam_surface.readiness.http_status = 200;
+
+        let report = build_broker_neutral_observability_parity_report(
+            alor_debug_cws_observability_source_shape(),
+            finam_observability_source_shape_from_debug_surface(&finam_surface),
+        );
+
+        assert!(!report.parity_ok);
+        assert!(report.items.iter().any(|item| {
+            item.capability == BrokerNeutralObservabilityCapability::ReadinessHttpStatusRule
+                && !item.parity_ok
+                && item.critical
+        }));
+    }
+
+    #[test]
+    fn m4_3ka_observability_parity_rejects_live_ready_http_503() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 6, 12, 6, 0).unwrap();
+        let mut finam_surface = m4_3k_sample_finam_surface(now, ReadinessPhase::LiveReady);
+        finam_surface.readiness.http_status = 503;
+
+        let report = build_broker_neutral_observability_parity_report(
+            alor_debug_cws_observability_source_shape(),
+            finam_observability_source_shape_from_debug_surface(&finam_surface),
+        );
+
+        assert!(!report.parity_ok);
+        assert!(report.items.iter().any(|item| {
+            item.capability == BrokerNeutralObservabilityCapability::ReadinessHttpStatusRule
                 && !item.parity_ok
                 && item.critical
         }));
