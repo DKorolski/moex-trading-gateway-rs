@@ -56,7 +56,26 @@
     "runtime_state_stream": "finam_imoexf_paper:runtime:state:hybrid_intraday:imoexf",
     "orders_stream": "finam_imoexf_paper:runtime:orders_paper_only",
     "trades_stream": "finam_imoexf_paper:runtime:trades_paper_only",
-    "positions_stream": "finam_imoexf_paper:runtime:positions_paper_only"
+    "positions_stream": "finam_imoexf_paper:runtime:positions_paper_only",
+    "publish_batches_stream": "finam_imoexf_paper:runtime:publish_batches",
+    "runtime_health_stream": "finam_imoexf_paper:runtime:health",
+    "runtime_readiness_stream": "finam_imoexf_paper:runtime:readiness",
+    "runtime_dlq_stream": "finam_imoexf_paper:runtime:dlq"
+  },
+  "paper_runtime_consumer": {
+    "source_stream": "finam_imoexf_paper:ws:market_data",
+    "consumer_group": "finam-imoexf-paper-runtime-m1",
+    "consumer_name": "auto",
+    "group_start": "0",
+    "block_ms": 500,
+    "claim_idle_ms": 5000,
+    "claim_batch": 50,
+    "read_count": 1,
+    "xack_policy": "after_successful_batch_or_dlq_only",
+    "pending_policy": "xautoclaim_idle_then_reprocess",
+    "live_ready_allowed": false,
+    "strategy_invocation_enabled": false,
+    "command_consumer_to_real_finam": false
   },
   "risk_gate": {
     "mr_variant": "high180",

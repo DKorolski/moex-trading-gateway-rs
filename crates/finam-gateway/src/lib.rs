@@ -9347,6 +9347,272 @@ pub enum PaperRuntimeRedisSinkError {
     Serialization(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PaperRuntimeRedisGroupStart {
+    Beginning,
+    Tail,
+}
+
+impl PaperRuntimeRedisGroupStart {
+    pub fn redis_id(self) -> &'static str {
+        match self {
+            Self::Beginning => "0",
+            Self::Tail => "$",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperRuntimeRedisConsumerConfig {
+    pub source: String,
+    pub source_stream: String,
+    pub consumer_group: String,
+    pub consumer_name: String,
+    pub group_start: PaperRuntimeRedisGroupStart,
+    pub block_ms: u64,
+    pub claim_idle_ms: u64,
+    pub claim_batch: usize,
+    pub read_count: usize,
+    pub dlq_stream: String,
+    pub runtime_health_stream: String,
+    pub runtime_readiness_stream: String,
+    pub safety_boundary: PaperSafetyBoundary,
+}
+
+impl PaperRuntimeRedisConsumerConfig {
+    pub fn finam_imoexf_paper(source: impl Into<String>) -> Self {
+        Self {
+            source: source.into(),
+            source_stream: "finam_imoexf_paper:ws:market_data".to_string(),
+            consumer_group: "finam-imoexf-paper-runtime-m1".to_string(),
+            consumer_name: "auto".to_string(),
+            group_start: PaperRuntimeRedisGroupStart::Beginning,
+            block_ms: 500,
+            claim_idle_ms: 5_000,
+            claim_batch: 50,
+            read_count: 1,
+            dlq_stream: "finam_imoexf_paper:runtime:dlq".to_string(),
+            runtime_health_stream: "finam_imoexf_paper:runtime:health".to_string(),
+            runtime_readiness_stream: "finam_imoexf_paper:runtime:readiness".to_string(),
+            safety_boundary: PaperSafetyBoundary::closed(),
+        }
+    }
+
+    pub fn normalized_consumer_name(&self) -> String {
+        if self.consumer_name.trim().is_empty() || self.consumer_name == "auto" {
+            format!("paper-runtime-{}", self.source)
+        } else {
+            self.consumer_name.clone()
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperRuntimeRedisCommandPlan {
+    pub command: String,
+    pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperRuntimeRedisConsumerCommandPlans {
+    pub xgroup_create: PaperRuntimeRedisCommandPlan,
+    pub xreadgroup_new: PaperRuntimeRedisCommandPlan,
+    pub xautoclaim_idle: PaperRuntimeRedisCommandPlan,
+    pub xack_success: PaperRuntimeRedisCommandPlan,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperRuntimeRedisConsumerLifecyclePlan {
+    pub source: String,
+    pub source_stream: String,
+    pub consumer_group: String,
+    pub consumer_name: String,
+    pub group_start_id: String,
+    pub dlq_stream: String,
+    pub runtime_health_stream: String,
+    pub runtime_readiness_stream: String,
+    pub commands: PaperRuntimeRedisConsumerCommandPlans,
+    pub alor_oracle_features: Vec<String>,
+    pub paper_only: bool,
+    pub live_ready_allowed: bool,
+    pub command_consumer_to_real_finam_enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PaperRuntimeRedisEntryDisposition {
+    ProcessedAck,
+    DeadLetterAck,
+    PendingRetry,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperRuntimeRedisDlqRecord {
+    pub schema_version: u16,
+    pub source: String,
+    pub consumer_group: String,
+    pub consumer_name: String,
+    pub original_stream: String,
+    pub original_id: String,
+    pub reason: String,
+    pub payload_sha256: String,
+    pub raw_payload_exported: bool,
+    pub created_ts: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PaperRuntimeRedisConsumerError {
+    #[error("paper runtime redis consumer safety boundary is open")]
+    LiveBoundaryOpen,
+    #[error("paper runtime redis consumer non-paper source stream: {stream}")]
+    NonPaperSourceStream { stream: String },
+    #[error("paper runtime redis consumer non-paper DLQ stream: {stream}")]
+    NonPaperDlqStream { stream: String },
+    #[error("paper runtime redis consumer group is empty")]
+    EmptyConsumerGroup,
+    #[error("paper runtime redis consumer read_count must be positive")]
+    InvalidReadCount,
+    #[error("paper runtime redis consumer claim_batch must be positive")]
+    InvalidClaimBatch,
+}
+
+pub fn build_paper_runtime_redis_consumer_lifecycle_plan(
+    config: &PaperRuntimeRedisConsumerConfig,
+) -> Result<PaperRuntimeRedisConsumerLifecyclePlan, PaperRuntimeRedisConsumerError> {
+    validate_paper_runtime_redis_consumer_config(config)?;
+    let consumer_name = config.normalized_consumer_name();
+    Ok(PaperRuntimeRedisConsumerLifecyclePlan {
+        source: config.source.clone(),
+        source_stream: config.source_stream.clone(),
+        consumer_group: config.consumer_group.clone(),
+        consumer_name: consumer_name.clone(),
+        group_start_id: config.group_start.redis_id().to_string(),
+        dlq_stream: config.dlq_stream.clone(),
+        runtime_health_stream: config.runtime_health_stream.clone(),
+        runtime_readiness_stream: config.runtime_readiness_stream.clone(),
+        commands: PaperRuntimeRedisConsumerCommandPlans {
+            xgroup_create: PaperRuntimeRedisCommandPlan {
+                command: "XGROUP".to_string(),
+                args: vec![
+                    "CREATE".to_string(),
+                    config.source_stream.clone(),
+                    config.consumer_group.clone(),
+                    config.group_start.redis_id().to_string(),
+                    "MKSTREAM".to_string(),
+                ],
+            },
+            xreadgroup_new: PaperRuntimeRedisCommandPlan {
+                command: "XREADGROUP".to_string(),
+                args: vec![
+                    "GROUP".to_string(),
+                    config.consumer_group.clone(),
+                    consumer_name.clone(),
+                    "BLOCK".to_string(),
+                    config.block_ms.to_string(),
+                    "COUNT".to_string(),
+                    config.read_count.to_string(),
+                    "STREAMS".to_string(),
+                    config.source_stream.clone(),
+                    ">".to_string(),
+                ],
+            },
+            xautoclaim_idle: PaperRuntimeRedisCommandPlan {
+                command: "XAUTOCLAIM".to_string(),
+                args: vec![
+                    config.source_stream.clone(),
+                    config.consumer_group.clone(),
+                    consumer_name.clone(),
+                    config.claim_idle_ms.to_string(),
+                    "0-0".to_string(),
+                    "COUNT".to_string(),
+                    config.claim_batch.to_string(),
+                ],
+            },
+            xack_success: PaperRuntimeRedisCommandPlan {
+                command: "XACK".to_string(),
+                args: vec![
+                    config.source_stream.clone(),
+                    config.consumer_group.clone(),
+                    "<message_id>".to_string(),
+                ],
+            },
+        },
+        alor_oracle_features: vec![
+            "XGROUP CREATE start-id MKSTREAM".to_string(),
+            "auto consumer name".to_string(),
+            "XREADGROUP GROUP consumer STREAMS source >".to_string(),
+            "XAUTOCLAIM idle pending recovery".to_string(),
+            "XACK only after successful processing or DLQ".to_string(),
+            "DLQ with redacted payload fingerprint".to_string(),
+        ],
+        paper_only: true,
+        live_ready_allowed: false,
+        command_consumer_to_real_finam_enabled: false,
+    })
+}
+
+pub fn classify_paper_runtime_entry_disposition(
+    processing_ok: bool,
+    dlq_written: bool,
+    _partial_publish_failure: bool,
+) -> PaperRuntimeRedisEntryDisposition {
+    match (processing_ok, dlq_written) {
+        (true, _) => PaperRuntimeRedisEntryDisposition::ProcessedAck,
+        (false, true) => PaperRuntimeRedisEntryDisposition::DeadLetterAck,
+        (false, false) => PaperRuntimeRedisEntryDisposition::PendingRetry,
+    }
+}
+
+pub fn build_paper_runtime_dlq_record(
+    config: &PaperRuntimeRedisConsumerConfig,
+    original_stream: impl Into<String>,
+    original_id: impl Into<String>,
+    raw_payload: &str,
+    reason: impl Into<String>,
+    created_ts: DateTime<Utc>,
+) -> Result<PaperRuntimeRedisDlqRecord, PaperRuntimeRedisConsumerError> {
+    validate_paper_runtime_redis_consumer_config(config)?;
+    Ok(PaperRuntimeRedisDlqRecord {
+        schema_version: SCHEMA_VERSION,
+        source: config.source.clone(),
+        consumer_group: config.consumer_group.clone(),
+        consumer_name: config.normalized_consumer_name(),
+        original_stream: original_stream.into(),
+        original_id: original_id.into(),
+        reason: reason.into(),
+        payload_sha256: sha256_hex(raw_payload.as_bytes()),
+        raw_payload_exported: false,
+        created_ts,
+    })
+}
+
+fn validate_paper_runtime_redis_consumer_config(
+    config: &PaperRuntimeRedisConsumerConfig,
+) -> Result<(), PaperRuntimeRedisConsumerError> {
+    if !config.safety_boundary.is_closed() {
+        return Err(PaperRuntimeRedisConsumerError::LiveBoundaryOpen);
+    }
+    if !config.source_stream.starts_with("finam_imoexf_paper:") {
+        return Err(PaperRuntimeRedisConsumerError::NonPaperSourceStream {
+            stream: config.source_stream.clone(),
+        });
+    }
+    if !config.dlq_stream.starts_with("finam_imoexf_paper:runtime:") {
+        return Err(PaperRuntimeRedisConsumerError::NonPaperDlqStream {
+            stream: config.dlq_stream.clone(),
+        });
+    }
+    if config.consumer_group.trim().is_empty() {
+        return Err(PaperRuntimeRedisConsumerError::EmptyConsumerGroup);
+    }
+    if config.read_count == 0 {
+        return Err(PaperRuntimeRedisConsumerError::InvalidReadCount);
+    }
+    if config.claim_batch == 0 {
+        return Err(PaperRuntimeRedisConsumerError::InvalidClaimBatch);
+    }
+    Ok(())
+}
+
 pub struct PaperRuntimeRedisSink<S> {
     config: PaperRuntimeRedisSinkConfig,
     sink: S,
@@ -30093,6 +30359,123 @@ mod tests {
         assert_eq!(first.batch_sha256, second.batch_sha256);
         assert_eq!(first.idempotency_keys, second.idempotency_keys);
         assert_eq!(first.target_streams, second.target_streams);
+    }
+
+    #[test]
+    fn m4_3r_h_paper_runtime_consumer_plan_repeats_alor_group_lifecycle() {
+        let config =
+            PaperRuntimeRedisConsumerConfig::finam_imoexf_paper("finam-imoexf-paper-runtime-local");
+
+        let plan = build_paper_runtime_redis_consumer_lifecycle_plan(&config)
+            .expect("valid paper runtime consumer lifecycle");
+
+        assert_eq!(plan.source_stream, "finam_imoexf_paper:ws:market_data");
+        assert_eq!(plan.consumer_group, "finam-imoexf-paper-runtime-m1");
+        assert_eq!(
+            plan.consumer_name,
+            "paper-runtime-finam-imoexf-paper-runtime-local"
+        );
+        assert_eq!(plan.group_start_id, "0");
+        assert_eq!(plan.commands.xgroup_create.command, "XGROUP");
+        assert_eq!(
+            plan.commands.xgroup_create.args,
+            vec![
+                "CREATE",
+                "finam_imoexf_paper:ws:market_data",
+                "finam-imoexf-paper-runtime-m1",
+                "0",
+                "MKSTREAM"
+            ]
+        );
+        assert_eq!(plan.commands.xreadgroup_new.command, "XREADGROUP");
+        assert!(plan.commands.xreadgroup_new.args.ends_with(&[
+            "finam_imoexf_paper:ws:market_data".to_string(),
+            ">".to_string()
+        ]));
+        assert_eq!(plan.commands.xautoclaim_idle.command, "XAUTOCLAIM");
+        assert_eq!(plan.commands.xack_success.command, "XACK");
+        assert!(plan.paper_only);
+        assert!(!plan.live_ready_allowed);
+        assert!(!plan.command_consumer_to_real_finam_enabled);
+        assert!(plan
+            .alor_oracle_features
+            .contains(&"XAUTOCLAIM idle pending recovery".to_string()));
+    }
+
+    #[test]
+    fn m4_3r_h_paper_runtime_consumer_supports_tail_mode_for_future_cutover() {
+        let mut config =
+            PaperRuntimeRedisConsumerConfig::finam_imoexf_paper("finam-imoexf-paper-runtime-vps");
+        config.group_start = PaperRuntimeRedisGroupStart::Tail;
+        config.consumer_name = "paper-runtime-vps-1".to_string();
+
+        let plan = build_paper_runtime_redis_consumer_lifecycle_plan(&config)
+            .expect("valid tail paper runtime consumer lifecycle");
+
+        assert_eq!(plan.group_start_id, "$");
+        assert_eq!(plan.consumer_name, "paper-runtime-vps-1");
+        assert_eq!(plan.commands.xgroup_create.args[3], "$");
+    }
+
+    #[test]
+    fn m4_3r_h_paper_runtime_consumer_rejects_non_paper_source_before_group_create() {
+        let mut config =
+            PaperRuntimeRedisConsumerConfig::finam_imoexf_paper("finam-imoexf-paper-runtime-local");
+        config.source_stream = "md.bars.ACC_TEST_PORTFOLIO.10m".to_string();
+
+        let error = build_paper_runtime_redis_consumer_lifecycle_plan(&config)
+            .expect_err("non-paper source rejected");
+
+        assert!(matches!(
+            error,
+            PaperRuntimeRedisConsumerError::NonPaperSourceStream { .. }
+        ));
+    }
+
+    #[test]
+    fn m4_3r_h_paper_runtime_dlq_record_is_redacted_and_fingerprinted() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 6, 12, 40, 0).unwrap();
+        let config =
+            PaperRuntimeRedisConsumerConfig::finam_imoexf_paper("finam-imoexf-paper-runtime-local");
+
+        let dlq = build_paper_runtime_dlq_record(
+            &config,
+            "finam_imoexf_paper:ws:market_data",
+            "1-0",
+            "{\"payload\":\"broken\"}",
+            "TypedDecodeFailed",
+            now,
+        )
+        .expect("dlq record");
+
+        assert_eq!(dlq.schema_version, SCHEMA_VERSION);
+        assert_eq!(dlq.reason, "TypedDecodeFailed");
+        assert!(!dlq.raw_payload_exported);
+        assert_eq!(dlq.payload_sha256.len(), 64);
+        assert_eq!(
+            dlq.consumer_name,
+            "paper-runtime-finam-imoexf-paper-runtime-local"
+        );
+    }
+
+    #[test]
+    fn m4_3r_h_paper_runtime_entry_disposition_acks_only_success_or_dlq() {
+        assert_eq!(
+            classify_paper_runtime_entry_disposition(true, false, false),
+            PaperRuntimeRedisEntryDisposition::ProcessedAck
+        );
+        assert_eq!(
+            classify_paper_runtime_entry_disposition(false, true, false),
+            PaperRuntimeRedisEntryDisposition::DeadLetterAck
+        );
+        assert_eq!(
+            classify_paper_runtime_entry_disposition(false, false, true),
+            PaperRuntimeRedisEntryDisposition::PendingRetry
+        );
+        assert_eq!(
+            classify_paper_runtime_entry_disposition(false, false, false),
+            PaperRuntimeRedisEntryDisposition::PendingRetry
+        );
     }
 
     fn sample_bar(source_kind: MarketDataSourceKind, is_final: bool) -> Bar {
