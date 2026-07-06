@@ -12,10 +12,11 @@ use broker_core::{
     BrokerPlainMicroStopOrderWaiverPolicy, BrokerReadiness, BrokerRiskLimitConfig,
     BrokerScopeConfig, BrokerTimeoutConfig, BrokerTruthSnapshot, ClientOrderId, ClosedBarFinalizer,
     ClosedBarFinalizerActionKind, Envelope, Exchange, InMemoryOrderPathStore, InstrumentId, Market,
-    MarketDataEvent, MarketDataLifecyclePhase, MarketDataSourceKind, MessageType, OperatorArm,
-    Order, OrderPathEvent, OrderPathRecord, OrderPreflightPolicy, OrderSide, OrderStatus,
-    OrderType, PlaceOrder, PortfolioSnapshot, ReadinessPhase, ReadinessReason, StrategyRequestId,
-    TimeInForce,
+    MarketDataEvent, MarketDataLifecyclePhase, MarketDataRecoveryInput, MarketDataRecoveryPlan,
+    MarketDataRecoveryPlanInput, MarketDataRecoveryReport, MarketDataSourceKind, MessageType,
+    OperatorArm, Order, OrderPathEvent, OrderPathRecord, OrderPreflightPolicy, OrderSide,
+    OrderStatus, OrderType, PlaceOrder, PortfolioSnapshot, ReadinessPhase, ReadinessReason,
+    StrategyRequestId, TimeInForce,
 };
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::{OrderPreflightContext, OrderReferencePrice};
@@ -1887,6 +1888,13 @@ struct FinamWsDataQualityLedger {
     imbalances: Vec<FinamWsDataQualityImbalance>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FinamWsRecoverySourceSummary {
+    rest_replay_wiring_enabled: bool,
+    recovery_bars_publishable_as_strategy_live: bool,
+    requires_first_fresh_ws_final_after_replay: bool,
+}
+
 async fn run_finam_ws_shadow_once(args: FinamWsShadowArgs) -> Result<()> {
     let runtime = setup_finam_ws_shadow_runtime(args).await?;
     let report = run_finam_ws_shadow_iteration(&runtime, 1).await?;
@@ -2647,6 +2655,96 @@ fn finam_ws_generation_subscription_state_json(
     })
 }
 
+fn finam_ws_recovery_plan(
+    timeframe_sec: u32,
+    overlap_bars: u32,
+    last_final_bar_close_ts: Option<DateTime<Utc>>,
+    checked_ts: DateTime<Utc>,
+) -> MarketDataRecoveryPlan {
+    let cold_history_from_ts =
+        checked_ts - ChronoDuration::seconds(i64::from(timeframe_sec.max(1)) * 300);
+    broker_core::plan_market_data_recovery(MarketDataRecoveryPlanInput {
+        timeframe_sec,
+        overlap_bars,
+        last_final_bar_close_ts,
+        cold_history_from_ts,
+        checked_ts,
+    })
+}
+
+fn finam_ws_recovery_report_from_metrics(
+    metrics: &FinamWsShadowMetrics,
+    ws_generation: &FinamWsGenerationSubscriptionState,
+    timeframe_sec: u32,
+    checked_ts: DateTime<Utc>,
+) -> MarketDataRecoveryReport {
+    let plan = finam_ws_recovery_plan(
+        timeframe_sec,
+        2,
+        metrics.last_final_live_bar_close_ts,
+        checked_ts,
+    );
+    let replay_bar_count = metrics.recovery_bar_event_count;
+    let replay_first_bar_close_ts = metrics.last_recovery_bar_close_ts;
+    let replay_last_bar_close_ts = metrics.last_recovery_bar_close_ts;
+    broker_core::evaluate_market_data_recovery(MarketDataRecoveryInput {
+        mode: plan.mode,
+        timeframe_sec,
+        generation: 1,
+        last_final_bar_close_ts: plan.last_final_bar_close_ts,
+        replay_from_ts: Some(plan.replay_from_ts),
+        replay_to_ts: Some(plan.replay_to_ts),
+        replay_bar_count,
+        replay_first_bar_close_ts,
+        replay_last_bar_close_ts,
+        overlap_dedup_bar_count: 0,
+        replay_gap_detected: metrics.final_bar_gap_detected_count > 0 && replay_bar_count == 0,
+        transport_connected: metrics.connection_count > 0,
+        live_subscription_sent: !ws_generation.desired_subscriptions.is_empty(),
+        live_subscription_confirmed: ws_generation.active_subscriptions.contains(&"BARS"),
+        first_live_final_bar_close_ts: metrics.first_fresh_live_final_bar_close_ts,
+        checked_ts,
+    })
+}
+
+fn finam_ws_recovery_source_summary() -> FinamWsRecoverySourceSummary {
+    FinamWsRecoverySourceSummary {
+        rest_replay_wiring_enabled: false,
+        recovery_bars_publishable_as_strategy_live: false,
+        requires_first_fresh_ws_final_after_replay: true,
+    }
+}
+
+fn finam_ws_recovery_report_json(
+    report: &MarketDataRecoveryReport,
+    source: &FinamWsRecoverySourceSummary,
+) -> serde_json::Value {
+    serde_json::json!({
+        "schema": "m4_3h_warm_cold_resync_contract",
+        "rest_replay_wiring_enabled": source.rest_replay_wiring_enabled,
+        "recovery_bars_publishable_as_strategy_live": source.recovery_bars_publishable_as_strategy_live,
+        "requires_first_fresh_ws_final_after_replay": source.requires_first_fresh_ws_final_after_replay,
+        "phase": report.phase,
+        "blockers": report.blockers,
+        "mode": report.mode,
+        "timeframe_sec": report.timeframe_sec,
+        "generation": report.generation,
+        "last_final_bar_close_ts": report.last_final_bar_close_ts,
+        "replay_from_ts": report.replay_from_ts,
+        "replay_to_ts": report.replay_to_ts,
+        "replay_bar_count": report.replay_bar_count,
+        "replay_first_bar_close_ts": report.replay_first_bar_close_ts,
+        "replay_last_bar_close_ts": report.replay_last_bar_close_ts,
+        "overlap_dedup_bar_count": report.overlap_dedup_bar_count,
+        "transport_connected": report.transport_connected,
+        "live_subscription_sent": report.live_subscription_sent,
+        "live_subscription_confirmed": report.live_subscription_confirmed,
+        "first_live_final_bar_close_ts": report.first_live_final_bar_close_ts,
+        "gap_absence_proven": report.gap_absence_proven,
+        "checked_ts": report.checked_ts,
+    })
+}
+
 fn max_datetime(current: Option<DateTime<Utc>>, candidate: DateTime<Utc>) -> DateTime<Utc> {
     current.map_or(candidate, |current| current.max(candidate))
 }
@@ -2824,6 +2922,7 @@ fn finam_ws_shadow_report_json(
     let market_data_lifecycle =
         serde_json::to_value(&report.market_data_lifecycle).expect("lifecycle serializes");
     let data_quality_ledger = finam_ws_data_quality_ledger(&report.metrics);
+    let checked_ts = Utc::now();
     let ws_generation = finam_ws_generation_subscription_state(
         runtime.resolved.subscribe_bars,
         runtime.resolved.subscribe_quotes,
@@ -2831,6 +2930,13 @@ fn finam_ws_shadow_report_json(
         &finam_ws_generation_id(report.iteration),
         &report.stop_reason,
     );
+    let recovery_report = finam_ws_recovery_report_from_metrics(
+        &report.metrics,
+        &ws_generation,
+        timeframe_seconds(&runtime.resolved.timeframe).unwrap_or(60),
+        checked_ts,
+    );
+    let recovery_source = finam_ws_recovery_source_summary();
     let market_data = serde_json::json!({
         "source_kind": "LiveStream",
         "closed_bar_finalizer_enabled": true,
@@ -2917,6 +3023,7 @@ fn finam_ws_shadow_report_json(
         "market_data_lifecycle": market_data_lifecycle,
         "market_data": market_data,
         "data_quality": finam_ws_data_quality_ledger_json(&data_quality_ledger),
+        "recovery": finam_ws_recovery_report_json(&recovery_report, &recovery_source),
         "metrics": metrics,
     })
 }
@@ -8924,6 +9031,72 @@ mod tests {
         assert_eq!(ledger.bars_received, 0);
         assert_eq!(ledger.bars_emitted, 0);
         assert!(ledger.bars_balanced);
+    }
+
+    #[test]
+    fn finam_ws_recovery_plan_uses_warm_overlap_from_final_watermark() {
+        let checked_ts = Utc.with_ymd_and_hms(2026, 7, 6, 6, 10, 0).unwrap();
+        let last_final = Utc.with_ymd_and_hms(2026, 7, 6, 6, 8, 0).unwrap();
+
+        let plan = finam_ws_recovery_plan(60, 2, Some(last_final), checked_ts);
+
+        assert_eq!(plan.mode, broker_core::MarketDataRecoveryMode::Warm);
+        assert_eq!(
+            plan.replay_from_ts,
+            Utc.with_ymd_and_hms(2026, 7, 6, 6, 6, 0).unwrap()
+        );
+        assert_eq!(plan.replay_to_ts, checked_ts);
+        assert_eq!(plan.last_final_bar_close_ts, Some(last_final));
+    }
+
+    #[test]
+    fn finam_ws_recovery_report_blocks_gap_absence_until_rest_replay_is_wired() {
+        let checked_ts = Utc.with_ymd_and_hms(2026, 7, 6, 6, 10, 0).unwrap();
+        let last_final = Utc.with_ymd_and_hms(2026, 7, 6, 6, 8, 0).unwrap();
+        let mut metrics = FinamWsShadowMetrics {
+            connection_count: 1,
+            bars_subscription_data_confirmed: true,
+            first_fresh_live_final_bar_close_ts: Some(last_final),
+            last_final_live_bar_close_ts: Some(last_final),
+            final_bar_gap_detected_count: 1,
+            ..FinamWsShadowMetrics::default()
+        };
+        let generation = finam_ws_generation_subscription_state(
+            true,
+            false,
+            &metrics,
+            "generation-1",
+            "max_messages",
+        );
+
+        let report = finam_ws_recovery_report_from_metrics(&metrics, &generation, 60, checked_ts);
+
+        assert_eq!(report.phase, broker_core::MarketDataRecoveryPhase::Degraded);
+        assert!(!report.gap_absence_proven);
+        assert!(report
+            .blockers
+            .contains(&broker_core::MarketDataRecoveryBlocker::ReplayMissing));
+        assert!(report
+            .blockers
+            .contains(&broker_core::MarketDataRecoveryBlocker::GapAbsenceNotProven));
+
+        metrics.recovery_bar_event_count = 3;
+        metrics.last_recovery_bar_close_ts =
+            Some(Utc.with_ymd_and_hms(2026, 7, 6, 6, 10, 0).unwrap());
+        let report_with_replay =
+            finam_ws_recovery_report_from_metrics(&metrics, &generation, 60, checked_ts);
+        assert!(report_with_replay
+            .blockers
+            .contains(&broker_core::MarketDataRecoveryBlocker::ReplayNotContiguousToWatermark));
+    }
+
+    #[test]
+    fn finam_ws_recovery_source_summary_keeps_recovery_bars_out_of_strategy_live() {
+        let source = finam_ws_recovery_source_summary();
+
+        assert!(!source.rest_replay_wiring_enabled);
+        assert!(!source.recovery_bars_publishable_as_strategy_live);
+        assert!(source.requires_first_fresh_ws_final_after_replay);
     }
 
     #[test]

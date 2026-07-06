@@ -76,3 +76,21 @@ stop/SLTP/bracket
 ```
 
 M4-3g-a is evidence only. It does not authorize strategy runtime cutover.
+
+## Timestamp metric semantics
+
+The active-session report intentionally exposes several close-timestamp views:
+
+```text
+latest_ws_final_bar_close_ts
+last_fresh_live_final_bar_close_ts
+redis_latest_final_bar_close_ts
+```
+
+They are related but not identical:
+
+- `latest_ws_final_bar_close_ts` is the latest final-bar timestamp observed by the WS/finalizer metrics at that point in the run;
+- `last_fresh_live_final_bar_close_ts` is the latest final bar that passed the freshness / strategy gate;
+- `redis_latest_final_bar_close_ts` is the latest final bar actually published into the broker-neutral Redis market-data stream.
+
+Small differences can appear around the closed-bar finalizer boundary and report collection timing. For active-session acceptance, the source of truth is the packaged versioned evidence JSON, not an earlier human observation.

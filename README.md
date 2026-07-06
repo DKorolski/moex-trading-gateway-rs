@@ -158,6 +158,10 @@ remains a transport-source label, while report fields distinguish stale WS
 backlog from a fresh final live bar and expose final-bar close timestamp gaps.
 This keeps local/VPS runs understandable before the recovery contract is wired
 into the loop.
+M4-3h wires the accepted warm/cold resync contract into the FINAM WS report as a
+source/no-live recovery surface. It exposes final-bar watermark, replay window,
+gap-absence blockers, and safety flags with real REST replay wiring disabled
+until a controlled GET-only evidence slice is reviewed.
 M4-3e gates FINAM WS strategy bar publication: stale WS final-bar backlog is
 still counted and reported, but only fresh final live bars are published as
 strategy market-data bars. This prevents stale WebSocket backlog from reaching
@@ -357,6 +361,7 @@ See:
 - [M4-3f FINAM WS data-quality ledger](docs/m4-3f-finam-ws-data-quality-ledger.md)
 - [M4-3g FINAM WS generation and subscription confirmation](docs/m4-3g-finam-ws-generation-subscription-confirmation.md)
 - [M4-3g-a active-session fresh final evidence](docs/m4-3g-a-active-session-fresh-final-evidence.md)
+- [M4-3h FINAM WS warm/cold resync contract](docs/m4-3h-finam-ws-warm-cold-resync-contract.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)
