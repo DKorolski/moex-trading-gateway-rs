@@ -209,6 +209,11 @@ alone is insufficient. Strategy-facing FINAM 10m bars must be
 `FinamDerivedM1ToM10` with `source_timeframe_sec=60`, `target_timeframe_sec=600`,
 `aggregation_complete=true`, and `gap_absence_proven=true`; FINAM native M10 is
 rejected while characterization is pending.
+M4-3m adds active-session bar parity tooling: it reads ALOR native 10m Redis
+bars and FINAM `finam_ws_shadow:market_data`, derives FINAM M1-to-M10 buckets,
+and reports synchronized bars or explicit pending reasons such as
+`MissingAlorOracleStream`. It exports no raw Redis payload and still keeps
+runtime-live, real command consumer, and order endpoints disabled.
 M4-3e gates FINAM WS strategy bar publication: stale WS final-bar backlog is
 still counted and reported, but only fresh final live bars are published as
 strategy market-data bars. This prevents stale WebSocket backlog from reaching
@@ -419,6 +424,7 @@ See:
 - [M4-3k ALOR-FINAM observability parity](docs/m4-3k-alor-finam-observability-parity.md)
 - [M4-3k-a readiness HTTP semantics strictness](docs/m4-3k-a-readiness-http-semantics-strictness.md)
 - [M4-3l dry runtime attach / M1-M10 parity](docs/m4-3l-dry-runtime-attach-m1-m10-parity.md)
+- [M4-3m active-session ALOR-FINAM 10m parity](docs/m4-3m-active-session-alor-finam-10m-parity.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)
