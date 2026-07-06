@@ -1046,6 +1046,275 @@ pub fn build_broker_neutral_http_debug_surface(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrokerNeutralObservabilityCapability {
+    LivenessRoute,
+    ReadinessRoute,
+    DebugTransportRoute,
+    ReadinessHttpStatusRule,
+    TransportConnected,
+    WsGeneration,
+    SubscriptionCounts,
+    DataQualityLedger,
+    RecoveryState,
+    SessionWatchdog,
+    RedactedDebug,
+    RuntimeLiveDisabledFlag,
+    CommandConsumerToRealBrokerDisabledFlag,
+    OrderPostDeleteDisabledFlag,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrokerNeutralObservabilitySourceShape {
+    pub broker: String,
+    pub liveness_route: String,
+    pub readiness_route: String,
+    pub debug_transport_route: String,
+    pub readiness_200_only_when_live_ready: bool,
+    pub transport_connected_present: bool,
+    pub ws_generation_present: bool,
+    pub subscription_counts_present: bool,
+    pub data_quality_ledger_present: bool,
+    pub recovery_state_present: bool,
+    pub session_watchdog_present: bool,
+    pub debug_redacted: bool,
+    pub raw_secrets_exported: bool,
+    pub raw_tokens_exported: bool,
+    pub raw_account_ids_exported: bool,
+    pub runtime_live_attachment_allowed: bool,
+    pub command_consumer_to_real_broker_enabled: bool,
+    pub order_post_delete_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrokerNeutralObservabilityParityItem {
+    pub capability: BrokerNeutralObservabilityCapability,
+    pub alor_supported: bool,
+    pub finam_supported: bool,
+    pub parity_ok: bool,
+    pub critical: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrokerNeutralObservabilityParityReport {
+    pub schema: String,
+    pub alor_source: BrokerNeutralObservabilitySourceShape,
+    pub finam_source: BrokerNeutralObservabilitySourceShape,
+    pub items: Vec<BrokerNeutralObservabilityParityItem>,
+    pub parity_ok: bool,
+    pub critical_missing_count: usize,
+    pub no_live_boundary_expansion: bool,
+    pub no_order_post_delete: bool,
+    pub no_command_consumer_to_real_broker: bool,
+    pub next_stage: String,
+}
+
+pub fn alor_debug_cws_observability_source_shape() -> BrokerNeutralObservabilitySourceShape {
+    BrokerNeutralObservabilitySourceShape {
+        broker: "ALOR".to_string(),
+        liveness_route: "/liveness".to_string(),
+        readiness_route: "/readiness".to_string(),
+        debug_transport_route: "/debug/cws".to_string(),
+        readiness_200_only_when_live_ready: true,
+        transport_connected_present: true,
+        ws_generation_present: true,
+        subscription_counts_present: true,
+        data_quality_ledger_present: true,
+        recovery_state_present: true,
+        session_watchdog_present: true,
+        debug_redacted: true,
+        raw_secrets_exported: false,
+        raw_tokens_exported: false,
+        raw_account_ids_exported: false,
+        runtime_live_attachment_allowed: false,
+        command_consumer_to_real_broker_enabled: false,
+        order_post_delete_allowed: false,
+    }
+}
+
+pub fn finam_observability_source_shape_from_debug_surface(
+    surface: &BrokerNeutralHttpDebugSurfaceReport,
+) -> BrokerNeutralObservabilitySourceShape {
+    let ws_transport = surface.debug_transport.transports.iter().find(|transport| {
+        transport.transport_kind == BrokerNeutralDebugTransportKind::WebSocketMarketData
+    });
+    let route_present = |path: &str| {
+        surface
+            .route_shapes
+            .iter()
+            .any(|route| route.path == path && route.method == "GET")
+    };
+
+    BrokerNeutralObservabilitySourceShape {
+        broker: surface.debug_transport.broker.clone(),
+        liveness_route: if route_present("/liveness") {
+            "/liveness".to_string()
+        } else {
+            String::new()
+        },
+        readiness_route: if route_present("/readiness") {
+            "/readiness".to_string()
+        } else {
+            String::new()
+        },
+        debug_transport_route: if route_present("/debug/transport") {
+            "/debug/transport".to_string()
+        } else {
+            String::new()
+        },
+        readiness_200_only_when_live_ready: surface.readiness.http_status == 200
+            || surface.readiness.readiness.phase != ReadinessPhase::LiveReady,
+        transport_connected_present: ws_transport.is_some(),
+        ws_generation_present: ws_transport
+            .and_then(|transport| transport.connection_generation.as_ref())
+            .is_some(),
+        subscription_counts_present: ws_transport.is_some_and(|transport| {
+            transport.desired_subscriptions_count > 0
+                || transport.active_subscriptions_count > 0
+                || transport.pending_subscriptions_count > 0
+        }),
+        data_quality_ledger_present: ws_transport
+            .is_some_and(|transport| !transport.data_quality_ledger.is_null()),
+        recovery_state_present: ws_transport.is_some_and(|transport| !transport.recovery.is_null()),
+        session_watchdog_present: ws_transport
+            .is_some_and(|transport| !transport.session_watchdog.is_null()),
+        debug_redacted: surface.debug_transport.redacted,
+        raw_secrets_exported: surface.debug_transport.raw_secrets_exported,
+        raw_tokens_exported: surface.debug_transport.raw_tokens_exported,
+        raw_account_ids_exported: surface.debug_transport.raw_account_ids_exported,
+        runtime_live_attachment_allowed: surface.debug_transport.runtime_live_attachment_allowed,
+        command_consumer_to_real_broker_enabled: surface
+            .debug_transport
+            .command_consumer_to_real_broker_enabled,
+        order_post_delete_allowed: surface.debug_transport.order_post_delete_allowed,
+    }
+}
+
+pub fn build_broker_neutral_observability_parity_report(
+    alor_source: BrokerNeutralObservabilitySourceShape,
+    finam_source: BrokerNeutralObservabilitySourceShape,
+) -> BrokerNeutralObservabilityParityReport {
+    use BrokerNeutralObservabilityCapability as Capability;
+    let item = |capability, alor_supported, finam_supported, critical| {
+        BrokerNeutralObservabilityParityItem {
+            capability,
+            alor_supported,
+            finam_supported,
+            parity_ok: alor_supported == finam_supported,
+            critical,
+        }
+    };
+    let items = vec![
+        item(
+            Capability::LivenessRoute,
+            alor_source.liveness_route == "/liveness",
+            finam_source.liveness_route == "/liveness",
+            true,
+        ),
+        item(
+            Capability::ReadinessRoute,
+            alor_source.readiness_route == "/readiness",
+            finam_source.readiness_route == "/readiness",
+            true,
+        ),
+        item(
+            Capability::DebugTransportRoute,
+            alor_source.debug_transport_route == "/debug/cws",
+            finam_source.debug_transport_route == "/debug/transport",
+            true,
+        ),
+        item(
+            Capability::ReadinessHttpStatusRule,
+            alor_source.readiness_200_only_when_live_ready,
+            finam_source.readiness_200_only_when_live_ready,
+            true,
+        ),
+        item(
+            Capability::TransportConnected,
+            alor_source.transport_connected_present,
+            finam_source.transport_connected_present,
+            true,
+        ),
+        item(
+            Capability::WsGeneration,
+            alor_source.ws_generation_present,
+            finam_source.ws_generation_present,
+            true,
+        ),
+        item(
+            Capability::SubscriptionCounts,
+            alor_source.subscription_counts_present,
+            finam_source.subscription_counts_present,
+            true,
+        ),
+        item(
+            Capability::DataQualityLedger,
+            alor_source.data_quality_ledger_present,
+            finam_source.data_quality_ledger_present,
+            true,
+        ),
+        item(
+            Capability::RecoveryState,
+            alor_source.recovery_state_present,
+            finam_source.recovery_state_present,
+            true,
+        ),
+        item(
+            Capability::SessionWatchdog,
+            alor_source.session_watchdog_present,
+            finam_source.session_watchdog_present,
+            true,
+        ),
+        item(
+            Capability::RedactedDebug,
+            alor_source.debug_redacted
+                && !alor_source.raw_secrets_exported
+                && !alor_source.raw_tokens_exported
+                && !alor_source.raw_account_ids_exported,
+            finam_source.debug_redacted
+                && !finam_source.raw_secrets_exported
+                && !finam_source.raw_tokens_exported
+                && !finam_source.raw_account_ids_exported,
+            true,
+        ),
+        item(
+            Capability::RuntimeLiveDisabledFlag,
+            !alor_source.runtime_live_attachment_allowed,
+            !finam_source.runtime_live_attachment_allowed,
+            true,
+        ),
+        item(
+            Capability::CommandConsumerToRealBrokerDisabledFlag,
+            !alor_source.command_consumer_to_real_broker_enabled,
+            !finam_source.command_consumer_to_real_broker_enabled,
+            true,
+        ),
+        item(
+            Capability::OrderPostDeleteDisabledFlag,
+            !alor_source.order_post_delete_allowed,
+            !finam_source.order_post_delete_allowed,
+            true,
+        ),
+    ];
+    let critical_missing_count = items
+        .iter()
+        .filter(|item| item.critical && !item.parity_ok)
+        .count();
+
+    BrokerNeutralObservabilityParityReport {
+        schema: "m4_3k_alor_finam_observability_parity".to_string(),
+        alor_source,
+        finam_source,
+        parity_ok: critical_missing_count == 0,
+        critical_missing_count,
+        no_live_boundary_expansion: true,
+        no_order_post_delete: true,
+        no_command_consumer_to_real_broker: true,
+        next_stage: "M4-3l dry runtime attach / M1-M10 parity, no-live".to_string(),
+        items,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OrderSnapshot {
     pub orders: Vec<Order>,
@@ -15289,6 +15558,98 @@ mod tests {
         assert!(report.no_live_boundary_expansion);
         assert!(report.no_order_post_delete);
         assert!(report.no_command_consumer_to_real_broker);
+    }
+
+    #[test]
+    fn m4_3k_alor_finam_observability_parity_passes_on_neutral_surface() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 6, 12, 0, 0).unwrap();
+        let finam_surface =
+            build_broker_neutral_http_debug_surface(BrokerNeutralHttpDebugSurfaceInput {
+                broker: "FINAM".to_string(),
+                gateway_source: "finam-ws-shadow-vps".to_string(),
+                health: GatewayHealth {
+                    status: GatewayHealthStatus::ReadOnly,
+                    checked_ts: now,
+                    redis_configured: true,
+                    command_consumer_enabled: false,
+                    order_placement_enabled: false,
+                },
+                readiness: BrokerReadiness {
+                    phase: ReadinessPhase::Reconciliation,
+                    reasons: vec![ReadinessReason::OperatorLiveArmMissing],
+                    checked_ts: now,
+                },
+                transports: vec![BrokerNeutralDebugTransportSnapshot {
+                    transport_kind: BrokerNeutralDebugTransportKind::WebSocketMarketData,
+                    connected: true,
+                    authorized: true,
+                    connection_generation: Some("finam-ws-generation-1".to_string()),
+                    last_rx_ts: Some(now),
+                    last_tx_ts: None,
+                    stale: false,
+                    stale_reason: None,
+                    active_subscriptions_count: 2,
+                    desired_subscriptions_count: 2,
+                    pending_subscriptions_count: 0,
+                    reconnect_count: 0,
+                    data_quality_balanced: true,
+                    data_quality_ledger: serde_json::json!({
+                        "bars": {"balanced": true},
+                        "quotes": {"balanced": true}
+                    }),
+                    recovery: serde_json::json!({
+                        "phase": "LiveReady",
+                        "blockers": []
+                    }),
+                    session_state: Some("Open".to_string()),
+                    session_watchdog: serde_json::json!({
+                        "enabled": true,
+                        "session_state": "Open",
+                        "silence_alert": false
+                    }),
+                    raw_secret_exported: false,
+                    raw_token_exported: false,
+                    raw_account_id_exported: false,
+                }],
+                command_consumer_to_real_broker_enabled: false,
+                runtime_live_attachment_allowed: false,
+                order_post_delete_allowed: false,
+                synthetic_readiness: false,
+                not_for_systemd_readiness: false,
+            });
+        let report = build_broker_neutral_observability_parity_report(
+            alor_debug_cws_observability_source_shape(),
+            finam_observability_source_shape_from_debug_surface(&finam_surface),
+        );
+
+        assert_eq!(report.schema, "m4_3k_alor_finam_observability_parity");
+        assert!(report.parity_ok);
+        assert_eq!(report.critical_missing_count, 0);
+        assert!(report.no_live_boundary_expansion);
+        assert!(report.no_order_post_delete);
+        assert!(report.no_command_consumer_to_real_broker);
+        assert!(report.items.iter().all(|item| item.parity_ok));
+    }
+
+    #[test]
+    fn m4_3k_alor_finam_observability_parity_detects_missing_session_watchdog() {
+        let mut finam_source = alor_debug_cws_observability_source_shape();
+        finam_source.broker = "FINAM".to_string();
+        finam_source.debug_transport_route = "/debug/transport".to_string();
+        finam_source.session_watchdog_present = false;
+
+        let report = build_broker_neutral_observability_parity_report(
+            alor_debug_cws_observability_source_shape(),
+            finam_source,
+        );
+
+        assert!(!report.parity_ok);
+        assert_eq!(report.critical_missing_count, 1);
+        assert!(report.items.iter().any(|item| {
+            item.capability == BrokerNeutralObservabilityCapability::SessionWatchdog
+                && !item.parity_ok
+                && item.critical
+        }));
     }
 
     #[tokio::test]
