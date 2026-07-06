@@ -1,0 +1,86 @@
+{
+  "fixture_kind": "synthetic_alor_paper_ledger_round_v1",
+  "sanitized": true,
+  "source": "synthetic",
+  "strategy_id": "hybrid_imoexf_synthetic",
+  "symbol": "IMOEXF",
+  "paper_execution_mode": "live_only",
+  "orders": [
+    {
+      "order_id": "PAPER_ORDER_0001",
+      "symbol": "IMOEXF",
+      "side": "buy",
+      "qty": "1",
+      "filled": "1",
+      "price": "1000.0",
+      "status": "filled",
+      "ts_utc": "2026-01-01T09:10:00Z",
+      "owned": true
+    },
+    {
+      "order_id": "PAPER_ORDER_0002",
+      "symbol": "IMOEXF",
+      "side": "sell",
+      "qty": "1",
+      "filled": "1",
+      "price": "1002.0",
+      "status": "filled",
+      "ts_utc": "2026-01-01T09:20:00Z",
+      "owned": true
+    }
+  ],
+  "trades": [
+    {
+      "trade_id": "PAPER_TRADE_0001",
+      "order_id": "PAPER_ORDER_0001",
+      "symbol": "IMOEXF",
+      "side": "buy",
+      "qty": "1",
+      "price": "1000.0",
+      "commission": "0.0",
+      "ts_utc": "2026-01-01T09:10:00Z",
+      "owned": true
+    },
+    {
+      "trade_id": "PAPER_TRADE_0002",
+      "order_id": "PAPER_ORDER_0002",
+      "symbol": "IMOEXF",
+      "side": "sell",
+      "qty": "1",
+      "price": "1002.0",
+      "commission": "0.0",
+      "ts_utc": "2026-01-01T09:20:00Z",
+      "owned": true
+    }
+  ],
+  "positions": [
+    {
+      "symbol": "IMOEXF",
+      "qty": "0",
+      "avg_price": "0.0",
+      "ts_utc": "2026-01-01T09:20:00Z",
+      "source": "paper_synthetic_position_feedback"
+    }
+  ],
+  "closed_trades": [
+    {
+      "entry_ts_utc": "2026-01-01T09:10:00Z",
+      "exit_ts_utc": "2026-01-01T09:20:00Z",
+      "symbol": "IMOEXF",
+      "side": "buy",
+      "qty": "1",
+      "entry_price": "1000.0",
+      "exit_price": "1002.0",
+      "commission_total": "0.0",
+      "pnl_gross": "2.0",
+      "pnl_net": "2.0"
+    }
+  ],
+  "invariants": {
+    "final_position_flat": true,
+    "closed_trade_count": 1,
+    "live_order_surface": false,
+    "broker_native_order_ids": false,
+    "contains_live_account_or_portfolio": false
+  }
+}
