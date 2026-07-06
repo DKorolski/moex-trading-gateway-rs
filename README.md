@@ -204,6 +204,11 @@ is treated as the oracle via `BarsGetAndSubscribe(tf=600)`, while FINAM derived 
 canonical bars are the accepted FINAM path. raw FINAM M1 bars are rejected by
 the strategy-facing timeframe gate; FINAM-native 10m remains a separate
 characterization item.
+M4-3l-a hardens that gate with explicit sidecar provenance: `timeframe_sec=600`
+alone is insufficient. Strategy-facing FINAM 10m bars must be
+`FinamDerivedM1ToM10` with `source_timeframe_sec=60`, `target_timeframe_sec=600`,
+`aggregation_complete=true`, and `gap_absence_proven=true`; FINAM native M10 is
+rejected while characterization is pending.
 M4-3e gates FINAM WS strategy bar publication: stale WS final-bar backlog is
 still counted and reported, but only fresh final live bars are published as
 strategy market-data bars. This prevents stale WebSocket backlog from reaching

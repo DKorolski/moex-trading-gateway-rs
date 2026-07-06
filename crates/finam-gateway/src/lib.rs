@@ -6567,13 +6567,55 @@ pub fn m3i1_adapt_strategy_paper_input(
 pub enum M43lStrategyBarSourceMode {
     AlorNativeBarsGetAndSubscribeTf600,
     FinamDerivedM1ToM10,
-    FinamNativeM10CharacterizationPending,
+    FinamNativeM10,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct M43lStrategyBarProvenance {
+    pub mode: M43lStrategyBarSourceMode,
+    pub source_timeframe_sec: u32,
+    pub target_timeframe_sec: u32,
+    pub aggregation_complete: bool,
+    pub gap_absence_proven: bool,
+}
+
+impl M43lStrategyBarProvenance {
+    pub fn finam_derived_m1_to_m10_complete() -> Self {
+        Self {
+            mode: M43lStrategyBarSourceMode::FinamDerivedM1ToM10,
+            source_timeframe_sec: 60,
+            target_timeframe_sec: 600,
+            aggregation_complete: true,
+            gap_absence_proven: true,
+        }
+    }
+
+    pub fn finam_native_m10_pending() -> Self {
+        Self {
+            mode: M43lStrategyBarSourceMode::FinamNativeM10,
+            source_timeframe_sec: 600,
+            target_timeframe_sec: 600,
+            aggregation_complete: false,
+            gap_absence_proven: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum M43lStrategyBarProvenanceRejectReason {
+    SourceModeNotAllowed,
+    SourceTimeframeMismatch,
+    TargetTimeframeMismatch,
+    AggregationIncomplete,
+    GapAbsenceNotProven,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum M43lDryRuntimeAttachRejectReason {
     StrategyTimeframeMismatch { expected_sec: u32, actual_sec: u32 },
     MissingBarEvent,
+    ProvenanceRejected(M43lStrategyBarProvenanceRejectReason),
     M3iRejected(M3iStrategyPaperInputRejectReason),
 }
 
@@ -6597,6 +6639,10 @@ pub struct M43lDryRuntimeAttachParityReport {
     pub alor_native_10m_subscription_confirmed: bool,
     pub finam_m1_to_m10_aggregation_required: bool,
     pub finam_native_m10_characterization_pending: bool,
+    pub provenance_required: bool,
+    pub derived_aggregation_complete_required: bool,
+    pub gap_absence_proven_required: bool,
+    pub finam_native_m10_rejected_while_pending: bool,
     pub raw_finam_m1_can_trigger_strategy_decision: bool,
     pub canonical_m10_can_trigger_strategy_decision: bool,
     pub strategy_receives_broker_neutral_inputs_only: bool,
@@ -6614,6 +6660,7 @@ pub struct M43lDryRuntimeAttachParityReport {
 pub fn m4_3l_adapt_strategy_10m_dry_input(
     strategy_id: impl Into<String>,
     target_timeframe_sec: u32,
+    provenance: &M43lStrategyBarProvenance,
     shadow_input: &M3hRuntimeShadowInput,
     decision: &M3hRuntimeShadowConsumerOutcome,
 ) -> M43lDryRuntimeAttachOutcome {
@@ -6630,6 +6677,11 @@ pub fn m4_3l_adapt_strategy_10m_dry_input(
             },
         };
     }
+    if let Err(reason) = m4_3l_validate_strategy_bar_provenance(target_timeframe_sec, provenance) {
+        return M43lDryRuntimeAttachOutcome::Rejected {
+            reason: M43lDryRuntimeAttachRejectReason::ProvenanceRejected(reason),
+        };
+    }
 
     match m3i1_adapt_strategy_paper_input(strategy_id, shadow_input, decision) {
         M3iStrategyPaperInputAdapterOutcome::Accepted(input) => {
@@ -6643,8 +6695,31 @@ pub fn m4_3l_adapt_strategy_10m_dry_input(
     }
 }
 
+fn m4_3l_validate_strategy_bar_provenance(
+    target_timeframe_sec: u32,
+    provenance: &M43lStrategyBarProvenance,
+) -> Result<(), M43lStrategyBarProvenanceRejectReason> {
+    if provenance.mode != M43lStrategyBarSourceMode::FinamDerivedM1ToM10 {
+        return Err(M43lStrategyBarProvenanceRejectReason::SourceModeNotAllowed);
+    }
+    if provenance.source_timeframe_sec != 60 {
+        return Err(M43lStrategyBarProvenanceRejectReason::SourceTimeframeMismatch);
+    }
+    if provenance.target_timeframe_sec != target_timeframe_sec {
+        return Err(M43lStrategyBarProvenanceRejectReason::TargetTimeframeMismatch);
+    }
+    if !provenance.aggregation_complete {
+        return Err(M43lStrategyBarProvenanceRejectReason::AggregationIncomplete);
+    }
+    if !provenance.gap_absence_proven {
+        return Err(M43lStrategyBarProvenanceRejectReason::GapAbsenceNotProven);
+    }
+    Ok(())
+}
+
 pub fn m4_3l_dry_runtime_attach_parity_report(
     raw_finam_m1_outcome: &M43lDryRuntimeAttachOutcome,
+    native_m10_outcome: &M43lDryRuntimeAttachOutcome,
     canonical_m10_outcome: &M43lDryRuntimeAttachOutcome,
 ) -> M43lDryRuntimeAttachParityReport {
     let raw_finam_m1_can_trigger_strategy_decision = matches!(
@@ -6655,8 +6730,17 @@ pub fn m4_3l_dry_runtime_attach_parity_report(
         canonical_m10_outcome,
         M43lDryRuntimeAttachOutcome::Accepted(_)
     );
+    let finam_native_m10_rejected_while_pending = matches!(
+        native_m10_outcome,
+        M43lDryRuntimeAttachOutcome::Rejected {
+            reason: M43lDryRuntimeAttachRejectReason::ProvenanceRejected(
+                M43lStrategyBarProvenanceRejectReason::SourceModeNotAllowed
+            )
+        }
+    );
     let input_contract = m3i1_strategy_paper_input_contract_report();
     let parity_ok = !raw_finam_m1_can_trigger_strategy_decision
+        && finam_native_m10_rejected_while_pending
         && canonical_m10_can_trigger_strategy_decision
         && input_contract.strategy_receives_broker_neutral_inputs_only
         && !input_contract.finam_dto_visible_to_strategy
@@ -6677,6 +6761,10 @@ pub fn m4_3l_dry_runtime_attach_parity_report(
         alor_native_10m_subscription_confirmed: true,
         finam_m1_to_m10_aggregation_required: true,
         finam_native_m10_characterization_pending: true,
+        provenance_required: true,
+        derived_aggregation_complete_required: true,
+        gap_absence_proven_required: true,
+        finam_native_m10_rejected_while_pending,
         raw_finam_m1_can_trigger_strategy_decision,
         canonical_m10_can_trigger_strategy_decision,
         strategy_receives_broker_neutral_inputs_only: input_contract
@@ -20999,6 +21087,7 @@ mod tests {
         let outcome = m4_3l_adapt_strategy_10m_dry_input(
             "imoexf-hybrid-shadow",
             600,
+            &M43lStrategyBarProvenance::finam_derived_m1_to_m10_complete(),
             &shadow_input,
             &decision,
         );
@@ -21059,6 +21148,7 @@ mod tests {
         let outcome = m4_3l_adapt_strategy_10m_dry_input(
             "imoexf-hybrid-shadow",
             600,
+            &M43lStrategyBarProvenance::finam_derived_m1_to_m10_complete(),
             &shadow_input,
             &decision,
         );
@@ -21075,12 +21165,113 @@ mod tests {
     }
 
     #[test]
+    fn m4_3la_rejects_finam_native_m10_while_characterization_pending() {
+        let config = GatewayConfig::default();
+        let mut native_m10 = sample_bar(MarketDataSourceKind::LiveStream, true);
+        native_m10.timeframe_sec = 600;
+        native_m10.close_ts = native_m10.open_ts + ChronoDuration::minutes(10);
+        let entry = m3h1_runtime_entry(
+            &config.redis.market_data_stream,
+            "m4-3la-native-m10",
+            MessageType::MarketData,
+            MarketDataEvent::Bar(native_m10.clone()),
+        );
+        let M3hRuntimeShadowAdapterOutcome::Accepted(shadow_input) =
+            m3h1_adapt_runtime_shadow_entry(&config.redis, &entry)
+        else {
+            panic!("expected accepted shadow input");
+        };
+        let decision = M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick {
+            entry_id: shadow_input.entry_id.clone(),
+            bar_key: m3h2_runtime_bar_key(&native_m10),
+        };
+
+        let outcome = m4_3l_adapt_strategy_10m_dry_input(
+            "imoexf-hybrid-shadow",
+            600,
+            &M43lStrategyBarProvenance::finam_native_m10_pending(),
+            &shadow_input,
+            &decision,
+        );
+        assert_eq!(
+            outcome,
+            M43lDryRuntimeAttachOutcome::Rejected {
+                reason: M43lDryRuntimeAttachRejectReason::ProvenanceRejected(
+                    M43lStrategyBarProvenanceRejectReason::SourceModeNotAllowed
+                )
+            }
+        );
+    }
+
+    #[test]
+    fn m4_3la_rejects_derived_m10_without_complete_aggregation_or_gap_proof() {
+        let config = GatewayConfig::default();
+        let mut derived_m10 = sample_bar(MarketDataSourceKind::LiveStream, true);
+        derived_m10.timeframe_sec = 600;
+        derived_m10.close_ts = derived_m10.open_ts + ChronoDuration::minutes(10);
+        let entry = m3h1_runtime_entry(
+            &config.redis.market_data_stream,
+            "m4-3la-derived-m10",
+            MessageType::MarketData,
+            MarketDataEvent::Bar(derived_m10.clone()),
+        );
+        let M3hRuntimeShadowAdapterOutcome::Accepted(shadow_input) =
+            m3h1_adapt_runtime_shadow_entry(&config.redis, &entry)
+        else {
+            panic!("expected accepted shadow input");
+        };
+        let decision = M3hRuntimeShadowConsumerOutcome::StrategyDecisionTick {
+            entry_id: shadow_input.entry_id.clone(),
+            bar_key: m3h2_runtime_bar_key(&derived_m10),
+        };
+
+        let mut incomplete = M43lStrategyBarProvenance::finam_derived_m1_to_m10_complete();
+        incomplete.aggregation_complete = false;
+        assert_eq!(
+            m4_3l_adapt_strategy_10m_dry_input(
+                "imoexf-hybrid-shadow",
+                600,
+                &incomplete,
+                &shadow_input,
+                &decision,
+            ),
+            M43lDryRuntimeAttachOutcome::Rejected {
+                reason: M43lDryRuntimeAttachRejectReason::ProvenanceRejected(
+                    M43lStrategyBarProvenanceRejectReason::AggregationIncomplete
+                )
+            }
+        );
+
+        let mut gap_not_proven = M43lStrategyBarProvenance::finam_derived_m1_to_m10_complete();
+        gap_not_proven.gap_absence_proven = false;
+        assert_eq!(
+            m4_3l_adapt_strategy_10m_dry_input(
+                "imoexf-hybrid-shadow",
+                600,
+                &gap_not_proven,
+                &shadow_input,
+                &decision,
+            ),
+            M43lDryRuntimeAttachOutcome::Rejected {
+                reason: M43lDryRuntimeAttachRejectReason::ProvenanceRejected(
+                    M43lStrategyBarProvenanceRejectReason::GapAbsenceNotProven
+                )
+            }
+        );
+    }
+
+    #[test]
     fn m4_3l_parity_report_requires_raw_m1_reject_and_canonical_m10_accept() {
         let raw_outcome = M43lDryRuntimeAttachOutcome::Rejected {
             reason: M43lDryRuntimeAttachRejectReason::StrategyTimeframeMismatch {
                 expected_sec: 600,
                 actual_sec: 60,
             },
+        };
+        let native_m10_outcome = M43lDryRuntimeAttachOutcome::Rejected {
+            reason: M43lDryRuntimeAttachRejectReason::ProvenanceRejected(
+                M43lStrategyBarProvenanceRejectReason::SourceModeNotAllowed,
+            ),
         };
         let mut canonical_bar = sample_bar(MarketDataSourceKind::LiveStream, true);
         canonical_bar.timeframe_sec = 600;
@@ -21101,7 +21292,11 @@ mod tests {
         };
         let canonical_outcome = M43lDryRuntimeAttachOutcome::Accepted(Box::new(canonical_input));
 
-        let report = m4_3l_dry_runtime_attach_parity_report(&raw_outcome, &canonical_outcome);
+        let report = m4_3l_dry_runtime_attach_parity_report(
+            &raw_outcome,
+            &native_m10_outcome,
+            &canonical_outcome,
+        );
         assert!(report.parity_ok);
         assert_eq!(report.alor_gateway_native_tf_sec, 600);
         assert_eq!(report.finam_ws_source_tf_sec, 60);
@@ -21109,6 +21304,10 @@ mod tests {
         assert!(report.alor_native_10m_subscription_confirmed);
         assert!(report.finam_m1_to_m10_aggregation_required);
         assert!(report.finam_native_m10_characterization_pending);
+        assert!(report.provenance_required);
+        assert!(report.derived_aggregation_complete_required);
+        assert!(report.gap_absence_proven_required);
+        assert!(report.finam_native_m10_rejected_while_pending);
         assert!(!report.raw_finam_m1_can_trigger_strategy_decision);
         assert!(report.canonical_m10_can_trigger_strategy_decision);
         assert!(!report.runtime_live_attachment_allowed);
