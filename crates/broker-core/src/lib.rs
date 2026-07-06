@@ -96,6 +96,7 @@ pub use order_path::{
 };
 pub use paper::{
     PaperAck, PaperAckKind, PaperExecutionMode, PaperFillPolicy, PaperIntent, PaperIntentKind,
+    PaperLedgerExecutionOutcome, PaperLedgerExecutorConfig, PaperLedgerExecutorError,
     PaperLedgerInvariantError, PaperLedgerSnapshot, PaperOrder, PaperOrderId, PaperOrderStatus,
     PaperPosition, PaperRuntimeState, PaperSafetyBoundary, PaperTrade, PaperTradeId,
     RiskGatePaperLedgerRecord, RiskGatePaperState, RuntimeBarInput, RuntimeBarOrigin,
