@@ -19,6 +19,7 @@ pub mod operational_config;
 pub mod operational_snapshot;
 pub mod order;
 pub mod order_path;
+pub mod paper;
 pub mod parity;
 pub mod readiness;
 pub mod subscription;
@@ -92,6 +93,13 @@ pub use order_path::{
     PreflightApprovedCancelOrder, PreflightApprovedPlaceOrder, SqliteOrderPathReadStore,
     SqliteOrderPathRedactedRecord, SqliteOrderPathStore, SqliteOrderPathTransitionAudit,
     SqliteRuntimeDirectoryIssue, SqliteWriterLockMetadata,
+};
+pub use paper::{
+    PaperAck, PaperAckKind, PaperExecutionMode, PaperFillPolicy, PaperIntent, PaperIntentKind,
+    PaperLedgerInvariantError, PaperLedgerSnapshot, PaperOrder, PaperOrderId, PaperOrderStatus,
+    PaperPosition, PaperRuntimeState, PaperSafetyBoundary, PaperTrade, PaperTradeId,
+    RiskGatePaperLedgerRecord, RiskGatePaperState, RuntimeBarInput, RuntimeBarOrigin,
+    RuntimeDecisionId, RuntimeDecisionRecord, RuntimeSuppressionReason, RuntimeSuppressionRecord,
 };
 pub use parity::{
     compare_broker_truth_for_instrument, compare_final_bars_for_instrument, BrokerBarParityReport,
