@@ -791,6 +791,149 @@ fn validate_paper_runtime_adapter_config(
     Ok(())
 }
 
+pub trait PaperRuntimePublishSink {
+    fn publish(
+        &mut self,
+        record: PaperRuntimePublishRecord,
+    ) -> Result<(), PaperRuntimePublishSinkError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PaperRuntimePublishSinkError {
+    #[error("paper runtime publish sink rejected record: {0}")]
+    Rejected(String),
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PaperRuntimeInMemorySink {
+    records: Vec<PaperRuntimePublishRecord>,
+}
+
+impl PaperRuntimeInMemorySink {
+    pub fn new() -> Self {
+        Self {
+            records: Vec::new(),
+        }
+    }
+
+    pub fn records(&self) -> &[PaperRuntimePublishRecord] {
+        &self.records
+    }
+
+    pub fn into_records(self) -> Vec<PaperRuntimePublishRecord> {
+        self.records
+    }
+}
+
+impl PaperRuntimePublishSink for PaperRuntimeInMemorySink {
+    fn publish(
+        &mut self,
+        record: PaperRuntimePublishRecord,
+    ) -> Result<(), PaperRuntimePublishSinkError> {
+        self.records.push(record);
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PaperRuntimeAdapterLoop {
+    bar_publisher: PaperRuntimeBarPublisher,
+    adapter: PaperRuntimeAdapter,
+}
+
+impl PaperRuntimeAdapterLoop {
+    pub fn new(
+        bar_publisher: PaperRuntimeBarPublisher,
+        adapter: PaperRuntimeAdapter,
+    ) -> Result<Self, PaperRuntimeAdapterLoopError> {
+        if bar_publisher.config().instrument != adapter.config().ledger.instrument {
+            return Err(PaperRuntimeAdapterLoopError::InstrumentMismatch);
+        }
+        if !bar_publisher.config().safety_boundary.is_closed()
+            || !adapter.config().safety_boundary.is_closed()
+        {
+            return Err(PaperRuntimeAdapterLoopError::LiveBoundaryOpen);
+        }
+        Ok(Self {
+            bar_publisher,
+            adapter,
+        })
+    }
+
+    pub fn adapter(&self) -> &PaperRuntimeAdapter {
+        &self.adapter
+    }
+
+    pub fn observe_source_bar<S: PaperRuntimePublishSink>(
+        &mut self,
+        source_bar: Bar,
+        intents: Vec<PaperIntent>,
+        sink: &mut S,
+    ) -> Result<PaperRuntimeAdapterLoopOutcome, PaperRuntimeAdapterLoopError> {
+        match self.bar_publisher.observe_source_bar(source_bar) {
+            PaperRuntimeBarPublishOutcome::Buffered {
+                bucket_open_ts,
+                buffered_count,
+            } => Ok(PaperRuntimeAdapterLoopOutcome::Buffered {
+                bucket_open_ts,
+                buffered_count,
+            }),
+            PaperRuntimeBarPublishOutcome::DroppedIncompleteBucket {
+                bucket_open_ts,
+                buffered_count,
+            } => Ok(PaperRuntimeAdapterLoopOutcome::DroppedIncompleteBucket {
+                bucket_open_ts,
+                buffered_count,
+            }),
+            PaperRuntimeBarPublishOutcome::Rejected { reason } => {
+                Ok(PaperRuntimeAdapterLoopOutcome::SourceRejected { reason })
+            }
+            PaperRuntimeBarPublishOutcome::Published { runtime_input, .. } => {
+                let adapter_outcome = self.adapter.observe_runtime_bar(*runtime_input, intents)?;
+                let publish_count = adapter_outcome.publish_plan.len();
+                for record in adapter_outcome.publish_plan.iter().cloned() {
+                    sink.publish(record)?;
+                }
+                Ok(PaperRuntimeAdapterLoopOutcome::Published {
+                    publish_count,
+                    adapter_outcome: Box::new(adapter_outcome),
+                })
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum PaperRuntimeAdapterLoopOutcome {
+    Buffered {
+        bucket_open_ts: DateTime<Utc>,
+        buffered_count: usize,
+    },
+    Published {
+        publish_count: usize,
+        adapter_outcome: Box<PaperRuntimeAdapterOutcome>,
+    },
+    DroppedIncompleteBucket {
+        bucket_open_ts: DateTime<Utc>,
+        buffered_count: usize,
+    },
+    SourceRejected {
+        reason: PaperRuntimeBarPublishRejectReason,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PaperRuntimeAdapterLoopError {
+    #[error("paper runtime adapter loop safety boundary is open")]
+    LiveBoundaryOpen,
+    #[error("paper runtime adapter loop instrument mismatch")]
+    InstrumentMismatch,
+    #[error("paper runtime adapter failed: {0}")]
+    Adapter(#[from] PaperRuntimeAdapterError),
+    #[error("paper runtime publish sink failed: {0}")]
+    Sink(#[from] PaperRuntimePublishSinkError),
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaperLedgerSnapshot {
     pub schema_version: u16,
@@ -1590,6 +1733,11 @@ mod tests {
         .expect("valid paper runtime adapter")
     }
 
+    fn paper_runtime_loop() -> PaperRuntimeAdapterLoop {
+        PaperRuntimeAdapterLoop::new(paper_bar_publisher(), paper_runtime_adapter())
+            .expect("valid paper runtime adapter loop")
+    }
+
     #[test]
     fn paper_execution_mode_matches_alor_live_only_vs_history_sim_gate() {
         assert!(PaperExecutionMode::LiveOnly.can_advance(RuntimeBarOrigin::Live));
@@ -2091,5 +2239,148 @@ mod tests {
             PaperRuntimeAdapter::new(config, ts(0)).expect_err("open boundary rejected"),
             PaperRuntimeAdapterError::LiveBoundaryOpen
         );
+    }
+
+    #[test]
+    fn paper_runtime_loop_buffers_without_sink_publish_until_m10_complete() {
+        let mut runtime_loop = paper_runtime_loop();
+        let mut sink = PaperRuntimeInMemorySink::new();
+
+        for minute in 0..9 {
+            let outcome = runtime_loop
+                .observe_source_bar(
+                    m1_bar(minute, MarketDataSourceKind::LiveStream, true),
+                    Vec::new(),
+                    &mut sink,
+                )
+                .expect("buffered");
+            assert!(matches!(
+                outcome,
+                PaperRuntimeAdapterLoopOutcome::Buffered { .. }
+            ));
+            assert!(sink.records().is_empty());
+        }
+    }
+
+    #[test]
+    fn paper_runtime_loop_publishes_state_only_plan_on_complete_m10() {
+        let mut runtime_loop = paper_runtime_loop();
+        let mut sink = PaperRuntimeInMemorySink::new();
+        for minute in 0..9 {
+            runtime_loop
+                .observe_source_bar(
+                    m1_bar(minute, MarketDataSourceKind::LiveStream, true),
+                    Vec::new(),
+                    &mut sink,
+                )
+                .expect("buffered");
+        }
+
+        let outcome = runtime_loop
+            .observe_source_bar(
+                m1_bar(9, MarketDataSourceKind::LiveStream, true),
+                Vec::new(),
+                &mut sink,
+            )
+            .expect("published");
+        let PaperRuntimeAdapterLoopOutcome::Published {
+            publish_count,
+            adapter_outcome,
+        } = outcome
+        else {
+            panic!("expected published outcome");
+        };
+        assert_eq!(publish_count, 1);
+        assert!(adapter_outcome.state_only);
+        assert_eq!(sink.records().len(), 1);
+        assert_eq!(
+            sink.records()[0].stream,
+            "finam_imoexf_paper:runtime:state:hybrid_intraday:imoexf"
+        );
+    }
+
+    #[test]
+    fn paper_runtime_loop_publishes_intent_order_trade_position_ack_and_state() {
+        let mut runtime_loop = paper_runtime_loop();
+        let mut sink = PaperRuntimeInMemorySink::new();
+        for minute in 10..19 {
+            runtime_loop
+                .observe_source_bar(
+                    m1_bar(minute, MarketDataSourceKind::LiveStream, true),
+                    Vec::new(),
+                    &mut sink,
+                )
+                .expect("buffered");
+        }
+        let intent = PaperIntent::from_decision(
+            PaperIntentKind::Enter,
+            decision("decision-buy", OrderSide::Buy, 10),
+        );
+        let outcome = runtime_loop
+            .observe_source_bar(
+                m1_bar(19, MarketDataSourceKind::LiveStream, true),
+                vec![intent],
+                &mut sink,
+            )
+            .expect("published intent path");
+        let PaperRuntimeAdapterLoopOutcome::Published {
+            publish_count,
+            adapter_outcome,
+        } = outcome
+        else {
+            panic!("expected published outcome");
+        };
+        assert_eq!(publish_count, 6);
+        assert_eq!(adapter_outcome.filled_count, 1);
+        assert_eq!(sink.records().len(), 6);
+        assert_eq!(
+            runtime_loop.adapter().ledger().target_position_qty(),
+            Decimal::ONE
+        );
+    }
+
+    #[test]
+    fn paper_runtime_loop_returns_source_reject_without_sink_publish() {
+        let mut runtime_loop = paper_runtime_loop();
+        let mut sink = PaperRuntimeInMemorySink::new();
+        let outcome = runtime_loop
+            .observe_source_bar(
+                m1_bar(0, MarketDataSourceKind::Recovery, true),
+                Vec::new(),
+                &mut sink,
+            )
+            .expect("source reject is loop outcome");
+        assert!(matches!(
+            outcome,
+            PaperRuntimeAdapterLoopOutcome::SourceRejected {
+                reason: PaperRuntimeBarPublishRejectReason::NonLiveSourceKind { .. }
+            }
+        ));
+        assert!(sink.records().is_empty());
+    }
+
+    #[test]
+    fn paper_runtime_loop_drops_incomplete_bucket_without_publish() {
+        let mut runtime_loop = paper_runtime_loop();
+        let mut sink = PaperRuntimeInMemorySink::new();
+        runtime_loop
+            .observe_source_bar(
+                m1_bar(0, MarketDataSourceKind::LiveStream, true),
+                Vec::new(),
+                &mut sink,
+            )
+            .expect("first bar buffered");
+        let outcome = runtime_loop
+            .observe_source_bar(
+                m1_bar(10, MarketDataSourceKind::LiveStream, true),
+                Vec::new(),
+                &mut sink,
+            )
+            .expect("gap outcome");
+        assert!(matches!(
+            outcome,
+            PaperRuntimeAdapterLoopOutcome::DroppedIncompleteBucket { .. }
+        ));
+        assert!(sink.records().is_empty());
     }
 }
