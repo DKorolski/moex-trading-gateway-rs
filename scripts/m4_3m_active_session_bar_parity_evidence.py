@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""M4-3m active-session ALOR native 10m vs FINAM derived 10m evidence.
+"""M4-3m active-session ALOR native/derived 10m vs FINAM derived 10m evidence.
 
 Default mode performs a bounded Redis read if Redis is available and emits a
 reviewable report. It does not call broker APIs, WebSocket endpoints, SSH, or
@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shlex
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -103,8 +104,15 @@ def parse_redis_json_entries(stdout: str) -> list[tuple[str, str]]:
     return entries
 
 
-def redis_xrevrange(redis_url: str, stream: str, count: int) -> dict[str, Any]:
-    cmd = ["redis-cli", "--json"]
+def redis_cli_base(redis_cli_prefix: str, json_mode: bool) -> list[str]:
+    cmd = shlex.split(redis_cli_prefix)
+    if json_mode:
+        cmd.append("--json")
+    return cmd
+
+
+def redis_xrevrange(redis_url: str, redis_cli_prefix: str, stream: str, count: int) -> dict[str, Any]:
+    cmd = redis_cli_base(redis_cli_prefix, json_mode=True)
     if redis_url:
         cmd.extend(["-u", redis_url])
     cmd.extend(["XREVRANGE", stream, "+", "-", "COUNT", str(count)])
@@ -139,8 +147,9 @@ def redis_xrevrange(redis_url: str, stream: str, count: int) -> dict[str, Any]:
     return result
 
 
-def stream_exists(redis_url: str, stream: str) -> bool:
-    cmd = ["redis-cli", "--raw"]
+def stream_exists(redis_url: str, redis_cli_prefix: str, stream: str) -> bool:
+    cmd = redis_cli_base(redis_cli_prefix, json_mode=False)
+    cmd.append("--raw")
     if redis_url:
         cmd.extend(["-u", redis_url])
     cmd.extend(["EXISTS", stream])
@@ -157,12 +166,15 @@ def parse_alor_v1_bar(payload_text: str, stream: str) -> Bar | None:
     if not symbol:
         return None
     timeframe_sec = 600 if stream.endswith(".10m") else 60
-    close_ts = int(payload["close_time_utc"])
+    # ALOR v1 bar envelopes keep the historical field name `close_time_utc`,
+    # but the active 10m MOEX stream uses it as the bucket timestamp/open.
+    # The event itself is emitted after the bucket has closed.
+    open_ts = int(payload["close_time_utc"])
     return Bar(
         symbol=symbol,
         timeframe_sec=timeframe_sec,
-        open_ts=close_ts - timeframe_sec,
-        close_ts=close_ts,
+        open_ts=open_ts,
+        close_ts=open_ts + timeframe_sec,
         open=Decimal(str(payload["o"])),
         high=Decimal(str(payload["h"])),
         low=Decimal(str(payload["l"])),
@@ -197,7 +209,13 @@ def parse_finam_v2_market_bar(payload_text: str) -> Bar | None:
     )
 
 
-def aggregate_m1_to_m10(bars: list[Bar], symbol: str) -> tuple[list[Bar], dict[str, int]]:
+def aggregate_m1_to_m10(
+    bars: list[Bar],
+    symbol: str,
+    *,
+    output_source_kind: str,
+    accepted_source_kinds: set[str],
+) -> tuple[list[Bar], dict[str, int]]:
     final_m1 = sorted(
         [
             bar
@@ -205,18 +223,41 @@ def aggregate_m1_to_m10(bars: list[Bar], symbol: str) -> tuple[list[Bar], dict[s
             if bar.symbol == symbol
             and bar.timeframe_sec == 60
             and bar.is_final
-            and bar.source_kind == "LiveStream"
+            and bar.source_kind in accepted_source_kinds
         ],
         key=lambda bar: bar.open_ts,
     )
     metrics = {
         "source_final_m1_count": len(final_m1),
+        "deduped_final_m1_count": 0,
+        "exact_duplicate_m1_count": 0,
+        "conflicting_duplicate_m1_count": 0,
         "derived_m10_count": 0,
         "dropped_incomplete_bucket_count": 0,
         "gap_bucket_count": 0,
     }
-    buckets: dict[int, list[Bar]] = {}
+    deduped_by_open: dict[int, Bar] = {}
     for bar in final_m1:
+        existing = deduped_by_open.get(bar.open_ts)
+        if existing is None:
+            deduped_by_open[bar.open_ts] = bar
+            continue
+        if (
+            existing.close_ts == bar.close_ts
+            and existing.open == bar.open
+            and existing.high == bar.high
+            and existing.low == bar.low
+            and existing.close == bar.close
+            and existing.volume == bar.volume
+        ):
+            metrics["exact_duplicate_m1_count"] += 1
+            continue
+        metrics["conflicting_duplicate_m1_count"] += 1
+        deduped_by_open[bar.open_ts] = bar
+    deduped = sorted(deduped_by_open.values(), key=lambda bar: bar.open_ts)
+    metrics["deduped_final_m1_count"] = len(deduped)
+    buckets: dict[int, list[Bar]] = {}
+    for bar in deduped:
         buckets.setdefault(bucket_open_ts(bar.open_ts, 600), []).append(bar)
 
     derived: list[Bar] = []
@@ -242,7 +283,7 @@ def aggregate_m1_to_m10(bars: list[Bar], symbol: str) -> tuple[list[Bar], dict[s
                 close=bucket[-1].close,
                 volume=sum((bar.volume for bar in bucket), Decimal("0")),
                 is_final=True,
-                source_kind="FinamDerivedM1ToM10",
+                source_kind=output_source_kind,
             )
         )
     metrics["derived_m10_count"] = len(derived)
@@ -281,42 +322,78 @@ def summarize_bar(bar: Bar) -> dict[str, Any]:
     }
 
 
-def compare_alor_finam(alor_bars: list[Bar], finam_derived: list[Bar], symbol: str) -> dict[str, Any]:
-    alor_by_open = {bar.open_ts: bar for bar in alor_bars if bar.symbol == symbol and bar.timeframe_sec == 600}
-    finam_by_open = {bar.open_ts: bar for bar in finam_derived}
-    all_opens = sorted(set(alor_by_open) | set(finam_by_open))
+def summarize_latest_bar(bars: list[Bar]) -> dict[str, Any] | None:
+    if not bars:
+        return None
+    return summarize_bar(max(bars, key=lambda bar: bar.close_ts))
+
+
+def compare_bar_sets(
+    left_bars: list[Bar],
+    right_bars: list[Bar],
+    symbol: str,
+    *,
+    left_label: str,
+    right_label: str,
+    missing_left_issue: str,
+    missing_right_issue: str,
+    require_overlap: bool = True,
+) -> dict[str, Any]:
+    left_by_open = {bar.open_ts: bar for bar in left_bars if bar.symbol == symbol and bar.timeframe_sec == 600}
+    right_by_open = {bar.open_ts: bar for bar in right_bars if bar.symbol == symbol and bar.timeframe_sec == 600}
+    overlap_opens = sorted(set(left_by_open) & set(right_by_open))
+    all_opens = overlap_opens if require_overlap else sorted(set(left_by_open) | set(right_by_open))
     comparisons = []
     blocking_issue_count = 0
     for open_ts in all_opens:
-        alor = alor_by_open.get(open_ts)
-        finam = finam_by_open.get(open_ts)
-        if alor is None:
-            issues = ["MissingAlorBar"]
+        left = left_by_open.get(open_ts)
+        right = right_by_open.get(open_ts)
+        if left is None:
+            issues = [missing_left_issue]
             blocking_issue_count += 1
-            comparisons.append({"open_ts": open_ts, "issues": issues, "finam": summarize_bar(finam)})
+            comparisons.append({"open_ts": open_ts, "issues": issues, right_label: summarize_bar(right)})
             continue
-        if finam is None:
-            issues = ["MissingFinamDerivedBar"]
+        if right is None:
+            issues = [missing_right_issue]
             blocking_issue_count += 1
-            comparisons.append({"open_ts": open_ts, "issues": issues, "alor": summarize_bar(alor)})
+            comparisons.append({"open_ts": open_ts, "issues": issues, left_label: summarize_bar(left)})
             continue
-        issues = compare_bar_pair(alor, finam)
+        issues = compare_bar_pair(left, right)
         blocking_issue_count += len([issue for issue in issues if issue != "SourceKindDiagnostic"])
         comparisons.append(
             {
                 "open_ts": open_ts,
                 "issues": issues,
-                "alor": summarize_bar(alor),
-                "finam": summarize_bar(finam),
+                left_label: summarize_bar(left),
+                right_label: summarize_bar(right),
             }
         )
     return {
-        "matched_bucket_count": sum(1 for item in comparisons if "alor" in item and "finam" in item),
+        "left_label": left_label,
+        "right_label": right_label,
+        "left_bucket_count": len(left_by_open),
+        "right_bucket_count": len(right_by_open),
+        "overlap_bucket_count": len(overlap_opens),
+        "matched_bucket_count": sum(1 for item in comparisons if left_label in item and right_label in item),
         "comparison_count": len(comparisons),
         "blocking_issue_count": blocking_issue_count,
         "bars_synchronized": bool(comparisons) and blocking_issue_count == 0,
+        "status": "Synchronized" if comparisons and blocking_issue_count == 0 else ("NoOverlap" if not overlap_opens else "Diff"),
         "comparisons": comparisons[-20:],
     }
+
+
+def compare_alor_finam(alor_bars: list[Bar], finam_derived: list[Bar], symbol: str) -> dict[str, Any]:
+    return compare_bar_sets(
+        alor_bars,
+        finam_derived,
+        symbol,
+        left_label="alor",
+        right_label="finam",
+        missing_left_issue="MissingAlorBar",
+        missing_right_issue="MissingFinamDerivedBar",
+        require_overlap=True,
+    )
 
 
 def self_test_report() -> dict[str, Any]:
@@ -325,7 +402,12 @@ def self_test_report() -> dict[str, Any]:
         Bar("IMOEXF", 60, base + i * 60, base + (i + 1) * 60, Decimal("100") + i, Decimal("102") + i, Decimal("99") - i, Decimal("101") + i, Decimal("10") + i, True, "LiveStream")
         for i in range(10)
     ]
-    derived, metrics = aggregate_m1_to_m10(m1, "IMOEXF")
+    derived, metrics = aggregate_m1_to_m10(
+        m1,
+        "IMOEXF",
+        output_source_kind="FinamDerivedM1ToM10",
+        accepted_source_kinds={"LiveStream"},
+    )
     alor = [
         Bar(
             "IMOEXF",
@@ -350,18 +432,30 @@ def self_test_report() -> dict[str, Any]:
 
 
 def collect_runtime(args: argparse.Namespace) -> dict[str, Any]:
-    alor_exists = stream_exists(args.redis_url, args.alor_stream)
-    finam_exists = stream_exists(args.redis_url, args.finam_stream)
-    alor_read = redis_xrevrange(args.redis_url, args.alor_stream, args.count) if alor_exists else None
-    finam_read = redis_xrevrange(args.redis_url, args.finam_stream, args.count) if finam_exists else None
+    alor_exists = stream_exists(args.redis_url, args.redis_cli_prefix, args.alor_native_stream)
+    alor_m1_exists = stream_exists(args.redis_url, args.redis_cli_prefix, args.alor_m1_stream) if args.alor_m1_stream else False
+    finam_exists = stream_exists(args.redis_url, args.redis_cli_prefix, args.finam_stream)
+    alor_read = redis_xrevrange(args.redis_url, args.redis_cli_prefix, args.alor_native_stream, args.count) if alor_exists else None
+    alor_m1_read = redis_xrevrange(args.redis_url, args.redis_cli_prefix, args.alor_m1_stream, args.count) if alor_m1_exists else None
+    finam_read = redis_xrevrange(args.redis_url, args.redis_cli_prefix, args.finam_stream, args.count) if finam_exists else None
 
     alor_bars: list[Bar] = []
     if alor_read:
         for _, payload in alor_read["entries"]:
             try:
-                bar = parse_alor_v1_bar(payload, args.alor_stream)
+                bar = parse_alor_v1_bar(payload, args.alor_native_stream)
                 if bar:
                     alor_bars.append(bar)
+            except Exception:
+                continue
+
+    alor_m1: list[Bar] = []
+    if alor_m1_read:
+        for _, payload in alor_m1_read["entries"]:
+            try:
+                bar = parse_alor_v1_bar(payload, args.alor_m1_stream)
+                if bar:
+                    alor_m1.append(bar)
             except Exception:
                 continue
 
@@ -375,17 +469,62 @@ def collect_runtime(args: argparse.Namespace) -> dict[str, Any]:
             except Exception:
                 continue
 
-    finam_derived, aggregation_metrics = aggregate_m1_to_m10(finam_m1, args.symbol)
-    comparison = compare_alor_finam(alor_bars, finam_derived, args.symbol) if alor_bars else None
+    alor_derived, alor_aggregation_metrics = aggregate_m1_to_m10(
+        alor_m1,
+        args.symbol,
+        output_source_kind="AlorDerivedM1ToM10",
+        accepted_source_kinds={"live", "history"},
+    )
+    finam_derived, aggregation_metrics = aggregate_m1_to_m10(
+        finam_m1,
+        args.symbol,
+        output_source_kind="FinamDerivedM1ToM10",
+        accepted_source_kinds={"LiveStream"},
+    )
+    native_vs_alor_derived = (
+        compare_bar_sets(
+            alor_bars,
+            alor_derived,
+            args.symbol,
+            left_label="alor_native",
+            right_label="alor_derived",
+            missing_left_issue="MissingAlorNativeBar",
+            missing_right_issue="MissingAlorDerivedBar",
+            require_overlap=True,
+        )
+        if alor_bars and alor_derived
+        else None
+    )
+    comparison = compare_alor_finam(alor_bars, finam_derived, args.symbol) if alor_bars and finam_derived else None
+    derived_vs_derived = (
+        compare_bar_sets(
+            alor_derived,
+            finam_derived,
+            args.symbol,
+            left_label="alor_derived",
+            right_label="finam_derived",
+            missing_left_issue="MissingAlorDerivedBar",
+            missing_right_issue="MissingFinamDerivedBar",
+            require_overlap=True,
+        )
+        if alor_derived and finam_derived
+        else None
+    )
     pending_reasons = []
     if not alor_exists:
         pending_reasons.append("MissingAlorOracleStream")
+    if args.alor_m1_stream and not alor_m1_exists:
+        pending_reasons.append("MissingAlorM1Stream")
     if not finam_exists:
         pending_reasons.append("MissingFinamShadowStream")
     if finam_exists and not finam_derived:
         pending_reasons.append("NoCompleteFinamDerivedM10Bucket")
     if alor_exists and not alor_bars:
         pending_reasons.append("NoAlorNativeM10BarsDecoded")
+    if alor_m1_exists and not alor_derived:
+        pending_reasons.append("NoCompleteAlorDerivedM10Bucket")
+    if comparison is None and alor_derived and finam_derived and (derived_vs_derived or {}).get("status") == "NoOverlap":
+        pending_reasons.append("NoAlorFinamDerivedM10Overlap")
 
     runtime_status = "Closed" if comparison and comparison["bars_synchronized"] else "Pending"
     return {
@@ -393,11 +532,19 @@ def collect_runtime(args: argparse.Namespace) -> dict[str, Any]:
         "pending_reasons": pending_reasons,
         "redis_available": alor_exists or finam_exists,
         "alor_stream": {
-            "name": args.alor_stream,
+            "name": args.alor_native_stream,
             "exists": alor_exists,
             "read_entry_count": None if alor_read is None else alor_read["entry_count"],
             "decoded_bar_count": len(alor_bars),
-            "latest_bar": summarize_bar(alor_bars[-1]) if alor_bars else None,
+            "latest_bar": summarize_latest_bar(alor_bars),
+        },
+        "alor_m1_stream": {
+            "name": args.alor_m1_stream,
+            "exists": alor_m1_exists,
+            "read_entry_count": None if alor_m1_read is None else alor_m1_read["entry_count"],
+            "decoded_m1_bar_count": len(alor_m1),
+            "aggregation_metrics": alor_aggregation_metrics,
+            "latest_derived_m10_bar": summarize_latest_bar(alor_derived),
         },
         "finam_stream": {
             "name": args.finam_stream,
@@ -405,9 +552,11 @@ def collect_runtime(args: argparse.Namespace) -> dict[str, Any]:
             "read_entry_count": None if finam_read is None else finam_read["entry_count"],
             "decoded_m1_bar_count": len(finam_m1),
             "aggregation_metrics": aggregation_metrics,
-            "latest_derived_m10_bar": summarize_bar(finam_derived[-1]) if finam_derived else None,
+            "latest_derived_m10_bar": summarize_latest_bar(finam_derived),
         },
         "comparison": comparison,
+        "native_vs_alor_derived_comparison": native_vs_alor_derived,
+        "alor_derived_vs_finam_derived_comparison": derived_vs_derived,
     }
 
 
@@ -431,6 +580,7 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
                 "parse_alor_v1_bar",
                 "parse_finam_v2_market_bar",
                 "aggregate_m1_to_m10",
+                "AlorDerivedM1ToM10",
                 "compare_alor_finam",
                 "MissingAlorOracleStream",
                 "post_delete_calls_performed",
@@ -452,7 +602,7 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
     runtime = collect_runtime(args)
     ok = all(check.get("ok") for check in source_checks.values()) and commands["python_compile"]["exit_code"] == 0 and commands["self_test"]["ok"]
     report = {
-        "evidence_kind": "m4-3m-active-session-alor-native-10m-vs-finam-derived-m10-evidence-v1",
+        "evidence_kind": "m4-3m-active-session-alor-native-derived-10m-vs-finam-derived-m10-evidence-v2",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "source_commit_full_sha": git_head(),
         "ok": ok,
@@ -460,6 +610,7 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
         "commands": commands,
         "runtime": runtime,
         "alor_oracle_source_mode": "AlorNativeBarsGetAndSubscribeTf600",
+        "alor_derived_source_mode": "AlorDerivedM1ToM10OptionalCrossCheck",
         "finam_source_mode": "FinamDerivedM1ToM10",
         "provenance_required": True,
         "raw_redis_payload_exported": False,
@@ -479,11 +630,21 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--redis-cli-prefix",
+        default="redis-cli",
+        help="Command prefix used to invoke redis-cli; may include ssh/docker exec for read-only remote evidence",
+    )
     parser.add_argument("--redis-url", default="redis://127.0.0.1/", help="Redis URL for read-only stream reads")
     parser.add_argument(
-        "--alor-stream",
+        "--alor-native-stream",
         default="md.bars.ALOR_PORTFOLIO.10m",
         help="ALOR native 10m oracle stream",
+    )
+    parser.add_argument(
+        "--alor-m1-stream",
+        default="",
+        help="Optional ALOR 1m stream for native-vs-assembled M10 cross-check",
     )
     parser.add_argument("--finam-stream", default="finam_ws_shadow:market_data", help="FINAM WS shadow market-data stream")
     parser.add_argument("--symbol", default="IMOEXF", help="Target symbol")

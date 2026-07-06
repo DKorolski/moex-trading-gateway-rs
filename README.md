@@ -211,9 +211,12 @@ alone is insufficient. Strategy-facing FINAM 10m bars must be
 rejected while characterization is pending.
 M4-3m adds active-session bar parity tooling: it reads ALOR native 10m Redis
 bars and FINAM `finam_ws_shadow:market_data`, derives FINAM M1-to-M10 buckets,
-and reports synchronized bars or explicit pending reasons such as
-`MissingAlorOracleStream`. It exports no raw Redis payload and still keeps
-runtime-live, real command consumer, and order endpoints disabled.
+dedupes exact duplicate FINAM M1 bars, normalizes ALOR active 10m timestamps as
+bucket-open timestamps, and reports synchronized bars or explicit pending
+reasons such as `MissingAlorOracleStream`. Optional ALOR M1-to-M10 assembly can
+be supplied as a native-vs-assembled cross-check. It exports no raw Redis
+payload and still keeps runtime-live, real command consumer, and order
+endpoints disabled.
 M4-3e gates FINAM WS strategy bar publication: stale WS final-bar backlog is
 still counted and reported, but only fresh final live bars are published as
 strategy market-data bars. This prevents stale WebSocket backlog from reaching
