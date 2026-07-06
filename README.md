@@ -174,6 +174,10 @@ M4-3h-c adds controlled recovery acceptance evidence: the loop starts from an
 intentionally older final-bar watermark, replays a bounded warm gap with overlap,
 and requires recovery `LiveReady` without enabling runtime-live or order
 surfaces.
+M4-3i adds a session-aware bar silence watchdog: FINAM schedule data determines
+whether final-bar silence is an active-session feed problem or an expected
+closed/break/maintenance interval, without enabling runtime-live or order
+surfaces.
 M4-3e gates FINAM WS strategy bar publication: stale WS final-bar backlog is
 still counted and reported, but only fresh final live bars are published as
 strategy market-data bars. This prevents stale WebSocket backlog from reaching
@@ -377,6 +381,7 @@ See:
 - [M4-3h-a REST Bars replay evidence](docs/m4-3h-a-rest-bars-replay-evidence.md)
 - [M4-3h-b replay wiring loop evidence](docs/m4-3h-b-replay-wiring-loop-evidence.md)
 - [M4-3h-c controlled recovery acceptance evidence](docs/m4-3h-c-controlled-recovery-acceptance-evidence.md)
+- [M4-3i session-aware bar silence watchdog](docs/m4-3i-session-aware-bar-silence-watchdog.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

@@ -8,8 +8,8 @@ use broker_core::CancelPreflightApproval;
 use broker_core::{
     BrokerAccountId, BrokerCapabilityMatrix, BrokerCommand, BrokerFreshnessConfig,
     BrokerLifecycleConfig, BrokerLiveEntryScope, BrokerMarketDataLifecycleInput,
-    BrokerMarketDataLifecycleSnapshot, BrokerOperationalConfig, BrokerOrderId,
-    BrokerPlainMicroStopOrderWaiverPolicy, BrokerReadiness, BrokerRiskLimitConfig,
+    BrokerMarketDataLifecycleSnapshot, BrokerMarketSessionState, BrokerOperationalConfig,
+    BrokerOrderId, BrokerPlainMicroStopOrderWaiverPolicy, BrokerReadiness, BrokerRiskLimitConfig,
     BrokerScopeConfig, BrokerTimeoutConfig, BrokerTruthSnapshot, ClientOrderId, ClosedBarFinalizer,
     ClosedBarFinalizerActionKind, Envelope, Exchange, InMemoryOrderPathStore, InstrumentId, Market,
     MarketDataEvent, MarketDataLifecyclePhase, MarketDataRecoveryInput, MarketDataRecoveryMode,
@@ -24,10 +24,10 @@ use broker_finam::{
     active_orders, has_blocking_unknown_order_statuses, instrument_id_from_symbol,
     map_account_trade, map_bar, map_finam_broker_truth_snapshot, map_latest_market_trade,
     map_order_state, map_portfolio_snapshot, map_quote, map_ws_market_data_events,
-    redact_json_key_for_diagnostics, terminal_orders, AccessToken, AllAssetsQuery, BarsQuery,
-    FinamApiCapabilities, FinamAuthManager, FinamConfig, FinamError, FinamInstrumentSpecArtifacts,
-    FinamMapperError, FinamRestClient, FinamWsEnvelope, FinamWsMapperError, GatewayEnabledFeatures,
-    HistoryQuery, SecretToken,
+    redact_json_key_for_diagnostics, terminal_orders, AccessToken, AllAssetsQuery,
+    AssetScheduleResponse, BarsQuery, FinamApiCapabilities, FinamAuthManager, FinamConfig,
+    FinamError, FinamInstrumentSpecArtifacts, FinamMapperError, FinamRestClient, FinamWsEnvelope,
+    FinamWsMapperError, GatewayEnabledFeatures, HistoryQuery, SecretToken,
 };
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_finam::{
@@ -1840,9 +1840,26 @@ struct FinamWsShadowIterationReport {
     stop_reason: String,
     metrics: FinamWsShadowMetrics,
     recovery_replay: FinamWsRecoveryReplaySummary,
+    session_silence_watchdog: FinamWsSessionSilenceWatchdogReport,
     market_data_lifecycle: BrokerMarketDataLifecycleSnapshot,
     readiness_phase: String,
     readiness_reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FinamWsSessionSilenceWatchdogReport {
+    enabled: bool,
+    schedule_fetch_ok: bool,
+    schedule_error_kind: Option<String>,
+    session_state: BrokerMarketSessionState,
+    session_count: u64,
+    checked_ts: DateTime<Utc>,
+    silence_threshold_sec: u64,
+    last_fresh_live_final_bar_close_ts: Option<DateTime<Utc>>,
+    seconds_since_last_fresh_final: Option<u64>,
+    silence_alert: bool,
+    alert_reason: Option<&'static str>,
+    session_closed_no_silence_alert: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2215,9 +2232,14 @@ async fn run_finam_ws_shadow_iteration(
         }
     }
 
+    let checked_ts = Utc::now();
+    let session_silence_watchdog =
+        finam_ws_session_silence_watchdog(runtime, &token, &metrics, timeframe_sec, checked_ts)
+            .await;
     let market_data_lifecycle =
-        finam_ws_shadow_market_data_lifecycle(runtime, &metrics, timeframe_sec, Utc::now());
-    let readiness = finam_ws_shadow_readiness(runtime, &market_data_lifecycle);
+        finam_ws_shadow_market_data_lifecycle(runtime, &metrics, timeframe_sec, checked_ts);
+    let readiness =
+        finam_ws_shadow_readiness(runtime, &market_data_lifecycle, &session_silence_watchdog);
     runtime.gateway.publish_readiness(readiness.clone()).await?;
     metrics.success_count = 1;
 
@@ -2227,6 +2249,7 @@ async fn run_finam_ws_shadow_iteration(
         stop_reason,
         metrics,
         recovery_replay,
+        session_silence_watchdog,
         market_data_lifecycle,
         readiness_phase: format!("{:?}", readiness.phase),
         readiness_reasons: readiness
@@ -2240,15 +2263,24 @@ async fn run_finam_ws_shadow_iteration(
 fn finam_ws_shadow_readiness(
     runtime: &FinamWsShadowRuntime,
     lifecycle: &BrokerMarketDataLifecycleSnapshot,
+    session_silence_watchdog: &FinamWsSessionSilenceWatchdogReport,
 ) -> BrokerReadiness {
-    finam_ws_shadow_readiness_from_lifecycle(runtime.resolved.subscribe_bars, lifecycle)
+    finam_ws_shadow_readiness_from_lifecycle(
+        runtime.resolved.subscribe_bars,
+        lifecycle,
+        session_silence_watchdog.silence_alert,
+    )
 }
 
 fn finam_ws_shadow_readiness_from_lifecycle(
     subscribe_bars: bool,
     lifecycle: &BrokerMarketDataLifecycleSnapshot,
+    session_silence_alert: bool,
 ) -> BrokerReadiness {
-    if !subscribe_bars || lifecycle.phase == MarketDataLifecyclePhase::Degraded {
+    if !subscribe_bars
+        || lifecycle.phase == MarketDataLifecyclePhase::Degraded
+        || session_silence_alert
+    {
         BrokerReadiness {
             phase: ReadinessPhase::Degraded,
             reasons: vec![ReadinessReason::MarketDataNotLive],
@@ -2319,6 +2351,130 @@ fn finam_ws_shadow_market_data_lifecycle_from_metrics(
 
 fn finam_ws_shadow_freshness_threshold_sec(timeframe_sec: u32) -> u64 {
     u64::from(timeframe_sec).saturating_mul(3).max(60)
+}
+
+async fn finam_ws_session_silence_watchdog(
+    runtime: &FinamWsShadowRuntime,
+    token: &AccessToken,
+    metrics: &FinamWsShadowMetrics,
+    timeframe_sec: u32,
+    checked_ts: DateTime<Utc>,
+) -> FinamWsSessionSilenceWatchdogReport {
+    let silence_threshold_sec = finam_ws_shadow_freshness_threshold_sec(timeframe_sec);
+    let seconds_since_last_fresh_final = metrics
+        .last_fresh_live_final_bar_close_ts
+        .map(|close_ts| live_final_bar_stale_for_sec(close_ts, checked_ts));
+
+    let schedule = runtime
+        .client
+        .asset_schedule_typed(token, &runtime.resolved.symbol)
+        .await;
+    match schedule {
+        Ok(schedule) => finam_ws_session_silence_watchdog_from_schedule(
+            &schedule,
+            metrics.last_fresh_live_final_bar_close_ts,
+            silence_threshold_sec,
+            checked_ts,
+        ),
+        Err(error) => FinamWsSessionSilenceWatchdogReport {
+            enabled: true,
+            schedule_fetch_ok: false,
+            schedule_error_kind: Some(finam_error_kind(&error).to_string()),
+            session_state: BrokerMarketSessionState::Unknown,
+            session_count: 0,
+            checked_ts,
+            silence_threshold_sec,
+            last_fresh_live_final_bar_close_ts: metrics.last_fresh_live_final_bar_close_ts,
+            seconds_since_last_fresh_final,
+            silence_alert: false,
+            alert_reason: Some("ScheduleFetchFailed"),
+            session_closed_no_silence_alert: false,
+        },
+    }
+}
+
+fn finam_ws_session_silence_watchdog_from_schedule(
+    schedule: &AssetScheduleResponse,
+    last_fresh_live_final_bar_close_ts: Option<DateTime<Utc>>,
+    silence_threshold_sec: u64,
+    checked_ts: DateTime<Utc>,
+) -> FinamWsSessionSilenceWatchdogReport {
+    let session_state = finam_ws_market_session_state_from_schedule(schedule, checked_ts);
+    let seconds_since_last_fresh_final = last_fresh_live_final_bar_close_ts
+        .map(|close_ts| live_final_bar_stale_for_sec(close_ts, checked_ts));
+    let silence_alert = session_state == BrokerMarketSessionState::Open
+        && seconds_since_last_fresh_final.map_or(true, |seconds| seconds > silence_threshold_sec);
+    let alert_reason = if silence_alert && last_fresh_live_final_bar_close_ts.is_none() {
+        Some("FirstFreshFinalMissing")
+    } else if silence_alert {
+        Some("FreshFinalSilenceExceeded")
+    } else if session_state == BrokerMarketSessionState::Unknown {
+        Some("SessionUnknown")
+    } else {
+        None
+    };
+
+    FinamWsSessionSilenceWatchdogReport {
+        enabled: true,
+        schedule_fetch_ok: true,
+        schedule_error_kind: None,
+        session_state,
+        session_count: schedule.sessions.len() as u64,
+        checked_ts,
+        silence_threshold_sec,
+        last_fresh_live_final_bar_close_ts,
+        seconds_since_last_fresh_final,
+        silence_alert,
+        alert_reason,
+        session_closed_no_silence_alert: matches!(
+            session_state,
+            BrokerMarketSessionState::Closed
+                | BrokerMarketSessionState::Break
+                | BrokerMarketSessionState::Maintenance
+        ) && !silence_alert,
+    }
+}
+
+fn finam_ws_market_session_state_from_schedule(
+    schedule: &AssetScheduleResponse,
+    checked_ts: DateTime<Utc>,
+) -> BrokerMarketSessionState {
+    if schedule.sessions.is_empty() {
+        return BrokerMarketSessionState::Unknown;
+    }
+    let mut parsed_any = false;
+    for session in &schedule.sessions {
+        let Some(interval) = &session.interval else {
+            continue;
+        };
+        let (Some(start_time), Some(end_time)) =
+            (interval.start_time.as_deref(), interval.end_time.as_deref())
+        else {
+            continue;
+        };
+        let (Ok(start), Ok(end)) = (
+            DateTime::parse_from_rfc3339(start_time),
+            DateTime::parse_from_rfc3339(end_time),
+        ) else {
+            continue;
+        };
+        parsed_any = true;
+        if checked_ts >= start.with_timezone(&Utc) && checked_ts < end.with_timezone(&Utc) {
+            let session_type = session.session_type.as_deref().unwrap_or_default();
+            if session_type.contains("BREAK") || session_type.contains("CLEARING") {
+                return BrokerMarketSessionState::Break;
+            }
+            if session_type.contains("MAINTENANCE") {
+                return BrokerMarketSessionState::Maintenance;
+            }
+            return BrokerMarketSessionState::Open;
+        }
+    }
+    if parsed_any {
+        BrokerMarketSessionState::Closed
+    } else {
+        BrokerMarketSessionState::Unknown
+    }
 }
 
 fn finam_ws_generation_id(iteration: u64) -> String {
@@ -3307,10 +3463,34 @@ fn finam_ws_shadow_report_json(
         "ws_generation": finam_ws_generation_subscription_state_json(&ws_generation),
         "market_data_lifecycle": market_data_lifecycle,
         "market_data": market_data,
+        "session_silence_watchdog": finam_ws_session_silence_watchdog_json(&report.session_silence_watchdog),
         "data_quality": finam_ws_data_quality_ledger_json(&data_quality_ledger),
         "recovery": finam_ws_recovery_report_json(&recovery_report, &recovery_source),
         "recovery_replay": finam_ws_recovery_replay_json(&report.recovery_replay),
         "metrics": metrics,
+    })
+}
+
+fn finam_ws_session_silence_watchdog_json(
+    watchdog: &FinamWsSessionSilenceWatchdogReport,
+) -> serde_json::Value {
+    serde_json::json!({
+        "schema": "m4_3i_session_aware_bar_silence_watchdog",
+        "enabled": watchdog.enabled,
+        "schedule_fetch_ok": watchdog.schedule_fetch_ok,
+        "schedule_error_kind": watchdog.schedule_error_kind,
+        "session_state": watchdog.session_state,
+        "session_count": watchdog.session_count,
+        "checked_ts": watchdog.checked_ts,
+        "silence_threshold_sec": watchdog.silence_threshold_sec,
+        "last_fresh_live_final_bar_close_ts": watchdog.last_fresh_live_final_bar_close_ts,
+        "seconds_since_last_fresh_final": watchdog.seconds_since_last_fresh_final,
+        "silence_alert": watchdog.silence_alert,
+        "alert_reason": watchdog.alert_reason,
+        "session_closed_no_silence_alert": watchdog.session_closed_no_silence_alert,
+        "order_post_delete_allowed": false,
+        "live_orders_allowed": false,
+        "runtime_live_attachment_allowed": false,
     })
 }
 
@@ -8618,6 +8798,7 @@ fn print_json(value: serde_json::Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use broker_finam::{ScheduleSession, TimeInterval};
     use chrono::TimeZone;
     use finam_gateway::{
         CancelBrokerTruthFreshnessPolicy, CancelBrokerTruthIdentityPolicy,
@@ -9047,7 +9228,7 @@ mod tests {
             60,
             now,
         );
-        let no_bars = finam_ws_shadow_readiness_from_lifecycle(true, &no_bars_lifecycle);
+        let no_bars = finam_ws_shadow_readiness_from_lifecycle(true, &no_bars_lifecycle, false);
         assert_eq!(
             no_bars_lifecycle.phase,
             MarketDataLifecyclePhase::LiveSubscribing
@@ -9071,7 +9252,7 @@ mod tests {
             60,
             now,
         );
-        let forming = finam_ws_shadow_readiness_from_lifecycle(true, &forming_lifecycle);
+        let forming = finam_ws_shadow_readiness_from_lifecycle(true, &forming_lifecycle, false);
         assert_eq!(
             forming_lifecycle.phase,
             MarketDataLifecyclePhase::LiveSubscribing
@@ -9091,7 +9272,7 @@ mod tests {
             now,
         );
         let no_bar_subscription =
-            finam_ws_shadow_readiness_from_lifecycle(false, &no_bar_subscription_lifecycle);
+            finam_ws_shadow_readiness_from_lifecycle(false, &no_bar_subscription_lifecycle, false);
         assert_eq!(no_bar_subscription.phase, ReadinessPhase::Degraded);
         assert_eq!(
             no_bar_subscription.reasons,
@@ -9118,7 +9299,8 @@ mod tests {
             60,
             now,
         );
-        let with_bars = finam_ws_shadow_readiness_from_lifecycle(true, &with_live_final_lifecycle);
+        let with_bars =
+            finam_ws_shadow_readiness_from_lifecycle(true, &with_live_final_lifecycle, false);
         assert_eq!(
             with_live_final_lifecycle.phase,
             MarketDataLifecyclePhase::LiveReady
@@ -9149,6 +9331,94 @@ mod tests {
             volume: rust_decimal::Decimal::new(1, 0),
             is_final: true,
         }
+    }
+
+    fn sample_schedule(
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+        session_type: &str,
+    ) -> AssetScheduleResponse {
+        AssetScheduleResponse {
+            symbol: "IMOEXF@RTSX".to_string(),
+            sessions: vec![ScheduleSession {
+                interval: Some(TimeInterval {
+                    start_time: Some(start.to_rfc3339()),
+                    end_time: Some(end.to_rfc3339()),
+                }),
+                session_type: Some(session_type.to_string()),
+            }],
+        }
+    }
+
+    #[test]
+    fn finam_ws_session_silence_watchdog_alerts_only_inside_open_session() {
+        let checked_ts = Utc.with_ymd_and_hms(2026, 7, 6, 10, 10, 0).unwrap();
+        let open_schedule = sample_schedule(
+            Utc.with_ymd_and_hms(2026, 7, 6, 9, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2026, 7, 6, 19, 0, 0).unwrap(),
+            "SESSION_TYPE_MAIN",
+        );
+        let stale_inside_session = finam_ws_session_silence_watchdog_from_schedule(
+            &open_schedule,
+            Some(Utc.with_ymd_and_hms(2026, 7, 6, 10, 0, 0).unwrap()),
+            180,
+            checked_ts,
+        );
+
+        assert_eq!(
+            stale_inside_session.session_state,
+            BrokerMarketSessionState::Open
+        );
+        assert!(stale_inside_session.silence_alert);
+        assert_eq!(
+            stale_inside_session.alert_reason,
+            Some("FreshFinalSilenceExceeded")
+        );
+
+        let closed_schedule = sample_schedule(
+            Utc.with_ymd_and_hms(2026, 7, 6, 7, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2026, 7, 6, 8, 0, 0).unwrap(),
+            "SESSION_TYPE_MAIN",
+        );
+        let stale_outside_session = finam_ws_session_silence_watchdog_from_schedule(
+            &closed_schedule,
+            Some(Utc.with_ymd_and_hms(2026, 7, 6, 10, 0, 0).unwrap()),
+            180,
+            checked_ts,
+        );
+
+        assert_eq!(
+            stale_outside_session.session_state,
+            BrokerMarketSessionState::Closed
+        );
+        assert!(!stale_outside_session.silence_alert);
+        assert!(stale_outside_session.session_closed_no_silence_alert);
+    }
+
+    #[test]
+    fn finam_ws_session_silence_watchdog_accepts_fresh_bar_inside_open_session() {
+        let checked_ts = Utc.with_ymd_and_hms(2026, 7, 6, 10, 10, 0).unwrap();
+        let open_schedule = sample_schedule(
+            Utc.with_ymd_and_hms(2026, 7, 6, 9, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2026, 7, 6, 19, 0, 0).unwrap(),
+            "SESSION_TYPE_MAIN",
+        );
+        let fresh_inside_session = finam_ws_session_silence_watchdog_from_schedule(
+            &open_schedule,
+            Some(Utc.with_ymd_and_hms(2026, 7, 6, 10, 9, 0).unwrap()),
+            180,
+            checked_ts,
+        );
+
+        assert_eq!(
+            fresh_inside_session.session_state,
+            BrokerMarketSessionState::Open
+        );
+        assert!(!fresh_inside_session.silence_alert);
+        assert_eq!(
+            fresh_inside_session.seconds_since_last_fresh_final,
+            Some(60)
+        );
     }
 
     #[test]
