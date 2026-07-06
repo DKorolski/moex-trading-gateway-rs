@@ -1,0 +1,100 @@
+{
+  "stand_kind": "finam_imoexf_hybrid_paper_shadow",
+  "schema_version": 1,
+  "redis_url": "redis://127.0.0.1:6379/",
+  "source": "finam-imoexf-hybrid-paper-shadow-vps",
+  "account_id": "ACC_TEST_0001",
+  "symbol": "IMOEXF@RTSX",
+  "portfolio": "ALOR_LIVE_ORACLE_PORTFOLIO",
+  "mode": {
+    "market_data": "real_finam_ws_shadow",
+    "strategy_runtime": "paper_shadow",
+    "live_orders": false,
+    "live_ready_allowed": false,
+    "command_consumer_to_real_finam": false,
+    "order_placement_enabled": false,
+    "stop_sltp_bracket_enabled": false,
+    "replace_enabled": false
+  },
+  "finam_ws_shadow": {
+    "timeframe": "TIME_FRAME_M1",
+    "subscribe_bars": true,
+    "subscribe_quotes": true,
+    "reconnect_delay_seconds": 5,
+    "recovery_replay_enabled": true,
+    "recovery_overlap_bars": 3,
+    "streams": {
+      "health": "finam_imoexf_paper:ws:health",
+      "readiness": "finam_imoexf_paper:ws:readiness",
+      "market_data": "finam_imoexf_paper:ws:market_data",
+      "portfolio": "finam_imoexf_paper:ws:portfolio_disabled",
+      "orders_snapshot": "finam_imoexf_paper:ws:orders_disabled",
+      "command_ack": "finam_imoexf_paper:ws:command_acks_disabled",
+      "runtime_bridge_dlq": "finam_imoexf_paper:ws:runtime_bridge_dlq"
+    }
+  },
+  "canonical_10m": {
+    "source_stream": "finam_imoexf_paper:ws:market_data",
+    "target_stream": "finam_imoexf_paper:md:bars:10m",
+    "source_timeframe_sec": 60,
+    "target_timeframe_sec": 600,
+    "bar_source_mode": "FinamDerivedM1ToM10",
+    "aggregation_complete_required": true,
+    "gap_absence_proven_required": true,
+    "raw_m1_strategy_input_allowed": false,
+    "finam_native_m10_strategy_input_allowed": false
+  },
+  "strategy": {
+    "strategy_id": "hybrid_imoexf",
+    "strategy_kind": "hybrid_intraday",
+    "profile": "imoexf_primary_riskgate_high180_lb120",
+    "symbol": "IMOEXF",
+    "qty": 3.0,
+    "live_order_style": "market",
+    "paper_intents_stream": "finam_imoexf_paper:runtime:intents",
+    "paper_acks_stream": "finam_imoexf_paper:runtime:paper_acks",
+    "runtime_state_stream": "finam_imoexf_paper:runtime:state:hybrid_intraday:imoexf",
+    "orders_stream": "finam_imoexf_paper:runtime:orders_paper_only",
+    "trades_stream": "finam_imoexf_paper:runtime:trades_paper_only",
+    "positions_stream": "finam_imoexf_paper:runtime:positions_paper_only"
+  },
+  "risk_gate": {
+    "mr_variant": "high180",
+    "mr_gate_policy": "shadow_pnl_lb120_positive",
+    "risk_gate_mode": "normal_append",
+    "ledger_key": "finam_imoexf_paper:runtime:riskgate:sessions:hybrid_imoexf:imoexf_primary_high180_lb120",
+    "state_key": "finam_imoexf_paper:runtime:riskgate:state:hybrid_imoexf:imoexf_primary_high180_lb120",
+    "source_ledger_oracle": "runtime.riskgate.sessions.hybrid_imoexf.imoexf_primary_high180_lb120",
+    "enforced_gate_enabled": false,
+    "shadow_ledger_comparison_required": true
+  },
+  "alor_oracle": {
+    "vps": "155.212.170.21",
+    "redis_container": "trading-hybrid-redis-1",
+    "native_10m_stream": "md.bars.<ALOR_LIVE_ORACLE_PORTFOLIO>.10m",
+    "runtime_state_stream": "runtime.state.hybrid_intraday.live.riskgate_shadow.imoexf.<ALOR_LIVE_ORACLE_PORTFOLIO>",
+    "commands_stream": "cmd.orders.<ALOR_LIVE_ORACLE_PORTFOLIO>",
+    "acks_stream": "cmd.acks.<ALOR_LIVE_ORACLE_PORTFOLIO>",
+    "trades_stream": "broker.trades.<ALOR_LIVE_ORACLE_PORTFOLIO>",
+    "positions_stream": "broker.positions.<ALOR_LIVE_ORACLE_PORTFOLIO>",
+    "snapshots_stream": "broker.snapshots.<ALOR_LIVE_ORACLE_PORTFOLIO>",
+    "risk_gate_ledger_stream": "runtime.riskgate.sessions.hybrid_imoexf.imoexf_primary_high180_lb120"
+  },
+  "readiness": {
+    "expected_phase_before_operator_arm": "Reconciliation",
+    "expected_reason": "OperatorLiveArmMissing",
+    "publish_live_ready": false,
+    "paper_runtime_ready_phase": "PaperShadowReady"
+  },
+  "retention": {
+    "health_maxlen": 2000,
+    "readiness_maxlen": 2000,
+    "market_data_maxlen": 50000,
+    "canonical_10m_maxlen": 10000,
+    "runtime_state_maxlen": 1000,
+    "paper_intents_maxlen": 5000,
+    "paper_acks_maxlen": 5000,
+    "risk_gate_ledger_maxlen": 10000,
+    "dlq_maxlen": 1000
+  }
+}
