@@ -1,0 +1,26 @@
+{
+  "redis_url": "redis://127.0.0.1:6379/",
+  "source": "finam-ws-shadow-local-arm",
+  "account_id": "ACC_TEST_0001",
+  "symbol": "TICKER@MIC",
+  "timeframe": "TIME_FRAME_M1",
+  "interval_seconds": 30,
+  "streams": {
+    "health": "finam_ws_shadow_local:health",
+    "readiness": "finam_ws_shadow_local:readiness",
+    "portfolio": "finam_ws_shadow_local:portfolio:snapshot_disabled",
+    "orders_snapshot": "finam_ws_shadow_local:orders:snapshot_disabled",
+    "market_data": "finam_ws_shadow_local:market_data",
+    "command_ack": "finam_ws_shadow_local:command_acks_disabled",
+    "runtime_bridge_dlq": "finam_ws_shadow_local:runtime_bridge:dlq"
+  },
+  "retention": {
+    "health_maxlen": 2000,
+    "readiness_maxlen": 2000,
+    "portfolio_maxlen": 100,
+    "order_snapshot_maxlen": 100,
+    "market_data_maxlen": 50000,
+    "command_ack_maxlen": 100,
+    "runtime_bridge_dlq_maxlen": 1000
+  }
+}

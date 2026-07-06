@@ -1773,13 +1773,10 @@ async fn run_gateway_shadow_loop(args: GatewayShadowOnceArgs) -> Result<()> {
         }
 
         tokio::select! {
-            signal = tokio::signal::ctrl_c() => {
-                if signal.is_err() {
-                    emit_redis_degraded_stderr("ctrl_c_signal", &std::io::Error::other("ctrl_c signal failed"))?;
-                }
-                publish_stopped_state(&runtime.gateway, "ctrl_c").await?;
+            stop_reason = shutdown_signal() => {
+                publish_stopped_state(&runtime.gateway, stop_reason).await?;
                 print_json(shadow_loop_summary_json(
-                    "ctrl_c",
+                    stop_reason,
                     started_at.elapsed().as_millis(),
                     iteration,
                     success_count,
@@ -2032,7 +2029,22 @@ async fn run_finam_ws_shadow_loop(args: FinamWsShadowArgs) -> Result<()> {
         match run_finam_ws_shadow_iteration(&runtime, iteration).await {
             Ok(report) => {
                 success_count += 1;
+                let shutdown_requested = is_shutdown_stop_reason(&report.stop_reason);
                 print_json(finam_ws_shadow_report_json("loop", &runtime, &report))?;
+                if shutdown_requested {
+                    let stopped_stage = format!("finam_ws_shadow_{}", report.stop_reason);
+                    publish_stopped_state(&runtime.gateway, &stopped_stage).await?;
+                    print_json(serde_json::json!({
+                        "finam_ws_shadow_loop": "stopped",
+                        "stop_reason": report.stop_reason,
+                        "elapsed_ms": started_at.elapsed().as_millis(),
+                        "iterations": iteration,
+                        "success_count": success_count,
+                        "failure_count": failure_count,
+                        "live_trading_enabled": false,
+                    }))?;
+                    break;
+                }
             }
             Err(error) => {
                 failure_count += 1;
@@ -2077,14 +2089,12 @@ async fn run_finam_ws_shadow_loop(args: FinamWsShadowArgs) -> Result<()> {
         }
 
         tokio::select! {
-            signal = tokio::signal::ctrl_c() => {
-                if signal.is_err() {
-                    emit_redis_degraded_stderr("finam_ws_ctrl_c_signal", &std::io::Error::other("ctrl_c signal failed"))?;
-                }
-                publish_stopped_state(&runtime.gateway, "finam_ws_shadow_ctrl_c").await?;
+            stop_reason = shutdown_signal() => {
+                let stopped_stage = format!("finam_ws_shadow_{stop_reason}");
+                publish_stopped_state(&runtime.gateway, &stopped_stage).await?;
                 print_json(serde_json::json!({
                     "finam_ws_shadow_loop": "stopped",
-                    "stop_reason": "ctrl_c",
+                    "stop_reason": stop_reason,
                     "elapsed_ms": started_at.elapsed().as_millis(),
                     "iterations": iteration,
                     "success_count": success_count,
@@ -2098,6 +2108,30 @@ async fn run_finam_ws_shadow_loop(args: FinamWsShadowArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn shutdown_signal() -> &'static str {
+    #[cfg(unix)]
+    {
+        let mut sigterm =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => "ctrl_c",
+            _ = async {
+                match sigterm.as_mut() {
+                    Some(sigterm) => {
+                        sigterm.recv().await;
+                    }
+                    None => std::future::pending::<()>().await,
+                }
+            } => "sigterm",
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+        "ctrl_c"
+    }
 }
 
 async fn run_finam_local_debug_http(args: FinamLocalDebugHttpArgs) -> Result<()> {
@@ -2682,6 +2716,10 @@ async fn run_finam_ws_shadow_iteration(
                     }
                     WsMessage::Binary(_) | WsMessage::Frame(_) => {}
                 }
+            }
+            shutdown_reason = shutdown_signal() => {
+                stop_reason = shutdown_reason.to_string();
+                break;
             }
         }
     }
@@ -3612,9 +3650,33 @@ fn finam_ws_recovery_report_from_metrics(
         transport_connected: metrics.connection_count > 0,
         live_subscription_sent: !ws_generation.desired_subscriptions.is_empty(),
         live_subscription_confirmed: ws_generation.active_subscriptions.contains(&"BARS"),
-        first_live_final_bar_close_ts: metrics.first_fresh_live_final_bar_close_ts,
+        first_live_final_bar_close_ts: finam_ws_recovery_confirming_live_final_close_ts(
+            metrics, replay,
+        ),
         checked_ts,
     })
+}
+
+fn finam_ws_recovery_confirming_live_final_close_ts(
+    metrics: &FinamWsShadowMetrics,
+    replay: &FinamWsRecoveryReplaySummary,
+) -> Option<DateTime<Utc>> {
+    match (
+        metrics.first_fresh_live_final_bar_close_ts,
+        metrics.last_fresh_live_final_bar_close_ts,
+        replay.last_close_ts,
+    ) {
+        (first, Some(last), Some(replay_tail))
+            if first.map_or(true, |first| first < replay_tail) && last >= replay_tail =>
+        {
+            Some(last)
+        }
+        (first, _, _) => first,
+    }
+}
+
+fn is_shutdown_stop_reason(stop_reason: &str) -> bool {
+    matches!(stop_reason, "ctrl_c" | "sigterm")
 }
 
 fn finam_ws_recovery_source_summary() -> FinamWsRecoverySourceSummary {
@@ -10449,6 +10511,74 @@ mod tests {
         assert!(report_with_replay
             .blockers
             .contains(&broker_core::MarketDataRecoveryBlocker::ReplayNotContiguousToWatermark));
+    }
+
+    #[test]
+    fn finam_ws_recovery_report_uses_post_replay_fresh_live_final_for_gap_closure() {
+        let checked_ts = Utc.with_ymd_and_hms(2026, 7, 6, 12, 26, 9).unwrap();
+        let previous_watermark = Utc.with_ymd_and_hms(2026, 7, 6, 12, 19, 0).unwrap();
+        let replay_tail = Utc.with_ymd_and_hms(2026, 7, 6, 12, 21, 0).unwrap();
+        let first_fresh_before_replay_tail = Utc.with_ymd_and_hms(2026, 7, 6, 12, 19, 0).unwrap();
+        let last_fresh_after_replay_tail = Utc.with_ymd_and_hms(2026, 7, 6, 12, 26, 0).unwrap();
+        let metrics = FinamWsShadowMetrics {
+            connection_count: 1,
+            bars_subscription_data_confirmed: true,
+            recovery_bar_event_count: 5,
+            recovery_replayed_bar_count: 5,
+            recovery_overlap_dedup_bar_count: 3,
+            recovery_not_strategy_live_bar_count: 2,
+            recovery_gap_detected_count: 0,
+            first_recovery_bar_close_ts: Some(Utc.with_ymd_and_hms(2026, 7, 6, 12, 17, 0).unwrap()),
+            last_recovery_bar_close_ts: Some(replay_tail),
+            first_fresh_live_final_bar_close_ts: Some(first_fresh_before_replay_tail),
+            last_fresh_live_final_bar_close_ts: Some(last_fresh_after_replay_tail),
+            final_bar_gap_detected_count: 0,
+            ..FinamWsShadowMetrics::default()
+        };
+        let generation = finam_ws_generation_subscription_state(
+            true,
+            false,
+            &metrics,
+            "finam-ws-generation-11",
+            "max_duration",
+        );
+        let replay = FinamWsRecoveryReplaySummary {
+            attempted: true,
+            fetch_ok: true,
+            error_kind: None,
+            mode: MarketDataRecoveryMode::Warm,
+            replay_from_ts: Utc.with_ymd_and_hms(2026, 7, 6, 12, 17, 0).unwrap(),
+            replay_to_ts: Utc.with_ymd_and_hms(2026, 7, 6, 12, 21, 5).unwrap(),
+            request_start_time: Utc.with_ymd_and_hms(2026, 7, 6, 12, 16, 0).unwrap(),
+            request_end_time: Utc.with_ymd_and_hms(2026, 7, 6, 12, 21, 5).unwrap(),
+            previous_watermark_close_ts: Some(previous_watermark),
+            bars_count: 5,
+            first_close_ts: metrics.first_recovery_bar_close_ts,
+            last_close_ts: Some(replay_tail),
+            overlap_dedup_bar_count: 3,
+            recovery_not_strategy_live_bar_count: 2,
+            gap_detected_count: 0,
+            gap_absence_proven: true,
+        };
+
+        let report =
+            finam_ws_recovery_report_from_metrics(&metrics, &replay, &generation, 60, checked_ts);
+
+        assert_eq!(
+            report.phase,
+            broker_core::MarketDataRecoveryPhase::LiveReady
+        );
+        assert_eq!(
+            report.first_live_final_bar_close_ts,
+            Some(last_fresh_after_replay_tail)
+        );
+        assert!(report.gap_absence_proven);
+        assert!(!report
+            .blockers
+            .contains(&broker_core::MarketDataRecoveryBlocker::FirstLiveFinalBeforeReplayEnd));
+        assert!(!report
+            .blockers
+            .contains(&broker_core::MarketDataRecoveryBlocker::GapAbsenceNotProven));
     }
 
     #[test]
