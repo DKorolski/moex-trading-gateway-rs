@@ -46,17 +46,19 @@ use finam_gateway::real_order_endpoint::{
     m3j16_limit_cancel_one_shot_report, M3j16LimitCancelOneShotInput,
 };
 use finam_gateway::{
-    default_readonly_health, degraded_health, degraded_readiness,
-    evaluate_finam_real_readonly_operator_guardrails, readiness_from_readonly_summary,
-    run_finam_real_readonly_operator_contract_probe, stopped_health, stopped_readiness,
+    build_broker_neutral_http_debug_surface, default_readonly_health, degraded_health,
+    degraded_readiness, evaluate_finam_real_readonly_operator_guardrails,
+    readiness_from_readonly_summary, run_finam_real_readonly_operator_contract_probe,
+    stopped_health, stopped_readiness, BrokerNeutralDebugTransportKind,
+    BrokerNeutralDebugTransportSnapshot, BrokerNeutralHttpDebugSurfaceInput,
     BrokerTruthGatewayConfig, CancelBrokerTruthFetchRequestSnapshot,
     CancelBrokerTruthFreshnessPolicy, CancelBrokerTruthSource, CancelPositionTruthGuardContext,
     FinamGateway, FinamMockClassifiedEndpointTransport, FinamRealReadonlyAuditStoreMode,
     FinamRealReadonlyBrokerTruthAsyncFetcher, FinamRealReadonlyBrokerTruthQueryPolicy,
     FinamRealReadonlyBrokerTruthTransportConfig, FinamRealReadonlyContractProbeOperatorRunConfig,
     FinamRealReadonlyRedactedOutputLocation, FinamRealReadonlyTokenAccountPreflightApproved,
-    GatewayConfig, GatewayError, GatewayFeatureSet, InMemoryRedisStreamSink,
-    M3cForbiddenSurfaceScanEvidence, M3cOrderEndpointGateDesignEvidence,
+    GatewayConfig, GatewayError, GatewayFeatureSet, GatewayHealth, GatewayHealthStatus,
+    InMemoryRedisStreamSink, M3cForbiddenSurfaceScanEvidence, M3cOrderEndpointGateDesignEvidence,
     M3cOrderEndpointGateEvidenceStatus, M3cRouteTemplateRecheckPlanEvidence, M3cSourceEvidence,
     M3eCommandConsumerConfig, M3eCommandConsumerLocalMockEndpoint, M3eCommandLifecycleAction,
     M3eCommandLifecycleRecord, M3eCommandLifecycleStore, M3eInMemoryCommandLifecycleStore,
@@ -82,6 +84,8 @@ use std::process::Command as ProcessCommand;
 use std::str::FromStr;
 use std::sync::Mutex;
 use std::time::{Duration as StdDuration, Instant};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
@@ -515,6 +519,25 @@ enum Command {
         /// Bound REST replay end N bars behind current time for controlled recovery acceptance evidence.
         #[arg(long, default_value_t = 0)]
         recovery_replay_end_lag_bars: u32,
+    },
+    /// Serve broker-neutral local FINAM health/debug endpoints on localhost. No live orders.
+    #[command(name = "finam-local-debug-http")]
+    FinamLocalDebugHttp {
+        /// Bind address. Defaults to localhost and rejects public binds unless explicitly allowed.
+        #[arg(long, default_value = "127.0.0.1:18081")]
+        bind: String,
+        /// Allow RFC1918 private-interface bind addresses. Public binds are always rejected.
+        #[arg(long, default_value_t = false)]
+        allow_private_bind: bool,
+        /// Stop after serving this many HTTP requests. Omit only for manual local debugging.
+        #[arg(long)]
+        max_requests: Option<u64>,
+        /// Source label for the broker-neutral response.
+        #[arg(long, default_value = "finam-local-debug")]
+        source: String,
+        /// Emit a LiveReady response instead of the safe default Reconciliation/OperatorLiveArmMissing.
+        #[arg(long, default_value_t = false)]
+        live_ready: bool,
     },
     /// Publish a synthetic gateway envelope to Redis and read it back with XRANGE.
     #[command(name = "finam-gateway-redis-smoke")]
@@ -1352,6 +1375,22 @@ async fn main() -> Result<()> {
             })
             .await?;
         }
+        Command::FinamLocalDebugHttp {
+            bind,
+            allow_private_bind,
+            max_requests,
+            source,
+            live_ready,
+        } => {
+            run_finam_local_debug_http(FinamLocalDebugHttpArgs {
+                bind,
+                allow_private_bind,
+                max_requests,
+                source,
+                live_ready,
+            })
+            .await?;
+        }
         Command::GatewayRedisSmoke { redis_url, stream } => {
             run_gateway_redis_smoke(redis_url, stream).await?;
         }
@@ -1417,6 +1456,14 @@ struct FinamWsShadowArgs {
     max_iterations: Option<u64>,
     initial_final_watermark_lag_bars: Option<u32>,
     recovery_replay_end_lag_bars: u32,
+}
+
+struct FinamLocalDebugHttpArgs {
+    bind: String,
+    allow_private_bind: bool,
+    max_requests: Option<u64>,
+    source: String,
+    live_ready: bool,
 }
 
 struct RuntimeBridgeDryConsumeArgs {
@@ -2057,6 +2104,259 @@ async fn run_finam_ws_shadow_loop(args: FinamWsShadowArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn run_finam_local_debug_http(args: FinamLocalDebugHttpArgs) -> Result<()> {
+    if !is_local_or_allowed_private_bind(&args.bind, args.allow_private_bind) {
+        anyhow::bail!(
+            "refusing non-local FINAM debug HTTP bind address {}; use 127.0.0.1 or explicit private-interface bind",
+            args.bind
+        );
+    }
+
+    let listener = TcpListener::bind(&args.bind)
+        .await
+        .with_context(|| format!("bind FINAM local debug HTTP listener at {}", args.bind))?;
+    let local_addr = listener.local_addr()?;
+    let report = build_finam_local_debug_http_report(&args.source, args.live_ready);
+    let mut served = 0u64;
+    let max_requests = args.max_requests.unwrap_or(u64::MAX);
+
+    while served < max_requests {
+        let (mut stream, _) = listener.accept().await?;
+        let mut buffer = vec![0_u8; 4096];
+        let read_len = stream.read(&mut buffer).await?;
+        let request = String::from_utf8_lossy(&buffer[..read_len]);
+        let path = parse_http_get_path(&request);
+        match path.as_deref() {
+            Some("/liveness") => {
+                write_json_http_response(&mut stream, 200, &report.liveness).await?;
+            }
+            Some("/readiness") => {
+                write_json_http_response(
+                    &mut stream,
+                    report.readiness.http_status,
+                    &report.readiness,
+                )
+                .await?;
+            }
+            Some("/debug/transport") => {
+                write_json_http_response(
+                    &mut stream,
+                    report.debug_transport.http_status,
+                    &report.debug_transport,
+                )
+                .await?;
+            }
+            _ => {
+                write_json_http_response(
+                    &mut stream,
+                    404,
+                    &serde_json::json!({
+                        "error": "not_found",
+                        "allowed_methods": ["GET"],
+                        "allowed_paths": ["/liveness", "/readiness", "/debug/transport"]
+                    }),
+                )
+                .await?;
+            }
+        }
+        served += 1;
+    }
+
+    print_json(serde_json::json!({
+        "schema": "m4_3ja_local_http_debug_listener",
+        "bind_addr": local_addr.to_string(),
+        "served_requests": served,
+        "max_requests": args.max_requests,
+        "actual_http_listener_enabled": true,
+        "bind_scope_local_or_private": true,
+        "runtime_live_attachment_allowed": false,
+        "command_consumer_to_real_finam_enabled": false,
+        "order_post_delete_allowed": false,
+        "live_orders_performed": false,
+        "post_delete_calls_performed": false,
+    }))?;
+    Ok(())
+}
+
+fn build_finam_local_debug_http_report(
+    source: &str,
+    live_ready: bool,
+) -> finam_gateway::BrokerNeutralHttpDebugSurfaceReport {
+    let checked_ts = Utc::now();
+    let readiness = if live_ready {
+        BrokerReadiness {
+            phase: ReadinessPhase::LiveReady,
+            reasons: Vec::new(),
+            checked_ts,
+        }
+    } else {
+        BrokerReadiness {
+            phase: ReadinessPhase::Reconciliation,
+            reasons: vec![ReadinessReason::OperatorLiveArmMissing],
+            checked_ts,
+        }
+    };
+    build_broker_neutral_http_debug_surface(BrokerNeutralHttpDebugSurfaceInput {
+        broker: "FINAM".to_string(),
+        gateway_source: source.to_string(),
+        health: GatewayHealth {
+            status: GatewayHealthStatus::ReadOnly,
+            checked_ts,
+            redis_configured: true,
+            command_consumer_enabled: false,
+            order_placement_enabled: false,
+        },
+        readiness,
+        transports: vec![
+            BrokerNeutralDebugTransportSnapshot {
+                transport_kind: BrokerNeutralDebugTransportKind::WebSocketMarketData,
+                connected: true,
+                authorized: true,
+                connection_generation: Some("finam-ws-generation-local-debug".to_string()),
+                last_rx_ts: Some(checked_ts),
+                last_tx_ts: None,
+                stale: false,
+                stale_reason: None,
+                active_subscriptions_count: 2,
+                desired_subscriptions_count: 2,
+                pending_subscriptions_count: 0,
+                reconnect_count: 0,
+                data_quality_balanced: true,
+                data_quality_ledger: serde_json::json!({
+                    "bars": {
+                        "received": 0,
+                        "emitted": 0,
+                        "dropped": 0,
+                        "ignored": 0,
+                        "pending": 0,
+                        "balanced": true
+                    },
+                    "quotes": {
+                        "received": 0,
+                        "emitted": 0,
+                        "dropped": 0,
+                        "ignored": 0,
+                        "pending": 0,
+                        "balanced": true
+                    }
+                }),
+                recovery: serde_json::json!({
+                    "phase": "NotEvaluated",
+                    "blockers": [],
+                    "runtime_live_attachment_allowed": false
+                }),
+                session_state: Some("UnknownLocalDebugNoMarketProbe".to_string()),
+                session_watchdog: serde_json::json!({
+                    "enabled": true,
+                    "session_state": "UnknownLocalDebugNoMarketProbe",
+                    "schedule_fetch_ok": null,
+                    "silence_alert": false,
+                    "readiness_blocked": !live_ready,
+                    "readiness_block_reason": if live_ready {
+                        serde_json::Value::Null
+                    } else {
+                        serde_json::Value::String("OperatorLiveArmMissing".to_string())
+                    }
+                }),
+                raw_secret_exported: false,
+                raw_token_exported: false,
+                raw_account_id_exported: false,
+            },
+            BrokerNeutralDebugTransportSnapshot {
+                transport_kind: BrokerNeutralDebugTransportKind::CommandConsumer,
+                connected: false,
+                authorized: false,
+                connection_generation: None,
+                last_rx_ts: None,
+                last_tx_ts: None,
+                stale: false,
+                stale_reason: Some("FeatureDisabled".to_string()),
+                active_subscriptions_count: 0,
+                desired_subscriptions_count: 0,
+                pending_subscriptions_count: 0,
+                reconnect_count: 0,
+                data_quality_balanced: true,
+                data_quality_ledger: serde_json::json!({}),
+                recovery: serde_json::json!({}),
+                session_state: None,
+                session_watchdog: serde_json::json!({}),
+                raw_secret_exported: false,
+                raw_token_exported: false,
+                raw_account_id_exported: false,
+            },
+        ],
+        command_consumer_to_real_broker_enabled: false,
+        runtime_live_attachment_allowed: false,
+        order_post_delete_allowed: false,
+    })
+}
+
+fn parse_http_get_path(request: &str) -> Option<String> {
+    let first_line = request.lines().next()?;
+    let mut parts = first_line.split_whitespace();
+    let method = parts.next()?;
+    let path = parts.next()?;
+    if method != "GET" {
+        return None;
+    }
+    Some(path.split('?').next().unwrap_or(path).to_string())
+}
+
+async fn write_json_http_response<T: serde::Serialize>(
+    stream: &mut tokio::net::TcpStream,
+    status: u16,
+    body: &T,
+) -> Result<()> {
+    let reason = match status {
+        200 => "OK",
+        404 => "Not Found",
+        503 => "Service Unavailable",
+        _ => "OK",
+    };
+    let body = serde_json::to_vec(body)?;
+    let headers = format!(
+        "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        body.len()
+    );
+    stream.write_all(headers.as_bytes()).await?;
+    stream.write_all(&body).await?;
+    stream.shutdown().await?;
+    Ok(())
+}
+
+fn is_local_or_allowed_private_bind(bind: &str, allow_private_bind: bool) -> bool {
+    let Some(host) = bind_host(bind) else {
+        return false;
+    };
+    if matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1" | "[::1]") {
+        return true;
+    }
+    allow_private_bind && is_rfc1918_ipv4(&host)
+}
+
+fn bind_host(bind: &str) -> Option<String> {
+    if let Some(rest) = bind.strip_prefix('[') {
+        return rest.split(']').next().map(str::to_string);
+    }
+    bind.rsplit_once(':').map(|(host, _)| host.to_string())
+}
+
+fn is_rfc1918_ipv4(host: &str) -> bool {
+    let octets = host
+        .split('.')
+        .map(str::parse::<u8>)
+        .collect::<std::result::Result<Vec<_>, _>>();
+    let Ok(octets) = octets else {
+        return false;
+    };
+    if octets.len() != 4 {
+        return false;
+    }
+    octets[0] == 10
+        || (octets[0] == 172 && (16..=31).contains(&octets[1]))
+        || (octets[0] == 192 && octets[1] == 168)
 }
 
 async fn setup_finam_ws_shadow_runtime(args: FinamWsShadowArgs) -> Result<FinamWsShadowRuntime> {
@@ -9595,6 +9895,65 @@ mod tests {
         assert!(!watchdog.schedule_fetch_failed_blocks_readiness);
         assert!(watchdog.readiness_blocked);
         assert_eq!(watchdog.readiness_block_reason, Some("SessionUnknown"));
+    }
+
+    #[test]
+    fn m4_3ja_local_http_debug_bind_policy_rejects_public_addresses() {
+        assert!(is_local_or_allowed_private_bind("127.0.0.1:18081", false));
+        assert!(is_local_or_allowed_private_bind("localhost:18081", false));
+        assert!(is_local_or_allowed_private_bind("[::1]:18081", false));
+        assert!(!is_local_or_allowed_private_bind("0.0.0.0:18081", false));
+        assert!(!is_local_or_allowed_private_bind("8.8.8.8:18081", true));
+        assert!(!is_local_or_allowed_private_bind(
+            "192.168.1.10:18081",
+            false
+        ));
+        assert!(is_local_or_allowed_private_bind("192.168.1.10:18081", true));
+        assert!(is_local_or_allowed_private_bind("10.0.0.5:18081", true));
+        assert!(is_local_or_allowed_private_bind("172.16.0.5:18081", true));
+        assert!(is_local_or_allowed_private_bind("172.31.0.5:18081", true));
+        assert!(!is_local_or_allowed_private_bind("172.32.0.5:18081", true));
+    }
+
+    #[test]
+    fn m4_3ja_local_http_debug_report_is_redacted_and_no_live_by_default() {
+        let report = build_finam_local_debug_http_report("finam-local-debug-test", false);
+
+        assert_eq!(report.liveness.broker, "FINAM");
+        assert_eq!(report.readiness.http_status, 503);
+        assert_eq!(
+            report.readiness.readiness.phase,
+            ReadinessPhase::Reconciliation
+        );
+        assert_eq!(
+            report.readiness.readiness.reasons,
+            vec![ReadinessReason::OperatorLiveArmMissing]
+        );
+        assert!(!report.debug_transport.raw_secrets_exported);
+        assert!(!report.debug_transport.raw_tokens_exported);
+        assert!(!report.debug_transport.raw_account_ids_exported);
+        assert!(report.no_live_boundary_expansion);
+        assert!(report.no_order_post_delete);
+        assert!(report.no_command_consumer_to_real_broker);
+
+        let ws = report
+            .debug_transport
+            .transports
+            .iter()
+            .find(|transport| {
+                transport.transport_kind == BrokerNeutralDebugTransportKind::WebSocketMarketData
+            })
+            .expect("websocket market-data debug snapshot");
+        assert_eq!(
+            ws.connection_generation.as_deref(),
+            Some("finam-ws-generation-local-debug")
+        );
+        assert_eq!(ws.active_subscriptions_count, 2);
+        assert_eq!(ws.desired_subscriptions_count, 2);
+        assert_eq!(ws.pending_subscriptions_count, 0);
+        assert!(ws.data_quality_balanced);
+        assert_eq!(ws.recovery["phase"], "NotEvaluated");
+        assert_eq!(ws.session_watchdog["silence_alert"], false);
     }
 
     #[test]

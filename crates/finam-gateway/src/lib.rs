@@ -868,7 +868,10 @@ pub struct BrokerNeutralDebugTransportSnapshot {
     pub pending_subscriptions_count: u32,
     pub reconnect_count: u64,
     pub data_quality_balanced: bool,
+    pub data_quality_ledger: serde_json::Value,
+    pub recovery: serde_json::Value,
     pub session_state: Option<String>,
+    pub session_watchdog: serde_json::Value,
     pub raw_secret_exported: bool,
     pub raw_token_exported: bool,
     pub raw_account_id_exported: bool,
@@ -15193,7 +15196,20 @@ mod tests {
                 pending_subscriptions_count: 0,
                 reconnect_count: 0,
                 data_quality_balanced: true,
+                data_quality_ledger: serde_json::json!({
+                    "bars": {"balanced": true},
+                    "quotes": {"balanced": true}
+                }),
+                recovery: serde_json::json!({
+                    "phase": "LiveReady",
+                    "blockers": []
+                }),
                 session_state: Some("Open".to_string()),
+                session_watchdog: serde_json::json!({
+                    "enabled": true,
+                    "session_state": "Open",
+                    "silence_alert": false
+                }),
                 raw_secret_exported: false,
                 raw_token_exported: false,
                 raw_account_id_exported: false,
