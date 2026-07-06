@@ -35,7 +35,8 @@ use broker_core::{
     CancelPreflightApproval, OperatorArm, OperatorDisarmDecision, OperatorDisarmSignal,
     OrderPathErrorKind, OrderPathEvent, OrderPathRecord, OrderPathState, OrderPathStore,
     OrderPathStoreError, OrderPathTransitionError, OrderPreflightPolicy, OutgoingOrderComment,
-    PreflightApprovedCancelOrder, PreflightApprovedPlaceOrder,
+    PaperRuntimePublishPayload, PaperRuntimePublishRecord, PaperRuntimeStreams,
+    PaperSafetyBoundary, PreflightApprovedCancelOrder, PreflightApprovedPlaceOrder,
 };
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use rust_decimal::Decimal;
@@ -9208,6 +9209,468 @@ fn trim_in_memory_stream(entries: &mut Vec<RedisStreamEntry>, stream: &str, maxl
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperRuntimeRedisSinkConfig {
+    pub source: String,
+    pub streams: PaperRuntimeStreams,
+    pub batch_marker_stream: String,
+    pub maxlen: Option<usize>,
+    pub safety_boundary: PaperSafetyBoundary,
+}
+
+impl PaperRuntimeRedisSinkConfig {
+    pub fn finam_imoexf_paper(source: impl Into<String>) -> Self {
+        Self {
+            source: source.into(),
+            streams: PaperRuntimeStreams::finam_imoexf_paper(),
+            batch_marker_stream: "finam_imoexf_paper:runtime:publish_batches".to_string(),
+            maxlen: Some(10_000),
+            safety_boundary: PaperSafetyBoundary::closed(),
+        }
+    }
+
+    fn allowed_streams(&self) -> HashSet<&str> {
+        [
+            self.streams.runtime_state_stream.as_str(),
+            self.streams.intents_stream.as_str(),
+            self.streams.paper_acks_stream.as_str(),
+            self.streams.orders_stream.as_str(),
+            self.streams.trades_stream.as_str(),
+            self.streams.positions_stream.as_str(),
+        ]
+        .into_iter()
+        .collect()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PaperRuntimeRedisPayloadKind {
+    RuntimeState,
+    Intent,
+    Ack,
+    Order,
+    Trade,
+    Position,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PaperRuntimeRedisBatchMarkerPhase {
+    Pending,
+    Committed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperRuntimeRedisBatchMarker {
+    pub schema_version: u16,
+    pub source: String,
+    pub batch_id: String,
+    pub batch_sha256: String,
+    pub phase: PaperRuntimeRedisBatchMarkerPhase,
+    pub record_count: usize,
+    pub paper_only: bool,
+    pub created_ts: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaperRuntimeRedisRecordEnvelope {
+    pub schema_version: u16,
+    pub source: String,
+    pub batch_id: String,
+    pub batch_sha256: String,
+    pub record_index: usize,
+    pub record_count: usize,
+    pub idempotency_key: String,
+    pub payload_kind: PaperRuntimeRedisPayloadKind,
+    pub paper_only: bool,
+    pub payload: PaperRuntimePublishPayload,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperRuntimeRedisBatchPlan {
+    pub batch_id: String,
+    pub batch_sha256: String,
+    pub record_count: usize,
+    pub idempotency_keys: Vec<String>,
+    pub target_streams: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperRuntimeRedisPublishOutcome {
+    pub batch_id: String,
+    pub batch_sha256: String,
+    pub record_count: usize,
+    pub published_entry_count: usize,
+    pub pending_marker_written: bool,
+    pub committed_marker_written: bool,
+    pub idempotency_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PaperRuntimeRedisPublishFailurePhase {
+    PendingMarker,
+    Record { index: usize },
+    CommittedMarker,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperRuntimeRedisPartialFailureReport {
+    pub batch_id: String,
+    pub batch_sha256: String,
+    pub phase: PaperRuntimeRedisPublishFailurePhase,
+    pub attempted_record_count: usize,
+    pub published_entry_count: usize,
+    pub pending_marker_written: bool,
+    pub committed_marker_written: bool,
+    pub retry_requires_reconciliation: bool,
+    pub raw_redis_error_exported: bool,
+    pub error_kind: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PaperRuntimeRedisSinkError {
+    #[error("paper runtime redis sink safety boundary is open")]
+    LiveBoundaryOpen,
+    #[error("paper runtime redis sink batch is empty")]
+    EmptyBatch,
+    #[error("paper runtime redis sink non-paper marker stream: {stream}")]
+    NonPaperMarkerStream { stream: String },
+    #[error("paper runtime redis sink non-paper stream: {stream}")]
+    NonPaperStream { stream: String },
+    #[error("paper runtime redis sink stream/payload mismatch: stream={stream} kind={kind:?}")]
+    StreamPayloadMismatch {
+        stream: String,
+        kind: PaperRuntimeRedisPayloadKind,
+    },
+    #[error("paper runtime redis publish partial failure: {0:?}")]
+    PartialFailure(PaperRuntimeRedisPartialFailureReport),
+    #[error("paper runtime redis serialization error: {0}")]
+    Serialization(String),
+}
+
+pub struct PaperRuntimeRedisSink<S> {
+    config: PaperRuntimeRedisSinkConfig,
+    sink: S,
+}
+
+impl<S> PaperRuntimeRedisSink<S> {
+    pub fn new(
+        config: PaperRuntimeRedisSinkConfig,
+        sink: S,
+    ) -> Result<Self, PaperRuntimeRedisSinkError> {
+        validate_paper_runtime_redis_sink_config(&config)?;
+        Ok(Self { config, sink })
+    }
+
+    pub fn config(&self) -> &PaperRuntimeRedisSinkConfig {
+        &self.config
+    }
+
+    pub fn into_inner(self) -> S {
+        self.sink
+    }
+}
+
+impl<S: RedisStreamSink> PaperRuntimeRedisSink<S> {
+    pub fn plan_batch(
+        &self,
+        records: &[PaperRuntimePublishRecord],
+    ) -> Result<PaperRuntimeRedisBatchPlan, PaperRuntimeRedisSinkError> {
+        let envelopes = self.build_record_envelopes(records)?;
+        Ok(PaperRuntimeRedisBatchPlan {
+            batch_id: envelopes
+                .first()
+                .map(|envelope| envelope.batch_id.clone())
+                .ok_or(PaperRuntimeRedisSinkError::EmptyBatch)?,
+            batch_sha256: envelopes[0].batch_sha256.clone(),
+            record_count: envelopes.len(),
+            idempotency_keys: envelopes
+                .iter()
+                .map(|envelope| envelope.idempotency_key.clone())
+                .collect(),
+            target_streams: records.iter().map(|record| record.stream.clone()).collect(),
+        })
+    }
+
+    pub async fn publish_batch(
+        &self,
+        records: &[PaperRuntimePublishRecord],
+        created_ts: DateTime<Utc>,
+    ) -> Result<PaperRuntimeRedisPublishOutcome, PaperRuntimeRedisSinkError> {
+        let envelopes = self.build_record_envelopes(records)?;
+        let batch_id = envelopes[0].batch_id.clone();
+        let batch_sha256 = envelopes[0].batch_sha256.clone();
+        let record_count = envelopes.len();
+        let idempotency_keys = envelopes
+            .iter()
+            .map(|envelope| envelope.idempotency_key.clone())
+            .collect::<Vec<_>>();
+        let pending_marker = PaperRuntimeRedisBatchMarker {
+            schema_version: SCHEMA_VERSION,
+            source: self.config.source.clone(),
+            batch_id: batch_id.clone(),
+            batch_sha256: batch_sha256.clone(),
+            phase: PaperRuntimeRedisBatchMarkerPhase::Pending,
+            record_count,
+            paper_only: true,
+            created_ts,
+        };
+        let committed_marker = PaperRuntimeRedisBatchMarker {
+            phase: PaperRuntimeRedisBatchMarkerPhase::Committed,
+            ..pending_marker.clone()
+        };
+
+        let mut published_entry_count = 0usize;
+        self.sink
+            .publish_json(
+                &self.config.batch_marker_stream,
+                &pending_marker,
+                self.config.maxlen,
+            )
+            .await
+            .map_err(|error| {
+                paper_runtime_redis_partial_failure(PaperRuntimeRedisPartialFailureInput {
+                    batch_id: &batch_id,
+                    batch_sha256: &batch_sha256,
+                    phase: PaperRuntimeRedisPublishFailurePhase::PendingMarker,
+                    attempted_record_count: record_count,
+                    published_entry_count,
+                    pending_marker_written: false,
+                    committed_marker_written: false,
+                    error,
+                })
+            })?;
+        published_entry_count += 1;
+
+        for (index, envelope) in envelopes.iter().enumerate() {
+            let stream = &records[index].stream;
+            self.sink
+                .publish_json(stream, envelope, self.config.maxlen)
+                .await
+                .map_err(|error| {
+                    paper_runtime_redis_partial_failure(PaperRuntimeRedisPartialFailureInput {
+                        batch_id: &batch_id,
+                        batch_sha256: &batch_sha256,
+                        phase: PaperRuntimeRedisPublishFailurePhase::Record { index },
+                        attempted_record_count: record_count,
+                        published_entry_count,
+                        pending_marker_written: true,
+                        committed_marker_written: false,
+                        error,
+                    })
+                })?;
+            published_entry_count += 1;
+        }
+
+        self.sink
+            .publish_json(
+                &self.config.batch_marker_stream,
+                &committed_marker,
+                self.config.maxlen,
+            )
+            .await
+            .map_err(|error| {
+                paper_runtime_redis_partial_failure(PaperRuntimeRedisPartialFailureInput {
+                    batch_id: &batch_id,
+                    batch_sha256: &batch_sha256,
+                    phase: PaperRuntimeRedisPublishFailurePhase::CommittedMarker,
+                    attempted_record_count: record_count,
+                    published_entry_count,
+                    pending_marker_written: true,
+                    committed_marker_written: false,
+                    error,
+                })
+            })?;
+        published_entry_count += 1;
+
+        Ok(PaperRuntimeRedisPublishOutcome {
+            batch_id,
+            batch_sha256,
+            record_count,
+            published_entry_count,
+            pending_marker_written: true,
+            committed_marker_written: true,
+            idempotency_keys,
+        })
+    }
+
+    fn build_record_envelopes(
+        &self,
+        records: &[PaperRuntimePublishRecord],
+    ) -> Result<Vec<PaperRuntimeRedisRecordEnvelope>, PaperRuntimeRedisSinkError> {
+        validate_paper_runtime_redis_sink_config(&self.config)?;
+        if records.is_empty() {
+            return Err(PaperRuntimeRedisSinkError::EmptyBatch);
+        }
+        let allowed_streams = self.config.allowed_streams();
+        for record in records {
+            if !allowed_streams.contains(record.stream.as_str()) {
+                return Err(PaperRuntimeRedisSinkError::NonPaperStream {
+                    stream: record.stream.clone(),
+                });
+            }
+            let kind = paper_runtime_redis_payload_kind(&record.payload);
+            if !paper_runtime_redis_payload_matches_stream(
+                &self.config.streams,
+                &record.stream,
+                kind,
+            ) {
+                return Err(PaperRuntimeRedisSinkError::StreamPayloadMismatch {
+                    stream: record.stream.clone(),
+                    kind,
+                });
+            }
+        }
+
+        let batch_material = serde_json::to_vec(records)
+            .map_err(|error| PaperRuntimeRedisSinkError::Serialization(error.to_string()))?;
+        let batch_sha256 = sha256_hex(&batch_material);
+        let batch_id = format!("paper-batch-{batch_sha256}");
+        let record_count = records.len();
+
+        records
+            .iter()
+            .enumerate()
+            .map(|(record_index, record)| {
+                Ok(PaperRuntimeRedisRecordEnvelope {
+                    schema_version: SCHEMA_VERSION,
+                    source: self.config.source.clone(),
+                    batch_id: batch_id.clone(),
+                    batch_sha256: batch_sha256.clone(),
+                    record_index,
+                    record_count,
+                    idempotency_key: paper_runtime_redis_idempotency_key(&record.payload),
+                    payload_kind: paper_runtime_redis_payload_kind(&record.payload),
+                    paper_only: true,
+                    payload: record.payload.clone(),
+                })
+            })
+            .collect()
+    }
+}
+
+fn validate_paper_runtime_redis_sink_config(
+    config: &PaperRuntimeRedisSinkConfig,
+) -> Result<(), PaperRuntimeRedisSinkError> {
+    if !config.safety_boundary.is_closed() {
+        return Err(PaperRuntimeRedisSinkError::LiveBoundaryOpen);
+    }
+    if !config
+        .batch_marker_stream
+        .starts_with("finam_imoexf_paper:runtime:")
+    {
+        return Err(PaperRuntimeRedisSinkError::NonPaperMarkerStream {
+            stream: config.batch_marker_stream.clone(),
+        });
+    }
+    Ok(())
+}
+
+struct PaperRuntimeRedisPartialFailureInput<'a> {
+    batch_id: &'a str,
+    batch_sha256: &'a str,
+    phase: PaperRuntimeRedisPublishFailurePhase,
+    attempted_record_count: usize,
+    published_entry_count: usize,
+    pending_marker_written: bool,
+    committed_marker_written: bool,
+    error: GatewayError,
+}
+
+fn paper_runtime_redis_partial_failure(
+    input: PaperRuntimeRedisPartialFailureInput<'_>,
+) -> PaperRuntimeRedisSinkError {
+    PaperRuntimeRedisSinkError::PartialFailure(PaperRuntimeRedisPartialFailureReport {
+        batch_id: input.batch_id.to_string(),
+        batch_sha256: input.batch_sha256.to_string(),
+        phase: input.phase,
+        attempted_record_count: input.attempted_record_count,
+        published_entry_count: input.published_entry_count,
+        pending_marker_written: input.pending_marker_written,
+        committed_marker_written: input.committed_marker_written,
+        retry_requires_reconciliation: true,
+        raw_redis_error_exported: false,
+        error_kind: paper_runtime_redis_error_kind(&input.error).to_string(),
+    })
+}
+
+fn paper_runtime_redis_error_kind(error: &GatewayError) -> &'static str {
+    match error {
+        GatewayError::Redis(_) => "redis",
+        GatewayError::Serialization(_) => "serialization",
+        GatewayError::InternalState { .. } => "internal_state",
+        GatewayError::FeatureDisabled { .. } => "feature_disabled",
+        _ => "gateway",
+    }
+}
+
+fn paper_runtime_redis_payload_kind(
+    payload: &PaperRuntimePublishPayload,
+) -> PaperRuntimeRedisPayloadKind {
+    match payload {
+        PaperRuntimePublishPayload::RuntimeState(_) => PaperRuntimeRedisPayloadKind::RuntimeState,
+        PaperRuntimePublishPayload::Intent(_) => PaperRuntimeRedisPayloadKind::Intent,
+        PaperRuntimePublishPayload::Ack(_) => PaperRuntimeRedisPayloadKind::Ack,
+        PaperRuntimePublishPayload::Order(_) => PaperRuntimeRedisPayloadKind::Order,
+        PaperRuntimePublishPayload::Trade(_) => PaperRuntimeRedisPayloadKind::Trade,
+        PaperRuntimePublishPayload::Position(_) => PaperRuntimeRedisPayloadKind::Position,
+    }
+}
+
+fn paper_runtime_redis_payload_matches_stream(
+    streams: &PaperRuntimeStreams,
+    stream: &str,
+    kind: PaperRuntimeRedisPayloadKind,
+) -> bool {
+    match kind {
+        PaperRuntimeRedisPayloadKind::RuntimeState => stream == streams.runtime_state_stream,
+        PaperRuntimeRedisPayloadKind::Intent => stream == streams.intents_stream,
+        PaperRuntimeRedisPayloadKind::Ack => stream == streams.paper_acks_stream,
+        PaperRuntimeRedisPayloadKind::Order => stream == streams.orders_stream,
+        PaperRuntimeRedisPayloadKind::Trade => stream == streams.trades_stream,
+        PaperRuntimeRedisPayloadKind::Position => stream == streams.positions_stream,
+    }
+}
+
+fn paper_runtime_redis_idempotency_key(payload: &PaperRuntimePublishPayload) -> String {
+    match payload {
+        PaperRuntimePublishPayload::RuntimeState(state) => format!(
+            "runtime-state:{}:{}:{}",
+            state.strategy_id,
+            state.instrument.symbol,
+            state
+                .last_bar_key
+                .as_deref()
+                .unwrap_or("missing-last-bar-key")
+        ),
+        PaperRuntimePublishPayload::Intent(intent) => {
+            format!("intent:{}", intent.intent_id.as_str())
+        }
+        PaperRuntimePublishPayload::Ack(ack) => format!(
+            "ack:{}:{}:{:?}",
+            ack.intent_id.as_str(),
+            ack.paper_order_id
+                .as_ref()
+                .map(|order_id| order_id.as_str())
+                .unwrap_or("missing-paper-order-id"),
+            ack.kind
+        ),
+        PaperRuntimePublishPayload::Order(order) => {
+            format!("order:{}", order.paper_order_id.as_str())
+        }
+        PaperRuntimePublishPayload::Trade(trade) => {
+            format!("trade:{}", trade.paper_trade_id.as_str())
+        }
+        PaperRuntimePublishPayload::Position(position) => format!(
+            "position:{}:{}:{}",
+            position.strategy_id,
+            position.instrument.symbol,
+            position
+                .updated_ts
+                .to_rfc3339_opts(SecondsFormat::Secs, true)
+        ),
+    }
+}
+
 fn expected_message_type_for_stream(
     config: &RedisStreamConfig,
     stream: &str,
@@ -15637,6 +16100,7 @@ pub fn redact_command_ack_for_redis(mut ack: CommandAck) -> CommandAck {
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
 
     use broker_core::account::{PortfolioSnapshot, Position};
     use broker_core::command::{CommandAckReason, CommandAckReasonCode};
@@ -15647,8 +16111,11 @@ mod tests {
     use broker_core::{
         CancelOrder, CancelPreflightApproval, DryOrderRateLimit, InMemoryOrderPathStore,
         OperatorArm, OperatorDisarmSignal, OrderPathErrorKind, OrderPathEvent, OrderPathRecord,
-        OrderPathState, OrderPathStore, OrderPathTransitionError, OrderPreflightPolicy, PlaceOrder,
-        SqliteOrderPathReadStore, SqliteOrderPathStore,
+        OrderPathState, OrderPathStore, OrderPathTransitionError, OrderPreflightPolicy, PaperAck,
+        PaperAckKind, PaperExecutionMode, PaperFillPolicy, PaperIntent, PaperIntentKind,
+        PaperOrder, PaperOrderId, PaperOrderStatus, PaperPosition, PaperRuntimePublishPayload,
+        PaperRuntimePublishRecord, PaperRuntimeState, PaperTrade, PaperTradeId, PlaceOrder,
+        RuntimeDecisionId, SqliteOrderPathReadStore, SqliteOrderPathStore,
     };
     use broker_finam::{
         FinamDryOrderClient, FinamOrderEndpointAcceptedDto, FinamOrderEndpointFixture,
@@ -29335,6 +29802,297 @@ mod tests {
             unrealized_pnl: None,
             source_ts: None,
         }
+    }
+
+    fn sample_paper_runtime_publish_records(now: DateTime<Utc>) -> Vec<PaperRuntimePublishRecord> {
+        let streams = PaperRuntimeStreams::finam_imoexf_paper();
+        let instrument = sample_instrument();
+        let intent_id = RuntimeDecisionId::new("paper-decision-test-1");
+        let paper_order_id = PaperOrderId::new("paper-order-test-1");
+        let paper_trade_id = PaperTradeId::new("paper-trade-test-1");
+        vec![
+            PaperRuntimePublishRecord {
+                stream: streams.intents_stream.clone(),
+                payload: PaperRuntimePublishPayload::Intent(Box::new(PaperIntent {
+                    schema_version: SCHEMA_VERSION,
+                    intent_id: intent_id.clone(),
+                    kind: PaperIntentKind::Enter,
+                    strategy_id: "hybrid_intraday".to_string(),
+                    decision_bar_key: "2026-07-06T09:10:00Z/600".to_string(),
+                    instrument: instrument.clone(),
+                    side: Some(OrderSide::Buy),
+                    order_type: Some(OrderType::Market),
+                    qty: Decimal::ONE,
+                    limit_price: None,
+                    fill_policy: PaperFillPolicy::NextFinalBarOpen,
+                    created_ts: now,
+                })),
+            },
+            PaperRuntimePublishRecord {
+                stream: streams.orders_stream.clone(),
+                payload: PaperRuntimePublishPayload::Order(Box::new(PaperOrder {
+                    schema_version: SCHEMA_VERSION,
+                    paper_order_id: paper_order_id.clone(),
+                    intent_id: intent_id.clone(),
+                    account_id: Some(broker_core::BrokerAccountId::new("ACC_TEST_0001")),
+                    strategy_id: "hybrid_intraday".to_string(),
+                    instrument: instrument.clone(),
+                    side: OrderSide::Buy,
+                    order_type: OrderType::Market,
+                    status: PaperOrderStatus::Filled,
+                    qty: Decimal::ONE,
+                    filled_qty: Decimal::ONE,
+                    remaining_qty: Decimal::ZERO,
+                    limit_price: None,
+                    fill_policy: PaperFillPolicy::NextFinalBarOpen,
+                    created_ts: now,
+                    updated_ts: now,
+                })),
+            },
+            PaperRuntimePublishRecord {
+                stream: streams.trades_stream.clone(),
+                payload: PaperRuntimePublishPayload::Trade(Box::new(PaperTrade {
+                    schema_version: SCHEMA_VERSION,
+                    paper_trade_id,
+                    paper_order_id: paper_order_id.clone(),
+                    intent_id: intent_id.clone(),
+                    strategy_id: "hybrid_intraday".to_string(),
+                    instrument: instrument.clone(),
+                    side: OrderSide::Buy,
+                    qty: Decimal::ONE,
+                    price: Decimal::new(2227, 0),
+                    commission: None,
+                    fill_policy: PaperFillPolicy::NextFinalBarOpen,
+                    source_bar_key: "2026-07-06T09:10:00Z/600".to_string(),
+                    source_ts: now,
+                    received_ts: now,
+                })),
+            },
+            PaperRuntimePublishRecord {
+                stream: streams.positions_stream.clone(),
+                payload: PaperRuntimePublishPayload::Position(Box::new(PaperPosition {
+                    schema_version: SCHEMA_VERSION,
+                    strategy_id: "hybrid_intraday".to_string(),
+                    instrument: instrument.clone(),
+                    qty: Decimal::ONE,
+                    avg_price: Some(Decimal::new(2227, 0)),
+                    updated_ts: now,
+                    source: "paper-runtime-redis-test".to_string(),
+                })),
+            },
+            PaperRuntimePublishRecord {
+                stream: streams.paper_acks_stream.clone(),
+                payload: PaperRuntimePublishPayload::Ack(Box::new(PaperAck {
+                    schema_version: SCHEMA_VERSION,
+                    intent_id: intent_id.clone(),
+                    paper_order_id: Some(paper_order_id),
+                    kind: PaperAckKind::Filled,
+                    reason: None,
+                    created_ts: now,
+                })),
+            },
+            PaperRuntimePublishRecord {
+                stream: streams.runtime_state_stream.clone(),
+                payload: PaperRuntimePublishPayload::RuntimeState(Box::new(PaperRuntimeState {
+                    schema_version: SCHEMA_VERSION,
+                    strategy_id: "hybrid_intraday".to_string(),
+                    instrument,
+                    execution_mode: PaperExecutionMode::LiveOnly,
+                    safety_boundary: PaperSafetyBoundary::closed(),
+                    last_bar_key: Some("2026-07-06T09:10:00Z/600".to_string()),
+                    last_decision_id: Some(intent_id),
+                    position: None,
+                    active_orders_count: 0,
+                    suppressed_count: 0,
+                    updated_ts: now,
+                })),
+            },
+        ]
+    }
+
+    #[tokio::test]
+    async fn m4_3r_g_paper_runtime_redis_sink_publishes_batch_with_markers() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 6, 12, 30, 0).unwrap();
+        let records = sample_paper_runtime_publish_records(now);
+        let memory = InMemoryRedisStreamSink::default();
+        let sink = PaperRuntimeRedisSink::new(
+            PaperRuntimeRedisSinkConfig::finam_imoexf_paper("finam-paper-runtime-test"),
+            memory.clone(),
+        )
+        .expect("safe paper redis sink");
+
+        let outcome = sink
+            .publish_batch(&records, now)
+            .await
+            .expect("batch publish");
+
+        assert_eq!(outcome.record_count, records.len());
+        assert_eq!(outcome.published_entry_count, records.len() + 2);
+        assert!(outcome.pending_marker_written);
+        assert!(outcome.committed_marker_written);
+        assert_eq!(outcome.idempotency_keys.len(), records.len());
+        assert!(outcome
+            .idempotency_keys
+            .contains(&"intent:paper-decision-test-1".to_string()));
+
+        let entries = memory.entries().expect("entries");
+        assert_eq!(entries.len(), records.len() + 2);
+        assert_eq!(
+            entries.first().expect("pending marker").stream,
+            "finam_imoexf_paper:runtime:publish_batches"
+        );
+        assert_eq!(
+            entries.last().expect("committed marker").stream,
+            "finam_imoexf_paper:runtime:publish_batches"
+        );
+        let pending: PaperRuntimeRedisBatchMarker =
+            serde_json::from_str(&entries[0].payload).expect("pending marker");
+        let committed: PaperRuntimeRedisBatchMarker =
+            serde_json::from_str(&entries[entries.len() - 1].payload).expect("committed marker");
+        assert_eq!(pending.phase, PaperRuntimeRedisBatchMarkerPhase::Pending);
+        assert_eq!(
+            committed.phase,
+            PaperRuntimeRedisBatchMarkerPhase::Committed
+        );
+        assert_eq!(pending.batch_id, committed.batch_id);
+        assert!(pending.paper_only);
+        assert!(committed.paper_only);
+    }
+
+    #[tokio::test]
+    async fn m4_3r_g_paper_runtime_redis_sink_rejects_non_paper_stream_before_publish() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 6, 12, 31, 0).unwrap();
+        let mut records = sample_paper_runtime_publish_records(now);
+        records[0].stream = "cmd.orders.ACC_TEST_PORTFOLIO".to_string();
+        let memory = InMemoryRedisStreamSink::default();
+        let sink = PaperRuntimeRedisSink::new(
+            PaperRuntimeRedisSinkConfig::finam_imoexf_paper("finam-paper-runtime-test"),
+            memory.clone(),
+        )
+        .expect("safe paper redis sink");
+
+        let error = sink
+            .publish_batch(&records, now)
+            .await
+            .expect_err("non-paper stream rejected");
+
+        assert!(matches!(
+            error,
+            PaperRuntimeRedisSinkError::NonPaperStream { .. }
+        ));
+        assert!(memory.entries().expect("entries").is_empty());
+    }
+
+    #[tokio::test]
+    async fn m4_3r_g_paper_runtime_redis_sink_rejects_payload_stream_mismatch_before_publish() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 6, 12, 32, 0).unwrap();
+        let mut records = sample_paper_runtime_publish_records(now);
+        records[0].stream = PaperRuntimeStreams::finam_imoexf_paper().trades_stream;
+        let memory = InMemoryRedisStreamSink::default();
+        let sink = PaperRuntimeRedisSink::new(
+            PaperRuntimeRedisSinkConfig::finam_imoexf_paper("finam-paper-runtime-test"),
+            memory.clone(),
+        )
+        .expect("safe paper redis sink");
+
+        let error = sink
+            .publish_batch(&records, now)
+            .await
+            .expect_err("stream payload mismatch rejected");
+
+        assert!(matches!(
+            error,
+            PaperRuntimeRedisSinkError::StreamPayloadMismatch { .. }
+        ));
+        assert!(memory.entries().expect("entries").is_empty());
+    }
+
+    #[derive(Clone)]
+    struct FailAfterRedisStreamSink {
+        inner: InMemoryRedisStreamSink,
+        fail_after_successful_publishes: usize,
+        successful_publishes: Arc<Mutex<usize>>,
+    }
+
+    #[async_trait]
+    impl RedisStreamSink for FailAfterRedisStreamSink {
+        async fn publish_json<T: Serialize + Send + Sync>(
+            &self,
+            stream: &str,
+            value: &T,
+            maxlen: Option<usize>,
+        ) -> Result<(), GatewayError> {
+            {
+                let mut successful_publishes =
+                    self.successful_publishes
+                        .lock()
+                        .map_err(|_| GatewayError::InternalState {
+                            message: "test failing sink mutex poisoned",
+                        })?;
+                if *successful_publishes >= self.fail_after_successful_publishes {
+                    return Err(GatewayError::InternalState {
+                        message: "injected paper redis publish failure",
+                    });
+                }
+                *successful_publishes += 1;
+            }
+            self.inner.publish_json(stream, value, maxlen).await
+        }
+    }
+
+    #[tokio::test]
+    async fn m4_3r_g_paper_runtime_redis_sink_reports_partial_failure_after_record_publish() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 6, 12, 33, 0).unwrap();
+        let records = sample_paper_runtime_publish_records(now);
+        let memory = InMemoryRedisStreamSink::default();
+        let failing = FailAfterRedisStreamSink {
+            inner: memory.clone(),
+            fail_after_successful_publishes: 2,
+            successful_publishes: Arc::new(Mutex::new(0)),
+        };
+        let sink = PaperRuntimeRedisSink::new(
+            PaperRuntimeRedisSinkConfig::finam_imoexf_paper("finam-paper-runtime-test"),
+            failing,
+        )
+        .expect("safe paper redis sink");
+
+        let error = sink
+            .publish_batch(&records, now)
+            .await
+            .expect_err("partial failure");
+
+        let PaperRuntimeRedisSinkError::PartialFailure(report) = error else {
+            panic!("expected partial failure");
+        };
+        assert_eq!(
+            report.phase,
+            PaperRuntimeRedisPublishFailurePhase::Record { index: 1 }
+        );
+        assert_eq!(report.published_entry_count, 2);
+        assert!(report.pending_marker_written);
+        assert!(!report.committed_marker_written);
+        assert!(report.retry_requires_reconciliation);
+        assert!(!report.raw_redis_error_exported);
+        assert_eq!(memory.entries().expect("entries").len(), 2);
+    }
+
+    #[test]
+    fn m4_3r_g_paper_runtime_redis_sink_plans_stable_idempotency_keys_for_retry() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 6, 12, 34, 0).unwrap();
+        let records = sample_paper_runtime_publish_records(now);
+        let sink = PaperRuntimeRedisSink::new(
+            PaperRuntimeRedisSinkConfig::finam_imoexf_paper("finam-paper-runtime-test"),
+            InMemoryRedisStreamSink::default(),
+        )
+        .expect("safe paper redis sink");
+
+        let first = sink.plan_batch(&records).expect("first plan");
+        let second = sink.plan_batch(&records).expect("second plan");
+
+        assert_eq!(first.batch_id, second.batch_id);
+        assert_eq!(first.batch_sha256, second.batch_sha256);
+        assert_eq!(first.idempotency_keys, second.idempotency_keys);
+        assert_eq!(first.target_streams, second.target_streams);
     }
 
     fn sample_bar(source_kind: MarketDataSourceKind, is_final: bool) -> Bar {
