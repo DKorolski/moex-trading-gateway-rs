@@ -166,6 +166,10 @@ M4-3h-a adds that controlled GET-only REST Bars replay evidence: it reads the
 latest Redis final-bar watermark, fetches the warm overlap window from FINAM
 REST Bars, proves timestamp contiguity/coverage, and keeps runtime-live and all
 order surfaces disabled.
+M4-3h-b wires the replay path into the FINAM WS shadow loop itself. Replay bars
+are counted as recovery diagnostics with overlap dedupe and
+`RecoveryNotStrategyLive` data-quality reasons, while strategy-live publication
+still requires fresh final WebSocket bars.
 M4-3e gates FINAM WS strategy bar publication: stale WS final-bar backlog is
 still counted and reported, but only fresh final live bars are published as
 strategy market-data bars. This prevents stale WebSocket backlog from reaching
@@ -367,6 +371,7 @@ See:
 - [M4-3g-a active-session fresh final evidence](docs/m4-3g-a-active-session-fresh-final-evidence.md)
 - [M4-3h FINAM WS warm/cold resync contract](docs/m4-3h-finam-ws-warm-cold-resync-contract.md)
 - [M4-3h-a REST Bars replay evidence](docs/m4-3h-a-rest-bars-replay-evidence.md)
+- [M4-3h-b replay wiring loop evidence](docs/m4-3h-b-replay-wiring-loop-evidence.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

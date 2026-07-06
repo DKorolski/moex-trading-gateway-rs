@@ -12,11 +12,11 @@ use broker_core::{
     BrokerPlainMicroStopOrderWaiverPolicy, BrokerReadiness, BrokerRiskLimitConfig,
     BrokerScopeConfig, BrokerTimeoutConfig, BrokerTruthSnapshot, ClientOrderId, ClosedBarFinalizer,
     ClosedBarFinalizerActionKind, Envelope, Exchange, InMemoryOrderPathStore, InstrumentId, Market,
-    MarketDataEvent, MarketDataLifecyclePhase, MarketDataRecoveryInput, MarketDataRecoveryPlan,
-    MarketDataRecoveryPlanInput, MarketDataRecoveryReport, MarketDataSourceKind, MessageType,
-    OperatorArm, Order, OrderPathEvent, OrderPathRecord, OrderPreflightPolicy, OrderSide,
-    OrderStatus, OrderType, PlaceOrder, PortfolioSnapshot, ReadinessPhase, ReadinessReason,
-    StrategyRequestId, TimeInForce,
+    MarketDataEvent, MarketDataLifecyclePhase, MarketDataRecoveryInput, MarketDataRecoveryMode,
+    MarketDataRecoveryPlan, MarketDataRecoveryPlanInput, MarketDataRecoveryReport,
+    MarketDataSourceKind, MessageType, OperatorArm, Order, OrderPathEvent, OrderPathRecord,
+    OrderPreflightPolicy, OrderSide, OrderStatus, OrderType, PlaceOrder, PortfolioSnapshot,
+    ReadinessPhase, ReadinessReason, StrategyRequestId, TimeInForce,
 };
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::{OrderPreflightContext, OrderReferencePrice};
@@ -1731,8 +1731,10 @@ async fn run_gateway_shadow_loop(args: GatewayShadowOnceArgs) -> Result<()> {
 
 struct FinamWsShadowRuntime {
     resolved: ResolvedFinamWsShadowConfig,
+    client: FinamRestClient,
     auth_manager: FinamAuthManager,
     gateway: FinamGateway<RedisConnectionStreamSink>,
+    final_bar_watermark: Mutex<Option<DateTime<Utc>>>,
 }
 
 #[derive(Default, Clone)]
@@ -1754,6 +1756,11 @@ struct FinamWsShadowMetrics {
     history_bar_event_count: u64,
     read_only_bar_event_count: u64,
     recovery_bar_event_count: u64,
+    recovery_replayed_bar_count: u64,
+    recovery_overlap_dedup_bar_count: u64,
+    recovery_not_strategy_live_bar_count: u64,
+    recovery_gap_detected_count: u64,
+    first_recovery_bar_close_ts: Option<DateTime<Utc>>,
     live_bar_event_count: u64,
     final_live_bar_event_count: u64,
     forming_live_bar_event_count: u64,
@@ -1808,9 +1815,30 @@ struct FinamWsShadowIterationReport {
     elapsed_ms: u128,
     stop_reason: String,
     metrics: FinamWsShadowMetrics,
+    recovery_replay: FinamWsRecoveryReplaySummary,
     market_data_lifecycle: BrokerMarketDataLifecycleSnapshot,
     readiness_phase: String,
     readiness_reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FinamWsRecoveryReplaySummary {
+    attempted: bool,
+    fetch_ok: bool,
+    error_kind: Option<String>,
+    mode: MarketDataRecoveryMode,
+    replay_from_ts: DateTime<Utc>,
+    replay_to_ts: DateTime<Utc>,
+    request_start_time: DateTime<Utc>,
+    request_end_time: DateTime<Utc>,
+    previous_watermark_close_ts: Option<DateTime<Utc>>,
+    bars_count: u64,
+    first_close_ts: Option<DateTime<Utc>>,
+    last_close_ts: Option<DateTime<Utc>>,
+    overlap_dedup_bar_count: u64,
+    recovery_not_strategy_live_bar_count: u64,
+    gap_detected_count: u64,
+    gap_absence_proven: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1876,8 +1904,12 @@ struct FinamWsDataQualityLedger {
     bars_dropped_stale_backlog: u64,
     bars_dropped_duplicate_or_old: u64,
     bars_dropped_non_monotonic: u64,
+    bars_dropped_overlap_deduped: u64,
     bars_ignored_unknown_source: u64,
+    bars_ignored_recovery_not_strategy_live: u64,
     bars_pending_forming: u64,
+    replayed_recovery_bar_count: u64,
+    replay_gap_detected_count: u64,
     old_generation_messages_ignored: u64,
     bars_balanced: bool,
     bars_delta: i64,
@@ -1993,15 +2025,17 @@ async fn setup_finam_ws_shadow_runtime(args: FinamWsShadowArgs) -> Result<FinamW
         )
     })?);
     let client = FinamRestClient::try_new(FinamConfig::default())?;
-    let auth_manager = FinamAuthManager::new(client, secret);
+    let auth_manager = FinamAuthManager::new(client.clone(), secret);
     let sink = RedisConnectionStreamSink::connect(&redis_url)
         .await
         .context("Redis connection failed for FINAM WS shadow gateway")?;
     let gateway = FinamGateway::new(resolved.gateway_config.clone(), sink);
     Ok(FinamWsShadowRuntime {
         resolved,
+        client,
         auth_manager,
         gateway,
+        final_bar_watermark: Mutex::new(None),
     })
 }
 
@@ -2056,6 +2090,12 @@ async fn run_finam_ws_shadow_iteration(
     let started_at = Instant::now();
     let ws_generation_id = finam_ws_generation_id(iteration);
     let token = runtime.auth_manager.access_token().await?;
+    let timeframe_sec = timeframe_seconds(&runtime.resolved.timeframe)?;
+    let previous_watermark = finam_ws_final_bar_watermark(runtime);
+    let mut metrics = FinamWsShadowMetrics::default();
+    let recovery_replay =
+        run_finam_ws_recovery_replay(runtime, &token, timeframe_sec, previous_watermark).await;
+    record_finam_ws_recovery_replay_metrics(&mut metrics, &recovery_replay);
     let mut request = FinamConfig::default()
         .websocket_endpoint
         .into_client_request()
@@ -2067,10 +2107,7 @@ async fn run_finam_ws_shadow_iteration(
     let (mut ws, _response) = connect_async(request)
         .await
         .context("FINAM WebSocket connect failed")?;
-    let mut metrics = FinamWsShadowMetrics {
-        connection_count: 1,
-        ..FinamWsShadowMetrics::default()
-    };
+    metrics.connection_count = 1;
     let mut closed_bar_finalizer = ClosedBarFinalizer::default();
 
     runtime
@@ -2098,7 +2135,6 @@ async fn run_finam_ws_shadow_iteration(
             .context("FINAM WebSocket bars subscribe send failed")?;
     }
 
-    let timeframe_sec = timeframe_seconds(&runtime.resolved.timeframe)?;
     let timeout = tokio::time::sleep(StdDuration::from_secs(
         runtime.resolved.max_duration_seconds,
     ));
@@ -2160,6 +2196,7 @@ async fn run_finam_ws_shadow_iteration(
         elapsed_ms: started_at.elapsed().as_millis(),
         stop_reason,
         metrics,
+        recovery_replay,
         market_data_lifecycle,
         readiness_phase: format!("{:?}", readiness.phase),
         readiness_reasons: readiness
@@ -2347,12 +2384,14 @@ async fn handle_finam_ws_text_message(
                         finam_ws_shadow_freshness_threshold_sec(timeframe_sec),
                     );
                     if publish_strategy_bar {
+                        let final_bar_close_ts = final_bar.close_ts;
                         runtime
                             .gateway
                             .publish_market_data_event(MarketDataEvent::Bar(final_bar))
                             .await?;
                         metrics.published_market_data_count += 1;
                         metrics.published_strategy_bar_count += 1;
+                        mark_finam_ws_final_bar_watermark(runtime, final_bar_close_ts);
                     } else {
                         metrics.stale_ws_final_bar_suppressed_count += 1;
                     }
@@ -2672,33 +2711,215 @@ fn finam_ws_recovery_plan(
     })
 }
 
+fn finam_ws_final_bar_watermark(runtime: &FinamWsShadowRuntime) -> Option<DateTime<Utc>> {
+    *runtime
+        .final_bar_watermark
+        .lock()
+        .expect("FINAM WS final bar watermark mutex not poisoned")
+}
+
+fn mark_finam_ws_final_bar_watermark(runtime: &FinamWsShadowRuntime, close_ts: DateTime<Utc>) {
+    let mut watermark = runtime
+        .final_bar_watermark
+        .lock()
+        .expect("FINAM WS final bar watermark mutex not poisoned");
+    *watermark = Some(watermark.map_or(close_ts, |previous| previous.max(close_ts)));
+}
+
+async fn run_finam_ws_recovery_replay(
+    runtime: &FinamWsShadowRuntime,
+    token: &AccessToken,
+    timeframe_sec: u32,
+    previous_watermark_close_ts: Option<DateTime<Utc>>,
+) -> FinamWsRecoveryReplaySummary {
+    let checked_ts = Utc::now();
+    let plan = finam_ws_recovery_plan(timeframe_sec, 2, previous_watermark_close_ts, checked_ts);
+    let request_start_time =
+        plan.replay_from_ts - ChronoDuration::seconds(i64::from(timeframe_sec.max(1)));
+    let query_start_time = request_start_time.to_rfc3339();
+    let query_end_time = checked_ts.to_rfc3339();
+    let query = BarsQuery {
+        timeframe: &runtime.resolved.timeframe,
+        start_time: Some(query_start_time.as_str()),
+        end_time: Some(query_end_time.as_str()),
+    };
+
+    let bars = match runtime
+        .client
+        .bars_typed(token, &runtime.resolved.symbol, query)
+        .await
+    {
+        Ok(bars) => bars,
+        Err(error) => {
+            return FinamWsRecoveryReplaySummary {
+                attempted: true,
+                fetch_ok: false,
+                error_kind: Some(finam_error_kind(&error).to_string()),
+                mode: plan.mode,
+                replay_from_ts: plan.replay_from_ts,
+                replay_to_ts: plan.replay_to_ts,
+                request_start_time,
+                request_end_time: checked_ts,
+                previous_watermark_close_ts,
+                bars_count: 0,
+                first_close_ts: None,
+                last_close_ts: None,
+                overlap_dedup_bar_count: 0,
+                recovery_not_strategy_live_bar_count: 0,
+                gap_detected_count: 0,
+                gap_absence_proven: false,
+            };
+        }
+    };
+
+    let mut recovery_bars = Vec::new();
+    for bar in &bars.bars {
+        if let Ok(mut mapped) = map_bar(&runtime.resolved.symbol, bar, timeframe_sec) {
+            mapped.source_kind = MarketDataSourceKind::Recovery;
+            recovery_bars.push(mapped);
+        }
+    }
+    recovery_bars.sort_by_key(|bar| bar.close_ts);
+    summarize_finam_ws_recovery_replay(
+        plan,
+        request_start_time,
+        checked_ts,
+        previous_watermark_close_ts,
+        &recovery_bars,
+    )
+}
+
+fn summarize_finam_ws_recovery_replay(
+    plan: MarketDataRecoveryPlan,
+    request_start_time: DateTime<Utc>,
+    request_end_time: DateTime<Utc>,
+    previous_watermark_close_ts: Option<DateTime<Utc>>,
+    recovery_bars: &[Bar],
+) -> FinamWsRecoveryReplaySummary {
+    let first_close_ts = recovery_bars.first().map(|bar| bar.close_ts);
+    let last_close_ts = recovery_bars.last().map(|bar| bar.close_ts);
+    let overlap_dedup_bar_count = previous_watermark_close_ts.map_or(0, |watermark| {
+        recovery_bars
+            .iter()
+            .filter(|bar| bar.close_ts <= watermark)
+            .count() as u64
+    });
+    let recovery_not_strategy_live_bar_count = recovery_bars.len() as u64 - overlap_dedup_bar_count;
+    let gap_detected_count = recovery_gap_detected_count(recovery_bars);
+    let replay_covers_watermark = match previous_watermark_close_ts {
+        Some(watermark) => {
+            first_close_ts.is_some_and(|first| first <= watermark)
+                && last_close_ts.is_some_and(|last| last >= watermark)
+                && recovery_bars.iter().any(|bar| bar.close_ts > watermark)
+        }
+        None => true,
+    };
+    let gap_absence_proven =
+        !recovery_bars.is_empty() && gap_detected_count == 0 && replay_covers_watermark;
+
+    FinamWsRecoveryReplaySummary {
+        attempted: true,
+        fetch_ok: true,
+        error_kind: None,
+        mode: plan.mode,
+        replay_from_ts: plan.replay_from_ts,
+        replay_to_ts: plan.replay_to_ts,
+        request_start_time,
+        request_end_time,
+        previous_watermark_close_ts,
+        bars_count: recovery_bars.len() as u64,
+        first_close_ts,
+        last_close_ts,
+        overlap_dedup_bar_count,
+        recovery_not_strategy_live_bar_count,
+        gap_detected_count,
+        gap_absence_proven,
+    }
+}
+
+fn recovery_gap_detected_count(recovery_bars: &[Bar]) -> u64 {
+    recovery_bars
+        .windows(2)
+        .filter(|window| {
+            let previous = &window[0];
+            let current = &window[1];
+            previous.timeframe_sec == 0
+                || current.close_ts
+                    != previous.close_ts
+                        + ChronoDuration::seconds(i64::from(previous.timeframe_sec))
+        })
+        .count() as u64
+}
+
+fn record_finam_ws_recovery_replay_metrics(
+    metrics: &mut FinamWsShadowMetrics,
+    replay: &FinamWsRecoveryReplaySummary,
+) {
+    metrics.recovery_bar_event_count += replay.bars_count;
+    metrics.recovery_replayed_bar_count += replay.bars_count;
+    metrics.recovery_overlap_dedup_bar_count += replay.overlap_dedup_bar_count;
+    metrics.recovery_not_strategy_live_bar_count += replay.recovery_not_strategy_live_bar_count;
+    metrics.recovery_gap_detected_count += replay.gap_detected_count;
+    metrics.bar_event_count += replay.bars_count;
+    metrics.final_bar_event_count += replay.bars_count;
+    if let Some(first_close_ts) = replay.first_close_ts {
+        metrics.first_recovery_bar_close_ts = Some(
+            metrics
+                .first_recovery_bar_close_ts
+                .map_or(first_close_ts, |previous| previous.min(first_close_ts)),
+        );
+    }
+    if let Some(last_close_ts) = replay.last_close_ts {
+        metrics.last_recovery_bar_close_ts = Some(
+            metrics
+                .last_recovery_bar_close_ts
+                .map_or(last_close_ts, |previous| previous.max(last_close_ts)),
+        );
+    }
+}
+
+fn finam_error_kind(error: &FinamError) -> &'static str {
+    match error.kind() {
+        broker_finam::FinamErrorKind::TransportTimeout => "TransportTimeout",
+        broker_finam::FinamErrorKind::TransportConnect => "TransportConnect",
+        broker_finam::FinamErrorKind::TransportHttp => "TransportHttp",
+        broker_finam::FinamErrorKind::InvalidConfiguration => "InvalidConfiguration",
+        broker_finam::FinamErrorKind::MissingToken => "MissingToken",
+        broker_finam::FinamErrorKind::ApiBadRequest => "ApiBadRequest",
+        broker_finam::FinamErrorKind::ApiAuthentication => "ApiAuthentication",
+        broker_finam::FinamErrorKind::ApiAuthorization => "ApiAuthorization",
+        broker_finam::FinamErrorKind::ApiNotFound => "ApiNotFound",
+        broker_finam::FinamErrorKind::ApiConflict => "ApiConflict",
+        broker_finam::FinamErrorKind::ApiRateLimited => "ApiRateLimited",
+        broker_finam::FinamErrorKind::ApiTimeout => "ApiTimeout",
+        broker_finam::FinamErrorKind::ApiClient => "ApiClient",
+        broker_finam::FinamErrorKind::ApiServer => "ApiServer",
+        broker_finam::FinamErrorKind::ApiUnexpectedStatus => "ApiUnexpectedStatus",
+        broker_finam::FinamErrorKind::Decode => "Decode",
+        broker_finam::FinamErrorKind::InternalState => "InternalState",
+    }
+}
+
 fn finam_ws_recovery_report_from_metrics(
     metrics: &FinamWsShadowMetrics,
+    replay: &FinamWsRecoveryReplaySummary,
     ws_generation: &FinamWsGenerationSubscriptionState,
     timeframe_sec: u32,
     checked_ts: DateTime<Utc>,
 ) -> MarketDataRecoveryReport {
-    let plan = finam_ws_recovery_plan(
-        timeframe_sec,
-        2,
-        metrics.last_final_live_bar_close_ts,
-        checked_ts,
-    );
-    let replay_bar_count = metrics.recovery_bar_event_count;
-    let replay_first_bar_close_ts = metrics.last_recovery_bar_close_ts;
-    let replay_last_bar_close_ts = metrics.last_recovery_bar_close_ts;
     broker_core::evaluate_market_data_recovery(MarketDataRecoveryInput {
-        mode: plan.mode,
+        mode: replay.mode,
         timeframe_sec,
         generation: 1,
-        last_final_bar_close_ts: plan.last_final_bar_close_ts,
-        replay_from_ts: Some(plan.replay_from_ts),
-        replay_to_ts: Some(plan.replay_to_ts),
-        replay_bar_count,
-        replay_first_bar_close_ts,
-        replay_last_bar_close_ts,
-        overlap_dedup_bar_count: 0,
-        replay_gap_detected: metrics.final_bar_gap_detected_count > 0 && replay_bar_count == 0,
+        last_final_bar_close_ts: replay.previous_watermark_close_ts,
+        replay_from_ts: Some(replay.replay_from_ts),
+        replay_to_ts: Some(replay.replay_to_ts),
+        replay_bar_count: replay.bars_count,
+        replay_first_bar_close_ts: replay.first_close_ts,
+        replay_last_bar_close_ts: replay.last_close_ts,
+        overlap_dedup_bar_count: metrics.recovery_overlap_dedup_bar_count,
+        replay_gap_detected: metrics.recovery_gap_detected_count > 0
+            || (metrics.final_bar_gap_detected_count > 0 && replay.bars_count == 0),
         transport_connected: metrics.connection_count > 0,
         live_subscription_sent: !ws_generation.desired_subscriptions.is_empty(),
         live_subscription_confirmed: ws_generation.active_subscriptions.contains(&"BARS"),
@@ -2709,7 +2930,7 @@ fn finam_ws_recovery_report_from_metrics(
 
 fn finam_ws_recovery_source_summary() -> FinamWsRecoverySourceSummary {
     FinamWsRecoverySourceSummary {
-        rest_replay_wiring_enabled: false,
+        rest_replay_wiring_enabled: true,
         recovery_bars_publishable_as_strategy_live: false,
         requires_first_fresh_ws_final_after_replay: true,
     }
@@ -2755,11 +2976,15 @@ fn finam_ws_data_quality_ledger(metrics: &FinamWsShadowMetrics) -> FinamWsDataQu
     let bars_dropped_stale_backlog = metrics.stale_ws_final_bar_suppressed_count;
     let bars_dropped_duplicate_or_old = metrics.duplicate_final_suppressed_count;
     let bars_dropped_non_monotonic = metrics.non_monotonic_forming_dropped_count;
-    let bars_dropped =
-        bars_dropped_stale_backlog + bars_dropped_duplicate_or_old + bars_dropped_non_monotonic;
+    let bars_dropped_overlap_deduped = metrics.recovery_overlap_dedup_bar_count;
+    let bars_dropped = bars_dropped_stale_backlog
+        + bars_dropped_duplicate_or_old
+        + bars_dropped_non_monotonic
+        + bars_dropped_overlap_deduped;
     let bars_ignored_unknown_source = metrics.unknown_source_bar_event_count;
+    let bars_ignored_recovery_not_strategy_live = metrics.recovery_not_strategy_live_bar_count;
     let old_generation_messages_ignored = metrics.old_generation_message_count;
-    let bars_ignored = bars_ignored_unknown_source;
+    let bars_ignored = bars_ignored_unknown_source + bars_ignored_recovery_not_strategy_live;
     let bars_pending = metrics.forming_bar_suppressed_count.saturating_sub(
         metrics.closed_bar_finalized_count + metrics.non_monotonic_forming_dropped_count,
     );
@@ -2809,8 +3034,12 @@ fn finam_ws_data_quality_ledger(metrics: &FinamWsShadowMetrics) -> FinamWsDataQu
         bars_dropped_stale_backlog,
         bars_dropped_duplicate_or_old,
         bars_dropped_non_monotonic,
+        bars_dropped_overlap_deduped,
         bars_ignored_unknown_source,
+        bars_ignored_recovery_not_strategy_live,
         bars_pending_forming,
+        replayed_recovery_bar_count: metrics.recovery_replayed_bar_count,
+        replay_gap_detected_count: metrics.recovery_gap_detected_count,
         old_generation_messages_ignored,
         bars_balanced: bars_delta == 0,
         bars_delta,
@@ -2863,7 +3092,11 @@ fn finam_ws_data_quality_ledger_json(ledger: &FinamWsDataQualityLedger) -> serde
                 "DroppedStaleBacklog": ledger.bars_dropped_stale_backlog,
                 "DuplicateOrOld": ledger.bars_dropped_duplicate_or_old,
                 "NonMonotonic": ledger.bars_dropped_non_monotonic,
+                "OverlapDeduped": ledger.bars_dropped_overlap_deduped,
                 "UnknownSource": ledger.bars_ignored_unknown_source,
+                "ReplayedRecoveryBar": ledger.replayed_recovery_bar_count,
+                "RecoveryNotStrategyLive": ledger.bars_ignored_recovery_not_strategy_live,
+                "ReplayGapDetected": ledger.replay_gap_detected_count,
                 "PendingForming": ledger.bars_pending_forming,
                 "OldGeneration": ledger.old_generation_messages_ignored,
             },
@@ -2932,6 +3165,7 @@ fn finam_ws_shadow_report_json(
     );
     let recovery_report = finam_ws_recovery_report_from_metrics(
         &report.metrics,
+        &report.recovery_replay,
         &ws_generation,
         timeframe_seconds(&runtime.resolved.timeframe).unwrap_or(60),
         checked_ts,
@@ -2954,6 +3188,11 @@ fn finam_ws_shadow_report_json(
         "history_bar_event_count": report.metrics.history_bar_event_count,
         "read_only_bar_event_count": report.metrics.read_only_bar_event_count,
         "recovery_bar_event_count": report.metrics.recovery_bar_event_count,
+        "recovery_replayed_bar_count": report.metrics.recovery_replayed_bar_count,
+        "recovery_overlap_dedup_bar_count": report.metrics.recovery_overlap_dedup_bar_count,
+        "recovery_not_strategy_live_bar_count": report.metrics.recovery_not_strategy_live_bar_count,
+        "recovery_gap_detected_count": report.metrics.recovery_gap_detected_count,
+        "first_recovery_bar_close_ts": report.metrics.first_recovery_bar_close_ts,
         "live_bar_event_count": report.metrics.live_bar_event_count,
         "final_live_bar_event_count": report.metrics.final_live_bar_event_count,
         "forming_live_bar_event_count": report.metrics.forming_live_bar_event_count,
@@ -3024,7 +3263,31 @@ fn finam_ws_shadow_report_json(
         "market_data": market_data,
         "data_quality": finam_ws_data_quality_ledger_json(&data_quality_ledger),
         "recovery": finam_ws_recovery_report_json(&recovery_report, &recovery_source),
+        "recovery_replay": finam_ws_recovery_replay_json(&report.recovery_replay),
         "metrics": metrics,
+    })
+}
+
+fn finam_ws_recovery_replay_json(replay: &FinamWsRecoveryReplaySummary) -> serde_json::Value {
+    serde_json::json!({
+        "attempted": replay.attempted,
+        "fetch_ok": replay.fetch_ok,
+        "error_kind": replay.error_kind,
+        "mode": replay.mode,
+        "replay_from_ts": replay.replay_from_ts,
+        "replay_to_ts": replay.replay_to_ts,
+        "request_start_time": replay.request_start_time,
+        "request_end_time": replay.request_end_time,
+        "previous_watermark_close_ts": replay.previous_watermark_close_ts,
+        "bars_count": replay.bars_count,
+        "first_close_ts": replay.first_close_ts,
+        "last_close_ts": replay.last_close_ts,
+        "overlap_dedup_bar_count": replay.overlap_dedup_bar_count,
+        "recovery_not_strategy_live_bar_count": replay.recovery_not_strategy_live_bar_count,
+        "gap_detected_count": replay.gap_detected_count,
+        "gap_absence_proven": replay.gap_absence_proven,
+        "published_to_redis": false,
+        "published_as_strategy_live": false,
     })
 }
 
@@ -3047,6 +3310,11 @@ fn finam_ws_shadow_metrics_json(metrics: &FinamWsShadowMetrics) -> serde_json::V
         "history_bar_event_count": metrics.history_bar_event_count,
         "read_only_bar_event_count": metrics.read_only_bar_event_count,
         "recovery_bar_event_count": metrics.recovery_bar_event_count,
+        "recovery_replayed_bar_count": metrics.recovery_replayed_bar_count,
+        "recovery_overlap_dedup_bar_count": metrics.recovery_overlap_dedup_bar_count,
+        "recovery_not_strategy_live_bar_count": metrics.recovery_not_strategy_live_bar_count,
+        "recovery_gap_detected_count": metrics.recovery_gap_detected_count,
+        "first_recovery_bar_close_ts": metrics.first_recovery_bar_close_ts,
         "live_bar_event_count": metrics.live_bar_event_count,
         "final_live_bar_event_count": metrics.final_live_bar_event_count,
         "forming_live_bar_event_count": metrics.forming_live_bar_event_count,
@@ -9050,7 +9318,7 @@ mod tests {
     }
 
     #[test]
-    fn finam_ws_recovery_report_blocks_gap_absence_until_rest_replay_is_wired() {
+    fn finam_ws_recovery_report_uses_replay_wiring_evidence_for_gap_absence() {
         let checked_ts = Utc.with_ymd_and_hms(2026, 7, 6, 6, 10, 0).unwrap();
         let last_final = Utc.with_ymd_and_hms(2026, 7, 6, 6, 8, 0).unwrap();
         let mut metrics = FinamWsShadowMetrics {
@@ -9069,7 +9337,26 @@ mod tests {
             "max_messages",
         );
 
-        let report = finam_ws_recovery_report_from_metrics(&metrics, &generation, 60, checked_ts);
+        let replay = FinamWsRecoveryReplaySummary {
+            attempted: true,
+            fetch_ok: false,
+            error_kind: Some("TransportTimeout".to_string()),
+            mode: MarketDataRecoveryMode::Warm,
+            replay_from_ts: Utc.with_ymd_and_hms(2026, 7, 6, 6, 6, 0).unwrap(),
+            replay_to_ts: checked_ts,
+            request_start_time: Utc.with_ymd_and_hms(2026, 7, 6, 6, 5, 0).unwrap(),
+            request_end_time: checked_ts,
+            previous_watermark_close_ts: Some(last_final),
+            bars_count: 0,
+            first_close_ts: None,
+            last_close_ts: None,
+            overlap_dedup_bar_count: 0,
+            recovery_not_strategy_live_bar_count: 0,
+            gap_detected_count: 0,
+            gap_absence_proven: false,
+        };
+        let report =
+            finam_ws_recovery_report_from_metrics(&metrics, &replay, &generation, 60, checked_ts);
 
         assert_eq!(report.phase, broker_core::MarketDataRecoveryPhase::Degraded);
         assert!(!report.gap_absence_proven);
@@ -9081,10 +9368,31 @@ mod tests {
             .contains(&broker_core::MarketDataRecoveryBlocker::GapAbsenceNotProven));
 
         metrics.recovery_bar_event_count = 3;
-        metrics.last_recovery_bar_close_ts =
+        metrics.recovery_overlap_dedup_bar_count = 1;
+        metrics.recovery_not_strategy_live_bar_count = 2;
+        metrics.first_recovery_bar_close_ts =
             Some(Utc.with_ymd_and_hms(2026, 7, 6, 6, 10, 0).unwrap());
-        let report_with_replay =
-            finam_ws_recovery_report_from_metrics(&metrics, &generation, 60, checked_ts);
+        metrics.last_recovery_bar_close_ts =
+            Some(Utc.with_ymd_and_hms(2026, 7, 6, 6, 12, 0).unwrap());
+        let replay_with_gap = FinamWsRecoveryReplaySummary {
+            fetch_ok: true,
+            error_kind: None,
+            bars_count: 3,
+            first_close_ts: metrics.first_recovery_bar_close_ts,
+            last_close_ts: metrics.last_recovery_bar_close_ts,
+            overlap_dedup_bar_count: 1,
+            recovery_not_strategy_live_bar_count: 2,
+            gap_detected_count: 1,
+            gap_absence_proven: false,
+            ..replay
+        };
+        let report_with_replay = finam_ws_recovery_report_from_metrics(
+            &metrics,
+            &replay_with_gap,
+            &generation,
+            60,
+            checked_ts,
+        );
         assert!(report_with_replay
             .blockers
             .contains(&broker_core::MarketDataRecoveryBlocker::ReplayNotContiguousToWatermark));
@@ -9094,7 +9402,7 @@ mod tests {
     fn finam_ws_recovery_source_summary_keeps_recovery_bars_out_of_strategy_live() {
         let source = finam_ws_recovery_source_summary();
 
-        assert!(!source.rest_replay_wiring_enabled);
+        assert!(source.rest_replay_wiring_enabled);
         assert!(!source.recovery_bars_publishable_as_strategy_live);
         assert!(source.requires_first_fresh_ws_final_after_replay);
     }
