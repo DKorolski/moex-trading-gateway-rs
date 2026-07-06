@@ -79,6 +79,30 @@ For each matching 10-minute bucket, M4-3m compares:
 - close timestamp;
 - OHLCV.
 
+The evidence exports the explicit comparison policy:
+
+```text
+price_tolerance = exact_decimal
+volume_tolerance = exact_decimal
+open_ts_policy = bucket_open
+close_ts_policy = bucket_close
+timestamp_tolerance_sec = 0
+ohlcv_diff_policy = blocking_on_any_nonzero_diff
+```
+
+Every comparison also exports a compact diff summary for multi-instrument
+review:
+
+```text
+max_abs_open_diff
+max_abs_high_diff
+max_abs_low_diff
+max_abs_close_diff
+max_abs_volume_diff
+first_diff_bucket
+last_diff_bucket
+```
+
 Diffs are classified as:
 
 - `MissingAlorBar`;
@@ -105,6 +129,21 @@ that does not block ALOR-native-vs-FINAM-derived closure. If ALOR M1 is
 provided but cannot produce complete 10m buckets, the report records
 `NoCompleteAlorDerivedM10Bucket`.
 
+## Strategy-bar provenance
+
+Before any dry runtime attach, each candidate 10m strategy bar source must carry
+explicit provenance:
+
+```text
+source_mode = AlorNativeBarsGetAndSubscribeTf600 | FinamDerivedM1ToM10 | AlorDerivedM1ToM10
+source_timeframe_sec
+target_timeframe_sec = 600
+aggregation_complete
+gap_absence_proven
+bucket_open_ts_policy = bucket_open
+bucket_close_ts_policy = bucket_close
+```
+
 ## Boundary
 
 M4-3m must not:
@@ -128,6 +167,9 @@ Source/tooling acceptance requires:
 - ALOR v1 active 10m timestamps are normalized as bucket-open timestamps;
 - FINAM M1 aggregation is final-only, contiguous, 600-second target;
 - exact duplicate FINAM M1 bars are deduped before aggregation;
+- exact OHLCV/timestamp tolerance policy is exported;
+- compact diff summary is exported;
+- candidate strategy-bar provenance is exported;
 - missing ALOR oracle stream is reported as pending, not as false success;
 - no raw Redis payload is written into evidence;
 - no live/order boundary is opened.

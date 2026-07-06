@@ -146,6 +146,20 @@ def collect_runtime(args: argparse.Namespace) -> dict[str, Any]:
         output_source_kind="AlorStandDerivedM1ToM10",
         accepted_source_kinds={"live", "history"},
     )
+    native_summary["strategy_bar_provenance"] = M43M.strategy_bar_provenance(
+        "AlorNativeBarsGetAndSubscribeTf600",
+        source_timeframe_sec=600,
+        target_timeframe_sec=600,
+        aggregation_complete=True,
+        gap_absence_proven=True,
+    )
+    stand_provenance = M43M.strategy_bar_provenance(
+        "AlorStandDerivedM1ToM10",
+        source_timeframe_sec=60,
+        target_timeframe_sec=600,
+        aggregation_complete=bool(stand_derived),
+        gap_absence_proven=aggregation_metrics["gap_bucket_count"] == 0,
+    )
     comparison = (
         M43M.compare_bar_sets(
             native_bars,
@@ -192,6 +206,7 @@ def collect_runtime(args: argparse.Namespace) -> dict[str, Any]:
             **stand_summary,
             "aggregation_metrics": aggregation_metrics,
             "latest_derived_m10_bar": M43M.summarize_latest_bar(stand_derived),
+            "strategy_bar_provenance": stand_provenance,
         },
         "comparison": comparison,
         "stand_command_safety": {
@@ -220,6 +235,8 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
             [
                 "AlorStandDerivedM1ToM10",
                 "StandCommandStreamNotEmpty",
+                "strategy_bar_provenance",
+                "tolerance_policy",
                 "compare_bar_sets",
                 "live_orders_performed",
             ],
@@ -230,6 +247,8 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
                 "parse_alor_v1_bar",
                 "aggregate_m1_to_m10",
                 "compare_bar_sets",
+                "TOLERANCE_POLICY",
+                "compact_diff_summary",
             ],
         ),
     }
@@ -249,6 +268,7 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
         "runtime": runtime,
         "production_source_mode": "AlorNativeBarsGetAndSubscribeTf600",
         "stand_source_mode": "AlorDiagnosticStandM1ToM10",
+        "tolerance_policy": M43M.TOLERANCE_POLICY,
         "raw_redis_payload_exported": False,
         "production_redis_write_allowed": False,
         "stand_strategy_runtime_enabled": False,

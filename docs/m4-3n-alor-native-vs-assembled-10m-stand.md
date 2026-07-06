@@ -63,6 +63,41 @@ M4-3n compares overlapping native and assembled M10 buckets on:
 - close timestamp;
 - OHLCV.
 
+The evidence exports the same exact comparison policy as M4-3m:
+
+```text
+price_tolerance = exact_decimal
+volume_tolerance = exact_decimal
+open_ts_policy = bucket_open
+close_ts_policy = bucket_close
+timestamp_tolerance_sec = 0
+ohlcv_diff_policy = blocking_on_any_nonzero_diff
+```
+
+It also exports a compact diff summary:
+
+```text
+max_abs_open_diff
+max_abs_high_diff
+max_abs_low_diff
+max_abs_close_diff
+max_abs_volume_diff
+first_diff_bucket
+last_diff_bucket
+```
+
+Every native and assembled candidate strategy bar source carries provenance:
+
+```text
+source_mode = AlorNativeBarsGetAndSubscribeTf600 | AlorStandDerivedM1ToM10
+source_timeframe_sec
+target_timeframe_sec = 600
+aggregation_complete
+gap_absence_proven
+bucket_open_ts_policy = bucket_open
+bucket_close_ts_policy = bucket_close
+```
+
 Runtime closure requires:
 
 ```text
@@ -84,4 +119,3 @@ M4-3n must not:
 - enable continuous FINAM runtime-live;
 - emit `LiveReady` for FINAM;
 - perform cutover.
-

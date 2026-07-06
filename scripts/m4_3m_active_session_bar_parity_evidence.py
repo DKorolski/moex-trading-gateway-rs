@@ -39,6 +39,16 @@ class Bar:
     source_kind: str
 
 
+TOLERANCE_POLICY = {
+    "price_tolerance": "exact_decimal",
+    "volume_tolerance": "exact_decimal",
+    "open_ts_policy": "bucket_open",
+    "close_ts_policy": "bucket_close",
+    "timestamp_tolerance_sec": 0,
+    "ohlcv_diff_policy": "blocking_on_any_nonzero_diff",
+}
+
+
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -322,10 +332,71 @@ def summarize_bar(bar: Bar) -> dict[str, Any]:
     }
 
 
+def strategy_bar_provenance(
+    source_mode: str,
+    *,
+    source_timeframe_sec: int,
+    target_timeframe_sec: int,
+    aggregation_complete: bool,
+    gap_absence_proven: bool,
+) -> dict[str, Any]:
+    return {
+        "source_mode": source_mode,
+        "source_timeframe_sec": source_timeframe_sec,
+        "target_timeframe_sec": target_timeframe_sec,
+        "aggregation_complete": aggregation_complete,
+        "gap_absence_proven": gap_absence_proven,
+        "bucket_open_ts_policy": "bucket_open",
+        "bucket_close_ts_policy": "bucket_close",
+        "strategy_bar_candidate": True,
+    }
+
+
 def summarize_latest_bar(bars: list[Bar]) -> dict[str, Any] | None:
     if not bars:
         return None
     return summarize_bar(max(bars, key=lambda bar: bar.close_ts))
+
+
+def decimal_abs_diff(left: Decimal, right: Decimal) -> Decimal:
+    return abs(left - right)
+
+
+def compact_diff_summary(comparisons: list[dict[str, Any]], left_label: str, right_label: str) -> dict[str, Any]:
+    max_diffs = {
+        "max_abs_open_diff": Decimal("0"),
+        "max_abs_high_diff": Decimal("0"),
+        "max_abs_low_diff": Decimal("0"),
+        "max_abs_close_diff": Decimal("0"),
+        "max_abs_volume_diff": Decimal("0"),
+    }
+    first_diff_bucket = None
+    last_diff_bucket = None
+    for item in comparisons:
+        issues = item.get("issues") or []
+        if issues:
+            first_diff_bucket = first_diff_bucket or item.get("open_ts")
+            last_diff_bucket = item.get("open_ts")
+        left = item.get("_left_bar")
+        right = item.get("_right_bar")
+        if left is None or right is None:
+            continue
+        max_diffs["max_abs_open_diff"] = max(max_diffs["max_abs_open_diff"], decimal_abs_diff(left.open, right.open))
+        max_diffs["max_abs_high_diff"] = max(max_diffs["max_abs_high_diff"], decimal_abs_diff(left.high, right.high))
+        max_diffs["max_abs_low_diff"] = max(max_diffs["max_abs_low_diff"], decimal_abs_diff(left.low, right.low))
+        max_diffs["max_abs_close_diff"] = max(max_diffs["max_abs_close_diff"], decimal_abs_diff(left.close, right.close))
+        max_diffs["max_abs_volume_diff"] = max(max_diffs["max_abs_volume_diff"], decimal_abs_diff(left.volume, right.volume))
+    return {
+        **{key: str(value) for key, value in max_diffs.items()},
+        "first_diff_bucket": (
+            datetime.fromtimestamp(first_diff_bucket, tz=timezone.utc).isoformat() if first_diff_bucket is not None else None
+        ),
+        "last_diff_bucket": (
+            datetime.fromtimestamp(last_diff_bucket, tz=timezone.utc).isoformat() if last_diff_bucket is not None else None
+        ),
+        "left_label": left_label,
+        "right_label": right_label,
+    }
 
 
 def compare_bar_sets(
@@ -366,11 +437,18 @@ def compare_bar_sets(
                 "issues": issues,
                 left_label: summarize_bar(left),
                 right_label: summarize_bar(right),
+                "_left_bar": left,
+                "_right_bar": right,
             }
         )
+    diff_summary = compact_diff_summary(comparisons, left_label, right_label)
+    public_comparisons = []
+    for item in comparisons[-20:]:
+        public_comparisons.append({key: value for key, value in item.items() if not key.startswith("_")})
     return {
         "left_label": left_label,
         "right_label": right_label,
+        "tolerance_policy": TOLERANCE_POLICY,
         "left_bucket_count": len(left_by_open),
         "right_bucket_count": len(right_by_open),
         "overlap_bucket_count": len(overlap_opens),
@@ -379,7 +457,8 @@ def compare_bar_sets(
         "blocking_issue_count": blocking_issue_count,
         "bars_synchronized": bool(comparisons) and blocking_issue_count == 0,
         "status": "Synchronized" if comparisons and blocking_issue_count == 0 else ("NoOverlap" if not overlap_opens else "Diff"),
-        "comparisons": comparisons[-20:],
+        "diff_summary": diff_summary,
+        "comparisons": public_comparisons,
     }
 
 
@@ -537,6 +616,13 @@ def collect_runtime(args: argparse.Namespace) -> dict[str, Any]:
             "read_entry_count": None if alor_read is None else alor_read["entry_count"],
             "decoded_bar_count": len(alor_bars),
             "latest_bar": summarize_latest_bar(alor_bars),
+            "strategy_bar_provenance": strategy_bar_provenance(
+                "AlorNativeBarsGetAndSubscribeTf600",
+                source_timeframe_sec=600,
+                target_timeframe_sec=600,
+                aggregation_complete=True,
+                gap_absence_proven=True,
+            ),
         },
         "alor_m1_stream": {
             "name": args.alor_m1_stream,
@@ -545,6 +631,13 @@ def collect_runtime(args: argparse.Namespace) -> dict[str, Any]:
             "decoded_m1_bar_count": len(alor_m1),
             "aggregation_metrics": alor_aggregation_metrics,
             "latest_derived_m10_bar": summarize_latest_bar(alor_derived),
+            "strategy_bar_provenance": strategy_bar_provenance(
+                "AlorDerivedM1ToM10",
+                source_timeframe_sec=60,
+                target_timeframe_sec=600,
+                aggregation_complete=bool(alor_derived),
+                gap_absence_proven=alor_aggregation_metrics["gap_bucket_count"] == 0,
+            ),
         },
         "finam_stream": {
             "name": args.finam_stream,
@@ -553,6 +646,13 @@ def collect_runtime(args: argparse.Namespace) -> dict[str, Any]:
             "decoded_m1_bar_count": len(finam_m1),
             "aggregation_metrics": aggregation_metrics,
             "latest_derived_m10_bar": summarize_latest_bar(finam_derived),
+            "strategy_bar_provenance": strategy_bar_provenance(
+                "FinamDerivedM1ToM10",
+                source_timeframe_sec=60,
+                target_timeframe_sec=600,
+                aggregation_complete=bool(finam_derived),
+                gap_absence_proven=aggregation_metrics["gap_bucket_count"] == 0,
+            ),
         },
         "comparison": comparison,
         "native_vs_alor_derived_comparison": native_vs_alor_derived,
@@ -581,6 +681,9 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
                 "parse_finam_v2_market_bar",
                 "aggregate_m1_to_m10",
                 "AlorDerivedM1ToM10",
+                "TOLERANCE_POLICY",
+                "compact_diff_summary",
+                "strategy_bar_provenance",
                 "compare_alor_finam",
                 "MissingAlorOracleStream",
                 "post_delete_calls_performed",
@@ -612,6 +715,7 @@ def generate(args: argparse.Namespace) -> dict[str, Any]:
         "alor_oracle_source_mode": "AlorNativeBarsGetAndSubscribeTf600",
         "alor_derived_source_mode": "AlorDerivedM1ToM10OptionalCrossCheck",
         "finam_source_mode": "FinamDerivedM1ToM10",
+        "tolerance_policy": TOLERANCE_POLICY,
         "provenance_required": True,
         "raw_redis_payload_exported": False,
         "runtime_live_attachment_allowed": False,
