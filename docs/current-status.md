@@ -55,6 +55,11 @@ Stage split:
   stronger evidence.
 - Stage 2A is now active: runtime source migration inventory and plan for the
   accepted broker-neutral `BrokerOrderId(String)` path.
+- Stage 2A-final inventory completion is under review. It adds concrete
+  `HybridIntradayRuntime`, `trade_ledger`, runtime command-builder, and
+  ALOR cancel/replace DTO surfaces to the migration inventory. Stage 2B remains
+  blocked until this inventory and a separate Stage 2B implementation plan are
+  accepted.
 
 Green / mostly closed:
 

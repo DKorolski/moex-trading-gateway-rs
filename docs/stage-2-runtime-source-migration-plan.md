@@ -1,12 +1,17 @@
 # Stage 2A — runtime source migration inventory and plan
 
-Status: active design/prep.
+Status: active design/prep; Stage 2A-final inventory completion patch.
 
 Date: 2026-07-07.
 
 This stage prepares the accepted migration path for the original
 strategy-runtime source. It does not implement runtime-live behavior and does
 not expand the order-emitting surface.
+
+Stage 2A is accepted only as design/inventory. No original
+`strategy-runtime`, `alor-protocol`, or gateway source file may be changed for
+broker-neutral runtime migration until a separate Stage 2B implementation plan
+is accepted.
 
 ## Accepted decision
 
@@ -48,6 +53,8 @@ Forbidden in Stage 2A:
 - Stop/SLTP/bracket/replace/multi-leg;
 - USDRUBF/RI/SessionGap source migration;
 - changing BO/MR strategy trading logic.
+- modifying original runtime/protocol implementation files for the migration
+  before Stage 2B is separately reviewed and accepted.
 
 ## Runtime-facing target types
 
@@ -196,8 +203,34 @@ Minimum Stage 2B test set, prepared by Stage 2A:
 13. `target_symbol_flat_ignores_account_wide_zero_rows`.
 14. `target_active_order_blocks_entry_but_account_wide_rows_are_diagnostic`.
 15. `paper_mock_runtime_command_flow_publishes_ack_or_dlq_before_xack`.
+16. `hybrid_runtime_working_orders_string_id_migration`.
+17. `hybrid_runtime_tp_order_id_string_id_migration`.
+18. `hybrid_runtime_sl_exchange_order_id_string_id_migration`.
+19. `hybrid_runtime_on_order_non_empty_string_id_replaces_order_id_gt_zero`.
+20. `hybrid_runtime_bootstrap_working_orders_string_key`.
+21. `hybrid_runtime_restored_state_preserves_string_order_ids_and_riskgate`.
+22. `trade_ledger_preserves_broker_order_id_string`.
+23. `trade_ledger_records_order_and_fill_with_string_id`.
+24. `trade_ledger_string_order_id_roundtrip`.
+25. `deterministic_request_id_is_stable_after_account_alias_migration`.
+26. `legacy_cancel_command_numeric_id_imports_as_string`.
+27. `legacy_cancel_order_numeric_id_imports_as_string`.
+28. `replace_order_shape_migrated_but_feature_disabled`.
 
 All tests must be paper/mock/local. No real FINAM send is allowed.
+
+## Source handoff and reports policy
+
+The clean source handoff intentionally excludes `reports/`, `tmp/`, logs,
+`.env`, `.git`, and build artifacts. Therefore:
+
+- the canonical review copy of the Stage 2A inventory inside the source archive
+  is `docs/stage-2-runtime-source-migration-inventory.md`;
+- `reports/stage-2/runtime-source-migration-inventory.md` is a local
+  operator/reviewer evidence mirror and is intentionally not part of the clean
+  source archive;
+- if a reviewer asks for the reports copy, it must be sent as a separate
+  redacted evidence artifact, not mixed into the source handoff.
 
 ## Stage 2A acceptance
 
@@ -208,6 +241,9 @@ Stage 2A can be reviewed when:
   archive;
 - `reports/stage-2/runtime-source-migration-inventory.md` exists locally for
   operator/reviewer handoff outside the source archive;
+- the source handoff policy explicitly says that the `reports/` copy is
+  intentionally excluded and that the tracked `docs/` file is canonical for
+  archive review;
 - CI runs the forbidden-surface scan, negative harness, Rust checks, and
   no-Redis evidence smoke;
 - safety docs still say runtime-live and strategy-driven real FINAM send are
