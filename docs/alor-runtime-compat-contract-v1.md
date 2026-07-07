@@ -1,7 +1,7 @@
 # ALOR runtime compatibility contract v1
 
-Status: draft/spec foundation; hard compatibility freeze pending Stage 1B
-acceptance.
+Status: accepted Stage 1B compatibility freeze for IMOEXF
+`HybridIntradayRuntime` paper/shadow parity.
 
 Purpose: define the runtime-facing semantic contract that FINAM must satisfy
 before it can replace the ALOR gateway for existing strategy-runtime systems.

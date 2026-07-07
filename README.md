@@ -45,6 +45,15 @@ operator one-shot FINAM order harness exists, but `command-consumer-to-real-FINA
 runtime `LiveReady`, continuous runtime-live, and Stop/SLTP/bracket remain
 disabled.
 
+Stage 1B is accepted for IMOEXF `HybridIntradayRuntime` paper/shadow
+compatibility freeze. Stage 2A is now the active design/prep step for migrating
+the original runtime source to broker-neutral contract v2. The accepted path is
+source migration to `BrokerOrderId(String)`; an `i64` surrogate adapter is not
+allowed without a separate ADR. See
+[docs/stage-2-runtime-source-migration-plan.md](docs/stage-2-runtime-source-migration-plan.md)
+and
+[docs/stage-2-runtime-source-migration-inventory.md](docs/stage-2-runtime-source-migration-inventory.md).
+
 Useful local probes:
 
 ```bash

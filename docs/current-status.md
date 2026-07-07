@@ -49,9 +49,12 @@ Stage split:
 
 - Stage 1A is a draft/spec foundation: README/status/workplan, seeded bridge,
   and safety boundary.
-- Stage 1B is the hard compatibility-freeze work: field-by-field mappings,
-  Redis stream/group mapping, fixtures, seed-required policy, accepted ADR, and
+- Stage 1B is accepted as the hard compatibility-freeze work for IMOEXF
+  `HybridIntradayRuntime` paper/shadow parity: field-by-field mappings, Redis
+  stream/group mapping, fixtures, seed-required policy, accepted ADR, and
   stronger evidence.
+- Stage 2A is now active: runtime source migration inventory and plan for the
+  accepted broker-neutral `BrokerOrderId(String)` path.
 
 Green / mostly closed:
 
@@ -77,8 +80,8 @@ Amber:
   real ALOR hybrid BO/MR orchestrator.
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
-- Stage 1B still requires review acceptance of the exact field coverage ledger;
-  Stage 2A design/prep can proceed only after that acceptance.
+- Stage 2A is design/prep only. Stage 2B implementation still requires a
+  separate accepted implementation plan and fixture-backed parity tests.
 
 Red / not yet implemented:
 
@@ -87,11 +90,15 @@ Red / not yet implemented:
 - Runtime-driven live micro.
 - Orders/trades/positions streaming or polling reconciliation loop at ALOR-level
   maturity.
+- Any default or implicit `i64` surrogate adapter for FINAM broker order ids.
 
 ## Required gates before runtime-driven live
 
 1. ALOR runtime compatibility contract v1 accepted.
 2. Runtime source adaptation vs binary-compatible adapter ADR accepted.
+   Current accepted decision: runtime source migration to broker-neutral
+   `BrokerOrderId(String)`; surrogate adapter remains forbidden without a new
+   ADR.
 3. Full-session FINAM M10 vs ALOR M10 report accepted.
 4. Broker truth bootstrap wired into runtime lifecycle.
 5. Real hybrid BO/MR/riskgate semantics attached behind paper boundary.

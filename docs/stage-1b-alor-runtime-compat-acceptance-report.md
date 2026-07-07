@@ -1,10 +1,15 @@
 # Stage 1B — ALOR runtime compatibility acceptance report
 
-Status: ready for review.
+Status: accepted.
 
 Date: 2026-07-07.
 
 ## Review response summary
+
+Review accepted Stage 1B as the compatibility-contract freeze for IMOEXF
+`HybridIntradayRuntime` paper/shadow parity and allowed Stage 2A design/prep
+runtime source migration. Runtime-live and strategy-driven real FINAM sends
+remain forbidden.
 
 This patch treats the previous Stage 1 package as Stage 1A: a correct
 foundation, but not a hard compatibility freeze. Stage 1B adds the missing
