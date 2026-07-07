@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde::de;
@@ -77,6 +77,59 @@ pub struct RuntimeBootstrapSnapshotDto {
     pub account_wide_orders_count: usize,
 }
 
+impl RuntimeBootstrapSnapshotDto {
+    pub fn validate_for_bootstrap(
+        self,
+    ) -> Result<ValidatedRuntimeBootstrapSnapshotDto, RuntimeStateValidationError> {
+        validate_order_event_map("working_orders", &self.working_orders)?;
+        validate_order_event_map("working_orders_strategy", &self.working_orders_strategy)?;
+        validate_unique_ids("known_order_ids", &self.known_order_ids)?;
+
+        Ok(ValidatedRuntimeBootstrapSnapshotDto { snapshot: self })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValidatedRuntimeBootstrapSnapshotDto {
+    pub snapshot: RuntimeBootstrapSnapshotDto,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeStateReadinessBlocker {
+    pub kind: RuntimeStateReadinessBlockerKind,
+    pub broker_order_id_len: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeStateReadinessBlockerKind {
+    KnownOrderIdMissingFromOrders,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValidatedRuntimeStateSnapshot {
+    pub snapshot: RuntimeStateSnapshot,
+    pub readiness_blockers: Vec<RuntimeStateReadinessBlocker>,
+}
+
+impl ValidatedRuntimeStateSnapshot {
+    pub fn manual_intervention_required(&self) -> bool {
+        self.snapshot.manual_intervention_required || !self.readiness_blockers.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RuntimeStateValidationError {
+    #[error("{map_name} map key does not match payload order_id")]
+    OrderMapKeyMismatch {
+        map_name: &'static str,
+        key_len: usize,
+        payload_order_id_len: usize,
+    },
+    #[error("{field} contains duplicate broker order id")]
+    DuplicateBrokerOrderId { field: &'static str, id_len: usize },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeStateSnapshot {
     #[serde(default = "runtime_state_schema_version_v2")]
@@ -132,6 +185,60 @@ impl RuntimeStateSnapshot {
         self.legacy_alor_numeric_order_id_import = LEGACY_ALOR_NUMERIC_ORDER_ID_IMPORT.to_string();
         self
     }
+
+    pub fn validate_for_runtime_restore(
+        self,
+    ) -> Result<ValidatedRuntimeStateSnapshot, RuntimeStateValidationError> {
+        validate_order_event_map("orders", &self.orders)?;
+        validate_unique_ids("known_order_ids", &self.known_order_ids)?;
+
+        let readiness_blockers = self
+            .known_order_ids
+            .iter()
+            .filter(|order_id| !self.orders.contains_key(*order_id))
+            .map(|order_id| RuntimeStateReadinessBlocker {
+                kind: RuntimeStateReadinessBlockerKind::KnownOrderIdMissingFromOrders,
+                broker_order_id_len: order_id.as_str().len(),
+            })
+            .collect();
+
+        Ok(ValidatedRuntimeStateSnapshot {
+            snapshot: self.migrated_to_v2(),
+            readiness_blockers,
+        })
+    }
+}
+
+fn validate_order_event_map(
+    map_name: &'static str,
+    orders: &HashMap<BrokerOrderId, RuntimeOrderEvent>,
+) -> Result<(), RuntimeStateValidationError> {
+    for (key, payload) in orders {
+        if key != &payload.order_id {
+            return Err(RuntimeStateValidationError::OrderMapKeyMismatch {
+                map_name,
+                key_len: key.as_str().len(),
+                payload_order_id_len: payload.order_id.as_str().len(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_unique_ids(
+    field: &'static str,
+    ids: &[BrokerOrderId],
+) -> Result<(), RuntimeStateValidationError> {
+    let mut seen = HashSet::new();
+    for id in ids {
+        if !seen.insert(id) {
+            return Err(RuntimeStateValidationError::DuplicateBrokerOrderId {
+                field,
+                id_len: id.as_str().len(),
+            });
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -317,6 +424,157 @@ mod tests {
             serialized["legacy_alor_numeric_order_id_import"],
             serde_json::json!(LEGACY_ALOR_NUMERIC_ORDER_ID_IMPORT)
         );
+    }
+
+    #[test]
+    fn runtime_state_orders_map_key_must_match_order_event_id() {
+        let state = serde_json::from_str::<RuntimeStateSnapshot>(
+            r#"{
+                "orders":{
+                    "123":{"order_id":"456","status":"working"}
+                }
+            }"#,
+        )
+        .expect("mismatched state is syntactically readable");
+
+        assert_eq!(
+            state
+                .validate_for_runtime_restore()
+                .expect_err("map key mismatch is rejected"),
+            RuntimeStateValidationError::OrderMapKeyMismatch {
+                map_name: "orders",
+                key_len: 3,
+                payload_order_id_len: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn bootstrap_working_orders_key_must_match_order_event_id() {
+        let snapshot = serde_json::from_str::<RuntimeBootstrapSnapshotDto>(
+            r#"{
+                "working_orders":{
+                    "123":{"order_id":"456","status":"working"}
+                }
+            }"#,
+        )
+        .expect("mismatched bootstrap is syntactically readable");
+
+        assert_eq!(
+            snapshot
+                .validate_for_bootstrap()
+                .expect_err("working_orders key mismatch is rejected"),
+            RuntimeStateValidationError::OrderMapKeyMismatch {
+                map_name: "working_orders",
+                key_len: 3,
+                payload_order_id_len: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn working_orders_strategy_key_must_match_order_event_id() {
+        let snapshot = serde_json::from_str::<RuntimeBootstrapSnapshotDto>(
+            r#"{
+                "working_orders_strategy":{
+                    "123":{"order_id":"456","status":"working"}
+                }
+            }"#,
+        )
+        .expect("mismatched bootstrap is syntactically readable");
+
+        assert_eq!(
+            snapshot
+                .validate_for_bootstrap()
+                .expect_err("working_orders_strategy key mismatch is rejected"),
+            RuntimeStateValidationError::OrderMapKeyMismatch {
+                map_name: "working_orders_strategy",
+                key_len: 3,
+                payload_order_id_len: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn known_order_ids_cannot_contain_empty_zero_negative_null_or_duplicates() {
+        for payload in [
+            r#"{"known_order_ids":[""]}"#,
+            r#"{"known_order_ids":[0]}"#,
+            r#"{"known_order_ids":[-1]}"#,
+            r#"{"known_order_ids":[null]}"#,
+        ] {
+            serde_json::from_str::<RuntimeStateSnapshot>(payload)
+                .expect_err("invalid known order id rejected at serde boundary");
+        }
+
+        let duplicate =
+            serde_json::from_str::<RuntimeStateSnapshot>(r#"{"known_order_ids":[123,"123"]}"#)
+                .expect("duplicate is syntactically readable");
+
+        assert_eq!(
+            duplicate
+                .validate_for_runtime_restore()
+                .expect_err("duplicate known id rejected"),
+            RuntimeStateValidationError::DuplicateBrokerOrderId {
+                field: "known_order_ids",
+                id_len: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn known_order_id_missing_from_orders_blocks_readiness_without_losing_state() {
+        let state = serde_json::from_str::<RuntimeStateSnapshot>(
+            r#"{
+                "orders":{
+                    "123":{"order_id":123,"status":"working"}
+                },
+                "known_order_ids":[123,999],
+                "pending_exit_request_id":"00000000-0000-4000-8000-000000000011",
+                "deferred_exit_state":"waiting_fill"
+            }"#,
+        )
+        .expect("state imports");
+
+        let validated = state
+            .validate_for_runtime_restore()
+            .expect("map is consistent");
+
+        assert!(validated.manual_intervention_required());
+        assert_eq!(
+            validated.readiness_blockers,
+            vec![RuntimeStateReadinessBlocker {
+                kind: RuntimeStateReadinessBlockerKind::KnownOrderIdMissingFromOrders,
+                broker_order_id_len: 3,
+            }]
+        );
+        assert_eq!(
+            validated.snapshot.pending_exit_request_id,
+            Some(request_id("00000000-0000-4000-8000-000000000011"))
+        );
+        assert_eq!(
+            validated.snapshot.deferred_exit_state.as_deref(),
+            Some("waiting_fill")
+        );
+    }
+
+    #[test]
+    fn new_state_serializes_broker_order_id_keys_as_exact_strings() {
+        let state = serde_json::from_str::<RuntimeStateSnapshot>(
+            r#"{
+                "orders":{
+                    "FINAM-ORDER-ABC-001":{"order_id":"FINAM-ORDER-ABC-001","status":"working"}
+                },
+                "known_order_ids":["FINAM-ORDER-ABC-001"]
+            }"#,
+        )
+        .expect("state imports")
+        .validate_for_runtime_restore()
+        .expect("state validates")
+        .snapshot;
+
+        let serialized = serde_json::to_string(&state).expect("state serializes");
+        assert!(serialized.contains(r#""FINAM-ORDER-ABC-001":{"order_id":"FINAM-ORDER-ABC-001""#));
     }
 
     #[test]

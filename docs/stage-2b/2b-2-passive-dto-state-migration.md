@@ -1,6 +1,6 @@
 # Stage 2B-2 — passive DTO/state migration
 
-Status: implementation patch ready for review.
+Status: accepted.
 
 Date: 2026-07-07.
 
@@ -45,6 +45,10 @@ without changing strategy behavior:
 - `runtime_command_ack_rejects_conflicting_primary_and_legacy_string_ids`;
 - `client_order_id_does_not_replace_strategy_request_id`;
 - legacy id serde helper tests for scalar/option/vector imports.
+
+Required broker id fields reject null/empty/zero/negative values. Optional
+`broker_order_id` fields may be absent or null only where the ACK lifecycle
+allows `broker_order_id=None`.
 
 ## Remaining live blockers
 

@@ -71,6 +71,9 @@ Stage split:
 - Stage 2B-1 and Stage 2B-1a are accepted. Stage 2B-2 adds passive DTO/state
   migration contracts for old ALOR numeric order ids and broker-native string
   ids; it does not attach runtime-live or real FINAM command consumption.
+- Stage 2B-3 validates passive runtime order maps and bootstrap working-order
+  maps: map keys must match payload broker order ids, and missing known order
+  ids become readiness/manual-intervention blockers.
 
 Green / mostly closed:
 

@@ -65,3 +65,15 @@ Acceptance note:
 Acceptance note:
 
 [`2b-2-passive-dto-state-migration.md`](2b-2-passive-dto-state-migration.md)
+
+`2B-3` validates runtime order maps and bootstrap working-order maps:
+
+- require map key == payload `order_id`;
+- preserve legacy numeric map-key import as broker-order decimal strings;
+- serialize new broker-order keys as exact strings;
+- convert missing known order ids into readiness/manual-intervention blockers;
+- keep Stage 2B paper/mock/local and live send paths disabled.
+
+Acceptance note:
+
+[`2b-3-runtime-state-order-map-validation.md`](2b-3-runtime-state-order-map-validation.md)
