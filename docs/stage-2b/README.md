@@ -59,7 +59,9 @@ Acceptance note:
   broker-neutral ids;
 - import old ALOR numeric order ids as decimal-string `BrokerOrderId`;
 - keep FINAM/native string ids exact;
-- reject empty/zero/negative/null broker ids at serde boundaries;
+- reject empty/null broker ids at serde boundaries;
+- reject zero/negative only for legacy numeric ALOR imports; native string ids
+  like `"0"` / `"-1"` stay exact unless a later policy validator rejects them;
 - keep Stage 2B paper/mock/local and live send paths disabled.
 
 Acceptance note:
@@ -77,3 +79,19 @@ Acceptance note:
 Acceptance note:
 
 [`2b-3-runtime-state-order-map-validation.md`](2b-3-runtime-state-order-map-validation.md)
+
+`2B-4` adds CommandAck / OrderEvent / TradeEvent lifecycle boundary contracts:
+
+- ACK pending clearance is keyed by exact `StrategyRequestId`;
+- matching `ClientOrderId` or `BrokerOrderId` cannot clear pending by itself;
+- `Submitted`/`Accepted`/`Recovered` ACKs without broker id are explicitly
+  marked as pending-broker-id;
+- rejected/local-rejected style ACKs may omit broker id when lifecycle allows;
+- order events classify active/terminal/unknown lifecycle without changing
+  strategy behavior;
+- duplicate broker order/trade events are classified idempotent at DTO level;
+- keep Stage 2B paper/mock/local and live send paths disabled.
+
+Acceptance note:
+
+[`2b-4-command-ack-order-trade-lifecycle-boundary.md`](2b-4-command-ack-order-trade-lifecycle-boundary.md)

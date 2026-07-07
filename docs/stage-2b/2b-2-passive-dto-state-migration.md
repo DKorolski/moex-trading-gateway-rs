@@ -12,7 +12,10 @@ without changing strategy behavior:
 - reusable legacy broker-order-id serde helpers:
   - old ALOR numeric `order_id` imports as decimal-string `BrokerOrderId`;
   - FINAM/broker-native string ids are preserved exactly;
-  - empty/zero/negative/null broker ids are rejected;
+  - empty broker-native string ids are rejected;
+  - zero/negative/null rejection applies to the legacy numeric ALOR import path;
+  - native broker string ids such as `"0"` or `"-1"` are preserved exactly unless
+    a later policy validator explicitly rejects numeric-looking strings;
 - `RuntimeOrderEvent` with `BrokerOrderId`;
 - `RuntimeTradeEvent` with `BrokerTradeId` + `BrokerOrderId`;
 - `RuntimeBootstrapSnapshotDto` with string-key working-order maps;
@@ -46,9 +49,9 @@ without changing strategy behavior:
 - `client_order_id_does_not_replace_strategy_request_id`;
 - legacy id serde helper tests for scalar/option/vector imports.
 
-Required broker id fields reject null/empty/zero/negative values. Optional
-`broker_order_id` fields may be absent or null only where the ACK lifecycle
-allows `broker_order_id=None`.
+Required broker id fields reject null and empty values. Zero/negative rejection
+is scoped to legacy numeric ALOR imports. Optional `broker_order_id` fields may
+be absent or null only where the ACK lifecycle allows `broker_order_id=None`.
 
 ## Remaining live blockers
 

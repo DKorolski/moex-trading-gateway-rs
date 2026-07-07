@@ -316,12 +316,239 @@ impl From<RuntimeCommandAckDto> for CommandAck {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimePendingRequestIdentity {
+    pub request_id: StrategyRequestId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_order_id: Option<ClientOrderId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub broker_order_id: Option<BrokerOrderId>,
+}
+
+impl RuntimePendingRequestIdentity {
+    pub fn evaluate_ack(&self, ack: &CommandAck) -> RuntimeAckLifecycleDecision {
+        let request_id_matches = self.request_id == ack.request_id;
+        let client_order_id_matches = match (&self.client_order_id, &ack.client_order_id) {
+            (Some(left), Some(right)) => left == right,
+            _ => false,
+        };
+        let broker_order_id_matches = match (&self.broker_order_id, &ack.broker_order_id) {
+            (Some(left), Some(right)) => left == right,
+            _ => false,
+        };
+        let broker_order_id_state = ack_broker_order_id_state(ack);
+        let mut issues = Vec::new();
+
+        if !request_id_matches {
+            issues.push(RuntimeAckLifecycleIssue::RequestIdMismatch);
+            if client_order_id_matches {
+                issues.push(RuntimeAckLifecycleIssue::ClientOrderIdOnlyMatchDoesNotClearPending);
+            }
+            if broker_order_id_matches {
+                issues.push(RuntimeAckLifecycleIssue::BrokerOrderIdOnlyMatchDoesNotClearPending);
+            }
+
+            return RuntimeAckLifecycleDecision {
+                request_id_matches,
+                client_order_id_matches,
+                broker_order_id_matches,
+                broker_order_id_state,
+                pending_disposition: RuntimeAckPendingDisposition::KeepPending,
+                issues,
+            };
+        }
+
+        if self.broker_order_id.is_some()
+            && ack.broker_order_id.is_some()
+            && !broker_order_id_matches
+        {
+            issues.push(RuntimeAckLifecycleIssue::BrokerOrderIdMismatchForMatchingRequest);
+        }
+
+        let pending_disposition = if !issues.is_empty() || ack_status_keeps_pending(ack.status) {
+            RuntimeAckPendingDisposition::KeepPending
+        } else if broker_order_id_state == RuntimeAckBrokerOrderIdState::PendingBrokerOrderId {
+            RuntimeAckPendingDisposition::KeepPendingBrokerOrderId
+        } else {
+            RuntimeAckPendingDisposition::ClearPending
+        };
+
+        RuntimeAckLifecycleDecision {
+            request_id_matches,
+            client_order_id_matches,
+            broker_order_id_matches,
+            broker_order_id_state,
+            pending_disposition,
+            issues,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeAckPendingDisposition {
+    ClearPending,
+    KeepPending,
+    KeepPendingBrokerOrderId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeAckBrokerOrderIdState {
+    Present,
+    PendingBrokerOrderId,
+    NotRequired,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeAckLifecycleIssue {
+    RequestIdMismatch,
+    ClientOrderIdOnlyMatchDoesNotClearPending,
+    BrokerOrderIdOnlyMatchDoesNotClearPending,
+    BrokerOrderIdMismatchForMatchingRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeAckLifecycleDecision {
+    pub request_id_matches: bool,
+    pub client_order_id_matches: bool,
+    pub broker_order_id_matches: bool,
+    pub broker_order_id_state: RuntimeAckBrokerOrderIdState,
+    pub pending_disposition: RuntimeAckPendingDisposition,
+    pub issues: Vec<RuntimeAckLifecycleIssue>,
+}
+
+fn ack_broker_order_id_state(ack: &CommandAck) -> RuntimeAckBrokerOrderIdState {
+    if ack.broker_order_id.is_some() {
+        RuntimeAckBrokerOrderIdState::Present
+    } else if ack_status_requires_or_may_later_receive_broker_order_id(ack.status) {
+        RuntimeAckBrokerOrderIdState::PendingBrokerOrderId
+    } else {
+        RuntimeAckBrokerOrderIdState::NotRequired
+    }
+}
+
+fn ack_status_requires_or_may_later_receive_broker_order_id(status: CommandAckStatus) -> bool {
+    matches!(
+        status,
+        CommandAckStatus::Accepted | CommandAckStatus::Submitted | CommandAckStatus::Recovered
+    )
+}
+
+fn ack_status_keeps_pending(status: CommandAckStatus) -> bool {
+    matches!(
+        status,
+        CommandAckStatus::Timeout | CommandAckStatus::UnknownPending
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeOrderEventLifecycle {
+    Active,
+    Terminal,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeOrderEventLifecycleClassification {
+    pub broker_order_id_len: usize,
+    pub lifecycle: RuntimeOrderEventLifecycle,
+}
+
+impl RuntimeOrderEvent {
+    pub fn lifecycle_classification(&self) -> RuntimeOrderEventLifecycleClassification {
+        RuntimeOrderEventLifecycleClassification {
+            broker_order_id_len: self.order_id.as_str().len(),
+            lifecycle: classify_runtime_order_status(self.status.as_deref()),
+        }
+    }
+}
+
+fn classify_runtime_order_status(status: Option<&str>) -> RuntimeOrderEventLifecycle {
+    let Some(status) = status else {
+        return RuntimeOrderEventLifecycle::Unknown;
+    };
+    match status.trim().to_ascii_lowercase().as_str() {
+        "new" | "accepted" | "submitted" | "working" | "active" | "partially_filled"
+        | "partially-filled" | "partial" => RuntimeOrderEventLifecycle::Active,
+        "filled" | "done" | "cancelled" | "canceled" | "rejected" | "expired" | "terminal" => {
+            RuntimeOrderEventLifecycle::Terminal
+        }
+        _ => RuntimeOrderEventLifecycle::Unknown,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeBrokerEventReplayDisposition {
+    New,
+    DuplicateIdempotent,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct RuntimeBrokerEventDeduplicator {
+    seen_order_events: HashSet<(BrokerOrderId, Option<String>)>,
+    seen_trade_events: HashSet<(BrokerTradeId, BrokerOrderId)>,
+}
+
+impl RuntimeBrokerEventDeduplicator {
+    pub fn classify_order_event(
+        &mut self,
+        event: &RuntimeOrderEvent,
+    ) -> RuntimeBrokerEventReplayDisposition {
+        let key = (
+            event.order_id.clone(),
+            event
+                .status
+                .as_ref()
+                .map(|value| value.trim().to_ascii_lowercase()),
+        );
+        if self.seen_order_events.insert(key) {
+            RuntimeBrokerEventReplayDisposition::New
+        } else {
+            RuntimeBrokerEventReplayDisposition::DuplicateIdempotent
+        }
+    }
+
+    pub fn classify_trade_event(
+        &mut self,
+        event: &RuntimeTradeEvent,
+    ) -> RuntimeBrokerEventReplayDisposition {
+        let key = (event.trade_id.clone(), event.order_id.clone());
+        if self.seen_trade_events.insert(key) {
+            RuntimeBrokerEventReplayDisposition::New
+        } else {
+            RuntimeBrokerEventReplayDisposition::DuplicateIdempotent
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn request_id(value: &str) -> StrategyRequestId {
         StrategyRequestId::new(uuid::Uuid::parse_str(value).expect("uuid"))
+    }
+
+    fn ack(
+        request_id: StrategyRequestId,
+        client_order_id: Option<ClientOrderId>,
+        broker_order_id: Option<BrokerOrderId>,
+        status: CommandAckStatus,
+    ) -> CommandAck {
+        CommandAck {
+            request_id,
+            client_order_id,
+            broker_order_id,
+            status,
+            reason: None,
+            received_ts: DateTime::parse_from_rfc3339("2026-07-07T09:10:00Z")
+                .expect("ts")
+                .with_timezone(&Utc),
+        }
     }
 
     #[test]
@@ -650,6 +877,248 @@ mod tests {
         assert_ne!(
             ack.client_order_id.map(|value| value.to_string()),
             Some(ack.request_id.to_string())
+        );
+    }
+
+    #[test]
+    fn matching_strategy_request_id_ack_can_clear_matching_pending_path() {
+        let request_id = request_id("00000000-0000-4000-8000-000000000040");
+        let pending = RuntimePendingRequestIdentity {
+            request_id,
+            client_order_id: Some(ClientOrderId::new("CID000000000000040").expect("cid")),
+            broker_order_id: None,
+        };
+        let ack = ack(
+            request_id,
+            Some(ClientOrderId::new("CID000000000000040").expect("cid")),
+            Some(BrokerOrderId::new("FINAM-ORDER-040")),
+            CommandAckStatus::Submitted,
+        );
+
+        let decision = pending.evaluate_ack(&ack);
+
+        assert!(decision.request_id_matches);
+        assert!(decision.client_order_id_matches);
+        assert_eq!(
+            decision.broker_order_id_state,
+            RuntimeAckBrokerOrderIdState::Present
+        );
+        assert_eq!(
+            decision.pending_disposition,
+            RuntimeAckPendingDisposition::ClearPending
+        );
+        assert!(decision.issues.is_empty());
+    }
+
+    #[test]
+    fn mismatched_strategy_request_id_ack_never_clears_pending_even_with_client_match() {
+        let pending = RuntimePendingRequestIdentity {
+            request_id: request_id("00000000-0000-4000-8000-000000000041"),
+            client_order_id: Some(ClientOrderId::new("CID000000000000041").expect("cid")),
+            broker_order_id: None,
+        };
+        let ack = ack(
+            request_id("00000000-0000-4000-8000-000000000042"),
+            Some(ClientOrderId::new("CID000000000000041").expect("cid")),
+            None,
+            CommandAckStatus::Rejected,
+        );
+
+        let decision = pending.evaluate_ack(&ack);
+
+        assert!(!decision.request_id_matches);
+        assert!(decision.client_order_id_matches);
+        assert_eq!(
+            decision.pending_disposition,
+            RuntimeAckPendingDisposition::KeepPending
+        );
+        assert_eq!(
+            decision.issues,
+            vec![
+                RuntimeAckLifecycleIssue::RequestIdMismatch,
+                RuntimeAckLifecycleIssue::ClientOrderIdOnlyMatchDoesNotClearPending,
+            ]
+        );
+    }
+
+    #[test]
+    fn broker_order_id_does_not_replace_strategy_request_id() {
+        let pending = RuntimePendingRequestIdentity {
+            request_id: request_id("00000000-0000-4000-8000-000000000043"),
+            client_order_id: None,
+            broker_order_id: Some(BrokerOrderId::new("FINAM-ORDER-043")),
+        };
+        let ack = ack(
+            request_id("00000000-0000-4000-8000-000000000044"),
+            None,
+            Some(BrokerOrderId::new("FINAM-ORDER-043")),
+            CommandAckStatus::Submitted,
+        );
+
+        let decision = pending.evaluate_ack(&ack);
+
+        assert!(!decision.request_id_matches);
+        assert!(decision.broker_order_id_matches);
+        assert_eq!(
+            decision.pending_disposition,
+            RuntimeAckPendingDisposition::KeepPending
+        );
+        assert_eq!(
+            decision.issues,
+            vec![
+                RuntimeAckLifecycleIssue::RequestIdMismatch,
+                RuntimeAckLifecycleIssue::BrokerOrderIdOnlyMatchDoesNotClearPending,
+            ]
+        );
+    }
+
+    #[test]
+    fn submitted_ack_missing_broker_order_id_is_marked_pending_broker_id() {
+        let request_id = request_id("00000000-0000-4000-8000-000000000045");
+        let pending = RuntimePendingRequestIdentity {
+            request_id,
+            client_order_id: None,
+            broker_order_id: None,
+        };
+        let ack = ack(request_id, None, None, CommandAckStatus::Submitted);
+
+        let decision = pending.evaluate_ack(&ack);
+
+        assert!(decision.request_id_matches);
+        assert_eq!(
+            decision.broker_order_id_state,
+            RuntimeAckBrokerOrderIdState::PendingBrokerOrderId
+        );
+        assert_eq!(
+            decision.pending_disposition,
+            RuntimeAckPendingDisposition::KeepPendingBrokerOrderId
+        );
+    }
+
+    #[test]
+    fn rejected_ack_may_omit_broker_order_id_when_request_matches() {
+        let request_id = request_id("00000000-0000-4000-8000-000000000046");
+        let pending = RuntimePendingRequestIdentity {
+            request_id,
+            client_order_id: None,
+            broker_order_id: None,
+        };
+        let ack = ack(request_id, None, None, CommandAckStatus::Rejected);
+
+        let decision = pending.evaluate_ack(&ack);
+
+        assert!(decision.request_id_matches);
+        assert_eq!(
+            decision.broker_order_id_state,
+            RuntimeAckBrokerOrderIdState::NotRequired
+        );
+        assert_eq!(
+            decision.pending_disposition,
+            RuntimeAckPendingDisposition::ClearPending
+        );
+    }
+
+    #[test]
+    fn order_and_trade_events_preserve_exact_broker_order_id_and_classify_lifecycle() {
+        let order = serde_json::from_str::<RuntimeOrderEvent>(
+            r#"{"order_id":"FINAM/ORDER:EXACT-047","status":"working","symbol":"IMOEXF"}"#,
+        )
+        .expect("order imports");
+        let trade = serde_json::from_str::<RuntimeTradeEvent>(
+            r#"{"trade_id":"FINAM-TRADE-047","order_id":"FINAM/ORDER:EXACT-047","symbol":"IMOEXF"}"#,
+        )
+        .expect("trade imports");
+
+        assert_eq!(order.order_id.as_str(), "FINAM/ORDER:EXACT-047");
+        assert_eq!(trade.order_id.as_str(), "FINAM/ORDER:EXACT-047");
+        assert_eq!(
+            order.lifecycle_classification().lifecycle,
+            RuntimeOrderEventLifecycle::Active
+        );
+
+        let terminal = RuntimeOrderEvent {
+            status: Some("Filled".to_string()),
+            ..order
+        };
+        assert_eq!(
+            terminal.lifecycle_classification().lifecycle,
+            RuntimeOrderEventLifecycle::Terminal
+        );
+    }
+
+    #[test]
+    fn broker_event_before_ack_is_representable_without_corrupting_pending_state() {
+        let request_id = request_id("00000000-0000-4000-8000-000000000048");
+        let pending = RuntimePendingRequestIdentity {
+            request_id,
+            client_order_id: Some(ClientOrderId::new("CID000000000000048").expect("cid")),
+            broker_order_id: None,
+        };
+        let order = RuntimeOrderEvent {
+            order_id: BrokerOrderId::new("FINAM-ORDER-BEFORE-ACK-048"),
+            client_order_id: Some(ClientOrderId::new("CID000000000000048").expect("cid")),
+            symbol: Some("IMOEXF".to_string()),
+            exchange: None,
+            status: Some("working".to_string()),
+            side: Some("buy".to_string()),
+            order_type: Some("limit".to_string()),
+            source_ts: None,
+        };
+        let ack = ack(
+            request_id,
+            order.client_order_id.clone(),
+            None,
+            CommandAckStatus::Accepted,
+        );
+
+        assert_eq!(
+            order.lifecycle_classification().lifecycle,
+            RuntimeOrderEventLifecycle::Active
+        );
+        assert_eq!(
+            pending.evaluate_ack(&ack).pending_disposition,
+            RuntimeAckPendingDisposition::KeepPendingBrokerOrderId
+        );
+    }
+
+    #[test]
+    fn duplicate_broker_events_are_classified_idempotent_at_dto_layer() {
+        let mut deduplicator = RuntimeBrokerEventDeduplicator::default();
+        let order = RuntimeOrderEvent {
+            order_id: BrokerOrderId::new("FINAM-ORDER-DUP-049"),
+            client_order_id: None,
+            symbol: Some("IMOEXF".to_string()),
+            exchange: None,
+            status: Some("working".to_string()),
+            side: None,
+            order_type: None,
+            source_ts: None,
+        };
+        let trade = RuntimeTradeEvent {
+            trade_id: BrokerTradeId::new("FINAM-TRADE-DUP-049"),
+            order_id: BrokerOrderId::new("FINAM-ORDER-DUP-049"),
+            client_order_id: None,
+            symbol: Some("IMOEXF".to_string()),
+            exchange: None,
+            side: None,
+            source_ts: None,
+        };
+
+        assert_eq!(
+            deduplicator.classify_order_event(&order),
+            RuntimeBrokerEventReplayDisposition::New
+        );
+        assert_eq!(
+            deduplicator.classify_order_event(&order),
+            RuntimeBrokerEventReplayDisposition::DuplicateIdempotent
+        );
+        assert_eq!(
+            deduplicator.classify_trade_event(&trade),
+            RuntimeBrokerEventReplayDisposition::New
+        );
+        assert_eq!(
+            deduplicator.classify_trade_event(&trade),
+            RuntimeBrokerEventReplayDisposition::DuplicateIdempotent
         );
     }
 }

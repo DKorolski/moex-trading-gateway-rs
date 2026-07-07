@@ -1,6 +1,6 @@
 # Stage 2B-3 — RuntimeState.orders and bootstrap order-map validation
 
-Status: implementation patch ready for review.
+Status: accepted.
 
 Date: 2026-07-07.
 
