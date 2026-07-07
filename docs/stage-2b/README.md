@@ -40,3 +40,15 @@ under this directory before handoff. The note should include:
 Acceptance note:
 
 [`2b-1-id-types-acceptance.md`](2b-1-id-types-acceptance.md)
+
+`2B-1a` is the BrokerOrderId invariant hardening follow-up:
+
+- remove `BrokerOrderId` from the generic unchecked string-id macro;
+- keep empty broker-order ids unconstructible through serde and broker-input
+  helpers;
+- keep Stage 2B paper/mock/local and live send paths disabled;
+- freeze the accepted Stage 0–13 macro-roadmap.
+
+Acceptance note:
+
+[`2b-1a-broker-order-id-hardening.md`](2b-1a-broker-order-id-hardening.md)

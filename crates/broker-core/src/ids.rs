@@ -57,16 +57,19 @@ macro_rules! string_id {
 }
 
 string_id!(BrokerAccountId);
-string_id!(BrokerOrderId);
 string_id!(BrokerTradeId);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BrokerOrderIdEncoding {
-    BrokerOrderIdString,
-}
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct BrokerOrderId(String);
 
 impl BrokerOrderId {
+    #[track_caller]
+    pub fn new(value: impl Into<String>) -> Self {
+        Self::from_broker_native_exact(value)
+            .expect("BrokerOrderId::new requires a non-empty broker-native id")
+    }
+
     pub fn from_broker_native_exact(
         value: impl Into<String>,
     ) -> Result<Self, BrokerOrderIdImportError> {
@@ -83,6 +86,36 @@ impl BrokerOrderId {
         }
         Ok(Self(value.to_string()))
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for BrokerOrderId {
+    type Error = BrokerOrderIdImportError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::from_broker_native_exact(value)
+    }
+}
+
+impl From<BrokerOrderId> for String {
+    fn from(value: BrokerOrderId) -> Self {
+        value.0
+    }
+}
+
+impl fmt::Display for BrokerOrderId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrokerOrderIdEncoding {
+    BrokerOrderIdString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -254,6 +287,39 @@ mod tests {
         assert_eq!(
             BrokerOrderId::from_broker_native_exact("").expect_err("empty native id rejected"),
             BrokerOrderIdImportError::EmptyBrokerNativeId
+        );
+    }
+
+    #[test]
+    fn broker_order_id_public_constructor_cannot_create_empty() {
+        let panic = std::panic::catch_unwind(|| BrokerOrderId::new(""))
+            .expect_err("checked constructor must not construct empty broker order id");
+
+        let message = panic
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+            .expect("panic message is present");
+        assert!(message.contains("non-empty broker-native id"));
+    }
+
+    #[test]
+    fn broker_order_id_deserialize_empty_string_rejected() {
+        let error = serde_json::from_str::<BrokerOrderId>(r#""""#)
+            .expect_err("empty broker order id cannot deserialize");
+
+        assert!(error.to_string().contains("cannot be empty"));
+    }
+
+    #[test]
+    fn broker_order_id_deserialize_nonempty_string_preserved_exact() {
+        let broker_order_id = serde_json::from_str::<BrokerOrderId>(r#""FINAM-ORDER-0002""#)
+            .expect("non-empty broker order id deserializes");
+
+        assert_eq!(broker_order_id.as_str(), "FINAM-ORDER-0002");
+        assert_eq!(
+            serde_json::to_string(&broker_order_id).expect("broker order id serializes"),
+            r#""FINAM-ORDER-0002""#
         );
     }
 

@@ -506,11 +506,8 @@ impl FinamOrderEndpointFixture {
                         .broker_order_id
                         .as_ref()
                         .map(|value| {
-                            if value.is_empty() {
-                                Err(FinamOrderEndpointMapperError::EmptyBrokerOrderId)
-                            } else {
-                                Ok(BrokerOrderId::new(value))
-                            }
+                            BrokerOrderId::from_broker_native_exact(value.as_str())
+                                .map_err(|_| FinamOrderEndpointMapperError::EmptyBrokerOrderId)
                         })
                         .transpose()?,
                 },
@@ -825,7 +822,10 @@ fn classify_success_order_endpoint_response(
     let diagnostic = FinamOrderEndpointFixture::Accepted(dto.clone()).redacted_diagnostic();
     FinamOrderEndpointClassifiedResponse {
         result: FinamOrderEndpointMappedResult::Execution(FinamOrderExecutionOutcome::Accepted {
-            broker_order_id: dto.broker_order_id.map(|value| BrokerOrderId::new(&value)),
+            broker_order_id: dto.broker_order_id.map(|value| {
+                BrokerOrderId::from_broker_native_exact(value)
+                    .expect("empty broker_order_id was rejected before mapping")
+            }),
         }),
         diagnostic: FinamOrderEndpointResponseDiagnostic {
             status: Some(status),

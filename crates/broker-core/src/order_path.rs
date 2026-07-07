@@ -3646,13 +3646,10 @@ mod tests {
             OrderPreflightError::EndpointNotArmed
         );
 
-        let policy = preflight_policy(now);
-        let missing_order_id = cancel_order(request_id(43), "");
         assert_eq!(
-            policy
-                .validate_cancel_order(&missing_order_id, now, None)
-                .expect_err("missing broker id"),
-            OrderPreflightError::BrokerOrderIdMissing
+            BrokerOrderId::from_broker_native_exact("")
+                .expect_err("missing broker id is rejected before preflight"),
+            crate::ids::BrokerOrderIdImportError::EmptyBrokerNativeId
         );
     }
 

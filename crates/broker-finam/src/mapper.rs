@@ -741,7 +741,7 @@ pub fn map_order_state(
 
     Ok(Order {
         account_id: BrokerAccountId::new(order.order.account_id.clone()),
-        order_id: order.order_id.clone().map(BrokerOrderId::new),
+        order_id: map_optional_broker_order_id("order.order_id", order.order_id.as_deref())?,
         client_order_id: order
             .order
             .client_order_id
@@ -855,7 +855,7 @@ pub fn map_account_trade(
     Ok(Trade {
         account_id: BrokerAccountId::new(trade.account_id.as_deref().unwrap_or(account_id)),
         trade_id: BrokerTradeId::new(trade_id),
-        order_id: trade.order_id.clone().map(BrokerOrderId::new),
+        order_id: map_optional_broker_order_id("trade.order_id", trade.order_id.as_deref())?,
         client_order_id: trade
             .client_order_id
             .as_deref()
@@ -1099,6 +1099,18 @@ fn freshness(observed_ts: Option<DateTime<Utc>>, max_age_ms: u64) -> BrokerFeedF
 
 fn map_client_order_id_if_core_safe(value: &str) -> Option<ClientOrderId> {
     ClientOrderId::new(value).ok()
+}
+
+fn map_optional_broker_order_id(
+    field: &'static str,
+    value: Option<&str>,
+) -> Result<Option<BrokerOrderId>, FinamMapperError> {
+    value
+        .map(|value| {
+            BrokerOrderId::from_broker_native_exact(value)
+                .map_err(|_| unsupported_value(field, value))
+        })
+        .transpose()
 }
 
 fn invalid_decimal(field: &'static str, value: &str) -> FinamMapperError {

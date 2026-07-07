@@ -6,6 +6,10 @@ This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
 runtime-live.
 
+The stable macro-roadmap is fixed in [roadmap.md](roadmap.md). Review may split
+an accepted macro-stage into smaller patch gates, but it does not renumber or
+replace the Stage 0–13 roadmap without a separate roadmap ADR.
+
 ## What exists
 
 - Broker-neutral core contracts for orders, trades, positions, market data,
@@ -61,6 +65,9 @@ Stage split:
 - Stage 2B implementation plan is accepted. Controlled runtime source migration
   implementation may proceed paper/mock/local only, in small reviewable patches.
   Runtime-live and the real FINAM command consumer remain blocked.
+- Active stage is Stage 2B. Stage 2B-N patch gates are implementation safety
+  gates inside Stage 2 and do not replace Stage 3 market-data parity or later
+  macro-stages.
 
 Green / mostly closed:
 

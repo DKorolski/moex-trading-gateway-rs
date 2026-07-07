@@ -6401,7 +6401,8 @@ async fn run_finam_real_readonly_evidence(args: FinamRealReadonlyEvidenceArgs) -
         .map_err(|error| anyhow::anyhow!(error.to_redacted_string()))?;
 
     let account_id = BrokerAccountId::new(args.account_id);
-    let order_id = BrokerOrderId::new(args.broker_order_id);
+    let order_id = BrokerOrderId::from_broker_native_exact(args.broker_order_id)
+        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
     let client_order_id = args
         .client_order_id
         .map(ClientOrderId::new)

@@ -45,6 +45,11 @@ operator one-shot FINAM order harness exists, but `command-consumer-to-real-FINA
 runtime `LiveReady`, continuous runtime-live, and Stop/SLTP/bracket remain
 disabled.
 
+The stable migration roadmap is tracked in [docs/roadmap.md](docs/roadmap.md).
+Reviews may split a macro-stage into reviewable patch gates, but they do not
+renumber or replace the accepted Stage 0–13 roadmap without a separate roadmap
+ADR.
+
 Stage 1B is accepted for IMOEXF `HybridIntradayRuntime` paper/shadow
 compatibility freeze. Stage 2A is accepted and closed as the runtime source
 migration inventory/plan. Stage 2B implementation plan is accepted; controlled
