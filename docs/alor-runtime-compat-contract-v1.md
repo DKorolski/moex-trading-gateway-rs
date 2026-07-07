@@ -9,6 +9,13 @@ This is not a FINAM live-order enablement document.
 
 ## Boundary
 
+Stage 1B hard-freeze scope is intentionally narrow:
+
+- in scope: IMOEXF `HybridIntradayRuntime` paper/shadow parity;
+- out of scope: USDRUBF `AlorUsdrubfHybrid`, RI Author41/42,
+  `SessionGapStandalone`, generic `CancelSent`/`Done` migration,
+  Stop/SLTP/bracket, runtime-live.
+
 Allowed while implementing this contract:
 
 - FINAM read-only and WebSocket market-data shadow;
@@ -180,6 +187,78 @@ Seeded M4-3x parity must classify each unsupported state:
 | safe-mode close-only | Must preserve flag/reason. | Entry blocked, exit/cancel/repair allowed by policy. |
 | riskgate state | Seeded projection accepted as bridge. | Real ledger integration or explicit waiver required. |
 | stop/bracket fields | Preserve IDs if present, but do not enable stop/bracket. | Stop/bracket remains forbidden. |
+
+### Exact ALOR HybridIntradayRuntime field coverage
+
+This table is the Stage 1B field coverage ledger for the IMOEXF
+`HybridIntradayRuntime` shape. "Policy" is intentionally explicit: a field can be
+preserved, mapped, or classified as unsupported/future and therefore blocking
+for runtime-live.
+
+| ALOR field/group | Seed field | Paper projection field | Stage 2 runtime source field | Policy | Blocks Stage 2B/live |
+| --- | --- | --- | --- | --- | --- |
+| `active_cycle_id` | `active_cycle_id` | `active_cycle_id` | same semantic field | preserve | conditional |
+| `next_cycle_seq` | `next_cycle_seq` | `next_cycle_seq` | same semantic field | preserve | yes |
+| `last_position_qty` | `last_position_qty` | `last_position_qty` | broker truth + runtime state | preserve/map | yes |
+| `current_owner` | `current_owner` | `current_owner` | same semantic field | preserve | conditional |
+| `current_side` | `current_side` | `current_side` | same semantic field | preserve | conditional |
+| `pending_entry_owner` | `pending_entry_owner` | `pending_entry_owner` | same semantic field | preserve | yes |
+| `pending_entry_side` | `pending_entry_side` | `pending_entry_side` | same semantic field | preserve | yes |
+| `pending_entry_cycle_id` | `pending_entry_cycle_id` | `pending_entry_cycle_id` | same semantic field | preserve | yes |
+| `pending_entry_request_id` | `pending_entry_request_id` | `pending_entry_request_id` | `StrategyRequestId` | preserve/map | yes |
+| `pending_entry_created_ts_utc` | not yet represented | not yet represented | pending entry timestamp | unsupported_blocks_live | yes |
+| `deferred_entry_owner` | `deferred_entry_state` marker only | `deferred_entry_state` marker only | structured deferred entry | unsupported_blocks_live until structured mapping | yes |
+| `deferred_entry_side` | `deferred_entry_state` marker only | `deferred_entry_state` marker only | structured deferred entry | unsupported_blocks_live until structured mapping | yes |
+| `deferred_entry_cycle_id` | `deferred_entry_state` marker only | `deferred_entry_state` marker only | structured deferred entry | unsupported_blocks_live until structured mapping | yes |
+| `deferred_entry_entry_style` | `deferred_entry_state` marker only | `deferred_entry_state` marker only | structured deferred entry | unsupported_blocks_live until structured mapping | yes |
+| `deferred_entry_reason` | `deferred_entry_state` marker only | `deferred_entry_state` marker only | structured deferred entry | unsupported_blocks_live until structured mapping | yes |
+| `deferred_entry_stop_price` | `deferred_entry_state` marker only | `deferred_entry_state` marker only | structured deferred entry | future_stop_bracket_only | yes |
+| `deferred_entry_take_price` | `deferred_entry_state` marker only | `deferred_entry_state` marker only | structured deferred entry | future_stop_bracket_only | yes |
+| `deferred_entry_ts_utc` | `deferred_entry_state` marker only | `deferred_entry_state` marker only | structured deferred entry | unsupported_blocks_live until structured mapping | yes |
+| `deferred_entry_request_id` | `deferred_entry_state` marker only | `deferred_entry_state` marker only | `StrategyRequestId` | unsupported_blocks_live until structured mapping | yes |
+| `pending_exit_request_id` | `pending_exit_request_id` | `pending_exit_request_id` | `StrategyRequestId` | preserve/map | yes |
+| `pending_exit_created_ts_utc` | not yet represented | not yet represented | pending exit timestamp | unsupported_blocks_live | yes |
+| `deferred_exit_owner` | `deferred_exit_state` marker only | `deferred_exit_state` marker only | structured deferred exit | marker_preserved_full_mapping_pending | yes |
+| `deferred_exit_reason` | `deferred_exit_state` marker only | `deferred_exit_state` marker only | structured deferred exit | marker_preserved_full_mapping_pending | yes |
+| `deferred_exit_cycle_id` | `deferred_exit_state` marker only | `deferred_exit_state` marker only | structured deferred exit | marker_preserved_full_mapping_pending | yes |
+| `deferred_exit_ts_utc` | `deferred_exit_state` marker only | `deferred_exit_state` marker only | structured deferred exit | marker_preserved_full_mapping_pending | yes |
+| `deferred_exit_request_id` | `deferred_exit_state` marker only | `deferred_exit_state` marker only | `StrategyRequestId` | marker_preserved_full_mapping_pending | yes |
+| `pending_tp_request_id` | not yet represented | not yet represented | future protective order state | future_stop_bracket_only | yes |
+| `pending_tp_created_ts_utc` | not yet represented | not yet represented | future protective order state | future_stop_bracket_only | yes |
+| `pending_sl_request_id` | not yet represented | not yet represented | future protective order state | future_stop_bracket_only | yes |
+| `pending_sl_created_ts_utc` | not yet represented | not yet represented | future protective order state | future_stop_bracket_only | yes |
+| `tp_order_id` | `tp_order_id` | `tp_order_id` | future protective order state | preserve_id_but_feature_disabled | yes for stop/bracket |
+| `sl_stop_order_id` | `sl_stop_order_id` | `sl_stop_order_id` | future protective order state | preserve_id_but_feature_disabled | yes for stop/bracket |
+| `sl_exchange_order_id` | not yet represented | not yet represented | future protective order state | future_stop_bracket_only | yes |
+| `sl_triggered_ts` | not yet represented | not yet represented | future protective order state | future_stop_bracket_only | yes |
+| `mr_take_price` | `mr_take_price` | `mr_take_price` | MR state | preserve | conditional |
+| `mr_stop_price` | `mr_stop_price` | `mr_stop_price` | MR state | preserve | conditional |
+| `safe_mode_close_only` | `safe_mode_close_only` | `safe_mode_close_only` | runtime safety state | preserve | yes |
+| `safe_mode_reason` | `safe_mode_reason` | `safe_mode_reason` | runtime safety state | preserve | yes |
+| `position_adoption_state` | `position_adoption_state` | `position_adoption_state` | broker truth adoption state | marker_preserved_full_mapping_pending | yes |
+| `dirty_start_marker` | `dirty_start_marker` | `dirty_start_marker` | dirty-start audit state | marker_preserved_full_mapping_pending | yes |
+| `manual_intervention_required` | `manual_intervention_required` | `manual_intervention_required` | runtime guard state | preserve | yes |
+| `manual_intervention_reason` | `manual_intervention_reason` | `manual_intervention_reason` | runtime guard state | preserve | yes |
+| `repair_deadline_ts` | not yet represented | not yet represented | future repair state | future_repair_only | yes |
+| `next_repair_at_ts` | not yet represented | not yet represented | future repair state | future_repair_only | yes |
+| `repair_backoff_level` | not yet represented | not yet represented | future repair state | future_repair_only | yes |
+| `repair_attempts` | not yet represented | not yet represented | future repair state | future_repair_only | yes |
+| day feature fields | day feature seed fields | day feature projection fields | runtime day state | preserve | yes |
+| `overnight_exit_armed_date` | `overnight_exit_armed_date` | `overnight_exit_armed_date` | runtime overnight state | preserve | conditional |
+| `risk_gate_shadow_entry_ts_utc` | not yet represented | not yet represented | riskgate shadow entry state | unsupported_blocks_live | yes |
+| `risk_gate_shadow_entry_price` | not yet represented | not yet represented | riskgate shadow entry state | unsupported_blocks_live | yes |
+| `risk_gate_shadow_side` | not yet represented | not yet represented | riskgate shadow entry state | unsupported_blocks_live | yes |
+| `risk_gate_shadow_target_price` | not yet represented | not yet represented | riskgate shadow entry state | unsupported_blocks_live | yes |
+| `risk_gate_shadow_stop_price` | not yet represented | not yet represented | riskgate shadow entry state | unsupported_blocks_live | yes |
+| `risk_gate_pending_session_date` | not yet represented | not yet represented | riskgate pending state | unsupported_blocks_live | yes |
+| `risk_gate_pending_shadow_pnl_points` | not yet represented | not yet represented | riskgate pending state | unsupported_blocks_live | yes |
+| `risk_gate_pending_shadow_trade_count` | not yet represented | not yet represented | riskgate pending state | unsupported_blocks_live | yes |
+| riskgate summary fields | riskgate seed fields | riskgate projection fields | riskgate ledger/state | preserve as bridge | yes |
+
+Stage 2B implementation cannot start until every `unsupported_blocks_live`
+or `marker_preserved_full_mapping_pending` field has either a structured mapping,
+an accepted waiver, or is explicitly proven out of scope for the target runtime
+deployment.
 
 ### Redis envelope / DLQ record
 

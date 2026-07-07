@@ -10634,14 +10634,101 @@ mod tests {
         );
     }
 
+    fn alor_fixture_seed(path_payload: &str) -> PaperHybridIntradayOracleSeed {
+        let payload: serde_json::Value =
+            serde_json::from_str(path_payload).expect("fixture parses");
+        alor_runtime_state_to_paper_oracle_seed(&payload).expect("seed maps")
+    }
+
+    #[test]
+    fn alor_runtime_flat_clean_fixture_matches_expected_seed_shape() {
+        let seed = alor_fixture_seed(include_str!(
+            "../../../tests/fixtures/alor_runtime_compat/hybrid_flat_clean_runtime_state.json"
+        ));
+        let expected: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/alor_runtime_compat/expected_paper_oracle_seed_flat_clean.json"
+        ))
+        .expect("expected fixture parses");
+
+        assert_eq!(seed.source, expected["source"].as_str().expect("source"));
+        assert_eq!(
+            seed.next_cycle_seq,
+            expected["next_cycle_seq"]
+                .as_u64()
+                .map(|value| value as u32)
+        );
+        assert_eq!(
+            seed.last_position_qty.expect("qty").to_string(),
+            expected["last_position_qty"].as_str().expect("qty")
+        );
+        assert_eq!(seed.safe_mode_close_only, Some(false));
+        assert_eq!(
+            seed.prev_day_close.expect("prev").to_string(),
+            expected["prev_day_close"].as_str().expect("prev")
+        );
+        assert_eq!(
+            seed.prev_day_range.expect("range").to_string(),
+            expected["prev_day_range"].as_str().expect("range")
+        );
+        assert_eq!(
+            seed.prev_day_return.expect("return").to_string(),
+            expected["prev_day_return"].as_str().expect("return")
+        );
+        assert_eq!(
+            seed.risk_gate_profile_id.as_deref(),
+            expected["risk_gate_profile_id"].as_str()
+        );
+        assert_eq!(
+            seed.risk_gate_rolling_sum_lb120
+                .expect("rolling")
+                .to_string(),
+            expected["risk_gate_rolling_sum_lb120"]
+                .as_str()
+                .expect("rolling")
+        );
+        assert_eq!(
+            seed.risk_gate_ledger_rows_count,
+            expected["risk_gate_ledger_rows_count"]
+                .as_u64()
+                .map(|value| value as usize)
+        );
+    }
+
+    #[test]
+    fn alor_runtime_nonflat_fixture_preserves_cycle_owner_side_qty() {
+        let seed = alor_fixture_seed(include_str!(
+            "../../../tests/fixtures/alor_runtime_compat/hybrid_nonflat_runtime_state.json"
+        ));
+
+        assert_eq!(seed.active_cycle_id.as_deref(), Some("cycle-bo-short"));
+        assert_eq!(seed.next_cycle_seq, Some(19));
+        assert_eq!(seed.last_position_qty.expect("qty").to_string(), "-3");
+        assert_eq!(seed.current_owner.as_deref(), Some("intraday_breakout"));
+        assert_eq!(seed.current_side.as_deref(), Some("short"));
+        assert_eq!(seed.safe_mode_close_only, Some(false));
+    }
+
+    #[test]
+    fn alor_runtime_pending_exit_fixture_preserves_open_risk() {
+        let seed = alor_fixture_seed(include_str!(
+            "../../../tests/fixtures/alor_runtime_compat/hybrid_pending_exit_runtime_state.json"
+        ));
+
+        assert_eq!(seed.active_cycle_id.as_deref(), Some("cycle-open"));
+        assert_eq!(seed.last_position_qty.expect("qty").to_string(), "1");
+        assert_eq!(
+            seed.pending_exit_request_id.as_deref(),
+            Some("request-pending-exit")
+        );
+        assert_eq!(seed.current_owner.as_deref(), Some("mean_reversion"));
+        assert_eq!(seed.current_side.as_deref(), Some("long"));
+    }
+
     #[test]
     fn alor_runtime_fixture_maps_deferred_exit_and_dirty_start_markers() {
-        let payload: serde_json::Value = serde_json::from_str(include_str!(
+        let seed = alor_fixture_seed(include_str!(
             "../../../tests/fixtures/alor_runtime_compat/hybrid_deferred_exit_runtime_state.json"
-        ))
-        .expect("fixture parses");
-
-        let seed = alor_runtime_state_to_paper_oracle_seed(&payload).expect("seed maps");
+        ));
 
         assert_eq!(
             seed.deferred_exit_state.as_deref(),
@@ -10661,6 +10748,57 @@ mod tests {
             seed.safe_mode_reason.as_deref(),
             Some("close_only_until_deferred_exit_resolved")
         );
+    }
+
+    #[test]
+    fn alor_runtime_safe_mode_fixture_preserves_manual_intervention() {
+        let seed = alor_fixture_seed(include_str!(
+            "../../../tests/fixtures/alor_runtime_compat/hybrid_safe_mode_runtime_state.json"
+        ));
+
+        assert_eq!(seed.safe_mode_close_only, Some(true));
+        assert_eq!(
+            seed.safe_mode_reason.as_deref(),
+            Some("synthetic_dirty_start")
+        );
+        assert_eq!(seed.manual_intervention_required, Some(true));
+        assert_eq!(seed.last_position_qty.expect("qty").to_string(), "-1");
+        assert_eq!(seed.current_owner.as_deref(), Some("intraday_breakout"));
+        assert_eq!(seed.current_side.as_deref(), Some("short"));
+    }
+
+    #[test]
+    fn alor_runtime_riskgate_fixture_preserves_summary() {
+        let seed = alor_fixture_seed(include_str!(
+            "../../../tests/fixtures/alor_runtime_compat/hybrid_riskgate_state.json"
+        ));
+
+        assert_eq!(
+            seed.risk_gate_profile_id.as_deref(),
+            Some("synthetic_profile")
+        );
+        assert_eq!(
+            seed.risk_gate_shadow_session_date.as_deref(),
+            Some("2026-01-01")
+        );
+        assert_eq!(
+            seed.risk_gate_shadow_pnl_points.expect("pnl").to_string(),
+            "12.5"
+        );
+        assert_eq!(seed.risk_gate_shadow_trade_count, Some(3));
+        assert_eq!(seed.risk_gate_mr_enabled_current_session, Some(true));
+        assert_eq!(seed.risk_gate_mr_enabled_next_session, Some(false));
+        assert_eq!(
+            seed.risk_gate_rolling_sum_lb120
+                .expect("rolling")
+                .to_string(),
+            "158.6"
+        );
+        assert_eq!(
+            seed.risk_gate_last_finalized_session_date.as_deref(),
+            Some("2025-12-31")
+        );
+        assert_eq!(seed.risk_gate_ledger_rows_count, Some(222));
     }
 
     #[test]

@@ -108,3 +108,17 @@ The next review should be able to verify:
 - current code passes formatting, tests, clippy, scanners, and Python compile
   checks;
 - no order endpoint boundary has been expanded by this work.
+
+## Stage 2 permission boundary
+
+After Stage 1B acceptance, only Stage 2A design/prep is allowed:
+
+- runtime source migration inventory;
+- old ALOR field/type to broker-neutral field/type table;
+- state schema migration plan;
+- fixture plan.
+
+Stage 2B implementation is not allowed until the exact
+`HybridIntradayRuntime` field coverage ledger has no unresolved
+`unsupported_blocks_live` or `marker_preserved_full_mapping_pending` fields for
+the target deployment.

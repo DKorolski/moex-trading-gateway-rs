@@ -1,6 +1,6 @@
 # ADR — runtime source migration vs ALOR-compatible adapter
 
-Status: proposed decision for Stage 1B review.
+Status: accepted.
 
 Date: 2026-07-07.
 
@@ -14,12 +14,14 @@ hide FINAM identifiers behind an ALOR-compatible surrogate layer.
 
 ## Decision
 
-Preferred path: migrate/adapt runtime source to broker-neutral contracts and use
-`BrokerOrderId(String)` as the authoritative broker order id everywhere below
-the runtime boundary.
+Accepted decision: Stage 2 implementation targets runtime source migration to
+broker-neutral contracts and uses `BrokerOrderId(String)` as the authoritative
+broker order id everywhere below the runtime boundary.
 
 Do not introduce a lossy `i64` surrogate for FINAM broker order ids in normal
 runtime implementation.
+
+Reviewer decision: accepted for Stage 2A runtime source migration planning.
 
 ## Rationale
 
@@ -63,6 +65,5 @@ following hard gates:
 
 ## Current gate
 
-Until this ADR is accepted by review, Stage 2 may continue design/fixtures only.
-It must not start real runtime-live, `command-consumer-to-real-FINAM`, or
-strategy-driven sends.
+This ADR unlocks Stage 2A design/planning only. It does not unlock real
+runtime-live, `command-consumer-to-real-FINAM`, or strategy-driven sends.

@@ -38,13 +38,20 @@ runtime-live.
 The FINAM contour is a paper/shadow parity stand, not a drop-in replacement for
 the ALOR gateway/runtime yet.
 
+Stage 1B hard-freeze scope:
+
+- in scope: IMOEXF `HybridIntradayRuntime` paper/shadow parity;
+- out of scope: USDRUBF `AlorUsdrubfHybrid`, RI Author41/42,
+  `SessionGapStandalone`, generic `CancelSent`/`Done` migration,
+  Stop/SLTP/bracket, runtime-live.
+
 Stage split:
 
 - Stage 1A is a draft/spec foundation: README/status/workplan, seeded bridge,
   and safety boundary.
 - Stage 1B is the hard compatibility-freeze work: field-by-field mappings,
-  Redis stream/group mapping, fixtures, seed-required policy, ADR, and stronger
-  evidence.
+  Redis stream/group mapping, fixtures, seed-required policy, accepted ADR, and
+  stronger evidence.
 
 Green / mostly closed:
 
@@ -70,8 +77,8 @@ Amber:
   real ALOR hybrid BO/MR orchestrator.
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
-- Stage 1B contract is not accepted until review accepts the field-by-field
-  mapping, ADR, fixtures, and evidence script shape.
+- Stage 1B still requires review acceptance of the exact field coverage ledger;
+  Stage 2A design/prep can proceed only after that acceptance.
 
 Red / not yet implemented:
 

@@ -94,8 +94,8 @@ def run(command: list[str], timeout: int = 60) -> str:
 def run_safe(command: list[str], timeout: int = 60) -> tuple[bool, str]:
     try:
         return True, run(command, timeout=timeout)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
-        return False, str(error)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as error:
+        return False, f"{type(error).__name__}: {error}"
 
 
 def source_commit_from_git() -> str | None:

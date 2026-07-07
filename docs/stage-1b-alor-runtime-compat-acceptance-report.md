@@ -19,6 +19,12 @@ review-grade pieces:
 - no hardcoded live VPS IP in source example;
 - no IMOEXF-specific riskgate profile hardcoded inside `broker-core`;
 - JSON decimal parsing no longer uses `as_f64()` in ALOR oracle seed mapping.
+- ADR accepted status for Stage 2A planning;
+- explicit Stage 1B scope: IMOEXF `HybridIntradayRuntime` only;
+- exact ALOR field coverage ledger with preserve/map/unsupported policies;
+- evidence script no-Redis robustness: missing CLI produces
+  `EvidenceIncomplete` instead of crashing;
+- automated fixture assertions for every Stage 1B fixture.
 
 ## Safety boundary
 
@@ -72,6 +78,9 @@ The fixtures cover:
 - riskgate state;
 - expected flat clean seed shape.
 
+All Stage 1B fixtures are connected to automated assertions in `broker-cli`
+tests.
+
 ## Evidence script
 
 `scripts/m4_3x_runtime_state_parity_evidence.py` now emits schema v2 with:
@@ -93,6 +102,15 @@ The fixtures cover:
 
 Raw Redis payloads are not exported.
 
+No-Redis smoke:
+
+```bash
+bash scripts/test_m4_3x_evidence_no_redis.sh
+```
+
+Expected result: exit code `0`, evidence status `EvidenceIncomplete`,
+`raw_payload_exported=false`.
+
 ## Acceptance state
 
 Stage 1B can be accepted only as a compatibility-contract freeze for paper/shadow
@@ -101,7 +119,11 @@ sends.
 
 Recommended next stage after acceptance:
 
-1. Full-session FINAM M10 vs ALOR M10 parity report.
-2. Broker-truth bootstrap into runtime lifecycle.
-3. Real hybrid BO/MR/riskgate semantics attached behind paper boundary.
-4. Runtime command consumer in paper/mock ACK mode.
+1. Stage 2A design/prep only: runtime source migration inventory and plan.
+2. Full-session FINAM M10 vs ALOR M10 parity report.
+3. Broker-truth bootstrap design for runtime lifecycle.
+4. Real hybrid BO/MR/riskgate semantics design behind paper boundary.
+5. Runtime command consumer design in paper/mock ACK mode.
+
+Stage 2B implementation remains blocked until the exact field ledger gaps are
+resolved by structured mapping, accepted waiver, or explicit out-of-scope proof.
