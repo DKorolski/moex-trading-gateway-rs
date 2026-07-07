@@ -91,6 +91,7 @@
   "alor_oracle": {
     "vps": "155.212.170.21",
     "redis_container": "trading-hybrid-redis-1",
+    "seed_stream": "finam_imoexf_paper:oracle:alor_runtime_state",
     "native_10m_stream": "md.bars.<ALOR_LIVE_ORACLE_PORTFOLIO>.10m",
     "runtime_state_stream": "runtime.state.hybrid_intraday.live.riskgate_shadow.imoexf.<ALOR_LIVE_ORACLE_PORTFOLIO>",
     "commands_stream": "cmd.orders.<ALOR_LIVE_ORACLE_PORTFOLIO>",

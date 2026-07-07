@@ -7,8 +7,8 @@ The first target adapter is Finam Trade API. The project is developed with gatew
 ## Initial direction
 
 - `broker-core`: normalized contracts for orders, trades, positions, market data, subscriptions, readiness, and command acks.
-- `broker-finam`: Finam adapter surface. Live order placement is out of scope; current order work is limited to dry request specs gated by broker-core preflight markers.
-- `finam-gateway`: FINAM shadow gateway boundary for Redis health/readiness, broker-truth snapshots, read-only market data publication, and mock-only dry ACK publication. Command consumption and live order endpoints stay disabled.
+- `broker-finam`: Finam adapter surface. Read-only, WebSocket market data, broker-truth mapping, and guarded operator one-shot order harnesses exist; continuous runtime-live order placement remains out of scope.
+- `finam-gateway`: FINAM shadow gateway boundary for Redis health/readiness, broker-truth snapshots, read-only market data publication, and mock/paper ACK publication. Command consumption to real FINAM and runtime-live endpoints stay disabled.
 - `broker-cli`: operator-facing diagnostics for endpoint defaults, auth checks, and redacted read-only probes. Full exports are a later M1 task.
 
 ## Milestones
@@ -16,15 +16,14 @@ The first target adapter is Finam Trade API. The project is developed with gatew
 1. M0 — workspace, contracts, docs, serialization tests.
 2. M1 — Finam read-only: auth, accounts, positions, orders, trades, historical import.
 3. M2 — stream/shadow mode and reconciliation.
-4. M3 — gated path to micro live MARKET/LIMIT/CANCEL.
-   Current next step after the 2026-07-03 engineering audit is M3d-1:
-   FINAM contract alignment before any real order endpoint implementation.
-5. M4 — stop/SLTP/bracket lifecycle.
-6. M5 — strategy migration for the target MOEX futures systems.
+4. M3 — gated path to operator one-shot micro live MARKET/LIMIT/CANCEL.
+5. M4 — ALOR parity, paper runtime, broker-truth/bootstrap, and later
+   stop/SLTP/bracket lifecycle.
+6. M5 — strategy/runtime migration for the target MOEX futures systems.
 
 ## Safety posture
 
-No live trading functionality should be enabled until:
+Continuous runtime-live trading must not be enabled until:
 
 - read-only Finam behavior is characterized;
 - FINAM `TimeInForce`, order status, instrument registry, and schedule
@@ -35,8 +34,16 @@ No live trading functionality should be enabled until:
 - broker-truth reconciliation works;
 - account/position/order/trade streams are normalized;
 - secret handling and logging policy are audited;
-- explicit operator approval is recorded for order-emitting mode.
+- explicit operator approval is recorded for order-emitting mode;
+- ALOR runtime compatibility, broker-truth bootstrap, real strategy/riskgate
+  attachment, and command-consumer paper/mock parity are accepted.
 - stop/SLTP/bracket features are disabled for Phase 1.
+
+Current status is tracked in
+[docs/current-status.md](docs/current-status.md). In short: the guarded
+operator one-shot FINAM order harness exists, but `command-consumer-to-real-FINAM`,
+runtime `LiveReady`, continuous runtime-live, and Stop/SLTP/bracket remain
+disabled.
 
 Useful local probes:
 
@@ -351,7 +358,10 @@ both `scripts/redis_shadow_smoke.sh` and `scripts/runtime_bridge_dry_smoke.sh`.
 
 See:
 
+- [Current status](docs/current-status.md)
+- [ALOR parity workplan 2026-07-07](docs/alor-parity-workplan-2026-07-07.md)
 - [Architecture](docs/architecture.md)
+- [ALOR runtime compatibility contract v1](docs/alor-runtime-compat-contract-v1.md)
 - [Active orders startup policy draft](docs/active-orders-startup-policy.md)
 - [Broker contract](docs/broker-contract.md)
 - [Finam API notes](docs/finam-api-notes.md)
@@ -446,6 +456,11 @@ See:
 - [M4-3k-a readiness HTTP semantics strictness](docs/m4-3k-a-readiness-http-semantics-strictness.md)
 - [M4-3l dry runtime attach / M1-M10 parity](docs/m4-3l-dry-runtime-attach-m1-m10-parity.md)
 - [M4-3m active-session ALOR-FINAM 10m parity](docs/m4-3m-active-session-alor-finam-10m-parity.md)
+- [M4-3n ALOR native vs assembled 10m stand](docs/m4-3n-alor-native-vs-assembled-10m-stand.md)
+- [M4-3u ALOR gateway/runtime contract parity notes](docs/m4-3u-alor-gateway-runtime-contract-parity-notes.md)
+- [M4-3v broker-neutral runtime host contract](docs/m4-3v-broker-neutral-runtime-host-contract.md)
+- [M4-3w review handoff after local runtime parity check](docs/m4-3w-review-handoff-after-local-runtime-parity-check.md)
+- [M4-3x seeded ALOR-oracle FINAM paper parity](docs/m4-3x-seeded-alor-oracle-paper-parity.md)
 - [M2-to-M3 readiness gate](docs/m2-to-m3-readiness-gate.md)
 - [M3 order-path design](docs/m3-order-path-design.md)
 - [Order-path retention/archive policy](docs/order-path-retention-archive-policy.md)

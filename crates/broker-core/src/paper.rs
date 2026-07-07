@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::fmt;
+use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -610,6 +611,34 @@ pub struct PaperHybridIntradayRuntimeStateProjection {
     pub strategy_invocation_enabled: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct PaperHybridIntradayOracleSeed {
+    pub source: String,
+    pub active_cycle_id: Option<String>,
+    pub next_cycle_seq: Option<u32>,
+    pub last_position_qty: Option<Quantity>,
+    pub current_owner: Option<String>,
+    pub current_side: Option<String>,
+    pub prev_day_close: Option<Price>,
+    pub prev_day_range: Option<Price>,
+    pub prev_day_return: Option<Price>,
+    pub day_before_close: Option<Price>,
+    pub current_day_utc: Option<String>,
+    pub current_day_high: Option<Price>,
+    pub current_day_low: Option<Price>,
+    pub current_day_close: Option<Price>,
+    pub was_long_today: Option<bool>,
+    pub was_short_today: Option<bool>,
+    pub risk_gate_shadow_session_date: Option<String>,
+    pub risk_gate_shadow_pnl_points: Option<Price>,
+    pub risk_gate_shadow_trade_count: Option<u32>,
+    pub risk_gate_mr_enabled_current_session: Option<bool>,
+    pub risk_gate_mr_enabled_next_session: Option<bool>,
+    pub risk_gate_rolling_sum_lb120: Option<Price>,
+    pub risk_gate_last_finalized_session_date: Option<String>,
+    pub risk_gate_ledger_rows_count: Option<usize>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaperHybridStrategyShadowConfig {
     pub enabled: bool,
@@ -701,8 +730,14 @@ impl PaperHybridStrategyShadowState {
         projection: &mut PaperHybridIntradayRuntimeStateProjection,
     ) {
         projection.entry_ready = self.entry_ready;
-        projection.active_cycle_id = self.active_cycle_id.clone();
-        projection.current_owner = self.current_owner.clone();
+        projection.active_cycle_id = self
+            .active_cycle_id
+            .clone()
+            .or_else(|| projection.active_cycle_id.clone());
+        projection.current_owner = self
+            .current_owner
+            .clone()
+            .or_else(|| projection.current_owner.clone());
         projection.current_side = self
             .current_side
             .clone()
@@ -830,6 +865,19 @@ impl PaperRuntimeAdapter {
         &self.config
     }
 
+    pub fn apply_hybrid_intraday_oracle_seed(
+        &mut self,
+        seed: PaperHybridIntradayOracleSeed,
+        received_ts: DateTime<Utc>,
+    ) -> Result<(), PaperRuntimeAdapterError> {
+        self.ledger
+            .apply_hybrid_intraday_oracle_seed(seed, received_ts)?;
+        if let Some(shadow) = self.hybrid_strategy_shadow.as_mut() {
+            shadow.observe_ledger(&self.ledger);
+        }
+        Ok(())
+    }
+
     pub fn ledger(&self) -> &PaperLedgerSnapshot {
         &self.ledger
     }
@@ -952,6 +1000,8 @@ pub enum PaperRuntimeAdapterError {
     RuntimeInputNotEligible,
     #[error("paper runtime adapter provenance mismatch: expected={expected} actual={actual}")]
     ProvenanceMismatch { expected: String, actual: String },
+    #[error("paper ledger invariant failed during adapter seed: {0}")]
+    Invariant(#[from] PaperLedgerInvariantError),
     #[error("paper ledger executor failed: {0}")]
     Executor(#[from] PaperLedgerExecutorError),
 }
@@ -1135,6 +1185,13 @@ pub struct PaperLedgerSnapshot {
     pub suppressions: Vec<RuntimeSuppressionRecord>,
     pub risk_gate_ledger: Vec<RiskGatePaperLedgerRecord>,
     pub risk_gate_state: Option<RiskGatePaperState>,
+    pub hybrid_active_cycle_id: Option<String>,
+    pub hybrid_next_cycle_seq: Option<u32>,
+    pub hybrid_current_owner: Option<String>,
+    pub hybrid_current_side: Option<String>,
+    pub risk_gate_shadow_session_date: Option<String>,
+    pub risk_gate_shadow_pnl_points: Price,
+    pub risk_gate_shadow_trade_count: u32,
     pub last_bar_close: Option<Price>,
     pub current_day_utc: Option<String>,
     pub current_day_high: Option<Price>,
@@ -1142,6 +1199,7 @@ pub struct PaperLedgerSnapshot {
     pub current_day_close: Option<Price>,
     pub prev_day_close: Option<Price>,
     pub prev_day_range: Option<Price>,
+    pub prev_day_return: Option<Price>,
     pub day_before_close: Option<Price>,
     pub was_long_today: bool,
     pub was_short_today: bool,
@@ -1203,6 +1261,13 @@ impl PaperLedgerSnapshot {
             suppressions: Vec::new(),
             risk_gate_ledger: Vec::new(),
             risk_gate_state: None,
+            hybrid_active_cycle_id: None,
+            hybrid_next_cycle_seq: None,
+            hybrid_current_owner: None,
+            hybrid_current_side: None,
+            risk_gate_shadow_session_date: None,
+            risk_gate_shadow_pnl_points: Price::ZERO,
+            risk_gate_shadow_trade_count: 0,
             last_bar_close: None,
             current_day_utc: None,
             current_day_high: None,
@@ -1210,6 +1275,7 @@ impl PaperLedgerSnapshot {
             current_day_close: None,
             prev_day_close: None,
             prev_day_range: None,
+            prev_day_return: None,
             day_before_close: None,
             was_long_today: false,
             was_short_today: false,
@@ -1306,6 +1372,62 @@ impl PaperLedgerSnapshot {
 
     pub fn target_is_flat(&self) -> bool {
         self.target_position_qty().is_zero()
+    }
+
+    pub fn apply_hybrid_intraday_oracle_seed(
+        &mut self,
+        seed: PaperHybridIntradayOracleSeed,
+        received_ts: DateTime<Utc>,
+    ) -> Result<(), PaperLedgerInvariantError> {
+        if let Some(qty) = seed.last_position_qty {
+            self.positions.push(PaperPosition {
+                schema_version: SCHEMA_VERSION,
+                strategy_id: self.strategy_id.clone(),
+                instrument: self.instrument.clone(),
+                qty,
+                avg_price: None,
+                updated_ts: received_ts,
+                source: format!("paper_oracle_seed:{}", seed.source),
+            });
+        }
+
+        self.hybrid_active_cycle_id = seed.active_cycle_id;
+        self.hybrid_next_cycle_seq = seed.next_cycle_seq;
+        self.hybrid_current_owner = seed.current_owner;
+        self.hybrid_current_side = seed.current_side;
+        self.prev_day_close = seed.prev_day_close;
+        self.prev_day_range = seed.prev_day_range;
+        self.prev_day_return = seed.prev_day_return;
+        self.day_before_close = seed.day_before_close;
+        self.current_day_utc = seed.current_day_utc;
+        self.current_day_high = seed.current_day_high;
+        self.current_day_low = seed.current_day_low;
+        self.current_day_close = seed.current_day_close;
+        if let Some(value) = seed.was_long_today {
+            self.was_long_today = value;
+        }
+        if let Some(value) = seed.was_short_today {
+            self.was_short_today = value;
+        }
+        self.risk_gate_shadow_session_date = seed.risk_gate_shadow_session_date;
+        if let Some(value) = seed.risk_gate_shadow_pnl_points {
+            self.risk_gate_shadow_pnl_points = value;
+        }
+        if let Some(value) = seed.risk_gate_shadow_trade_count {
+            self.risk_gate_shadow_trade_count = value;
+        }
+        self.risk_gate_state = Some(RiskGatePaperState {
+            schema_version: SCHEMA_VERSION,
+            strategy_id: self.strategy_id.clone(),
+            profile_id: "imoexf_primary_high180_lb120".to_string(),
+            last_finalized_session_date: seed.risk_gate_last_finalized_session_date,
+            rolling_sum_lb120: seed.risk_gate_rolling_sum_lb120,
+            mr_enabled_current_session: seed.risk_gate_mr_enabled_current_session,
+            mr_enabled_next_session: seed.risk_gate_mr_enabled_next_session,
+            ledger_rows_count: seed.risk_gate_ledger_rows_count.unwrap_or_default(),
+        });
+        self.received_ts = received_ts;
+        self.validate()
     }
 
     pub fn active_orders(&self) -> Vec<&PaperOrder> {
@@ -1457,6 +1579,12 @@ impl PaperLedgerSnapshot {
                     (Some(high), Some(low)) => Some(high - low),
                     _ => None,
                 };
+                self.prev_day_return = match (self.prev_day_close, self.day_before_close) {
+                    (Some(prev), Some(day_before)) if !day_before.is_zero() => {
+                        Some((prev - day_before) / day_before)
+                    }
+                    _ => None,
+                };
             }
             self.current_day_utc = Some(day);
             self.current_day_high = None;
@@ -1486,11 +1614,11 @@ impl PaperLedgerSnapshot {
         let current_side = side_label_from_position_qty(last_position_qty);
         PaperHybridIntradayRuntimeStateProjection {
             strategy_kind: "hybrid_intraday".to_string(),
-            active_cycle_id: None,
-            next_cycle_seq: 0,
+            active_cycle_id: self.hybrid_active_cycle_id.clone(),
+            next_cycle_seq: self.hybrid_next_cycle_seq.unwrap_or_default(),
             last_position_qty: decimal_to_f64(last_position_qty),
-            current_owner: None,
-            current_side,
+            current_owner: self.hybrid_current_owner.clone(),
+            current_side: current_side.or_else(|| self.hybrid_current_side.clone()),
             pending_entry_owner: None,
             pending_entry_side: None,
             pending_entry_cycle_id: None,
@@ -1510,20 +1638,25 @@ impl PaperLedgerSnapshot {
             current_day_low: option_decimal_to_f64(self.current_day_low),
             current_day_close: option_decimal_to_f64(self.current_day_close),
             prev_day_range: option_decimal_to_f64(self.prev_day_range),
-            prev_day_return: match (self.prev_day_close, self.day_before_close) {
-                (Some(prev), Some(day_before)) if !day_before.is_zero() => {
-                    option_decimal_to_f64(Some((prev - day_before) / day_before))
+            prev_day_return: option_decimal_to_f64(self.prev_day_return).or_else(|| {
+                match (self.prev_day_close, self.day_before_close) {
+                    (Some(prev), Some(day_before)) if !day_before.is_zero() => {
+                        option_decimal_to_f64(Some((prev - day_before) / day_before))
+                    }
+                    _ => None,
                 }
-                _ => None,
-            },
+            }),
             day_before_close: option_decimal_to_f64(self.day_before_close),
-            today_start_local: self.current_day_utc.clone(),
+            today_start_local: self
+                .current_day_utc
+                .as_ref()
+                .map(|day| format!("{day}T09:00:00")),
             was_long_today: self.was_long_today,
             was_short_today: self.was_short_today,
             overnight_exit_armed_date: None,
-            risk_gate_shadow_session_date: None,
-            risk_gate_shadow_pnl_points: 0.0,
-            risk_gate_shadow_trade_count: 0,
+            risk_gate_shadow_session_date: self.risk_gate_shadow_session_date.clone(),
+            risk_gate_shadow_pnl_points: decimal_to_f64(self.risk_gate_shadow_pnl_points),
+            risk_gate_shadow_trade_count: self.risk_gate_shadow_trade_count,
             risk_gate_mr_enabled_current_session: self
                 .risk_gate_state
                 .as_ref()
@@ -1765,6 +1898,13 @@ fn option_decimal_to_f64(value: Option<Price>) -> Option<f64> {
     value.map(decimal_to_f64)
 }
 
+pub fn f64_to_price(value: f64) -> Option<Price> {
+    if !value.is_finite() {
+        return None;
+    }
+    Price::from_str(&value.to_string()).ok()
+}
+
 fn side_label_from_position_qty(qty: Quantity) -> Option<String> {
     if qty > Quantity::ZERO {
         Some("long".to_string())
@@ -2000,6 +2140,13 @@ mod tests {
             suppressions: vec![],
             risk_gate_ledger: vec![],
             risk_gate_state: None,
+            hybrid_active_cycle_id: None,
+            hybrid_next_cycle_seq: None,
+            hybrid_current_owner: None,
+            hybrid_current_side: None,
+            risk_gate_shadow_session_date: None,
+            risk_gate_shadow_pnl_points: Decimal::ZERO,
+            risk_gate_shadow_trade_count: 0,
             last_bar_close: None,
             current_day_utc: None,
             current_day_high: None,
@@ -2007,6 +2154,7 @@ mod tests {
             current_day_close: None,
             prev_day_close: None,
             prev_day_range: None,
+            prev_day_return: None,
             day_before_close: None,
             was_long_today: false,
             was_short_today: false,
@@ -2576,6 +2724,75 @@ mod tests {
         assert!(hybrid.active_cycle_id.is_none());
         assert!(hybrid.current_owner.is_none());
         assert_eq!(state.active_orders_count, 0);
+    }
+
+    #[test]
+    fn paper_runtime_adapter_applies_alor_oracle_seed_before_live_bar_projection() {
+        let mut config = PaperRuntimeAdapterConfig::finam_imoexf_paper(
+            "hybrid_imoexf_synthetic",
+            instrument(),
+            PaperExecutionMode::LiveOnly,
+        );
+        config.hybrid_strategy_shadow = PaperHybridStrategyShadowConfig::enabled_shadow(1);
+        let mut adapter = PaperRuntimeAdapter::new(config, ts(0)).expect("adapter");
+        adapter
+            .apply_hybrid_intraday_oracle_seed(
+                PaperHybridIntradayOracleSeed {
+                    source: "alor_runtime_state".to_string(),
+                    active_cycle_id: None,
+                    next_cycle_seq: Some(18),
+                    last_position_qty: Some(Decimal::ZERO),
+                    current_owner: None,
+                    current_side: None,
+                    prev_day_close: Some(Decimal::new(2195, 0)),
+                    prev_day_range: Some(Decimal::new(965, 1)),
+                    prev_day_return: Some(Decimal::new(-1767733273663012, 17)),
+                    day_before_close: Some(Decimal::new(2195, 0)),
+                    current_day_utc: Some("2026-01-01".to_string()),
+                    current_day_high: Some(Decimal::new(1010, 0)),
+                    current_day_low: Some(Decimal::new(990, 0)),
+                    current_day_close: Some(Decimal::new(1000, 0)),
+                    was_long_today: Some(false),
+                    was_short_today: Some(false),
+                    risk_gate_shadow_session_date: Some("2026-01-01".to_string()),
+                    risk_gate_shadow_pnl_points: Some(Decimal::ZERO),
+                    risk_gate_shadow_trade_count: Some(0),
+                    risk_gate_mr_enabled_current_session: Some(true),
+                    risk_gate_mr_enabled_next_session: None,
+                    risk_gate_rolling_sum_lb120: Some(Decimal::new(1586, 1)),
+                    risk_gate_last_finalized_session_date: Some("2025-12-31".to_string()),
+                    risk_gate_ledger_rows_count: Some(222),
+                },
+                ts(0),
+            )
+            .expect("seed accepted");
+
+        let outcome = adapter
+            .observe_runtime_bar(runtime_bar(20, RuntimeBarOrigin::Live, 600), Vec::new())
+            .expect("runtime bar accepted");
+        let PaperRuntimePublishPayload::RuntimeState(state) = &outcome.publish_plan[0].payload
+        else {
+            panic!("expected runtime state");
+        };
+        let hybrid = state.hybrid_intraday.as_ref().expect("hybrid projection");
+        assert_eq!(hybrid.next_cycle_seq, 18);
+        assert_eq!(hybrid.last_position_qty, 0.0);
+        assert_eq!(hybrid.prev_day_close, Some(2195.0));
+        assert_eq!(hybrid.prev_day_range, Some(96.5));
+        assert_eq!(hybrid.prev_day_return, Some(-0.01767733273663012));
+        assert_eq!(hybrid.day_before_close, Some(2195.0));
+        assert_eq!(hybrid.current_day_high, Some(1025.0));
+        assert_eq!(hybrid.current_day_low, Some(990.0));
+        assert_eq!(hybrid.current_day_close, Some(1022.0));
+        assert_eq!(
+            hybrid.risk_gate_shadow_session_date.as_deref(),
+            Some("2026-01-01")
+        );
+        assert_eq!(hybrid.risk_gate_mr_enabled_current_session, Some(true));
+        assert_eq!(hybrid.risk_gate_rolling_sum_lb120, Some(158.6));
+        assert_eq!(hybrid.risk_gate_ledger_rows_count, 222);
+        assert!(hybrid.entry_ready);
+        assert!(hybrid.strategy_invocation_enabled);
     }
 
     #[test]

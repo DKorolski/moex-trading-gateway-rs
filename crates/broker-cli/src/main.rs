@@ -6,7 +6,7 @@ use broker_core::event::{Bar, Quote};
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::CancelPreflightApproval;
 use broker_core::{
-    BrokerAccountId, BrokerCapabilityMatrix, BrokerCommand, BrokerFreshnessConfig,
+    f64_to_price, BrokerAccountId, BrokerCapabilityMatrix, BrokerCommand, BrokerFreshnessConfig,
     BrokerLifecycleConfig, BrokerLiveEntryScope, BrokerMarketDataLifecycleInput,
     BrokerMarketDataLifecycleSnapshot, BrokerMarketSessionState, BrokerOperationalConfig,
     BrokerOrderId, BrokerPlainMicroStopOrderWaiverPolicy, BrokerReadiness, BrokerRiskLimitConfig,
@@ -16,11 +16,11 @@ use broker_core::{
     MarketDataRecoveryPlan, MarketDataRecoveryPlanInput, MarketDataRecoveryReport,
     MarketDataSourceKind, MessageType, OperatorArm, Order, OrderPathEvent, OrderPathRecord,
     OrderPreflightPolicy, OrderSide, OrderStatus, OrderType, PaperExecutionMode,
-    PaperHybridStrategyShadowConfig, PaperRuntimeAdapter, PaperRuntimeAdapterConfig,
-    PaperRuntimeAdapterLoop, PaperRuntimeAdapterLoopOutcome, PaperRuntimeBarPublisher,
-    PaperRuntimeBarPublisherConfig, PaperRuntimeInMemorySink, PaperRuntimeStreams,
-    PaperSafetyBoundary, PlaceOrder, PortfolioSnapshot, ReadinessPhase, ReadinessReason,
-    StrategyRequestId, TimeInForce,
+    PaperHybridIntradayOracleSeed, PaperHybridStrategyShadowConfig, PaperRuntimeAdapter,
+    PaperRuntimeAdapterConfig, PaperRuntimeAdapterLoop, PaperRuntimeAdapterLoopOutcome,
+    PaperRuntimeBarPublisher, PaperRuntimeBarPublisherConfig, PaperRuntimeInMemorySink,
+    PaperRuntimeStreams, PaperSafetyBoundary, PlaceOrder, PortfolioSnapshot, ReadinessPhase,
+    ReadinessReason, StrategyRequestId, TimeInForce,
 };
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::{OrderPreflightContext, OrderReferencePrice};
@@ -1650,6 +1650,7 @@ struct ResolvedFinamPaperRuntimeConsumeConfig {
     dlq_maxlen: Option<usize>,
     strategy_invocation_shadow_enabled: bool,
     strategy_warmup_bars: usize,
+    alor_oracle_seed_stream: Option<String>,
     max_iterations: u64,
     claim_stale_ms: Option<u64>,
 }
@@ -1672,6 +1673,10 @@ struct FinamPaperRuntimeConsumeMetrics {
     dlq_published_count: u64,
     runtime_batches_published: u64,
     runtime_records_published: u64,
+    oracle_seed_attempted: bool,
+    oracle_seed_applied: bool,
+    oracle_seed_missing: bool,
+    oracle_seed_error: Option<String>,
     xack_count: u64,
     last_bar_open_ts: Option<DateTime<Utc>>,
     last_ids: BTreeMap<String, String>,
@@ -1807,6 +1812,7 @@ struct FinamPaperRuntimeFileConfig {
     canonical_10m: Option<FinamPaperRuntimeCanonical10mFileConfig>,
     strategy: Option<FinamPaperRuntimeStrategyFileConfig>,
     paper_runtime_consumer: Option<FinamPaperRuntimeConsumerFileConfig>,
+    alor_oracle: Option<FinamPaperRuntimeAlorOracleFileConfig>,
     retention: Option<FinamPaperRuntimeRetentionFileConfig>,
 }
 
@@ -1844,6 +1850,13 @@ struct FinamPaperRuntimeConsumerFileConfig {
     read_count: Option<usize>,
     strategy_invocation_enabled: Option<bool>,
     strategy_warmup_bars: Option<usize>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct FinamPaperRuntimeAlorOracleFileConfig {
+    seed_stream: Option<String>,
+    runtime_state_stream: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -6644,8 +6657,26 @@ async fn consume_finam_paper_runtime(
         adapter_config.hybrid_strategy_shadow =
             PaperHybridStrategyShadowConfig::enabled_shadow(resolved.strategy_warmup_bars);
     }
-    let adapter = PaperRuntimeAdapter::new(adapter_config, Utc::now())
+    let mut adapter = PaperRuntimeAdapter::new(adapter_config, Utc::now())
         .context("FINAM paper runtime adapter config rejected")?;
+    let mut metrics = FinamPaperRuntimeConsumeMetrics::default();
+    if let Some(seed_stream) = resolved.alor_oracle_seed_stream.as_deref() {
+        metrics.oracle_seed_attempted = true;
+        match finam_paper_runtime_latest_alor_oracle_seed(&mut manager, seed_stream).await {
+            Ok(Some(seed)) => {
+                adapter
+                    .apply_hybrid_intraday_oracle_seed(seed, Utc::now())
+                    .context("FINAM paper runtime ALOR oracle seed rejected")?;
+                metrics.oracle_seed_applied = true;
+            }
+            Ok(None) => {
+                metrics.oracle_seed_missing = true;
+            }
+            Err(error) => {
+                metrics.oracle_seed_error = Some(error.to_string());
+            }
+        }
+    }
     let mut runtime_loop = PaperRuntimeAdapterLoop::new(bar_publisher, adapter)
         .context("FINAM paper runtime loop config rejected")?;
 
@@ -6661,7 +6692,6 @@ async fn consume_finam_paper_runtime(
     )
     .context("FINAM paper runtime Redis sink config rejected")?;
 
-    let mut metrics = FinamPaperRuntimeConsumeMetrics::default();
     let iterations = resolved.max_iterations.max(1);
     for _ in 0..iterations {
         if let Some(claim_stale_ms) = resolved.claim_stale_ms {
@@ -6734,13 +6764,13 @@ async fn consume_finam_paper_runtime(
     ];
     let pending_counts = runtime_bridge_pending_counts(
         &mut manager,
-        &[resolved.source_stream.clone()],
+        std::slice::from_ref(&resolved.source_stream),
         &resolved.consumer_group,
     )
     .await;
     let pending_oldest_idle_ms = runtime_bridge_pending_oldest_idle_ms(
         &mut manager,
-        &[resolved.source_stream.clone()],
+        std::slice::from_ref(&resolved.source_stream),
         &resolved.consumer_group,
     )
     .await;
@@ -6781,6 +6811,11 @@ async fn consume_finam_paper_runtime(
             "dlq_published_count": metrics.dlq_published_count,
             "runtime_batches_published": metrics.runtime_batches_published,
             "runtime_records_published": metrics.runtime_records_published,
+            "oracle_seed_stream": resolved.alor_oracle_seed_stream,
+            "oracle_seed_attempted": metrics.oracle_seed_attempted,
+            "oracle_seed_applied": metrics.oracle_seed_applied,
+            "oracle_seed_missing": metrics.oracle_seed_missing,
+            "oracle_seed_error": metrics.oracle_seed_error,
             "xack_count": metrics.xack_count,
             "last_bar_open_ts": metrics.last_bar_open_ts,
             "last_ids": metrics.last_ids,
@@ -8903,6 +8938,113 @@ async fn finam_paper_runtime_first_bar_instrument(
     Ok(None)
 }
 
+async fn finam_paper_runtime_latest_alor_oracle_seed(
+    manager: &mut redis::aio::ConnectionManager,
+    seed_stream: &str,
+) -> Result<Option<PaperHybridIntradayOracleSeed>> {
+    let reply: StreamRangeReply = redis::cmd("XREVRANGE")
+        .arg(seed_stream)
+        .arg("+")
+        .arg("-")
+        .arg("COUNT")
+        .arg(1)
+        .query_async(manager)
+        .await
+        .with_context(|| format!("FINAM paper runtime oracle seed read failed: {seed_stream}"))?;
+    let Some(entry) = reply.ids.first() else {
+        return Ok(None);
+    };
+    let Some(payload) = entry.get::<String>("payload") else {
+        return Ok(None);
+    };
+    let value: serde_json::Value = serde_json::from_str(&payload)
+        .context("FINAM paper runtime oracle seed payload is not JSON")?;
+    Ok(Some(alor_runtime_state_to_paper_oracle_seed(&value)?))
+}
+
+fn alor_runtime_state_to_paper_oracle_seed(
+    value: &serde_json::Value,
+) -> Result<PaperHybridIntradayOracleSeed> {
+    let payload = value.get("payload").unwrap_or(value);
+    let hybrid = payload
+        .pointer("/strategy_state/payload/HybridIntradayRuntime")
+        .or_else(|| payload.pointer("/HybridIntradayRuntime"))
+        .or_else(|| payload.pointer("/hybrid_intraday"))
+        .context("ALOR oracle seed missing HybridIntradayRuntime payload")?;
+
+    Ok(PaperHybridIntradayOracleSeed {
+        source: "alor_runtime_state_seed".to_string(),
+        active_cycle_id: json_opt_string(hybrid, "active_cycle_id"),
+        next_cycle_seq: json_opt_u32(hybrid, "next_cycle_seq"),
+        last_position_qty: json_opt_price(hybrid, "last_position_qty"),
+        current_owner: json_opt_string(hybrid, "current_owner"),
+        current_side: json_opt_string(hybrid, "current_side"),
+        prev_day_close: json_opt_price(hybrid, "prev_day_close"),
+        prev_day_range: json_opt_price(hybrid, "prev_day_range"),
+        prev_day_return: json_opt_price(hybrid, "prev_day_return"),
+        day_before_close: json_opt_price(hybrid, "day_before_close"),
+        current_day_utc: json_opt_string(hybrid, "last_day_local"),
+        current_day_high: json_opt_price(hybrid, "current_day_high"),
+        current_day_low: json_opt_price(hybrid, "current_day_low"),
+        current_day_close: json_opt_price(hybrid, "current_day_close"),
+        was_long_today: json_opt_bool(hybrid, "was_long_today"),
+        was_short_today: json_opt_bool(hybrid, "was_short_today"),
+        risk_gate_shadow_session_date: json_opt_string(hybrid, "risk_gate_shadow_session_date"),
+        risk_gate_shadow_pnl_points: json_opt_price(hybrid, "risk_gate_shadow_pnl_points"),
+        risk_gate_shadow_trade_count: json_opt_u32(hybrid, "risk_gate_shadow_trade_count"),
+        risk_gate_mr_enabled_current_session: json_opt_bool(
+            hybrid,
+            "risk_gate_mr_enabled_current_session",
+        ),
+        risk_gate_mr_enabled_next_session: json_opt_bool(
+            hybrid,
+            "risk_gate_mr_enabled_next_session",
+        ),
+        risk_gate_rolling_sum_lb120: json_opt_price(hybrid, "risk_gate_rolling_sum_lb120"),
+        risk_gate_last_finalized_session_date: json_opt_string(
+            hybrid,
+            "risk_gate_last_finalized_session_date",
+        ),
+        risk_gate_ledger_rows_count: json_opt_usize(hybrid, "risk_gate_ledger_rows_count"),
+    })
+}
+
+fn json_opt_string(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn json_opt_bool(value: &serde_json::Value, key: &str) -> Option<bool> {
+    value.get(key).and_then(serde_json::Value::as_bool)
+}
+
+fn json_opt_u32(value: &serde_json::Value, key: &str) -> Option<u32> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+}
+
+fn json_opt_usize(value: &serde_json::Value, key: &str) -> Option<usize> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+}
+
+fn json_opt_price(value: &serde_json::Value, key: &str) -> Option<rust_decimal::Decimal> {
+    let value = value.get(key)?;
+    if let Some(number) = value.as_f64() {
+        return f64_to_price(number);
+    }
+    value
+        .as_str()
+        .and_then(|value| rust_decimal::Decimal::from_str(value).ok())
+}
+
 async fn publish_finam_paper_runtime_dlq(
     manager: &mut redis::aio::ConnectionManager,
     resolved: &ResolvedFinamPaperRuntimeConsumeConfig,
@@ -9236,6 +9378,7 @@ fn resolve_finam_paper_runtime_consume_config(
 
     let strategy = file_config.strategy.unwrap_or_default();
     let canonical = file_config.canonical_10m.unwrap_or_default();
+    let alor_oracle = file_config.alor_oracle.unwrap_or_default();
     let retention = file_config.retention.unwrap_or_default();
     let streams = PaperRuntimeStreams::finam_imoexf_paper();
     let runtime_state_stream = non_empty_option_or_default(
@@ -9304,6 +9447,9 @@ fn resolve_finam_paper_runtime_consume_config(
         dlq_maxlen: retention.dlq_maxlen,
         strategy_invocation_shadow_enabled,
         strategy_warmup_bars,
+        alor_oracle_seed_stream: alor_oracle
+            .seed_stream
+            .filter(|value| !value.trim().is_empty()),
         max_iterations: args.max_iterations.max(1),
         claim_stale_ms: args.claim_stale_ms,
     })

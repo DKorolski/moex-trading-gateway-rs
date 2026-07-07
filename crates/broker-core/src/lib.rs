@@ -96,12 +96,12 @@ pub use order_path::{
     SqliteRuntimeDirectoryIssue, SqliteWriterLockMetadata,
 };
 pub use paper::{
-    PaperAck, PaperAckKind, PaperExecutionMode, PaperFillPolicy,
-    PaperHybridIntradayRuntimeStateProjection, PaperHybridStrategyShadowConfig,
-    PaperHybridStrategyShadowState, PaperIntent, PaperIntentKind, PaperLedgerExecutionOutcome,
-    PaperLedgerExecutorConfig, PaperLedgerExecutorError, PaperLedgerInvariantError,
-    PaperLedgerSnapshot, PaperOrder, PaperOrderId, PaperOrderStatus, PaperPosition,
-    PaperRuntimeAdapter, PaperRuntimeAdapterConfig, PaperRuntimeAdapterError,
+    f64_to_price, PaperAck, PaperAckKind, PaperExecutionMode, PaperFillPolicy,
+    PaperHybridIntradayOracleSeed, PaperHybridIntradayRuntimeStateProjection,
+    PaperHybridStrategyShadowConfig, PaperHybridStrategyShadowState, PaperIntent, PaperIntentKind,
+    PaperLedgerExecutionOutcome, PaperLedgerExecutorConfig, PaperLedgerExecutorError,
+    PaperLedgerInvariantError, PaperLedgerSnapshot, PaperOrder, PaperOrderId, PaperOrderStatus,
+    PaperPosition, PaperRuntimeAdapter, PaperRuntimeAdapterConfig, PaperRuntimeAdapterError,
     PaperRuntimeAdapterLoop, PaperRuntimeAdapterLoopError, PaperRuntimeAdapterLoopOutcome,
     PaperRuntimeAdapterOutcome, PaperRuntimeBarPublishOutcome, PaperRuntimeBarPublishRejectReason,
     PaperRuntimeBarPublisher, PaperRuntimeBarPublisherConfig, PaperRuntimeInMemorySink,
