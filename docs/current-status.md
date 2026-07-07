@@ -74,8 +74,10 @@ Stage split:
 - Stage 2B-3 is accepted. It validates passive runtime order maps and bootstrap
   working-order maps: map keys must match payload broker order ids, and missing
   known order ids become readiness/manual-intervention blockers.
-- Active patch is Stage 2B-4: CommandAck / OrderEvent / TradeEvent lifecycle
-  migration boundary, still paper/mock/local only.
+- Stage 2B-4 is accepted as CommandAck / OrderEvent / TradeEvent lifecycle
+  boundary foundation.
+- Active patch is Stage 2B-4a: explicit ACK status policy hardening before
+  Stage 2B-5 RuntimeCaches / ownership tracking.
 
 Green / mostly closed:
 

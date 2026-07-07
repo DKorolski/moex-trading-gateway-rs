@@ -95,3 +95,19 @@ Acceptance note:
 Acceptance note:
 
 [`2b-4-command-ack-order-trade-lifecycle-boundary.md`](2b-4-command-ack-order-trade-lifecycle-boundary.md)
+
+`2B-4a` hardens explicit ACK status policy:
+
+- `Error` no longer clears pending by default;
+- `Duplicate` requires prior known outcome and does not clear pending by
+  itself;
+- `Expired` clears only with explicit local no-send proof;
+- `Timeout` / `UnknownPending` keep pending;
+- `Rejected` with matching `StrategyRequestId` may still clear pending;
+- `Submitted` / `Accepted` / `Recovered` without broker id still become
+  pending-broker-id;
+- keep Stage 2B paper/mock/local and live send paths disabled.
+
+Acceptance note:
+
+[`2b-4a-ack-status-policy-hardening.md`](2b-4a-ack-status-policy-hardening.md)

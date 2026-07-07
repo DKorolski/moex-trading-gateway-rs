@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::de;
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::command::{CommandAck, CommandAckReason, CommandAckStatus};
+use crate::command::{CommandAck, CommandAckReason, CommandAckReasonCode, CommandAckStatus};
 use crate::ids::{
     deserialize_broker_order_id_legacy_numeric_or_string,
     deserialize_option_broker_order_id_legacy_numeric_or_string,
@@ -337,6 +337,7 @@ impl RuntimePendingRequestIdentity {
             _ => false,
         };
         let broker_order_id_state = ack_broker_order_id_state(ack);
+        let status_policy = ack_status_policy(ack, broker_order_id_state);
         let mut issues = Vec::new();
 
         if !request_id_matches {
@@ -353,6 +354,7 @@ impl RuntimePendingRequestIdentity {
                 client_order_id_matches,
                 broker_order_id_matches,
                 broker_order_id_state,
+                status_policy,
                 pending_disposition: RuntimeAckPendingDisposition::KeepPending,
                 issues,
             };
@@ -365,12 +367,11 @@ impl RuntimePendingRequestIdentity {
             issues.push(RuntimeAckLifecycleIssue::BrokerOrderIdMismatchForMatchingRequest);
         }
 
-        let pending_disposition = if !issues.is_empty() || ack_status_keeps_pending(ack.status) {
+        issues.extend(status_policy.issues());
+        let pending_disposition = if !issues.is_empty() {
             RuntimeAckPendingDisposition::KeepPending
-        } else if broker_order_id_state == RuntimeAckBrokerOrderIdState::PendingBrokerOrderId {
-            RuntimeAckPendingDisposition::KeepPendingBrokerOrderId
         } else {
-            RuntimeAckPendingDisposition::ClearPending
+            status_policy.pending_disposition()
         };
 
         RuntimeAckLifecycleDecision {
@@ -378,6 +379,7 @@ impl RuntimePendingRequestIdentity {
             client_order_id_matches,
             broker_order_id_matches,
             broker_order_id_state,
+            status_policy,
             pending_disposition,
             issues,
         }
@@ -402,11 +404,60 @@ pub enum RuntimeAckBrokerOrderIdState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum RuntimeAckStatusPolicy {
+    ClearPending,
+    KeepPending,
+    KeepPendingBrokerOrderId,
+    RequiresPriorOutcome,
+    RequiresNoSendProof,
+    ManualInterventionRequired,
+}
+
+impl RuntimeAckStatusPolicy {
+    fn pending_disposition(self) -> RuntimeAckPendingDisposition {
+        match self {
+            RuntimeAckStatusPolicy::ClearPending => RuntimeAckPendingDisposition::ClearPending,
+            RuntimeAckStatusPolicy::KeepPending
+            | RuntimeAckStatusPolicy::RequiresPriorOutcome
+            | RuntimeAckStatusPolicy::RequiresNoSendProof
+            | RuntimeAckStatusPolicy::ManualInterventionRequired => {
+                RuntimeAckPendingDisposition::KeepPending
+            }
+            RuntimeAckStatusPolicy::KeepPendingBrokerOrderId => {
+                RuntimeAckPendingDisposition::KeepPendingBrokerOrderId
+            }
+        }
+    }
+
+    fn issues(self) -> impl Iterator<Item = RuntimeAckLifecycleIssue> {
+        match self {
+            RuntimeAckStatusPolicy::RequiresPriorOutcome => {
+                Some(RuntimeAckLifecycleIssue::DuplicateAckRequiresPriorOutcome)
+            }
+            RuntimeAckStatusPolicy::RequiresNoSendProof => {
+                Some(RuntimeAckLifecycleIssue::ExpiredAckRequiresNoSendProof)
+            }
+            RuntimeAckStatusPolicy::ManualInterventionRequired => {
+                Some(RuntimeAckLifecycleIssue::AmbiguousErrorAckDoesNotClearPending)
+            }
+            RuntimeAckStatusPolicy::ClearPending
+            | RuntimeAckStatusPolicy::KeepPending
+            | RuntimeAckStatusPolicy::KeepPendingBrokerOrderId => None,
+        }
+        .into_iter()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RuntimeAckLifecycleIssue {
     RequestIdMismatch,
     ClientOrderIdOnlyMatchDoesNotClearPending,
     BrokerOrderIdOnlyMatchDoesNotClearPending,
     BrokerOrderIdMismatchForMatchingRequest,
+    AmbiguousErrorAckDoesNotClearPending,
+    DuplicateAckRequiresPriorOutcome,
+    ExpiredAckRequiresNoSendProof,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -415,6 +466,7 @@ pub struct RuntimeAckLifecycleDecision {
     pub client_order_id_matches: bool,
     pub broker_order_id_matches: bool,
     pub broker_order_id_state: RuntimeAckBrokerOrderIdState,
+    pub status_policy: RuntimeAckStatusPolicy,
     pub pending_disposition: RuntimeAckPendingDisposition,
     pub issues: Vec<RuntimeAckLifecycleIssue>,
 }
@@ -436,11 +488,29 @@ fn ack_status_requires_or_may_later_receive_broker_order_id(status: CommandAckSt
     )
 }
 
-fn ack_status_keeps_pending(status: CommandAckStatus) -> bool {
-    matches!(
-        status,
-        CommandAckStatus::Timeout | CommandAckStatus::UnknownPending
-    )
+fn ack_status_policy(
+    ack: &CommandAck,
+    broker_order_id_state: RuntimeAckBrokerOrderIdState,
+) -> RuntimeAckStatusPolicy {
+    match ack.status {
+        CommandAckStatus::Accepted | CommandAckStatus::Submitted | CommandAckStatus::Recovered => {
+            if broker_order_id_state == RuntimeAckBrokerOrderIdState::PendingBrokerOrderId {
+                RuntimeAckStatusPolicy::KeepPendingBrokerOrderId
+            } else {
+                RuntimeAckStatusPolicy::ClearPending
+            }
+        }
+        CommandAckStatus::Rejected => RuntimeAckStatusPolicy::ClearPending,
+        CommandAckStatus::Timeout | CommandAckStatus::UnknownPending => {
+            RuntimeAckStatusPolicy::KeepPending
+        }
+        CommandAckStatus::Duplicate => RuntimeAckStatusPolicy::RequiresPriorOutcome,
+        CommandAckStatus::Expired => match ack.reason.as_ref().map(|reason| reason.code) {
+            Some(CommandAckReasonCode::ExpiredCommand) => RuntimeAckStatusPolicy::ClearPending,
+            _ => RuntimeAckStatusPolicy::RequiresNoSendProof,
+        },
+        CommandAckStatus::Error => RuntimeAckStatusPolicy::ManualInterventionRequired,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -548,6 +618,14 @@ mod tests {
             received_ts: DateTime::parse_from_rfc3339("2026-07-07T09:10:00Z")
                 .expect("ts")
                 .with_timezone(&Utc),
+        }
+    }
+
+    fn pending(request_id: StrategyRequestId) -> RuntimePendingRequestIdentity {
+        RuntimePendingRequestIdentity {
+            request_id,
+            client_order_id: None,
+            broker_order_id: None,
         }
     }
 
@@ -975,11 +1053,7 @@ mod tests {
     #[test]
     fn submitted_ack_missing_broker_order_id_is_marked_pending_broker_id() {
         let request_id = request_id("00000000-0000-4000-8000-000000000045");
-        let pending = RuntimePendingRequestIdentity {
-            request_id,
-            client_order_id: None,
-            broker_order_id: None,
-        };
+        let pending = pending(request_id);
         let ack = ack(request_id, None, None, CommandAckStatus::Submitted);
 
         let decision = pending.evaluate_ack(&ack);
@@ -998,11 +1072,7 @@ mod tests {
     #[test]
     fn rejected_ack_may_omit_broker_order_id_when_request_matches() {
         let request_id = request_id("00000000-0000-4000-8000-000000000046");
-        let pending = RuntimePendingRequestIdentity {
-            request_id,
-            client_order_id: None,
-            broker_order_id: None,
-        };
+        let pending = pending(request_id);
         let ack = ack(request_id, None, None, CommandAckStatus::Rejected);
 
         let decision = pending.evaluate_ack(&ack);
@@ -1016,6 +1086,103 @@ mod tests {
             decision.pending_disposition,
             RuntimeAckPendingDisposition::ClearPending
         );
+    }
+
+    #[test]
+    fn error_ack_with_matching_request_id_does_not_clear_pending_by_default() {
+        let request_id = request_id("00000000-0000-4000-8000-000000000050");
+        let pending = pending(request_id);
+        let ack = ack(request_id, None, None, CommandAckStatus::Error);
+
+        let decision = pending.evaluate_ack(&ack);
+
+        assert_eq!(
+            decision.status_policy,
+            RuntimeAckStatusPolicy::ManualInterventionRequired
+        );
+        assert_eq!(
+            decision.pending_disposition,
+            RuntimeAckPendingDisposition::KeepPending
+        );
+        assert_eq!(
+            decision.issues,
+            vec![RuntimeAckLifecycleIssue::AmbiguousErrorAckDoesNotClearPending]
+        );
+    }
+
+    #[test]
+    fn duplicate_ack_with_matching_request_id_requires_prior_outcome_before_clearing() {
+        let request_id = request_id("00000000-0000-4000-8000-000000000051");
+        let pending = pending(request_id);
+        let ack = ack(request_id, None, None, CommandAckStatus::Duplicate);
+
+        let decision = pending.evaluate_ack(&ack);
+
+        assert_eq!(
+            decision.status_policy,
+            RuntimeAckStatusPolicy::RequiresPriorOutcome
+        );
+        assert_eq!(
+            decision.pending_disposition,
+            RuntimeAckPendingDisposition::KeepPending
+        );
+        assert_eq!(
+            decision.issues,
+            vec![RuntimeAckLifecycleIssue::DuplicateAckRequiresPriorOutcome]
+        );
+    }
+
+    #[test]
+    fn expired_ack_requires_explicit_no_send_policy_before_clearing() {
+        let request_id = request_id("00000000-0000-4000-8000-000000000052");
+        let pending = pending(request_id);
+        let ack_without_proof = ack(request_id, None, None, CommandAckStatus::Expired);
+
+        let decision = pending.evaluate_ack(&ack_without_proof);
+
+        assert_eq!(
+            decision.status_policy,
+            RuntimeAckStatusPolicy::RequiresNoSendProof
+        );
+        assert_eq!(
+            decision.pending_disposition,
+            RuntimeAckPendingDisposition::KeepPending
+        );
+        assert_eq!(
+            decision.issues,
+            vec![RuntimeAckLifecycleIssue::ExpiredAckRequiresNoSendProof]
+        );
+
+        let ack_with_no_send_proof = CommandAck {
+            reason: Some(CommandAckReason::new(CommandAckReasonCode::ExpiredCommand)),
+            ..ack_without_proof
+        };
+        let decision = pending.evaluate_ack(&ack_with_no_send_proof);
+
+        assert_eq!(decision.status_policy, RuntimeAckStatusPolicy::ClearPending);
+        assert_eq!(
+            decision.pending_disposition,
+            RuntimeAckPendingDisposition::ClearPending
+        );
+        assert!(decision.issues.is_empty());
+    }
+
+    #[test]
+    fn timeout_and_unknown_pending_ack_keep_pending() {
+        for status in [CommandAckStatus::Timeout, CommandAckStatus::UnknownPending] {
+            let request_id = request_id("00000000-0000-4000-8000-000000000053");
+            let pending = pending(request_id);
+            let ack = ack(request_id, None, None, status);
+
+            let decision = pending.evaluate_ack(&ack);
+
+            assert_eq!(decision.status_policy, RuntimeAckStatusPolicy::KeepPending);
+            assert_eq!(
+                decision.pending_disposition,
+                RuntimeAckPendingDisposition::KeepPending
+            );
+            assert!(decision.issues.is_empty());
+        }
     }
 
     #[test]
