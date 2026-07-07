@@ -131,10 +131,12 @@ pub use runtime_host::{
 pub use runtime_state::{
     RuntimeAckBrokerOrderIdState, RuntimeAckLifecycleDecision, RuntimeAckLifecycleIssue,
     RuntimeAckPendingDisposition, RuntimeAckStatusPolicy, RuntimeBootstrapSnapshotDto,
-    RuntimeBrokerEventDeduplicator, RuntimeBrokerEventReplayDisposition, RuntimeCommandAckDto,
-    RuntimeOrderEvent, RuntimeOrderEventLifecycle, RuntimeOrderEventLifecycleClassification,
+    RuntimeBrokerEventDeduplicator, RuntimeBrokerEventReplayDisposition,
+    RuntimeCacheApplyDisposition, RuntimeCacheLifecycleBlocker, RuntimeCacheOrderApplyOutcome,
+    RuntimeCacheTradeApplyOutcome, RuntimeCaches, RuntimeCommandAckDto, RuntimeOrderEvent,
+    RuntimeOrderEventLifecycle, RuntimeOrderEventLifecycleClassification, RuntimePendingPath,
     RuntimePendingRequestIdentity, RuntimeStateReadinessBlocker, RuntimeStateReadinessBlockerKind,
-    RuntimeStateSnapshot, RuntimeStateValidationError, RuntimeTradeEvent,
+    RuntimeStateSnapshot, RuntimeStateValidationError, RuntimeTradeCacheTarget, RuntimeTradeEvent,
     ValidatedRuntimeBootstrapSnapshotDto, ValidatedRuntimeStateSnapshot,
 };
 pub use subscription::{SubscriptionIntent, SubscriptionKind, SubscriptionState};

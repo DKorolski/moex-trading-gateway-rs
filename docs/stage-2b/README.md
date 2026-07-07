@@ -111,3 +111,18 @@ Acceptance note:
 Acceptance note:
 
 [`2b-4a-ack-status-policy-hardening.md`](2b-4a-ack-status-policy-hardening.md)
+
+`2B-5` adds passive RuntimeCaches / ownership tracking primitives:
+
+- cache orders by exact `BrokerOrderId(String)`;
+- track owned broker order ids as broker-native strings;
+- preserve legacy numeric ALOR order ids as decimal strings on import;
+- apply `RuntimeOrderEvent` and `RuntimeTradeEvent` into DTO-level caches;
+- keep trade-before-order events pending until the exact broker order id appears;
+- expose `tracked_order_ids()` as `Vec<BrokerOrderId>`, not `Vec<i64>`;
+- reuse Stage 2B-4a ACK status policy for pending cache helpers;
+- keep Stage 2B paper/mock/local and live send paths disabled.
+
+Acceptance note:
+
+[`2b-5-runtime-caches-ownership-tracking.md`](2b-5-runtime-caches-ownership-tracking.md)

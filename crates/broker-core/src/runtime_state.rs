@@ -595,6 +595,232 @@ impl RuntimeBrokerEventDeduplicator {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct RuntimeCaches {
+    #[serde(default)]
+    pub orders: HashMap<BrokerOrderId, RuntimeOrderEvent>,
+    #[serde(default)]
+    pub owned_order_ids: HashSet<BrokerOrderId>,
+    #[serde(default)]
+    pub trades_by_order_id: HashMap<BrokerOrderId, Vec<RuntimeTradeEvent>>,
+    #[serde(default)]
+    pub pending_trades_by_order_id: HashMap<BrokerOrderId, Vec<RuntimeTradeEvent>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_entry: Option<RuntimePendingRequestIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_exit: Option<RuntimePendingRequestIdentity>,
+}
+
+impl RuntimeCaches {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn from_validated_state(validated: ValidatedRuntimeStateSnapshot) -> Self {
+        let snapshot = validated.snapshot;
+        Self {
+            owned_order_ids: snapshot.known_order_ids.into_iter().collect(),
+            orders: snapshot.orders,
+            trades_by_order_id: group_trades_by_order_id(snapshot.trades),
+            pending_trades_by_order_id: HashMap::new(),
+            pending_entry: snapshot.pending_entry_request_id.map(|request_id| {
+                RuntimePendingRequestIdentity {
+                    request_id,
+                    client_order_id: None,
+                    broker_order_id: None,
+                }
+            }),
+            pending_exit: snapshot.pending_exit_request_id.map(|request_id| {
+                RuntimePendingRequestIdentity {
+                    request_id,
+                    client_order_id: None,
+                    broker_order_id: None,
+                }
+            }),
+        }
+    }
+
+    pub fn order(&self, order_id: &BrokerOrderId) -> Option<&RuntimeOrderEvent> {
+        self.orders.get(order_id)
+    }
+
+    pub fn tracked_order_ids(&self) -> Vec<BrokerOrderId> {
+        let mut ids = self.owned_order_ids.iter().cloned().collect::<Vec<_>>();
+        ids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+        ids
+    }
+
+    pub fn apply_order_event(&mut self, event: RuntimeOrderEvent) -> RuntimeCacheOrderApplyOutcome {
+        let order_id = event.order_id.clone();
+        let lifecycle = event.lifecycle_classification().lifecycle;
+        let lifecycle_blocker = (lifecycle == RuntimeOrderEventLifecycle::Unknown)
+            .then_some(RuntimeCacheLifecycleBlocker::UnknownOrderLifecycle);
+        let disposition = match self.orders.get(&order_id) {
+            Some(existing) if existing == &event => {
+                RuntimeCacheApplyDisposition::DuplicateIdempotent
+            }
+            Some(_) => RuntimeCacheApplyDisposition::Updated,
+            None => RuntimeCacheApplyDisposition::Inserted,
+        };
+
+        if disposition != RuntimeCacheApplyDisposition::DuplicateIdempotent {
+            self.orders.insert(order_id.clone(), event);
+        }
+        self.owned_order_ids.insert(order_id.clone());
+
+        let reconciled_pending_trade_count =
+            if let Some(pending_trades) = self.pending_trades_by_order_id.remove(&order_id) {
+                let count = pending_trades.len();
+                for trade in pending_trades {
+                    push_trade_dedup(
+                        self.trades_by_order_id.entry(order_id.clone()).or_default(),
+                        trade,
+                    );
+                }
+                count
+            } else {
+                0
+            };
+
+        RuntimeCacheOrderApplyOutcome {
+            broker_order_id_len: order_id.as_str().len(),
+            disposition,
+            lifecycle,
+            lifecycle_blocker,
+            tracked_order_count: self.owned_order_ids.len(),
+            reconciled_pending_trade_count,
+        }
+    }
+
+    pub fn apply_trade_event(&mut self, event: RuntimeTradeEvent) -> RuntimeCacheTradeApplyOutcome {
+        let order_id = event.order_id.clone();
+        let target =
+            if self.orders.contains_key(&order_id) || self.owned_order_ids.contains(&order_id) {
+                RuntimeTradeCacheTarget::KnownOrder
+            } else {
+                RuntimeTradeCacheTarget::PendingOrderEvent
+            };
+        let trades = match target {
+            RuntimeTradeCacheTarget::KnownOrder => {
+                self.trades_by_order_id.entry(order_id.clone()).or_default()
+            }
+            RuntimeTradeCacheTarget::PendingOrderEvent => self
+                .pending_trades_by_order_id
+                .entry(order_id.clone())
+                .or_default(),
+        };
+        let disposition = if push_trade_dedup(trades, event) {
+            RuntimeCacheApplyDisposition::Inserted
+        } else {
+            RuntimeCacheApplyDisposition::DuplicateIdempotent
+        };
+
+        RuntimeCacheTradeApplyOutcome {
+            broker_order_id_len: order_id.as_str().len(),
+            target,
+            disposition,
+        }
+    }
+
+    pub fn set_pending(
+        &mut self,
+        path: RuntimePendingPath,
+        pending: RuntimePendingRequestIdentity,
+    ) {
+        match path {
+            RuntimePendingPath::Entry => self.pending_entry = Some(pending),
+            RuntimePendingPath::Exit => self.pending_exit = Some(pending),
+        }
+    }
+
+    pub fn apply_ack_to_pending_path(
+        &mut self,
+        path: RuntimePendingPath,
+        ack: &CommandAck,
+    ) -> Option<RuntimeAckLifecycleDecision> {
+        let slot = match path {
+            RuntimePendingPath::Entry => &mut self.pending_entry,
+            RuntimePendingPath::Exit => &mut self.pending_exit,
+        };
+        let decision = slot.as_ref().map(|pending| pending.evaluate_ack(ack))?;
+        if decision.pending_disposition == RuntimeAckPendingDisposition::ClearPending {
+            *slot = None;
+        }
+        Some(decision)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimePendingPath {
+    Entry,
+    Exit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeCacheApplyDisposition {
+    Inserted,
+    Updated,
+    DuplicateIdempotent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeCacheLifecycleBlocker {
+    UnknownOrderLifecycle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeTradeCacheTarget {
+    KnownOrder,
+    PendingOrderEvent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeCacheOrderApplyOutcome {
+    pub broker_order_id_len: usize,
+    pub disposition: RuntimeCacheApplyDisposition,
+    pub lifecycle: RuntimeOrderEventLifecycle,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle_blocker: Option<RuntimeCacheLifecycleBlocker>,
+    pub tracked_order_count: usize,
+    pub reconciled_pending_trade_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeCacheTradeApplyOutcome {
+    pub broker_order_id_len: usize,
+    pub target: RuntimeTradeCacheTarget,
+    pub disposition: RuntimeCacheApplyDisposition,
+}
+
+fn group_trades_by_order_id(
+    trades: Vec<RuntimeTradeEvent>,
+) -> HashMap<BrokerOrderId, Vec<RuntimeTradeEvent>> {
+    let mut grouped = HashMap::<BrokerOrderId, Vec<RuntimeTradeEvent>>::new();
+    for trade in trades {
+        grouped
+            .entry(trade.order_id.clone())
+            .or_default()
+            .push(trade);
+    }
+    grouped
+}
+
+fn push_trade_dedup(trades: &mut Vec<RuntimeTradeEvent>, trade: RuntimeTradeEvent) -> bool {
+    if trades
+        .iter()
+        .any(|existing| existing.trade_id == trade.trade_id && existing.order_id == trade.order_id)
+    {
+        false
+    } else {
+        trades.push(trade);
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1287,5 +1513,213 @@ mod tests {
             deduplicator.classify_trade_event(&trade),
             RuntimeBrokerEventReplayDisposition::DuplicateIdempotent
         );
+    }
+
+    #[test]
+    fn runtime_caches_orders_use_string_broker_order_id_and_lookup_exact() {
+        let mut caches = RuntimeCaches::new();
+        let order = RuntimeOrderEvent {
+            order_id: BrokerOrderId::new("FINAM-ORDER-CACHE-060"),
+            client_order_id: Some(ClientOrderId::new("CID000000000000060").expect("cid")),
+            symbol: Some("IMOEXF".to_string()),
+            exchange: None,
+            status: Some("working".to_string()),
+            side: Some("buy".to_string()),
+            order_type: Some("limit".to_string()),
+            source_ts: None,
+        };
+
+        let outcome = caches.apply_order_event(order);
+
+        assert_eq!(outcome.disposition, RuntimeCacheApplyDisposition::Inserted);
+        assert_eq!(outcome.lifecycle, RuntimeOrderEventLifecycle::Active);
+        assert_eq!(
+            caches
+                .order(&BrokerOrderId::new("FINAM-ORDER-CACHE-060"))
+                .expect("order cached")
+                .order_id
+                .as_str(),
+            "FINAM-ORDER-CACHE-060"
+        );
+        assert_eq!(
+            caches
+                .tracked_order_ids()
+                .iter()
+                .map(BrokerOrderId::as_str)
+                .collect::<Vec<_>>(),
+            vec!["FINAM-ORDER-CACHE-060"]
+        );
+    }
+
+    #[test]
+    fn runtime_caches_import_legacy_numeric_alor_ids_as_decimal_strings() {
+        let state = serde_json::from_str::<RuntimeStateSnapshot>(
+            r#"{
+                "orders":{
+                    "2033126389943253218":{
+                        "order_id":2033126389943253218,
+                        "status":"working",
+                        "symbol":"IMOEXF"
+                    }
+                },
+                "known_order_ids":[2033126389943253218]
+            }"#,
+        )
+        .expect("legacy state imports");
+        let caches = RuntimeCaches::from_validated_state(
+            state
+                .validate_for_runtime_restore()
+                .expect("legacy state validates"),
+        );
+
+        assert!(caches
+            .order(&BrokerOrderId::new("2033126389943253218"))
+            .is_some());
+        assert_eq!(
+            caches
+                .tracked_order_ids()
+                .iter()
+                .map(BrokerOrderId::as_str)
+                .collect::<Vec<_>>(),
+            vec!["2033126389943253218"]
+        );
+    }
+
+    #[test]
+    fn duplicate_order_event_is_idempotent_and_does_not_create_duplicate_cache_entries() {
+        let mut caches = RuntimeCaches::new();
+        let order = RuntimeOrderEvent {
+            order_id: BrokerOrderId::new("FINAM-ORDER-DUP-CACHE-061"),
+            client_order_id: None,
+            symbol: Some("IMOEXF".to_string()),
+            exchange: None,
+            status: Some("working".to_string()),
+            side: None,
+            order_type: None,
+            source_ts: None,
+        };
+
+        assert_eq!(
+            caches.apply_order_event(order.clone()).disposition,
+            RuntimeCacheApplyDisposition::Inserted
+        );
+        assert_eq!(
+            caches.apply_order_event(order).disposition,
+            RuntimeCacheApplyDisposition::DuplicateIdempotent
+        );
+        assert_eq!(caches.orders.len(), 1);
+        assert_eq!(caches.owned_order_ids.len(), 1);
+    }
+
+    #[test]
+    fn unknown_lifecycle_order_event_stays_blocking_not_terminal_clean() {
+        let mut caches = RuntimeCaches::new();
+        let outcome = caches.apply_order_event(RuntimeOrderEvent {
+            order_id: BrokerOrderId::new("FINAM-ORDER-UNKNOWN-062"),
+            client_order_id: None,
+            symbol: Some("IMOEXF".to_string()),
+            exchange: None,
+            status: Some("broker_new_status".to_string()),
+            side: None,
+            order_type: None,
+            source_ts: None,
+        });
+
+        assert_eq!(outcome.lifecycle, RuntimeOrderEventLifecycle::Unknown);
+        assert_eq!(
+            outcome.lifecycle_blocker,
+            Some(RuntimeCacheLifecycleBlocker::UnknownOrderLifecycle)
+        );
+        assert_ne!(outcome.lifecycle, RuntimeOrderEventLifecycle::Terminal);
+    }
+
+    #[test]
+    fn trade_event_before_order_event_is_pending_then_reconciled_by_exact_broker_id() {
+        let mut caches = RuntimeCaches::new();
+        let trade = RuntimeTradeEvent {
+            trade_id: BrokerTradeId::new("FINAM-TRADE-CACHE-063"),
+            order_id: BrokerOrderId::new("FINAM-ORDER-CACHE-063"),
+            client_order_id: None,
+            symbol: Some("IMOEXF".to_string()),
+            exchange: None,
+            side: Some("buy".to_string()),
+            source_ts: None,
+        };
+
+        let trade_outcome = caches.apply_trade_event(trade.clone());
+
+        assert_eq!(
+            trade_outcome.target,
+            RuntimeTradeCacheTarget::PendingOrderEvent
+        );
+        assert_eq!(
+            caches
+                .pending_trades_by_order_id
+                .get(&BrokerOrderId::new("FINAM-ORDER-CACHE-063"))
+                .expect("pending trade stored")
+                .len(),
+            1
+        );
+        assert_eq!(
+            caches.apply_trade_event(trade).disposition,
+            RuntimeCacheApplyDisposition::DuplicateIdempotent
+        );
+
+        let order_outcome = caches.apply_order_event(RuntimeOrderEvent {
+            order_id: BrokerOrderId::new("FINAM-ORDER-CACHE-063"),
+            client_order_id: None,
+            symbol: Some("IMOEXF".to_string()),
+            exchange: None,
+            status: Some("filled".to_string()),
+            side: Some("buy".to_string()),
+            order_type: Some("market".to_string()),
+            source_ts: None,
+        });
+
+        assert_eq!(order_outcome.reconciled_pending_trade_count, 1);
+        assert!(!caches
+            .pending_trades_by_order_id
+            .contains_key(&BrokerOrderId::new("FINAM-ORDER-CACHE-063")));
+        assert_eq!(
+            caches
+                .trades_by_order_id
+                .get(&BrokerOrderId::new("FINAM-ORDER-CACHE-063"))
+                .expect("trade reconciled")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn runtime_cache_pending_ack_helper_respects_stage_2b4a_policy() {
+        let request_id = request_id("00000000-0000-4000-8000-000000000064");
+        let mut caches = RuntimeCaches::new();
+        caches.set_pending(RuntimePendingPath::Entry, pending(request_id));
+
+        let error_ack = ack(request_id, None, None, CommandAckStatus::Error);
+        let decision = caches
+            .apply_ack_to_pending_path(RuntimePendingPath::Entry, &error_ack)
+            .expect("pending entry evaluated");
+
+        assert_eq!(
+            decision.status_policy,
+            RuntimeAckStatusPolicy::ManualInterventionRequired
+        );
+        assert_eq!(
+            decision.pending_disposition,
+            RuntimeAckPendingDisposition::KeepPending
+        );
+        assert!(caches.pending_entry.is_some());
+
+        let rejected_ack = ack(request_id, None, None, CommandAckStatus::Rejected);
+        let decision = caches
+            .apply_ack_to_pending_path(RuntimePendingPath::Entry, &rejected_ack)
+            .expect("pending entry evaluated");
+
+        assert_eq!(
+            decision.pending_disposition,
+            RuntimeAckPendingDisposition::ClearPending
+        );
+        assert!(caches.pending_entry.is_none());
     }
 }
