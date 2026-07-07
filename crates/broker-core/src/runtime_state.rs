@@ -1500,6 +1500,34 @@ mod tests {
     }
 
     #[test]
+    fn runtime_trade_event_rejects_empty_trade_id_at_serde_boundary() {
+        serde_json::from_str::<RuntimeTradeEvent>(
+            r#"{
+                "trade_id":"",
+                "order_id":"FINAM/ORDER:EXACT-047",
+                "symbol":"IMOEXF"
+            }"#,
+        )
+        .expect_err("empty trade id rejected");
+    }
+
+    #[test]
+    fn runtime_trade_event_preserves_exact_trade_id_roundtrip() {
+        let trade = serde_json::from_str::<RuntimeTradeEvent>(
+            r#"{
+                "trade_id":"FINAM/TRADE:EXACT-047",
+                "order_id":"FINAM/ORDER:EXACT-047",
+                "symbol":"IMOEXF"
+            }"#,
+        )
+        .expect("trade imports");
+
+        assert_eq!(trade.trade_id.as_str(), "FINAM/TRADE:EXACT-047");
+        let serialized = serde_json::to_string(&trade).expect("trade serializes");
+        assert!(serialized.contains(r#""trade_id":"FINAM/TRADE:EXACT-047""#));
+    }
+
+    #[test]
     fn broker_event_before_ack_is_representable_without_corrupting_pending_state() {
         let request_id = request_id("00000000-0000-4000-8000-000000000048");
         let pending = RuntimePendingRequestIdentity {

@@ -79,8 +79,10 @@ Stage split:
 - Stage 2B-4a is accepted: explicit ACK status policy hardening is complete.
 - Stage 2B-5 is accepted as passive RuntimeCaches / ownership tracking
   foundation.
-- Active patch is Stage 2B-5a: explicit order ownership / attribution
-  hardening, still paper/mock/local only.
+- Stage 2B-5a is accepted: explicit order ownership / attribution hardening is
+  complete.
+- Active patch is Stage 2B-5b: BrokerTradeId invariant hardening before
+  Stage 2B-6 TradeLedger migration.
 
 Green / mostly closed:
 

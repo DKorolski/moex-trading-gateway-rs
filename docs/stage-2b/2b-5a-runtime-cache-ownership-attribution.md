@@ -1,6 +1,6 @@
 # Stage 2B-5a — explicit order ownership / attribution hardening
 
-Status: implementation patch ready for review.
+Status: accepted.
 
 Date: 2026-07-07.
 

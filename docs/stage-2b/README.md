@@ -141,3 +141,17 @@ Acceptance note:
 Acceptance note:
 
 [`2b-5a-runtime-cache-ownership-attribution.md`](2b-5a-runtime-cache-ownership-attribution.md)
+
+`2B-5b` hardens `BrokerTradeId` before TradeLedger migration:
+
+- `BrokerTradeId` no longer uses the generic unchecked string-id macro;
+- `BrokerTradeId::from_broker_native_exact("")` rejects empty ids;
+- serde rejects empty trade ids;
+- native broker trade ids are preserved exactly;
+- `RuntimeTradeEvent` rejects empty `trade_id`;
+- trade dedup can only use valid non-empty `BrokerTradeId`;
+- keep Stage 2B paper/mock/local and live send paths disabled.
+
+Acceptance note:
+
+[`2b-5b-broker-trade-id-invariant-hardening.md`](2b-5b-broker-trade-id-invariant-hardening.md)

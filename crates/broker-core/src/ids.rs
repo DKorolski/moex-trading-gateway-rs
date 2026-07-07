@@ -58,7 +58,6 @@ macro_rules! string_id {
 }
 
 string_id!(BrokerAccountId);
-string_id!(BrokerTradeId);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
@@ -108,6 +107,52 @@ impl From<BrokerOrderId> for String {
 }
 
 impl fmt::Display for BrokerOrderId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct BrokerTradeId(String);
+
+impl BrokerTradeId {
+    #[track_caller]
+    pub fn new(value: impl Into<String>) -> Self {
+        Self::from_broker_native_exact(value)
+            .expect("BrokerTradeId::new requires a non-empty broker-native id")
+    }
+
+    pub fn from_broker_native_exact(
+        value: impl Into<String>,
+    ) -> Result<Self, BrokerTradeIdImportError> {
+        let value = value.into();
+        if value.is_empty() {
+            return Err(BrokerTradeIdImportError::EmptyBrokerNativeId);
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for BrokerTradeId {
+    type Error = BrokerTradeIdImportError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::from_broker_native_exact(value)
+    }
+}
+
+impl From<BrokerTradeId> for String {
+    fn from(value: BrokerTradeId) -> Self {
+        value.0
+    }
+}
+
+impl fmt::Display for BrokerTradeId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(formatter)
     }
@@ -205,6 +250,12 @@ pub enum BrokerOrderIdImportError {
     EmptyBrokerNativeId,
     #[error("legacy ALOR numeric order id must be positive: {0}")]
     NonPositiveLegacyAlorId(i64),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum BrokerTradeIdImportError {
+    #[error("broker-native trade id cannot be empty")]
+    EmptyBrokerNativeId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -401,6 +452,57 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&broker_order_id).expect("broker order id serializes"),
             r#""FINAM-ORDER-0002""#
+        );
+    }
+
+    #[test]
+    fn broker_native_trade_id_string_is_preserved_exactly() {
+        let raw = "FINAM-TRADE-0001/ABC_ё";
+        let broker_trade_id =
+            BrokerTradeId::from_broker_native_exact(raw).expect("non-empty native id imports");
+
+        assert_eq!(broker_trade_id.as_str(), raw);
+        assert_eq!(broker_trade_id.to_string(), raw);
+    }
+
+    #[test]
+    fn empty_broker_native_trade_id_is_rejected() {
+        assert_eq!(
+            BrokerTradeId::from_broker_native_exact("").expect_err("empty native id rejected"),
+            BrokerTradeIdImportError::EmptyBrokerNativeId
+        );
+    }
+
+    #[test]
+    fn broker_trade_id_public_constructor_cannot_create_empty() {
+        let panic = std::panic::catch_unwind(|| BrokerTradeId::new(""))
+            .expect_err("checked constructor must not construct empty broker trade id");
+
+        let message = panic
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+            .expect("panic message is present");
+        assert!(message.contains("non-empty broker-native id"));
+    }
+
+    #[test]
+    fn broker_trade_id_deserialize_empty_string_rejected() {
+        let error = serde_json::from_str::<BrokerTradeId>(r#""""#)
+            .expect_err("empty broker trade id cannot deserialize");
+
+        assert!(error.to_string().contains("cannot be empty"));
+    }
+
+    #[test]
+    fn broker_trade_id_deserialize_nonempty_string_preserved_exact() {
+        let broker_trade_id = serde_json::from_str::<BrokerTradeId>(r#""FINAM-TRADE-0002""#)
+            .expect("non-empty broker trade id deserializes");
+
+        assert_eq!(broker_trade_id.as_str(), "FINAM-TRADE-0002");
+        assert_eq!(
+            serde_json::to_string(&broker_trade_id).expect("broker trade id serializes"),
+            r#""FINAM-TRADE-0002""#
         );
     }
 
