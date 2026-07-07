@@ -29,7 +29,7 @@ under this directory before handoff. The note should include:
 
 ## Next planned patch
 
-`2B-1` should be the foundation patch:
+`2B-1` is the foundation patch:
 
 - broker-neutral runtime-facing id aliases/types;
 - legacy numeric ALOR id -> decimal-string import helpers;
@@ -37,8 +37,6 @@ under this directory before handoff. The note should include:
 - no strategy behavior changes;
 - no real FINAM endpoint calls.
 
-Draft note path:
+Acceptance note:
 
-```text
-docs/stage-2b/2b-1-id-types-acceptance.md
-```
+[`2b-1-id-types-acceptance.md`](2b-1-id-types-acceptance.md)

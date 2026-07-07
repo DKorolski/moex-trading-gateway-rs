@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub const CLIENT_ORDER_ID_MAX_LEN: usize = 20;
+pub const RUNTIME_STATE_SCHEMA_VERSION_V2: u16 = 2;
+pub const BROKER_ORDER_ID_ENCODING: &str = "broker_order_id_string";
+pub const LEGACY_ALOR_NUMERIC_ORDER_ID_IMPORT: &str = "decimal_string";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StrategyRequestId(pub Uuid);
@@ -56,6 +59,39 @@ macro_rules! string_id {
 string_id!(BrokerAccountId);
 string_id!(BrokerOrderId);
 string_id!(BrokerTradeId);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrokerOrderIdEncoding {
+    BrokerOrderIdString,
+}
+
+impl BrokerOrderId {
+    pub fn from_broker_native_exact(
+        value: impl Into<String>,
+    ) -> Result<Self, BrokerOrderIdImportError> {
+        let value = value.into();
+        if value.is_empty() {
+            return Err(BrokerOrderIdImportError::EmptyBrokerNativeId);
+        }
+        Ok(Self(value))
+    }
+
+    pub fn try_from_legacy_alor_numeric(value: i64) -> Result<Self, BrokerOrderIdImportError> {
+        if value <= 0 {
+            return Err(BrokerOrderIdImportError::NonPositiveLegacyAlorId(value));
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum BrokerOrderIdImportError {
+    #[error("broker-native order id cannot be empty")]
+    EmptyBrokerNativeId,
+    #[error("legacy ALOR numeric order id must be positive: {0}")]
+    NonPositiveLegacyAlorId(i64),
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
@@ -181,5 +217,55 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first.as_str().len(), CLIENT_ORDER_ID_MAX_LEN);
         validate_client_order_id(first.as_str()).expect("derived id is valid");
+    }
+
+    #[test]
+    fn legacy_alor_numeric_order_id_imports_as_decimal_string() {
+        let broker_order_id =
+            BrokerOrderId::try_from_legacy_alor_numeric(2_033_126_389_943_253_218)
+                .expect("positive legacy ALOR id imports");
+
+        assert_eq!(broker_order_id.as_str(), "2033126389943253218");
+    }
+
+    #[test]
+    fn legacy_alor_non_positive_order_id_is_rejected() {
+        assert_eq!(
+            BrokerOrderId::try_from_legacy_alor_numeric(0).expect_err("zero is sentinel"),
+            BrokerOrderIdImportError::NonPositiveLegacyAlorId(0)
+        );
+        assert_eq!(
+            BrokerOrderId::try_from_legacy_alor_numeric(-1).expect_err("negative is invalid"),
+            BrokerOrderIdImportError::NonPositiveLegacyAlorId(-1)
+        );
+    }
+
+    #[test]
+    fn broker_native_order_id_string_is_preserved_exactly() {
+        let raw = "FINAM-ORDER-0001/ABC_ё";
+        let broker_order_id =
+            BrokerOrderId::from_broker_native_exact(raw).expect("non-empty native id imports");
+
+        assert_eq!(broker_order_id.as_str(), raw);
+    }
+
+    #[test]
+    fn empty_broker_native_order_id_is_rejected() {
+        assert_eq!(
+            BrokerOrderId::from_broker_native_exact("").expect_err("empty native id rejected"),
+            BrokerOrderIdImportError::EmptyBrokerNativeId
+        );
+    }
+
+    #[test]
+    fn stage2b_runtime_order_id_encoding_markers_are_explicit() {
+        assert_eq!(RUNTIME_STATE_SCHEMA_VERSION_V2, 2);
+        assert_eq!(BROKER_ORDER_ID_ENCODING, "broker_order_id_string");
+        assert_eq!(LEGACY_ALOR_NUMERIC_ORDER_ID_IMPORT, "decimal_string");
+        assert_eq!(
+            serde_json::to_string(&BrokerOrderIdEncoding::BrokerOrderIdString)
+                .expect("encoding serializes"),
+            "\"broker_order_id_string\""
+        );
     }
 }
