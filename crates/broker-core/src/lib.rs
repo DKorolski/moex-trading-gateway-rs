@@ -23,6 +23,7 @@ pub mod paper;
 pub mod parity;
 pub mod readiness;
 pub mod runtime_host;
+pub mod runtime_state;
 pub mod subscription;
 pub mod time;
 
@@ -40,9 +41,12 @@ pub use command::{
 pub use envelope::{Envelope, MessageType, SCHEMA_VERSION};
 pub use event::{BrokerEvent, MarketDataEvent, MarketDataSourceKind};
 pub use ids::{
-    BrokerAccountId, BrokerOrderId, BrokerOrderIdEncoding, BrokerOrderIdImportError, BrokerTradeId,
-    ClientOrderId, ClientOrderIdError, StrategyRequestId, BROKER_ORDER_ID_ENCODING,
-    CLIENT_ORDER_ID_MAX_LEN, LEGACY_ALOR_NUMERIC_ORDER_ID_IMPORT, RUNTIME_STATE_SCHEMA_VERSION_V2,
+    deserialize_broker_order_id_legacy_numeric_or_string,
+    deserialize_option_broker_order_id_legacy_numeric_or_string,
+    deserialize_vec_broker_order_id_legacy_numeric_or_string, BrokerAccountId, BrokerOrderId,
+    BrokerOrderIdEncoding, BrokerOrderIdImportError, BrokerTradeId, ClientOrderId,
+    ClientOrderIdError, StrategyRequestId, BROKER_ORDER_ID_ENCODING, CLIENT_ORDER_ID_MAX_LEN,
+    LEGACY_ALOR_NUMERIC_ORDER_ID_IMPORT, RUNTIME_STATE_SCHEMA_VERSION_V2,
 };
 pub use instrument::{
     BrokerSymbol, Exchange, Instrument, InstrumentId, InstrumentMapEntry, InternalSymbol, Market,
@@ -123,5 +127,9 @@ pub use runtime_host::{
     RuntimeHostContract, RuntimeHostLifecycleIssue, RuntimeHostLifecyclePlan,
     RuntimeHostLifecycleStep, RuntimeHostLiveGuardDecision, RuntimeHostLiveGuardInput,
     RuntimeIntentBlockEvent, RuntimeIntentClass, RuntimeStrategyContext,
+};
+pub use runtime_state::{
+    RuntimeBootstrapSnapshotDto, RuntimeCommandAckDto, RuntimeOrderEvent, RuntimeStateSnapshot,
+    RuntimeTradeEvent,
 };
 pub use subscription::{SubscriptionIntent, SubscriptionKind, SubscriptionState};

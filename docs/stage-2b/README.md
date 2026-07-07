@@ -52,3 +52,16 @@ Acceptance note:
 Acceptance note:
 
 [`2b-1a-broker-order-id-hardening.md`](2b-1a-broker-order-id-hardening.md)
+
+`2B-2` is the passive DTO/state migration patch:
+
+- add passive runtime order/trade/bootstrap/state/ACK DTOs with
+  broker-neutral ids;
+- import old ALOR numeric order ids as decimal-string `BrokerOrderId`;
+- keep FINAM/native string ids exact;
+- reject empty/zero/negative/null broker ids at serde boundaries;
+- keep Stage 2B paper/mock/local and live send paths disabled.
+
+Acceptance note:
+
+[`2b-2-passive-dto-state-migration.md`](2b-2-passive-dto-state-migration.md)

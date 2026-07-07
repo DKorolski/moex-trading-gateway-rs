@@ -1,6 +1,7 @@
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
 pub const CLIENT_ORDER_ID_MAX_LEN: usize = 20;
@@ -110,6 +111,86 @@ impl fmt::Display for BrokerOrderId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(formatter)
     }
+}
+
+pub fn deserialize_broker_order_id_legacy_numeric_or_string<'de, D>(
+    deserializer: D,
+) -> Result<BrokerOrderId, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct BrokerOrderIdVisitor;
+
+    impl Visitor<'_> for BrokerOrderIdVisitor {
+        type Value = BrokerOrderId;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter
+                .write_str("a non-empty broker order id string or a positive legacy ALOR integer")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            BrokerOrderId::from_broker_native_exact(value).map_err(E::custom)
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            BrokerOrderId::from_broker_native_exact(value).map_err(E::custom)
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            BrokerOrderId::try_from_legacy_alor_numeric(value).map_err(E::custom)
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            let value = i64::try_from(value).map_err(|_| {
+                E::custom(format!(
+                    "legacy ALOR numeric order id exceeds i64 range: {value}"
+                ))
+            })?;
+            BrokerOrderId::try_from_legacy_alor_numeric(value).map_err(E::custom)
+        }
+    }
+
+    deserializer.deserialize_any(BrokerOrderIdVisitor)
+}
+
+#[derive(Deserialize)]
+#[serde(transparent)]
+struct LegacyBrokerOrderIdSerde(
+    #[serde(deserialize_with = "deserialize_broker_order_id_legacy_numeric_or_string")]
+    BrokerOrderId,
+);
+
+pub fn deserialize_option_broker_order_id_legacy_numeric_or_string<'de, D>(
+    deserializer: D,
+) -> Result<Option<BrokerOrderId>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<LegacyBrokerOrderIdSerde>::deserialize(deserializer)
+        .map(|value| value.map(|value| value.0))
+}
+
+pub fn deserialize_vec_broker_order_id_legacy_numeric_or_string<'de, D>(
+    deserializer: D,
+) -> Result<Vec<BrokerOrderId>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Vec::<LegacyBrokerOrderIdSerde>::deserialize(deserializer)
+        .map(|values| values.into_iter().map(|value| value.0).collect())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -320,6 +401,76 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&broker_order_id).expect("broker order id serializes"),
             r#""FINAM-ORDER-0002""#
+        );
+    }
+
+    #[test]
+    fn legacy_numeric_or_string_broker_order_id_deserializer_imports_decimal_string() {
+        #[derive(Debug, Deserialize)]
+        struct Fixture {
+            #[serde(deserialize_with = "deserialize_broker_order_id_legacy_numeric_or_string")]
+            order_id: BrokerOrderId,
+        }
+
+        let legacy = serde_json::from_str::<Fixture>(r#"{"order_id":2033126389943253218}"#)
+            .expect("legacy numeric id imports");
+        assert_eq!(legacy.order_id.as_str(), "2033126389943253218");
+
+        let native = serde_json::from_str::<Fixture>(r#"{"order_id":"FINAM-ORDER-0003"}"#)
+            .expect("native string id imports");
+        assert_eq!(native.order_id.as_str(), "FINAM-ORDER-0003");
+    }
+
+    #[test]
+    fn legacy_numeric_or_string_broker_order_id_deserializer_rejects_empty_zero_and_null() {
+        #[allow(dead_code)]
+        #[derive(Debug, Deserialize)]
+        struct Fixture {
+            #[serde(deserialize_with = "deserialize_broker_order_id_legacy_numeric_or_string")]
+            order_id: BrokerOrderId,
+        }
+
+        for payload in [
+            r#"{"order_id":""}"#,
+            r#"{"order_id":0}"#,
+            r#"{"order_id":-1}"#,
+            r#"{"order_id":null}"#,
+        ] {
+            serde_json::from_str::<Fixture>(payload).expect_err("invalid broker id rejected");
+        }
+    }
+
+    #[test]
+    fn optional_and_vec_legacy_broker_order_id_deserializers_import_numeric_ids() {
+        #[derive(Debug, Deserialize)]
+        struct Fixture {
+            #[serde(
+                default,
+                deserialize_with = "deserialize_option_broker_order_id_legacy_numeric_or_string"
+            )]
+            optional: Option<BrokerOrderId>,
+            #[serde(
+                default,
+                deserialize_with = "deserialize_vec_broker_order_id_legacy_numeric_or_string"
+            )]
+            ids: Vec<BrokerOrderId>,
+        }
+
+        let fixture =
+            serde_json::from_str::<Fixture>(r#"{"optional":123,"ids":[456,"FINAM-789"]}"#)
+                .expect("legacy option/vector imports");
+
+        assert_eq!(
+            fixture.optional.as_ref().map(BrokerOrderId::as_str),
+            Some("123")
+        );
+        assert_eq!(
+            fixture
+                .ids
+                .iter()
+                .map(BrokerOrderId::as_str)
+                .collect::<Vec<_>>(),
+            vec!["456", "FINAM-789"]
         );
     }
 
