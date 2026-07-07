@@ -41,6 +41,12 @@ HYBRID_FIELDS = [
     "mr_stop_price",
     "safe_mode_close_only",
     "safe_mode_reason",
+    "deferred_entry_state",
+    "deferred_exit_state",
+    "position_adoption_state",
+    "dirty_start_marker",
+    "manual_intervention_required",
+    "manual_intervention_reason",
     "entry_ready",
     "last_bar_close",
     "prev_day_close",
@@ -160,6 +166,53 @@ def redis_xpending(prefix: str, stream: str, group: str) -> dict[str, Any]:
         "newest_pending_id": lines[2] if len(lines) > 2 and lines[2] != "" else None,
         "error": None,
     }
+
+
+def redis_xinfo_group(prefix: str, stream: str, group: str) -> dict[str, Any]:
+    ok, stdout = run_safe(redis_command(prefix, "XINFO", "GROUPS", stream), timeout=30)
+    if not ok:
+        return {"stream": stream, "consumer_group": group, "lag": None, "error": stdout}
+    lines = stdout.splitlines()
+    current: dict[str, Any] = {}
+    groups: list[dict[str, Any]] = []
+    index = 0
+    while index + 1 < len(lines):
+        key = lines[index]
+        value = lines[index + 1]
+        if key == "name" and current:
+            groups.append(current)
+            current = {}
+        current[key] = value
+        index += 2
+    if current:
+        groups.append(current)
+    for item in groups:
+        if item.get("name") == group:
+            return {
+                "stream": stream,
+                "consumer_group": group,
+                "consumers": parse_int_or_none(item.get("consumers")),
+                "pending": parse_int_or_none(item.get("pending")),
+                "last_delivered_id": item.get("last-delivered-id"),
+                "entries_read": parse_int_or_none(item.get("entries-read")),
+                "lag": parse_int_or_none(item.get("lag")),
+                "error": None,
+            }
+    return {
+        "stream": stream,
+        "consumer_group": group,
+        "lag": None,
+        "error": "consumer_group_not_found",
+    }
+
+
+def parse_int_or_none(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def unwrap_finam_runtime_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -331,6 +384,11 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "finam_runtime_state": redis_xlen(args.finam_redis_cli_prefix, args.finam_stream),
         "finam_runtime_dlq": redis_xlen(args.finam_redis_cli_prefix, args.finam_dlq_stream),
         "finam_source_pending": redis_xpending(
+            args.finam_redis_cli_prefix,
+            args.finam_ws_source_stream,
+            args.consumer_group,
+        ),
+        "finam_source_consumer_group": redis_xinfo_group(
             args.finam_redis_cli_prefix,
             args.finam_ws_source_stream,
             args.consumer_group,

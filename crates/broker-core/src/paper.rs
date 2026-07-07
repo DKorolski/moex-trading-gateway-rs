@@ -585,6 +585,12 @@ pub struct PaperHybridIntradayRuntimeStateProjection {
     pub mr_stop_price: Option<f64>,
     pub safe_mode_close_only: bool,
     pub safe_mode_reason: Option<String>,
+    pub deferred_entry_state: Option<String>,
+    pub deferred_exit_state: Option<String>,
+    pub position_adoption_state: Option<String>,
+    pub dirty_start_marker: Option<String>,
+    pub manual_intervention_required: bool,
+    pub manual_intervention_reason: Option<String>,
     pub entry_ready: bool,
     pub last_bar_close: Option<f64>,
     pub prev_day_close: Option<f64>,
@@ -630,6 +636,12 @@ pub struct PaperHybridIntradayOracleSeed {
     pub mr_stop_price: Option<Price>,
     pub safe_mode_close_only: Option<bool>,
     pub safe_mode_reason: Option<String>,
+    pub deferred_entry_state: Option<String>,
+    pub deferred_exit_state: Option<String>,
+    pub position_adoption_state: Option<String>,
+    pub dirty_start_marker: Option<String>,
+    pub manual_intervention_required: Option<bool>,
+    pub manual_intervention_reason: Option<String>,
     pub prev_day_close: Option<Price>,
     pub prev_day_range: Option<Price>,
     pub prev_day_return: Option<Price>,
@@ -1215,6 +1227,12 @@ pub struct PaperLedgerSnapshot {
     pub hybrid_mr_stop_price: Option<Price>,
     pub hybrid_safe_mode_close_only: bool,
     pub hybrid_safe_mode_reason: Option<String>,
+    pub hybrid_deferred_entry_state: Option<String>,
+    pub hybrid_deferred_exit_state: Option<String>,
+    pub hybrid_position_adoption_state: Option<String>,
+    pub hybrid_dirty_start_marker: Option<String>,
+    pub hybrid_manual_intervention_required: bool,
+    pub hybrid_manual_intervention_reason: Option<String>,
     pub hybrid_overnight_exit_armed_date: Option<String>,
     pub risk_gate_shadow_session_date: Option<String>,
     pub risk_gate_shadow_pnl_points: Price,
@@ -1303,6 +1321,12 @@ impl PaperLedgerSnapshot {
             hybrid_mr_stop_price: None,
             hybrid_safe_mode_close_only: false,
             hybrid_safe_mode_reason: None,
+            hybrid_deferred_entry_state: None,
+            hybrid_deferred_exit_state: None,
+            hybrid_position_adoption_state: None,
+            hybrid_dirty_start_marker: None,
+            hybrid_manual_intervention_required: false,
+            hybrid_manual_intervention_reason: None,
             hybrid_overnight_exit_armed_date: None,
             risk_gate_shadow_session_date: None,
             risk_gate_shadow_pnl_points: Price::ZERO,
@@ -1447,6 +1471,14 @@ impl PaperLedgerSnapshot {
             self.hybrid_safe_mode_close_only = value;
         }
         self.hybrid_safe_mode_reason = seed.safe_mode_reason;
+        self.hybrid_deferred_entry_state = seed.deferred_entry_state;
+        self.hybrid_deferred_exit_state = seed.deferred_exit_state;
+        self.hybrid_position_adoption_state = seed.position_adoption_state;
+        self.hybrid_dirty_start_marker = seed.dirty_start_marker;
+        if let Some(value) = seed.manual_intervention_required {
+            self.hybrid_manual_intervention_required = value;
+        }
+        self.hybrid_manual_intervention_reason = seed.manual_intervention_reason;
         self.hybrid_overnight_exit_armed_date = seed.overnight_exit_armed_date;
         self.prev_day_close = seed.prev_day_close;
         self.prev_day_range = seed.prev_day_range;
@@ -1685,6 +1717,12 @@ impl PaperLedgerSnapshot {
             mr_stop_price: option_decimal_to_f64(self.hybrid_mr_stop_price),
             safe_mode_close_only: self.hybrid_safe_mode_close_only,
             safe_mode_reason: self.hybrid_safe_mode_reason.clone(),
+            deferred_entry_state: self.hybrid_deferred_entry_state.clone(),
+            deferred_exit_state: self.hybrid_deferred_exit_state.clone(),
+            position_adoption_state: self.hybrid_position_adoption_state.clone(),
+            dirty_start_marker: self.hybrid_dirty_start_marker.clone(),
+            manual_intervention_required: self.hybrid_manual_intervention_required,
+            manual_intervention_reason: self.hybrid_manual_intervention_reason.clone(),
             entry_ready: false,
             last_bar_close: option_decimal_to_f64(self.last_bar_close),
             prev_day_close: option_decimal_to_f64(self.prev_day_close),
@@ -2210,6 +2248,12 @@ mod tests {
             hybrid_mr_stop_price: None,
             hybrid_safe_mode_close_only: false,
             hybrid_safe_mode_reason: None,
+            hybrid_deferred_entry_state: None,
+            hybrid_deferred_exit_state: None,
+            hybrid_position_adoption_state: None,
+            hybrid_dirty_start_marker: None,
+            hybrid_manual_intervention_required: false,
+            hybrid_manual_intervention_reason: None,
             hybrid_overnight_exit_armed_date: None,
             risk_gate_shadow_session_date: None,
             risk_gate_shadow_pnl_points: Decimal::ZERO,
@@ -2822,6 +2866,12 @@ mod tests {
                     mr_stop_price: Some(Decimal::new(980, 0)),
                     safe_mode_close_only: Some(true),
                     safe_mode_reason: Some("oracle_dirty_start".to_string()),
+                    deferred_entry_state: Some("deferred_entry_waiting".to_string()),
+                    deferred_exit_state: Some("deferred_exit_armed".to_string()),
+                    position_adoption_state: Some("adopted_from_broker_truth".to_string()),
+                    dirty_start_marker: Some("dirty_start_target_nonflat".to_string()),
+                    manual_intervention_required: Some(true),
+                    manual_intervention_reason: Some("synthetic_manual_check".to_string()),
                     prev_day_close: Some(Decimal::new(2195, 0)),
                     prev_day_range: Some(Decimal::new(965, 1)),
                     prev_day_return: Some(Decimal::new(-1767733273663012, 17)),
@@ -2871,6 +2921,27 @@ mod tests {
         assert_eq!(
             hybrid.safe_mode_reason.as_deref(),
             Some("oracle_dirty_start")
+        );
+        assert_eq!(
+            hybrid.deferred_entry_state.as_deref(),
+            Some("deferred_entry_waiting")
+        );
+        assert_eq!(
+            hybrid.deferred_exit_state.as_deref(),
+            Some("deferred_exit_armed")
+        );
+        assert_eq!(
+            hybrid.position_adoption_state.as_deref(),
+            Some("adopted_from_broker_truth")
+        );
+        assert_eq!(
+            hybrid.dirty_start_marker.as_deref(),
+            Some("dirty_start_target_nonflat")
+        );
+        assert!(hybrid.manual_intervention_required);
+        assert_eq!(
+            hybrid.manual_intervention_reason.as_deref(),
+            Some("synthetic_manual_check")
         );
         assert_eq!(
             hybrid.overnight_exit_armed_date.as_deref(),

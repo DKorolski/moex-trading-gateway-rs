@@ -52,8 +52,8 @@ Green / mostly closed:
 - Fresh M1 final bars can produce canonical M10 runtime input.
 - FINAM paper runtime state can now match ALOR IMOEXF hybrid state on the active
   M10 bar after ALOR-oracle seeding.
-- ALOR-oracle seed now preserves pending/safe-mode/protective-state placeholders
-  as explicit paper parity fields.
+- ALOR-oracle seed now preserves pending/deferred/safe-mode/protective-state and
+  dirty-start/manual-intervention placeholders as explicit paper parity fields.
 - `seed_required=true` can hard-block a parity run when the ALOR oracle seed is
   missing or cannot be parsed.
 - Safety flags remain closed in paper state:

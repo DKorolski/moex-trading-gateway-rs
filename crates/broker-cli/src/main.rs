@@ -9043,6 +9043,12 @@ fn alor_runtime_state_to_paper_oracle_seed(
         mr_stop_price: json_opt_price(hybrid, "mr_stop_price"),
         safe_mode_close_only: json_opt_bool(hybrid, "safe_mode_close_only"),
         safe_mode_reason: json_opt_string(hybrid, "safe_mode_reason"),
+        deferred_entry_state: json_opt_string(hybrid, "deferred_entry_state"),
+        deferred_exit_state: json_opt_string(hybrid, "deferred_exit_state"),
+        position_adoption_state: json_opt_string(hybrid, "position_adoption_state"),
+        dirty_start_marker: json_opt_string(hybrid, "dirty_start_marker"),
+        manual_intervention_required: json_opt_bool(hybrid, "manual_intervention_required"),
+        manual_intervention_reason: json_opt_string(hybrid, "manual_intervention_reason"),
         prev_day_close: json_opt_price(hybrid, "prev_day_close"),
         prev_day_range: json_opt_price(hybrid, "prev_day_range"),
         prev_day_return: json_opt_price(hybrid, "prev_day_return"),
@@ -10625,6 +10631,35 @@ mod tests {
                 .expect("rolling sum")
                 .to_string(),
             "158.6"
+        );
+    }
+
+    #[test]
+    fn alor_runtime_fixture_maps_deferred_exit_and_dirty_start_markers() {
+        let payload: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/alor_runtime_compat/hybrid_deferred_exit_runtime_state.json"
+        ))
+        .expect("fixture parses");
+
+        let seed = alor_runtime_state_to_paper_oracle_seed(&payload).expect("seed maps");
+
+        assert_eq!(
+            seed.deferred_exit_state.as_deref(),
+            Some("armed_after_closed_bar")
+        );
+        assert_eq!(
+            seed.position_adoption_state.as_deref(),
+            Some("adopted_from_broker_truth")
+        );
+        assert_eq!(
+            seed.dirty_start_marker.as_deref(),
+            Some("target_nonflat_on_bootstrap")
+        );
+        assert_eq!(seed.manual_intervention_required, Some(false));
+        assert_eq!(seed.safe_mode_close_only, Some(true));
+        assert_eq!(
+            seed.safe_mode_reason.as_deref(),
+            Some("close_only_until_deferred_exit_resolved")
         );
     }
 

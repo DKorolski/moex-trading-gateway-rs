@@ -32,9 +32,10 @@ Unchanged:
 
 ## Code changes
 
-- `PaperHybridIntradayOracleSeed` now carries pending entry/exit, TP/SL id
-  placeholders, MR prices, safe-mode fields, overnight exit date, and riskgate
-  profile id.
+- `PaperHybridIntradayOracleSeed` now carries pending entry/exit, deferred
+  entry/exit markers, position-adoption markers, dirty-start/manual-intervention
+  markers, TP/SL id placeholders, MR prices, safe-mode fields, overnight exit
+  date, and riskgate profile id.
 - `PaperLedgerSnapshot` preserves those fields in
   `PaperHybridIntradayRuntimeStateProjection`.
 - The seed bridge accepts `risk_gate_profile_id` from seed/config instead of
@@ -66,6 +67,7 @@ The fixtures cover:
 - non-flat runtime state;
 - pending entry;
 - pending exit;
+- deferred exit;
 - safe-mode/dirty-start state;
 - riskgate state;
 - expected flat clean seed shape.
@@ -79,6 +81,7 @@ The fixtures cover:
 - FINAM WS/runtime/DLQ stream names;
 - ALOR runtime-state stream name;
 - `XLEN`/`XPENDING` diagnostics;
+- consumer-group lag via `XINFO GROUPS` where Redis provides it;
 - compared bar key/timestamp;
 - OHLCV diagnostic deltas where available;
 - safety flags;

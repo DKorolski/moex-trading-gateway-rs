@@ -39,6 +39,8 @@ Seeded fields:
 - `last_position_qty`;
 - owner/side context;
 - pending entry/exit request ids and pending entry owner/side/cycle;
+- deferred entry/exit state markers;
+- position adoption / dirty-start / manual-intervention markers;
 - TP/SL id placeholders when present;
 - MR take/stop prices when present;
 - safe-mode close-only flag/reason;
@@ -149,6 +151,7 @@ Minimum fields:
 - OHLCV diagnostic deltas where available;
 - DLQ count;
 - consumer group pending count;
+- consumer group lag where available;
 - divergence classification;
 - expected/waived/blocker divergence counts;
 - safety flags.

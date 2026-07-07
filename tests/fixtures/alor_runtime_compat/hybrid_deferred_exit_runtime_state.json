@@ -1,0 +1,30 @@
+{
+  "schema_version": 2,
+  "payload": {
+    "strategy_state": {
+      "payload": {
+        "HybridIntradayRuntime": {
+          "active_cycle_id": "cycle-deferred-exit",
+          "next_cycle_seq": 23,
+          "last_position_qty": "-1",
+          "current_owner": "intraday_breakout",
+          "current_side": "short",
+          "pending_entry_request_id": null,
+          "pending_exit_request_id": null,
+          "deferred_exit_state": "armed_after_closed_bar",
+          "position_adoption_state": "adopted_from_broker_truth",
+          "dirty_start_marker": "target_nonflat_on_bootstrap",
+          "manual_intervention_required": false,
+          "manual_intervention_reason": null,
+          "safe_mode_close_only": true,
+          "safe_mode_reason": "close_only_until_deferred_exit_resolved",
+          "overnight_exit_armed_date": "2026-01-02",
+          "risk_gate_profile_id": "synthetic_profile",
+          "risk_gate_mr_enabled_current_session": false,
+          "risk_gate_rolling_sum_lb120": "-1.5",
+          "risk_gate_ledger_rows_count": 223
+        }
+      }
+    }
+  }
+}

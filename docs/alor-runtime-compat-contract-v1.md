@@ -146,13 +146,27 @@ ACK with mismatched `request_id` must never clear strategy pending state.
 | `current_owner/current_side` | string? | strategy runtime | Required when non-flat. | yes |
 | `pending_entry_*` | strings? | strategy runtime | Required when pending entry exists. | yes |
 | `pending_exit_request_id` | string? | strategy runtime | Required when pending exit exists. | yes |
-| `deferred_entry/deferred_exit` | structured? | strategy runtime | Unsupported in seed bridge blocks runtime-live parity. | yes |
+| `deferred_entry/deferred_exit` | structured/string marker | strategy runtime | Stage 1B seed preserves markers; full execution policy is later. | yes |
 | `tp_order_id/sl_stop_order_id` | string? | strategy runtime/broker truth | Future stop/bracket fields; unsupported for live. | yes for stop/bracket |
 | `mr_take_price/mr_stop_price` | decimal? | MR strategy state | Required for active MR protective state. | conditional |
 | `safe_mode_close_only/reason` | bool/string? | runtime safety state | true allows only exit/cancel/repair. | yes |
 | day feature fields | decimals/dates | runtime/riskgate history | Missing blocks BO/MR parity. | yes |
 | `overnight_exit_armed_date` | date? | runtime state | Required when armed. | conditional |
 | riskgate fields | decimals/bools/count | riskgate ledger/state | Missing blocks MR parity. | yes |
+
+### Riskgate ledger/state
+
+| Runtime field | Type | FINAM/BrokerCore source | ALOR source/oracle field | Conversion rule | Missing policy | Blocks readiness |
+| --- | --- | --- | --- | --- | --- | --- |
+| `risk_gate_profile_id` | string | seed/config or ledger profile | ALOR riskgate profile/stream suffix | Must be supplied by seed/config, not hardcoded in `broker-core`. | Missing is `paper_oracle_seed_unknown_profile` and blocks hard freeze. | yes |
+| `risk_gate_shadow_session_date` | date? | paper/riskgate state | ALOR shadow session date | Preserve date string. | Missing blocks MR parity. | yes |
+| `risk_gate_shadow_pnl_points` | decimal | paper/riskgate state | ALOR shadow PnL | Decimal string/Decimal. | Default zero only when ALOR is zero/missing by waiver. | conditional |
+| `risk_gate_shadow_trade_count` | u32 | paper/riskgate state | ALOR shadow trade count | Exact integer. | Missing blocks MR parity. | yes |
+| `risk_gate_mr_enabled_current_session` | bool? | riskgate state | ALOR MR enabled current | Exact bool. | Missing blocks MR entry parity. | yes |
+| `risk_gate_mr_enabled_next_session` | bool? | riskgate state | ALOR MR enabled next | Exact bool. | Missing blocks next-session parity. | conditional |
+| `risk_gate_rolling_sum_lb120` | decimal? | riskgate state | ALOR rolling LB120 | Decimal string/Decimal, no float-hop in seed mapping. | Missing blocks MR parity. | yes |
+| `risk_gate_last_finalized_session_date` | date? | riskgate state | ALOR finalized session | Preserve date string. | Missing blocks ledger continuity unless waived. | conditional |
+| `risk_gate_ledger_rows_count` | usize | riskgate state | ALOR ledger rows count | Exact count for evidence. | Missing/zero when ALOR non-zero is unseeded/blocker. | yes |
 
 Seeded M4-3x parity must classify each unsupported state:
 
@@ -162,7 +176,7 @@ Seeded M4-3x parity must classify each unsupported state:
 | non-flat adopted | Supported as state projection. | Requires broker-truth adoption gate. |
 | pending entry | Must preserve pending ids/owner/side. | Blocks live until command/ACK parity. |
 | pending exit | Must preserve pending exit id. | Exit/repair policy required. |
-| deferred exit | Not supported unless fixture/mapping added. | Blocks live. |
+| deferred exit | Marker preserved and fixture-backed; execution policy not enabled. | Blocks live until later policy gate. |
 | safe-mode close-only | Must preserve flag/reason. | Entry blocked, exit/cancel/repair allowed by policy. |
 | riskgate state | Seeded projection accepted as bridge. | Real ledger integration or explicit waiver required. |
 | stop/bracket fields | Preserve IDs if present, but do not enable stop/bracket. | Stop/bracket remains forbidden. |
@@ -368,6 +382,7 @@ tests/fixtures/alor_runtime_compat/
   hybrid_nonflat_runtime_state.json
   hybrid_pending_entry_runtime_state.json
   hybrid_pending_exit_runtime_state.json
+  hybrid_deferred_exit_runtime_state.json
   hybrid_safe_mode_runtime_state.json
   hybrid_riskgate_state.json
   expected_paper_oracle_seed_flat_clean.json
@@ -394,6 +409,7 @@ Minimum evidence report fields:
 - OHLCV diagnostic deltas where available;
 - DLQ count;
 - consumer group `XPENDING` summary;
+- consumer group `lag` from `XINFO GROUPS` where Redis provides it;
 - safety flags;
 - divergence classification;
 - expected/waived/blocker divergence counts;
