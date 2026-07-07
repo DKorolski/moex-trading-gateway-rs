@@ -1,7 +1,6 @@
 # Stage 2B — runtime source migration implementation plan
 
-Status: draft plan for review; implementation is not authorized until this plan
-is accepted.
+Status: accepted.
 
 Date: 2026-07-07.
 
@@ -10,8 +9,9 @@ surfaces that must migrate before the FINAM contour can attach to the existing
 strategy semantics. Stage 2B defines the controlled implementation order for
 that migration.
 
-This document is a plan only. It does not modify runtime behavior, enable
-runtime-live, or authorize real FINAM order placement/cancel.
+This document is the accepted Stage 2B implementation plan. It authorizes only
+controlled paper/mock/local runtime source migration work in the order below.
+It does not enable runtime-live or authorize real FINAM order placement/cancel.
 
 ## 1. Scope
 

@@ -58,9 +58,9 @@ Stage split:
 - Stage 2A-final inventory completion added concrete `HybridIntradayRuntime`,
   `trade_ledger`, runtime command-builder, and ALOR cancel/replace DTO surfaces
   to the migration inventory.
-- Stage 2B is planning-only until
-  `docs/stage-2b-runtime-source-migration-implementation-plan.md` is accepted;
-  implementation remains blocked.
+- Stage 2B implementation plan is accepted. Controlled runtime source migration
+  implementation may proceed paper/mock/local only, in small reviewable patches.
+  Runtime-live and the real FINAM command consumer remain blocked.
 
 Green / mostly closed:
 
@@ -86,8 +86,8 @@ Amber:
   real ALOR hybrid BO/MR orchestrator.
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
-- Stage 2B implementation still requires a separate accepted implementation
-  plan and fixture-backed parity tests.
+- Stage 2B implementation is allowed only inside the accepted paper/mock/local
+  plan and still requires fixture-backed parity tests for each patch.
 
 Red / not yet implemented:
 

@@ -47,14 +47,14 @@ disabled.
 
 Stage 1B is accepted for IMOEXF `HybridIntradayRuntime` paper/shadow
 compatibility freeze. Stage 2A is accepted and closed as the runtime source
-migration inventory/plan. Stage 2B is planning-only until its implementation
-plan is accepted. The accepted path is source migration to
-`BrokerOrderId(String)`; an `i64` surrogate adapter is not allowed without a
-separate ADR. See
+migration inventory/plan. Stage 2B implementation plan is accepted; controlled
+runtime source migration may proceed paper/mock/local only. The accepted path is
+source migration to `BrokerOrderId(String)`; an `i64` surrogate adapter is not
+allowed without a separate ADR. See
 [docs/stage-2-runtime-source-migration-plan.md](docs/stage-2-runtime-source-migration-plan.md)
 and
 [docs/stage-2-runtime-source-migration-inventory.md](docs/stage-2-runtime-source-migration-inventory.md).
-The Stage 2B draft is
+The Stage 2B accepted plan is
 [docs/stage-2b-runtime-source-migration-implementation-plan.md](docs/stage-2b-runtime-source-migration-implementation-plan.md).
 
 Useful local probes:
