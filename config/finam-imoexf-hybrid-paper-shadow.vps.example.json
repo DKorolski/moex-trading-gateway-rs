@@ -75,6 +75,7 @@
     "pending_policy": "xautoclaim_idle_then_reprocess",
     "live_ready_allowed": false,
     "strategy_invocation_enabled": false,
+    "strategy_warmup_bars": 1,
     "command_consumer_to_real_finam": false
   },
   "risk_gate": {

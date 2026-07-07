@@ -15,8 +15,12 @@ use broker_core::{
     MarketDataEvent, MarketDataLifecyclePhase, MarketDataRecoveryInput, MarketDataRecoveryMode,
     MarketDataRecoveryPlan, MarketDataRecoveryPlanInput, MarketDataRecoveryReport,
     MarketDataSourceKind, MessageType, OperatorArm, Order, OrderPathEvent, OrderPathRecord,
-    OrderPreflightPolicy, OrderSide, OrderStatus, OrderType, PlaceOrder, PortfolioSnapshot,
-    ReadinessPhase, ReadinessReason, StrategyRequestId, TimeInForce,
+    OrderPreflightPolicy, OrderSide, OrderStatus, OrderType, PaperExecutionMode,
+    PaperHybridStrategyShadowConfig, PaperRuntimeAdapter, PaperRuntimeAdapterConfig,
+    PaperRuntimeAdapterLoop, PaperRuntimeAdapterLoopOutcome, PaperRuntimeBarPublisher,
+    PaperRuntimeBarPublisherConfig, PaperRuntimeInMemorySink, PaperRuntimeStreams,
+    PaperSafetyBoundary, PlaceOrder, PortfolioSnapshot, ReadinessPhase, ReadinessReason,
+    StrategyRequestId, TimeInForce,
 };
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::{OrderPreflightContext, OrderReferencePrice};
@@ -46,14 +50,15 @@ use finam_gateway::real_order_endpoint::{
     m3j16_limit_cancel_one_shot_report, M3j16LimitCancelOneShotInput,
 };
 use finam_gateway::{
-    build_broker_neutral_http_debug_surface, default_readonly_health, degraded_health,
-    degraded_readiness, evaluate_finam_real_readonly_operator_guardrails,
-    readiness_from_readonly_summary, run_finam_real_readonly_operator_contract_probe,
-    stopped_health, stopped_readiness, BrokerNeutralDebugTransportKind,
-    BrokerNeutralDebugTransportSnapshot, BrokerNeutralHttpDebugSurfaceInput,
-    BrokerTruthGatewayConfig, CancelBrokerTruthFetchRequestSnapshot,
-    CancelBrokerTruthFreshnessPolicy, CancelBrokerTruthSource, CancelPositionTruthGuardContext,
-    FinamGateway, FinamMockClassifiedEndpointTransport, FinamRealReadonlyAuditStoreMode,
+    build_broker_neutral_http_debug_surface, build_paper_runtime_dlq_record,
+    default_readonly_health, degraded_health, degraded_readiness,
+    evaluate_finam_real_readonly_operator_guardrails, readiness_from_readonly_summary,
+    run_finam_real_readonly_operator_contract_probe, stopped_health, stopped_readiness,
+    BrokerNeutralDebugTransportKind, BrokerNeutralDebugTransportSnapshot,
+    BrokerNeutralHttpDebugSurfaceInput, BrokerTruthGatewayConfig,
+    CancelBrokerTruthFetchRequestSnapshot, CancelBrokerTruthFreshnessPolicy,
+    CancelBrokerTruthSource, CancelPositionTruthGuardContext, FinamGateway,
+    FinamMockClassifiedEndpointTransport, FinamRealReadonlyAuditStoreMode,
     FinamRealReadonlyBrokerTruthAsyncFetcher, FinamRealReadonlyBrokerTruthQueryPolicy,
     FinamRealReadonlyBrokerTruthTransportConfig, FinamRealReadonlyContractProbeOperatorRunConfig,
     FinamRealReadonlyRedactedOutputLocation, FinamRealReadonlyTokenAccountPreflightApproved,
@@ -62,12 +67,13 @@ use finam_gateway::{
     M3cOrderEndpointGateEvidenceStatus, M3cRouteTemplateRecheckPlanEvidence, M3cSourceEvidence,
     M3eCommandConsumerConfig, M3eCommandConsumerLocalMockEndpoint, M3eCommandLifecycleAction,
     M3eCommandLifecycleRecord, M3eCommandLifecycleStore, M3eInMemoryCommandLifecycleStore,
-    OrderSnapshot, ReadonlySnapshotSummary, RealReadonlyBrokerTruthGateApproved,
-    RealReadonlyBrokerTruthRunApproved, RedisConnectionStreamSink, RedisRetentionConfig,
-    RedisStreamConfig, RedisStreamSink, ReqwestFinamRealReadonlyBrokerTruthTransport,
-    RuntimeBridgeConsumeOutcome, RuntimeBridgeDeadLetter, RuntimeBridgeDlqReason,
-    RuntimeBridgeDlqRecord, RuntimeBridgeDryConsumer, RuntimeBridgeReadinessSimulator,
-    RuntimeBridgeStreamEntry,
+    OrderSnapshot, PaperRuntimeRedisConsumerConfig, PaperRuntimeRedisGroupStart,
+    PaperRuntimeRedisSink, PaperRuntimeRedisSinkConfig, ReadonlySnapshotSummary,
+    RealReadonlyBrokerTruthGateApproved, RealReadonlyBrokerTruthRunApproved,
+    RedisConnectionStreamSink, RedisRetentionConfig, RedisStreamConfig, RedisStreamSink,
+    ReqwestFinamRealReadonlyBrokerTruthTransport, RuntimeBridgeConsumeOutcome,
+    RuntimeBridgeDeadLetter, RuntimeBridgeDlqReason, RuntimeBridgeDlqRecord,
+    RuntimeBridgeDryConsumer, RuntimeBridgeReadinessSimulator, RuntimeBridgeStreamEntry,
 };
 use futures_util::{SinkExt, StreamExt};
 use redis::streams::{
@@ -578,6 +584,55 @@ enum Command {
         #[arg(long, default_value_t = 1)]
         max_iterations: u64,
         /// Optional dry pending recovery: XAUTOCLAIM entries idle for at least N milliseconds.
+        #[arg(long)]
+        claim_stale_ms: Option<u64>,
+    },
+    /// Paper runtime consumer: FINAM paper M1 market-data -> canonical M10 -> paper runtime state.
+    #[command(name = "finam-paper-runtime-consume")]
+    FinamPaperRuntimeConsume {
+        /// JSON config file. Use config/finam-imoexf-hybrid-paper-shadow.vps.example.json.
+        #[arg(long)]
+        config: PathBuf,
+        /// Redis connection URL. Overrides config file.
+        #[arg(long, env = "FINAM_GATEWAY_REDIS_URL")]
+        redis_url: Option<String>,
+        /// Finam venue symbol, for example IMOEXF@RTSX. Overrides config file.
+        #[arg(long)]
+        symbol: Option<String>,
+        /// Source Redis market-data stream. Overrides config file for isolated smoke runs.
+        #[arg(long)]
+        source_stream: Option<String>,
+        /// Target canonical M10 stream name. Overrides config file for isolated smoke runs.
+        #[arg(long)]
+        target_stream: Option<String>,
+        /// Runtime state stream name. Overrides config file for isolated smoke runs.
+        #[arg(long)]
+        runtime_state_stream: Option<String>,
+        /// Runtime publish batch marker stream. Overrides config file for isolated smoke runs.
+        #[arg(long)]
+        publish_batches_stream: Option<String>,
+        /// Runtime DLQ stream. Overrides config file for isolated smoke runs.
+        #[arg(long)]
+        dlq_stream: Option<String>,
+        /// Enable paper-only hybrid strategy shadow invocation projection. Does not emit orders.
+        #[arg(long)]
+        strategy_invocation_shadow: bool,
+        /// Number of complete M10 bars required before entry_ready=true in shadow projection.
+        #[arg(long)]
+        strategy_warmup_bars: Option<usize>,
+        /// Consumer group start id used only when creating missing group: 0 or $.
+        #[arg(long)]
+        group_start_id: Option<String>,
+        /// Redis consumer group name. Overrides config file for repeatable local backfill tests.
+        #[arg(long)]
+        group: Option<String>,
+        /// Redis consumer name. Overrides config file.
+        #[arg(long)]
+        consumer: Option<String>,
+        /// Safety stop after N XREADGROUP iterations.
+        #[arg(long, default_value_t = 1)]
+        max_iterations: u64,
+        /// Optional pending recovery: XAUTOCLAIM entries idle for at least N milliseconds.
         #[arg(long)]
         claim_stale_ms: Option<u64>,
     },
@@ -1413,6 +1468,42 @@ async fn main() -> Result<()> {
             })
             .await?;
         }
+        Command::FinamPaperRuntimeConsume {
+            config,
+            redis_url,
+            symbol,
+            source_stream,
+            target_stream,
+            runtime_state_stream,
+            publish_batches_stream,
+            dlq_stream,
+            strategy_invocation_shadow,
+            strategy_warmup_bars,
+            group_start_id,
+            group,
+            consumer,
+            max_iterations,
+            claim_stale_ms,
+        } => {
+            run_finam_paper_runtime_consume(FinamPaperRuntimeConsumeArgs {
+                config,
+                redis_url,
+                symbol,
+                source_stream,
+                target_stream,
+                runtime_state_stream,
+                publish_batches_stream,
+                dlq_stream,
+                strategy_invocation_shadow,
+                strategy_warmup_bars,
+                group_start_id,
+                group,
+                consumer,
+                max_iterations,
+                claim_stale_ms,
+            })
+            .await?;
+        }
         Command::RuntimeBridgeRedisSmoke { redis_url, prefix } => {
             run_runtime_bridge_redis_smoke(redis_url, prefix).await?;
         }
@@ -1472,6 +1563,24 @@ struct RuntimeBridgeDryConsumeArgs {
     claim_stale_ms: Option<u64>,
 }
 
+struct FinamPaperRuntimeConsumeArgs {
+    config: PathBuf,
+    redis_url: Option<String>,
+    symbol: Option<String>,
+    source_stream: Option<String>,
+    target_stream: Option<String>,
+    runtime_state_stream: Option<String>,
+    publish_batches_stream: Option<String>,
+    dlq_stream: Option<String>,
+    strategy_invocation_shadow: bool,
+    strategy_warmup_bars: Option<usize>,
+    group_start_id: Option<String>,
+    group: Option<String>,
+    consumer: Option<String>,
+    max_iterations: u64,
+    claim_stale_ms: Option<u64>,
+}
+
 struct FinamRealReadonlyEvidenceArgs {
     secret_env: String,
     account_id: String,
@@ -1513,6 +1622,60 @@ struct ResolvedRuntimeBridgeDryConfig {
     block_ms: u64,
     max_iterations: u64,
     claim_stale_ms: Option<u64>,
+}
+
+struct ResolvedFinamPaperRuntimeConsumeConfig {
+    redis_url: String,
+    source: String,
+    symbol: String,
+    strategy_id: String,
+    source_stream: String,
+    target_stream: String,
+    intents_stream: String,
+    paper_acks_stream: String,
+    orders_stream: String,
+    trades_stream: String,
+    positions_stream: String,
+    consumer_group: String,
+    consumer_name: String,
+    group_start_id: String,
+    block_ms: u64,
+    claim_idle_ms: u64,
+    claim_batch: usize,
+    read_count: usize,
+    runtime_state_stream: String,
+    dlq_stream: String,
+    publish_batches_stream: String,
+    runtime_state_maxlen: Option<usize>,
+    dlq_maxlen: Option<usize>,
+    strategy_invocation_shadow_enabled: bool,
+    strategy_warmup_bars: usize,
+    max_iterations: u64,
+    claim_stale_ms: Option<u64>,
+}
+
+#[derive(Debug, Default)]
+struct FinamPaperRuntimeConsumeMetrics {
+    xreadgroup_iterations: u64,
+    xautoclaim_iterations: u64,
+    xautoclaim_deleted_ids_count: u64,
+    claimed_entries_returned: u64,
+    entries_returned: u64,
+    bars_seen: u64,
+    bars_buffered: u64,
+    bars_published: u64,
+    stale_or_duplicate_bars_ignored: u64,
+    source_rejected: u64,
+    dropped_incomplete_buckets: u64,
+    non_bar_ignored: u64,
+    invalid_entries_dlq: u64,
+    dlq_published_count: u64,
+    runtime_batches_published: u64,
+    runtime_records_published: u64,
+    xack_count: u64,
+    last_bar_open_ts: Option<DateTime<Utc>>,
+    last_ids: BTreeMap<String, String>,
+    xautoclaim_last_next_ids: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Default)]
@@ -1633,6 +1796,61 @@ struct GatewayShadowRetentionFileConfig {
     market_data_maxlen: Option<usize>,
     command_ack_maxlen: Option<usize>,
     runtime_bridge_dlq_maxlen: Option<usize>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct FinamPaperRuntimeFileConfig {
+    redis_url: Option<String>,
+    source: Option<String>,
+    symbol: Option<String>,
+    canonical_10m: Option<FinamPaperRuntimeCanonical10mFileConfig>,
+    strategy: Option<FinamPaperRuntimeStrategyFileConfig>,
+    paper_runtime_consumer: Option<FinamPaperRuntimeConsumerFileConfig>,
+    retention: Option<FinamPaperRuntimeRetentionFileConfig>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct FinamPaperRuntimeCanonical10mFileConfig {
+    source_stream: Option<String>,
+    target_stream: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct FinamPaperRuntimeStrategyFileConfig {
+    strategy_id: Option<String>,
+    paper_intents_stream: Option<String>,
+    paper_acks_stream: Option<String>,
+    runtime_state_stream: Option<String>,
+    orders_stream: Option<String>,
+    trades_stream: Option<String>,
+    positions_stream: Option<String>,
+    publish_batches_stream: Option<String>,
+    runtime_dlq_stream: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct FinamPaperRuntimeConsumerFileConfig {
+    source_stream: Option<String>,
+    consumer_group: Option<String>,
+    consumer_name: Option<String>,
+    group_start: Option<String>,
+    block_ms: Option<u64>,
+    claim_idle_ms: Option<u64>,
+    claim_batch: Option<usize>,
+    read_count: Option<usize>,
+    strategy_invocation_enabled: Option<bool>,
+    strategy_warmup_bars: Option<usize>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct FinamPaperRuntimeRetentionFileConfig {
+    runtime_state_maxlen: Option<usize>,
+    dlq_maxlen: Option<usize>,
 }
 
 struct GatewayShadowRuntime {
@@ -6370,6 +6588,210 @@ async fn run_runtime_bridge_dry_consume(args: RuntimeBridgeDryConsumeArgs) -> Re
     Ok(())
 }
 
+async fn run_finam_paper_runtime_consume(args: FinamPaperRuntimeConsumeArgs) -> Result<()> {
+    let file_config = read_finam_paper_runtime_file_config(&args.config)?;
+    let resolved = resolve_finam_paper_runtime_consume_config(args, file_config)?;
+    let summary = consume_finam_paper_runtime(resolved).await?;
+    print_json(summary)?;
+    Ok(())
+}
+
+async fn consume_finam_paper_runtime(
+    resolved: ResolvedFinamPaperRuntimeConsumeConfig,
+) -> Result<serde_json::Value> {
+    let client = redis::Client::open(resolved.redis_url.as_str())
+        .context("FINAM paper runtime Redis URL is invalid")?;
+    let mut manager = client
+        .get_connection_manager()
+        .await
+        .context("FINAM paper runtime Redis connection failed")?;
+    ensure_runtime_bridge_group(
+        &mut manager,
+        &resolved.source_stream,
+        &resolved.consumer_group,
+        &resolved.group_start_id,
+    )
+    .await?;
+
+    let instrument =
+        finam_paper_runtime_first_bar_instrument(&mut manager, &resolved.source_stream)
+            .await?
+            .unwrap_or_else(|| instrument_id_from_symbol(&resolved.symbol, None));
+    let runtime_instrument = instrument.clone();
+    let mut streams = PaperRuntimeStreams::finam_imoexf_paper();
+    streams.runtime_state_stream = resolved.runtime_state_stream.clone();
+    streams.intents_stream = resolved.intents_stream.clone();
+    streams.paper_acks_stream = resolved.paper_acks_stream.clone();
+    streams.orders_stream = resolved.orders_stream.clone();
+    streams.trades_stream = resolved.trades_stream.clone();
+    streams.positions_stream = resolved.positions_stream.clone();
+
+    let bar_publisher =
+        PaperRuntimeBarPublisher::new(PaperRuntimeBarPublisherConfig::finam_m1_to_m10_paper(
+            resolved.strategy_id.clone(),
+            instrument.clone(),
+            resolved.source_stream.clone(),
+            resolved.target_stream.clone(),
+        ))
+        .context("FINAM paper runtime M1->M10 publisher config rejected")?;
+    let mut adapter_config = PaperRuntimeAdapterConfig::finam_imoexf_paper(
+        resolved.strategy_id.clone(),
+        instrument,
+        PaperExecutionMode::LiveOnly,
+    );
+    adapter_config.streams = streams.clone();
+    if resolved.strategy_invocation_shadow_enabled {
+        adapter_config.hybrid_strategy_shadow =
+            PaperHybridStrategyShadowConfig::enabled_shadow(resolved.strategy_warmup_bars);
+    }
+    let adapter = PaperRuntimeAdapter::new(adapter_config, Utc::now())
+        .context("FINAM paper runtime adapter config rejected")?;
+    let mut runtime_loop = PaperRuntimeAdapterLoop::new(bar_publisher, adapter)
+        .context("FINAM paper runtime loop config rejected")?;
+
+    let redis_sink = PaperRuntimeRedisSink::new(
+        PaperRuntimeRedisSinkConfig {
+            source: resolved.source.clone(),
+            streams,
+            batch_marker_stream: resolved.publish_batches_stream.clone(),
+            maxlen: resolved.runtime_state_maxlen,
+            safety_boundary: PaperSafetyBoundary::closed(),
+        },
+        RedisConnectionStreamSink::from_connection_manager(manager.clone()),
+    )
+    .context("FINAM paper runtime Redis sink config rejected")?;
+
+    let mut metrics = FinamPaperRuntimeConsumeMetrics::default();
+    let iterations = resolved.max_iterations.max(1);
+    for _ in 0..iterations {
+        if let Some(claim_stale_ms) = resolved.claim_stale_ms {
+            let mut start_id = "0-0".to_string();
+            loop {
+                metrics.xautoclaim_iterations += 1;
+                let reply = finam_paper_runtime_xautoclaim(
+                    &mut manager,
+                    &resolved,
+                    claim_stale_ms,
+                    &start_id,
+                )
+                .await?;
+                let next_stream_id = reply.next_stream_id.clone();
+                metrics.xautoclaim_deleted_ids_count += reply.deleted_ids.len() as u64;
+                metrics
+                    .xautoclaim_last_next_ids
+                    .insert(resolved.source_stream.clone(), next_stream_id.clone());
+                for id in reply.claimed {
+                    metrics.claimed_entries_returned += 1;
+                    process_finam_paper_runtime_stream_id(
+                        &mut manager,
+                        &resolved,
+                        &redis_sink,
+                        &mut runtime_loop,
+                        &mut metrics,
+                        &id,
+                    )
+                    .await?;
+                }
+                if runtime_bridge_xautoclaim_cursor_done(&start_id, &next_stream_id) {
+                    break;
+                }
+                start_id = next_stream_id;
+            }
+        }
+
+        metrics.xreadgroup_iterations += 1;
+        let reply = finam_paper_runtime_xreadgroup(&mut manager, &resolved).await?;
+        if reply.keys.is_empty() {
+            continue;
+        }
+        for key in reply.keys {
+            for id in key.ids {
+                metrics.entries_returned += 1;
+                process_finam_paper_runtime_stream_id(
+                    &mut manager,
+                    &resolved,
+                    &redis_sink,
+                    &mut runtime_loop,
+                    &mut metrics,
+                    &id,
+                )
+                .await?;
+            }
+        }
+    }
+
+    let streams = vec![
+        resolved.source_stream.clone(),
+        resolved.target_stream.clone(),
+        resolved.runtime_state_stream.clone(),
+        resolved.intents_stream.clone(),
+        resolved.paper_acks_stream.clone(),
+        resolved.orders_stream.clone(),
+        resolved.trades_stream.clone(),
+        resolved.positions_stream.clone(),
+        resolved.publish_batches_stream.clone(),
+        resolved.dlq_stream.clone(),
+    ];
+    let pending_counts = runtime_bridge_pending_counts(
+        &mut manager,
+        &[resolved.source_stream.clone()],
+        &resolved.consumer_group,
+    )
+    .await;
+    let pending_oldest_idle_ms = runtime_bridge_pending_oldest_idle_ms(
+        &mut manager,
+        &[resolved.source_stream.clone()],
+        &resolved.consumer_group,
+    )
+    .await;
+    let stream_lengths = runtime_bridge_stream_lengths(&mut manager, &streams).await;
+
+    Ok(serde_json::json!({
+        "mode": "finam_paper_runtime_consume",
+        "paper_only": true,
+        "live_ready_allowed": false,
+        "command_consumer_to_real_finam_enabled": false,
+        "order_placement_enabled": false,
+        "strategy_invocation_enabled": resolved.strategy_invocation_shadow_enabled,
+        "strategy_warmup_bars": resolved.strategy_warmup_bars,
+        "source": resolved.source,
+        "symbol": resolved.symbol,
+        "runtime_instrument": runtime_instrument,
+        "strategy_id": resolved.strategy_id,
+        "source_stream": resolved.source_stream,
+        "target_stream": resolved.target_stream,
+        "runtime_state_stream": resolved.runtime_state_stream,
+        "consumer_group": resolved.consumer_group,
+        "consumer_name": resolved.consumer_name,
+        "group_start_id": resolved.group_start_id,
+        "metrics": {
+            "xreadgroup_iterations": metrics.xreadgroup_iterations,
+            "xautoclaim_iterations": metrics.xautoclaim_iterations,
+            "xautoclaim_deleted_ids_count": metrics.xautoclaim_deleted_ids_count,
+            "claimed_entries_returned": metrics.claimed_entries_returned,
+            "entries_returned": metrics.entries_returned,
+            "bars_seen": metrics.bars_seen,
+            "bars_buffered": metrics.bars_buffered,
+            "bars_published": metrics.bars_published,
+            "stale_or_duplicate_bars_ignored": metrics.stale_or_duplicate_bars_ignored,
+            "source_rejected": metrics.source_rejected,
+            "dropped_incomplete_buckets": metrics.dropped_incomplete_buckets,
+            "non_bar_ignored": metrics.non_bar_ignored,
+            "invalid_entries_dlq": metrics.invalid_entries_dlq,
+            "dlq_published_count": metrics.dlq_published_count,
+            "runtime_batches_published": metrics.runtime_batches_published,
+            "runtime_records_published": metrics.runtime_records_published,
+            "xack_count": metrics.xack_count,
+            "last_bar_open_ts": metrics.last_bar_open_ts,
+            "last_ids": metrics.last_ids,
+            "xautoclaim_last_next_ids": metrics.xautoclaim_last_next_ids,
+        },
+        "stream_lengths": stream_lengths,
+        "pending_counts": pending_counts,
+        "pending_oldest_idle_ms": pending_oldest_idle_ms,
+    }))
+}
+
 async fn run_runtime_bridge_redis_smoke(redis_url: String, prefix: String) -> Result<()> {
     let run_id = Utc::now().timestamp_millis();
     let stream_prefix = non_empty_or_default(prefix, "broker.m2i.runtime_bridge_smoke");
@@ -8217,6 +8639,304 @@ async fn runtime_bridge_xreadgroup(
         .context("runtime bridge dry XREADGROUP failed")
 }
 
+async fn finam_paper_runtime_xautoclaim(
+    manager: &mut redis::aio::ConnectionManager,
+    resolved: &ResolvedFinamPaperRuntimeConsumeConfig,
+    claim_stale_ms: u64,
+    start_id: &str,
+) -> Result<StreamAutoClaimReply> {
+    redis::cmd("XAUTOCLAIM")
+        .arg(&resolved.source_stream)
+        .arg(&resolved.consumer_group)
+        .arg(&resolved.consumer_name)
+        .arg(claim_stale_ms)
+        .arg(start_id)
+        .arg("COUNT")
+        .arg(resolved.claim_batch.max(1))
+        .query_async(manager)
+        .await
+        .with_context(|| {
+            format!(
+                "FINAM paper runtime XAUTOCLAIM failed for stream {}",
+                resolved.source_stream
+            )
+        })
+}
+
+async fn finam_paper_runtime_xreadgroup(
+    manager: &mut redis::aio::ConnectionManager,
+    resolved: &ResolvedFinamPaperRuntimeConsumeConfig,
+) -> Result<StreamReadReply> {
+    let mut command = redis::cmd("XREADGROUP");
+    command
+        .arg("GROUP")
+        .arg(&resolved.consumer_group)
+        .arg(&resolved.consumer_name)
+        .arg("COUNT")
+        .arg(resolved.read_count.max(1));
+    if resolved.block_ms > 0 {
+        command.arg("BLOCK").arg(resolved.block_ms);
+    }
+    command
+        .arg("STREAMS")
+        .arg(&resolved.source_stream)
+        .arg(">")
+        .query_async(manager)
+        .await
+        .with_context(|| {
+            format!(
+                "FINAM paper runtime XREADGROUP failed for stream {}",
+                resolved.source_stream
+            )
+        })
+}
+
+async fn process_finam_paper_runtime_stream_id(
+    manager: &mut redis::aio::ConnectionManager,
+    resolved: &ResolvedFinamPaperRuntimeConsumeConfig,
+    redis_sink: &PaperRuntimeRedisSink<RedisConnectionStreamSink>,
+    runtime_loop: &mut PaperRuntimeAdapterLoop,
+    metrics: &mut FinamPaperRuntimeConsumeMetrics,
+    id: &StreamId,
+) -> Result<()> {
+    metrics
+        .last_ids
+        .insert(resolved.source_stream.clone(), id.id.clone());
+    let payload = match id.get::<String>("payload") {
+        Some(payload) => payload,
+        None => {
+            publish_finam_paper_runtime_dlq(manager, resolved, &id.id, "", "MissingPayload")
+                .await?;
+            metrics.invalid_entries_dlq += 1;
+            metrics.dlq_published_count += 1;
+            let acked = runtime_bridge_xack(
+                manager,
+                &resolved.source_stream,
+                &resolved.consumer_group,
+                &id.id,
+            )
+            .await?;
+            metrics.xack_count += acked;
+            return Ok(());
+        }
+    };
+
+    let envelope = match serde_json::from_str::<Envelope<MarketDataEvent>>(&payload) {
+        Ok(envelope) => envelope,
+        Err(error) => {
+            publish_finam_paper_runtime_dlq(
+                manager,
+                resolved,
+                &id.id,
+                &payload,
+                format!("InvalidMarketDataEnvelope:{error}"),
+            )
+            .await?;
+            metrics.invalid_entries_dlq += 1;
+            metrics.dlq_published_count += 1;
+            let acked = runtime_bridge_xack(
+                manager,
+                &resolved.source_stream,
+                &resolved.consumer_group,
+                &id.id,
+            )
+            .await?;
+            metrics.xack_count += acked;
+            return Ok(());
+        }
+    };
+
+    if envelope.schema_version != broker_core::SCHEMA_VERSION {
+        publish_finam_paper_runtime_dlq(
+            manager,
+            resolved,
+            &id.id,
+            &payload,
+            format!("UnsupportedSchemaVersion:{}", envelope.schema_version),
+        )
+        .await?;
+        metrics.invalid_entries_dlq += 1;
+        metrics.dlq_published_count += 1;
+        let acked = runtime_bridge_xack(
+            manager,
+            &resolved.source_stream,
+            &resolved.consumer_group,
+            &id.id,
+        )
+        .await?;
+        metrics.xack_count += acked;
+        return Ok(());
+    }
+    if envelope.msg_type != MessageType::MarketData {
+        publish_finam_paper_runtime_dlq(
+            manager,
+            resolved,
+            &id.id,
+            &payload,
+            format!("MessageTypeMismatch:{:?}", envelope.msg_type),
+        )
+        .await?;
+        metrics.invalid_entries_dlq += 1;
+        metrics.dlq_published_count += 1;
+        let acked = runtime_bridge_xack(
+            manager,
+            &resolved.source_stream,
+            &resolved.consumer_group,
+            &id.id,
+        )
+        .await?;
+        metrics.xack_count += acked;
+        return Ok(());
+    }
+
+    let MarketDataEvent::Bar(bar) = envelope.payload else {
+        metrics.non_bar_ignored += 1;
+        let acked = runtime_bridge_xack(
+            manager,
+            &resolved.source_stream,
+            &resolved.consumer_group,
+            &id.id,
+        )
+        .await?;
+        metrics.xack_count += acked;
+        return Ok(());
+    };
+
+    metrics.bars_seen += 1;
+    if metrics
+        .last_bar_open_ts
+        .is_some_and(|last_open_ts| bar.open_ts <= last_open_ts)
+    {
+        metrics.stale_or_duplicate_bars_ignored += 1;
+        let acked = runtime_bridge_xack(
+            manager,
+            &resolved.source_stream,
+            &resolved.consumer_group,
+            &id.id,
+        )
+        .await?;
+        metrics.xack_count += acked;
+        return Ok(());
+    }
+    metrics.last_bar_open_ts = Some(bar.open_ts);
+
+    let mut memory_sink = PaperRuntimeInMemorySink::new();
+    let outcome = runtime_loop.observe_source_bar(bar, Vec::new(), &mut memory_sink);
+    match outcome {
+        Ok(PaperRuntimeAdapterLoopOutcome::Buffered { .. }) => {
+            metrics.bars_buffered += 1;
+        }
+        Ok(PaperRuntimeAdapterLoopOutcome::DroppedIncompleteBucket { .. }) => {
+            metrics.dropped_incomplete_buckets += 1;
+        }
+        Ok(PaperRuntimeAdapterLoopOutcome::SourceRejected { reason }) => {
+            publish_finam_paper_runtime_dlq(
+                manager,
+                resolved,
+                &id.id,
+                &payload,
+                format!("SourceRejected:{reason:?}"),
+            )
+            .await?;
+            metrics.source_rejected += 1;
+            metrics.dlq_published_count += 1;
+        }
+        Ok(PaperRuntimeAdapterLoopOutcome::Published { .. }) => {
+            let records = memory_sink.into_records();
+            let outcome = redis_sink
+                .publish_batch(&records, Utc::now())
+                .await
+                .context("FINAM paper runtime Redis publish failed; source entry left pending")?;
+            metrics.bars_published += 1;
+            metrics.runtime_batches_published += 1;
+            metrics.runtime_records_published += outcome.record_count as u64;
+        }
+        Err(error) => {
+            publish_finam_paper_runtime_dlq(
+                manager,
+                resolved,
+                &id.id,
+                &payload,
+                format!("RuntimeAdapterLoopError:{error}"),
+            )
+            .await?;
+            metrics.invalid_entries_dlq += 1;
+            metrics.dlq_published_count += 1;
+        }
+    }
+
+    let acked = runtime_bridge_xack(
+        manager,
+        &resolved.source_stream,
+        &resolved.consumer_group,
+        &id.id,
+    )
+    .await?;
+    metrics.xack_count += acked;
+    Ok(())
+}
+
+async fn finam_paper_runtime_first_bar_instrument(
+    manager: &mut redis::aio::ConnectionManager,
+    stream: &str,
+) -> Result<Option<InstrumentId>> {
+    let reply: StreamRangeReply = redis::cmd("XRANGE")
+        .arg(stream)
+        .arg("-")
+        .arg("+")
+        .arg("COUNT")
+        .arg(1_000)
+        .query_async(manager)
+        .await
+        .with_context(|| format!("FINAM paper runtime XRANGE bootstrap failed for {stream}"))?;
+    for id in reply.ids {
+        let Some(payload) = id.get::<String>("payload") else {
+            continue;
+        };
+        let Ok(envelope) = serde_json::from_str::<Envelope<MarketDataEvent>>(&payload) else {
+            continue;
+        };
+        if let MarketDataEvent::Bar(bar) = envelope.payload {
+            return Ok(Some(bar.instrument));
+        }
+    }
+    Ok(None)
+}
+
+async fn publish_finam_paper_runtime_dlq(
+    manager: &mut redis::aio::ConnectionManager,
+    resolved: &ResolvedFinamPaperRuntimeConsumeConfig,
+    original_id: &str,
+    raw_payload: &str,
+    reason: impl Into<String>,
+) -> Result<()> {
+    let consumer_config = paper_runtime_consumer_config_from_resolved(resolved);
+    let record = build_paper_runtime_dlq_record(
+        &consumer_config,
+        resolved.source_stream.clone(),
+        original_id.to_string(),
+        raw_payload,
+        reason,
+        Utc::now(),
+    )
+    .context("FINAM paper runtime DLQ record rejected")?;
+    let payload =
+        serde_json::to_string(&record).context("FINAM paper runtime DLQ serialization failed")?;
+    let mut command = redis::cmd("XADD");
+    command.arg(&resolved.dlq_stream);
+    if let Some(maxlen) = resolved.dlq_maxlen.filter(|value| *value > 0) {
+        command.arg("MAXLEN").arg("=").arg(maxlen);
+    }
+    let _message_id: String = command
+        .arg("*")
+        .arg("payload")
+        .arg(payload)
+        .query_async(manager)
+        .await
+        .context("FINAM paper runtime DLQ publish failed")?;
+    Ok(())
+}
+
 async fn publish_runtime_bridge_dlq(
     manager: &mut redis::aio::ConnectionManager,
     resolved: &ResolvedRuntimeBridgeDryConfig,
@@ -8426,6 +9146,200 @@ fn read_gateway_shadow_file_config(path: Option<&PathBuf>) -> Result<GatewayShad
         .with_context(|| format!("failed to read gateway shadow config {}", path.display()))?;
     serde_json::from_str(&content)
         .with_context(|| format!("failed to parse gateway shadow config {}", path.display()))
+}
+
+fn read_finam_paper_runtime_file_config(path: &Path) -> Result<FinamPaperRuntimeFileConfig> {
+    let content = std::fs::read_to_string(path).with_context(|| {
+        format!(
+            "failed to read FINAM paper runtime config {}",
+            path.display()
+        )
+    })?;
+    serde_json::from_str(&content).with_context(|| {
+        format!(
+            "failed to parse FINAM paper runtime config {}",
+            path.display()
+        )
+    })
+}
+
+fn resolve_finam_paper_runtime_consume_config(
+    args: FinamPaperRuntimeConsumeArgs,
+    file_config: FinamPaperRuntimeFileConfig,
+) -> Result<ResolvedFinamPaperRuntimeConsumeConfig> {
+    let source = non_empty_option_or_default(
+        file_config.source,
+        "finam-imoexf-hybrid-paper-runtime-local",
+    );
+    let source_stream_override = args.source_stream;
+    let target_stream_override = args.target_stream;
+    let runtime_state_stream_override = args.runtime_state_stream;
+    let publish_batches_stream_override = args.publish_batches_stream;
+    let dlq_stream_override = args.dlq_stream;
+    let mut consumer_config = PaperRuntimeRedisConsumerConfig::finam_imoexf_paper(source.clone());
+
+    if let Some(consumer) = file_config.paper_runtime_consumer.as_ref() {
+        if let Some(value) = consumer.source_stream.as_deref() {
+            consumer_config.source_stream = value.to_string();
+        }
+        if let Some(value) = consumer.consumer_group.as_deref() {
+            consumer_config.consumer_group = value.to_string();
+        }
+        if let Some(value) = consumer.consumer_name.as_deref() {
+            consumer_config.consumer_name = value.to_string();
+        }
+        if let Some(value) = consumer.group_start.as_deref() {
+            consumer_config.group_start = parse_paper_runtime_group_start(value);
+        }
+        if let Some(value) = consumer.block_ms {
+            consumer_config.block_ms = value;
+        }
+        if let Some(value) = consumer.claim_idle_ms {
+            consumer_config.claim_idle_ms = value;
+        }
+        if let Some(value) = consumer.claim_batch {
+            consumer_config.claim_batch = value;
+        }
+        if let Some(value) = consumer.read_count {
+            consumer_config.read_count = value;
+        }
+    }
+
+    if let Some(group) = args.group {
+        consumer_config.consumer_group =
+            non_empty_or_default(group, &consumer_config.consumer_group);
+    }
+    if let Some(consumer) = args.consumer {
+        consumer_config.consumer_name =
+            non_empty_or_default(consumer, &consumer_config.consumer_name);
+    }
+    if let Some(source_stream) = source_stream_override.as_ref() {
+        consumer_config.source_stream =
+            non_empty_or_default(source_stream.clone(), &consumer_config.source_stream);
+    }
+    let config_strategy_invocation_enabled = file_config
+        .paper_runtime_consumer
+        .as_ref()
+        .and_then(|consumer| consumer.strategy_invocation_enabled)
+        .unwrap_or(false);
+    let config_strategy_warmup_bars = file_config
+        .paper_runtime_consumer
+        .as_ref()
+        .and_then(|consumer| consumer.strategy_warmup_bars)
+        .unwrap_or(1);
+    let strategy_invocation_shadow_enabled =
+        args.strategy_invocation_shadow || config_strategy_invocation_enabled;
+    let strategy_warmup_bars = args
+        .strategy_warmup_bars
+        .unwrap_or(config_strategy_warmup_bars)
+        .max(1);
+
+    let strategy = file_config.strategy.unwrap_or_default();
+    let canonical = file_config.canonical_10m.unwrap_or_default();
+    let retention = file_config.retention.unwrap_or_default();
+    let streams = PaperRuntimeStreams::finam_imoexf_paper();
+    let runtime_state_stream = non_empty_option_or_default(
+        runtime_state_stream_override.or(strategy.runtime_state_stream),
+        &streams.runtime_state_stream,
+    );
+    let dlq_stream = non_empty_option_or_default(
+        dlq_stream_override.or(strategy.runtime_dlq_stream),
+        "finam_imoexf_paper:runtime:dlq",
+    );
+
+    consumer_config.source_stream = non_empty_option_or_default(
+        source_stream_override.or(canonical
+            .source_stream
+            .or(Some(consumer_config.source_stream.clone()))),
+        &consumer_config.source_stream,
+    );
+    consumer_config.dlq_stream = dlq_stream.clone();
+    let group_start_id = args
+        .group_start_id
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| consumer_config.group_start.redis_id().to_string());
+    let consumer_name = consumer_config.normalized_consumer_name();
+
+    Ok(ResolvedFinamPaperRuntimeConsumeConfig {
+        redis_url: non_empty_option_or_default(
+            args.redis_url.or(file_config.redis_url),
+            "redis://127.0.0.1:6379/",
+        ),
+        source,
+        symbol: non_empty_option_or_default(args.symbol.or(file_config.symbol), "IMOEXF@RTSX"),
+        strategy_id: non_empty_option_or_default(strategy.strategy_id, "hybrid_imoexf"),
+        source_stream: consumer_config.source_stream.clone(),
+        target_stream: non_empty_option_or_default(
+            target_stream_override.or(canonical.target_stream),
+            "finam_imoexf_paper:md:bars:10m",
+        ),
+        intents_stream: non_empty_option_or_default(
+            strategy.paper_intents_stream,
+            &streams.intents_stream,
+        ),
+        paper_acks_stream: non_empty_option_or_default(
+            strategy.paper_acks_stream,
+            &streams.paper_acks_stream,
+        ),
+        orders_stream: non_empty_option_or_default(strategy.orders_stream, &streams.orders_stream),
+        trades_stream: non_empty_option_or_default(strategy.trades_stream, &streams.trades_stream),
+        positions_stream: non_empty_option_or_default(
+            strategy.positions_stream,
+            &streams.positions_stream,
+        ),
+        consumer_group: consumer_config.consumer_group.clone(),
+        consumer_name,
+        group_start_id,
+        block_ms: consumer_config.block_ms,
+        claim_idle_ms: consumer_config.claim_idle_ms,
+        claim_batch: consumer_config.claim_batch.max(1),
+        read_count: consumer_config.read_count.max(1),
+        runtime_state_stream,
+        dlq_stream,
+        publish_batches_stream: non_empty_option_or_default(
+            publish_batches_stream_override.or(strategy.publish_batches_stream),
+            "finam_imoexf_paper:runtime:publish_batches",
+        ),
+        runtime_state_maxlen: retention.runtime_state_maxlen,
+        dlq_maxlen: retention.dlq_maxlen,
+        strategy_invocation_shadow_enabled,
+        strategy_warmup_bars,
+        max_iterations: args.max_iterations.max(1),
+        claim_stale_ms: args.claim_stale_ms,
+    })
+}
+
+fn non_empty_option_or_default(value: Option<String>, default: &str) -> String {
+    value
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| default.to_string())
+}
+
+fn parse_paper_runtime_group_start(value: &str) -> PaperRuntimeRedisGroupStart {
+    match value.trim() {
+        "$" | "tail" | "Tail" => PaperRuntimeRedisGroupStart::Tail,
+        _ => PaperRuntimeRedisGroupStart::Beginning,
+    }
+}
+
+fn paper_runtime_consumer_config_from_resolved(
+    resolved: &ResolvedFinamPaperRuntimeConsumeConfig,
+) -> PaperRuntimeRedisConsumerConfig {
+    PaperRuntimeRedisConsumerConfig {
+        source: resolved.source.clone(),
+        source_stream: resolved.source_stream.clone(),
+        consumer_group: resolved.consumer_group.clone(),
+        consumer_name: resolved.consumer_name.clone(),
+        group_start: parse_paper_runtime_group_start(&resolved.group_start_id),
+        block_ms: resolved.block_ms,
+        claim_idle_ms: resolved.claim_idle_ms,
+        claim_batch: resolved.claim_batch.max(1),
+        read_count: resolved.read_count.max(1),
+        dlq_stream: resolved.dlq_stream.clone(),
+        runtime_health_stream: "finam_imoexf_paper:runtime:health".to_string(),
+        runtime_readiness_stream: "finam_imoexf_paper:runtime:readiness".to_string(),
+        safety_boundary: PaperSafetyBoundary::closed(),
+    }
 }
 
 fn resolve_gateway_shadow_config(

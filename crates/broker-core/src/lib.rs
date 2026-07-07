@@ -22,6 +22,7 @@ pub mod order_path;
 pub mod paper;
 pub mod parity;
 pub mod readiness;
+pub mod runtime_host;
 pub mod subscription;
 pub mod time;
 
@@ -95,10 +96,12 @@ pub use order_path::{
     SqliteRuntimeDirectoryIssue, SqliteWriterLockMetadata,
 };
 pub use paper::{
-    PaperAck, PaperAckKind, PaperExecutionMode, PaperFillPolicy, PaperIntent, PaperIntentKind,
-    PaperLedgerExecutionOutcome, PaperLedgerExecutorConfig, PaperLedgerExecutorError,
-    PaperLedgerInvariantError, PaperLedgerSnapshot, PaperOrder, PaperOrderId, PaperOrderStatus,
-    PaperPosition, PaperRuntimeAdapter, PaperRuntimeAdapterConfig, PaperRuntimeAdapterError,
+    PaperAck, PaperAckKind, PaperExecutionMode, PaperFillPolicy,
+    PaperHybridIntradayRuntimeStateProjection, PaperHybridStrategyShadowConfig,
+    PaperHybridStrategyShadowState, PaperIntent, PaperIntentKind, PaperLedgerExecutionOutcome,
+    PaperLedgerExecutorConfig, PaperLedgerExecutorError, PaperLedgerInvariantError,
+    PaperLedgerSnapshot, PaperOrder, PaperOrderId, PaperOrderStatus, PaperPosition,
+    PaperRuntimeAdapter, PaperRuntimeAdapterConfig, PaperRuntimeAdapterError,
     PaperRuntimeAdapterLoop, PaperRuntimeAdapterLoopError, PaperRuntimeAdapterLoopOutcome,
     PaperRuntimeAdapterOutcome, PaperRuntimeBarPublishOutcome, PaperRuntimeBarPublishRejectReason,
     PaperRuntimeBarPublisher, PaperRuntimeBarPublisherConfig, PaperRuntimeInMemorySink,
@@ -113,4 +116,11 @@ pub use parity::{
     BrokerParityIssue, BrokerParityIssueKind, BrokerTruthParityReport,
 };
 pub use readiness::{BrokerReadiness, ReadinessPhase, ReadinessReason};
+pub use runtime_host::{
+    evaluate_runtime_live_guard, validate_runtime_lifecycle_sequence, RuntimeCommandPrepared,
+    RuntimeEventClock, RuntimeHostBlockedIntentDisposition, RuntimeHostBootstrapSnapshot,
+    RuntimeHostContract, RuntimeHostLifecycleIssue, RuntimeHostLifecyclePlan,
+    RuntimeHostLifecycleStep, RuntimeHostLiveGuardDecision, RuntimeHostLiveGuardInput,
+    RuntimeIntentBlockEvent, RuntimeIntentClass, RuntimeStrategyContext,
+};
 pub use subscription::{SubscriptionIntent, SubscriptionKind, SubscriptionState};

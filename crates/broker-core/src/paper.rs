@@ -428,6 +428,10 @@ pub struct PaperIntent {
     pub intent_id: RuntimeDecisionId,
     pub kind: PaperIntentKind,
     pub strategy_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy_owner: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy_cycle_id: Option<String>,
     pub decision_bar_key: String,
     pub instrument: InstrumentId,
     pub side: Option<OrderSide>,
@@ -445,6 +449,8 @@ impl PaperIntent {
             intent_id: decision.decision_id,
             kind,
             strategy_id: decision.strategy_id,
+            strategy_owner: None,
+            strategy_cycle_id: None,
             decision_bar_key: decision.decision_bar_key,
             instrument: decision.instrument,
             side: Some(decision.side),
@@ -454,6 +460,16 @@ impl PaperIntent {
             fill_policy: decision.fill_policy,
             created_ts: decision.created_ts,
         }
+    }
+
+    pub fn with_strategy_tags(
+        mut self,
+        owner: impl Into<String>,
+        cycle_id: impl Into<String>,
+    ) -> Self {
+        self.strategy_owner = Some(owner.into());
+        self.strategy_cycle_id = Some(cycle_id.into());
+        self
     }
 }
 
@@ -550,6 +566,154 @@ pub struct RiskGatePaperState {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaperHybridIntradayRuntimeStateProjection {
+    pub strategy_kind: String,
+    pub active_cycle_id: Option<String>,
+    pub next_cycle_seq: u32,
+    pub last_position_qty: f64,
+    pub current_owner: Option<String>,
+    pub current_side: Option<String>,
+    pub pending_entry_owner: Option<String>,
+    pub pending_entry_side: Option<String>,
+    pub pending_entry_cycle_id: Option<String>,
+    pub pending_entry_request_id: Option<String>,
+    pub pending_exit_request_id: Option<String>,
+    pub tp_order_id: Option<String>,
+    pub sl_stop_order_id: Option<String>,
+    pub mr_take_price: Option<f64>,
+    pub mr_stop_price: Option<f64>,
+    pub safe_mode_close_only: bool,
+    pub safe_mode_reason: Option<String>,
+    pub entry_ready: bool,
+    pub last_bar_close: Option<f64>,
+    pub prev_day_close: Option<f64>,
+    pub last_day_local: Option<String>,
+    pub current_day_high: Option<f64>,
+    pub current_day_low: Option<f64>,
+    pub current_day_close: Option<f64>,
+    pub prev_day_range: Option<f64>,
+    pub prev_day_return: Option<f64>,
+    pub day_before_close: Option<f64>,
+    pub today_start_local: Option<String>,
+    pub was_long_today: bool,
+    pub was_short_today: bool,
+    pub overnight_exit_armed_date: Option<String>,
+    pub risk_gate_shadow_session_date: Option<String>,
+    pub risk_gate_shadow_pnl_points: f64,
+    pub risk_gate_shadow_trade_count: u32,
+    pub risk_gate_mr_enabled_current_session: Option<bool>,
+    pub risk_gate_mr_enabled_next_session: Option<bool>,
+    pub risk_gate_rolling_sum_lb120: Option<f64>,
+    pub risk_gate_last_finalized_session_date: Option<String>,
+    pub risk_gate_ledger_rows_count: usize,
+    pub projection_source: String,
+    pub strategy_invocation_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperHybridStrategyShadowConfig {
+    pub enabled: bool,
+    pub warmup_bars_required: usize,
+    pub projection_source: String,
+}
+
+impl PaperHybridStrategyShadowConfig {
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            warmup_bars_required: 0,
+            projection_source: "paper_ledger_state_only".to_string(),
+        }
+    }
+
+    pub fn enabled_shadow(warmup_bars_required: usize) -> Self {
+        Self {
+            enabled: true,
+            warmup_bars_required: warmup_bars_required.max(1),
+            projection_source: "paper_hybrid_strategy_shadow_invocation".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperHybridStrategyShadowState {
+    pub config: PaperHybridStrategyShadowConfig,
+    pub observed_m10_bars: usize,
+    pub entry_ready: bool,
+    pub last_bar_key: Option<String>,
+    pub active_cycle_id: Option<String>,
+    pub current_owner: Option<String>,
+    pub current_side: Option<String>,
+    pub pending_entry_request_id: Option<String>,
+}
+
+impl PaperHybridStrategyShadowState {
+    pub fn new(config: PaperHybridStrategyShadowConfig) -> Option<Self> {
+        if !config.enabled {
+            return None;
+        }
+        let config = PaperHybridStrategyShadowConfig {
+            warmup_bars_required: config.warmup_bars_required.max(1),
+            ..config
+        };
+        Some(Self {
+            config,
+            observed_m10_bars: 0,
+            entry_ready: false,
+            last_bar_key: None,
+            active_cycle_id: None,
+            current_owner: None,
+            current_side: None,
+            pending_entry_request_id: None,
+        })
+    }
+
+    pub fn observe_runtime_bar(&mut self, runtime_input: &RuntimeBarInput) {
+        self.observed_m10_bars += 1;
+        self.last_bar_key = Some(runtime_bar_key(runtime_input));
+        self.entry_ready = self.observed_m10_bars >= self.config.warmup_bars_required;
+    }
+
+    pub fn observe_ledger(&mut self, ledger: &PaperLedgerSnapshot) {
+        let position_qty = ledger.target_position_qty();
+        if position_qty.is_zero() {
+            self.current_side = None;
+            self.current_owner = None;
+            self.active_cycle_id = None;
+            self.pending_entry_request_id = None;
+            return;
+        }
+        self.current_side = side_label_from_position_qty(position_qty);
+        if let Some(intent) = ledger
+            .intents
+            .iter()
+            .rev()
+            .find(|intent| matches!(intent.kind, PaperIntentKind::Enter))
+        {
+            self.current_owner = intent.strategy_owner.clone();
+            self.active_cycle_id = intent.strategy_cycle_id.clone();
+            self.pending_entry_request_id = None;
+        }
+    }
+
+    pub fn apply_projection_overlay(
+        &self,
+        projection: &mut PaperHybridIntradayRuntimeStateProjection,
+    ) {
+        projection.entry_ready = self.entry_ready;
+        projection.active_cycle_id = self.active_cycle_id.clone();
+        projection.current_owner = self.current_owner.clone();
+        projection.current_side = self
+            .current_side
+            .clone()
+            .or_else(|| projection.current_side.clone());
+        projection.pending_entry_request_id = self.pending_entry_request_id.clone();
+        projection.projection_source = self.config.projection_source.clone();
+        projection.strategy_invocation_enabled = true;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaperRuntimeState {
     pub schema_version: u16,
     pub strategy_id: String,
@@ -562,6 +726,8 @@ pub struct PaperRuntimeState {
     pub active_orders_count: usize,
     pub suppressed_count: usize,
     pub updated_ts: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hybrid_intraday: Option<PaperHybridIntradayRuntimeStateProjection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -594,6 +760,7 @@ pub struct PaperRuntimeAdapterConfig {
     pub streams: PaperRuntimeStreams,
     pub required_provenance: String,
     pub safety_boundary: PaperSafetyBoundary,
+    pub hybrid_strategy_shadow: PaperHybridStrategyShadowConfig,
 }
 
 impl PaperRuntimeAdapterConfig {
@@ -607,6 +774,7 @@ impl PaperRuntimeAdapterConfig {
             streams: PaperRuntimeStreams::finam_imoexf_paper(),
             required_provenance: "FinamDerivedM1ToM10".to_string(),
             safety_boundary: PaperSafetyBoundary::closed(),
+            hybrid_strategy_shadow: PaperHybridStrategyShadowConfig::disabled(),
         }
     }
 }
@@ -639,6 +807,7 @@ pub struct PaperRuntimeAdapterOutcome {
 pub struct PaperRuntimeAdapter {
     config: PaperRuntimeAdapterConfig,
     ledger: PaperLedgerSnapshot,
+    hybrid_strategy_shadow: Option<PaperHybridStrategyShadowState>,
 }
 
 impl PaperRuntimeAdapter {
@@ -648,7 +817,13 @@ impl PaperRuntimeAdapter {
     ) -> Result<Self, PaperRuntimeAdapterError> {
         validate_paper_runtime_adapter_config(&config)?;
         let ledger = PaperLedgerSnapshot::empty(config.ledger.clone(), received_ts);
-        Ok(Self { config, ledger })
+        let hybrid_strategy_shadow =
+            PaperHybridStrategyShadowState::new(config.hybrid_strategy_shadow.clone());
+        Ok(Self {
+            config,
+            ledger,
+            hybrid_strategy_shadow,
+        })
     }
 
     pub fn config(&self) -> &PaperRuntimeAdapterConfig {
@@ -715,7 +890,18 @@ impl PaperRuntimeAdapter {
             }
         }
 
-        let runtime_state = self.ledger.to_runtime_state(runtime_input.close_ts);
+        self.ledger.observe_runtime_bar_features(&runtime_input);
+        if let Some(shadow) = self.hybrid_strategy_shadow.as_mut() {
+            shadow.observe_runtime_bar(&runtime_input);
+            shadow.observe_ledger(&self.ledger);
+        }
+        let mut runtime_state = self.ledger.to_runtime_state_for_bar(&runtime_input);
+        if let (Some(shadow), Some(projection)) = (
+            self.hybrid_strategy_shadow.as_ref(),
+            runtime_state.hybrid_intraday.as_mut(),
+        ) {
+            shadow.apply_projection_overlay(projection);
+        }
         publish_plan.push(PaperRuntimePublishRecord {
             stream: self.config.streams.runtime_state_stream.clone(),
             payload: PaperRuntimePublishPayload::RuntimeState(Box::new(runtime_state)),
@@ -949,6 +1135,16 @@ pub struct PaperLedgerSnapshot {
     pub suppressions: Vec<RuntimeSuppressionRecord>,
     pub risk_gate_ledger: Vec<RiskGatePaperLedgerRecord>,
     pub risk_gate_state: Option<RiskGatePaperState>,
+    pub last_bar_close: Option<Price>,
+    pub current_day_utc: Option<String>,
+    pub current_day_high: Option<Price>,
+    pub current_day_low: Option<Price>,
+    pub current_day_close: Option<Price>,
+    pub prev_day_close: Option<Price>,
+    pub prev_day_range: Option<Price>,
+    pub day_before_close: Option<Price>,
+    pub was_long_today: bool,
+    pub was_short_today: bool,
     pub received_ts: DateTime<Utc>,
 }
 
@@ -1007,6 +1203,16 @@ impl PaperLedgerSnapshot {
             suppressions: Vec::new(),
             risk_gate_ledger: Vec::new(),
             risk_gate_state: None,
+            last_bar_close: None,
+            current_day_utc: None,
+            current_day_high: None,
+            current_day_low: None,
+            current_day_close: None,
+            prev_day_close: None,
+            prev_day_range: None,
+            day_before_close: None,
+            was_long_today: false,
+            was_short_today: false,
             received_ts,
         }
     }
@@ -1209,21 +1415,138 @@ impl PaperLedgerSnapshot {
     }
 
     pub fn to_runtime_state(&self, updated_ts: DateTime<Utc>) -> PaperRuntimeState {
+        self.to_runtime_state_inner(updated_ts, None)
+    }
+
+    pub fn to_runtime_state_for_bar(&self, runtime_input: &RuntimeBarInput) -> PaperRuntimeState {
+        self.to_runtime_state_inner(runtime_input.close_ts, Some(runtime_input))
+    }
+
+    fn to_runtime_state_inner(
+        &self,
+        updated_ts: DateTime<Utc>,
+        runtime_input: Option<&RuntimeBarInput>,
+    ) -> PaperRuntimeState {
         PaperRuntimeState {
             schema_version: SCHEMA_VERSION,
             strategy_id: self.strategy_id.clone(),
             instrument: self.instrument.clone(),
             execution_mode: self.execution_mode,
             safety_boundary: self.safety_boundary,
-            last_bar_key: self
-                .intents
-                .last()
-                .map(|intent| intent.decision_bar_key.clone()),
+            last_bar_key: runtime_input.map(runtime_bar_key).or_else(|| {
+                self.intents
+                    .last()
+                    .map(|intent| intent.decision_bar_key.clone())
+            }),
             last_decision_id: self.intents.last().map(|intent| intent.intent_id.clone()),
             position: self.positions.last().cloned(),
             active_orders_count: self.active_orders().len(),
             suppressed_count: self.suppressions.len(),
             updated_ts,
+            hybrid_intraday: Some(self.to_hybrid_intraday_runtime_state_projection()),
+        }
+    }
+
+    pub fn observe_runtime_bar_features(&mut self, runtime_input: &RuntimeBarInput) {
+        let day = runtime_input.close_ts.date_naive().to_string();
+        if self.current_day_utc.as_deref() != Some(day.as_str()) {
+            if self.current_day_utc.is_some() {
+                self.day_before_close = self.prev_day_close;
+                self.prev_day_close = self.current_day_close;
+                self.prev_day_range = match (self.current_day_high, self.current_day_low) {
+                    (Some(high), Some(low)) => Some(high - low),
+                    _ => None,
+                };
+            }
+            self.current_day_utc = Some(day);
+            self.current_day_high = None;
+            self.current_day_low = None;
+            self.current_day_close = None;
+            self.was_long_today = false;
+            self.was_short_today = false;
+        }
+
+        self.last_bar_close = Some(runtime_input.close);
+        self.current_day_high = Some(match self.current_day_high {
+            Some(current) => current.max(runtime_input.high),
+            None => runtime_input.high,
+        });
+        self.current_day_low = Some(match self.current_day_low {
+            Some(current) => current.min(runtime_input.low),
+            None => runtime_input.low,
+        });
+        self.current_day_close = Some(runtime_input.close);
+        self.received_ts = runtime_input.close_ts;
+    }
+
+    pub fn to_hybrid_intraday_runtime_state_projection(
+        &self,
+    ) -> PaperHybridIntradayRuntimeStateProjection {
+        let last_position_qty = self.target_position_qty();
+        let current_side = side_label_from_position_qty(last_position_qty);
+        PaperHybridIntradayRuntimeStateProjection {
+            strategy_kind: "hybrid_intraday".to_string(),
+            active_cycle_id: None,
+            next_cycle_seq: 0,
+            last_position_qty: decimal_to_f64(last_position_qty),
+            current_owner: None,
+            current_side,
+            pending_entry_owner: None,
+            pending_entry_side: None,
+            pending_entry_cycle_id: None,
+            pending_entry_request_id: None,
+            pending_exit_request_id: None,
+            tp_order_id: None,
+            sl_stop_order_id: None,
+            mr_take_price: None,
+            mr_stop_price: None,
+            safe_mode_close_only: false,
+            safe_mode_reason: None,
+            entry_ready: false,
+            last_bar_close: option_decimal_to_f64(self.last_bar_close),
+            prev_day_close: option_decimal_to_f64(self.prev_day_close),
+            last_day_local: self.current_day_utc.clone(),
+            current_day_high: option_decimal_to_f64(self.current_day_high),
+            current_day_low: option_decimal_to_f64(self.current_day_low),
+            current_day_close: option_decimal_to_f64(self.current_day_close),
+            prev_day_range: option_decimal_to_f64(self.prev_day_range),
+            prev_day_return: match (self.prev_day_close, self.day_before_close) {
+                (Some(prev), Some(day_before)) if !day_before.is_zero() => {
+                    option_decimal_to_f64(Some((prev - day_before) / day_before))
+                }
+                _ => None,
+            },
+            day_before_close: option_decimal_to_f64(self.day_before_close),
+            today_start_local: self.current_day_utc.clone(),
+            was_long_today: self.was_long_today,
+            was_short_today: self.was_short_today,
+            overnight_exit_armed_date: None,
+            risk_gate_shadow_session_date: None,
+            risk_gate_shadow_pnl_points: 0.0,
+            risk_gate_shadow_trade_count: 0,
+            risk_gate_mr_enabled_current_session: self
+                .risk_gate_state
+                .as_ref()
+                .and_then(|state| state.mr_enabled_current_session),
+            risk_gate_mr_enabled_next_session: self
+                .risk_gate_state
+                .as_ref()
+                .and_then(|state| state.mr_enabled_next_session),
+            risk_gate_rolling_sum_lb120: self
+                .risk_gate_state
+                .as_ref()
+                .and_then(|state| option_decimal_to_f64(state.rolling_sum_lb120)),
+            risk_gate_last_finalized_session_date: self
+                .risk_gate_state
+                .as_ref()
+                .and_then(|state| state.last_finalized_session_date.clone()),
+            risk_gate_ledger_rows_count: self
+                .risk_gate_state
+                .as_ref()
+                .map(|state| state.ledger_rows_count)
+                .unwrap_or_else(|| self.risk_gate_ledger.len()),
+            projection_source: "paper_ledger_state_only".to_string(),
+            strategy_invocation_enabled: false,
         }
     }
 
@@ -1427,6 +1750,28 @@ fn signed_qty(side: OrderSide, qty: Quantity) -> Quantity {
     match side {
         OrderSide::Buy => qty,
         OrderSide::Sell => -qty,
+    }
+}
+
+fn runtime_bar_key(input: &RuntimeBarInput) -> String {
+    format!("{}/{}", input.close_ts.to_rfc3339(), input.timeframe_sec)
+}
+
+fn decimal_to_f64(value: Price) -> f64 {
+    value.to_string().parse::<f64>().unwrap_or_default()
+}
+
+fn option_decimal_to_f64(value: Option<Price>) -> Option<f64> {
+    value.map(decimal_to_f64)
+}
+
+fn side_label_from_position_qty(qty: Quantity) -> Option<String> {
+    if qty > Quantity::ZERO {
+        Some("long".to_string())
+    } else if qty < Quantity::ZERO {
+        Some("short".to_string())
+    } else {
+        None
     }
 }
 
@@ -1655,6 +2000,16 @@ mod tests {
             suppressions: vec![],
             risk_gate_ledger: vec![],
             risk_gate_state: None,
+            last_bar_close: None,
+            current_day_utc: None,
+            current_day_high: None,
+            current_day_low: None,
+            current_day_close: None,
+            prev_day_close: None,
+            prev_day_range: None,
+            day_before_close: None,
+            was_long_today: false,
+            was_short_today: false,
             received_ts: ts(20),
         }
     }
@@ -2137,6 +2492,15 @@ mod tests {
         assert_eq!(state.strategy_id, "hybrid_imoexf_synthetic");
         assert!(state.position.is_none());
         assert_eq!(state.active_orders_count, 0);
+        let hybrid = state.hybrid_intraday.as_ref().expect("hybrid projection");
+        assert_eq!(hybrid.strategy_kind, "hybrid_intraday");
+        assert_eq!(hybrid.last_position_qty, 0.0);
+        assert_eq!(hybrid.last_bar_close, Some(1022.0));
+        assert_eq!(hybrid.current_day_high, Some(1025.0));
+        assert_eq!(hybrid.current_day_low, Some(1019.0));
+        assert_eq!(hybrid.current_day_close, Some(1022.0));
+        assert!(!hybrid.entry_ready);
+        assert!(!hybrid.strategy_invocation_enabled);
         assert!(adapter.ledger().target_is_flat());
     }
 
@@ -2178,6 +2542,74 @@ mod tests {
             panic!("expected final runtime state");
         };
         assert_eq!(state.position.as_ref().expect("position").qty, Decimal::ONE);
+        let hybrid = state.hybrid_intraday.as_ref().expect("hybrid projection");
+        assert_eq!(hybrid.last_position_qty, 1.0);
+        assert_eq!(hybrid.current_side.as_deref(), Some("long"));
+        assert_eq!(hybrid.last_bar_close, Some(1022.0));
+    }
+
+    #[test]
+    fn paper_runtime_adapter_shadow_invocation_marks_entry_ready_without_orders() {
+        let mut config = PaperRuntimeAdapterConfig::finam_imoexf_paper(
+            "hybrid_imoexf_synthetic",
+            instrument(),
+            PaperExecutionMode::LiveOnly,
+        );
+        config.hybrid_strategy_shadow = PaperHybridStrategyShadowConfig::enabled_shadow(1);
+        let mut adapter = PaperRuntimeAdapter::new(config, ts(0)).expect("adapter");
+        let outcome = adapter
+            .observe_runtime_bar(runtime_bar(20, RuntimeBarOrigin::Live, 600), Vec::new())
+            .expect("runtime bar accepted");
+        assert!(outcome.state_only);
+        assert_eq!(outcome.publish_plan.len(), 1);
+        let PaperRuntimePublishPayload::RuntimeState(state) = &outcome.publish_plan[0].payload
+        else {
+            panic!("expected runtime state");
+        };
+        let hybrid = state.hybrid_intraday.as_ref().expect("hybrid projection");
+        assert!(hybrid.strategy_invocation_enabled);
+        assert!(hybrid.entry_ready);
+        assert_eq!(
+            hybrid.projection_source,
+            "paper_hybrid_strategy_shadow_invocation"
+        );
+        assert!(hybrid.active_cycle_id.is_none());
+        assert!(hybrid.current_owner.is_none());
+        assert_eq!(state.active_orders_count, 0);
+    }
+
+    #[test]
+    fn paper_runtime_adapter_shadow_projection_adopts_tagged_owner_cycle_after_fill() {
+        let mut config = PaperRuntimeAdapterConfig::finam_imoexf_paper(
+            "hybrid_imoexf_synthetic",
+            instrument(),
+            PaperExecutionMode::LiveOnly,
+        );
+        config.hybrid_strategy_shadow = PaperHybridStrategyShadowConfig::enabled_shadow(1);
+        let mut adapter = PaperRuntimeAdapter::new(config, ts(0)).expect("adapter");
+        let intent = PaperIntent::from_decision(
+            PaperIntentKind::Enter,
+            decision("decision-bo-short", OrderSide::Sell, 10),
+        )
+        .with_strategy_tags("intraday_breakout", "6a4badd811");
+
+        let outcome = adapter
+            .observe_runtime_bar(runtime_bar(20, RuntimeBarOrigin::Live, 600), vec![intent])
+            .expect("runtime bar accepted");
+        assert_eq!(outcome.filled_count, 1);
+        let PaperRuntimePublishPayload::RuntimeState(state) =
+            &outcome.publish_plan.last().expect("state").payload
+        else {
+            panic!("expected runtime state");
+        };
+        let hybrid = state.hybrid_intraday.as_ref().expect("hybrid projection");
+        assert!(hybrid.strategy_invocation_enabled);
+        assert!(hybrid.entry_ready);
+        assert_eq!(hybrid.active_cycle_id.as_deref(), Some("6a4badd811"));
+        assert_eq!(hybrid.current_owner.as_deref(), Some("intraday_breakout"));
+        assert_eq!(hybrid.current_side.as_deref(), Some("short"));
+        assert_eq!(hybrid.last_position_qty, -1.0);
+        assert!(hybrid.pending_entry_request_id.is_none());
     }
 
     #[test]

@@ -30084,6 +30084,8 @@ mod tests {
                     intent_id: intent_id.clone(),
                     kind: PaperIntentKind::Enter,
                     strategy_id: "hybrid_intraday".to_string(),
+                    strategy_owner: None,
+                    strategy_cycle_id: None,
                     decision_bar_key: "2026-07-06T09:10:00Z/600".to_string(),
                     instrument: instrument.clone(),
                     side: Some(OrderSide::Buy),
@@ -30171,6 +30173,7 @@ mod tests {
                     active_orders_count: 0,
                     suppressed_count: 0,
                     updated_ts: now,
+                    hybrid_intraday: None,
                 })),
             },
         ]
