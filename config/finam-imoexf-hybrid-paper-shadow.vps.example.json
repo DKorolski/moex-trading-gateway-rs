@@ -89,9 +89,12 @@
     "shadow_ledger_comparison_required": true
   },
   "alor_oracle": {
-    "vps": "155.212.170.21",
+    "vps": "<VPS_HOST>",
     "redis_container": "trading-hybrid-redis-1",
     "seed_stream": "finam_imoexf_paper:oracle:alor_runtime_state",
+    "seed_required": true,
+    "missing_seed_policy": "BlockParityRun",
+    "risk_gate_profile_id": "imoexf_primary_high180_lb120",
     "native_10m_stream": "md.bars.<ALOR_LIVE_ORACLE_PORTFOLIO>.10m",
     "runtime_state_stream": "runtime.state.hybrid_intraday.live.riskgate_shadow.imoexf.<ALOR_LIVE_ORACLE_PORTFOLIO>",
     "commands_stream": "cmd.orders.<ALOR_LIVE_ORACLE_PORTFOLIO>",

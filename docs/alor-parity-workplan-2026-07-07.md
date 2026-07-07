@@ -46,6 +46,8 @@ Accepted only as a bridge:
    - Provide runtime-state parity evidence.
    - Keep generated reports out of the source archive unless a review package
      explicitly binds them.
+   - Close Stage 1B review gaps: field-by-field mapping, stream/group mapping,
+     ADR, fixtures, required seed policy, and stronger evidence script.
 
 2. M4-3y full-session M10 parity
    - Compare FINAM assembled M10 bars vs ALOR runtime/oracle M10 over a full
@@ -100,6 +102,8 @@ The next review should be able to verify:
 - source status clearly says one-shot operator actual exists, but continuous
   runtime-live remains disabled;
 - ALOR runtime compatibility contract v1 is present;
+- ADR chooses runtime source migration to broker-neutral `BrokerOrderId(String)`
+  over a default surrogate adapter;
 - seeded paper parity is documented as a bridge, not an operational shortcut;
 - current code passes formatting, tests, clippy, scanners, and Python compile
   checks;

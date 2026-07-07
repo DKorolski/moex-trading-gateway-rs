@@ -38,12 +38,24 @@ runtime-live.
 The FINAM contour is a paper/shadow parity stand, not a drop-in replacement for
 the ALOR gateway/runtime yet.
 
+Stage split:
+
+- Stage 1A is a draft/spec foundation: README/status/workplan, seeded bridge,
+  and safety boundary.
+- Stage 1B is the hard compatibility-freeze work: field-by-field mappings,
+  Redis stream/group mapping, fixtures, seed-required policy, ADR, and stronger
+  evidence.
+
 Green / mostly closed:
 
 - FINAM WS live market-data reaches Redis.
 - Fresh M1 final bars can produce canonical M10 runtime input.
 - FINAM paper runtime state can now match ALOR IMOEXF hybrid state on the active
   M10 bar after ALOR-oracle seeding.
+- ALOR-oracle seed now preserves pending/safe-mode/protective-state placeholders
+  as explicit paper parity fields.
+- `seed_required=true` can hard-block a parity run when the ALOR oracle seed is
+  missing or cannot be parsed.
 - Safety flags remain closed in paper state:
   `live_orders_enabled=false`, `runtime_live_ready_enabled=false`,
   `command_consumer_to_real_finam_enabled=false`,
@@ -58,6 +70,8 @@ Amber:
   real ALOR hybrid BO/MR orchestrator.
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
+- Stage 1B contract is not accepted until review accepts the field-by-field
+  mapping, ADR, fixtures, and evidence script shape.
 
 Red / not yet implemented:
 
@@ -70,7 +84,7 @@ Red / not yet implemented:
 ## Required gates before runtime-driven live
 
 1. ALOR runtime compatibility contract v1 accepted.
-2. Runtime source adaptation vs binary-compatible adapter decision recorded.
+2. Runtime source adaptation vs binary-compatible adapter ADR accepted.
 3. Full-session FINAM M10 vs ALOR M10 report accepted.
 4. Broker truth bootstrap wired into runtime lifecycle.
 5. Real hybrid BO/MR/riskgate semantics attached behind paper boundary.

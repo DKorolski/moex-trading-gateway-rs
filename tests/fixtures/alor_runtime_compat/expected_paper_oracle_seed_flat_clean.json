@@ -1,0 +1,20 @@
+{
+  "source": "alor_runtime_state_seed",
+  "active_cycle_id": null,
+  "next_cycle_seq": 18,
+  "last_position_qty": "0",
+  "current_owner": null,
+  "current_side": null,
+  "safe_mode_close_only": false,
+  "prev_day_close": "2195.0",
+  "prev_day_range": "96.5",
+  "prev_day_return": "-0.01767733273663012",
+  "day_before_close": "2195.0",
+  "current_day_utc": "2026-01-01",
+  "current_day_high": "1010.0",
+  "current_day_low": "990.0",
+  "current_day_close": "1000.0",
+  "risk_gate_profile_id": "synthetic_profile",
+  "risk_gate_rolling_sum_lb120": "158.6",
+  "risk_gate_ledger_rows_count": 222
+}

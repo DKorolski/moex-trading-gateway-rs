@@ -1,0 +1,26 @@
+{
+  "schema_version": 2,
+  "payload": {
+    "strategy_state": {
+      "payload": {
+        "HybridIntradayRuntime": {
+          "active_cycle_id": "cycle-bo-short",
+          "next_cycle_seq": 19,
+          "last_position_qty": "-3",
+          "current_owner": "intraday_breakout",
+          "current_side": "short",
+          "safe_mode_close_only": false,
+          "entry_ready": true,
+          "prev_day_close": "2195.0",
+          "current_day_high": "2262.0",
+          "current_day_low": "2165.5",
+          "current_day_close": "2184.5",
+          "risk_gate_profile_id": "synthetic_profile",
+          "risk_gate_mr_enabled_current_session": true,
+          "risk_gate_rolling_sum_lb120": "158.6",
+          "risk_gate_ledger_rows_count": 222
+        }
+      }
+    }
+  }
+}

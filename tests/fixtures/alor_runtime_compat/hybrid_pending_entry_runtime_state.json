@@ -1,0 +1,26 @@
+{
+  "schema_version": 2,
+  "payload": {
+    "strategy_state": {
+      "payload": {
+        "HybridIntradayRuntime": {
+          "active_cycle_id": null,
+          "next_cycle_seq": 20,
+          "last_position_qty": "0",
+          "current_owner": null,
+          "current_side": null,
+          "pending_entry_owner": "mean_reversion",
+          "pending_entry_side": "long",
+          "pending_entry_cycle_id": "cycle-pending-entry",
+          "pending_entry_request_id": "request-pending-entry",
+          "pending_exit_request_id": null,
+          "safe_mode_close_only": false,
+          "risk_gate_profile_id": "synthetic_profile",
+          "risk_gate_mr_enabled_current_session": true,
+          "risk_gate_rolling_sum_lb120": "158.6",
+          "risk_gate_ledger_rows_count": 222
+        }
+      }
+    }
+  }
+}

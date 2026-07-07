@@ -362,6 +362,8 @@ See:
 - [ALOR parity workplan 2026-07-07](docs/alor-parity-workplan-2026-07-07.md)
 - [Architecture](docs/architecture.md)
 - [ALOR runtime compatibility contract v1](docs/alor-runtime-compat-contract-v1.md)
+- [ADR: runtime source migration vs adapter](docs/adr-runtime-compat-adapter-vs-source-migration.md)
+- [Stage 1B ALOR runtime compatibility acceptance report](docs/stage-1b-alor-runtime-compat-acceptance-report.md)
 - [Active orders startup policy draft](docs/active-orders-startup-policy.md)
 - [Broker contract](docs/broker-contract.md)
 - [Finam API notes](docs/finam-api-notes.md)

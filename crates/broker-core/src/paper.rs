@@ -619,6 +619,17 @@ pub struct PaperHybridIntradayOracleSeed {
     pub last_position_qty: Option<Quantity>,
     pub current_owner: Option<String>,
     pub current_side: Option<String>,
+    pub pending_entry_owner: Option<String>,
+    pub pending_entry_side: Option<String>,
+    pub pending_entry_cycle_id: Option<String>,
+    pub pending_entry_request_id: Option<String>,
+    pub pending_exit_request_id: Option<String>,
+    pub tp_order_id: Option<String>,
+    pub sl_stop_order_id: Option<String>,
+    pub mr_take_price: Option<Price>,
+    pub mr_stop_price: Option<Price>,
+    pub safe_mode_close_only: Option<bool>,
+    pub safe_mode_reason: Option<String>,
     pub prev_day_close: Option<Price>,
     pub prev_day_range: Option<Price>,
     pub prev_day_return: Option<Price>,
@@ -629,6 +640,8 @@ pub struct PaperHybridIntradayOracleSeed {
     pub current_day_close: Option<Price>,
     pub was_long_today: Option<bool>,
     pub was_short_today: Option<bool>,
+    pub overnight_exit_armed_date: Option<String>,
+    pub risk_gate_profile_id: Option<String>,
     pub risk_gate_shadow_session_date: Option<String>,
     pub risk_gate_shadow_pnl_points: Option<Price>,
     pub risk_gate_shadow_trade_count: Option<u32>,
@@ -742,7 +755,9 @@ impl PaperHybridStrategyShadowState {
             .current_side
             .clone()
             .or_else(|| projection.current_side.clone());
-        projection.pending_entry_request_id = self.pending_entry_request_id.clone();
+        if self.pending_entry_request_id.is_some() {
+            projection.pending_entry_request_id = self.pending_entry_request_id.clone();
+        }
         projection.projection_source = self.config.projection_source.clone();
         projection.strategy_invocation_enabled = true;
     }
@@ -1189,6 +1204,18 @@ pub struct PaperLedgerSnapshot {
     pub hybrid_next_cycle_seq: Option<u32>,
     pub hybrid_current_owner: Option<String>,
     pub hybrid_current_side: Option<String>,
+    pub hybrid_pending_entry_owner: Option<String>,
+    pub hybrid_pending_entry_side: Option<String>,
+    pub hybrid_pending_entry_cycle_id: Option<String>,
+    pub hybrid_pending_entry_request_id: Option<String>,
+    pub hybrid_pending_exit_request_id: Option<String>,
+    pub hybrid_tp_order_id: Option<String>,
+    pub hybrid_sl_stop_order_id: Option<String>,
+    pub hybrid_mr_take_price: Option<Price>,
+    pub hybrid_mr_stop_price: Option<Price>,
+    pub hybrid_safe_mode_close_only: bool,
+    pub hybrid_safe_mode_reason: Option<String>,
+    pub hybrid_overnight_exit_armed_date: Option<String>,
     pub risk_gate_shadow_session_date: Option<String>,
     pub risk_gate_shadow_pnl_points: Price,
     pub risk_gate_shadow_trade_count: u32,
@@ -1265,6 +1292,18 @@ impl PaperLedgerSnapshot {
             hybrid_next_cycle_seq: None,
             hybrid_current_owner: None,
             hybrid_current_side: None,
+            hybrid_pending_entry_owner: None,
+            hybrid_pending_entry_side: None,
+            hybrid_pending_entry_cycle_id: None,
+            hybrid_pending_entry_request_id: None,
+            hybrid_pending_exit_request_id: None,
+            hybrid_tp_order_id: None,
+            hybrid_sl_stop_order_id: None,
+            hybrid_mr_take_price: None,
+            hybrid_mr_stop_price: None,
+            hybrid_safe_mode_close_only: false,
+            hybrid_safe_mode_reason: None,
+            hybrid_overnight_exit_armed_date: None,
             risk_gate_shadow_session_date: None,
             risk_gate_shadow_pnl_points: Price::ZERO,
             risk_gate_shadow_trade_count: 0,
@@ -1395,6 +1434,20 @@ impl PaperLedgerSnapshot {
         self.hybrid_next_cycle_seq = seed.next_cycle_seq;
         self.hybrid_current_owner = seed.current_owner;
         self.hybrid_current_side = seed.current_side;
+        self.hybrid_pending_entry_owner = seed.pending_entry_owner;
+        self.hybrid_pending_entry_side = seed.pending_entry_side;
+        self.hybrid_pending_entry_cycle_id = seed.pending_entry_cycle_id;
+        self.hybrid_pending_entry_request_id = seed.pending_entry_request_id;
+        self.hybrid_pending_exit_request_id = seed.pending_exit_request_id;
+        self.hybrid_tp_order_id = seed.tp_order_id;
+        self.hybrid_sl_stop_order_id = seed.sl_stop_order_id;
+        self.hybrid_mr_take_price = seed.mr_take_price;
+        self.hybrid_mr_stop_price = seed.mr_stop_price;
+        if let Some(value) = seed.safe_mode_close_only {
+            self.hybrid_safe_mode_close_only = value;
+        }
+        self.hybrid_safe_mode_reason = seed.safe_mode_reason;
+        self.hybrid_overnight_exit_armed_date = seed.overnight_exit_armed_date;
         self.prev_day_close = seed.prev_day_close;
         self.prev_day_range = seed.prev_day_range;
         self.prev_day_return = seed.prev_day_return;
@@ -1419,7 +1472,9 @@ impl PaperLedgerSnapshot {
         self.risk_gate_state = Some(RiskGatePaperState {
             schema_version: SCHEMA_VERSION,
             strategy_id: self.strategy_id.clone(),
-            profile_id: "imoexf_primary_high180_lb120".to_string(),
+            profile_id: seed
+                .risk_gate_profile_id
+                .unwrap_or_else(|| "paper_oracle_seed_unknown_profile".to_string()),
             last_finalized_session_date: seed.risk_gate_last_finalized_session_date,
             rolling_sum_lb120: seed.risk_gate_rolling_sum_lb120,
             mr_enabled_current_session: seed.risk_gate_mr_enabled_current_session,
@@ -1619,17 +1674,17 @@ impl PaperLedgerSnapshot {
             last_position_qty: decimal_to_f64(last_position_qty),
             current_owner: self.hybrid_current_owner.clone(),
             current_side: current_side.or_else(|| self.hybrid_current_side.clone()),
-            pending_entry_owner: None,
-            pending_entry_side: None,
-            pending_entry_cycle_id: None,
-            pending_entry_request_id: None,
-            pending_exit_request_id: None,
-            tp_order_id: None,
-            sl_stop_order_id: None,
-            mr_take_price: None,
-            mr_stop_price: None,
-            safe_mode_close_only: false,
-            safe_mode_reason: None,
+            pending_entry_owner: self.hybrid_pending_entry_owner.clone(),
+            pending_entry_side: self.hybrid_pending_entry_side.clone(),
+            pending_entry_cycle_id: self.hybrid_pending_entry_cycle_id.clone(),
+            pending_entry_request_id: self.hybrid_pending_entry_request_id.clone(),
+            pending_exit_request_id: self.hybrid_pending_exit_request_id.clone(),
+            tp_order_id: self.hybrid_tp_order_id.clone(),
+            sl_stop_order_id: self.hybrid_sl_stop_order_id.clone(),
+            mr_take_price: option_decimal_to_f64(self.hybrid_mr_take_price),
+            mr_stop_price: option_decimal_to_f64(self.hybrid_mr_stop_price),
+            safe_mode_close_only: self.hybrid_safe_mode_close_only,
+            safe_mode_reason: self.hybrid_safe_mode_reason.clone(),
             entry_ready: false,
             last_bar_close: option_decimal_to_f64(self.last_bar_close),
             prev_day_close: option_decimal_to_f64(self.prev_day_close),
@@ -1653,7 +1708,7 @@ impl PaperLedgerSnapshot {
                 .map(|day| format!("{day}T09:00:00")),
             was_long_today: self.was_long_today,
             was_short_today: self.was_short_today,
-            overnight_exit_armed_date: None,
+            overnight_exit_armed_date: self.hybrid_overnight_exit_armed_date.clone(),
             risk_gate_shadow_session_date: self.risk_gate_shadow_session_date.clone(),
             risk_gate_shadow_pnl_points: decimal_to_f64(self.risk_gate_shadow_pnl_points),
             risk_gate_shadow_trade_count: self.risk_gate_shadow_trade_count,
@@ -2144,6 +2199,18 @@ mod tests {
             hybrid_next_cycle_seq: None,
             hybrid_current_owner: None,
             hybrid_current_side: None,
+            hybrid_pending_entry_owner: None,
+            hybrid_pending_entry_side: None,
+            hybrid_pending_entry_cycle_id: None,
+            hybrid_pending_entry_request_id: None,
+            hybrid_pending_exit_request_id: None,
+            hybrid_tp_order_id: None,
+            hybrid_sl_stop_order_id: None,
+            hybrid_mr_take_price: None,
+            hybrid_mr_stop_price: None,
+            hybrid_safe_mode_close_only: false,
+            hybrid_safe_mode_reason: None,
+            hybrid_overnight_exit_armed_date: None,
             risk_gate_shadow_session_date: None,
             risk_gate_shadow_pnl_points: Decimal::ZERO,
             risk_gate_shadow_trade_count: 0,
@@ -2744,6 +2811,17 @@ mod tests {
                     last_position_qty: Some(Decimal::ZERO),
                     current_owner: None,
                     current_side: None,
+                    pending_entry_owner: Some("mean_reversion".to_string()),
+                    pending_entry_side: Some("long".to_string()),
+                    pending_entry_cycle_id: Some("cycle-pending".to_string()),
+                    pending_entry_request_id: Some("request-pending-entry".to_string()),
+                    pending_exit_request_id: Some("request-pending-exit".to_string()),
+                    tp_order_id: Some("tp-paper-seed".to_string()),
+                    sl_stop_order_id: Some("sl-paper-seed".to_string()),
+                    mr_take_price: Some(Decimal::new(1035, 0)),
+                    mr_stop_price: Some(Decimal::new(980, 0)),
+                    safe_mode_close_only: Some(true),
+                    safe_mode_reason: Some("oracle_dirty_start".to_string()),
                     prev_day_close: Some(Decimal::new(2195, 0)),
                     prev_day_range: Some(Decimal::new(965, 1)),
                     prev_day_return: Some(Decimal::new(-1767733273663012, 17)),
@@ -2754,6 +2832,8 @@ mod tests {
                     current_day_close: Some(Decimal::new(1000, 0)),
                     was_long_today: Some(false),
                     was_short_today: Some(false),
+                    overnight_exit_armed_date: Some("2026-01-02".to_string()),
+                    risk_gate_profile_id: Some("synthetic_profile".to_string()),
                     risk_gate_shadow_session_date: Some("2026-01-01".to_string()),
                     risk_gate_shadow_pnl_points: Some(Decimal::ZERO),
                     risk_gate_shadow_trade_count: Some(0),
@@ -2777,6 +2857,25 @@ mod tests {
         let hybrid = state.hybrid_intraday.as_ref().expect("hybrid projection");
         assert_eq!(hybrid.next_cycle_seq, 18);
         assert_eq!(hybrid.last_position_qty, 0.0);
+        assert_eq!(
+            hybrid.pending_entry_request_id.as_deref(),
+            Some("request-pending-entry")
+        );
+        assert_eq!(
+            hybrid.pending_exit_request_id.as_deref(),
+            Some("request-pending-exit")
+        );
+        assert_eq!(hybrid.mr_take_price, Some(1035.0));
+        assert_eq!(hybrid.mr_stop_price, Some(980.0));
+        assert!(hybrid.safe_mode_close_only);
+        assert_eq!(
+            hybrid.safe_mode_reason.as_deref(),
+            Some("oracle_dirty_start")
+        );
+        assert_eq!(
+            hybrid.overnight_exit_armed_date.as_deref(),
+            Some("2026-01-02")
+        );
         assert_eq!(hybrid.prev_day_close, Some(2195.0));
         assert_eq!(hybrid.prev_day_range, Some(96.5));
         assert_eq!(hybrid.prev_day_return, Some(-0.01767733273663012));
@@ -2791,6 +2890,15 @@ mod tests {
         assert_eq!(hybrid.risk_gate_mr_enabled_current_session, Some(true));
         assert_eq!(hybrid.risk_gate_rolling_sum_lb120, Some(158.6));
         assert_eq!(hybrid.risk_gate_ledger_rows_count, 222);
+        assert_eq!(
+            adapter
+                .ledger()
+                .risk_gate_state
+                .as_ref()
+                .expect("riskgate state")
+                .profile_id,
+            "synthetic_profile"
+        );
         assert!(hybrid.entry_ready);
         assert!(hybrid.strategy_invocation_enabled);
     }

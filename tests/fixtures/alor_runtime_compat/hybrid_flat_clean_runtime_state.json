@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "payload": {
+    "strategy_state": {
+      "payload": {
+        "HybridIntradayRuntime": {
+          "active_cycle_id": null,
+          "next_cycle_seq": 18,
+          "last_position_qty": "0",
+          "current_owner": null,
+          "current_side": null,
+          "pending_entry_owner": null,
+          "pending_entry_side": null,
+          "pending_entry_cycle_id": null,
+          "pending_entry_request_id": null,
+          "pending_exit_request_id": null,
+          "tp_order_id": null,
+          "sl_stop_order_id": null,
+          "mr_take_price": null,
+          "mr_stop_price": null,
+          "safe_mode_close_only": false,
+          "safe_mode_reason": null,
+          "last_bar_close": "1022.0",
+          "prev_day_close": "2195.0",
+          "last_day_local": "2026-01-01",
+          "current_day_high": "1010.0",
+          "current_day_low": "990.0",
+          "current_day_close": "1000.0",
+          "prev_day_range": "96.5",
+          "prev_day_return": "-0.01767733273663012",
+          "day_before_close": "2195.0",
+          "today_start_local": "2026-01-01T09:00:00",
+          "was_long_today": false,
+          "was_short_today": false,
+          "overnight_exit_armed_date": null,
+          "risk_gate_profile_id": "synthetic_profile",
+          "risk_gate_shadow_session_date": "2026-01-01",
+          "risk_gate_shadow_pnl_points": "0",
+          "risk_gate_shadow_trade_count": 0,
+          "risk_gate_mr_enabled_current_session": true,
+          "risk_gate_mr_enabled_next_session": true,
+          "risk_gate_rolling_sum_lb120": "158.6",
+          "risk_gate_last_finalized_session_date": "2025-12-31",
+          "risk_gate_ledger_rows_count": 222
+        }
+      }
+    }
+  }
+}

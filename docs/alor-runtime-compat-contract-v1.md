@@ -1,6 +1,7 @@
 # ALOR runtime compatibility contract v1
 
-Status: contract / implementation target.
+Status: draft/spec foundation; hard compatibility freeze pending Stage 1B
+acceptance.
 
 Purpose: define the runtime-facing semantic contract that FINAM must satisfy
 before it can replace the ALOR gateway for existing strategy-runtime systems.
@@ -61,6 +62,151 @@ Acceptance:
 | ACK | Runtime command lifecycle | `CommandAck` / broker-neutral ACK | Must preserve exact request-id parity. |
 | Entry/exit class | Runtime host | `RuntimeIntentClass` | Entry gates must not silently block exit/cancel/repair. |
 | Riskgate memory | Strategy/riskgate ledger | riskgate ledger/state | Must be real ledger integration or explicit oracle-seeded paper projection. |
+
+## Event/schema field mapping
+
+The following tables are normative for Stage 1B review. `Blocks readiness`
+means a mismatch or missing value prevents runtime-driven live readiness. During
+M4-3x seeded paper mode it blocks parity closure, not live trading, because live
+trading remains forbidden.
+
+### BarEvent / RuntimeBarInput
+
+| Runtime field | Type | FINAM/BrokerCore field | ALOR source/oracle field | Conversion rule | Missing/zero policy | Blocks readiness |
+| --- | --- | --- | --- | --- | --- | --- |
+| `instrument.symbol` | string | `RuntimeBarInput.instrument.symbol` | ALOR bar symbol | Broker-neutral symbol registry. | Missing rejects bar. | yes |
+| `instrument.venue_symbol` | string | `InstrumentId.venue_symbol` | ALOR broker symbol | Preserve broker-native venue identity separately. | Missing is diagnostic only if internal symbol is validated. | conditional |
+| `open_ts` | UTC timestamp | `RuntimeBarInput.open_ts` | ALOR bar open time | UTC, monotonic per instrument/timeframe. | Missing rejects bar. | yes |
+| `close_ts` | UTC timestamp | `RuntimeBarInput.close_ts` | ALOR closed-bar timestamp | Must match ALOR closed-bar convention. | Missing rejects bar. | yes |
+| `timeframe_sec` | u32 | `RuntimeBarInput.timeframe_sec` | ALOR timeframe | Strategy input must be `600`. | Non-600 rejects strategy input. | yes |
+| `open/high/low/close` | decimal | `RuntimeBarInput` OHLC | ALOR OHLC | Decimal string/Decimal, no lossy float parsing in mappers. | Missing rejects bar. | yes |
+| `volume` | decimal | `RuntimeBarInput.volume` | ALOR volume | Decimal string/Decimal. | Missing blocks parity; live policy TBD. | conditional |
+| `source_kind` | enum | `MarketDataSourceKind` | ALOR live/history provenance | Only fresh live final bars can advance live readiness. | Unknown blocks entry. | yes |
+| `is_final` | bool | finality layer | ALOR closed bar | Raw M1/forming bars never reach strategy model input. | false rejects strategy input. | yes |
+| `gap_status` | enum | recovery/data-quality ledger | ALOR reconnect/gap state | Gap must be closed by replay before entry. | Unknown blocks entry. | yes |
+| `stale_backlog_flag` | bool | FINAM WS generation gate | ALOR backlog policy | Stale backlog is diagnostic/replay only. | true blocks strategy-live input. | yes |
+
+### BrokerTruthSnapshot -> RuntimeHostBootstrapSnapshot
+
+| Runtime field | Type | FINAM/BrokerCore field | ALOR source/oracle field | Conversion rule | Missing/zero policy | Blocks readiness |
+| --- | --- | --- | --- | --- | --- | --- |
+| `account_id` | string | `BrokerAccountId` | ALOR portfolio/account | Broker-neutral account map. | Missing blocks. | yes |
+| `target_instrument` | `InstrumentId` | instrument registry | ALOR symbol/board | Must include internal + venue identity. | Missing blocks. | yes |
+| `target_position_qty` | decimal | `BrokerPositionSnapshot.qty` | ALOR target position row | Target non-zero is non-flat truth. | Zero row = flat. | yes |
+| `avg_price` | decimal? | position avg price | ALOR avg price | Diagnostic for adoption/PnL. | Missing blocks adoption, not flat startup. | conditional |
+| `cash/free_cash` | decimal? | `BrokerCashSnapshot` | ALOR portfolio cash | Used for margin readiness. | Missing blocks entry. | yes |
+| `active_target_orders` | list | active `BrokerOrderSnapshot` | ALOR active target orders | Active/unknown target orders require adoption or manual intervention. | Empty clean. | yes |
+| `unknown_target_orders` | list | unknown order snapshots | ALOR unknown statuses | Unknown is blocker. | Empty clean. | yes |
+| `orphan_target_trades` | list | trade/order mismatch | ALOR broker trades | Orphan requires reconciliation. | Empty clean. | yes |
+| `account_wide_active_orders` | count/list | account-wide active orders | ALOR account active orders | Safety diagnostic; policy may block entry globally. | Empty clean. | conditional |
+| `snapshot_ts` | UTC timestamp | received/source timestamp | ALOR snapshot timestamp | Must satisfy freshness SLA. | Stale blocks entry. | yes |
+| `manual_intervention_required` | bool/reason | derived canonical truth | ALOR dirty-start evidence | True prevents live readiness. | Missing treated as true if dirty. | yes |
+
+### OrderEvent / TradeEvent / CommandAck
+
+| Runtime field | Type | FINAM/BrokerCore field | ALOR source/oracle field | Conversion rule | Missing/zero policy | Blocks readiness |
+| --- | --- | --- | --- | --- | --- | --- |
+| `request_id` | string | `StrategyRequestId` | ALOR runtime request id | Exact request id is the pending-state key. | Missing blocks pending clear. | yes |
+| `client_order_id` | string | `ClientOrderId` | ALOR client correlation | Durable collision-checked local id. | Missing before send blocks live. | yes |
+| `broker_order_id` | string | `BrokerOrderId(String)` | ALOR broker order id | String is authoritative. | Missing after accepted send = reconciliation required. | yes |
+| `order_status` | enum | canonical status | ALOR order status | Map to active/terminal/unknown buckets. | Unknown blocks. | yes |
+| `lifecycle_class` | enum | command/order path state | ALOR command lifecycle | `entry`, `exit`, `cancel`, `repair` separated. | Missing blocks policy decision. | yes |
+| `filled_qty` | decimal | order/trade mapper | ALOR filled qty | Cumulative filled quantity. | Missing is incomplete truth. | conditional |
+| `remaining_qty` | decimal | order mapper | ALOR remaining qty | Remaining >0 can be active even if status unclear. | Missing blocks active classification. | yes |
+| `avg_price` | decimal? | order/trade mapper | ALOR avg/fill price | Diagnostic/PnL/adoption. | Missing allowed only before fill. | conditional |
+| `trade_id` | string | `BrokerTradeSnapshot` | ALOR trade id | Broker-native trade identity. | Missing blocks trade reconciliation. | conditional |
+| `trade_qty/trade_price` | decimal | trade mapper | ALOR trade fields | Decimal exactness. | Missing blocks trade truth. | yes |
+| `commission/fee` | decimal? | broker fee if available | ALOR fee/commission | Diagnostic until fee parity stage. | Missing does not block Stage 1B. | no |
+| `terminality` | enum | canonical order status | ALOR terminal status | Terminal only by explicit bucket. | Unknown blocks. | yes |
+| `recoverability` | enum | order-path state machine | ALOR reconciliation policy | Timeout/ambiguous states never blind-retry. | Missing blocks live. | yes |
+
+ACK statuses must include:
+
+| ACK status | Meaning | Pending-state policy |
+| --- | --- | --- |
+| `Accepted` | Local/paper command accepted. | Does not imply broker fill. |
+| `Confirmed` | Broker/order truth confirmed. | May clear matching pending state. |
+| `Rejected` | Broker rejected. | Clears only matching pending with rejected outcome. |
+| `Duplicate` | Same request already processed. | Replay prior outcome; no second send. |
+| `LocalRejected` | Guard/preflight rejected. | Pending rollback only by explicit strategy policy. |
+| `TimeoutUnknownPending` | Send or cancel ambiguity. | Manual/reconciliation required; no blind retry. |
+| `RecoveredByClientOrderId` | Broker truth recovered via client id. | May bind broker id if unique. |
+| `ManualInterventionRequired` | Unsafe/ambiguous truth. | Blocks live readiness. |
+| `DLQ` | Invalid/unprocessable input. | XACK only after DLQ publish. |
+
+ACK with mismatched `request_id` must never clear strategy pending state.
+
+### RuntimeState / HybridIntradayRuntimeState
+
+| Runtime field | Type | Source of truth | Missing/zero policy | Blocks parity/live |
+| --- | --- | --- | --- | --- |
+| `active_cycle_id` | string? | strategy runtime / oracle seed | `None` valid only when flat/no active cycle. | conditional |
+| `next_cycle_seq` | u32 | strategy runtime | `0` after a non-empty ALOR state is suspicious. | yes |
+| `last_position_qty` | decimal | broker truth + runtime state | `0` = flat. | yes |
+| `current_owner/current_side` | string? | strategy runtime | Required when non-flat. | yes |
+| `pending_entry_*` | strings? | strategy runtime | Required when pending entry exists. | yes |
+| `pending_exit_request_id` | string? | strategy runtime | Required when pending exit exists. | yes |
+| `deferred_entry/deferred_exit` | structured? | strategy runtime | Unsupported in seed bridge blocks runtime-live parity. | yes |
+| `tp_order_id/sl_stop_order_id` | string? | strategy runtime/broker truth | Future stop/bracket fields; unsupported for live. | yes for stop/bracket |
+| `mr_take_price/mr_stop_price` | decimal? | MR strategy state | Required for active MR protective state. | conditional |
+| `safe_mode_close_only/reason` | bool/string? | runtime safety state | true allows only exit/cancel/repair. | yes |
+| day feature fields | decimals/dates | runtime/riskgate history | Missing blocks BO/MR parity. | yes |
+| `overnight_exit_armed_date` | date? | runtime state | Required when armed. | conditional |
+| riskgate fields | decimals/bools/count | riskgate ledger/state | Missing blocks MR parity. | yes |
+
+Seeded M4-3x parity must classify each unsupported state:
+
+| State shape | Seed bridge policy | Runtime-live policy |
+| --- | --- | --- |
+| flat clean | Supported. | Still blocked until later gates. |
+| non-flat adopted | Supported as state projection. | Requires broker-truth adoption gate. |
+| pending entry | Must preserve pending ids/owner/side. | Blocks live until command/ACK parity. |
+| pending exit | Must preserve pending exit id. | Exit/repair policy required. |
+| deferred exit | Not supported unless fixture/mapping added. | Blocks live. |
+| safe-mode close-only | Must preserve flag/reason. | Entry blocked, exit/cancel/repair allowed by policy. |
+| riskgate state | Seeded projection accepted as bridge. | Real ledger integration or explicit waiver required. |
+| stop/bracket fields | Preserve IDs if present, but do not enable stop/bracket. | Stop/bracket remains forbidden. |
+
+### Redis envelope / DLQ record
+
+| Field | Type | Rule |
+| --- | --- | --- |
+| `schema_version` | integer | Must be present and checked. |
+| `ts_utc` | timestamp | UTC event envelope time. |
+| `source` | string | Stable service/source id, no secrets. |
+| `msg_type` | enum | Must match payload variant. |
+| `payload` | object | Broker-neutral payload only. |
+| DLQ `reason` | enum/string | Redacted and deterministic. |
+| DLQ `payload_sha256` | string | Raw payload hash allowed; raw payload export forbidden. |
+| DLQ `raw_payload_exported` | bool | Must be false by default. |
+
+## Redis stream and consumer-group mapping
+
+The Stage 1B contract uses the stream names below as the current IMOEXF paper
+parity shape. Real deployment may override names in ignored local config, but
+the semantic roles must remain stable.
+
+| Role | FINAM paper stream | ALOR oracle stream | Consumer group / policy |
+| --- | --- | --- | --- |
+| FINAM WS market data | `finam_imoexf_paper:ws:market_data` | ALOR live bar stream | `finam-imoexf-paper-runtime-m1`; XACK after successful publish or DLQ. |
+| Canonical M10 bars | `finam_imoexf_paper:md:bars:10m` | ALOR native/assembled M10 oracle | No raw M1 strategy input. |
+| Runtime state | `finam_imoexf_paper:runtime:state:hybrid_intraday:imoexf` | `runtime.state.hybrid_intraday.live.riskgate_shadow.imoexf.<PORTFOLIO_ID>` | Latest state compared field-by-field. |
+| Paper intents | `finam_imoexf_paper:runtime:intents` | `cmd.orders.<PORTFOLIO_ID>` | Paper/mock only in Stage 1B. |
+| Paper ACKs | `finam_imoexf_paper:runtime:paper_acks` | `cmd.acks.<PORTFOLIO_ID>` | Exact request-id parity required. |
+| Paper orders | `finam_imoexf_paper:runtime:orders_paper_only` | ALOR broker order snapshots | Paper-only, no endpoint send. |
+| Paper trades | `finam_imoexf_paper:runtime:trades_paper_only` | ALOR broker trades | Paper-only. |
+| Paper positions | `finam_imoexf_paper:runtime:positions_paper_only` | ALOR broker snapshots/positions | Target-symbol truth only. |
+| Publish batches | `finam_imoexf_paper:runtime:publish_batches` | n/a | Idempotent batch markers. |
+| Runtime DLQ | `finam_imoexf_paper:runtime:dlq` | n/a | Redacted DLQ, XACK after DLQ publish. |
+| Riskgate ledger | `finam_imoexf_paper:runtime:riskgate:sessions:*` | ALOR riskgate session stream | Seed bridge now; real ledger integration later. |
+
+Operational policies:
+
+- use `XREADGROUP` for normal consumption;
+- use `XAUTOCLAIM` for stale pending recovery;
+- `XPENDING` count must be part of evidence;
+- stream retention must be bounded with `MAXLEN`/configured limits;
+- no raw payloads, secrets, live account ids, or local paths in source handoff.
 
 ## Market data contract
 
@@ -204,7 +350,8 @@ degrade readiness, revoke operator live arm if applicable, and emit audit events
 
 ## Acceptance for v1
 
-This contract is accepted when:
+Stage 1A is accepted as a spec foundation. Stage 1B hard compatibility freeze is
+accepted only when:
 
 - this field-level mapping is reviewed against ALOR runtime sources;
 - at least one fixture maps ALOR runtime state into broker-core/paper runtime
@@ -212,3 +359,44 @@ This contract is accepted when:
 - FINAM paper state and ALOR runtime state can be compared field-by-field for
   IMOEXF hybrid;
 - all divergences are classified as expected, implementation gap, or blocker.
+
+Minimum fixture set:
+
+```text
+tests/fixtures/alor_runtime_compat/
+  hybrid_flat_clean_runtime_state.json
+  hybrid_nonflat_runtime_state.json
+  hybrid_pending_entry_runtime_state.json
+  hybrid_pending_exit_runtime_state.json
+  hybrid_safe_mode_runtime_state.json
+  hybrid_riskgate_state.json
+  expected_paper_oracle_seed_flat_clean.json
+```
+
+Minimum automated checks:
+
+- ALOR runtime-state fixture -> `PaperHybridIntradayOracleSeed`;
+- seed -> `PaperLedgerSnapshot`;
+- seed + FINAM canonical M10 -> `PaperRuntimeState`;
+- selected `PaperRuntimeState.hybrid_intraday` fields match ALOR oracle fields;
+- pending/safe-mode/riskgate fields are preserved or explicitly classified as
+  unsupported blockers;
+- JSON decimal values are parsed without an `as_f64()` round trip.
+
+Minimum evidence report fields:
+
+- `source_commit`;
+- `vps_host`;
+- FINAM WS source stream;
+- FINAM runtime-state stream;
+- ALOR runtime-state stream;
+- compared bar key/timestamp;
+- OHLCV diagnostic deltas where available;
+- DLQ count;
+- consumer group `XPENDING` summary;
+- safety flags;
+- divergence classification;
+- expected/waived/blocker divergence counts;
+- final status from:
+  `Synchronized`, `ExpectedDivergenceOnly`, `BlockedDivergence`, `Unseeded`,
+  `SafetyBoundaryOpen`, `EvidenceIncomplete`.

@@ -6,7 +6,7 @@ use broker_core::event::{Bar, Quote};
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::CancelPreflightApproval;
 use broker_core::{
-    f64_to_price, BrokerAccountId, BrokerCapabilityMatrix, BrokerCommand, BrokerFreshnessConfig,
+    BrokerAccountId, BrokerCapabilityMatrix, BrokerCommand, BrokerFreshnessConfig,
     BrokerLifecycleConfig, BrokerLiveEntryScope, BrokerMarketDataLifecycleInput,
     BrokerMarketDataLifecycleSnapshot, BrokerMarketSessionState, BrokerOperationalConfig,
     BrokerOrderId, BrokerPlainMicroStopOrderWaiverPolicy, BrokerReadiness, BrokerRiskLimitConfig,
@@ -1651,6 +1651,9 @@ struct ResolvedFinamPaperRuntimeConsumeConfig {
     strategy_invocation_shadow_enabled: bool,
     strategy_warmup_bars: usize,
     alor_oracle_seed_stream: Option<String>,
+    alor_oracle_seed_required: bool,
+    alor_oracle_missing_seed_policy: String,
+    alor_oracle_risk_gate_profile_id: Option<String>,
     max_iterations: u64,
     claim_stale_ms: Option<u64>,
 }
@@ -1681,6 +1684,22 @@ struct FinamPaperRuntimeConsumeMetrics {
     last_bar_open_ts: Option<DateTime<Utc>>,
     last_ids: BTreeMap<String, String>,
     xautoclaim_last_next_ids: BTreeMap<String, String>,
+}
+
+fn finam_paper_runtime_oracle_seed_status(
+    metrics: &FinamPaperRuntimeConsumeMetrics,
+) -> &'static str {
+    if metrics.oracle_seed_applied {
+        "Applied"
+    } else if metrics.oracle_seed_error.is_some() {
+        "Error"
+    } else if metrics.oracle_seed_missing {
+        "Missing"
+    } else if metrics.oracle_seed_attempted {
+        "Empty"
+    } else {
+        "NotConfigured"
+    }
 }
 
 #[derive(Debug, Default)]
@@ -1856,6 +1875,9 @@ struct FinamPaperRuntimeConsumerFileConfig {
 #[serde(default)]
 struct FinamPaperRuntimeAlorOracleFileConfig {
     seed_stream: Option<String>,
+    seed_required: Option<bool>,
+    missing_seed_policy: Option<String>,
+    risk_gate_profile_id: Option<String>,
     runtime_state_stream: Option<String>,
 }
 
@@ -6662,7 +6684,13 @@ async fn consume_finam_paper_runtime(
     let mut metrics = FinamPaperRuntimeConsumeMetrics::default();
     if let Some(seed_stream) = resolved.alor_oracle_seed_stream.as_deref() {
         metrics.oracle_seed_attempted = true;
-        match finam_paper_runtime_latest_alor_oracle_seed(&mut manager, seed_stream).await {
+        match finam_paper_runtime_latest_alor_oracle_seed(
+            &mut manager,
+            seed_stream,
+            resolved.alor_oracle_risk_gate_profile_id.as_deref(),
+        )
+        .await
+        {
             Ok(Some(seed)) => {
                 adapter
                     .apply_hybrid_intraday_oracle_seed(seed, Utc::now())
@@ -6671,11 +6699,26 @@ async fn consume_finam_paper_runtime(
             }
             Ok(None) => {
                 metrics.oracle_seed_missing = true;
+                if resolved.alor_oracle_seed_required {
+                    anyhow::bail!(
+                        "FINAM paper runtime ALOR oracle seed required but missing in stream {seed_stream}"
+                    );
+                }
             }
             Err(error) => {
-                metrics.oracle_seed_error = Some(error.to_string());
+                let message = error.to_string();
+                metrics.oracle_seed_error = Some(message.clone());
+                if resolved.alor_oracle_seed_required {
+                    anyhow::bail!(
+                        "FINAM paper runtime ALOR oracle seed required but failed: {message}"
+                    );
+                }
             }
         }
+    } else if resolved.alor_oracle_seed_required {
+        anyhow::bail!(
+            "FINAM paper runtime ALOR oracle seed_required=true but seed_stream is not configured"
+        );
     }
     let mut runtime_loop = PaperRuntimeAdapterLoop::new(bar_publisher, adapter)
         .context("FINAM paper runtime loop config rejected")?;
@@ -6812,6 +6855,9 @@ async fn consume_finam_paper_runtime(
             "runtime_batches_published": metrics.runtime_batches_published,
             "runtime_records_published": metrics.runtime_records_published,
             "oracle_seed_stream": resolved.alor_oracle_seed_stream,
+            "oracle_seed_required": resolved.alor_oracle_seed_required,
+            "oracle_missing_seed_policy": resolved.alor_oracle_missing_seed_policy,
+            "oracle_seed_status": finam_paper_runtime_oracle_seed_status(&metrics),
             "oracle_seed_attempted": metrics.oracle_seed_attempted,
             "oracle_seed_applied": metrics.oracle_seed_applied,
             "oracle_seed_missing": metrics.oracle_seed_missing,
@@ -8941,6 +8987,7 @@ async fn finam_paper_runtime_first_bar_instrument(
 async fn finam_paper_runtime_latest_alor_oracle_seed(
     manager: &mut redis::aio::ConnectionManager,
     seed_stream: &str,
+    risk_gate_profile_id: Option<&str>,
 ) -> Result<Option<PaperHybridIntradayOracleSeed>> {
     let reply: StreamRangeReply = redis::cmd("XREVRANGE")
         .arg(seed_stream)
@@ -8959,7 +9006,13 @@ async fn finam_paper_runtime_latest_alor_oracle_seed(
     };
     let value: serde_json::Value = serde_json::from_str(&payload)
         .context("FINAM paper runtime oracle seed payload is not JSON")?;
-    Ok(Some(alor_runtime_state_to_paper_oracle_seed(&value)?))
+    let mut seed = alor_runtime_state_to_paper_oracle_seed(&value)?;
+    if seed.risk_gate_profile_id.is_none() {
+        seed.risk_gate_profile_id = risk_gate_profile_id
+            .filter(|value| !value.trim().is_empty())
+            .map(ToOwned::to_owned);
+    }
+    Ok(Some(seed))
 }
 
 fn alor_runtime_state_to_paper_oracle_seed(
@@ -8979,6 +9032,17 @@ fn alor_runtime_state_to_paper_oracle_seed(
         last_position_qty: json_opt_price(hybrid, "last_position_qty"),
         current_owner: json_opt_string(hybrid, "current_owner"),
         current_side: json_opt_string(hybrid, "current_side"),
+        pending_entry_owner: json_opt_string(hybrid, "pending_entry_owner"),
+        pending_entry_side: json_opt_string(hybrid, "pending_entry_side"),
+        pending_entry_cycle_id: json_opt_string(hybrid, "pending_entry_cycle_id"),
+        pending_entry_request_id: json_opt_string(hybrid, "pending_entry_request_id"),
+        pending_exit_request_id: json_opt_string(hybrid, "pending_exit_request_id"),
+        tp_order_id: json_opt_string(hybrid, "tp_order_id"),
+        sl_stop_order_id: json_opt_string(hybrid, "sl_stop_order_id"),
+        mr_take_price: json_opt_price(hybrid, "mr_take_price"),
+        mr_stop_price: json_opt_price(hybrid, "mr_stop_price"),
+        safe_mode_close_only: json_opt_bool(hybrid, "safe_mode_close_only"),
+        safe_mode_reason: json_opt_string(hybrid, "safe_mode_reason"),
         prev_day_close: json_opt_price(hybrid, "prev_day_close"),
         prev_day_range: json_opt_price(hybrid, "prev_day_range"),
         prev_day_return: json_opt_price(hybrid, "prev_day_return"),
@@ -8989,6 +9053,8 @@ fn alor_runtime_state_to_paper_oracle_seed(
         current_day_close: json_opt_price(hybrid, "current_day_close"),
         was_long_today: json_opt_bool(hybrid, "was_long_today"),
         was_short_today: json_opt_bool(hybrid, "was_short_today"),
+        overnight_exit_armed_date: json_opt_string(hybrid, "overnight_exit_armed_date"),
+        risk_gate_profile_id: json_opt_string(hybrid, "risk_gate_profile_id"),
         risk_gate_shadow_session_date: json_opt_string(hybrid, "risk_gate_shadow_session_date"),
         risk_gate_shadow_pnl_points: json_opt_price(hybrid, "risk_gate_shadow_pnl_points"),
         risk_gate_shadow_trade_count: json_opt_u32(hybrid, "risk_gate_shadow_trade_count"),
@@ -9037,8 +9103,8 @@ fn json_opt_usize(value: &serde_json::Value, key: &str) -> Option<usize> {
 
 fn json_opt_price(value: &serde_json::Value, key: &str) -> Option<rust_decimal::Decimal> {
     let value = value.get(key)?;
-    if let Some(number) = value.as_f64() {
-        return f64_to_price(number);
+    if let Some(number) = value.as_number() {
+        return rust_decimal::Decimal::from_str(&number.to_string()).ok();
     }
     value
         .as_str()
@@ -9379,6 +9445,18 @@ fn resolve_finam_paper_runtime_consume_config(
     let strategy = file_config.strategy.unwrap_or_default();
     let canonical = file_config.canonical_10m.unwrap_or_default();
     let alor_oracle = file_config.alor_oracle.unwrap_or_default();
+    let alor_oracle_seed_required = alor_oracle.seed_required.unwrap_or(false);
+    let alor_oracle_missing_seed_policy = non_empty_option_or_default(
+        alor_oracle.missing_seed_policy,
+        if alor_oracle_seed_required {
+            "BlockParityRun"
+        } else {
+            "ReportUnseededBridge"
+        },
+    );
+    let alor_oracle_risk_gate_profile_id = alor_oracle
+        .risk_gate_profile_id
+        .filter(|value| !value.trim().is_empty());
     let retention = file_config.retention.unwrap_or_default();
     let streams = PaperRuntimeStreams::finam_imoexf_paper();
     let runtime_state_stream = non_empty_option_or_default(
@@ -9450,6 +9528,9 @@ fn resolve_finam_paper_runtime_consume_config(
         alor_oracle_seed_stream: alor_oracle
             .seed_stream
             .filter(|value| !value.trim().is_empty()),
+        alor_oracle_seed_required,
+        alor_oracle_missing_seed_policy,
+        alor_oracle_risk_gate_profile_id,
         max_iterations: args.max_iterations.max(1),
         claim_stale_ms: args.claim_stale_ms,
     })
@@ -10513,6 +10594,71 @@ mod tests {
     fn timeframe_seconds_rejects_unknown_timeframe() {
         assert_eq!(timeframe_seconds("TIME_FRAME_M1").expect("m1"), 60);
         assert!(timeframe_seconds("TIME_FRAME_UNKNOWN").is_err());
+    }
+
+    #[test]
+    fn alor_runtime_fixture_maps_pending_entry_to_paper_oracle_seed() {
+        let payload: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/alor_runtime_compat/hybrid_pending_entry_runtime_state.json"
+        ))
+        .expect("fixture parses");
+
+        let seed = alor_runtime_state_to_paper_oracle_seed(&payload).expect("seed maps");
+
+        assert_eq!(seed.next_cycle_seq, Some(20));
+        assert_eq!(seed.pending_entry_owner.as_deref(), Some("mean_reversion"));
+        assert_eq!(seed.pending_entry_side.as_deref(), Some("long"));
+        assert_eq!(
+            seed.pending_entry_cycle_id.as_deref(),
+            Some("cycle-pending-entry")
+        );
+        assert_eq!(
+            seed.pending_entry_request_id.as_deref(),
+            Some("request-pending-entry")
+        );
+        assert_eq!(
+            seed.risk_gate_profile_id.as_deref(),
+            Some("synthetic_profile")
+        );
+        assert_eq!(
+            seed.risk_gate_rolling_sum_lb120
+                .expect("rolling sum")
+                .to_string(),
+            "158.6"
+        );
+    }
+
+    #[test]
+    fn alor_runtime_decimal_values_parse_without_f64_api() {
+        let payload: serde_json::Value = serde_json::from_str(
+            r#"{
+              "payload": {
+                "strategy_state": {
+                  "payload": {
+                    "HybridIntradayRuntime": {
+                      "last_position_qty": 0,
+                      "prev_day_return": "0.123456789123456789",
+                      "risk_gate_rolling_sum_lb120": 158.6
+                    }
+                  }
+                }
+              }
+            }"#,
+        )
+        .expect("payload parses");
+
+        let seed = alor_runtime_state_to_paper_oracle_seed(&payload).expect("seed maps");
+
+        assert_eq!(
+            seed.prev_day_return.expect("prev_day_return").to_string(),
+            "0.123456789123456789"
+        );
+        assert_eq!(
+            seed.risk_gate_rolling_sum_lb120
+                .expect("rolling sum")
+                .to_string(),
+            "158.6"
+        );
     }
 
     #[test]

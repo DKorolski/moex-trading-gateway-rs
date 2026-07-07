@@ -18,17 +18,37 @@ finam_imoexf_paper:oracle:alor_runtime_state
 The seed is read once on paper consumer startup and applied before processing
 new FINAM market-data entries.
 
+For acceptance/evidence runs the seed must be configured as required:
+
+```json
+{
+  "alor_oracle": {
+    "seed_required": true,
+    "missing_seed_policy": "BlockParityRun"
+  }
+}
+```
+
+If the seed is missing or cannot be parsed, the parity run must fail or report a
+blocked status. Exploratory runs may set `seed_required=false`, but then the
+status is only an unseeded bridge diagnostic.
+
 Seeded fields:
 
 - `next_cycle_seq`;
 - `last_position_qty`;
 - owner/side context;
+- pending entry/exit request ids and pending entry owner/side/cycle;
+- TP/SL id placeholders when present;
+- MR take/stop prices when present;
+- safe-mode close-only flag/reason;
 - previous-day close/range/return;
 - day-before close;
 - current-day high/low/close;
 - `today_start_local`;
 - day position flags;
 - riskgate session date;
+- riskgate profile id;
 - riskgate shadow pnl/trade count;
 - MR enabled flag;
 - rolling LB120 sum;
@@ -110,6 +130,8 @@ For runtime-state field parity, use:
 python3 scripts/m4_3x_runtime_state_parity_evidence.py \
   --finam-redis-cli-prefix "ssh root@VPS 'docker exec moex-trading-project-redis redis-cli --raw'" \
   --alor-redis-cli-prefix "ssh root@VPS 'docker exec trading-hybrid-redis-1 redis-cli --raw'" \
+  --vps-host "<VPS_HOST>" \
+  --seed-required \
   --output reports/parity/finam-vs-alor-runtime-state/YYYY-MM-DD.json
 ```
 
@@ -119,6 +141,17 @@ payloads.
 Minimum fields:
 
 - source commit;
+- VPS host label;
+- FINAM WS source stream;
+- FINAM runtime-state stream;
+- ALOR runtime-state stream;
+- compared M10 bar key/timestamp;
+- OHLCV diagnostic deltas where available;
+- DLQ count;
+- consumer group pending count;
+- divergence classification;
+- expected/waived/blocker divergence counts;
+- safety flags.
 - VPS host;
 - FINAM WS source stream;
 - FINAM paper runtime state stream;

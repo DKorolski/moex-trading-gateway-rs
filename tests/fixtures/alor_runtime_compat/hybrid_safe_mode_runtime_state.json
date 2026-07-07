@@ -1,0 +1,23 @@
+{
+  "schema_version": 2,
+  "payload": {
+    "strategy_state": {
+      "payload": {
+        "HybridIntradayRuntime": {
+          "active_cycle_id": "cycle-dirty",
+          "next_cycle_seq": 22,
+          "last_position_qty": "-1",
+          "current_owner": "intraday_breakout",
+          "current_side": "short",
+          "safe_mode_close_only": true,
+          "safe_mode_reason": "synthetic_dirty_start",
+          "manual_intervention_required": true,
+          "risk_gate_profile_id": "synthetic_profile",
+          "risk_gate_mr_enabled_current_session": false,
+          "risk_gate_rolling_sum_lb120": "-1.5",
+          "risk_gate_ledger_rows_count": 223
+        }
+      }
+    }
+  }
+}
