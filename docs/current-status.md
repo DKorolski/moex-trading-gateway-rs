@@ -53,13 +53,14 @@ Stage split:
   `HybridIntradayRuntime` paper/shadow parity: field-by-field mappings, Redis
   stream/group mapping, fixtures, seed-required policy, accepted ADR, and
   stronger evidence.
-- Stage 2A is now active: runtime source migration inventory and plan for the
-  accepted broker-neutral `BrokerOrderId(String)` path.
-- Stage 2A-final inventory completion is under review. It adds concrete
-  `HybridIntradayRuntime`, `trade_ledger`, runtime command-builder, and
-  ALOR cancel/replace DTO surfaces to the migration inventory. Stage 2B remains
-  blocked until this inventory and a separate Stage 2B implementation plan are
-  accepted.
+- Stage 2A is accepted and closed: runtime source migration inventory and plan
+  for the accepted broker-neutral `BrokerOrderId(String)` path are complete.
+- Stage 2A-final inventory completion added concrete `HybridIntradayRuntime`,
+  `trade_ledger`, runtime command-builder, and ALOR cancel/replace DTO surfaces
+  to the migration inventory.
+- Stage 2B is planning-only until
+  `docs/stage-2b-runtime-source-migration-implementation-plan.md` is accepted;
+  implementation remains blocked.
 
 Green / mostly closed:
 
@@ -85,8 +86,8 @@ Amber:
   real ALOR hybrid BO/MR orchestrator.
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
-- Stage 2A is design/prep only. Stage 2B implementation still requires a
-  separate accepted implementation plan and fixture-backed parity tests.
+- Stage 2B implementation still requires a separate accepted implementation
+  plan and fixture-backed parity tests.
 
 Red / not yet implemented:
 
