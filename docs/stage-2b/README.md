@@ -126,3 +126,18 @@ Acceptance note:
 Acceptance note:
 
 [`2b-5-runtime-caches-ownership-tracking.md`](2b-5-runtime-caches-ownership-tracking.md)
+
+`2B-5a` hardens explicit order ownership attribution:
+
+- `apply_order_event()` treats events as observed/account-wide by default;
+- runtime-owned orders require explicit `RuntimeOwned` attribution;
+- bootstrap adoption requires explicit `AdoptedFromBootstrap` attribution;
+- `UnknownOrOrphan` orders remain observed and produce a blocker;
+- `observed_order_ids` and `owned_order_ids` are separate;
+- `tracked_order_ids()` returns only owned/adopted ids;
+- trades for observed orders are known but not strategy-owned;
+- keep Stage 2B paper/mock/local and live send paths disabled.
+
+Acceptance note:
+
+[`2b-5a-runtime-cache-ownership-attribution.md`](2b-5a-runtime-cache-ownership-attribution.md)

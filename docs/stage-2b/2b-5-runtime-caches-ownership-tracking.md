@@ -1,12 +1,18 @@
 # Stage 2B-5 — RuntimeCaches / ownership tracking
 
-Status: implementation patch ready for review.
+Status: accepted.
 
 Date: 2026-07-07.
 
 ## What changed
 
-Stage 2B-5 adds passive broker-neutral runtime cache primitives:
+Stage 2B-5 adds passive broker-neutral runtime cache primitives.
+
+Ownership attribution is hardened separately in Stage 2B-5a. No real
+broker-truth or account-wide order stream may treat an observed cache event as
+proof of runtime ownership without explicit attribution.
+
+Stage 2B-5 primitives:
 
 - `RuntimeCaches`;
 - `RuntimePendingPath`;

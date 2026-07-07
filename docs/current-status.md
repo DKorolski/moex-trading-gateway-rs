@@ -77,8 +77,10 @@ Stage split:
 - Stage 2B-4 is accepted as CommandAck / OrderEvent / TradeEvent lifecycle
   boundary foundation.
 - Stage 2B-4a is accepted: explicit ACK status policy hardening is complete.
-- Active patch is Stage 2B-5: RuntimeCaches / ownership tracking, still
-  paper/mock/local only.
+- Stage 2B-5 is accepted as passive RuntimeCaches / ownership tracking
+  foundation.
+- Active patch is Stage 2B-5a: explicit order ownership / attribution
+  hardening, still paper/mock/local only.
 
 Green / mostly closed:
 

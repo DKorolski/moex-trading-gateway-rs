@@ -133,10 +133,11 @@ pub use runtime_state::{
     RuntimeAckPendingDisposition, RuntimeAckStatusPolicy, RuntimeBootstrapSnapshotDto,
     RuntimeBrokerEventDeduplicator, RuntimeBrokerEventReplayDisposition,
     RuntimeCacheApplyDisposition, RuntimeCacheLifecycleBlocker, RuntimeCacheOrderApplyOutcome,
-    RuntimeCacheTradeApplyOutcome, RuntimeCaches, RuntimeCommandAckDto, RuntimeOrderEvent,
-    RuntimeOrderEventLifecycle, RuntimeOrderEventLifecycleClassification, RuntimePendingPath,
-    RuntimePendingRequestIdentity, RuntimeStateReadinessBlocker, RuntimeStateReadinessBlockerKind,
-    RuntimeStateSnapshot, RuntimeStateValidationError, RuntimeTradeCacheTarget, RuntimeTradeEvent,
-    ValidatedRuntimeBootstrapSnapshotDto, ValidatedRuntimeStateSnapshot,
+    RuntimeCacheTradeApplyOutcome, RuntimeCaches, RuntimeCommandAckDto, RuntimeOrderAttribution,
+    RuntimeOrderEvent, RuntimeOrderEventLifecycle, RuntimeOrderEventLifecycleClassification,
+    RuntimePendingPath, RuntimePendingRequestIdentity, RuntimeStateReadinessBlocker,
+    RuntimeStateReadinessBlockerKind, RuntimeStateSnapshot, RuntimeStateValidationError,
+    RuntimeTradeCacheTarget, RuntimeTradeEvent, ValidatedRuntimeBootstrapSnapshotDto,
+    ValidatedRuntimeStateSnapshot,
 };
 pub use subscription::{SubscriptionIntent, SubscriptionKind, SubscriptionState};

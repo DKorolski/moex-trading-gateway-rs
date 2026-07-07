@@ -602,6 +602,8 @@ pub struct RuntimeCaches {
     #[serde(default)]
     pub owned_order_ids: HashSet<BrokerOrderId>,
     #[serde(default)]
+    pub observed_order_ids: HashSet<BrokerOrderId>,
+    #[serde(default)]
     pub trades_by_order_id: HashMap<BrokerOrderId, Vec<RuntimeTradeEvent>>,
     #[serde(default)]
     pub pending_trades_by_order_id: HashMap<BrokerOrderId, Vec<RuntimeTradeEvent>>,
@@ -620,6 +622,7 @@ impl RuntimeCaches {
         let snapshot = validated.snapshot;
         Self {
             owned_order_ids: snapshot.known_order_ids.into_iter().collect(),
+            observed_order_ids: snapshot.orders.keys().cloned().collect(),
             orders: snapshot.orders,
             trades_by_order_id: group_trades_by_order_id(snapshot.trades),
             pending_trades_by_order_id: HashMap::new(),
@@ -651,10 +654,38 @@ impl RuntimeCaches {
     }
 
     pub fn apply_order_event(&mut self, event: RuntimeOrderEvent) -> RuntimeCacheOrderApplyOutcome {
+        self.apply_order_event_with_attribution(event, RuntimeOrderAttribution::ObservedAccountWide)
+    }
+
+    pub fn apply_owned_order_event(
+        &mut self,
+        event: RuntimeOrderEvent,
+    ) -> RuntimeCacheOrderApplyOutcome {
+        self.apply_order_event_with_attribution(event, RuntimeOrderAttribution::RuntimeOwned)
+    }
+
+    pub fn apply_adopted_bootstrap_order_event(
+        &mut self,
+        event: RuntimeOrderEvent,
+    ) -> RuntimeCacheOrderApplyOutcome {
+        self.apply_order_event_with_attribution(
+            event,
+            RuntimeOrderAttribution::AdoptedFromBootstrap,
+        )
+    }
+
+    pub fn apply_order_event_with_attribution(
+        &mut self,
+        event: RuntimeOrderEvent,
+        attribution: RuntimeOrderAttribution,
+    ) -> RuntimeCacheOrderApplyOutcome {
         let order_id = event.order_id.clone();
         let lifecycle = event.lifecycle_classification().lifecycle;
-        let lifecycle_blocker = (lifecycle == RuntimeOrderEventLifecycle::Unknown)
+        let mut lifecycle_blocker = (lifecycle == RuntimeOrderEventLifecycle::Unknown)
             .then_some(RuntimeCacheLifecycleBlocker::UnknownOrderLifecycle);
+        if attribution == RuntimeOrderAttribution::UnknownOrOrphan && lifecycle_blocker.is_none() {
+            lifecycle_blocker = Some(RuntimeCacheLifecycleBlocker::UnknownOrOrphanOwnership);
+        }
         let disposition = match self.orders.get(&order_id) {
             Some(existing) if existing == &event => {
                 RuntimeCacheApplyDisposition::DuplicateIdempotent
@@ -666,7 +697,10 @@ impl RuntimeCaches {
         if disposition != RuntimeCacheApplyDisposition::DuplicateIdempotent {
             self.orders.insert(order_id.clone(), event);
         }
-        self.owned_order_ids.insert(order_id.clone());
+        self.observed_order_ids.insert(order_id.clone());
+        if attribution.is_owned() {
+            self.owned_order_ids.insert(order_id.clone());
+        }
 
         let reconciled_pending_trade_count =
             if let Some(pending_trades) = self.pending_trades_by_order_id.remove(&order_id) {
@@ -684,24 +718,28 @@ impl RuntimeCaches {
 
         RuntimeCacheOrderApplyOutcome {
             broker_order_id_len: order_id.as_str().len(),
+            attribution,
             disposition,
             lifecycle,
             lifecycle_blocker,
             tracked_order_count: self.owned_order_ids.len(),
+            observed_order_count: self.observed_order_ids.len(),
             reconciled_pending_trade_count,
         }
     }
 
     pub fn apply_trade_event(&mut self, event: RuntimeTradeEvent) -> RuntimeCacheTradeApplyOutcome {
         let order_id = event.order_id.clone();
-        let target =
-            if self.orders.contains_key(&order_id) || self.owned_order_ids.contains(&order_id) {
-                RuntimeTradeCacheTarget::KnownOrder
-            } else {
-                RuntimeTradeCacheTarget::PendingOrderEvent
-            };
+        let target = if self.owned_order_ids.contains(&order_id) {
+            RuntimeTradeCacheTarget::OwnedOrder
+        } else if self.orders.contains_key(&order_id) || self.observed_order_ids.contains(&order_id)
+        {
+            RuntimeTradeCacheTarget::KnownOrder
+        } else {
+            RuntimeTradeCacheTarget::PendingOrderEvent
+        };
         let trades = match target {
-            RuntimeTradeCacheTarget::KnownOrder => {
+            RuntimeTradeCacheTarget::OwnedOrder | RuntimeTradeCacheTarget::KnownOrder => {
                 self.trades_by_order_id.entry(order_id.clone()).or_default()
             }
             RuntimeTradeCacheTarget::PendingOrderEvent => self
@@ -759,6 +797,24 @@ pub enum RuntimePendingPath {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum RuntimeOrderAttribution {
+    RuntimeOwned,
+    AdoptedFromBootstrap,
+    ObservedAccountWide,
+    UnknownOrOrphan,
+}
+
+impl RuntimeOrderAttribution {
+    fn is_owned(self) -> bool {
+        matches!(
+            self,
+            RuntimeOrderAttribution::RuntimeOwned | RuntimeOrderAttribution::AdoptedFromBootstrap
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RuntimeCacheApplyDisposition {
     Inserted,
     Updated,
@@ -769,11 +825,13 @@ pub enum RuntimeCacheApplyDisposition {
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeCacheLifecycleBlocker {
     UnknownOrderLifecycle,
+    UnknownOrOrphanOwnership,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeTradeCacheTarget {
+    OwnedOrder,
     KnownOrder,
     PendingOrderEvent,
 }
@@ -781,11 +839,13 @@ pub enum RuntimeTradeCacheTarget {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeCacheOrderApplyOutcome {
     pub broker_order_id_len: usize,
+    pub attribution: RuntimeOrderAttribution,
     pub disposition: RuntimeCacheApplyDisposition,
     pub lifecycle: RuntimeOrderEventLifecycle,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lifecycle_blocker: Option<RuntimeCacheLifecycleBlocker>,
     pub tracked_order_count: usize,
+    pub observed_order_count: usize,
     pub reconciled_pending_trade_count: usize,
 }
 
@@ -1529,9 +1589,10 @@ mod tests {
             source_ts: None,
         };
 
-        let outcome = caches.apply_order_event(order);
+        let outcome = caches.apply_owned_order_event(order);
 
         assert_eq!(outcome.disposition, RuntimeCacheApplyDisposition::Inserted);
+        assert_eq!(outcome.attribution, RuntimeOrderAttribution::RuntimeOwned);
         assert_eq!(outcome.lifecycle, RuntimeOrderEventLifecycle::Active);
         assert_eq!(
             caches
@@ -1583,6 +1644,48 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["2033126389943253218"]
         );
+        assert_eq!(
+            caches
+                .observed_order_ids
+                .iter()
+                .map(BrokerOrderId::as_str)
+                .collect::<Vec<_>>(),
+            vec!["2033126389943253218"]
+        );
+    }
+
+    #[test]
+    fn from_validated_state_tracks_known_order_ids_only_not_all_observed_orders() {
+        let state = serde_json::from_str::<RuntimeStateSnapshot>(
+            r#"{
+                "orders":{
+                    "KNOWN-ORDER-065":{"order_id":"KNOWN-ORDER-065","status":"working"},
+                    "OBSERVED-ORDER-065":{"order_id":"OBSERVED-ORDER-065","status":"working"}
+                },
+                "known_order_ids":["KNOWN-ORDER-065"]
+            }"#,
+        )
+        .expect("state imports");
+        let caches = RuntimeCaches::from_validated_state(
+            state
+                .validate_for_runtime_restore()
+                .expect("state validates"),
+        );
+
+        assert_eq!(
+            caches
+                .tracked_order_ids()
+                .iter()
+                .map(BrokerOrderId::as_str)
+                .collect::<Vec<_>>(),
+            vec!["KNOWN-ORDER-065"]
+        );
+        assert!(caches
+            .observed_order_ids
+            .contains(&BrokerOrderId::new("OBSERVED-ORDER-065")));
+        assert!(!caches
+            .owned_order_ids
+            .contains(&BrokerOrderId::new("OBSERVED-ORDER-065")));
     }
 
     #[test]
@@ -1599,38 +1702,130 @@ mod tests {
             source_ts: None,
         };
 
+        let first = caches.apply_order_event(order.clone());
+        let duplicate = caches.apply_order_event(order);
+
+        assert_eq!(first.disposition, RuntimeCacheApplyDisposition::Inserted);
         assert_eq!(
-            caches.apply_order_event(order.clone()).disposition,
-            RuntimeCacheApplyDisposition::Inserted
+            first.attribution,
+            RuntimeOrderAttribution::ObservedAccountWide
         );
         assert_eq!(
-            caches.apply_order_event(order).disposition,
+            duplicate.disposition,
             RuntimeCacheApplyDisposition::DuplicateIdempotent
         );
         assert_eq!(caches.orders.len(), 1);
-        assert_eq!(caches.owned_order_ids.len(), 1);
+        assert_eq!(caches.observed_order_ids.len(), 1);
+        assert_eq!(caches.owned_order_ids.len(), 0);
     }
 
     #[test]
     fn unknown_lifecycle_order_event_stays_blocking_not_terminal_clean() {
         let mut caches = RuntimeCaches::new();
-        let outcome = caches.apply_order_event(RuntimeOrderEvent {
-            order_id: BrokerOrderId::new("FINAM-ORDER-UNKNOWN-062"),
-            client_order_id: None,
-            symbol: Some("IMOEXF".to_string()),
-            exchange: None,
-            status: Some("broker_new_status".to_string()),
-            side: None,
-            order_type: None,
-            source_ts: None,
-        });
+        let outcome = caches.apply_order_event_with_attribution(
+            RuntimeOrderEvent {
+                order_id: BrokerOrderId::new("FINAM-ORDER-UNKNOWN-062"),
+                client_order_id: None,
+                symbol: Some("IMOEXF".to_string()),
+                exchange: None,
+                status: Some("broker_new_status".to_string()),
+                side: None,
+                order_type: None,
+                source_ts: None,
+            },
+            RuntimeOrderAttribution::UnknownOrOrphan,
+        );
 
+        assert_eq!(
+            outcome.attribution,
+            RuntimeOrderAttribution::UnknownOrOrphan
+        );
         assert_eq!(outcome.lifecycle, RuntimeOrderEventLifecycle::Unknown);
         assert_eq!(
             outcome.lifecycle_blocker,
             Some(RuntimeCacheLifecycleBlocker::UnknownOrderLifecycle)
         );
         assert_ne!(outcome.lifecycle, RuntimeOrderEventLifecycle::Terminal);
+        assert!(caches.tracked_order_ids().is_empty());
+    }
+
+    #[test]
+    fn observed_order_event_does_not_become_tracked_order_id() {
+        let mut caches = RuntimeCaches::new();
+        let outcome = caches.apply_order_event(RuntimeOrderEvent {
+            order_id: BrokerOrderId::new("FINAM-ORDER-OBSERVED-066"),
+            client_order_id: None,
+            symbol: Some("IMOEXF".to_string()),
+            exchange: None,
+            status: Some("working".to_string()),
+            side: None,
+            order_type: None,
+            source_ts: None,
+        });
+
+        assert_eq!(
+            outcome.attribution,
+            RuntimeOrderAttribution::ObservedAccountWide
+        );
+        assert_eq!(outcome.tracked_order_count, 0);
+        assert_eq!(outcome.observed_order_count, 1);
+        assert!(caches.tracked_order_ids().is_empty());
+        assert!(caches
+            .observed_order_ids
+            .contains(&BrokerOrderId::new("FINAM-ORDER-OBSERVED-066")));
+    }
+
+    #[test]
+    fn unknown_or_orphan_order_event_sets_blocker_and_is_not_owned_even_when_status_known() {
+        let mut caches = RuntimeCaches::new();
+        let outcome = caches.apply_order_event_with_attribution(
+            RuntimeOrderEvent {
+                order_id: BrokerOrderId::new("FINAM-ORDER-ORPHAN-069"),
+                client_order_id: None,
+                symbol: Some("IMOEXF".to_string()),
+                exchange: None,
+                status: Some("working".to_string()),
+                side: None,
+                order_type: None,
+                source_ts: None,
+            },
+            RuntimeOrderAttribution::UnknownOrOrphan,
+        );
+
+        assert_eq!(outcome.lifecycle, RuntimeOrderEventLifecycle::Active);
+        assert_eq!(
+            outcome.lifecycle_blocker,
+            Some(RuntimeCacheLifecycleBlocker::UnknownOrOrphanOwnership)
+        );
+        assert!(caches.tracked_order_ids().is_empty());
+    }
+
+    #[test]
+    fn adopted_bootstrap_order_event_becomes_tracked_order_id_only_when_explicit() {
+        let mut caches = RuntimeCaches::new();
+        let outcome = caches.apply_adopted_bootstrap_order_event(RuntimeOrderEvent {
+            order_id: BrokerOrderId::new("FINAM-ORDER-ADOPTED-067"),
+            client_order_id: None,
+            symbol: Some("IMOEXF".to_string()),
+            exchange: None,
+            status: Some("working".to_string()),
+            side: None,
+            order_type: None,
+            source_ts: None,
+        });
+
+        assert_eq!(
+            outcome.attribution,
+            RuntimeOrderAttribution::AdoptedFromBootstrap
+        );
+        assert_eq!(
+            caches
+                .tracked_order_ids()
+                .iter()
+                .map(BrokerOrderId::as_str)
+                .collect::<Vec<_>>(),
+            vec!["FINAM-ORDER-ADOPTED-067"]
+        );
     }
 
     #[test]
@@ -1665,7 +1860,7 @@ mod tests {
             RuntimeCacheApplyDisposition::DuplicateIdempotent
         );
 
-        let order_outcome = caches.apply_order_event(RuntimeOrderEvent {
+        let order_outcome = caches.apply_owned_order_event(RuntimeOrderEvent {
             order_id: BrokerOrderId::new("FINAM-ORDER-CACHE-063"),
             client_order_id: None,
             symbol: Some("IMOEXF".to_string()),
@@ -1688,6 +1883,37 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn trade_for_observed_order_is_not_strategy_attributed_without_ownership() {
+        let mut caches = RuntimeCaches::new();
+        caches.apply_order_event(RuntimeOrderEvent {
+            order_id: BrokerOrderId::new("FINAM-ORDER-OBSERVED-068"),
+            client_order_id: None,
+            symbol: Some("IMOEXF".to_string()),
+            exchange: None,
+            status: Some("working".to_string()),
+            side: None,
+            order_type: None,
+            source_ts: None,
+        });
+
+        let outcome = caches.apply_trade_event(RuntimeTradeEvent {
+            trade_id: BrokerTradeId::new("FINAM-TRADE-OBSERVED-068"),
+            order_id: BrokerOrderId::new("FINAM-ORDER-OBSERVED-068"),
+            client_order_id: None,
+            symbol: Some("IMOEXF".to_string()),
+            exchange: None,
+            side: Some("buy".to_string()),
+            source_ts: None,
+        });
+
+        assert_eq!(outcome.target, RuntimeTradeCacheTarget::KnownOrder);
+        assert!(caches.tracked_order_ids().is_empty());
+        assert!(!caches
+            .owned_order_ids
+            .contains(&BrokerOrderId::new("FINAM-ORDER-OBSERVED-068")));
     }
 
     #[test]
