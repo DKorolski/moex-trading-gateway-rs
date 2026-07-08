@@ -183,3 +183,18 @@ Acceptance note:
 Acceptance note:
 
 [`2b-6-trade-ledger-broker-neutral-migration.md`](2b-6-trade-ledger-broker-neutral-migration.md)
+
+`2B-6a` hardens TradeLedger lifecycle/replay semantics:
+
+- `blockers()` / `active_blockers()` now represent current active blockers;
+- `blocker_history()` preserves audit history separately;
+- pending exact-match blockers resolve after the exact owned order appears;
+- pending blockers turn into observed-order blockers when the exact order is
+  account-wide/observed, not strategy-owned;
+- duplicate `Some(BrokerTradeId) + BrokerOrderId` fills are idempotent and do
+  not double-apply position/PnL;
+- keep Stage 2B paper/mock/local and live send paths disabled.
+
+Acceptance note:
+
+[`2b-6a-trade-ledger-blocker-dedup-hardening.md`](2b-6a-trade-ledger-blocker-dedup-hardening.md)

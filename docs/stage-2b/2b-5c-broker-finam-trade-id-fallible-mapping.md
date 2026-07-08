@@ -1,6 +1,6 @@
 # Stage 2B-5c — broker-finam trade_id fallible mapping
 
-Status: implementation patch ready for review.
+Status: accepted.
 
 Date: 2026-07-08.
 

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -81,6 +81,7 @@ pub enum TradeLedgerFillDisposition {
     StrategyAttributed,
     ObservedOnly,
     PendingExactBrokerOrderMatch,
+    DuplicateIdempotent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,13 +97,21 @@ pub struct TradeLedgerOrderApplyOutcome {
     pub observed_pending_trades: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+struct TradeLedgerTradeKey {
+    trade_id: BrokerTradeId,
+    order_id: BrokerOrderId,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TradeLedger {
     orders: HashMap<BrokerOrderId, OrderRecord>,
     trades: Vec<TradeRecord>,
     observed_trades: Vec<TradeRecord>,
     pending_trades_by_order_id: HashMap<BrokerOrderId, Vec<TradeRecord>>,
-    blockers: Vec<TradeLedgerBlocker>,
+    active_blockers: Vec<TradeLedgerBlocker>,
+    blocker_history: Vec<TradeLedgerBlocker>,
+    seen_trade_keys: HashSet<TradeLedgerTradeKey>,
     closed_trades: Vec<ClosedTradeRecord>,
     realized_pnl: f64,
     position_qty: f64,
@@ -124,6 +133,12 @@ impl TradeLedger {
             .pending_trades_by_order_id
             .remove(&order_id)
             .unwrap_or_default();
+        if !pending.is_empty() {
+            self.resolve_active_blocker(
+                TradeLedgerBlockerKind::PendingExactBrokerOrderMatch,
+                &order_id,
+            );
+        }
 
         let mut adopted_pending_strategy_trades = 0;
         let mut observed_pending_trades = 0;
@@ -134,10 +149,10 @@ impl TradeLedger {
                 adopted_pending_strategy_trades += 1;
             } else {
                 self.observed_trades.push(trade);
-                self.blockers.push(TradeLedgerBlocker {
-                    kind: TradeLedgerBlockerKind::ObservedOrderNotStrategyOwned,
-                    order_id: order_id.clone(),
-                });
+                self.activate_blocker(
+                    TradeLedgerBlockerKind::ObservedOrderNotStrategyOwned,
+                    order_id.clone(),
+                );
                 observed_pending_trades += 1;
             }
         }
@@ -151,6 +166,13 @@ impl TradeLedger {
 
     pub fn record_fill(&mut self, mut trade: TradeRecord) -> TradeLedgerFillApplyOutcome {
         let order_id = trade.order_id.clone();
+        if self.mark_duplicate_if_seen(&trade) {
+            return TradeLedgerFillApplyOutcome {
+                order_id,
+                disposition: TradeLedgerFillDisposition::DuplicateIdempotent,
+            };
+        }
+
         match self.orders.get(&order_id) {
             Some(order) if order.owned => {
                 trade.owned = true;
@@ -163,10 +185,10 @@ impl TradeLedger {
             Some(_) => {
                 trade.owned = false;
                 self.observed_trades.push(trade);
-                self.blockers.push(TradeLedgerBlocker {
-                    kind: TradeLedgerBlockerKind::ObservedOrderNotStrategyOwned,
-                    order_id: order_id.clone(),
-                });
+                self.activate_blocker(
+                    TradeLedgerBlockerKind::ObservedOrderNotStrategyOwned,
+                    order_id.clone(),
+                );
                 TradeLedgerFillApplyOutcome {
                     order_id,
                     disposition: TradeLedgerFillDisposition::ObservedOnly,
@@ -177,10 +199,10 @@ impl TradeLedger {
                     .entry(order_id.clone())
                     .or_default()
                     .push(trade);
-                self.blockers.push(TradeLedgerBlocker {
-                    kind: TradeLedgerBlockerKind::PendingExactBrokerOrderMatch,
-                    order_id: order_id.clone(),
-                });
+                self.activate_blocker(
+                    TradeLedgerBlockerKind::PendingExactBrokerOrderMatch,
+                    order_id.clone(),
+                );
                 TradeLedgerFillApplyOutcome {
                     order_id,
                     disposition: TradeLedgerFillDisposition::PendingExactBrokerOrderMatch,
@@ -272,7 +294,15 @@ impl TradeLedger {
     }
 
     pub fn blockers(&self) -> &[TradeLedgerBlocker] {
-        &self.blockers
+        &self.active_blockers
+    }
+
+    pub fn active_blockers(&self) -> &[TradeLedgerBlocker] {
+        &self.active_blockers
+    }
+
+    pub fn blocker_history(&self) -> &[TradeLedgerBlocker] {
+        &self.blocker_history
     }
 
     pub fn closed_trades(&self) -> &[ClosedTradeRecord] {
@@ -282,6 +312,35 @@ impl TradeLedger {
     fn apply_owned_fill(&mut self, trade: TradeRecord) {
         self.apply_fill(&trade);
         self.trades.push(trade);
+    }
+
+    fn mark_duplicate_if_seen(&mut self, trade: &TradeRecord) -> bool {
+        let Some(trade_id) = trade.trade_id.clone() else {
+            return false;
+        };
+        let key = TradeLedgerTradeKey {
+            trade_id,
+            order_id: trade.order_id.clone(),
+        };
+        !self.seen_trade_keys.insert(key)
+    }
+
+    fn activate_blocker(&mut self, kind: TradeLedgerBlockerKind, order_id: BrokerOrderId) {
+        if self
+            .active_blockers
+            .iter()
+            .any(|blocker| blocker.kind == kind && blocker.order_id == order_id)
+        {
+            return;
+        }
+        let blocker = TradeLedgerBlocker { kind, order_id };
+        self.active_blockers.push(blocker.clone());
+        self.blocker_history.push(blocker);
+    }
+
+    fn resolve_active_blocker(&mut self, kind: TradeLedgerBlockerKind, order_id: &BrokerOrderId) {
+        self.active_blockers
+            .retain(|blocker| !(blocker.kind == kind && &blocker.order_id == order_id));
     }
 
     fn apply_fill(&mut self, trade: &TradeRecord) {
@@ -571,6 +630,123 @@ mod tests {
             TradeLedgerBlockerKind::PendingExactBrokerOrderMatch
         );
         assert_eq!(ledger.blockers()[0].order_id.as_str(), "UNKNOWN-ORDER-2B6");
+    }
+
+    #[test]
+    fn pending_trade_blocker_resolves_after_exact_owned_order_match() {
+        let mut ledger = TradeLedger::default();
+        ledger.record_fill(trade("PENDING-OWNED-2B6A", "buy", 2210.0));
+
+        assert_eq!(
+            ledger.active_blockers()[0].kind,
+            TradeLedgerBlockerKind::PendingExactBrokerOrderMatch
+        );
+
+        let outcome = ledger.record_order(order("PENDING-OWNED-2B6A", true));
+
+        assert_eq!(outcome.adopted_pending_strategy_trades, 1);
+        assert!(ledger.active_blockers().is_empty());
+        assert_eq!(ledger.blocker_history().len(), 1);
+        assert_eq!(ledger.pending_trades_total(), 0);
+    }
+
+    #[test]
+    fn pending_trade_blocker_turns_into_observed_blocker_after_exact_observed_order_match() {
+        let mut ledger = TradeLedger::default();
+        ledger.record_fill(trade("PENDING-OBSERVED-2B6A", "buy", 2210.0));
+
+        let outcome = ledger.record_order(order("PENDING-OBSERVED-2B6A", false));
+
+        assert_eq!(outcome.observed_pending_trades, 1);
+        assert_eq!(ledger.pending_trades_total(), 0);
+        assert_eq!(ledger.active_blockers().len(), 1);
+        assert_eq!(
+            ledger.active_blockers()[0].kind,
+            TradeLedgerBlockerKind::ObservedOrderNotStrategyOwned
+        );
+        assert_eq!(ledger.blocker_history().len(), 2);
+    }
+
+    #[test]
+    fn duplicate_trade_id_for_owned_order_is_idempotent_and_does_not_double_count_pnl() {
+        let mut ledger = TradeLedger::default();
+        ledger.record_order(order("ENTRY-DUP-2B6A", true));
+        ledger.record_fill(trade("ENTRY-DUP-2B6A", "buy", 100.0));
+        ledger.record_order(order("EXIT-DUP-2B6A", true));
+
+        let exit = trade("EXIT-DUP-2B6A", "sell", 110.0);
+        let first = ledger.record_fill(exit.clone());
+        let duplicate = ledger.record_fill(exit);
+
+        assert_eq!(
+            first.disposition,
+            TradeLedgerFillDisposition::StrategyAttributed
+        );
+        assert_eq!(
+            duplicate.disposition,
+            TradeLedgerFillDisposition::DuplicateIdempotent
+        );
+        assert_eq!(ledger.trades().len(), 2);
+        assert_eq!(ledger.closed_trades().len(), 1);
+        assert_eq!(ledger.closed_trades()[0].pnl_gross, 10.0);
+    }
+
+    #[test]
+    fn duplicate_trade_id_for_pending_trade_is_idempotent() {
+        let mut ledger = TradeLedger::default();
+        let pending = trade("PENDING-DUP-2B6A", "buy", 2210.0);
+
+        let first = ledger.record_fill(pending.clone());
+        let duplicate = ledger.record_fill(pending);
+
+        assert_eq!(
+            first.disposition,
+            TradeLedgerFillDisposition::PendingExactBrokerOrderMatch
+        );
+        assert_eq!(
+            duplicate.disposition,
+            TradeLedgerFillDisposition::DuplicateIdempotent
+        );
+        assert_eq!(ledger.pending_trades_total(), 1);
+        assert_eq!(ledger.active_blockers().len(), 1);
+
+        let matched = ledger.record_order(order("PENDING-DUP-2B6A", true));
+        assert_eq!(matched.adopted_pending_strategy_trades, 1);
+        assert_eq!(ledger.trades().len(), 1);
+        assert!(ledger.active_blockers().is_empty());
+    }
+
+    #[test]
+    fn duplicate_trade_id_for_observed_order_is_idempotent() {
+        let mut ledger = TradeLedger::default();
+        ledger.record_order(order("OBSERVED-DUP-2B6A", false));
+        let observed = trade("OBSERVED-DUP-2B6A", "buy", 2210.0);
+
+        let first = ledger.record_fill(observed.clone());
+        let duplicate = ledger.record_fill(observed);
+
+        assert_eq!(first.disposition, TradeLedgerFillDisposition::ObservedOnly);
+        assert_eq!(
+            duplicate.disposition,
+            TradeLedgerFillDisposition::DuplicateIdempotent
+        );
+        assert!(ledger.trades().is_empty());
+        assert_eq!(ledger.observed_trades().len(), 1);
+        assert_eq!(ledger.active_blockers().len(), 1);
+    }
+
+    #[test]
+    fn trade_before_order_then_exact_order_has_no_active_pending_exact_blocker() {
+        let mut ledger = TradeLedger::default();
+        ledger.record_fill(trade("NO-ACTIVE-PENDING-2B6A", "buy", 2210.0));
+        ledger.record_order(order("NO-ACTIVE-PENDING-2B6A", true));
+
+        assert!(!ledger.active_blockers().iter().any(|blocker| {
+            blocker.kind == TradeLedgerBlockerKind::PendingExactBrokerOrderMatch
+                && blocker.order_id.as_str() == "NO-ACTIVE-PENDING-2B6A"
+        }));
+        assert!(ledger.blockers().is_empty());
+        assert_eq!(ledger.blocker_history().len(), 1);
     }
 
     #[test]

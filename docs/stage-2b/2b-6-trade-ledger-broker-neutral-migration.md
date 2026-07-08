@@ -1,6 +1,6 @@
 # Stage 2B-6 — TradeLedger broker-neutral migration
 
-Status: implementation patch ready for review.
+Status: accepted as broker-neutral TradeLedger foundation.
 
 Date: 2026-07-08.
 
