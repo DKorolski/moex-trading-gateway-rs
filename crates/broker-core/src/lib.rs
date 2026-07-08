@@ -26,6 +26,7 @@ pub mod runtime_host;
 pub mod runtime_state;
 pub mod subscription;
 pub mod time;
+pub mod trade_ledger;
 
 pub use account::{AccountId, PortfolioSnapshot, Position};
 pub use bar_aggregation::{
@@ -141,3 +142,8 @@ pub use runtime_state::{
     ValidatedRuntimeStateSnapshot,
 };
 pub use subscription::{SubscriptionIntent, SubscriptionKind, SubscriptionState};
+pub use trade_ledger::{
+    ClosedTradeRecord, LedgerSummary, OrderRecord, TradeLedger, TradeLedgerBlocker,
+    TradeLedgerBlockerKind, TradeLedgerFillApplyOutcome, TradeLedgerFillDisposition,
+    TradeLedgerOrderApplyOutcome, TradeRecord,
+};

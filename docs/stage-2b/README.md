@@ -168,3 +168,18 @@ Acceptance note:
 Acceptance note:
 
 [`2b-5c-broker-finam-trade-id-fallible-mapping.md`](2b-5c-broker-finam-trade-id-fallible-mapping.md)
+
+`2B-6` migrates the TradeLedger contract to broker-neutral ids:
+
+- `TradeRecord.order_id` and `OrderRecord.order_id` use `BrokerOrderId`;
+- trade ids, when present, use `BrokerTradeId`;
+- ledger orders are keyed by exact broker-native string ids;
+- legacy ALOR numeric order ids import as decimal strings;
+- account-wide observed trades are not automatically strategy-attributed;
+- trade-before-order remains pending until exact `BrokerOrderId` match;
+- unknown/orphan trades produce a blocker/manual-intervention path;
+- keep Stage 2B paper/mock/local and live send paths disabled.
+
+Acceptance note:
+
+[`2b-6-trade-ledger-broker-neutral-migration.md`](2b-6-trade-ledger-broker-neutral-migration.md)
