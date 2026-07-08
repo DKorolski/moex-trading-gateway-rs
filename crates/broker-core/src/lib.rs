@@ -10,6 +10,7 @@ pub mod broker;
 pub mod command;
 pub mod envelope;
 pub mod event;
+pub mod hybrid_runtime_ids;
 pub mod ids;
 pub mod instrument;
 pub mod market_data_lifecycle;
@@ -41,6 +42,11 @@ pub use command::{
 };
 pub use envelope::{Envelope, MessageType, SCHEMA_VERSION};
 pub use event::{BrokerEvent, MarketDataEvent, MarketDataSourceKind};
+pub use hybrid_runtime_ids::{
+    HybridRuntimeOwnedIdBlocker, HybridRuntimeOwnedIdBlockerKind, HybridRuntimeOwnedIds,
+    HybridRuntimeOwnedIdsBootstrap, HybridRuntimeOwnedOrderLifecycle, HybridRuntimeOwnedOrderRole,
+    HybridRuntimeOwnedOrderUpdate, HybridRuntimeOwnedStopOrderUpdate,
+};
 pub use ids::{
     deserialize_broker_order_id_legacy_numeric_or_string,
     deserialize_option_broker_order_id_legacy_numeric_or_string,

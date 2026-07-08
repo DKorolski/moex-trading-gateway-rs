@@ -1,6 +1,6 @@
 # Stage 2B-6a — TradeLedger blocker lifecycle and duplicate fill hardening
 
-Status: implementation patch ready for review.
+Status: accepted.
 
 Date: 2026-07-08.
 

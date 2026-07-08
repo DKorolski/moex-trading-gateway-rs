@@ -84,8 +84,10 @@ Stage split:
 - Stage 2B-5b core BrokerTradeId invariant is accepted.
 - Stage 2B-5c broker-finam trade_id fallible mapping is accepted.
 - Stage 2B-6 TradeLedger migration is accepted as broker-neutral foundation.
-- Active patch is Stage 2B-6a: TradeLedger blocker lifecycle and duplicate
-  fill replay hardening.
+- Stage 2B-6a TradeLedger blocker lifecycle and duplicate fill replay hardening
+  is accepted.
+- Active patch is Stage 2B-7: HybridIntradayRuntime-owned id contract migration
+  for `tp_order_id`, `sl_exchange_order_id`, and `working_orders`.
 
 Green / mostly closed:
 

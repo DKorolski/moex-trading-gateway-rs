@@ -198,3 +198,20 @@ Acceptance note:
 Acceptance note:
 
 [`2b-6a-trade-ledger-blocker-dedup-hardening.md`](2b-6a-trade-ledger-blocker-dedup-hardening.md)
+
+`2B-7` adds the broker-neutral owned-id contract for the future
+`HybridIntradayRuntime` source migration:
+
+- `tp_order_id` uses `BrokerOrderId`;
+- `sl_exchange_order_id` uses `BrokerOrderId`;
+- `working_orders` uses `HashSet<BrokerOrderId>`;
+- legacy numeric ALOR ids import as decimal strings;
+- non-numeric broker-native ids are accepted as normal broker ids;
+- order/stop/bootstrap/restore helper paths preserve exact ids;
+- cancel-protection and partial-entry-timeout helper paths return
+  `BrokerOrderId` targets;
+- Stop/SLTP/bracket live behavior remains disabled/future-gated.
+
+Acceptance note:
+
+[`2b-7-hybrid-runtime-owned-ids.md`](2b-7-hybrid-runtime-owned-ids.md)
