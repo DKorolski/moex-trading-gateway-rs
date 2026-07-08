@@ -81,7 +81,8 @@ Stage split:
   foundation.
 - Stage 2B-5a is accepted: explicit order ownership / attribution hardening is
   complete.
-- Active patch is Stage 2B-5b: BrokerTradeId invariant hardening before
+- Stage 2B-5b core BrokerTradeId invariant is accepted.
+- Active patch is Stage 2B-5c: broker-finam trade_id fallible mapping before
   Stage 2B-6 TradeLedger migration.
 
 Green / mostly closed:

@@ -854,7 +854,7 @@ pub fn map_account_trade(
 
     Ok(Trade {
         account_id: BrokerAccountId::new(trade.account_id.as_deref().unwrap_or(account_id)),
-        trade_id: BrokerTradeId::new(trade_id),
+        trade_id: map_broker_trade_id("trade.trade_id", trade_id)?,
         order_id: map_optional_broker_order_id("trade.order_id", trade.order_id.as_deref())?,
         client_order_id: trade
             .client_order_id
@@ -1111,6 +1111,13 @@ fn map_optional_broker_order_id(
                 .map_err(|_| unsupported_value(field, value))
         })
         .transpose()
+}
+
+fn map_broker_trade_id(
+    field: &'static str,
+    value: &str,
+) -> Result<BrokerTradeId, FinamMapperError> {
+    BrokerTradeId::from_broker_native_exact(value).map_err(|_| unsupported_value(field, value))
 }
 
 fn invalid_decimal(field: &'static str, value: &str) -> FinamMapperError {
@@ -2069,6 +2076,46 @@ mod tests {
             .sum();
 
         assert_eq!(net_qty, Decimal::ZERO);
+    }
+
+    #[test]
+    fn account_trade_empty_trade_id_returns_controlled_mapper_error_not_panic() {
+        let received_ts = parse_timestamp("test", "2026-07-04T14:57:18Z").expect("timestamp");
+        let mut trade = m4_2d_trades()
+            .trades
+            .into_iter()
+            .next()
+            .expect("trade fixture");
+        trade.trade_id = Some(String::new());
+
+        let error = map_account_trade("ACC_TEST_0001", &trade, received_ts)
+            .expect_err("empty broker trade id rejected");
+
+        assert_eq!(
+            error,
+            FinamMapperError::UnsupportedBrokerValue {
+                field: "trade.trade_id",
+                value_len: 0,
+                value_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                    .to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn account_trade_valid_native_trade_id_preserves_exact_string() {
+        let received_ts = parse_timestamp("test", "2026-07-04T14:57:18Z").expect("timestamp");
+        let mut trade = m4_2d_trades()
+            .trades
+            .into_iter()
+            .next()
+            .expect("trade fixture");
+        trade.trade_id = Some("FINAM/TRADE:EXACT_Ё".to_string());
+
+        let mapped = map_account_trade("ACC_TEST_0001", &trade, received_ts)
+            .expect("valid broker trade id maps");
+
+        assert_eq!(mapped.trade_id.as_str(), "FINAM/TRADE:EXACT_Ё");
     }
 
     #[test]

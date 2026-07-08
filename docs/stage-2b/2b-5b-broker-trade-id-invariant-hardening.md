@@ -1,6 +1,6 @@
 # Stage 2B-5b — BrokerTradeId invariant hardening
 
-Status: implementation patch ready for review.
+Status: accepted.
 
 Date: 2026-07-07.
 
@@ -24,6 +24,9 @@ Runtime trade behavior:
 - `RuntimeTradeEvent` cannot deserialize with an empty `trade_id`;
 - trade dedup continues to use `(BrokerTradeId, BrokerOrderId)`, but now
   `BrokerTradeId` is guaranteed non-empty.
+- production broker DTO mappers must use fallible
+  `BrokerTradeId::from_broker_native_exact(...)`; `BrokerTradeId::new(...)` is
+  allowed only for trusted/test-created non-empty ids.
 
 ## What did not change
 

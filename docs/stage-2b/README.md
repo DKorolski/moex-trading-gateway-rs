@@ -155,3 +155,16 @@ Acceptance note:
 Acceptance note:
 
 [`2b-5b-broker-trade-id-invariant-hardening.md`](2b-5b-broker-trade-id-invariant-hardening.md)
+
+`2B-5c` closes the production FINAM mapper follow-up for broker trade ids:
+
+- broker-provided `trade.trade_id` maps through fallible
+  `BrokerTradeId::from_broker_native_exact(...)`;
+- empty FINAM trade ids return controlled `FinamMapperError`, not panic;
+- valid FINAM/native trade ids remain exact strings;
+- `BrokerTradeId::new(...)` stays limited to trusted/test-created non-empty ids;
+- keep Stage 2B paper/mock/local and live send paths disabled.
+
+Acceptance note:
+
+[`2b-5c-broker-finam-trade-id-fallible-mapping.md`](2b-5c-broker-finam-trade-id-fallible-mapping.md)
