@@ -38,7 +38,8 @@ pub use bar_finalizer::{
 };
 pub use broker::BrokerKind;
 pub use command::{
-    BrokerCommand, CancelOrder, CommandAck, CommandAckReason, CommandAckReasonCode, PlaceOrder,
+    build_cancel_command, BrokerCommand, CancelOrder, CancelOrderBuilderInput, CommandAck,
+    CommandAckReason, CommandAckReasonCode, PlaceOrder, ReplaceOrder, ReplaceOrderFeatureDisabled,
 };
 pub use envelope::{Envelope, MessageType, SCHEMA_VERSION};
 pub use event::{BrokerEvent, MarketDataEvent, MarketDataSourceKind};

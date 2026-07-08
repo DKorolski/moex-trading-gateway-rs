@@ -215,3 +215,18 @@ Acceptance note:
 Acceptance note:
 
 [`2b-7-hybrid-runtime-owned-ids.md`](2b-7-hybrid-runtime-owned-ids.md)
+
+`2B-8` migrates command/cancel/replace DTO shape to broker-neutral ids:
+
+- `CancelOrder.order_id` accepts legacy ALOR numeric ids as decimal strings;
+- broker-native cancel order id strings are preserved exactly;
+- empty cancel order ids are rejected by serde/import;
+- `build_cancel_command(...)` accepts/produces `BrokerOrderId` without numeric
+  `order_id > 0` checks;
+- `ReplaceOrder.order_id` uses `BrokerOrderId`;
+- replace remains disabled/future-gated and is not added to `BrokerCommand`;
+- keep Stage 2B paper/mock/local and live send paths disabled.
+
+Acceptance note:
+
+[`2b-8-command-cancel-replace-dto-shape.md`](2b-8-command-cancel-replace-dto-shape.md)

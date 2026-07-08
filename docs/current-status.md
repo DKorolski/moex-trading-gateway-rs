@@ -86,8 +86,10 @@ Stage split:
 - Stage 2B-6 TradeLedger migration is accepted as broker-neutral foundation.
 - Stage 2B-6a TradeLedger blocker lifecycle and duplicate fill replay hardening
   is accepted.
-- Active patch is Stage 2B-7: HybridIntradayRuntime-owned id contract migration
-  for `tp_order_id`, `sl_exchange_order_id`, and `working_orders`.
+- Stage 2B-7 HybridIntradayRuntime-owned id migration is accepted as
+  broker-neutral contract layer.
+- Active patch is Stage 2B-8: command builders / CancelOrder / ReplaceOrder DTO
+  shape migration.
 
 Green / mostly closed:
 

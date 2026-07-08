@@ -1,6 +1,6 @@
 # Stage 2B-7 — HybridIntradayRuntime-owned ids
 
-Status: implementation patch ready for review.
+Status: accepted as broker-neutral contract layer.
 
 Date: 2026-07-08.
 
