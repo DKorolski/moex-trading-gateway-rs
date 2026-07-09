@@ -1,6 +1,6 @@
 # Stage 3C — redacted market-data parity report generator
 
-Status: implemented for review.
+Status: accepted after Stage 3C-1 duplicate bucket hardening.
 
 Date: 2026-07-09.
 
@@ -52,6 +52,11 @@ Generated source handoff archives must still exclude runtime reports under
 
 The report generator compares buckets by canonical `open_ts`:
 
+- input buckets are normalized before comparison and duplicate buckets are not
+  silently overwritten;
+- exact duplicate M10 buckets are idempotent and counted as diagnostic;
+- conflicting duplicate M10 buckets are blocking and counted separately for
+  ALOR and FINAM;
 - matched buckets are compared on instrument, timeframe, finality, timestamps,
   OHLCV, and diagnostic source kind;
 - ALOR-only buckets increment `missing_finam_derived_bar`;
@@ -103,6 +108,12 @@ Stage 3C source tests cover:
 - timestamp mismatch counts;
 - first/last diff bucket timestamps;
 - empty/missing streams returning explicit non-panic statuses;
+- exact duplicate ALOR buckets are idempotent and counted;
+- conflicting duplicate ALOR buckets are blocking;
+- exact duplicate FINAM buckets are idempotent and counted;
+- conflicting duplicate FINAM buckets are blocking;
+- conflicting duplicate buckets do not silently overwrite the previously seen
+  bar;
 - `raw_payload_exported = false`;
 - safety boundary remains closed.
 

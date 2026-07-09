@@ -97,6 +97,8 @@ pass.
       "timeframe_sec": 600,
       "timestamp_policy": "bucket_open_from_close_time_utc",
       "bars_seen": 0,
+      "exact_duplicate_bucket_count": 0,
+      "conflicting_duplicate_bucket_count": 0,
       "complete_buckets": 0
     },
     "finam_candidate": {
@@ -106,6 +108,8 @@ pass.
       "bars_seen_m1": 0,
       "duplicate_exact_m1_count": 0,
       "duplicate_conflicting_m1_count": 0,
+      "exact_duplicate_m10_bucket_count": 0,
+      "conflicting_duplicate_m10_bucket_count": 0,
       "complete_buckets": 0,
       "incomplete_buckets": 0
     },
@@ -219,6 +223,10 @@ Any future tolerance must be explicit and reviewed.
     "diff_counts": {
       "MissingAlorBar": 0,
       "MissingFinamDerivedBar": 0,
+      "ExactDuplicateAlorBucket": 0,
+      "ExactDuplicateFinamBucket": 0,
+      "ConflictingDuplicateAlorBucket": 0,
+      "ConflictingDuplicateFinamBucket": 0,
       "TimestampMismatch": 0,
       "OhlcvMismatch": 0,
       "TimeframeMismatch": 0,
@@ -232,6 +240,10 @@ Any future tolerance must be explicit and reviewed.
 
 Diff summaries are compact diagnostics only. They must not include full raw bar
 series.
+
+Exact duplicate M10 buckets are idempotent but must be counted as diagnostics.
+Conflicting duplicate M10 buckets are blocking and must never be silently
+overwritten during report generation.
 
 ## Reconnect recovery
 

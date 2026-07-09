@@ -397,6 +397,8 @@ pub struct Stage3AlorOracleInputSummary {
     pub timeframe_sec: u32,
     pub timestamp_policy: String,
     pub bars_seen: usize,
+    pub exact_duplicate_bucket_count: usize,
+    pub conflicting_duplicate_bucket_count: usize,
     pub complete_buckets: usize,
 }
 
@@ -408,6 +410,8 @@ pub struct Stage3FinamCandidateInputSummary {
     pub bars_seen_m1: usize,
     pub duplicate_exact_m1_count: usize,
     pub duplicate_conflicting_m1_count: usize,
+    pub exact_duplicate_m10_bucket_count: usize,
+    pub conflicting_duplicate_m10_bucket_count: usize,
     pub complete_buckets: usize,
     pub incomplete_buckets: usize,
 }
@@ -438,6 +442,8 @@ impl Stage3ReportInputs {
                 timeframe_sec: 600,
                 timestamp_policy: "bucket_open_from_close_time_utc".to_string(),
                 bars_seen: alor_oracle_bars_seen,
+                exact_duplicate_bucket_count: 0,
+                conflicting_duplicate_bucket_count: 0,
                 complete_buckets: alor_oracle_bars_seen,
             },
             finam_candidate: Stage3FinamCandidateInputSummary {
@@ -447,6 +453,8 @@ impl Stage3ReportInputs {
                 bars_seen_m1: finam_derived_buckets_seen * 10,
                 duplicate_exact_m1_count: 0,
                 duplicate_conflicting_m1_count: 0,
+                exact_duplicate_m10_bucket_count: 0,
+                conflicting_duplicate_m10_bucket_count: 0,
                 complete_buckets: finam_derived_buckets_seen,
                 incomplete_buckets: 0,
             },
@@ -569,6 +577,10 @@ pub struct Stage3ComparisonSummary {
 pub struct Stage3DiffCounts {
     pub missing_alor_bar: usize,
     pub missing_finam_derived_bar: usize,
+    pub exact_duplicate_alor_bucket: usize,
+    pub exact_duplicate_finam_bucket: usize,
+    pub conflicting_duplicate_alor_bucket: usize,
+    pub conflicting_duplicate_finam_bucket: usize,
     pub timestamp_mismatch: usize,
     pub ohlcv_mismatch: usize,
     pub timeframe_mismatch: usize,
@@ -581,6 +593,8 @@ impl Stage3DiffCounts {
     fn blocking_total(&self) -> usize {
         self.missing_alor_bar
             + self.missing_finam_derived_bar
+            + self.conflicting_duplicate_alor_bucket
+            + self.conflicting_duplicate_finam_bucket
             + self.timestamp_mismatch
             + self.ohlcv_mismatch
             + self.timeframe_mismatch
@@ -874,23 +888,63 @@ fn update_stage3_max_abs_diff(current: &mut Price, candidate: Price) {
     }
 }
 
+struct Stage3NormalizedM10Buckets<'a> {
+    by_open_ts: BTreeMap<DateTime<Utc>, &'a Bar>,
+    exact_duplicate_bucket_count: usize,
+    conflicting_duplicate_bucket_count: usize,
+    conflicting_duplicate_bucket_open_ts: BTreeSet<DateTime<Utc>>,
+    first_conflicting_duplicate_open_ts: Option<DateTime<Utc>>,
+    last_conflicting_duplicate_open_ts: Option<DateTime<Utc>>,
+}
+
+fn normalize_stage3_m10_buckets_for_report(bars: &[Bar]) -> Stage3NormalizedM10Buckets<'_> {
+    let mut by_open_ts = BTreeMap::new();
+    let mut exact_duplicate_bucket_count = 0;
+    let mut conflicting_duplicate_bucket_open_ts = BTreeSet::new();
+
+    for bar in bars {
+        match by_open_ts.get(&bar.open_ts).copied() {
+            None => {
+                by_open_ts.insert(bar.open_ts, bar);
+            }
+            Some(existing) if existing == bar => {
+                exact_duplicate_bucket_count += 1;
+            }
+            Some(_) => {
+                conflicting_duplicate_bucket_open_ts.insert(bar.open_ts);
+            }
+        }
+    }
+
+    let first_conflicting_duplicate_open_ts =
+        conflicting_duplicate_bucket_open_ts.iter().next().copied();
+    let last_conflicting_duplicate_open_ts = conflicting_duplicate_bucket_open_ts
+        .iter()
+        .next_back()
+        .copied();
+
+    Stage3NormalizedM10Buckets {
+        by_open_ts,
+        exact_duplicate_bucket_count,
+        conflicting_duplicate_bucket_count: conflicting_duplicate_bucket_open_ts.len(),
+        conflicting_duplicate_bucket_open_ts,
+        first_conflicting_duplicate_open_ts,
+        last_conflicting_duplicate_open_ts,
+    }
+}
+
 pub fn generate_stage3c_redacted_m10_parity_report(
     alor_oracle_bars: &[Bar],
     finam_derived_bars: &[Bar],
     target_instrument: &InstrumentId,
 ) -> Stage3MarketDataParityReport {
     let safety_boundary = Stage3SafetyBoundary::closed();
-    let alor_by_open_ts = alor_oracle_bars
-        .iter()
-        .map(|bar| (bar.open_ts, bar))
-        .collect::<BTreeMap<_, _>>();
-    let finam_by_open_ts = finam_derived_bars
-        .iter()
-        .map(|bar| (bar.open_ts, bar))
-        .collect::<BTreeMap<_, _>>();
-    let all_bucket_open_ts = alor_by_open_ts
+    let alor_normalized = normalize_stage3_m10_buckets_for_report(alor_oracle_bars);
+    let finam_normalized = normalize_stage3_m10_buckets_for_report(finam_derived_bars);
+    let all_bucket_open_ts = alor_normalized
+        .by_open_ts
         .keys()
-        .chain(finam_by_open_ts.keys())
+        .chain(finam_normalized.by_open_ts.keys())
         .copied()
         .collect::<BTreeSet<_>>();
 
@@ -902,7 +956,13 @@ pub fn generate_stage3c_redacted_m10_parity_report(
     let mut diagnostic_diff_count = 0;
     let mut synchronized_candidate_count = 0;
     let mut rejected_candidate_count = 0;
-    let mut diff_counts = Stage3DiffCounts::default();
+    let mut diff_counts = Stage3DiffCounts {
+        exact_duplicate_alor_bucket: alor_normalized.exact_duplicate_bucket_count,
+        exact_duplicate_finam_bucket: finam_normalized.exact_duplicate_bucket_count,
+        conflicting_duplicate_alor_bucket: alor_normalized.conflicting_duplicate_bucket_count,
+        conflicting_duplicate_finam_bucket: finam_normalized.conflicting_duplicate_bucket_count,
+        ..Default::default()
+    };
     let mut first_diff_bucket_open_ts = None;
     let mut last_diff_bucket_open_ts = None;
     let mut max_abs_open_diff = Price::ZERO;
@@ -911,10 +971,28 @@ pub fn generate_stage3c_redacted_m10_parity_report(
     let mut max_abs_close_diff = Price::ZERO;
     let mut max_abs_volume_diff = Quantity::ZERO;
 
+    for duplicate_open_ts in [
+        alor_normalized.first_conflicting_duplicate_open_ts,
+        alor_normalized.last_conflicting_duplicate_open_ts,
+        finam_normalized.first_conflicting_duplicate_open_ts,
+        finam_normalized.last_conflicting_duplicate_open_ts,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        record_stage3_diff_bucket(
+            &mut first_diff_bucket_open_ts,
+            &mut last_diff_bucket_open_ts,
+            duplicate_open_ts,
+        );
+    }
+    diagnostic_diff_count += alor_normalized.exact_duplicate_bucket_count
+        + finam_normalized.exact_duplicate_bucket_count;
+
     for bucket_open_ts in all_bucket_open_ts {
         match (
-            alor_by_open_ts.get(&bucket_open_ts).copied(),
-            finam_by_open_ts.get(&bucket_open_ts).copied(),
+            alor_normalized.by_open_ts.get(&bucket_open_ts).copied(),
+            finam_normalized.by_open_ts.get(&bucket_open_ts).copied(),
         ) {
             (Some(alor), Some(finam)) => {
                 matched_bucket_count += 1;
@@ -923,6 +1001,12 @@ pub fn generate_stage3c_redacted_m10_parity_report(
                 }
                 last_matched_bucket_open_ts = Some(bucket_open_ts);
                 let blocking_before = diff_counts.blocking_total();
+                let duplicate_conflict_for_bucket = alor_normalized
+                    .conflicting_duplicate_bucket_open_ts
+                    .contains(&bucket_open_ts)
+                    || finam_normalized
+                        .conflicting_duplicate_bucket_open_ts
+                        .contains(&bucket_open_ts);
 
                 if alor.instrument != *target_instrument || finam.instrument != *target_instrument {
                     diff_counts.instrument_mismatch += 1;
@@ -985,7 +1069,8 @@ pub fn generate_stage3c_redacted_m10_parity_report(
                     diagnostic_diff_count += 1;
                 }
 
-                if diff_counts.blocking_total() == blocking_before {
+                if !duplicate_conflict_for_bucket && diff_counts.blocking_total() == blocking_before
+                {
                     synchronized_candidate_count += 1;
                 } else {
                     rejected_candidate_count += 1;
@@ -1030,6 +1115,20 @@ pub fn generate_stage3c_redacted_m10_parity_report(
     } else {
         Stage3MarketDataParityStatus::BlockedDiff
     };
+    let mut inputs =
+        Stage3ReportInputs::from_bucket_counts(alor_oracle_bars.len(), finam_derived_bars.len());
+    inputs.alor_oracle.complete_buckets = alor_normalized.by_open_ts.len();
+    inputs.alor_oracle.exact_duplicate_bucket_count = alor_normalized.exact_duplicate_bucket_count;
+    inputs.alor_oracle.conflicting_duplicate_bucket_count =
+        alor_normalized.conflicting_duplicate_bucket_count;
+    inputs.finam_candidate.complete_buckets = finam_normalized.by_open_ts.len();
+    inputs.finam_candidate.bars_seen_m1 = finam_normalized.by_open_ts.len() * 10;
+    inputs.finam_candidate.exact_duplicate_m10_bucket_count =
+        finam_normalized.exact_duplicate_bucket_count;
+    inputs
+        .finam_candidate
+        .conflicting_duplicate_m10_bucket_count =
+        finam_normalized.conflicting_duplicate_bucket_count;
 
     Stage3MarketDataParityReport {
         schema_version: STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION,
@@ -1041,10 +1140,7 @@ pub fn generate_stage3c_redacted_m10_parity_report(
         source_archive_sha256: None,
         raw_payload_exported: false,
         scope: Stage3ReportScope::for_target_instrument(target_instrument),
-        inputs: Stage3ReportInputs::from_bucket_counts(
-            alor_oracle_bars.len(),
-            finam_derived_bars.len(),
-        ),
+        inputs,
         strategy_input_gate: Stage3StrategyInputGateSummary::strict_finam_m1_to_m10(),
         status,
         comparison_policy: Stage3ComparisonPolicy::strict_exact(),
@@ -1425,6 +1521,150 @@ mod tests {
                 .strategy_input_publication
                 .candidate_bars_rejected_before_strategy_count,
             1
+        );
+    }
+
+    #[test]
+    fn stage3c_duplicate_exact_alor_bucket_is_idempotent_and_counted() {
+        let alor_bucket = alor_oracle_at(0, 100, 110, 90, 105, 1000);
+        let alor = vec![alor_bucket.clone(), alor_bucket];
+        let finam = vec![finam_derived_m10_at(0, 100, 110, 90, 105, 1000)];
+
+        let report = generate_stage3c_redacted_m10_parity_report(&alor, &finam, &instrument());
+
+        assert_eq!(report.status, Stage3MarketDataParityStatus::Synchronized);
+        assert_eq!(report.comparison_summary.matched_bucket_count, 1);
+        assert_eq!(report.comparison_summary.blocking_diff_count, 0);
+        assert_eq!(report.comparison_summary.diagnostic_diff_count, 1);
+        assert_eq!(
+            report.diff_summary.diff_counts.exact_duplicate_alor_bucket,
+            1
+        );
+        assert_eq!(report.inputs.alor_oracle.exact_duplicate_bucket_count, 1);
+        assert_eq!(report.inputs.alor_oracle.complete_buckets, 1);
+    }
+
+    #[test]
+    fn stage3c_duplicate_conflicting_alor_bucket_is_blocking() {
+        let first = alor_oracle_at(0, 100, 110, 90, 105, 1000);
+        let mut conflicting = first.clone();
+        conflicting.close += dec(1);
+        let alor = vec![first, conflicting];
+        let finam = vec![finam_derived_m10_at(0, 100, 110, 90, 105, 1000)];
+
+        let report = generate_stage3c_redacted_m10_parity_report(&alor, &finam, &instrument());
+
+        assert_eq!(report.status, Stage3MarketDataParityStatus::BlockedDiff);
+        assert_eq!(
+            report
+                .diff_summary
+                .diff_counts
+                .conflicting_duplicate_alor_bucket,
+            1
+        );
+        assert_eq!(report.comparison_summary.blocking_diff_count, 1);
+        assert_eq!(
+            report.diff_summary.first_diff_bucket_open_ts,
+            Some(bucket_open_at(0))
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            0
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .candidate_bars_rejected_before_strategy_count,
+            1
+        );
+    }
+
+    #[test]
+    fn stage3c_duplicate_exact_finam_bucket_is_idempotent_and_counted() {
+        let alor = vec![alor_oracle_at(0, 100, 110, 90, 105, 1000)];
+        let finam_bucket = finam_derived_m10_at(0, 100, 110, 90, 105, 1000);
+        let finam = vec![finam_bucket.clone(), finam_bucket];
+
+        let report = generate_stage3c_redacted_m10_parity_report(&alor, &finam, &instrument());
+
+        assert_eq!(report.status, Stage3MarketDataParityStatus::Synchronized);
+        assert_eq!(report.comparison_summary.matched_bucket_count, 1);
+        assert_eq!(report.comparison_summary.blocking_diff_count, 0);
+        assert_eq!(report.comparison_summary.diagnostic_diff_count, 1);
+        assert_eq!(
+            report.diff_summary.diff_counts.exact_duplicate_finam_bucket,
+            1
+        );
+        assert_eq!(
+            report
+                .inputs
+                .finam_candidate
+                .exact_duplicate_m10_bucket_count,
+            1
+        );
+        assert_eq!(report.inputs.finam_candidate.complete_buckets, 1);
+    }
+
+    #[test]
+    fn stage3c_duplicate_conflicting_finam_bucket_is_blocking() {
+        let alor = vec![alor_oracle_at(0, 100, 110, 90, 105, 1000)];
+        let first = finam_derived_m10_at(0, 100, 110, 90, 105, 1000);
+        let mut conflicting = first.clone();
+        conflicting.close += dec(1);
+        let finam = vec![first, conflicting];
+
+        let report = generate_stage3c_redacted_m10_parity_report(&alor, &finam, &instrument());
+
+        assert_eq!(report.status, Stage3MarketDataParityStatus::BlockedDiff);
+        assert_eq!(
+            report
+                .diff_summary
+                .diff_counts
+                .conflicting_duplicate_finam_bucket,
+            1
+        );
+        assert_eq!(report.comparison_summary.blocking_diff_count, 1);
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            0
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .candidate_bars_rejected_before_strategy_count,
+            1
+        );
+    }
+
+    #[test]
+    fn stage3c_duplicate_bucket_does_not_silently_overwrite_previous_bar() {
+        let alor = vec![alor_oracle_at(0, 100, 110, 90, 105, 1000)];
+        let wrong_first = finam_derived_m10_at(0, 100, 111, 90, 105, 1000);
+        let correct_duplicate = finam_derived_m10_at(0, 100, 110, 90, 105, 1000);
+        let finam = vec![wrong_first, correct_duplicate];
+
+        let report = generate_stage3c_redacted_m10_parity_report(&alor, &finam, &instrument());
+
+        assert_eq!(report.status, Stage3MarketDataParityStatus::BlockedDiff);
+        assert_eq!(
+            report
+                .diff_summary
+                .diff_counts
+                .conflicting_duplicate_finam_bucket,
+            1
+        );
+        assert_eq!(report.diff_summary.diff_counts.ohlcv_mismatch, 1);
+        assert_eq!(report.diff_summary.max_abs_high_diff, dec(1));
+        assert_eq!(report.comparison_summary.blocking_diff_count, 2);
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            0
         );
     }
 
