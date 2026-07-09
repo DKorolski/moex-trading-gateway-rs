@@ -66,7 +66,8 @@ aliases or redacted/fingerprinted values.
 Stage 3C source-only unit reports may keep `generated_at`, `source_commit`,
 `source_archive_name`, and `source_archive_sha256` as `null` placeholders until
 an operator evidence package binds the generated report to a source archive.
-Active-session evidence packages must fill those fields.
+Stage 3D controlled evidence reports and later active-session evidence packages
+must fill those fields.
 
 ## Status enum
 
@@ -275,6 +276,10 @@ Allowed `recovery_status` values:
 
 If recovery is required but not complete, top-level `status` must be
 `RecoveryIncomplete`.
+
+Stage 3D controlled evidence must set `recovery_required` and
+`recovery_status` explicitly. `NotRequired` is valid only when no reconnect,
+silence, or gap recovery was needed for the controlled evidence window.
 
 ## Session filtering
 

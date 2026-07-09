@@ -105,7 +105,11 @@ Stage split:
 - Stage 3C is accepted after Stage 3C-1 hardening: source/report-only
   multi-bucket redacted report generator with explicit duplicate bucket
   normalization and no silent overwrite.
-- Next active patch is Stage 3D: controlled active-session evidence collection.
+- Stage 3D is implemented for review: controlled offline evidence collector
+  that fills source/session metadata, derives FINAM M10 from controlled M1
+  inputs, invokes the Stage 3C report generator, and serializes redacted JSON.
+- Next active patch after Stage 3D acceptance is Stage 3E: reconnect/gap
+  recovery evidence for strategy-input bars.
 
 Green / mostly closed:
 
@@ -136,7 +140,9 @@ Amber:
   market-data evidence.
 - Stage 3B accepted the source-only comparator foundation. Stage 3C adds
   multi-bucket report generation and duplicate bucket hardening, but
-  active-session evidence collection is still pending.
+  live active-session source adapters are still pending.
+- Stage 3D adds offline controlled evidence collection from supplied inputs; it
+  does not read live streams or attach runtime-live.
 
 Red / not yet implemented:
 

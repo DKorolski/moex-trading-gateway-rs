@@ -68,9 +68,11 @@ pub use market_data_lifecycle::{
     BrokerMarketDataLifecycleSnapshot, MarketDataLifecycleBlocker, MarketDataLifecyclePhase,
 };
 pub use market_data_parity::{
+    collect_stage3d_controlled_active_session_evidence,
     compare_stage3_alor_native_m10_to_finam_derived_m10, derive_stage3_finam_m10_from_final_m1,
     evaluate_stage3_strategy_input_gate, generate_stage3c_redacted_m10_parity_report,
-    normalize_stage3_alor_native_m10_oracle, Stage3AlorAssembledCrossCheckSummary,
+    normalize_stage3_alor_native_m10_oracle, serialize_stage3d_redacted_evidence_report,
+    write_stage3d_redacted_evidence_report, Stage3AlorAssembledCrossCheckSummary,
     Stage3AlorNativeM10Input, Stage3AlorOracleInputSummary, Stage3ComparisonPolicy,
     Stage3ComparisonSummary, Stage3DiffCounts, Stage3DiffSummary, Stage3FinamCandidateInputSummary,
     Stage3FinamM10DerivationRejectReason, Stage3FinamM10DerivationReport,
@@ -79,9 +81,10 @@ pub use market_data_parity::{
     Stage3ReportScope, Stage3SafetyBoundary, Stage3SessionFilteringSummary,
     Stage3StrategyBarProvenance, Stage3StrategyBarSourceMode, Stage3StrategyInputGateOutcome,
     Stage3StrategyInputGateSummary, Stage3StrategyInputPublicationCounts,
-    Stage3StrategyInputRejectReason, STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION,
+    Stage3StrategyInputRejectReason, Stage3dControlledEvidenceError,
+    Stage3dControlledEvidenceInput, STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION,
     STAGE3_MARKET_DATA_PARITY_STAGE, STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3B,
-    STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3C,
+    STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3C, STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3D,
 };
 pub use market_data_recovery::{
     evaluate_market_data_recovery, plan_market_data_recovery, MarketDataRecoveryBlocker,

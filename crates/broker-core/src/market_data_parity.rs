@@ -1,7 +1,12 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::bar_aggregation::{
     BarAggregationAction, BarAggregationRejectReason, CanonicalBarAggregator,
@@ -14,6 +19,7 @@ pub const STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION: u16 = 1;
 pub const STAGE3_MARKET_DATA_PARITY_STAGE: &str = "Stage3MarketDataParity";
 pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3B: &str = "Stage3B";
 pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3C: &str = "Stage3C";
+pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3D: &str = "Stage3D";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Stage3StrategyBarSourceMode {
@@ -388,6 +394,16 @@ impl Stage3ReportScope {
             exchange: format!("{:?}", target_instrument.exchange),
         }
     }
+
+    pub fn for_target_instrument_and_session(
+        target_instrument: &InstrumentId,
+        session_date: impl Into<String>,
+    ) -> Self {
+        Self {
+            session_date: Some(session_date.into()),
+            ..Self::for_target_instrument(target_instrument)
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -716,6 +732,59 @@ pub struct Stage3MarketDataParityReport {
     pub comparison_summary: Stage3ComparisonSummary,
     pub diff_summary: Stage3DiffSummary,
     pub safety_boundary: Stage3SafetyBoundary,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Stage3dControlledEvidenceInput {
+    pub generated_at: DateTime<Utc>,
+    pub source_commit: String,
+    pub source_archive_name: String,
+    pub source_archive_sha256: String,
+    pub session_date: String,
+    pub target_instrument: InstrumentId,
+    pub alor_native_m10_oracle_bars: Vec<Bar>,
+    pub finam_final_m1_bars: Vec<Bar>,
+    pub reconnect_recovery: Stage3ReconnectRecoverySummary,
+    pub session_filtering: Stage3SessionFilteringSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum Stage3dControlledEvidenceError {
+    #[error("source_commit is required")]
+    MissingSourceCommit,
+    #[error("source_archive_name is required")]
+    MissingSourceArchiveName,
+    #[error("source_archive_sha256 is required")]
+    MissingSourceArchiveSha256,
+    #[error("session_date is required")]
+    MissingSessionDate,
+    #[error("target instrument symbol is required")]
+    MissingInstrumentSymbol,
+    #[error("report serialization failed: {0}")]
+    Serialization(String),
+    #[error("report write failed: {0}")]
+    Write(String),
+}
+
+impl Stage3dControlledEvidenceInput {
+    fn validate(&self) -> Result<(), Stage3dControlledEvidenceError> {
+        if self.source_commit.trim().is_empty() {
+            return Err(Stage3dControlledEvidenceError::MissingSourceCommit);
+        }
+        if self.source_archive_name.trim().is_empty() {
+            return Err(Stage3dControlledEvidenceError::MissingSourceArchiveName);
+        }
+        if self.source_archive_sha256.trim().is_empty() {
+            return Err(Stage3dControlledEvidenceError::MissingSourceArchiveSha256);
+        }
+        if self.session_date.trim().is_empty() {
+            return Err(Stage3dControlledEvidenceError::MissingSessionDate);
+        }
+        if self.target_instrument.symbol.trim().is_empty() {
+            return Err(Stage3dControlledEvidenceError::MissingInstrumentSymbol);
+        }
+        Ok(())
+    }
 }
 
 pub fn compare_stage3_alor_native_m10_to_finam_derived_m10(
@@ -1175,6 +1244,114 @@ pub fn generate_stage3c_redacted_m10_parity_report(
     }
 }
 
+fn stage3_bucket_open_ts(
+    open_ts: DateTime<Utc>,
+    target_timeframe_sec: u32,
+) -> Option<DateTime<Utc>> {
+    let timestamp = open_ts.timestamp();
+    let target = i64::from(target_timeframe_sec);
+    if target == 0 {
+        return None;
+    }
+    let bucket_timestamp = timestamp - timestamp.rem_euclid(target);
+    DateTime::<Utc>::from_timestamp(bucket_timestamp, 0)
+}
+
+pub fn collect_stage3d_controlled_active_session_evidence(
+    input: Stage3dControlledEvidenceInput,
+) -> Result<Stage3MarketDataParityReport, Stage3dControlledEvidenceError> {
+    input.validate()?;
+
+    let mut finam_m1_by_bucket = BTreeMap::<DateTime<Utc>, Vec<Bar>>::new();
+    for bar in &input.finam_final_m1_bars {
+        let bucket_open_ts = stage3_bucket_open_ts(bar.open_ts, 600).unwrap_or(bar.open_ts);
+        finam_m1_by_bucket
+            .entry(bucket_open_ts)
+            .or_default()
+            .push(bar.clone());
+    }
+
+    let mut finam_derived_m10_bars = Vec::new();
+    let mut duplicate_exact_m1_count = 0;
+    let mut duplicate_conflicting_m1_count = 0;
+    let mut complete_buckets = 0;
+    let mut incomplete_buckets = 0;
+    let mut rejected_derivation_bucket_count = 0;
+
+    for (_bucket_open_ts, mut bucket_bars) in finam_m1_by_bucket {
+        bucket_bars.sort_by_key(|bar| bar.open_ts);
+        let derivation = derive_stage3_finam_m10_from_final_m1(bucket_bars);
+        duplicate_exact_m1_count += derivation.duplicate_exact_m1_count;
+        duplicate_conflicting_m1_count += derivation.duplicate_conflicting_m1_count;
+        complete_buckets += derivation.complete_buckets;
+        incomplete_buckets += derivation.incomplete_buckets;
+        if let Some(emitted) = derivation.emitted {
+            finam_derived_m10_bars.push(emitted);
+        } else {
+            rejected_derivation_bucket_count += 1;
+        }
+    }
+
+    let mut report = generate_stage3c_redacted_m10_parity_report(
+        &input.alor_native_m10_oracle_bars,
+        &finam_derived_m10_bars,
+        &input.target_instrument,
+    );
+    report.substage = STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3D.to_string();
+    report.generated_at = Some(input.generated_at);
+    report.source_commit = Some(input.source_commit);
+    report.source_archive_name = Some(input.source_archive_name);
+    report.source_archive_sha256 = Some(input.source_archive_sha256);
+    report.scope = Stage3ReportScope::for_target_instrument_and_session(
+        &input.target_instrument,
+        input.session_date,
+    );
+    report.reconnect_recovery = input.reconnect_recovery;
+    report.session_filtering = input.session_filtering;
+    report.inputs.finam_candidate.bars_seen_m1 = input.finam_final_m1_bars.len();
+    report.inputs.finam_candidate.duplicate_exact_m1_count = duplicate_exact_m1_count;
+    report.inputs.finam_candidate.duplicate_conflicting_m1_count = duplicate_conflicting_m1_count;
+    report.inputs.finam_candidate.complete_buckets = complete_buckets;
+    report.inputs.finam_candidate.incomplete_buckets = incomplete_buckets;
+    report
+        .strategy_input_publication
+        .candidate_bars_rejected_before_strategy_count += rejected_derivation_bucket_count;
+    if rejected_derivation_bucket_count > 0
+        && report.status == Stage3MarketDataParityStatus::Synchronized
+    {
+        report.status = Stage3MarketDataParityStatus::BlockedDiff;
+    }
+
+    Ok(report)
+}
+
+pub fn serialize_stage3d_redacted_evidence_report(
+    report: &Stage3MarketDataParityReport,
+) -> Result<String, Stage3dControlledEvidenceError> {
+    serde_json::to_string_pretty(report)
+        .map(|mut json| {
+            json.push('\n');
+            json
+        })
+        .map_err(|error| Stage3dControlledEvidenceError::Serialization(error.to_string()))
+}
+
+pub fn write_stage3d_redacted_evidence_report(
+    path: impl AsRef<Path>,
+    report: &Stage3MarketDataParityReport,
+) -> Result<(), Stage3dControlledEvidenceError> {
+    let path = path.as_ref();
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)
+            .map_err(|error| Stage3dControlledEvidenceError::Write(error.to_string()))?;
+    }
+    let json = serialize_stage3d_redacted_evidence_report(report)?;
+    fs::write(path, json).map_err(|error| Stage3dControlledEvidenceError::Write(error.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::{Duration, TimeZone};
@@ -1317,6 +1494,30 @@ mod tests {
                 )
             })
             .collect()
+    }
+
+    fn stage3d_generated_at() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 7, 9, 12, 0, 0)
+            .single()
+            .expect("valid timestamp")
+    }
+
+    fn stage3d_input(alor: Vec<Bar>, finam_m1: Vec<Bar>) -> Stage3dControlledEvidenceInput {
+        Stage3dControlledEvidenceInput {
+            generated_at: stage3d_generated_at(),
+            source_commit: "SOURCE_COMMIT_TEST_FULL_SHA".to_string(),
+            source_archive_name: "moex-trading-project-SOURCE_TEST.zip".to_string(),
+            source_archive_sha256: "SOURCE_ARCHIVE_SHA256_TEST".to_string(),
+            session_date: "2026-07-09".to_string(),
+            target_instrument: instrument(),
+            alor_native_m10_oracle_bars: alor,
+            finam_final_m1_bars: finam_m1,
+            reconnect_recovery: Stage3ReconnectRecoverySummary::not_required(),
+            session_filtering: Stage3SessionFilteringSummary {
+                session_state: "Open".to_string(),
+                ..Stage3SessionFilteringSummary::source_only_placeholder()
+            },
+        }
     }
 
     #[test]
@@ -1666,6 +1867,156 @@ mod tests {
                 .finam_derived_m10_published_as_model_bar_count,
             0
         );
+    }
+
+    #[test]
+    fn stage3d_controlled_evidence_populates_metadata_and_derives_finam_m10_from_m1() {
+        let input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+
+        let report = collect_stage3d_controlled_active_session_evidence(input)
+            .expect("stage3d evidence report");
+        let json = serialize_stage3d_redacted_evidence_report(&report).expect("json report");
+
+        assert_eq!(report.substage, STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3D);
+        assert_eq!(report.generated_at, Some(stage3d_generated_at()));
+        assert_eq!(
+            report.source_commit.as_deref(),
+            Some("SOURCE_COMMIT_TEST_FULL_SHA")
+        );
+        assert_eq!(
+            report.source_archive_name.as_deref(),
+            Some("moex-trading-project-SOURCE_TEST.zip")
+        );
+        assert_eq!(
+            report.source_archive_sha256.as_deref(),
+            Some("SOURCE_ARCHIVE_SHA256_TEST")
+        );
+        assert_eq!(report.scope.session_date.as_deref(), Some("2026-07-09"));
+        assert_eq!(report.scope.instrument_symbol, "IMOEXF");
+        assert_eq!(report.status, Stage3MarketDataParityStatus::Synchronized);
+        assert_eq!(report.inputs.alor_oracle.bars_seen, 1);
+        assert_eq!(report.inputs.finam_candidate.bars_seen_m1, 10);
+        assert_eq!(report.inputs.finam_candidate.complete_buckets, 1);
+        assert_eq!(report.inputs.finam_candidate.incomplete_buckets, 0);
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            1
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .candidate_bars_rejected_before_strategy_count,
+            0
+        );
+        assert_eq!(report.session_filtering.session_state.as_str(), "Open");
+        assert!(!report.raw_payload_exported);
+        assert!(json.contains("\"substage\": \"Stage3D\""));
+        assert!(json.contains("\"raw_payload_exported\": false"));
+        assert!(!json.contains("SECRET_TOKEN"));
+        assert!(!json.contains("SYNTHETIC_ACCOUNT_MARKER"));
+    }
+
+    #[test]
+    fn stage3d_writer_creates_redacted_report_artifact() {
+        let input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        let report = collect_stage3d_controlled_active_session_evidence(input)
+            .expect("stage3d evidence report");
+        let base_dir = std::env::temp_dir().join(format!(
+            "moex-stage3d-report-write-test-{}",
+            std::process::id()
+        ));
+        let report_path = base_dir
+            .join("reports")
+            .join("parity")
+            .join("finam-vs-alor-m10")
+            .join("2026-07-09.json");
+        let _ = std::fs::remove_dir_all(&base_dir);
+
+        write_stage3d_redacted_evidence_report(&report_path, &report)
+            .expect("write redacted report");
+        let written = std::fs::read_to_string(&report_path).expect("read redacted report");
+
+        assert!(written.contains("\"substage\": \"Stage3D\""));
+        assert!(written.contains("\"raw_payload_exported\": false"));
+        assert!(written.contains("\"session_date\": \"2026-07-09\""));
+        assert!(!written.contains("SECRET_TOKEN"));
+        assert!(!written.contains("SYNTHETIC_ACCOUNT_MARKER"));
+
+        let _ = std::fs::remove_dir_all(&base_dir);
+    }
+
+    #[test]
+    fn stage3d_incomplete_finam_m1_bucket_is_rejected_before_strategy() {
+        let mut finam_m1 = synchronized_finam_m1();
+        finam_m1.remove(5);
+        let input = stage3d_input(vec![alor_oracle()], finam_m1);
+
+        let report = collect_stage3d_controlled_active_session_evidence(input)
+            .expect("stage3d evidence report");
+
+        assert_eq!(
+            report.status,
+            Stage3MarketDataParityStatus::MissingFinamDerivedStream
+        );
+        assert_eq!(report.inputs.finam_candidate.bars_seen_m1, 9);
+        assert_eq!(report.inputs.finam_candidate.complete_buckets, 0);
+        assert_eq!(report.inputs.finam_candidate.incomplete_buckets, 1);
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            0
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .candidate_bars_rejected_before_strategy_count,
+            1
+        );
+        assert!(!report.raw_payload_exported);
+    }
+
+    #[test]
+    fn stage3d_recovery_status_is_passed_through_honestly() {
+        let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        input.reconnect_recovery = Stage3ReconnectRecoverySummary {
+            recovery_required: true,
+            recovery_status: Stage3ReconnectRecoveryStatus::AttemptedAndComplete,
+            disconnect_observed: true,
+            warm_replay_attempted: true,
+            cold_replay_attempted: false,
+            replay_gap_absence_proven: true,
+            first_fresh_live_final_after_replay_observed: true,
+            entry_blocked_while_gap_unproven: true,
+        };
+
+        let report = collect_stage3d_controlled_active_session_evidence(input)
+            .expect("stage3d evidence report");
+
+        assert!(report.reconnect_recovery.recovery_required);
+        assert_eq!(
+            report.reconnect_recovery.recovery_status,
+            Stage3ReconnectRecoveryStatus::AttemptedAndComplete
+        );
+        assert!(report.reconnect_recovery.replay_gap_absence_proven);
+        assert!(
+            report
+                .reconnect_recovery
+                .first_fresh_live_final_after_replay_observed
+        );
+    }
+
+    #[test]
+    fn stage3d_requires_source_metadata_before_evidence_report() {
+        let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        input.source_commit.clear();
+
+        let err = collect_stage3d_controlled_active_session_evidence(input)
+            .expect_err("missing source commit rejected");
+
+        assert_eq!(err, Stage3dControlledEvidenceError::MissingSourceCommit);
     }
 
     #[test]
