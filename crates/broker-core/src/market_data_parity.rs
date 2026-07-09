@@ -13,6 +13,7 @@ use crate::bar_aggregation::{
 };
 use crate::event::{Bar, MarketDataSourceKind};
 use crate::instrument::{InstrumentId, Price, Quantity};
+use crate::market_data_recovery::{MarketDataRecoveryPhase, MarketDataRecoveryReport};
 use crate::PaperSafetyBoundary;
 
 pub const STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION: u16 = 1;
@@ -20,6 +21,7 @@ pub const STAGE3_MARKET_DATA_PARITY_STAGE: &str = "Stage3MarketDataParity";
 pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3B: &str = "Stage3B";
 pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3C: &str = "Stage3C";
 pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3D: &str = "Stage3D";
+pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3E: &str = "Stage3E";
 pub const STAGE3D3_APPROVED_INPUT_SCHEMA_VERSION: u16 = 2;
 pub const STAGE3D3_OPERATOR_INPUT_ADAPTER_STAGE: &str = "Stage3D3ControlledOperatorInputAdapter";
 
@@ -814,6 +816,71 @@ pub struct Stage3d3OperatorRunSummary {
     pub strategy_driven_real_orders_enabled: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Stage3eRecoveryEvidenceStatus {
+    RecoveryComplete,
+    RecoveryIncomplete,
+    SafetyBoundaryOpen,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage3eRecoveryActionGate {
+    pub entry_blocked_while_gap_unproven: bool,
+    pub exit_allowed_while_gap_unproven: bool,
+    pub cancel_allowed_while_gap_unproven: bool,
+    pub repair_allowed_while_gap_unproven: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage3eRecoveryPublicationCounters {
+    pub recovery_bars_received_count: u64,
+    pub recovery_bars_published_as_model_bar_count: u64,
+    pub overlap_replay_deduped_bar_count: u64,
+    pub overlap_duplicate_model_bar_count: u64,
+    pub candidate_bars_rejected_before_strategy_count: u64,
+    pub post_recovery_fresh_live_candidate_count: u64,
+    pub post_recovery_published_model_bar_count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage3eRecoveryEvidenceInput {
+    pub generated_at: DateTime<Utc>,
+    pub source_commit: String,
+    pub source_archive_name: String,
+    pub source_archive_sha256: String,
+    pub session_date: String,
+    pub target_instrument: InstrumentId,
+    pub session_window_utc: Stage3d3ApprovedSessionWindow,
+    pub reconnect_recovery: Stage3ReconnectRecoverySummary,
+    pub recovery_report: MarketDataRecoveryReport,
+    pub action_gate: Stage3eRecoveryActionGate,
+    pub publication_counters: Stage3eRecoveryPublicationCounters,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Stage3eRecoveryEvidenceReport {
+    pub schema_version: u16,
+    pub stage: String,
+    pub substage: String,
+    pub generated_at: DateTime<Utc>,
+    pub source_commit: String,
+    pub source_archive_name: String,
+    pub source_archive_sha256: String,
+    pub raw_payload_exported: bool,
+    pub session_date: String,
+    pub instrument_symbol: String,
+    pub session_window_utc: Stage3d3ApprovedSessionWindow,
+    pub reconnect_recovery: Stage3ReconnectRecoverySummary,
+    pub recovery_report: MarketDataRecoveryReport,
+    pub action_gate: Stage3eRecoveryActionGate,
+    pub publication_counters: Stage3eRecoveryPublicationCounters,
+    pub gap_absence_proven: bool,
+    pub first_fresh_live_final_after_replay_observed: bool,
+    pub strategy_input_publishable_after_recovery: bool,
+    pub safety_boundary: Stage3SafetyBoundary,
+    pub status: Stage3eRecoveryEvidenceStatus,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum Stage3dControlledEvidenceError {
     #[error("source_commit is required")]
@@ -830,6 +897,8 @@ pub enum Stage3dControlledEvidenceError {
     InvalidSessionDate,
     #[error("target instrument symbol is required")]
     MissingInstrumentSymbol,
+    #[error("session_window_utc must have start < end")]
+    InvalidSessionWindow,
     #[error("recovery_required and recovery_status are inconsistent")]
     InvalidRecoveryStatus,
     #[error("AttemptedAndComplete recovery requires replay, gap proof, fresh final bar, and blocked entry while gap was unproven")]
@@ -880,6 +949,48 @@ pub enum Stage3dControlledEvidenceError {
     OperatorSummarySerialization(String),
     #[error("operator summary write failed: {0}")]
     OperatorSummaryWrite(String),
+    #[error("report serialization failed: {0}")]
+    Serialization(String),
+    #[error("report write failed: {0}")]
+    Write(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum Stage3eRecoveryEvidenceError {
+    #[error("source_commit is required")]
+    MissingSourceCommit,
+    #[error("source_archive_name is required")]
+    MissingSourceArchiveName,
+    #[error("source_archive_sha256 must be 64 lowercase/uppercase hex chars")]
+    InvalidSourceArchiveSha256,
+    #[error("session_date must use YYYY-MM-DD format")]
+    InvalidSessionDate,
+    #[error("target instrument symbol is required")]
+    MissingInstrumentSymbol,
+    #[error("session_window_utc must have start < end")]
+    InvalidSessionWindow,
+    #[error("Stage 3E requires recovery_required=true")]
+    RecoveryNotRequired,
+    #[error("AttemptedAndComplete recovery evidence must match LiveReady recovery report")]
+    RecoveryCompletionMismatch,
+    #[error("AttemptedAndComplete recovery requires replay attempt, gap proof, first fresh final, and entry block")]
+    RecoveryCompletionFlagsInvalid,
+    #[error(
+        "NotAttempted recovery evidence must not claim replay, gap proof, or first fresh final"
+    )]
+    RecoveryNotAttemptedFlagsInvalid,
+    #[error("AttemptedAndFailed recovery evidence must have attempted replay but must not claim complete proof")]
+    RecoveryFailedFlagsInvalid,
+    #[error("entry must stay blocked while gap is unproven")]
+    EntryNotBlockedWhileGapUnproven,
+    #[error("exit/cancel/repair must remain allowed while entry is blocked by gap")]
+    NonEntryActionFalselyBlocked,
+    #[error("recovery bars must not be published as strategy/model bars")]
+    RecoveryBarsPublishedAsModelBars,
+    #[error("overlap replay must not create duplicate model bars")]
+    OverlapReplayCreatedDuplicateModelBars,
+    #[error("post-recovery model publication requires complete recovery")]
+    PostRecoveryPublicationBeforeRecoveryComplete,
     #[error("report serialization failed: {0}")]
     Serialization(String),
     #[error("report write failed: {0}")]
@@ -1768,6 +1879,191 @@ pub fn run_stage3d3_controlled_operator_input_adapter(
     Ok(summary)
 }
 
+impl Stage3eRecoveryEvidenceInput {
+    fn validate_metadata(&self) -> Result<(), Stage3eRecoveryEvidenceError> {
+        if self.source_commit.trim().is_empty() {
+            return Err(Stage3eRecoveryEvidenceError::MissingSourceCommit);
+        }
+        if self.source_archive_name.trim().is_empty() {
+            return Err(Stage3eRecoveryEvidenceError::MissingSourceArchiveName);
+        }
+        let source_archive_sha256 = self.source_archive_sha256.trim();
+        if source_archive_sha256.len() != 64
+            || !source_archive_sha256
+                .as_bytes()
+                .iter()
+                .all(u8::is_ascii_hexdigit)
+        {
+            return Err(Stage3eRecoveryEvidenceError::InvalidSourceArchiveSha256);
+        }
+        if NaiveDate::parse_from_str(self.session_date.trim(), "%Y-%m-%d").is_err() {
+            return Err(Stage3eRecoveryEvidenceError::InvalidSessionDate);
+        }
+        if self.target_instrument.symbol.trim().is_empty() {
+            return Err(Stage3eRecoveryEvidenceError::MissingInstrumentSymbol);
+        }
+        self.session_window_utc
+            .validate()
+            .map_err(|_| Stage3eRecoveryEvidenceError::InvalidSessionWindow)
+    }
+}
+
+pub fn collect_stage3e_reconnect_gap_recovery_evidence(
+    input: Stage3eRecoveryEvidenceInput,
+) -> Result<Stage3eRecoveryEvidenceReport, Stage3eRecoveryEvidenceError> {
+    input.validate_metadata()?;
+    validate_stage3e_recovery_consistency(&input)?;
+
+    let recovery_complete = stage3e_recovery_complete(&input);
+    let safety_violation = stage3e_safety_violation(&input, recovery_complete);
+    let status = if safety_violation {
+        Stage3eRecoveryEvidenceStatus::SafetyBoundaryOpen
+    } else if recovery_complete {
+        Stage3eRecoveryEvidenceStatus::RecoveryComplete
+    } else {
+        Stage3eRecoveryEvidenceStatus::RecoveryIncomplete
+    };
+    let safety_boundary = Stage3SafetyBoundary::closed();
+    let strategy_input_publishable_after_recovery =
+        status == Stage3eRecoveryEvidenceStatus::RecoveryComplete && safety_boundary.is_closed();
+
+    Ok(Stage3eRecoveryEvidenceReport {
+        schema_version: STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION,
+        stage: STAGE3_MARKET_DATA_PARITY_STAGE.to_string(),
+        substage: STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3E.to_string(),
+        generated_at: input.generated_at,
+        source_commit: input.source_commit,
+        source_archive_name: input.source_archive_name,
+        source_archive_sha256: input.source_archive_sha256,
+        raw_payload_exported: false,
+        session_date: input.session_date,
+        instrument_symbol: input.target_instrument.symbol,
+        session_window_utc: input.session_window_utc,
+        first_fresh_live_final_after_replay_observed: input
+            .reconnect_recovery
+            .first_fresh_live_final_after_replay_observed,
+        gap_absence_proven: input.recovery_report.gap_absence_proven,
+        reconnect_recovery: input.reconnect_recovery,
+        recovery_report: input.recovery_report,
+        action_gate: input.action_gate,
+        publication_counters: input.publication_counters,
+        strategy_input_publishable_after_recovery,
+        safety_boundary,
+        status,
+    })
+}
+
+fn validate_stage3e_recovery_consistency(
+    input: &Stage3eRecoveryEvidenceInput,
+) -> Result<(), Stage3eRecoveryEvidenceError> {
+    if !input.reconnect_recovery.recovery_required {
+        return Err(Stage3eRecoveryEvidenceError::RecoveryNotRequired);
+    }
+    match input.reconnect_recovery.recovery_status {
+        Stage3ReconnectRecoveryStatus::NotRequired => {
+            Err(Stage3eRecoveryEvidenceError::RecoveryNotRequired)
+        }
+        Stage3ReconnectRecoveryStatus::NotAttempted => {
+            if input.reconnect_recovery.warm_replay_attempted
+                || input.reconnect_recovery.cold_replay_attempted
+                || input.reconnect_recovery.replay_gap_absence_proven
+                || input
+                    .reconnect_recovery
+                    .first_fresh_live_final_after_replay_observed
+            {
+                return Err(Stage3eRecoveryEvidenceError::RecoveryNotAttemptedFlagsInvalid);
+            }
+            Ok(())
+        }
+        Stage3ReconnectRecoveryStatus::AttemptedAndFailed => {
+            if !(input.reconnect_recovery.warm_replay_attempted
+                || input.reconnect_recovery.cold_replay_attempted)
+                || (input.reconnect_recovery.replay_gap_absence_proven
+                    && input
+                        .reconnect_recovery
+                        .first_fresh_live_final_after_replay_observed)
+            {
+                return Err(Stage3eRecoveryEvidenceError::RecoveryFailedFlagsInvalid);
+            }
+            Ok(())
+        }
+        Stage3ReconnectRecoveryStatus::AttemptedAndComplete => {
+            if !(input.reconnect_recovery.warm_replay_attempted
+                || input.reconnect_recovery.cold_replay_attempted)
+                || !input.reconnect_recovery.replay_gap_absence_proven
+                || !input
+                    .reconnect_recovery
+                    .first_fresh_live_final_after_replay_observed
+                || !input.reconnect_recovery.entry_blocked_while_gap_unproven
+            {
+                return Err(Stage3eRecoveryEvidenceError::RecoveryCompletionFlagsInvalid);
+            }
+            if !stage3e_recovery_report_is_live_ready(&input.recovery_report) {
+                return Err(Stage3eRecoveryEvidenceError::RecoveryCompletionMismatch);
+            }
+            Ok(())
+        }
+    }
+}
+
+fn stage3e_recovery_report_is_live_ready(report: &MarketDataRecoveryReport) -> bool {
+    report.phase == MarketDataRecoveryPhase::LiveReady
+        && report.gap_absence_proven
+        && report.blockers.is_empty()
+        && report.first_live_final_bar_close_ts.is_some()
+}
+
+fn stage3e_recovery_complete(input: &Stage3eRecoveryEvidenceInput) -> bool {
+    input.reconnect_recovery.recovery_required
+        && input.reconnect_recovery.recovery_status
+            == Stage3ReconnectRecoveryStatus::AttemptedAndComplete
+        && stage3e_recovery_report_is_live_ready(&input.recovery_report)
+}
+
+fn stage3e_safety_violation(input: &Stage3eRecoveryEvidenceInput, recovery_complete: bool) -> bool {
+    !input.action_gate.entry_blocked_while_gap_unproven
+        || !input.action_gate.exit_allowed_while_gap_unproven
+        || !input.action_gate.cancel_allowed_while_gap_unproven
+        || !input.action_gate.repair_allowed_while_gap_unproven
+        || input
+            .publication_counters
+            .recovery_bars_published_as_model_bar_count
+            > 0
+        || input.publication_counters.overlap_duplicate_model_bar_count > 0
+        || (!recovery_complete
+            && input
+                .publication_counters
+                .post_recovery_published_model_bar_count
+                > 0)
+}
+
+pub fn serialize_stage3e_recovery_evidence_report(
+    report: &Stage3eRecoveryEvidenceReport,
+) -> Result<String, Stage3eRecoveryEvidenceError> {
+    serde_json::to_string_pretty(report)
+        .map(|mut json| {
+            json.push('\n');
+            json
+        })
+        .map_err(|error| Stage3eRecoveryEvidenceError::Serialization(error.to_string()))
+}
+
+pub fn write_stage3e_recovery_evidence_report(
+    path: impl AsRef<Path>,
+    report: &Stage3eRecoveryEvidenceReport,
+) -> Result<(), Stage3eRecoveryEvidenceError> {
+    let path = path.as_ref();
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)
+            .map_err(|error| Stage3eRecoveryEvidenceError::Write(error.to_string()))?;
+    }
+    let json = serialize_stage3e_recovery_evidence_report(report)?;
+    fs::write(path, json).map_err(|error| Stage3eRecoveryEvidenceError::Write(error.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::{Duration, TimeZone};
@@ -1775,6 +2071,9 @@ mod tests {
 
     use super::*;
     use crate::instrument::{Exchange, InstrumentId, Market};
+    use crate::market_data_recovery::{
+        evaluate_market_data_recovery, MarketDataRecoveryInput, MarketDataRecoveryMode,
+    };
 
     fn instrument() -> InstrumentId {
         InstrumentId {
@@ -2010,6 +2309,384 @@ mod tests {
                 ..Stage3SessionFilteringSummary::source_only_placeholder()
             },
         }
+    }
+
+    fn stage3e_live_ready_recovery_report() -> MarketDataRecoveryReport {
+        evaluate_market_data_recovery(MarketDataRecoveryInput {
+            mode: MarketDataRecoveryMode::Warm,
+            timeframe_sec: 600,
+            generation: 7,
+            last_final_bar_close_ts: Some(bucket_open_at(1)),
+            replay_from_ts: Some(bucket_open_at(0)),
+            replay_to_ts: Some(bucket_open_at(3)),
+            replay_bar_count: 3,
+            replay_first_bar_close_ts: Some(bucket_open_at(1)),
+            replay_last_bar_close_ts: Some(bucket_open_at(2)),
+            overlap_dedup_bar_count: 1,
+            replay_gap_detected: false,
+            transport_connected: true,
+            live_subscription_sent: true,
+            live_subscription_confirmed: true,
+            first_live_final_bar_close_ts: Some(bucket_open_at(3)),
+            checked_ts: bucket_open_at(3),
+        })
+    }
+
+    fn stage3e_failed_recovery_report() -> MarketDataRecoveryReport {
+        evaluate_market_data_recovery(MarketDataRecoveryInput {
+            mode: MarketDataRecoveryMode::Warm,
+            timeframe_sec: 600,
+            generation: 7,
+            last_final_bar_close_ts: Some(bucket_open_at(1)),
+            replay_from_ts: Some(bucket_open_at(0)),
+            replay_to_ts: Some(bucket_open_at(2)),
+            replay_bar_count: 2,
+            replay_first_bar_close_ts: Some(bucket_open_at(2)),
+            replay_last_bar_close_ts: Some(bucket_open_at(2)),
+            overlap_dedup_bar_count: 0,
+            replay_gap_detected: true,
+            transport_connected: true,
+            live_subscription_sent: true,
+            live_subscription_confirmed: true,
+            first_live_final_bar_close_ts: None,
+            checked_ts: bucket_open_at(3),
+        })
+    }
+
+    fn stage3e_reconnect_recovery_complete() -> Stage3ReconnectRecoverySummary {
+        Stage3ReconnectRecoverySummary {
+            recovery_required: true,
+            recovery_status: Stage3ReconnectRecoveryStatus::AttemptedAndComplete,
+            disconnect_observed: true,
+            warm_replay_attempted: true,
+            cold_replay_attempted: false,
+            replay_gap_absence_proven: true,
+            first_fresh_live_final_after_replay_observed: true,
+            entry_blocked_while_gap_unproven: true,
+        }
+    }
+
+    fn stage3e_reconnect_recovery_not_attempted() -> Stage3ReconnectRecoverySummary {
+        Stage3ReconnectRecoverySummary {
+            recovery_required: true,
+            recovery_status: Stage3ReconnectRecoveryStatus::NotAttempted,
+            disconnect_observed: true,
+            warm_replay_attempted: false,
+            cold_replay_attempted: false,
+            replay_gap_absence_proven: false,
+            first_fresh_live_final_after_replay_observed: false,
+            entry_blocked_while_gap_unproven: true,
+        }
+    }
+
+    fn stage3e_reconnect_recovery_failed() -> Stage3ReconnectRecoverySummary {
+        Stage3ReconnectRecoverySummary {
+            recovery_required: true,
+            recovery_status: Stage3ReconnectRecoveryStatus::AttemptedAndFailed,
+            disconnect_observed: true,
+            warm_replay_attempted: true,
+            cold_replay_attempted: false,
+            replay_gap_absence_proven: false,
+            first_fresh_live_final_after_replay_observed: false,
+            entry_blocked_while_gap_unproven: true,
+        }
+    }
+
+    fn stage3e_action_gate() -> Stage3eRecoveryActionGate {
+        Stage3eRecoveryActionGate {
+            entry_blocked_while_gap_unproven: true,
+            exit_allowed_while_gap_unproven: true,
+            cancel_allowed_while_gap_unproven: true,
+            repair_allowed_while_gap_unproven: true,
+        }
+    }
+
+    fn stage3e_publication_counters_complete() -> Stage3eRecoveryPublicationCounters {
+        Stage3eRecoveryPublicationCounters {
+            recovery_bars_received_count: 3,
+            recovery_bars_published_as_model_bar_count: 0,
+            overlap_replay_deduped_bar_count: 1,
+            overlap_duplicate_model_bar_count: 0,
+            candidate_bars_rejected_before_strategy_count: 2,
+            post_recovery_fresh_live_candidate_count: 1,
+            post_recovery_published_model_bar_count: 1,
+        }
+    }
+
+    fn stage3e_input(
+        reconnect_recovery: Stage3ReconnectRecoverySummary,
+        recovery_report: MarketDataRecoveryReport,
+        action_gate: Stage3eRecoveryActionGate,
+        publication_counters: Stage3eRecoveryPublicationCounters,
+    ) -> Stage3eRecoveryEvidenceInput {
+        Stage3eRecoveryEvidenceInput {
+            generated_at: stage3d_generated_at(),
+            source_commit: "SOURCE_COMMIT_TEST_FULL_SHA".to_string(),
+            source_archive_name: "moex-trading-project-SOURCE_TEST.zip".to_string(),
+            source_archive_sha256:
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
+            session_date: "2026-07-09".to_string(),
+            target_instrument: instrument(),
+            session_window_utc: stage3d3_session_window(),
+            reconnect_recovery,
+            recovery_report,
+            action_gate,
+            publication_counters,
+        }
+    }
+
+    #[test]
+    fn stage3e_complete_recovery_allows_strategy_input_after_first_fresh_live_final() {
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            stage3e_live_ready_recovery_report(),
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let report = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect("Stage 3E recovery report");
+        let json = serialize_stage3e_recovery_evidence_report(&report).expect("json");
+
+        assert_eq!(report.substage, STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3E);
+        assert_eq!(
+            report.status,
+            Stage3eRecoveryEvidenceStatus::RecoveryComplete
+        );
+        assert!(report.gap_absence_proven);
+        assert!(report.first_fresh_live_final_after_replay_observed);
+        assert!(report.strategy_input_publishable_after_recovery);
+        assert_eq!(
+            report.recovery_report.phase,
+            MarketDataRecoveryPhase::LiveReady
+        );
+        assert!(report.recovery_report.blockers.is_empty());
+        assert_eq!(
+            report.publication_counters.overlap_replay_deduped_bar_count,
+            1
+        );
+        assert_eq!(
+            report
+                .publication_counters
+                .overlap_duplicate_model_bar_count,
+            0
+        );
+        assert_eq!(
+            report
+                .publication_counters
+                .recovery_bars_published_as_model_bar_count,
+            0
+        );
+        assert!(!report.raw_payload_exported);
+        assert!(report.safety_boundary.is_closed());
+        assert!(json.contains("\"substage\": \"Stage3E\""));
+        assert!(json.contains("\"raw_payload_exported\": false"));
+        assert!(!json.contains("SECRET_TOKEN"));
+        assert!(!json.contains("SYNTHETIC_ACCOUNT_MARKER"));
+    }
+
+    #[test]
+    fn stage3e_not_attempted_recovery_blocks_strategy_publication() {
+        let mut counters = stage3e_publication_counters_complete();
+        counters.post_recovery_published_model_bar_count = 0;
+        counters.post_recovery_fresh_live_candidate_count = 0;
+        counters.candidate_bars_rejected_before_strategy_count = 1;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_not_attempted(),
+            stage3e_failed_recovery_report(),
+            stage3e_action_gate(),
+            counters,
+        );
+
+        let report =
+            collect_stage3e_reconnect_gap_recovery_evidence(input).expect("not attempted report");
+
+        assert_eq!(
+            report.status,
+            Stage3eRecoveryEvidenceStatus::RecoveryIncomplete
+        );
+        assert!(!report.strategy_input_publishable_after_recovery);
+        assert_eq!(
+            report
+                .publication_counters
+                .post_recovery_published_model_bar_count,
+            0
+        );
+        assert_eq!(
+            report
+                .publication_counters
+                .candidate_bars_rejected_before_strategy_count,
+            1
+        );
+    }
+
+    #[test]
+    fn stage3e_failed_recovery_blocks_strategy_publication() {
+        let mut counters = stage3e_publication_counters_complete();
+        counters.post_recovery_published_model_bar_count = 0;
+        counters.post_recovery_fresh_live_candidate_count = 0;
+        counters.candidate_bars_rejected_before_strategy_count = 2;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_failed(),
+            stage3e_failed_recovery_report(),
+            stage3e_action_gate(),
+            counters,
+        );
+
+        let report = collect_stage3e_reconnect_gap_recovery_evidence(input).expect("failed report");
+
+        assert_eq!(
+            report.status,
+            Stage3eRecoveryEvidenceStatus::RecoveryIncomplete
+        );
+        assert!(!report.strategy_input_publishable_after_recovery);
+        assert!(!report.gap_absence_proven);
+    }
+
+    #[test]
+    fn stage3e_complete_summary_requires_live_ready_recovery_report() {
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            stage3e_failed_recovery_report(),
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("completion mismatch rejected");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryCompletionMismatch
+        );
+    }
+
+    #[test]
+    fn stage3e_entry_must_be_blocked_while_gap_unproven() {
+        let mut action_gate = stage3e_action_gate();
+        action_gate.entry_blocked_while_gap_unproven = false;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            stage3e_live_ready_recovery_report(),
+            action_gate,
+            stage3e_publication_counters_complete(),
+        );
+
+        let report = collect_stage3e_reconnect_gap_recovery_evidence(input).expect("safety report");
+
+        assert_eq!(
+            report.status,
+            Stage3eRecoveryEvidenceStatus::SafetyBoundaryOpen
+        );
+        assert!(!report.strategy_input_publishable_after_recovery);
+    }
+
+    #[test]
+    fn stage3e_exit_cancel_repair_must_not_be_falsely_blocked_as_entry() {
+        let mut action_gate = stage3e_action_gate();
+        action_gate.exit_allowed_while_gap_unproven = false;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            stage3e_live_ready_recovery_report(),
+            action_gate,
+            stage3e_publication_counters_complete(),
+        );
+
+        let report = collect_stage3e_reconnect_gap_recovery_evidence(input).expect("safety report");
+
+        assert_eq!(
+            report.status,
+            Stage3eRecoveryEvidenceStatus::SafetyBoundaryOpen
+        );
+        assert!(report.action_gate.cancel_allowed_while_gap_unproven);
+        assert!(report.action_gate.repair_allowed_while_gap_unproven);
+    }
+
+    #[test]
+    fn stage3e_recovery_and_overlap_bars_never_become_model_bars() {
+        let mut counters = stage3e_publication_counters_complete();
+        counters.recovery_bars_published_as_model_bar_count = 1;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            stage3e_live_ready_recovery_report(),
+            stage3e_action_gate(),
+            counters,
+        );
+
+        let report = collect_stage3e_reconnect_gap_recovery_evidence(input).expect("safety report");
+
+        assert_eq!(
+            report.status,
+            Stage3eRecoveryEvidenceStatus::SafetyBoundaryOpen
+        );
+
+        let mut counters = stage3e_publication_counters_complete();
+        counters.overlap_duplicate_model_bar_count = 1;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            stage3e_live_ready_recovery_report(),
+            stage3e_action_gate(),
+            counters,
+        );
+
+        let report = collect_stage3e_reconnect_gap_recovery_evidence(input).expect("safety report");
+
+        assert_eq!(
+            report.status,
+            Stage3eRecoveryEvidenceStatus::SafetyBoundaryOpen
+        );
+    }
+
+    #[test]
+    fn stage3e_incomplete_recovery_cannot_publish_post_recovery_model_bar() {
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_failed(),
+            stage3e_failed_recovery_report(),
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let report = collect_stage3e_reconnect_gap_recovery_evidence(input).expect("safety report");
+
+        assert_eq!(
+            report.status,
+            Stage3eRecoveryEvidenceStatus::SafetyBoundaryOpen
+        );
+        assert!(!report.strategy_input_publishable_after_recovery);
+    }
+
+    #[test]
+    fn stage3e_writer_creates_redacted_recovery_evidence_artifact() {
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            stage3e_live_ready_recovery_report(),
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+        let report = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect("Stage 3E recovery report");
+        let base_dir = std::env::temp_dir().join(format!(
+            "moex-stage3e-report-write-test-{}",
+            std::process::id()
+        ));
+        let report_path = base_dir
+            .join("reports")
+            .join("parity")
+            .join("finam-vs-alor-m10")
+            .join("2026-07-09.recovery.json");
+        let _ = std::fs::remove_dir_all(&base_dir);
+
+        write_stage3e_recovery_evidence_report(&report_path, &report)
+            .expect("write Stage 3E report");
+        let written = std::fs::read_to_string(&report_path).expect("read Stage 3E report");
+
+        assert!(written.contains("\"substage\": \"Stage3E\""));
+        assert!(written.contains("\"raw_payload_exported\": false"));
+        assert!(written.contains("\"strategy_input_publishable_after_recovery\": true"));
+        assert!(!written.contains("SECRET_TOKEN"));
+        assert!(!written.contains("SYNTHETIC_ACCOUNT_MARKER"));
+
+        let _ = std::fs::remove_dir_all(&base_dir);
     }
 
     #[test]

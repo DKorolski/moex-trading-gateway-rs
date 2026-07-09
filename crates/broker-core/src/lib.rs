@@ -69,11 +69,13 @@ pub use market_data_lifecycle::{
 };
 pub use market_data_parity::{
     collect_stage3d_controlled_active_session_evidence,
+    collect_stage3e_reconnect_gap_recovery_evidence,
     compare_stage3_alor_native_m10_to_finam_derived_m10, derive_stage3_finam_m10_from_final_m1,
     evaluate_stage3_strategy_input_gate, generate_stage3c_redacted_m10_parity_report,
     normalize_stage3_alor_native_m10_oracle, run_stage3d3_controlled_operator_input_adapter,
     serialize_stage3d3_operator_summary, serialize_stage3d_redacted_evidence_report,
-    write_stage3d3_operator_summary, write_stage3d_redacted_evidence_report,
+    serialize_stage3e_recovery_evidence_report, write_stage3d3_operator_summary,
+    write_stage3d_redacted_evidence_report, write_stage3e_recovery_evidence_report,
     Stage3AlorAssembledCrossCheckSummary, Stage3AlorNativeM10Input, Stage3AlorOracleInputSummary,
     Stage3ComparisonPolicy, Stage3ComparisonSummary, Stage3DiffCounts, Stage3DiffSummary,
     Stage3FinamCandidateInputSummary, Stage3FinamM10DerivationRejectReason,
@@ -84,11 +86,13 @@ pub use market_data_parity::{
     Stage3StrategyInputGateSummary, Stage3StrategyInputPublicationCounts,
     Stage3StrategyInputRejectReason, Stage3d3ApprovedInputSource, Stage3d3ApprovedInputSourceKind,
     Stage3d3ApprovedSessionWindow, Stage3d3OperatorRunAdapterConfig, Stage3d3OperatorRunSummary,
-    Stage3dControlledEvidenceError, Stage3dControlledEvidenceInput,
+    Stage3dControlledEvidenceError, Stage3dControlledEvidenceInput, Stage3eRecoveryActionGate,
+    Stage3eRecoveryEvidenceError, Stage3eRecoveryEvidenceInput, Stage3eRecoveryEvidenceReport,
+    Stage3eRecoveryEvidenceStatus, Stage3eRecoveryPublicationCounters,
     STAGE3D3_APPROVED_INPUT_SCHEMA_VERSION, STAGE3D3_OPERATOR_INPUT_ADAPTER_STAGE,
     STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION, STAGE3_MARKET_DATA_PARITY_STAGE,
     STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3B, STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3C,
-    STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3D,
+    STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3D, STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3E,
 };
 pub use market_data_recovery::{
     evaluate_market_data_recovery, plan_market_data_recovery, MarketDataRecoveryBlocker,

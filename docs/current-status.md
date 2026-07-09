@@ -121,12 +121,18 @@ Stage split:
   source files, validates source kind/session/instrument/finality, invokes the
   Stage 3D collector, and writes a redacted parity report plus counts-only
   operator summary.
-- Stage 3D-3a is implemented for review: approved input source schema is
+- Stage 3D-3a is accepted as approved input schema/session-window hardening:
+  approved input source schema is
   explicitly versioned as v2 and config/source `session_window_utc` is required;
   ALOR/FINAM bars outside the approved window are rejected before evidence is
   accepted.
-- Next active patch after Stage 3D-3a acceptance is Stage 3E: reconnect/gap
-  recovery evidence for strategy-input bars.
+- Stage 3E is implemented for review: reconnect/gap recovery evidence wraps the
+  broker-neutral market-data recovery report, proves entry is blocked while gap
+  is unproven, keeps exit/cancel/repair unblocked by that entry guard, suppresses
+  replay/overlap bars from strategy/model publication, and allows strategy input
+  only after gap proof plus first fresh live final bar.
+- Next active patch after Stage 3E acceptance is Stage 3 acceptance-report
+  preparation or reviewer-directed Stage 3E hardening.
 
 Green / mostly closed:
 
@@ -158,9 +164,9 @@ Amber:
 - Stage 3B accepted the source-only comparator foundation. Stage 3C adds
   multi-bucket report generation and duplicate bucket hardening, but
   live active-session source adapters are still pending.
-- Stage 3D/3D-1/3D-2/3D-3/3D-3a adds offline controlled evidence collection and
-  hardening from supplied approved inputs; it does not read live streams or
-  attach runtime-live.
+- Stage 3D/3D-1/3D-2/3D-3/3D-3a/3E adds offline controlled evidence collection,
+  source binding, and reconnect/gap recovery evidence; it does not read live
+  streams or attach runtime-live.
 
 Red / not yet implemented:
 

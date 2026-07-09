@@ -89,6 +89,16 @@ Allowed top-level statuses:
 `Synchronized` is allowed only when all required comparison and safety gates
 pass.
 
+Stage 3E reconnect/gap recovery evidence uses a dedicated recovery-evidence
+status enum:
+
+- `RecoveryComplete`;
+- `RecoveryIncomplete`;
+- `SafetyBoundaryOpen`.
+
+`RecoveryComplete` means replay/gap proof and first fresh live final evidence
+are both present. It does not authorize runtime-live or real order routing.
+
 ## Inputs section
 
 ```json
@@ -289,6 +299,13 @@ For Stage 3D-2 and later, `AttemptedAndComplete` is valid only when replay was
 attempted, gap absence was proven, the first fresh live final bar after replay
 was observed, and entry remained blocked while the gap was unproven. These
 flags are evidence gates, not merely diagnostics.
+
+Stage 3E adds a dedicated recovery evidence report that wraps the broker-neutral
+`MarketDataRecoveryReport` and publication/action-gate counters. The report
+must show that replay/recovery bars were not published as strategy/model bars,
+overlap replay did not duplicate model bars, entry stayed blocked while the gap
+was unproven, and exit/cancel/repair were not falsely blocked by the entry gap
+guard.
 
 ## Session filtering
 

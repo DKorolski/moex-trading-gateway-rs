@@ -4,7 +4,7 @@ Status: Stage 3D accepted as offline collector foundation; Stage 3D-1 accepted
 as recovery/session/input-gate hardening foundation; Stage 3D-2
 recovery/session consistency hardening accepted; Stage 3D-3 controlled
 operator-run input adapter accepted; Stage 3D-3a approved input
-schema/session-window hardening implemented for review.
+schema/session-window hardening accepted.
 
 Date: 2026-07-09.
 
@@ -296,6 +296,6 @@ Stage 3D does not authorize:
 
 ## Next expected patch
 
-After Stage 3D-3a review, the next patch should move to Stage 3E
-reconnect/gap-recovery evidence for strategy-input bars. It must still keep
-runtime-live and all order paths disabled.
+Stage 3E reconnect/gap-recovery evidence is the next review package after
+Stage 3D-3a acceptance. It must still keep runtime-live and all order paths
+disabled.
