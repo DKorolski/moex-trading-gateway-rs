@@ -108,11 +108,15 @@ Stage split:
 - Stage 3D is accepted as offline/source-controlled evidence collector
   foundation: controlled inputs, FINAM M1-to-M10 derivation, Stage 3C report
   invocation, source/session metadata, and redacted JSON artifact writing.
-- Stage 3D-1 is implemented for review: recovery/session/input-gate hardening
+- Stage 3D-1 is accepted as recovery/session/input-gate hardening foundation:
   blocks failed or missing recovery, unknown schedule state, invalid ALOR oracle
   shape, invalid source archive hashes, and invalid session dates before the
   report can be treated as synchronized strategy-input evidence.
-- Next active patch after Stage 3D-1 acceptance is Stage 3E: reconnect/gap
+- Stage 3D-2 is implemented for review: recovery/session consistency hardening
+  rejects `AttemptedAndComplete` unless replay was attempted, gap absence was
+  proven, the first fresh live final bar was observed, and entry stayed blocked
+  while the gap was unproven; unknown schedules must remain blocking.
+- Next active patch after Stage 3D-2 acceptance is Stage 3E: reconnect/gap
   recovery evidence for strategy-input bars.
 
 Green / mostly closed:

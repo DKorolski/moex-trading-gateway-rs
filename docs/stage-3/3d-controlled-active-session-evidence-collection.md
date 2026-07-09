@@ -1,7 +1,8 @@
 # Stage 3D — controlled active-session evidence collection
 
-Status: Stage 3D accepted as offline collector foundation; Stage 3D-1
-recovery/session/input-gate hardening implemented for review.
+Status: Stage 3D accepted as offline collector foundation; Stage 3D-1 accepted
+as recovery/session/input-gate hardening foundation; Stage 3D-2
+recovery/session consistency hardening implemented for review.
 
 Date: 2026-07-09.
 
@@ -102,6 +103,18 @@ Stage 3D-1 applies these fields to the report gate:
 - `schedule_known=false` with `unknown_schedule_blocks=true` forces
   `SessionScheduleUnknown` and suppresses strategy/model-bar publication.
 
+Stage 3D-2 tightens consistency:
+
+- `AttemptedAndComplete` requires a warm or cold replay attempt;
+- `AttemptedAndComplete` requires `replay_gap_absence_proven=true`;
+- `AttemptedAndComplete` requires
+  `first_fresh_live_final_after_replay_observed=true`;
+- `AttemptedAndComplete` requires
+  `entry_blocked_while_gap_unproven=true`;
+- `AttemptedAndFailed` must have attempted replay and must not claim both gap
+  proof and first fresh live final success;
+- `schedule_known=false` must imply `unknown_schedule_blocks=true`.
+
 ## ALOR oracle input gate
 
 Stage 3D-1 validates ALOR oracle bars before the report is generated:
@@ -148,6 +161,8 @@ Stage 3D tests cover:
 - unknown schedule blocks synchronized publication;
 - invalid ALOR oracle finality/timeframe/duration/instrument is rejected;
 - invalid archive SHA256 and invalid session date are rejected;
+- internally inconsistent recovery completion or session schedule flags are
+  rejected;
 - missing source metadata is rejected;
 - safety boundary remains closed.
 

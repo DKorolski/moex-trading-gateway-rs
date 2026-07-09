@@ -285,6 +285,11 @@ Stage 3D controlled evidence must set `recovery_required` and
 silence, or gap recovery was needed for the controlled evidence window.
 Inconsistent combinations are invalid controlled evidence input.
 
+For Stage 3D-2 and later, `AttemptedAndComplete` is valid only when replay was
+attempted, gap absence was proven, the first fresh live final bar after replay
+was observed, and entry remained blocked while the gap was unproven. These
+flags are evidence gates, not merely diagnostics.
+
 ## Session filtering
 
 ```json
@@ -305,6 +310,8 @@ Unknown schedule is blocking. When `schedule_known=false` and
 `SessionScheduleUnknown`, and derived FINAM candidate bars must not be counted
 as published strategy/model bars. Expected session breaks are not evidence of
 data loss, but they also cannot produce fresh strategy bars.
+For Stage 3D-2 and later, `schedule_known=false` with
+`unknown_schedule_blocks=false` is invalid controlled evidence input.
 
 ## Safety boundary
 

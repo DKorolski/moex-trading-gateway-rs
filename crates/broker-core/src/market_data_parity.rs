@@ -766,6 +766,12 @@ pub enum Stage3dControlledEvidenceError {
     MissingInstrumentSymbol,
     #[error("recovery_required and recovery_status are inconsistent")]
     InvalidRecoveryStatus,
+    #[error("AttemptedAndComplete recovery requires replay, gap proof, fresh final bar, and blocked entry while gap was unproven")]
+    InvalidRecoveryCompletionFlags,
+    #[error("recovery attempt flags are inconsistent with recovery_status")]
+    InvalidRecoveryAttemptFlags,
+    #[error("unknown session schedule must block Stage 3 strategy-input evidence")]
+    InvalidSessionFilteringState,
     #[error("ALOR oracle bar must be final")]
     AlorOracleNonFinal,
     #[error("ALOR oracle bar must use M10 timeframe, actual_sec={actual_sec}")]
@@ -818,6 +824,47 @@ impl Stage3dControlledEvidenceInput {
             | (true, Stage3ReconnectRecoveryStatus::AttemptedAndComplete)
             | (true, Stage3ReconnectRecoveryStatus::AttemptedAndFailed) => {}
             _ => return Err(Stage3dControlledEvidenceError::InvalidRecoveryStatus),
+        }
+        match self.reconnect_recovery.recovery_status {
+            Stage3ReconnectRecoveryStatus::AttemptedAndComplete => {
+                if !self.reconnect_recovery.replay_gap_absence_proven
+                    || !self
+                        .reconnect_recovery
+                        .first_fresh_live_final_after_replay_observed
+                    || !(self.reconnect_recovery.warm_replay_attempted
+                        || self.reconnect_recovery.cold_replay_attempted)
+                    || !self.reconnect_recovery.entry_blocked_while_gap_unproven
+                {
+                    return Err(Stage3dControlledEvidenceError::InvalidRecoveryCompletionFlags);
+                }
+            }
+            Stage3ReconnectRecoveryStatus::NotAttempted => {
+                if self.reconnect_recovery.warm_replay_attempted
+                    || self.reconnect_recovery.cold_replay_attempted
+                    || self.reconnect_recovery.replay_gap_absence_proven
+                    || self
+                        .reconnect_recovery
+                        .first_fresh_live_final_after_replay_observed
+                {
+                    return Err(Stage3dControlledEvidenceError::InvalidRecoveryAttemptFlags);
+                }
+            }
+            Stage3ReconnectRecoveryStatus::AttemptedAndFailed => {
+                if !(self.reconnect_recovery.warm_replay_attempted
+                    || self.reconnect_recovery.cold_replay_attempted)
+                    || (self.reconnect_recovery.replay_gap_absence_proven
+                        && self
+                            .reconnect_recovery
+                            .first_fresh_live_final_after_replay_observed)
+                {
+                    return Err(Stage3dControlledEvidenceError::InvalidRecoveryAttemptFlags);
+                }
+            }
+            Stage3ReconnectRecoveryStatus::NotRequired => {}
+        }
+        if !self.session_filtering.schedule_known && !self.session_filtering.unknown_schedule_blocks
+        {
+            return Err(Stage3dControlledEvidenceError::InvalidSessionFilteringState);
         }
         for bar in &self.alor_native_m10_oracle_bars {
             if !bar.is_final {
@@ -2202,6 +2249,121 @@ mod tests {
     }
 
     #[test]
+    fn stage3d_recovery_complete_requires_gap_absence_proven() {
+        let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        input.reconnect_recovery = Stage3ReconnectRecoverySummary {
+            recovery_required: true,
+            recovery_status: Stage3ReconnectRecoveryStatus::AttemptedAndComplete,
+            disconnect_observed: true,
+            warm_replay_attempted: true,
+            cold_replay_attempted: false,
+            replay_gap_absence_proven: false,
+            first_fresh_live_final_after_replay_observed: true,
+            entry_blocked_while_gap_unproven: true,
+        };
+
+        let err = collect_stage3d_controlled_active_session_evidence(input)
+            .expect_err("complete recovery without gap proof rejected");
+
+        assert_eq!(
+            err,
+            Stage3dControlledEvidenceError::InvalidRecoveryCompletionFlags
+        );
+    }
+
+    #[test]
+    fn stage3d_recovery_complete_requires_first_fresh_live_final() {
+        let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        input.reconnect_recovery = Stage3ReconnectRecoverySummary {
+            recovery_required: true,
+            recovery_status: Stage3ReconnectRecoveryStatus::AttemptedAndComplete,
+            disconnect_observed: true,
+            warm_replay_attempted: true,
+            cold_replay_attempted: false,
+            replay_gap_absence_proven: true,
+            first_fresh_live_final_after_replay_observed: false,
+            entry_blocked_while_gap_unproven: true,
+        };
+
+        let err = collect_stage3d_controlled_active_session_evidence(input)
+            .expect_err("complete recovery without fresh live final rejected");
+
+        assert_eq!(
+            err,
+            Stage3dControlledEvidenceError::InvalidRecoveryCompletionFlags
+        );
+    }
+
+    #[test]
+    fn stage3d_recovery_complete_requires_replay_attempt() {
+        let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        input.reconnect_recovery = Stage3ReconnectRecoverySummary {
+            recovery_required: true,
+            recovery_status: Stage3ReconnectRecoveryStatus::AttemptedAndComplete,
+            disconnect_observed: true,
+            warm_replay_attempted: false,
+            cold_replay_attempted: false,
+            replay_gap_absence_proven: true,
+            first_fresh_live_final_after_replay_observed: true,
+            entry_blocked_while_gap_unproven: true,
+        };
+
+        let err = collect_stage3d_controlled_active_session_evidence(input)
+            .expect_err("complete recovery without replay attempt rejected");
+
+        assert_eq!(
+            err,
+            Stage3dControlledEvidenceError::InvalidRecoveryCompletionFlags
+        );
+    }
+
+    #[test]
+    fn stage3d_recovery_complete_requires_entry_blocked_while_gap_unproven() {
+        let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        input.reconnect_recovery = Stage3ReconnectRecoverySummary {
+            recovery_required: true,
+            recovery_status: Stage3ReconnectRecoveryStatus::AttemptedAndComplete,
+            disconnect_observed: true,
+            warm_replay_attempted: true,
+            cold_replay_attempted: false,
+            replay_gap_absence_proven: true,
+            first_fresh_live_final_after_replay_observed: true,
+            entry_blocked_while_gap_unproven: false,
+        };
+
+        let err = collect_stage3d_controlled_active_session_evidence(input)
+            .expect_err("complete recovery without blocked entry guard rejected");
+
+        assert_eq!(
+            err,
+            Stage3dControlledEvidenceError::InvalidRecoveryCompletionFlags
+        );
+    }
+
+    #[test]
+    fn stage3d_recovery_failed_requires_replay_attempt() {
+        let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        input.reconnect_recovery = Stage3ReconnectRecoverySummary {
+            recovery_required: true,
+            recovery_status: Stage3ReconnectRecoveryStatus::AttemptedAndFailed,
+            disconnect_observed: true,
+            warm_replay_attempted: false,
+            cold_replay_attempted: false,
+            replay_gap_absence_proven: false,
+            first_fresh_live_final_after_replay_observed: false,
+            entry_blocked_while_gap_unproven: true,
+        };
+
+        let err = collect_stage3d_controlled_active_session_evidence(input)
+            .expect_err("failed recovery without replay attempt rejected");
+
+        assert_eq!(
+            err,
+            Stage3dControlledEvidenceError::InvalidRecoveryAttemptFlags
+        );
+    }
+
+    #[test]
     fn stage3d_unknown_schedule_blocks_synchronized_report() {
         let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
         input.session_filtering.schedule_known = false;
@@ -2226,6 +2388,21 @@ mod tests {
                 .strategy_input_publication
                 .candidate_bars_rejected_before_strategy_count,
             1
+        );
+    }
+
+    #[test]
+    fn stage3d_schedule_unknown_must_block() {
+        let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        input.session_filtering.schedule_known = false;
+        input.session_filtering.unknown_schedule_blocks = false;
+
+        let err = collect_stage3d_controlled_active_session_evidence(input)
+            .expect_err("unknown schedule without block rejected");
+
+        assert_eq!(
+            err,
+            Stage3dControlledEvidenceError::InvalidSessionFilteringState
         );
     }
 
