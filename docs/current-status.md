@@ -137,11 +137,15 @@ Stage split:
   inside the approved session window, reconnect summary/report phases must not
   contradict each other, and post-recovery publication counters must be
   arithmetically valid.
-- Stage 3E-2 is implemented for review: `RecoveryComplete` now requires
-  explicit replay-window evidence fields, positive replay bar count, valid
-  replay-window ordering, and first fresh live final strictly after replay.
-- Next active patch after Stage 3E-2 acceptance is Stage 3F acceptance-report
-  preparation or reviewer-directed Stage 3E-2 hardening.
+- Stage 3E-2 is accepted as replay-window evidence completeness hardening:
+  `RecoveryComplete` now requires explicit replay-window evidence fields,
+  positive replay bar count, valid replay-window ordering, and first fresh live
+  final strictly after replay.
+- Stage 3E-3 is implemented for review: replay window must cover the last final
+  strategy-bar watermark, recovery mode must match warm/cold attempt flags, and
+  `checked_ts` must not precede the first fresh live final.
+- Next active patch after Stage 3E-3 acceptance is Stage 3F acceptance-report
+  preparation or reviewer-directed Stage 3E-3 hardening.
 
 Green / mostly closed:
 
@@ -173,9 +177,9 @@ Amber:
 - Stage 3B accepted the source-only comparator foundation. Stage 3C adds
   multi-bucket report generation and duplicate bucket hardening, but
   live active-session source adapters are still pending.
-- Stage 3D/3D-1/3D-2/3D-3/3D-3a/3E/3E-1/3E-2 adds offline controlled evidence
-  collection, source binding, and reconnect/gap recovery evidence; it does not
-  read live streams or attach runtime-live.
+- Stage 3D/3D-1/3D-2/3D-3/3D-3a/3E/3E-1/3E-2/3E-3 adds offline controlled
+  evidence collection, source binding, and reconnect/gap recovery evidence; it
+  does not read live streams or attach runtime-live.
 
 Red / not yet implemented:
 

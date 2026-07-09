@@ -322,6 +322,11 @@ be ordered as replay-from <= replay-first <= replay-last <= replay-to <= first
 fresh live final, and the first fresh live final must be strictly after the
 replay last bar.
 
+Stage 3E-3 requires the replay window to cover `last_final_bar_close_ts` when
+that watermark exists, requires `MarketDataRecoveryReport.mode` to match the
+corresponding warm/cold replay attempt flag, and requires `checked_ts` to be
+greater than or equal to the first fresh live final timestamp.
+
 ## Session filtering
 
 ```json

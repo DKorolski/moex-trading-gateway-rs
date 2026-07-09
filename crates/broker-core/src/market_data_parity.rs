@@ -13,7 +13,9 @@ use crate::bar_aggregation::{
 };
 use crate::event::{Bar, MarketDataSourceKind};
 use crate::instrument::{InstrumentId, Price, Quantity};
-use crate::market_data_recovery::{MarketDataRecoveryPhase, MarketDataRecoveryReport};
+use crate::market_data_recovery::{
+    MarketDataRecoveryMode, MarketDataRecoveryPhase, MarketDataRecoveryReport,
+};
 use crate::PaperSafetyBoundary;
 
 pub const STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION: u16 = 1;
@@ -986,6 +988,12 @@ pub enum Stage3eRecoveryEvidenceError {
     RecoveryReportReplayBarsMissing,
     #[error("complete recovery report replay window ordering is invalid")]
     RecoveryReportReplayWindowOrderInvalid,
+    #[error("complete recovery report replay window does not cover last final watermark")]
+    RecoveryReportReplayWindowDoesNotCoverWatermark,
+    #[error("recovery report mode is inconsistent with warm/cold replay attempt flags")]
+    RecoveryReportModeAttemptMismatch,
+    #[error("recovery report checked_ts must not precede first fresh live final")]
+    RecoveryReportCheckedBeforeFirstFreshLiveFinal,
     #[error("first fresh live final must be after replay last bar")]
     FirstFreshLiveFinalNotAfterReplay,
     #[error("AttemptedAndComplete recovery requires replay attempt, gap proof, first fresh final, and entry block")]
@@ -2003,6 +2011,10 @@ fn validate_stage3e_recovery_consistency(
             Ok(())
         }
         Stage3ReconnectRecoveryStatus::AttemptedAndFailed => {
+            validate_stage3e_recovery_mode_attempt(
+                &input.reconnect_recovery,
+                &input.recovery_report,
+            )?;
             if recovery_report_live_ready {
                 return Err(Stage3eRecoveryEvidenceError::RecoveryStatusReportMismatch);
             }
@@ -2035,6 +2047,10 @@ fn validate_stage3e_recovery_consistency(
             if !recovery_report_live_ready {
                 return Err(Stage3eRecoveryEvidenceError::RecoveryCompletionMismatch);
             }
+            validate_stage3e_recovery_mode_attempt(
+                &input.reconnect_recovery,
+                &input.recovery_report,
+            )?;
             validate_stage3e_complete_replay_evidence(&input.recovery_report)?;
             Ok(())
         }
@@ -2158,7 +2174,32 @@ fn validate_stage3e_complete_replay_evidence(
     if first_live_final_bar_close_ts <= replay_last_bar_close_ts {
         return Err(Stage3eRecoveryEvidenceError::FirstFreshLiveFinalNotAfterReplay);
     }
+    if let Some(watermark) = report.last_final_bar_close_ts {
+        if watermark < replay_from_ts || watermark > replay_to_ts {
+            return Err(
+                Stage3eRecoveryEvidenceError::RecoveryReportReplayWindowDoesNotCoverWatermark,
+            );
+        }
+    }
+    if report.checked_ts < first_live_final_bar_close_ts {
+        return Err(Stage3eRecoveryEvidenceError::RecoveryReportCheckedBeforeFirstFreshLiveFinal);
+    }
     Ok(())
+}
+
+fn validate_stage3e_recovery_mode_attempt(
+    reconnect_recovery: &Stage3ReconnectRecoverySummary,
+    report: &MarketDataRecoveryReport,
+) -> Result<(), Stage3eRecoveryEvidenceError> {
+    match report.mode {
+        MarketDataRecoveryMode::Warm if !reconnect_recovery.warm_replay_attempted => {
+            Err(Stage3eRecoveryEvidenceError::RecoveryReportModeAttemptMismatch)
+        }
+        MarketDataRecoveryMode::Cold if !reconnect_recovery.cold_replay_attempted => {
+            Err(Stage3eRecoveryEvidenceError::RecoveryReportModeAttemptMismatch)
+        }
+        MarketDataRecoveryMode::Warm | MarketDataRecoveryMode::Cold => Ok(()),
+    }
 }
 
 fn stage3e_recovery_report_is_live_ready(report: &MarketDataRecoveryReport) -> bool {
@@ -3039,6 +3080,99 @@ mod tests {
         assert_eq!(
             err,
             Stage3eRecoveryEvidenceError::FirstFreshLiveFinalNotAfterReplay
+        );
+    }
+
+    #[test]
+    fn stage3e_replay_window_must_cover_last_final_watermark() {
+        let mut recovery_report = stage3e_live_ready_recovery_report();
+        recovery_report.last_final_bar_close_ts = Some(bucket_open_at(1));
+        recovery_report.replay_from_ts = Some(bucket_open_at(2));
+        recovery_report.replay_first_bar_close_ts = Some(bucket_open_at(2));
+        recovery_report.replay_last_bar_close_ts = Some(bucket_open_at(3));
+        recovery_report.replay_to_ts = Some(bucket_open_at(3));
+        recovery_report.first_live_final_bar_close_ts = Some(bucket_open_at(4));
+        recovery_report.checked_ts = bucket_open_at(4);
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            recovery_report,
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("replay window must cover last final watermark");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryReportReplayWindowDoesNotCoverWatermark
+        );
+    }
+
+    #[test]
+    fn stage3e_warm_recovery_report_requires_warm_replay_attempt() {
+        let mut reconnect_recovery = stage3e_reconnect_recovery_complete();
+        reconnect_recovery.warm_replay_attempted = false;
+        reconnect_recovery.cold_replay_attempted = true;
+        let input = stage3e_input(
+            reconnect_recovery,
+            stage3e_live_ready_recovery_report(),
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("warm recovery report requires warm replay attempt");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryReportModeAttemptMismatch
+        );
+    }
+
+    #[test]
+    fn stage3e_cold_recovery_report_requires_cold_replay_attempt() {
+        let mut reconnect_recovery = stage3e_reconnect_recovery_complete();
+        reconnect_recovery.warm_replay_attempted = true;
+        reconnect_recovery.cold_replay_attempted = false;
+        let mut recovery_report = stage3e_live_ready_recovery_report();
+        recovery_report.mode = MarketDataRecoveryMode::Cold;
+        let input = stage3e_input(
+            reconnect_recovery,
+            recovery_report,
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("cold recovery report requires cold replay attempt");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryReportModeAttemptMismatch
+        );
+    }
+
+    #[test]
+    fn stage3e_checked_ts_must_not_precede_first_fresh_live_final() {
+        let mut recovery_report = stage3e_live_ready_recovery_report();
+        recovery_report.checked_ts = recovery_report
+            .first_live_final_bar_close_ts
+            .expect("first live final")
+            - Duration::minutes(1);
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            recovery_report,
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("checked_ts must not precede first fresh live final");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryReportCheckedBeforeFirstFreshLiveFinal
         );
     }
 
