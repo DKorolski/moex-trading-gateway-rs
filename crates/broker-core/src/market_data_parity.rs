@@ -22,6 +22,7 @@ pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3B: &str = "Stage3B";
 pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3C: &str = "Stage3C";
 pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3D: &str = "Stage3D";
 pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3E: &str = "Stage3E";
+pub const STAGE3_STRATEGY_INPUT_TIMEFRAME_SEC: u32 = 600;
 pub const STAGE3D3_APPROVED_INPUT_SCHEMA_VERSION: u16 = 2;
 pub const STAGE3D3_OPERATOR_INPUT_ADAPTER_STAGE: &str = "Stage3D3ControlledOperatorInputAdapter";
 
@@ -971,6 +972,12 @@ pub enum Stage3eRecoveryEvidenceError {
     InvalidSessionWindow,
     #[error("Stage 3E requires recovery_required=true")]
     RecoveryNotRequired,
+    #[error("recovery report timeframe must be Stage 3 strategy M10, expected_sec={expected_sec}, actual_sec={actual_sec}")]
+    RecoveryReportTimeframeMismatch { expected_sec: u32, actual_sec: u32 },
+    #[error("recovery report timestamp {field} is outside approved session_window_utc")]
+    RecoveryReportTimestampOutsideSessionWindow { field: &'static str },
+    #[error("recovery summary status contradicts recovery report phase")]
+    RecoveryStatusReportMismatch,
     #[error("AttemptedAndComplete recovery evidence must match LiveReady recovery report")]
     RecoveryCompletionMismatch,
     #[error("AttemptedAndComplete recovery requires replay attempt, gap proof, first fresh final, and entry block")]
@@ -991,6 +998,10 @@ pub enum Stage3eRecoveryEvidenceError {
     OverlapReplayCreatedDuplicateModelBars,
     #[error("post-recovery model publication requires complete recovery")]
     PostRecoveryPublicationBeforeRecoveryComplete,
+    #[error("post-recovery published model bar count cannot exceed fresh live candidate count")]
+    PublicationCountersInvalid,
+    #[error("complete recovery requires at least one fresh live candidate")]
+    RecoveryCompleteMissingFreshCandidate,
     #[error("report serialization failed: {0}")]
     Serialization(String),
     #[error("report write failed: {0}")]
@@ -1959,11 +1970,19 @@ fn validate_stage3e_recovery_consistency(
     if !input.reconnect_recovery.recovery_required {
         return Err(Stage3eRecoveryEvidenceError::RecoveryNotRequired);
     }
+    validate_stage3e_recovery_report_timeframe(&input.recovery_report)?;
+    validate_stage3e_recovery_report_timestamps(&input.recovery_report, &input.session_window_utc)?;
+    validate_stage3e_publication_counters(&input.reconnect_recovery, &input.publication_counters)?;
+
+    let recovery_report_live_ready = stage3e_recovery_report_is_live_ready(&input.recovery_report);
     match input.reconnect_recovery.recovery_status {
         Stage3ReconnectRecoveryStatus::NotRequired => {
             Err(Stage3eRecoveryEvidenceError::RecoveryNotRequired)
         }
         Stage3ReconnectRecoveryStatus::NotAttempted => {
+            if recovery_report_live_ready {
+                return Err(Stage3eRecoveryEvidenceError::RecoveryStatusReportMismatch);
+            }
             if input.reconnect_recovery.warm_replay_attempted
                 || input.reconnect_recovery.cold_replay_attempted
                 || input.reconnect_recovery.replay_gap_absence_proven
@@ -1976,6 +1995,13 @@ fn validate_stage3e_recovery_consistency(
             Ok(())
         }
         Stage3ReconnectRecoveryStatus::AttemptedAndFailed => {
+            if recovery_report_live_ready {
+                return Err(Stage3eRecoveryEvidenceError::RecoveryStatusReportMismatch);
+            }
+            if input.recovery_report.blockers.is_empty() && input.recovery_report.gap_absence_proven
+            {
+                return Err(Stage3eRecoveryEvidenceError::RecoveryStatusReportMismatch);
+            }
             if !(input.reconnect_recovery.warm_replay_attempted
                 || input.reconnect_recovery.cold_replay_attempted)
                 || (input.reconnect_recovery.replay_gap_absence_proven
@@ -1998,7 +2024,7 @@ fn validate_stage3e_recovery_consistency(
             {
                 return Err(Stage3eRecoveryEvidenceError::RecoveryCompletionFlagsInvalid);
             }
-            if !stage3e_recovery_report_is_live_ready(&input.recovery_report) {
+            if !recovery_report_live_ready {
                 return Err(Stage3eRecoveryEvidenceError::RecoveryCompletionMismatch);
             }
             Ok(())
@@ -2006,8 +2032,86 @@ fn validate_stage3e_recovery_consistency(
     }
 }
 
+fn validate_stage3e_recovery_report_timeframe(
+    report: &MarketDataRecoveryReport,
+) -> Result<(), Stage3eRecoveryEvidenceError> {
+    if report.timeframe_sec != STAGE3_STRATEGY_INPUT_TIMEFRAME_SEC {
+        return Err(
+            Stage3eRecoveryEvidenceError::RecoveryReportTimeframeMismatch {
+                expected_sec: STAGE3_STRATEGY_INPUT_TIMEFRAME_SEC,
+                actual_sec: report.timeframe_sec,
+            },
+        );
+    }
+    Ok(())
+}
+
+fn validate_stage3e_recovery_report_timestamps(
+    report: &MarketDataRecoveryReport,
+    session_window: &Stage3d3ApprovedSessionWindow,
+) -> Result<(), Stage3eRecoveryEvidenceError> {
+    if let Some(ts) = report.last_final_bar_close_ts {
+        validate_stage3e_recovery_report_timestamp("last_final_bar_close_ts", ts, session_window)?;
+    }
+    if let Some(ts) = report.replay_from_ts {
+        validate_stage3e_recovery_report_timestamp("replay_from_ts", ts, session_window)?;
+    }
+    if let Some(ts) = report.replay_to_ts {
+        validate_stage3e_recovery_report_timestamp("replay_to_ts", ts, session_window)?;
+    }
+    if let Some(ts) = report.replay_first_bar_close_ts {
+        validate_stage3e_recovery_report_timestamp(
+            "replay_first_bar_close_ts",
+            ts,
+            session_window,
+        )?;
+    }
+    if let Some(ts) = report.replay_last_bar_close_ts {
+        validate_stage3e_recovery_report_timestamp("replay_last_bar_close_ts", ts, session_window)?;
+    }
+    if let Some(ts) = report.first_live_final_bar_close_ts {
+        validate_stage3e_recovery_report_timestamp(
+            "first_live_final_bar_close_ts",
+            ts,
+            session_window,
+        )?;
+    }
+    validate_stage3e_recovery_report_timestamp("checked_ts", report.checked_ts, session_window)
+}
+
+fn validate_stage3e_recovery_report_timestamp(
+    field: &'static str,
+    ts: DateTime<Utc>,
+    session_window: &Stage3d3ApprovedSessionWindow,
+) -> Result<(), Stage3eRecoveryEvidenceError> {
+    if ts < session_window.start || ts > session_window.end {
+        return Err(
+            Stage3eRecoveryEvidenceError::RecoveryReportTimestampOutsideSessionWindow { field },
+        );
+    }
+    Ok(())
+}
+
+fn validate_stage3e_publication_counters(
+    reconnect_recovery: &Stage3ReconnectRecoverySummary,
+    counters: &Stage3eRecoveryPublicationCounters,
+) -> Result<(), Stage3eRecoveryEvidenceError> {
+    if counters.post_recovery_published_model_bar_count
+        > counters.post_recovery_fresh_live_candidate_count
+    {
+        return Err(Stage3eRecoveryEvidenceError::PublicationCountersInvalid);
+    }
+    if reconnect_recovery.recovery_status == Stage3ReconnectRecoveryStatus::AttemptedAndComplete
+        && counters.post_recovery_fresh_live_candidate_count == 0
+    {
+        return Err(Stage3eRecoveryEvidenceError::RecoveryCompleteMissingFreshCandidate);
+    }
+    Ok(())
+}
+
 fn stage3e_recovery_report_is_live_ready(report: &MarketDataRecoveryReport) -> bool {
     report.phase == MarketDataRecoveryPhase::LiveReady
+        && report.timeframe_sec == STAGE3_STRATEGY_INPUT_TIMEFRAME_SEC
         && report.gap_absence_proven
         && report.blockers.is_empty()
         && report.first_live_final_bar_close_ts.is_some()
@@ -2558,6 +2662,181 @@ mod tests {
         assert_eq!(
             err,
             Stage3eRecoveryEvidenceError::RecoveryCompletionMismatch
+        );
+    }
+
+    #[test]
+    fn stage3e_recovery_report_must_be_strategy_m10_timeframe() {
+        let mut recovery_report = stage3e_live_ready_recovery_report();
+        recovery_report.timeframe_sec = 60;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            recovery_report,
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("M1 recovery report rejected");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryReportTimeframeMismatch {
+                expected_sec: STAGE3_STRATEGY_INPUT_TIMEFRAME_SEC,
+                actual_sec: 60,
+            }
+        );
+    }
+
+    #[test]
+    fn stage3e_recovery_replay_window_must_be_inside_session_window() {
+        let mut recovery_report = stage3e_live_ready_recovery_report();
+        recovery_report.replay_from_ts =
+            Some(stage3d3_session_window().start - Duration::minutes(1));
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            recovery_report,
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("replay_from_ts outside session window rejected");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryReportTimestampOutsideSessionWindow {
+                field: "replay_from_ts"
+            }
+        );
+    }
+
+    #[test]
+    fn stage3e_first_live_final_must_be_inside_session_window() {
+        let mut recovery_report = stage3e_live_ready_recovery_report();
+        recovery_report.first_live_final_bar_close_ts =
+            Some(stage3d3_session_window().end + Duration::minutes(1));
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            recovery_report,
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("first fresh live final outside session window rejected");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryReportTimestampOutsideSessionWindow {
+                field: "first_live_final_bar_close_ts"
+            }
+        );
+    }
+
+    #[test]
+    fn stage3e_checked_ts_must_be_inside_session_window() {
+        let mut recovery_report = stage3e_live_ready_recovery_report();
+        recovery_report.checked_ts = stage3d3_session_window().end + Duration::minutes(1);
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            recovery_report,
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("checked_ts outside session window rejected");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryReportTimestampOutsideSessionWindow {
+                field: "checked_ts"
+            }
+        );
+    }
+
+    #[test]
+    fn stage3e_not_attempted_cannot_have_live_ready_recovery_report() {
+        let mut counters = stage3e_publication_counters_complete();
+        counters.post_recovery_fresh_live_candidate_count = 0;
+        counters.post_recovery_published_model_bar_count = 0;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_not_attempted(),
+            stage3e_live_ready_recovery_report(),
+            stage3e_action_gate(),
+            counters,
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("NotAttempted + LiveReady report rejected");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryStatusReportMismatch
+        );
+    }
+
+    #[test]
+    fn stage3e_failed_cannot_have_live_ready_recovery_report() {
+        let mut counters = stage3e_publication_counters_complete();
+        counters.post_recovery_fresh_live_candidate_count = 0;
+        counters.post_recovery_published_model_bar_count = 0;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_failed(),
+            stage3e_live_ready_recovery_report(),
+            stage3e_action_gate(),
+            counters,
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("AttemptedAndFailed + LiveReady report rejected");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryStatusReportMismatch
+        );
+    }
+
+    #[test]
+    fn stage3e_published_count_cannot_exceed_fresh_candidate_count() {
+        let mut counters = stage3e_publication_counters_complete();
+        counters.post_recovery_fresh_live_candidate_count = 1;
+        counters.post_recovery_published_model_bar_count = 2;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            stage3e_live_ready_recovery_report(),
+            stage3e_action_gate(),
+            counters,
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("published count cannot exceed fresh candidates");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::PublicationCountersInvalid
+        );
+    }
+
+    #[test]
+    fn stage3e_complete_recovery_requires_fresh_candidate_count() {
+        let mut counters = stage3e_publication_counters_complete();
+        counters.post_recovery_fresh_live_candidate_count = 0;
+        counters.post_recovery_published_model_bar_count = 0;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            stage3e_live_ready_recovery_report(),
+            stage3e_action_gate(),
+            counters,
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("complete recovery requires fresh candidate count");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryCompleteMissingFreshCandidate
         );
     }
 

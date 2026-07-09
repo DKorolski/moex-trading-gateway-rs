@@ -126,13 +126,18 @@ Stage split:
   explicitly versioned as v2 and config/source `session_window_utc` is required;
   ALOR/FINAM bars outside the approved window are rejected before evidence is
   accepted.
-- Stage 3E is implemented for review: reconnect/gap recovery evidence wraps the
-  broker-neutral market-data recovery report, proves entry is blocked while gap
-  is unproven, keeps exit/cancel/repair unblocked by that entry guard, suppresses
-  replay/overlap bars from strategy/model publication, and allows strategy input
-  only after gap proof plus first fresh live final bar.
-- Next active patch after Stage 3E acceptance is Stage 3 acceptance-report
-  preparation or reviewer-directed Stage 3E hardening.
+- Stage 3E is accepted as recovery/gap evidence foundation: reconnect/gap
+  recovery evidence wraps the broker-neutral market-data recovery report, proves
+  entry is blocked while gap is unproven, keeps exit/cancel/repair unblocked by
+  that entry guard, suppresses replay/overlap bars from strategy/model
+  publication, and allows strategy input only after gap proof plus first fresh
+  live final bar.
+- Stage 3E-1 is implemented for review: recovery report must be M10 strategy
+  timeframe, recovery timestamps must sit inside the approved session window,
+  reconnect summary/report phases must not contradict each other, and
+  post-recovery publication counters must be arithmetically valid.
+- Next active patch after Stage 3E-1 acceptance is Stage 3F acceptance-report
+  preparation or reviewer-directed Stage 3E-1 hardening.
 
 Green / mostly closed:
 
@@ -164,9 +169,9 @@ Amber:
 - Stage 3B accepted the source-only comparator foundation. Stage 3C adds
   multi-bucket report generation and duplicate bucket hardening, but
   live active-session source adapters are still pending.
-- Stage 3D/3D-1/3D-2/3D-3/3D-3a/3E adds offline controlled evidence collection,
-  source binding, and reconnect/gap recovery evidence; it does not read live
-  streams or attach runtime-live.
+- Stage 3D/3D-1/3D-2/3D-3/3D-3a/3E/3E-1 adds offline controlled evidence
+  collection, source binding, and reconnect/gap recovery evidence; it does not
+  read live streams or attach runtime-live.
 
 Red / not yet implemented:
 

@@ -93,6 +93,7 @@ pub use market_data_parity::{
     STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION, STAGE3_MARKET_DATA_PARITY_STAGE,
     STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3B, STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3C,
     STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3D, STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3E,
+    STAGE3_STRATEGY_INPUT_TIMEFRAME_SEC,
 };
 pub use market_data_recovery::{
     evaluate_market_data_recovery, plan_market_data_recovery, MarketDataRecoveryBlocker,

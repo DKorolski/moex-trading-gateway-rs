@@ -1,6 +1,7 @@
 # Stage 3E — reconnect/gap recovery evidence for strategy-input bars
 
-Status: implemented for review.
+Status: Stage 3E accepted as recovery/gap evidence foundation; Stage 3E-1
+recovery-report consistency hardening implemented for review.
 
 Date: 2026-07-09.
 
@@ -41,12 +42,18 @@ strategy-input evidence:
 - publication counters;
 - closed safety boundary.
 
+Stage 3E-1 hardens the consistency boundary between the reconnect summary, the
+broker-neutral recovery report, the approved session window, and publication
+counters. Contradictory evidence is rejected before a report is accepted.
+
 ## Recovery acceptance contract
 
 `RecoveryComplete` requires all of the following:
 
 - `recovery_required = true`;
 - `recovery_status = AttemptedAndComplete`;
+- recovery report timeframe is the strategy-input M10 timeframe (`600`
+  seconds);
 - warm or cold replay attempted;
 - `replay_gap_absence_proven = true`;
 - `first_fresh_live_final_after_replay_observed = true`;
@@ -54,10 +61,13 @@ strategy-input evidence:
 - `MarketDataRecoveryReport.phase = LiveReady`;
 - recovery blockers are empty;
 - recovery report has `gap_absence_proven = true`;
-- first fresh live final bar after replay is present.
+- first fresh live final bar after replay is present;
+- all recovery report timestamps are inside the approved `session_window_utc`;
+- at least one fresh live candidate is observed after recovery.
 
 `NotAttempted` and `AttemptedAndFailed` produce `RecoveryIncomplete` and must
-not allow strategy/model publication.
+not allow strategy/model publication. They also must not contradict the
+underlying recovery report by pairing those statuses with `LiveReady`.
 
 ## Publication and action safety
 
@@ -66,6 +76,8 @@ Stage 3E keeps the distinction between recovery data and strategy input:
 - replay/recovery bars are not publishable as strategy/model bars;
 - overlap replay dedupe must not create duplicate model bars;
 - post-recovery model publication is allowed only after complete recovery;
+- post-recovery published model-bar count cannot exceed fresh live candidate
+  count;
 - entry is blocked while gap proof is missing;
 - exit/cancel/repair are not falsely blocked by the entry gap guard.
 
@@ -87,6 +99,14 @@ Stage 3E tests cover:
 - `NotAttempted` recovery blocks strategy publication;
 - `AttemptedAndFailed` recovery blocks strategy publication;
 - `AttemptedAndComplete` must match a `LiveReady` recovery report;
+- M1 recovery reports cannot satisfy the Stage 3 M10 strategy-input recovery
+  contract;
+- recovery report timestamps outside `session_window_utc` are rejected;
+- `NotAttempted` and `AttemptedAndFailed` cannot be paired with a `LiveReady`
+  recovery report;
+- post-recovery published model-bar count cannot exceed fresh live candidate
+  count;
+- complete recovery requires a fresh live candidate count;
 - entry must stay blocked while gap is unproven;
 - exit/cancel/repair must remain allowed while entry is blocked by the gap
   guard;

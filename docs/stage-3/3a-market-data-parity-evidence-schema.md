@@ -307,6 +307,14 @@ overlap replay did not duplicate model bars, entry stayed blocked while the gap
 was unproven, and exit/cancel/repair were not falsely blocked by the entry gap
 guard.
 
+Stage 3E-1 hardens that report as strategy-input M10 evidence: the wrapped
+`MarketDataRecoveryReport.timeframe_sec` must be `600`, all present recovery
+timestamps must be inside the approved `session_window_utc`, `NotAttempted` and
+`AttemptedAndFailed` summaries must not be paired with a `LiveReady` recovery
+report, `post_recovery_published_model_bar_count` must not exceed
+`post_recovery_fresh_live_candidate_count`, and complete recovery requires at
+least one fresh live candidate after recovery.
+
 ## Session filtering
 
 ```json

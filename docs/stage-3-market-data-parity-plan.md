@@ -7,7 +7,8 @@ accepted as offline collector foundation; Stage 3D-1 recovery/session/input
 gate hardening accepted as foundation; Stage 3D-2 recovery/session consistency
 hardening accepted; Stage 3D-3 controlled operator-run input adapter accepted;
 Stage 3D-3a approved input schema/session-window hardening accepted; Stage 3E
-reconnect/gap recovery evidence implemented for review.
+reconnect/gap recovery evidence accepted as foundation; Stage 3E-1 recovery
+report consistency hardening implemented for review.
 
 Date: 2026-07-09.
 
@@ -231,5 +232,7 @@ Recommended next slices after accepted Stage 3A:
 7. Stage 3D-3a — approved input source schema v2 and explicit
    `session_window_utc` validation (accepted).
 8. Stage 3E — reconnect/gap-recovery evidence for strategy-input bars
+   (accepted as foundation).
+9. Stage 3E-1 — recovery report consistency and counter hardening
    (implemented for review).
-9. Stage 3 acceptance report or reviewer-directed Stage 3E hardening.
+10. Stage 3F acceptance report or reviewer-directed Stage 3E-1 hardening.
