@@ -27,11 +27,11 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 2B — controlled runtime source migration implementation,
-paper/mock/local only.
+Stage 3 — market-data parity to strategy input level.
 
-Stage 2B patch gates are implementation safety gates inside Stage 2. They do
-not replace Stage 3 or later macro-stages.
+Stage 2B is closed as the broker-neutral runtime source migration
+contract/foundation. Stage 3 must prove strategy-input market-data parity before
+any later runtime attachment, command consumer, or live execution stage.
 
 ## Still blocked
 

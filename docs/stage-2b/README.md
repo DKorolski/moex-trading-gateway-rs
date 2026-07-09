@@ -263,3 +263,16 @@ Acceptance note:
 Acceptance note:
 
 [`2b-10-paper-mock-compatibility-test-pack.md`](2b-10-paper-mock-compatibility-test-pack.md)
+
+`2B-11` closes Stage 2B with an acceptance report:
+
+- Stage 2B scope and non-goals are restated;
+- accepted patch list 2B-1 through 2B-10 is recorded;
+- safety gates and forbidden live surfaces remain explicit;
+- known caveat is carried forward: the real old ALOR `HybridIntradayRuntime`
+  source is not yet fully moved into this repo;
+- next macro-stage is Stage 3 market-data parity, not runtime-live.
+
+Acceptance report:
+
+[`../stage-2b-runtime-source-migration-acceptance-report.md`](../stage-2b-runtime-source-migration-acceptance-report.md)

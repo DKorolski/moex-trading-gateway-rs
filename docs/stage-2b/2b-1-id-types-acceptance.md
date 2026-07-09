@@ -1,6 +1,6 @@
 # Stage 2B-1 — broker-neutral id types acceptance
 
-Status: implementation patch ready for review.
+Status: accepted.
 
 Date: 2026-07-07.
 

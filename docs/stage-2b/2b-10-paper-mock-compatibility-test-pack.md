@@ -1,6 +1,6 @@
 # Stage 2B-10 — paper/mock compatibility test pack
 
-Status: implementation patch ready for review.
+Status: accepted.
 
 Date: 2026-07-09.
 

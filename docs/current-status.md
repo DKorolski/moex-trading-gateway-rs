@@ -63,11 +63,12 @@ Stage split:
   `trade_ledger`, runtime command-builder, and ALOR cancel/replace DTO surfaces
   to the migration inventory.
 - Stage 2B implementation plan is accepted. Controlled runtime source migration
-  implementation may proceed paper/mock/local only, in small reviewable patches.
+  implementation proceeded paper/mock/local only, in small reviewable patches.
   Runtime-live and the real FINAM command consumer remain blocked.
-- Active stage is Stage 2B. Stage 2B-N patch gates are implementation safety
-  gates inside Stage 2 and do not replace Stage 3 market-data parity or later
-  macro-stages.
+- Stage 2B is closed as the runtime source migration contract/foundation after
+  Stage 2B-11 acceptance report. Stage 2B-N patch gates were implementation
+  safety gates inside Stage 2 and do not replace Stage 3 market-data parity or
+  later macro-stages.
 - Stage 2B-1 and Stage 2B-1a are accepted. Stage 2B-2 adds passive DTO/state
   migration contracts for old ALOR numeric order ids and broker-native string
   ids; it does not attach runtime-live or real FINAM command consumption.
@@ -91,9 +92,10 @@ Stage split:
 - Stage 2B-8 command builders / CancelOrder / ReplaceOrder DTO shape migration
   is accepted.
 - Stage 2B-9 deterministic request-id stability is accepted.
-- Active patch is Stage 2B-10: combined paper/mock compatibility test pack for
-  broker-neutral runtime state, ACK, cache, ledger, command DTO, deterministic
-  request-id, and paper riskgate/oracle seed contracts.
+- Stage 2B-10 combined paper/mock compatibility test pack is accepted.
+- Stage 2B-11 acceptance report closes Stage 2B as broker-neutral runtime
+  contract/foundation.
+- Next macro-stage is Stage 3: market-data parity to strategy input level.
 
 Green / mostly closed:
 
@@ -119,8 +121,8 @@ Amber:
   real ALOR hybrid BO/MR orchestrator.
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
-- Stage 2B implementation is allowed only inside the accepted paper/mock/local
-  plan and still requires fixture-backed parity tests for each patch.
+- Stage 3 has not yet accepted full-session FINAM-vs-ALOR strategy-input
+  market-data parity.
 
 Red / not yet implemented:
 

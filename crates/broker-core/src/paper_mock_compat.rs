@@ -606,8 +606,12 @@ mod tests {
             broker_order_id_string_paths_preserved: ledger
                 .order(&BrokerOrderId::new("FINAM/LEDGER-OWNED-2B10"))
                 .is_some(),
-            ownership_attribution_safe: caches.tracked_order_ids()
-                != vec![BrokerOrderId::new("FINAM/OBSERVED-2B10")],
+            ownership_attribution_safe: !caches
+                .tracked_order_ids()
+                .contains(&BrokerOrderId::new("FINAM/OBSERVED-2B10"))
+                && !caches
+                    .tracked_order_ids()
+                    .contains(&BrokerOrderId::new("FINAM/ORPHAN-2B10")),
             deterministic_request_id_stable: legacy_request_id == broker_neutral_request_id,
             riskgate_seed_preserved: projection.risk_gate_ledger_rows_count == 222,
             live_boundary_closed: paper_snapshot.safety_boundary.is_closed(),
