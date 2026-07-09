@@ -5,8 +5,9 @@ Stage 3B-1 hardening; Stage 3C redacted report-generator accepted after
 Stage 3C-1 duplicate bucket hardening; Stage 3D controlled evidence collection
 accepted as offline collector foundation; Stage 3D-1 recovery/session/input
 gate hardening accepted as foundation; Stage 3D-2 recovery/session consistency
-hardening accepted; Stage 3D-3 controlled operator-run input adapter
-implemented for review.
+hardening accepted; Stage 3D-3 controlled operator-run input adapter accepted;
+Stage 3D-3a approved input schema/session-window hardening implemented for
+review.
 
 Date: 2026-07-09.
 
@@ -226,7 +227,9 @@ Recommended next slices after accepted Stage 3A:
 4. Stage 3D-1 — recovery/session/input-gate hardening (accepted as foundation).
 5. Stage 3D-2 — recovery/session consistency hardening (accepted).
 6. Stage 3D-3 — controlled operator-run input adapter for approved/redacted
-   ALOR native M10 and FINAM final M1 source files (implemented for review).
-7. Stage 3E — reconnect/gap-recovery evidence for strategy-input bars (next
-   after Stage 3D-3 acceptance).
-8. Stage 3 acceptance report.
+   ALOR native M10 and FINAM final M1 source files (accepted).
+7. Stage 3D-3a — approved input source schema v2 and explicit
+   `session_window_utc` validation (implemented for review).
+8. Stage 3E — reconnect/gap-recovery evidence for strategy-input bars (next
+   after Stage 3D-3a acceptance).
+9. Stage 3 acceptance report.

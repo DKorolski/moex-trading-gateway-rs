@@ -116,12 +116,16 @@ Stage split:
   `AttemptedAndComplete` unless replay was attempted, gap absence was proven,
   the first fresh live final bar was observed, and entry stayed blocked while
   the gap was unproven; unknown schedules must remain blocking.
-- Stage 3D-3 is implemented for review: controlled operator-run input adapter
-  reads approved/redacted ALOR native M10 and FINAM final M1 source files,
-  validates source kind/session/instrument/finality, invokes the Stage 3D
-  collector, and writes a redacted parity report plus counts-only operator
-  summary.
-- Next active patch after Stage 3D-3 acceptance is Stage 3E: reconnect/gap
+- Stage 3D-3 is accepted as offline controlled operator-run input adapter
+  foundation: it reads approved/redacted ALOR native M10 and FINAM final M1
+  source files, validates source kind/session/instrument/finality, invokes the
+  Stage 3D collector, and writes a redacted parity report plus counts-only
+  operator summary.
+- Stage 3D-3a is implemented for review: approved input source schema is
+  explicitly versioned as v2 and config/source `session_window_utc` is required;
+  ALOR/FINAM bars outside the approved window are rejected before evidence is
+  accepted.
+- Next active patch after Stage 3D-3a acceptance is Stage 3E: reconnect/gap
   recovery evidence for strategy-input bars.
 
 Green / mostly closed:
@@ -154,7 +158,7 @@ Amber:
 - Stage 3B accepted the source-only comparator foundation. Stage 3C adds
   multi-bucket report generation and duplicate bucket hardening, but
   live active-session source adapters are still pending.
-- Stage 3D/3D-1/3D-2/3D-3 adds offline controlled evidence collection and
+- Stage 3D/3D-1/3D-2/3D-3/3D-3a adds offline controlled evidence collection and
   hardening from supplied approved inputs; it does not read live streams or
   attach runtime-live.
 

@@ -20,6 +20,7 @@ pub const STAGE3_MARKET_DATA_PARITY_STAGE: &str = "Stage3MarketDataParity";
 pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3B: &str = "Stage3B";
 pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3C: &str = "Stage3C";
 pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3D: &str = "Stage3D";
+pub const STAGE3D3_APPROVED_INPUT_SCHEMA_VERSION: u16 = 2;
 pub const STAGE3D3_OPERATOR_INPUT_ADAPTER_STAGE: &str = "Stage3D3ControlledOperatorInputAdapter";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -755,6 +756,12 @@ pub enum Stage3d3ApprovedInputSourceKind {
     FinamFinalM1,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage3d3ApprovedSessionWindow {
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Stage3d3ApprovedInputSource {
     pub schema_version: u16,
@@ -762,6 +769,7 @@ pub struct Stage3d3ApprovedInputSource {
     pub source_label: String,
     pub session_date: String,
     pub target_instrument: InstrumentId,
+    pub session_window_utc: Option<Stage3d3ApprovedSessionWindow>,
     pub raw_payload_exported: bool,
     pub bars: Vec<Bar>,
 }
@@ -774,6 +782,7 @@ pub struct Stage3d3OperatorRunAdapterConfig {
     pub source_archive_sha256: String,
     pub session_date: String,
     pub target_instrument: InstrumentId,
+    pub session_window_utc: Option<Stage3d3ApprovedSessionWindow>,
     pub alor_source_path: PathBuf,
     pub finam_source_path: PathBuf,
     pub report_output_path: PathBuf,
@@ -841,6 +850,8 @@ pub enum Stage3dControlledEvidenceError {
     ApprovedSourceRead(String),
     #[error("approved source decode failed: {0}")]
     ApprovedSourceDecode(String),
+    #[error("approved source schema_version is unsupported, actual={actual}")]
+    UnsupportedApprovedSourceSchemaVersion { actual: u16 },
     #[error("approved source kind mismatch")]
     ApprovedSourceKindMismatch,
     #[error("approved source label is required")]
@@ -853,6 +864,14 @@ pub enum Stage3dControlledEvidenceError {
     ApprovedSourceInstrumentMismatch,
     #[error("approved source bars are required")]
     MissingApprovedSourceBars,
+    #[error("approved session_window_utc is required")]
+    MissingApprovedSessionWindow,
+    #[error("approved session_window_utc must have start < end")]
+    InvalidApprovedSessionWindow,
+    #[error("approved source session_window_utc does not match operator run")]
+    ApprovedSourceSessionWindowMismatch,
+    #[error("approved source bar is outside session_window_utc")]
+    ApprovedSourceBarOutsideSessionWindow,
     #[error("approved FINAM source bar must be final M1")]
     FinamSourceBarNotFinalM1,
     #[error("approved FINAM source bar must span 60 seconds, actual_sec={actual_sec}")]
@@ -970,17 +989,33 @@ impl Stage3dControlledEvidenceInput {
     }
 }
 
+impl Stage3d3ApprovedSessionWindow {
+    fn validate(&self) -> Result<(), Stage3dControlledEvidenceError> {
+        if self.start >= self.end {
+            return Err(Stage3dControlledEvidenceError::InvalidApprovedSessionWindow);
+        }
+        Ok(())
+    }
+
+    fn contains_bar(&self, bar: &Bar) -> bool {
+        bar.open_ts >= self.start && bar.close_ts <= self.end
+    }
+}
+
 impl Stage3d3ApprovedInputSource {
     fn validate_for_operator_run(
         &self,
         expected_kind: Stage3d3ApprovedInputSourceKind,
         expected_session_date: &str,
         expected_target_instrument: &InstrumentId,
+        expected_session_window: &Stage3d3ApprovedSessionWindow,
     ) -> Result<(), Stage3dControlledEvidenceError> {
-        if self.schema_version != STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION {
-            return Err(Stage3dControlledEvidenceError::ApprovedSourceDecode(
-                "unsupported schema_version".to_string(),
-            ));
+        if self.schema_version != STAGE3D3_APPROVED_INPUT_SCHEMA_VERSION {
+            return Err(
+                Stage3dControlledEvidenceError::UnsupportedApprovedSourceSchemaVersion {
+                    actual: self.schema_version,
+                },
+            );
         }
         if self.source_kind != expected_kind {
             return Err(Stage3dControlledEvidenceError::ApprovedSourceKindMismatch);
@@ -997,12 +1032,23 @@ impl Stage3d3ApprovedInputSource {
         if self.target_instrument != *expected_target_instrument {
             return Err(Stage3dControlledEvidenceError::ApprovedSourceInstrumentMismatch);
         }
+        let source_session_window = self
+            .session_window_utc
+            .as_ref()
+            .ok_or(Stage3dControlledEvidenceError::MissingApprovedSessionWindow)?;
+        source_session_window.validate()?;
+        if source_session_window != expected_session_window {
+            return Err(Stage3dControlledEvidenceError::ApprovedSourceSessionWindowMismatch);
+        }
         if self.bars.is_empty() {
             return Err(Stage3dControlledEvidenceError::MissingApprovedSourceBars);
         }
         for bar in &self.bars {
             if bar.instrument != *expected_target_instrument {
                 return Err(Stage3dControlledEvidenceError::ApprovedSourceInstrumentMismatch);
+            }
+            if !expected_session_window.contains_bar(bar) {
+                return Err(Stage3dControlledEvidenceError::ApprovedSourceBarOutsideSessionWindow);
             }
             match expected_kind {
                 Stage3d3ApprovedInputSourceKind::AlorNativeM10Oracle => {}
@@ -1662,17 +1708,24 @@ pub fn write_stage3d3_operator_summary(
 pub fn run_stage3d3_controlled_operator_input_adapter(
     config: Stage3d3OperatorRunAdapterConfig,
 ) -> Result<Stage3d3OperatorRunSummary, Stage3dControlledEvidenceError> {
+    let session_window = config
+        .session_window_utc
+        .as_ref()
+        .ok_or(Stage3dControlledEvidenceError::MissingApprovedSessionWindow)?;
+    session_window.validate()?;
     let alor_source = read_stage3d3_approved_source(&config.alor_source_path)?;
     let finam_source = read_stage3d3_approved_source(&config.finam_source_path)?;
     alor_source.validate_for_operator_run(
         Stage3d3ApprovedInputSourceKind::AlorNativeM10Oracle,
         &config.session_date,
         &config.target_instrument,
+        session_window,
     )?;
     finam_source.validate_for_operator_run(
         Stage3d3ApprovedInputSourceKind::FinamFinalM1,
         &config.session_date,
         &config.target_instrument,
+        session_window,
     )?;
 
     let report =
@@ -1884,17 +1937,31 @@ mod tests {
         }
     }
 
+    fn stage3d3_session_window() -> Stage3d3ApprovedSessionWindow {
+        Stage3d3ApprovedSessionWindow {
+            start: Utc
+                .with_ymd_and_hms(2026, 7, 9, 8, 50, 0)
+                .single()
+                .expect("valid session window start"),
+            end: Utc
+                .with_ymd_and_hms(2026, 7, 9, 20, 0, 0)
+                .single()
+                .expect("valid session window end"),
+        }
+    }
+
     fn stage3d3_approved_source(
         kind: Stage3d3ApprovedInputSourceKind,
         label: &str,
         bars: Vec<Bar>,
     ) -> Stage3d3ApprovedInputSource {
         Stage3d3ApprovedInputSource {
-            schema_version: STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION,
+            schema_version: STAGE3D3_APPROVED_INPUT_SCHEMA_VERSION,
             source_kind: kind,
             source_label: label.to_string(),
             session_date: "2026-07-09".to_string(),
             target_instrument: instrument(),
+            session_window_utc: Some(stage3d3_session_window()),
             raw_payload_exported: false,
             bars,
         }
@@ -1924,6 +1991,7 @@ mod tests {
                 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
             session_date: "2026-07-09".to_string(),
             target_instrument: instrument(),
+            session_window_utc: Some(stage3d3_session_window()),
             alor_source_path: base_dir.join("approved-alor-m10.json"),
             finam_source_path: base_dir.join("approved-finam-m1.json"),
             report_output_path: base_dir
@@ -2419,6 +2487,185 @@ mod tests {
         assert!(!summary_json.contains("SECRET_TOKEN"));
         assert!(!summary_json.contains("SYNTHETIC_ACCOUNT_MARKER"));
 
+        let _ = std::fs::remove_dir_all(&base_dir);
+    }
+
+    #[test]
+    fn stage3d3_approved_input_schema_version_matches_documented_version() {
+        let source = stage3d3_approved_source(
+            Stage3d3ApprovedInputSourceKind::AlorNativeM10Oracle,
+            "approved_alor_m10_redacted_fixture",
+            vec![alor_oracle()],
+        );
+
+        assert_eq!(
+            source.schema_version,
+            STAGE3D3_APPROVED_INPUT_SCHEMA_VERSION
+        );
+        assert_eq!(source.schema_version, 2);
+    }
+
+    #[test]
+    fn stage3d3_approved_input_wrong_schema_version_rejected() {
+        let base_dir = stage3d3_temp_dir("wrong_schema");
+        let _ = std::fs::remove_dir_all(&base_dir);
+        let config = stage3d3_config(&base_dir);
+        let mut alor_source = stage3d3_approved_source(
+            Stage3d3ApprovedInputSourceKind::AlorNativeM10Oracle,
+            "approved_alor_m10_redacted_fixture",
+            vec![alor_oracle()],
+        );
+        alor_source.schema_version = STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION;
+        write_stage3d3_source(&config.alor_source_path, &alor_source);
+        write_stage3d3_source(
+            &config.finam_source_path,
+            &stage3d3_approved_source(
+                Stage3d3ApprovedInputSourceKind::FinamFinalM1,
+                "approved_finam_m1_redacted_fixture",
+                synchronized_finam_m1(),
+            ),
+        );
+
+        let err = run_stage3d3_controlled_operator_input_adapter(config)
+            .expect_err("wrong approved source schema rejected");
+
+        assert_eq!(
+            err,
+            Stage3dControlledEvidenceError::UnsupportedApprovedSourceSchemaVersion {
+                actual: STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION
+            }
+        );
+        let _ = std::fs::remove_dir_all(&base_dir);
+    }
+
+    #[test]
+    fn stage3d3_session_window_utc_is_required() {
+        let base_dir = stage3d3_temp_dir("missing_window");
+        let _ = std::fs::remove_dir_all(&base_dir);
+        let mut config = stage3d3_config(&base_dir);
+        config.session_window_utc = None;
+        write_stage3d3_source(
+            &config.alor_source_path,
+            &stage3d3_approved_source(
+                Stage3d3ApprovedInputSourceKind::AlorNativeM10Oracle,
+                "approved_alor_m10_redacted_fixture",
+                vec![alor_oracle()],
+            ),
+        );
+        write_stage3d3_source(
+            &config.finam_source_path,
+            &stage3d3_approved_source(
+                Stage3d3ApprovedInputSourceKind::FinamFinalM1,
+                "approved_finam_m1_redacted_fixture",
+                synchronized_finam_m1(),
+            ),
+        );
+
+        let err = run_stage3d3_controlled_operator_input_adapter(config)
+            .expect_err("missing config session window rejected");
+
+        assert_eq!(
+            err,
+            Stage3dControlledEvidenceError::MissingApprovedSessionWindow
+        );
+        let _ = std::fs::remove_dir_all(&base_dir);
+    }
+
+    #[test]
+    fn stage3d3_source_session_window_utc_is_required() {
+        let base_dir = stage3d3_temp_dir("missing_source_window");
+        let _ = std::fs::remove_dir_all(&base_dir);
+        let config = stage3d3_config(&base_dir);
+        let mut alor_source = stage3d3_approved_source(
+            Stage3d3ApprovedInputSourceKind::AlorNativeM10Oracle,
+            "approved_alor_m10_redacted_fixture",
+            vec![alor_oracle()],
+        );
+        alor_source.session_window_utc = None;
+        write_stage3d3_source(&config.alor_source_path, &alor_source);
+        write_stage3d3_source(
+            &config.finam_source_path,
+            &stage3d3_approved_source(
+                Stage3d3ApprovedInputSourceKind::FinamFinalM1,
+                "approved_finam_m1_redacted_fixture",
+                synchronized_finam_m1(),
+            ),
+        );
+
+        let err = run_stage3d3_controlled_operator_input_adapter(config)
+            .expect_err("missing source session window rejected");
+
+        assert_eq!(
+            err,
+            Stage3dControlledEvidenceError::MissingApprovedSessionWindow
+        );
+        let _ = std::fs::remove_dir_all(&base_dir);
+    }
+
+    #[test]
+    fn stage3d3_rejects_alor_bar_outside_session_window() {
+        let base_dir = stage3d3_temp_dir("alor_outside_window");
+        let _ = std::fs::remove_dir_all(&base_dir);
+        let config = stage3d3_config(&base_dir);
+        write_stage3d3_source(
+            &config.alor_source_path,
+            &stage3d3_approved_source(
+                Stage3d3ApprovedInputSourceKind::AlorNativeM10Oracle,
+                "approved_alor_m10_redacted_fixture",
+                vec![alor_oracle_at(-2, 100, 110, 90, 105, 1000)],
+            ),
+        );
+        write_stage3d3_source(
+            &config.finam_source_path,
+            &stage3d3_approved_source(
+                Stage3d3ApprovedInputSourceKind::FinamFinalM1,
+                "approved_finam_m1_redacted_fixture",
+                synchronized_finam_m1(),
+            ),
+        );
+
+        let err = run_stage3d3_controlled_operator_input_adapter(config)
+            .expect_err("ALOR bar outside window rejected");
+
+        assert_eq!(
+            err,
+            Stage3dControlledEvidenceError::ApprovedSourceBarOutsideSessionWindow
+        );
+        let _ = std::fs::remove_dir_all(&base_dir);
+    }
+
+    #[test]
+    fn stage3d3_rejects_finam_bar_outside_session_window() {
+        let base_dir = stage3d3_temp_dir("finam_outside_window");
+        let _ = std::fs::remove_dir_all(&base_dir);
+        let config = stage3d3_config(&base_dir);
+        let mut finam_bars = synchronized_finam_m1();
+        finam_bars[0].open_ts = stage3d3_session_window().end;
+        finam_bars[0].close_ts = stage3d3_session_window().end + Duration::seconds(60);
+        write_stage3d3_source(
+            &config.alor_source_path,
+            &stage3d3_approved_source(
+                Stage3d3ApprovedInputSourceKind::AlorNativeM10Oracle,
+                "approved_alor_m10_redacted_fixture",
+                vec![alor_oracle()],
+            ),
+        );
+        write_stage3d3_source(
+            &config.finam_source_path,
+            &stage3d3_approved_source(
+                Stage3d3ApprovedInputSourceKind::FinamFinalM1,
+                "approved_finam_m1_redacted_fixture",
+                finam_bars,
+            ),
+        );
+
+        let err = run_stage3d3_controlled_operator_input_adapter(config)
+            .expect_err("FINAM bar outside window rejected");
+
+        assert_eq!(
+            err,
+            Stage3dControlledEvidenceError::ApprovedSourceBarOutsideSessionWindow
+        );
         let _ = std::fs::remove_dir_all(&base_dir);
     }
 

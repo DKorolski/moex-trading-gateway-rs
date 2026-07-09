@@ -3,7 +3,8 @@
 Status: Stage 3D accepted as offline collector foundation; Stage 3D-1 accepted
 as recovery/session/input-gate hardening foundation; Stage 3D-2
 recovery/session consistency hardening accepted; Stage 3D-3 controlled
-operator-run input adapter implemented for review.
+operator-run input adapter accepted; Stage 3D-3a approved input
+schema/session-window hardening implemented for review.
 
 Date: 2026-07-09.
 
@@ -145,15 +146,35 @@ Each approved input source must contain:
 - `source_label`;
 - `session_date`;
 - `target_instrument`;
+- `session_window_utc`;
 - `raw_payload_exported = false`;
 - canonical `Bar` records only.
 
 The adapter validates source kind, session date, target instrument, non-empty
-bar lists, FINAM M1 finality, FINAM M1 duration, and the existing ALOR M10
-oracle rules. It then invokes
+bar lists, approved UTC session window, FINAM M1 finality, FINAM M1 duration,
+and the existing ALOR M10 oracle rules. It then invokes
 `collect_stage3d_controlled_active_session_evidence(...)`, writes the redacted
 Stage 3D report, and writes a small operator summary containing counts/statuses
 only.
+
+Stage 3D-3a makes the approved-source schema intentionally separate from the
+Stage 3 report schema:
+
+```rust
+STAGE3D3_APPROVED_INPUT_SCHEMA_VERSION = 2
+```
+
+`session_window_utc` is required both in the operator config and in each
+approved source file. The source window must match the operator config window,
+and every accepted bar must satisfy:
+
+```text
+bar.open_ts >= session_window_utc.start
+bar.close_ts <= session_window_utc.end
+```
+
+This avoids evidence that is labelled with one `session_date` while containing
+bars from another controlled window.
 
 CLI entry point:
 
@@ -175,6 +196,10 @@ The config points to approved source files and output paths, for example:
     "venue_symbol": "IMOEXF@RTSX",
     "exchange": "Moex",
     "market": "Futures"
+  },
+  "session_window_utc": {
+    "start": "2026-07-09T06:50:00Z",
+    "end": "2026-07-09T20:00:00Z"
   },
   "alor_source_path": "tmp/stage3d3/alor-approved-m10.json",
   "finam_source_path": "tmp/stage3d3/finam-approved-m1.json",
@@ -249,6 +274,11 @@ Stage 3D tests cover:
   mismatches, raw-payload-export flags, empty source inputs, invalid FINAM M1
   shape, and session mismatches;
 - Stage 3D-3 operator summary does not export raw bars.
+- Stage 3D-3a accepts documented approved input `schema_version = 2` and rejects
+  other approved-source schema versions;
+- Stage 3D-3a requires `session_window_utc` in config and approved sources;
+- Stage 3D-3a rejects ALOR M10 and FINAM M1 bars outside the approved session
+  window.
 
 ## Still forbidden
 
@@ -266,6 +296,6 @@ Stage 3D does not authorize:
 
 ## Next expected patch
 
-After Stage 3D-3 review, the next patch should move to Stage 3E
+After Stage 3D-3a review, the next patch should move to Stage 3E
 reconnect/gap-recovery evidence for strategy-input bars. It must still keep
 runtime-live and all order paths disabled.
