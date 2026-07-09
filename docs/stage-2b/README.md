@@ -230,3 +230,18 @@ Acceptance note:
 Acceptance note:
 
 [`2b-8-command-cancel-replace-dto-shape.md`](2b-8-command-cancel-replace-dto-shape.md)
+
+`2B-9` freezes deterministic request-id stability:
+
+- request-id namespace remains
+  `strategy_id|portfolio|symbol|action|bar_ts|seq`;
+- `AccountId` alias renders identically to legacy portfolio string;
+- `InstrumentId.symbol` renders identically to legacy strategy symbol;
+- broker venue symbol is not part of the request-id namespace;
+- `ClientOrderId` does not affect `StrategyRequestId`;
+- `BrokerOrderId` does not affect `StrategyRequestId`;
+- old pending request ids still match new ACK paths by exact request id.
+
+Acceptance note:
+
+[`2b-9-deterministic-request-id-stability.md`](2b-9-deterministic-request-id-stability.md)

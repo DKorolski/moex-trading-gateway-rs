@@ -88,8 +88,10 @@ Stage split:
   is accepted.
 - Stage 2B-7 HybridIntradayRuntime-owned id migration is accepted as
   broker-neutral contract layer.
-- Active patch is Stage 2B-8: command builders / CancelOrder / ReplaceOrder DTO
-  shape migration.
+- Stage 2B-8 command builders / CancelOrder / ReplaceOrder DTO shape migration
+  is accepted.
+- Active patch is Stage 2B-9: deterministic request-id stability under
+  account/instrument/id migration.
 
 Green / mostly closed:
 

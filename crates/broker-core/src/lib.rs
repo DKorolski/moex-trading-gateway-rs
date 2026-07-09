@@ -23,6 +23,7 @@ pub mod order_path;
 pub mod paper;
 pub mod parity;
 pub mod readiness;
+pub mod request_id;
 pub mod runtime_host;
 pub mod runtime_state;
 pub mod subscription;
@@ -129,6 +130,11 @@ pub use parity::{
     BrokerParityIssue, BrokerParityIssueKind, BrokerTruthParityReport,
 };
 pub use readiness::{BrokerReadiness, ReadinessPhase, ReadinessReason};
+pub use request_id::{
+    deterministic_market_request_id_for_account_instrument, deterministic_request_id,
+    deterministic_request_id_for_account_instrument, deterministic_request_id_from_legacy_parts,
+    market_request_seq, DeterministicRequestIdInput, DETERMINISTIC_REQUEST_ID_NAMESPACE,
+};
 pub use runtime_host::{
     evaluate_runtime_live_guard, validate_runtime_lifecycle_sequence, RuntimeCommandPrepared,
     RuntimeEventClock, RuntimeHostBlockedIntentDisposition, RuntimeHostBootstrapSnapshot,
