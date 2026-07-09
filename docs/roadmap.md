@@ -27,10 +27,11 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 3 — market-data parity to strategy input level.
+Stage 4 — broker-truth bootstrap into runtime.
 
 Stage 2B is closed as the broker-neutral runtime source migration
-contract/foundation. Stage 3 must prove strategy-input market-data parity before
+contract/foundation. Stage 3 is closed as market-data parity to strategy-input
+level. Stage 4 must make broker truth a mandatory runtime lifecycle input before
 any later runtime attachment, command consumer, or live execution stage.
 
 ## Still blocked

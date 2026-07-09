@@ -14,6 +14,10 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 - Broker-neutral core contracts for orders, trades, positions, market data,
   readiness, broker truth, runtime host lifecycle, and paper runtime state.
+- Stage 3 market-data parity contract is accepted/closed to strategy-input
+  level.
+- Stage 4A broker-truth bootstrap plan and evidence schema are implemented for
+  review.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
@@ -144,12 +148,12 @@ Stage split:
 - Stage 3E-3 is accepted and closes Stage 3E: replay window must cover the last
   final strategy-bar watermark, recovery mode must match warm/cold attempt
   flags, and `checked_ts` must not precede the first fresh live final.
-- Stage 3F is implemented for review as the Stage 3 market-data parity
-  acceptance report. After reviewer acceptance, Stage 3 can be marked
-  accepted/closed and Stage 4 broker-truth bootstrap work can start.
-- Next active patch after Stage 3F acceptance is Stage 4 broker-truth bootstrap
-  planning/implementation behind paper boundary, or reviewer-directed Stage 3F
-  hardening.
+- Stage 3F is accepted as the Stage 3 market-data parity acceptance report.
+  Stage 3 is accepted/closed as market-data parity to strategy-input level.
+- Current active macro-stage is Stage 4: broker-truth bootstrap into runtime.
+- Stage 4A is implemented for review as broker-truth bootstrap plan and
+  evidence schema. It remains paper/design/evidence-only and does not enable
+  runtime-live, real FINAM command consumer, or real orders.
 
 Green / mostly closed:
 
@@ -177,11 +181,11 @@ Amber:
   real ALOR hybrid BO/MR orchestrator.
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
-- Stage 3F is an acceptance-report package for the accepted Stage 3
-  market-data parity contract. Until reviewer acceptance, Stage 3 remains
-  pending final closure.
+- Stage 3F is accepted and closes Stage 3 as the market-data parity contract.
 - Stage 3 remains market-data/evidence only; it does not read live streams from
   runtime-live, attach runtime-live, or enable real order routing.
+- Stage 4A starts broker-truth bootstrap planning/evidence schema; broker truth
+  is not yet wired as mandatory runtime input.
 
 Red / not yet implemented:
 

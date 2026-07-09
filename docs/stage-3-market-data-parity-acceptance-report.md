@@ -1,6 +1,6 @@
 # Stage 3F — market-data parity acceptance report
 
-Status: implemented for review.
+Status: accepted.
 
 Date: 2026-07-09.
 
@@ -38,7 +38,7 @@ runtime-live strategy loop and does not authorize real FINAM order routing.
 | Stage 3E-1 | `cba40be` | accepted as foundation | Recovery report consistency and publication counter hardening. |
 | Stage 3E-2 | `1eebce1` | accepted | Replay-window evidence completeness hardening. |
 | Stage 3E-3 | `68591fc` | accepted / closed | Final replay watermark/mode consistency hardening. |
-| Stage 3F | current | implemented for review | Stage 3 acceptance report and Stage 4 entry boundary. |
+| Stage 3F | `e79209c` | accepted / closed | Stage 3 acceptance report and Stage 4 entry boundary. |
 
 ## 3. What Stage 3 proves
 
@@ -141,9 +141,8 @@ Known caveats that carry into Stage 4:
 
 ## 7. Why Stage 4 can start
 
-After reviewer acceptance of this Stage 3F package, Stage 4 can start because
-Stage 3 will have closed the strategy-input market-data contract that
-broker-truth bootstrap needs to rely on:
+Stage 4 can start because Stage 3 has closed the strategy-input market-data
+contract that broker-truth bootstrap needs to rely on:
 
 - the strategy-facing bar timeframe is fixed at M10;
 - the accepted FINAM path is final M1 -> canonical M10;
@@ -215,12 +214,9 @@ Still explicitly forbidden after this Stage 3F package:
 - `i64` surrogate adapter without a new ADR;
 - changing BO/MR trading logic under the name of market-data parity.
 
-## 12. Recommended decision
+## 12. Acceptance decision
 
-After reviewer acceptance of this Stage 3F package:
-
-- Stage 3 can be marked accepted/closed as market-data parity to
-  strategy-input level.
+- Stage 3 is accepted/closed as market-data parity to strategy-input level.
 - Stage 4 can start as broker-truth bootstrap into runtime lifecycle.
 - Runtime-live and real FINAM command consumer remain blocked until their own
   later macro-stage gates are accepted.

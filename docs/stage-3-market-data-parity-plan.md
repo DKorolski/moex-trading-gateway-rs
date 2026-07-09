@@ -11,7 +11,7 @@ reconnect/gap recovery evidence accepted as foundation; Stage 3E-1 recovery
 report consistency hardening accepted as foundation; Stage 3E-2 replay-window
 evidence completeness hardening accepted; Stage 3E-3 final replay
 watermark/mode consistency hardening accepted and Stage 3E closed; Stage 3F
-acceptance report implemented for review.
+acceptance report accepted and Stage 3 closed.
 
 Date: 2026-07-09.
 
@@ -191,8 +191,8 @@ data dumps must not be exported.
 
 ## Stage 3 acceptance
 
-Stage 3 can be accepted only after a reviewed Stage 3F acceptance package
-confirms the strategy-input market-data contract:
+Stage 3 was accepted after the reviewed Stage 3F acceptance package confirmed
+the strategy-input market-data contract:
 
 - ALOR native M10 remains the oracle;
 - FINAM final M1 -> strict M1-to-M10 is the only accepted FINAM candidate path;
@@ -248,7 +248,6 @@ Recommended next slices after accepted Stage 3A:
 10. Stage 3E-2 — replay-window evidence completeness hardening (accepted).
 11. Stage 3E-3 — final replay watermark/mode consistency hardening
     (accepted; Stage 3E closed).
-12. Stage 3F — Stage 3 market-data parity acceptance report (implemented for
-    review).
-13. Stage 4 broker-truth bootstrap after Stage 3F reviewer acceptance, or
-    reviewer-directed Stage 3F hardening.
+12. Stage 3F — Stage 3 market-data parity acceptance report (accepted; Stage 3
+    closed).
+13. Stage 4 — broker-truth bootstrap into runtime (active macro-stage).
