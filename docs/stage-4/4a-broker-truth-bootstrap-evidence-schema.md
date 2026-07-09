@@ -1,7 +1,7 @@
 # Stage 4A — broker-truth bootstrap evidence schema
 
-Status: Stage 4A accepted as planning/evidence-schema foundation; Stage 4A-1
-plan/schema alignment implemented for review.
+Status: Stage 4A / Stage 4A-1 accepted as planning/evidence-schema foundation.
+Stage 4B existing type inventory is documented separately.
 
 Date: 2026-07-09.
 
@@ -12,6 +12,9 @@ runtime lifecycle.
 
 Stage 4A evidence proves only classification and bootstrap readiness decisions.
 It does not attach runtime-live and does not authorize real order execution.
+
+Stage 4B inventory/evidence-alignment decisions are documented in
+[`4b-existing-broker-truth-type-inventory.md`](4b-existing-broker-truth-type-inventory.md).
 
 ## Top-level shape
 

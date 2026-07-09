@@ -1,7 +1,8 @@
 # Stage 4A — broker-truth bootstrap plan
 
-Status: Stage 4A accepted as planning/evidence-schema foundation; Stage 4A-1
-plan/schema alignment implemented for review.
+Status: Stage 4A / Stage 4A-1 accepted as planning/evidence-schema foundation;
+Stage 4B existing type inventory and v2 alignment decision implemented for
+review.
 
 Date: 2026-07-09.
 
@@ -27,6 +28,10 @@ real strategy commands, and does not place/cancel/replace real orders.
 Stage 4A-1 expands the Stage 4 breakdown and strengthens the evidence schema so
 that coding starts from existing broker-truth/runtime-host surfaces instead of
 creating a parallel domain.
+
+Stage 4B documents the actual existing type inventory and records the v2
+alignment decision in
+[`stage-4/4b-existing-broker-truth-type-inventory.md`](stage-4/4b-existing-broker-truth-type-inventory.md).
 
 ## 2. Broker truth inputs
 
@@ -250,9 +255,10 @@ Stage 4A does not authorize:
 
 ## 15. Stage 4 breakdown
 
-After Stage 4A-1 acceptance, the next reviewable slices should be:
+After Stage 4A-1 acceptance, the next reviewable slices are:
 
-1. Stage 4B — existing broker-truth type inventory and v2 alignment decision.
+1. Stage 4B — existing broker-truth type inventory and v2 alignment decision
+   (implemented for review).
 2. Stage 4C — `BrokerTruthSnapshot` v2 /
    `RuntimeHostBootstrapSnapshot` DTO types and validation.
 3. Stage 4D — FINAM read-only broker-truth mapper and fixture-backed source
