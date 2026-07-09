@@ -1,0 +1,278 @@
+# Stage 3A — market-data parity evidence schema
+
+Status: schema ready for review.
+
+Date: 2026-07-09.
+
+## Purpose
+
+This document defines the redacted evidence shape for Stage 3 active-session
+market-data parity:
+
+```text
+ALOR native M10 strategy oracle
+  vs
+FINAM final M1 -> canonical derived M10 strategy candidate
+```
+
+The evidence proves strategy-input bar parity only. It does not authorize
+runtime-live, command-consumer-to-real-FINAM, or real FINAM order execution.
+
+## Artifact location
+
+Generated evidence should be written outside clean source archives:
+
+```text
+reports/parity/finam-vs-alor-m10/YYYY-MM-DD.json
+```
+
+Clean handoff archives may include documentation and source code, but not raw
+generated reports unless explicitly requested as redacted evidence.
+
+## Top-level JSON shape
+
+```json
+{
+  "schema_version": 1,
+  "stage": "Stage3MarketDataParity",
+  "substage": "Stage3A",
+  "generated_at": "2026-07-09T00:00:00Z",
+  "source_commit": "short-or-full-sha",
+  "source_archive_name": "moex-trading-project-<sha>.zip",
+  "source_archive_sha256": "sha256",
+  "raw_payload_exported": false,
+  "scope": {
+    "instrument_symbol": "IMOEXF",
+    "timeframe_sec": 600,
+    "session_date": "YYYY-MM-DD",
+    "exchange": "MOEX"
+  },
+  "inputs": {},
+  "strategy_input_gate": {},
+  "comparison_policy": {},
+  "comparison_summary": {},
+  "diff_summary": {},
+  "reconnect_recovery": {},
+  "session_filtering": {},
+  "safety_boundary": {},
+  "status": "Pending"
+}
+```
+
+All fields containing broker/account/runtime identities must use synthetic
+aliases or redacted/fingerprinted values.
+
+## Status enum
+
+Allowed top-level statuses:
+
+- `Pending`;
+- `Synchronized`;
+- `BlockedDiff`;
+- `MissingAlorOracleStream`;
+- `MissingFinamDerivedStream`;
+- `NoOverlappingBuckets`;
+- `RecoveryIncomplete`;
+- `SessionScheduleUnknown`;
+- `EvidenceIncomplete`;
+- `SafetyBoundaryOpen`.
+
+`Synchronized` is allowed only when all required comparison and safety gates
+pass.
+
+## Inputs section
+
+```json
+{
+  "inputs": {
+    "alor_oracle": {
+      "source_mode": "AlorNativeBarsGetAndSubscribeTf600",
+      "stream_role": "StrategyOracleM10",
+      "timeframe_sec": 600,
+      "timestamp_policy": "bucket_open_from_close_time_utc",
+      "bars_seen": 0,
+      "complete_buckets": 0
+    },
+    "finam_candidate": {
+      "source_mode": "FinamDerivedM1ToM10",
+      "source_timeframe_sec": 60,
+      "target_timeframe_sec": 600,
+      "bars_seen_m1": 0,
+      "duplicate_exact_m1_count": 0,
+      "duplicate_conflicting_m1_count": 0,
+      "complete_buckets": 0,
+      "incomplete_buckets": 0
+    },
+    "alor_assembled_cross_check": {
+      "present": false,
+      "source_mode": "AlorStandDerivedM1ToM10",
+      "complete_buckets": 0
+    }
+  }
+}
+```
+
+Raw bar payloads must not appear here.
+
+## Strategy input gate
+
+```json
+{
+  "strategy_input_gate": {
+    "raw_m1_allowed_as_strategy_input": false,
+    "finam_native_m10_allowed": false,
+    "required_source_mode": "FinamDerivedM1ToM10",
+    "required_target_timeframe_sec": 600,
+    "requires_final_bars": true,
+    "requires_complete_aggregation": true,
+    "requires_gap_absence_proven": true,
+    "requires_session_filter_pass": true,
+    "requires_first_fresh_live_final_after_replay": true,
+    "strategy_watermark_advanced_by_raw_m1": false
+  }
+}
+```
+
+If any boolean contradicts the safety contract, `status` must be
+`SafetyBoundaryOpen` or `EvidenceIncomplete`, not `Synchronized`.
+
+## Comparison policy
+
+```json
+{
+  "comparison_policy": {
+    "timestamp_tolerance_sec": 0,
+    "price_tolerance": "exact_decimal",
+    "volume_tolerance": "exact_decimal",
+    "open_ts_policy": "bucket_open",
+    "close_ts_policy": "bucket_close",
+    "ohlcv_diff_policy": "blocking_on_any_nonzero_diff",
+    "missing_bar_policy": "blocking",
+    "finality_policy": "final_only",
+    "instrument_identity_policy": "symbol_exchange_timeframe"
+  }
+}
+```
+
+Any future tolerance must be explicit and reviewed.
+
+## Comparison summary
+
+```json
+{
+  "comparison_summary": {
+    "matched_bucket_count": 0,
+    "first_matched_bucket_open_ts": null,
+    "last_matched_bucket_open_ts": null,
+    "alor_only_bucket_count": 0,
+    "finam_only_bucket_count": 0,
+    "blocking_diff_count": 0,
+    "diagnostic_diff_count": 0
+  }
+}
+```
+
+`matched_bucket_count > 0` is required before Stage 3 acceptance.
+
+## Diff summary
+
+```json
+{
+  "diff_summary": {
+    "max_abs_open_diff": "0",
+    "max_abs_high_diff": "0",
+    "max_abs_low_diff": "0",
+    "max_abs_close_diff": "0",
+    "max_abs_volume_diff": "0",
+    "first_diff_bucket_open_ts": null,
+    "last_diff_bucket_open_ts": null,
+    "diff_counts": {
+      "MissingAlorBar": 0,
+      "MissingFinamDerivedBar": 0,
+      "TimestampMismatch": 0,
+      "OhlcvMismatch": 0,
+      "TimeframeMismatch": 0,
+      "FinalityMismatch": 0,
+      "InstrumentMismatch": 0,
+      "SourceKindDiagnostic": 0
+    }
+  }
+}
+```
+
+Diff summaries are compact diagnostics only. They must not include full raw bar
+series.
+
+## Reconnect recovery
+
+```json
+{
+  "reconnect_recovery": {
+    "disconnect_observed": false,
+    "last_final_strategy_bar_watermark": null,
+    "warm_replay_attempted": false,
+    "cold_replay_attempted": false,
+    "replay_gap_absence_proven": false,
+    "first_fresh_live_final_after_replay_observed": false,
+    "entry_blocked_while_gap_unproven": true,
+    "exit_cancel_repair_policy": "not_enabled_in_stage3_but_must_not_be_blocked_by_entry_gap_policy"
+  }
+}
+```
+
+If recovery is required but not complete, top-level `status` must be
+`RecoveryIncomplete`.
+
+## Session filtering
+
+```json
+{
+  "session_filtering": {
+    "schedule_source": "broker_or_moex_calendar",
+    "schedule_known": true,
+    "session_state": "Open",
+    "weekend_filtered": true,
+    "clearing_break_filtered": true,
+    "unknown_schedule_blocks": true
+  }
+}
+```
+
+Unknown schedule is blocking. Expected session breaks are not evidence of data
+loss, but they also cannot produce fresh strategy bars.
+
+## Safety boundary
+
+```json
+{
+  "safety_boundary": {
+    "runtime_live_enabled": false,
+    "real_finam_command_consumer_enabled": false,
+    "strategy_driven_real_orders_enabled": false,
+    "real_finam_post_delete_from_runtime_enabled": false,
+    "stop_sltp_bracket_enabled": false,
+    "ri_rts_migration_enabled": false,
+    "usdrubf_migration_enabled": false,
+    "i64_surrogate_adapter_enabled": false,
+    "bo_mr_trading_logic_changed": false
+  }
+}
+```
+
+Any `true` value in this section blocks Stage 3 evidence acceptance unless a
+later explicit review changes the safety boundary.
+
+## Stage 3A acceptance
+
+Stage 3A acceptance requires only this schema and plan to be reviewed. It does
+not require live/active-session data.
+
+Stage 3 full acceptance later requires:
+
+- `status = Synchronized`;
+- `matched_bucket_count > 0`;
+- `blocking_diff_count = 0`;
+- `raw_payload_exported = false`;
+- strategy input gate proves no raw M1 model bars;
+- reconnect recovery is complete or not required;
+- safety boundary remains closed.

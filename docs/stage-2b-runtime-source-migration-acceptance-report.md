@@ -1,6 +1,6 @@
 # Stage 2B — runtime source migration acceptance report
 
-Status: implementation acceptance report ready for review.
+Status: accepted.
 
 Date: 2026-07-09.
 

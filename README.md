@@ -52,15 +52,18 @@ ADR.
 
 Stage 1B is accepted for IMOEXF `HybridIntradayRuntime` paper/shadow
 compatibility freeze. Stage 2A is accepted and closed as the runtime source
-migration inventory/plan. Stage 2B implementation plan is accepted; controlled
-runtime source migration may proceed paper/mock/local only. The accepted path is
+migration inventory/plan. Stage 2B is accepted and closed as the broker-neutral
+runtime source migration contract/foundation. The current active macro-stage is
+Stage 3 — market-data parity to strategy input level. The accepted path is
 source migration to `BrokerOrderId(String)`; an `i64` surrogate adapter is not
 allowed without a separate ADR. See
 [docs/stage-2-runtime-source-migration-plan.md](docs/stage-2-runtime-source-migration-plan.md)
 and
 [docs/stage-2-runtime-source-migration-inventory.md](docs/stage-2-runtime-source-migration-inventory.md).
-The Stage 2B accepted plan is
-[docs/stage-2b-runtime-source-migration-implementation-plan.md](docs/stage-2b-runtime-source-migration-implementation-plan.md).
+The Stage 2B closure report is
+[docs/stage-2b-runtime-source-migration-acceptance-report.md](docs/stage-2b-runtime-source-migration-acceptance-report.md).
+The Stage 3A market-data parity plan is
+[docs/stage-3-market-data-parity-plan.md](docs/stage-3-market-data-parity-plan.md).
 
 Useful local probes:
 
