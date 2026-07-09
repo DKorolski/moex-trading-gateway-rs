@@ -1,6 +1,6 @@
 # Stage 2B-9 — deterministic request-id stability
 
-Status: implementation patch ready for review.
+Status: accepted.
 
 Date: 2026-07-09.
 

@@ -21,6 +21,7 @@ pub mod operational_snapshot;
 pub mod order;
 pub mod order_path;
 pub mod paper;
+pub mod paper_mock_compat;
 pub mod parity;
 pub mod readiness;
 pub mod request_id;
@@ -125,6 +126,7 @@ pub use paper::{
     RuntimeBarOrigin, RuntimeDecisionId, RuntimeDecisionRecord, RuntimeSuppressionReason,
     RuntimeSuppressionRecord,
 };
+pub use paper_mock_compat::Stage2bPaperMockCompatibilityReport;
 pub use parity::{
     compare_broker_truth_for_instrument, compare_final_bars_for_instrument, BrokerBarParityReport,
     BrokerParityIssue, BrokerParityIssueKind, BrokerTruthParityReport,

@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-07-07.
+Status date: 2026-07-09.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -90,8 +90,10 @@ Stage split:
   broker-neutral contract layer.
 - Stage 2B-8 command builders / CancelOrder / ReplaceOrder DTO shape migration
   is accepted.
-- Active patch is Stage 2B-9: deterministic request-id stability under
-  account/instrument/id migration.
+- Stage 2B-9 deterministic request-id stability is accepted.
+- Active patch is Stage 2B-10: combined paper/mock compatibility test pack for
+  broker-neutral runtime state, ACK, cache, ledger, command DTO, deterministic
+  request-id, and paper riskgate/oracle seed contracts.
 
 Green / mostly closed:
 

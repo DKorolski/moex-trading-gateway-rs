@@ -245,3 +245,21 @@ Acceptance note:
 Acceptance note:
 
 [`2b-9-deterministic-request-id-stability.md`](2b-9-deterministic-request-id-stability.md)
+
+`2B-10` adds the combined paper/mock compatibility test pack:
+
+- old ALOR-style state roundtrips through broker-neutral v2 state;
+- pending/deferred/manual fields remain preserved;
+- ACK handling clears pending only by exact `StrategyRequestId`;
+- mismatched, duplicate, error, and ambiguous expired ACKs do not clear pending;
+- `BrokerOrderId(String)` passes through order/trade/cancel/replace/cache/ledger
+  paths;
+- observed/account-wide order and trade events do not become strategy-owned
+  without explicit attribution;
+- deterministic request ids remain stable after account/instrument migration;
+- paper riskgate/oracle seed fields remain preserved;
+- keep Stage 2B paper/mock/local and live send paths disabled.
+
+Acceptance note:
+
+[`2b-10-paper-mock-compatibility-test-pack.md`](2b-10-paper-mock-compatibility-test-pack.md)
