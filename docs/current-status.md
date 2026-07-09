@@ -102,8 +102,10 @@ Stage split:
   parity comparator contract, synthetic fixture tests, strict M1-only
   derivation, and publication counters that do not treat blocked candidates as
   strategy/model bars.
-- Next active patch is Stage 3C: redacted report generator for ALOR native M10
-  vs FINAM-derived M10 evidence.
+- Stage 3C is implemented for review: source/report-only multi-bucket redacted
+  report generator for ALOR native M10 vs FINAM-derived M10 evidence.
+- Next active patch after Stage 3C acceptance is Stage 3D: controlled
+  active-session evidence collection.
 
 Green / mostly closed:
 
@@ -132,8 +134,9 @@ Amber:
 - Stage 3A defines the accepted market-data parity plan/evidence schema, but
   Stage 3 has not yet accepted full-session FINAM-vs-ALOR strategy-input
   market-data evidence.
-- Stage 3B accepted the source-only comparator foundation; multi-bucket
-  active-session report generation and evidence collection are still pending.
+- Stage 3B accepted the source-only comparator foundation. Stage 3C adds
+  multi-bucket report generation, but active-session evidence collection is
+  still pending.
 
 Red / not yet implemented:
 

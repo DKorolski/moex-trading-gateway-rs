@@ -63,6 +63,11 @@ generated reports unless explicitly requested as redacted evidence.
 All fields containing broker/account/runtime identities must use synthetic
 aliases or redacted/fingerprinted values.
 
+Stage 3C source-only unit reports may keep `generated_at`, `source_commit`,
+`source_archive_name`, and `source_archive_sha256` as `null` placeholders until
+an operator evidence package binds the generated report to a source archive.
+Active-session evidence packages must fill those fields.
+
 ## Status enum
 
 Allowed top-level statuses:

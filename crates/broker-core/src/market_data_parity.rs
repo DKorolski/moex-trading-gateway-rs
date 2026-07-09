@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,7 @@ use crate::PaperSafetyBoundary;
 pub const STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION: u16 = 1;
 pub const STAGE3_MARKET_DATA_PARITY_STAGE: &str = "Stage3MarketDataParity";
 pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3B: &str = "Stage3B";
+pub const STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3C: &str = "Stage3C";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Stage3StrategyBarSourceMode {
@@ -370,6 +371,125 @@ pub struct Stage3StrategyInputPublicationCounts {
     pub candidate_bars_rejected_before_strategy_count: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage3ReportScope {
+    pub instrument_symbol: String,
+    pub timeframe_sec: u32,
+    pub session_date: Option<String>,
+    pub exchange: String,
+}
+
+impl Stage3ReportScope {
+    pub fn for_target_instrument(target_instrument: &InstrumentId) -> Self {
+        Self {
+            instrument_symbol: target_instrument.symbol.clone(),
+            timeframe_sec: 600,
+            session_date: None,
+            exchange: format!("{:?}", target_instrument.exchange),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage3AlorOracleInputSummary {
+    pub source_mode: Stage3StrategyBarSourceMode,
+    pub stream_role: String,
+    pub timeframe_sec: u32,
+    pub timestamp_policy: String,
+    pub bars_seen: usize,
+    pub complete_buckets: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage3FinamCandidateInputSummary {
+    pub source_mode: Stage3StrategyBarSourceMode,
+    pub source_timeframe_sec: u32,
+    pub target_timeframe_sec: u32,
+    pub bars_seen_m1: usize,
+    pub duplicate_exact_m1_count: usize,
+    pub duplicate_conflicting_m1_count: usize,
+    pub complete_buckets: usize,
+    pub incomplete_buckets: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage3AlorAssembledCrossCheckSummary {
+    pub present: bool,
+    pub source_mode: Stage3StrategyBarSourceMode,
+    pub complete_buckets: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage3ReportInputs {
+    pub alor_oracle: Stage3AlorOracleInputSummary,
+    pub finam_candidate: Stage3FinamCandidateInputSummary,
+    pub alor_assembled_cross_check: Stage3AlorAssembledCrossCheckSummary,
+}
+
+impl Stage3ReportInputs {
+    pub fn from_bucket_counts(
+        alor_oracle_bars_seen: usize,
+        finam_derived_buckets_seen: usize,
+    ) -> Self {
+        Self {
+            alor_oracle: Stage3AlorOracleInputSummary {
+                source_mode: Stage3StrategyBarSourceMode::AlorNativeBarsGetAndSubscribeTf600,
+                stream_role: "StrategyOracleM10".to_string(),
+                timeframe_sec: 600,
+                timestamp_policy: "bucket_open_from_close_time_utc".to_string(),
+                bars_seen: alor_oracle_bars_seen,
+                complete_buckets: alor_oracle_bars_seen,
+            },
+            finam_candidate: Stage3FinamCandidateInputSummary {
+                source_mode: Stage3StrategyBarSourceMode::FinamDerivedM1ToM10,
+                source_timeframe_sec: 60,
+                target_timeframe_sec: 600,
+                bars_seen_m1: finam_derived_buckets_seen * 10,
+                duplicate_exact_m1_count: 0,
+                duplicate_conflicting_m1_count: 0,
+                complete_buckets: finam_derived_buckets_seen,
+                incomplete_buckets: 0,
+            },
+            alor_assembled_cross_check: Stage3AlorAssembledCrossCheckSummary {
+                present: false,
+                source_mode: Stage3StrategyBarSourceMode::AlorStandDerivedM1ToM10,
+                complete_buckets: 0,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage3StrategyInputGateSummary {
+    pub raw_m1_allowed_as_strategy_input: bool,
+    pub finam_native_m10_allowed: bool,
+    pub required_source_mode: Stage3StrategyBarSourceMode,
+    pub required_target_timeframe_sec: u32,
+    pub requires_final_bars: bool,
+    pub requires_complete_aggregation: bool,
+    pub requires_gap_absence_proven: bool,
+    pub requires_session_filter_pass: bool,
+    pub requires_first_fresh_live_final_after_replay: bool,
+    pub strategy_watermark_advanced_by_raw_m1: bool,
+}
+
+impl Stage3StrategyInputGateSummary {
+    pub fn strict_finam_m1_to_m10() -> Self {
+        Self {
+            raw_m1_allowed_as_strategy_input: false,
+            finam_native_m10_allowed: false,
+            required_source_mode: Stage3StrategyBarSourceMode::FinamDerivedM1ToM10,
+            required_target_timeframe_sec: 600,
+            requires_final_bars: true,
+            requires_complete_aggregation: true,
+            requires_gap_absence_proven: true,
+            requires_session_filter_pass: true,
+            requires_first_fresh_live_final_after_replay: true,
+            strategy_watermark_advanced_by_raw_m1: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Stage3ReconnectRecoveryStatus {
     NotRequired,
@@ -437,6 +557,8 @@ impl Stage3ComparisonPolicy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stage3ComparisonSummary {
     pub matched_bucket_count: usize,
+    pub first_matched_bucket_open_ts: Option<DateTime<Utc>>,
+    pub last_matched_bucket_open_ts: Option<DateTime<Utc>>,
     pub alor_only_bucket_count: usize,
     pub finam_only_bucket_count: usize,
     pub blocking_diff_count: usize,
@@ -477,6 +599,29 @@ pub struct Stage3DiffSummary {
     pub first_diff_bucket_open_ts: Option<DateTime<Utc>>,
     pub last_diff_bucket_open_ts: Option<DateTime<Utc>>,
     pub diff_counts: Stage3DiffCounts,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage3SessionFilteringSummary {
+    pub schedule_source: String,
+    pub schedule_known: bool,
+    pub session_state: String,
+    pub weekend_filtered: bool,
+    pub clearing_break_filtered: bool,
+    pub unknown_schedule_blocks: bool,
+}
+
+impl Stage3SessionFilteringSummary {
+    pub fn source_only_placeholder() -> Self {
+        Self {
+            schedule_source: "source_only_fixture_or_operator_scope".to_string(),
+            schedule_known: true,
+            session_state: "NotEvaluatedInStage3CSourceOnly".to_string(),
+            weekend_filtered: true,
+            clearing_break_filtered: true,
+            unknown_schedule_blocks: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -541,11 +686,19 @@ pub struct Stage3MarketDataParityReport {
     pub schema_version: u16,
     pub stage: String,
     pub substage: String,
+    pub generated_at: Option<DateTime<Utc>>,
+    pub source_commit: Option<String>,
+    pub source_archive_name: Option<String>,
+    pub source_archive_sha256: Option<String>,
     pub raw_payload_exported: bool,
+    pub scope: Stage3ReportScope,
+    pub inputs: Stage3ReportInputs,
+    pub strategy_input_gate: Stage3StrategyInputGateSummary,
     pub status: Stage3MarketDataParityStatus,
     pub comparison_policy: Stage3ComparisonPolicy,
     pub strategy_input_publication: Stage3StrategyInputPublicationCounts,
     pub reconnect_recovery: Stage3ReconnectRecoverySummary,
+    pub session_filtering: Stage3SessionFilteringSummary,
     pub comparison_summary: Stage3ComparisonSummary,
     pub diff_summary: Stage3DiffSummary,
     pub safety_boundary: Stage3SafetyBoundary,
@@ -561,6 +714,8 @@ pub fn compare_stage3_alor_native_m10_to_finam_derived_m10(
     let mut first_diff_bucket_open_ts = None;
     let mut last_diff_bucket_open_ts = None;
     let mut matched_bucket_count = 0;
+    let mut first_matched_bucket_open_ts = None;
+    let mut last_matched_bucket_open_ts = None;
     let mut alor_only_bucket_count = 0;
     let mut finam_only_bucket_count = 0;
     let mut diagnostic_diff_count = 0;
@@ -577,6 +732,8 @@ pub fn compare_stage3_alor_native_m10_to_finam_derived_m10(
         }
         (Some(alor), Some(finam)) => {
             matched_bucket_count = 1;
+            first_matched_bucket_open_ts = Some(alor.open_ts);
+            last_matched_bucket_open_ts = Some(alor.open_ts);
             let mut record_blocking_diff = |open_ts: DateTime<Utc>| {
                 if first_diff_bucket_open_ts.is_none() {
                     first_diff_bucket_open_ts = Some(open_ts);
@@ -641,7 +798,17 @@ pub fn compare_stage3_alor_native_m10_to_finam_derived_m10(
         schema_version: STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION,
         stage: STAGE3_MARKET_DATA_PARITY_STAGE.to_string(),
         substage: STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3B.to_string(),
+        generated_at: None,
+        source_commit: None,
+        source_archive_name: None,
+        source_archive_sha256: None,
         raw_payload_exported: false,
+        scope: Stage3ReportScope::for_target_instrument(target_instrument),
+        inputs: Stage3ReportInputs::from_bucket_counts(
+            usize::from(alor_oracle.is_some()),
+            usize::from(finam_candidate.is_some()),
+        ),
+        strategy_input_gate: Stage3StrategyInputGateSummary::strict_finam_m1_to_m10(),
         status,
         comparison_policy: Stage3ComparisonPolicy::strict_exact(),
         strategy_input_publication: Stage3StrategyInputPublicationCounts {
@@ -651,8 +818,11 @@ pub fn compare_stage3_alor_native_m10_to_finam_derived_m10(
             candidate_bars_rejected_before_strategy_count,
         },
         reconnect_recovery: Stage3ReconnectRecoverySummary::not_required(),
+        session_filtering: Stage3SessionFilteringSummary::source_only_placeholder(),
         comparison_summary: Stage3ComparisonSummary {
             matched_bucket_count,
+            first_matched_bucket_open_ts,
+            last_matched_bucket_open_ts,
             alor_only_bucket_count,
             finam_only_bucket_count,
             blocking_diff_count,
@@ -687,6 +857,228 @@ pub fn compare_stage3_alor_native_m10_to_finam_derived_m10(
     }
 }
 
+fn record_stage3_diff_bucket(
+    first_diff_bucket_open_ts: &mut Option<DateTime<Utc>>,
+    last_diff_bucket_open_ts: &mut Option<DateTime<Utc>>,
+    bucket_open_ts: DateTime<Utc>,
+) {
+    if first_diff_bucket_open_ts.is_none() {
+        *first_diff_bucket_open_ts = Some(bucket_open_ts);
+    }
+    *last_diff_bucket_open_ts = Some(bucket_open_ts);
+}
+
+fn update_stage3_max_abs_diff(current: &mut Price, candidate: Price) {
+    if candidate > *current {
+        *current = candidate;
+    }
+}
+
+pub fn generate_stage3c_redacted_m10_parity_report(
+    alor_oracle_bars: &[Bar],
+    finam_derived_bars: &[Bar],
+    target_instrument: &InstrumentId,
+) -> Stage3MarketDataParityReport {
+    let safety_boundary = Stage3SafetyBoundary::closed();
+    let alor_by_open_ts = alor_oracle_bars
+        .iter()
+        .map(|bar| (bar.open_ts, bar))
+        .collect::<BTreeMap<_, _>>();
+    let finam_by_open_ts = finam_derived_bars
+        .iter()
+        .map(|bar| (bar.open_ts, bar))
+        .collect::<BTreeMap<_, _>>();
+    let all_bucket_open_ts = alor_by_open_ts
+        .keys()
+        .chain(finam_by_open_ts.keys())
+        .copied()
+        .collect::<BTreeSet<_>>();
+
+    let mut matched_bucket_count = 0;
+    let mut first_matched_bucket_open_ts = None;
+    let mut last_matched_bucket_open_ts = None;
+    let mut alor_only_bucket_count = 0;
+    let mut finam_only_bucket_count = 0;
+    let mut diagnostic_diff_count = 0;
+    let mut synchronized_candidate_count = 0;
+    let mut rejected_candidate_count = 0;
+    let mut diff_counts = Stage3DiffCounts::default();
+    let mut first_diff_bucket_open_ts = None;
+    let mut last_diff_bucket_open_ts = None;
+    let mut max_abs_open_diff = Price::ZERO;
+    let mut max_abs_high_diff = Price::ZERO;
+    let mut max_abs_low_diff = Price::ZERO;
+    let mut max_abs_close_diff = Price::ZERO;
+    let mut max_abs_volume_diff = Quantity::ZERO;
+
+    for bucket_open_ts in all_bucket_open_ts {
+        match (
+            alor_by_open_ts.get(&bucket_open_ts).copied(),
+            finam_by_open_ts.get(&bucket_open_ts).copied(),
+        ) {
+            (Some(alor), Some(finam)) => {
+                matched_bucket_count += 1;
+                if first_matched_bucket_open_ts.is_none() {
+                    first_matched_bucket_open_ts = Some(bucket_open_ts);
+                }
+                last_matched_bucket_open_ts = Some(bucket_open_ts);
+                let blocking_before = diff_counts.blocking_total();
+
+                if alor.instrument != *target_instrument || finam.instrument != *target_instrument {
+                    diff_counts.instrument_mismatch += 1;
+                    record_stage3_diff_bucket(
+                        &mut first_diff_bucket_open_ts,
+                        &mut last_diff_bucket_open_ts,
+                        bucket_open_ts,
+                    );
+                }
+                if alor.timeframe_sec != 600 || finam.timeframe_sec != 600 {
+                    diff_counts.timeframe_mismatch += 1;
+                    record_stage3_diff_bucket(
+                        &mut first_diff_bucket_open_ts,
+                        &mut last_diff_bucket_open_ts,
+                        bucket_open_ts,
+                    );
+                }
+                if !alor.is_final || !finam.is_final {
+                    diff_counts.finality_mismatch += 1;
+                    record_stage3_diff_bucket(
+                        &mut first_diff_bucket_open_ts,
+                        &mut last_diff_bucket_open_ts,
+                        bucket_open_ts,
+                    );
+                }
+                if alor.open_ts != finam.open_ts || alor.close_ts != finam.close_ts {
+                    diff_counts.timestamp_mismatch += 1;
+                    record_stage3_diff_bucket(
+                        &mut first_diff_bucket_open_ts,
+                        &mut last_diff_bucket_open_ts,
+                        bucket_open_ts,
+                    );
+                }
+
+                let open_diff = (alor.open - finam.open).abs();
+                let high_diff = (alor.high - finam.high).abs();
+                let low_diff = (alor.low - finam.low).abs();
+                let close_diff = (alor.close - finam.close).abs();
+                let volume_diff = (alor.volume - finam.volume).abs();
+                update_stage3_max_abs_diff(&mut max_abs_open_diff, open_diff);
+                update_stage3_max_abs_diff(&mut max_abs_high_diff, high_diff);
+                update_stage3_max_abs_diff(&mut max_abs_low_diff, low_diff);
+                update_stage3_max_abs_diff(&mut max_abs_close_diff, close_diff);
+                update_stage3_max_abs_diff(&mut max_abs_volume_diff, volume_diff);
+                if open_diff != Price::ZERO
+                    || high_diff != Price::ZERO
+                    || low_diff != Price::ZERO
+                    || close_diff != Price::ZERO
+                    || volume_diff != Quantity::ZERO
+                {
+                    diff_counts.ohlcv_mismatch += 1;
+                    record_stage3_diff_bucket(
+                        &mut first_diff_bucket_open_ts,
+                        &mut last_diff_bucket_open_ts,
+                        bucket_open_ts,
+                    );
+                }
+                if alor.source_kind != finam.source_kind {
+                    diff_counts.source_kind_diagnostic += 1;
+                    diagnostic_diff_count += 1;
+                }
+
+                if diff_counts.blocking_total() == blocking_before {
+                    synchronized_candidate_count += 1;
+                } else {
+                    rejected_candidate_count += 1;
+                }
+            }
+            (Some(_), None) => {
+                alor_only_bucket_count += 1;
+                diff_counts.missing_finam_derived_bar += 1;
+                record_stage3_diff_bucket(
+                    &mut first_diff_bucket_open_ts,
+                    &mut last_diff_bucket_open_ts,
+                    bucket_open_ts,
+                );
+            }
+            (None, Some(_)) => {
+                finam_only_bucket_count += 1;
+                rejected_candidate_count += 1;
+                diff_counts.missing_alor_bar += 1;
+                record_stage3_diff_bucket(
+                    &mut first_diff_bucket_open_ts,
+                    &mut last_diff_bucket_open_ts,
+                    bucket_open_ts,
+                );
+            }
+            (None, None) => {}
+        }
+    }
+
+    let blocking_diff_count = diff_counts.blocking_total();
+    let status = if !safety_boundary.is_closed() {
+        Stage3MarketDataParityStatus::SafetyBoundaryOpen
+    } else if alor_oracle_bars.is_empty() && finam_derived_bars.is_empty() {
+        Stage3MarketDataParityStatus::EvidenceIncomplete
+    } else if alor_oracle_bars.is_empty() {
+        Stage3MarketDataParityStatus::MissingAlorOracleStream
+    } else if finam_derived_bars.is_empty() {
+        Stage3MarketDataParityStatus::MissingFinamDerivedStream
+    } else if matched_bucket_count == 0 {
+        Stage3MarketDataParityStatus::NoOverlappingBuckets
+    } else if blocking_diff_count == 0 {
+        Stage3MarketDataParityStatus::Synchronized
+    } else {
+        Stage3MarketDataParityStatus::BlockedDiff
+    };
+
+    Stage3MarketDataParityReport {
+        schema_version: STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION,
+        stage: STAGE3_MARKET_DATA_PARITY_STAGE.to_string(),
+        substage: STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3C.to_string(),
+        generated_at: None,
+        source_commit: None,
+        source_archive_name: None,
+        source_archive_sha256: None,
+        raw_payload_exported: false,
+        scope: Stage3ReportScope::for_target_instrument(target_instrument),
+        inputs: Stage3ReportInputs::from_bucket_counts(
+            alor_oracle_bars.len(),
+            finam_derived_bars.len(),
+        ),
+        strategy_input_gate: Stage3StrategyInputGateSummary::strict_finam_m1_to_m10(),
+        status,
+        comparison_policy: Stage3ComparisonPolicy::strict_exact(),
+        strategy_input_publication: Stage3StrategyInputPublicationCounts {
+            raw_m1_published_as_model_bar_count: 0,
+            finam_derived_m10_published_as_model_bar_count: synchronized_candidate_count,
+            alor_native_m10_oracle_bars_seen: alor_oracle_bars.len(),
+            candidate_bars_rejected_before_strategy_count: rejected_candidate_count,
+        },
+        reconnect_recovery: Stage3ReconnectRecoverySummary::not_required(),
+        session_filtering: Stage3SessionFilteringSummary::source_only_placeholder(),
+        comparison_summary: Stage3ComparisonSummary {
+            matched_bucket_count,
+            first_matched_bucket_open_ts,
+            last_matched_bucket_open_ts,
+            alor_only_bucket_count,
+            finam_only_bucket_count,
+            blocking_diff_count,
+            diagnostic_diff_count,
+        },
+        diff_summary: Stage3DiffSummary {
+            max_abs_open_diff,
+            max_abs_high_diff,
+            max_abs_low_diff,
+            max_abs_close_diff,
+            max_abs_volume_diff,
+            first_diff_bucket_open_ts,
+            last_diff_bucket_open_ts,
+            diff_counts,
+        },
+        safety_boundary,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::{Duration, TimeZone};
@@ -710,6 +1102,10 @@ mod tests {
             .expect("valid timestamp")
     }
 
+    fn bucket_open_at(bucket_index: i64) -> DateTime<Utc> {
+        bucket_open() + Duration::minutes(bucket_index * 10)
+    }
+
     fn dec(value: i64) -> Decimal {
         Decimal::new(value, 0)
     }
@@ -725,6 +1121,50 @@ mod tests {
             volume: dec(145),
             is_final: true,
         })
+    }
+
+    fn alor_oracle_at(
+        bucket_index: i64,
+        open: i64,
+        high: i64,
+        low: i64,
+        close: i64,
+        volume: i64,
+    ) -> Bar {
+        normalize_stage3_alor_native_m10_oracle(Stage3AlorNativeM10Input {
+            instrument: instrument(),
+            close_time_utc: bucket_open_at(bucket_index),
+            open: dec(open),
+            high: dec(high),
+            low: dec(low),
+            close: dec(close),
+            volume: dec(volume),
+            is_final: true,
+        })
+    }
+
+    fn finam_derived_m10_at(
+        bucket_index: i64,
+        open: i64,
+        high: i64,
+        low: i64,
+        close: i64,
+        volume: i64,
+    ) -> Bar {
+        let open_ts = bucket_open_at(bucket_index);
+        Bar {
+            instrument: instrument(),
+            source_kind: MarketDataSourceKind::LiveStream,
+            timeframe_sec: 600,
+            open_ts,
+            close_ts: open_ts + Duration::seconds(600),
+            open: dec(open),
+            high: dec(high),
+            low: dec(low),
+            close: dec(close),
+            volume: dec(volume),
+            is_final: true,
+        }
     }
 
     fn finam_m1(minute: i64, open: i64, high: i64, low: i64, close: i64, volume: i64) -> Bar {
@@ -820,6 +1260,172 @@ mod tests {
         );
         assert!(!report.raw_payload_exported);
         assert!(report.safety_boundary.is_closed());
+    }
+
+    #[test]
+    fn stage3c_multi_bucket_synchronized_report_counts_and_serializes_redacted_shape() {
+        let alor = vec![
+            alor_oracle_at(0, 100, 110, 90, 105, 1000),
+            alor_oracle_at(1, 105, 115, 95, 111, 2000),
+        ];
+        let finam = vec![
+            finam_derived_m10_at(0, 100, 110, 90, 105, 1000),
+            finam_derived_m10_at(1, 105, 115, 95, 111, 2000),
+        ];
+
+        let report = generate_stage3c_redacted_m10_parity_report(&alor, &finam, &instrument());
+        let json = serde_json::to_value(&report).expect("report serializes");
+
+        assert_eq!(report.substage, STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3C);
+        assert_eq!(report.status, Stage3MarketDataParityStatus::Synchronized);
+        assert_eq!(report.comparison_summary.matched_bucket_count, 2);
+        assert_eq!(
+            report.comparison_summary.first_matched_bucket_open_ts,
+            Some(bucket_open_at(0))
+        );
+        assert_eq!(
+            report.comparison_summary.last_matched_bucket_open_ts,
+            Some(bucket_open_at(1))
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            2
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .candidate_bars_rejected_before_strategy_count,
+            0
+        );
+        assert!(!report.raw_payload_exported);
+        assert_eq!(json["raw_payload_exported"], false);
+        assert!(json.get("scope").is_some());
+        assert!(json.get("inputs").is_some());
+        assert!(json.get("strategy_input_gate").is_some());
+        assert!(json.get("strategy_input_publication").is_some());
+        assert!(json.get("comparison_summary").is_some());
+        assert!(json.get("diff_summary").is_some());
+        assert!(json.get("reconnect_recovery").is_some());
+        assert!(json.get("session_filtering").is_some());
+        assert!(json.get("safety_boundary").is_some());
+    }
+
+    #[test]
+    fn stage3c_multi_bucket_report_counts_alor_only_finam_only_and_rejected_candidates() {
+        let alor = vec![
+            alor_oracle_at(0, 100, 110, 90, 105, 1000),
+            alor_oracle_at(1, 105, 115, 95, 111, 2000),
+        ];
+        let finam = vec![
+            finam_derived_m10_at(0, 100, 110, 90, 105, 1000),
+            finam_derived_m10_at(2, 120, 125, 115, 122, 3000),
+        ];
+
+        let report = generate_stage3c_redacted_m10_parity_report(&alor, &finam, &instrument());
+
+        assert_eq!(report.status, Stage3MarketDataParityStatus::BlockedDiff);
+        assert_eq!(report.comparison_summary.matched_bucket_count, 1);
+        assert_eq!(report.comparison_summary.alor_only_bucket_count, 1);
+        assert_eq!(report.comparison_summary.finam_only_bucket_count, 1);
+        assert_eq!(report.comparison_summary.blocking_diff_count, 2);
+        assert_eq!(report.diff_summary.diff_counts.missing_finam_derived_bar, 1);
+        assert_eq!(report.diff_summary.diff_counts.missing_alor_bar, 1);
+        assert_eq!(
+            report.diff_summary.first_diff_bucket_open_ts,
+            Some(bucket_open_at(1))
+        );
+        assert_eq!(
+            report.diff_summary.last_diff_bucket_open_ts,
+            Some(bucket_open_at(2))
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            1
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .candidate_bars_rejected_before_strategy_count,
+            1
+        );
+    }
+
+    #[test]
+    fn stage3c_multi_bucket_report_tracks_ohlcv_timestamp_and_max_deltas() {
+        let alor = vec![
+            alor_oracle_at(0, 100, 110, 90, 105, 1000),
+            alor_oracle_at(1, 105, 115, 95, 111, 2000),
+        ];
+        let mut finam_second = finam_derived_m10_at(1, 105, 115, 95, 111, 2000);
+        finam_second.close_ts += Duration::seconds(60);
+        let finam = vec![
+            finam_derived_m10_at(0, 100, 112, 90, 104, 1007),
+            finam_second,
+        ];
+
+        let report = generate_stage3c_redacted_m10_parity_report(&alor, &finam, &instrument());
+
+        assert_eq!(report.status, Stage3MarketDataParityStatus::BlockedDiff);
+        assert_eq!(report.comparison_summary.matched_bucket_count, 2);
+        assert_eq!(report.comparison_summary.blocking_diff_count, 2);
+        assert_eq!(report.diff_summary.diff_counts.ohlcv_mismatch, 1);
+        assert_eq!(report.diff_summary.diff_counts.timestamp_mismatch, 1);
+        assert_eq!(report.diff_summary.max_abs_high_diff, dec(2));
+        assert_eq!(report.diff_summary.max_abs_close_diff, dec(1));
+        assert_eq!(report.diff_summary.max_abs_volume_diff, dec(7));
+        assert_eq!(
+            report.diff_summary.first_diff_bucket_open_ts,
+            Some(bucket_open_at(0))
+        );
+        assert_eq!(
+            report.diff_summary.last_diff_bucket_open_ts,
+            Some(bucket_open_at(1))
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            0
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .candidate_bars_rejected_before_strategy_count,
+            2
+        );
+    }
+
+    #[test]
+    fn stage3c_empty_and_missing_stream_reports_are_explicit_not_panics() {
+        let empty = generate_stage3c_redacted_m10_parity_report(&[], &[], &instrument());
+        assert_eq!(
+            empty.status,
+            Stage3MarketDataParityStatus::EvidenceIncomplete
+        );
+
+        let alor = vec![alor_oracle_at(0, 100, 110, 90, 105, 1000)];
+        let missing_finam = generate_stage3c_redacted_m10_parity_report(&alor, &[], &instrument());
+        assert_eq!(
+            missing_finam.status,
+            Stage3MarketDataParityStatus::MissingFinamDerivedStream
+        );
+
+        let finam = vec![finam_derived_m10_at(0, 100, 110, 90, 105, 1000)];
+        let missing_alor = generate_stage3c_redacted_m10_parity_report(&[], &finam, &instrument());
+        assert_eq!(
+            missing_alor.status,
+            Stage3MarketDataParityStatus::MissingAlorOracleStream
+        );
+        assert_eq!(
+            missing_alor
+                .strategy_input_publication
+                .candidate_bars_rejected_before_strategy_count,
+            1
+        );
     }
 
     #[test]
