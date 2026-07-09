@@ -1,7 +1,8 @@
 # Stage 3E — reconnect/gap recovery evidence for strategy-input bars
 
 Status: Stage 3E accepted as recovery/gap evidence foundation; Stage 3E-1
-recovery-report consistency hardening implemented for review.
+recovery-report consistency hardening accepted as foundation; Stage 3E-2
+replay-window evidence completeness hardening implemented for review.
 
 Date: 2026-07-09.
 
@@ -46,6 +47,10 @@ Stage 3E-1 hardens the consistency boundary between the reconnect summary, the
 broker-neutral recovery report, the approved session window, and publication
 counters. Contradictory evidence is rejected before a report is accepted.
 
+Stage 3E-2 hardens complete recovery evidence further: `RecoveryComplete` must
+carry explicit replay-window fields and a valid replay-to-first-fresh-live
+timeline rather than relying on `phase = LiveReady` alone.
+
 ## Recovery acceptance contract
 
 `RecoveryComplete` requires all of the following:
@@ -63,7 +68,14 @@ counters. Contradictory evidence is rejected before a report is accepted.
 - recovery report has `gap_absence_proven = true`;
 - first fresh live final bar after replay is present;
 - all recovery report timestamps are inside the approved `session_window_utc`;
-- at least one fresh live candidate is observed after recovery.
+- at least one fresh live candidate is observed after recovery;
+- replay-window evidence is present:
+  `replay_from_ts`, `replay_to_ts`, `replay_first_bar_close_ts`,
+  `replay_last_bar_close_ts`, and `replay_bar_count > 0`;
+- replay-window order is valid:
+  `replay_from_ts <= replay_first_bar_close_ts <= replay_last_bar_close_ts <=
+  replay_to_ts <= first_live_final_bar_close_ts`;
+- first fresh live final is strictly after the replay last bar.
 
 `NotAttempted` and `AttemptedAndFailed` produce `RecoveryIncomplete` and must
 not allow strategy/model publication. They also must not contradict the
@@ -107,6 +119,10 @@ Stage 3E tests cover:
 - post-recovery published model-bar count cannot exceed fresh live candidate
   count;
 - complete recovery requires a fresh live candidate count;
+- complete recovery requires explicit replay-window fields and positive replay
+  bar count;
+- replay-window ordering must be valid;
+- first fresh live final must be after replay last bar;
 - entry must stay blocked while gap is unproven;
 - exit/cancel/repair must remain allowed while entry is blocked by the gap
   guard;

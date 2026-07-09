@@ -132,12 +132,16 @@ Stage split:
   that entry guard, suppresses replay/overlap bars from strategy/model
   publication, and allows strategy input only after gap proof plus first fresh
   live final bar.
-- Stage 3E-1 is implemented for review: recovery report must be M10 strategy
-  timeframe, recovery timestamps must sit inside the approved session window,
-  reconnect summary/report phases must not contradict each other, and
-  post-recovery publication counters must be arithmetically valid.
-- Next active patch after Stage 3E-1 acceptance is Stage 3F acceptance-report
-  preparation or reviewer-directed Stage 3E-1 hardening.
+- Stage 3E-1 is accepted as recovery-report consistency and counter hardening:
+  recovery report must be M10 strategy timeframe, recovery timestamps must sit
+  inside the approved session window, reconnect summary/report phases must not
+  contradict each other, and post-recovery publication counters must be
+  arithmetically valid.
+- Stage 3E-2 is implemented for review: `RecoveryComplete` now requires
+  explicit replay-window evidence fields, positive replay bar count, valid
+  replay-window ordering, and first fresh live final strictly after replay.
+- Next active patch after Stage 3E-2 acceptance is Stage 3F acceptance-report
+  preparation or reviewer-directed Stage 3E-2 hardening.
 
 Green / mostly closed:
 
@@ -169,7 +173,7 @@ Amber:
 - Stage 3B accepted the source-only comparator foundation. Stage 3C adds
   multi-bucket report generation and duplicate bucket hardening, but
   live active-session source adapters are still pending.
-- Stage 3D/3D-1/3D-2/3D-3/3D-3a/3E/3E-1 adds offline controlled evidence
+- Stage 3D/3D-1/3D-2/3D-3/3D-3a/3E/3E-1/3E-2 adds offline controlled evidence
   collection, source binding, and reconnect/gap recovery evidence; it does not
   read live streams or attach runtime-live.
 

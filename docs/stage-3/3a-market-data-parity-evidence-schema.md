@@ -315,6 +315,13 @@ report, `post_recovery_published_model_bar_count` must not exceed
 `post_recovery_fresh_live_candidate_count`, and complete recovery requires at
 least one fresh live candidate after recovery.
 
+Stage 3E-2 requires `RecoveryComplete` to include explicit replay-window
+evidence: `replay_from_ts`, `replay_to_ts`, `replay_first_bar_close_ts`,
+`replay_last_bar_close_ts`, and `replay_bar_count > 0`. The replay timeline must
+be ordered as replay-from <= replay-first <= replay-last <= replay-to <= first
+fresh live final, and the first fresh live final must be strictly after the
+replay last bar.
+
 ## Session filtering
 
 ```json

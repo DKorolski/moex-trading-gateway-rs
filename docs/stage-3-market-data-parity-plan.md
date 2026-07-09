@@ -8,7 +8,8 @@ gate hardening accepted as foundation; Stage 3D-2 recovery/session consistency
 hardening accepted; Stage 3D-3 controlled operator-run input adapter accepted;
 Stage 3D-3a approved input schema/session-window hardening accepted; Stage 3E
 reconnect/gap recovery evidence accepted as foundation; Stage 3E-1 recovery
-report consistency hardening implemented for review.
+report consistency hardening accepted as foundation; Stage 3E-2 replay-window
+evidence completeness hardening implemented for review.
 
 Date: 2026-07-09.
 
@@ -234,5 +235,7 @@ Recommended next slices after accepted Stage 3A:
 8. Stage 3E — reconnect/gap-recovery evidence for strategy-input bars
    (accepted as foundation).
 9. Stage 3E-1 — recovery report consistency and counter hardening
-   (implemented for review).
-10. Stage 3F acceptance report or reviewer-directed Stage 3E-1 hardening.
+   (accepted as foundation).
+10. Stage 3E-2 — replay-window evidence completeness hardening (implemented
+    for review).
+11. Stage 3F acceptance report or reviewer-directed Stage 3E-2 hardening.

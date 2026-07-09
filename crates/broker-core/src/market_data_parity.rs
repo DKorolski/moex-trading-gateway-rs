@@ -980,6 +980,14 @@ pub enum Stage3eRecoveryEvidenceError {
     RecoveryStatusReportMismatch,
     #[error("AttemptedAndComplete recovery evidence must match LiveReady recovery report")]
     RecoveryCompletionMismatch,
+    #[error("complete recovery report is missing replay evidence field {field}")]
+    RecoveryReportReplayEvidenceMissing { field: &'static str },
+    #[error("complete recovery report requires replay_bar_count > 0")]
+    RecoveryReportReplayBarsMissing,
+    #[error("complete recovery report replay window ordering is invalid")]
+    RecoveryReportReplayWindowOrderInvalid,
+    #[error("first fresh live final must be after replay last bar")]
+    FirstFreshLiveFinalNotAfterReplay,
     #[error("AttemptedAndComplete recovery requires replay attempt, gap proof, first fresh final, and entry block")]
     RecoveryCompletionFlagsInvalid,
     #[error(
@@ -2027,6 +2035,7 @@ fn validate_stage3e_recovery_consistency(
             if !recovery_report_live_ready {
                 return Err(Stage3eRecoveryEvidenceError::RecoveryCompletionMismatch);
             }
+            validate_stage3e_complete_replay_evidence(&input.recovery_report)?;
             Ok(())
         }
     }
@@ -2105,6 +2114,49 @@ fn validate_stage3e_publication_counters(
         && counters.post_recovery_fresh_live_candidate_count == 0
     {
         return Err(Stage3eRecoveryEvidenceError::RecoveryCompleteMissingFreshCandidate);
+    }
+    Ok(())
+}
+
+fn validate_stage3e_complete_replay_evidence(
+    report: &MarketDataRecoveryReport,
+) -> Result<(), Stage3eRecoveryEvidenceError> {
+    let replay_from_ts = report.replay_from_ts.ok_or(
+        Stage3eRecoveryEvidenceError::RecoveryReportReplayEvidenceMissing {
+            field: "replay_from_ts",
+        },
+    )?;
+    let replay_to_ts = report.replay_to_ts.ok_or(
+        Stage3eRecoveryEvidenceError::RecoveryReportReplayEvidenceMissing {
+            field: "replay_to_ts",
+        },
+    )?;
+    let replay_first_bar_close_ts = report.replay_first_bar_close_ts.ok_or(
+        Stage3eRecoveryEvidenceError::RecoveryReportReplayEvidenceMissing {
+            field: "replay_first_bar_close_ts",
+        },
+    )?;
+    let replay_last_bar_close_ts = report.replay_last_bar_close_ts.ok_or(
+        Stage3eRecoveryEvidenceError::RecoveryReportReplayEvidenceMissing {
+            field: "replay_last_bar_close_ts",
+        },
+    )?;
+    let first_live_final_bar_close_ts = report
+        .first_live_final_bar_close_ts
+        .ok_or(Stage3eRecoveryEvidenceError::RecoveryCompletionMismatch)?;
+
+    if report.replay_bar_count == 0 {
+        return Err(Stage3eRecoveryEvidenceError::RecoveryReportReplayBarsMissing);
+    }
+    if replay_from_ts > replay_first_bar_close_ts
+        || replay_first_bar_close_ts > replay_last_bar_close_ts
+        || replay_last_bar_close_ts > replay_to_ts
+        || replay_to_ts > first_live_final_bar_close_ts
+    {
+        return Err(Stage3eRecoveryEvidenceError::RecoveryReportReplayWindowOrderInvalid);
+    }
+    if first_live_final_bar_close_ts <= replay_last_bar_close_ts {
+        return Err(Stage3eRecoveryEvidenceError::FirstFreshLiveFinalNotAfterReplay);
     }
     Ok(())
 }
@@ -2837,6 +2889,156 @@ mod tests {
         assert_eq!(
             err,
             Stage3eRecoveryEvidenceError::RecoveryCompleteMissingFreshCandidate
+        );
+    }
+
+    #[test]
+    fn stage3e_complete_recovery_requires_replay_from_ts() {
+        let mut recovery_report = stage3e_live_ready_recovery_report();
+        recovery_report.replay_from_ts = None;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            recovery_report,
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("complete recovery requires replay_from_ts");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryReportReplayEvidenceMissing {
+                field: "replay_from_ts"
+            }
+        );
+    }
+
+    #[test]
+    fn stage3e_complete_recovery_requires_replay_to_ts() {
+        let mut recovery_report = stage3e_live_ready_recovery_report();
+        recovery_report.replay_to_ts = None;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            recovery_report,
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("complete recovery requires replay_to_ts");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryReportReplayEvidenceMissing {
+                field: "replay_to_ts"
+            }
+        );
+    }
+
+    #[test]
+    fn stage3e_complete_recovery_requires_replay_first_bar() {
+        let mut recovery_report = stage3e_live_ready_recovery_report();
+        recovery_report.replay_first_bar_close_ts = None;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            recovery_report,
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("complete recovery requires replay first bar");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryReportReplayEvidenceMissing {
+                field: "replay_first_bar_close_ts"
+            }
+        );
+    }
+
+    #[test]
+    fn stage3e_complete_recovery_requires_replay_last_bar() {
+        let mut recovery_report = stage3e_live_ready_recovery_report();
+        recovery_report.replay_last_bar_close_ts = None;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            recovery_report,
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("complete recovery requires replay last bar");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryReportReplayEvidenceMissing {
+                field: "replay_last_bar_close_ts"
+            }
+        );
+    }
+
+    #[test]
+    fn stage3e_complete_recovery_requires_positive_replay_bar_count() {
+        let mut recovery_report = stage3e_live_ready_recovery_report();
+        recovery_report.replay_bar_count = 0;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            recovery_report,
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("complete recovery requires replay bars");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryReportReplayBarsMissing
+        );
+    }
+
+    #[test]
+    fn stage3e_replay_window_order_must_be_valid() {
+        let mut recovery_report = stage3e_live_ready_recovery_report();
+        recovery_report.replay_first_bar_close_ts = Some(bucket_open_at(3));
+        recovery_report.replay_last_bar_close_ts = Some(bucket_open_at(2));
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            recovery_report,
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("replay window order rejected");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::RecoveryReportReplayWindowOrderInvalid
+        );
+    }
+
+    #[test]
+    fn stage3e_first_fresh_live_final_must_be_after_replay_last_bar() {
+        let mut recovery_report = stage3e_live_ready_recovery_report();
+        recovery_report.replay_to_ts = recovery_report.replay_last_bar_close_ts;
+        recovery_report.first_live_final_bar_close_ts = recovery_report.replay_last_bar_close_ts;
+        let input = stage3e_input(
+            stage3e_reconnect_recovery_complete(),
+            recovery_report,
+            stage3e_action_gate(),
+            stage3e_publication_counters_complete(),
+        );
+
+        let err = collect_stage3e_reconnect_gap_recovery_evidence(input)
+            .expect_err("first fresh final must be after replay last bar");
+
+        assert_eq!(
+            err,
+            Stage3eRecoveryEvidenceError::FirstFreshLiveFinalNotAfterReplay
         );
     }
 
