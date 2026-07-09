@@ -1,6 +1,6 @@
 # Stage 3A — market-data parity evidence schema
 
-Status: schema ready for review.
+Status: accepted.
 
 Date: 2026-07-09.
 
@@ -49,6 +49,7 @@ generated reports unless explicitly requested as redacted evidence.
   },
   "inputs": {},
   "strategy_input_gate": {},
+  "strategy_input_publication": {},
   "comparison_policy": {},
   "comparison_summary": {},
   "diff_summary": {},
@@ -136,6 +137,24 @@ Raw bar payloads must not appear here.
 If any boolean contradicts the safety contract, `status` must be
 `SafetyBoundaryOpen` or `EvidenceIncomplete`, not `Synchronized`.
 
+## Strategy input publication
+
+```json
+{
+  "strategy_input_publication": {
+    "raw_m1_published_as_model_bar_count": 0,
+    "finam_derived_m10_published_as_model_bar_count": 0,
+    "alor_native_m10_oracle_bars_seen": 0,
+    "candidate_bars_rejected_before_strategy_count": 0
+  }
+}
+```
+
+`raw_m1_published_as_model_bar_count` must remain zero. Raw FINAM M1 bars are
+aggregation inputs only, never strategy/model bars. Rejected candidate bars must
+be counted before strategy publication and must not advance the strategy
+watermark.
+
 ## Comparison policy
 
 ```json
@@ -208,6 +227,8 @@ series.
 ```json
 {
   "reconnect_recovery": {
+    "recovery_required": false,
+    "recovery_status": "NotRequired",
     "disconnect_observed": false,
     "last_final_strategy_bar_watermark": null,
     "warm_replay_attempted": false,
@@ -219,6 +240,15 @@ series.
   }
 }
 ```
+
+Allowed `recovery_status` values:
+
+- `NotRequired` — no disconnect/gap/silence interval required recovery;
+- `NotAttempted` — recovery was required but was not attempted, so strategy
+  entry must remain blocked;
+- `AttemptedAndComplete` — replay/dedupe/contiguity checks completed and the
+  first fresh live final bar was observed;
+- `AttemptedAndFailed` — recovery was attempted but gap absence was not proven.
 
 If recovery is required but not complete, top-level `status` must be
 `RecoveryIncomplete`.

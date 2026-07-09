@@ -96,7 +96,10 @@ Stage split:
 - Stage 2B-11 acceptance report closes Stage 2B as broker-neutral runtime
   contract/foundation.
 - Next macro-stage is Stage 3: market-data parity to strategy input level.
-- Active patch is Stage 3A: market-data parity plan and evidence schema.
+- Stage 3A is accepted: market-data parity plan and evidence schema are
+  accepted as the planning/schema foundation.
+- Active patch is Stage 3B: source-only market-data parity comparator contract
+  and synthetic fixture tests.
 
 Green / mostly closed:
 
@@ -122,9 +125,9 @@ Amber:
   real ALOR hybrid BO/MR orchestrator.
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
-- Stage 3A defines the market-data parity plan/evidence schema, but Stage 3 has
-  not yet accepted full-session FINAM-vs-ALOR strategy-input market-data
-  evidence.
+- Stage 3A defines the accepted market-data parity plan/evidence schema, but
+  Stage 3 has not yet accepted full-session FINAM-vs-ALOR strategy-input
+  market-data evidence.
 
 Red / not yet implemented:
 

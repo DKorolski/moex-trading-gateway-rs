@@ -1,6 +1,6 @@
 # Stage 3 — market-data parity to strategy input level
 
-Status: Stage 3A planning/evidence-schema patch ready for review.
+Status: Stage 3A accepted; Stage 3B source-only comparator contract active.
 
 Date: 2026-07-09.
 
@@ -35,6 +35,8 @@ Stage 3A is planning and evidence-schema only. It defines:
 
 Stage 3A does not collect live evidence and does not attach the real strategy
 runtime.
+
+Review status: accepted after review of `6755998`.
 
 ## Inputs
 
@@ -207,9 +209,10 @@ Stage 3 does not authorize:
 
 ## Next implementation slices
 
-Recommended next slices after Stage 3A:
+Recommended next slices after accepted Stage 3A:
 
-1. Stage 3B — source-only comparator contract and synthetic fixture tests.
+1. Stage 3B — source-only comparator contract and synthetic fixture tests
+   (active patch).
 2. Stage 3C — redacted report generator for ALOR native M10 vs FINAM derived
    M10 evidence.
 3. Stage 3D — controlled active-session evidence collection.

@@ -14,6 +14,7 @@ pub mod hybrid_runtime_ids;
 pub mod ids;
 pub mod instrument;
 pub mod market_data_lifecycle;
+pub mod market_data_parity;
 pub mod market_data_recovery;
 pub mod observability;
 pub mod operational_config;
@@ -65,6 +66,18 @@ pub use instrument::{
 pub use market_data_lifecycle::{
     evaluate_market_data_lifecycle, BrokerMarketDataLifecycleInput,
     BrokerMarketDataLifecycleSnapshot, MarketDataLifecycleBlocker, MarketDataLifecyclePhase,
+};
+pub use market_data_parity::{
+    compare_stage3_alor_native_m10_to_finam_derived_m10, derive_stage3_finam_m10_from_final_m1,
+    evaluate_stage3_strategy_input_gate, normalize_stage3_alor_native_m10_oracle,
+    Stage3AlorNativeM10Input, Stage3ComparisonPolicy, Stage3ComparisonSummary, Stage3DiffCounts,
+    Stage3DiffSummary, Stage3FinamM10DerivationRejectReason, Stage3FinamM10DerivationReport,
+    Stage3FinamM10DerivationStatus, Stage3MarketDataParityReport, Stage3MarketDataParityStatus,
+    Stage3ReconnectRecoveryStatus, Stage3ReconnectRecoverySummary, Stage3SafetyBoundary,
+    Stage3StrategyBarProvenance, Stage3StrategyBarSourceMode, Stage3StrategyInputGateOutcome,
+    Stage3StrategyInputPublicationCounts, Stage3StrategyInputRejectReason,
+    STAGE3_MARKET_DATA_PARITY_SCHEMA_VERSION, STAGE3_MARKET_DATA_PARITY_STAGE,
+    STAGE3_MARKET_DATA_PARITY_SUBSTAGE_3B,
 };
 pub use market_data_recovery::{
     evaluate_market_data_recovery, plan_market_data_recovery, MarketDataRecoveryBlocker,
