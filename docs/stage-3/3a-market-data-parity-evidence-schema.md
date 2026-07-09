@@ -155,6 +155,12 @@ aggregation inputs only, never strategy/model bars. Rejected candidate bars must
 be counted before strategy publication and must not advance the strategy
 watermark.
 
+`finam_derived_m10_published_as_model_bar_count` may increment only for
+`Synchronized` comparator outcomes. If a FINAM-derived M10 candidate exists but
+the comparator status is `BlockedDiff`, `MissingAlorOracleStream`, or any other
+non-synchronized status, it must be counted under
+`candidate_bars_rejected_before_strategy_count` instead.
+
 ## Comparison policy
 
 ```json

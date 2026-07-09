@@ -195,6 +195,8 @@ pub enum Stage3FinamM10DerivationStatus {
 pub enum Stage3FinamM10DerivationRejectReason {
     DuplicateConflictingM1,
     MissingM1,
+    NonM1SourceTimeframe { actual_sec: u32 },
+    NonM1SourceDuration { actual_sec: i64 },
     AggregationRejected(BarAggregationRejectReason),
     NoCompleteBucket,
 }
@@ -220,6 +222,39 @@ pub fn derive_stage3_finam_m10_from_final_m1(
     let mut deduped_by_open_ts = BTreeMap::<DateTime<Utc>, Bar>::new();
 
     for bar in source_bars {
+        if bar.timeframe_sec != 60 {
+            return Stage3FinamM10DerivationReport {
+                status: Stage3FinamM10DerivationStatus::Rejected,
+                emitted: None,
+                bars_seen_m1,
+                duplicate_exact_m1_count,
+                duplicate_conflicting_m1_count: 0,
+                complete_buckets: 0,
+                incomplete_buckets: 0,
+                reject_reason: Some(Stage3FinamM10DerivationRejectReason::NonM1SourceTimeframe {
+                    actual_sec: bar.timeframe_sec,
+                }),
+                raw_payload_exported: false,
+            };
+        }
+
+        let actual_duration_sec = (bar.close_ts - bar.open_ts).num_seconds();
+        if actual_duration_sec != 60 {
+            return Stage3FinamM10DerivationReport {
+                status: Stage3FinamM10DerivationStatus::Rejected,
+                emitted: None,
+                bars_seen_m1,
+                duplicate_exact_m1_count,
+                duplicate_conflicting_m1_count: 0,
+                complete_buckets: 0,
+                incomplete_buckets: 0,
+                reject_reason: Some(Stage3FinamM10DerivationRejectReason::NonM1SourceDuration {
+                    actual_sec: actual_duration_sec,
+                }),
+                raw_payload_exported: false,
+            };
+        }
+
         match deduped_by_open_ts.get(&bar.open_ts) {
             Some(existing) if existing == &bar => {
                 duplicate_exact_m1_count += 1;
@@ -595,6 +630,11 @@ pub fn compare_stage3_alor_native_m10_to_finam_derived_m10(
     } else {
         Stage3MarketDataParityStatus::BlockedDiff
     };
+    let finam_derived_m10_published_as_model_bar_count =
+        usize::from(status == Stage3MarketDataParityStatus::Synchronized);
+    let candidate_bars_rejected_before_strategy_count = usize::from(
+        finam_candidate.is_some() && status != Stage3MarketDataParityStatus::Synchronized,
+    );
 
     let zero = Price::ZERO;
     Stage3MarketDataParityReport {
@@ -606,9 +646,9 @@ pub fn compare_stage3_alor_native_m10_to_finam_derived_m10(
         comparison_policy: Stage3ComparisonPolicy::strict_exact(),
         strategy_input_publication: Stage3StrategyInputPublicationCounts {
             raw_m1_published_as_model_bar_count: 0,
-            finam_derived_m10_published_as_model_bar_count: usize::from(finam_candidate.is_some()),
+            finam_derived_m10_published_as_model_bar_count,
             alor_native_m10_oracle_bars_seen: usize::from(alor_oracle.is_some()),
-            candidate_bars_rejected_before_strategy_count: 0,
+            candidate_bars_rejected_before_strategy_count,
         },
         reconnect_recovery: Stage3ReconnectRecoverySummary::not_required(),
         comparison_summary: Stage3ComparisonSummary {
@@ -695,6 +735,30 @@ mod tests {
             timeframe_sec: 60,
             open_ts,
             close_ts: open_ts + Duration::seconds(60),
+            open: dec(open),
+            high: dec(high),
+            low: dec(low),
+            close: dec(close),
+            volume: dec(volume),
+            is_final: true,
+        }
+    }
+
+    fn finam_m5(
+        bucket_offset: i64,
+        open: i64,
+        high: i64,
+        low: i64,
+        close: i64,
+        volume: i64,
+    ) -> Bar {
+        let open_ts = bucket_open() + Duration::minutes(bucket_offset * 5);
+        Bar {
+            instrument: instrument(),
+            source_kind: MarketDataSourceKind::LiveStream,
+            timeframe_sec: 300,
+            open_ts,
+            close_ts: open_ts + Duration::seconds(300),
             open: dec(open),
             high: dec(high),
             low: dec(low),
@@ -801,6 +865,55 @@ mod tests {
     }
 
     #[test]
+    fn stage3b_non_m1_source_bar_is_rejected() {
+        let mut bars = synchronized_finam_m1();
+        bars[4].timeframe_sec = 120;
+        bars[4].close_ts = bars[4].open_ts + Duration::seconds(120);
+
+        let derivation = derive_stage3_finam_m10_from_final_m1(bars);
+
+        assert_eq!(derivation.status, Stage3FinamM10DerivationStatus::Rejected);
+        assert_eq!(
+            derivation.reject_reason,
+            Some(Stage3FinamM10DerivationRejectReason::NonM1SourceTimeframe { actual_sec: 120 })
+        );
+        assert!(derivation.emitted.is_none());
+    }
+
+    #[test]
+    fn stage3b_m5_source_bars_cannot_assemble_stage3_finam_m10() {
+        let bars = vec![
+            finam_m5(0, 100, 105, 99, 101, 1000),
+            finam_m5(1, 101, 106, 100, 102, 1001),
+        ];
+
+        let derivation = derive_stage3_finam_m10_from_final_m1(bars);
+
+        assert_eq!(derivation.status, Stage3FinamM10DerivationStatus::Rejected);
+        assert_eq!(
+            derivation.reject_reason,
+            Some(Stage3FinamM10DerivationRejectReason::NonM1SourceTimeframe { actual_sec: 300 })
+        );
+        assert_eq!(derivation.complete_buckets, 0);
+        assert!(derivation.emitted.is_none());
+    }
+
+    #[test]
+    fn stage3b_m1_source_bar_with_wrong_duration_is_rejected() {
+        let mut bars = synchronized_finam_m1();
+        bars[4].close_ts = bars[4].open_ts + Duration::seconds(59);
+
+        let derivation = derive_stage3_finam_m10_from_final_m1(bars);
+
+        assert_eq!(derivation.status, Stage3FinamM10DerivationStatus::Rejected);
+        assert_eq!(
+            derivation.reject_reason,
+            Some(Stage3FinamM10DerivationRejectReason::NonM1SourceDuration { actual_sec: 59 })
+        );
+        assert!(derivation.emitted.is_none());
+    }
+
+    #[test]
     fn stage3b_duplicate_exact_m1_is_idempotent() {
         let mut bars = synchronized_finam_m1();
         bars.push(bars[3].clone());
@@ -880,6 +993,18 @@ mod tests {
         assert_eq!(report.status, Stage3MarketDataParityStatus::BlockedDiff);
         assert_eq!(report.diff_summary.diff_counts.ohlcv_mismatch, 1);
         assert_eq!(report.comparison_summary.blocking_diff_count, 1);
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            0
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .candidate_bars_rejected_before_strategy_count,
+            1
+        );
     }
 
     #[test]
@@ -898,5 +1023,57 @@ mod tests {
         assert_eq!(report.status, Stage3MarketDataParityStatus::BlockedDiff);
         assert_eq!(report.diff_summary.diff_counts.timestamp_mismatch, 1);
         assert_eq!(report.comparison_summary.blocking_diff_count, 1);
+    }
+
+    #[test]
+    fn stage3b_blocked_diff_candidate_is_rejected_before_strategy_not_published() {
+        let alor = alor_oracle();
+        let mut finam = alor.clone();
+        finam.high += dec(1);
+
+        let report = compare_stage3_alor_native_m10_to_finam_derived_m10(
+            Some(&alor),
+            Some(&finam),
+            &instrument(),
+        );
+
+        assert_eq!(report.status, Stage3MarketDataParityStatus::BlockedDiff);
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            0
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .candidate_bars_rejected_before_strategy_count,
+            1
+        );
+    }
+
+    #[test]
+    fn stage3b_missing_alor_candidate_is_not_published_as_strategy_model_bar() {
+        let finam = alor_oracle();
+
+        let report =
+            compare_stage3_alor_native_m10_to_finam_derived_m10(None, Some(&finam), &instrument());
+
+        assert_eq!(
+            report.status,
+            Stage3MarketDataParityStatus::MissingAlorOracleStream
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            0
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .candidate_bars_rejected_before_strategy_count,
+            1
+        );
     }
 }

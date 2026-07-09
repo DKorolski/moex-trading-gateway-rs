@@ -1,6 +1,6 @@
 # Stage 3B — source-only market-data parity comparator contract
 
-Status: implemented for review.
+Status: accepted after Stage 3B-1 hardening.
 
 Date: 2026-07-09.
 
@@ -24,6 +24,8 @@ The accepted strategy-input candidate must satisfy:
 
 - source mode is `FinamDerivedM1ToM10`;
 - source timeframe is 60 seconds;
+- every source bar has `timeframe_sec = 60`;
+- every source bar duration is exactly 60 seconds;
 - target timeframe is 600 seconds;
 - exactly ten contiguous final M1 bars create one final M10 bar;
 - exact duplicate M1 bars are idempotent;
@@ -75,6 +77,12 @@ recovery_status = NotRequired | NotAttempted | AttemptedAndComplete | AttemptedA
 This avoids conflating “no recovery was needed” with “recovery was needed but
 not attempted.”
 
+Stage 3B-1 hardening also requires that a FINAM-derived M10 candidate is counted
+as published only when the comparator status is `Synchronized`. If the candidate
+exists but the report is `BlockedDiff`, `MissingAlorOracleStream`, or another
+non-synchronized status, it must be counted as rejected before strategy
+publication.
+
 ## Synthetic acceptance coverage
 
 Stage 3B source tests cover:
@@ -82,6 +90,9 @@ Stage 3B source tests cover:
 - synchronized ALOR native M10 vs FINAM-derived M10 passes;
 - ALOR `close_time_utc` is treated as `bucket_open_ts`;
 - ten contiguous final FINAM M1 bars assemble exactly one M10;
+- non-M1 source bars are rejected before aggregation;
+- M5 source bars cannot assemble a Stage 3 FINAM M10;
+- M1 source bars with non-60-second duration are rejected before aggregation;
 - missing M1 bucket is incomplete/blocking;
 - exact duplicate M1 is idempotent;
 - conflicting duplicate M1 is blocking;
@@ -89,6 +100,8 @@ Stage 3B source tests cover:
 - FINAM native M10 is rejected/blocked;
 - OHLCV mismatch produces `BlockedDiff`;
 - timestamp mismatch produces `BlockedDiff`;
+- blocked/missing-oracle candidates are rejected before strategy publication and
+  are not counted as published model bars;
 - raw payloads are not exported;
 - the safety boundary remains closed.
 
