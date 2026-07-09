@@ -16,8 +16,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   readiness, broker truth, runtime host lifecycle, and paper runtime state.
 - Stage 3 market-data parity contract is accepted/closed to strategy-input
   level.
-- Stage 4A broker-truth bootstrap plan and evidence schema are implemented for
-  review.
+- Stage 4A broker-truth bootstrap plan/evidence schema is accepted as
+  foundation; Stage 4A-1 alignment is implemented for review.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
@@ -151,9 +151,14 @@ Stage split:
 - Stage 3F is accepted as the Stage 3 market-data parity acceptance report.
   Stage 3 is accepted/closed as market-data parity to strategy-input level.
 - Current active macro-stage is Stage 4: broker-truth bootstrap into runtime.
-- Stage 4A is implemented for review as broker-truth bootstrap plan and
-  evidence schema. It remains paper/design/evidence-only and does not enable
-  runtime-live, real FINAM command consumer, or real orders.
+- Stage 4A is accepted as broker-truth bootstrap planning/evidence-schema
+  foundation.
+- Stage 4A-1 is implemented for review as plan/schema alignment: the Stage 4
+  breakdown is expanded to 4A–4J; existing broker-truth/runtime-host type
+  inventory is required before coding; lifecycle-order, explicit adoption,
+  ownership/correlation, and numeric freshness evidence are represented in the
+  schema.
+- Stage 4B coding should not start until Stage 4A-1 is accepted.
 
 Green / mostly closed:
 
@@ -184,8 +189,8 @@ Amber:
 - Stage 3F is accepted and closes Stage 3 as the market-data parity contract.
 - Stage 3 remains market-data/evidence only; it does not read live streams from
   runtime-live, attach runtime-live, or enable real order routing.
-- Stage 4A starts broker-truth bootstrap planning/evidence schema; broker truth
-  is not yet wired as mandatory runtime input.
+- Stage 4A/4A-1 covers broker-truth bootstrap planning/evidence schema; broker
+  truth is not yet wired as mandatory runtime input.
 
 Red / not yet implemented:
 

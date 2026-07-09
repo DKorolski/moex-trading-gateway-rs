@@ -1,6 +1,7 @@
 # Stage 4A — broker-truth bootstrap plan
 
-Status: implemented for review.
+Status: Stage 4A accepted as planning/evidence-schema foundation; Stage 4A-1
+plan/schema alignment implemented for review.
 
 Date: 2026-07-09.
 
@@ -22,6 +23,10 @@ LoadBrokerTruthSnapshot
 
 Stage 4A is plan/schema only. It does not attach runtime-live, does not consume
 real strategy commands, and does not place/cancel/replace real orders.
+
+Stage 4A-1 expands the Stage 4 breakdown and strengthens the evidence schema so
+that coding starts from existing broker-truth/runtime-host surfaces instead of
+creating a parallel domain.
 
 ## 2. Broker truth inputs
 
@@ -63,7 +68,51 @@ must distinguish:
 - values adopted by strategy policy;
 - values preserved only as diagnostics.
 
-## 4. Dirty-start policy
+## 4. Existing type inventory gate
+
+Stage 4B must inventory the existing broker-truth and runtime-bootstrap surfaces
+before introducing new DTOs or wrappers:
+
+| Existing surface | Location | Stage 4B requirement |
+| --- | --- | --- |
+| `BrokerTruthSnapshot` | `broker-core::operational_snapshot` | Reuse/extend or explicitly wrap; do not duplicate incompatibly. |
+| `RuntimeHostBootstrapSnapshot` | `broker-core::runtime_host` | Inventory target-scoped conversion and lifecycle assumptions. |
+| `RuntimeBootstrapSnapshotDto` | `broker-core::runtime_state` | Inventory passive DTO compatibility with broker-neutral ids. |
+| FINAM broker-truth mapper | `broker-finam::mapper` | Inventory read-only source normalization and missing fields. |
+| M3f broker-truth issue machinery | `finam-gateway` | Inventory orphan/order/trade/stale issue classification. |
+| Broker-truth parity helpers | `broker-core::parity` and historical M4 docs | Inventory reusable ALOR/FINAM comparison contracts. |
+
+Stage 4B acceptance must include an explicit decision for every surface:
+`reuse`, `extend`, `wrap_v2`, or `out_of_scope_with_reason`.
+
+No duplicate incompatible `BrokerTruthSnapshot` or
+`RuntimeHostBootstrapSnapshot` may be introduced without a separate ADR.
+
+## 5. Bootstrap lifecycle order
+
+Stage 4 must prove lifecycle order, not only snapshot shape:
+
+```text
+LoadBrokerTruthSnapshot
+  -> LoadRuntimeState
+  -> NotifyBootstrapSnapshot
+  -> NotifyRuntimeStateRestored
+  -> WarmupHistory
+  -> RecoverPendingStreams
+```
+
+Required lifecycle invariants:
+
+- broker truth is loaded before runtime state is trusted;
+- bootstrap snapshot notification happens after broker truth is loaded;
+- runtime state restored notification happens after bootstrap snapshot
+  notification;
+- warmup history happens after runtime state restore;
+- pending stream recovery happens after warmup;
+- live orders are disabled during bootstrap and warmup;
+- first runtime intent before broker truth is a blocker.
+
+## 6. Dirty-start policy
 
 | Broker truth state | Strategy capability | Bootstrap disposition |
 | --- | --- | --- |
@@ -77,7 +126,18 @@ must distinguish:
 
 Dirty-start adoption must never be implicit.
 
-## 5. Position policy
+Adoption applied means all of the following are true:
+
+- adoption was attempted;
+- adoption was allowed by explicit strategy policy;
+- adoption was applied with redacted evidence;
+- adopted target position/order counts match broker truth;
+- manual-intervention reason is absent.
+
+Target non-flat cannot silently become flat. Target active orders cannot
+silently disappear.
+
+## 7. Position policy
 
 - Target-symbol non-zero position quantity is open position truth.
 - Target-symbol zero-quantity rows are not open positions, but must be counted
@@ -86,7 +146,7 @@ Dirty-start adoption must never be implicit.
 - Non-target positions must not make the target strategy non-flat.
 - Target position freshness is required before runtime readiness.
 
-## 6. Active order policy
+## 8. Active order policy
 
 - Target-symbol active orders are lifecycle truth.
 - Account-wide active orders are safety diagnostics and may block a shared
@@ -96,28 +156,36 @@ Dirty-start adoption must never be implicit.
   explicitly reconciled or manually waived.
 - Terminal orders do not count as active, but recent terminal rows may be used
   for reconciliation diagnostics.
+- Ownership/correlation classes must distinguish `RuntimeOwned`,
+  `AdoptedFromBootstrap`, `ObservedAccountWide`, and `UnknownOrOrphan`.
+- A broker order row alone does not prove strategy ownership.
 
-## 7. Trade policy
+## 9. Trade policy
 
 - Recent trades are correlation evidence.
 - A broker trade row by itself does not prove strategy ownership.
 - Unknown trade/order correlation should become a readiness blocker if it
   affects the target instrument and cannot be reconciled.
 - Duplicate trade replay must be idempotent by broker trade id.
+- Trade classification must distinguish strategy-attributed, observed
+  unattributed, unknown, and orphan target trades.
 
-## 8. Freshness policy
+## 10. Freshness policy
 
 Every bootstrap snapshot must include freshness metadata:
 
 - broker truth checked timestamp;
 - per-section checked timestamps where available;
+- per-section ages in seconds;
 - stale position/order/trade indicators;
 - schedule/session freshness;
 - source status: `Fresh`, `Stale`, `Unknown`, or `Unavailable`.
 
-Unknown or stale target broker truth blocks `LiveReady`.
+`Fresh` is allowed only when the section age is less than or equal to the
+accepted `max_age_seconds`. Unknown or stale target broker truth blocks
+`LiveReady`.
 
-## 9. Readiness blockers
+## 11. Readiness blockers
 
 Stage 4A defines these bootstrap blockers:
 
@@ -133,7 +201,7 @@ Stage 4A defines these bootstrap blockers:
 - broker truth source unavailable;
 - raw broker payload export attempted.
 
-## 10. Evidence schema
+## 12. Evidence schema
 
 The Stage 4A evidence schema is defined in
 [`stage-4/4a-broker-truth-bootstrap-evidence-schema.md`](stage-4/4a-broker-truth-bootstrap-evidence-schema.md).
@@ -141,7 +209,7 @@ The Stage 4A evidence schema is defined in
 The schema is redacted and report-only. It is intended to prove that bootstrap
 inputs and blockers were classified before runtime readiness could be considered.
 
-## 11. Stage 4A acceptance criteria
+## 13. Stage 4A / 4A-1 acceptance criteria
 
 Stage 4A acceptance requires:
 
@@ -154,13 +222,20 @@ Stage 4A acceptance requires:
 - active target order policy documented;
 - freshness policy documented;
 - redacted evidence schema added;
+- Stage 4 breakdown expanded without compressing lifecycle/adoption/evidence
+  gates;
+- existing broker-truth/runtime-host type inventory required before coding;
+- lifecycle-order evidence schema added;
+- explicit adoption/manual-intervention evidence schema added;
+- order/trade ownership and correlation evidence fields added;
+- numeric freshness evidence added;
 - runtime-live remains blocked;
 - real FINAM command consumer remains blocked;
 - real orders remain blocked;
 - forbidden scanners green;
 - cargo fmt/test/clippy green.
 
-## 12. Still forbidden
+## 14. Still forbidden
 
 Stage 4A does not authorize:
 
@@ -173,14 +248,22 @@ Stage 4A does not authorize:
 - USDRUBF migration;
 - `i64` surrogate adapter without a new ADR.
 
-## 13. Next expected slices
+## 15. Stage 4 breakdown
 
-After Stage 4A acceptance, the next reviewable slices should be:
+After Stage 4A-1 acceptance, the next reviewable slices should be:
 
-1. Stage 4B — broker-truth DTO and runtime bootstrap snapshot types.
-2. Stage 4C — read-only broker-truth loader and freshness/blocker evaluator.
-3. Stage 4D — runtime bootstrap simulator under paper boundary.
-4. Stage 4E — fixture-backed ALOR/FINAM broker-truth parity tests.
+1. Stage 4B — existing broker-truth type inventory and v2 alignment decision.
+2. Stage 4C — `BrokerTruthSnapshot` v2 /
+   `RuntimeHostBootstrapSnapshot` DTO types and validation.
+3. Stage 4D — FINAM read-only broker-truth mapper and fixture-backed source
+   normalization.
+4. Stage 4E — `BrokerTruthSnapshot` -> `RuntimeHostBootstrapSnapshot`
+   conversion.
+5. Stage 4F — dirty-start / explicit adoption / manual-intervention policy.
+6. Stage 4G — bootstrap lifecycle order enforcement.
+7. Stage 4H — paper/mock bootstrap integration tests.
+8. Stage 4I — redacted broker-truth bootstrap evidence report generator.
+9. Stage 4J — Stage 4 acceptance report.
 
 All of these remain paper/mock/read-only until a later macro-stage explicitly
 authorizes command-consumer or live execution work.

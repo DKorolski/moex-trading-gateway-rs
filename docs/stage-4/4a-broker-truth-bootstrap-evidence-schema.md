@@ -1,6 +1,7 @@
 # Stage 4A — broker-truth bootstrap evidence schema
 
-Status: implemented for review.
+Status: Stage 4A accepted as planning/evidence-schema foundation; Stage 4A-1
+plan/schema alignment implemented for review.
 
 Date: 2026-07-09.
 
@@ -27,7 +28,9 @@ It does not attach runtime-live and does not authorize real order execution.
   "scope": {},
   "broker_truth_snapshot": {},
   "runtime_bootstrap_snapshot": {},
+  "bootstrap_lifecycle": {},
   "dirty_start": {},
+  "adoption": {},
   "freshness": {},
   "readiness": {},
   "safety_boundary": {},
@@ -43,6 +46,7 @@ fingerprinted. Raw broker responses and Redis payloads must not be exported.
 Allowed statuses:
 
 - `BootstrapReady`;
+- `BootstrapBlocked`;
 - `ManualInterventionRequired`;
 - `BrokerTruthIncomplete`;
 - `BrokerTruthStale`;
@@ -54,6 +58,9 @@ Allowed statuses:
 `BootstrapReady` is allowed only when target broker truth is fresh,
 instrument-scoped, free of unknown/orphan target rows, and compatible with the
 runtime bootstrap/adoption policy.
+
+`BootstrapBlocked` is used when broker truth is present/fresh enough to make a
+decision, but target-scoped blockers prevent runtime readiness.
 
 ## Scope
 
@@ -100,11 +107,16 @@ runtime bootstrap/adoption policy.
       "target_active_order_count": 0,
       "target_terminal_order_count": 0,
       "account_wide_active_order_count": 0,
+      "target_runtime_owned_order_count": 0,
+      "target_adopted_order_count": 0,
+      "target_observed_unowned_order_count": 0,
       "unknown_target_order_count": 0,
       "orphan_target_order_count": 0
     },
     "trades": {
       "target_recent_trade_count": 0,
+      "target_strategy_attributed_trade_count": 0,
+      "target_observed_unattributed_trade_count": 0,
       "unknown_target_trade_count": 0,
       "orphan_target_trade_count": 0
     },
@@ -116,6 +128,21 @@ runtime bootstrap/adoption policy.
 ```
 
 Counts are allowed. Raw rows are not allowed.
+
+Order ownership classes:
+
+- `RuntimeOwned`;
+- `AdoptedFromBootstrap`;
+- `ObservedAccountWide`;
+- `UnknownOrOrphan`.
+
+Trade correlation classes:
+
+- `StrategyAttributed`;
+- `ObservedUnattributed`;
+- `UnknownOrOrphan`.
+
+A broker order/trade row alone does not prove strategy ownership.
 
 ## Runtime bootstrap snapshot
 
@@ -145,6 +172,32 @@ Allowed `bootstrap_disposition` values:
 
 Adoption must be explicit and must never be inferred from account-wide rows.
 
+## Bootstrap lifecycle
+
+```json
+{
+  "bootstrap_lifecycle": {
+    "load_broker_truth_snapshot_done": true,
+    "load_runtime_state_after_broker_truth": true,
+    "notify_bootstrap_snapshot_after_broker_truth": true,
+    "notify_runtime_state_restored_after_bootstrap_snapshot": true,
+    "warmup_history_after_state_restore": true,
+    "recover_pending_streams_after_warmup": true,
+    "live_orders_allowed_during_bootstrap": false,
+    "live_orders_allowed_during_warmup": false,
+    "first_runtime_intent_before_broker_truth_count": 0
+  }
+}
+```
+
+Lifecycle rules:
+
+- runtime state is not trusted before broker truth;
+- warmup cannot happen before broker truth and state restore;
+- pending stream recovery happens after warmup;
+- live orders remain disabled during bootstrap/warmup;
+- any runtime intent before broker truth blocks bootstrap readiness.
+
 ## Dirty-start evidence
 
 ```json
@@ -160,6 +213,28 @@ Adoption must be explicit and must never be inferred from account-wide rows.
 }
 ```
 
+## Adoption evidence
+
+```json
+{
+  "adoption": {
+    "position_adoption_attempted": false,
+    "position_adoption_allowed": false,
+    "position_adoption_applied": false,
+    "order_adoption_attempted": false,
+    "order_adoption_allowed": false,
+    "order_adoption_applied": false,
+    "adopted_target_position_qty": "0",
+    "adopted_target_order_count": 0,
+    "manual_intervention_reason": null
+  }
+}
+```
+
+Adoption may be applied only when attempted, allowed, and backed by explicit
+redacted evidence. Target non-flat cannot silently become flat. Target active
+orders cannot silently disappear.
+
 Policy:
 
 - target non-flat + no adoption support => `ManualInterventionRequired`;
@@ -174,11 +249,15 @@ Policy:
 {
   "freshness": {
     "broker_truth_checked_ts": "2026-07-09T00:00:00Z",
+    "max_age_seconds": 30,
+    "positions_age_seconds": 12,
+    "orders_age_seconds": 9,
+    "trades_age_seconds": 15,
+    "schedule_age_seconds": 20,
     "positions_freshness": "Fresh",
     "orders_freshness": "Fresh",
     "trades_freshness": "Fresh",
     "schedule_freshness": "Fresh",
-    "max_age_seconds": 30,
     "stale_section_count": 0
   }
 }
@@ -191,6 +270,7 @@ Allowed freshness values:
 - `Unknown`;
 - `Unavailable`.
 
+`Fresh` is valid only when age is less than or equal to `max_age_seconds`.
 Unknown or stale target position/order truth blocks `BootstrapReady`.
 
 ## Readiness
@@ -222,7 +302,11 @@ Allowed blockers:
 - `InstrumentIdentityMismatch`;
 - `BrokerTruthSourceUnavailable`;
 - `RawPayloadExportAttempted`;
-- `ManualInterventionRequired`.
+- `ManualInterventionRequired`;
+- `BootstrapLifecycleOrderInvalid`;
+- `FirstRuntimeIntentBeforeBrokerTruth`;
+- `AdoptionEvidenceMissing`;
+- `OwnershipCorrelationUnknown`.
 
 No blocker may be hidden as diagnostic if it affects the target instrument.
 
@@ -244,9 +328,9 @@ No blocker may be hidden as diagnostic if it affects the target instrument.
 Any `true` value in the live/order fields makes the evidence invalid for Stage
 4A and should produce `SafetyBoundaryOpen`.
 
-## Stage 4A acceptance
+## Stage 4A / 4A-1 acceptance
 
-Stage 4A acceptance requires:
+Stage 4A / 4A-1 acceptance requires:
 
 - redacted broker-truth snapshot shape;
 - runtime bootstrap snapshot shape;
@@ -255,7 +339,10 @@ Stage 4A acceptance requires:
 - active target order policy;
 - unknown/orphan order/trade blockers;
 - freshness policy;
+- per-section freshness ages;
 - dirty-start/adoption policy;
+- bootstrap lifecycle order policy;
+- runtime-owned/adopted/observed/orphan order/trade classification;
 - explicit safety boundary;
 - no runtime-live;
 - no real FINAM command consumer;
