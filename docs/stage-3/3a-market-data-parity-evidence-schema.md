@@ -67,7 +67,9 @@ Stage 3C source-only unit reports may keep `generated_at`, `source_commit`,
 `source_archive_name`, and `source_archive_sha256` as `null` placeholders until
 an operator evidence package binds the generated report to a source archive.
 Stage 3D controlled evidence reports and later active-session evidence packages
-must fill those fields.
+must fill those fields. Stage 3D-1 and later require
+`source_archive_sha256` to be a 64-character hex string and `session_date` to
+use `YYYY-MM-DD`.
 
 ## Status enum
 
@@ -275,11 +277,13 @@ Allowed `recovery_status` values:
 - `AttemptedAndFailed` — recovery was attempted but gap absence was not proven.
 
 If recovery is required but not complete, top-level `status` must be
-`RecoveryIncomplete`.
+`RecoveryIncomplete`, and derived FINAM candidate bars must not be counted as
+published strategy/model bars.
 
 Stage 3D controlled evidence must set `recovery_required` and
 `recovery_status` explicitly. `NotRequired` is valid only when no reconnect,
 silence, or gap recovery was needed for the controlled evidence window.
+Inconsistent combinations are invalid controlled evidence input.
 
 ## Session filtering
 
@@ -296,8 +300,11 @@ silence, or gap recovery was needed for the controlled evidence window.
 }
 ```
 
-Unknown schedule is blocking. Expected session breaks are not evidence of data
-loss, but they also cannot produce fresh strategy bars.
+Unknown schedule is blocking. When `schedule_known=false` and
+`unknown_schedule_blocks=true`, top-level `status` must be
+`SessionScheduleUnknown`, and derived FINAM candidate bars must not be counted
+as published strategy/model bars. Expected session breaks are not evidence of
+data loss, but they also cannot produce fresh strategy bars.
 
 ## Safety boundary
 

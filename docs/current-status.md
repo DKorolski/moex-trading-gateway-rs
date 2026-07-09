@@ -105,10 +105,14 @@ Stage split:
 - Stage 3C is accepted after Stage 3C-1 hardening: source/report-only
   multi-bucket redacted report generator with explicit duplicate bucket
   normalization and no silent overwrite.
-- Stage 3D is implemented for review: controlled offline evidence collector
-  that fills source/session metadata, derives FINAM M10 from controlled M1
-  inputs, invokes the Stage 3C report generator, and serializes redacted JSON.
-- Next active patch after Stage 3D acceptance is Stage 3E: reconnect/gap
+- Stage 3D is accepted as offline/source-controlled evidence collector
+  foundation: controlled inputs, FINAM M1-to-M10 derivation, Stage 3C report
+  invocation, source/session metadata, and redacted JSON artifact writing.
+- Stage 3D-1 is implemented for review: recovery/session/input-gate hardening
+  blocks failed or missing recovery, unknown schedule state, invalid ALOR oracle
+  shape, invalid source archive hashes, and invalid session dates before the
+  report can be treated as synchronized strategy-input evidence.
+- Next active patch after Stage 3D-1 acceptance is Stage 3E: reconnect/gap
   recovery evidence for strategy-input bars.
 
 Green / mostly closed:
@@ -141,8 +145,8 @@ Amber:
 - Stage 3B accepted the source-only comparator foundation. Stage 3C adds
   multi-bucket report generation and duplicate bucket hardening, but
   live active-session source adapters are still pending.
-- Stage 3D adds offline controlled evidence collection from supplied inputs; it
-  does not read live streams or attach runtime-live.
+- Stage 3D/3D-1 adds offline controlled evidence collection and hardening from
+  supplied inputs; it does not read live streams or attach runtime-live.
 
 Red / not yet implemented:
 

@@ -3,7 +3,8 @@
 Status: Stage 3A accepted; Stage 3B comparator foundation accepted after
 Stage 3B-1 hardening; Stage 3C redacted report-generator accepted after
 Stage 3C-1 duplicate bucket hardening; Stage 3D controlled evidence collection
-implemented for review.
+accepted as offline collector foundation; Stage 3D-1 recovery/session/input
+gate hardening implemented for review.
 
 Date: 2026-07-09.
 
@@ -218,8 +219,9 @@ Recommended next slices after accepted Stage 3A:
    (accepted after Stage 3B-1 hardening).
 2. Stage 3C — redacted report generator for ALOR native M10 vs FINAM derived
    M10 evidence (accepted after Stage 3C-1 duplicate bucket hardening).
-3. Stage 3D — controlled active-session evidence collection (implemented for
-   review).
-4. Stage 3E — reconnect/gap-recovery evidence for strategy-input bars (next
-   after Stage 3D acceptance).
-5. Stage 3 acceptance report.
+3. Stage 3D — controlled active-session evidence collection (accepted as
+   offline collector foundation).
+4. Stage 3D-1 — recovery/session/input-gate hardening (implemented for review).
+5. Stage 3E — reconnect/gap-recovery evidence for strategy-input bars (next
+   after Stage 3D-1 acceptance).
+6. Stage 3 acceptance report.

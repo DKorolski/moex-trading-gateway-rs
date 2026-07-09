@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -756,10 +756,24 @@ pub enum Stage3dControlledEvidenceError {
     MissingSourceArchiveName,
     #[error("source_archive_sha256 is required")]
     MissingSourceArchiveSha256,
+    #[error("source_archive_sha256 must be 64 lowercase/uppercase hex chars")]
+    InvalidSourceArchiveSha256,
     #[error("session_date is required")]
     MissingSessionDate,
+    #[error("session_date must use YYYY-MM-DD format")]
+    InvalidSessionDate,
     #[error("target instrument symbol is required")]
     MissingInstrumentSymbol,
+    #[error("recovery_required and recovery_status are inconsistent")]
+    InvalidRecoveryStatus,
+    #[error("ALOR oracle bar must be final")]
+    AlorOracleNonFinal,
+    #[error("ALOR oracle bar must use M10 timeframe, actual_sec={actual_sec}")]
+    AlorOracleNonM10 { actual_sec: u32 },
+    #[error("ALOR oracle bar must span 600 seconds, actual_sec={actual_sec}")]
+    AlorOracleWrongDuration { actual_sec: i64 },
+    #[error("ALOR oracle bar instrument must match target instrument")]
+    AlorOracleWrongInstrument,
     #[error("report serialization failed: {0}")]
     Serialization(String),
     #[error("report write failed: {0}")]
@@ -777,11 +791,52 @@ impl Stage3dControlledEvidenceInput {
         if self.source_archive_sha256.trim().is_empty() {
             return Err(Stage3dControlledEvidenceError::MissingSourceArchiveSha256);
         }
+        let source_archive_sha256 = self.source_archive_sha256.trim();
+        if source_archive_sha256.len() != 64
+            || !source_archive_sha256
+                .as_bytes()
+                .iter()
+                .all(u8::is_ascii_hexdigit)
+        {
+            return Err(Stage3dControlledEvidenceError::InvalidSourceArchiveSha256);
+        }
         if self.session_date.trim().is_empty() {
             return Err(Stage3dControlledEvidenceError::MissingSessionDate);
         }
+        if NaiveDate::parse_from_str(self.session_date.trim(), "%Y-%m-%d").is_err() {
+            return Err(Stage3dControlledEvidenceError::InvalidSessionDate);
+        }
         if self.target_instrument.symbol.trim().is_empty() {
             return Err(Stage3dControlledEvidenceError::MissingInstrumentSymbol);
+        }
+        match (
+            self.reconnect_recovery.recovery_required,
+            self.reconnect_recovery.recovery_status,
+        ) {
+            (false, Stage3ReconnectRecoveryStatus::NotRequired)
+            | (true, Stage3ReconnectRecoveryStatus::NotAttempted)
+            | (true, Stage3ReconnectRecoveryStatus::AttemptedAndComplete)
+            | (true, Stage3ReconnectRecoveryStatus::AttemptedAndFailed) => {}
+            _ => return Err(Stage3dControlledEvidenceError::InvalidRecoveryStatus),
+        }
+        for bar in &self.alor_native_m10_oracle_bars {
+            if !bar.is_final {
+                return Err(Stage3dControlledEvidenceError::AlorOracleNonFinal);
+            }
+            if bar.timeframe_sec != 600 {
+                return Err(Stage3dControlledEvidenceError::AlorOracleNonM10 {
+                    actual_sec: bar.timeframe_sec,
+                });
+            }
+            let actual_duration_sec = (bar.close_ts - bar.open_ts).num_seconds();
+            if actual_duration_sec != 600 {
+                return Err(Stage3dControlledEvidenceError::AlorOracleWrongDuration {
+                    actual_sec: actual_duration_sec,
+                });
+            }
+            if bar.instrument != self.target_instrument {
+                return Err(Stage3dControlledEvidenceError::AlorOracleWrongInstrument);
+            }
         }
         Ok(())
     }
@@ -1257,6 +1312,34 @@ fn stage3_bucket_open_ts(
     DateTime::<Utc>::from_timestamp(bucket_timestamp, 0)
 }
 
+fn suppress_stage3d_candidate_publication(report: &mut Stage3MarketDataParityReport) {
+    let newly_rejected = report
+        .strategy_input_publication
+        .finam_derived_m10_published_as_model_bar_count;
+    report
+        .strategy_input_publication
+        .candidate_bars_rejected_before_strategy_count += newly_rejected;
+    report
+        .strategy_input_publication
+        .finam_derived_m10_published_as_model_bar_count = 0;
+}
+
+fn apply_stage3d_recovery_and_session_gates(report: &mut Stage3MarketDataParityReport) {
+    if report.reconnect_recovery.recovery_required
+        && report.reconnect_recovery.recovery_status
+            != Stage3ReconnectRecoveryStatus::AttemptedAndComplete
+    {
+        suppress_stage3d_candidate_publication(report);
+        report.status = Stage3MarketDataParityStatus::RecoveryIncomplete;
+    }
+
+    if !report.session_filtering.schedule_known && report.session_filtering.unknown_schedule_blocks
+    {
+        suppress_stage3d_candidate_publication(report);
+        report.status = Stage3MarketDataParityStatus::SessionScheduleUnknown;
+    }
+}
+
 pub fn collect_stage3d_controlled_active_session_evidence(
     input: Stage3dControlledEvidenceInput,
 ) -> Result<Stage3MarketDataParityReport, Stage3dControlledEvidenceError> {
@@ -1321,6 +1404,7 @@ pub fn collect_stage3d_controlled_active_session_evidence(
     {
         report.status = Stage3MarketDataParityStatus::BlockedDiff;
     }
+    apply_stage3d_recovery_and_session_gates(&mut report);
 
     Ok(report)
 }
@@ -1507,7 +1591,8 @@ mod tests {
             generated_at: stage3d_generated_at(),
             source_commit: "SOURCE_COMMIT_TEST_FULL_SHA".to_string(),
             source_archive_name: "moex-trading-project-SOURCE_TEST.zip".to_string(),
-            source_archive_sha256: "SOURCE_ARCHIVE_SHA256_TEST".to_string(),
+            source_archive_sha256:
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
             session_date: "2026-07-09".to_string(),
             target_instrument: instrument(),
             alor_native_m10_oracle_bars: alor,
@@ -1889,7 +1974,7 @@ mod tests {
         );
         assert_eq!(
             report.source_archive_sha256.as_deref(),
-            Some("SOURCE_ARCHIVE_SHA256_TEST")
+            Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
         );
         assert_eq!(report.scope.session_date.as_deref(), Some("2026-07-09"));
         assert_eq!(report.scope.instrument_symbol, "IMOEXF");
@@ -2006,6 +2091,159 @@ mod tests {
                 .reconnect_recovery
                 .first_fresh_live_final_after_replay_observed
         );
+        assert_eq!(report.status, Stage3MarketDataParityStatus::Synchronized);
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            1
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .candidate_bars_rejected_before_strategy_count,
+            0
+        );
+    }
+
+    #[test]
+    fn stage3d_recovery_failed_blocks_synchronized_report() {
+        let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        input.reconnect_recovery = Stage3ReconnectRecoverySummary {
+            recovery_required: true,
+            recovery_status: Stage3ReconnectRecoveryStatus::AttemptedAndFailed,
+            disconnect_observed: true,
+            warm_replay_attempted: true,
+            cold_replay_attempted: false,
+            replay_gap_absence_proven: false,
+            first_fresh_live_final_after_replay_observed: false,
+            entry_blocked_while_gap_unproven: true,
+        };
+
+        let report = collect_stage3d_controlled_active_session_evidence(input)
+            .expect("stage3d evidence report");
+
+        assert_eq!(
+            report.status,
+            Stage3MarketDataParityStatus::RecoveryIncomplete
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            0
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .candidate_bars_rejected_before_strategy_count,
+            1
+        );
+    }
+
+    #[test]
+    fn stage3d_recovery_not_attempted_blocks_publication() {
+        let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        input.reconnect_recovery = Stage3ReconnectRecoverySummary {
+            recovery_required: true,
+            recovery_status: Stage3ReconnectRecoveryStatus::NotAttempted,
+            disconnect_observed: true,
+            warm_replay_attempted: false,
+            cold_replay_attempted: false,
+            replay_gap_absence_proven: false,
+            first_fresh_live_final_after_replay_observed: false,
+            entry_blocked_while_gap_unproven: true,
+        };
+
+        let report = collect_stage3d_controlled_active_session_evidence(input)
+            .expect("stage3d evidence report");
+
+        assert_eq!(
+            report.status,
+            Stage3MarketDataParityStatus::RecoveryIncomplete
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            0
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .candidate_bars_rejected_before_strategy_count,
+            1
+        );
+    }
+
+    #[test]
+    fn stage3d_recovery_required_not_required_status_is_invalid() {
+        let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        input.reconnect_recovery.recovery_required = true;
+        input.reconnect_recovery.recovery_status = Stage3ReconnectRecoveryStatus::NotRequired;
+
+        let err = collect_stage3d_controlled_active_session_evidence(input)
+            .expect_err("inconsistent recovery state rejected");
+
+        assert_eq!(err, Stage3dControlledEvidenceError::InvalidRecoveryStatus);
+    }
+
+    #[test]
+    fn stage3d_recovery_not_required_with_attempted_status_is_invalid() {
+        let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        input.reconnect_recovery.recovery_required = false;
+        input.reconnect_recovery.recovery_status =
+            Stage3ReconnectRecoveryStatus::AttemptedAndComplete;
+
+        let err = collect_stage3d_controlled_active_session_evidence(input)
+            .expect_err("inconsistent recovery state rejected");
+
+        assert_eq!(err, Stage3dControlledEvidenceError::InvalidRecoveryStatus);
+    }
+
+    #[test]
+    fn stage3d_unknown_schedule_blocks_synchronized_report() {
+        let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        input.session_filtering.schedule_known = false;
+        input.session_filtering.session_state = "Unknown".to_string();
+        input.session_filtering.unknown_schedule_blocks = true;
+
+        let report = collect_stage3d_controlled_active_session_evidence(input)
+            .expect("stage3d evidence report");
+
+        assert_eq!(
+            report.status,
+            Stage3MarketDataParityStatus::SessionScheduleUnknown
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            0
+        );
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .candidate_bars_rejected_before_strategy_count,
+            1
+        );
+    }
+
+    #[test]
+    fn stage3d_known_open_session_allows_synchronized_publication() {
+        let input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+
+        let report = collect_stage3d_controlled_active_session_evidence(input)
+            .expect("stage3d evidence report");
+
+        assert_eq!(report.status, Stage3MarketDataParityStatus::Synchronized);
+        assert_eq!(
+            report
+                .strategy_input_publication
+                .finam_derived_m10_published_as_model_bar_count,
+            1
+        );
+        assert_eq!(report.session_filtering.session_state.as_str(), "Open");
     }
 
     #[test]
@@ -2017,6 +2255,88 @@ mod tests {
             .expect_err("missing source commit rejected");
 
         assert_eq!(err, Stage3dControlledEvidenceError::MissingSourceCommit);
+    }
+
+    #[test]
+    fn stage3d_invalid_archive_sha256_rejected() {
+        let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        input.source_archive_sha256 = "not-a-sha256".to_string();
+
+        let err = collect_stage3d_controlled_active_session_evidence(input)
+            .expect_err("invalid archive sha rejected");
+
+        assert_eq!(
+            err,
+            Stage3dControlledEvidenceError::InvalidSourceArchiveSha256
+        );
+    }
+
+    #[test]
+    fn stage3d_invalid_session_date_rejected() {
+        let mut input = stage3d_input(vec![alor_oracle()], synchronized_finam_m1());
+        input.session_date = "09-07-2026".to_string();
+
+        let err = collect_stage3d_controlled_active_session_evidence(input)
+            .expect_err("invalid session date rejected");
+
+        assert_eq!(err, Stage3dControlledEvidenceError::InvalidSessionDate);
+    }
+
+    #[test]
+    fn stage3d_non_final_alor_oracle_bar_rejected() {
+        let mut alor = alor_oracle();
+        alor.is_final = false;
+        let input = stage3d_input(vec![alor], synchronized_finam_m1());
+
+        let err = collect_stage3d_controlled_active_session_evidence(input)
+            .expect_err("non-final alor oracle rejected");
+
+        assert_eq!(err, Stage3dControlledEvidenceError::AlorOracleNonFinal);
+    }
+
+    #[test]
+    fn stage3d_non_m10_alor_oracle_bar_rejected() {
+        let mut alor = alor_oracle();
+        alor.timeframe_sec = 300;
+        let input = stage3d_input(vec![alor], synchronized_finam_m1());
+
+        let err = collect_stage3d_controlled_active_session_evidence(input)
+            .expect_err("non-M10 alor oracle rejected");
+
+        assert_eq!(
+            err,
+            Stage3dControlledEvidenceError::AlorOracleNonM10 { actual_sec: 300 }
+        );
+    }
+
+    #[test]
+    fn stage3d_wrong_duration_alor_oracle_bar_rejected() {
+        let mut alor = alor_oracle();
+        alor.close_ts = alor.open_ts + Duration::seconds(599);
+        let input = stage3d_input(vec![alor], synchronized_finam_m1());
+
+        let err = collect_stage3d_controlled_active_session_evidence(input)
+            .expect_err("wrong-duration alor oracle rejected");
+
+        assert_eq!(
+            err,
+            Stage3dControlledEvidenceError::AlorOracleWrongDuration { actual_sec: 599 }
+        );
+    }
+
+    #[test]
+    fn stage3d_wrong_instrument_alor_oracle_bar_rejected() {
+        let mut alor = alor_oracle();
+        alor.instrument.symbol = "OTHER_SYNTH_FUT".to_string();
+        let input = stage3d_input(vec![alor], synchronized_finam_m1());
+
+        let err = collect_stage3d_controlled_active_session_evidence(input)
+            .expect_err("wrong-instrument alor oracle rejected");
+
+        assert_eq!(
+            err,
+            Stage3dControlledEvidenceError::AlorOracleWrongInstrument
+        );
     }
 
     #[test]

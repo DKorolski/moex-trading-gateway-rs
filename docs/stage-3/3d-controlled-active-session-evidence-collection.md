@@ -1,6 +1,7 @@
 # Stage 3D — controlled active-session evidence collection
 
-Status: implemented for review.
+Status: Stage 3D accepted as offline collector foundation; Stage 3D-1
+recovery/session/input-gate hardening implemented for review.
 
 Date: 2026-07-09.
 
@@ -63,7 +64,9 @@ Stage 3D requires:
 - `session_date`;
 - target instrument.
 
-Missing source/session metadata is rejected before a report is produced.
+Missing source/session metadata is rejected before a report is produced. Stage
+3D-1 also requires `source_archive_sha256` to be a 64-character hex string and
+`session_date` to use `YYYY-MM-DD`.
 
 ## FINAM M1 derivation
 
@@ -87,6 +90,29 @@ summary:
 
 Session filtering is also caller-supplied and must honestly represent the
 controlled evidence window.
+
+Stage 3D-1 applies these fields to the report gate:
+
+- `recovery_required=false` requires `recovery_status=NotRequired`;
+- `recovery_required=true` requires `recovery_status` to be one of
+  `NotAttempted`, `AttemptedAndComplete`, or `AttemptedAndFailed`;
+- `NotAttempted` and `AttemptedAndFailed` force `RecoveryIncomplete`;
+- incomplete recovery suppresses FINAM derived M10 publication and moves any
+  previously published candidate count into rejected-before-strategy count;
+- `schedule_known=false` with `unknown_schedule_blocks=true` forces
+  `SessionScheduleUnknown` and suppresses strategy/model-bar publication.
+
+## ALOR oracle input gate
+
+Stage 3D-1 validates ALOR oracle bars before the report is generated:
+
+- final only;
+- timeframe must be 600 seconds;
+- `close_ts - open_ts` must be 600 seconds;
+- instrument must match the controlled target instrument.
+
+Invalid ALOR oracle shape is rejected at the controlled evidence boundary, so a
+bad oracle cannot be hidden by a missing FINAM candidate stream.
 
 ## Redaction policy
 
@@ -117,6 +143,11 @@ Stage 3D tests cover:
   path shape;
 - incomplete FINAM M1 buckets are rejected before strategy publication;
 - recovery status is passed through explicitly;
+- failed or not-attempted recovery blocks synchronized publication;
+- inconsistent recovery flags are rejected;
+- unknown schedule blocks synchronized publication;
+- invalid ALOR oracle finality/timeframe/duration/instrument is rejected;
+- invalid archive SHA256 and invalid session date are rejected;
 - missing source metadata is rejected;
 - safety boundary remains closed.
 
