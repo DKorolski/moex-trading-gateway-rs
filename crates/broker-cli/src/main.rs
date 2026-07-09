@@ -6,21 +6,22 @@ use broker_core::event::{Bar, Quote};
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::CancelPreflightApproval;
 use broker_core::{
-    BrokerAccountId, BrokerCapabilityMatrix, BrokerCommand, BrokerFreshnessConfig,
-    BrokerLifecycleConfig, BrokerLiveEntryScope, BrokerMarketDataLifecycleInput,
-    BrokerMarketDataLifecycleSnapshot, BrokerMarketSessionState, BrokerOperationalConfig,
-    BrokerOrderId, BrokerPlainMicroStopOrderWaiverPolicy, BrokerReadiness, BrokerRiskLimitConfig,
-    BrokerScopeConfig, BrokerTimeoutConfig, BrokerTruthSnapshot, ClientOrderId, ClosedBarFinalizer,
-    ClosedBarFinalizerActionKind, Envelope, Exchange, InMemoryOrderPathStore, InstrumentId, Market,
-    MarketDataEvent, MarketDataLifecyclePhase, MarketDataRecoveryInput, MarketDataRecoveryMode,
-    MarketDataRecoveryPlan, MarketDataRecoveryPlanInput, MarketDataRecoveryReport,
-    MarketDataSourceKind, MessageType, OperatorArm, Order, OrderPathEvent, OrderPathRecord,
-    OrderPreflightPolicy, OrderSide, OrderStatus, OrderType, PaperExecutionMode,
-    PaperHybridIntradayOracleSeed, PaperHybridStrategyShadowConfig, PaperRuntimeAdapter,
-    PaperRuntimeAdapterConfig, PaperRuntimeAdapterLoop, PaperRuntimeAdapterLoopOutcome,
-    PaperRuntimeBarPublisher, PaperRuntimeBarPublisherConfig, PaperRuntimeInMemorySink,
-    PaperRuntimeStreams, PaperSafetyBoundary, PlaceOrder, PortfolioSnapshot, ReadinessPhase,
-    ReadinessReason, StrategyRequestId, TimeInForce,
+    run_stage3d3_controlled_operator_input_adapter, BrokerAccountId, BrokerCapabilityMatrix,
+    BrokerCommand, BrokerFreshnessConfig, BrokerLifecycleConfig, BrokerLiveEntryScope,
+    BrokerMarketDataLifecycleInput, BrokerMarketDataLifecycleSnapshot, BrokerMarketSessionState,
+    BrokerOperationalConfig, BrokerOrderId, BrokerPlainMicroStopOrderWaiverPolicy, BrokerReadiness,
+    BrokerRiskLimitConfig, BrokerScopeConfig, BrokerTimeoutConfig, BrokerTruthSnapshot,
+    ClientOrderId, ClosedBarFinalizer, ClosedBarFinalizerActionKind, Envelope, Exchange,
+    InMemoryOrderPathStore, InstrumentId, Market, MarketDataEvent, MarketDataLifecyclePhase,
+    MarketDataRecoveryInput, MarketDataRecoveryMode, MarketDataRecoveryPlan,
+    MarketDataRecoveryPlanInput, MarketDataRecoveryReport, MarketDataSourceKind, MessageType,
+    OperatorArm, Order, OrderPathEvent, OrderPathRecord, OrderPreflightPolicy, OrderSide,
+    OrderStatus, OrderType, PaperExecutionMode, PaperHybridIntradayOracleSeed,
+    PaperHybridStrategyShadowConfig, PaperRuntimeAdapter, PaperRuntimeAdapterConfig,
+    PaperRuntimeAdapterLoop, PaperRuntimeAdapterLoopOutcome, PaperRuntimeBarPublisher,
+    PaperRuntimeBarPublisherConfig, PaperRuntimeInMemorySink, PaperRuntimeStreams,
+    PaperSafetyBoundary, PlaceOrder, PortfolioSnapshot, ReadinessPhase, ReadinessReason,
+    Stage3d3OperatorRunAdapterConfig, StrategyRequestId, TimeInForce,
 };
 #[cfg(feature = "m3j16-actual-one-shot")]
 use broker_core::{OrderPreflightContext, OrderReferencePrice};
@@ -663,6 +664,13 @@ enum Command {
         /// Prefix for unique synthetic stream names.
         #[arg(long, default_value = "broker.m3e.command_consumer_smoke")]
         prefix: String,
+    },
+    /// Stage 3D-3: build redacted ALOR-vs-FINAM M10 evidence from approved offline sources.
+    #[command(name = "stage3d3-controlled-evidence")]
+    Stage3d3ControlledEvidence {
+        /// JSON config with approved source paths and output paths. Offline/read-only only.
+        #[arg(long)]
+        config: PathBuf,
     },
 }
 
@@ -1509,6 +1517,12 @@ async fn main() -> Result<()> {
         }
         Command::M3eCommandConsumerRedisSmoke { redis_url, prefix } => {
             run_m3e_command_consumer_redis_smoke(redis_url, prefix).await?;
+        }
+        Command::Stage3d3ControlledEvidence { config } => {
+            let config = read_stage3d3_operator_run_config(&config)?;
+            let summary = run_stage3d3_controlled_operator_input_adapter(config)
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+            print_json(json_value(summary))?;
         }
     }
     Ok(())
@@ -9378,6 +9392,17 @@ fn read_finam_paper_runtime_file_config(path: &Path) -> Result<FinamPaperRuntime
     })
 }
 
+fn read_stage3d3_operator_run_config(path: &Path) -> Result<Stage3d3OperatorRunAdapterConfig> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read Stage 3D-3 config {}", path.display()))?;
+    serde_json::from_str(&content).with_context(|| {
+        format!(
+            "failed to parse Stage 3D-3 config JSON from {}",
+            path.display()
+        )
+    })
+}
+
 fn resolve_finam_paper_runtime_consume_config(
     args: FinamPaperRuntimeConsumeArgs,
     file_config: FinamPaperRuntimeFileConfig,
@@ -10601,6 +10626,24 @@ mod tests {
     fn timeframe_seconds_rejects_unknown_timeframe() {
         assert_eq!(timeframe_seconds("TIME_FRAME_M1").expect("m1"), 60);
         assert!(timeframe_seconds("TIME_FRAME_UNKNOWN").is_err());
+    }
+
+    #[test]
+    fn stage3d3_controlled_evidence_cli_accepts_config_path() {
+        let cli = Cli::try_parse_from([
+            "broker-cli",
+            "stage3d3-controlled-evidence",
+            "--config",
+            "tmp/stage3d3/operator-run.json",
+        ])
+        .expect("stage3d3 CLI parses");
+
+        match cli.command {
+            Command::Stage3d3ControlledEvidence { config } => {
+                assert_eq!(config, PathBuf::from("tmp/stage3d3/operator-run.json"));
+            }
+            _ => panic!("unexpected command"),
+        }
     }
 
     #[test]

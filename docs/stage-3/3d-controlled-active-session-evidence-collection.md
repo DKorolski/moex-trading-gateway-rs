@@ -2,7 +2,8 @@
 
 Status: Stage 3D accepted as offline collector foundation; Stage 3D-1 accepted
 as recovery/session/input-gate hardening foundation; Stage 3D-2
-recovery/session consistency hardening implemented for review.
+recovery/session consistency hardening accepted; Stage 3D-3 controlled
+operator-run input adapter implemented for review.
 
 Date: 2026-07-09.
 
@@ -127,6 +128,83 @@ Stage 3D-1 validates ALOR oracle bars before the report is generated:
 Invalid ALOR oracle shape is rejected at the controlled evidence boundary, so a
 bad oracle cannot be hidden by a missing FINAM candidate stream.
 
+## Stage 3D-3 operator-run input adapter
+
+Stage 3D-3 adds an offline adapter for operator-approved evidence files. It is
+not a live collector. The adapter reads two already redacted/source-approved
+JSON inputs:
+
+- ALOR native M10 oracle source:
+  `source_kind = "AlorNativeM10Oracle"`;
+- FINAM final M1 source:
+  `source_kind = "FinamFinalM1"`.
+
+Each approved input source must contain:
+
+- `schema_version = 2`;
+- `source_label`;
+- `session_date`;
+- `target_instrument`;
+- `raw_payload_exported = false`;
+- canonical `Bar` records only.
+
+The adapter validates source kind, session date, target instrument, non-empty
+bar lists, FINAM M1 finality, FINAM M1 duration, and the existing ALOR M10
+oracle rules. It then invokes
+`collect_stage3d_controlled_active_session_evidence(...)`, writes the redacted
+Stage 3D report, and writes a small operator summary containing counts/statuses
+only.
+
+CLI entry point:
+
+```text
+broker-cli stage3d3-controlled-evidence --config <config.json>
+```
+
+The config points to approved source files and output paths, for example:
+
+```json
+{
+  "generated_at": "2026-07-09T09:00:00Z",
+  "source_commit": "<full-source-commit-sha>",
+  "source_archive_name": "moex-trading-project-<sha>.zip",
+  "source_archive_sha256": "<64-hex-sha256>",
+  "session_date": "2026-07-09",
+  "target_instrument": {
+    "symbol": "IMOEXF",
+    "venue_symbol": "IMOEXF@RTSX",
+    "exchange": "Moex",
+    "market": "Futures"
+  },
+  "alor_source_path": "tmp/stage3d3/alor-approved-m10.json",
+  "finam_source_path": "tmp/stage3d3/finam-approved-m1.json",
+  "report_output_path": "reports/parity/finam-vs-alor-m10/2026-07-09.json",
+  "operator_summary_output_path": "reports/parity/finam-vs-alor-m10/2026-07-09.operator-summary.json",
+  "reconnect_recovery": {
+    "recovery_required": false,
+    "recovery_status": "NotRequired",
+    "disconnect_observed": false,
+    "warm_replay_attempted": false,
+    "cold_replay_attempted": false,
+    "replay_gap_absence_proven": false,
+    "first_fresh_live_final_after_replay_observed": false,
+    "entry_blocked_while_gap_unproven": true
+  },
+  "session_filtering": {
+    "schedule_source": "operator_approved_session_scope",
+    "schedule_known": true,
+    "session_state": "Open",
+    "weekend_filtered": true,
+    "clearing_break_filtered": true,
+    "unknown_schedule_blocks": false
+  }
+}
+```
+
+Generated reports remain local evidence artifacts. Clean handoff archives must
+not include `reports/`, raw source payload dumps, secrets, accounts, or
+unbounded market-data logs.
+
 ## Redaction policy
 
 The serialized Stage 3D report keeps:
@@ -165,6 +243,12 @@ Stage 3D tests cover:
   rejected;
 - missing source metadata is rejected;
 - safety boundary remains closed.
+- Stage 3D-3 approved source adapter accepts valid redacted source inputs and
+  writes a report plus counts-only operator summary;
+- Stage 3D-3 rejects missing source files, invalid source JSON, source-kind
+  mismatches, raw-payload-export flags, empty source inputs, invalid FINAM M1
+  shape, and session mismatches;
+- Stage 3D-3 operator summary does not export raw bars.
 
 ## Still forbidden
 
@@ -182,6 +266,6 @@ Stage 3D does not authorize:
 
 ## Next expected patch
 
-After Stage 3D review, the next patch should add a controlled operator-run
-adapter for collecting redacted active-session inputs from approved sources.
-That future patch must still keep runtime-live and all order paths disabled.
+After Stage 3D-3 review, the next patch should move to Stage 3E
+reconnect/gap-recovery evidence for strategy-input bars. It must still keep
+runtime-live and all order paths disabled.

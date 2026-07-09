@@ -112,11 +112,16 @@ Stage split:
   blocks failed or missing recovery, unknown schedule state, invalid ALOR oracle
   shape, invalid source archive hashes, and invalid session dates before the
   report can be treated as synchronized strategy-input evidence.
-- Stage 3D-2 is implemented for review: recovery/session consistency hardening
-  rejects `AttemptedAndComplete` unless replay was attempted, gap absence was
-  proven, the first fresh live final bar was observed, and entry stayed blocked
-  while the gap was unproven; unknown schedules must remain blocking.
-- Next active patch after Stage 3D-2 acceptance is Stage 3E: reconnect/gap
+- Stage 3D-2 is accepted: recovery/session consistency hardening rejects
+  `AttemptedAndComplete` unless replay was attempted, gap absence was proven,
+  the first fresh live final bar was observed, and entry stayed blocked while
+  the gap was unproven; unknown schedules must remain blocking.
+- Stage 3D-3 is implemented for review: controlled operator-run input adapter
+  reads approved/redacted ALOR native M10 and FINAM final M1 source files,
+  validates source kind/session/instrument/finality, invokes the Stage 3D
+  collector, and writes a redacted parity report plus counts-only operator
+  summary.
+- Next active patch after Stage 3D-3 acceptance is Stage 3E: reconnect/gap
   recovery evidence for strategy-input bars.
 
 Green / mostly closed:
@@ -149,8 +154,9 @@ Amber:
 - Stage 3B accepted the source-only comparator foundation. Stage 3C adds
   multi-bucket report generation and duplicate bucket hardening, but
   live active-session source adapters are still pending.
-- Stage 3D/3D-1 adds offline controlled evidence collection and hardening from
-  supplied inputs; it does not read live streams or attach runtime-live.
+- Stage 3D/3D-1/3D-2/3D-3 adds offline controlled evidence collection and
+  hardening from supplied approved inputs; it does not read live streams or
+  attach runtime-live.
 
 Red / not yet implemented:
 
