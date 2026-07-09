@@ -10,7 +10,8 @@ Stage 3D-3a approved input schema/session-window hardening accepted; Stage 3E
 reconnect/gap recovery evidence accepted as foundation; Stage 3E-1 recovery
 report consistency hardening accepted as foundation; Stage 3E-2 replay-window
 evidence completeness hardening accepted; Stage 3E-3 final replay
-watermark/mode consistency hardening implemented for review.
+watermark/mode consistency hardening accepted and Stage 3E closed; Stage 3F
+acceptance report implemented for review.
 
 Date: 2026-07-09.
 
@@ -190,18 +191,25 @@ data dumps must not be exported.
 
 ## Stage 3 acceptance
 
-Stage 3 cannot be accepted until a reviewed active-session evidence package
-proves:
+Stage 3 can be accepted only after a reviewed Stage 3F acceptance package
+confirms the strategy-input market-data contract:
 
-- at least one matched ALOR native M10 and FINAM derived M10 bucket;
-- zero blocking OHLCV/timestamp/finality/timeframe/instrument diffs;
-- raw M1 bars did not become strategy/model bars;
-- duplicate source bars did not create duplicate model bars;
-- reconnect recovery replayed or explicitly proved no gap before fresh live
-  strategy bars resumed;
-- stale backlog did not advance strategy input;
-- weekend/session filtering matched the ALOR strategy-input contract;
+- ALOR native M10 remains the oracle;
+- FINAM final M1 -> strict M1-to-M10 is the only accepted FINAM candidate path;
+- FINAM native M10 remains blocked until separately characterized;
+- raw M1 bars cannot become strategy/model bars;
+- duplicate/conflicting buckets cannot silently overwrite evidence;
+- approved source evidence is schema-bound and `session_window_utc`-bound;
+- reconnect recovery replays or explicitly proves no gap before fresh live
+  strategy bars can resume;
+- stale backlog cannot advance strategy input;
+- weekend/session filtering and unknown schedule handling remain blocking where
+  required;
 - evidence is redacted and source-bound.
+
+Additional full-session operator parity evidence may still be required before
+runtime-live/cutover decisions. Stage 3 acceptance by itself does not authorize
+runtime-live or real order routing.
 
 ## Still forbidden
 
@@ -239,5 +247,8 @@ Recommended next slices after accepted Stage 3A:
    (accepted as foundation).
 10. Stage 3E-2 — replay-window evidence completeness hardening (accepted).
 11. Stage 3E-3 — final replay watermark/mode consistency hardening
-    (implemented for review).
-12. Stage 3F acceptance report or reviewer-directed Stage 3E-3 hardening.
+    (accepted; Stage 3E closed).
+12. Stage 3F — Stage 3 market-data parity acceptance report (implemented for
+    review).
+13. Stage 4 broker-truth bootstrap after Stage 3F reviewer acceptance, or
+    reviewer-directed Stage 3F hardening.

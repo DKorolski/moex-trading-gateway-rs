@@ -141,11 +141,15 @@ Stage split:
   `RecoveryComplete` now requires explicit replay-window evidence fields,
   positive replay bar count, valid replay-window ordering, and first fresh live
   final strictly after replay.
-- Stage 3E-3 is implemented for review: replay window must cover the last final
-  strategy-bar watermark, recovery mode must match warm/cold attempt flags, and
-  `checked_ts` must not precede the first fresh live final.
-- Next active patch after Stage 3E-3 acceptance is Stage 3F acceptance-report
-  preparation or reviewer-directed Stage 3E-3 hardening.
+- Stage 3E-3 is accepted and closes Stage 3E: replay window must cover the last
+  final strategy-bar watermark, recovery mode must match warm/cold attempt
+  flags, and `checked_ts` must not precede the first fresh live final.
+- Stage 3F is implemented for review as the Stage 3 market-data parity
+  acceptance report. After reviewer acceptance, Stage 3 can be marked
+  accepted/closed and Stage 4 broker-truth bootstrap work can start.
+- Next active patch after Stage 3F acceptance is Stage 4 broker-truth bootstrap
+  planning/implementation behind paper boundary, or reviewer-directed Stage 3F
+  hardening.
 
 Green / mostly closed:
 
@@ -164,22 +168,20 @@ Green / mostly closed:
 
 Amber:
 
-- Full-session FINAM-vs-ALOR M10 parity evidence is still required.
+- Full-session operator FINAM-vs-ALOR M10 evidence is still required before
+  runtime-live/cutover decisions; Stage 3F is the contract/evidence acceptance
+  report that allows Stage 4 broker-truth bootstrap work to start after review.
 - Broker-truth snapshots are available, but broker truth is not yet mandatory
   runtime bootstrap input.
 - Paper runtime projection has ALOR-compatible fields, but it is not yet the
   real ALOR hybrid BO/MR orchestrator.
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
-- Stage 3A defines the accepted market-data parity plan/evidence schema, but
-  Stage 3 has not yet accepted full-session FINAM-vs-ALOR strategy-input
-  market-data evidence.
-- Stage 3B accepted the source-only comparator foundation. Stage 3C adds
-  multi-bucket report generation and duplicate bucket hardening, but
-  live active-session source adapters are still pending.
-- Stage 3D/3D-1/3D-2/3D-3/3D-3a/3E/3E-1/3E-2/3E-3 adds offline controlled
-  evidence collection, source binding, and reconnect/gap recovery evidence; it
-  does not read live streams or attach runtime-live.
+- Stage 3F is an acceptance-report package for the accepted Stage 3
+  market-data parity contract. Until reviewer acceptance, Stage 3 remains
+  pending final closure.
+- Stage 3 remains market-data/evidence only; it does not read live streams from
+  runtime-live, attach runtime-live, or enable real order routing.
 
 Red / not yet implemented:
 
@@ -197,7 +199,8 @@ Red / not yet implemented:
    Current accepted decision: runtime source migration to broker-neutral
    `BrokerOrderId(String)`; surrogate adapter remains forbidden without a new
    ADR.
-3. Full-session FINAM M10 vs ALOR M10 report accepted.
+3. Stage 3F accepted, plus any additional full-session operator parity evidence
+   required by the later runtime-live/cutover review.
 4. Broker truth bootstrap wired into runtime lifecycle.
 5. Real hybrid BO/MR/riskgate semantics attached behind paper boundary.
 6. Request-id/client-order-id/broker-order-id durable chain implemented.

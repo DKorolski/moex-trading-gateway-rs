@@ -3,7 +3,7 @@
 Status: Stage 3E accepted as recovery/gap evidence foundation; Stage 3E-1
 recovery-report consistency hardening accepted as foundation; Stage 3E-2
 replay-window evidence completeness hardening accepted; Stage 3E-3 final replay
-watermark/mode consistency hardening implemented for review.
+watermark/mode consistency hardening accepted. Stage 3E is closed.
 
 Date: 2026-07-09.
 
