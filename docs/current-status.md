@@ -199,7 +199,8 @@ Stage split:
   4E. It carries full adoption evidence into the application/operator decision,
   evaluates position and order adoption separately, requires explicit
   attempted/allowed/applied adoption with exact broker-truth qty/count matches,
-  verifies Stage 4E application evidence belongs to the same validated report,
+  requires Stage 4E application evidence to exactly match the canonical
+  decision for the same validated report,
   treats runtime-owned active target orders as non-adoptable lifecycle truth,
   keeps non-target account-wide dirty state diagnostic by default, and still
   forbids runtime-live, real FINAM command consumption, POST/DELETE, and

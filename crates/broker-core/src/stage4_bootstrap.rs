@@ -780,48 +780,8 @@ fn stage4_runtime_application_matches_validated_report(
     validated: &ValidatedStage4BrokerTruthBootstrap,
     application: &Stage4RuntimeBootstrapApplicationDecision,
 ) -> bool {
-    if application.schema_version != STAGE4_RUNTIME_BOOTSTRAP_APPLICATION_SCHEMA_VERSION {
-        return false;
-    }
-
-    if application.blocker_count != application.blockers.len() {
-        return false;
-    }
-
-    if application
-        .blockers
-        .iter()
-        .any(|blocker| !blocker.blocks_runtime_notification)
-    {
-        return false;
-    }
-
-    if application.source_bootstrap_status != validated.status
-        || application.checked_ts != validated.checked_ts
-        || application.target_position_qty != validated.target_position_qty
-        || application.target_is_flat != validated.target_is_flat
-        || application.target_active_order_count
-            != validated.ownership_summary.target_active_order_count
-        || application.account_active_order_count
-            != validated.ownership_summary.account_active_order_count
-        || application.dirty_start_disposition != validated.dirty_start_disposition
-        || application.adoption != validated.adoption
-        || !application.no_live_authorization
-    {
-        return false;
-    }
-
-    match application.status {
-        Stage4RuntimeBootstrapApplicationStatus::Applied => {
-            application.blockers.is_empty()
-                && application.blocker_count == 0
-                && application.applied_snapshot.as_ref()
-                    == Some(&validated.runtime_bootstrap_snapshot)
-        }
-        Stage4RuntimeBootstrapApplicationStatus::Blocked => {
-            application.applied_snapshot.is_none() && !application.blockers.is_empty()
-        }
-    }
+    let expected = evaluate_stage4_runtime_bootstrap_application(validated);
+    application == &expected
 }
 
 fn stage4_position_adoption_policy_evidence(
@@ -2207,6 +2167,37 @@ mod tests {
 
         let policy = evaluate_stage4_dirty_start_policy(&report, &application);
 
+        assert_eq!(policy.status, Stage4DirtyStartPolicyStatus::Blocked);
+        assert!(!policy.runtime_bootstrap_notification_allowed);
+        assert!(policy.blockers.iter().any(|blocker| {
+            blocker.kind
+                == Stage4DirtyStartPolicyBlockerKind::RuntimeBootstrapApplicationInconsistent
+        }));
+    }
+
+    #[test]
+    fn stage4f_non_ready_validated_report_with_tampered_applied_application_is_blocked() {
+        let truth = base_truth();
+        let mut request = input(&truth);
+        request.freshness.positions = Stage4BrokerTruthFreshnessProbe::fresh(
+            checked_ts() - chrono::Duration::seconds(120),
+            60_000,
+            true,
+        );
+        let report = validate_stage4_broker_truth_bootstrap(request);
+        let mut application = evaluate_stage4_runtime_bootstrap_application(&report);
+
+        application.status = Stage4RuntimeBootstrapApplicationStatus::Applied;
+        application.applied_snapshot = Some(report.runtime_bootstrap_snapshot.clone());
+        application.blockers.clear();
+        application.blocker_count = 0;
+
+        let policy = evaluate_stage4_dirty_start_policy(&report, &application);
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::BrokerTruthStale
+        );
         assert_eq!(policy.status, Stage4DirtyStartPolicyStatus::Blocked);
         assert!(!policy.runtime_bootstrap_notification_allowed);
         assert!(policy.blockers.iter().any(|blocker| {

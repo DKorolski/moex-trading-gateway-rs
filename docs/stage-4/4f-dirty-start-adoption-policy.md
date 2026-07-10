@@ -36,10 +36,9 @@ Stage 4F accepts the dirty-start policy only when:
 
 - Stage 4E application status is `Applied`;
 - an applied runtime bootstrap snapshot is present;
-- Stage 4E application evidence belongs to the same validated broker-truth
-  report;
-- Stage 4E application evidence is internally consistent with its applied /
-  blocked status;
+- Stage 4E application evidence exactly matches the canonical
+  `evaluate_stage4_runtime_bootstrap_application(validated)` decision for the
+  same validated broker-truth report;
 - no manual intervention is required;
 - position adoption, if required, is explicit;
 - order adoption, if required, is explicit;
@@ -93,6 +92,8 @@ Stage 4F tests cover:
 - order adoption requires attempted/allowed/applied and matching count;
 - application evidence from a different validated report is blocked;
 - applied application evidence with blockers is blocked;
+- non-ready validated report plus tampered `Applied` application evidence is
+  blocked;
 - runtime-owned active target order does not require order adoption;
 - manual-intervention state blocks runtime notification policy;
 - account-wide non-target active order remains diagnostic by default.
