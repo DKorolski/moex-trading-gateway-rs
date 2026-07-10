@@ -1,6 +1,6 @@
 # Stage 4G — runtime lifecycle ordering evidence
 
-Status: implemented for review.
+Status: accepted.
 
 Date: 2026-07-10.
 
@@ -108,8 +108,6 @@ Stage 4G keeps these disabled:
 
 ## Follow-up
 
-After Stage 4G review acceptance, the next safe slice can move toward
-operator-facing runtime lifecycle runbook/evidence packaging or a further
-paper/mock runtime-host bootstrap integration gate. Live runtime attachment and
-real command consumption remain explicitly out of scope until later accepted
-gates.
+Stage 4H continues with paper/mock runtime-host bootstrap integration tests.
+Live runtime attachment and real command consumption remain explicitly out of
+scope until later accepted gates.

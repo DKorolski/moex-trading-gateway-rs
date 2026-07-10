@@ -27,7 +27,9 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   accepted.
 - Stage 4F dirty-start / explicit adoption / manual-intervention policy is
   accepted.
-- Stage 4G runtime lifecycle ordering evidence is implemented for review.
+- Stage 4G runtime lifecycle ordering evidence is accepted.
+- Stage 4H paper/mock runtime-host bootstrap integration tests are implemented
+  for review.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
@@ -206,11 +208,16 @@ Stage split:
   keeps non-target account-wide dirty state diagnostic by default, and still
   forbids runtime-live, real FINAM command consumption, POST/DELETE, and
   Stop/SLTP/bracket.
-- Stage 4G is implemented for review as runtime lifecycle ordering evidence
-  after accepted Stage 4E/4F. It requires canonical application/policy evidence,
-  validates ALOR-compatible lifecycle order, suppresses final bootstrap
-  notification on any lifecycle blocker, and still forbids runtime-live, real
-  FINAM command consumption, POST/DELETE, and Stop/SLTP/bracket.
+- Stage 4G is accepted as runtime lifecycle ordering evidence after accepted
+  Stage 4E/4F. It requires canonical application/policy evidence, validates
+  ALOR-compatible lifecycle order, suppresses final bootstrap notification on
+  any lifecycle blocker, and still forbids runtime-live, real FINAM command
+  consumption, POST/DELETE, and Stop/SLTP/bracket.
+- Stage 4H is implemented for review as paper/mock runtime-host bootstrap
+  integration tests. It emits a deterministic mock runtime event trace only
+  after accepted Stage 4G and emits no bootstrap/restore/warmup/pending events
+  for stale broker truth, unknown schedule, manual intervention, noncanonical
+  policy, invalid lifecycle order, or live authorization attempts.
 
 Green / mostly closed:
 

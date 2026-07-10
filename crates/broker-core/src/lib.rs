@@ -188,8 +188,9 @@ pub use runtime_state::{
 };
 pub use stage4_bootstrap::{
     evaluate_stage4_dirty_start_policy, evaluate_stage4_runtime_bootstrap_application,
-    evaluate_stage4_runtime_lifecycle_ordering, validate_stage4_broker_truth_bootstrap,
-    Stage4AdoptionDisposition, Stage4BrokerTruthBootstrapInput, Stage4BrokerTruthBootstrapStatus,
+    evaluate_stage4_runtime_bootstrap_integration, evaluate_stage4_runtime_lifecycle_ordering,
+    validate_stage4_broker_truth_bootstrap, Stage4AdoptionDisposition,
+    Stage4BrokerTruthBootstrapInput, Stage4BrokerTruthBootstrapStatus,
     Stage4BrokerTruthExternalIssue, Stage4BrokerTruthExternalIssueKind, Stage4BrokerTruthFreshness,
     Stage4BrokerTruthFreshnessInput, Stage4BrokerTruthFreshnessProbe,
     Stage4BrokerTruthFreshnessSection, Stage4BrokerTruthFreshnessSectionEvidence,
@@ -202,10 +203,14 @@ pub use stage4_bootstrap::{
     Stage4OrderAdoptionPolicyEvidence, Stage4PositionAdoptionPolicyEvidence,
     Stage4RuntimeBootstrapApplicationBlocker, Stage4RuntimeBootstrapApplicationBlockerKind,
     Stage4RuntimeBootstrapApplicationDecision, Stage4RuntimeBootstrapApplicationStatus,
-    Stage4RuntimeLifecycleOrderingBlocker, Stage4RuntimeLifecycleOrderingBlockerKind,
-    Stage4RuntimeLifecycleOrderingDecision, Stage4RuntimeLifecycleOrderingStatus,
-    ValidatedStage4BrokerTruthBootstrap, STAGE4_BROKER_TRUTH_BOOTSTRAP_SCHEMA_VERSION,
-    STAGE4_DIRTY_START_POLICY_SCHEMA_VERSION, STAGE4_RUNTIME_BOOTSTRAP_APPLICATION_SCHEMA_VERSION,
+    Stage4RuntimeBootstrapIntegrationBlocker, Stage4RuntimeBootstrapIntegrationBlockerKind,
+    Stage4RuntimeBootstrapIntegrationDecision, Stage4RuntimeBootstrapIntegrationEvent,
+    Stage4RuntimeBootstrapIntegrationStatus, Stage4RuntimeLifecycleOrderingBlocker,
+    Stage4RuntimeLifecycleOrderingBlockerKind, Stage4RuntimeLifecycleOrderingDecision,
+    Stage4RuntimeLifecycleOrderingStatus, ValidatedStage4BrokerTruthBootstrap,
+    STAGE4_BROKER_TRUTH_BOOTSTRAP_SCHEMA_VERSION, STAGE4_DIRTY_START_POLICY_SCHEMA_VERSION,
+    STAGE4_RUNTIME_BOOTSTRAP_APPLICATION_SCHEMA_VERSION,
+    STAGE4_RUNTIME_BOOTSTRAP_INTEGRATION_SCHEMA_VERSION,
     STAGE4_RUNTIME_LIFECYCLE_ORDERING_SCHEMA_VERSION,
 };
 pub use subscription::{SubscriptionIntent, SubscriptionKind, SubscriptionState};
