@@ -685,6 +685,7 @@ pub enum Stage4RuntimeBootstrapIntegrationEvent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Stage4RuntimeBootstrapIntegrationBlockerKind {
+    RuntimeLifecycleOrderingInconsistent,
     LifecycleOrderingNotAccepted,
     RuntimeBootstrapNotificationNotAllowed,
     RuntimeStateRestoredBeforeBootstrapNotification,
@@ -1041,6 +1042,12 @@ pub fn evaluate_stage4_runtime_bootstrap_integration(
 ) -> Stage4RuntimeBootstrapIntegrationDecision {
     let mut blockers = Vec::new();
 
+    if !stage4_runtime_lifecycle_ordering_is_internally_consistent(lifecycle) {
+        blockers.push(stage4_runtime_bootstrap_integration_blocker(
+            Stage4RuntimeBootstrapIntegrationBlockerKind::RuntimeLifecycleOrderingInconsistent,
+            lifecycle.status,
+        ));
+    }
     if lifecycle.status != Stage4RuntimeLifecycleOrderingStatus::Accepted {
         blockers.push(stage4_runtime_bootstrap_integration_blocker(
             Stage4RuntimeBootstrapIntegrationBlockerKind::LifecycleOrderingNotAccepted,
@@ -1118,6 +1125,47 @@ pub fn evaluate_stage4_runtime_bootstrap_integration(
         mock_runtime_events,
         blockers,
         blocker_count,
+    }
+}
+
+fn stage4_runtime_lifecycle_ordering_is_internally_consistent(
+    lifecycle: &Stage4RuntimeLifecycleOrderingDecision,
+) -> bool {
+    if lifecycle.schema_version != STAGE4_RUNTIME_LIFECYCLE_ORDERING_SCHEMA_VERSION {
+        return false;
+    }
+    if lifecycle.blocker_count != lifecycle.blockers.len() {
+        return false;
+    }
+    if lifecycle.lifecycle_issues != validate_runtime_lifecycle_sequence(&lifecycle.lifecycle_plan)
+    {
+        return false;
+    }
+
+    match lifecycle.status {
+        Stage4RuntimeLifecycleOrderingStatus::Accepted => {
+            lifecycle.blockers.is_empty()
+                && lifecycle.blocker_count == 0
+                && lifecycle.lifecycle_issues.is_empty()
+                && lifecycle.source_bootstrap_status
+                    == Stage4BrokerTruthBootstrapStatus::BootstrapReady
+                && lifecycle.source_application_status
+                    == Stage4RuntimeBootstrapApplicationStatus::Applied
+                && lifecycle.source_dirty_start_policy_status
+                    == Stage4DirtyStartPolicyStatus::Accepted
+                && lifecycle.broker_truth_load_precedes_runtime_state_trust
+                && lifecycle.application_and_policy_accepted_before_bootstrap_notification
+                && lifecycle.notify_bootstrap_after_application_evidence
+                && lifecycle.notify_runtime_state_restored_after_bootstrap_notification
+                && lifecycle.runtime_state_restore_cannot_overwrite_broker_truth
+                && lifecycle.warmup_after_bootstrap_notification
+                && lifecycle.pending_recovery_after_warmup
+                && lifecycle.no_live_authorization
+                && lifecycle.runtime_bootstrap_notification_allowed
+        }
+        Stage4RuntimeLifecycleOrderingStatus::Blocked => {
+            !lifecycle.runtime_bootstrap_notification_allowed && !lifecycle.blockers.is_empty()
+        }
     }
 }
 
@@ -3077,6 +3125,52 @@ mod tests {
         assert!(decision.warmup_history_started);
         assert!(decision.pending_stream_recovery_started);
         assert!(decision.no_live_authorization);
+    }
+
+    #[test]
+    fn stage4h_accepted_lifecycle_with_blockers_is_inconsistent_and_emits_no_events() {
+        let mut lifecycle = ready_stage4h_lifecycle();
+        assert_eq!(
+            lifecycle.status,
+            Stage4RuntimeLifecycleOrderingStatus::Accepted
+        );
+
+        lifecycle
+            .blockers
+            .push(Stage4RuntimeLifecycleOrderingBlocker {
+                kind: Stage4RuntimeLifecycleOrderingBlockerKind::LiveAuthorizationAttempted,
+                source_bootstrap_status: Stage4BrokerTruthBootstrapStatus::BootstrapReady,
+                blocks_runtime_lifecycle: true,
+            });
+        lifecycle.blocker_count = 1;
+
+        let decision = evaluate_stage4_runtime_bootstrap_integration(&lifecycle);
+
+        assert_stage4h_blocked_without_events(&decision);
+        assert!(has_stage4h_blocker(
+            &decision,
+            Stage4RuntimeBootstrapIntegrationBlockerKind::RuntimeLifecycleOrderingInconsistent
+        ));
+    }
+
+    #[test]
+    fn stage4h_accepted_lifecycle_with_non_ready_source_status_is_inconsistent_and_emits_no_events()
+    {
+        let mut lifecycle = ready_stage4h_lifecycle();
+        assert_eq!(
+            lifecycle.status,
+            Stage4RuntimeLifecycleOrderingStatus::Accepted
+        );
+
+        lifecycle.source_bootstrap_status = Stage4BrokerTruthBootstrapStatus::BrokerTruthStale;
+
+        let decision = evaluate_stage4_runtime_bootstrap_integration(&lifecycle);
+
+        assert_stage4h_blocked_without_events(&decision);
+        assert!(has_stage4h_blocker(
+            &decision,
+            Stage4RuntimeBootstrapIntegrationBlockerKind::RuntimeLifecycleOrderingInconsistent
+        ));
     }
 
     #[test]

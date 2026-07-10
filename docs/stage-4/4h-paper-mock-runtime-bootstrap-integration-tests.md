@@ -20,6 +20,20 @@ Stage 4H adds `evaluate_stage4_runtime_bootstrap_integration(...)`.
 
 The integration decision accepts only when the source Stage 4G decision is
 accepted and its final `runtime_bootstrap_notification_allowed` flag is true.
+Because the source Stage 4G decision is a public serializable DTO, Stage 4H also
+defensively checks its internal consistency before emitting any mock runtime
+event.
+
+Stage 4H rejects a Stage 4G lifecycle decision when:
+
+- its schema version is not the expected Stage 4G schema;
+- `blocker_count` does not match the blocker vector length;
+- stored lifecycle issues do not match `validate_runtime_lifecycle_sequence`;
+- an `Accepted` lifecycle contains blockers, lifecycle issues, non-ready source
+  statuses, false ordering booleans, missing notification permission, or live
+  authorization;
+- a `Blocked` lifecycle still has final runtime bootstrap notification allowed;
+- a `Blocked` lifecycle has no blockers.
 
 When accepted, the mock runtime event trace is exactly:
 
@@ -56,6 +70,7 @@ restore, warmup, or pending-recovery event is emitted.
 - Warmup/history starts only after bootstrap notification.
 - Pending stream recovery starts only after warmup.
 - Blocked scenarios emit no mock runtime events.
+- Tampered or internally inconsistent Stage 4G DTOs emit no mock runtime events.
 - Live authorization attempts block the mock runtime notification path.
 
 ## Fixture-backed coverage
@@ -68,7 +83,9 @@ Unit tests cover:
 - manual intervention blocks all mock runtime events;
 - noncanonical dirty-start policy blocks all mock runtime events;
 - invalid lifecycle order blocks all mock runtime events;
-- live authorization attempt blocks all mock runtime events.
+- live authorization attempt blocks all mock runtime events;
+- an accepted lifecycle DTO with injected blockers is rejected;
+- an accepted lifecycle DTO with non-ready source status is rejected.
 
 ## Safety boundary
 

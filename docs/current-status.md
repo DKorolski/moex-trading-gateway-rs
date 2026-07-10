@@ -217,7 +217,8 @@ Stage split:
   integration tests. It emits a deterministic mock runtime event trace only
   after accepted Stage 4G and emits no bootstrap/restore/warmup/pending events
   for stale broker truth, unknown schedule, manual intervention, noncanonical
-  policy, invalid lifecycle order, or live authorization attempts.
+  policy, invalid lifecycle order, live authorization attempts, or internally
+  inconsistent/tampered Stage 4G lifecycle DTOs.
 
 Green / mostly closed:
 
