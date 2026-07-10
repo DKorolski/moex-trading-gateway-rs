@@ -29,7 +29,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   accepted.
 - Stage 4G runtime lifecycle ordering evidence is accepted.
 - Stage 4H paper/mock runtime-host bootstrap integration tests are accepted.
-- Stage 4I redacted operator-facing bootstrap evidence report is implemented
+- Stage 4I redacted operator-facing bootstrap evidence report is accepted.
+- Stage 4J FINAM Stage 4 report assembly bridge is implemented
   for review.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
@@ -220,13 +221,17 @@ Stage split:
   truth, unknown schedule, manual intervention, noncanonical policy, invalid
   lifecycle order, live authorization attempts, or internally
   inconsistent/tampered Stage 4G lifecycle DTOs.
-- Stage 4I is implemented for review as a redacted operator-facing bootstrap
-  evidence report. It summarizes Stage 4C validation, Stage 4D per-section
-  source evidence, Stage 4E application, Stage 4F dirty-start/adoption policy,
-  Stage 4G lifecycle ordering, and Stage 4H mock runtime trace. Blocked reports
-  carry an explicit reason chain and emit no runtime events. Runtime-live, real
-  FINAM command consumption, POST/DELETE, and Stop/SLTP/bracket remain
-  forbidden.
+- Stage 4I is accepted as a redacted operator-facing bootstrap evidence report.
+  It summarizes Stage 4C validation, Stage 4D per-section source evidence,
+  Stage 4E application, Stage 4F dirty-start/adoption policy, Stage 4G
+  lifecycle ordering, and Stage 4H mock runtime trace. Required non-present
+  source evidence blocks the report; blocked reports carry an explicit reason
+  chain and emit no runtime events. Runtime-live, real FINAM command
+  consumption, POST/DELETE, and Stop/SLTP/bracket remain forbidden.
+- Stage 4J is implemented for review as the broker-core/FINAM Stage 4 report
+  assembly bridge. It builds the full Stage 4C→4I report from a FINAM Stage 4D
+  read-only package using the preferred source-evidence path, not the synthetic
+  compatibility builder. It remains report/evidence only.
 
 Green / mostly closed:
 

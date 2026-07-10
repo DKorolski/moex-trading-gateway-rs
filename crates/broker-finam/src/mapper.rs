@@ -24,11 +24,15 @@ use broker_core::order::{
     Order, OrderSide, OrderStatus, OrderType, RedactedValueFingerprint, TimeInForce, Trade,
 };
 use broker_core::{
-    validate_stage4_broker_truth_bootstrap, RuntimeBootstrapSnapshotDto,
-    Stage4BootstrapEvidenceSourceStatusSection, Stage4BrokerTruthBootstrapInput,
-    Stage4BrokerTruthFreshnessInput, Stage4BrokerTruthFreshnessProbe,
-    Stage4BrokerTruthFreshnessSection, Stage4BrokerTruthSafetyBoundary,
-    Stage4BrokerTruthSourceStatus, ValidatedStage4BrokerTruthBootstrap,
+    build_stage4_bootstrap_evidence_report_with_source_evidence,
+    evaluate_stage4_dirty_start_policy, evaluate_stage4_runtime_bootstrap_application,
+    evaluate_stage4_runtime_bootstrap_integration, evaluate_stage4_runtime_lifecycle_ordering,
+    validate_stage4_broker_truth_bootstrap, RuntimeBootstrapSnapshotDto, RuntimeHostLifecyclePlan,
+    Stage4BootstrapEvidenceReport, Stage4BootstrapEvidenceSourceStatusSection,
+    Stage4BrokerTruthBootstrapInput, Stage4BrokerTruthFreshnessInput,
+    Stage4BrokerTruthFreshnessProbe, Stage4BrokerTruthFreshnessSection,
+    Stage4BrokerTruthSafetyBoundary, Stage4BrokerTruthSourceStatus,
+    ValidatedStage4BrokerTruthBootstrap,
 };
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use rust_decimal::Decimal;
@@ -547,6 +551,31 @@ pub fn build_finam_stage4_broker_truth_bootstrap(
         validated_bootstrap,
         no_live_authorization: true,
     })
+}
+
+pub fn build_finam_stage4_bootstrap_evidence_report(
+    package: &FinamStage4BrokerTruthBootstrapPackage,
+) -> Stage4BootstrapEvidenceReport {
+    let application = evaluate_stage4_runtime_bootstrap_application(&package.validated_bootstrap);
+    let dirty_start_policy =
+        evaluate_stage4_dirty_start_policy(&package.validated_bootstrap, &application);
+    let lifecycle = evaluate_stage4_runtime_lifecycle_ordering(
+        &package.validated_bootstrap,
+        &application,
+        &dirty_start_policy,
+        RuntimeHostLifecyclePlan::alor_compatible(),
+    );
+    let integration = evaluate_stage4_runtime_bootstrap_integration(&lifecycle);
+    let source_sections = package.source_evidence.redacted_stage4i_source_sections();
+
+    build_stage4_bootstrap_evidence_report_with_source_evidence(
+        &package.validated_bootstrap,
+        &source_sections,
+        &application,
+        &dirty_start_policy,
+        &lifecycle,
+        &integration,
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1498,9 +1527,10 @@ mod tests {
     use broker_core::{
         instrument_identity_matches, BrokerCanonicalPreflightBlock, BrokerLiveEntryBlock,
         BrokerOrderIntentKind, BrokerPlainMicroStopOrderWaiverPolicy, BrokerScopeConfig,
-        BrokerStopOrderWaiverSource, BrokerTimeoutConfig, Stage4BrokerTruthBootstrapStatus,
+        BrokerStopOrderWaiverSource, BrokerTimeoutConfig, Stage4BootstrapEvidenceReportBlockerKind,
+        Stage4BootstrapEvidenceReportStatus, Stage4BrokerTruthBootstrapStatus,
         Stage4BrokerTruthFreshnessSection, Stage4BrokerTruthFreshnessStatus,
-        Stage4BrokerTruthReadinessBlockerKind,
+        Stage4BrokerTruthReadinessBlockerKind, Stage4RuntimeBootstrapIntegrationEvent,
     };
     use rust_decimal::Decimal;
 
@@ -2700,6 +2730,180 @@ mod tests {
             section.section == Stage4BrokerTruthFreshnessSection::Schedule
                 && section.source_status == Stage4BrokerTruthSourceStatus::Incomplete
                 && section.required_for_bootstrap
+        }));
+    }
+
+    #[test]
+    fn m4_4j_finam_stage4_report_assembly_accepts_clean_readonly_package() {
+        let checked_ts = parse_timestamp("test", "2026-07-04T14:57:18Z").expect("timestamp");
+        let account = m4_2d_account();
+        let orders = m4_4d_empty_orders();
+        let trades = m4_4d_empty_trades();
+        let asset = m4_2d_asset();
+        let params = m4_2d_params();
+        let schedule = m4_2d_schedule();
+        let instrument_artifacts = [FinamInstrumentSpecArtifacts {
+            asset: &asset,
+            params: &params,
+            schedule: &schedule,
+        }];
+        let package = m4_4d_bootstrap_package(
+            Some(&account),
+            Some(&orders),
+            Some(&trades),
+            &instrument_artifacts,
+            Some(&schedule),
+            FinamStage4ReadonlySourceEvidenceSet::all_present(checked_ts, 60_000),
+            checked_ts,
+        );
+
+        let report = build_finam_stage4_bootstrap_evidence_report(&package);
+
+        assert_eq!(report.status, Stage4BootstrapEvidenceReportStatus::Accepted);
+        assert!(report.runtime_events_emitted);
+        assert_eq!(
+            report.mock_runtime_events,
+            vec![
+                Stage4RuntimeBootstrapIntegrationEvent::NotifyBootstrapSnapshot,
+                Stage4RuntimeBootstrapIntegrationEvent::NotifyRuntimeStateRestored,
+                Stage4RuntimeBootstrapIntegrationEvent::WarmupHistory,
+                Stage4RuntimeBootstrapIntegrationEvent::RecoverPendingStreams,
+            ]
+        );
+        assert!(report.source_sections.iter().all(|section| {
+            section.source_status == Stage4BrokerTruthSourceStatus::Present
+                && section.freshness_status == Stage4BrokerTruthFreshnessStatus::Fresh
+        }));
+        assert!(report.no_live_authorization);
+    }
+
+    #[test]
+    fn m4_4j_finam_stage4_report_blocks_exact_non_present_source_statuses() {
+        let checked_ts = parse_timestamp("test", "2026-07-04T14:57:18Z").expect("timestamp");
+        let account = m4_2d_account();
+        let trades = m4_4d_empty_trades();
+        let asset = m4_2d_asset();
+        let params = m4_2d_params();
+        let schedule = m4_2d_schedule();
+        let instrument_artifacts = [FinamInstrumentSpecArtifacts {
+            asset: &asset,
+            params: &params,
+            schedule: &schedule,
+        }];
+
+        for status in [
+            Stage4BrokerTruthSourceStatus::Missing,
+            Stage4BrokerTruthSourceStatus::Unavailable,
+            Stage4BrokerTruthSourceStatus::DecodeFailed,
+            Stage4BrokerTruthSourceStatus::Incomplete,
+        ] {
+            let mut source_evidence =
+                FinamStage4ReadonlySourceEvidenceSet::all_present(checked_ts, 60_000);
+            source_evidence.orders = m4_4d_source_evidence(status, checked_ts, 60_000, true);
+            let package = m4_4d_bootstrap_package(
+                Some(&account),
+                None,
+                Some(&trades),
+                &instrument_artifacts,
+                Some(&schedule),
+                source_evidence,
+                checked_ts,
+            );
+
+            let report = build_finam_stage4_bootstrap_evidence_report(&package);
+
+            assert_eq!(report.status, Stage4BootstrapEvidenceReportStatus::Blocked);
+            assert!(!report.runtime_events_emitted);
+            assert!(report.mock_runtime_events.is_empty());
+            assert!(report.reason_chain.iter().any(|blocker| {
+                blocker.kind == Stage4BootstrapEvidenceReportBlockerKind::SourceEvidenceBlocked
+            }));
+            assert!(report.source_sections.iter().any(|section| {
+                section.section == Stage4BrokerTruthFreshnessSection::Orders
+                    && section.source_status == status
+                    && section.required_for_bootstrap
+                    && section.blocks_bootstrap
+            }));
+        }
+    }
+
+    #[test]
+    fn m4_4j_finam_stage4_report_does_not_export_sensitive_fixture_values() {
+        let checked_ts = parse_timestamp("test", "2026-07-04T14:57:18Z").expect("timestamp");
+        let account = m4_2d_account();
+        let orders = m4_4d_order_fixture("ORDER_STATUS_CANCELED", "BROKER-ORDER-REDACT-ME");
+        let trades = m4_4d_trade_fixture(Some("BROKER-ORDER-REDACT-ME"));
+        let asset = m4_2d_asset();
+        let params = m4_2d_params();
+        let schedule = m4_2d_schedule();
+        let instrument_artifacts = [FinamInstrumentSpecArtifacts {
+            asset: &asset,
+            params: &params,
+            schedule: &schedule,
+        }];
+        let package = m4_4d_bootstrap_package(
+            Some(&account),
+            Some(&orders),
+            Some(&trades),
+            &instrument_artifacts,
+            Some(&schedule),
+            FinamStage4ReadonlySourceEvidenceSet::all_present(checked_ts, 60_000),
+            checked_ts,
+        );
+
+        let report = build_finam_stage4_bootstrap_evidence_report(&package);
+        let json = serde_json::to_string_pretty(&report).expect("serialize stage4j report");
+
+        assert!(!json.contains("ACC_TEST_0001"));
+        assert!(!json.contains("ASSET_IMOEXF_TEST"));
+        assert!(!json.contains("BROKER-ORDER-REDACT-ME"));
+        assert!(!json.contains("CLIENT-ORDER"));
+        assert!(!json.contains("TRADE-ORPHAN"));
+        assert!(!json.contains("raw broker payload"));
+        assert!(!json.contains("raw_payload_body"));
+    }
+
+    #[test]
+    fn m4_4j_finam_stage4_report_uses_source_evidence_not_synthetic_present_builder() {
+        let checked_ts = parse_timestamp("test", "2026-07-04T14:57:18Z").expect("timestamp");
+        let account = m4_2d_account();
+        let orders = m4_4d_empty_orders();
+        let trades = m4_4d_empty_trades();
+        let asset = m4_2d_asset();
+        let params = m4_2d_params();
+        let schedule = m4_2d_schedule();
+        let instrument_artifacts = [FinamInstrumentSpecArtifacts {
+            asset: &asset,
+            params: &params,
+            schedule: &schedule,
+        }];
+        let mut package = m4_4d_bootstrap_package(
+            Some(&account),
+            Some(&orders),
+            Some(&trades),
+            &instrument_artifacts,
+            Some(&schedule),
+            FinamStage4ReadonlySourceEvidenceSet::all_present(checked_ts, 60_000),
+            checked_ts,
+        );
+        assert_eq!(
+            package.validated_bootstrap.status,
+            Stage4BrokerTruthBootstrapStatus::BootstrapReady
+        );
+        package.source_evidence.orders =
+            FinamStage4ReadonlySourceEvidence::decode_failed(60_000, true);
+
+        let report = build_finam_stage4_bootstrap_evidence_report(&package);
+
+        assert_eq!(report.status, Stage4BootstrapEvidenceReportStatus::Blocked);
+        assert!(!report.runtime_events_emitted);
+        assert!(report.reason_chain.iter().any(|blocker| {
+            blocker.kind == Stage4BootstrapEvidenceReportBlockerKind::SourceEvidenceBlocked
+        }));
+        assert!(report.source_sections.iter().any(|section| {
+            section.section == Stage4BrokerTruthFreshnessSection::Orders
+                && section.source_status == Stage4BrokerTruthSourceStatus::DecodeFailed
+                && section.blocks_bootstrap
         }));
     }
 

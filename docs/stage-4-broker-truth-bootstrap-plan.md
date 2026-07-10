@@ -8,7 +8,8 @@ bootstrap application evidence accepted; Stage 4F dirty-start / explicit
 adoption / manual-intervention policy accepted; Stage 4G runtime lifecycle
 ordering evidence accepted; Stage 4H paper/mock runtime-host bootstrap
 integration tests accepted; Stage 4I redacted operator-facing bootstrap
-evidence report implemented for review.
+evidence report accepted; Stage 4J FINAM Stage 4 report assembly bridge
+implemented for review.
 
 Date: 2026-07-10.
 
@@ -63,6 +64,9 @@ Stage 4H adds paper/mock runtime-host bootstrap integration tests described in
 Stage 4I adds the redacted operator-facing bootstrap evidence report described
 in
 [`stage-4/4i-redacted-bootstrap-evidence-report.md`](stage-4/4i-redacted-bootstrap-evidence-report.md).
+
+Stage 4J adds the FINAM Stage 4 report assembly bridge described in
+[`stage-4/4j-finam-stage4-report-assembly-bridge.md`](stage-4/4j-finam-stage4-report-assembly-bridge.md).
 
 ## 2. Broker truth inputs
 
@@ -302,8 +306,9 @@ After Stage 4A-1 acceptance, the next reviewable slices are:
 6. Stage 4G — bootstrap lifecycle order enforcement (accepted).
 7. Stage 4H — paper/mock bootstrap integration tests (accepted).
 8. Stage 4I — redacted broker-truth bootstrap evidence report generator
+   (accepted).
+9. Stage 4J — FINAM Stage 4 report assembly bridge
    (implemented for review).
-9. Stage 4J — Stage 4 acceptance report.
 
 All of these remain paper/mock/read-only until a later macro-stage explicitly
 authorizes command-consumer or live execution work.
