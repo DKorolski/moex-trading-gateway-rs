@@ -8,8 +8,8 @@ use crate::ids::BrokerOrderId;
 use crate::instrument::{InstrumentId, Quantity};
 use crate::operational_config::BrokerMarketSessionState;
 use crate::operational_snapshot::{
-    instrument_identity_matches, BrokerTradeSnapshot, BrokerTruthInstrumentSummary,
-    BrokerTruthSnapshot,
+    instrument_identity_matches, BrokerOrderLifecycle, BrokerTradeSnapshot,
+    BrokerTruthInstrumentSummary, BrokerTruthSnapshot,
 };
 use crate::runtime_host::RuntimeHostBootstrapSnapshot;
 use crate::runtime_state::RuntimeBootstrapSnapshotDto;
@@ -100,6 +100,20 @@ pub struct Stage4BrokerTruthFreshnessInput {
 
 impl Stage4BrokerTruthFreshnessInput {
     pub fn from_broker_truth_received_ts(received_ts: DateTime<Utc>, max_age_ms: u64) -> Self {
+        Self {
+            positions: Stage4BrokerTruthFreshnessProbe::fresh(received_ts, max_age_ms, true),
+            orders: Stage4BrokerTruthFreshnessProbe::fresh(received_ts, max_age_ms, true),
+            trades: Stage4BrokerTruthFreshnessProbe::fresh(received_ts, max_age_ms, false),
+            cash: Stage4BrokerTruthFreshnessProbe::fresh(received_ts, max_age_ms, false),
+            instruments: Stage4BrokerTruthFreshnessProbe::fresh(received_ts, max_age_ms, true),
+            schedule: Stage4BrokerTruthFreshnessProbe::unknown(max_age_ms, true),
+        }
+    }
+
+    pub fn synthetic_all_sections_fresh_for_tests(
+        received_ts: DateTime<Utc>,
+        max_age_ms: u64,
+    ) -> Self {
         Self {
             positions: Stage4BrokerTruthFreshnessProbe::fresh(received_ts, max_age_ms, true),
             orders: Stage4BrokerTruthFreshnessProbe::fresh(received_ts, max_age_ms, true),
@@ -235,6 +249,9 @@ pub struct Stage4BrokerTruthTradeCorrelationSummary {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Stage4DirtyStartDisposition {
     CleanBootstrap,
+    AdoptTargetPositionExplicitly,
+    AdoptTargetOrderExplicitly,
+    AdoptTargetPositionAndOrderExplicitly,
     TargetNonFlatRequiresAdoption,
     TargetActiveOrderRequiresAdoptionOrRepair,
     ManualInterventionRequired,
@@ -270,6 +287,7 @@ impl Default for Stage4AdoptionDisposition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Stage4ManualInterventionReason {
+    AmbiguousTargetPositionRows,
     TargetNonFlatWithoutAdoption,
     TargetActiveOrderWithoutAdoptionOrRepair,
     UnknownOrOrphanTargetOrder,
@@ -288,6 +306,15 @@ pub enum Stage4BrokerTruthExternalIssueKind {
     ManualInterventionRequired,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Stage4BrokerTruthSourceStatus {
+    Present,
+    Missing,
+    Unavailable,
+    DecodeFailed,
+    Incomplete,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stage4BrokerTruthExternalIssue {
     pub kind: Stage4BrokerTruthExternalIssueKind,
@@ -297,6 +324,10 @@ pub struct Stage4BrokerTruthExternalIssue {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Stage4BrokerTruthReadinessBlockerKind {
+    BrokerTruthMissing,
+    BrokerTruthUnavailable,
+    BrokerTruthDecodeFailed,
+    BrokerTruthIncomplete,
     PositionsStale,
     OrdersStale,
     TradesStale,
@@ -305,6 +336,7 @@ pub enum Stage4BrokerTruthReadinessBlockerKind {
     ScheduleStale,
     UnknownSchedule,
     InstrumentIdentityMismatch,
+    AmbiguousTargetPositionRows,
     TargetNonFlatWithoutAdoption,
     TargetActiveOrderWithoutAdoptionOrRepair,
     UnknownOrOrphanTargetOrder,
@@ -416,6 +448,7 @@ impl Default for Stage4BrokerTruthSafetyBoundary {
 
 pub struct Stage4BrokerTruthBootstrapInput<'a> {
     pub broker_truth: &'a BrokerTruthSnapshot,
+    pub broker_truth_source_status: Stage4BrokerTruthSourceStatus,
     pub target_instrument: InstrumentId,
     pub restored_runtime_state: Option<&'a RuntimeBootstrapSnapshotDto>,
     pub freshness: Stage4BrokerTruthFreshnessInput,
@@ -431,6 +464,7 @@ pub struct ValidatedStage4BrokerTruthBootstrap {
     pub schema_version: u16,
     pub checked_ts: DateTime<Utc>,
     pub target_instrument: InstrumentId,
+    pub broker_truth_source_status: Stage4BrokerTruthSourceStatus,
     pub broker_truth_received_ts: DateTime<Utc>,
     pub runtime_bootstrap_snapshot: RuntimeHostBootstrapSnapshot,
     pub broker_truth_summary: BrokerTruthInstrumentSummary,
@@ -482,11 +516,18 @@ pub fn validate_stage4_broker_truth_bootstrap(
         .filter(|position| position.qty == Decimal::ZERO)
         .count();
     let freshness = Stage4BrokerTruthFreshness::evaluate(input.freshness, input.checked_ts);
-    let restored_runtime_order_ids = restored_runtime_order_ids(input.restored_runtime_state);
+    let restored_runtime_working_order_ids =
+        restored_runtime_working_order_ids(input.restored_runtime_state);
+    let restored_runtime_known_order_ids =
+        restored_runtime_known_order_ids(input.restored_runtime_state);
+    let restored_runtime_order_ids = union_order_ids(
+        &restored_runtime_working_order_ids,
+        &restored_runtime_known_order_ids,
+    );
     let ownership_summary = build_ownership_summary(
         input.broker_truth,
         &input.target_instrument,
-        &restored_runtime_order_ids,
+        &restored_runtime_working_order_ids,
         &input.adoption,
     );
     let trade_correlation_summary = build_trade_correlation_summary(
@@ -494,8 +535,10 @@ pub fn validate_stage4_broker_truth_bootstrap(
         &input.target_instrument,
         &restored_runtime_order_ids,
     );
-    let restored_runtime_missing_order_count =
-        restored_runtime_missing_order_count(input.broker_truth, &restored_runtime_order_ids);
+    let restored_runtime_missing_order_count = restored_runtime_missing_order_count(
+        input.broker_truth,
+        &restored_runtime_working_order_ids,
+    );
     let dirty_start_disposition = dirty_start_disposition(
         target_is_flat,
         ownership_summary.target_active_order_count,
@@ -503,6 +546,7 @@ pub fn validate_stage4_broker_truth_bootstrap(
     );
 
     let mut blockers = Vec::new();
+    push_broker_truth_source_blocker(&mut blockers, input.broker_truth_source_status);
     push_safety_blockers(&mut blockers, &input.safety_boundary);
     for section in freshness
         .sections
@@ -528,6 +572,12 @@ pub fn validate_stage4_broker_truth_bootstrap(
     {
         blockers.push(Stage4BrokerTruthReadinessBlocker::blocker(
             Stage4BrokerTruthReadinessBlockerKind::InstrumentIdentityMismatch,
+        ));
+    }
+    if target_is_flat && broker_truth_summary.target_open_positions_count > 0 {
+        blockers.push(Stage4BrokerTruthReadinessBlocker::manual(
+            Stage4BrokerTruthReadinessBlockerKind::AmbiguousTargetPositionRows,
+            Stage4ManualInterventionReason::AmbiguousTargetPositionRows,
         ));
     }
     if !target_is_flat && !input.adoption.position_adoption_applied {
@@ -560,8 +610,13 @@ pub fn validate_stage4_broker_truth_bootstrap(
             Stage4ManualInterventionReason::TargetActiveOrderWithoutAdoptionOrRepair,
         ));
     }
+    let expected_adoptable_target_order_count = ownership_summary
+        .target_active_order_count
+        .saturating_sub(ownership_summary.runtime_owned_target_order_count);
     if input.adoption.order_adoption_applied
-        && (!input.adoption.order_adoption_attempted || !input.adoption.order_adoption_allowed)
+        && (!input.adoption.order_adoption_attempted
+            || !input.adoption.order_adoption_allowed
+            || input.adoption.adopted_target_order_count != expected_adoptable_target_order_count)
     {
         blockers.push(Stage4BrokerTruthReadinessBlocker::blocker(
             Stage4BrokerTruthReadinessBlockerKind::AdoptionEvidenceMissing,
@@ -594,6 +649,7 @@ pub fn validate_stage4_broker_truth_bootstrap(
         schema_version: STAGE4_BROKER_TRUTH_BOOTSTRAP_SCHEMA_VERSION,
         checked_ts: input.checked_ts,
         target_instrument: input.target_instrument,
+        broker_truth_source_status: input.broker_truth_source_status,
         broker_truth_received_ts: input.broker_truth.received_ts,
         runtime_bootstrap_snapshot,
         broker_truth_summary,
@@ -653,6 +709,28 @@ fn push_safety_blockers(
     }
 }
 
+fn push_broker_truth_source_blocker(
+    blockers: &mut Vec<Stage4BrokerTruthReadinessBlocker>,
+    source_status: Stage4BrokerTruthSourceStatus,
+) {
+    let kind = match source_status {
+        Stage4BrokerTruthSourceStatus::Present => return,
+        Stage4BrokerTruthSourceStatus::Missing => {
+            Stage4BrokerTruthReadinessBlockerKind::BrokerTruthMissing
+        }
+        Stage4BrokerTruthSourceStatus::Unavailable => {
+            Stage4BrokerTruthReadinessBlockerKind::BrokerTruthUnavailable
+        }
+        Stage4BrokerTruthSourceStatus::DecodeFailed => {
+            Stage4BrokerTruthReadinessBlockerKind::BrokerTruthDecodeFailed
+        }
+        Stage4BrokerTruthSourceStatus::Incomplete => {
+            Stage4BrokerTruthReadinessBlockerKind::BrokerTruthIncomplete
+        }
+    };
+    blockers.push(Stage4BrokerTruthReadinessBlocker::blocker(kind));
+}
+
 fn stage4_status(
     blockers: &[Stage4BrokerTruthReadinessBlocker],
 ) -> Stage4BrokerTruthBootstrapStatus {
@@ -671,6 +749,17 @@ fn stage4_status(
         )
     }) {
         return Stage4BrokerTruthBootstrapStatus::SafetyBoundaryOpen;
+    }
+    if blockers.iter().any(|blocker| {
+        matches!(
+            blocker.kind,
+            Stage4BrokerTruthReadinessBlockerKind::BrokerTruthMissing
+                | Stage4BrokerTruthReadinessBlockerKind::BrokerTruthUnavailable
+                | Stage4BrokerTruthReadinessBlockerKind::BrokerTruthDecodeFailed
+                | Stage4BrokerTruthReadinessBlockerKind::BrokerTruthIncomplete
+        )
+    }) {
+        return Stage4BrokerTruthBootstrapStatus::BrokerTruthIncomplete;
     }
     if blockers.iter().any(|blocker| {
         blocker.kind == Stage4BrokerTruthReadinessBlockerKind::InstrumentIdentityMismatch
@@ -715,21 +804,27 @@ fn dirty_start_disposition(
     target_active_order_count: usize,
     adoption: &Stage4AdoptionDisposition,
 ) -> Stage4DirtyStartDisposition {
+    let position_adopted = !target_is_flat && adoption.position_adoption_applied;
+    let order_adopted = target_active_order_count > 0 && adoption.order_adoption_applied;
+    if position_adopted && order_adopted {
+        return Stage4DirtyStartDisposition::AdoptTargetPositionAndOrderExplicitly;
+    }
+    if position_adopted {
+        return Stage4DirtyStartDisposition::AdoptTargetPositionExplicitly;
+    }
+    if order_adopted {
+        return Stage4DirtyStartDisposition::AdoptTargetOrderExplicitly;
+    }
     if !target_is_flat && !adoption.position_adoption_applied {
         return Stage4DirtyStartDisposition::TargetNonFlatRequiresAdoption;
     }
     if target_active_order_count > 0 && !adoption.order_adoption_applied {
         return Stage4DirtyStartDisposition::TargetActiveOrderRequiresAdoptionOrRepair;
     }
-    if (!target_is_flat && adoption.position_adoption_applied)
-        || (target_active_order_count > 0 && adoption.order_adoption_applied)
-    {
-        return Stage4DirtyStartDisposition::ManualInterventionRequired;
-    }
     Stage4DirtyStartDisposition::CleanBootstrap
 }
 
-fn restored_runtime_order_ids(
+fn restored_runtime_working_order_ids(
     restored_runtime_state: Option<&RuntimeBootstrapSnapshotDto>,
 ) -> HashSet<BrokerOrderId> {
     let Some(restored_runtime_state) = restored_runtime_state else {
@@ -739,16 +834,35 @@ fn restored_runtime_order_ids(
         .working_orders
         .keys()
         .chain(restored_runtime_state.working_orders_strategy.keys())
-        .chain(restored_runtime_state.known_order_ids.iter())
         .cloned()
         .collect()
 }
 
+fn restored_runtime_known_order_ids(
+    restored_runtime_state: Option<&RuntimeBootstrapSnapshotDto>,
+) -> HashSet<BrokerOrderId> {
+    let Some(restored_runtime_state) = restored_runtime_state else {
+        return HashSet::new();
+    };
+    restored_runtime_state
+        .known_order_ids
+        .iter()
+        .cloned()
+        .collect()
+}
+
+fn union_order_ids(
+    left: &HashSet<BrokerOrderId>,
+    right: &HashSet<BrokerOrderId>,
+) -> HashSet<BrokerOrderId> {
+    left.union(right).cloned().collect()
+}
+
 fn restored_runtime_missing_order_count(
     truth: &BrokerTruthSnapshot,
-    restored_runtime_order_ids: &HashSet<BrokerOrderId>,
+    restored_runtime_working_order_ids: &HashSet<BrokerOrderId>,
 ) -> usize {
-    restored_runtime_order_ids
+    restored_runtime_working_order_ids
         .iter()
         .filter(|order_id| {
             !truth
@@ -784,14 +898,14 @@ fn build_ownership_summary(
         .iter()
         .filter(|order| {
             instrument_identity_matches(&order.instrument, target_instrument)
+                && (order.is_active_for_lifecycle()
+                    || order.lifecycle == BrokerOrderLifecycle::Unknown)
                 && !truth.orphan_reasons_for_order(order).is_empty()
         })
         .count();
     let target_unknown_order_count = truth.unknown_orders_for_instrument(target_instrument).len();
     let target_active_order_count = target_active_orders.len();
-    let adopted_target_order_count = adoption
-        .adopted_target_order_count
-        .min(target_active_order_count.saturating_sub(runtime_owned_target_order_count));
+    let adopted_target_order_count = adoption.adopted_target_order_count;
     let unknown_or_orphan_target_order_count = target_active_order_count
         .saturating_sub(runtime_owned_target_order_count + adopted_target_order_count)
         + target_unknown_order_count
@@ -826,9 +940,8 @@ fn build_trade_correlation_summary(
         .filter(|trade| trade_order_is_restored_runtime_owned(trade, restored_runtime_order_ids))
         .count();
     let unknown_or_orphan_target_trade_count = target_trades
-        .iter()
-        .filter(|trade| trade.broker_order_id.is_none() && trade.client_order_id.is_none())
-        .count();
+        .len()
+        .saturating_sub(strategy_attributed_trade_count);
     let observed_unattributed_target_trade_count = target_trades
         .len()
         .saturating_sub(strategy_attributed_trade_count + unknown_or_orphan_target_trade_count);
@@ -962,9 +1075,10 @@ mod tests {
     fn input<'a>(truth: &'a BrokerTruthSnapshot) -> Stage4BrokerTruthBootstrapInput<'a> {
         Stage4BrokerTruthBootstrapInput {
             broker_truth: truth,
+            broker_truth_source_status: Stage4BrokerTruthSourceStatus::Present,
             target_instrument: target(),
             restored_runtime_state: None,
-            freshness: Stage4BrokerTruthFreshnessInput::from_broker_truth_received_ts(
+            freshness: Stage4BrokerTruthFreshnessInput::synthetic_all_sections_fresh_for_tests(
                 truth.received_ts,
                 60_000,
             ),
@@ -1067,6 +1181,32 @@ mod tests {
     }
 
     #[test]
+    fn stage4c_valid_position_adoption_can_be_bootstrap_ready() {
+        let mut truth = base_truth();
+        truth.positions.push(target_position(Decimal::new(3, 0)));
+        let mut request = input(&truth);
+        request.adoption = Stage4AdoptionDisposition {
+            position_adoption_attempted: true,
+            position_adoption_allowed: true,
+            position_adoption_applied: true,
+            adopted_target_position_qty: Decimal::new(3, 0),
+            ..Stage4AdoptionDisposition::default()
+        };
+
+        let report = validate_stage4_broker_truth_bootstrap(request);
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::BootstrapReady
+        );
+        assert_eq!(
+            report.dirty_start_disposition,
+            Stage4DirtyStartDisposition::AdoptTargetPositionExplicitly
+        );
+        assert!(!report.manual_intervention_required);
+    }
+
+    #[test]
     fn stage4c_target_active_order_cannot_silently_disappear() {
         let mut truth = base_truth();
         truth
@@ -1091,6 +1231,61 @@ mod tests {
     }
 
     #[test]
+    fn stage4c_valid_order_adoption_can_be_bootstrap_ready() {
+        let mut truth = base_truth();
+        truth
+            .orders
+            .push(target_order("BROKER-ORDER-1", OrderStatus::Working));
+        let mut request = input(&truth);
+        request.adoption = Stage4AdoptionDisposition {
+            order_adoption_attempted: true,
+            order_adoption_allowed: true,
+            order_adoption_applied: true,
+            adopted_target_order_count: 1,
+            ..Stage4AdoptionDisposition::default()
+        };
+
+        let report = validate_stage4_broker_truth_bootstrap(request);
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::BootstrapReady
+        );
+        assert_eq!(
+            report.dirty_start_disposition,
+            Stage4DirtyStartDisposition::AdoptTargetOrderExplicitly
+        );
+        assert!(!report.manual_intervention_required);
+    }
+
+    #[test]
+    fn stage4c_order_adoption_count_must_match_target_active_order_truth() {
+        let mut truth = base_truth();
+        truth
+            .orders
+            .push(target_order("BROKER-ORDER-1", OrderStatus::Working));
+        let mut request = input(&truth);
+        request.adoption = Stage4AdoptionDisposition {
+            order_adoption_attempted: true,
+            order_adoption_allowed: true,
+            order_adoption_applied: true,
+            adopted_target_order_count: 999,
+            ..Stage4AdoptionDisposition::default()
+        };
+
+        let report = validate_stage4_broker_truth_bootstrap(request);
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::EvidenceIncomplete
+        );
+        assert_eq!(report.adoption.adopted_target_order_count, 999);
+        assert!(report.blockers.iter().any(|blocker| {
+            blocker.kind == Stage4BrokerTruthReadinessBlockerKind::AdoptionEvidenceMissing
+        }));
+    }
+
+    #[test]
     fn stage4c_zero_qty_position_rows_are_diagnostic_not_open_position_truth() {
         let mut truth = base_truth();
         truth.positions.push(target_position(Decimal::ZERO));
@@ -1104,6 +1299,25 @@ mod tests {
         assert_eq!(report.target_zero_qty_position_rows_count, 1);
         assert_eq!(report.account_zero_qty_position_rows_count, 1);
         assert!(report.target_is_flat);
+    }
+
+    #[test]
+    fn stage4c_net_flat_from_offsetting_open_rows_requires_manual_intervention() {
+        let mut truth = base_truth();
+        truth.positions.push(target_position(Decimal::ONE));
+        truth.positions.push(target_position(-Decimal::ONE));
+
+        let report = validate_stage4_broker_truth_bootstrap(input(&truth));
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::ManualInterventionRequired
+        );
+        assert!(report.target_is_flat);
+        assert_eq!(report.broker_truth_summary.target_open_positions_count, 2);
+        assert!(report.blockers.iter().any(|blocker| {
+            blocker.kind == Stage4BrokerTruthReadinessBlockerKind::AmbiguousTargetPositionRows
+        }));
     }
 
     #[test]
@@ -1148,12 +1362,72 @@ mod tests {
     }
 
     #[test]
+    fn stage4c_historical_known_order_absent_from_current_broker_truth_is_diagnostic() {
+        let truth = base_truth();
+        let restored = RuntimeBootstrapSnapshotDto {
+            working_orders: HashMap::new(),
+            working_orders_strategy: HashMap::new(),
+            known_order_ids: vec![BrokerOrderId::new("HISTORICAL-TERMINAL-1")],
+            account_wide_orders_count: 1,
+        };
+        let mut request = input(&truth);
+        request.restored_runtime_state = Some(&restored);
+
+        let report = validate_stage4_broker_truth_bootstrap(request);
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::BootstrapReady
+        );
+        assert!(report.restored_runtime_state_present);
+        assert_eq!(report.restored_runtime_missing_order_count, 0);
+    }
+
+    #[test]
     fn stage4c_unknown_orphan_target_trade_blocks_readiness() {
         let mut truth = base_truth();
         truth.trades.push(BrokerTradeSnapshot {
             account_id: BrokerAccountId::new("ACC_TEST_0001"),
             broker_trade_id: BrokerTradeId::new("TRADE-1"),
             broker_order_id: None,
+            client_order_id: None,
+            instrument: target(),
+            side: OrderSide::Buy,
+            qty: Decimal::ONE,
+            price: Decimal::new(2210, 0),
+            gross_amount: None,
+            commission: None,
+            broker_asset_id: Some("ASSET_TEST_1".to_string()),
+            board: Some("RTSX".to_string()),
+            expiration_date: None,
+            source_ts: checked_ts(),
+            received_ts: checked_ts(),
+        });
+
+        let report = validate_stage4_broker_truth_bootstrap(input(&truth));
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::ManualInterventionRequired
+        );
+        assert_eq!(
+            report
+                .trade_correlation_summary
+                .unknown_or_orphan_target_trade_count,
+            1
+        );
+        assert!(report.blockers.iter().any(|blocker| {
+            blocker.kind == Stage4BrokerTruthReadinessBlockerKind::UnknownOrOrphanTargetTrade
+        }));
+    }
+
+    #[test]
+    fn stage4c_target_trade_with_unowned_broker_order_id_blocks_until_reconciled() {
+        let mut truth = base_truth();
+        truth.trades.push(BrokerTradeSnapshot {
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            broker_trade_id: BrokerTradeId::new("TRADE-2"),
+            broker_order_id: Some(BrokerOrderId::new("UNOWNED-BROKER-ORDER")),
             client_order_id: None,
             instrument: target(),
             side: OrderSide::Buy,
@@ -1209,6 +1483,43 @@ mod tests {
     }
 
     #[test]
+    fn stage4c_missing_broker_truth_source_returns_broker_truth_incomplete() {
+        let truth = base_truth();
+        let mut request = input(&truth);
+        request.broker_truth_source_status = Stage4BrokerTruthSourceStatus::Missing;
+
+        let report = validate_stage4_broker_truth_bootstrap(request);
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::BrokerTruthIncomplete
+        );
+        assert!(report.blockers.iter().any(|blocker| {
+            blocker.kind == Stage4BrokerTruthReadinessBlockerKind::BrokerTruthMissing
+        }));
+    }
+
+    #[test]
+    fn stage4c_missing_schedule_freshness_blocks_even_when_broker_truth_is_fresh() {
+        let truth = base_truth();
+        let mut request = input(&truth);
+        request.freshness = Stage4BrokerTruthFreshnessInput::from_broker_truth_received_ts(
+            truth.received_ts,
+            60_000,
+        );
+
+        let report = validate_stage4_broker_truth_bootstrap(request);
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::BrokerTruthStale
+        );
+        assert!(report.blockers.iter().any(|blocker| {
+            blocker.kind == Stage4BrokerTruthReadinessBlockerKind::ScheduleStale
+        }));
+    }
+
+    #[test]
     fn stage4c_raw_payload_or_live_boundary_opens_safety_status() {
         let truth = base_truth();
         let mut request = input(&truth);
@@ -1226,6 +1537,47 @@ mod tests {
         }));
         assert!(report.blockers.iter().any(|blocker| {
             blocker.kind == Stage4BrokerTruthReadinessBlockerKind::RuntimeLiveEnabled
+        }));
+    }
+
+    #[test]
+    fn stage4c_instrument_identity_missing_or_ambiguous_blocks_bootstrap() {
+        let mut missing = base_truth();
+        missing.instruments.clear();
+        let missing_report = validate_stage4_broker_truth_bootstrap(input(&missing));
+
+        assert_eq!(
+            missing_report.status,
+            Stage4BrokerTruthBootstrapStatus::InstrumentMismatch
+        );
+
+        let mut ambiguous = base_truth();
+        ambiguous.instruments.push(spec());
+        let ambiguous_report = validate_stage4_broker_truth_bootstrap(input(&ambiguous));
+
+        assert_eq!(
+            ambiguous_report.status,
+            Stage4BrokerTruthBootstrapStatus::InstrumentMismatch
+        );
+    }
+
+    #[test]
+    fn stage4c_unknown_target_order_status_blocks_bootstrap() {
+        let mut truth = base_truth();
+        truth.orders.push(target_order(
+            "BROKER-ORDER-UNKNOWN",
+            OrderStatus::Unknown("BROKER_NATIVE_UNKNOWN".to_string()),
+        ));
+
+        let report = validate_stage4_broker_truth_bootstrap(input(&truth));
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::ManualInterventionRequired
+        );
+        assert_eq!(report.ownership_summary.target_unknown_order_count, 1);
+        assert!(report.blockers.iter().any(|blocker| {
+            blocker.kind == Stage4BrokerTruthReadinessBlockerKind::UnknownOrOrphanTargetOrder
         }));
     }
 

@@ -194,9 +194,10 @@ pub use stage4_bootstrap::{
     Stage4BrokerTruthFreshnessSection, Stage4BrokerTruthFreshnessSectionEvidence,
     Stage4BrokerTruthFreshnessStatus, Stage4BrokerTruthOwnershipSummary,
     Stage4BrokerTruthReadinessBlocker, Stage4BrokerTruthReadinessBlockerKind,
-    Stage4BrokerTruthSafetyBoundary, Stage4BrokerTruthTradeCorrelationSummary,
-    Stage4DirtyStartDisposition, Stage4ManualInterventionReason,
-    ValidatedStage4BrokerTruthBootstrap, STAGE4_BROKER_TRUTH_BOOTSTRAP_SCHEMA_VERSION,
+    Stage4BrokerTruthSafetyBoundary, Stage4BrokerTruthSourceStatus,
+    Stage4BrokerTruthTradeCorrelationSummary, Stage4DirtyStartDisposition,
+    Stage4ManualInterventionReason, ValidatedStage4BrokerTruthBootstrap,
+    STAGE4_BROKER_TRUTH_BOOTSTRAP_SCHEMA_VERSION,
 };
 pub use subscription::{SubscriptionIntent, SubscriptionKind, SubscriptionState};
 pub use trade_ledger::{
