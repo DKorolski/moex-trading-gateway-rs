@@ -22,6 +22,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   accepted.
 - Stage 4C validated broker-truth bootstrap wrapper and validation is accepted.
 - Stage 4D FINAM read-only broker-truth mapper/source normalization is
+  accepted.
+- Stage 4E broker-truth to runtime bootstrap application evidence is
   implemented for review.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
@@ -175,15 +177,20 @@ Stage split:
   stronger target trade correlation, freshness,
   ownership/correlation summaries, dirty-start/adoption disposition, restored
   runtime-state checks, external issue bridge, and closed safety boundary.
-- Stage 4D is implemented for review as FINAM read-only broker-truth
-  source-normalization into the Stage 4C validator. It adds explicit FINAM
-  source evidence (`Present`, `Missing`, `Unavailable`, `DecodeFailed`,
-  `Incomplete`), per-section freshness for positions/orders/trades/cash/
-  instruments/schedule, target-bound schedule state handling, placeholder
-  snapshot semantics for missing/unavailable/decode-failed source, and
-  fixture-backed blockers for active/unknown target orders, unowned target
-  trades, missing/ambiguous instrument identity, stale source sections, and
-  schedule-symbol mismatch.
+- Stage 4D is accepted as FINAM read-only broker-truth source-normalization
+  into the Stage 4C validator. It adds explicit FINAM source evidence
+  (`Present`, `Missing`, `Unavailable`, `DecodeFailed`, `Incomplete`),
+  per-section freshness for positions/orders/trades/cash/instruments/schedule,
+  target-bound schedule state handling, placeholder snapshot semantics for
+  missing/unavailable/decode-failed source, and fixture-backed blockers for
+  active/unknown target orders, unowned target trades, missing/ambiguous
+  instrument identity, stale source sections, and schedule-symbol mismatch.
+- Stage 4E is implemented for review as an application-evidence gate around
+  validated broker truth. Runtime bootstrap notification is allowed only for
+  `BootstrapReady`; all incomplete/stale/mismatch/unknown-schedule/manual/
+  evidence/safety statuses remain blocked. Restored runtime state is accepted
+  only after broker truth, cannot overwrite broker truth, target/account scopes
+  stay separated, and live/execution authorization remains closed.
 
 Green / mostly closed:
 

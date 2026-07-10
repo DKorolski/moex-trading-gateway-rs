@@ -187,8 +187,8 @@ pub use runtime_state::{
     ValidatedRuntimeStateSnapshot,
 };
 pub use stage4_bootstrap::{
-    validate_stage4_broker_truth_bootstrap, Stage4AdoptionDisposition,
-    Stage4BrokerTruthBootstrapInput, Stage4BrokerTruthBootstrapStatus,
+    evaluate_stage4_runtime_bootstrap_application, validate_stage4_broker_truth_bootstrap,
+    Stage4AdoptionDisposition, Stage4BrokerTruthBootstrapInput, Stage4BrokerTruthBootstrapStatus,
     Stage4BrokerTruthExternalIssue, Stage4BrokerTruthExternalIssueKind, Stage4BrokerTruthFreshness,
     Stage4BrokerTruthFreshnessInput, Stage4BrokerTruthFreshnessProbe,
     Stage4BrokerTruthFreshnessSection, Stage4BrokerTruthFreshnessSectionEvidence,
@@ -196,8 +196,11 @@ pub use stage4_bootstrap::{
     Stage4BrokerTruthReadinessBlocker, Stage4BrokerTruthReadinessBlockerKind,
     Stage4BrokerTruthSafetyBoundary, Stage4BrokerTruthSourceStatus,
     Stage4BrokerTruthTradeCorrelationSummary, Stage4DirtyStartDisposition,
-    Stage4ManualInterventionReason, ValidatedStage4BrokerTruthBootstrap,
+    Stage4ManualInterventionReason, Stage4RuntimeBootstrapApplicationBlocker,
+    Stage4RuntimeBootstrapApplicationBlockerKind, Stage4RuntimeBootstrapApplicationDecision,
+    Stage4RuntimeBootstrapApplicationStatus, ValidatedStage4BrokerTruthBootstrap,
     STAGE4_BROKER_TRUTH_BOOTSTRAP_SCHEMA_VERSION,
+    STAGE4_RUNTIME_BOOTSTRAP_APPLICATION_SCHEMA_VERSION,
 };
 pub use subscription::{SubscriptionIntent, SubscriptionKind, SubscriptionState};
 pub use trade_ledger::{

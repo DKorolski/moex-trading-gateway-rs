@@ -80,7 +80,7 @@ All Stage 4D checks are read-only/source-normalization checks.
 
 ## Follow-up
 
-After review acceptance, the next planned slice remains Stage 4E:
-`BrokerTruthSnapshot` -> `RuntimeHostBootstrapSnapshot` conversion and runtime
-bootstrap integration evidence. That should still remain paper/mock/read-only
-until the later Stage 4 lifecycle gates are accepted.
+Stage 4D has been accepted. The next planned slice is Stage 4E:
+`BrokerTruthSnapshot` -> `RuntimeHostBootstrapSnapshot` application evidence.
+That should still remain paper/mock/read-only until the later Stage 4 lifecycle
+gates are accepted.

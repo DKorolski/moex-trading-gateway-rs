@@ -15,6 +15,7 @@ use crate::runtime_host::RuntimeHostBootstrapSnapshot;
 use crate::runtime_state::RuntimeBootstrapSnapshotDto;
 
 pub const STAGE4_BROKER_TRUTH_BOOTSTRAP_SCHEMA_VERSION: u16 = 1;
+pub const STAGE4_RUNTIME_BOOTSTRAP_APPLICATION_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Stage4BrokerTruthBootstrapStatus {
@@ -485,6 +486,130 @@ pub struct ValidatedStage4BrokerTruthBootstrap {
     pub manual_intervention_required: bool,
     pub status: Stage4BrokerTruthBootstrapStatus,
     pub safety_boundary: Stage4BrokerTruthSafetyBoundary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Stage4RuntimeBootstrapApplicationStatus {
+    Applied,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Stage4RuntimeBootstrapApplicationBlockerKind {
+    ValidatedBootstrapNotReady,
+    BrokerTruthIncomplete,
+    BrokerTruthStale,
+    InstrumentMismatch,
+    UnknownSchedule,
+    ManualInterventionRequired,
+    EvidenceIncomplete,
+    SafetyBoundaryOpen,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage4RuntimeBootstrapApplicationBlocker {
+    pub kind: Stage4RuntimeBootstrapApplicationBlockerKind,
+    pub source_status: Stage4BrokerTruthBootstrapStatus,
+    pub blocks_runtime_notification: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Stage4RuntimeBootstrapApplicationDecision {
+    pub schema_version: u16,
+    pub checked_ts: DateTime<Utc>,
+    pub status: Stage4RuntimeBootstrapApplicationStatus,
+    pub source_bootstrap_status: Stage4BrokerTruthBootstrapStatus,
+    pub applied_snapshot: Option<RuntimeHostBootstrapSnapshot>,
+    pub blockers: Vec<Stage4RuntimeBootstrapApplicationBlocker>,
+    pub blocker_count: usize,
+    pub broker_truth_loaded_before_runtime_state: bool,
+    pub restored_runtime_state_present: bool,
+    pub restored_runtime_state_accepted_after_broker_truth: bool,
+    pub restored_runtime_overrode_broker_truth: bool,
+    pub target_position_qty: Quantity,
+    pub target_is_flat: bool,
+    pub target_active_order_count: usize,
+    pub account_active_order_count: usize,
+    pub dirty_start_disposition: Stage4DirtyStartDisposition,
+    pub no_live_authorization: bool,
+}
+
+pub fn evaluate_stage4_runtime_bootstrap_application(
+    validated: &ValidatedStage4BrokerTruthBootstrap,
+) -> Stage4RuntimeBootstrapApplicationDecision {
+    let blockers = stage4_runtime_bootstrap_application_blockers(validated.status);
+    let status = if blockers.is_empty() {
+        Stage4RuntimeBootstrapApplicationStatus::Applied
+    } else {
+        Stage4RuntimeBootstrapApplicationStatus::Blocked
+    };
+    let applied_snapshot = if status == Stage4RuntimeBootstrapApplicationStatus::Applied {
+        Some(validated.runtime_bootstrap_snapshot.clone())
+    } else {
+        None
+    };
+    let blocker_count = blockers.len();
+    Stage4RuntimeBootstrapApplicationDecision {
+        schema_version: STAGE4_RUNTIME_BOOTSTRAP_APPLICATION_SCHEMA_VERSION,
+        checked_ts: validated.checked_ts,
+        status,
+        source_bootstrap_status: validated.status,
+        applied_snapshot,
+        blockers,
+        blocker_count,
+        broker_truth_loaded_before_runtime_state: true,
+        restored_runtime_state_present: validated.restored_runtime_state_present,
+        restored_runtime_state_accepted_after_broker_truth: validated
+            .restored_runtime_state_present
+            && status == Stage4RuntimeBootstrapApplicationStatus::Applied,
+        restored_runtime_overrode_broker_truth: false,
+        target_position_qty: validated.target_position_qty,
+        target_is_flat: validated.target_is_flat,
+        target_active_order_count: validated.ownership_summary.target_active_order_count,
+        account_active_order_count: validated.ownership_summary.account_active_order_count,
+        dirty_start_disposition: validated.dirty_start_disposition.clone(),
+        no_live_authorization: true,
+    }
+}
+
+fn stage4_runtime_bootstrap_application_blockers(
+    status: Stage4BrokerTruthBootstrapStatus,
+) -> Vec<Stage4RuntimeBootstrapApplicationBlocker> {
+    if status == Stage4BrokerTruthBootstrapStatus::BootstrapReady {
+        return Vec::new();
+    }
+    let kind = match status {
+        Stage4BrokerTruthBootstrapStatus::BootstrapReady => unreachable!(),
+        Stage4BrokerTruthBootstrapStatus::BootstrapBlocked => {
+            Stage4RuntimeBootstrapApplicationBlockerKind::ValidatedBootstrapNotReady
+        }
+        Stage4BrokerTruthBootstrapStatus::BrokerTruthIncomplete => {
+            Stage4RuntimeBootstrapApplicationBlockerKind::BrokerTruthIncomplete
+        }
+        Stage4BrokerTruthBootstrapStatus::BrokerTruthStale => {
+            Stage4RuntimeBootstrapApplicationBlockerKind::BrokerTruthStale
+        }
+        Stage4BrokerTruthBootstrapStatus::InstrumentMismatch => {
+            Stage4RuntimeBootstrapApplicationBlockerKind::InstrumentMismatch
+        }
+        Stage4BrokerTruthBootstrapStatus::UnknownSchedule => {
+            Stage4RuntimeBootstrapApplicationBlockerKind::UnknownSchedule
+        }
+        Stage4BrokerTruthBootstrapStatus::ManualInterventionRequired => {
+            Stage4RuntimeBootstrapApplicationBlockerKind::ManualInterventionRequired
+        }
+        Stage4BrokerTruthBootstrapStatus::EvidenceIncomplete => {
+            Stage4RuntimeBootstrapApplicationBlockerKind::EvidenceIncomplete
+        }
+        Stage4BrokerTruthBootstrapStatus::SafetyBoundaryOpen => {
+            Stage4RuntimeBootstrapApplicationBlockerKind::SafetyBoundaryOpen
+        }
+    };
+    vec![Stage4RuntimeBootstrapApplicationBlocker {
+        kind,
+        source_status: status,
+        blocks_runtime_notification: true,
+    }]
 }
 
 pub fn validate_stage4_broker_truth_bootstrap(
@@ -1141,6 +1266,35 @@ mod tests {
         }
     }
 
+    fn target_trade(trade_id: &str, order_id: Option<&str>) -> BrokerTradeSnapshot {
+        BrokerTradeSnapshot {
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            broker_trade_id: BrokerTradeId::new(trade_id),
+            broker_order_id: order_id.map(BrokerOrderId::new),
+            client_order_id: None,
+            instrument: target(),
+            side: OrderSide::Buy,
+            qty: Decimal::ONE,
+            price: Decimal::new(2210, 0),
+            gross_amount: None,
+            commission: None,
+            broker_asset_id: Some("ASSET_TEST_1".to_string()),
+            board: Some("RTSX".to_string()),
+            expiration_date: None,
+            source_ts: checked_ts(),
+            received_ts: checked_ts(),
+        }
+    }
+
+    fn restored_with_known_order(order_id: &str) -> RuntimeBootstrapSnapshotDto {
+        RuntimeBootstrapSnapshotDto {
+            working_orders: HashMap::new(),
+            working_orders_strategy: HashMap::new(),
+            known_order_ids: vec![BrokerOrderId::new(order_id)],
+            account_wide_orders_count: 1,
+        }
+    }
+
     #[test]
     fn stage4c_clean_flat_bootstrap_is_ready_without_live_authorization() {
         let truth = base_truth();
@@ -1155,6 +1309,246 @@ mod tests {
         assert!(!report.safety_boundary.runtime_live_enabled);
         assert!(!report.safety_boundary.real_finam_command_consumer_enabled);
         assert!(!report.safety_boundary.strategy_driven_real_orders_enabled);
+    }
+
+    #[test]
+    fn stage4e_applies_only_validated_bootstrap_ready_snapshot() {
+        let truth = base_truth();
+        let report = validate_stage4_broker_truth_bootstrap(input(&truth));
+
+        let decision = evaluate_stage4_runtime_bootstrap_application(&report);
+
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeBootstrapApplicationStatus::Applied
+        );
+        assert_eq!(
+            decision.source_bootstrap_status,
+            Stage4BrokerTruthBootstrapStatus::BootstrapReady
+        );
+        assert_eq!(decision.blocker_count, 0);
+        assert!(decision.applied_snapshot.is_some());
+        assert_eq!(
+            decision.applied_snapshot.as_ref(),
+            Some(&report.runtime_bootstrap_snapshot)
+        );
+        assert!(decision.broker_truth_loaded_before_runtime_state);
+        assert!(!decision.restored_runtime_overrode_broker_truth);
+        assert!(decision.no_live_authorization);
+    }
+
+    #[test]
+    fn stage4e_blocks_every_non_ready_bootstrap_status_before_runtime_notification() {
+        let mut cases = Vec::new();
+
+        let incomplete_truth = base_truth();
+        let mut incomplete_request = input(&incomplete_truth);
+        incomplete_request.broker_truth_source_status = Stage4BrokerTruthSourceStatus::Missing;
+        cases.push((
+            validate_stage4_broker_truth_bootstrap(incomplete_request),
+            Stage4RuntimeBootstrapApplicationBlockerKind::BrokerTruthIncomplete,
+        ));
+
+        let stale_truth = base_truth();
+        let mut stale_request = input(&stale_truth);
+        stale_request.freshness.positions = Stage4BrokerTruthFreshnessProbe::fresh(
+            checked_ts() - chrono::Duration::seconds(120),
+            60_000,
+            true,
+        );
+        cases.push((
+            validate_stage4_broker_truth_bootstrap(stale_request),
+            Stage4RuntimeBootstrapApplicationBlockerKind::BrokerTruthStale,
+        ));
+
+        let mut mismatch_truth = base_truth();
+        mismatch_truth.instruments.clear();
+        cases.push((
+            validate_stage4_broker_truth_bootstrap(input(&mismatch_truth)),
+            Stage4RuntimeBootstrapApplicationBlockerKind::InstrumentMismatch,
+        ));
+
+        let unknown_schedule_truth = base_truth();
+        let mut unknown_schedule_request = input(&unknown_schedule_truth);
+        unknown_schedule_request.schedule_state = BrokerMarketSessionState::Unknown;
+        cases.push((
+            validate_stage4_broker_truth_bootstrap(unknown_schedule_request),
+            Stage4RuntimeBootstrapApplicationBlockerKind::UnknownSchedule,
+        ));
+
+        let mut manual_truth = base_truth();
+        manual_truth.positions.push(target_position(Decimal::ONE));
+        cases.push((
+            validate_stage4_broker_truth_bootstrap(input(&manual_truth)),
+            Stage4RuntimeBootstrapApplicationBlockerKind::ManualInterventionRequired,
+        ));
+
+        let evidence_truth = base_truth();
+        let mut evidence_request = input(&evidence_truth);
+        evidence_request.adoption = Stage4AdoptionDisposition {
+            adopted_target_order_count: 1,
+            ..Stage4AdoptionDisposition::default()
+        };
+        cases.push((
+            validate_stage4_broker_truth_bootstrap(evidence_request),
+            Stage4RuntimeBootstrapApplicationBlockerKind::EvidenceIncomplete,
+        ));
+
+        let safety_truth = base_truth();
+        let mut safety_request = input(&safety_truth);
+        safety_request.safety_boundary.runtime_live_enabled = true;
+        cases.push((
+            validate_stage4_broker_truth_bootstrap(safety_request),
+            Stage4RuntimeBootstrapApplicationBlockerKind::SafetyBoundaryOpen,
+        ));
+
+        for (report, expected_blocker) in cases {
+            assert_ne!(
+                report.status,
+                Stage4BrokerTruthBootstrapStatus::BootstrapReady
+            );
+            let decision = evaluate_stage4_runtime_bootstrap_application(&report);
+            assert_eq!(
+                decision.status,
+                Stage4RuntimeBootstrapApplicationStatus::Blocked
+            );
+            assert!(decision.applied_snapshot.is_none());
+            assert_eq!(decision.blocker_count, 1);
+            assert_eq!(decision.blockers[0].kind, expected_blocker);
+            assert!(decision.blockers[0].blocks_runtime_notification);
+            assert!(decision.no_live_authorization);
+        }
+    }
+
+    #[test]
+    fn stage4e_restored_runtime_state_cannot_overwrite_broker_truth_snapshot() {
+        let truth = base_truth();
+        let restored = restored_with_known_order("HISTORICAL-ORDER-1");
+        let mut request = input(&truth);
+        request.restored_runtime_state = Some(&restored);
+        let report = validate_stage4_broker_truth_bootstrap(request);
+
+        let decision = evaluate_stage4_runtime_bootstrap_application(&report);
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::BootstrapReady
+        );
+        assert!(decision.restored_runtime_state_present);
+        assert!(decision.restored_runtime_state_accepted_after_broker_truth);
+        assert!(!decision.restored_runtime_overrode_broker_truth);
+        assert_eq!(decision.target_position_qty, Decimal::ZERO);
+        assert_eq!(
+            decision
+                .applied_snapshot
+                .as_ref()
+                .expect("applied snapshot")
+                .target_position_qty,
+            Decimal::ZERO
+        );
+    }
+
+    #[test]
+    fn stage4e_positive_restored_runtime_trade_correlation_allows_application() {
+        let mut truth = base_truth();
+        truth
+            .trades
+            .push(target_trade("TRADE-RESTORED-1", Some("RESTORED-ORDER-1")));
+        let restored = restored_with_known_order("RESTORED-ORDER-1");
+        let mut request = input(&truth);
+        request.restored_runtime_state = Some(&restored);
+        let report = validate_stage4_broker_truth_bootstrap(request);
+
+        let decision = evaluate_stage4_runtime_bootstrap_application(&report);
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::BootstrapReady
+        );
+        assert_eq!(
+            report
+                .trade_correlation_summary
+                .strategy_attributed_trade_count,
+            1
+        );
+        assert_eq!(
+            report
+                .trade_correlation_summary
+                .unknown_or_orphan_target_trade_count,
+            0
+        );
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeBootstrapApplicationStatus::Applied
+        );
+    }
+
+    #[test]
+    fn stage4e_keeps_target_bootstrap_scope_separate_from_account_wide_diagnostics() {
+        let mut truth = base_truth();
+        let mut other_order = target_order("OTHER-SYMBOL-ORDER", OrderStatus::Working);
+        other_order.instrument = InstrumentId {
+            symbol: "USDRUBF".to_string(),
+            venue_symbol: Some("USDRUBF@RTSX".to_string()),
+            exchange: Exchange::Moex,
+            market: Market::Futures,
+        };
+        truth.orders.push(other_order);
+        let report = validate_stage4_broker_truth_bootstrap(input(&truth));
+
+        let decision = evaluate_stage4_runtime_bootstrap_application(&report);
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::BootstrapReady
+        );
+        assert_eq!(decision.target_active_order_count, 0);
+        assert_eq!(decision.account_active_order_count, 1);
+        assert_eq!(
+            decision
+                .applied_snapshot
+                .as_ref()
+                .expect("applied snapshot")
+                .target_active_orders
+                .len(),
+            0
+        );
+        assert_eq!(
+            decision
+                .applied_snapshot
+                .as_ref()
+                .expect("applied snapshot")
+                .account_active_orders_count,
+            1
+        );
+    }
+
+    #[test]
+    fn stage4e_preserves_explicit_dirty_start_adoption_evidence() {
+        let mut truth = base_truth();
+        truth.positions.push(target_position(Decimal::new(3, 0)));
+        let mut request = input(&truth);
+        request.adoption = Stage4AdoptionDisposition {
+            position_adoption_attempted: true,
+            position_adoption_allowed: true,
+            position_adoption_applied: true,
+            adopted_target_position_qty: Decimal::new(3, 0),
+            ..Stage4AdoptionDisposition::default()
+        };
+        let report = validate_stage4_broker_truth_bootstrap(request);
+
+        let decision = evaluate_stage4_runtime_bootstrap_application(&report);
+
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeBootstrapApplicationStatus::Applied
+        );
+        assert_eq!(
+            decision.dirty_start_disposition,
+            Stage4DirtyStartDisposition::AdoptTargetPositionExplicitly
+        );
+        assert_eq!(decision.target_position_qty, Decimal::new(3, 0));
+        assert!(!decision.target_is_flat);
     }
 
     #[test]
