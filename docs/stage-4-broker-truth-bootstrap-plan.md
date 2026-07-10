@@ -287,9 +287,10 @@ After Stage 4A-1 acceptance, the next reviewable slices are:
 3. Stage 4D — FINAM read-only broker-truth mapper and fixture-backed source
    normalization (accepted).
 4. Stage 4E — `BrokerTruthSnapshot` -> `RuntimeHostBootstrapSnapshot`
-   application evidence (implemented for review).
-5. Stage 4F — dirty-start / explicit adoption / manual-intervention policy.
-6. Stage 4G — bootstrap lifecycle order enforcement.
+   application evidence (accepted).
+5. Stage 4F — dirty-start / explicit adoption / manual-intervention policy
+   (accepted).
+6. Stage 4G — bootstrap lifecycle order enforcement (implemented for review).
 7. Stage 4H — paper/mock bootstrap integration tests.
 8. Stage 4I — redacted broker-truth bootstrap evidence report generator.
 9. Stage 4J — Stage 4 acceptance report.

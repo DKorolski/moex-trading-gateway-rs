@@ -196,8 +196,8 @@ Stage split:
   `ValidatedBootstrapInconsistent`. Restored runtime state is accepted only
   after broker truth, cannot overwrite broker truth, target/account scopes stay
   separated, and live/execution authorization remains closed.
-- Stage 4F is implemented for review as a dirty-start policy gate after Stage
-  4E. It carries full adoption evidence into the application/operator decision,
+- Stage 4F is accepted as a dirty-start policy gate after Stage 4E. It carries
+  full adoption evidence into the application/operator decision,
   evaluates position and order adoption separately, requires explicit
   attempted/allowed/applied adoption with exact broker-truth qty/count matches,
   requires Stage 4E application evidence to exactly match the canonical
@@ -206,6 +206,11 @@ Stage split:
   keeps non-target account-wide dirty state diagnostic by default, and still
   forbids runtime-live, real FINAM command consumption, POST/DELETE, and
   Stop/SLTP/bracket.
+- Stage 4G is implemented for review as runtime lifecycle ordering evidence
+  after accepted Stage 4E/4F. It requires canonical application/policy evidence,
+  validates ALOR-compatible lifecycle order, suppresses final bootstrap
+  notification on any lifecycle blocker, and still forbids runtime-live, real
+  FINAM command consumption, POST/DELETE, and Stop/SLTP/bracket.
 
 Green / mostly closed:
 

@@ -950,6 +950,16 @@ pub fn evaluate_stage4_runtime_lifecycle_ordering(
     } else {
         Stage4RuntimeLifecycleOrderingStatus::Blocked
     };
+    let runtime_bootstrap_notification_allowed = status
+        == Stage4RuntimeLifecycleOrderingStatus::Accepted
+        && dirty_start_policy.runtime_bootstrap_notification_allowed
+        && application_and_policy_accepted_before_bootstrap_notification
+        && notify_bootstrap_after_application_evidence
+        && notify_runtime_state_restored_after_bootstrap_notification
+        && runtime_state_restore_cannot_overwrite_broker_truth
+        && warmup_after_bootstrap_notification
+        && pending_recovery_after_warmup
+        && no_live_authorization;
     let blocker_count = blockers.len();
     Stage4RuntimeLifecycleOrderingDecision {
         schema_version: STAGE4_RUNTIME_LIFECYCLE_ORDERING_SCHEMA_VERSION,
@@ -968,8 +978,7 @@ pub fn evaluate_stage4_runtime_lifecycle_ordering(
         warmup_after_bootstrap_notification,
         pending_recovery_after_warmup,
         no_live_authorization,
-        runtime_bootstrap_notification_allowed: dirty_start_policy
-            .runtime_bootstrap_notification_allowed,
+        runtime_bootstrap_notification_allowed,
         blockers,
         blocker_count,
     }
@@ -2619,6 +2628,7 @@ mod tests {
             Stage4RuntimeLifecycleOrderingStatus::Blocked
         );
         assert!(!decision.notify_bootstrap_after_application_evidence);
+        assert!(!decision.runtime_bootstrap_notification_allowed);
         assert!(has_stage4g_blocker(
             &decision,
             Stage4RuntimeLifecycleOrderingBlockerKind::RuntimeLifecyclePlanInvalid
@@ -2658,6 +2668,7 @@ mod tests {
             Stage4RuntimeBootstrapApplicationStatus::Blocked
         );
         assert!(!decision.application_and_policy_accepted_before_bootstrap_notification);
+        assert!(!decision.runtime_bootstrap_notification_allowed);
         assert!(has_stage4g_blocker(
             &decision,
             Stage4RuntimeLifecycleOrderingBlockerKind::ApplicationEvidenceNotApplied
@@ -2687,6 +2698,7 @@ mod tests {
         );
         assert!(!decision.application_and_policy_accepted_before_bootstrap_notification);
         assert!(!decision.notify_bootstrap_after_application_evidence);
+        assert!(!decision.runtime_bootstrap_notification_allowed);
         assert!(has_stage4g_blocker(
             &decision,
             Stage4RuntimeLifecycleOrderingBlockerKind::DirtyStartPolicyNotAccepted
@@ -2714,6 +2726,7 @@ mod tests {
             Stage4RuntimeLifecycleOrderingStatus::Blocked
         );
         assert!(!decision.notify_runtime_state_restored_after_bootstrap_notification);
+        assert!(!decision.runtime_bootstrap_notification_allowed);
         assert!(has_stage4g_blocker(
             &decision,
             Stage4RuntimeLifecycleOrderingBlockerKind::RuntimeStateRestoredBeforeBootstrapNotification
@@ -2737,6 +2750,7 @@ mod tests {
             Stage4RuntimeLifecycleOrderingStatus::Blocked
         );
         assert!(!decision.runtime_state_restore_cannot_overwrite_broker_truth);
+        assert!(!decision.runtime_bootstrap_notification_allowed);
         assert!(has_stage4g_blocker(
             &decision,
             Stage4RuntimeLifecycleOrderingBlockerKind::ApplicationEvidenceNotApplied
@@ -2768,6 +2782,7 @@ mod tests {
             Stage4RuntimeLifecycleOrderingStatus::Blocked
         );
         assert!(!decision.warmup_after_bootstrap_notification);
+        assert!(!decision.runtime_bootstrap_notification_allowed);
         assert!(has_stage4g_blocker(
             &decision,
             Stage4RuntimeLifecycleOrderingBlockerKind::WarmupBeforeBootstrapNotification
@@ -2795,6 +2810,7 @@ mod tests {
             Stage4RuntimeLifecycleOrderingStatus::Blocked
         );
         assert!(!decision.pending_recovery_after_warmup);
+        assert!(!decision.runtime_bootstrap_notification_allowed);
         assert!(has_stage4g_blocker(
             &decision,
             Stage4RuntimeLifecycleOrderingBlockerKind::PendingRecoveryBeforeWarmup
@@ -2815,6 +2831,7 @@ mod tests {
             Stage4RuntimeLifecycleOrderingStatus::Blocked
         );
         assert!(!decision.no_live_authorization);
+        assert!(!decision.runtime_bootstrap_notification_allowed);
         assert!(has_stage4g_blocker(
             &decision,
             Stage4RuntimeLifecycleOrderingBlockerKind::LiveAuthorizationAttempted
@@ -2823,6 +2840,33 @@ mod tests {
             &decision,
             Stage4RuntimeLifecycleOrderingBlockerKind::RuntimeLifecyclePlanInvalid
         ));
+    }
+
+    #[test]
+    fn stage4g_blocked_lifecycle_never_allows_runtime_bootstrap_notification() {
+        let (report, application, policy) = ready_stage4g_chain();
+        let mut plan = RuntimeHostLifecyclePlan::alor_compatible();
+        plan.steps = vec![
+            RuntimeHostLifecycleStep::LoadBrokerTruthSnapshot,
+            RuntimeHostLifecycleStep::LoadRuntimeState,
+            RuntimeHostLifecycleStep::WarmupHistory,
+            RuntimeHostLifecycleStep::NotifyBootstrapSnapshot,
+            RuntimeHostLifecycleStep::NotifyRuntimeStateRestored,
+            RuntimeHostLifecycleStep::RecoverPendingStreams,
+        ];
+
+        let decision =
+            evaluate_stage4_runtime_lifecycle_ordering(&report, &application, &policy, plan);
+
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeLifecycleOrderingStatus::Blocked
+        );
+        assert!(has_stage4g_blocker(
+            &decision,
+            Stage4RuntimeLifecycleOrderingBlockerKind::WarmupBeforeBootstrapNotification
+        ));
+        assert!(!decision.runtime_bootstrap_notification_allowed);
     }
 
     #[test]

@@ -41,6 +41,11 @@ only when all of these are true:
 - no live authorization is present in the application, policy, or lifecycle
   plan.
 
+`runtime_bootstrap_notification_allowed` is the final Stage 4G permission flag.
+It is `true` only for an accepted Stage 4G decision and is suppressed to `false`
+whenever any lifecycle-ordering blocker is present, even if the source Stage 4F
+policy flag was `true`.
+
 ## Added API
 
 - `STAGE4_RUNTIME_LIFECYCLE_ORDERING_SCHEMA_VERSION`.
@@ -84,7 +89,8 @@ Unit tests cover:
 - restored runtime-state overwrite of broker truth blocked;
 - warmup before bootstrap notification blocked;
 - pending recovery before warmup blocked;
-- live authorization attempt blocked.
+- live authorization attempt blocked;
+- any blocked lifecycle suppresses final runtime bootstrap notification.
 
 ## Safety boundary
 
