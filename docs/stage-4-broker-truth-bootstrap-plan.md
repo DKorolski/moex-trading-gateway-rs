@@ -9,7 +9,8 @@ adoption / manual-intervention policy accepted; Stage 4G runtime lifecycle
 ordering evidence accepted; Stage 4H paper/mock runtime-host bootstrap
 integration tests accepted; Stage 4I redacted operator-facing bootstrap
 evidence report accepted; Stage 4J FINAM Stage 4 report assembly bridge
-implemented for review.
+accepted. Stage 4 macro-stage accepted/closed as the broker-truth bootstrap
+foundation; Stage 5 is the next active macro-stage.
 
 Date: 2026-07-10.
 
@@ -308,7 +309,10 @@ After Stage 4A-1 acceptance, the next reviewable slices are:
 8. Stage 4I — redacted broker-truth bootstrap evidence report generator
    (accepted).
 9. Stage 4J — FINAM Stage 4 report assembly bridge
-   (implemented for review).
+   (accepted).
+
+Stage 4 is accepted/closed as the broker-truth bootstrap foundation. The next
+active macro-stage is Stage 5 — real strategy semantics attachment.
 
 All of these remain paper/mock/read-only until a later macro-stage explicitly
 authorizes command-consumer or live execution work.

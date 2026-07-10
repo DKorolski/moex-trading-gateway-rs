@@ -30,8 +30,10 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 4G runtime lifecycle ordering evidence is accepted.
 - Stage 4H paper/mock runtime-host bootstrap integration tests are accepted.
 - Stage 4I redacted operator-facing bootstrap evidence report is accepted.
-- Stage 4J FINAM Stage 4 report assembly bridge is implemented
-  for review.
+- Stage 4J FINAM Stage 4 report assembly bridge is accepted.
+- Stage 4 macro-stage is accepted/closed as the broker-truth bootstrap
+  foundation. The next active macro-stage is Stage 5 — real strategy semantics
+  attachment.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
@@ -228,10 +230,15 @@ Stage split:
   source evidence blocks the report; blocked reports carry an explicit reason
   chain and emit no runtime events. Runtime-live, real FINAM command
   consumption, POST/DELETE, and Stop/SLTP/bracket remain forbidden.
-- Stage 4J is implemented for review as the broker-core/FINAM Stage 4 report
-  assembly bridge. It builds the full Stage 4C→4I report from a FINAM Stage 4D
-  read-only package using the preferred source-evidence path, not the synthetic
+- Stage 4J is accepted as the broker-core/FINAM Stage 4 report assembly
+  bridge. It builds the full Stage 4C→4I report from a FINAM Stage 4D read-only
+  package using the preferred source-evidence path, not the synthetic
   compatibility builder. It remains report/evidence only.
+- Stage 4 is accepted/closed as broker-truth bootstrap foundation. It provides
+  the accepted read-only/paper evidence chain required before real strategy
+  semantics can attach. It does not authorize runtime-live, real FINAM command
+  consumption, POST/DELETE, or Stop/SLTP/bracket.
+- Next active macro-stage: Stage 5 — real strategy semantics attachment.
 
 Green / mostly closed:
 

@@ -1,6 +1,6 @@
 # Stage 4J — FINAM Stage 4 report assembly bridge
 
-Status: implemented for review.
+Status: accepted.
 
 Date: 2026-07-10.
 
@@ -95,5 +95,7 @@ Stage 4J keeps these disabled:
 - real POST/DELETE order endpoints;
 - Stop/SLTP/bracket/replace/multi-leg.
 
-Stage 4J acceptance would mean the FINAM read-only Stage 4 package can assemble
-the accepted redacted Stage 4 evidence report. It is not live trading approval.
+Stage 4J acceptance means the FINAM read-only Stage 4 package can assemble the
+accepted redacted Stage 4 evidence report. Stage 4 is accepted/closed after
+Stage 4J; Stage 5 — real strategy semantics attachment — is the next active
+macro-stage. This is not live trading approval.
