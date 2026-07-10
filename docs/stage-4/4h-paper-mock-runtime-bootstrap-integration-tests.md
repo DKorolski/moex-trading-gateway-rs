@@ -1,6 +1,6 @@
 # Stage 4H — paper/mock runtime-host bootstrap integration tests
 
-Status: implemented for review.
+Status: accepted.
 
 Date: 2026-07-10.
 
@@ -103,7 +103,6 @@ runtime-host bootstrap notifications are gated by accepted Stage 4G evidence.
 
 ## Follow-up
 
-After Stage 4H review acceptance, the next safe slice can add a redacted
-operator-facing bootstrap evidence report generator or continue toward a
-paper/mock runtime-host runbook. Runtime-live and real command consumption
-remain explicitly out of scope until later accepted gates.
+After Stage 4H acceptance, the next safe slice is Stage 4I: a redacted
+operator-facing bootstrap evidence report generator. Runtime-live and real
+command consumption remain explicitly out of scope until later accepted gates.

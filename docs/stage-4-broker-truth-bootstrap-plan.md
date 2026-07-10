@@ -7,7 +7,8 @@ broker-truth source normalization accepted; Stage 4E broker-truth to runtime
 bootstrap application evidence accepted; Stage 4F dirty-start / explicit
 adoption / manual-intervention policy accepted; Stage 4G runtime lifecycle
 ordering evidence accepted; Stage 4H paper/mock runtime-host bootstrap
-integration tests implemented for review.
+integration tests accepted; Stage 4I redacted operator-facing bootstrap
+evidence report implemented for review.
 
 Date: 2026-07-10.
 
@@ -58,6 +59,10 @@ Stage 4G adds runtime lifecycle ordering evidence described in
 
 Stage 4H adds paper/mock runtime-host bootstrap integration tests described in
 [`stage-4/4h-paper-mock-runtime-bootstrap-integration-tests.md`](stage-4/4h-paper-mock-runtime-bootstrap-integration-tests.md).
+
+Stage 4I adds the redacted operator-facing bootstrap evidence report described
+in
+[`stage-4/4i-redacted-bootstrap-evidence-report.md`](stage-4/4i-redacted-bootstrap-evidence-report.md).
 
 ## 2. Broker truth inputs
 
@@ -295,8 +300,9 @@ After Stage 4A-1 acceptance, the next reviewable slices are:
 5. Stage 4F — dirty-start / explicit adoption / manual-intervention policy
    (accepted).
 6. Stage 4G — bootstrap lifecycle order enforcement (accepted).
-7. Stage 4H — paper/mock bootstrap integration tests (implemented for review).
-8. Stage 4I — redacted broker-truth bootstrap evidence report generator.
+7. Stage 4H — paper/mock bootstrap integration tests (accepted).
+8. Stage 4I — redacted broker-truth bootstrap evidence report generator
+   (implemented for review).
 9. Stage 4J — Stage 4 acceptance report.
 
 All of these remain paper/mock/read-only until a later macro-stage explicitly

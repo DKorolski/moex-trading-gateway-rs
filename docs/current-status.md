@@ -28,7 +28,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 4F dirty-start / explicit adoption / manual-intervention policy is
   accepted.
 - Stage 4G runtime lifecycle ordering evidence is accepted.
-- Stage 4H paper/mock runtime-host bootstrap integration tests are implemented
+- Stage 4H paper/mock runtime-host bootstrap integration tests are accepted.
+- Stage 4I redacted operator-facing bootstrap evidence report is implemented
   for review.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
@@ -213,12 +214,19 @@ Stage split:
   ALOR-compatible lifecycle order, suppresses final bootstrap notification on
   any lifecycle blocker, and still forbids runtime-live, real FINAM command
   consumption, POST/DELETE, and Stop/SLTP/bracket.
-- Stage 4H is implemented for review as paper/mock runtime-host bootstrap
-  integration tests. It emits a deterministic mock runtime event trace only
-  after accepted Stage 4G and emits no bootstrap/restore/warmup/pending events
-  for stale broker truth, unknown schedule, manual intervention, noncanonical
-  policy, invalid lifecycle order, live authorization attempts, or internally
+- Stage 4H is accepted as paper/mock runtime-host bootstrap integration tests.
+  It emits a deterministic mock runtime event trace only after accepted Stage
+  4G and emits no bootstrap/restore/warmup/pending events for stale broker
+  truth, unknown schedule, manual intervention, noncanonical policy, invalid
+  lifecycle order, live authorization attempts, or internally
   inconsistent/tampered Stage 4G lifecycle DTOs.
+- Stage 4I is implemented for review as a redacted operator-facing bootstrap
+  evidence report. It summarizes Stage 4C validation, Stage 4D per-section
+  source evidence, Stage 4E application, Stage 4F dirty-start/adoption policy,
+  Stage 4G lifecycle ordering, and Stage 4H mock runtime trace. Blocked reports
+  carry an explicit reason chain and emit no runtime events. Runtime-live, real
+  FINAM command consumption, POST/DELETE, and Stop/SLTP/bracket remain
+  forbidden.
 
 Green / mostly closed:
 

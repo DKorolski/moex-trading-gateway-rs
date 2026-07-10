@@ -22,6 +22,7 @@ pub const STAGE4_RUNTIME_BOOTSTRAP_APPLICATION_SCHEMA_VERSION: u16 = 1;
 pub const STAGE4_DIRTY_START_POLICY_SCHEMA_VERSION: u16 = 1;
 pub const STAGE4_RUNTIME_LIFECYCLE_ORDERING_SCHEMA_VERSION: u16 = 1;
 pub const STAGE4_RUNTIME_BOOTSTRAP_INTEGRATION_SCHEMA_VERSION: u16 = 1;
+pub const STAGE4_BOOTSTRAP_EVIDENCE_REPORT_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Stage4BrokerTruthBootstrapStatus {
@@ -721,6 +722,116 @@ pub struct Stage4RuntimeBootstrapIntegrationDecision {
     pub blocker_count: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Stage4BootstrapEvidenceReportStatus {
+    Accepted,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Stage4BootstrapEvidenceReportStage {
+    BrokerTruthValidation,
+    RuntimeBootstrapApplication,
+    DirtyStartPolicy,
+    RuntimeLifecycleOrdering,
+    RuntimeBootstrapIntegration,
+    EvidenceChain,
+    SafetyRedaction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Stage4BootstrapEvidenceReportBlockerKind {
+    EvidenceChainInconsistent,
+    BrokerTruthValidationBlocked,
+    RuntimeBootstrapApplicationBlocked,
+    DirtyStartPolicyBlocked,
+    RuntimeLifecycleOrderingBlocked,
+    RuntimeBootstrapIntegrationBlocked,
+    RedactionBoundaryOpen,
+    LiveAuthorizationAttempted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage4BootstrapEvidenceReportBlocker {
+    pub stage: Stage4BootstrapEvidenceReportStage,
+    pub kind: Stage4BootstrapEvidenceReportBlockerKind,
+    pub blocks_runtime_events: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage4BootstrapEvidenceSourceSection {
+    pub section: Stage4BrokerTruthFreshnessSection,
+    pub status: Stage4BrokerTruthFreshnessStatus,
+    pub required_for_bootstrap: bool,
+    pub blocks_bootstrap: bool,
+    pub age_ms: Option<i64>,
+    pub max_age_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage4BootstrapEvidenceRedaction {
+    pub report_redacted: bool,
+    pub raw_payloads_exported: bool,
+    pub secrets_exported: bool,
+    pub account_sensitive_dumps_exported: bool,
+    pub broker_account_id_exported: bool,
+    pub raw_order_comments_exported: bool,
+}
+
+impl Stage4BootstrapEvidenceRedaction {
+    pub fn closed() -> Self {
+        Self {
+            report_redacted: true,
+            raw_payloads_exported: false,
+            secrets_exported: false,
+            account_sensitive_dumps_exported: false,
+            broker_account_id_exported: false,
+            raw_order_comments_exported: false,
+        }
+    }
+
+    fn is_closed(&self) -> bool {
+        self.report_redacted
+            && !self.raw_payloads_exported
+            && !self.secrets_exported
+            && !self.account_sensitive_dumps_exported
+            && !self.broker_account_id_exported
+            && !self.raw_order_comments_exported
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Stage4BootstrapEvidenceReport {
+    pub schema_version: u16,
+    pub checked_ts: DateTime<Utc>,
+    pub status: Stage4BootstrapEvidenceReportStatus,
+    pub target_instrument: InstrumentId,
+    pub broker_truth_source_status: Stage4BrokerTruthSourceStatus,
+    pub source_sections: Vec<Stage4BootstrapEvidenceSourceSection>,
+    pub stage4c_status: Stage4BrokerTruthBootstrapStatus,
+    pub stage4c_blocker_kinds: Vec<Stage4BrokerTruthReadinessBlockerKind>,
+    pub stage4e_status: Stage4RuntimeBootstrapApplicationStatus,
+    pub stage4e_blocker_kinds: Vec<Stage4RuntimeBootstrapApplicationBlockerKind>,
+    pub stage4f_status: Stage4DirtyStartPolicyStatus,
+    pub stage4f_blocker_kinds: Vec<Stage4DirtyStartPolicyBlockerKind>,
+    pub stage4g_status: Stage4RuntimeLifecycleOrderingStatus,
+    pub stage4g_blocker_kinds: Vec<Stage4RuntimeLifecycleOrderingBlockerKind>,
+    pub stage4g_lifecycle_issues: Vec<RuntimeHostLifecycleIssue>,
+    pub stage4h_status: Stage4RuntimeBootstrapIntegrationStatus,
+    pub stage4h_blocker_kinds: Vec<Stage4RuntimeBootstrapIntegrationBlockerKind>,
+    pub reason_chain: Vec<Stage4BootstrapEvidenceReportBlocker>,
+    pub redaction: Stage4BootstrapEvidenceRedaction,
+    pub safety_boundary: Stage4BrokerTruthSafetyBoundary,
+    pub target_is_flat: bool,
+    pub target_active_order_count: usize,
+    pub account_active_order_count: usize,
+    pub manual_intervention_required: bool,
+    pub no_live_authorization: bool,
+    pub runtime_events_emitted: bool,
+    pub mock_runtime_events: Vec<Stage4RuntimeBootstrapIntegrationEvent>,
+    pub blocker_count: usize,
+}
+
 pub fn evaluate_stage4_runtime_bootstrap_application(
     validated: &ValidatedStage4BrokerTruthBootstrap,
 ) -> Stage4RuntimeBootstrapApplicationDecision {
@@ -1126,6 +1237,195 @@ pub fn evaluate_stage4_runtime_bootstrap_integration(
         blockers,
         blocker_count,
     }
+}
+
+pub fn build_stage4_bootstrap_evidence_report(
+    validated: &ValidatedStage4BrokerTruthBootstrap,
+    application: &Stage4RuntimeBootstrapApplicationDecision,
+    dirty_start_policy: &Stage4DirtyStartPolicyDecision,
+    lifecycle: &Stage4RuntimeLifecycleOrderingDecision,
+    integration: &Stage4RuntimeBootstrapIntegrationDecision,
+) -> Stage4BootstrapEvidenceReport {
+    let redaction = Stage4BootstrapEvidenceRedaction::closed();
+    let chain_is_canonical = stage4_bootstrap_evidence_chain_is_canonical(
+        validated,
+        application,
+        dirty_start_policy,
+        lifecycle,
+        integration,
+    );
+    let no_live_authorization = application.no_live_authorization
+        && dirty_start_policy.no_live_authorization
+        && lifecycle.no_live_authorization
+        && integration.no_live_authorization;
+    let mut reason_chain = Vec::new();
+
+    if !chain_is_canonical {
+        reason_chain.push(stage4_bootstrap_evidence_report_blocker(
+            Stage4BootstrapEvidenceReportStage::EvidenceChain,
+            Stage4BootstrapEvidenceReportBlockerKind::EvidenceChainInconsistent,
+        ));
+    }
+    if validated.status != Stage4BrokerTruthBootstrapStatus::BootstrapReady {
+        reason_chain.push(stage4_bootstrap_evidence_report_blocker(
+            Stage4BootstrapEvidenceReportStage::BrokerTruthValidation,
+            Stage4BootstrapEvidenceReportBlockerKind::BrokerTruthValidationBlocked,
+        ));
+    }
+    if application.status != Stage4RuntimeBootstrapApplicationStatus::Applied {
+        reason_chain.push(stage4_bootstrap_evidence_report_blocker(
+            Stage4BootstrapEvidenceReportStage::RuntimeBootstrapApplication,
+            Stage4BootstrapEvidenceReportBlockerKind::RuntimeBootstrapApplicationBlocked,
+        ));
+    }
+    if dirty_start_policy.status != Stage4DirtyStartPolicyStatus::Accepted {
+        reason_chain.push(stage4_bootstrap_evidence_report_blocker(
+            Stage4BootstrapEvidenceReportStage::DirtyStartPolicy,
+            Stage4BootstrapEvidenceReportBlockerKind::DirtyStartPolicyBlocked,
+        ));
+    }
+    if lifecycle.status != Stage4RuntimeLifecycleOrderingStatus::Accepted {
+        reason_chain.push(stage4_bootstrap_evidence_report_blocker(
+            Stage4BootstrapEvidenceReportStage::RuntimeLifecycleOrdering,
+            Stage4BootstrapEvidenceReportBlockerKind::RuntimeLifecycleOrderingBlocked,
+        ));
+    }
+    if integration.status != Stage4RuntimeBootstrapIntegrationStatus::Accepted {
+        reason_chain.push(stage4_bootstrap_evidence_report_blocker(
+            Stage4BootstrapEvidenceReportStage::RuntimeBootstrapIntegration,
+            Stage4BootstrapEvidenceReportBlockerKind::RuntimeBootstrapIntegrationBlocked,
+        ));
+    }
+    if !redaction.is_closed() || validated.safety_boundary.raw_payload_exported {
+        reason_chain.push(stage4_bootstrap_evidence_report_blocker(
+            Stage4BootstrapEvidenceReportStage::SafetyRedaction,
+            Stage4BootstrapEvidenceReportBlockerKind::RedactionBoundaryOpen,
+        ));
+    }
+    if !no_live_authorization {
+        reason_chain.push(stage4_bootstrap_evidence_report_blocker(
+            Stage4BootstrapEvidenceReportStage::SafetyRedaction,
+            Stage4BootstrapEvidenceReportBlockerKind::LiveAuthorizationAttempted,
+        ));
+    }
+
+    let status = if reason_chain.is_empty() {
+        Stage4BootstrapEvidenceReportStatus::Accepted
+    } else {
+        Stage4BootstrapEvidenceReportStatus::Blocked
+    };
+    let runtime_events_emitted = status == Stage4BootstrapEvidenceReportStatus::Accepted
+        && !integration.mock_runtime_events.is_empty();
+    let mock_runtime_events = if runtime_events_emitted {
+        integration.mock_runtime_events.clone()
+    } else {
+        Vec::new()
+    };
+    let blocker_count = reason_chain.len();
+
+    Stage4BootstrapEvidenceReport {
+        schema_version: STAGE4_BOOTSTRAP_EVIDENCE_REPORT_SCHEMA_VERSION,
+        checked_ts: validated.checked_ts,
+        status,
+        target_instrument: validated.target_instrument.clone(),
+        broker_truth_source_status: validated.broker_truth_source_status,
+        source_sections: stage4_bootstrap_evidence_source_sections(validated),
+        stage4c_status: validated.status,
+        stage4c_blocker_kinds: validated
+            .blockers
+            .iter()
+            .map(|blocker| blocker.kind)
+            .collect(),
+        stage4e_status: application.status,
+        stage4e_blocker_kinds: application
+            .blockers
+            .iter()
+            .map(|blocker| blocker.kind)
+            .collect(),
+        stage4f_status: dirty_start_policy.status,
+        stage4f_blocker_kinds: dirty_start_policy
+            .blockers
+            .iter()
+            .map(|blocker| blocker.kind)
+            .collect(),
+        stage4g_status: lifecycle.status,
+        stage4g_blocker_kinds: lifecycle
+            .blockers
+            .iter()
+            .map(|blocker| blocker.kind)
+            .collect(),
+        stage4g_lifecycle_issues: lifecycle.lifecycle_issues.clone(),
+        stage4h_status: integration.status,
+        stage4h_blocker_kinds: integration
+            .blockers
+            .iter()
+            .map(|blocker| blocker.kind)
+            .collect(),
+        reason_chain,
+        redaction,
+        safety_boundary: validated.safety_boundary.clone(),
+        target_is_flat: validated.target_is_flat,
+        target_active_order_count: validated.ownership_summary.target_active_order_count,
+        account_active_order_count: validated.ownership_summary.account_active_order_count,
+        manual_intervention_required: validated.manual_intervention_required,
+        no_live_authorization,
+        runtime_events_emitted,
+        mock_runtime_events,
+        blocker_count,
+    }
+}
+
+fn stage4_bootstrap_evidence_source_sections(
+    validated: &ValidatedStage4BrokerTruthBootstrap,
+) -> Vec<Stage4BootstrapEvidenceSourceSection> {
+    validated
+        .freshness
+        .sections
+        .iter()
+        .map(|section| Stage4BootstrapEvidenceSourceSection {
+            section: section.section,
+            status: section.status,
+            required_for_bootstrap: section.required_for_bootstrap,
+            blocks_bootstrap: section.blocks_bootstrap,
+            age_ms: section.age_ms,
+            max_age_ms: section.max_age_ms,
+        })
+        .collect()
+}
+
+fn stage4_bootstrap_evidence_report_blocker(
+    stage: Stage4BootstrapEvidenceReportStage,
+    kind: Stage4BootstrapEvidenceReportBlockerKind,
+) -> Stage4BootstrapEvidenceReportBlocker {
+    Stage4BootstrapEvidenceReportBlocker {
+        stage,
+        kind,
+        blocks_runtime_events: true,
+    }
+}
+
+fn stage4_bootstrap_evidence_chain_is_canonical(
+    validated: &ValidatedStage4BrokerTruthBootstrap,
+    application: &Stage4RuntimeBootstrapApplicationDecision,
+    dirty_start_policy: &Stage4DirtyStartPolicyDecision,
+    lifecycle: &Stage4RuntimeLifecycleOrderingDecision,
+    integration: &Stage4RuntimeBootstrapIntegrationDecision,
+) -> bool {
+    let canonical_application = evaluate_stage4_runtime_bootstrap_application(validated);
+    let canonical_dirty_start_policy =
+        evaluate_stage4_dirty_start_policy(validated, &canonical_application);
+    let canonical_lifecycle = evaluate_stage4_runtime_lifecycle_ordering(
+        validated,
+        &canonical_application,
+        &canonical_dirty_start_policy,
+        lifecycle.lifecycle_plan.clone(),
+    );
+    let canonical_integration = evaluate_stage4_runtime_bootstrap_integration(&canonical_lifecycle);
+
+    application == &canonical_application
+        && dirty_start_policy == &canonical_dirty_start_policy
+        && lifecycle == &canonical_lifecycle
+        && integration == &canonical_integration
 }
 
 fn stage4_runtime_lifecycle_ordering_is_internally_consistent(
@@ -2148,6 +2448,72 @@ mod tests {
         assert!(!decision.notify_runtime_state_restored_emitted);
         assert!(!decision.warmup_history_started);
         assert!(!decision.pending_stream_recovery_started);
+    }
+
+    fn ready_stage4i_report_chain() -> (
+        ValidatedStage4BrokerTruthBootstrap,
+        Stage4RuntimeBootstrapApplicationDecision,
+        Stage4DirtyStartPolicyDecision,
+        Stage4RuntimeLifecycleOrderingDecision,
+        Stage4RuntimeBootstrapIntegrationDecision,
+    ) {
+        let (report, application, policy) = ready_stage4g_chain();
+        let lifecycle = evaluate_stage4_runtime_lifecycle_ordering(
+            &report,
+            &application,
+            &policy,
+            RuntimeHostLifecyclePlan::alor_compatible(),
+        );
+        let integration = evaluate_stage4_runtime_bootstrap_integration(&lifecycle);
+        (report, application, policy, lifecycle, integration)
+    }
+
+    fn stale_stage4i_report_chain() -> (
+        ValidatedStage4BrokerTruthBootstrap,
+        Stage4RuntimeBootstrapApplicationDecision,
+        Stage4DirtyStartPolicyDecision,
+        Stage4RuntimeLifecycleOrderingDecision,
+        Stage4RuntimeBootstrapIntegrationDecision,
+    ) {
+        let truth = base_truth();
+        let mut request = input(&truth);
+        request.freshness.positions = Stage4BrokerTruthFreshnessProbe::fresh(
+            checked_ts() - chrono::Duration::seconds(120),
+            60_000,
+            true,
+        );
+        let report = validate_stage4_broker_truth_bootstrap(request);
+        let application = evaluate_stage4_runtime_bootstrap_application(&report);
+        let policy = evaluate_stage4_dirty_start_policy(&report, &application);
+        let lifecycle = evaluate_stage4_runtime_lifecycle_ordering(
+            &report,
+            &application,
+            &policy,
+            RuntimeHostLifecyclePlan::alor_compatible(),
+        );
+        let integration = evaluate_stage4_runtime_bootstrap_integration(&lifecycle);
+        (report, application, policy, lifecycle, integration)
+    }
+
+    fn has_stage4i_blocker(
+        report: &Stage4BootstrapEvidenceReport,
+        kind: Stage4BootstrapEvidenceReportBlockerKind,
+    ) -> bool {
+        report
+            .reason_chain
+            .iter()
+            .any(|blocker| blocker.kind == kind && blocker.blocks_runtime_events)
+    }
+
+    fn assert_stage4i_blocked_without_events(report: &Stage4BootstrapEvidenceReport) {
+        assert_eq!(report.status, Stage4BootstrapEvidenceReportStatus::Blocked);
+        assert!(!report.runtime_events_emitted);
+        assert!(report.mock_runtime_events.is_empty());
+        assert_eq!(report.blocker_count, report.reason_chain.len());
+        assert!(report
+            .reason_chain
+            .iter()
+            .all(|blocker| blocker.blocks_runtime_events));
     }
 
     #[test]
@@ -3336,6 +3702,172 @@ mod tests {
             &decision,
             Stage4RuntimeBootstrapIntegrationBlockerKind::LiveAuthorizationAttempted
         ));
+    }
+
+    #[test]
+    fn stage4i_accepted_report_is_redacted_deterministic_and_emits_mock_events() {
+        let (report, application, policy, lifecycle, integration) = ready_stage4i_report_chain();
+
+        let evidence_a = build_stage4_bootstrap_evidence_report(
+            &report,
+            &application,
+            &policy,
+            &lifecycle,
+            &integration,
+        );
+        let evidence_b = build_stage4_bootstrap_evidence_report(
+            &report,
+            &application,
+            &policy,
+            &lifecycle,
+            &integration,
+        );
+
+        assert_eq!(evidence_a, evidence_b);
+        assert_eq!(
+            evidence_a.schema_version,
+            STAGE4_BOOTSTRAP_EVIDENCE_REPORT_SCHEMA_VERSION
+        );
+        assert_eq!(
+            evidence_a.status,
+            Stage4BootstrapEvidenceReportStatus::Accepted
+        );
+        assert_eq!(evidence_a.blocker_count, 0);
+        assert!(evidence_a.reason_chain.is_empty());
+        assert!(evidence_a.redaction.is_closed());
+        assert_eq!(evidence_a.source_sections.len(), 6);
+        assert_eq!(
+            evidence_a.stage4c_status,
+            Stage4BrokerTruthBootstrapStatus::BootstrapReady
+        );
+        assert_eq!(
+            evidence_a.stage4e_status,
+            Stage4RuntimeBootstrapApplicationStatus::Applied
+        );
+        assert_eq!(
+            evidence_a.stage4f_status,
+            Stage4DirtyStartPolicyStatus::Accepted
+        );
+        assert_eq!(
+            evidence_a.stage4g_status,
+            Stage4RuntimeLifecycleOrderingStatus::Accepted
+        );
+        assert_eq!(
+            evidence_a.stage4h_status,
+            Stage4RuntimeBootstrapIntegrationStatus::Accepted
+        );
+        assert!(evidence_a.no_live_authorization);
+        assert!(evidence_a.runtime_events_emitted);
+        assert_eq!(
+            evidence_a.mock_runtime_events,
+            vec![
+                Stage4RuntimeBootstrapIntegrationEvent::NotifyBootstrapSnapshot,
+                Stage4RuntimeBootstrapIntegrationEvent::NotifyRuntimeStateRestored,
+                Stage4RuntimeBootstrapIntegrationEvent::WarmupHistory,
+                Stage4RuntimeBootstrapIntegrationEvent::RecoverPendingStreams,
+            ]
+        );
+    }
+
+    #[test]
+    fn stage4i_blocked_stale_broker_truth_report_shows_reason_chain_and_no_events() {
+        let (report, application, policy, lifecycle, integration) = stale_stage4i_report_chain();
+
+        let evidence = build_stage4_bootstrap_evidence_report(
+            &report,
+            &application,
+            &policy,
+            &lifecycle,
+            &integration,
+        );
+
+        assert_eq!(
+            evidence.stage4c_status,
+            Stage4BrokerTruthBootstrapStatus::BrokerTruthStale
+        );
+        assert_stage4i_blocked_without_events(&evidence);
+        assert!(has_stage4i_blocker(
+            &evidence,
+            Stage4BootstrapEvidenceReportBlockerKind::BrokerTruthValidationBlocked
+        ));
+        assert!(has_stage4i_blocker(
+            &evidence,
+            Stage4BootstrapEvidenceReportBlockerKind::RuntimeBootstrapApplicationBlocked
+        ));
+        assert!(has_stage4i_blocker(
+            &evidence,
+            Stage4BootstrapEvidenceReportBlockerKind::DirtyStartPolicyBlocked
+        ));
+        assert!(has_stage4i_blocker(
+            &evidence,
+            Stage4BootstrapEvidenceReportBlockerKind::RuntimeLifecycleOrderingBlocked
+        ));
+        assert!(has_stage4i_blocker(
+            &evidence,
+            Stage4BootstrapEvidenceReportBlockerKind::RuntimeBootstrapIntegrationBlocked
+        ));
+        assert!(!has_stage4i_blocker(
+            &evidence,
+            Stage4BootstrapEvidenceReportBlockerKind::EvidenceChainInconsistent
+        ));
+        assert!(evidence.source_sections.iter().any(|section| {
+            section.section == Stage4BrokerTruthFreshnessSection::Positions
+                && section.status == Stage4BrokerTruthFreshnessStatus::Stale
+                && section.required_for_bootstrap
+                && section.blocks_bootstrap
+        }));
+    }
+
+    #[test]
+    fn stage4i_noncanonical_application_report_is_blocked_even_if_downstream_was_accepted() {
+        let (report, mut application, policy, lifecycle, integration) =
+            ready_stage4i_report_chain();
+        assert_eq!(
+            integration.status,
+            Stage4RuntimeBootstrapIntegrationStatus::Accepted
+        );
+        assert!(!integration.mock_runtime_events.is_empty());
+
+        application.no_live_authorization = false;
+        let evidence = build_stage4_bootstrap_evidence_report(
+            &report,
+            &application,
+            &policy,
+            &lifecycle,
+            &integration,
+        );
+
+        assert_stage4i_blocked_without_events(&evidence);
+        assert!(has_stage4i_blocker(
+            &evidence,
+            Stage4BootstrapEvidenceReportBlockerKind::EvidenceChainInconsistent
+        ));
+        assert!(has_stage4i_blocker(
+            &evidence,
+            Stage4BootstrapEvidenceReportBlockerKind::LiveAuthorizationAttempted
+        ));
+    }
+
+    #[test]
+    fn stage4i_serialized_report_does_not_export_broker_sensitive_fixture_values() {
+        let (report, application, policy, lifecycle, integration) = ready_stage4i_report_chain();
+        let evidence = build_stage4_bootstrap_evidence_report(
+            &report,
+            &application,
+            &policy,
+            &lifecycle,
+            &integration,
+        );
+
+        let json = serde_json::to_string_pretty(&evidence).expect("serialize evidence");
+
+        assert!(json.contains("BootstrapReady"));
+        assert!(json.contains("Applied"));
+        assert!(json.contains("Accepted"));
+        assert!(!json.contains("ACC_TEST_0001"));
+        assert!(!json.contains("ASSET_TEST_1"));
+        assert!(!json.contains("CLIENT-ORDER"));
+        assert!(!json.contains("BROKER-ORDER"));
     }
 
     #[test]
