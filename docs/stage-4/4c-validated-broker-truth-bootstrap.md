@@ -1,6 +1,7 @@
 # Stage 4C — validated broker-truth bootstrap wrapper
 
-Status: implemented for review after P1 hardening.
+Status: implemented for review after P1 hardening and final adoption-count
+guard.
 
 Date: 2026-07-10.
 
@@ -99,6 +100,9 @@ The follow-up hardening closes the Stage 4C review findings before Stage 4D:
 - Valid position/order adoption can produce `BootstrapReady` with explicit
   adoption disposition rather than contradictory manual-intervention wording.
 - Order adoption count is validated strictly against target active-order truth.
+- Adoption counts/quantities are effective only when the matching adoption
+  `applied` flag is true; inconsistent non-zero adoption evidence produces
+  `AdoptionEvidenceMissing`.
 - Target trades without proven runtime-owned broker-order correlation become
   unknown/orphan blockers.
 - Historical `known_order_ids` are diagnostic unless they are also restored
@@ -138,6 +142,10 @@ Added `broker-core` unit tests for:
 - target active order cannot silently disappear;
 - valid order adoption can be `BootstrapReady`;
 - invalid order adoption count produces `EvidenceIncomplete`;
+- adoption count without `order_adoption_applied=true` cannot suppress a target
+  active-order blocker;
+- non-zero adopted position quantity without `position_adoption_applied=true`
+  produces `EvidenceIncomplete`;
 - zero-quantity position rows are diagnostic, not open position truth;
 - offset non-zero target position rows require manual intervention;
 - restored runtime state remains state and does not override broker truth;

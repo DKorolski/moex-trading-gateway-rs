@@ -2,7 +2,8 @@
 
 Status: Stage 4A / Stage 4A-1 accepted as planning/evidence-schema foundation;
 Stage 4B existing type inventory and v2 alignment decision accepted; Stage 4C
-validated bootstrap wrapper implemented for review after P1 hardening.
+validated bootstrap wrapper implemented for review after P1 hardening and final
+adoption-count guard.
 
 Date: 2026-07-09.
 
@@ -264,7 +265,7 @@ After Stage 4A-1 acceptance, the next reviewable slices are:
    (accepted).
 2. Stage 4C — `BrokerTruthSnapshot` v2 /
    `RuntimeHostBootstrapSnapshot` DTO types and validation
-   (implemented for review after P1 hardening).
+   (implemented for review after P1 hardening and final adoption-count guard).
 3. Stage 4D — FINAM read-only broker-truth mapper and fixture-backed source
    normalization.
 4. Stage 4E — `BrokerTruthSnapshot` -> `RuntimeHostBootstrapSnapshot`

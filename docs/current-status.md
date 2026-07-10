@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-07-09.
+Status date: 2026-07-10.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -21,7 +21,7 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 4B existing broker-truth type inventory and v2 alignment decision is
   accepted.
 - Stage 4C validated broker-truth bootstrap wrapper and validation is
-  implemented for review after P1 hardening.
+  implemented for review after P1 hardening and final adoption-count guard.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
@@ -167,10 +167,11 @@ Stage split:
   existing `BrokerTruthSnapshot`, `RuntimeHostBootstrapSnapshot`,
   `RuntimeBootstrapSnapshotDto`, FINAM mapper, M3f/M3g issue machinery, and
   broker-truth parity helpers.
-- Stage 4C is implemented for review after P1 hardening as a validated wrapper
-  around existing `BrokerTruthSnapshot` and `RuntimeHostBootstrapSnapshot`, with
-  broker-truth source status, safe schedule freshness semantics, strict adoption
-  validation, stronger target trade correlation, freshness,
+- Stage 4C is implemented for review after P1 hardening and final
+  adoption-count guard as a validated wrapper around existing
+  `BrokerTruthSnapshot` and `RuntimeHostBootstrapSnapshot`, with broker-truth
+  source status, safe schedule freshness semantics, strict adoption validation,
+  stronger target trade correlation, freshness,
   ownership/correlation summaries, dirty-start/adoption disposition, restored
   runtime-state checks, external issue bridge, and closed safety boundary.
 - Stage 4D coding should not start until Stage 4C is accepted.

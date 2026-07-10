@@ -595,6 +595,13 @@ pub fn validate_stage4_broker_truth_bootstrap(
             Stage4BrokerTruthReadinessBlockerKind::AdoptionEvidenceMissing,
         ));
     }
+    if !input.adoption.position_adoption_applied
+        && input.adoption.adopted_target_position_qty != Decimal::ZERO
+    {
+        blockers.push(Stage4BrokerTruthReadinessBlocker::blocker(
+            Stage4BrokerTruthReadinessBlockerKind::AdoptionEvidenceMissing,
+        ));
+    }
     if ownership_summary.unknown_or_orphan_target_order_count > 0 {
         blockers.push(Stage4BrokerTruthReadinessBlocker::manual(
             Stage4BrokerTruthReadinessBlockerKind::UnknownOrOrphanTargetOrder,
@@ -618,6 +625,11 @@ pub fn validate_stage4_broker_truth_bootstrap(
             || !input.adoption.order_adoption_allowed
             || input.adoption.adopted_target_order_count != expected_adoptable_target_order_count)
     {
+        blockers.push(Stage4BrokerTruthReadinessBlocker::blocker(
+            Stage4BrokerTruthReadinessBlockerKind::AdoptionEvidenceMissing,
+        ));
+    }
+    if !input.adoption.order_adoption_applied && input.adoption.adopted_target_order_count != 0 {
         blockers.push(Stage4BrokerTruthReadinessBlocker::blocker(
             Stage4BrokerTruthReadinessBlockerKind::AdoptionEvidenceMissing,
         ));
@@ -905,7 +917,11 @@ fn build_ownership_summary(
         .count();
     let target_unknown_order_count = truth.unknown_orders_for_instrument(target_instrument).len();
     let target_active_order_count = target_active_orders.len();
-    let adopted_target_order_count = adoption.adopted_target_order_count;
+    let adopted_target_order_count = if adoption.order_adoption_applied {
+        adoption.adopted_target_order_count
+    } else {
+        0
+    };
     let unknown_or_orphan_target_order_count = target_active_order_count
         .saturating_sub(runtime_owned_target_order_count + adopted_target_order_count)
         + target_unknown_order_count
@@ -1280,6 +1296,60 @@ mod tests {
             Stage4BrokerTruthBootstrapStatus::EvidenceIncomplete
         );
         assert_eq!(report.adoption.adopted_target_order_count, 999);
+        assert!(report.blockers.iter().any(|blocker| {
+            blocker.kind == Stage4BrokerTruthReadinessBlockerKind::AdoptionEvidenceMissing
+        }));
+    }
+
+    #[test]
+    fn stage4c_order_adoption_count_without_applied_flag_cannot_suppress_active_order_blocker() {
+        let mut truth = base_truth();
+        truth
+            .orders
+            .push(target_order("BROKER-ORDER-1", OrderStatus::Working));
+        let mut request = input(&truth);
+        request.adoption = Stage4AdoptionDisposition {
+            order_adoption_attempted: false,
+            order_adoption_allowed: false,
+            order_adoption_applied: false,
+            adopted_target_order_count: 1,
+            ..Stage4AdoptionDisposition::default()
+        };
+
+        let report = validate_stage4_broker_truth_bootstrap(request);
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::EvidenceIncomplete
+        );
+        assert_eq!(report.ownership_summary.adopted_target_order_count, 0);
+        assert_eq!(report.adoption.adopted_target_order_count, 1);
+        assert!(report.blockers.iter().any(|blocker| {
+            blocker.kind == Stage4BrokerTruthReadinessBlockerKind::AdoptionEvidenceMissing
+        }));
+        assert!(report.blockers.iter().any(|blocker| {
+            blocker.kind == Stage4BrokerTruthReadinessBlockerKind::UnknownOrOrphanTargetOrder
+        }));
+    }
+
+    #[test]
+    fn stage4c_position_adoption_qty_without_applied_flag_is_evidence_incomplete() {
+        let truth = base_truth();
+        let mut request = input(&truth);
+        request.adoption = Stage4AdoptionDisposition {
+            position_adoption_attempted: false,
+            position_adoption_allowed: false,
+            position_adoption_applied: false,
+            adopted_target_position_qty: Decimal::ONE,
+            ..Stage4AdoptionDisposition::default()
+        };
+
+        let report = validate_stage4_broker_truth_bootstrap(request);
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::EvidenceIncomplete
+        );
         assert!(report.blockers.iter().any(|blocker| {
             blocker.kind == Stage4BrokerTruthReadinessBlockerKind::AdoptionEvidenceMissing
         }));
