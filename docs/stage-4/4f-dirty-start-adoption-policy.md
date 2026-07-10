@@ -1,6 +1,6 @@
 # Stage 4F — dirty-start / explicit adoption / manual-intervention policy
 
-Status: implemented for review.
+Status: implemented for review with P1 consistency guards.
 
 Date: 2026-07-10.
 
@@ -36,6 +36,10 @@ Stage 4F accepts the dirty-start policy only when:
 
 - Stage 4E application status is `Applied`;
 - an applied runtime bootstrap snapshot is present;
+- Stage 4E application evidence belongs to the same validated broker-truth
+  report;
+- Stage 4E application evidence is internally consistent with its applied /
+  blocked status;
 - no manual intervention is required;
 - position adoption, if required, is explicit;
 - order adoption, if required, is explicit;
@@ -63,6 +67,11 @@ Adoption is never inferred from broker truth. A non-flat target position without
 explicit position adoption remains blocked. Adoptable target active orders
 without explicit order adoption remain blocked.
 
+Runtime-owned target active orders are not adoptable dirty-start orders. If a
+target active broker order is already present in the restored runtime working
+order set, Stage 4F treats it as runtime-owned lifecycle truth and does not
+label the dirty-start disposition as `TargetActiveOrderRequiresAdoptionOrRepair`.
+
 ## Account-wide diagnostics
 
 Non-target account-wide dirty state remains diagnostic by default:
@@ -82,6 +91,9 @@ Stage 4F tests cover:
 - full adoption evidence carried from Stage 4C through Stage 4E into Stage 4F;
 - position adoption requires attempted/allowed/applied and matching quantity;
 - order adoption requires attempted/allowed/applied and matching count;
+- application evidence from a different validated report is blocked;
+- applied application evidence with blockers is blocked;
+- runtime-owned active target order does not require order adoption;
 - manual-intervention state blocks runtime notification policy;
 - account-wide non-target active order remains diagnostic by default.
 
