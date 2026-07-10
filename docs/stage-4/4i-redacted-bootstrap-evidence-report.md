@@ -65,7 +65,21 @@ canonical chain, the Stage 4I report is blocked with
 The preferred Stage 4I assembly path is
 `build_stage4_bootstrap_evidence_report_with_source_evidence(...)`. It merges
 Stage 4D per-section `source_status` evidence with Stage 4C per-section
-freshness evidence. The compatibility builder
+freshness evidence. Required-section source evidence is a defensive gate, not
+only a display field: a required source section with source status other than
+`Present` blocks the report with `SourceEvidenceBlocked` and suppresses runtime
+events. If a required source section is omitted from the input, Stage 4I treats
+it as `Incomplete` and blocks.
+
+The final `required_for_bootstrap` flag is conservative:
+
+```text
+stage4c_freshness_required || stage4d_source_required
+```
+
+So source evidence cannot downgrade a Stage 4C-required section to optional.
+
+The compatibility builder
 `build_stage4_bootstrap_evidence_report(...)` remains available for existing
 call sites and supplies synthetic `Present` source sections.
 
@@ -80,6 +94,7 @@ kind:
 - `RuntimeLifecycleOrderingBlocked`;
 - `RuntimeBootstrapIntegrationBlocked`;
 - `EvidenceChainInconsistent`;
+- `SourceEvidenceBlocked`;
 - `RedactionBoundaryOpen`;
 - `LiveAuthorizationAttempted`.
 
@@ -117,6 +132,11 @@ Unit tests cover:
 - stale required broker-truth sections produce a blocked report with a reason
   chain and no runtime events;
 - Stage 4D per-section source statuses are preserved in the Stage 4I report;
+- non-`Present` required source statuses block even when freshness is otherwise
+  ready;
+- source `required_for_bootstrap=false` cannot downgrade a Stage 4C-required
+  section;
+- missing required source evidence defaults to `Incomplete` and blocks;
 - serialized reports include source-status categories but no raw/sensitive
   broker fixture values;
 - noncanonical/tampered application evidence blocks the report even when

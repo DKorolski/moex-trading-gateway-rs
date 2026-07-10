@@ -731,6 +731,7 @@ pub enum Stage4BootstrapEvidenceReportStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Stage4BootstrapEvidenceReportStage {
     BrokerTruthValidation,
+    BrokerTruthSourceEvidence,
     RuntimeBootstrapApplication,
     DirtyStartPolicy,
     RuntimeLifecycleOrdering,
@@ -742,6 +743,7 @@ pub enum Stage4BootstrapEvidenceReportStage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Stage4BootstrapEvidenceReportBlockerKind {
     EvidenceChainInconsistent,
+    SourceEvidenceBlocked,
     BrokerTruthValidationBlocked,
     RuntimeBootstrapApplicationBlocked,
     DirtyStartPolicyBlocked,
@@ -1275,6 +1277,12 @@ pub fn build_stage4_bootstrap_evidence_report_with_source_evidence(
     integration: &Stage4RuntimeBootstrapIntegrationDecision,
 ) -> Stage4BootstrapEvidenceReport {
     let redaction = Stage4BootstrapEvidenceRedaction::closed();
+    let source_sections =
+        stage4_bootstrap_evidence_source_sections(validated, source_status_sections);
+    let source_evidence_blocks = source_sections.iter().any(|section| {
+        section.required_for_bootstrap
+            && section.source_status != Stage4BrokerTruthSourceStatus::Present
+    });
     let chain_is_canonical = stage4_bootstrap_evidence_chain_is_canonical(
         validated,
         application,
@@ -1295,6 +1303,12 @@ pub fn build_stage4_bootstrap_evidence_report_with_source_evidence(
         reason_chain.push(stage4_bootstrap_evidence_report_blocker(
             Stage4BootstrapEvidenceReportStage::EvidenceChain,
             Stage4BootstrapEvidenceReportBlockerKind::EvidenceChainInconsistent,
+        ));
+    }
+    if source_evidence_blocks {
+        reason_chain.push(stage4_bootstrap_evidence_report_blocker(
+            Stage4BootstrapEvidenceReportStage::BrokerTruthSourceEvidence,
+            Stage4BootstrapEvidenceReportBlockerKind::SourceEvidenceBlocked,
         ));
     }
     if validated.status != Stage4BrokerTruthBootstrapStatus::BootstrapReady {
@@ -1360,10 +1374,7 @@ pub fn build_stage4_bootstrap_evidence_report_with_source_evidence(
         status,
         target_instrument: validated.target_instrument.clone(),
         broker_truth_source_status: validated.broker_truth_source_status,
-        source_sections: stage4_bootstrap_evidence_source_sections(
-            validated,
-            source_status_sections,
-        ),
+        source_sections,
         stage4c_status: validated.status,
         stage4c_blocker_kinds: validated
             .blockers
@@ -1436,16 +1447,21 @@ fn stage4_bootstrap_evidence_source_sections(
             let source = source_status_sections
                 .iter()
                 .find(|source| source.section == freshness.section);
+            let source_status = source
+                .map(|source| source.source_status)
+                .unwrap_or(Stage4BrokerTruthSourceStatus::Incomplete);
+            let required_for_bootstrap = freshness.required_for_bootstrap
+                || source
+                    .map(|source| source.required_for_bootstrap)
+                    .unwrap_or(false);
+            let source_blocks_bootstrap =
+                required_for_bootstrap && source_status != Stage4BrokerTruthSourceStatus::Present;
             Stage4BootstrapEvidenceSourceSection {
                 section: freshness.section,
-                source_status: source
-                    .map(|source| source.source_status)
-                    .unwrap_or(Stage4BrokerTruthSourceStatus::Incomplete),
+                source_status,
                 freshness_status: freshness.status,
-                required_for_bootstrap: source
-                    .map(|source| source.required_for_bootstrap)
-                    .unwrap_or(freshness.required_for_bootstrap),
-                blocks_bootstrap: freshness.blocks_bootstrap,
+                required_for_bootstrap,
+                blocks_bootstrap: freshness.blocks_bootstrap || source_blocks_bootstrap,
                 age_ms: freshness.age_ms,
                 max_age_ms: freshness.max_age_ms,
             }
@@ -2629,6 +2645,41 @@ mod tests {
             stage4i_source_status_section(
                 Stage4BrokerTruthFreshnessSection::Schedule,
                 Stage4BrokerTruthSourceStatus::Incomplete,
+                true,
+            ),
+        ]
+    }
+
+    fn stage4i_all_present_source_sections() -> Vec<Stage4BootstrapEvidenceSourceStatusSection> {
+        vec![
+            stage4i_source_status_section(
+                Stage4BrokerTruthFreshnessSection::Positions,
+                Stage4BrokerTruthSourceStatus::Present,
+                true,
+            ),
+            stage4i_source_status_section(
+                Stage4BrokerTruthFreshnessSection::Orders,
+                Stage4BrokerTruthSourceStatus::Present,
+                true,
+            ),
+            stage4i_source_status_section(
+                Stage4BrokerTruthFreshnessSection::Trades,
+                Stage4BrokerTruthSourceStatus::Present,
+                true,
+            ),
+            stage4i_source_status_section(
+                Stage4BrokerTruthFreshnessSection::Cash,
+                Stage4BrokerTruthSourceStatus::Present,
+                false,
+            ),
+            stage4i_source_status_section(
+                Stage4BrokerTruthFreshnessSection::Instruments,
+                Stage4BrokerTruthSourceStatus::Present,
+                true,
+            ),
+            stage4i_source_status_section(
+                Stage4BrokerTruthFreshnessSection::Schedule,
+                Stage4BrokerTruthSourceStatus::Present,
                 true,
             ),
         ]
@@ -4058,6 +4109,106 @@ mod tests {
             section.section == Stage4BrokerTruthFreshnessSection::Schedule
                 && section.source_status == Stage4BrokerTruthSourceStatus::Incomplete
                 && section.freshness_status == Stage4BrokerTruthFreshnessStatus::Unavailable
+                && section.required_for_bootstrap
+                && section.blocks_bootstrap
+        }));
+    }
+
+    #[test]
+    fn stage4i_required_non_present_source_status_blocks_even_when_freshness_is_ready() {
+        let (report, application, policy, lifecycle, integration) = ready_stage4i_report_chain();
+        let mut source_sections = stage4i_all_present_source_sections();
+        source_sections
+            .iter_mut()
+            .find(|section| section.section == Stage4BrokerTruthFreshnessSection::Orders)
+            .expect("orders source evidence")
+            .source_status = Stage4BrokerTruthSourceStatus::DecodeFailed;
+
+        let evidence = build_stage4_bootstrap_evidence_report_with_source_evidence(
+            &report,
+            &source_sections,
+            &application,
+            &policy,
+            &lifecycle,
+            &integration,
+        );
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::BootstrapReady
+        );
+        assert_stage4i_blocked_without_events(&evidence);
+        assert!(has_stage4i_blocker(
+            &evidence,
+            Stage4BootstrapEvidenceReportBlockerKind::SourceEvidenceBlocked
+        ));
+        assert!(evidence.source_sections.iter().any(|section| {
+            section.section == Stage4BrokerTruthFreshnessSection::Orders
+                && section.source_status == Stage4BrokerTruthSourceStatus::DecodeFailed
+                && section.freshness_status == Stage4BrokerTruthFreshnessStatus::Fresh
+                && section.required_for_bootstrap
+                && section.blocks_bootstrap
+        }));
+    }
+
+    #[test]
+    fn stage4i_source_required_flag_cannot_downgrade_stage4c_required_section() {
+        let (report, application, policy, lifecycle, integration) = ready_stage4i_report_chain();
+        let mut source_sections = stage4i_all_present_source_sections();
+        let positions = source_sections
+            .iter_mut()
+            .find(|section| section.section == Stage4BrokerTruthFreshnessSection::Positions)
+            .expect("positions source evidence");
+        positions.source_status = Stage4BrokerTruthSourceStatus::Missing;
+        positions.required_for_bootstrap = false;
+
+        let evidence = build_stage4_bootstrap_evidence_report_with_source_evidence(
+            &report,
+            &source_sections,
+            &application,
+            &policy,
+            &lifecycle,
+            &integration,
+        );
+
+        assert_stage4i_blocked_without_events(&evidence);
+        assert!(has_stage4i_blocker(
+            &evidence,
+            Stage4BootstrapEvidenceReportBlockerKind::SourceEvidenceBlocked
+        ));
+        assert!(evidence.source_sections.iter().any(|section| {
+            section.section == Stage4BrokerTruthFreshnessSection::Positions
+                && section.source_status == Stage4BrokerTruthSourceStatus::Missing
+                && section.required_for_bootstrap
+                && section.blocks_bootstrap
+        }));
+    }
+
+    #[test]
+    fn stage4i_missing_required_source_section_is_incomplete_and_blocks() {
+        let (report, application, policy, lifecycle, integration) = ready_stage4i_report_chain();
+        let source_sections: Vec<_> = stage4i_all_present_source_sections()
+            .into_iter()
+            .filter(|section| section.section != Stage4BrokerTruthFreshnessSection::Schedule)
+            .collect();
+
+        let evidence = build_stage4_bootstrap_evidence_report_with_source_evidence(
+            &report,
+            &source_sections,
+            &application,
+            &policy,
+            &lifecycle,
+            &integration,
+        );
+
+        assert_stage4i_blocked_without_events(&evidence);
+        assert!(has_stage4i_blocker(
+            &evidence,
+            Stage4BootstrapEvidenceReportBlockerKind::SourceEvidenceBlocked
+        ));
+        assert!(evidence.source_sections.iter().any(|section| {
+            section.section == Stage4BrokerTruthFreshnessSection::Schedule
+                && section.source_status == Stage4BrokerTruthSourceStatus::Incomplete
                 && section.required_for_bootstrap
                 && section.blocks_bootstrap
         }));
