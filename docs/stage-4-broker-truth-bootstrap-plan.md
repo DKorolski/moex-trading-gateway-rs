@@ -2,10 +2,10 @@
 
 Status: Stage 4A / Stage 4A-1 accepted as planning/evidence-schema foundation;
 Stage 4B existing type inventory and v2 alignment decision accepted; Stage 4C
-validated bootstrap wrapper implemented for review after P1 hardening and final
-adoption-count guard.
+validated bootstrap wrapper accepted; Stage 4D FINAM read-only
+broker-truth source normalization implemented for review.
 
-Date: 2026-07-09.
+Date: 2026-07-10.
 
 ## 1. Goal
 
@@ -36,6 +36,9 @@ alignment decision in
 
 Stage 4C adds the validated wrapper described in
 [`stage-4/4c-validated-broker-truth-bootstrap.md`](stage-4/4c-validated-broker-truth-bootstrap.md).
+
+Stage 4D adds the FINAM read-only source-normalization wrapper described in
+[`stage-4/4d-finam-readonly-broker-truth-source-normalization.md`](stage-4/4d-finam-readonly-broker-truth-source-normalization.md).
 
 ## 2. Broker truth inputs
 
@@ -265,9 +268,9 @@ After Stage 4A-1 acceptance, the next reviewable slices are:
    (accepted).
 2. Stage 4C — `BrokerTruthSnapshot` v2 /
    `RuntimeHostBootstrapSnapshot` DTO types and validation
-   (implemented for review after P1 hardening and final adoption-count guard).
+   (accepted after P1 hardening and final adoption-count guard).
 3. Stage 4D — FINAM read-only broker-truth mapper and fixture-backed source
-   normalization.
+   normalization (implemented for review).
 4. Stage 4E — `BrokerTruthSnapshot` -> `RuntimeHostBootstrapSnapshot`
    conversion.
 5. Stage 4F — dirty-start / explicit adoption / manual-intervention policy.

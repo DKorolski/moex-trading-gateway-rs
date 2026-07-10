@@ -161,11 +161,14 @@ Added `broker-core` unit tests for:
 
 ## Next slice
 
-After Stage 4C review, the next logical slice remains Stage 4D:
-FINAM read-only broker-truth mapper and fixture-backed source normalization into
-the Stage 4 validated bootstrap wrapper.
+After Stage 4C review, the next logical slice is Stage 4D: FINAM read-only
+broker-truth mapper and fixture-backed source normalization into the Stage 4
+validated bootstrap wrapper.
 
 Stage 4D must still close mapper/source gaps, especially zero-quantity position
 diagnostics, schedule/session source propagation, per-section freshness
 timestamps, source availability/decode failure, and fixture-backed unknown /
 orphan order-trade cases.
+
+Stage 4D is now implemented for review in
+[`4d-finam-readonly-broker-truth-source-normalization.md`](4d-finam-readonly-broker-truth-source-normalization.md).

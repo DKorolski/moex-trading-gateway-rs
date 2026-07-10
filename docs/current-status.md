@@ -20,8 +20,9 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   plan/schema alignment are accepted as foundation.
 - Stage 4B existing broker-truth type inventory and v2 alignment decision is
   accepted.
-- Stage 4C validated broker-truth bootstrap wrapper and validation is
-  implemented for review after P1 hardening and final adoption-count guard.
+- Stage 4C validated broker-truth bootstrap wrapper and validation is accepted.
+- Stage 4D FINAM read-only broker-truth mapper/source normalization is
+  implemented for review.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
@@ -167,14 +168,21 @@ Stage split:
   existing `BrokerTruthSnapshot`, `RuntimeHostBootstrapSnapshot`,
   `RuntimeBootstrapSnapshotDto`, FINAM mapper, M3f/M3g issue machinery, and
   broker-truth parity helpers.
-- Stage 4C is implemented for review after P1 hardening and final
-  adoption-count guard as a validated wrapper around existing
+- Stage 4C is accepted after P1 hardening and final adoption-count guard as a
+  validated wrapper around existing
   `BrokerTruthSnapshot` and `RuntimeHostBootstrapSnapshot`, with broker-truth
   source status, safe schedule freshness semantics, strict adoption validation,
   stronger target trade correlation, freshness,
   ownership/correlation summaries, dirty-start/adoption disposition, restored
   runtime-state checks, external issue bridge, and closed safety boundary.
-- Stage 4D coding should not start until Stage 4C is accepted.
+- Stage 4D is implemented for review as FINAM read-only broker-truth
+  source-normalization into the Stage 4C validator. It adds explicit FINAM
+  source evidence (`Present`, `Missing`, `Unavailable`, `DecodeFailed`,
+  `Incomplete`), per-section freshness for positions/orders/trades/cash/
+  instruments/schedule, explicit schedule state handling, placeholder snapshot
+  semantics for missing/unavailable/decode-failed source, and fixture-backed
+  blockers for active/unknown target orders, unowned target trades,
+  missing/ambiguous instrument identity, and stale source sections.
 
 Green / mostly closed:
 
