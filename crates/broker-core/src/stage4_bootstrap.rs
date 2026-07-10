@@ -16,6 +16,7 @@ use crate::runtime_state::RuntimeBootstrapSnapshotDto;
 
 pub const STAGE4_BROKER_TRUTH_BOOTSTRAP_SCHEMA_VERSION: u16 = 1;
 pub const STAGE4_RUNTIME_BOOTSTRAP_APPLICATION_SCHEMA_VERSION: u16 = 1;
+pub const STAGE4_DIRTY_START_POLICY_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Stage4BrokerTruthBootstrapStatus {
@@ -532,6 +533,83 @@ pub struct Stage4RuntimeBootstrapApplicationDecision {
     pub target_active_order_count: usize,
     pub account_active_order_count: usize,
     pub dirty_start_disposition: Stage4DirtyStartDisposition,
+    pub adoption: Stage4AdoptionDisposition,
+    pub no_live_authorization: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Stage4DirtyStartPolicyStatus {
+    Accepted,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Stage4DirtyStartPolicyBlockerKind {
+    RuntimeBootstrapApplicationBlocked,
+    ApplicationSnapshotMissing,
+    ManualInterventionRequired,
+    PositionAdoptionNotExplicit,
+    PositionAdoptionQuantityMismatch,
+    OrderAdoptionNotExplicit,
+    OrderAdoptionCountMismatch,
+    LiveAuthorizationAttempted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage4DirtyStartPolicyBlocker {
+    pub kind: Stage4DirtyStartPolicyBlockerKind,
+    pub source_bootstrap_status: Stage4BrokerTruthBootstrapStatus,
+    pub blocks_runtime_notification: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Stage4PositionAdoptionPolicyEvidence {
+    pub adoption_required: bool,
+    pub attempted: bool,
+    pub allowed: bool,
+    pub applied: bool,
+    pub explicit: bool,
+    pub adopted_target_position_qty: Quantity,
+    pub broker_truth_target_position_qty: Quantity,
+    pub matches_broker_truth: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage4OrderAdoptionPolicyEvidence {
+    pub adoption_required: bool,
+    pub attempted: bool,
+    pub allowed: bool,
+    pub applied: bool,
+    pub explicit: bool,
+    pub adopted_target_order_count: usize,
+    pub broker_truth_adoptable_target_order_count: usize,
+    pub runtime_owned_target_order_count: usize,
+    pub target_active_order_count: usize,
+    pub matches_broker_truth: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Stage4DirtyStartPolicyDecision {
+    pub schema_version: u16,
+    pub checked_ts: DateTime<Utc>,
+    pub status: Stage4DirtyStartPolicyStatus,
+    pub source_bootstrap_status: Stage4BrokerTruthBootstrapStatus,
+    pub source_application_status: Stage4RuntimeBootstrapApplicationStatus,
+    pub runtime_bootstrap_notification_allowed: bool,
+    pub dirty_start_disposition: Stage4DirtyStartDisposition,
+    pub adoption: Stage4AdoptionDisposition,
+    pub position_policy: Stage4PositionAdoptionPolicyEvidence,
+    pub order_policy: Stage4OrderAdoptionPolicyEvidence,
+    pub target_position_qty: Quantity,
+    pub target_is_flat: bool,
+    pub target_active_order_count: usize,
+    pub account_active_order_count: usize,
+    pub account_wide_non_target_active_order_count: usize,
+    pub account_wide_non_target_open_position_count: usize,
+    pub account_wide_non_target_dirty_is_diagnostic: bool,
+    pub manual_intervention_required: bool,
+    pub blockers: Vec<Stage4DirtyStartPolicyBlocker>,
+    pub blocker_count: usize,
     pub no_live_authorization: bool,
 }
 
@@ -572,7 +650,185 @@ pub fn evaluate_stage4_runtime_bootstrap_application(
         target_active_order_count: validated.ownership_summary.target_active_order_count,
         account_active_order_count: validated.ownership_summary.account_active_order_count,
         dirty_start_disposition: validated.dirty_start_disposition.clone(),
+        adoption: validated.adoption.clone(),
         no_live_authorization: true,
+    }
+}
+
+pub fn evaluate_stage4_dirty_start_policy(
+    validated: &ValidatedStage4BrokerTruthBootstrap,
+    application: &Stage4RuntimeBootstrapApplicationDecision,
+) -> Stage4DirtyStartPolicyDecision {
+    let position_policy = stage4_position_adoption_policy_evidence(validated);
+    let order_policy = stage4_order_adoption_policy_evidence(validated);
+    let mut blockers = Vec::new();
+
+    if application.status != Stage4RuntimeBootstrapApplicationStatus::Applied {
+        blockers.push(stage4_dirty_start_policy_blocker(
+            Stage4DirtyStartPolicyBlockerKind::RuntimeBootstrapApplicationBlocked,
+            validated.status,
+        ));
+    }
+
+    if application.applied_snapshot.is_none() {
+        blockers.push(stage4_dirty_start_policy_blocker(
+            Stage4DirtyStartPolicyBlockerKind::ApplicationSnapshotMissing,
+            validated.status,
+        ));
+    }
+
+    if validated.manual_intervention_required
+        || validated.status == Stage4BrokerTruthBootstrapStatus::ManualInterventionRequired
+    {
+        blockers.push(stage4_dirty_start_policy_blocker(
+            Stage4DirtyStartPolicyBlockerKind::ManualInterventionRequired,
+            validated.status,
+        ));
+    }
+
+    if !position_policy.explicit {
+        blockers.push(stage4_dirty_start_policy_blocker(
+            Stage4DirtyStartPolicyBlockerKind::PositionAdoptionNotExplicit,
+            validated.status,
+        ));
+    }
+
+    if !position_policy.matches_broker_truth {
+        blockers.push(stage4_dirty_start_policy_blocker(
+            Stage4DirtyStartPolicyBlockerKind::PositionAdoptionQuantityMismatch,
+            validated.status,
+        ));
+    }
+
+    if !order_policy.explicit {
+        blockers.push(stage4_dirty_start_policy_blocker(
+            Stage4DirtyStartPolicyBlockerKind::OrderAdoptionNotExplicit,
+            validated.status,
+        ));
+    }
+
+    if !order_policy.matches_broker_truth {
+        blockers.push(stage4_dirty_start_policy_blocker(
+            Stage4DirtyStartPolicyBlockerKind::OrderAdoptionCountMismatch,
+            validated.status,
+        ));
+    }
+
+    if !application.no_live_authorization {
+        blockers.push(stage4_dirty_start_policy_blocker(
+            Stage4DirtyStartPolicyBlockerKind::LiveAuthorizationAttempted,
+            validated.status,
+        ));
+    }
+
+    let status = if blockers.is_empty() {
+        Stage4DirtyStartPolicyStatus::Accepted
+    } else {
+        Stage4DirtyStartPolicyStatus::Blocked
+    };
+    let blocker_count = blockers.len();
+    Stage4DirtyStartPolicyDecision {
+        schema_version: STAGE4_DIRTY_START_POLICY_SCHEMA_VERSION,
+        checked_ts: validated.checked_ts,
+        status,
+        source_bootstrap_status: validated.status,
+        source_application_status: application.status,
+        runtime_bootstrap_notification_allowed: status == Stage4DirtyStartPolicyStatus::Accepted,
+        dirty_start_disposition: validated.dirty_start_disposition.clone(),
+        adoption: validated.adoption.clone(),
+        position_policy,
+        order_policy,
+        target_position_qty: validated.target_position_qty,
+        target_is_flat: validated.target_is_flat,
+        target_active_order_count: validated.ownership_summary.target_active_order_count,
+        account_active_order_count: validated.ownership_summary.account_active_order_count,
+        account_wide_non_target_active_order_count: validated
+            .ownership_summary
+            .observed_account_wide_order_count,
+        account_wide_non_target_open_position_count: validated
+            .broker_truth_summary
+            .account_open_positions_count
+            .saturating_sub(validated.broker_truth_summary.target_open_positions_count),
+        account_wide_non_target_dirty_is_diagnostic: true,
+        manual_intervention_required: validated.manual_intervention_required,
+        blockers,
+        blocker_count,
+        no_live_authorization: true,
+    }
+}
+
+fn stage4_dirty_start_policy_blocker(
+    kind: Stage4DirtyStartPolicyBlockerKind,
+    source_bootstrap_status: Stage4BrokerTruthBootstrapStatus,
+) -> Stage4DirtyStartPolicyBlocker {
+    Stage4DirtyStartPolicyBlocker {
+        kind,
+        source_bootstrap_status,
+        blocks_runtime_notification: true,
+    }
+}
+
+fn stage4_position_adoption_policy_evidence(
+    validated: &ValidatedStage4BrokerTruthBootstrap,
+) -> Stage4PositionAdoptionPolicyEvidence {
+    let adoption = &validated.adoption;
+    let adoption_required = !validated.target_is_flat;
+    let explicit = if adoption.position_adoption_applied {
+        adoption.position_adoption_attempted && adoption.position_adoption_allowed
+    } else {
+        !adoption_required
+    };
+    let matches_broker_truth = if adoption.position_adoption_applied {
+        adoption.adopted_target_position_qty == validated.target_position_qty
+    } else {
+        !adoption_required && adoption.adopted_target_position_qty == Decimal::ZERO
+    };
+
+    Stage4PositionAdoptionPolicyEvidence {
+        adoption_required,
+        attempted: adoption.position_adoption_attempted,
+        allowed: adoption.position_adoption_allowed,
+        applied: adoption.position_adoption_applied,
+        explicit,
+        adopted_target_position_qty: adoption.adopted_target_position_qty,
+        broker_truth_target_position_qty: validated.target_position_qty,
+        matches_broker_truth,
+    }
+}
+
+fn stage4_order_adoption_policy_evidence(
+    validated: &ValidatedStage4BrokerTruthBootstrap,
+) -> Stage4OrderAdoptionPolicyEvidence {
+    let adoption = &validated.adoption;
+    let broker_truth_adoptable_target_order_count = validated
+        .ownership_summary
+        .target_active_order_count
+        .saturating_sub(validated.ownership_summary.runtime_owned_target_order_count);
+    let adoption_required = broker_truth_adoptable_target_order_count > 0;
+    let explicit = if adoption.order_adoption_applied {
+        adoption.order_adoption_attempted && adoption.order_adoption_allowed
+    } else {
+        !adoption_required
+    };
+    let matches_broker_truth = if adoption.order_adoption_applied {
+        adoption.adopted_target_order_count == broker_truth_adoptable_target_order_count
+    } else {
+        !adoption_required && adoption.adopted_target_order_count == 0
+    };
+
+    Stage4OrderAdoptionPolicyEvidence {
+        adoption_required,
+        attempted: adoption.order_adoption_attempted,
+        allowed: adoption.order_adoption_allowed,
+        applied: adoption.order_adoption_applied,
+        explicit,
+        adopted_target_order_count: adoption.adopted_target_order_count,
+        broker_truth_adoptable_target_order_count,
+        runtime_owned_target_order_count: validated
+            .ownership_summary
+            .runtime_owned_target_order_count,
+        target_active_order_count: validated.ownership_summary.target_active_order_count,
+        matches_broker_truth,
     }
 }
 
@@ -1703,6 +1959,194 @@ mod tests {
         );
         assert_eq!(decision.target_position_qty, Decimal::new(3, 0));
         assert!(!decision.target_is_flat);
+        assert_eq!(decision.adoption, report.adoption);
+    }
+
+    #[test]
+    fn stage4f_clean_flat_policy_accepts_without_adoption_or_live_authorization() {
+        let truth = base_truth();
+        let report = validate_stage4_broker_truth_bootstrap(input(&truth));
+        let application = evaluate_stage4_runtime_bootstrap_application(&report);
+
+        let policy = evaluate_stage4_dirty_start_policy(&report, &application);
+
+        assert_eq!(policy.status, Stage4DirtyStartPolicyStatus::Accepted);
+        assert!(policy.runtime_bootstrap_notification_allowed);
+        assert_eq!(policy.blocker_count, 0);
+        assert!(!policy.position_policy.adoption_required);
+        assert!(!policy.order_policy.adoption_required);
+        assert!(policy.position_policy.explicit);
+        assert!(policy.order_policy.explicit);
+        assert!(policy.position_policy.matches_broker_truth);
+        assert!(policy.order_policy.matches_broker_truth);
+        assert!(policy.account_wide_non_target_dirty_is_diagnostic);
+        assert!(policy.no_live_authorization);
+    }
+
+    #[test]
+    fn stage4f_full_adoption_evidence_is_carried_into_application_and_policy() {
+        let mut truth = base_truth();
+        truth.positions.push(target_position(Decimal::new(3, 0)));
+        let mut request = input(&truth);
+        request.adoption = Stage4AdoptionDisposition {
+            position_adoption_attempted: true,
+            position_adoption_allowed: true,
+            position_adoption_applied: true,
+            adopted_target_position_qty: Decimal::new(3, 0),
+            ..Stage4AdoptionDisposition::default()
+        };
+        let report = validate_stage4_broker_truth_bootstrap(request);
+        let application = evaluate_stage4_runtime_bootstrap_application(&report);
+
+        let policy = evaluate_stage4_dirty_start_policy(&report, &application);
+
+        assert_eq!(
+            application.status,
+            Stage4RuntimeBootstrapApplicationStatus::Applied
+        );
+        assert_eq!(application.adoption, report.adoption);
+        assert_eq!(policy.status, Stage4DirtyStartPolicyStatus::Accepted);
+        assert_eq!(policy.adoption, report.adoption);
+        assert!(policy.position_policy.adoption_required);
+        assert!(policy.position_policy.explicit);
+        assert_eq!(
+            policy.position_policy.adopted_target_position_qty,
+            Decimal::new(3, 0)
+        );
+        assert_eq!(
+            policy.position_policy.broker_truth_target_position_qty,
+            Decimal::new(3, 0)
+        );
+    }
+
+    #[test]
+    fn stage4f_position_adoption_requires_attempted_allowed_and_matching_qty() {
+        let mut truth = base_truth();
+        truth.positions.push(target_position(Decimal::new(3, 0)));
+        let mut request = input(&truth);
+        request.adoption = Stage4AdoptionDisposition {
+            position_adoption_attempted: true,
+            position_adoption_allowed: true,
+            position_adoption_applied: true,
+            adopted_target_position_qty: Decimal::new(3, 0),
+            ..Stage4AdoptionDisposition::default()
+        };
+        let mut report = validate_stage4_broker_truth_bootstrap(request);
+        report.adoption.position_adoption_attempted = false;
+        report.adoption.adopted_target_position_qty = Decimal::new(2, 0);
+        let application = evaluate_stage4_runtime_bootstrap_application(&report);
+
+        let policy = evaluate_stage4_dirty_start_policy(&report, &application);
+
+        assert_eq!(
+            application.status,
+            Stage4RuntimeBootstrapApplicationStatus::Applied
+        );
+        assert_eq!(policy.status, Stage4DirtyStartPolicyStatus::Blocked);
+        assert!(policy.position_policy.adoption_required);
+        assert!(!policy.position_policy.explicit);
+        assert!(!policy.position_policy.matches_broker_truth);
+        assert!(policy.blockers.iter().any(|blocker| {
+            blocker.kind == Stage4DirtyStartPolicyBlockerKind::PositionAdoptionNotExplicit
+        }));
+        assert!(policy.blockers.iter().any(|blocker| {
+            blocker.kind == Stage4DirtyStartPolicyBlockerKind::PositionAdoptionQuantityMismatch
+        }));
+        assert!(!policy.runtime_bootstrap_notification_allowed);
+    }
+
+    #[test]
+    fn stage4f_order_adoption_requires_separate_attempted_allowed_and_matching_count() {
+        let mut truth = base_truth();
+        truth
+            .orders
+            .push(target_order("BROKER-ORDER-1", OrderStatus::Working));
+        let mut request = input(&truth);
+        request.adoption = Stage4AdoptionDisposition {
+            order_adoption_attempted: true,
+            order_adoption_allowed: true,
+            order_adoption_applied: true,
+            adopted_target_order_count: 1,
+            ..Stage4AdoptionDisposition::default()
+        };
+        let mut report = validate_stage4_broker_truth_bootstrap(request);
+        report.adoption.order_adoption_allowed = false;
+        report.adoption.adopted_target_order_count = 2;
+        let application = evaluate_stage4_runtime_bootstrap_application(&report);
+
+        let policy = evaluate_stage4_dirty_start_policy(&report, &application);
+
+        assert_eq!(
+            application.status,
+            Stage4RuntimeBootstrapApplicationStatus::Applied
+        );
+        assert_eq!(policy.status, Stage4DirtyStartPolicyStatus::Blocked);
+        assert!(!policy.order_policy.explicit);
+        assert!(!policy.order_policy.matches_broker_truth);
+        assert_eq!(
+            policy
+                .order_policy
+                .broker_truth_adoptable_target_order_count,
+            1
+        );
+        assert!(policy.blockers.iter().any(|blocker| {
+            blocker.kind == Stage4DirtyStartPolicyBlockerKind::OrderAdoptionNotExplicit
+        }));
+        assert!(policy.blockers.iter().any(|blocker| {
+            blocker.kind == Stage4DirtyStartPolicyBlockerKind::OrderAdoptionCountMismatch
+        }));
+    }
+
+    #[test]
+    fn stage4f_manual_intervention_blocks_policy_runtime_notification() {
+        let mut truth = base_truth();
+        truth.positions.push(target_position(Decimal::new(3, 0)));
+        let report = validate_stage4_broker_truth_bootstrap(input(&truth));
+        let application = evaluate_stage4_runtime_bootstrap_application(&report);
+
+        let policy = evaluate_stage4_dirty_start_policy(&report, &application);
+
+        assert_eq!(
+            report.status,
+            Stage4BrokerTruthBootstrapStatus::ManualInterventionRequired
+        );
+        assert_eq!(
+            application.status,
+            Stage4RuntimeBootstrapApplicationStatus::Blocked
+        );
+        assert_eq!(policy.status, Stage4DirtyStartPolicyStatus::Blocked);
+        assert!(!policy.runtime_bootstrap_notification_allowed);
+        assert!(policy.manual_intervention_required);
+        assert!(policy.blockers.iter().any(|blocker| {
+            blocker.kind == Stage4DirtyStartPolicyBlockerKind::ManualInterventionRequired
+        }));
+        assert!(policy.blockers.iter().any(|blocker| {
+            blocker.kind == Stage4DirtyStartPolicyBlockerKind::RuntimeBootstrapApplicationBlocked
+        }));
+    }
+
+    #[test]
+    fn stage4f_account_wide_non_target_dirty_state_is_diagnostic_by_default() {
+        let mut truth = base_truth();
+        let mut other_order = target_order("OTHER-SYMBOL-ORDER", OrderStatus::Working);
+        other_order.instrument = InstrumentId {
+            symbol: "USDRUBF".to_string(),
+            venue_symbol: Some("USDRUBF@RTSX".to_string()),
+            exchange: Exchange::Moex,
+            market: Market::Futures,
+        };
+        truth.orders.push(other_order);
+        let report = validate_stage4_broker_truth_bootstrap(input(&truth));
+        let application = evaluate_stage4_runtime_bootstrap_application(&report);
+
+        let policy = evaluate_stage4_dirty_start_policy(&report, &application);
+
+        assert_eq!(policy.status, Stage4DirtyStartPolicyStatus::Accepted);
+        assert_eq!(policy.target_active_order_count, 0);
+        assert_eq!(policy.account_active_order_count, 1);
+        assert_eq!(policy.account_wide_non_target_active_order_count, 1);
+        assert!(policy.account_wide_non_target_dirty_is_diagnostic);
+        assert_eq!(policy.blocker_count, 0);
     }
 
     #[test]

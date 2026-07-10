@@ -1,6 +1,6 @@
 # Stage 4E — runtime bootstrap application evidence
 
-Status: implemented for review with P1 consistency guard.
+Status: accepted.
 
 Date: 2026-07-10.
 
@@ -101,7 +101,7 @@ Stage 4E does not authorize:
 
 ## Follow-up
 
-After Stage 4E review acceptance, the next planned slice remains Stage 4F:
-dirty-start / explicit adoption / manual-intervention policy. That stage should
-continue to be evidence/paper/mock only until later Stage 4 lifecycle gates are
+Stage 4F is implemented for review in
+[`4f-dirty-start-adoption-policy.md`](4f-dirty-start-adoption-policy.md).
+It remains evidence/paper/mock only until later Stage 4 lifecycle gates are
 accepted.

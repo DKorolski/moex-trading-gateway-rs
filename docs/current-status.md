@@ -24,7 +24,9 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 4D FINAM read-only broker-truth mapper/source normalization is
   accepted.
 - Stage 4E broker-truth to runtime bootstrap application evidence is
-  implemented for review with the requested P1 defensive consistency guard.
+  accepted.
+- Stage 4F dirty-start / explicit adoption / manual-intervention policy is
+  implemented for review.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
@@ -185,14 +187,21 @@ Stage split:
   missing/unavailable/decode-failed source, and fixture-backed blockers for
   active/unknown target orders, unowned target trades, missing/ambiguous
   instrument identity, stale source sections, and schedule-symbol mismatch.
-- Stage 4E is implemented for review as an application-evidence gate around
-  validated broker truth. Runtime bootstrap notification is allowed only for an
+- Stage 4E is accepted as an application-evidence gate around validated broker
+  truth. Runtime bootstrap notification is allowed only for an
   internally consistent `BootstrapReady` report; all
   incomplete/stale/mismatch/unknown-schedule/manual/evidence/safety statuses
   remain blocked, and contradictory `BootstrapReady` reports are rejected as
   `ValidatedBootstrapInconsistent`. Restored runtime state is accepted only
   after broker truth, cannot overwrite broker truth, target/account scopes stay
   separated, and live/execution authorization remains closed.
+- Stage 4F is implemented for review as a dirty-start policy gate after Stage
+  4E. It carries full adoption evidence into the application/operator decision,
+  evaluates position and order adoption separately, requires explicit
+  attempted/allowed/applied adoption with exact broker-truth qty/count matches,
+  keeps non-target account-wide dirty state diagnostic by default, and still
+  forbids runtime-live, real FINAM command consumption, POST/DELETE, and
+  Stop/SLTP/bracket.
 
 Green / mostly closed:
 

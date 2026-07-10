@@ -4,7 +4,8 @@ Status: Stage 4A / Stage 4A-1 accepted as planning/evidence-schema foundation;
 Stage 4B existing type inventory and v2 alignment decision accepted; Stage 4C
 validated bootstrap wrapper accepted; Stage 4D FINAM read-only
 broker-truth source normalization accepted; Stage 4E broker-truth to runtime
-bootstrap application evidence implemented for review with P1 consistency guard.
+bootstrap application evidence accepted; Stage 4F dirty-start / explicit
+adoption / manual-intervention policy implemented for review.
 
 Date: 2026-07-10.
 
@@ -44,6 +45,10 @@ Stage 4D adds the FINAM read-only source-normalization wrapper described in
 Stage 4E adds the validated broker-truth application gate and defensive
 consistency guard described in
 [`stage-4/4e-runtime-bootstrap-application-evidence.md`](stage-4/4e-runtime-bootstrap-application-evidence.md).
+
+Stage 4F adds the dirty-start / explicit adoption / manual-intervention policy
+gate described in
+[`stage-4/4f-dirty-start-adoption-policy.md`](stage-4/4f-dirty-start-adoption-policy.md).
 
 ## 2. Broker truth inputs
 
