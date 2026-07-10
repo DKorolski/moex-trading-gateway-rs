@@ -23,8 +23,12 @@ bootstrap/readiness layer, not runtime-live.
 - Per-section freshness propagation for positions, orders, trades, cash,
   instruments, and schedule.
 - Explicit schedule/session evidence: schedule state is only derived from a
-  present schedule source and is never inferred from
-  `BrokerTruthSnapshot.received_ts`.
+  present schedule source that matches the target instrument. It is never
+  inferred from `BrokerTruthSnapshot.received_ts`, and a schedule from another
+  symbol is treated as incomplete source evidence plus `UnknownSchedule`.
+- The returned package preserves the original
+  `FinamStage4ReadonlySourceEvidenceSet` for auditability instead of exposing
+  only the aggregate source status.
 - Placeholder `BrokerTruthSnapshot` semantics when the FINAM account/order
   read-only source cannot be constructed because source is missing,
   unavailable, or decode-failed. The placeholder allows the Stage 4C validator
@@ -46,6 +50,7 @@ The Stage 4D test matrix covers:
 - target trade with broker order id but without restored runtime correlation;
 - target trade without broker order id / runtime correlation;
 - missing and ambiguous instrument identity;
+- schedule symbol mismatch;
 - stale positions/orders/trades freshness;
 - unavailable and decode-failed source using placeholder broker truth.
 
@@ -62,6 +67,16 @@ Stage 4D does not authorize:
 
 `FinamStage4BrokerTruthBootstrapPackage.no_live_authorization` remains `true`.
 All Stage 4D checks are read-only/source-normalization checks.
+
+## Acceptance checklist
+
+- Schedule source is target-bound and a wrong schedule symbol cannot produce
+  `BootstrapReady`.
+- Per-section source evidence is preserved in the Stage 4D package.
+- Zero-quantity FINAM positions remain visible in broker-truth diagnostics.
+- Missing, unavailable, decode-failed, and incomplete sources produce structured
+  Stage 4C blockers.
+- No live/execution surface changes are introduced.
 
 ## Follow-up
 

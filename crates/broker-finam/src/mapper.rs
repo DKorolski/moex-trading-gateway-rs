@@ -16,8 +16,9 @@ use broker_core::operational_config::{
     BrokerStopOrderReadiness, BrokerStopOrderWaiverDecision,
 };
 use broker_core::operational_snapshot::{
-    BrokerCashSnapshot, BrokerInstrumentSpec, BrokerOrderMarginSufficiency, BrokerOrderSnapshot,
-    BrokerPositionSnapshot, BrokerTradeSnapshot, BrokerTruthSnapshot,
+    instrument_identity_matches, BrokerCashSnapshot, BrokerInstrumentSpec,
+    BrokerOrderMarginSufficiency, BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeSnapshot,
+    BrokerTruthSnapshot,
 };
 use broker_core::order::{
     Order, OrderSide, OrderStatus, OrderType, RedactedValueFingerprint, TimeInForce, Trade,
@@ -444,6 +445,7 @@ pub struct FinamStage4BrokerTruthBootstrapInput<'a> {
 pub struct FinamStage4BrokerTruthBootstrapPackage {
     pub broker_truth: BrokerTruthSnapshot,
     pub broker_truth_source_status: Stage4BrokerTruthSourceStatus,
+    pub source_evidence: FinamStage4ReadonlySourceEvidenceSet,
     pub schedule_state: BrokerMarketSessionState,
     pub validated_bootstrap: ValidatedStage4BrokerTruthBootstrap,
     pub no_live_authorization: bool,
@@ -475,7 +477,10 @@ pub fn build_finam_stage4_broker_truth_bootstrap(
     };
     let schedule_state = input
         .schedule
-        .filter(|_| input.source_evidence.schedule.status == Stage4BrokerTruthSourceStatus::Present)
+        .filter(|schedule| {
+            input.source_evidence.schedule.status == Stage4BrokerTruthSourceStatus::Present
+                && finam_stage4_schedule_matches_target(schedule, &input.target_instrument)
+        })
         .map(|schedule| finam_schedule_market_session(schedule, input.checked_ts))
         .unwrap_or(BrokerMarketSessionState::Unknown);
     let validated_bootstrap =
@@ -494,6 +499,7 @@ pub fn build_finam_stage4_broker_truth_bootstrap(
     Ok(FinamStage4BrokerTruthBootstrapPackage {
         broker_truth,
         broker_truth_source_status: source_status,
+        source_evidence: input.source_evidence,
         schedule_state,
         validated_bootstrap,
         no_live_authorization: true,
@@ -602,15 +608,34 @@ fn finam_stage4_broker_truth_source_status(
     } else {
         Stage4BrokerTruthSourceStatus::Present
     };
+    let cash = if input.source_evidence.cash.required_for_bootstrap {
+        finam_stage4_required_source_status(
+            input.source_evidence.cash.status,
+            input.account.is_some(),
+        )
+    } else {
+        Stage4BrokerTruthSourceStatus::Present
+    };
     let instruments = finam_stage4_required_source_status(
         input.source_evidence.instruments.status,
         !input.instruments.is_empty(),
     );
+    let schedule_present_for_target = input.schedule.is_some_and(|schedule| {
+        finam_stage4_schedule_matches_target(schedule, &input.target_instrument)
+    });
     let schedule = finam_stage4_required_source_status(
         input.source_evidence.schedule.status,
-        input.schedule.is_some(),
+        schedule_present_for_target,
     );
-    finam_stage4_aggregate_source_status(&[positions, orders, trades, instruments, schedule])
+    finam_stage4_aggregate_source_status(&[positions, orders, trades, cash, instruments, schedule])
+}
+
+fn finam_stage4_schedule_matches_target(
+    schedule: &dto::AssetScheduleResponse,
+    target: &InstrumentId,
+) -> bool {
+    let schedule_instrument = instrument_id_from_symbol(&schedule.symbol, None);
+    instrument_identity_matches(&schedule_instrument, target)
 }
 
 fn finam_stage4_required_source_status(
@@ -2697,6 +2722,56 @@ mod tests {
         assert!(m4_4d_has_blocker(
             &package,
             Stage4BrokerTruthReadinessBlockerKind::ScheduleStale
+        ));
+        assert!(m4_4d_has_blocker(
+            &package,
+            Stage4BrokerTruthReadinessBlockerKind::UnknownSchedule
+        ));
+    }
+
+    #[test]
+    fn m4_4d_schedule_symbol_mismatch_blocks_bootstrap() {
+        let checked_ts = parse_timestamp("test", "2026-07-04T14:57:18Z").expect("timestamp");
+        let account = m4_2d_account();
+        let orders = m4_4d_empty_orders();
+        let trades = m4_4d_empty_trades();
+        let asset = m4_2d_asset();
+        let params = m4_2d_params();
+        let schedule = m4_2d_schedule();
+        let mut wrong_schedule = m4_2d_schedule();
+        wrong_schedule.symbol = "SBER@MISX".to_string();
+        let instrument_artifacts = [FinamInstrumentSpecArtifacts {
+            asset: &asset,
+            params: &params,
+            schedule: &schedule,
+        }];
+
+        let package = m4_4d_bootstrap_package(
+            Some(&account),
+            Some(&orders),
+            Some(&trades),
+            &instrument_artifacts,
+            Some(&wrong_schedule),
+            FinamStage4ReadonlySourceEvidenceSet::all_present(checked_ts, 60_000),
+            checked_ts,
+        );
+
+        assert_eq!(
+            package.broker_truth_source_status,
+            Stage4BrokerTruthSourceStatus::Incomplete
+        );
+        assert_eq!(
+            package.source_evidence.schedule.status,
+            Stage4BrokerTruthSourceStatus::Present
+        );
+        assert_eq!(package.schedule_state, BrokerMarketSessionState::Unknown);
+        assert_ne!(
+            package.validated_bootstrap.status,
+            Stage4BrokerTruthBootstrapStatus::BootstrapReady
+        );
+        assert!(m4_4d_has_blocker(
+            &package,
+            Stage4BrokerTruthReadinessBlockerKind::BrokerTruthIncomplete
         ));
         assert!(m4_4d_has_blocker(
             &package,

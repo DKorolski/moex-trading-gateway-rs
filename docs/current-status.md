@@ -179,10 +179,11 @@ Stage split:
   source-normalization into the Stage 4C validator. It adds explicit FINAM
   source evidence (`Present`, `Missing`, `Unavailable`, `DecodeFailed`,
   `Incomplete`), per-section freshness for positions/orders/trades/cash/
-  instruments/schedule, explicit schedule state handling, placeholder snapshot
-  semantics for missing/unavailable/decode-failed source, and fixture-backed
-  blockers for active/unknown target orders, unowned target trades,
-  missing/ambiguous instrument identity, and stale source sections.
+  instruments/schedule, target-bound schedule state handling, placeholder
+  snapshot semantics for missing/unavailable/decode-failed source, and
+  fixture-backed blockers for active/unknown target orders, unowned target
+  trades, missing/ambiguous instrument identity, stale source sections, and
+  schedule-symbol mismatch.
 
 Green / mostly closed:
 
