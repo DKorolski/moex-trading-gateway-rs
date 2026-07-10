@@ -759,9 +759,17 @@ pub struct Stage4BootstrapEvidenceReportBlocker {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage4BootstrapEvidenceSourceStatusSection {
+    pub section: Stage4BrokerTruthFreshnessSection,
+    pub source_status: Stage4BrokerTruthSourceStatus,
+    pub required_for_bootstrap: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stage4BootstrapEvidenceSourceSection {
     pub section: Stage4BrokerTruthFreshnessSection,
-    pub status: Stage4BrokerTruthFreshnessStatus,
+    pub source_status: Stage4BrokerTruthSourceStatus,
+    pub freshness_status: Stage4BrokerTruthFreshnessStatus,
     pub required_for_bootstrap: bool,
     pub blocks_bootstrap: bool,
     pub age_ms: Option<i64>,
@@ -1246,6 +1254,26 @@ pub fn build_stage4_bootstrap_evidence_report(
     lifecycle: &Stage4RuntimeLifecycleOrderingDecision,
     integration: &Stage4RuntimeBootstrapIntegrationDecision,
 ) -> Stage4BootstrapEvidenceReport {
+    let source_status_sections =
+        stage4_bootstrap_evidence_default_source_status_sections(validated);
+    build_stage4_bootstrap_evidence_report_with_source_evidence(
+        validated,
+        &source_status_sections,
+        application,
+        dirty_start_policy,
+        lifecycle,
+        integration,
+    )
+}
+
+pub fn build_stage4_bootstrap_evidence_report_with_source_evidence(
+    validated: &ValidatedStage4BrokerTruthBootstrap,
+    source_status_sections: &[Stage4BootstrapEvidenceSourceStatusSection],
+    application: &Stage4RuntimeBootstrapApplicationDecision,
+    dirty_start_policy: &Stage4DirtyStartPolicyDecision,
+    lifecycle: &Stage4RuntimeLifecycleOrderingDecision,
+    integration: &Stage4RuntimeBootstrapIntegrationDecision,
+) -> Stage4BootstrapEvidenceReport {
     let redaction = Stage4BootstrapEvidenceRedaction::closed();
     let chain_is_canonical = stage4_bootstrap_evidence_chain_is_canonical(
         validated,
@@ -1254,7 +1282,10 @@ pub fn build_stage4_bootstrap_evidence_report(
         lifecycle,
         integration,
     );
-    let no_live_authorization = application.no_live_authorization
+    let safety_live_execution_closed =
+        !stage4_safety_boundary_has_live_or_execution_attempt(&validated.safety_boundary);
+    let no_live_authorization = safety_live_execution_closed
+        && application.no_live_authorization
         && dirty_start_policy.no_live_authorization
         && lifecycle.no_live_authorization
         && integration.no_live_authorization;
@@ -1329,7 +1360,10 @@ pub fn build_stage4_bootstrap_evidence_report(
         status,
         target_instrument: validated.target_instrument.clone(),
         broker_truth_source_status: validated.broker_truth_source_status,
-        source_sections: stage4_bootstrap_evidence_source_sections(validated),
+        source_sections: stage4_bootstrap_evidence_source_sections(
+            validated,
+            source_status_sections,
+        ),
         stage4c_status: validated.status,
         stage4c_blocker_kinds: validated
             .blockers
@@ -1375,22 +1409,58 @@ pub fn build_stage4_bootstrap_evidence_report(
     }
 }
 
+fn stage4_bootstrap_evidence_default_source_status_sections(
+    validated: &ValidatedStage4BrokerTruthBootstrap,
+) -> Vec<Stage4BootstrapEvidenceSourceStatusSection> {
+    validated
+        .freshness
+        .sections
+        .iter()
+        .map(|section| Stage4BootstrapEvidenceSourceStatusSection {
+            section: section.section,
+            source_status: Stage4BrokerTruthSourceStatus::Present,
+            required_for_bootstrap: section.required_for_bootstrap,
+        })
+        .collect()
+}
+
 fn stage4_bootstrap_evidence_source_sections(
     validated: &ValidatedStage4BrokerTruthBootstrap,
+    source_status_sections: &[Stage4BootstrapEvidenceSourceStatusSection],
 ) -> Vec<Stage4BootstrapEvidenceSourceSection> {
     validated
         .freshness
         .sections
         .iter()
-        .map(|section| Stage4BootstrapEvidenceSourceSection {
-            section: section.section,
-            status: section.status,
-            required_for_bootstrap: section.required_for_bootstrap,
-            blocks_bootstrap: section.blocks_bootstrap,
-            age_ms: section.age_ms,
-            max_age_ms: section.max_age_ms,
+        .map(|freshness| {
+            let source = source_status_sections
+                .iter()
+                .find(|source| source.section == freshness.section);
+            Stage4BootstrapEvidenceSourceSection {
+                section: freshness.section,
+                source_status: source
+                    .map(|source| source.source_status)
+                    .unwrap_or(Stage4BrokerTruthSourceStatus::Incomplete),
+                freshness_status: freshness.status,
+                required_for_bootstrap: source
+                    .map(|source| source.required_for_bootstrap)
+                    .unwrap_or(freshness.required_for_bootstrap),
+                blocks_bootstrap: freshness.blocks_bootstrap,
+                age_ms: freshness.age_ms,
+                max_age_ms: freshness.max_age_ms,
+            }
         })
         .collect()
+}
+
+fn stage4_safety_boundary_has_live_or_execution_attempt(
+    safety: &Stage4BrokerTruthSafetyBoundary,
+) -> bool {
+    safety.runtime_live_enabled
+        || safety.real_finam_command_consumer_enabled
+        || safety.strategy_driven_real_orders_enabled
+        || safety.real_post_delete_enabled
+        || safety.stop_sltp_bracket_enabled
 }
 
 fn stage4_bootstrap_evidence_report_blocker(
@@ -2493,6 +2563,75 @@ mod tests {
         );
         let integration = evaluate_stage4_runtime_bootstrap_integration(&lifecycle);
         (report, application, policy, lifecycle, integration)
+    }
+
+    fn stage4i_chain_from_request(
+        request: Stage4BrokerTruthBootstrapInput<'_>,
+    ) -> (
+        ValidatedStage4BrokerTruthBootstrap,
+        Stage4RuntimeBootstrapApplicationDecision,
+        Stage4DirtyStartPolicyDecision,
+        Stage4RuntimeLifecycleOrderingDecision,
+        Stage4RuntimeBootstrapIntegrationDecision,
+    ) {
+        let report = validate_stage4_broker_truth_bootstrap(request);
+        let application = evaluate_stage4_runtime_bootstrap_application(&report);
+        let policy = evaluate_stage4_dirty_start_policy(&report, &application);
+        let lifecycle = evaluate_stage4_runtime_lifecycle_ordering(
+            &report,
+            &application,
+            &policy,
+            RuntimeHostLifecyclePlan::alor_compatible(),
+        );
+        let integration = evaluate_stage4_runtime_bootstrap_integration(&lifecycle);
+        (report, application, policy, lifecycle, integration)
+    }
+
+    fn stage4i_source_status_section(
+        section: Stage4BrokerTruthFreshnessSection,
+        source_status: Stage4BrokerTruthSourceStatus,
+        required_for_bootstrap: bool,
+    ) -> Stage4BootstrapEvidenceSourceStatusSection {
+        Stage4BootstrapEvidenceSourceStatusSection {
+            section,
+            source_status,
+            required_for_bootstrap,
+        }
+    }
+
+    fn stage4i_mixed_stage4d_source_sections() -> Vec<Stage4BootstrapEvidenceSourceStatusSection> {
+        vec![
+            stage4i_source_status_section(
+                Stage4BrokerTruthFreshnessSection::Positions,
+                Stage4BrokerTruthSourceStatus::Present,
+                true,
+            ),
+            stage4i_source_status_section(
+                Stage4BrokerTruthFreshnessSection::Orders,
+                Stage4BrokerTruthSourceStatus::DecodeFailed,
+                true,
+            ),
+            stage4i_source_status_section(
+                Stage4BrokerTruthFreshnessSection::Trades,
+                Stage4BrokerTruthSourceStatus::Missing,
+                true,
+            ),
+            stage4i_source_status_section(
+                Stage4BrokerTruthFreshnessSection::Cash,
+                Stage4BrokerTruthSourceStatus::Unavailable,
+                false,
+            ),
+            stage4i_source_status_section(
+                Stage4BrokerTruthFreshnessSection::Instruments,
+                Stage4BrokerTruthSourceStatus::Present,
+                true,
+            ),
+            stage4i_source_status_section(
+                Stage4BrokerTruthFreshnessSection::Schedule,
+                Stage4BrokerTruthSourceStatus::Incomplete,
+                true,
+            ),
+        ]
     }
 
     fn has_stage4i_blocker(
@@ -3812,7 +3951,8 @@ mod tests {
         ));
         assert!(evidence.source_sections.iter().any(|section| {
             section.section == Stage4BrokerTruthFreshnessSection::Positions
-                && section.status == Stage4BrokerTruthFreshnessStatus::Stale
+                && section.source_status == Stage4BrokerTruthSourceStatus::Present
+                && section.freshness_status == Stage4BrokerTruthFreshnessStatus::Stale
                 && section.required_for_bootstrap
                 && section.blocks_bootstrap
         }));
@@ -3868,6 +4008,146 @@ mod tests {
         assert!(!json.contains("ASSET_TEST_1"));
         assert!(!json.contains("CLIENT-ORDER"));
         assert!(!json.contains("BROKER-ORDER"));
+    }
+
+    #[test]
+    fn stage4i_report_preserves_stage4d_source_status_per_section() {
+        let truth = base_truth();
+        let mut request = input(&truth);
+        request.broker_truth_source_status = Stage4BrokerTruthSourceStatus::DecodeFailed;
+        request.freshness.orders = Stage4BrokerTruthFreshnessProbe::unavailable(60_000, true);
+        request.freshness.trades = Stage4BrokerTruthFreshnessProbe::unavailable(60_000, true);
+        request.freshness.cash = Stage4BrokerTruthFreshnessProbe::unavailable(60_000, false);
+        request.freshness.schedule = Stage4BrokerTruthFreshnessProbe::unavailable(60_000, true);
+        let (report, application, policy, lifecycle, integration) =
+            stage4i_chain_from_request(request);
+        let source_sections = stage4i_mixed_stage4d_source_sections();
+
+        let evidence = build_stage4_bootstrap_evidence_report_with_source_evidence(
+            &report,
+            &source_sections,
+            &application,
+            &policy,
+            &lifecycle,
+            &integration,
+        );
+
+        assert_stage4i_blocked_without_events(&evidence);
+        assert!(evidence.source_sections.iter().any(|section| {
+            section.section == Stage4BrokerTruthFreshnessSection::Orders
+                && section.source_status == Stage4BrokerTruthSourceStatus::DecodeFailed
+                && section.freshness_status == Stage4BrokerTruthFreshnessStatus::Unavailable
+                && section.required_for_bootstrap
+                && section.blocks_bootstrap
+        }));
+        assert!(evidence.source_sections.iter().any(|section| {
+            section.section == Stage4BrokerTruthFreshnessSection::Trades
+                && section.source_status == Stage4BrokerTruthSourceStatus::Missing
+                && section.freshness_status == Stage4BrokerTruthFreshnessStatus::Unavailable
+                && section.required_for_bootstrap
+                && section.blocks_bootstrap
+        }));
+        assert!(evidence.source_sections.iter().any(|section| {
+            section.section == Stage4BrokerTruthFreshnessSection::Cash
+                && section.source_status == Stage4BrokerTruthSourceStatus::Unavailable
+                && section.freshness_status == Stage4BrokerTruthFreshnessStatus::Unavailable
+                && !section.required_for_bootstrap
+                && !section.blocks_bootstrap
+        }));
+        assert!(evidence.source_sections.iter().any(|section| {
+            section.section == Stage4BrokerTruthFreshnessSection::Schedule
+                && section.source_status == Stage4BrokerTruthSourceStatus::Incomplete
+                && section.freshness_status == Stage4BrokerTruthFreshnessStatus::Unavailable
+                && section.required_for_bootstrap
+                && section.blocks_bootstrap
+        }));
+    }
+
+    #[test]
+    fn stage4i_serialized_report_includes_source_status_but_no_raw_payloads() {
+        let truth = base_truth();
+        let mut request = input(&truth);
+        request.broker_truth_source_status = Stage4BrokerTruthSourceStatus::DecodeFailed;
+        request.freshness.orders = Stage4BrokerTruthFreshnessProbe::unavailable(60_000, true);
+        request.freshness.trades = Stage4BrokerTruthFreshnessProbe::unavailable(60_000, true);
+        request.freshness.cash = Stage4BrokerTruthFreshnessProbe::unavailable(60_000, false);
+        request.freshness.schedule = Stage4BrokerTruthFreshnessProbe::unavailable(60_000, true);
+        let (report, application, policy, lifecycle, integration) =
+            stage4i_chain_from_request(request);
+        let source_sections = stage4i_mixed_stage4d_source_sections();
+        let evidence = build_stage4_bootstrap_evidence_report_with_source_evidence(
+            &report,
+            &source_sections,
+            &application,
+            &policy,
+            &lifecycle,
+            &integration,
+        );
+
+        let json = serde_json::to_string_pretty(&evidence).expect("serialize evidence");
+
+        assert!(json.contains("DecodeFailed"));
+        assert!(json.contains("Missing"));
+        assert!(json.contains("Unavailable"));
+        assert!(json.contains("Incomplete"));
+        assert!(!json.contains("ACC_TEST_0001"));
+        assert!(!json.contains("ASSET_TEST_1"));
+        assert!(!json.contains("CLIENT-ORDER"));
+        assert!(!json.contains("BROKER-ORDER"));
+        assert!(!json.contains("raw broker payload"));
+        assert!(!json.contains("raw_payload_body"));
+    }
+
+    #[test]
+    fn stage4i_open_live_safety_boundary_sets_no_live_false_and_live_reason() {
+        let truth = base_truth();
+        let mut request = input(&truth);
+        request.safety_boundary.runtime_live_enabled = true;
+        let (report, application, policy, lifecycle, integration) =
+            stage4i_chain_from_request(request);
+
+        let evidence = build_stage4_bootstrap_evidence_report(
+            &report,
+            &application,
+            &policy,
+            &lifecycle,
+            &integration,
+        );
+
+        assert_stage4i_blocked_without_events(&evidence);
+        assert!(!evidence.no_live_authorization);
+        assert!(has_stage4i_blocker(
+            &evidence,
+            Stage4BootstrapEvidenceReportBlockerKind::LiveAuthorizationAttempted
+        ));
+    }
+
+    #[test]
+    fn stage4i_raw_payload_export_sets_redaction_reason() {
+        let truth = base_truth();
+        let mut request = input(&truth);
+        request.safety_boundary.raw_payload_exported = true;
+        let (report, application, policy, lifecycle, integration) =
+            stage4i_chain_from_request(request);
+
+        let evidence = build_stage4_bootstrap_evidence_report(
+            &report,
+            &application,
+            &policy,
+            &lifecycle,
+            &integration,
+        );
+
+        assert_stage4i_blocked_without_events(&evidence);
+        assert!(evidence.no_live_authorization);
+        assert!(has_stage4i_blocker(
+            &evidence,
+            Stage4BootstrapEvidenceReportBlockerKind::RedactionBoundaryOpen
+        ));
+        assert!(!has_stage4i_blocker(
+            &evidence,
+            Stage4BootstrapEvidenceReportBlockerKind::LiveAuthorizationAttempted
+        ));
     }
 
     #[test]

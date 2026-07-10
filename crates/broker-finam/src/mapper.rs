@@ -25,8 +25,9 @@ use broker_core::order::{
 };
 use broker_core::{
     validate_stage4_broker_truth_bootstrap, RuntimeBootstrapSnapshotDto,
-    Stage4BrokerTruthBootstrapInput, Stage4BrokerTruthFreshnessInput,
-    Stage4BrokerTruthFreshnessProbe, Stage4BrokerTruthSafetyBoundary,
+    Stage4BootstrapEvidenceSourceStatusSection, Stage4BrokerTruthBootstrapInput,
+    Stage4BrokerTruthFreshnessInput, Stage4BrokerTruthFreshnessProbe,
+    Stage4BrokerTruthFreshnessSection, Stage4BrokerTruthSafetyBoundary,
     Stage4BrokerTruthSourceStatus, ValidatedStage4BrokerTruthBootstrap,
 };
 use chrono::{DateTime, Duration, NaiveDate, Utc};
@@ -423,6 +424,48 @@ impl FinamStage4ReadonlySourceEvidenceSet {
             cash: self.cash.freshness_probe(),
             instruments: self.instruments.freshness_probe(),
             schedule: self.schedule.freshness_probe(),
+        }
+    }
+
+    pub fn redacted_stage4i_source_sections(
+        self,
+    ) -> Vec<Stage4BootstrapEvidenceSourceStatusSection> {
+        vec![
+            Self::redacted_stage4i_source_section(
+                Stage4BrokerTruthFreshnessSection::Positions,
+                self.positions,
+            ),
+            Self::redacted_stage4i_source_section(
+                Stage4BrokerTruthFreshnessSection::Orders,
+                self.orders,
+            ),
+            Self::redacted_stage4i_source_section(
+                Stage4BrokerTruthFreshnessSection::Trades,
+                self.trades,
+            ),
+            Self::redacted_stage4i_source_section(
+                Stage4BrokerTruthFreshnessSection::Cash,
+                self.cash,
+            ),
+            Self::redacted_stage4i_source_section(
+                Stage4BrokerTruthFreshnessSection::Instruments,
+                self.instruments,
+            ),
+            Self::redacted_stage4i_source_section(
+                Stage4BrokerTruthFreshnessSection::Schedule,
+                self.schedule,
+            ),
+        ]
+    }
+
+    fn redacted_stage4i_source_section(
+        section: Stage4BrokerTruthFreshnessSection,
+        evidence: FinamStage4ReadonlySourceEvidence,
+    ) -> Stage4BootstrapEvidenceSourceStatusSection {
+        Stage4BootstrapEvidenceSourceStatusSection {
+            section,
+            source_status: evidence.status,
+            required_for_bootstrap: evidence.required_for_bootstrap,
         }
     }
 }
@@ -2621,6 +2664,43 @@ mod tests {
             incomplete.broker_truth_source_status,
             Stage4BrokerTruthSourceStatus::Incomplete
         );
+    }
+
+    #[test]
+    fn m4_4d_source_evidence_converts_to_redacted_stage4i_sections() {
+        let checked_ts = parse_timestamp("test", "2026-07-04T14:57:18Z").expect("timestamp");
+        let source_evidence = FinamStage4ReadonlySourceEvidenceSet {
+            positions: FinamStage4ReadonlySourceEvidence::present(checked_ts, 60_000, true),
+            orders: FinamStage4ReadonlySourceEvidence::decode_failed(60_000, true),
+            trades: FinamStage4ReadonlySourceEvidence::missing(60_000, true),
+            cash: FinamStage4ReadonlySourceEvidence::unavailable(60_000, false),
+            instruments: FinamStage4ReadonlySourceEvidence::present(checked_ts, 60_000, true),
+            schedule: FinamStage4ReadonlySourceEvidence::incomplete(60_000, true),
+        };
+
+        let sections = source_evidence.redacted_stage4i_source_sections();
+
+        assert_eq!(sections.len(), 6);
+        assert!(sections.iter().any(|section| {
+            section.section == Stage4BrokerTruthFreshnessSection::Orders
+                && section.source_status == Stage4BrokerTruthSourceStatus::DecodeFailed
+                && section.required_for_bootstrap
+        }));
+        assert!(sections.iter().any(|section| {
+            section.section == Stage4BrokerTruthFreshnessSection::Trades
+                && section.source_status == Stage4BrokerTruthSourceStatus::Missing
+                && section.required_for_bootstrap
+        }));
+        assert!(sections.iter().any(|section| {
+            section.section == Stage4BrokerTruthFreshnessSection::Cash
+                && section.source_status == Stage4BrokerTruthSourceStatus::Unavailable
+                && !section.required_for_bootstrap
+        }));
+        assert!(sections.iter().any(|section| {
+            section.section == Stage4BrokerTruthFreshnessSection::Schedule
+                && section.source_status == Stage4BrokerTruthSourceStatus::Incomplete
+                && section.required_for_bootstrap
+        }));
     }
 
     #[test]
