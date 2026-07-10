@@ -1,6 +1,6 @@
 # Stage 4B — existing broker-truth type inventory and v2 alignment decision
 
-Status: implemented for review.
+Status: accepted.
 
 Date: 2026-07-09.
 

@@ -28,6 +28,7 @@ pub mod readiness;
 pub mod request_id;
 pub mod runtime_host;
 pub mod runtime_state;
+pub mod stage4_bootstrap;
 pub mod subscription;
 pub mod time;
 pub mod trade_ledger;
@@ -184,6 +185,18 @@ pub use runtime_state::{
     RuntimeStateReadinessBlockerKind, RuntimeStateSnapshot, RuntimeStateValidationError,
     RuntimeTradeCacheTarget, RuntimeTradeEvent, ValidatedRuntimeBootstrapSnapshotDto,
     ValidatedRuntimeStateSnapshot,
+};
+pub use stage4_bootstrap::{
+    validate_stage4_broker_truth_bootstrap, Stage4AdoptionDisposition,
+    Stage4BrokerTruthBootstrapInput, Stage4BrokerTruthBootstrapStatus,
+    Stage4BrokerTruthExternalIssue, Stage4BrokerTruthExternalIssueKind, Stage4BrokerTruthFreshness,
+    Stage4BrokerTruthFreshnessInput, Stage4BrokerTruthFreshnessProbe,
+    Stage4BrokerTruthFreshnessSection, Stage4BrokerTruthFreshnessSectionEvidence,
+    Stage4BrokerTruthFreshnessStatus, Stage4BrokerTruthOwnershipSummary,
+    Stage4BrokerTruthReadinessBlocker, Stage4BrokerTruthReadinessBlockerKind,
+    Stage4BrokerTruthSafetyBoundary, Stage4BrokerTruthTradeCorrelationSummary,
+    Stage4DirtyStartDisposition, Stage4ManualInterventionReason,
+    ValidatedStage4BrokerTruthBootstrap, STAGE4_BROKER_TRUTH_BOOTSTRAP_SCHEMA_VERSION,
 };
 pub use subscription::{SubscriptionIntent, SubscriptionKind, SubscriptionState};
 pub use trade_ledger::{

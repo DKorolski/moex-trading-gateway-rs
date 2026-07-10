@@ -19,6 +19,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 4A broker-truth bootstrap plan/evidence schema and Stage 4A-1
   plan/schema alignment are accepted as foundation.
 - Stage 4B existing broker-truth type inventory and v2 alignment decision is
+  accepted.
+- Stage 4C validated broker-truth bootstrap wrapper and validation is
   implemented for review.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
@@ -160,12 +162,16 @@ Stage split:
   inventory is required before coding; lifecycle-order, explicit adoption,
   ownership/correlation, and numeric freshness evidence are represented in the
   schema.
-- Stage 4B is implemented for review as existing broker-truth type inventory
-  and v2 alignment decision. It chooses reuse/extend/wrap decisions around the
+- Stage 4B is accepted as existing broker-truth type inventory and v2 alignment
+  decision. It chooses reuse/extend/wrap decisions around the
   existing `BrokerTruthSnapshot`, `RuntimeHostBootstrapSnapshot`,
   `RuntimeBootstrapSnapshotDto`, FINAM mapper, M3f/M3g issue machinery, and
   broker-truth parity helpers.
-- Stage 4C coding should not start until Stage 4B is accepted.
+- Stage 4C is implemented for review as a validated wrapper around existing
+  `BrokerTruthSnapshot` and `RuntimeHostBootstrapSnapshot`, with freshness,
+  ownership/correlation summaries, dirty-start/adoption disposition, restored
+  runtime-state checks, external issue bridge, and closed safety boundary.
+- Stage 4D coding should not start until Stage 4C is accepted.
 
 Green / mostly closed:
 
@@ -197,8 +203,9 @@ Amber:
 - Stage 3 remains market-data/evidence only; it does not read live streams from
   runtime-live, attach runtime-live, or enable real order routing.
 - Stage 4A/4A-1 covers broker-truth bootstrap planning/evidence schema; Stage
-  4B covers existing type inventory and alignment. Broker truth is not yet
-  wired as mandatory runtime input.
+  4B covers existing type inventory and alignment; Stage 4C adds the first
+  validated broker-truth bootstrap wrapper. Broker truth is not yet wired as
+  mandatory runtime input.
 
 Red / not yet implemented:
 
