@@ -11,12 +11,16 @@ use crate::operational_snapshot::{
     instrument_identity_matches, BrokerOrderLifecycle, BrokerTradeSnapshot,
     BrokerTruthInstrumentSummary, BrokerTruthSnapshot,
 };
-use crate::runtime_host::RuntimeHostBootstrapSnapshot;
+use crate::runtime_host::{
+    validate_runtime_lifecycle_sequence, RuntimeHostBootstrapSnapshot, RuntimeHostLifecycleIssue,
+    RuntimeHostLifecyclePlan, RuntimeHostLifecycleStep,
+};
 use crate::runtime_state::RuntimeBootstrapSnapshotDto;
 
 pub const STAGE4_BROKER_TRUTH_BOOTSTRAP_SCHEMA_VERSION: u16 = 1;
 pub const STAGE4_RUNTIME_BOOTSTRAP_APPLICATION_SCHEMA_VERSION: u16 = 1;
 pub const STAGE4_DIRTY_START_POLICY_SCHEMA_VERSION: u16 = 1;
+pub const STAGE4_RUNTIME_LIFECYCLE_ORDERING_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Stage4BrokerTruthBootstrapStatus {
@@ -614,6 +618,56 @@ pub struct Stage4DirtyStartPolicyDecision {
     pub no_live_authorization: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Stage4RuntimeLifecycleOrderingStatus {
+    Accepted,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Stage4RuntimeLifecycleOrderingBlockerKind {
+    RuntimeLifecyclePlanInvalid,
+    ApplicationEvidenceNotApplied,
+    DirtyStartPolicyNotAccepted,
+    BrokerTruthNotBeforeRuntimeState,
+    BootstrapNotificationBeforeApplicationEvidence,
+    RuntimeStateRestoredBeforeBootstrapNotification,
+    RuntimeStateRestoreMayOverwriteBrokerTruth,
+    WarmupBeforeBootstrapNotification,
+    PendingRecoveryBeforeWarmup,
+    LiveAuthorizationAttempted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage4RuntimeLifecycleOrderingBlocker {
+    pub kind: Stage4RuntimeLifecycleOrderingBlockerKind,
+    pub source_bootstrap_status: Stage4BrokerTruthBootstrapStatus,
+    pub blocks_runtime_lifecycle: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage4RuntimeLifecycleOrderingDecision {
+    pub schema_version: u16,
+    pub checked_ts: DateTime<Utc>,
+    pub status: Stage4RuntimeLifecycleOrderingStatus,
+    pub lifecycle_plan: RuntimeHostLifecyclePlan,
+    pub lifecycle_issues: Vec<RuntimeHostLifecycleIssue>,
+    pub source_bootstrap_status: Stage4BrokerTruthBootstrapStatus,
+    pub source_application_status: Stage4RuntimeBootstrapApplicationStatus,
+    pub source_dirty_start_policy_status: Stage4DirtyStartPolicyStatus,
+    pub broker_truth_load_precedes_runtime_state_trust: bool,
+    pub application_and_policy_accepted_before_bootstrap_notification: bool,
+    pub notify_bootstrap_after_application_evidence: bool,
+    pub notify_runtime_state_restored_after_bootstrap_notification: bool,
+    pub runtime_state_restore_cannot_overwrite_broker_truth: bool,
+    pub warmup_after_bootstrap_notification: bool,
+    pub pending_recovery_after_warmup: bool,
+    pub no_live_authorization: bool,
+    pub runtime_bootstrap_notification_allowed: bool,
+    pub blockers: Vec<Stage4RuntimeLifecycleOrderingBlocker>,
+    pub blocker_count: usize,
+}
+
 pub fn evaluate_stage4_runtime_bootstrap_application(
     validated: &ValidatedStage4BrokerTruthBootstrap,
 ) -> Stage4RuntimeBootstrapApplicationDecision {
@@ -763,6 +817,194 @@ pub fn evaluate_stage4_dirty_start_policy(
         blocker_count,
         no_live_authorization: true,
     }
+}
+
+pub fn evaluate_stage4_runtime_lifecycle_ordering(
+    validated: &ValidatedStage4BrokerTruthBootstrap,
+    application: &Stage4RuntimeBootstrapApplicationDecision,
+    dirty_start_policy: &Stage4DirtyStartPolicyDecision,
+    lifecycle_plan: RuntimeHostLifecyclePlan,
+) -> Stage4RuntimeLifecycleOrderingDecision {
+    let canonical_application = evaluate_stage4_runtime_bootstrap_application(validated);
+    let canonical_dirty_start_policy =
+        evaluate_stage4_dirty_start_policy(validated, &canonical_application);
+    let application_matches_validated = application == &canonical_application;
+    let policy_matches_canonical_chain = dirty_start_policy == &canonical_dirty_start_policy;
+    let lifecycle_issues = validate_runtime_lifecycle_sequence(&lifecycle_plan);
+
+    let broker_truth_load_precedes_runtime_state_trust = lifecycle_plan
+        .broker_truth_before_strategy_state
+        && stage4_lifecycle_step_after(
+            &lifecycle_plan,
+            RuntimeHostLifecycleStep::LoadRuntimeState,
+            RuntimeHostLifecycleStep::LoadBrokerTruthSnapshot,
+        );
+    let application_and_policy_accepted_before_bootstrap_notification =
+        application_matches_validated
+            && policy_matches_canonical_chain
+            && application.status == Stage4RuntimeBootstrapApplicationStatus::Applied
+            && application.applied_snapshot.is_some()
+            && dirty_start_policy.status == Stage4DirtyStartPolicyStatus::Accepted
+            && dirty_start_policy.runtime_bootstrap_notification_allowed;
+    let notify_bootstrap_after_application_evidence =
+        application_and_policy_accepted_before_bootstrap_notification
+            && broker_truth_load_precedes_runtime_state_trust
+            && stage4_lifecycle_step_after(
+                &lifecycle_plan,
+                RuntimeHostLifecycleStep::NotifyBootstrapSnapshot,
+                RuntimeHostLifecycleStep::LoadRuntimeState,
+            );
+    let notify_runtime_state_restored_after_bootstrap_notification = stage4_lifecycle_step_after(
+        &lifecycle_plan,
+        RuntimeHostLifecycleStep::NotifyRuntimeStateRestored,
+        RuntimeHostLifecycleStep::NotifyBootstrapSnapshot,
+    );
+    let runtime_state_restore_cannot_overwrite_broker_truth = application_matches_validated
+        && application.broker_truth_loaded_before_runtime_state
+        && !application.restored_runtime_overrode_broker_truth;
+    let warmup_after_bootstrap_notification = stage4_lifecycle_step_after(
+        &lifecycle_plan,
+        RuntimeHostLifecycleStep::WarmupHistory,
+        RuntimeHostLifecycleStep::NotifyBootstrapSnapshot,
+    );
+    let pending_recovery_after_warmup = lifecycle_plan.pending_recovery_after_warmup
+        && stage4_lifecycle_step_after(
+            &lifecycle_plan,
+            RuntimeHostLifecycleStep::RecoverPendingStreams,
+            RuntimeHostLifecycleStep::WarmupHistory,
+        );
+    let no_live_authorization = application.no_live_authorization
+        && dirty_start_policy.no_live_authorization
+        && !lifecycle_plan.warmup_live_orders_allowed;
+
+    let mut blockers = Vec::new();
+    if !lifecycle_issues.is_empty() {
+        blockers.push(stage4_runtime_lifecycle_ordering_blocker(
+            Stage4RuntimeLifecycleOrderingBlockerKind::RuntimeLifecyclePlanInvalid,
+            validated.status,
+        ));
+    }
+    if !application_matches_validated
+        || application.status != Stage4RuntimeBootstrapApplicationStatus::Applied
+        || application.applied_snapshot.is_none()
+    {
+        blockers.push(stage4_runtime_lifecycle_ordering_blocker(
+            Stage4RuntimeLifecycleOrderingBlockerKind::ApplicationEvidenceNotApplied,
+            validated.status,
+        ));
+    }
+    if !policy_matches_canonical_chain
+        || dirty_start_policy.status != Stage4DirtyStartPolicyStatus::Accepted
+        || !dirty_start_policy.runtime_bootstrap_notification_allowed
+    {
+        blockers.push(stage4_runtime_lifecycle_ordering_blocker(
+            Stage4RuntimeLifecycleOrderingBlockerKind::DirtyStartPolicyNotAccepted,
+            validated.status,
+        ));
+    }
+    if !broker_truth_load_precedes_runtime_state_trust {
+        blockers.push(stage4_runtime_lifecycle_ordering_blocker(
+            Stage4RuntimeLifecycleOrderingBlockerKind::BrokerTruthNotBeforeRuntimeState,
+            validated.status,
+        ));
+    }
+    if !notify_bootstrap_after_application_evidence {
+        blockers.push(stage4_runtime_lifecycle_ordering_blocker(
+            Stage4RuntimeLifecycleOrderingBlockerKind::BootstrapNotificationBeforeApplicationEvidence,
+            validated.status,
+        ));
+    }
+    if !notify_runtime_state_restored_after_bootstrap_notification {
+        blockers.push(stage4_runtime_lifecycle_ordering_blocker(
+            Stage4RuntimeLifecycleOrderingBlockerKind::RuntimeStateRestoredBeforeBootstrapNotification,
+            validated.status,
+        ));
+    }
+    if !runtime_state_restore_cannot_overwrite_broker_truth {
+        blockers.push(stage4_runtime_lifecycle_ordering_blocker(
+            Stage4RuntimeLifecycleOrderingBlockerKind::RuntimeStateRestoreMayOverwriteBrokerTruth,
+            validated.status,
+        ));
+    }
+    if !warmup_after_bootstrap_notification {
+        blockers.push(stage4_runtime_lifecycle_ordering_blocker(
+            Stage4RuntimeLifecycleOrderingBlockerKind::WarmupBeforeBootstrapNotification,
+            validated.status,
+        ));
+    }
+    if !pending_recovery_after_warmup {
+        blockers.push(stage4_runtime_lifecycle_ordering_blocker(
+            Stage4RuntimeLifecycleOrderingBlockerKind::PendingRecoveryBeforeWarmup,
+            validated.status,
+        ));
+    }
+    if !no_live_authorization {
+        blockers.push(stage4_runtime_lifecycle_ordering_blocker(
+            Stage4RuntimeLifecycleOrderingBlockerKind::LiveAuthorizationAttempted,
+            validated.status,
+        ));
+    }
+
+    let status = if blockers.is_empty() {
+        Stage4RuntimeLifecycleOrderingStatus::Accepted
+    } else {
+        Stage4RuntimeLifecycleOrderingStatus::Blocked
+    };
+    let blocker_count = blockers.len();
+    Stage4RuntimeLifecycleOrderingDecision {
+        schema_version: STAGE4_RUNTIME_LIFECYCLE_ORDERING_SCHEMA_VERSION,
+        checked_ts: validated.checked_ts,
+        status,
+        lifecycle_plan,
+        lifecycle_issues,
+        source_bootstrap_status: validated.status,
+        source_application_status: application.status,
+        source_dirty_start_policy_status: dirty_start_policy.status,
+        broker_truth_load_precedes_runtime_state_trust,
+        application_and_policy_accepted_before_bootstrap_notification,
+        notify_bootstrap_after_application_evidence,
+        notify_runtime_state_restored_after_bootstrap_notification,
+        runtime_state_restore_cannot_overwrite_broker_truth,
+        warmup_after_bootstrap_notification,
+        pending_recovery_after_warmup,
+        no_live_authorization,
+        runtime_bootstrap_notification_allowed: dirty_start_policy
+            .runtime_bootstrap_notification_allowed,
+        blockers,
+        blocker_count,
+    }
+}
+
+fn stage4_runtime_lifecycle_ordering_blocker(
+    kind: Stage4RuntimeLifecycleOrderingBlockerKind,
+    source_bootstrap_status: Stage4BrokerTruthBootstrapStatus,
+) -> Stage4RuntimeLifecycleOrderingBlocker {
+    Stage4RuntimeLifecycleOrderingBlocker {
+        kind,
+        source_bootstrap_status,
+        blocks_runtime_lifecycle: true,
+    }
+}
+
+fn stage4_lifecycle_step_after(
+    plan: &RuntimeHostLifecyclePlan,
+    later: RuntimeHostLifecycleStep,
+    earlier: RuntimeHostLifecycleStep,
+) -> bool {
+    match (
+        stage4_lifecycle_step_index(plan, later),
+        stage4_lifecycle_step_index(plan, earlier),
+    ) {
+        (Some(later_idx), Some(earlier_idx)) => later_idx > earlier_idx,
+        _ => false,
+    }
+}
+
+fn stage4_lifecycle_step_index(
+    plan: &RuntimeHostLifecyclePlan,
+    step: RuntimeHostLifecycleStep,
+) -> Option<usize> {
+    plan.steps.iter().position(|candidate| *candidate == step)
 }
 
 fn stage4_dirty_start_policy_blocker(
@@ -1654,6 +1896,25 @@ mod tests {
         }
     }
 
+    fn ready_stage4g_chain() -> (
+        ValidatedStage4BrokerTruthBootstrap,
+        Stage4RuntimeBootstrapApplicationDecision,
+        Stage4DirtyStartPolicyDecision,
+    ) {
+        let truth = base_truth();
+        let report = validate_stage4_broker_truth_bootstrap(input(&truth));
+        let application = evaluate_stage4_runtime_bootstrap_application(&report);
+        let policy = evaluate_stage4_dirty_start_policy(&report, &application);
+        (report, application, policy)
+    }
+
+    fn has_stage4g_blocker(
+        decision: &Stage4RuntimeLifecycleOrderingDecision,
+        kind: Stage4RuntimeLifecycleOrderingBlockerKind,
+    ) -> bool {
+        decision.blockers.iter().any(|blocker| blocker.kind == kind)
+    }
+
     #[test]
     fn stage4c_clean_flat_bootstrap_is_ready_without_live_authorization() {
         let truth = base_truth();
@@ -2307,6 +2568,261 @@ mod tests {
         assert_eq!(policy.account_wide_non_target_active_order_count, 1);
         assert!(policy.account_wide_non_target_dirty_is_diagnostic);
         assert_eq!(policy.blocker_count, 0);
+    }
+
+    #[test]
+    fn stage4g_accepts_canonical_runtime_lifecycle_order_after_stage4e_and_stage4f() {
+        let (report, application, policy) = ready_stage4g_chain();
+
+        let decision = evaluate_stage4_runtime_lifecycle_ordering(
+            &report,
+            &application,
+            &policy,
+            RuntimeHostLifecyclePlan::alor_compatible(),
+        );
+
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeLifecycleOrderingStatus::Accepted
+        );
+        assert_eq!(decision.blocker_count, 0);
+        assert!(decision.lifecycle_issues.is_empty());
+        assert!(decision.broker_truth_load_precedes_runtime_state_trust);
+        assert!(decision.application_and_policy_accepted_before_bootstrap_notification);
+        assert!(decision.notify_bootstrap_after_application_evidence);
+        assert!(decision.notify_runtime_state_restored_after_bootstrap_notification);
+        assert!(decision.runtime_state_restore_cannot_overwrite_broker_truth);
+        assert!(decision.warmup_after_bootstrap_notification);
+        assert!(decision.pending_recovery_after_warmup);
+        assert!(decision.no_live_authorization);
+        assert!(decision.runtime_bootstrap_notification_allowed);
+    }
+
+    #[test]
+    fn stage4g_blocks_bootstrap_notification_before_broker_truth_application() {
+        let (report, application, policy) = ready_stage4g_chain();
+        let mut plan = RuntimeHostLifecyclePlan::alor_compatible();
+        plan.steps = vec![
+            RuntimeHostLifecycleStep::NotifyBootstrapSnapshot,
+            RuntimeHostLifecycleStep::LoadBrokerTruthSnapshot,
+            RuntimeHostLifecycleStep::LoadRuntimeState,
+            RuntimeHostLifecycleStep::NotifyRuntimeStateRestored,
+            RuntimeHostLifecycleStep::WarmupHistory,
+            RuntimeHostLifecycleStep::RecoverPendingStreams,
+        ];
+
+        let decision =
+            evaluate_stage4_runtime_lifecycle_ordering(&report, &application, &policy, plan);
+
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeLifecycleOrderingStatus::Blocked
+        );
+        assert!(!decision.notify_bootstrap_after_application_evidence);
+        assert!(has_stage4g_blocker(
+            &decision,
+            Stage4RuntimeLifecycleOrderingBlockerKind::RuntimeLifecyclePlanInvalid
+        ));
+        assert!(has_stage4g_blocker(
+            &decision,
+            Stage4RuntimeLifecycleOrderingBlockerKind::BootstrapNotificationBeforeApplicationEvidence
+        ));
+    }
+
+    #[test]
+    fn stage4g_blocks_when_stage4e_application_was_not_applied() {
+        let truth = base_truth();
+        let mut request = input(&truth);
+        request.freshness.positions = Stage4BrokerTruthFreshnessProbe::fresh(
+            checked_ts() - chrono::Duration::seconds(120),
+            60_000,
+            true,
+        );
+        let report = validate_stage4_broker_truth_bootstrap(request);
+        let application = evaluate_stage4_runtime_bootstrap_application(&report);
+        let policy = evaluate_stage4_dirty_start_policy(&report, &application);
+
+        let decision = evaluate_stage4_runtime_lifecycle_ordering(
+            &report,
+            &application,
+            &policy,
+            RuntimeHostLifecyclePlan::alor_compatible(),
+        );
+
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeLifecycleOrderingStatus::Blocked
+        );
+        assert_eq!(
+            decision.source_application_status,
+            Stage4RuntimeBootstrapApplicationStatus::Blocked
+        );
+        assert!(!decision.application_and_policy_accepted_before_bootstrap_notification);
+        assert!(has_stage4g_blocker(
+            &decision,
+            Stage4RuntimeLifecycleOrderingBlockerKind::ApplicationEvidenceNotApplied
+        ));
+        assert!(has_stage4g_blocker(
+            &decision,
+            Stage4RuntimeLifecycleOrderingBlockerKind::DirtyStartPolicyNotAccepted
+        ));
+    }
+
+    #[test]
+    fn stage4g_blocks_when_dirty_start_policy_is_not_accepted_or_not_canonical() {
+        let (report, application, mut policy) = ready_stage4g_chain();
+        policy.status = Stage4DirtyStartPolicyStatus::Blocked;
+        policy.runtime_bootstrap_notification_allowed = false;
+
+        let decision = evaluate_stage4_runtime_lifecycle_ordering(
+            &report,
+            &application,
+            &policy,
+            RuntimeHostLifecyclePlan::alor_compatible(),
+        );
+
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeLifecycleOrderingStatus::Blocked
+        );
+        assert!(!decision.application_and_policy_accepted_before_bootstrap_notification);
+        assert!(!decision.notify_bootstrap_after_application_evidence);
+        assert!(has_stage4g_blocker(
+            &decision,
+            Stage4RuntimeLifecycleOrderingBlockerKind::DirtyStartPolicyNotAccepted
+        ));
+    }
+
+    #[test]
+    fn stage4g_blocks_runtime_state_restored_before_bootstrap_notification() {
+        let (report, application, policy) = ready_stage4g_chain();
+        let mut plan = RuntimeHostLifecyclePlan::alor_compatible();
+        plan.steps = vec![
+            RuntimeHostLifecycleStep::LoadBrokerTruthSnapshot,
+            RuntimeHostLifecycleStep::LoadRuntimeState,
+            RuntimeHostLifecycleStep::NotifyRuntimeStateRestored,
+            RuntimeHostLifecycleStep::NotifyBootstrapSnapshot,
+            RuntimeHostLifecycleStep::WarmupHistory,
+            RuntimeHostLifecycleStep::RecoverPendingStreams,
+        ];
+
+        let decision =
+            evaluate_stage4_runtime_lifecycle_ordering(&report, &application, &policy, plan);
+
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeLifecycleOrderingStatus::Blocked
+        );
+        assert!(!decision.notify_runtime_state_restored_after_bootstrap_notification);
+        assert!(has_stage4g_blocker(
+            &decision,
+            Stage4RuntimeLifecycleOrderingBlockerKind::RuntimeStateRestoredBeforeBootstrapNotification
+        ));
+    }
+
+    #[test]
+    fn stage4g_blocks_restored_runtime_state_overwriting_broker_truth() {
+        let (report, mut application, policy) = ready_stage4g_chain();
+        application.restored_runtime_overrode_broker_truth = true;
+
+        let decision = evaluate_stage4_runtime_lifecycle_ordering(
+            &report,
+            &application,
+            &policy,
+            RuntimeHostLifecyclePlan::alor_compatible(),
+        );
+
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeLifecycleOrderingStatus::Blocked
+        );
+        assert!(!decision.runtime_state_restore_cannot_overwrite_broker_truth);
+        assert!(has_stage4g_blocker(
+            &decision,
+            Stage4RuntimeLifecycleOrderingBlockerKind::ApplicationEvidenceNotApplied
+        ));
+        assert!(has_stage4g_blocker(
+            &decision,
+            Stage4RuntimeLifecycleOrderingBlockerKind::RuntimeStateRestoreMayOverwriteBrokerTruth
+        ));
+    }
+
+    #[test]
+    fn stage4g_blocks_warmup_before_bootstrap_notification() {
+        let (report, application, policy) = ready_stage4g_chain();
+        let mut plan = RuntimeHostLifecyclePlan::alor_compatible();
+        plan.steps = vec![
+            RuntimeHostLifecycleStep::LoadBrokerTruthSnapshot,
+            RuntimeHostLifecycleStep::LoadRuntimeState,
+            RuntimeHostLifecycleStep::WarmupHistory,
+            RuntimeHostLifecycleStep::NotifyBootstrapSnapshot,
+            RuntimeHostLifecycleStep::NotifyRuntimeStateRestored,
+            RuntimeHostLifecycleStep::RecoverPendingStreams,
+        ];
+
+        let decision =
+            evaluate_stage4_runtime_lifecycle_ordering(&report, &application, &policy, plan);
+
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeLifecycleOrderingStatus::Blocked
+        );
+        assert!(!decision.warmup_after_bootstrap_notification);
+        assert!(has_stage4g_blocker(
+            &decision,
+            Stage4RuntimeLifecycleOrderingBlockerKind::WarmupBeforeBootstrapNotification
+        ));
+    }
+
+    #[test]
+    fn stage4g_blocks_pending_stream_recovery_before_warmup() {
+        let (report, application, policy) = ready_stage4g_chain();
+        let mut plan = RuntimeHostLifecyclePlan::alor_compatible();
+        plan.steps = vec![
+            RuntimeHostLifecycleStep::LoadBrokerTruthSnapshot,
+            RuntimeHostLifecycleStep::LoadRuntimeState,
+            RuntimeHostLifecycleStep::NotifyBootstrapSnapshot,
+            RuntimeHostLifecycleStep::NotifyRuntimeStateRestored,
+            RuntimeHostLifecycleStep::RecoverPendingStreams,
+            RuntimeHostLifecycleStep::WarmupHistory,
+        ];
+
+        let decision =
+            evaluate_stage4_runtime_lifecycle_ordering(&report, &application, &policy, plan);
+
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeLifecycleOrderingStatus::Blocked
+        );
+        assert!(!decision.pending_recovery_after_warmup);
+        assert!(has_stage4g_blocker(
+            &decision,
+            Stage4RuntimeLifecycleOrderingBlockerKind::PendingRecoveryBeforeWarmup
+        ));
+    }
+
+    #[test]
+    fn stage4g_blocks_any_live_authorization_attempt_in_lifecycle_ordering() {
+        let (report, application, policy) = ready_stage4g_chain();
+        let mut plan = RuntimeHostLifecyclePlan::alor_compatible();
+        plan.warmup_live_orders_allowed = true;
+
+        let decision =
+            evaluate_stage4_runtime_lifecycle_ordering(&report, &application, &policy, plan);
+
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeLifecycleOrderingStatus::Blocked
+        );
+        assert!(!decision.no_live_authorization);
+        assert!(has_stage4g_blocker(
+            &decision,
+            Stage4RuntimeLifecycleOrderingBlockerKind::LiveAuthorizationAttempted
+        ));
+        assert!(has_stage4g_blocker(
+            &decision,
+            Stage4RuntimeLifecycleOrderingBlockerKind::RuntimeLifecyclePlanInvalid
+        ));
     }
 
     #[test]

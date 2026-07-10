@@ -1,6 +1,6 @@
 # Stage 4F — dirty-start / explicit adoption / manual-intervention policy
 
-Status: implemented for review with P1 consistency guards.
+Status: accepted.
 
 Date: 2026-07-10.
 
@@ -112,7 +112,6 @@ Stage 4F does not authorize:
 
 ## Follow-up
 
-After Stage 4F review acceptance, the next slice can focus on operator-facing
-manual-intervention workflow/reporting or continue toward Stage 4G lifecycle
-ordering evidence, depending on review feedback. Any move toward runtime-live
-or real command consumption remains out of scope without later accepted gates.
+Stage 4G continues with runtime lifecycle ordering evidence. Any move toward
+runtime-live or real command consumption remains out of scope without later
+accepted gates.

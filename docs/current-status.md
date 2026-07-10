@@ -26,7 +26,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 4E broker-truth to runtime bootstrap application evidence is
   accepted.
 - Stage 4F dirty-start / explicit adoption / manual-intervention policy is
-  implemented for review with the requested P1 consistency guards.
+  accepted.
+- Stage 4G runtime lifecycle ordering evidence is implemented for review.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

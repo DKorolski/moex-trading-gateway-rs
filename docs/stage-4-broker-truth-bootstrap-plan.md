@@ -5,8 +5,8 @@ Stage 4B existing type inventory and v2 alignment decision accepted; Stage 4C
 validated bootstrap wrapper accepted; Stage 4D FINAM read-only
 broker-truth source normalization accepted; Stage 4E broker-truth to runtime
 bootstrap application evidence accepted; Stage 4F dirty-start / explicit
-adoption / manual-intervention policy implemented for review with P1
-consistency guards.
+adoption / manual-intervention policy accepted; Stage 4G runtime lifecycle
+ordering evidence implemented for review.
 
 Date: 2026-07-10.
 
@@ -51,6 +51,9 @@ Stage 4F adds the dirty-start / explicit adoption / manual-intervention policy
 gate with application-evidence consistency and runtime-owned-order guards
 described in
 [`stage-4/4f-dirty-start-adoption-policy.md`](stage-4/4f-dirty-start-adoption-policy.md).
+
+Stage 4G adds runtime lifecycle ordering evidence described in
+[`stage-4/4g-runtime-lifecycle-ordering-evidence.md`](stage-4/4g-runtime-lifecycle-ordering-evidence.md).
 
 ## 2. Broker truth inputs
 
