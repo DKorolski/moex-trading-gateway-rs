@@ -496,6 +496,7 @@ pub enum Stage4RuntimeBootstrapApplicationStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Stage4RuntimeBootstrapApplicationBlockerKind {
+    ValidatedBootstrapInconsistent,
     ValidatedBootstrapNotReady,
     BrokerTruthIncomplete,
     BrokerTruthStale,
@@ -537,7 +538,10 @@ pub struct Stage4RuntimeBootstrapApplicationDecision {
 pub fn evaluate_stage4_runtime_bootstrap_application(
     validated: &ValidatedStage4BrokerTruthBootstrap,
 ) -> Stage4RuntimeBootstrapApplicationDecision {
-    let blockers = stage4_runtime_bootstrap_application_blockers(validated.status);
+    let mut blockers = stage4_runtime_bootstrap_application_blockers(validated.status);
+    blockers.extend(stage4_runtime_bootstrap_application_consistency_blockers(
+        validated,
+    ));
     let status = if blockers.is_empty() {
         Stage4RuntimeBootstrapApplicationStatus::Applied
     } else {
@@ -610,6 +614,82 @@ fn stage4_runtime_bootstrap_application_blockers(
         source_status: status,
         blocks_runtime_notification: true,
     }]
+}
+
+fn stage4_runtime_bootstrap_application_consistency_blockers(
+    validated: &ValidatedStage4BrokerTruthBootstrap,
+) -> Vec<Stage4RuntimeBootstrapApplicationBlocker> {
+    if stage4_validated_bootstrap_report_is_internally_consistent(validated) {
+        return Vec::new();
+    }
+
+    vec![Stage4RuntimeBootstrapApplicationBlocker {
+        kind: Stage4RuntimeBootstrapApplicationBlockerKind::ValidatedBootstrapInconsistent,
+        source_status: validated.status,
+        blocks_runtime_notification: true,
+    }]
+}
+
+fn stage4_validated_bootstrap_report_is_internally_consistent(
+    validated: &ValidatedStage4BrokerTruthBootstrap,
+) -> bool {
+    if validated.schema_version != STAGE4_BROKER_TRUTH_BOOTSTRAP_SCHEMA_VERSION {
+        return false;
+    }
+
+    if validated.blocker_count != validated.blockers.len() {
+        return false;
+    }
+
+    if validated.freshness.blocking_section_count
+        != validated
+            .freshness
+            .sections
+            .iter()
+            .filter(|section| section.blocks_bootstrap)
+            .count()
+    {
+        return false;
+    }
+
+    if validated.manual_intervention_required
+        != validated
+            .blockers
+            .iter()
+            .any(|blocker| blocker.manual_intervention_reason.is_some())
+    {
+        return false;
+    }
+
+    if validated.status != Stage4BrokerTruthBootstrapStatus::BootstrapReady {
+        return true;
+    }
+
+    validated.blockers.is_empty()
+        && validated.blocker_count == 0
+        && !validated.manual_intervention_required
+        && validated.freshness.blocking_section_count == 0
+        && validated.broker_truth_source_status == Stage4BrokerTruthSourceStatus::Present
+        && validated.schedule_state != BrokerMarketSessionState::Unknown
+        && validated.safety_boundary == Stage4BrokerTruthSafetyBoundary::closed()
+        && validated.runtime_bootstrap_snapshot.target_position_qty == validated.target_position_qty
+        && validated.runtime_bootstrap_snapshot.target_is_flat == validated.target_is_flat
+        && validated.runtime_bootstrap_snapshot.instrument == validated.target_instrument
+        && validated
+            .runtime_bootstrap_snapshot
+            .target_active_orders
+            .len()
+            == validated.ownership_summary.target_active_order_count
+        && validated
+            .runtime_bootstrap_snapshot
+            .account_active_orders_count
+            == validated.ownership_summary.account_active_order_count
+        && validated
+            .runtime_bootstrap_snapshot
+            .target_open_positions
+            .len()
+            == validated.broker_truth_summary.target_open_positions_count
+        && validated.runtime_bootstrap_snapshot.received_ts == validated.broker_truth_received_ts
 }
 
 pub fn validate_stage4_broker_truth_bootstrap(
@@ -1418,6 +1498,80 @@ mod tests {
             assert!(decision.blockers[0].blocks_runtime_notification);
             assert!(decision.no_live_authorization);
         }
+    }
+
+    #[test]
+    fn stage4e_bootstrap_ready_with_readiness_blockers_is_inconsistent_and_blocked() {
+        let truth = base_truth();
+        let mut report = validate_stage4_broker_truth_bootstrap(input(&truth));
+
+        report.status = Stage4BrokerTruthBootstrapStatus::BootstrapReady;
+        report
+            .blockers
+            .push(Stage4BrokerTruthReadinessBlocker::blocker(
+                Stage4BrokerTruthReadinessBlockerKind::UnknownSchedule,
+            ));
+        report.blocker_count = 1;
+
+        let decision = evaluate_stage4_runtime_bootstrap_application(&report);
+
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeBootstrapApplicationStatus::Blocked
+        );
+        assert!(decision.applied_snapshot.is_none());
+        assert!(decision.blockers.iter().any(|blocker| {
+            blocker.kind
+                == Stage4RuntimeBootstrapApplicationBlockerKind::ValidatedBootstrapInconsistent
+        }));
+        assert!(decision
+            .blockers
+            .iter()
+            .all(|blocker| blocker.blocks_runtime_notification));
+        assert!(decision.no_live_authorization);
+    }
+
+    #[test]
+    fn stage4e_bootstrap_ready_with_open_safety_boundary_is_inconsistent_and_blocked() {
+        let truth = base_truth();
+        let mut report = validate_stage4_broker_truth_bootstrap(input(&truth));
+
+        report.status = Stage4BrokerTruthBootstrapStatus::BootstrapReady;
+        report.safety_boundary.runtime_live_enabled = true;
+
+        let decision = evaluate_stage4_runtime_bootstrap_application(&report);
+
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeBootstrapApplicationStatus::Blocked
+        );
+        assert!(decision.applied_snapshot.is_none());
+        assert!(decision.blockers.iter().any(|blocker| {
+            blocker.kind
+                == Stage4RuntimeBootstrapApplicationBlockerKind::ValidatedBootstrapInconsistent
+        }));
+        assert!(decision.no_live_authorization);
+    }
+
+    #[test]
+    fn stage4e_bootstrap_ready_with_snapshot_mismatch_is_inconsistent_and_blocked() {
+        let truth = base_truth();
+        let mut report = validate_stage4_broker_truth_bootstrap(input(&truth));
+
+        report.runtime_bootstrap_snapshot.target_position_qty = Decimal::ONE;
+
+        let decision = evaluate_stage4_runtime_bootstrap_application(&report);
+
+        assert_eq!(
+            decision.status,
+            Stage4RuntimeBootstrapApplicationStatus::Blocked
+        );
+        assert!(decision.applied_snapshot.is_none());
+        assert!(decision.blockers.iter().any(|blocker| {
+            blocker.kind
+                == Stage4RuntimeBootstrapApplicationBlockerKind::ValidatedBootstrapInconsistent
+        }));
+        assert!(decision.no_live_authorization);
     }
 
     #[test]

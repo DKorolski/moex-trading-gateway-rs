@@ -24,7 +24,7 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 4D FINAM read-only broker-truth mapper/source normalization is
   accepted.
 - Stage 4E broker-truth to runtime bootstrap application evidence is
-  implemented for review.
+  implemented for review with the requested P1 defensive consistency guard.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
@@ -186,11 +186,13 @@ Stage split:
   active/unknown target orders, unowned target trades, missing/ambiguous
   instrument identity, stale source sections, and schedule-symbol mismatch.
 - Stage 4E is implemented for review as an application-evidence gate around
-  validated broker truth. Runtime bootstrap notification is allowed only for
-  `BootstrapReady`; all incomplete/stale/mismatch/unknown-schedule/manual/
-  evidence/safety statuses remain blocked. Restored runtime state is accepted
-  only after broker truth, cannot overwrite broker truth, target/account scopes
-  stay separated, and live/execution authorization remains closed.
+  validated broker truth. Runtime bootstrap notification is allowed only for an
+  internally consistent `BootstrapReady` report; all
+  incomplete/stale/mismatch/unknown-schedule/manual/evidence/safety statuses
+  remain blocked, and contradictory `BootstrapReady` reports are rejected as
+  `ValidatedBootstrapInconsistent`. Restored runtime state is accepted only
+  after broker truth, cannot overwrite broker truth, target/account scopes stay
+  separated, and live/execution authorization remains closed.
 
 Green / mostly closed:
 
