@@ -56,11 +56,13 @@ pub use hybrid_runtime_ids::{
 pub use hybrid_strategy_boundary::{
     map_hybrid_runtime_ack_error_code, map_hybrid_runtime_ack_status, HybridRiskGateRuntimeState,
     HybridRiskGateSessionFinalization, HybridRuntimeAckErrorCode, HybridRuntimeAckStatus,
-    HybridRuntimeAttribution, HybridRuntimeBarEvent, HybridRuntimeBarOrigin,
-    HybridRuntimeBootstrapSnapshot, HybridRuntimeCommandAck, HybridRuntimeGatewayPhase,
+    HybridRuntimeAttribution, HybridRuntimeAttributionError, HybridRuntimeBarEvent,
+    HybridRuntimeBarOrigin, HybridRuntimeBootstrapSnapshot, HybridRuntimeBootstrapValidationError,
+    HybridRuntimeCallbackInput, HybridRuntimeCommandAck, HybridRuntimeGatewayPhase,
     HybridRuntimeOrderEvent, HybridRuntimeOrderRole, HybridRuntimeOwner,
     HybridRuntimePaperExecutionMode, HybridRuntimePositionEvent, HybridRuntimeStateRestored,
-    HybridRuntimeStopOrderEvent, HybridRuntimeStrategyContext, HybridRuntimeTradeMode,
+    HybridRuntimeStopOrderEvent, HybridRuntimeStrategyContext, HybridRuntimeTimerEvent,
+    HybridRuntimeTradeMode,
 };
 pub use ids::{
     deserialize_broker_order_id_legacy_numeric_or_string,

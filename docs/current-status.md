@@ -53,10 +53,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 5B-2a separate wrapper correspondence manifest and broker-neutral
   callback/state boundary hardening are a repeat-review candidate. The map now
   matches the exact 15 source overrides and six generic seams, defines lossless
-  Hybrid ACK/order/stop/position/bar/context/bootstrap contracts, and applies a
-  workspace-wide wrapper target lock. The future wrapper Cargo target is
-  declared but remains disallowed; the wrapper is still neither copied nor
-  compiled.
+  Hybrid ACK/order/stop/position/bar/context/bootstrap contracts, requires
+  context-complete callback inputs, validates attribution/bootstrap
+  consistency, and applies an exact parsed-workspace wrapper activation lock.
+  The future wrapper Cargo target is declared but remains disallowed; the
+  wrapper is still neither copied nor compiled.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

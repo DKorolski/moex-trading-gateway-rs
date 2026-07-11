@@ -70,6 +70,59 @@ import tomllib
 
 failures = 0
 
+root_manifest_path = Path("Cargo.toml")
+expected_workspace_members = {
+    "crates/broker-core",
+    "crates/broker-finam",
+    "crates/finam-gateway",
+    "crates/broker-cli",
+    "crates/strategy-runtime-core",
+}
+if not root_manifest_path.is_file():
+    print("forbidden-surface-scan: root Cargo.toml missing", file=sys.stderr)
+    failures += 1
+    workspace_members = set()
+    workspace_excludes = set()
+else:
+    try:
+        with root_manifest_path.open("rb") as manifest:
+            root_manifest = tomllib.load(manifest)
+        workspace = root_manifest.get("workspace", {})
+        workspace_members = set(workspace.get("members", []))
+        workspace_excludes = set(workspace.get("exclude", []))
+    except (OSError, tomllib.TOMLDecodeError, TypeError) as error:
+        print(
+            f"forbidden-surface-scan: root Cargo.toml cannot be parsed: {error}",
+            file=sys.stderr,
+        )
+        failures += 1
+        workspace_members = set()
+        workspace_excludes = set()
+
+if workspace_members != expected_workspace_members:
+    print(
+        "forbidden-surface-scan: workspace member set drifted: "
+        f"actual={sorted(workspace_members)} expected={sorted(expected_workspace_members)}",
+        file=sys.stderr,
+    )
+    failures += 1
+
+workspace_rs_files = []
+for member in sorted(workspace_members):
+    member_path = Path(member)
+    if not member_path.is_dir():
+        print(
+            f"forbidden-surface-scan: workspace member path missing {member}",
+            file=sys.stderr,
+        )
+        failures += 1
+        continue
+    workspace_rs_files.extend(
+        path
+        for path in member_path.glob("**/*.rs")
+        if "target" not in path.parts and ".git" not in path.parts
+    )
+
 for path in Path("crates").glob("**/*.rs"):
     source = path.read_text()
     if ".post(" not in source:
@@ -210,13 +263,32 @@ wrapper_future_target_path = Path(
     "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs"
 )
 
-for candidate in Path("crates").glob("**/*.rs"):
+allowed_wrapper_oracle_include_str_paths = {
+    Path("crates/strategy-runtime-core/tests/high180_profile_binding.rs"),
+    Path("crates/strategy-runtime-core/tests/stage5b2_boundary_manifest.rs"),
+    Path("crates/strategy-runtime-core/tests/wrapper_bracket_terminal_inventory.rs"),
+}
+wrapper_oracle_filename = "hybrid_intraday_runtime.rs"
+
+for candidate in workspace_rs_files:
     candidate_source = candidate.read_text()
-    normalized_candidate_source = " ".join(candidate_source.split())
+    compact_candidate_source = "".join(candidate_source.split())
+    has_wrapper_identifier = "HybridIntradayRuntimeStrategy" in candidate_source
+    has_oracle_filename = wrapper_oracle_filename in candidate_source
+    activates_oracle_code = has_oracle_filename and (
+        "include!(" in compact_candidate_source
+        or "#[path" in compact_candidate_source
+    )
+    unapproved_oracle_text_read = (
+        has_oracle_filename
+        and "include_str!(" in compact_candidate_source
+        and candidate not in allowed_wrapper_oracle_include_str_paths
+    )
     wrapper_markers = [
-        candidate.name == "hybrid_intraday_runtime.rs",
-        "struct HybridIntradayRuntimeStrategy" in normalized_candidate_source,
-        "impl Strategy for HybridIntradayRuntimeStrategy" in normalized_candidate_source,
+        candidate.name == wrapper_oracle_filename,
+        has_wrapper_identifier,
+        activates_oracle_code,
+        unapproved_oracle_text_read,
     ]
     if any(wrapper_markers):
         print(
@@ -265,38 +337,19 @@ else:
                 )
                 failures += 1
 
-root_manifest_path = Path("Cargo.toml")
-if not root_manifest_path.is_file():
-    print("forbidden-surface-scan: root Cargo.toml missing", file=sys.stderr)
+if semantic_workspace_member not in workspace_members:
+    print(
+        "forbidden-surface-scan: strategy-runtime-core must remain an explicit "
+        "workspace member",
+        file=sys.stderr,
+    )
     failures += 1
-else:
-    try:
-        with root_manifest_path.open("rb") as manifest:
-            root_manifest = tomllib.load(manifest)
-        workspace = root_manifest.get("workspace", {})
-        workspace_members = set(workspace.get("members", []))
-        workspace_excludes = set(workspace.get("exclude", []))
-    except (OSError, tomllib.TOMLDecodeError, TypeError) as error:
-        print(
-            f"forbidden-surface-scan: root Cargo.toml cannot be parsed: {error}",
-            file=sys.stderr,
-        )
-        failures += 1
-        workspace_members = set()
-        workspace_excludes = set()
-    if semantic_workspace_member not in workspace_members:
-        print(
-            "forbidden-surface-scan: strategy-runtime-core must remain an explicit "
-            "workspace member",
-            file=sys.stderr,
-        )
-        failures += 1
-    if semantic_workspace_member in workspace_excludes:
-        print(
-            "forbidden-surface-scan: strategy-runtime-core must not be workspace-excluded",
-            file=sys.stderr,
-        )
-        failures += 1
+if semantic_workspace_member in workspace_excludes:
+    print(
+        "forbidden-surface-scan: strategy-runtime-core must not be workspace-excluded",
+        file=sys.stderr,
+    )
+    failures += 1
 
 semantic_crate_manifest_path = semantic_kernel_root / "Cargo.toml"
 expected_semantic_crate_manifest_sha256 = (
@@ -654,7 +707,7 @@ else:
             "98e7bbbdc8a0eb852bcdfc2f46cbfc9635c5cc0dc03caefc69a4b50c377a5951"
         ),
         semantic_kernel_root / "tests/stage5b2_boundary_manifest.rs": (
-            "d35c6cf39935835930af1a53c74d6768e5ecf79fcaa53df6bd67808f6c26da1e"
+            "d96a0a2b0f3ca9f2c4750867891d4a66533eec75e87bdded33d5820beb395a16"
         ),
         semantic_kernel_root / "tests/wrapper_bracket_terminal_inventory.rs": (
             "b276b376d33073454fd0df243b6d87a351724794d95d52126a8258e9324aeafe"
@@ -854,10 +907,10 @@ expected_stage5_profile_artifacts = {
         "a869ff79d35c7c0f75e1417b998c388256cfd87794d3cd1cf78d33b0f4dc563c"
     ),
     Path("tests/fixtures/stage5/stage5b2_callback_state_mapping.json"): (
-        "fa34dc2a1cb8bdb1e7ea8a5655ebe390543f66926e2177656fec3b923f594dd6"
+        "3beb41c6db0992cbdb20ded691cd29da940fe492c052db595449532402f29dfe"
     ),
     Path("crates/broker-core/src/hybrid_strategy_boundary.rs"): (
-        "c86fe63fbda66e7da703aa579eff2a0cff02c1d2ab54b09c1ed03d55ae489806"
+        "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d"
     ),
 }
 for artifact_path, expected_artifact_sha256 in expected_stage5_profile_artifacts.items():

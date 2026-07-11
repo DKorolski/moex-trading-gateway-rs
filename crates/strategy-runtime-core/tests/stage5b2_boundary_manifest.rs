@@ -140,7 +140,7 @@ fn stage5b2_mapping_rejects_lossy_aliases_for_source_critical_callbacks() {
     let order = callback("on_order");
     assert_eq!(
         order["target_contract"],
-        "broker_core::HybridRuntimeOrderEvent"
+        "broker_core::HybridRuntimeCallbackInput<broker_core::HybridRuntimeOrderEvent>"
     );
     assert!(order["target_required_fields"]
         .as_array()
@@ -174,6 +174,88 @@ fn stage5b2_mapping_rejects_lossy_aliases_for_source_critical_callbacks() {
         .as_str()
         .expect("stop identity mapping")
         .contains("namespaces never merge"));
+}
+
+#[test]
+fn stage5b2_mapping_freezes_context_dependencies_for_every_context_using_callback() {
+    let fixture = fixture();
+    let dependencies = fixture["context_dependency_callbacks"]
+        .as_object()
+        .expect("context dependency map");
+    let expected_callbacks = [
+        "intent_comment_tag",
+        "on_bar",
+        "on_bootstrap_snapshot",
+        "on_order",
+        "on_position",
+        "on_runtime_state_restored",
+        "on_stop_order",
+        "on_timer",
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+    assert_eq!(
+        dependencies
+            .keys()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>(),
+        expected_callbacks
+    );
+
+    let required = |callback: &str, field: &str| {
+        dependencies[callback]
+            .as_array()
+            .expect("context field array")
+            .iter()
+            .any(|candidate| candidate == field)
+    };
+    assert!(required("on_order", "strategy_id"));
+    assert!(required("on_stop_order", "strategy_id"));
+    assert!(required("on_bootstrap_snapshot", "strategy_id"));
+    for field in [
+        "strategy_id",
+        "request_namespace_account",
+        "instrument",
+        "tick_size",
+        "trade_mode",
+        "event_ts_utc",
+    ] {
+        assert!(required("on_position", field));
+    }
+    for field in [
+        "strategy_id",
+        "request_namespace_account",
+        "instrument",
+        "tick_size",
+        "trade_mode",
+        "position_qty",
+        "event_ts_utc",
+    ] {
+        assert!(required("on_timer", field));
+    }
+    for field in ["trade_mode", "allow_live_orders", "strategy_now_ts_utc"] {
+        assert!(required("on_runtime_state_restored", field));
+    }
+
+    let callbacks = fixture["callbacks"].as_array().expect("callbacks");
+    for callback_name in [
+        "on_bar",
+        "on_order",
+        "on_stop_order",
+        "on_bootstrap_snapshot",
+        "on_position",
+        "on_timer",
+        "on_runtime_state_restored",
+    ] {
+        let callback = callbacks
+            .iter()
+            .find(|callback| callback["name"] == callback_name)
+            .expect("context callback record");
+        assert!(callback["target_contract"]
+            .as_str()
+            .expect("target contract")
+            .starts_with("broker_core::HybridRuntimeCallbackInput<"));
+    }
 }
 
 #[test]

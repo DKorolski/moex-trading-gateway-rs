@@ -109,18 +109,66 @@ timestamp, identity, origin and redaction mapping for all 21 seams. State
 snapshot/restore and the six generic seams remain explicitly gated for Stage
 5D and Stage 5C rather than being falsely marked lossless.
 
+### Context-complete callback inputs
+
+Every source callback which reads `StrategyCtx` receives a typed
+`HybridRuntimeCallbackInput<T>` containing both the payload and full
+`HybridRuntimeStrategyContext`. The fixture freezes the exact dependency set.
+In particular:
+
+- order, stop-order and bootstrap ownership checks require `strategy_id`;
+- position and timer emergency/protective paths require strategy/account
+  request namespace, instrument, tick size, trade mode and event time;
+- timer additionally requires current context position quantity;
+- restored-state replay protection requires trade mode, live-order permission
+  and strategy clock.
+
+Regression tests prove that changing account namespace changes deterministic
+request identity, changing tick size changes protective stop-limit price, and
+timer/restore inputs retain trade mode, position and strategy clock.
+
+### Attribution source of truth
+
+`HybridRuntimeAttribution::parse_source_comment` implements the source tag
+parser and keeps raw internal comment as the source of truth. Structured
+sid/cycle/owner/role fields are private and deserialization validates them
+against the comment. Mismatches are rejected before the strategy callback.
+Source behavior is preserved for `REPAIR`: the generic tag builder may emit it,
+but the exact source parser leaves it without a recognized `TagRole`.
+
+### Bootstrap consistency
+
+`HybridRuntimeBootstrapSnapshot::validate` rejects duplicate target positions,
+duplicate order/stop IDs, instrument mismatches and contradiction between
+strategy position rows and canonical broker truth. The vector transport shape
+therefore cannot silently weaken the source map uniqueness contract.
+
+### ACK adapter boundary
+
+`HybridRuntimeCommandAck` can retain source-compatible raw error code/message
+and processed timestamp. The current generic `broker_core::CommandAck` remains
+a normalized lifecycle DTO; mapping helpers preserve the accepted status
+matrix but do not claim to reconstruct raw broker detail. Before Stage 5C, the
+paper/host adapter must identify the safe raw error-code/message source and
+construct `HybridRuntimeCommandAck` before redaction. `Timeout` and
+`UnknownPending` remain blocked from the strategy callback until reconciliation.
+
 ## Workspace-wide target lock
 
 While `currently_allowed_in_rust_target_set=false`, the scanner rejects across
-all workspace crates:
+the exact parsed workspace member set:
 
 - any Rust file named `hybrid_intraday_runtime.rs`;
 - any definition of `HybridIntradayRuntimeStrategy`;
 - any `impl Strategy for HybridIntradayRuntimeStrategy`.
+- any occurrence of the wrapper identifier, including macro-generated or
+  comment-separated definitions;
+- `include!` or `#[path]` activation of the source oracle.
 
-The oracle outside `crates/` remains the only allowed copy. Stage 5B-2b must
-open exactly the declared path while all alternate crate/path targets remain
-forbidden.
+Only three hash-locked inventory tests may read the oracle through
+`include_str!`. The workspace member set is frozen, so a new member outside
+`crates/` cannot bypass the gate. Stage 5B-2b must open exactly the declared
+path while all alternate crate/path targets remain forbidden.
 
 ## Accepted review backlog
 
