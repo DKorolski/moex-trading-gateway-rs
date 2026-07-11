@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "stage": "Stage5B2a",
+  "oracle_sha256": "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa",
+  "implementation_status": "boundary_manifest_only",
+  "callbacks": [
+    {"name":"on_bar","source_override":true,"target":"CanonicalFinalM10 + RuntimeStrategyContext","gate":"Stage5B2"},
+    {"name":"on_ack","source_override":true,"target":"broker_core::CommandAck","gate":"Stage5B2"},
+    {"name":"on_order","source_override":true,"target":"broker_core::RuntimeOrderEvent","gate":"Stage5B2"},
+    {"name":"on_stop_order","source_override":true,"target":"PaperProtectiveOrderEvent","gate":"Stage5B2"},
+    {"name":"on_position","source_override":true,"target":"broker_core::BrokerPositionSnapshot","gate":"Stage5B2"},
+    {"name":"on_timer","source_override":true,"target":"broker_core::RuntimeEventClock callback timestamp","gate":"Stage5B2"},
+    {"name":"on_bootstrap_snapshot","source_override":true,"target":"broker_core::RuntimeHostBootstrapSnapshot","gate":"Stage5C"},
+    {"name":"on_runtime_state_restored","source_override":true,"target":"ValidatedRuntimeStateSnapshot","gate":"Stage5D"},
+    {"name":"risk_gate_session_finalizations","source_override":true,"target":"RiskGateSessionFinalization semantic record","gate":"Stage5D"},
+    {"name":"on_risk_gate_state","source_override":true,"target":"RiskGateRuntimeState semantic record","gate":"Stage5D"},
+    {"name":"warmup_from_history","source_override":true,"target":"CanonicalFinalM10 history","gate":"Stage5E"},
+    {"name":"intent_comment_tag","source_override":true,"target":"redacted broker-neutral attribution tag","gate":"Stage5B2"},
+    {"name":"state","source_override":true,"target":"HybridRuntimeStateV2","gate":"Stage5D"},
+    {"name":"set_state","source_override":true,"target":"HybridRuntimeStateV2 restore","gate":"Stage5D"},
+    {"name":"tracked_order_ids","source_override":false,"target":"Vec<BrokerOrderId>","gate":"Stage5CExplicitPolicy"},
+    {"name":"on_command_prepared","source_override":false,"target":"broker_core::RuntimeCommandPrepared","gate":"Stage5CExplicitPolicy"},
+    {"name":"on_intent_blocked","source_override":false,"target":"broker_core::RuntimeIntentBlockEvent","gate":"Stage5CExplicitPolicy"},
+    {"name":"pending_request_ids","source_override":false,"target":"Vec<StrategyRequestId>","gate":"Stage5CExplicitPolicy"},
+    {"name":"exit_risk_status","source_override":false,"target":"broker-neutral close-only risk status","gate":"Stage5CExplicitPolicy"},
+    {"name":"acknowledge_risk_gate_session_finalizations","source_override":false,"target":"idempotent finalization acknowledgement","gate":"Stage5CExplicitPolicy"},
+    {"name":"drain_observation_journal_records","source_override":false,"target":"redacted optional observation records","gate":"Stage5CExplicitPolicy"}
+  ],
+  "identity_mappings": [
+    {"source":"Uuid pending request id","target":"StrategyRequestId","rule":"exact identity; ACK clears only exact request"},
+    {"source":"i64 order id","target":"BrokerOrderId(String)","rule":"legacy numeric decode to decimal string; no surrogate"},
+    {"source":"i64 stop exchange order id","target":"BrokerOrderId(String)","rule":"legacy numeric decode to decimal string; no surrogate"},
+    {"source":"String stop order id","target":"BrokerOrderId(String)","rule":"preserve non-empty broker-native identity"}
+  ],
+  "state_groups": [
+    {"name":"cycle_ownership_position","required":true,"persistence":"round_trip"},
+    {"name":"pending_deferred_entry","required":true,"persistence":"round_trip"},
+    {"name":"pending_deferred_exit","required":true,"persistence":"round_trip"},
+    {"name":"protective_repair","required":true,"persistence":"round_trip"},
+    {"name":"safety_readiness","required":true,"persistence":"round_trip"},
+    {"name":"day_session_features","required":true,"persistence":"round_trip"},
+    {"name":"riskgate","required":true,"persistence":"round_trip"},
+    {"name":"bracket_terminal_reconcile_marker","required":true,"persistence":"transient_reset_on_restart"}
+  ],
+  "backlog_executable_invariants": [
+    "repeated_qualifying_tp_or_sl_execution_event_restarts_grace_timestamp",
+    "timeout_qty_uses_context_position_qty_or_else_last_position_qty"
+  ],
+  "safety_boundary": {
+    "paper_boundary": true,
+    "wrapper_copied": false,
+    "wrapper_compiled": false,
+    "runtime_host_attached": false,
+    "runtime_live_ready_enabled": false,
+    "command_consumer_to_real_finam_enabled": false,
+    "strategy_driven_real_order_enabled": false,
+    "real_post_delete_added": false,
+    "stop_sltp_bracket_execution_enabled": false
+  }
+}

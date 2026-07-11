@@ -613,6 +613,7 @@ else:
 
     expected_semantic_rust_paths = expected_semantic_production_paths | {
         str(semantic_kernel_root / "tests/high180_profile_binding.rs"),
+        str(semantic_kernel_root / "tests/stage5b2_boundary_manifest.rs"),
         str(semantic_kernel_root / "tests/wrapper_bracket_terminal_inventory.rs"),
     }
     actual_semantic_rust_paths = {
@@ -630,6 +631,9 @@ else:
     expected_semantic_test_sha256 = {
         semantic_kernel_root / "tests/high180_profile_binding.rs": (
             "98e7bbbdc8a0eb852bcdfc2f46cbfc9635c5cc0dc03caefc69a4b50c377a5951"
+        ),
+        semantic_kernel_root / "tests/stage5b2_boundary_manifest.rs": (
+            "e039796971207d763b7ba06e6c85e45c834687866bd12e84780cb51ecfa1cc23"
         ),
         semantic_kernel_root / "tests/wrapper_bracket_terminal_inventory.rs": (
             "b276b376d33073454fd0df243b6d87a351724794d95d52126a8258e9324aeafe"
@@ -702,6 +706,122 @@ if wrapper_oracle_rs_files != {str(wrapper_oracle_path)}:
     )
     failures += 1
 
+stage5b2_manifest_path = semantic_kernel_root / "stage5b2-source-correspondence.toml"
+expected_stage5b2_manifest_sha256 = (
+    "727e870aa5ab6da4498c2602d4f5cf3c0df2a933bc53010241d81684a4959360"
+)
+if not stage5b2_manifest_path.is_file():
+    print(
+        "forbidden-surface-scan: Stage 5B-2 correspondence manifest missing",
+        file=sys.stderr,
+    )
+    failures += 1
+else:
+    stage5b2_manifest_bytes = stage5b2_manifest_path.read_bytes()
+    actual_stage5b2_manifest_sha256 = hashlib.sha256(stage5b2_manifest_bytes).hexdigest()
+    if actual_stage5b2_manifest_sha256 != expected_stage5b2_manifest_sha256:
+        print(
+            "forbidden-surface-scan: Stage 5B-2 correspondence manifest drifted: "
+            f"actual={actual_stage5b2_manifest_sha256} "
+            f"expected={expected_stage5b2_manifest_sha256}",
+            file=sys.stderr,
+        )
+        failures += 1
+    try:
+        stage5b2_manifest = tomllib.loads(stage5b2_manifest_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
+        print(
+            f"forbidden-surface-scan: Stage 5B-2 manifest cannot be parsed: {error}",
+            file=sys.stderr,
+        )
+        failures += 1
+        stage5b2_manifest = {}
+
+    expected_stage5b2_top_level = {
+        "schema_version": 1,
+        "stage": "Stage5B2a",
+        "status": "BoundaryManifestOnly",
+        "oracle_sha256": wrapper_oracle_sha256,
+        "oracle_line_count": 6203,
+        "accepted_stage5b1_manifest_unchanged": True,
+        "wrapper_copied": False,
+        "wrapper_compiled": False,
+        "runtime_host_attached": False,
+        "paper_boundary": True,
+    }
+    for field, expected_value in expected_stage5b2_top_level.items():
+        if stage5b2_manifest.get(field) != expected_value:
+            print(
+                "forbidden-surface-scan: Stage 5B-2 manifest field mismatch "
+                f"{field}: actual={stage5b2_manifest.get(field)!r} "
+                f"expected={expected_value!r}",
+                file=sys.stderr,
+            )
+            failures += 1
+
+    approved_future_target = stage5b2_manifest.get("approved_future_target", {})
+    expected_future_target = {
+        "crate_name": "strategy-runtime-core",
+        "target_kind": "library_module",
+        "module_name": "hybrid_intraday_runtime",
+        "target_path": "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs",
+        "library_export": "pub mod hybrid_intraday_runtime;",
+        "activation_gate": "Stage5B2bSeparateReview",
+        "currently_allowed_in_rust_target_set": False,
+    }
+    if approved_future_target != expected_future_target:
+        print(
+            "forbidden-surface-scan: Stage 5B-2 approved future target drifted",
+            file=sys.stderr,
+        )
+        failures += 1
+
+    expected_regions = {
+        "imports": (1, 21, 21, "62185934244137f77fbb9cb1e8951d7639eebc114b01e4e29d62696f09addd73"),
+        "config_state_types": (23, 207, 185, "2e3a9a9eb2af38119d318f561c0d1defccb36fff34bc30fa3cffd0c63ae054bb"),
+        "wrapper_implementation": (209, 2313, 2105, "6cf35346fd2759efbb6ac6b40e4f5748c2f6361349d0fa833de2229c621f0417"),
+        "oracle_unit_tests": (2314, 5067, 2754, "c4f5d92bb307e66baf5ab2425512557a3d5715fdde109a4da5f9de21cb678e9e"),
+        "strategy_callback_impl": (5068, 6203, 1136, "7749e6ade0bfeff4e6e67fc4fa915759ff064c2a23439c12ecafe026fd84cc39"),
+    }
+    manifest_regions = stage5b2_manifest.get("regions", [])
+    if {region.get("name") for region in manifest_regions} != set(expected_regions):
+        print(
+            "forbidden-surface-scan: Stage 5B-2 source region set drifted",
+            file=sys.stderr,
+        )
+        failures += 1
+    wrapper_lines = wrapper_oracle_path.read_bytes().splitlines(keepends=True)
+    for region in manifest_regions:
+        name = region.get("name")
+        if name not in expected_regions:
+            continue
+        line_start, line_end, line_count, expected_region_sha256 = expected_regions[name]
+        actual_region_bytes = b"".join(wrapper_lines[line_start - 1 : line_end])
+        actual_region_sha256 = hashlib.sha256(actual_region_bytes).hexdigest()
+        expected_region_fields = {
+            "line_start": line_start,
+            "line_end": line_end,
+            "line_count": line_count,
+            "sha256": expected_region_sha256,
+            "implementation_status": "Planned",
+        }
+        for field, expected_value in expected_region_fields.items():
+            if region.get(field) != expected_value:
+                print(
+                    "forbidden-surface-scan: Stage 5B-2 region manifest mismatch "
+                    f"{name}.{field}",
+                    file=sys.stderr,
+                )
+                failures += 1
+        if actual_region_sha256 != expected_region_sha256:
+            print(
+                "forbidden-surface-scan: Stage 5B-2 oracle region drifted "
+                f"{name}: actual={actual_region_sha256} "
+                f"expected={expected_region_sha256}",
+                file=sys.stderr,
+            )
+            failures += 1
+
 expected_stage5_profile_artifacts = {
     Path("config/imoexf-hybrid-high180-profile.redacted.toml"): (
         "15e31d7a285f1c8c80e9168a9098e37e56bbd60ab3ab3264592d23605708dfe4"
@@ -711,6 +831,9 @@ expected_stage5_profile_artifacts = {
     ),
     Path("tests/fixtures/stage5/bracket_terminal_reconciliation.json"): (
         "a869ff79d35c7c0f75e1417b998c388256cfd87794d3cd1cf78d33b0f4dc563c"
+    ),
+    Path("tests/fixtures/stage5/stage5b2_callback_state_mapping.json"): (
+        "01585a01941dcc530e7769fa2fd85ac7b2bdec409f2b87f64005e7fe54ec6f5e"
     ),
 }
 for artifact_path, expected_artifact_sha256 in expected_stage5_profile_artifacts.items():

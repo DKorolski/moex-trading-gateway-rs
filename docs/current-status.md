@@ -44,12 +44,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   active high180 profile hardening are a review candidate. The wrapper remains
   uncompiled and unattached.
 - Stage 5B-1b structural freeze hardening and the Stage 5B-2 integrated-wrapper
-  semantic inventory are repeat-review candidates. Workspace membership, crate
+  semantic inventory are accepted. Workspace membership, crate
   target configuration, library root and the complete Cargo/Rust target set now
   fail closed through parsed TOML plus content/path locks. Bracket
   terminal-reconciliation execution-status matrices, timeout suppression,
   mixed clock domains and source-compatible transient restart behavior are
-  inventoried and fixture locked; wrapper implementation remains blocked.
+  inventoried and fixture locked.
+- Stage 5B-2a separate wrapper correspondence manifest and broker-neutral
+  callback/state boundary map are a review candidate. The future wrapper Cargo
+  target is declared but remains disallowed by the current exact source-set
+  lock; the wrapper is still neither copied nor compiled.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
@@ -290,7 +294,8 @@ Amber:
   host, state and differential parity work remain pending. Stage 5B-1a resolves
   the P1 provenance/configuration blockers before wrapper migration. Stage
   5B-1b closes workspace/target/source-set bypasses, while Stage 5B-2 currently
-  contains design inventory only and does not compile or attach the wrapper.
+  has accepted inventory plus a reviewable 5B-2a correspondence/boundary
+  foundation. It still does not compile or attach the wrapper.
 
 Red / not yet implemented:
 

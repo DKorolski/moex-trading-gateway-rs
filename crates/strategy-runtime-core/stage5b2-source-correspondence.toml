@@ -1,0 +1,82 @@
+schema_version = 1
+stage = "Stage5B2a"
+status = "BoundaryManifestOnly"
+source_repository_commit = "43242c89944d335d9cb0729b38bdd7d658378d5e"
+source_path = "strategy-runtime/src/strategies/hybrid_intraday_runtime.rs"
+oracle_path = "source-oracles/alor-stage5/hybrid_intraday_runtime.rs"
+oracle_sha256 = "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa"
+oracle_line_count = 6203
+accepted_stage5b1_manifest_unchanged = true
+wrapper_copied = false
+wrapper_compiled = false
+runtime_host_attached = false
+paper_boundary = true
+
+[approved_future_target]
+crate_name = "strategy-runtime-core"
+target_kind = "library_module"
+module_name = "hybrid_intraday_runtime"
+target_path = "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs"
+library_export = "pub mod hybrid_intraday_runtime;"
+activation_gate = "Stage5B2bSeparateReview"
+currently_allowed_in_rust_target_set = false
+
+[[regions]]
+name = "imports"
+line_start = 1
+line_end = 21
+line_count = 21
+sha256 = "62185934244137f77fbb9cb1e8951d7639eebc114b01e4e29d62696f09addd73"
+change_class = "HostBoundaryExtraction"
+target_region = "imports and broker-neutral host aliases"
+semantic_impact = "Replace ALOR protocol, UUID, tracing and runtime-host imports without changing strategy decisions."
+implementation_status = "Planned"
+
+[[regions]]
+name = "config_state_types"
+line_start = 23
+line_end = 207
+line_count = 185
+sha256 = "2e3a9a9eb2af38119d318f561c0d1defccb36fff34bc30fa3cffd0c63ae054bb"
+change_class = "BrokerNeutralTypeMigration"
+target_region = "configuration, pending/deferred records and wrapper state"
+semantic_impact = "Migrate request and broker order identities to typed broker-neutral strings; preserve every field and constant."
+implementation_status = "Planned"
+
+[[regions]]
+name = "wrapper_implementation"
+line_start = 209
+line_end = 2313
+line_count = 2105
+sha256 = "6cf35346fd2759efbb6ac6b40e4f5748c2f6361349d0fa833de2229c621f0417"
+change_class = "BrokerNeutralTypeMigration"
+target_region = "HybridIntradayRuntimeStrategy inherent implementation"
+semantic_impact = "Mechanical identity and host-type adaptation only; formulas, timeouts, clocks and state transitions remain source-equivalent."
+implementation_status = "Planned"
+
+[[regions]]
+name = "oracle_unit_tests"
+line_start = 2314
+line_end = 5067
+line_count = 2754
+sha256 = "c4f5d92bb307e66baf5ab2425512557a3d5715fdde109a4da5f9de21cb678e9e"
+change_class = "BrokerNeutralTypeMigration"
+target_region = "migrated wrapper unit tests"
+semantic_impact = "Preserve source assertions while replacing only broker-coupled constructors and typed identities."
+implementation_status = "Planned"
+
+[[regions]]
+name = "strategy_callback_impl"
+line_start = 5068
+line_end = 6203
+line_count = 1136
+sha256 = "7749e6ade0bfeff4e6e67fc4fa915759ff064c2a23439c12ecafe026fd84cc39"
+change_class = "HostBoundaryExtraction"
+target_region = "broker-neutral strategy callback implementation"
+semantic_impact = "Map the complete callback/state surface without invoking Redis, FINAM transport or live execution."
+implementation_status = "Planned"
+
+[forbidden]
+change_classes = ["FormulaRewrite", "ParameterChange", "BehavioralSimplification"]
+dependencies = ["broker-finam", "finam-gateway", "reqwest", "tokio", "redis"]
+surfaces = ["runtime-live", "real FINAM command consumer", "POST", "DELETE", "real Stop/SLTP/bracket execution"]

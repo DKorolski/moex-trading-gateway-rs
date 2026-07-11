@@ -13,6 +13,7 @@ mkdir -p "$tmp_root/config" "$tmp_root/tests/fixtures/stage5"
 cp "$workspace_root/config/imoexf-hybrid-high180-profile.redacted.toml" "$tmp_root/config/"
 cp "$workspace_root/tests/fixtures/stage5/imoexf_high180_profile_binding.json" "$tmp_root/tests/fixtures/stage5/"
 cp "$workspace_root/tests/fixtures/stage5/bracket_terminal_reconciliation.json" "$tmp_root/tests/fixtures/stage5/"
+cp "$workspace_root/tests/fixtures/stage5/stage5b2_callback_state_mapping.json" "$tmp_root/tests/fixtures/stage5/"
 
 if ! (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >/tmp/moex_negative_scan.$$ 2>&1; then
   cat /tmp/moex_negative_scan.$$ >&2
@@ -166,5 +167,19 @@ cp "$bracket_fixture" "$bracket_fixture_backup"
 perl -0pi -e 's/"grace_ms": 3000/"grace_ms": 4000/' "$bracket_fixture"
 expect_scanner_failure "drift-bracket-terminal-reconciliation-fixture"
 mv "$bracket_fixture_backup" "$bracket_fixture"
+
+stage5b2_manifest="$tmp_root/crates/strategy-runtime-core/stage5b2-source-correspondence.toml"
+stage5b2_manifest_backup="$stage5b2_manifest.bak"
+cp "$stage5b2_manifest" "$stage5b2_manifest_backup"
+perl -0pi -e 's/wrapper_compiled = false/wrapper_compiled = true/' "$stage5b2_manifest"
+expect_scanner_failure "open-stage5b2-wrapper-compiled-boundary"
+mv "$stage5b2_manifest_backup" "$stage5b2_manifest"
+
+stage5b2_fixture="$tmp_root/tests/fixtures/stage5/stage5b2_callback_state_mapping.json"
+stage5b2_fixture_backup="$stage5b2_fixture.bak"
+cp "$stage5b2_fixture" "$stage5b2_fixture_backup"
+perl -0pi -e 's/"runtime_host_attached": false/"runtime_host_attached": true/' "$stage5b2_fixture"
+expect_scanner_failure "open-stage5b2-runtime-host-boundary"
+mv "$stage5b2_fixture_backup" "$stage5b2_fixture"
 
 echo "forbidden-surface-negative-harness: ok"
