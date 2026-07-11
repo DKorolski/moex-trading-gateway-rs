@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "stage": "Stage5C-b",
+  "status": "one_shot_time_checked_bootstrap_notification_no_send",
+  "admission_consumed_by_value": true,
+  "expiry_rechecked_at_notification": true,
+  "snapshot_source": "Stage5cPaperHostAdmission.bootstrap_snapshot",
+  "active_orders_without_ownership_mapping": "blocked",
+  "source_callback": "on_bootstrap_snapshot",
+  "source_callback_intent_count": 0,
+  "lifecycle": {
+    "bootstrap_notification_emitted": true,
+    "runtime_state_restored": false,
+    "warmup_started": false,
+    "pending_recovery_started": false,
+    "semantic_bar_enabled": false,
+    "intent_sink_attached": false
+  },
+  "execution_boundary": {
+    "runtime_live_enabled": false,
+    "command_consumer_attached": false,
+    "live_send_enabled": false,
+    "real_post_delete_added": false,
+    "stop_sltp_bracket_execution_enabled": false
+  }
+}

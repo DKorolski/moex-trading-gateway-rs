@@ -45,7 +45,8 @@ pub use runtime_compat::{
     OrderSide as BrokerNeutralOrderSide, StopLimitCondition as BrokerNeutralStopLimitCondition,
 };
 pub use stage5c_paper_host::{
-    admit_stage5c_paper_host, Stage5cPaperHostAdmission, Stage5cPaperHostAdmissionError,
+    admit_stage5c_paper_host, notify_stage5c_bootstrap, Stage5cBootstrapNotificationError,
+    Stage5cBootstrapNotificationReceipt, Stage5cPaperHostAdmission, Stage5cPaperHostAdmissionError,
     Stage5cPaperHostAdmissionInput, STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION,
 };
 

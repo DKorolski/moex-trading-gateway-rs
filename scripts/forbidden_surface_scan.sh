@@ -766,6 +766,7 @@ allowed_wrapper_oracle_include_str_paths = {
 allowed_wrapper_identifier_paths = {
     wrapper_future_target_path,
     Path("crates/strategy-runtime-core/src/lib.rs"),
+    Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"),
     Path("crates/strategy-runtime-core/tests/stage5b2_boundary_manifest.rs"),
 }
 wrapper_oracle_filename = "hybrid_intraday_runtime.rs"
@@ -1012,7 +1013,7 @@ if semantic_build_script.exists():
 
 semantic_lib_path = semantic_kernel_root / "src/lib.rs"
 expected_semantic_lib_sha256 = (
-    "8e668946371c93446e33e3fbf8ea897db69717eec251f03943dd8ba351034a22"
+    "50a77f69f4786c1ecf7238cdb757ae90409ff45e6bbb2d95485bc20ae46e34ae"
 )
 if not semantic_lib_path.is_file():
     print(
@@ -1305,7 +1306,7 @@ else:
             "2226fc838e69d00027778f3824dfe4d40c84b1b0cb888106d18df2339f20affb"
         ),
         semantic_kernel_root / "tests/stage5c_paper_host_admission.rs": (
-            "1b4c457ecc6b0400c6e76d54aa0fd14556a003fe25cf64b72585b8426c681938"
+            "75f996d9fd7c8b018bf451c7217b7bdd399962e3741e208f52c51c59ddf3704c"
         ),
         semantic_kernel_root / "tests/wrapper_bracket_terminal_inventory.rs": (
             "b276b376d33073454fd0df243b6d87a351724794d95d52126a8258e9324aeafe"
@@ -1543,7 +1544,10 @@ expected_stage5_profile_artifacts = {
         "821e241970df245f7aaaeb78312537c29512173108c59f40f7f449eb44cb8aa4"
     ),
     Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"): (
-        "bd2ded5cd8545481de10d6e8cad65a754eab491b0ce5fc9825db2b392c1308e2"
+        "6cef6567a390a47d6551e6bf53e49569de06865ea27ab96d0a16ebe6951559d2"
+    ),
+    Path("tests/fixtures/stage5/stage5cb_bootstrap_notification.json"): (
+        "a6be046075f5b92fcef665be61b52a8f3535472b4a9db24d7b86482d77284c77"
     ),
     Path("crates/broker-core/src/hybrid_strategy_boundary.rs"): (
         "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d"

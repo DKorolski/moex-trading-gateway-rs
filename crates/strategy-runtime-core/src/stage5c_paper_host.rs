@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use broker_core::{
     BrokerAccountId, BrokerInstrumentSpec, InstrumentId, RuntimeHostBootstrapSnapshot,
@@ -13,6 +13,12 @@ use broker_core::{
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
+
+use crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy;
+use crate::runtime_compat::{
+    BootstrapSnapshot, GatewayPhase, PaperExecutionMode, PositionEvent, Strategy, StrategyCtx,
+    TradeMode,
+};
 
 pub const STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION: u16 = 1;
 
@@ -73,7 +79,7 @@ pub struct Stage5cPaperHostAdmissionInput<'a> {
 /// let _: strategy_runtime_core::Stage5cPaperHostAdmission =
 ///     serde_json::from_str("{}").unwrap();
 /// ```
-#[derive(Clone, PartialEq)]
+#[derive(PartialEq)]
 pub struct Stage5cPaperHostAdmission {
     schema_version: u16,
     checked_ts: DateTime<Utc>,
@@ -86,6 +92,71 @@ pub struct Stage5cPaperHostAdmission {
     paper_only: bool,
     runtime_host_attached: bool,
     intent_sink_attached: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5cBootstrapNotificationError {
+    AdmissionExpired,
+    StrategyIdEmpty,
+    ActiveOrdersRequireOwnershipMapping,
+    SnapshotAccountMismatch,
+    SnapshotInstrumentMismatch,
+    PositionQuantityNotRepresentable,
+    PositionAveragePriceNotRepresentable,
+    UnexpectedBootstrapIntent,
+}
+
+impl std::fmt::Display for Stage5cBootstrapNotificationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "Stage 5C bootstrap notification blocked: {self:?}"
+        )
+    }
+}
+
+impl std::error::Error for Stage5cBootstrapNotificationError {}
+
+/// One-shot proof that only `NotifyBootstrapSnapshot` has completed.
+/// Subsequent lifecycle gates must consume this receipt by value.
+pub struct Stage5cBootstrapNotificationReceipt {
+    admission: Stage5cPaperHostAdmission,
+    notified_ts: DateTime<Utc>,
+}
+
+impl Stage5cBootstrapNotificationReceipt {
+    pub fn notified_ts(&self) -> DateTime<Utc> {
+        self.notified_ts
+    }
+
+    pub fn expires_at(&self) -> DateTime<Utc> {
+        self.admission.expires_at()
+    }
+
+    pub fn bootstrap_snapshot(&self) -> &RuntimeHostBootstrapSnapshot {
+        self.admission.bootstrap_snapshot()
+    }
+
+    pub fn runtime_state_restored(&self) -> bool {
+        false
+    }
+
+    pub fn warmup_started(&self) -> bool {
+        false
+    }
+
+    pub fn pending_recovery_started(&self) -> bool {
+        false
+    }
+
+    pub fn semantic_bar_enabled(&self) -> bool {
+        false
+    }
+
+    pub fn intent_sink_attached(&self) -> bool {
+        false
+    }
 }
 
 impl Stage5cPaperHostAdmission {
@@ -299,4 +370,264 @@ pub(crate) fn admit_stage5c_paper_host_at(
         runtime_host_attached: false,
         intent_sink_attached: false,
     })
+}
+
+/// Consumes the admission, preventing accidental duplicate notification.
+///
+/// ```compile_fail
+/// # use strategy_runtime_core::{notify_stage5c_bootstrap, HybridIntradayRuntimeStrategy, Stage5cPaperHostAdmission};
+/// # fn duplicate(strategy: &mut HybridIntradayRuntimeStrategy, admission: Stage5cPaperHostAdmission) {
+/// let _ = notify_stage5c_bootstrap(strategy, admission, "hybrid_imoexf");
+/// let _ = notify_stage5c_bootstrap(strategy, admission, "hybrid_imoexf");
+/// # }
+/// ```
+pub fn notify_stage5c_bootstrap(
+    strategy: &mut HybridIntradayRuntimeStrategy,
+    admission: Stage5cPaperHostAdmission,
+    strategy_id: &str,
+) -> Result<Stage5cBootstrapNotificationReceipt, Stage5cBootstrapNotificationError> {
+    notify_stage5c_bootstrap_at(strategy, admission, strategy_id, Utc::now())
+}
+
+pub(crate) fn notify_stage5c_bootstrap_at(
+    strategy: &mut HybridIntradayRuntimeStrategy,
+    admission: Stage5cPaperHostAdmission,
+    strategy_id: &str,
+    notification_now: DateTime<Utc>,
+) -> Result<Stage5cBootstrapNotificationReceipt, Stage5cBootstrapNotificationError> {
+    if notification_now > admission.expires_at() {
+        return Err(Stage5cBootstrapNotificationError::AdmissionExpired);
+    }
+    if strategy_id.trim().is_empty() {
+        return Err(Stage5cBootstrapNotificationError::StrategyIdEmpty);
+    }
+    let snapshot = admission.bootstrap_snapshot();
+    if !snapshot.target_active_orders.is_empty() {
+        return Err(Stage5cBootstrapNotificationError::ActiveOrdersRequireOwnershipMapping);
+    }
+    if snapshot.account_id != *admission.account_id() {
+        return Err(Stage5cBootstrapNotificationError::SnapshotAccountMismatch);
+    }
+    if snapshot.instrument != *admission.target_instrument() {
+        return Err(Stage5cBootstrapNotificationError::SnapshotInstrumentMismatch);
+    }
+    if snapshot.target_open_positions.iter().any(|position| {
+        position.account_id != snapshot.account_id || position.instrument != snapshot.instrument
+    }) {
+        return Err(Stage5cBootstrapNotificationError::SnapshotInstrumentMismatch);
+    }
+
+    let position_qty = snapshot
+        .target_position_qty
+        .to_f64()
+        .filter(|value| value.is_finite())
+        .ok_or(Stage5cBootstrapNotificationError::PositionQuantityNotRepresentable)?;
+    let average_price = snapshot
+        .target_open_positions
+        .first()
+        .and_then(|position| position.avg_price)
+        .map(|price| {
+            price
+                .to_f64()
+                .filter(|value| value.is_finite())
+                .ok_or(Stage5cBootstrapNotificationError::PositionAveragePriceNotRepresentable)
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let mut positions_strategy = HashMap::new();
+    if !snapshot.target_open_positions.is_empty() || position_qty.abs() > f64::EPSILON {
+        positions_strategy.insert(
+            snapshot.instrument.symbol.clone(),
+            PositionEvent {
+                symbol: snapshot.instrument.symbol.clone(),
+                qty: position_qty,
+                existing: true,
+                avg_price: average_price,
+                ts_utc: snapshot.received_ts.timestamp(),
+            },
+        );
+    }
+    let source_snapshot = BootstrapSnapshot {
+        positions_strategy,
+        working_orders_strategy: HashMap::new(),
+        working_stop_orders_strategy: HashMap::new(),
+        snapshot_ts_utc: Some(snapshot.received_ts.timestamp()),
+    };
+    let context = StrategyCtx {
+        strategy_id: strategy_id.to_string(),
+        portfolio: admission.account_id().as_str().to_string(),
+        exchange: format!("{:?}", admission.target_instrument().exchange),
+        symbol: admission.target_instrument().symbol.clone(),
+        tick_size: admission.tick_size(),
+        trade_mode: TradeMode::Paper,
+        paper_execution_mode: PaperExecutionMode::LiveOnly,
+        allow_live_orders: false,
+        gateway_phase: GatewayPhase::SyncingHistory,
+        position_qty: Some(position_qty),
+        event_ts_utc: snapshot.received_ts.timestamp(),
+        now_ts_utc: notification_now.timestamp(),
+        last_bar_ts: None,
+    };
+    let intents = Strategy::on_bootstrap_snapshot(strategy, &context, &source_snapshot);
+    if !intents.is_empty() {
+        return Err(Stage5cBootstrapNotificationError::UnexpectedBootstrapIntent);
+    }
+
+    Ok(Stage5cBootstrapNotificationReceipt {
+        admission,
+        notified_ts: notification_now,
+    })
+}
+
+#[cfg(test)]
+mod bootstrap_notification_tests {
+    use super::*;
+    use broker_core::{BrokerPositionSnapshot, Exchange, Market};
+    use chrono::TimeZone;
+    use rust_decimal::Decimal;
+
+    use crate::hybrid_intraday::{
+        HybridOrchestratorConfig, IntradayBreakoutConfig, MeanReversionConfig,
+    };
+    use crate::hybrid_intraday_runtime::{
+        HybridIntradayProfile, HybridIntradayRuntimeConfig, MeanReversionVariant, MrGatePolicy,
+        RiskGateMode,
+    };
+    use crate::runtime_compat::MarketBuyAndCloseLiveOrderStyle;
+
+    fn target() -> InstrumentId {
+        InstrumentId {
+            symbol: "IMOEXF".to_string(),
+            venue_symbol: Some("IMOEXF@RTSX".to_string()),
+            exchange: Exchange::Moex,
+            market: Market::Futures,
+        }
+    }
+
+    fn strategy() -> HybridIntradayRuntimeStrategy {
+        HybridIntradayRuntimeStrategy::new(HybridIntradayRuntimeConfig {
+            symbol: "IMOEXF".to_string(),
+            profile: HybridIntradayProfile::BaselineRuntimeHybrid,
+            mr_variant: MeanReversionVariant::ClassicPrevDayRange,
+            mr_gate_policy: MrGatePolicy::Disabled,
+            risk_gate_mode: RiskGateMode::Disabled,
+            risk_gate_seed_file: None,
+            risk_gate_ledger_key: None,
+            model_session_start_time: None,
+            model_session_end_time: None,
+            qty: 1.0,
+            live_order_style: MarketBuyAndCloseLiveOrderStyle::Market,
+            tick_size: 0.5,
+            marketable_limit_offset_ticks: 0,
+            timezone_offset_hours: 3,
+            session_close_hour: 23,
+            session_close_minute: 49,
+            weekends_off: true,
+            stop_end_buffer_sec: 60,
+            repair_deadline_sec: 180,
+            sl_escalate_timeout_sec: 30,
+            max_repair_retries: 3,
+            repair_backoff_base_sec: 5,
+            repair_backoff_max_sec: 60,
+            pending_timeout_sec: 30,
+            partial_entry_fill_timeout_ms: 3_000,
+            mr_config: MeanReversionConfig::default(),
+            breakout_config: IntradayBreakoutConfig::default(),
+            orchestrator_config: HybridOrchestratorConfig::default(),
+        })
+    }
+
+    fn admission(position_qty: Decimal, expires_at: DateTime<Utc>) -> Stage5cPaperHostAdmission {
+        let checked_ts = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 0)
+            .single()
+            .expect("timestamp");
+        let account_id = BrokerAccountId::new("ACC_TEST_0001");
+        let target = target();
+        let positions = if position_qty == Decimal::ZERO {
+            Vec::new()
+        } else {
+            vec![BrokerPositionSnapshot {
+                account_id: account_id.clone(),
+                instrument: target.clone(),
+                qty: position_qty,
+                avg_price: Some(Decimal::new(222_750, 2)),
+                unrealized_pnl: None,
+                source_ts: Some(checked_ts),
+                received_ts: checked_ts,
+            }]
+        };
+        let bootstrap_snapshot = RuntimeHostBootstrapSnapshot {
+            account_id: account_id.clone(),
+            instrument: target.clone(),
+            target_position_qty: position_qty,
+            target_open_positions: positions,
+            target_active_orders: Vec::new(),
+            account_active_orders_count: 0,
+            target_is_flat: position_qty == Decimal::ZERO,
+            received_ts: checked_ts,
+        };
+        Stage5cPaperHostAdmission {
+            schema_version: STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION,
+            checked_ts,
+            issued_ts: checked_ts,
+            expires_at,
+            account_id,
+            target_instrument: target,
+            tick_size: 0.5,
+            bootstrap_snapshot,
+            paper_only: true,
+            runtime_host_attached: false,
+            intent_sink_attached: false,
+        }
+    }
+
+    #[test]
+    fn stage5cb_rechecks_expiry_before_notification_without_state_mutation() {
+        let expiry = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 1, 0)
+            .single()
+            .expect("expiry");
+        let mut strategy = strategy();
+        let before = serde_json::to_value(Strategy::state(&strategy)).expect("state before");
+        let result = notify_stage5c_bootstrap_at(
+            &mut strategy,
+            admission(Decimal::ONE, expiry),
+            "hybrid_imoexf",
+            expiry + chrono::Duration::milliseconds(1),
+        );
+        assert!(matches!(
+            result,
+            Err(Stage5cBootstrapNotificationError::AdmissionExpired)
+        ));
+        let after = serde_json::to_value(Strategy::state(&strategy)).expect("state after");
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn stage5cb_uses_exact_snapshot_and_opens_no_later_lifecycle_step() {
+        let expiry = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 1, 0)
+            .single()
+            .expect("expiry");
+        let exact_snapshot = admission(Decimal::ONE, expiry).bootstrap_snapshot().clone();
+        let mut strategy = strategy();
+        let receipt = notify_stage5c_bootstrap_at(
+            &mut strategy,
+            admission(Decimal::ONE, expiry),
+            "hybrid_imoexf",
+            expiry,
+        )
+        .expect("notification at expiry remains valid");
+
+        assert_eq!(receipt.bootstrap_snapshot(), &exact_snapshot);
+        assert_eq!(receipt.notified_ts(), expiry);
+        assert!(!receipt.runtime_state_restored());
+        assert!(!receipt.warmup_started());
+        assert!(!receipt.pending_recovery_started());
+        assert!(!receipt.semantic_bar_enabled());
+        assert!(!receipt.intent_sink_attached());
+        let state = serde_json::to_value(Strategy::state(&strategy)).expect("state");
+        assert_eq!(state["HybridIntradayRuntime"]["last_position_qty"], 1.0);
+    }
 }

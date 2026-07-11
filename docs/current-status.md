@@ -65,11 +65,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   context/payload/target instrument mismatches before state mutation. Runtime
   host attachment, FINAM command consumption and live/send remain disabled.
 - Stage 5C-a paper/mock host admission provenance/expiry hardening is a review
-  candidate. It accepts only one opaque canonical Stage 4E→4I evidence bundle,
+  accepted. It accepts only one opaque canonical Stage 4E→4I evidence bundle,
   stores the exact applied snapshot and minimum required-source expiry, rejects
   future or stale evidence at admission time, and binds the complete target
   `InstrumentId`, account scope and instrument price step. It invokes no
   strategy callback and attaches neither a runtime host nor an intent sink.
+- Stage 5C-b one-shot bootstrap-notification facade is a review candidate. It
+  consumes fresh admission evidence by value, rechecks expiry, passes only the
+  exact admitted snapshot into `on_bootstrap_snapshot`, and returns a sealed
+  receipt with every later lifecycle step still false. Active target orders
+  remain blocked until ownership-complete mapping is accepted.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

@@ -41,6 +41,40 @@ struct FixtureSafetyBoundary {
     real_post_delete_added: bool,
 }
 
+#[derive(Debug, Deserialize)]
+struct BootstrapFixture {
+    schema_version: u16,
+    stage: String,
+    status: String,
+    admission_consumed_by_value: bool,
+    expiry_rechecked_at_notification: bool,
+    snapshot_source: String,
+    active_orders_without_ownership_mapping: String,
+    source_callback: String,
+    source_callback_intent_count: usize,
+    lifecycle: BootstrapLifecycle,
+    execution_boundary: BootstrapExecutionBoundary,
+}
+
+#[derive(Debug, Deserialize)]
+struct BootstrapLifecycle {
+    bootstrap_notification_emitted: bool,
+    runtime_state_restored: bool,
+    warmup_started: bool,
+    pending_recovery_started: bool,
+    semantic_bar_enabled: bool,
+    intent_sink_attached: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct BootstrapExecutionBoundary {
+    runtime_live_enabled: bool,
+    command_consumer_attached: bool,
+    live_send_enabled: bool,
+    real_post_delete_added: bool,
+    stop_sltp_bracket_execution_enabled: bool,
+}
+
 struct CanonicalInput {
     evidence: Stage4AcceptedPaperHostEvidence,
     spec: BrokerInstrumentSpec,
@@ -107,6 +141,13 @@ fn fixture() -> Fixture {
         "../../../tests/fixtures/stage5/stage5c_paper_host_admission.json"
     ))
     .expect("Stage 5C admission fixture")
+}
+
+fn bootstrap_fixture() -> BootstrapFixture {
+    serde_json::from_str(include_str!(
+        "../../../tests/fixtures/stage5/stage5cb_bootstrap_notification.json"
+    ))
+    .expect("Stage 5C-b bootstrap fixture")
 }
 
 fn canonical_input_at(checked_ts: DateTime<Utc>) -> CanonicalInput {
@@ -250,6 +291,41 @@ fn stage5c_fixture_keeps_all_execution_surfaces_closed() {
     assert!(!safety.command_consumer_attached);
     assert!(!safety.live_send_enabled);
     assert!(!safety.real_post_delete_added);
+}
+
+#[test]
+fn stage5cb_fixture_freezes_one_shot_bootstrap_only_boundary() {
+    let fixture = bootstrap_fixture();
+    assert_eq!(fixture.schema_version, 1);
+    assert_eq!(fixture.stage, "Stage5C-b");
+    assert_eq!(
+        fixture.status,
+        "one_shot_time_checked_bootstrap_notification_no_send"
+    );
+    assert!(fixture.admission_consumed_by_value);
+    assert!(fixture.expiry_rechecked_at_notification);
+    assert_eq!(
+        fixture.snapshot_source,
+        "Stage5cPaperHostAdmission.bootstrap_snapshot"
+    );
+    assert_eq!(fixture.active_orders_without_ownership_mapping, "blocked");
+    assert_eq!(fixture.source_callback, "on_bootstrap_snapshot");
+    assert_eq!(fixture.source_callback_intent_count, 0);
+    assert!(fixture.lifecycle.bootstrap_notification_emitted);
+    assert!(!fixture.lifecycle.runtime_state_restored);
+    assert!(!fixture.lifecycle.warmup_started);
+    assert!(!fixture.lifecycle.pending_recovery_started);
+    assert!(!fixture.lifecycle.semantic_bar_enabled);
+    assert!(!fixture.lifecycle.intent_sink_attached);
+    assert!(!fixture.execution_boundary.runtime_live_enabled);
+    assert!(!fixture.execution_boundary.command_consumer_attached);
+    assert!(!fixture.execution_boundary.live_send_enabled);
+    assert!(!fixture.execution_boundary.real_post_delete_added);
+    assert!(
+        !fixture
+            .execution_boundary
+            .stop_sltp_bracket_execution_enabled
+    );
 }
 
 #[test]
