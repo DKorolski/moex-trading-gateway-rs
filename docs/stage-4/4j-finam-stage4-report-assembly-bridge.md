@@ -18,6 +18,10 @@ POST/DELETE order endpoints.
 
 Stage 4J adds:
 
+- `build_finam_stage4_accepted_paper_host_evidence`, an opaque,
+  non-deserializable canonical Stage 4E→4I bundle for Stage 5C paper admission;
+  it binds the exact applied bootstrap snapshot and required-source expiry;
+
 - `build_finam_stage4_bootstrap_evidence_report(...)`.
 
 The helper takes a `FinamStage4BrokerTruthBootstrapPackage`, then assembles:

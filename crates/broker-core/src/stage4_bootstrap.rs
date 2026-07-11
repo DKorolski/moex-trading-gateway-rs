@@ -842,6 +842,60 @@ pub struct Stage4BootstrapEvidenceReport {
     pub blocker_count: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage4AcceptedPaperHostEvidenceError {
+    ReportNotAccepted,
+    ApplicationSnapshotMissing,
+    RequiredSourceAgeMissing,
+    RequiredSourceAgeInvalid,
+    RequiredSourceExpiryOverflow,
+    NoRequiredSourceSections,
+}
+
+impl std::fmt::Display for Stage4AcceptedPaperHostEvidenceError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "Stage 4 paper-host evidence blocked: {self:?}")
+    }
+}
+
+impl std::error::Error for Stage4AcceptedPaperHostEvidenceError {}
+
+/// Opaque output of one canonical Stage 4E -> Stage 4I assembly run.
+///
+/// The type deliberately implements neither `Serialize` nor `Deserialize`, so
+/// a report and an application from separate runs cannot be recombined into an
+/// accepted paper-host capability.
+///
+/// ```compile_fail
+/// let _: broker_core::Stage4AcceptedPaperHostEvidence =
+///     serde_json::from_str("{}").unwrap();
+/// ```
+#[derive(Clone, PartialEq)]
+pub struct Stage4AcceptedPaperHostEvidence {
+    report: Stage4BootstrapEvidenceReport,
+    application: Stage4RuntimeBootstrapApplicationDecision,
+    applied_snapshot: RuntimeHostBootstrapSnapshot,
+    required_source_expires_at: DateTime<Utc>,
+}
+
+impl Stage4AcceptedPaperHostEvidence {
+    pub fn report(&self) -> &Stage4BootstrapEvidenceReport {
+        &self.report
+    }
+
+    pub fn application(&self) -> &Stage4RuntimeBootstrapApplicationDecision {
+        &self.application
+    }
+
+    pub fn applied_snapshot(&self) -> &RuntimeHostBootstrapSnapshot {
+        &self.applied_snapshot
+    }
+
+    pub fn required_source_expires_at(&self) -> DateTime<Utc> {
+        self.required_source_expires_at
+    }
+}
+
 pub fn evaluate_stage4_runtime_bootstrap_application(
     validated: &ValidatedStage4BrokerTruthBootstrap,
 ) -> Stage4RuntimeBootstrapApplicationDecision {
@@ -1418,6 +1472,70 @@ pub fn build_stage4_bootstrap_evidence_report_with_source_evidence(
         mock_runtime_events,
         blocker_count,
     }
+}
+
+pub fn build_stage4_accepted_paper_host_evidence(
+    validated: &ValidatedStage4BrokerTruthBootstrap,
+    source_status_sections: &[Stage4BootstrapEvidenceSourceStatusSection],
+) -> Result<Stage4AcceptedPaperHostEvidence, Stage4AcceptedPaperHostEvidenceError> {
+    let application = evaluate_stage4_runtime_bootstrap_application(validated);
+    let dirty_start_policy = evaluate_stage4_dirty_start_policy(validated, &application);
+    let lifecycle = evaluate_stage4_runtime_lifecycle_ordering(
+        validated,
+        &application,
+        &dirty_start_policy,
+        RuntimeHostLifecyclePlan::alor_compatible(),
+    );
+    let integration = evaluate_stage4_runtime_bootstrap_integration(&lifecycle);
+    let report = build_stage4_bootstrap_evidence_report_with_source_evidence(
+        validated,
+        source_status_sections,
+        &application,
+        &dirty_start_policy,
+        &lifecycle,
+        &integration,
+    );
+    if report.status != Stage4BootstrapEvidenceReportStatus::Accepted {
+        return Err(Stage4AcceptedPaperHostEvidenceError::ReportNotAccepted);
+    }
+    let applied_snapshot = application
+        .applied_snapshot
+        .clone()
+        .ok_or(Stage4AcceptedPaperHostEvidenceError::ApplicationSnapshotMissing)?;
+    let mut required_source_expires_at = None;
+    for section in report
+        .source_sections
+        .iter()
+        .filter(|section| section.required_for_bootstrap)
+    {
+        let age_ms = section
+            .age_ms
+            .ok_or(Stage4AcceptedPaperHostEvidenceError::RequiredSourceAgeMissing)?;
+        if age_ms < 0 || age_ms as u64 > section.max_age_ms {
+            return Err(Stage4AcceptedPaperHostEvidenceError::RequiredSourceAgeInvalid);
+        }
+        let remaining_ms = section.max_age_ms - age_ms as u64;
+        let remaining_ms = i64::try_from(remaining_ms)
+            .map_err(|_| Stage4AcceptedPaperHostEvidenceError::RequiredSourceExpiryOverflow)?;
+        let expiry = report
+            .checked_ts
+            .checked_add_signed(chrono::Duration::milliseconds(remaining_ms))
+            .ok_or(Stage4AcceptedPaperHostEvidenceError::RequiredSourceExpiryOverflow)?;
+        required_source_expires_at = Some(
+            required_source_expires_at
+                .map(|current: DateTime<Utc>| current.min(expiry))
+                .unwrap_or(expiry),
+        );
+    }
+    let required_source_expires_at = required_source_expires_at
+        .ok_or(Stage4AcceptedPaperHostEvidenceError::NoRequiredSourceSections)?;
+
+    Ok(Stage4AcceptedPaperHostEvidence {
+        report,
+        application,
+        applied_snapshot,
+        required_source_expires_at,
+    })
 }
 
 fn stage4_bootstrap_evidence_default_source_status_sections(
@@ -4817,5 +4935,73 @@ mod tests {
         let order = target_order("BROKER-ORDER-2", OrderStatus::PartiallyFilled);
 
         assert_eq!(order.lifecycle, BrokerOrderLifecycle::Active);
+    }
+
+    #[test]
+    fn accepted_paper_host_evidence_is_built_from_one_canonical_stage4_chain() {
+        let truth = base_truth();
+        let validated = validate_stage4_broker_truth_bootstrap(input(&truth));
+        let source_sections = stage4_bootstrap_evidence_default_source_status_sections(&validated);
+
+        let evidence = build_stage4_accepted_paper_host_evidence(&validated, &source_sections)
+            .expect("accepted canonical Stage 4 evidence");
+
+        assert_eq!(
+            evidence.report().status,
+            Stage4BootstrapEvidenceReportStatus::Accepted
+        );
+        assert_eq!(
+            evidence.application().applied_snapshot.as_ref(),
+            Some(evidence.applied_snapshot())
+        );
+        assert_eq!(
+            evidence.applied_snapshot(),
+            &validated.runtime_bootstrap_snapshot
+        );
+    }
+
+    #[test]
+    fn stage5c_rejects_summary_equivalent_but_snapshot_different_application() {
+        let mut first_truth = base_truth();
+        first_truth.received_ts = checked_ts() - chrono::Duration::seconds(2);
+        let mut second_truth = base_truth();
+        second_truth.received_ts = checked_ts() - chrono::Duration::seconds(1);
+        let first_validated = validate_stage4_broker_truth_bootstrap(input(&first_truth));
+        let second_validated = validate_stage4_broker_truth_bootstrap(input(&second_truth));
+        let first_sources =
+            stage4_bootstrap_evidence_default_source_status_sections(&first_validated);
+        let second_sources =
+            stage4_bootstrap_evidence_default_source_status_sections(&second_validated);
+
+        let first = build_stage4_accepted_paper_host_evidence(&first_validated, &first_sources)
+            .expect("first accepted evidence");
+        let second = build_stage4_accepted_paper_host_evidence(&second_validated, &second_sources)
+            .expect("second accepted evidence");
+
+        assert_eq!(
+            first.report().target_is_flat,
+            second.report().target_is_flat
+        );
+        assert_eq!(
+            first.report().target_active_order_count,
+            second.report().target_active_order_count
+        );
+        assert_ne!(first.applied_snapshot(), second.applied_snapshot());
+    }
+
+    #[test]
+    fn accepted_paper_host_evidence_records_minimum_required_source_expiry() {
+        let mut truth = base_truth();
+        truth.received_ts = checked_ts() - chrono::Duration::seconds(10);
+        let validated = validate_stage4_broker_truth_bootstrap(input(&truth));
+        let source_sections = stage4_bootstrap_evidence_default_source_status_sections(&validated);
+
+        let evidence = build_stage4_accepted_paper_host_evidence(&validated, &source_sections)
+            .expect("accepted evidence with expiry");
+
+        assert_eq!(
+            evidence.required_source_expires_at(),
+            checked_ts() + chrono::Duration::seconds(50)
+        );
     }
 }

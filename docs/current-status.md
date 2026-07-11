@@ -64,12 +64,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `BrokerNeutralHybridStrategy` facade, which rejects non-final/non-M10 bars and
   context/payload/target instrument mismatches before state mutation. Runtime
   host attachment, FINAM command consumption and live/send remain disabled.
-- Stage 5C-a paper/mock host admission is a review candidate. It requires an
-  accepted and internally consistent Stage 4J report plus its applied Stage 4E
-  snapshot, binds the complete target `InstrumentId`, account scope and
-  instrument-spec price step, and issues a non-deserializable paper-only
-  admission capability. It invokes no strategy callback and attaches neither a
-  runtime host nor an intent sink.
+- Stage 5C-a paper/mock host admission provenance/expiry hardening is a review
+  candidate. It accepts only one opaque canonical Stage 4E→4I evidence bundle,
+  stores the exact applied snapshot and minimum required-source expiry, rejects
+  future or stale evidence at admission time, and binds the complete target
+  `InstrumentId`, account scope and instrument price step. It invokes no
+  strategy callback and attaches neither a runtime host nor an intent sink.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

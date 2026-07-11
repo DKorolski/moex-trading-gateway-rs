@@ -200,11 +200,12 @@ pub use runtime_state::{
     ValidatedRuntimeStateSnapshot,
 };
 pub use stage4_bootstrap::{
-    build_stage4_bootstrap_evidence_report,
+    build_stage4_accepted_paper_host_evidence, build_stage4_bootstrap_evidence_report,
     build_stage4_bootstrap_evidence_report_with_source_evidence,
     evaluate_stage4_dirty_start_policy, evaluate_stage4_runtime_bootstrap_application,
     evaluate_stage4_runtime_bootstrap_integration, evaluate_stage4_runtime_lifecycle_ordering,
-    validate_stage4_broker_truth_bootstrap, Stage4AdoptionDisposition,
+    validate_stage4_broker_truth_bootstrap, Stage4AcceptedPaperHostEvidence,
+    Stage4AcceptedPaperHostEvidenceError, Stage4AdoptionDisposition,
     Stage4BootstrapEvidenceRedaction, Stage4BootstrapEvidenceReport,
     Stage4BootstrapEvidenceReportBlocker, Stage4BootstrapEvidenceReportBlockerKind,
     Stage4BootstrapEvidenceReportStage, Stage4BootstrapEvidenceReportStatus,

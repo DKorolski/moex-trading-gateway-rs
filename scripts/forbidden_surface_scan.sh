@@ -1305,7 +1305,7 @@ else:
             "2226fc838e69d00027778f3824dfe4d40c84b1b0cb888106d18df2339f20affb"
         ),
         semantic_kernel_root / "tests/stage5c_paper_host_admission.rs": (
-            "c922aa602dea4caf036802ef47a14d4383ecd6efd2d7899851c224d05a246b7e"
+            "1b4c457ecc6b0400c6e76d54aa0fd14556a003fe25cf64b72585b8426c681938"
         ),
         semantic_kernel_root / "tests/wrapper_bracket_terminal_inventory.rs": (
             "b276b376d33073454fd0df243b6d87a351724794d95d52126a8258e9324aeafe"
@@ -1540,10 +1540,10 @@ expected_stage5_profile_artifacts = {
         "df802340f462ce4074eb9dda291b4165123d2bb17cc77bf135906fa7622e124d"
     ),
     Path("tests/fixtures/stage5/stage5c_paper_host_admission.json"): (
-        "11a8b293acab58781d5dcf5ed52723fb07a36aea3c2cb3c71569ff1def5171a9"
+        "821e241970df245f7aaaeb78312537c29512173108c59f40f7f449eb44cb8aa4"
     ),
     Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"): (
-        "d68e9520711bc55edc779d9c26894606300a92c01b42e0424679ee963b2a82e4"
+        "bd2ded5cd8545481de10d6e8cad65a754eab491b0ce5fc9825db2b392c1308e2"
     ),
     Path("crates/broker-core/src/hybrid_strategy_boundary.rs"): (
         "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d"

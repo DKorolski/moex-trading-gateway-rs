@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 
 use broker_core::{
-    BrokerAccountId, BrokerInstrumentSpec, InstrumentId, Stage4BootstrapEvidenceReport,
-    Stage4BootstrapEvidenceReportStatus, Stage4BrokerTruthBootstrapStatus,
-    Stage4BrokerTruthFreshnessSection, Stage4BrokerTruthFreshnessStatus,
-    Stage4BrokerTruthSourceStatus, Stage4DirtyStartPolicyStatus,
-    Stage4RuntimeBootstrapApplicationDecision, Stage4RuntimeBootstrapApplicationStatus,
-    Stage4RuntimeBootstrapIntegrationEvent, Stage4RuntimeBootstrapIntegrationStatus,
-    Stage4RuntimeLifecycleOrderingStatus, STAGE4_BOOTSTRAP_EVIDENCE_REPORT_SCHEMA_VERSION,
+    BrokerAccountId, BrokerInstrumentSpec, InstrumentId, RuntimeHostBootstrapSnapshot,
+    Stage4AcceptedPaperHostEvidence, Stage4BootstrapEvidenceReportStatus,
+    Stage4BrokerTruthBootstrapStatus, Stage4BrokerTruthFreshnessSection,
+    Stage4BrokerTruthFreshnessStatus, Stage4BrokerTruthSourceStatus, Stage4DirtyStartPolicyStatus,
+    Stage4RuntimeBootstrapApplicationStatus, Stage4RuntimeBootstrapIntegrationEvent,
+    Stage4RuntimeBootstrapIntegrationStatus, Stage4RuntimeLifecycleOrderingStatus,
+    STAGE4_BOOTSTRAP_EVIDENCE_REPORT_SCHEMA_VERSION,
     STAGE4_RUNTIME_BOOTSTRAP_APPLICATION_SCHEMA_VERSION,
 };
 use chrono::{DateTime, Utc};
@@ -34,6 +34,8 @@ pub enum Stage5cPaperHostAdmissionError {
     InvalidInstrumentPriceStep,
     TickSizeMismatch,
     LiveOrdersRequested,
+    EvidenceCheckedInFuture,
+    EvidenceExpired,
 }
 
 impl std::fmt::Display for Stage5cPaperHostAdmissionError {
@@ -44,9 +46,18 @@ impl std::fmt::Display for Stage5cPaperHostAdmissionError {
 
 impl std::error::Error for Stage5cPaperHostAdmissionError {}
 
+/// Input accepts one opaque canonical Stage 4 chain, never independent report
+/// and application DTOs.
+///
+/// ```compile_fail
+/// # use strategy_runtime_core::Stage5cPaperHostAdmissionInput;
+/// let _ = Stage5cPaperHostAdmissionInput {
+///     stage4j_report: todo!(),
+///     stage4_application: todo!(),
+/// };
+/// ```
 pub struct Stage5cPaperHostAdmissionInput<'a> {
-    pub stage4j_report: &'a Stage4BootstrapEvidenceReport,
-    pub stage4_application: &'a Stage4RuntimeBootstrapApplicationDecision,
+    pub stage4_evidence: &'a Stage4AcceptedPaperHostEvidence,
     pub instrument_spec: &'a BrokerInstrumentSpec,
     pub configured_account_id: &'a BrokerAccountId,
     pub configured_target_instrument: &'a InstrumentId,
@@ -66,9 +77,12 @@ pub struct Stage5cPaperHostAdmissionInput<'a> {
 pub struct Stage5cPaperHostAdmission {
     schema_version: u16,
     checked_ts: DateTime<Utc>,
+    issued_ts: DateTime<Utc>,
+    expires_at: DateTime<Utc>,
     account_id: BrokerAccountId,
     target_instrument: InstrumentId,
     tick_size: f64,
+    bootstrap_snapshot: RuntimeHostBootstrapSnapshot,
     paper_only: bool,
     runtime_host_attached: bool,
     intent_sink_attached: bool,
@@ -83,6 +97,14 @@ impl Stage5cPaperHostAdmission {
         self.checked_ts
     }
 
+    pub fn issued_ts(&self) -> DateTime<Utc> {
+        self.issued_ts
+    }
+
+    pub fn expires_at(&self) -> DateTime<Utc> {
+        self.expires_at
+    }
+
     pub fn account_id(&self) -> &BrokerAccountId {
         &self.account_id
     }
@@ -93,6 +115,10 @@ impl Stage5cPaperHostAdmission {
 
     pub fn tick_size(&self) -> f64 {
         self.tick_size
+    }
+
+    pub fn bootstrap_snapshot(&self) -> &RuntimeHostBootstrapSnapshot {
+        &self.bootstrap_snapshot
     }
 
     pub fn is_paper_only(&self) -> bool {
@@ -111,7 +137,20 @@ impl Stage5cPaperHostAdmission {
 pub fn admit_stage5c_paper_host(
     input: Stage5cPaperHostAdmissionInput<'_>,
 ) -> Result<Stage5cPaperHostAdmission, Stage5cPaperHostAdmissionError> {
-    let report = input.stage4j_report;
+    admit_stage5c_paper_host_at(input, Utc::now())
+}
+
+pub(crate) fn admit_stage5c_paper_host_at(
+    input: Stage5cPaperHostAdmissionInput<'_>,
+    admission_now: DateTime<Utc>,
+) -> Result<Stage5cPaperHostAdmission, Stage5cPaperHostAdmissionError> {
+    let report = input.stage4_evidence.report();
+    if report.checked_ts > admission_now {
+        return Err(Stage5cPaperHostAdmissionError::EvidenceCheckedInFuture);
+    }
+    if admission_now > input.stage4_evidence.required_source_expires_at() {
+        return Err(Stage5cPaperHostAdmissionError::EvidenceExpired);
+    }
     if report.schema_version != STAGE4_BOOTSTRAP_EVIDENCE_REPORT_SCHEMA_VERSION {
         return Err(Stage5cPaperHostAdmissionError::Stage4ReportSchemaMismatch);
     }
@@ -185,7 +224,7 @@ pub fn admit_stage5c_paper_host(
         return Err(Stage5cPaperHostAdmissionError::Stage4SafetyBoundaryOpen);
     }
 
-    let application = input.stage4_application;
+    let application = input.stage4_evidence.application();
     if application.schema_version != STAGE4_RUNTIME_BOOTSTRAP_APPLICATION_SCHEMA_VERSION {
         return Err(Stage5cPaperHostAdmissionError::Stage4ApplicationSchemaMismatch);
     }
@@ -203,10 +242,10 @@ pub fn admit_stage5c_paper_host(
     {
         return Err(Stage5cPaperHostAdmissionError::Stage4ApplicationInconsistent);
     }
-    let snapshot = application
-        .applied_snapshot
-        .as_ref()
-        .ok_or(Stage5cPaperHostAdmissionError::Stage4ApplicationSnapshotMissing)?;
+    let snapshot = input.stage4_evidence.applied_snapshot();
+    if application.applied_snapshot.as_ref() != Some(snapshot) {
+        return Err(Stage5cPaperHostAdmissionError::Stage4ApplicationSnapshotMissing);
+    }
     if application.checked_ts != report.checked_ts
         || application.target_position_qty != snapshot.target_position_qty
         || application.target_is_flat != snapshot.target_is_flat
@@ -250,9 +289,12 @@ pub fn admit_stage5c_paper_host(
     Ok(Stage5cPaperHostAdmission {
         schema_version: STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION,
         checked_ts: report.checked_ts,
+        issued_ts: admission_now,
+        expires_at: input.stage4_evidence.required_source_expires_at(),
         account_id: snapshot.account_id.clone(),
         target_instrument: report.target_instrument.clone(),
         tick_size: spec_tick_size,
+        bootstrap_snapshot: snapshot.clone(),
         paper_only: true,
         runtime_host_attached: false,
         intent_sink_attached: false,

@@ -24,10 +24,12 @@ use broker_core::order::{
     Order, OrderSide, OrderStatus, OrderType, RedactedValueFingerprint, TimeInForce, Trade,
 };
 use broker_core::{
+    build_stage4_accepted_paper_host_evidence,
     build_stage4_bootstrap_evidence_report_with_source_evidence,
     evaluate_stage4_dirty_start_policy, evaluate_stage4_runtime_bootstrap_application,
     evaluate_stage4_runtime_bootstrap_integration, evaluate_stage4_runtime_lifecycle_ordering,
     validate_stage4_broker_truth_bootstrap, RuntimeBootstrapSnapshotDto, RuntimeHostLifecyclePlan,
+    Stage4AcceptedPaperHostEvidence, Stage4AcceptedPaperHostEvidenceError,
     Stage4BootstrapEvidenceReport, Stage4BootstrapEvidenceSourceStatusSection,
     Stage4BrokerTruthBootstrapInput, Stage4BrokerTruthFreshnessInput,
     Stage4BrokerTruthFreshnessProbe, Stage4BrokerTruthFreshnessSection,
@@ -576,6 +578,13 @@ pub fn build_finam_stage4_bootstrap_evidence_report(
         &lifecycle,
         &integration,
     )
+}
+
+pub fn build_finam_stage4_accepted_paper_host_evidence(
+    package: &FinamStage4BrokerTruthBootstrapPackage,
+) -> Result<Stage4AcceptedPaperHostEvidence, Stage4AcceptedPaperHostEvidenceError> {
+    let source_sections = package.source_evidence.redacted_stage4i_source_sections();
+    build_stage4_accepted_paper_host_evidence(&package.validated_bootstrap, &source_sections)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2775,6 +2784,18 @@ mod tests {
                 && section.freshness_status == Stage4BrokerTruthFreshnessStatus::Fresh
         }));
         assert!(report.no_live_authorization);
+
+        let evidence = build_finam_stage4_accepted_paper_host_evidence(&package)
+            .expect("canonical FINAM Stage 4J evidence");
+        assert_eq!(evidence.report(), &report);
+        assert_eq!(
+            evidence.applied_snapshot(),
+            &package.validated_bootstrap.runtime_bootstrap_snapshot
+        );
+        assert_eq!(
+            evidence.required_source_expires_at(),
+            checked_ts + Duration::seconds(60)
+        );
     }
 
     #[test]
