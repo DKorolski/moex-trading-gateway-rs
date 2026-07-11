@@ -466,6 +466,18 @@ for member in sorted(workspace_members):
         )
         failures += 1
         continue
+    member_build_scripts = [
+        path
+        for path in member_path.glob("**/build.rs")
+        if path.is_file() and "target" not in path.parts
+    ]
+    for build_script in member_build_scripts:
+        print(
+            "forbidden-surface-scan: workspace build.rs is forbidden in the "
+            f"Stage 5B-2 trusted Cargo graph: {build_script}",
+            file=sys.stderr,
+        )
+        failures += 1
     workspace_source_candidate_files.update(
         path
         for path in member_path.glob("**/*")
@@ -496,7 +508,7 @@ for member in sorted(workspace_members):
 
     package = member_manifest.get("package", {})
     if isinstance(package, dict) and isinstance(package.get("build"), str):
-        explicit_cargo_source_paths.add(member_path / package["build"])
+        explicit_cargo_source_paths.add((member, member_path / package["build"]))
     for target_kind in ("lib", "bin", "test", "example", "bench"):
         target_configs = member_manifest.get(target_kind, [])
         if isinstance(target_configs, dict):
@@ -505,7 +517,9 @@ for member in sorted(workspace_members):
             continue
         for target_config in target_configs:
             if isinstance(target_config, dict) and isinstance(target_config.get("path"), str):
-                explicit_cargo_source_paths.add(member_path / target_config["path"])
+                explicit_cargo_source_paths.add(
+                    (member, member_path / target_config["path"])
+                )
 
     for section_name, dependencies in dependency_tables(member_manifest):
         for dependency_name, dependency_spec in dependencies.items():
@@ -569,20 +583,28 @@ for override_section in ("patch", "replace"):
         )
         failures += 1
 
-for explicit_source_path in explicit_cargo_source_paths:
-    resolved_source_path = explicit_source_path.resolve()
-    owning_member = next(
-        (
-            member
-            for member, member_path in workspace_member_paths.items()
-            if resolved_source_path.is_relative_to(member_path)
-        ),
-        None,
+repository_cargo_configs = [
+    path
+    for config_name in ("config", "config.toml")
+    for path in Path(".").glob(f"**/.cargo/{config_name}")
+    if path.is_file()
+    and not any(part in {".git", "target", "tmp", "reports"} for part in path.parts)
+]
+for cargo_config_path in repository_cargo_configs:
+    print(
+        "forbidden-surface-scan: repository-local Cargo config is forbidden in "
+        f"the Stage 5B-2 trusted build model: {cargo_config_path}",
+        file=sys.stderr,
     )
-    if owning_member is None:
+    failures += 1
+
+for declaring_member, explicit_source_path in explicit_cargo_source_paths:
+    resolved_source_path = explicit_source_path.resolve()
+    declaring_member_path = workspace_member_paths[declaring_member]
+    if not resolved_source_path.is_relative_to(declaring_member_path):
         print(
-            "forbidden-surface-scan: explicit Cargo source path escapes workspace "
-            f"member closure: {explicit_source_path}",
+            "forbidden-surface-scan: explicit Cargo source path escapes its "
+            f"declaring member {declaring_member}: {explicit_source_path}",
             file=sys.stderr,
         )
         failures += 1

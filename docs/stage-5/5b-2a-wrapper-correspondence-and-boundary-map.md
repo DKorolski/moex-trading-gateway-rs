@@ -184,6 +184,16 @@ declared source path. Root/member manifests and `Cargo.lock` are independently
 hash-locked for this freeze. Stage 5B-2b must open exactly the declared path
 while all alternate crate/path targets remain forbidden.
 
+Workspace `build.rs` files and repository-local `.cargo/config` or
+`.cargo/config.toml` are forbidden. Every explicit Cargo target must resolve
+inside the package that declares it.
+
+This migration gate assumes a trusted Rust/Cargo toolchain operating on the
+accepted clean repository. It prevents accidental activation and reviewed
+scope drift; it is not a hermetic supply-chain boundary against arbitrary
+compiler, runner, environment or filesystem manipulation. Such controls belong
+to the separate build-integrity backlog.
+
 ## Accepted review backlog
 
 The executable Stage 5B-2b matrix must prove:

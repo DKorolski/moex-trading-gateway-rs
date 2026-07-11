@@ -235,6 +235,25 @@ mv "$root_manifest_backup" "$root_manifest"
 mv "$broker_core_manifest_backup" "$broker_core_manifest"
 rm -rf "$external_member"
 
+build_script="$tmp_root/crates/broker-core/build.rs"
+printf 'fn main() {}\n' > "$build_script"
+expect_scanner_failure "workspace-member-build-rs"
+rm -f "$build_script"
+
+mkdir -p "$tmp_root/.cargo"
+printf '%s\n' \
+  '[build]' \
+  'rustc-wrapper = "synthetic-wrapper"' > "$tmp_root/.cargo/config.toml"
+expect_scanner_failure "repository-local-cargo-config"
+rm -rf "$tmp_root/.cargo"
+
+broker_cli_manifest="$tmp_root/crates/broker-cli/Cargo.toml"
+broker_cli_manifest_backup="$broker_cli_manifest.bak"
+cp "$broker_cli_manifest" "$broker_cli_manifest_backup"
+perl -0pi -e 's#path = "src/main.rs"#path = "../broker-core/src/lib.rs"#' "$broker_cli_manifest"
+expect_scanner_failure "explicit-target-escapes-declaring-member"
+mv "$broker_cli_manifest_backup" "$broker_cli_manifest"
+
 alias_fixture_dir="$tmp_root/crates/broker-core/fixtures"
 mkdir -p "$alias_fixture_dir"
 cp "$tmp_root/source-oracles/alor-stage5/hybrid_intraday_runtime.rs" \
