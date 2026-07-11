@@ -37,12 +37,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 5A semantic inventory, source provenance, callback/state/configuration
   ledger and evidence schema are a review candidate. No strategy code or live
   execution surface is added by Stage 5A.
-- Stage 5B-1 pure Hybrid semantic-kernel import is a review candidate. The new
+- Stage 5B-1 pure Hybrid semantic-kernel import is accepted. The new
   `strategy-runtime-core` crate preserves the frozen model/orchestrator/riskgate
   source and tests but does not include the integrated runtime wrapper.
 - Stage 5B-1a immutable correspondence, exact integrated-wrapper oracle and
-  active high180 profile hardening are a review candidate. The wrapper remains
-  uncompiled and unattached.
+  active high180 profile hardening are accepted.
 - Stage 5B-1b structural freeze hardening and the Stage 5B-2 integrated-wrapper
   semantic inventory are accepted. Workspace membership, crate
   target configuration, library root and the complete Cargo/Rust target set now
@@ -51,13 +50,20 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   mixed clock domains and source-compatible transient restart behavior are
   inventoried and fixture locked.
 - Stage 5B-2a separate wrapper correspondence manifest and broker-neutral
-  callback/state boundary hardening are a repeat-review candidate. The map now
+  callback/state boundary hardening are accepted. The map
   matches the exact 15 source overrides and six generic seams, defines lossless
   Hybrid ACK/order/stop/position/bar/context/bootstrap contracts, requires
   context-complete callback inputs, validates attribution/bootstrap
-  consistency, and applies an exact parsed-workspace wrapper activation lock.
-  The future wrapper Cargo target is declared but remains disallowed; the
-  wrapper is still neither copied nor compiled.
+  consistency, and applies an exact parsed-workspace wrapper activation lock
+  under the accepted trusted-toolchain/clean-repository threat model.
+- Stage 5B-2b exact mechanical wrapper import is accepted. Its boundary closure
+  is a review candidate: the wrapper is copied and compiled only in
+  `strategy-runtime-core`, preserves all source tests, and uses broker-neutral
+  request/order/stop identities. Its source-compatible host seam is
+  crate-private; the only downstream callback path is the typed
+  `BrokerNeutralHybridStrategy` facade, which rejects non-final/non-M10 bars and
+  context/payload/target instrument mismatches before state mutation. Runtime
+  host attachment, FINAM command consumption and live/send remain disabled.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

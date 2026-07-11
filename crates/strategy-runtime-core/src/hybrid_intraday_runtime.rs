@@ -5185,7 +5185,10 @@ mod tests {
                 timeframe_sec: 60,
             },
         };
-        assert!(BrokerNeutralHybridStrategy::on_broker_bar(&mut strategy, input).is_empty());
+        assert_eq!(
+            BrokerNeutralHybridStrategy::on_broker_bar(&mut strategy, input),
+            Err(HybridRuntimeCallbackValidationError::InvalidTimeframe)
+        );
         assert!(strategy.last_processed_bar_ts.is_none());
     }
 
@@ -5219,10 +5222,205 @@ mod tests {
                 error_message: Some("window closed".to_string()),
                 processed_ts_utc: 1_700_000_001,
             },
-        );
+        )
+        .expect("broker-neutral ACK is valid");
         assert!(intents.is_empty());
         assert!(strategy.pending_entry.is_none());
         assert!(strategy.deferred_entry.is_some());
+    }
+
+    #[test]
+    fn broker_neutral_bar_rejects_context_payload_instrument_mismatch() {
+        let mut strategy = HybridIntradayRuntimeStrategy::new(test_config());
+        let context = broker_context(
+            broker_core::HybridRuntimeTradeMode::Paper,
+            broker_core::HybridRuntimeGatewayPhase::LiveReady,
+        );
+        let mut payload_instrument = context.instrument.clone();
+        payload_instrument.symbol = "OTHERF".to_string();
+        let result = BrokerNeutralHybridStrategy::on_broker_bar(
+            &mut strategy,
+            broker_core::HybridRuntimeCallbackInput {
+                context,
+                payload: broker_core::HybridRuntimeBarEvent {
+                    instrument: payload_instrument,
+                    close_time_utc: 1_700_000_000,
+                    open: 100.0,
+                    high: 101.0,
+                    low: 99.0,
+                    close: 100.5,
+                    volume: 10.0,
+                    origin: broker_core::HybridRuntimeBarOrigin::Live,
+                    is_final: true,
+                    timeframe_sec: 600,
+                },
+            },
+        );
+        assert_eq!(
+            result,
+            Err(HybridRuntimeCallbackValidationError::ContextPayloadInstrumentMismatch)
+        );
+    }
+
+    #[test]
+    fn broker_neutral_bar_rejects_non_target_payload_instrument() {
+        let mut strategy = HybridIntradayRuntimeStrategy::new(test_config());
+        let mut context = broker_context(
+            broker_core::HybridRuntimeTradeMode::Paper,
+            broker_core::HybridRuntimeGatewayPhase::LiveReady,
+        );
+        context.instrument.symbol = "OTHERF".to_string();
+        context.instrument.venue_symbol = Some("OTHERF@RTSX".to_string());
+        let payload_instrument = context.instrument.clone();
+        let result = BrokerNeutralHybridStrategy::on_broker_bar(
+            &mut strategy,
+            broker_core::HybridRuntimeCallbackInput {
+                context,
+                payload: broker_core::HybridRuntimeBarEvent {
+                    instrument: payload_instrument,
+                    close_time_utc: 1_700_000_000,
+                    open: 100.0,
+                    high: 101.0,
+                    low: 99.0,
+                    close: 100.5,
+                    volume: 10.0,
+                    origin: broker_core::HybridRuntimeBarOrigin::Live,
+                    is_final: true,
+                    timeframe_sec: 600,
+                },
+            },
+        );
+        assert_eq!(
+            result,
+            Err(HybridRuntimeCallbackValidationError::PayloadTargetInstrumentMismatch)
+        );
+        assert!(strategy.last_processed_bar_ts.is_none());
+    }
+
+    #[test]
+    fn broker_neutral_position_mismatch_cannot_emit_protective_or_emergency_intent() {
+        let mut strategy = HybridIntradayRuntimeStrategy::new(test_config());
+        strategy.current_owner = Some(Owner::MeanReversion);
+        strategy.current_side = Some(Side::Long);
+        strategy.active_cycle_id = Some(*b"cycle00001");
+        strategy.mr_take_price = Some(101.0);
+        strategy.mr_stop_price = Some(99.0);
+        let context = broker_context(
+            broker_core::HybridRuntimeTradeMode::Paper,
+            broker_core::HybridRuntimeGatewayPhase::LiveReady,
+        );
+        let mut payload_instrument = context.instrument.clone();
+        payload_instrument.venue_symbol = Some("OTHERF@RTSX".to_string());
+        let result = BrokerNeutralHybridStrategy::on_broker_position(
+            &mut strategy,
+            broker_core::HybridRuntimeCallbackInput {
+                context,
+                payload: broker_core::HybridRuntimePositionEvent {
+                    instrument: payload_instrument,
+                    qty: 1.0,
+                    existing: false,
+                    avg_price: 100.0,
+                    source_ts_utc: 1_700_000_060,
+                },
+            },
+        );
+        assert_eq!(
+            result,
+            Err(HybridRuntimeCallbackValidationError::ContextPayloadInstrumentMismatch)
+        );
+        assert!(strategy.pending_tp_request_id.is_none());
+        assert!(strategy.pending_sl_request_id.is_none());
+        assert!(strategy.pending_exit_request_id.is_none());
+    }
+
+    #[test]
+    fn broker_neutral_mismatch_does_not_mutate_wrapper_state() {
+        let mut strategy = HybridIntradayRuntimeStrategy::new(test_config());
+        strategy.entry_ready = true;
+        strategy.sync_state();
+        let before = serde_json::to_value(Strategy::state(&strategy)).expect("state before");
+        let mut context = broker_context(
+            broker_core::HybridRuntimeTradeMode::Paper,
+            broker_core::HybridRuntimeGatewayPhase::LiveReady,
+        );
+        context.instrument.symbol = "OTHERF".to_string();
+        let result = BrokerNeutralHybridStrategy::on_broker_timer(
+            &mut strategy,
+            broker_core::HybridRuntimeCallbackInput {
+                context,
+                payload: broker_core::HybridRuntimeTimerEvent {
+                    now_ts_utc_ms: 1_700_000_001_000,
+                },
+            },
+        );
+        assert_eq!(
+            result,
+            Err(HybridRuntimeCallbackValidationError::ContextTargetInstrumentMismatch)
+        );
+        let after = serde_json::to_value(Strategy::state(&strategy)).expect("state after");
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn broker_neutral_request_id_uses_validated_target_namespace() {
+        let mut strategy = HybridIntradayRuntimeStrategy::new(test_config());
+        strategy.entry_ready = true;
+        let _ = strategy.map_action_to_intents(
+            &test_ctx(Some(0.0)),
+            1_700_000_000,
+            true,
+            true,
+            Action::SubmitEntry(EntrySignal {
+                owner: Owner::MeanReversion,
+                side: Side::Long,
+                entry_style: EntryStyle::Bracket,
+                reason: ReasonCode::MorningMeanReversionLong,
+                stop_price: Some(99.0),
+                take_price: Some(101.0),
+            }),
+        );
+        let context = broker_context(
+            broker_core::HybridRuntimeTradeMode::Paper,
+            broker_core::HybridRuntimeGatewayPhase::LiveReady,
+        );
+        let instrument = context.instrument.clone();
+        let intents = BrokerNeutralHybridStrategy::on_broker_position(
+            &mut strategy,
+            broker_core::HybridRuntimeCallbackInput {
+                context,
+                payload: broker_core::HybridRuntimePositionEvent {
+                    instrument,
+                    qty: 1.0,
+                    existing: false,
+                    avg_price: 100.0,
+                    source_ts_utc: 1_700_000_060,
+                },
+            },
+        )
+        .expect("validated target position");
+        assert_eq!(intents.len(), 2);
+        assert_eq!(
+            strategy.pending_tp_request_id,
+            Some(crate::deterministic_request_id(
+                "hyb-test",
+                "ACC_TEST_0001",
+                "IMOEXF",
+                "place",
+                1_700_000_060,
+                0,
+            ))
+        );
+        assert_eq!(
+            strategy.pending_sl_request_id,
+            Some(crate::deterministic_request_id(
+                "hyb-test",
+                "ACC_TEST_0001",
+                "IMOEXF",
+                "create_stop_limit",
+                1_700_000_060,
+                5,
+            ))
+        );
     }
 }
 
@@ -6361,31 +6559,89 @@ impl Strategy for HybridIntradayRuntimeStrategy {
 
 /// Stage 5B-2b broker-neutral callback surface. It returns intents only and is
 /// intentionally not attached to a runtime host or command consumer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HybridRuntimeCallbackValidationError {
+    ContextPayloadInstrumentMismatch,
+    ContextTargetInstrumentMismatch,
+    PayloadTargetInstrumentMismatch,
+    InvalidTimeframe,
+    NonFinalBar,
+}
+
+impl std::fmt::Display for HybridRuntimeCallbackValidationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::ContextPayloadInstrumentMismatch => "context/payload instrument mismatch",
+            Self::ContextTargetInstrumentMismatch => {
+                "context instrument is not the configured target"
+            }
+            Self::PayloadTargetInstrumentMismatch => {
+                "payload instrument is not the configured target"
+            }
+            Self::InvalidTimeframe => "bar timeframe is not canonical M10",
+            Self::NonFinalBar => "bar is not final",
+        })
+    }
+}
+
+impl std::error::Error for HybridRuntimeCallbackValidationError {}
+
+pub type BrokerNeutralHybridCallbackResult =
+    Result<Vec<crate::BrokerNeutralHybridIntent>, HybridRuntimeCallbackValidationError>;
+
 pub trait BrokerNeutralHybridStrategy {
     fn on_broker_bar(
         &mut self,
         input: broker_core::HybridRuntimeCallbackInput<broker_core::HybridRuntimeBarEvent>,
-    ) -> Vec<Intent>;
-    fn on_broker_ack(&mut self, ack: broker_core::HybridRuntimeCommandAck) -> Vec<Intent>;
+    ) -> BrokerNeutralHybridCallbackResult;
+    fn on_broker_ack(
+        &mut self,
+        ack: broker_core::HybridRuntimeCommandAck,
+    ) -> BrokerNeutralHybridCallbackResult;
     fn on_broker_order(
         &mut self,
         input: broker_core::HybridRuntimeCallbackInput<broker_core::HybridRuntimeOrderEvent>,
-    ) -> Vec<Intent>;
+    ) -> BrokerNeutralHybridCallbackResult;
     fn on_broker_stop_order(
         &mut self,
         input: broker_core::HybridRuntimeCallbackInput<broker_core::HybridRuntimeStopOrderEvent>,
-    ) -> Vec<Intent>;
+    ) -> BrokerNeutralHybridCallbackResult;
     fn on_broker_position(
         &mut self,
         input: broker_core::HybridRuntimeCallbackInput<broker_core::HybridRuntimePositionEvent>,
-    ) -> Vec<Intent>;
+    ) -> BrokerNeutralHybridCallbackResult;
     fn on_broker_timer(
         &mut self,
         input: broker_core::HybridRuntimeCallbackInput<broker_core::HybridRuntimeTimerEvent>,
-    ) -> Vec<Intent>;
+    ) -> BrokerNeutralHybridCallbackResult;
 }
 
 impl HybridIntradayRuntimeStrategy {
+    fn validate_context_target(
+        &self,
+        context: &broker_core::HybridRuntimeStrategyContext,
+    ) -> Result<(), HybridRuntimeCallbackValidationError> {
+        if context.instrument.symbol != self.config.symbol {
+            return Err(HybridRuntimeCallbackValidationError::ContextTargetInstrumentMismatch);
+        }
+        Ok(())
+    }
+
+    fn validate_context_payload_instruments(
+        &self,
+        context: &broker_core::HybridRuntimeStrategyContext,
+        payload: &broker_core::InstrumentId,
+    ) -> Result<(), HybridRuntimeCallbackValidationError> {
+        if context.instrument != *payload {
+            return Err(HybridRuntimeCallbackValidationError::ContextPayloadInstrumentMismatch);
+        }
+        if payload.symbol != self.config.symbol {
+            return Err(HybridRuntimeCallbackValidationError::PayloadTargetInstrumentMismatch);
+        }
+        self.validate_context_target(context)?;
+        Ok(())
+    }
+
     fn compatibility_context(context: &broker_core::HybridRuntimeStrategyContext) -> StrategyCtx {
         let trade_mode = match context.trade_mode {
             broker_core::HybridRuntimeTradeMode::Backtest => crate::TradeMode::Backtest,
@@ -6463,9 +6719,13 @@ impl BrokerNeutralHybridStrategy for HybridIntradayRuntimeStrategy {
     fn on_broker_bar(
         &mut self,
         input: broker_core::HybridRuntimeCallbackInput<broker_core::HybridRuntimeBarEvent>,
-    ) -> Vec<Intent> {
-        if !input.payload.is_final || input.payload.timeframe_sec != 600 {
-            return Vec::new();
+    ) -> BrokerNeutralHybridCallbackResult {
+        self.validate_context_payload_instruments(&input.context, &input.payload.instrument)?;
+        if !input.payload.is_final {
+            return Err(HybridRuntimeCallbackValidationError::NonFinalBar);
+        }
+        if input.payload.timeframe_sec != 600 {
+            return Err(HybridRuntimeCallbackValidationError::InvalidTimeframe);
         }
         let context = Self::compatibility_context(&input.context);
         let origin = match input.payload.origin {
@@ -6484,10 +6744,13 @@ impl BrokerNeutralHybridStrategy for HybridIntradayRuntimeStrategy {
             v: input.payload.volume,
             origin,
         };
-        Strategy::on_bar(self, &context, &bar)
+        Ok(Strategy::on_bar(self, &context, &bar))
     }
 
-    fn on_broker_ack(&mut self, ack: broker_core::HybridRuntimeCommandAck) -> Vec<Intent> {
+    fn on_broker_ack(
+        &mut self,
+        ack: broker_core::HybridRuntimeCommandAck,
+    ) -> BrokerNeutralHybridCallbackResult {
         let ack = Self::compatibility_ack(ack);
         let context = StrategyCtx {
             strategy_id: String::new(),
@@ -6504,13 +6767,14 @@ impl BrokerNeutralHybridStrategy for HybridIntradayRuntimeStrategy {
             now_ts_utc: ack.processed_ts_utc,
             last_bar_ts: self.last_processed_bar_ts,
         };
-        Strategy::on_ack(self, &context, &ack)
+        Ok(Strategy::on_ack(self, &context, &ack))
     }
 
     fn on_broker_order(
         &mut self,
         input: broker_core::HybridRuntimeCallbackInput<broker_core::HybridRuntimeOrderEvent>,
-    ) -> Vec<Intent> {
+    ) -> BrokerNeutralHybridCallbackResult {
+        self.validate_context_payload_instruments(&input.context, &input.payload.instrument)?;
         let context = Self::compatibility_context(&input.context);
         let order = OrderEvent {
             order_id: input.payload.order_id,
@@ -6529,13 +6793,14 @@ impl BrokerNeutralHybridStrategy for HybridIntradayRuntimeStrategy {
                 .map(|value| value.internal_comment().to_string()),
             ts_utc: input.payload.source_ts_utc,
         };
-        Strategy::on_order(self, &context, &order)
+        Ok(Strategy::on_order(self, &context, &order))
     }
 
     fn on_broker_stop_order(
         &mut self,
         input: broker_core::HybridRuntimeCallbackInput<broker_core::HybridRuntimeStopOrderEvent>,
-    ) -> Vec<Intent> {
+    ) -> BrokerNeutralHybridCallbackResult {
+        self.validate_context_payload_instruments(&input.context, &input.payload.instrument)?;
         let context = Self::compatibility_context(&input.context);
         let order = StopOrderEvent {
             stop_order_id: input.payload.stop_order_id,
@@ -6555,13 +6820,14 @@ impl BrokerNeutralHybridStrategy for HybridIntradayRuntimeStrategy {
             end_time: input.payload.end_ts_utc,
             ts_utc: input.payload.source_ts_utc,
         };
-        Strategy::on_stop_order(self, &context, &order)
+        Ok(Strategy::on_stop_order(self, &context, &order))
     }
 
     fn on_broker_position(
         &mut self,
         input: broker_core::HybridRuntimeCallbackInput<broker_core::HybridRuntimePositionEvent>,
-    ) -> Vec<Intent> {
+    ) -> BrokerNeutralHybridCallbackResult {
+        self.validate_context_payload_instruments(&input.context, &input.payload.instrument)?;
         let context = Self::compatibility_context(&input.context);
         let position = PositionEvent {
             symbol: input.payload.instrument.symbol,
@@ -6570,14 +6836,19 @@ impl BrokerNeutralHybridStrategy for HybridIntradayRuntimeStrategy {
             avg_price: input.payload.avg_price,
             ts_utc: input.payload.source_ts_utc,
         };
-        Strategy::on_position(self, &context, &position)
+        Ok(Strategy::on_position(self, &context, &position))
     }
 
     fn on_broker_timer(
         &mut self,
         input: broker_core::HybridRuntimeCallbackInput<broker_core::HybridRuntimeTimerEvent>,
-    ) -> Vec<Intent> {
+    ) -> BrokerNeutralHybridCallbackResult {
+        self.validate_context_target(&input.context)?;
         let context = Self::compatibility_context(&input.context);
-        Strategy::on_timer(self, &context, input.payload.now_ts_utc_ms)
+        Ok(Strategy::on_timer(
+            self,
+            &context,
+            input.payload.now_ts_utc_ms,
+        ))
     }
 }

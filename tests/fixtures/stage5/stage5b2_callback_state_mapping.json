@@ -1,8 +1,8 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "stage": "Stage5B2b",
   "oracle_sha256": "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa",
-  "implementation_status": "wrapper_compiled_broker_neutral_paper_no_send",
+  "implementation_status": "wrapper_boundary_hardened_broker_neutral_paper_no_send",
   "callback_count": 21,
   "source_override_count": 15,
   "generic_host_seam_count": 6,
@@ -378,6 +378,15 @@
     "repeated_qualifying_tp_or_sl_execution_event_restarts_grace_timestamp",
     "timeout_qty_uses_context_position_qty_or_else_last_position_qty"
   ],
+  "public_callback_boundary": {
+    "source_compatible_modules_public": false,
+    "exclusive_facade": "BrokerNeutralHybridStrategy",
+    "typed_validation_error": "HybridRuntimeCallbackValidationError",
+    "context_payload_instrument_match_required": true,
+    "configured_target_symbol_match_required": true,
+    "canonical_final_m10_required": true,
+    "validation_before_state_mutation": true
+  },
   "safety_boundary": {
     "paper_boundary": true,
     "wrapper_copied": true,

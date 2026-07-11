@@ -17,6 +17,10 @@ fn migrated_wrapper() -> &'static str {
     include_str!("../src/hybrid_intraday_runtime.rs")
 }
 
+fn library_root() -> &'static str {
+    include_str!("../src/lib.rs")
+}
+
 fn direct_strategy_impl_methods() -> BTreeSet<&'static str> {
     let implementation_marker = ["impl Strategy for Hybrid", "IntradayRuntimeStrategy {"].concat();
     oracle()
@@ -34,11 +38,11 @@ fn direct_strategy_impl_methods() -> BTreeSet<&'static str> {
 #[test]
 fn stage5b2_mapping_is_callback_complete_and_matches_exact_source_impl() {
     let fixture = fixture();
-    assert_eq!(fixture["schema_version"], 3);
+    assert_eq!(fixture["schema_version"], 4);
     assert_eq!(fixture["stage"], "Stage5B2b");
     assert_eq!(
         fixture["implementation_status"],
-        "wrapper_compiled_broker_neutral_paper_no_send"
+        "wrapper_boundary_hardened_broker_neutral_paper_no_send"
     );
 
     let callbacks = fixture["callbacks"]
@@ -363,8 +367,33 @@ fn stage5b2b_target_is_broker_neutral_and_exposes_only_paper_callback_adapter() 
         "fn on_broker_stop_order(",
         "fn on_broker_position(",
         "fn on_broker_timer(",
+        "HybridRuntimeCallbackValidationError",
+        "BrokerNeutralHybridCallbackResult",
+        "validate_context_payload_instruments",
     ] {
         assert!(target.contains(marker), "missing migrated marker {marker}");
     }
     assert!(!target.contains("use alor_protocol"));
+
+    let root = library_root();
+    for forbidden_public_seam in [
+        "pub mod runtime_compat;",
+        "pub mod strategy_host {",
+        "pub mod state {",
+        "pub mod strategies {",
+        "pub mod hybrid_intraday_runtime;",
+    ] {
+        assert!(
+            !root.contains(forbidden_public_seam),
+            "source-compatible seam must remain private: {forbidden_public_seam}"
+        );
+    }
+    assert!(root.contains("BrokerNeutralHybridStrategy"));
+
+    let boundary = &fixture()["public_callback_boundary"];
+    assert_eq!(boundary["source_compatible_modules_public"], false);
+    assert_eq!(boundary["exclusive_facade"], "BrokerNeutralHybridStrategy");
+    assert_eq!(boundary["context_payload_instrument_match_required"], true);
+    assert_eq!(boundary["configured_target_symbol_match_required"], true);
+    assert_eq!(boundary["validation_before_state_mutation"], true);
 }

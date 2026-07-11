@@ -1,6 +1,6 @@
 # Stage 5B-2b — broker-neutral wrapper mechanical import
 
-Status: review candidate.
+Status: mechanical import accepted; boundary-hardening review candidate.
 
 Date: 2026-07-11.
 
@@ -35,8 +35,12 @@ This stage is paper/no-send only:
 - real POST/DELETE expansion: false;
 - real Stop/SLTP/bracket execution: false.
 
-The callback adapter returns typed intents in memory. No component publishes
-them to Redis, a gateway or a broker.
+The source-compatible host seam is crate-private. The public callback adapter
+returns typed `Result<Vec<BrokerNeutralHybridIntent>,
+HybridRuntimeCallbackValidationError>` values in memory. It validates the
+context instrument, payload instrument, configured target symbol and canonical
+final M10 admission before entering any source callback. No component publishes
+accepted intents to Redis, a gateway or a broker.
 
 ## Correspondence
 

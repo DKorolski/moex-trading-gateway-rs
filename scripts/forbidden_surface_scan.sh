@@ -765,6 +765,7 @@ allowed_wrapper_oracle_include_str_paths = {
 }
 allowed_wrapper_identifier_paths = {
     wrapper_future_target_path,
+    Path("crates/strategy-runtime-core/src/lib.rs"),
     Path("crates/strategy-runtime-core/tests/stage5b2_boundary_manifest.rs"),
 }
 wrapper_oracle_filename = "hybrid_intraday_runtime.rs"
@@ -779,9 +780,9 @@ wrapper_oracle_sha256 = (
     "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa"
 )
 compiled_wrapper_sha256 = (
-    "8ade7c40815b92299a56ea11e54940af5fcd1cab7c836aaef35941841267f4a3"
+    "bed6282b438d235e2afd70fb7692fbd7872e5141b667c1047036d58945d1ae53"
 )
-compiled_wrapper_line_count = 6583
+compiled_wrapper_line_count = 6854
 
 if not wrapper_oracle_path.is_file():
     print(
@@ -1011,7 +1012,7 @@ if semantic_build_script.exists():
 
 semantic_lib_path = semantic_kernel_root / "src/lib.rs"
 expected_semantic_lib_sha256 = (
-    "4f68e1e6b48093be8163097951e68494a65d0aad9b140e2611756a5833fa9e4c"
+    "b989e2c7ed298d9eaca21e4998ef422e6e2ff5d1f4f14d721d1d22801430a3de"
 )
 if not semantic_lib_path.is_file():
     print(
@@ -1299,7 +1300,7 @@ else:
             "98e7bbbdc8a0eb852bcdfc2f46cbfc9635c5cc0dc03caefc69a4b50c377a5951"
         ),
         semantic_kernel_root / "tests/stage5b2_boundary_manifest.rs": (
-            "1be3eb771f2a99acf2d836c0c73516c9f1434ab2a8b8eb5fe8b51f418e617237"
+            "2226fc838e69d00027778f3824dfe4d40c84b1b0cb888106d18df2339f20affb"
         ),
         semantic_kernel_root / "tests/wrapper_bracket_terminal_inventory.rs": (
             "b276b376d33073454fd0df243b6d87a351724794d95d52126a8258e9324aeafe"
@@ -1374,7 +1375,7 @@ if wrapper_oracle_rs_files != {str(wrapper_oracle_path)}:
 
 stage5b2_manifest_path = semantic_kernel_root / "stage5b2-source-correspondence.toml"
 expected_stage5b2_manifest_sha256 = (
-    "fdb8f488b5da9c45a125170d7a51f199b53cdade3045abd72ffd608360fbc133"
+    "47f6c1cdc3d6f248534029c246d80fb80338a4b5742d4748c64f5b510630d5a3"
 )
 if not stage5b2_manifest_path.is_file():
     print(
@@ -1404,14 +1405,14 @@ else:
         stage5b2_manifest = {}
 
     expected_stage5b2_top_level = {
-        "schema_version": 2,
+        "schema_version": 3,
         "stage": "Stage5B2b",
-        "status": "CompiledBrokerNeutralPaperNoSend",
+        "status": "BoundaryHardenedBrokerNeutralPaperNoSend",
         "oracle_sha256": wrapper_oracle_sha256,
         "oracle_line_count": 6203,
         "accepted_stage5b1_manifest_unchanged": True,
-        "target_sha256": "8ade7c40815b92299a56ea11e54940af5fcd1cab7c836aaef35941841267f4a3",
-        "target_line_count": 6583,
+        "target_sha256": "bed6282b438d235e2afd70fb7692fbd7872e5141b667c1047036d58945d1ae53",
+        "target_line_count": 6854,
         "wrapper_copied": True,
         "wrapper_compiled": True,
         "runtime_host_attached": False,
@@ -1433,13 +1434,36 @@ else:
         "target_kind": "library_module",
         "module_name": "hybrid_intraday_runtime",
         "target_path": str(wrapper_future_target_path),
-        "library_export": "pub mod hybrid_intraday_runtime;",
+        "library_export": "private module plus approved root facade re-exports",
         "activation_gate": "Stage5B2bAcceptedTargetOnly",
         "currently_allowed_in_rust_target_set": True,
     }
     if approved_future_target != expected_future_target:
         print(
             "forbidden-surface-scan: Stage 5B-2 approved future target drifted",
+            file=sys.stderr,
+        )
+        failures += 1
+
+    expected_broker_neutral_compatibility = {
+        "path": "crates/strategy-runtime-core/src/runtime_compat.rs",
+        "request_id": "broker_core::StrategyRequestId",
+        "order_id": "broker_core::BrokerOrderId",
+        "stop_order_id": "broker_core::BrokerStopOrderId",
+        "callback_adapter": "BrokerNeutralHybridStrategy",
+        "source_compatible_host_api_public": False,
+        "exclusive_public_callback_facade": True,
+        "callback_result": "Result<Vec<BrokerNeutralHybridIntent>, HybridRuntimeCallbackValidationError>",
+        "context_payload_instrument_validation": True,
+        "configured_target_symbol_validation": True,
+        "validation_before_state_mutation": True,
+        "runtime_host_attached": False,
+        "command_consumer_attached": False,
+        "live_send_enabled": False,
+    }
+    if stage5b2_manifest.get("broker_neutral_compatibility") != expected_broker_neutral_compatibility:
+        print(
+            "forbidden-surface-scan: Stage 5B-2 broker-neutral compatibility boundary drifted",
             file=sys.stderr,
         )
         failures += 1
@@ -1508,7 +1532,7 @@ expected_stage5_profile_artifacts = {
         "a869ff79d35c7c0f75e1417b998c388256cfd87794d3cd1cf78d33b0f4dc563c"
     ),
     Path("tests/fixtures/stage5/stage5b2_callback_state_mapping.json"): (
-        "b1bbdab7e972a539ea598a7a1795dbeceb248d85832dc2e0a887054747aebc26"
+        "df802340f462ce4074eb9dda291b4165123d2bb17cc77bf135906fa7622e124d"
     ),
     Path("crates/broker-core/src/hybrid_strategy_boundary.rs"): (
         "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d"
