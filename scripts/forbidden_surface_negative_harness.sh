@@ -15,6 +15,7 @@ cp "$workspace_root/config/imoexf-hybrid-high180-profile.redacted.toml" "$tmp_ro
 cp "$workspace_root/tests/fixtures/stage5/imoexf_high180_profile_binding.json" "$tmp_root/tests/fixtures/stage5/"
 cp "$workspace_root/tests/fixtures/stage5/bracket_terminal_reconciliation.json" "$tmp_root/tests/fixtures/stage5/"
 cp "$workspace_root/tests/fixtures/stage5/stage5b2_callback_state_mapping.json" "$tmp_root/tests/fixtures/stage5/"
+cp "$workspace_root/tests/fixtures/stage5/stage5c_paper_host_admission.json" "$tmp_root/tests/fixtures/stage5/"
 
 if ! (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >/tmp/moex_negative_scan.$$ 2>&1; then
   cat /tmp/moex_negative_scan.$$ >&2
@@ -79,6 +80,8 @@ run_negative_case "strategy-semantic-kernel-transport-dependency" 'fn _stage5_ne
 run_negative_case "strategy-semantic-source-correspondence-drift" '// stage5 negative source drift' "$tmp_root/crates/strategy-runtime-core/src/hybrid_intraday/types.rs"
 run_negative_case "strategy-integrated-wrapper-oracle-drift" '// stage5 negative wrapper oracle drift' "$tmp_root/source-oracles/alor-stage5/hybrid_intraday_runtime.rs"
 run_negative_case "strategy-high180-profile-fixture-drift" '# stage5 negative profile drift' "$tmp_root/config/imoexf-hybrid-high180-profile.redacted.toml"
+run_negative_case "stage5c-paper-host-source-drift" '// stage5c negative admission drift' "$tmp_root/crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+run_negative_case "stage5c-paper-host-fixture-drift" '# stage5c negative fixture drift' "$tmp_root/tests/fixtures/stage5/stage5c_paper_host_admission.json"
 
 semantic_ledger="$tmp_root/crates/strategy-runtime-core/source-correspondence.toml"
 semantic_target="$tmp_root/crates/strategy-runtime-core/src/hybrid_intraday/intraday_breakout.rs"

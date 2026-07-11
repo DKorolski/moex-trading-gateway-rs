@@ -28,6 +28,7 @@ mod hybrid_intraday_runtime;
 // while only approved broker-neutral aliases are exported below.
 #[allow(dead_code)]
 mod runtime_compat;
+mod stage5c_paper_host;
 
 pub use hybrid_intraday_runtime::{
     BrokerNeutralHybridCallbackResult, BrokerNeutralHybridStrategy, HybridIntradayProfile,
@@ -42,6 +43,10 @@ pub use runtime_compat::{
     Intent as BrokerNeutralHybridIntent, IntentClass as BrokerNeutralHybridIntentClass,
     MarketBuyAndCloseLiveOrderStyle as BrokerNeutralMarketOrderStyle,
     OrderSide as BrokerNeutralOrderSide, StopLimitCondition as BrokerNeutralStopLimitCondition,
+};
+pub use stage5c_paper_host::{
+    admit_stage5c_paper_host, Stage5cPaperHostAdmission, Stage5cPaperHostAdmissionError,
+    Stage5cPaperHostAdmissionInput, STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION,
 };
 
 pub(crate) mod live_guard {

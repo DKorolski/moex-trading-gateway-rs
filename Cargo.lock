@@ -1644,6 +1644,7 @@ dependencies = [
  "broker-core",
  "chrono",
  "csv",
+ "rust_decimal",
  "serde",
  "serde_json",
  "tracing",

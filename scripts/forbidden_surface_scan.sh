@@ -72,12 +72,12 @@ failures = 0
 
 cargo_control_hashes = {
     Path("Cargo.toml"): "1c3e7dd1b83a6a8942e02cb520d49f33ed3ef77f2970854b9fdcddc7f261bc3e",
-    Path("Cargo.lock"): "8ce02f47df6b4b2ae3979e6abd0c202a4f406c3c73dc4a29d2418af0e2e0de85",
+    Path("Cargo.lock"): "0861ce37f998b34f2fd6a1ca867c22fdfe655d03a865a4a48ee691906e672c56",
     Path("crates/broker-cli/Cargo.toml"): "8f642b380ae8db32047504e632d1b710cdbc235f5058f57ad0780d72182f2754",
     Path("crates/broker-core/Cargo.toml"): "e807ab613c52d8325d1c46b1f679b319ab72ffeb69196e5a52aacecbd694dc8d",
     Path("crates/broker-finam/Cargo.toml"): "2a4f78beac8390e06e035e1c7ba0c0a71d230165297ad452ff3c4eeb1a2107db",
     Path("crates/finam-gateway/Cargo.toml"): "95b937eb4d166212869d196a1173f40b358c64cf91906ecaef19d7268820f06c",
-    Path("crates/strategy-runtime-core/Cargo.toml"): "2d89cc9fd932edd88d0c7102a2d4b024507f9e7716cc2d0948376930c82208df",
+    Path("crates/strategy-runtime-core/Cargo.toml"): "78a1557ff27ceedc20e189f2a800ae21ad66d033aa5222dce3cb1b431b82ce1d",
 }
 for cargo_control_path, expected_sha256 in cargo_control_hashes.items():
     if not cargo_control_path.is_file():
@@ -942,7 +942,7 @@ if semantic_workspace_member in workspace_excludes:
 
 semantic_crate_manifest_path = semantic_kernel_root / "Cargo.toml"
 expected_semantic_crate_manifest_sha256 = (
-    "2d89cc9fd932edd88d0c7102a2d4b024507f9e7716cc2d0948376930c82208df"
+    "78a1557ff27ceedc20e189f2a800ae21ad66d033aa5222dce3cb1b431b82ce1d"
 )
 if not semantic_crate_manifest_path.is_file():
     print(
@@ -1012,7 +1012,7 @@ if semantic_build_script.exists():
 
 semantic_lib_path = semantic_kernel_root / "src/lib.rs"
 expected_semantic_lib_sha256 = (
-    "b989e2c7ed298d9eaca21e4998ef422e6e2ff5d1f4f14d721d1d22801430a3de"
+    "8e668946371c93446e33e3fbf8ea897db69717eec251f03943dd8ba351034a22"
 )
 if not semantic_lib_path.is_file():
     print(
@@ -1265,6 +1265,7 @@ else:
         str(semantic_lib_path),
         str(semantic_kernel_root / "src/hybrid_intraday_runtime.rs"),
         str(semantic_kernel_root / "src/runtime_compat.rs"),
+        str(semantic_kernel_root / "src/stage5c_paper_host.rs"),
     }
     actual_semantic_production_paths = {
         str(path) for path in (semantic_kernel_root / "src").glob("**/*.rs")
@@ -1281,6 +1282,7 @@ else:
     expected_semantic_rust_paths = expected_semantic_production_paths | {
         str(semantic_kernel_root / "tests/high180_profile_binding.rs"),
         str(semantic_kernel_root / "tests/stage5b2_boundary_manifest.rs"),
+        str(semantic_kernel_root / "tests/stage5c_paper_host_admission.rs"),
         str(semantic_kernel_root / "tests/wrapper_bracket_terminal_inventory.rs"),
     }
     actual_semantic_rust_paths = {
@@ -1301,6 +1303,9 @@ else:
         ),
         semantic_kernel_root / "tests/stage5b2_boundary_manifest.rs": (
             "2226fc838e69d00027778f3824dfe4d40c84b1b0cb888106d18df2339f20affb"
+        ),
+        semantic_kernel_root / "tests/stage5c_paper_host_admission.rs": (
+            "c922aa602dea4caf036802ef47a14d4383ecd6efd2d7899851c224d05a246b7e"
         ),
         semantic_kernel_root / "tests/wrapper_bracket_terminal_inventory.rs": (
             "b276b376d33073454fd0df243b6d87a351724794d95d52126a8258e9324aeafe"
@@ -1533,6 +1538,12 @@ expected_stage5_profile_artifacts = {
     ),
     Path("tests/fixtures/stage5/stage5b2_callback_state_mapping.json"): (
         "df802340f462ce4074eb9dda291b4165123d2bb17cc77bf135906fa7622e124d"
+    ),
+    Path("tests/fixtures/stage5/stage5c_paper_host_admission.json"): (
+        "11a8b293acab58781d5dcf5ed52723fb07a36aea3c2cb3c71569ff1def5171a9"
+    ),
+    Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"): (
+        "d68e9520711bc55edc779d9c26894606300a92c01b42e0424679ee963b2a82e4"
     ),
     Path("crates/broker-core/src/hybrid_strategy_boundary.rs"): (
         "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d"

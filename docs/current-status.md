@@ -56,14 +56,20 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   context-complete callback inputs, validates attribution/bootstrap
   consistency, and applies an exact parsed-workspace wrapper activation lock
   under the accepted trusted-toolchain/clean-repository threat model.
-- Stage 5B-2b exact mechanical wrapper import is accepted. Its boundary closure
-  is a review candidate: the wrapper is copied and compiled only in
+- Stage 5B-2b exact mechanical wrapper import and public boundary closure are
+  accepted. The wrapper is copied and compiled only in
   `strategy-runtime-core`, preserves all source tests, and uses broker-neutral
   request/order/stop identities. Its source-compatible host seam is
   crate-private; the only downstream callback path is the typed
   `BrokerNeutralHybridStrategy` facade, which rejects non-final/non-M10 bars and
   context/payload/target instrument mismatches before state mutation. Runtime
   host attachment, FINAM command consumption and live/send remain disabled.
+- Stage 5C-a paper/mock host admission is a review candidate. It requires an
+  accepted and internally consistent Stage 4J report plus its applied Stage 4E
+  snapshot, binds the complete target `InstrumentId`, account scope and
+  instrument-spec price step, and issues a non-deserializable paper-only
+  admission capability. It invokes no strategy callback and attaches neither a
+  runtime host nor an intent sink.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
@@ -303,9 +309,10 @@ Amber:
   has started with the reviewable pure-kernel-only Stage 5B-1 slice. Wrapper,
   host, state and differential parity work remain pending. Stage 5B-1a resolves
   the P1 provenance/configuration blockers before wrapper migration. Stage
-  5B-1b closes workspace/target/source-set bypasses, while Stage 5B-2 currently
-  has accepted inventory plus a reviewable 5B-2a correspondence/boundary
-  foundation. It still does not compile or attach the wrapper.
+  5B-1b closes workspace/target/source-set bypasses, while Stage 5B-2 is now
+  accepted with the wrapper compiled only inside `strategy-runtime-core` behind
+  the exclusive broker-neutral facade. Stage 5C paper/mock host admission has
+  started; the runtime host and all send paths remain unattached.
 
 Red / not yet implemented:
 

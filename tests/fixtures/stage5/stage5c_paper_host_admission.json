@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "stage": "Stage5C-a",
+  "status": "paper_mock_admission_only_no_callbacks_no_send",
+  "cases": [
+    {"name":"accepted_stage4j","mutation":"none","expected":"accepted"},
+    {"name":"blocked_stage4j","mutation":"report_blocked","expected":"stage4_report_not_accepted"},
+    {"name":"inconsistent_evidence_chain","mutation":"report_blocker","expected":"stage4_evidence_chain_inconsistent"},
+    {"name":"open_stage4_safety_boundary","mutation":"report_live_enabled","expected":"stage4_safety_boundary_open"},
+    {"name":"blocked_stage4_application","mutation":"application_blocked","expected":"stage4_application_not_applied"},
+    {"name":"missing_stage4_snapshot","mutation":"application_snapshot_missing","expected":"stage4_application_snapshot_missing"},
+    {"name":"configured_target_mismatch","mutation":"configured_target_mismatch","expected":"target_instrument_mismatch"},
+    {"name":"account_scope_mismatch","mutation":"account_scope_mismatch","expected":"account_scope_mismatch"},
+    {"name":"instrument_spec_mismatch","mutation":"instrument_spec_mismatch","expected":"instrument_spec_mismatch"},
+    {"name":"tick_size_mismatch","mutation":"tick_size_mismatch","expected":"tick_size_mismatch"},
+    {"name":"live_orders_requested","mutation":"live_orders_requested","expected":"live_orders_requested"}
+  ],
+  "safety_boundary": {
+    "runtime_host_attached": false,
+    "strategy_callbacks_invoked": false,
+    "intent_sink_attached": false,
+    "command_consumer_attached": false,
+    "live_send_enabled": false,
+    "real_post_delete_added": false
+  }
+}
