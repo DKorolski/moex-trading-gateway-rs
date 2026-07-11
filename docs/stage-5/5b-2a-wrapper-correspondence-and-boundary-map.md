@@ -163,12 +163,14 @@ the exact parsed workspace member set:
 - any `impl Strategy for HybridIntradayRuntimeStrategy`.
 - any occurrence of the wrapper identifier, including macro-generated or
   comment-separated definitions;
-- every `include!` macro and every `#[path]` module attribute, independent of
-  how a target path is split/generated or how Rust comments and whitespace
-  separate the relevant tokens.
+- every code-context `include` identifier, including macro-indirected
+  activation;
+- every `path = ...` meta item at any level of an attribute token tree,
+  including `cfg_attr`, independent of comments and whitespace.
 
 Only three hash-locked inventory tests may read the oracle through
-`include_str!`. The workspace member set is frozen, so a new member outside
+`include_str!`; split `concat!` path fragments outside those files are rejected.
+The workspace member set is frozen, so a new member outside
 `crates/` cannot bypass the gate. Stage 5B-2b must open exactly the declared
 path while all alternate crate/path targets remain forbidden.
 

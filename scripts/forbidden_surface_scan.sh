@@ -71,10 +71,11 @@ import tomllib
 failures = 0
 
 
-def rust_tokens_outside_comments_and_literals(source):
-    """Return the Rust token subset needed by the Stage 5 activation guard."""
+def rust_tokens_and_string_fragments(source):
+    """Return code tokens and string fragments needed by the Stage 5 guard."""
 
     tokens = []
+    string_fragments = []
     index = 0
     source_len = len(source)
 
@@ -89,7 +90,7 @@ def rust_tokens_outside_comments_and_literals(source):
             cursor += 1
         return source_len
 
-    def raw_string_end(start):
+    def raw_string_span(start):
         for prefix in ("br", "cr", "r"):
             if not source.startswith(prefix, start):
                 continue
@@ -102,7 +103,9 @@ def rust_tokens_outside_comments_and_literals(source):
                 continue
             terminator = '"' + ("#" * hash_count)
             end = source.find(terminator, cursor + 1)
-            return source_len if end == -1 else end + len(terminator)
+            if end == -1:
+                return (cursor + 1, source_len, source_len)
+            return (cursor + 1, end, end + len(terminator))
         return None
 
     def char_literal_end(quote_index):
@@ -150,15 +153,23 @@ def rust_tokens_outside_comments_and_literals(source):
                     index += 1
             continue
 
-        raw_end = raw_string_end(index)
-        if raw_end is not None:
+        raw_span = raw_string_span(index)
+        if raw_span is not None:
+            content_start, content_end, raw_end = raw_span
+            string_fragments.append(source[content_start:content_end])
             index = raw_end
             continue
         if source[index] == '"':
-            index = skip_quoted(index)
+            quoted_end = skip_quoted(index)
+            content_end = quoted_end - 1 if quoted_end < source_len else source_len
+            string_fragments.append(source[index + 1 : content_end])
+            index = quoted_end
             continue
         if source[index] in ("b", "c") and index + 1 < source_len and source[index + 1] == '"':
-            index = skip_quoted(index + 1)
+            quoted_end = skip_quoted(index + 1)
+            content_end = quoted_end - 1 if quoted_end < source_len else source_len
+            string_fragments.append(source[index + 2 : content_end])
+            index = quoted_end
             continue
         if source[index] == "'":
             literal_end = char_literal_end(index)
@@ -197,7 +208,7 @@ def rust_tokens_outside_comments_and_literals(source):
         tokens.append(source[index])
         index += 1
 
-    return tokens
+    return tokens, string_fragments
 
 
 def has_token_sequence(tokens, expected):
@@ -206,6 +217,37 @@ def has_token_sequence(tokens, expected):
         tokens[index : index + width] == expected
         for index in range(len(tokens) - width + 1)
     )
+
+
+def has_path_meta_in_attribute(tokens):
+    index = 0
+    while index < len(tokens) - 1:
+        if tokens[index] != "#":
+            index += 1
+            continue
+        cursor = index + 1
+        if cursor < len(tokens) and tokens[cursor] == "!":
+            cursor += 1
+        if cursor >= len(tokens) or tokens[cursor] != "[":
+            index += 1
+            continue
+
+        depth = 1
+        cursor += 1
+        while cursor < len(tokens) and depth:
+            if tokens[cursor] == "[":
+                depth += 1
+            elif tokens[cursor] == "]":
+                depth -= 1
+            elif (
+                tokens[cursor] == "path"
+                and cursor + 1 < len(tokens)
+                and tokens[cursor + 1] == "="
+            ):
+                return True
+            cursor += 1
+        index = cursor
+    return False
 
 root_manifest_path = Path("Cargo.toml")
 expected_workspace_members = {
@@ -406,17 +448,25 @@ allowed_wrapper_oracle_include_str_paths = {
     Path("crates/strategy-runtime-core/tests/wrapper_bracket_terminal_inventory.rs"),
 }
 wrapper_oracle_filename = "hybrid_intraday_runtime.rs"
+wrapper_oracle_relative_path = (
+    "source-oracles/alor-stage5/hybrid_intraday_runtime.rs"
+)
 
 for candidate in workspace_rs_files:
     candidate_source = candidate.read_text()
-    candidate_tokens = rust_tokens_outside_comments_and_literals(candidate_source)
+    candidate_tokens, candidate_string_fragments = rust_tokens_and_string_fragments(
+        candidate_source
+    )
     has_wrapper_identifier = "HybridIntradayRuntimeStrategy" in candidate_source
     has_oracle_filename = wrapper_oracle_filename in candidate_source
-    has_forbidden_include = has_token_sequence(candidate_tokens, ["include", "!"])
-    has_forbidden_path_attribute = has_token_sequence(candidate_tokens, ["#", "[", "path"])
+    has_forbidden_include = "include" in candidate_tokens
+    has_forbidden_path_attribute = has_path_meta_in_attribute(candidate_tokens)
     has_include_str_macro = has_token_sequence(candidate_tokens, ["include_str", "!"])
+    has_split_oracle_reference = wrapper_oracle_relative_path in "".join(
+        candidate_string_fragments
+    )
     unapproved_oracle_text_read = (
-        has_oracle_filename
+        (has_oracle_filename or has_split_oracle_reference)
         and has_include_str_macro
         and candidate not in allowed_wrapper_oracle_include_str_paths
     )

@@ -258,6 +258,18 @@ rm -f "$raw_identifier_include"
 mv "$alternate_lib_backup" "$alternate_lib"
 
 cp "$alternate_lib" "$alternate_lib_backup"
+indirect_include="$tmp_root/crates/broker-core/src/stage5_indirect_include.rs"
+printf '%s\n' \
+  'macro_rules! activate_file {' \
+  '    ($loader:ident, $path:expr) => { $loader!($path); };' \
+  '}' \
+  'activate_file!(include, "synthetic_generated.rs");' > "$indirect_include"
+printf '\npub mod stage5_indirect_include;\n' >> "$alternate_lib"
+expect_scanner_failure "macro-indirected-include-activation"
+rm -f "$indirect_include"
+mv "$alternate_lib_backup" "$alternate_lib"
+
+cp "$alternate_lib" "$alternate_lib_backup"
 path_wrapper="$tmp_root/crates/broker-core/src/stage5_path_wrapper.rs"
 printf '#[path = "../../../source-oracles/alor-stage5/hybrid_intraday_runtime.rs"]\nmod stage5_wrapper;\n' > "$path_wrapper"
 printf '\npub mod stage5_path_wrapper;\n' >> "$alternate_lib"
@@ -271,6 +283,33 @@ printf '#[/* bypass */ path = "synthetic_generated.rs"]\nmod generated;\n' > "$c
 printf '\npub mod stage5_comment_path;\n' >> "$alternate_lib"
 expect_scanner_failure "comment-separated-path-attribute"
 rm -f "$comment_path"
+mv "$alternate_lib_backup" "$alternate_lib"
+
+cp "$alternate_lib" "$alternate_lib_backup"
+cfg_attr_path="$tmp_root/crates/broker-core/src/stage5_cfg_attr_path.rs"
+printf '%s\n' \
+  '#[cfg_attr(' \
+  '    all(),' \
+  '    path = "synthetic_generated.rs"' \
+  ')]' \
+  'mod generated;' > "$cfg_attr_path"
+printf '\npub mod stage5_cfg_attr_path;\n' >> "$alternate_lib"
+expect_scanner_failure "cfg-attr-path-wrapper-activation"
+rm -f "$cfg_attr_path"
+mv "$alternate_lib_backup" "$alternate_lib"
+
+cp "$alternate_lib" "$alternate_lib_backup"
+split_oracle_read="$tmp_root/crates/broker-core/src/stage5_split_oracle_read.rs"
+printf '%s\n' \
+  'pub const ORACLE: &str = include_str!(concat!(' \
+  '    env!("CARGO_MANIFEST_DIR"),' \
+  '    "/../../source-oracles/alor-stage5/",' \
+  '    "hybrid_intraday_",' \
+  '    "runtime.rs"' \
+  '));' > "$split_oracle_read"
+printf '\npub mod stage5_split_oracle_read;\n' >> "$alternate_lib"
+expect_scanner_failure "split-path-oracle-include-str-outside-allowlist"
+rm -f "$split_oracle_read"
 mv "$alternate_lib_backup" "$alternate_lib"
 
 cp "$alternate_lib" "$alternate_lib_backup"
