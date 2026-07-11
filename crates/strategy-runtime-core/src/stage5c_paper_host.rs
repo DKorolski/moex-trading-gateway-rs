@@ -1,13 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
 use broker_core::{
-    BrokerAccountId, BrokerInstrumentSpec, InstrumentId, RuntimeHostBootstrapSnapshot,
-    Stage4AcceptedPaperHostEvidence, Stage4BootstrapEvidenceReportStatus,
-    Stage4BrokerTruthBootstrapStatus, Stage4BrokerTruthFreshnessSection,
-    Stage4BrokerTruthFreshnessStatus, Stage4BrokerTruthSourceStatus, Stage4DirtyStartPolicyStatus,
+    BrokerAccountId, BrokerInstrumentSpec, BrokerOrderId, InstrumentId,
+    RuntimeHostBootstrapSnapshot, Stage4AcceptedPaperHostEvidence,
+    Stage4BootstrapEvidenceReportStatus, Stage4BrokerTruthBootstrapStatus,
+    Stage4BrokerTruthFreshnessSection, Stage4BrokerTruthFreshnessStatus,
+    Stage4BrokerTruthSourceStatus, Stage4DirtyStartPolicyStatus,
     Stage4RuntimeBootstrapApplicationStatus, Stage4RuntimeBootstrapIntegrationEvent,
     Stage4RuntimeBootstrapIntegrationStatus, Stage4RuntimeLifecycleOrderingStatus,
-    STAGE4_BOOTSTRAP_EVIDENCE_REPORT_SCHEMA_VERSION,
+    StrategyRequestId, STAGE4_BOOTSTRAP_EVIDENCE_REPORT_SCHEMA_VERSION,
     STAGE4_RUNTIME_BOOTSTRAP_APPLICATION_SCHEMA_VERSION,
 };
 use chrono::{DateTime, Utc};
@@ -16,11 +17,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy;
 use crate::runtime_compat::{
-    BootstrapSnapshot, GatewayPhase, PaperExecutionMode, PositionEvent, Strategy, StrategyCtx,
-    TradeMode,
+    BootstrapSnapshot, GatewayPhase, PaperExecutionMode, PositionEvent, RuntimeStateRestored,
+    Strategy, StrategyCtx, StrategyState, TradeMode,
 };
 
 pub const STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION: u16 = 1;
+pub const STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -199,15 +201,122 @@ impl Stage5cBootstrappedPaperStrategy {
         &self.strategy
     }
 
-    #[expect(
-        dead_code,
-        reason = "reserved consume-only transition for the still-closed Stage 5C-c gate"
-    )]
     pub(crate) fn into_parts(
         self,
     ) -> (
         HybridIntradayRuntimeStrategy,
         Stage5cBootstrapNotificationReceipt,
+    ) {
+        (self.strategy, self.receipt)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5cLegacyNumericOrderIdPolicy {
+    Reject,
+    ConvertPositiveAlorNumeric,
+}
+
+/// Persisted-state envelope supplied to the one-shot restore gate.
+pub struct Stage5cRuntimeStateRestoreInput {
+    pub schema_version: u16,
+    pub strategy_id: String,
+    pub account_id: BrokerAccountId,
+    pub instrument: InstrumentId,
+    pub tick_size: f64,
+    pub state_json: String,
+    pub known_order_ids: Vec<BrokerOrderId>,
+    pub pending_requests: Vec<StrategyRequestId>,
+    pub legacy_numeric_order_id_policy: Stage5cLegacyNumericOrderIdPolicy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5cRuntimeStateRestoreError {
+    SchemaMismatch,
+    AdmissionExpired,
+    StrategyIdMismatch,
+    AccountMismatch,
+    InstrumentMismatch,
+    TickSizeMismatch,
+    InvalidStateJson,
+    WrongStrategyStateKind,
+    LegacyNumericOrderIdRejected,
+    BrokerTruthPositionMismatch,
+}
+
+impl std::fmt::Display for Stage5cRuntimeStateRestoreError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "Stage 5C runtime-state restore blocked: {self:?}"
+        )
+    }
+}
+
+impl std::error::Error for Stage5cRuntimeStateRestoreError {}
+
+pub struct Stage5cRuntimeStateRestoreReceipt {
+    bootstrap_receipt: Stage5cBootstrapNotificationReceipt,
+    restored_ts: DateTime<Utc>,
+}
+
+impl Stage5cRuntimeStateRestoreReceipt {
+    pub fn bootstrap_receipt(&self) -> &Stage5cBootstrapNotificationReceipt {
+        &self.bootstrap_receipt
+    }
+
+    pub fn restored_ts(&self) -> DateTime<Utc> {
+        self.restored_ts
+    }
+
+    pub fn runtime_state_restored(&self) -> bool {
+        true
+    }
+
+    pub fn warmup_started(&self) -> bool {
+        false
+    }
+
+    pub fn pending_recovery_started(&self) -> bool {
+        false
+    }
+
+    pub fn semantic_bar_enabled(&self) -> bool {
+        false
+    }
+
+    pub fn intent_sink_attached(&self) -> bool {
+        false
+    }
+}
+
+/// Linear type-state after exactly one validated state restore.
+pub struct Stage5cRuntimeStateRestoredPaperStrategy {
+    strategy: HybridIntradayRuntimeStrategy,
+    receipt: Stage5cRuntimeStateRestoreReceipt,
+}
+
+impl Stage5cRuntimeStateRestoredPaperStrategy {
+    pub fn receipt(&self) -> &Stage5cRuntimeStateRestoreReceipt {
+        &self.receipt
+    }
+
+    #[cfg(test)]
+    fn strategy(&self) -> &HybridIntradayRuntimeStrategy {
+        &self.strategy
+    }
+
+    #[expect(
+        dead_code,
+        reason = "reserved consume-only transition for the still-closed history warmup gate"
+    )]
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        HybridIntradayRuntimeStrategy,
+        Stage5cRuntimeStateRestoreReceipt,
     ) {
         (self.strategy, self.receipt)
     }
@@ -557,6 +666,118 @@ fn validate_stage5cb_notification(
     Ok(())
 }
 
+/// Applies persisted semantic state and emits exactly one restore notification.
+/// The bootstrapped type-state is consumed, so neither restore nor bootstrap can
+/// be repeated on the same strategy instance.
+pub fn restore_stage5c_runtime_state(
+    bootstrapped: Stage5cBootstrappedPaperStrategy,
+    input: Stage5cRuntimeStateRestoreInput,
+) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5cRuntimeStateRestoreError> {
+    restore_stage5c_runtime_state_at(bootstrapped, input, Utc::now())
+}
+
+fn restore_stage5c_runtime_state_at(
+    bootstrapped: Stage5cBootstrappedPaperStrategy,
+    input: Stage5cRuntimeStateRestoreInput,
+    restored_ts: DateTime<Utc>,
+) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5cRuntimeStateRestoreError> {
+    let (mut strategy, bootstrap_receipt) = bootstrapped.into_parts();
+    let admission = &bootstrap_receipt.admission;
+    if input.schema_version != STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION {
+        return Err(Stage5cRuntimeStateRestoreError::SchemaMismatch);
+    }
+    if restored_ts > admission.expires_at() {
+        return Err(Stage5cRuntimeStateRestoreError::AdmissionExpired);
+    }
+    if input.strategy_id != admission.strategy_id() {
+        return Err(Stage5cRuntimeStateRestoreError::StrategyIdMismatch);
+    }
+    if input.account_id != *admission.account_id() {
+        return Err(Stage5cRuntimeStateRestoreError::AccountMismatch);
+    }
+    if input.instrument != *admission.target_instrument() {
+        return Err(Stage5cRuntimeStateRestoreError::InstrumentMismatch);
+    }
+    if !same_tick_size(input.tick_size, admission.tick_size()) {
+        return Err(Stage5cRuntimeStateRestoreError::TickSizeMismatch);
+    }
+
+    let raw_state: serde_json::Value = serde_json::from_str(&input.state_json)
+        .map_err(|_| Stage5cRuntimeStateRestoreError::InvalidStateJson)?;
+    if input.legacy_numeric_order_id_policy == Stage5cLegacyNumericOrderIdPolicy::Reject
+        && contains_numeric_order_id(&raw_state)
+    {
+        return Err(Stage5cRuntimeStateRestoreError::LegacyNumericOrderIdRejected);
+    }
+    let restored_state: StrategyState = serde_json::from_value(raw_state)
+        .map_err(|_| Stage5cRuntimeStateRestoreError::InvalidStateJson)?;
+    let restored_position_qty = match &restored_state {
+        StrategyState::HybridIntradayRuntime {
+            last_position_qty, ..
+        } => last_position_qty,
+        StrategyState::Idle => {
+            return Err(Stage5cRuntimeStateRestoreError::WrongStrategyStateKind);
+        }
+    };
+    let broker_position_qty = admission
+        .bootstrap_snapshot()
+        .target_position_qty
+        .to_f64()
+        .ok_or(Stage5cRuntimeStateRestoreError::BrokerTruthPositionMismatch)?;
+    if (restored_position_qty - broker_position_qty).abs() > f64::EPSILON {
+        return Err(Stage5cRuntimeStateRestoreError::BrokerTruthPositionMismatch);
+    }
+
+    Strategy::set_state(&mut strategy, restored_state);
+    let context = StrategyCtx {
+        strategy_id: admission.strategy_id().to_string(),
+        portfolio: admission.account_id().as_str().to_string(),
+        exchange: format!("{:?}", admission.target_instrument().exchange),
+        symbol: admission.target_instrument().symbol.clone(),
+        tick_size: admission.tick_size(),
+        trade_mode: TradeMode::Paper,
+        paper_execution_mode: PaperExecutionMode::LiveOnly,
+        allow_live_orders: false,
+        gateway_phase: GatewayPhase::SyncingHistory,
+        position_qty: Some(broker_position_qty),
+        event_ts_utc: restored_ts.timestamp(),
+        now_ts_utc: restored_ts.timestamp(),
+        last_bar_ts: None,
+    };
+    let restored = RuntimeStateRestored {
+        known_order_ids: input.known_order_ids,
+        pending_requests: input.pending_requests,
+    };
+    let intents = Strategy::on_runtime_state_restored(&mut strategy, &context, &restored);
+    debug_assert!(
+        intents.is_empty(),
+        "accepted source runtime-state restore must not emit intents"
+    );
+
+    Ok(Stage5cRuntimeStateRestoredPaperStrategy {
+        strategy,
+        receipt: Stage5cRuntimeStateRestoreReceipt {
+            bootstrap_receipt,
+            restored_ts,
+        },
+    })
+}
+
+fn same_tick_size(left: f64, right: f64) -> bool {
+    left.is_finite() && right.is_finite() && (left - right).abs() <= f64::EPSILON
+}
+
+fn contains_numeric_order_id(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Object(fields) => fields.iter().any(|(name, value)| {
+            matches!(name.as_str(), "tp_order_id" | "sl_exchange_order_id") && value.is_number()
+                || contains_numeric_order_id(value)
+        }),
+        serde_json::Value::Array(values) => values.iter().any(contains_numeric_order_id),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod bootstrap_notification_tests {
     use super::*;
@@ -747,5 +968,87 @@ mod bootstrap_notification_tests {
         let _ = validate_stage5cb_notification(&strategy, &admission(Decimal::ONE, expiry), expiry);
         let after = serde_json::to_value(Strategy::state(&strategy)).expect("state after");
         assert_eq!(before, after);
+    }
+
+    fn restore_input(
+        bootstrapped: &Stage5cBootstrappedPaperStrategy,
+    ) -> Stage5cRuntimeStateRestoreInput {
+        Stage5cRuntimeStateRestoreInput {
+            schema_version: STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION,
+            strategy_id: bootstrapped.receipt().strategy_id().to_string(),
+            account_id: bootstrapped
+                .receipt()
+                .bootstrap_snapshot()
+                .account_id
+                .clone(),
+            instrument: bootstrapped
+                .receipt()
+                .bootstrap_snapshot()
+                .instrument
+                .clone(),
+            tick_size: 0.5,
+            state_json: serde_json::to_string(Strategy::state(bootstrapped.strategy()))
+                .expect("state JSON"),
+            known_order_ids: Vec::new(),
+            pending_requests: Vec::new(),
+            legacy_numeric_order_id_policy: Stage5cLegacyNumericOrderIdPolicy::Reject,
+        }
+    }
+
+    #[test]
+    fn stage5cc_restores_same_strategy_and_opens_no_later_gate() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
+            .single()
+            .expect("timestamp");
+        let bootstrapped = notify_stage5c_bootstrap_at(
+            strategy("IMOEXF", 0.5),
+            admission(Decimal::ONE, now + chrono::Duration::minutes(1)),
+            now,
+        )
+        .expect("bootstrap");
+        let input = restore_input(&bootstrapped);
+        let restored =
+            restore_stage5c_runtime_state_at(bootstrapped, input, now).expect("validated restore");
+
+        assert!(restored.receipt().runtime_state_restored());
+        assert!(!restored.receipt().warmup_started());
+        assert!(!restored.receipt().pending_recovery_started());
+        assert!(!restored.receipt().semantic_bar_enabled());
+        assert!(!restored.receipt().intent_sink_attached());
+        let state = serde_json::to_value(Strategy::state(restored.strategy())).expect("state");
+        assert_eq!(state["HybridIntradayRuntime"]["last_position_qty"], 1.0);
+    }
+
+    #[test]
+    fn stage5cc_rejects_state_that_overrides_broker_truth_position() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
+            .single()
+            .expect("timestamp");
+        let bootstrapped = notify_stage5c_bootstrap_at(
+            strategy("IMOEXF", 0.5),
+            admission(Decimal::ONE, now + chrono::Duration::minutes(1)),
+            now,
+        )
+        .expect("bootstrap");
+        let mut input = restore_input(&bootstrapped);
+        let mut state: serde_json::Value =
+            serde_json::from_str(&input.state_json).expect("state value");
+        state["HybridIntradayRuntime"]["last_position_qty"] = serde_json::json!(0.0);
+        input.state_json = serde_json::to_string(&state).expect("state JSON");
+
+        assert!(matches!(
+            restore_stage5c_runtime_state_at(bootstrapped, input, now),
+            Err(Stage5cRuntimeStateRestoreError::BrokerTruthPositionMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage5cc_requires_explicit_legacy_numeric_order_id_policy() {
+        let numeric = serde_json::json!({"tp_order_id": 123});
+        assert!(contains_numeric_order_id(&numeric));
+        let string = serde_json::json!({"tp_order_id": "123"});
+        assert!(!contains_numeric_order_id(&string));
     }
 }

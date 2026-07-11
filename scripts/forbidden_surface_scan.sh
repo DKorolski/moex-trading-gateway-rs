@@ -77,7 +77,7 @@ cargo_control_hashes = {
     Path("crates/broker-core/Cargo.toml"): "e807ab613c52d8325d1c46b1f679b319ab72ffeb69196e5a52aacecbd694dc8d",
     Path("crates/broker-finam/Cargo.toml"): "2a4f78beac8390e06e035e1c7ba0c0a71d230165297ad452ff3c4eeb1a2107db",
     Path("crates/finam-gateway/Cargo.toml"): "95b937eb4d166212869d196a1173f40b358c64cf91906ecaef19d7268820f06c",
-    Path("crates/strategy-runtime-core/Cargo.toml"): "78a1557ff27ceedc20e189f2a800ae21ad66d033aa5222dce3cb1b431b82ce1d",
+    Path("crates/strategy-runtime-core/Cargo.toml"): "4f816eccefaa41cd895d6a956ce81b58a546a3d0c4f158843d3e92fff48066da",
 }
 for cargo_control_path, expected_sha256 in cargo_control_hashes.items():
     if not cargo_control_path.is_file():
@@ -943,7 +943,7 @@ if semantic_workspace_member in workspace_excludes:
 
 semantic_crate_manifest_path = semantic_kernel_root / "Cargo.toml"
 expected_semantic_crate_manifest_sha256 = (
-    "78a1557ff27ceedc20e189f2a800ae21ad66d033aa5222dce3cb1b431b82ce1d"
+    "4f816eccefaa41cd895d6a956ce81b58a546a3d0c4f158843d3e92fff48066da"
 )
 if not semantic_crate_manifest_path.is_file():
     print(
@@ -1013,7 +1013,7 @@ if semantic_build_script.exists():
 
 semantic_lib_path = semantic_kernel_root / "src/lib.rs"
 expected_semantic_lib_sha256 = (
-    "904d2c27e8c661a8f234efa00ff249bdfbae8b6e81c0951445a9908bfc9490e0"
+    "3a5dffd68a0bdb967232a8a99edd565e8bc3f82405508372a5bcee15289b34c1"
 )
 if not semantic_lib_path.is_file():
     print(
@@ -1306,7 +1306,7 @@ else:
             "2226fc838e69d00027778f3824dfe4d40c84b1b0cb888106d18df2339f20affb"
         ),
         semantic_kernel_root / "tests/stage5c_paper_host_admission.rs": (
-            "ab23c28298174a202e16c75863ab793432226b42ddd502a799171a71ed81a7b8"
+            "7b3b9c1a7c1b7200cd2e5e1539f650ca5d26ac9260ebf5e873aa60c8d1011d4f"
         ),
         semantic_kernel_root / "tests/wrapper_bracket_terminal_inventory.rs": (
             "b276b376d33073454fd0df243b6d87a351724794d95d52126a8258e9324aeafe"
@@ -1544,10 +1544,13 @@ expected_stage5_profile_artifacts = {
         "821e241970df245f7aaaeb78312537c29512173108c59f40f7f449eb44cb8aa4"
     ),
     Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"): (
-        "bf606e3e8ef857a43db10a0a7ff4868e321a2ae0cb4bb7f90bde864a7c1e4b91"
+        "e1c81380eb922440a92e27f61a166139c7e4513cb022a9ceabcadc4a23baeb87"
     ),
     Path("tests/fixtures/stage5/stage5cb_bootstrap_notification.json"): (
         "9db7888d27374eeaa8ac046c1df1727a3e3cd085c938a76945d22b9bd68f00de"
+    ),
+    Path("tests/fixtures/stage5/stage5cc_runtime_state_restore.json"): (
+        "08dfa2eb89add026f4b43f779f1bdd5b50bcba5eb08f11751268b616e4712e38"
     ),
     Path("crates/broker-core/src/hybrid_strategy_boundary.rs"): (
         "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d"

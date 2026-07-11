@@ -45,10 +45,13 @@ pub use runtime_compat::{
     OrderSide as BrokerNeutralOrderSide, StopLimitCondition as BrokerNeutralStopLimitCondition,
 };
 pub use stage5c_paper_host::{
-    admit_stage5c_paper_host, notify_stage5c_bootstrap, Stage5cBootstrapNotificationError,
-    Stage5cBootstrapNotificationReceipt, Stage5cBootstrappedPaperStrategy,
-    Stage5cPaperHostAdmission, Stage5cPaperHostAdmissionError, Stage5cPaperHostAdmissionInput,
-    STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION,
+    admit_stage5c_paper_host, notify_stage5c_bootstrap, restore_stage5c_runtime_state,
+    Stage5cBootstrapNotificationError, Stage5cBootstrapNotificationReceipt,
+    Stage5cBootstrappedPaperStrategy, Stage5cLegacyNumericOrderIdPolicy, Stage5cPaperHostAdmission,
+    Stage5cPaperHostAdmissionError, Stage5cPaperHostAdmissionInput,
+    Stage5cRuntimeStateRestoreError, Stage5cRuntimeStateRestoreInput,
+    Stage5cRuntimeStateRestoreReceipt, Stage5cRuntimeStateRestoredPaperStrategy,
+    STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION, STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION,
 };
 
 pub(crate) mod live_guard {

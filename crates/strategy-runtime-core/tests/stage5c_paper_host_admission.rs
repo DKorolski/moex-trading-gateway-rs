@@ -377,6 +377,22 @@ fn stage5cb_lifecycle_cannot_continue_on_different_strategy_binding() {
 }
 
 #[test]
+fn stage5cc_fixture_freezes_restore_only_boundary() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/stage5/stage5cc_runtime_state_restore.json"
+    ))
+    .expect("Stage 5C-c fixture");
+    assert_eq!(fixture["stage"], "Stage5C-c");
+    assert_eq!(fixture["validation_before_mutation"], true);
+    assert_eq!(fixture["broker_truth_position_may_be_overwritten"], false);
+    assert_eq!(fixture["lifecycle"]["runtime_state_restored"], true);
+    assert_eq!(fixture["lifecycle"]["warmup_started"], false);
+    assert_eq!(fixture["lifecycle"]["semantic_bar_enabled"], false);
+    assert_eq!(fixture["execution"]["endpoint_calls_allowed"], false);
+    assert_eq!(fixture["execution"]["real_post_delete_added"], false);
+}
+
+#[test]
 fn stage5c_capability_binds_exact_admitted_bootstrap_snapshot() {
     let canonical = canonical_input();
     let expected_snapshot = canonical.evidence.applied_snapshot().clone();
