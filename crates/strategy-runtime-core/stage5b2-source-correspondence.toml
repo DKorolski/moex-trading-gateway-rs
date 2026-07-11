@@ -1,14 +1,16 @@
-schema_version = 1
-stage = "Stage5B2a"
-status = "BoundaryManifestOnly"
+schema_version = 2
+stage = "Stage5B2b"
+status = "CompiledBrokerNeutralPaperNoSend"
 source_repository_commit = "43242c89944d335d9cb0729b38bdd7d658378d5e"
 source_path = "strategy-runtime/src/strategies/hybrid_intraday_runtime.rs"
 oracle_path = "source-oracles/alor-stage5/hybrid_intraday_runtime.rs"
 oracle_sha256 = "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa"
 oracle_line_count = 6203
 accepted_stage5b1_manifest_unchanged = true
-wrapper_copied = false
-wrapper_compiled = false
+target_sha256 = "8ade7c40815b92299a56ea11e54940af5fcd1cab7c836aaef35941841267f4a3"
+target_line_count = 6583
+wrapper_copied = true
+wrapper_compiled = true
 runtime_host_attached = false
 paper_boundary = true
 
@@ -18,8 +20,18 @@ target_kind = "library_module"
 module_name = "hybrid_intraday_runtime"
 target_path = "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs"
 library_export = "pub mod hybrid_intraday_runtime;"
-activation_gate = "Stage5B2bSeparateReview"
-currently_allowed_in_rust_target_set = false
+activation_gate = "Stage5B2bAcceptedTargetOnly"
+currently_allowed_in_rust_target_set = true
+
+[broker_neutral_compatibility]
+path = "crates/strategy-runtime-core/src/runtime_compat.rs"
+request_id = "broker_core::StrategyRequestId"
+order_id = "broker_core::BrokerOrderId"
+stop_order_id = "broker_core::BrokerStopOrderId"
+callback_adapter = "BrokerNeutralHybridStrategy"
+runtime_host_attached = false
+command_consumer_attached = false
+live_send_enabled = false
 
 [[regions]]
 name = "imports"
@@ -30,7 +42,7 @@ sha256 = "472f0d6ac4ef8fd240a24d1c544d564ab2826626d2f9064c1e4a20ea45878506"
 change_class = "HostBoundaryExtraction"
 target_region = "imports and broker-neutral host aliases"
 semantic_impact = "Replace ALOR protocol, UUID, tracing and runtime-host imports without changing strategy decisions."
-implementation_status = "Planned"
+implementation_status = "MechanicallyMigrated"
 
 [[regions]]
 name = "config_state_types"
@@ -41,7 +53,7 @@ sha256 = "f84c0183858747ffe6988ed6278cd4cc5361a97df4d036373f5bab55626155f9"
 change_class = "BrokerNeutralTypeMigration"
 target_region = "configuration, pending/deferred records and wrapper state"
 semantic_impact = "Migrate request and broker order identities to typed broker-neutral strings; preserve every field and constant."
-implementation_status = "Planned"
+implementation_status = "MechanicallyMigrated"
 
 [[regions]]
 name = "wrapper_implementation"
@@ -52,7 +64,7 @@ sha256 = "6cf35346fd2759efbb6ac6b40e4f5748c2f6361349d0fa833de2229c621f0417"
 change_class = "BrokerNeutralTypeMigration"
 target_region = "HybridIntradayRuntimeStrategy inherent implementation"
 semantic_impact = "Mechanical identity and host-type adaptation only; formulas, timeouts, clocks and state transitions remain source-equivalent."
-implementation_status = "Planned"
+implementation_status = "MechanicallyMigrated"
 
 [[regions]]
 name = "oracle_unit_tests"
@@ -63,7 +75,7 @@ sha256 = "c4f5d92bb307e66baf5ab2425512557a3d5715fdde109a4da5f9de21cb678e9e"
 change_class = "BrokerNeutralTypeMigration"
 target_region = "migrated wrapper unit tests"
 semantic_impact = "Preserve source assertions while replacing only broker-coupled constructors and typed identities."
-implementation_status = "Planned"
+implementation_status = "MechanicallyMigratedAndPassing"
 
 [[regions]]
 name = "strategy_callback_impl"
@@ -74,7 +86,7 @@ sha256 = "7749e6ade0bfeff4e6e67fc4fa915759ff064c2a23439c12ecafe026fd84cc39"
 change_class = "HostBoundaryExtraction"
 target_region = "broker-neutral strategy callback implementation"
 semantic_impact = "Map the complete callback/state surface without invoking Redis, FINAM transport or live execution."
-implementation_status = "Planned"
+implementation_status = "MechanicallyMigratedWithBrokerNeutralAdapter"
 
 [forbidden]
 change_classes = ["FormulaRewrite", "ParameterChange", "BehavioralSimplification"]

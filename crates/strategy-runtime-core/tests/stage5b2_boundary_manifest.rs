@@ -13,6 +13,10 @@ fn oracle() -> &'static str {
     include_str!("../../../source-oracles/alor-stage5/hybrid_intraday_runtime.rs")
 }
 
+fn migrated_wrapper() -> &'static str {
+    include_str!("../src/hybrid_intraday_runtime.rs")
+}
+
 fn direct_strategy_impl_methods() -> BTreeSet<&'static str> {
     let implementation_marker = ["impl Strategy for Hybrid", "IntradayRuntimeStrategy {"].concat();
     oracle()
@@ -30,11 +34,11 @@ fn direct_strategy_impl_methods() -> BTreeSet<&'static str> {
 #[test]
 fn stage5b2_mapping_is_callback_complete_and_matches_exact_source_impl() {
     let fixture = fixture();
-    assert_eq!(fixture["schema_version"], 2);
-    assert_eq!(fixture["stage"], "Stage5B2a");
+    assert_eq!(fixture["schema_version"], 3);
+    assert_eq!(fixture["stage"], "Stage5B2b");
     assert_eq!(
         fixture["implementation_status"],
-        "lossless_boundary_contracts_defined_no_wrapper"
+        "wrapper_compiled_broker_neutral_paper_no_send"
     );
 
     let callbacks = fixture["callbacks"]
@@ -88,6 +92,14 @@ fn stage5b2_mapping_is_callback_complete_and_matches_exact_source_impl() {
         let name = callback["name"].as_str().expect("callback name");
         if callback["source_override"] == false {
             assert_eq!(callback["gate"], "Stage5CExplicitPolicy");
+        }
+        if callback["gate"] == "Stage5B2" {
+            assert!(
+                callback["mapping_status"]
+                    .as_str()
+                    .is_some_and(|status| status.contains("implemented_paper_no_send")),
+                "{name} must be implemented at the Stage 5B-2b paper boundary"
+            );
         }
         assert!(callback["source_required_fields"].is_array());
         assert!(callback["target_required_fields"].is_array());
@@ -318,13 +330,13 @@ fn stage5b2_mapping_freezes_typed_ids_state_groups_and_backlog_invariants() {
 }
 
 #[test]
-fn stage5b2_mapping_keeps_wrapper_and_execution_surfaces_closed() {
+fn stage5b2_mapping_opens_only_wrapper_compile_and_keeps_execution_closed() {
     let fixture = fixture();
     let safety = &fixture["safety_boundary"];
     assert_eq!(safety["paper_boundary"], true);
+    assert_eq!(safety["wrapper_copied"], true);
+    assert_eq!(safety["wrapper_compiled"], true);
     for field in [
-        "wrapper_copied",
-        "wrapper_compiled",
         "runtime_host_attached",
         "runtime_live_ready_enabled",
         "command_consumer_to_real_finam_enabled",
@@ -334,4 +346,25 @@ fn stage5b2_mapping_keeps_wrapper_and_execution_surfaces_closed() {
     ] {
         assert_eq!(safety[field], false, "{field} must remain false");
     }
+}
+
+#[test]
+fn stage5b2b_target_is_broker_neutral_and_exposes_only_paper_callback_adapter() {
+    let target = migrated_wrapper();
+    for marker in [
+        "pub struct HybridIntradayRuntimeStrategy",
+        "Option<StrategyRequestId>",
+        "Option<BrokerOrderId>",
+        "Option<BrokerStopOrderId>",
+        "pub trait BrokerNeutralHybridStrategy",
+        "fn on_broker_bar(",
+        "fn on_broker_ack(",
+        "fn on_broker_order(",
+        "fn on_broker_stop_order(",
+        "fn on_broker_position(",
+        "fn on_broker_timer(",
+    ] {
+        assert!(target.contains(marker), "missing migrated marker {marker}");
+    }
+    assert!(!target.contains("use alor_protocol"));
 }

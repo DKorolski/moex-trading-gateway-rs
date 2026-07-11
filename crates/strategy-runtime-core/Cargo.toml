@@ -7,9 +7,12 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+broker-core = { path = "../broker-core" }
 chrono.workspace = true
 csv.workspace = true
 serde.workspace = true
+tracing.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

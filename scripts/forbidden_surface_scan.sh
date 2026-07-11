@@ -72,12 +72,12 @@ failures = 0
 
 cargo_control_hashes = {
     Path("Cargo.toml"): "1c3e7dd1b83a6a8942e02cb520d49f33ed3ef77f2970854b9fdcddc7f261bc3e",
-    Path("Cargo.lock"): "e1e5aa68437c99e820db7803f5142e263084c39bff62d1075a1636d02ca98711",
+    Path("Cargo.lock"): "8ce02f47df6b4b2ae3979e6abd0c202a4f406c3c73dc4a29d2418af0e2e0de85",
     Path("crates/broker-cli/Cargo.toml"): "8f642b380ae8db32047504e632d1b710cdbc235f5058f57ad0780d72182f2754",
     Path("crates/broker-core/Cargo.toml"): "e807ab613c52d8325d1c46b1f679b319ab72ffeb69196e5a52aacecbd694dc8d",
     Path("crates/broker-finam/Cargo.toml"): "2a4f78beac8390e06e035e1c7ba0c0a71d230165297ad452ff3c4eeb1a2107db",
     Path("crates/finam-gateway/Cargo.toml"): "95b937eb4d166212869d196a1173f40b358c64cf91906ecaef19d7268820f06c",
-    Path("crates/strategy-runtime-core/Cargo.toml"): "00f18c0d3ddc6f7fb4196edc2a51f18da034070555aad980c35098cbd4ed5fd0",
+    Path("crates/strategy-runtime-core/Cargo.toml"): "2d89cc9fd932edd88d0c7102a2d4b024507f9e7716cc2d0948376930c82208df",
 }
 for cargo_control_path, expected_sha256 in cargo_control_hashes.items():
     if not cargo_control_path.is_file():
@@ -431,6 +431,7 @@ expected_local_path_edges = {
     ("crates/broker-cli", "crates/broker-core"),
     ("crates/broker-cli", "crates/broker-finam"),
     ("crates/broker-cli", "crates/finam-gateway"),
+    ("crates/strategy-runtime-core", "crates/broker-core"),
 }
 observed_local_path_edges = set()
 
@@ -762,6 +763,10 @@ allowed_wrapper_oracle_include_str_paths = {
     Path("crates/strategy-runtime-core/tests/stage5b2_boundary_manifest.rs"),
     Path("crates/strategy-runtime-core/tests/wrapper_bracket_terminal_inventory.rs"),
 }
+allowed_wrapper_identifier_paths = {
+    wrapper_future_target_path,
+    Path("crates/strategy-runtime-core/tests/stage5b2_boundary_manifest.rs"),
+}
 wrapper_oracle_filename = "hybrid_intraday_runtime.rs"
 wrapper_oracle_reference_markers = (
     "source-oracles/alor-stage5",
@@ -773,6 +778,10 @@ wrapper_oracle_path = Path(
 wrapper_oracle_sha256 = (
     "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa"
 )
+compiled_wrapper_sha256 = (
+    "8ade7c40815b92299a56ea11e54940af5fcd1cab7c836aaef35941841267f4a3"
+)
+compiled_wrapper_line_count = 6583
 
 if not wrapper_oracle_path.is_file():
     print(
@@ -786,6 +795,28 @@ elif hashlib.sha256(wrapper_oracle_path.read_bytes()).hexdigest() != wrapper_ora
         file=sys.stderr,
     )
     failures += 1
+
+if not wrapper_future_target_path.is_file():
+    print(
+        f"forbidden-surface-scan: compiled wrapper target missing {wrapper_future_target_path}",
+        file=sys.stderr,
+    )
+    failures += 1
+else:
+    compiled_wrapper_bytes = wrapper_future_target_path.read_bytes()
+    actual_compiled_wrapper_sha256 = hashlib.sha256(compiled_wrapper_bytes).hexdigest()
+    actual_compiled_wrapper_lines = len(compiled_wrapper_bytes.splitlines())
+    if (
+        actual_compiled_wrapper_sha256 != compiled_wrapper_sha256
+        or actual_compiled_wrapper_lines != compiled_wrapper_line_count
+    ):
+        print(
+            "forbidden-surface-scan: compiled Stage 5B-2b wrapper drifted: "
+            f"sha256={actual_compiled_wrapper_sha256} "
+            f"lines={actual_compiled_wrapper_lines}",
+            file=sys.stderr,
+        )
+        failures += 1
 
 duplicate_scan_excluded_parts = {
     ".git",
@@ -837,9 +868,10 @@ for candidate in sorted(workspace_source_candidate_files):
         has_oracle_reference
         and candidate not in allowed_wrapper_oracle_include_str_paths
     )
+    is_approved_wrapper_target = candidate == wrapper_future_target_path
     wrapper_markers = [
-        candidate.name == wrapper_oracle_filename,
-        has_wrapper_identifier,
+        candidate.name == wrapper_oracle_filename and not is_approved_wrapper_target,
+        has_wrapper_identifier and candidate not in allowed_wrapper_identifier_paths,
         has_forbidden_include,
         has_forbidden_path_attribute,
         has_macro_path_assignment,
@@ -848,8 +880,8 @@ for candidate in sorted(workspace_source_candidate_files):
     ]
     if any(wrapper_markers):
         print(
-            "forbidden-surface-scan: Stage 5B-2 wrapper target is not yet allowed "
-            f"anywhere in the workspace: {candidate}; future approved path is "
+            "forbidden-surface-scan: Stage 5B-2 wrapper surface is outside the "
+            f"single approved target: {candidate}; approved path is "
             f"{wrapper_future_target_path}",
             file=sys.stderr,
         )
@@ -909,7 +941,7 @@ if semantic_workspace_member in workspace_excludes:
 
 semantic_crate_manifest_path = semantic_kernel_root / "Cargo.toml"
 expected_semantic_crate_manifest_sha256 = (
-    "00f18c0d3ddc6f7fb4196edc2a51f18da034070555aad980c35098cbd4ed5fd0"
+    "2d89cc9fd932edd88d0c7102a2d4b024507f9e7716cc2d0948376930c82208df"
 )
 if not semantic_crate_manifest_path.is_file():
     print(
@@ -979,7 +1011,7 @@ if semantic_build_script.exists():
 
 semantic_lib_path = semantic_kernel_root / "src/lib.rs"
 expected_semantic_lib_sha256 = (
-    "eba13a333fc0c003d9afa96f379cfb833b3148d549b97425406f4386bc3cea4a"
+    "4f68e1e6b48093be8163097951e68494a65d0aad9b140e2611756a5833fa9e4c"
 )
 if not semantic_lib_path.is_file():
     print(
@@ -1228,7 +1260,11 @@ else:
         )
         failures += 1
 
-    expected_semantic_production_paths = expected_target_paths | {str(semantic_lib_path)}
+    expected_semantic_production_paths = expected_target_paths | {
+        str(semantic_lib_path),
+        str(semantic_kernel_root / "src/hybrid_intraday_runtime.rs"),
+        str(semantic_kernel_root / "src/runtime_compat.rs"),
+    }
     actual_semantic_production_paths = {
         str(path) for path in (semantic_kernel_root / "src").glob("**/*.rs")
     }
@@ -1263,7 +1299,7 @@ else:
             "98e7bbbdc8a0eb852bcdfc2f46cbfc9635c5cc0dc03caefc69a4b50c377a5951"
         ),
         semantic_kernel_root / "tests/stage5b2_boundary_manifest.rs": (
-            "d96a0a2b0f3ca9f2c4750867891d4a66533eec75e87bdded33d5820beb395a16"
+            "1be3eb771f2a99acf2d836c0c73516c9f1434ab2a8b8eb5fe8b51f418e617237"
         ),
         semantic_kernel_root / "tests/wrapper_bracket_terminal_inventory.rs": (
             "b276b376d33073454fd0df243b6d87a351724794d95d52126a8258e9324aeafe"
@@ -1338,7 +1374,7 @@ if wrapper_oracle_rs_files != {str(wrapper_oracle_path)}:
 
 stage5b2_manifest_path = semantic_kernel_root / "stage5b2-source-correspondence.toml"
 expected_stage5b2_manifest_sha256 = (
-    "81d98aaa09afbe28d775b0ad0f80fa201098ca7c151ad33a6aa4d64a13e9546f"
+    "fdb8f488b5da9c45a125170d7a51f199b53cdade3045abd72ffd608360fbc133"
 )
 if not stage5b2_manifest_path.is_file():
     print(
@@ -1368,14 +1404,16 @@ else:
         stage5b2_manifest = {}
 
     expected_stage5b2_top_level = {
-        "schema_version": 1,
-        "stage": "Stage5B2a",
-        "status": "BoundaryManifestOnly",
+        "schema_version": 2,
+        "stage": "Stage5B2b",
+        "status": "CompiledBrokerNeutralPaperNoSend",
         "oracle_sha256": wrapper_oracle_sha256,
         "oracle_line_count": 6203,
         "accepted_stage5b1_manifest_unchanged": True,
-        "wrapper_copied": False,
-        "wrapper_compiled": False,
+        "target_sha256": "8ade7c40815b92299a56ea11e54940af5fcd1cab7c836aaef35941841267f4a3",
+        "target_line_count": 6583,
+        "wrapper_copied": True,
+        "wrapper_compiled": True,
         "runtime_host_attached": False,
         "paper_boundary": True,
     }
@@ -1396,8 +1434,8 @@ else:
         "module_name": "hybrid_intraday_runtime",
         "target_path": str(wrapper_future_target_path),
         "library_export": "pub mod hybrid_intraday_runtime;",
-        "activation_gate": "Stage5B2bSeparateReview",
-        "currently_allowed_in_rust_target_set": False,
+        "activation_gate": "Stage5B2bAcceptedTargetOnly",
+        "currently_allowed_in_rust_target_set": True,
     }
     if approved_future_target != expected_future_target:
         print(
@@ -1428,12 +1466,19 @@ else:
         line_start, line_end, line_count, expected_region_sha256 = expected_regions[name]
         actual_region_bytes = b"".join(wrapper_lines[line_start - 1 : line_end])
         actual_region_sha256 = hashlib.sha256(actual_region_bytes).hexdigest()
+        expected_region_status = {
+            "imports": "MechanicallyMigrated",
+            "config_state_types": "MechanicallyMigrated",
+            "wrapper_implementation": "MechanicallyMigrated",
+            "oracle_unit_tests": "MechanicallyMigratedAndPassing",
+            "strategy_callback_impl": "MechanicallyMigratedWithBrokerNeutralAdapter",
+        }[name]
         expected_region_fields = {
             "line_start": line_start,
             "line_end": line_end,
             "line_count": line_count,
             "sha256": expected_region_sha256,
-            "implementation_status": "Planned",
+            "implementation_status": expected_region_status,
         }
         for field, expected_value in expected_region_fields.items():
             if region.get(field) != expected_value:
@@ -1463,7 +1508,7 @@ expected_stage5_profile_artifacts = {
         "a869ff79d35c7c0f75e1417b998c388256cfd87794d3cd1cf78d33b0f4dc563c"
     ),
     Path("tests/fixtures/stage5/stage5b2_callback_state_mapping.json"): (
-        "3beb41c6db0992cbdb20ded691cd29da940fe492c052db595449532402f29dfe"
+        "b1bbdab7e972a539ea598a7a1795dbeceb248d85832dc2e0a887054747aebc26"
     ),
     Path("crates/broker-core/src/hybrid_strategy_boundary.rs"): (
         "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d"
