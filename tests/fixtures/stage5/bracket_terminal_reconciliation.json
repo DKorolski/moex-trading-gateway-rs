@@ -1,13 +1,50 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source_oracle_sha256": "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa",
   "state_field": "bracket_terminal_reconcile_started_ms",
   "grace_ms": 3000,
   "persisted_in_strategy_state": false,
   "restart_policy": "marker_resets_to_none_and_no_pre_restart_grace_is_inherited",
+  "grace_start_statuses": {
+    "take_profit": [
+      "filled"
+    ],
+    "stop_loss": [
+      "filled",
+      "executed",
+      "triggered",
+      "done",
+      "completed"
+    ]
+  },
+  "terminal_without_grace": {
+    "take_profit": [
+      "canceled",
+      "cancelled",
+      "expired",
+      "rejected"
+    ],
+    "stop_loss": [
+      "canceled",
+      "cancelled",
+      "expired",
+      "rejected"
+    ]
+  },
+  "timeout_guards": {
+    "emit_when": "grace_expired_and_residual_qty_nonzero_and_pending_exit_absent",
+    "flat_result": "clear_marker_without_intent",
+    "pending_exit_result": "clear_marker_without_duplicate_intent"
+  },
+  "clock_domain": {
+    "marker_start": "wall_clock_utc_now_ms",
+    "position_grace_check": "wall_clock_utc_now_ms",
+    "timer_expiry_check": "timer_callback_now_ts_utc_ms",
+    "bar_or_event_time_substitution_allowed": false
+  },
   "transitions": [
     {
-      "event": "take_profit_filled_or_stop_loss_terminal",
+      "event": "take_profit_filled_or_stop_loss_protective_execution_terminal_status",
       "result": "start_terminal_reconcile_grace"
     },
     {
@@ -15,7 +52,7 @@
       "result": "suppress_immediate_emergency_flatten_and_update_last_position_qty"
     },
     {
-      "event": "timer_after_grace_with_residual_position",
+      "event": "timer_after_grace_with_residual_position_and_no_pending_exit",
       "result": "emit_exactly_one_residual_flatten",
       "reason": "bracket_terminal_reconcile_timeout"
     },

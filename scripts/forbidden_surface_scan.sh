@@ -6,6 +6,18 @@ cd "$workspace_root"
 
 failures=0
 
+python_with_tomllib=""
+for candidate in python3 python3.13 python3.12 python3.11; do
+  if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import tomllib' >/dev/null 2>&1; then
+    python_with_tomllib="$candidate"
+    break
+  fi
+done
+if [[ -z "$python_with_tomllib" ]]; then
+  echo "forbidden-surface-scan: Python 3.11+ with stdlib tomllib is required" >&2
+  exit 1
+fi
+
 report_failure() {
   echo "forbidden-surface-scan: $*" >&2
   failures=$((failures + 1))
@@ -49,12 +61,12 @@ if rg -n --glob 'crates/**/*.rs' 'EndpointGateApproved[[:space:]]*\{[[:space:]]*
 fi
 rm -f /tmp/moex_forbidden_endpoint_gate_literal.$$
 
-python3 - <<'PY'
+"$python_with_tomllib" - <<'PY'
 import hashlib
 import json
 from pathlib import Path
-import re
 import sys
+import tomllib
 
 failures = 0
 
@@ -237,18 +249,20 @@ if not root_manifest_path.is_file():
     print("forbidden-surface-scan: root Cargo.toml missing", file=sys.stderr)
     failures += 1
 else:
-    root_manifest_source = root_manifest_path.read_text()
-    workspace_match = re.search(
-        r"(?ms)^\[workspace\]\s*(.*?)(?=^\[|\Z)", root_manifest_source
-    )
-    workspace_source = workspace_match.group(1) if workspace_match else ""
-
-    def workspace_array(name):
-        match = re.search(rf"(?ms)^\s*{name}\s*=\s*\[(.*?)\]", workspace_source)
-        return set(re.findall(r'"([^"]+)"', match.group(1))) if match else set()
-
-    workspace_members = workspace_array("members")
-    workspace_excludes = workspace_array("exclude")
+    try:
+        with root_manifest_path.open("rb") as manifest:
+            root_manifest = tomllib.load(manifest)
+        workspace = root_manifest.get("workspace", {})
+        workspace_members = set(workspace.get("members", []))
+        workspace_excludes = set(workspace.get("exclude", []))
+    except (OSError, tomllib.TOMLDecodeError, TypeError) as error:
+        print(
+            f"forbidden-surface-scan: root Cargo.toml cannot be parsed: {error}",
+            file=sys.stderr,
+        )
+        failures += 1
+        workspace_members = set()
+        workspace_excludes = set()
     if semantic_workspace_member not in workspace_members:
         print(
             "forbidden-surface-scan: strategy-runtime-core must remain an explicit "
@@ -275,7 +289,6 @@ if not semantic_crate_manifest_path.is_file():
     failures += 1
 else:
     semantic_crate_manifest_bytes = semantic_crate_manifest_path.read_bytes()
-    semantic_crate_manifest_source = semantic_crate_manifest_bytes.decode("utf-8")
     actual_semantic_manifest_sha256 = hashlib.sha256(
         semantic_crate_manifest_bytes
     ).hexdigest()
@@ -287,40 +300,52 @@ else:
             file=sys.stderr,
         )
         failures += 1
-    package_match = re.search(
-        r"(?ms)^\[package\]\s*(.*?)(?=^\[|\Z)", semantic_crate_manifest_source
-    )
-    package_source = package_match.group(1) if package_match else ""
-    if re.search(r"(?m)^\s*autotests\s*=\s*false\s*$", package_source):
+    try:
+        semantic_crate_manifest = tomllib.loads(
+            semantic_crate_manifest_bytes.decode("utf-8")
+        )
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
+        print(
+            "forbidden-surface-scan: strategy-runtime-core Cargo.toml cannot be "
+            f"parsed: {error}",
+            file=sys.stderr,
+        )
+        failures += 1
+        semantic_crate_manifest = {}
+    package = semantic_crate_manifest.get("package", {})
+    if package.get("autotests") is False:
         print(
             "forbidden-surface-scan: strategy-runtime-core autotests must remain enabled",
             file=sys.stderr,
         )
         failures += 1
-    if re.search(r"(?m)^\s*build\s*=", package_source):
+    if "build" in package:
         print(
-            "forbidden-surface-scan: strategy-runtime-core custom build target is forbidden",
+            "forbidden-surface-scan: strategy-runtime-core package build field is forbidden",
             file=sys.stderr,
         )
         failures += 1
-    lib_match = re.search(
-        r"(?ms)^\[lib\]\s*(.*?)(?=^\[|\Z)", semantic_crate_manifest_source
+    lib = semantic_crate_manifest.get("lib", {})
+    if lib.get("path", "src/lib.rs") != "src/lib.rs":
+        print(
+            "forbidden-surface-scan: strategy-runtime-core lib path redirect is forbidden",
+            file=sys.stderr,
+        )
+        failures += 1
+    if lib.get("test") is False:
+        print(
+            "forbidden-surface-scan: strategy-runtime-core lib tests must remain enabled",
+            file=sys.stderr,
+        )
+        failures += 1
+
+semantic_build_script = semantic_kernel_root / "build.rs"
+if semantic_build_script.exists():
+    print(
+        "forbidden-surface-scan: strategy-runtime-core default build.rs is forbidden",
+        file=sys.stderr,
     )
-    if lib_match:
-        lib_source = lib_match.group(1)
-        path_match = re.search(r'(?m)^\s*path\s*=\s*"([^"]+)"', lib_source)
-        if path_match and path_match.group(1) != "src/lib.rs":
-            print(
-                "forbidden-surface-scan: strategy-runtime-core lib path redirect is forbidden",
-                file=sys.stderr,
-            )
-            failures += 1
-        if re.search(r"(?m)^\s*test\s*=\s*false\s*$", lib_source):
-            print(
-                "forbidden-surface-scan: strategy-runtime-core lib tests must remain enabled",
-                file=sys.stderr,
-            )
-            failures += 1
+    failures += 1
 
 semantic_lib_path = semantic_kernel_root / "src/lib.rs"
 expected_semantic_lib_sha256 = (
@@ -586,6 +611,48 @@ else:
         )
         failures += 1
 
+    expected_semantic_rust_paths = expected_semantic_production_paths | {
+        str(semantic_kernel_root / "tests/high180_profile_binding.rs"),
+        str(semantic_kernel_root / "tests/wrapper_bracket_terminal_inventory.rs"),
+    }
+    actual_semantic_rust_paths = {
+        str(path) for path in semantic_kernel_root.glob("**/*.rs")
+    }
+    if actual_semantic_rust_paths != expected_semantic_rust_paths:
+        print(
+            "forbidden-surface-scan: strategy-runtime-core complete Rust/Cargo target "
+            f"set drifted: actual={sorted(actual_semantic_rust_paths)} "
+            f"expected={sorted(expected_semantic_rust_paths)}",
+            file=sys.stderr,
+        )
+        failures += 1
+
+    expected_semantic_test_sha256 = {
+        semantic_kernel_root / "tests/high180_profile_binding.rs": (
+            "98e7bbbdc8a0eb852bcdfc2f46cbfc9635c5cc0dc03caefc69a4b50c377a5951"
+        ),
+        semantic_kernel_root / "tests/wrapper_bracket_terminal_inventory.rs": (
+            "b276b376d33073454fd0df243b6d87a351724794d95d52126a8258e9324aeafe"
+        ),
+    }
+    for test_path, expected_test_sha256 in expected_semantic_test_sha256.items():
+        if not test_path.is_file():
+            print(
+                f"forbidden-surface-scan: locked semantic test missing {test_path}",
+                file=sys.stderr,
+            )
+            failures += 1
+            continue
+        actual_test_sha256 = hashlib.sha256(test_path.read_bytes()).hexdigest()
+        if actual_test_sha256 != expected_test_sha256:
+            print(
+                "forbidden-surface-scan: locked semantic test drifted "
+                f"for {test_path}: actual={actual_test_sha256} "
+                f"expected={expected_test_sha256}",
+                file=sys.stderr,
+            )
+            failures += 1
+
 wrapper_oracle_path = Path(
     "source-oracles/alor-stage5/hybrid_intraday_runtime.rs"
 )
@@ -643,7 +710,7 @@ expected_stage5_profile_artifacts = {
         "ec6daea39f19f3162da5e8d77abb0f03a3f4f5ea2e2876c1d1e189401580ec5d"
     ),
     Path("tests/fixtures/stage5/bracket_terminal_reconciliation.json"): (
-        "b7b5f20040905f0b98cf6d1e8ab47b0a96d238592cc8a25fe83bb0ca35bce9aa"
+        "a869ff79d35c7c0f75e1417b998c388256cfd87794d3cd1cf78d33b0f4dc563c"
     ),
 }
 for artifact_path, expected_artifact_sha256 in expected_stage5_profile_artifacts.items():

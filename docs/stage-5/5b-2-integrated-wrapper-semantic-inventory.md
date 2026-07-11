@@ -59,7 +59,7 @@ written by `sync_state`, and is not restored by `set_state`.
 ### Lifecycle transitions
 
 ```text
-TP filled or SL terminal
+TP `filled` or SL protective-execution terminal status
   -> start terminal-reconcile grace
 
 position size changes while residual position remains inside grace
@@ -67,7 +67,7 @@ position size changes while residual position remains inside grace
   -> suppress immediate emergency flatten
   -> retain protective reconciliation state
 
-timer after grace while residual position remains
+timer after grace while residual position remains and no exit is pending
   -> clear reconcile marker
   -> emit one residual emergency flatten
   -> reason = bracket_terminal_reconcile_timeout
@@ -79,6 +79,52 @@ flat transition
 repeated timer after timeout
   -> no duplicate exit
 ```
+
+### Exact terminal status matrix
+
+Grace starts only for statuses which prove protective execution:
+
+```text
+TP grace start: filled
+
+SL grace start:
+  filled, executed, triggered, done, completed
+```
+
+The following statuses are terminal for cleanup/id removal but must not start
+the grace window:
+
+```text
+TP without grace: canceled, cancelled, expired, rejected
+SL without grace: canceled, cancelled, expired, rejected
+```
+
+Calling every SL terminal status a grace trigger would incorrectly defer repair
+after a canceled, expired, or rejected protective order.
+
+### Timeout suppression
+
+After expiry, the residual flatten is emitted only when quantity is non-zero
+and no exit request is already pending:
+
+```text
+expired + residual qty + no pending exit -> one residual flatten
+expired + flat                         -> clear marker, no intent
+expired + pending exit                 -> clear marker, no duplicate intent
+```
+
+### Clock-domain compatibility
+
+The selected oracle intentionally uses mixed clock inputs:
+
+```text
+marker start              -> Utc::now().timestamp_millis()
+on_position grace check   -> Utc::now().timestamp_millis()
+timer expiry comparison   -> now_ts_utc_ms callback argument
+```
+
+Stage 5B-2 must preserve this behavior. Replacing wall-clock checks with bar or
+broker event time is a compatibility change requiring a separate decision.
 
 ### Source-compatible restart semantics
 

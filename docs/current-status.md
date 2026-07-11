@@ -45,10 +45,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   uncompiled and unattached.
 - Stage 5B-1b structural freeze hardening and the Stage 5B-2 integrated-wrapper
   semantic inventory are repeat-review candidates. Workspace membership, crate
-  target configuration, library root and the complete production source set
-  now fail closed. Bracket terminal-reconciliation grace, residual flatten and
-  source-compatible transient restart behavior are inventoried and fixture
-  locked; wrapper implementation remains blocked.
+  target configuration, library root and the complete Cargo/Rust target set now
+  fail closed through parsed TOML plus content/path locks. Bracket
+  terminal-reconciliation execution-status matrices, timeout suppression,
+  mixed clock domains and source-compatible transient restart behavior are
+  inventoried and fixture locked; wrapper implementation remains blocked.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
