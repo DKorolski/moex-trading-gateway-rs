@@ -206,6 +206,27 @@ source = Path("crates/finam-gateway/src/lib.rs").read_text()
 
 semantic_kernel_root = Path("crates/strategy-runtime-core")
 semantic_workspace_member = "crates/strategy-runtime-core"
+wrapper_future_target_path = Path(
+    "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs"
+)
+
+for candidate in Path("crates").glob("**/*.rs"):
+    candidate_source = candidate.read_text()
+    normalized_candidate_source = " ".join(candidate_source.split())
+    wrapper_markers = [
+        candidate.name == "hybrid_intraday_runtime.rs",
+        "struct HybridIntradayRuntimeStrategy" in normalized_candidate_source,
+        "impl Strategy for HybridIntradayRuntimeStrategy" in normalized_candidate_source,
+    ]
+    if any(wrapper_markers):
+        print(
+            "forbidden-surface-scan: Stage 5B-2 wrapper target is not yet allowed "
+            f"anywhere in the workspace: {candidate}; future approved path is "
+            f"{wrapper_future_target_path}",
+            file=sys.stderr,
+        )
+        failures += 1
+
 semantic_kernel_forbidden = [
     "broker-finam",
     "finam-gateway",
@@ -633,7 +654,7 @@ else:
             "98e7bbbdc8a0eb852bcdfc2f46cbfc9635c5cc0dc03caefc69a4b50c377a5951"
         ),
         semantic_kernel_root / "tests/stage5b2_boundary_manifest.rs": (
-            "e039796971207d763b7ba06e6c85e45c834687866bd12e84780cb51ecfa1cc23"
+            "d35c6cf39935835930af1a53c74d6768e5ecf79fcaa53df6bd67808f6c26da1e"
         ),
         semantic_kernel_root / "tests/wrapper_bracket_terminal_inventory.rs": (
             "b276b376d33073454fd0df243b6d87a351724794d95d52126a8258e9324aeafe"
@@ -708,7 +729,7 @@ if wrapper_oracle_rs_files != {str(wrapper_oracle_path)}:
 
 stage5b2_manifest_path = semantic_kernel_root / "stage5b2-source-correspondence.toml"
 expected_stage5b2_manifest_sha256 = (
-    "727e870aa5ab6da4498c2602d4f5cf3c0df2a933bc53010241d81684a4959360"
+    "81d98aaa09afbe28d775b0ad0f80fa201098ca7c151ad33a6aa4d64a13e9546f"
 )
 if not stage5b2_manifest_path.is_file():
     print(
@@ -764,7 +785,7 @@ else:
         "crate_name": "strategy-runtime-core",
         "target_kind": "library_module",
         "module_name": "hybrid_intraday_runtime",
-        "target_path": "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs",
+        "target_path": str(wrapper_future_target_path),
         "library_export": "pub mod hybrid_intraday_runtime;",
         "activation_gate": "Stage5B2bSeparateReview",
         "currently_allowed_in_rust_target_set": False,
@@ -777,8 +798,8 @@ else:
         failures += 1
 
     expected_regions = {
-        "imports": (1, 21, 21, "62185934244137f77fbb9cb1e8951d7639eebc114b01e4e29d62696f09addd73"),
-        "config_state_types": (23, 207, 185, "2e3a9a9eb2af38119d318f561c0d1defccb36fff34bc30fa3cffd0c63ae054bb"),
+        "imports": (1, 22, 22, "472f0d6ac4ef8fd240a24d1c544d564ab2826626d2f9064c1e4a20ea45878506"),
+        "config_state_types": (23, 208, 186, "f84c0183858747ffe6988ed6278cd4cc5361a97df4d036373f5bab55626155f9"),
         "wrapper_implementation": (209, 2313, 2105, "6cf35346fd2759efbb6ac6b40e4f5748c2f6361349d0fa833de2229c621f0417"),
         "oracle_unit_tests": (2314, 5067, 2754, "c4f5d92bb307e66baf5ab2425512557a3d5715fdde109a4da5f9de21cb678e9e"),
         "strategy_callback_impl": (5068, 6203, 1136, "7749e6ade0bfeff4e6e67fc4fa915759ff064c2a23439c12ecafe026fd84cc39"),
@@ -833,7 +854,10 @@ expected_stage5_profile_artifacts = {
         "a869ff79d35c7c0f75e1417b998c388256cfd87794d3cd1cf78d33b0f4dc563c"
     ),
     Path("tests/fixtures/stage5/stage5b2_callback_state_mapping.json"): (
-        "01585a01941dcc530e7769fa2fd85ac7b2bdec409f2b87f64005e7fe54ec6f5e"
+        "fa34dc2a1cb8bdb1e7ea8a5655ebe390543f66926e2177656fec3b923f594dd6"
+    ),
+    Path("crates/broker-core/src/hybrid_strategy_boundary.rs"): (
+        "c86fe63fbda66e7da703aa579eff2a0cff02c1d2ab54b09c1ed03d55ae489806"
     ),
 }
 for artifact_path, expected_artifact_sha256 in expected_stage5_profile_artifacts.items():

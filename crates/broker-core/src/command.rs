@@ -157,6 +157,7 @@ pub enum CommandAckReasonCode {
     DryRunOnly,
     RateLimited,
     BrokerMaintenance,
+    TradingWindowClosed,
     ResponseDecodeError,
     Unauthorized,
 }

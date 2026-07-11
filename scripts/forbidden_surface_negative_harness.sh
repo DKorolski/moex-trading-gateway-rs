@@ -161,6 +161,16 @@ printf 'include!("../../../source-oracles/alor-stage5/hybrid_intraday_runtime.rs
 expect_scanner_failure "add-untracked-example-wrapper-target"
 rm -rf "$semantic_example_dir"
 
+alternate_wrapper="$tmp_root/crates/broker-core/src/hybrid_intraday_runtime.rs"
+alternate_lib="$tmp_root/crates/broker-core/src/lib.rs"
+alternate_lib_backup="$alternate_lib.bak"
+cp "$alternate_lib" "$alternate_lib_backup"
+printf 'pub struct\nHybridIntradayRuntimeStrategy;\n' > "$alternate_wrapper"
+printf '\npub mod hybrid_intraday_runtime;\n' >> "$alternate_lib"
+expect_scanner_failure "copy-wrapper-to-another-workspace-crate-and-export"
+rm -f "$alternate_wrapper"
+mv "$alternate_lib_backup" "$alternate_lib"
+
 bracket_fixture="$tmp_root/tests/fixtures/stage5/bracket_terminal_reconciliation.json"
 bracket_fixture_backup="$bracket_fixture.bak"
 cp "$bracket_fixture" "$bracket_fixture_backup"

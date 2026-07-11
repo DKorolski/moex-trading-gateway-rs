@@ -24,9 +24,9 @@ currently_allowed_in_rust_target_set = false
 [[regions]]
 name = "imports"
 line_start = 1
-line_end = 21
-line_count = 21
-sha256 = "62185934244137f77fbb9cb1e8951d7639eebc114b01e4e29d62696f09addd73"
+line_end = 22
+line_count = 22
+sha256 = "472f0d6ac4ef8fd240a24d1c544d564ab2826626d2f9064c1e4a20ea45878506"
 change_class = "HostBoundaryExtraction"
 target_region = "imports and broker-neutral host aliases"
 semantic_impact = "Replace ALOR protocol, UUID, tracing and runtime-host imports without changing strategy decisions."
@@ -35,9 +35,9 @@ implementation_status = "Planned"
 [[regions]]
 name = "config_state_types"
 line_start = 23
-line_end = 207
-line_count = 185
-sha256 = "2e3a9a9eb2af38119d318f561c0d1defccb36fff34bc30fa3cffd0c63ae054bb"
+line_end = 208
+line_count = 186
+sha256 = "f84c0183858747ffe6988ed6278cd4cc5361a97df4d036373f5bab55626155f9"
 change_class = "BrokerNeutralTypeMigration"
 target_region = "configuration, pending/deferred records and wrapper state"
 semantic_impact = "Migrate request and broker order identities to typed broker-neutral strings; preserve every field and constant."

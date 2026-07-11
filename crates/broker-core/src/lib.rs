@@ -11,6 +11,7 @@ pub mod command;
 pub mod envelope;
 pub mod event;
 pub mod hybrid_runtime_ids;
+pub mod hybrid_strategy_boundary;
 pub mod ids;
 pub mod instrument;
 pub mod market_data_lifecycle;
@@ -52,13 +53,23 @@ pub use hybrid_runtime_ids::{
     HybridRuntimeOwnedIdsBootstrap, HybridRuntimeOwnedOrderLifecycle, HybridRuntimeOwnedOrderRole,
     HybridRuntimeOwnedOrderUpdate, HybridRuntimeOwnedStopOrderUpdate,
 };
+pub use hybrid_strategy_boundary::{
+    map_hybrid_runtime_ack_error_code, map_hybrid_runtime_ack_status, HybridRiskGateRuntimeState,
+    HybridRiskGateSessionFinalization, HybridRuntimeAckErrorCode, HybridRuntimeAckStatus,
+    HybridRuntimeAttribution, HybridRuntimeBarEvent, HybridRuntimeBarOrigin,
+    HybridRuntimeBootstrapSnapshot, HybridRuntimeCommandAck, HybridRuntimeGatewayPhase,
+    HybridRuntimeOrderEvent, HybridRuntimeOrderRole, HybridRuntimeOwner,
+    HybridRuntimePaperExecutionMode, HybridRuntimePositionEvent, HybridRuntimeStateRestored,
+    HybridRuntimeStopOrderEvent, HybridRuntimeStrategyContext, HybridRuntimeTradeMode,
+};
 pub use ids::{
     deserialize_broker_order_id_legacy_numeric_or_string,
     deserialize_option_broker_order_id_legacy_numeric_or_string,
     deserialize_vec_broker_order_id_legacy_numeric_or_string, BrokerAccountId, BrokerOrderId,
-    BrokerOrderIdEncoding, BrokerOrderIdImportError, BrokerTradeId, BrokerTradeIdImportError,
-    ClientOrderId, ClientOrderIdError, StrategyRequestId, BROKER_ORDER_ID_ENCODING,
-    CLIENT_ORDER_ID_MAX_LEN, LEGACY_ALOR_NUMERIC_ORDER_ID_IMPORT, RUNTIME_STATE_SCHEMA_VERSION_V2,
+    BrokerOrderIdEncoding, BrokerOrderIdImportError, BrokerStopOrderId,
+    BrokerStopOrderIdImportError, BrokerTradeId, BrokerTradeIdImportError, ClientOrderId,
+    ClientOrderIdError, StrategyRequestId, BROKER_ORDER_ID_ENCODING, CLIENT_ORDER_ID_MAX_LEN,
+    LEGACY_ALOR_NUMERIC_ORDER_ID_IMPORT, RUNTIME_STATE_SCHEMA_VERSION_V2,
 };
 pub use instrument::{
     BrokerSymbol, Exchange, Instrument, InstrumentId, InstrumentMapEntry, InternalSymbol, Market,

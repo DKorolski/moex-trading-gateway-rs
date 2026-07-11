@@ -114,6 +114,52 @@ impl fmt::Display for BrokerOrderId {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+pub struct BrokerStopOrderId(String);
+
+impl BrokerStopOrderId {
+    #[track_caller]
+    pub fn new(value: impl Into<String>) -> Self {
+        Self::from_broker_native_exact(value)
+            .expect("BrokerStopOrderId::new requires a non-empty broker-native id")
+    }
+
+    pub fn from_broker_native_exact(
+        value: impl Into<String>,
+    ) -> Result<Self, BrokerStopOrderIdImportError> {
+        let value = value.into();
+        if value.is_empty() {
+            return Err(BrokerStopOrderIdImportError::EmptyBrokerNativeId);
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for BrokerStopOrderId {
+    type Error = BrokerStopOrderIdImportError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::from_broker_native_exact(value)
+    }
+}
+
+impl From<BrokerStopOrderId> for String {
+    fn from(value: BrokerStopOrderId) -> Self {
+        value.0
+    }
+}
+
+impl fmt::Display for BrokerStopOrderId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
 pub struct BrokerTradeId(String);
 
 impl BrokerTradeId {
@@ -250,6 +296,12 @@ pub enum BrokerOrderIdImportError {
     EmptyBrokerNativeId,
     #[error("legacy ALOR numeric order id must be positive: {0}")]
     NonPositiveLegacyAlorId(i64),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum BrokerStopOrderIdImportError {
+    #[error("broker-native stop-order id cannot be empty")]
+    EmptyBrokerNativeId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -419,6 +471,19 @@ mod tests {
         assert_eq!(
             BrokerOrderId::from_broker_native_exact("").expect_err("empty native id rejected"),
             BrokerOrderIdImportError::EmptyBrokerNativeId
+        );
+    }
+
+    #[test]
+    fn stop_order_id_has_a_distinct_non_empty_namespace() {
+        let stop_order_id =
+            BrokerStopOrderId::from_broker_native_exact("STOP-0001").expect("valid stop id");
+
+        assert_eq!(stop_order_id.as_str(), "STOP-0001");
+        assert_eq!(
+            BrokerStopOrderId::from_broker_native_exact("")
+                .expect_err("empty stop id must be rejected"),
+            BrokerStopOrderIdImportError::EmptyBrokerNativeId
         );
     }
 

@@ -40,7 +40,7 @@ manifest, scanner locks and tests together.
 
 ## Source-region policy
 
-The 6,203-line oracle is split into five exact, hashed regions: imports,
+The 6,203-line oracle is split into five contiguous exact, hashed regions: imports,
 configuration/state types, inherent implementation, source tests and callback
 implementation. Every region has an allowed migration class and planned target
 role.
@@ -51,10 +51,19 @@ simplification are forbidden.
 
 ## Callback policy
 
-Fourteen callbacks are implemented by the exact Hybrid oracle and must remain
-source-equivalent. Seven additional generic-host seams are not overridden by
+Fifteen callbacks are implemented by the exact Hybrid oracle and must remain
+source-equivalent. Six additional generic-host seams are not overridden by
 the source Hybrid. They are explicitly marked `Stage5CExplicitPolicy`; their
 generic defaults cannot be silently presented as migrated Hybrid behavior.
+
+`acknowledge_risk_gate_session_finalizations` is one of the fifteen source
+overrides. It removes only acknowledged pending finalizations and synchronizes
+state; treating it as a generic host default would risk duplicate ledger rows.
+
+The manifest test extracts direct methods from
+`impl Strategy for HybridIntradayRuntimeStrategy` and requires exact equality
+with all fixture records marked `source_override=true`. It separately requires
+exactly 21 callback records, so duplicate names cannot hide an omission.
 
 Stage 5B-2a therefore prevents two common parity errors:
 
@@ -67,13 +76,50 @@ The boundary map requires all eight state groups, including the transient
 bracket terminal-reconciliation marker. It freezes these identity migrations:
 
 ```text
-Uuid pending request id       -> StrategyRequestId
-i64 order id                  -> BrokerOrderId(String)
-i64 stop exchange order id    -> BrokerOrderId(String)
-String stop order id          -> BrokerOrderId(String)
+all strategy request UUIDs    -> StrategyRequestId
+i64 order/exchange-order ids  -> BrokerOrderId(String)
+String stop-order ids         -> BrokerStopOrderId(String)
 ```
 
 Numeric ids are imported as decimal strings. Surrogate or lossy mappings remain
+forbidden. Stop-order ids and exchange order ids are separate correlation
+namespaces and cannot be interchanged.
+
+## Lossless callback contracts
+
+Stage 5B-2a adds broker-neutral, wrapper-specific contracts in
+`broker-core::hybrid_strategy_boundary` for the source-critical surfaces:
+
+- exact ACK status including `Confirmed`, `TradingWindowClosed`, error message
+  and processed timestamp;
+- order events with internal sid/cycle/owner/role attribution;
+- stop-order events with separate `BrokerStopOrderId` and exchange
+  `BrokerOrderId` namespaces;
+- position events with the source-significant `existing` flag;
+- canonical bar origin (`History`, `HistoryGap`, `Live`, `Replay`) and complete
+  strategy context including tick size, trade/paper modes and gateway phase;
+- composite bootstrap carrying strategy-owned orders, protective orders,
+  attribution and broker truth;
+- restored-state and riskgate records.
+
+Internal attribution and compatibility error detail reach the strategy
+callback unchanged. Redaction occurs only when operator evidence is rendered.
+The boundary fixture records required source fields, target fields, status,
+timestamp, identity, origin and redaction mapping for all 21 seams. State
+snapshot/restore and the six generic seams remain explicitly gated for Stage
+5D and Stage 5C rather than being falsely marked lossless.
+
+## Workspace-wide target lock
+
+While `currently_allowed_in_rust_target_set=false`, the scanner rejects across
+all workspace crates:
+
+- any Rust file named `hybrid_intraday_runtime.rs`;
+- any definition of `HybridIntradayRuntimeStrategy`;
+- any `impl Strategy for HybridIntradayRuntimeStrategy`.
+
+The oracle outside `crates/` remains the only allowed copy. Stage 5B-2b must
+open exactly the declared path while all alternate crate/path targets remain
 forbidden.
 
 ## Accepted review backlog
