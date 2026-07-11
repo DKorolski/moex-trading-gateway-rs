@@ -70,6 +70,143 @@ import tomllib
 
 failures = 0
 
+
+def rust_tokens_outside_comments_and_literals(source):
+    """Return the Rust token subset needed by the Stage 5 activation guard."""
+
+    tokens = []
+    index = 0
+    source_len = len(source)
+
+    def skip_quoted(quote_index):
+        cursor = quote_index + 1
+        while cursor < source_len:
+            if source[cursor] == "\\":
+                cursor += 2
+                continue
+            if source[cursor] == '"':
+                return cursor + 1
+            cursor += 1
+        return source_len
+
+    def raw_string_end(start):
+        for prefix in ("br", "cr", "r"):
+            if not source.startswith(prefix, start):
+                continue
+            cursor = start + len(prefix)
+            hash_count = 0
+            while cursor < source_len and source[cursor] == "#":
+                hash_count += 1
+                cursor += 1
+            if cursor >= source_len or source[cursor] != '"':
+                continue
+            terminator = '"' + ("#" * hash_count)
+            end = source.find(terminator, cursor + 1)
+            return source_len if end == -1 else end + len(terminator)
+        return None
+
+    def char_literal_end(quote_index):
+        cursor = quote_index + 1
+        if cursor >= source_len or source[cursor] in ("'", "\n", "\r"):
+            return None
+        if source[cursor] == "\\":
+            cursor += 1
+            if cursor >= source_len:
+                return None
+            if source[cursor] == "u" and cursor + 1 < source_len and source[cursor + 1] == "{":
+                closing_brace = source.find("}", cursor + 2)
+                if closing_brace == -1:
+                    return None
+                cursor = closing_brace + 1
+            elif source[cursor] == "x":
+                cursor += 3
+            else:
+                cursor += 1
+        else:
+            cursor += 1
+        if cursor < source_len and source[cursor] == "'":
+            return cursor + 1
+        return None
+
+    while index < source_len:
+        if source[index].isspace():
+            index += 1
+            continue
+        if source.startswith("//", index):
+            newline = source.find("\n", index + 2)
+            index = source_len if newline == -1 else newline + 1
+            continue
+        if source.startswith("/*", index):
+            depth = 1
+            index += 2
+            while index < source_len and depth:
+                if source.startswith("/*", index):
+                    depth += 1
+                    index += 2
+                elif source.startswith("*/", index):
+                    depth -= 1
+                    index += 2
+                else:
+                    index += 1
+            continue
+
+        raw_end = raw_string_end(index)
+        if raw_end is not None:
+            index = raw_end
+            continue
+        if source[index] == '"':
+            index = skip_quoted(index)
+            continue
+        if source[index] in ("b", "c") and index + 1 < source_len and source[index + 1] == '"':
+            index = skip_quoted(index + 1)
+            continue
+        if source[index] == "'":
+            literal_end = char_literal_end(index)
+            if literal_end is not None:
+                index = literal_end
+                continue
+        if source[index] == "b" and index + 1 < source_len and source[index + 1] == "'":
+            literal_end = char_literal_end(index + 1)
+            if literal_end is not None:
+                index = literal_end
+                continue
+
+        if (
+            source.startswith("r#", index)
+            and index + 2 < source_len
+            and (source[index + 2] == "_" or source[index + 2].isalpha())
+        ):
+            cursor = index + 3
+            while cursor < source_len and (
+                source[cursor] == "_" or source[cursor].isalnum()
+            ):
+                cursor += 1
+            tokens.append(source[index + 2 : cursor])
+            index = cursor
+            continue
+        if source[index] == "_" or source[index].isalpha():
+            cursor = index + 1
+            while cursor < source_len and (
+                source[cursor] == "_" or source[cursor].isalnum()
+            ):
+                cursor += 1
+            tokens.append(source[index:cursor])
+            index = cursor
+            continue
+
+        tokens.append(source[index])
+        index += 1
+
+    return tokens
+
+
+def has_token_sequence(tokens, expected):
+    width = len(expected)
+    return any(
+        tokens[index : index + width] == expected
+        for index in range(len(tokens) - width + 1)
+    )
+
 root_manifest_path = Path("Cargo.toml")
 expected_workspace_members = {
     "crates/broker-core",
@@ -272,14 +409,15 @@ wrapper_oracle_filename = "hybrid_intraday_runtime.rs"
 
 for candidate in workspace_rs_files:
     candidate_source = candidate.read_text()
-    compact_candidate_source = "".join(candidate_source.split())
+    candidate_tokens = rust_tokens_outside_comments_and_literals(candidate_source)
     has_wrapper_identifier = "HybridIntradayRuntimeStrategy" in candidate_source
     has_oracle_filename = wrapper_oracle_filename in candidate_source
-    has_forbidden_include = "include!(" in compact_candidate_source
-    has_forbidden_path_attribute = "#[path" in compact_candidate_source
+    has_forbidden_include = has_token_sequence(candidate_tokens, ["include", "!"])
+    has_forbidden_path_attribute = has_token_sequence(candidate_tokens, ["#", "[", "path"])
+    has_include_str_macro = has_token_sequence(candidate_tokens, ["include_str", "!"])
     unapproved_oracle_text_read = (
         has_oracle_filename
-        and "include_str!(" in compact_candidate_source
+        and has_include_str_macro
         and candidate not in allowed_wrapper_oracle_include_str_paths
     )
     wrapper_markers = [

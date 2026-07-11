@@ -54,6 +54,17 @@ expect_scanner_failure() {
   rm -f /tmp/moex_negative_scan.$$
 }
 
+expect_scanner_success() {
+  local case_name="$1"
+  if ! (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >/tmp/moex_negative_scan.$$ 2>&1; then
+    cat /tmp/moex_negative_scan.$$ >&2
+    rm -f /tmp/moex_negative_scan.$$
+    echo "forbidden-surface-negative-harness: unexpected failure for $case_name" >&2
+    exit 1
+  fi
+  rm -f /tmp/moex_negative_scan.$$
+}
+
 run_negative_case "same-module-extra-post" 'fn _m3c_negative_same_module_post(client: reqwest::Client, url: &str) { let _ = client.post(url); }'
 run_negative_case "same-module-extra-delete" 'fn _m3c_negative_same_module_delete(client: reqwest::Client, url: &str) { let _ = client.delete(url); }'
 run_negative_case "generic-method-post" 'fn _m3c_negative_generic_post() { let _ = reqwest::Method::POST; }'
@@ -223,11 +234,57 @@ rm -f "$generic_include"
 mv "$alternate_lib_backup" "$alternate_lib"
 
 cp "$alternate_lib" "$alternate_lib_backup"
+comment_include="$tmp_root/crates/broker-core/src/stage5_comment_include.rs"
+printf 'include /* bypass */ ! ("synthetic_generated.rs");\n' > "$comment_include"
+printf '\npub mod stage5_comment_include;\n' >> "$alternate_lib"
+expect_scanner_failure "comment-separated-include-macro"
+rm -f "$comment_include"
+mv "$alternate_lib_backup" "$alternate_lib"
+
+cp "$alternate_lib" "$alternate_lib_backup"
+nested_comment_include="$tmp_root/crates/broker-core/src/stage5_nested_comment_include.rs"
+printf 'include /* outer /* nested */ outer */ ! ("synthetic_generated.rs");\n' > "$nested_comment_include"
+printf '\npub mod stage5_nested_comment_include;\n' >> "$alternate_lib"
+expect_scanner_failure "nested-comment-separated-include-macro"
+rm -f "$nested_comment_include"
+mv "$alternate_lib_backup" "$alternate_lib"
+
+cp "$alternate_lib" "$alternate_lib_backup"
+raw_identifier_include="$tmp_root/crates/broker-core/src/stage5_raw_identifier_include.rs"
+printf 'r#include!("synthetic_generated.rs");\n' > "$raw_identifier_include"
+printf '\npub mod stage5_raw_identifier_include;\n' >> "$alternate_lib"
+expect_scanner_failure "raw-identifier-include-macro"
+rm -f "$raw_identifier_include"
+mv "$alternate_lib_backup" "$alternate_lib"
+
+cp "$alternate_lib" "$alternate_lib_backup"
 path_wrapper="$tmp_root/crates/broker-core/src/stage5_path_wrapper.rs"
 printf '#[path = "../../../source-oracles/alor-stage5/hybrid_intraday_runtime.rs"]\nmod stage5_wrapper;\n' > "$path_wrapper"
 printf '\npub mod stage5_path_wrapper;\n' >> "$alternate_lib"
 expect_scanner_failure "path-attribute-wrapper-oracle"
 rm -f "$path_wrapper"
+mv "$alternate_lib_backup" "$alternate_lib"
+
+cp "$alternate_lib" "$alternate_lib_backup"
+comment_path="$tmp_root/crates/broker-core/src/stage5_comment_path.rs"
+printf '#[/* bypass */ path = "synthetic_generated.rs"]\nmod generated;\n' > "$comment_path"
+printf '\npub mod stage5_comment_path;\n' >> "$alternate_lib"
+expect_scanner_failure "comment-separated-path-attribute"
+rm -f "$comment_path"
+mv "$alternate_lib_backup" "$alternate_lib"
+
+cp "$alternate_lib" "$alternate_lib_backup"
+lexical_non_code="$tmp_root/crates/broker-core/src/stage5_lexical_non_code.rs"
+printf '%s\n' \
+  '// include /* comment */ ! ("not_code.rs");' \
+  '/* #[/* nested */ path = "not_code.rs"] */' \
+  'pub const INCLUDE_TEXT: &str = "include!(\"not_code.rs\")";' \
+  'pub const ESCAPED_TEXT: &str = "prefix \" include!(\"not_code.rs\")";' \
+  'pub const PATH_TEXT: &str = r###"#[path = "not_code.rs"]"###;' \
+  "pub const INCLUDE_CHAR: char = '!';" > "$lexical_non_code"
+printf '\npub mod stage5_lexical_non_code;\n' >> "$alternate_lib"
+expect_scanner_success "include-and-path-text-outside-rust-code"
+rm -f "$lexical_non_code"
 mv "$alternate_lib_backup" "$alternate_lib"
 
 bracket_fixture="$tmp_root/tests/fixtures/stage5/bracket_terminal_reconciliation.json"

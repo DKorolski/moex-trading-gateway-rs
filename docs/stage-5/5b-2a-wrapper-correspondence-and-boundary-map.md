@@ -164,7 +164,8 @@ the exact parsed workspace member set:
 - any occurrence of the wrapper identifier, including macro-generated or
   comment-separated definitions;
 - every `include!` macro and every `#[path]` module attribute, independent of
-  how a target path is split or generated.
+  how a target path is split/generated or how Rust comments and whitespace
+  separate the relevant tokens.
 
 Only three hash-locked inventory tests may read the oracle through
 `include_str!`. The workspace member set is frozen, so a new member outside
