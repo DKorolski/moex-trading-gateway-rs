@@ -50,6 +50,8 @@ fi
 rm -f /tmp/moex_forbidden_endpoint_gate_literal.$$
 
 python3 - <<'PY'
+import hashlib
+import json
 from pathlib import Path
 import sys
 
@@ -188,6 +190,153 @@ for path in Path("crates").glob("**/*.rs"):
             search_from = idx + len(token)
 
 source = Path("crates/finam-gateway/src/lib.rs").read_text()
+
+semantic_kernel_root = Path("crates/strategy-runtime-core")
+semantic_kernel_forbidden = [
+    "broker-finam",
+    "finam-gateway",
+    "reqwest",
+    "tokio",
+    "redis::",
+    "std::net",
+    "std::process",
+    "Method::POST",
+    "Method::DELETE",
+    ".post(",
+    ".delete(",
+    "FINAM_SECRET",
+    "real_order_endpoint",
+]
+if not semantic_kernel_root.exists():
+    print(
+        "forbidden-surface-scan: strategy-runtime-core semantic kernel missing",
+        file=sys.stderr,
+    )
+    failures += 1
+else:
+    semantic_paths = list(semantic_kernel_root.glob("**/*.rs")) + [
+        semantic_kernel_root / "Cargo.toml"
+    ]
+    for semantic_path in semantic_paths:
+        if not semantic_path.exists():
+            continue
+        semantic_source = semantic_path.read_text()
+        for pattern in semantic_kernel_forbidden:
+            if pattern in semantic_source:
+                print(
+                    "forbidden-surface-scan: strategy semantic kernel contains "
+                    f"forbidden transport/runtime token {pattern!r} in {semantic_path}",
+                    file=sys.stderr,
+                )
+                failures += 1
+
+semantic_ledger_path = semantic_kernel_root / "source-correspondence.toml"
+if not semantic_ledger_path.exists():
+    print(
+        "forbidden-surface-scan: strategy semantic source correspondence ledger missing",
+        file=sys.stderr,
+    )
+    failures += 1
+else:
+    try:
+        semantic_ledger = {}
+        semantic_file_records = []
+        current_record = None
+        for raw_line in semantic_ledger_path.read_text().splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line == "[[files]]":
+                current_record = {}
+                semantic_file_records.append(current_record)
+                continue
+            key, raw_value = (part.strip() for part in line.split("=", 1))
+            if raw_value in {"true", "false"}:
+                value = raw_value == "true"
+            elif raw_value.startswith('"'):
+                value = json.loads(raw_value)
+            else:
+                value = int(raw_value)
+            target = current_record if current_record is not None else semantic_ledger
+            target[key] = value
+        semantic_ledger["files"] = semantic_file_records
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        print(
+            "forbidden-surface-scan: cannot parse strategy semantic source "
+            f"correspondence ledger: {error}",
+            file=sys.stderr,
+        )
+        failures += 1
+        semantic_ledger = {}
+
+    expected_closed_flags = {
+        "production_semantics_changed": False,
+        "finam_transport_dependency_added": False,
+        "redis_client_dependency_added": False,
+        "real_order_endpoint_added": False,
+    }
+    for field, expected in expected_closed_flags.items():
+        if semantic_ledger.get(field) is not expected:
+            print(
+                "forbidden-surface-scan: strategy semantic correspondence "
+                f"ledger field {field!r} must be {expected}",
+                file=sys.stderr,
+            )
+            failures += 1
+
+    semantic_files = semantic_ledger.get("files", [])
+    if len(semantic_files) != 7:
+        print(
+            "forbidden-surface-scan: strategy semantic correspondence ledger "
+            f"must contain exactly 7 imported files, found {len(semantic_files)}",
+            file=sys.stderr,
+        )
+        failures += 1
+    seen_target_paths = set()
+    for record in semantic_files:
+        target_path_raw = record.get("target_path")
+        expected_sha256 = record.get("target_sha256")
+        change_class = record.get("change_class")
+        if change_class not in {"CopiedUnchanged", "NamespaceOnly"}:
+            print(
+                "forbidden-surface-scan: unapproved Stage 5B-1 change class "
+                f"{change_class!r}",
+                file=sys.stderr,
+            )
+            failures += 1
+        if not isinstance(target_path_raw, str):
+            print(
+                "forbidden-surface-scan: correspondence target path missing",
+                file=sys.stderr,
+            )
+            failures += 1
+            continue
+        if target_path_raw in seen_target_paths:
+            print(
+                "forbidden-surface-scan: duplicate correspondence target path "
+                f"{target_path_raw!r}",
+                file=sys.stderr,
+            )
+            failures += 1
+        seen_target_paths.add(target_path_raw)
+        target_path = Path(target_path_raw)
+        if not target_path.is_file():
+            print(
+                "forbidden-surface-scan: correspondence target file missing "
+                f"{target_path}",
+                file=sys.stderr,
+            )
+            failures += 1
+            continue
+        actual_sha256 = hashlib.sha256(target_path.read_bytes()).hexdigest()
+        if actual_sha256 != expected_sha256:
+            print(
+                "forbidden-surface-scan: correspondence target hash mismatch "
+                f"for {target_path}: actual={actual_sha256} "
+                f"expected={expected_sha256}",
+                file=sys.stderr,
+            )
+            failures += 1
 
 scopes = {
     "real-readonly transport": (

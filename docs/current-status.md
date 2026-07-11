@@ -37,6 +37,9 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 5A semantic inventory, source provenance, callback/state/configuration
   ledger and evidence schema are a review candidate. No strategy code or live
   execution surface is added by Stage 5A.
+- Stage 5B-1 pure Hybrid semantic-kernel import is a review candidate. The new
+  `strategy-runtime-core` crate preserves the frozen model/orchestrator/riskgate
+  source and tests but does not include the integrated runtime wrapper.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
@@ -273,7 +276,8 @@ Amber:
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
 - Stage 5A freezes the source and acceptance inventory; Stage 5B source import
-  remains gated on review.
+  has started with the reviewable pure-kernel-only Stage 5B-1 slice. Wrapper,
+  host, state and differential parity work remain pending.
 
 Red / not yet implemented:
 

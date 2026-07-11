@@ -10,6 +10,9 @@ The first target adapter is Finam Trade API. The project is developed with gatew
 - `broker-finam`: Finam adapter surface. Read-only, WebSocket market data, broker-truth mapping, and guarded operator one-shot order harnesses exist; continuous runtime-live order placement remains out of scope.
 - `finam-gateway`: FINAM shadow gateway boundary for Redis health/readiness, broker-truth snapshots, read-only market data publication, and mock/paper ACK publication. Command consumption to real FINAM and runtime-live endpoints stay disabled.
 - `broker-cli`: operator-facing diagnostics for endpoint defaults, auth checks, and redacted read-only probes. Full exports are a later M1 task.
+- `strategy-runtime-core`: broker-neutral Hybrid semantic kernel imported from
+  the frozen ALOR source. It has no FINAM transport, Redis client, command
+  consumer, or real order endpoint.
 
 ## Milestones
 
@@ -76,6 +79,8 @@ The Stage 5 plan and Stage 5A inventory/evidence schema are
 [docs/stage-5-real-strategy-semantics-plan.md](docs/stage-5-real-strategy-semantics-plan.md)
 and
 [docs/stage-5/5a-semantic-inventory-and-evidence-schema.md](docs/stage-5/5a-semantic-inventory-and-evidence-schema.md).
+The first source-import slice is documented in
+[docs/stage-5/5b-1-pure-semantic-kernel-import.md](docs/stage-5/5b-1-pure-semantic-kernel-import.md).
 
 Useful local probes:
 

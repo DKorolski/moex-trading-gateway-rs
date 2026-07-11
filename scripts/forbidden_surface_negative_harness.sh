@@ -37,5 +37,7 @@ run_negative_case "non-reqwest-client-abstraction" 'trait OrderEndpointHttpClien
 run_negative_case "wrong-module-post-delete" 'fn _m3d_negative_wrong_module(client: reqwest::Client, url: &str) { let _ = client.post(url); let _ = client.delete(url); }' "$tmp_root/crates/finam-gateway/src/lib.rs"
 run_negative_case "sltp-bracket-endpoint-expansion" 'fn _m3d_negative_sltp_bracket(client: reqwest::Client, url: &str) { let _ = client.post(url); }'
 run_negative_case "runtime-command-consumer-bypass" 'fn _m3d_negative_runtime_bypass() { let _ = reqwest::Method::POST; }' "$tmp_root/crates/finam-gateway/src/lib.rs"
+run_negative_case "strategy-semantic-kernel-transport-dependency" 'fn _stage5_negative_transport() { let _ = reqwest::Method::POST; }' "$tmp_root/crates/strategy-runtime-core/src/lib.rs"
+run_negative_case "strategy-semantic-source-correspondence-drift" '// stage5 negative source drift' "$tmp_root/crates/strategy-runtime-core/src/hybrid_intraday/types.rs"
 
 echo "forbidden-surface-negative-harness: ok"

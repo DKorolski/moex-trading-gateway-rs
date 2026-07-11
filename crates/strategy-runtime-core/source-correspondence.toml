@@ -1,0 +1,57 @@
+schema_version = 1
+stage = "Stage5B1"
+alor_source_commit = "43242c89944d335d9cb0729b38bdd7d658378d5e"
+production_semantics_changed = false
+finam_transport_dependency_added = false
+redis_client_dependency_added = false
+real_order_endpoint_added = false
+
+[[files]]
+source_path = "strategy-runtime/src/strategies/hybrid_intraday/mod.rs"
+source_sha256 = "c70e3847f1a99e00c5d078d19b7b5f103d9b4d26853886b0b47d4805818ac84c"
+target_path = "crates/strategy-runtime-core/src/hybrid_intraday/mod.rs"
+target_sha256 = "c70e3847f1a99e00c5d078d19b7b5f103d9b4d26853886b0b47d4805818ac84c"
+change_class = "CopiedUnchanged"
+
+[[files]]
+source_path = "strategy-runtime/src/strategies/hybrid_intraday/types.rs"
+source_sha256 = "8b515e252bc493890483793887248a6a12bedcf072ab87c574d4d3efd3b7eedc"
+target_path = "crates/strategy-runtime-core/src/hybrid_intraday/types.rs"
+target_sha256 = "8b515e252bc493890483793887248a6a12bedcf072ab87c574d4d3efd3b7eedc"
+change_class = "CopiedUnchanged"
+
+[[files]]
+source_path = "strategy-runtime/src/strategies/hybrid_intraday/intraday_breakout.rs"
+source_sha256 = "a3b125f282f201b66dfa8d2685f22aa94048856a5145d537b76dc8934a5f9ae5"
+target_path = "crates/strategy-runtime-core/src/hybrid_intraday/intraday_breakout.rs"
+target_sha256 = "a3b125f282f201b66dfa8d2685f22aa94048856a5145d537b76dc8934a5f9ae5"
+change_class = "CopiedUnchanged"
+
+[[files]]
+source_path = "strategy-runtime/src/strategies/hybrid_intraday/mean_reversion.rs"
+source_sha256 = "4aecdeeb0bee8bcbae10cd2596c13d4450885b4ad7a8899346b14d743d4039ab"
+target_path = "crates/strategy-runtime-core/src/hybrid_intraday/mean_reversion.rs"
+target_sha256 = "4aecdeeb0bee8bcbae10cd2596c13d4450885b4ad7a8899346b14d743d4039ab"
+change_class = "CopiedUnchanged"
+
+[[files]]
+source_path = "strategy-runtime/src/strategies/hybrid_intraday/high180.rs"
+source_sha256 = "e1f39a3afdf9745682682da0083f97ac0fa5361f979525d5ea383d6a6aa64456"
+target_path = "crates/strategy-runtime-core/src/hybrid_intraday/high180.rs"
+target_sha256 = "e1f39a3afdf9745682682da0083f97ac0fa5361f979525d5ea383d6a6aa64456"
+change_class = "CopiedUnchanged"
+
+[[files]]
+source_path = "strategy-runtime/src/strategies/hybrid_intraday/orchestrator.rs"
+source_sha256 = "db4dfdb014592d99567db9239c84b02c7f61b7eb768ee97a9203bead1c8ed1c0"
+target_path = "crates/strategy-runtime-core/src/hybrid_intraday/orchestrator.rs"
+target_sha256 = "1e784411d348fcf090887f7f50062b0cbd34494912288100c1ca1d851d8d5bd9"
+change_class = "NamespaceOnly"
+change_note = "One cfg(test) import changed from crate::strategies::hybrid_intraday to crate::hybrid_intraday and rustfmt collapsed that import; production source is unchanged."
+
+[[files]]
+source_path = "strategy-runtime/src/strategies/hybrid_intraday/risk_gate.rs"
+source_sha256 = "c85779ec5023e602cb6088e116fb58ed0bc80c31828499a0bd4557e2034dee34"
+target_path = "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs"
+target_sha256 = "c85779ec5023e602cb6088e116fb58ed0bc80c31828499a0bd4557e2034dee34"
+change_class = "CopiedUnchanged"
