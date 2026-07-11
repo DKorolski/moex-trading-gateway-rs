@@ -275,10 +275,8 @@ for candidate in workspace_rs_files:
     compact_candidate_source = "".join(candidate_source.split())
     has_wrapper_identifier = "HybridIntradayRuntimeStrategy" in candidate_source
     has_oracle_filename = wrapper_oracle_filename in candidate_source
-    activates_oracle_code = has_oracle_filename and (
-        "include!(" in compact_candidate_source
-        or "#[path" in compact_candidate_source
-    )
+    has_forbidden_include = "include!(" in compact_candidate_source
+    has_forbidden_path_attribute = "#[path" in compact_candidate_source
     unapproved_oracle_text_read = (
         has_oracle_filename
         and "include_str!(" in compact_candidate_source
@@ -287,7 +285,8 @@ for candidate in workspace_rs_files:
     wrapper_markers = [
         candidate.name == wrapper_oracle_filename,
         has_wrapper_identifier,
-        activates_oracle_code,
+        has_forbidden_include,
+        has_forbidden_path_attribute,
         unapproved_oracle_text_read,
     ]
     if any(wrapper_markers):

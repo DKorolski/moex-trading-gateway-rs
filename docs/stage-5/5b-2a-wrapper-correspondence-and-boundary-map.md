@@ -163,7 +163,8 @@ the exact parsed workspace member set:
 - any `impl Strategy for HybridIntradayRuntimeStrategy`.
 - any occurrence of the wrapper identifier, including macro-generated or
   comment-separated definitions;
-- `include!` or `#[path]` activation of the source oracle.
+- every `include!` macro and every `#[path]` module attribute, independent of
+  how a target path is split or generated.
 
 Only three hash-locked inventory tests may read the oracle through
 `include_str!`. The workspace member set is frozen, so a new member outside
