@@ -246,6 +246,19 @@ impl HybridIntradayRuntimeStrategy {
         }
     }
 
+    pub(crate) fn stage5c_binding_matches(
+        &self,
+        instrument: &broker_core::InstrumentId,
+        tick_size: f64,
+    ) -> (bool, bool) {
+        (
+            self.config.symbol == instrument.symbol,
+            self.config.tick_size.is_finite()
+                && tick_size.is_finite()
+                && (self.config.tick_size - tick_size).abs() <= f64::EPSILON,
+        )
+    }
+
     pub fn new(config: HybridIntradayRuntimeConfig) -> Self {
         let mr = MeanReversionEngine::new(config.mr_config);
         let br = IntradayBreakoutEngine::new(config.breakout_config);

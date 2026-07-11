@@ -70,11 +70,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   future or stale evidence at admission time, and binds the complete target
   `InstrumentId`, account scope and instrument price step. It invokes no
   strategy callback and attaches neither a runtime host nor an intent sink.
-- Stage 5C-b one-shot bootstrap-notification facade is a review candidate. It
-  consumes fresh admission evidence by value, rechecks expiry, passes only the
-  exact admitted snapshot into `on_bootstrap_snapshot`, and returns a sealed
-  receipt with every later lifecycle step still false. Active target orders
-  remain blocked until ownership-complete mapping is accepted.
+- Stage 5C-b linear bootstrap-notification type-state is a review candidate. It
+  consumes Stage 4 evidence into strategy-bound admission, then consumes the
+  concrete strategy plus admission, rechecks expiry/config symbol/tick binding,
+  passes only the exact admitted snapshot into `on_bootstrap_snapshot`, and
+  returns `Stage5cBootstrappedPaperStrategy` owning that same strategy instance.
+  Every later lifecycle step remains false; active target orders stay blocked
+  until ownership-complete mapping is accepted.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

@@ -46,7 +46,12 @@ struct BootstrapFixture {
     schema_version: u16,
     stage: String,
     status: String,
+    stage4_evidence_consumed_into_admission: bool,
     admission_consumed_by_value: bool,
+    strategy_consumed_by_value: bool,
+    strategy_id_bound_in_admission: bool,
+    strategy_symbol_binding_required: bool,
+    strategy_tick_size_binding_required: bool,
     expiry_rechecked_at_notification: bool,
     snapshot_source: String,
     active_orders_without_ownership_mapping: String,
@@ -58,6 +63,7 @@ struct BootstrapFixture {
 
 #[derive(Debug, Deserialize)]
 struct BootstrapLifecycle {
+    type_state: String,
     bootstrap_notification_emitted: bool,
     runtime_state_restored: bool,
     warmup_started: bool,
@@ -238,8 +244,11 @@ fn stage5c_accepted_case_is_built_through_canonical_stage4_chain() {
     for case in fixture.cases {
         let mut canonical = canonical_input();
         apply_mutation(&mut canonical, &case.mutation);
+        let expected_snapshot = canonical.evidence.applied_snapshot().clone();
+        let expected_expiry = canonical.evidence.required_source_expires_at();
         let result = admit_stage5c_paper_host(Stage5cPaperHostAdmissionInput {
-            stage4_evidence: &canonical.evidence,
+            stage4_evidence: canonical.evidence,
+            strategy_id: "hybrid_imoexf".to_string(),
             instrument_spec: &canonical.spec,
             configured_account_id: &canonical.configured_account,
             configured_target_instrument: &canonical.configured_target,
@@ -255,14 +264,9 @@ fn stage5c_accepted_case_is_built_through_canonical_stage4_chain() {
             );
             assert_eq!(admission.account_id(), &canonical.configured_account);
             assert_eq!(admission.target_instrument(), &canonical.configured_target);
-            assert_eq!(
-                admission.bootstrap_snapshot(),
-                canonical.evidence.applied_snapshot()
-            );
-            assert_eq!(
-                admission.expires_at(),
-                canonical.evidence.required_source_expires_at()
-            );
+            assert_eq!(admission.bootstrap_snapshot(), &expected_snapshot);
+            assert_eq!(admission.expires_at(), expected_expiry);
+            assert_eq!(admission.strategy_id(), "hybrid_imoexf");
             assert!(admission.issued_ts() >= admission.checked_ts());
             assert!(admission.is_paper_only());
             assert!(!admission.runtime_host_attached());
@@ -296,13 +300,18 @@ fn stage5c_fixture_keeps_all_execution_surfaces_closed() {
 #[test]
 fn stage5cb_fixture_freezes_one_shot_bootstrap_only_boundary() {
     let fixture = bootstrap_fixture();
-    assert_eq!(fixture.schema_version, 1);
+    assert_eq!(fixture.schema_version, 2);
     assert_eq!(fixture.stage, "Stage5C-b");
     assert_eq!(
         fixture.status,
-        "one_shot_time_checked_bootstrap_notification_no_send"
+        "linear_type_state_bootstrap_notification_no_send"
     );
+    assert!(fixture.stage4_evidence_consumed_into_admission);
     assert!(fixture.admission_consumed_by_value);
+    assert!(fixture.strategy_consumed_by_value);
+    assert!(fixture.strategy_id_bound_in_admission);
+    assert!(fixture.strategy_symbol_binding_required);
+    assert!(fixture.strategy_tick_size_binding_required);
     assert!(fixture.expiry_rechecked_at_notification);
     assert_eq!(
         fixture.snapshot_source,
@@ -311,6 +320,10 @@ fn stage5cb_fixture_freezes_one_shot_bootstrap_only_boundary() {
     assert_eq!(fixture.active_orders_without_ownership_mapping, "blocked");
     assert_eq!(fixture.source_callback, "on_bootstrap_snapshot");
     assert_eq!(fixture.source_callback_intent_count, 0);
+    assert_eq!(
+        fixture.lifecycle.type_state,
+        "Stage5cBootstrappedPaperStrategy"
+    );
     assert!(fixture.lifecycle.bootstrap_notification_emitted);
     assert!(!fixture.lifecycle.runtime_state_restored);
     assert!(!fixture.lifecycle.warmup_started);
@@ -331,16 +344,45 @@ fn stage5cb_fixture_freezes_one_shot_bootstrap_only_boundary() {
 #[test]
 fn stage5c_rejects_application_from_another_stage4_run() {
     let source = include_str!("../src/stage5c_paper_host.rs");
-    assert!(source.contains("pub stage4_evidence: &'a Stage4AcceptedPaperHostEvidence"));
+    assert!(source.contains("pub stage4_evidence: Stage4AcceptedPaperHostEvidence"));
     assert!(!source.contains("pub stage4_application:"));
     assert!(!source.contains("pub stage4j_report:"));
 }
 
 #[test]
+fn stage5c_stage4_evidence_is_consumed_into_admission() {
+    let source = include_str!("../src/stage5c_paper_host.rs");
+    assert!(source.contains("pub stage4_evidence: Stage4AcceptedPaperHostEvidence"));
+    let broker_source = include_str!("../../broker-core/src/stage4_bootstrap.rs");
+    assert!(broker_source.contains("pub struct Stage4AcceptedPaperHostEvidence"));
+    assert!(!broker_source
+        .contains("#[derive(Clone, PartialEq)]\npub struct Stage4AcceptedPaperHostEvidence"));
+}
+
+#[test]
+fn stage5cb_cannot_issue_two_admissions_from_one_evidence() {
+    let source = include_str!("../src/stage5c_paper_host.rs");
+    assert!(source.contains("stage4_evidence: evidence"));
+    assert!(source.contains("Stage5cPaperHostAdmissionInput"));
+    assert!(source.contains("```compile_fail"));
+}
+
+#[test]
+fn stage5cb_lifecycle_cannot_continue_on_different_strategy_binding() {
+    let source = include_str!("../src/stage5c_paper_host.rs");
+    assert!(source.contains("pub struct Stage5cBootstrappedPaperStrategy"));
+    let strategy_field = ["strategy: HybridIntraday", "RuntimeStrategy"].concat();
+    assert!(source.contains(&strategy_field));
+    assert!(!source.contains("pub fn into_parts("));
+}
+
+#[test]
 fn stage5c_capability_binds_exact_admitted_bootstrap_snapshot() {
     let canonical = canonical_input();
+    let expected_snapshot = canonical.evidence.applied_snapshot().clone();
     let admission = admit_stage5c_paper_host(Stage5cPaperHostAdmissionInput {
-        stage4_evidence: &canonical.evidence,
+        stage4_evidence: canonical.evidence,
+        strategy_id: "hybrid_imoexf".to_string(),
         instrument_spec: &canonical.spec,
         configured_account_id: &canonical.configured_account,
         configured_target_instrument: &canonical.configured_target,
@@ -348,17 +390,16 @@ fn stage5c_capability_binds_exact_admitted_bootstrap_snapshot() {
         allow_live_orders: false,
     })
     .expect("fresh canonical evidence");
-    assert_eq!(
-        admission.bootstrap_snapshot(),
-        canonical.evidence.applied_snapshot()
-    );
+    assert_eq!(admission.bootstrap_snapshot(), &expected_snapshot);
 }
 
 #[test]
 fn stage5c_capability_records_evidence_expiry() {
     let canonical = canonical_input();
+    let expected_expiry = canonical.evidence.required_source_expires_at();
     let admission = admit_stage5c_paper_host(Stage5cPaperHostAdmissionInput {
-        stage4_evidence: &canonical.evidence,
+        stage4_evidence: canonical.evidence,
+        strategy_id: "hybrid_imoexf".to_string(),
         instrument_spec: &canonical.spec,
         configured_account_id: &canonical.configured_account,
         configured_target_instrument: &canonical.configured_target,
@@ -366,10 +407,7 @@ fn stage5c_capability_records_evidence_expiry() {
         allow_live_orders: false,
     })
     .expect("fresh canonical evidence");
-    assert_eq!(
-        admission.expires_at(),
-        canonical.evidence.required_source_expires_at()
-    );
+    assert_eq!(admission.expires_at(), expected_expiry);
     assert!(admission.issued_ts() <= admission.expires_at());
 }
 
@@ -377,7 +415,8 @@ fn stage5c_capability_records_evidence_expiry() {
 fn stage5c_rejects_expired_stage4_evidence() {
     let canonical = canonical_input_at(Utc::now() - Duration::seconds(61));
     let result = admit_stage5c_paper_host(Stage5cPaperHostAdmissionInput {
-        stage4_evidence: &canonical.evidence,
+        stage4_evidence: canonical.evidence,
+        strategy_id: "hybrid_imoexf".to_string(),
         instrument_spec: &canonical.spec,
         configured_account_id: &canonical.configured_account,
         configured_target_instrument: &canonical.configured_target,
@@ -394,7 +433,8 @@ fn stage5c_rejects_expired_stage4_evidence() {
 fn stage5c_rejects_report_checked_in_the_future() {
     let canonical = canonical_input_at(Utc::now() + Duration::seconds(60));
     let result = admit_stage5c_paper_host(Stage5cPaperHostAdmissionInput {
-        stage4_evidence: &canonical.evidence,
+        stage4_evidence: canonical.evidence,
+        strategy_id: "hybrid_imoexf".to_string(),
         instrument_spec: &canonical.spec,
         configured_account_id: &canonical.configured_account,
         configured_target_instrument: &canonical.configured_target,
@@ -412,7 +452,8 @@ fn stage5c_effective_source_age_crossing_max_age_blocks_admission() {
     let canonical = canonical_input_at(Utc::now() - Duration::seconds(120));
     assert!(canonical.evidence.required_source_expires_at() < Utc::now());
     let result = admit_stage5c_paper_host(Stage5cPaperHostAdmissionInput {
-        stage4_evidence: &canonical.evidence,
+        stage4_evidence: canonical.evidence,
+        strategy_id: "hybrid_imoexf".to_string(),
         instrument_spec: &canonical.spec,
         configured_account_id: &canonical.configured_account,
         configured_target_instrument: &canonical.configured_target,

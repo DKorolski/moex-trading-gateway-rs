@@ -40,6 +40,7 @@ pub enum Stage5cPaperHostAdmissionError {
     InvalidInstrumentPriceStep,
     TickSizeMismatch,
     LiveOrdersRequested,
+    StrategyIdEmpty,
     EvidenceCheckedInFuture,
     EvidenceExpired,
 }
@@ -56,14 +57,32 @@ impl std::error::Error for Stage5cPaperHostAdmissionError {}
 /// and application DTOs.
 ///
 /// ```compile_fail
-/// # use strategy_runtime_core::Stage5cPaperHostAdmissionInput;
-/// let _ = Stage5cPaperHostAdmissionInput {
-///     stage4j_report: todo!(),
-///     stage4_application: todo!(),
-/// };
+/// # use broker_core::{BrokerAccountId, BrokerInstrumentSpec, InstrumentId, Stage4AcceptedPaperHostEvidence};
+/// # use strategy_runtime_core::{admit_stage5c_paper_host, Stage5cPaperHostAdmissionInput};
+/// # fn duplicate(evidence: Stage4AcceptedPaperHostEvidence, spec: &BrokerInstrumentSpec, account: &BrokerAccountId, target: &InstrumentId) {
+/// let _ = admit_stage5c_paper_host(Stage5cPaperHostAdmissionInput {
+///     stage4_evidence: evidence,
+///     strategy_id: "hybrid_imoexf".to_string(),
+///     instrument_spec: spec,
+///     configured_account_id: account,
+///     configured_target_instrument: target,
+///     configured_tick_size: 0.5,
+///     allow_live_orders: false,
+/// });
+/// let _ = admit_stage5c_paper_host(Stage5cPaperHostAdmissionInput {
+///     stage4_evidence: evidence,
+///     strategy_id: "hybrid_imoexf".to_string(),
+///     instrument_spec: spec,
+///     configured_account_id: account,
+///     configured_target_instrument: target,
+///     configured_tick_size: 0.5,
+///     allow_live_orders: false,
+/// });
+/// # }
 /// ```
 pub struct Stage5cPaperHostAdmissionInput<'a> {
-    pub stage4_evidence: &'a Stage4AcceptedPaperHostEvidence,
+    pub stage4_evidence: Stage4AcceptedPaperHostEvidence,
+    pub strategy_id: String,
     pub instrument_spec: &'a BrokerInstrumentSpec,
     pub configured_account_id: &'a BrokerAccountId,
     pub configured_target_instrument: &'a InstrumentId,
@@ -85,6 +104,7 @@ pub struct Stage5cPaperHostAdmission {
     checked_ts: DateTime<Utc>,
     issued_ts: DateTime<Utc>,
     expires_at: DateTime<Utc>,
+    strategy_id: String,
     account_id: BrokerAccountId,
     target_instrument: InstrumentId,
     tick_size: f64,
@@ -98,13 +118,13 @@ pub struct Stage5cPaperHostAdmission {
 #[serde(rename_all = "snake_case")]
 pub enum Stage5cBootstrapNotificationError {
     AdmissionExpired,
-    StrategyIdEmpty,
+    StrategyTargetMismatch,
+    StrategyTickSizeMismatch,
     ActiveOrdersRequireOwnershipMapping,
     SnapshotAccountMismatch,
     SnapshotInstrumentMismatch,
     PositionQuantityNotRepresentable,
     PositionAveragePriceNotRepresentable,
-    UnexpectedBootstrapIntent,
 }
 
 impl std::fmt::Display for Stage5cBootstrapNotificationError {
@@ -134,6 +154,10 @@ impl Stage5cBootstrapNotificationReceipt {
         self.admission.expires_at()
     }
 
+    pub fn strategy_id(&self) -> &str {
+        self.admission.strategy_id()
+    }
+
     pub fn bootstrap_snapshot(&self) -> &RuntimeHostBootstrapSnapshot {
         self.admission.bootstrap_snapshot()
     }
@@ -159,6 +183,36 @@ impl Stage5cBootstrapNotificationReceipt {
     }
 }
 
+/// Linear type-state after exactly one successful bootstrap notification.
+pub struct Stage5cBootstrappedPaperStrategy {
+    strategy: HybridIntradayRuntimeStrategy,
+    receipt: Stage5cBootstrapNotificationReceipt,
+}
+
+impl Stage5cBootstrappedPaperStrategy {
+    pub fn receipt(&self) -> &Stage5cBootstrapNotificationReceipt {
+        &self.receipt
+    }
+
+    #[cfg(test)]
+    fn strategy(&self) -> &HybridIntradayRuntimeStrategy {
+        &self.strategy
+    }
+
+    #[expect(
+        dead_code,
+        reason = "reserved consume-only transition for the still-closed Stage 5C-c gate"
+    )]
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        HybridIntradayRuntimeStrategy,
+        Stage5cBootstrapNotificationReceipt,
+    ) {
+        (self.strategy, self.receipt)
+    }
+}
+
 impl Stage5cPaperHostAdmission {
     pub fn schema_version(&self) -> u16 {
         self.schema_version
@@ -178,6 +232,10 @@ impl Stage5cPaperHostAdmission {
 
     pub fn account_id(&self) -> &BrokerAccountId {
         &self.account_id
+    }
+
+    pub fn strategy_id(&self) -> &str {
+        &self.strategy_id
     }
 
     pub fn target_instrument(&self) -> &InstrumentId {
@@ -215,6 +273,9 @@ pub(crate) fn admit_stage5c_paper_host_at(
     input: Stage5cPaperHostAdmissionInput<'_>,
     admission_now: DateTime<Utc>,
 ) -> Result<Stage5cPaperHostAdmission, Stage5cPaperHostAdmissionError> {
+    if input.strategy_id.trim().is_empty() {
+        return Err(Stage5cPaperHostAdmissionError::StrategyIdEmpty);
+    }
     let report = input.stage4_evidence.report();
     if report.checked_ts > admission_now {
         return Err(Stage5cPaperHostAdmissionError::EvidenceCheckedInFuture);
@@ -362,6 +423,7 @@ pub(crate) fn admit_stage5c_paper_host_at(
         checked_ts: report.checked_ts,
         issued_ts: admission_now,
         expires_at: input.stage4_evidence.required_source_expires_at(),
+        strategy_id: input.strategy_id,
         account_id: snapshot.account_id.clone(),
         target_instrument: report.target_instrument.clone(),
         tick_size: spec_tick_size,
@@ -376,47 +438,25 @@ pub(crate) fn admit_stage5c_paper_host_at(
 ///
 /// ```compile_fail
 /// # use strategy_runtime_core::{notify_stage5c_bootstrap, HybridIntradayRuntimeStrategy, Stage5cPaperHostAdmission};
-/// # fn duplicate(strategy: &mut HybridIntradayRuntimeStrategy, admission: Stage5cPaperHostAdmission) {
-/// let _ = notify_stage5c_bootstrap(strategy, admission, "hybrid_imoexf");
-/// let _ = notify_stage5c_bootstrap(strategy, admission, "hybrid_imoexf");
+/// # fn duplicate(strategy: HybridIntradayRuntimeStrategy, admission: Stage5cPaperHostAdmission) {
+/// let _ = notify_stage5c_bootstrap(strategy, admission);
+/// let _ = notify_stage5c_bootstrap(strategy, admission);
 /// # }
 /// ```
 pub fn notify_stage5c_bootstrap(
-    strategy: &mut HybridIntradayRuntimeStrategy,
+    strategy: HybridIntradayRuntimeStrategy,
     admission: Stage5cPaperHostAdmission,
-    strategy_id: &str,
-) -> Result<Stage5cBootstrapNotificationReceipt, Stage5cBootstrapNotificationError> {
-    notify_stage5c_bootstrap_at(strategy, admission, strategy_id, Utc::now())
+) -> Result<Stage5cBootstrappedPaperStrategy, Stage5cBootstrapNotificationError> {
+    notify_stage5c_bootstrap_at(strategy, admission, Utc::now())
 }
 
 pub(crate) fn notify_stage5c_bootstrap_at(
-    strategy: &mut HybridIntradayRuntimeStrategy,
+    mut strategy: HybridIntradayRuntimeStrategy,
     admission: Stage5cPaperHostAdmission,
-    strategy_id: &str,
     notification_now: DateTime<Utc>,
-) -> Result<Stage5cBootstrapNotificationReceipt, Stage5cBootstrapNotificationError> {
-    if notification_now > admission.expires_at() {
-        return Err(Stage5cBootstrapNotificationError::AdmissionExpired);
-    }
-    if strategy_id.trim().is_empty() {
-        return Err(Stage5cBootstrapNotificationError::StrategyIdEmpty);
-    }
+) -> Result<Stage5cBootstrappedPaperStrategy, Stage5cBootstrapNotificationError> {
+    validate_stage5cb_notification(&strategy, &admission, notification_now)?;
     let snapshot = admission.bootstrap_snapshot();
-    if !snapshot.target_active_orders.is_empty() {
-        return Err(Stage5cBootstrapNotificationError::ActiveOrdersRequireOwnershipMapping);
-    }
-    if snapshot.account_id != *admission.account_id() {
-        return Err(Stage5cBootstrapNotificationError::SnapshotAccountMismatch);
-    }
-    if snapshot.instrument != *admission.target_instrument() {
-        return Err(Stage5cBootstrapNotificationError::SnapshotInstrumentMismatch);
-    }
-    if snapshot.target_open_positions.iter().any(|position| {
-        position.account_id != snapshot.account_id || position.instrument != snapshot.instrument
-    }) {
-        return Err(Stage5cBootstrapNotificationError::SnapshotInstrumentMismatch);
-    }
-
     let position_qty = snapshot
         .target_position_qty
         .to_f64()
@@ -454,7 +494,7 @@ pub(crate) fn notify_stage5c_bootstrap_at(
         snapshot_ts_utc: Some(snapshot.received_ts.timestamp()),
     };
     let context = StrategyCtx {
-        strategy_id: strategy_id.to_string(),
+        strategy_id: admission.strategy_id().to_string(),
         portfolio: admission.account_id().as_str().to_string(),
         exchange: format!("{:?}", admission.target_instrument().exchange),
         symbol: admission.target_instrument().symbol.clone(),
@@ -468,15 +508,53 @@ pub(crate) fn notify_stage5c_bootstrap_at(
         now_ts_utc: notification_now.timestamp(),
         last_bar_ts: None,
     };
-    let intents = Strategy::on_bootstrap_snapshot(strategy, &context, &source_snapshot);
-    if !intents.is_empty() {
-        return Err(Stage5cBootstrapNotificationError::UnexpectedBootstrapIntent);
-    }
+    let intents = Strategy::on_bootstrap_snapshot(&mut strategy, &context, &source_snapshot);
+    debug_assert!(
+        intents.is_empty(),
+        "accepted source bootstrap callback must not emit intents"
+    );
 
-    Ok(Stage5cBootstrapNotificationReceipt {
-        admission,
-        notified_ts: notification_now,
+    Ok(Stage5cBootstrappedPaperStrategy {
+        strategy,
+        receipt: Stage5cBootstrapNotificationReceipt {
+            admission,
+            notified_ts: notification_now,
+        },
     })
+}
+
+fn validate_stage5cb_notification(
+    strategy: &HybridIntradayRuntimeStrategy,
+    admission: &Stage5cPaperHostAdmission,
+    notification_now: DateTime<Utc>,
+) -> Result<(), Stage5cBootstrapNotificationError> {
+    if notification_now > admission.expires_at() {
+        return Err(Stage5cBootstrapNotificationError::AdmissionExpired);
+    }
+    let (symbol_matches, tick_size_matches) =
+        strategy.stage5c_binding_matches(admission.target_instrument(), admission.tick_size());
+    if !symbol_matches {
+        return Err(Stage5cBootstrapNotificationError::StrategyTargetMismatch);
+    }
+    if !tick_size_matches {
+        return Err(Stage5cBootstrapNotificationError::StrategyTickSizeMismatch);
+    }
+    let snapshot = admission.bootstrap_snapshot();
+    if !snapshot.target_active_orders.is_empty() {
+        return Err(Stage5cBootstrapNotificationError::ActiveOrdersRequireOwnershipMapping);
+    }
+    if snapshot.account_id != *admission.account_id() {
+        return Err(Stage5cBootstrapNotificationError::SnapshotAccountMismatch);
+    }
+    if snapshot.instrument != *admission.target_instrument() {
+        return Err(Stage5cBootstrapNotificationError::SnapshotInstrumentMismatch);
+    }
+    if snapshot.target_open_positions.iter().any(|position| {
+        position.account_id != snapshot.account_id || position.instrument != snapshot.instrument
+    }) {
+        return Err(Stage5cBootstrapNotificationError::SnapshotInstrumentMismatch);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -504,9 +582,9 @@ mod bootstrap_notification_tests {
         }
     }
 
-    fn strategy() -> HybridIntradayRuntimeStrategy {
+    fn strategy(symbol: &str, tick_size: f64) -> HybridIntradayRuntimeStrategy {
         HybridIntradayRuntimeStrategy::new(HybridIntradayRuntimeConfig {
-            symbol: "IMOEXF".to_string(),
+            symbol: symbol.to_string(),
             profile: HybridIntradayProfile::BaselineRuntimeHybrid,
             mr_variant: MeanReversionVariant::ClassicPrevDayRange,
             mr_gate_policy: MrGatePolicy::Disabled,
@@ -517,7 +595,7 @@ mod bootstrap_notification_tests {
             model_session_end_time: None,
             qty: 1.0,
             live_order_style: MarketBuyAndCloseLiveOrderStyle::Market,
-            tick_size: 0.5,
+            tick_size,
             marketable_limit_offset_ticks: 0,
             timezone_offset_hours: 3,
             session_close_hour: 23,
@@ -572,6 +650,7 @@ mod bootstrap_notification_tests {
             checked_ts,
             issued_ts: checked_ts,
             expires_at,
+            strategy_id: "hybrid_imoexf".to_string(),
             account_id,
             target_instrument: target,
             tick_size: 0.5,
@@ -588,12 +667,12 @@ mod bootstrap_notification_tests {
             .with_ymd_and_hms(2026, 7, 11, 9, 1, 0)
             .single()
             .expect("expiry");
-        let mut strategy = strategy();
+        let strategy = strategy("IMOEXF", 0.5);
         let before = serde_json::to_value(Strategy::state(&strategy)).expect("state before");
-        let result = notify_stage5c_bootstrap_at(
-            &mut strategy,
-            admission(Decimal::ONE, expiry),
-            "hybrid_imoexf",
+        let admission = admission(Decimal::ONE, expiry);
+        let result = validate_stage5cb_notification(
+            &strategy,
+            &admission,
             expiry + chrono::Duration::milliseconds(1),
         );
         assert!(matches!(
@@ -611,14 +690,13 @@ mod bootstrap_notification_tests {
             .single()
             .expect("expiry");
         let exact_snapshot = admission(Decimal::ONE, expiry).bootstrap_snapshot().clone();
-        let mut strategy = strategy();
-        let receipt = notify_stage5c_bootstrap_at(
-            &mut strategy,
+        let bootstrapped = notify_stage5c_bootstrap_at(
+            strategy("IMOEXF", 0.5),
             admission(Decimal::ONE, expiry),
-            "hybrid_imoexf",
             expiry,
         )
         .expect("notification at expiry remains valid");
+        let receipt = bootstrapped.receipt();
 
         assert_eq!(receipt.bootstrap_snapshot(), &exact_snapshot);
         assert_eq!(receipt.notified_ts(), expiry);
@@ -627,7 +705,47 @@ mod bootstrap_notification_tests {
         assert!(!receipt.pending_recovery_started());
         assert!(!receipt.semantic_bar_enabled());
         assert!(!receipt.intent_sink_attached());
-        let state = serde_json::to_value(Strategy::state(&strategy)).expect("state");
+        assert_eq!(receipt.strategy_id(), "hybrid_imoexf");
+        let state = serde_json::to_value(Strategy::state(bootstrapped.strategy())).expect("state");
         assert_eq!(state["HybridIntradayRuntime"]["last_position_qty"], 1.0);
+    }
+
+    #[test]
+    fn stage5cb_rejects_strategy_configured_for_another_symbol() {
+        let expiry = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 1, 0)
+            .single()
+            .expect("expiry");
+        let strategy = strategy("SBER", 0.5);
+        assert_eq!(
+            validate_stage5cb_notification(&strategy, &admission(Decimal::ZERO, expiry), expiry,),
+            Err(Stage5cBootstrapNotificationError::StrategyTargetMismatch)
+        );
+    }
+
+    #[test]
+    fn stage5cb_rejects_strategy_tick_size_mismatch() {
+        let expiry = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 1, 0)
+            .single()
+            .expect("expiry");
+        let strategy = strategy("IMOEXF", 1.0);
+        assert_eq!(
+            validate_stage5cb_notification(&strategy, &admission(Decimal::ZERO, expiry), expiry,),
+            Err(Stage5cBootstrapNotificationError::StrategyTickSizeMismatch)
+        );
+    }
+
+    #[test]
+    fn stage5cb_binding_error_does_not_mutate_strategy_state() {
+        let expiry = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 1, 0)
+            .single()
+            .expect("expiry");
+        let strategy = strategy("SBER", 1.0);
+        let before = serde_json::to_value(Strategy::state(&strategy)).expect("state before");
+        let _ = validate_stage5cb_notification(&strategy, &admission(Decimal::ONE, expiry), expiry);
+        let after = serde_json::to_value(Strategy::state(&strategy)).expect("state after");
+        assert_eq!(before, after);
     }
 }

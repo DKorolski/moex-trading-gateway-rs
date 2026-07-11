@@ -16,14 +16,24 @@ Stage5cPaperHostAdmission
   -> Stage5cBootstrapNotificationReceipt
 ```
 
-The admission is consumed by value and is no longer `Clone`. The receipt is
-also non-serializable and non-cloneable, and is intended to be consumed by the
-next lifecycle gate.
+The Stage 4 evidence is consumed into admission and is no longer `Clone`.
+Admission binds `strategy_id`. Bootstrap consumes both admission and the
+concrete `HybridIntradayRuntimeStrategy` by value and returns
+`Stage5cBootstrappedPaperStrategy`, which owns the same mutated strategy plus
+its receipt. Neither the type-state nor receipt is serializable or cloneable.
 
 Notification uses only `admission.bootstrap_snapshot()`. It does not reread
 broker truth or reconstruct state from report summaries. Expiry is checked
 again immediately before callback invocation; `now == expires_at` remains
 valid and `now > expires_at` is blocked before state mutation.
+
+Before callback invocation, the strategy instance is checked against admission:
+
+- configured strategy symbol equals admission target symbol;
+- configured strategy tick size equals the admitted tick size.
+
+Binding failures occur before state mutation. The notification API no longer
+accepts a free strategy ID.
 
 ## Mapping policy
 
@@ -50,6 +60,6 @@ valid and `now > expires_at` is blocked before state mutation.
 ## Next gate
 
 After acceptance, the next Stage 5C slice may add
-`NotifyRuntimeStateRestored`, consuming the bootstrap receipt and preserving the
-Stage 4G lifecycle order. It may not open warmup or semantic bars in the same
-slice.
+`NotifyRuntimeStateRestored`, consuming `Stage5cBootstrappedPaperStrategy` and
+returning the next type-state while preserving Stage 4G lifecycle order. It may
+not open warmup or semantic bars in the same slice.

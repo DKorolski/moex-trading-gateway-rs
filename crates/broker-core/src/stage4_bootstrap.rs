@@ -870,7 +870,7 @@ impl std::error::Error for Stage4AcceptedPaperHostEvidenceError {}
 /// let _: broker_core::Stage4AcceptedPaperHostEvidence =
 ///     serde_json::from_str("{}").unwrap();
 /// ```
-#[derive(Clone, PartialEq)]
+#[derive(PartialEq)]
 pub struct Stage4AcceptedPaperHostEvidence {
     report: Stage4BootstrapEvidenceReport,
     application: Stage4RuntimeBootstrapApplicationDecision,
