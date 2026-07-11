@@ -81,6 +81,9 @@ and
 [docs/stage-5/5a-semantic-inventory-and-evidence-schema.md](docs/stage-5/5a-semantic-inventory-and-evidence-schema.md).
 The first source-import slice is documented in
 [docs/stage-5/5b-1-pure-semantic-kernel-import.md](docs/stage-5/5b-1-pure-semantic-kernel-import.md).
+Its immutable correspondence, wrapper-oracle and active-profile hardening is
+documented in
+[docs/stage-5/5b-1a-correspondence-oracle-profile-hardening.md](docs/stage-5/5b-1a-correspondence-oracle-profile-hardening.md).
 
 Useful local probes:
 

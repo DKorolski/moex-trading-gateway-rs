@@ -40,6 +40,9 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 5B-1 pure Hybrid semantic-kernel import is a review candidate. The new
   `strategy-runtime-core` crate preserves the frozen model/orchestrator/riskgate
   source and tests but does not include the integrated runtime wrapper.
+- Stage 5B-1a immutable correspondence, exact integrated-wrapper oracle and
+  active high180 profile hardening are a review candidate. The wrapper remains
+  uncompiled and unattached.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
@@ -277,7 +280,8 @@ Amber:
   is not complete.
 - Stage 5A freezes the source and acceptance inventory; Stage 5B source import
   has started with the reviewable pure-kernel-only Stage 5B-1 slice. Wrapper,
-  host, state and differential parity work remain pending.
+  host, state and differential parity work remain pending. Stage 5B-1a resolves
+  the P1 provenance/configuration blockers before wrapper migration.
 
 Red / not yet implemented:
 

@@ -1,0 +1,48 @@
+schema_version = 1
+source_config_role = "runtime.hybrid.live.<ACCOUNT_ALIAS>.riskgate-shadow.toml"
+source_config_sha256 = "b3c3a7b940a3c082a9925faa3dc3a6bb01ca988d4fc7a478bb733daf35bceeef"
+instrument = "IMOEXF"
+profile = "imoexf_primary_riskgate_high180_lb120"
+mr_variant = "high180"
+paper_boundary = true
+
+[high180_active]
+engine = "High180MrEngine"
+override_path = "on_bar_with_mr_override"
+min_rel_range = 0.005
+max_rel_range = 0.050
+k_long = 0.085
+k_short = 0.090
+stop_loss_mult = 7.0
+max_hold_minutes = 180
+entry_end_time = "11:59:59"
+target_rule = "current_day_high_low_midpoint"
+stop_rule = "seven_times_entry_to_midpoint_distance"
+exit_rule = "midpoint_take_or_stop_or_max_hold"
+
+[classic_mr_source_compat]
+active_entry_formula_for_target_profile = false
+min_range_long = 0.013
+max_range_long = 0.035
+k_long = 0.032
+take_k_long = 0.11
+stop_k_long = 0.44
+min_range_short = 0.010
+max_range_short = 0.045
+k_short = 0.055
+take_k_short = 0.16
+stop_k_short = 0.43
+session_end_time = "11:59:00"
+configured_exit_offset_minutes = 10
+
+[risk_gate]
+policy = "shadow_pnl_lb120_positive"
+mode = "normal_append"
+enforced_for_entry = false
+
+[safety]
+runtime_live_ready_enabled = false
+command_consumer_to_real_finam_enabled = false
+strategy_driven_real_order_enabled = false
+external_order_endpoint_enabled = false
+stop_sltp_bracket_execution_enabled = false

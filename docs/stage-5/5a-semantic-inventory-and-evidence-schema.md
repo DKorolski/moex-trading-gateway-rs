@@ -42,6 +42,14 @@ The scoped source is approximately 9,326 lines, including a 6,203-line
 integrated runtime wrapper. This is evidence that the migration is not only a
 copy of the small BO/MR formula modules.
 
+The exact integrated wrapper is included in this repository at
+`source-oracles/alor-stage5/hybrid_intraday_runtime.rs`. The previously reviewed
+6,113-line file with SHA256 `9704181e...` is the direct parent commit
+`f7525987...`. The selected `43242c8...` oracle adds the later MR bracket
+terminal-reconciliation hardening. The source mismatch is therefore resolved
+in favor of the newer sanitized commit, not treated as an unexplained hash
+change.
+
 The target live-profile semantics were characterized from the sanitized
 account-aliased config role:
 
@@ -49,6 +57,10 @@ account-aliased config role:
 configs/runtime.hybrid.live.<ACCOUNT_ALIAS>.riskgate-shadow.toml
 sha256=b3c3a7b940a3c082a9925faa3dc3a6bb01ca988d4fc7a478bb733daf35bceeef
 ```
+
+A reproducible synthetic/redacted semantic projection is included at
+`config/imoexf-hybrid-high180-profile.redacted.toml` with SHA256
+`15e31d7a285f1c8c80e9168a9098e37e56bbd60ab3ab3264592d23605708dfe4`.
 
 No live account id, token, Redis payload or absolute local source path may be
 copied into Stage 5 evidence or source handoffs.
@@ -217,14 +229,44 @@ The Stage 5 target profile is frozen as:
 | Lifecycle | Pending, partial-fill, repair, escalation and backoff timeouts preserved semantically. |
 | Order style | Paper intent shape may model the configured market style; no real send. |
 
-The source-profile semantic values are:
+### Active target high180 semantics
+
+For `profile=imoexf_primary_riskgate_high180_lb120` and
+`mr_variant=high180`, the integrated wrapper constructs
+`High180MrEngine::new(High180MrConfig::default())` and feeds its candidate into
+`on_bar_with_mr_override`. These are the active MR entry/exit parameters:
+
+| Parameter/rule | Frozen active value |
+| --- | --- |
+| `min_rel_range` / `max_rel_range` | `0.005` / `0.050` |
+| `k_long` / `k_short` | `0.085` / `0.090` |
+| `stop_loss_mult` | `7.0` |
+| `max_hold` | `180 minutes` |
+| `entry_end_time` | `11:59:59` |
+| Take target | Current-day high/low midpoint. |
+| Stop distance | Seven times the entry-to-midpoint distance. |
+| Exit rule | Midpoint take, stop, or max-hold timeout. |
+
+### Classic MR source-compatible configuration
+
+The following `MeanReversionConfig` values remain present in the source config
+and runtime object, but they are not the active entry formula when
+`mr_variant=high180`:
+
+| Parameter | Frozen source value |
+| --- | --- |
+| Classic MR long `min_range` / `max_range` / `k` / `take_k` / `stop_k` | `0.013` / `0.035` / `0.032` / `0.11` / `0.44` |
+| Classic MR short `min_range` / `max_range` / `k` / `take_k` / `stop_k` | `0.010` / `0.045` / `0.055` / `0.16` / `0.43` |
+| Classic `session_end_time` / configured `exit_offset` | `11:59:00` / `10 minutes` |
+
+Classic timing does not replace the active high180 max-hold exit. It remains
+source-compatible fallback/configuration for the classic variant.
+
+### Shared profile, BO and lifecycle values
 
 | Parameter | Frozen source value |
 | --- | --- |
 | `model_session_start_time` / `model_session_end_time` | `09:00:00` / `23:49:59` MSK |
-| MR long `min_range` / `max_range` / `k` / `take_k` / `stop_k` | `0.013` / `0.035` / `0.032` / `0.11` / `0.44` |
-| MR short `min_range` / `max_range` / `k` / `take_k` / `stop_k` | `0.010` / `0.045` / `0.055` / `0.16` / `0.43` |
-| `mr_session_end_time` / `mr_exit_offset_min` | `11:59:00` / `10` |
 | BO `k` / `stop1_range` / `stop2_range` | `0.53` / `0.51` / `0.35` |
 | BO `big_move_threshold` | `0.025` |
 | BO `min_range` / mode | `1.01` / `absolute` |
@@ -420,9 +462,12 @@ account ids, tokens, secrets or absolute local paths may be exported.
 Stage 5A can be accepted when review confirms:
 
 - source commit and normative file hashes are fixed;
+- the exact integrated wrapper oracle is included and source-lineage mismatch
+  with its direct parent is resolved;
 - callback surface is complete;
 - state field groups are complete;
 - target configuration role is frozen and redacted;
+- active high180 parameters are separated from inactive classic MR config;
 - the host-contract gap is explicit;
 - source correspondence policy forbids silent formula rewrites;
 - BO/MR/riskgate acceptance is atomic;

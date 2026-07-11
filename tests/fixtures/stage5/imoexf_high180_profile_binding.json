@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "profile": "imoexf_primary_riskgate_high180_lb120",
+  "mr_variant": "high180",
+  "active_entry_engine": "High180MrEngine",
+  "active_override_path": "on_bar_with_mr_override",
+  "high180": {
+    "min_rel_range": 0.005,
+    "max_rel_range": 0.05,
+    "k_long": 0.085,
+    "k_short": 0.09,
+    "stop_loss_mult": 7.0,
+    "max_hold_minutes": 180,
+    "entry_end_time": "11:59:59",
+    "target_rule": "current_day_high_low_midpoint",
+    "stop_rule": "seven_times_entry_to_midpoint_distance",
+    "exit_rule": "midpoint_take_or_stop_or_max_hold"
+  },
+  "classic_mr": {
+    "present_in_runtime_object": true,
+    "active_entry_formula_for_target_profile": false,
+    "session_end_time": "11:59:00",
+    "configured_exit_offset_minutes": 10
+  },
+  "risk_gate": {
+    "policy": "shadow_pnl_lb120_positive",
+    "mode": "normal_append",
+    "enforced_for_entry": false
+  },
+  "paper_boundary": true
+}

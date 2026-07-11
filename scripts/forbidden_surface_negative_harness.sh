@@ -7,6 +7,18 @@ trap 'rm -rf "$tmp_root"' EXIT
 
 cp -R "$workspace_root/scripts" "$tmp_root/scripts"
 cp -R "$workspace_root/crates" "$tmp_root/crates"
+cp -R "$workspace_root/source-oracles" "$tmp_root/source-oracles"
+mkdir -p "$tmp_root/config" "$tmp_root/tests/fixtures/stage5"
+cp "$workspace_root/config/imoexf-hybrid-high180-profile.redacted.toml" "$tmp_root/config/"
+cp "$workspace_root/tests/fixtures/stage5/imoexf_high180_profile_binding.json" "$tmp_root/tests/fixtures/stage5/"
+
+if ! (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >/tmp/moex_negative_scan.$$ 2>&1; then
+  cat /tmp/moex_negative_scan.$$ >&2
+  rm -f /tmp/moex_negative_scan.$$
+  echo "forbidden-surface-negative-harness: copied baseline must pass before negative cases" >&2
+  exit 1
+fi
+rm -f /tmp/moex_negative_scan.$$
 
 run_negative_case() {
   local case_name="$1"
@@ -39,5 +51,38 @@ run_negative_case "sltp-bracket-endpoint-expansion" 'fn _m3d_negative_sltp_brack
 run_negative_case "runtime-command-consumer-bypass" 'fn _m3d_negative_runtime_bypass() { let _ = reqwest::Method::POST; }' "$tmp_root/crates/finam-gateway/src/lib.rs"
 run_negative_case "strategy-semantic-kernel-transport-dependency" 'fn _stage5_negative_transport() { let _ = reqwest::Method::POST; }' "$tmp_root/crates/strategy-runtime-core/src/lib.rs"
 run_negative_case "strategy-semantic-source-correspondence-drift" '// stage5 negative source drift' "$tmp_root/crates/strategy-runtime-core/src/hybrid_intraday/types.rs"
+run_negative_case "strategy-integrated-wrapper-oracle-drift" '// stage5 negative wrapper oracle drift' "$tmp_root/source-oracles/alor-stage5/hybrid_intraday_runtime.rs"
+run_negative_case "strategy-high180-profile-fixture-drift" '# stage5 negative profile drift' "$tmp_root/config/imoexf-hybrid-high180-profile.redacted.toml"
+
+semantic_ledger="$tmp_root/crates/strategy-runtime-core/source-correspondence.toml"
+semantic_target="$tmp_root/crates/strategy-runtime-core/src/hybrid_intraday/intraday_breakout.rs"
+semantic_ledger_backup="$semantic_ledger.bak"
+semantic_target_backup="$semantic_target.bak"
+cp "$semantic_ledger" "$semantic_ledger_backup"
+cp "$semantic_target" "$semantic_target_backup"
+perl -0pi -e 's/k: 0\.65,/k: 0.66,/' "$semantic_target"
+changed_target_sha="$(shasum -a 256 "$semantic_target" | awk '{print $1}')"
+perl -0pi -e 's/target_sha256 = "a3b125f282f201b66dfa8d2685f22aa94048856a5145d537b76dc8934a5f9ae5"/target_sha256 = "'"$changed_target_sha"'"/' "$semantic_ledger"
+if (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >/tmp/moex_negative_scan.$$ 2>&1; then
+  cat /tmp/moex_negative_scan.$$ >&2
+  rm -f /tmp/moex_negative_scan.$$
+  echo "forbidden-surface-negative-harness: expected immutable manifest failure for formula change plus ledger rehash" >&2
+  exit 1
+fi
+rm -f /tmp/moex_negative_scan.$$
+mv "$semantic_ledger_backup" "$semantic_ledger"
+mv "$semantic_target_backup" "$semantic_target"
+
+semantic_ledger_backup="$semantic_ledger.bak"
+cp "$semantic_ledger" "$semantic_ledger_backup"
+perl -0pi -e 's/alor_source_commit = "43242c89944d335d9cb0729b38bdd7d658378d5e"/alor_source_commit = "deadbeef"/' "$semantic_ledger"
+if (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >/tmp/moex_negative_scan.$$ 2>&1; then
+  cat /tmp/moex_negative_scan.$$ >&2
+  rm -f /tmp/moex_negative_scan.$$
+  echo "forbidden-surface-negative-harness: expected immutable source commit failure" >&2
+  exit 1
+fi
+rm -f /tmp/moex_negative_scan.$$
+mv "$semantic_ledger_backup" "$semantic_ledger"
 
 echo "forbidden-surface-negative-harness: ok"

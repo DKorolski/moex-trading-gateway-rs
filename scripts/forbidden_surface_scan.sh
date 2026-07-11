@@ -269,14 +269,17 @@ else:
         failures += 1
         semantic_ledger = {}
 
-    expected_closed_flags = {
+    expected_manifest_header = {
+        "schema_version": 1,
+        "stage": "Stage5B1",
+        "alor_source_commit": "43242c89944d335d9cb0729b38bdd7d658378d5e",
         "production_semantics_changed": False,
         "finam_transport_dependency_added": False,
         "redis_client_dependency_added": False,
         "real_order_endpoint_added": False,
     }
-    for field, expected in expected_closed_flags.items():
-        if semantic_ledger.get(field) is not expected:
+    for field, expected in expected_manifest_header.items():
+        if semantic_ledger.get(field) != expected:
             print(
                 "forbidden-surface-scan: strategy semantic correspondence "
                 f"ledger field {field!r} must be {expected}",
@@ -284,26 +287,94 @@ else:
             )
             failures += 1
 
+    expected_semantic_manifest = {
+        "strategy-runtime/src/strategies/hybrid_intraday/mod.rs": {
+            "source_sha256": "c70e3847f1a99e00c5d078d19b7b5f103d9b4d26853886b0b47d4805818ac84c",
+            "target_path": "crates/strategy-runtime-core/src/hybrid_intraday/mod.rs",
+            "target_sha256": "c70e3847f1a99e00c5d078d19b7b5f103d9b4d26853886b0b47d4805818ac84c",
+            "change_class": "CopiedUnchanged",
+        },
+        "strategy-runtime/src/strategies/hybrid_intraday/types.rs": {
+            "source_sha256": "8b515e252bc493890483793887248a6a12bedcf072ab87c574d4d3efd3b7eedc",
+            "target_path": "crates/strategy-runtime-core/src/hybrid_intraday/types.rs",
+            "target_sha256": "8b515e252bc493890483793887248a6a12bedcf072ab87c574d4d3efd3b7eedc",
+            "change_class": "CopiedUnchanged",
+        },
+        "strategy-runtime/src/strategies/hybrid_intraday/intraday_breakout.rs": {
+            "source_sha256": "a3b125f282f201b66dfa8d2685f22aa94048856a5145d537b76dc8934a5f9ae5",
+            "target_path": "crates/strategy-runtime-core/src/hybrid_intraday/intraday_breakout.rs",
+            "target_sha256": "a3b125f282f201b66dfa8d2685f22aa94048856a5145d537b76dc8934a5f9ae5",
+            "change_class": "CopiedUnchanged",
+        },
+        "strategy-runtime/src/strategies/hybrid_intraday/mean_reversion.rs": {
+            "source_sha256": "4aecdeeb0bee8bcbae10cd2596c13d4450885b4ad7a8899346b14d743d4039ab",
+            "target_path": "crates/strategy-runtime-core/src/hybrid_intraday/mean_reversion.rs",
+            "target_sha256": "4aecdeeb0bee8bcbae10cd2596c13d4450885b4ad7a8899346b14d743d4039ab",
+            "change_class": "CopiedUnchanged",
+        },
+        "strategy-runtime/src/strategies/hybrid_intraday/high180.rs": {
+            "source_sha256": "e1f39a3afdf9745682682da0083f97ac0fa5361f979525d5ea383d6a6aa64456",
+            "target_path": "crates/strategy-runtime-core/src/hybrid_intraday/high180.rs",
+            "target_sha256": "e1f39a3afdf9745682682da0083f97ac0fa5361f979525d5ea383d6a6aa64456",
+            "change_class": "CopiedUnchanged",
+        },
+        "strategy-runtime/src/strategies/hybrid_intraday/orchestrator.rs": {
+            "source_sha256": "db4dfdb014592d99567db9239c84b02c7f61b7eb768ee97a9203bead1c8ed1c0",
+            "target_path": "crates/strategy-runtime-core/src/hybrid_intraday/orchestrator.rs",
+            "target_sha256": "1e784411d348fcf090887f7f50062b0cbd34494912288100c1ca1d851d8d5bd9",
+            "change_class": "NamespaceOnly",
+        },
+        "strategy-runtime/src/strategies/hybrid_intraday/risk_gate.rs": {
+            "source_sha256": "c85779ec5023e602cb6088e116fb58ed0bc80c31828499a0bd4557e2034dee34",
+            "target_path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
+            "target_sha256": "c85779ec5023e602cb6088e116fb58ed0bc80c31828499a0bd4557e2034dee34",
+            "change_class": "CopiedUnchanged",
+        },
+    }
+
     semantic_files = semantic_ledger.get("files", [])
-    if len(semantic_files) != 7:
+    if len(semantic_files) != len(expected_semantic_manifest):
         print(
             "forbidden-surface-scan: strategy semantic correspondence ledger "
-            f"must contain exactly 7 imported files, found {len(semantic_files)}",
+            "must contain exactly the immutable Stage 5B-1 file set; "
+            f"found {len(semantic_files)}",
             file=sys.stderr,
         )
         failures += 1
+    seen_source_paths = set()
     seen_target_paths = set()
     for record in semantic_files:
+        source_path_raw = record.get("source_path")
         target_path_raw = record.get("target_path")
+        source_sha256 = record.get("source_sha256")
         expected_sha256 = record.get("target_sha256")
         change_class = record.get("change_class")
-        if change_class not in {"CopiedUnchanged", "NamespaceOnly"}:
+        expected_record = expected_semantic_manifest.get(source_path_raw)
+        if expected_record is None:
             print(
-                "forbidden-surface-scan: unapproved Stage 5B-1 change class "
-                f"{change_class!r}",
+                "forbidden-surface-scan: unapproved Stage 5B-1 source path "
+                f"{source_path_raw!r}",
                 file=sys.stderr,
             )
             failures += 1
+        else:
+            for field, expected in expected_record.items():
+                if record.get(field) != expected:
+                    print(
+                        "forbidden-surface-scan: immutable Stage 5B-1 manifest "
+                        f"mismatch for {source_path_raw!r} field {field!r}: "
+                        f"actual={record.get(field)!r} expected={expected!r}",
+                        file=sys.stderr,
+                    )
+                    failures += 1
+        if source_path_raw in seen_source_paths:
+            print(
+                "forbidden-surface-scan: duplicate correspondence source path "
+                f"{source_path_raw!r}",
+                file=sys.stderr,
+            )
+            failures += 1
+        seen_source_paths.add(source_path_raw)
         if not isinstance(target_path_raw, str):
             print(
                 "forbidden-surface-scan: correspondence target path missing",
@@ -337,6 +408,133 @@ else:
                 file=sys.stderr,
             )
             failures += 1
+        if change_class == "CopiedUnchanged" and not (
+            actual_sha256 == expected_sha256 == source_sha256
+        ):
+            print(
+                "forbidden-surface-scan: CopiedUnchanged file is not identical "
+                f"to frozen source for {target_path}",
+                file=sys.stderr,
+            )
+            failures += 1
+        if change_class == "NamespaceOnly":
+            production_region = target_path.read_bytes().split(b"#[cfg(test)]", 1)[0]
+            production_sha256 = hashlib.sha256(production_region).hexdigest()
+            expected_production_sha256 = (
+                "ca836ded92cc7b9872482103f48dccac87b7b79d9ad9433979ee2069195dfb53"
+            )
+            if production_sha256 != expected_production_sha256:
+                print(
+                    "forbidden-surface-scan: NamespaceOnly production region "
+                    f"changed for {target_path}: actual={production_sha256} "
+                    f"expected={expected_production_sha256}",
+                    file=sys.stderr,
+                )
+                failures += 1
+
+    expected_target_paths = {
+        record["target_path"] for record in expected_semantic_manifest.values()
+    }
+    if seen_source_paths != set(expected_semantic_manifest):
+        print(
+            "forbidden-surface-scan: Stage 5B-1 ledger source file set drifted: "
+            f"actual={sorted(seen_source_paths)} "
+            f"expected={sorted(expected_semantic_manifest)}",
+            file=sys.stderr,
+        )
+        failures += 1
+    if seen_target_paths != expected_target_paths:
+        print(
+            "forbidden-surface-scan: Stage 5B-1 ledger target file set drifted: "
+            f"actual={sorted(seen_target_paths)} expected={sorted(expected_target_paths)}",
+            file=sys.stderr,
+        )
+        failures += 1
+    actual_target_paths = {
+        str(path) for path in (semantic_kernel_root / "src/hybrid_intraday").glob("*.rs")
+    }
+    if actual_target_paths != expected_target_paths:
+        print(
+            "forbidden-surface-scan: hybrid semantic target file set drifted: "
+            f"actual={sorted(actual_target_paths)} expected={sorted(expected_target_paths)}",
+            file=sys.stderr,
+        )
+        failures += 1
+
+wrapper_oracle_path = Path(
+    "source-oracles/alor-stage5/hybrid_intraday_runtime.rs"
+)
+wrapper_oracle_sha256 = (
+    "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa"
+)
+if not wrapper_oracle_path.is_file():
+    print(
+        "forbidden-surface-scan: Stage 5 integrated wrapper source oracle missing",
+        file=sys.stderr,
+    )
+    failures += 1
+else:
+    wrapper_oracle_bytes = wrapper_oracle_path.read_bytes()
+    actual_wrapper_sha256 = hashlib.sha256(wrapper_oracle_bytes).hexdigest()
+    actual_wrapper_lines = len(wrapper_oracle_bytes.splitlines())
+    if actual_wrapper_sha256 != wrapper_oracle_sha256 or actual_wrapper_lines != 6203:
+        print(
+            "forbidden-surface-scan: Stage 5 integrated wrapper oracle drifted: "
+            f"sha256={actual_wrapper_sha256} lines={actual_wrapper_lines}",
+            file=sys.stderr,
+        )
+        failures += 1
+    wrapper_oracle_source = wrapper_oracle_bytes.decode("utf-8")
+    required_wrapper_binding_markers = [
+        "let high180_mr = High180MrEngine::new(High180MrConfig::default());",
+        "MeanReversionVariant::High180",
+        ".on_bar_with_mr_override(",
+    ]
+    for marker in required_wrapper_binding_markers:
+        if marker not in wrapper_oracle_source:
+            print(
+                "forbidden-surface-scan: Stage 5 wrapper oracle missing "
+                f"high180 binding marker {marker!r}",
+                file=sys.stderr,
+            )
+            failures += 1
+
+wrapper_oracle_rs_files = {
+    str(path) for path in wrapper_oracle_path.parent.glob("*.rs")
+}
+if wrapper_oracle_rs_files != {str(wrapper_oracle_path)}:
+    print(
+        "forbidden-surface-scan: unexpected Stage 5 wrapper source oracle file set "
+        f"{sorted(wrapper_oracle_rs_files)}",
+        file=sys.stderr,
+    )
+    failures += 1
+
+expected_stage5_profile_artifacts = {
+    Path("config/imoexf-hybrid-high180-profile.redacted.toml"): (
+        "15e31d7a285f1c8c80e9168a9098e37e56bbd60ab3ab3264592d23605708dfe4"
+    ),
+    Path("tests/fixtures/stage5/imoexf_high180_profile_binding.json"): (
+        "ec6daea39f19f3162da5e8d77abb0f03a3f4f5ea2e2876c1d1e189401580ec5d"
+    ),
+}
+for artifact_path, expected_artifact_sha256 in expected_stage5_profile_artifacts.items():
+    if not artifact_path.is_file():
+        print(
+            f"forbidden-surface-scan: Stage 5 profile artifact missing {artifact_path}",
+            file=sys.stderr,
+        )
+        failures += 1
+        continue
+    actual_artifact_sha256 = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    if actual_artifact_sha256 != expected_artifact_sha256:
+        print(
+            "forbidden-surface-scan: Stage 5 profile artifact drifted "
+            f"for {artifact_path}: actual={actual_artifact_sha256} "
+            f"expected={expected_artifact_sha256}",
+            file=sys.stderr,
+        )
+        failures += 1
 
 scopes = {
     "real-readonly transport": (

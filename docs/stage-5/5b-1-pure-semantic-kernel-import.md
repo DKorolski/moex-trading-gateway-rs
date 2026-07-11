@@ -95,6 +95,11 @@ for transport/runtime dependencies and endpoint tokens. It rejects additions
 of FINAM, reqwest, Tokio, Redis-client, network/process, HTTP method or order
 endpoint surfaces to this crate.
 
+Stage 5B-1a additionally locks the accepted source manifest in scanner code,
+requires source-equal hashes for `CopiedUnchanged`, validates the exact
+`NamespaceOnly` production region, and rejects untracked source-file additions.
+Updating the adjacent ledger can no longer authorize a formula change.
+
 ## Explicitly not imported
 
 Stage 5B-1 does not import:
@@ -141,3 +146,6 @@ The next reviewable slice is Stage 5B-2: inventory and broker-neutral extraction
 boundary for the integrated `HybridIntradayRuntimeStrategy` wrapper. Before the
 wrapper can invoke the kernel, Stage 5C must provide callback-complete host
 types and Stage 5D must provide field-complete state mapping.
+
+The exact wrapper oracle and active high180 binding are frozen by
+[`5b-1a-correspondence-oracle-profile-hardening.md`](5b-1a-correspondence-oracle-profile-hardening.md).
