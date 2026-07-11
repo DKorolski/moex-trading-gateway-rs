@@ -54,10 +54,11 @@ Stage 1B is accepted for IMOEXF `HybridIntradayRuntime` paper/shadow
 compatibility freeze. Stage 2A is accepted and closed as the runtime source
 migration inventory/plan. Stage 2B is accepted and closed as the broker-neutral
 runtime source migration contract/foundation. Stage 3 is accepted and closed as
-market-data parity to strategy-input level. The current active macro-stage is
-Stage 4 — broker-truth bootstrap into runtime. The accepted path is source
-migration to `BrokerOrderId(String)`; an `i64` surrogate adapter is not allowed
-without a separate ADR. See
+market-data parity to strategy-input level. Stage 4 is accepted and closed as
+the broker-truth bootstrap foundation. The current active macro-stage is Stage
+5 — real strategy semantics attachment behind a paper/no-send boundary. The
+accepted path is source migration to `BrokerOrderId(String)`; an `i64`
+surrogate adapter is not allowed without a separate ADR. See
 [docs/stage-2-runtime-source-migration-plan.md](docs/stage-2-runtime-source-migration-plan.md)
 and
 [docs/stage-2-runtime-source-migration-inventory.md](docs/stage-2-runtime-source-migration-inventory.md).
@@ -71,6 +72,10 @@ The Stage 4A broker-truth bootstrap plan and evidence schema are
 [docs/stage-4-broker-truth-bootstrap-plan.md](docs/stage-4-broker-truth-bootstrap-plan.md)
 and
 [docs/stage-4/4a-broker-truth-bootstrap-evidence-schema.md](docs/stage-4/4a-broker-truth-bootstrap-evidence-schema.md).
+The Stage 5 plan and Stage 5A inventory/evidence schema are
+[docs/stage-5-real-strategy-semantics-plan.md](docs/stage-5-real-strategy-semantics-plan.md)
+and
+[docs/stage-5/5a-semantic-inventory-and-evidence-schema.md](docs/stage-5/5a-semantic-inventory-and-evidence-schema.md).
 
 Useful local probes:
 

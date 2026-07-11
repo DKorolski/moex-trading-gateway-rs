@@ -27,12 +27,14 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 4 — broker-truth bootstrap into runtime.
+Stage 5 — real strategy semantics attachment.
 
 Stage 2B is closed as the broker-neutral runtime source migration
 contract/foundation. Stage 3 is closed as market-data parity to strategy-input
-level. Stage 4 must make broker truth a mandatory runtime lifecycle input before
-any later runtime attachment, command consumer, or live execution stage.
+level. Stage 4 is accepted/closed as the broker-truth bootstrap foundation.
+Stage 5 attaches the real IMOEXF `HybridIntradayRuntime` semantics behind the
+paper/no-send boundary before any later identity-chain, command-consumer, or
+live execution stage.
 
 ## Still blocked
 

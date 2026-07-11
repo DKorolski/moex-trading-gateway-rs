@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-07-10.
+Status date: 2026-07-11.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -34,6 +34,9 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 4 macro-stage is accepted/closed as the broker-truth bootstrap
   foundation. The next active macro-stage is Stage 5 — real strategy semantics
   attachment.
+- Stage 5A semantic inventory, source provenance, callback/state/configuration
+  ledger and evidence schema are a review candidate. No strategy code or live
+  execution surface is added by Stage 5A.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
@@ -115,7 +118,8 @@ Stage split:
 - Stage 2B-10 combined paper/mock compatibility test pack is accepted.
 - Stage 2B-11 acceptance report closes Stage 2B as broker-neutral runtime
   contract/foundation.
-- Next macro-stage is Stage 3: market-data parity to strategy input level.
+- Stage 3 followed Stage 2B and is now accepted/closed as market-data parity to
+  strategy input level.
 - Stage 3A is accepted: market-data parity plan and evidence schema are
   accepted as the planning/schema foundation.
 - Stage 3B is accepted after Stage 3B-1 hardening: source-only market-data
@@ -166,7 +170,8 @@ Stage split:
   flags, and `checked_ts` must not precede the first fresh live final.
 - Stage 3F is accepted as the Stage 3 market-data parity acceptance report.
   Stage 3 is accepted/closed as market-data parity to strategy-input level.
-- Current active macro-stage is Stage 4: broker-truth bootstrap into runtime.
+- Stage 4 was accepted/closed as broker-truth bootstrap into runtime. Current
+  active macro-stage is Stage 5: real strategy semantics attachment.
 - Stage 4A is accepted/closed as broker-truth bootstrap
   planning/evidence-schema foundation.
 - Stage 4A-1 is accepted/closed as plan/schema alignment: the Stage 4
@@ -258,21 +263,17 @@ Green / mostly closed:
 Amber:
 
 - Full-session operator FINAM-vs-ALOR M10 evidence is still required before
-  runtime-live/cutover decisions; Stage 3F is the contract/evidence acceptance
-  report that allows Stage 4 broker-truth bootstrap work to start after review.
-- Broker-truth snapshots are available, but broker truth is not yet mandatory
-  runtime bootstrap input.
+  runtime-live/cutover decisions; Stage 3F closes the input contract but does
+  not replace later same-session strategy evidence.
+- Stage 4 makes validated broker truth and lifecycle ordering available as the
+  mandatory foundation, but the real Hybrid strategy has not yet consumed that
+  chain.
 - Paper runtime projection has ALOR-compatible fields, but it is not yet the
   real ALOR hybrid BO/MR orchestrator.
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
-- Stage 3F is accepted and closes Stage 3 as the market-data parity contract.
-- Stage 3 remains market-data/evidence only; it does not read live streams from
-  runtime-live, attach runtime-live, or enable real order routing.
-- Stage 4A/4A-1 covers broker-truth bootstrap planning/evidence schema; Stage
-  4B covers existing type inventory and alignment; Stage 4C adds the first
-  validated broker-truth bootstrap wrapper. Broker truth is not yet wired as
-  mandatory runtime input.
+- Stage 5A freezes the source and acceptance inventory; Stage 5B source import
+  remains gated on review.
 
 Red / not yet implemented:
 
