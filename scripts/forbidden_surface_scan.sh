@@ -53,6 +53,7 @@ python3 - <<'PY'
 import hashlib
 import json
 from pathlib import Path
+import re
 import sys
 
 failures = 0
@@ -192,6 +193,7 @@ for path in Path("crates").glob("**/*.rs"):
 source = Path("crates/finam-gateway/src/lib.rs").read_text()
 
 semantic_kernel_root = Path("crates/strategy-runtime-core")
+semantic_workspace_member = "crates/strategy-runtime-core"
 semantic_kernel_forbidden = [
     "broker-finam",
     "finam-gateway",
@@ -229,6 +231,116 @@ else:
                     file=sys.stderr,
                 )
                 failures += 1
+
+root_manifest_path = Path("Cargo.toml")
+if not root_manifest_path.is_file():
+    print("forbidden-surface-scan: root Cargo.toml missing", file=sys.stderr)
+    failures += 1
+else:
+    root_manifest_source = root_manifest_path.read_text()
+    workspace_match = re.search(
+        r"(?ms)^\[workspace\]\s*(.*?)(?=^\[|\Z)", root_manifest_source
+    )
+    workspace_source = workspace_match.group(1) if workspace_match else ""
+
+    def workspace_array(name):
+        match = re.search(rf"(?ms)^\s*{name}\s*=\s*\[(.*?)\]", workspace_source)
+        return set(re.findall(r'"([^"]+)"', match.group(1))) if match else set()
+
+    workspace_members = workspace_array("members")
+    workspace_excludes = workspace_array("exclude")
+    if semantic_workspace_member not in workspace_members:
+        print(
+            "forbidden-surface-scan: strategy-runtime-core must remain an explicit "
+            "workspace member",
+            file=sys.stderr,
+        )
+        failures += 1
+    if semantic_workspace_member in workspace_excludes:
+        print(
+            "forbidden-surface-scan: strategy-runtime-core must not be workspace-excluded",
+            file=sys.stderr,
+        )
+        failures += 1
+
+semantic_crate_manifest_path = semantic_kernel_root / "Cargo.toml"
+expected_semantic_crate_manifest_sha256 = (
+    "00f18c0d3ddc6f7fb4196edc2a51f18da034070555aad980c35098cbd4ed5fd0"
+)
+if not semantic_crate_manifest_path.is_file():
+    print(
+        "forbidden-surface-scan: strategy-runtime-core Cargo.toml missing",
+        file=sys.stderr,
+    )
+    failures += 1
+else:
+    semantic_crate_manifest_bytes = semantic_crate_manifest_path.read_bytes()
+    semantic_crate_manifest_source = semantic_crate_manifest_bytes.decode("utf-8")
+    actual_semantic_manifest_sha256 = hashlib.sha256(
+        semantic_crate_manifest_bytes
+    ).hexdigest()
+    if actual_semantic_manifest_sha256 != expected_semantic_crate_manifest_sha256:
+        print(
+            "forbidden-surface-scan: strategy-runtime-core Cargo.toml drifted: "
+            f"actual={actual_semantic_manifest_sha256} "
+            f"expected={expected_semantic_crate_manifest_sha256}",
+            file=sys.stderr,
+        )
+        failures += 1
+    package_match = re.search(
+        r"(?ms)^\[package\]\s*(.*?)(?=^\[|\Z)", semantic_crate_manifest_source
+    )
+    package_source = package_match.group(1) if package_match else ""
+    if re.search(r"(?m)^\s*autotests\s*=\s*false\s*$", package_source):
+        print(
+            "forbidden-surface-scan: strategy-runtime-core autotests must remain enabled",
+            file=sys.stderr,
+        )
+        failures += 1
+    if re.search(r"(?m)^\s*build\s*=", package_source):
+        print(
+            "forbidden-surface-scan: strategy-runtime-core custom build target is forbidden",
+            file=sys.stderr,
+        )
+        failures += 1
+    lib_match = re.search(
+        r"(?ms)^\[lib\]\s*(.*?)(?=^\[|\Z)", semantic_crate_manifest_source
+    )
+    if lib_match:
+        lib_source = lib_match.group(1)
+        path_match = re.search(r'(?m)^\s*path\s*=\s*"([^"]+)"', lib_source)
+        if path_match and path_match.group(1) != "src/lib.rs":
+            print(
+                "forbidden-surface-scan: strategy-runtime-core lib path redirect is forbidden",
+                file=sys.stderr,
+            )
+            failures += 1
+        if re.search(r"(?m)^\s*test\s*=\s*false\s*$", lib_source):
+            print(
+                "forbidden-surface-scan: strategy-runtime-core lib tests must remain enabled",
+                file=sys.stderr,
+            )
+            failures += 1
+
+semantic_lib_path = semantic_kernel_root / "src/lib.rs"
+expected_semantic_lib_sha256 = (
+    "eba13a333fc0c003d9afa96f379cfb833b3148d549b97425406f4386bc3cea4a"
+)
+if not semantic_lib_path.is_file():
+    print(
+        "forbidden-surface-scan: strategy-runtime-core src/lib.rs missing",
+        file=sys.stderr,
+    )
+    failures += 1
+else:
+    actual_semantic_lib_sha256 = hashlib.sha256(semantic_lib_path.read_bytes()).hexdigest()
+    if actual_semantic_lib_sha256 != expected_semantic_lib_sha256:
+        print(
+            "forbidden-surface-scan: strategy-runtime-core src/lib.rs drifted: "
+            f"actual={actual_semantic_lib_sha256} expected={expected_semantic_lib_sha256}",
+            file=sys.stderr,
+        )
+        failures += 1
 
 semantic_ledger_path = semantic_kernel_root / "source-correspondence.toml"
 if not semantic_ledger_path.exists():
@@ -461,6 +573,19 @@ else:
         )
         failures += 1
 
+    expected_semantic_production_paths = expected_target_paths | {str(semantic_lib_path)}
+    actual_semantic_production_paths = {
+        str(path) for path in (semantic_kernel_root / "src").glob("**/*.rs")
+    }
+    if actual_semantic_production_paths != expected_semantic_production_paths:
+        print(
+            "forbidden-surface-scan: strategy-runtime-core production source set drifted: "
+            f"actual={sorted(actual_semantic_production_paths)} "
+            f"expected={sorted(expected_semantic_production_paths)}",
+            file=sys.stderr,
+        )
+        failures += 1
+
 wrapper_oracle_path = Path(
     "source-oracles/alor-stage5/hybrid_intraday_runtime.rs"
 )
@@ -516,6 +641,9 @@ expected_stage5_profile_artifacts = {
     ),
     Path("tests/fixtures/stage5/imoexf_high180_profile_binding.json"): (
         "ec6daea39f19f3162da5e8d77abb0f03a3f4f5ea2e2876c1d1e189401580ec5d"
+    ),
+    Path("tests/fixtures/stage5/bracket_terminal_reconciliation.json"): (
+        "b7b5f20040905f0b98cf6d1e8ab47b0a96d238592cc8a25fe83bb0ca35bce9aa"
     ),
 }
 for artifact_path, expected_artifact_sha256 in expected_stage5_profile_artifacts.items():

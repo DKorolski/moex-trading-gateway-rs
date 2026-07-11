@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "source_oracle_sha256": "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa",
+  "state_field": "bracket_terminal_reconcile_started_ms",
+  "grace_ms": 3000,
+  "persisted_in_strategy_state": false,
+  "restart_policy": "marker_resets_to_none_and_no_pre_restart_grace_is_inherited",
+  "transitions": [
+    {
+      "event": "take_profit_filled_or_stop_loss_terminal",
+      "result": "start_terminal_reconcile_grace"
+    },
+    {
+      "event": "position_size_change_inside_grace",
+      "result": "suppress_immediate_emergency_flatten_and_update_last_position_qty"
+    },
+    {
+      "event": "timer_after_grace_with_residual_position",
+      "result": "emit_exactly_one_residual_flatten",
+      "reason": "bracket_terminal_reconcile_timeout"
+    },
+    {
+      "event": "flat_transition",
+      "result": "clear_terminal_reconcile_marker"
+    },
+    {
+      "event": "repeated_timer_after_timeout",
+      "result": "no_duplicate_exit"
+    }
+  ],
+  "source_tests": [
+    "partial_protective_fill_waits_for_terminal_reconcile",
+    "terminal_reconcile_timeout_emits_single_residual_flatten"
+  ],
+  "paper_boundary": true
+}

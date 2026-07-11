@@ -103,3 +103,5 @@ tokens or raw broker responses.
 - [ALOR runtime compatibility contract](docs/alor-runtime-compat-contract-v1.md)
 - [Stage 5 strategy-semantics plan](docs/stage-5-real-strategy-semantics-plan.md)
 - [Stage 5 source/profile hardening](docs/stage-5/5b-1a-correspondence-oracle-profile-hardening.md)
+- [Stage 5 structural freeze](docs/stage-5/5b-1b-structural-freeze-hardening.md)
+- [Stage 5 wrapper inventory](docs/stage-5/5b-2-integrated-wrapper-semantic-inventory.md)

@@ -43,6 +43,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 5B-1a immutable correspondence, exact integrated-wrapper oracle and
   active high180 profile hardening are a review candidate. The wrapper remains
   uncompiled and unattached.
+- Stage 5B-1b structural freeze hardening and the Stage 5B-2 integrated-wrapper
+  semantic inventory are repeat-review candidates. Workspace membership, crate
+  target configuration, library root and the complete production source set
+  now fail closed. Bracket terminal-reconciliation grace, residual flatten and
+  source-compatible transient restart behavior are inventoried and fixture
+  locked; wrapper implementation remains blocked.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
@@ -281,7 +287,9 @@ Amber:
 - Stage 5A freezes the source and acceptance inventory; Stage 5B source import
   has started with the reviewable pure-kernel-only Stage 5B-1 slice. Wrapper,
   host, state and differential parity work remain pending. Stage 5B-1a resolves
-  the P1 provenance/configuration blockers before wrapper migration.
+  the P1 provenance/configuration blockers before wrapper migration. Stage
+  5B-1b closes workspace/target/source-set bypasses, while Stage 5B-2 currently
+  contains design inventory only and does not compile or attach the wrapper.
 
 Red / not yet implemented:
 
