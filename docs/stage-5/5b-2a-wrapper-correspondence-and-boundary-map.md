@@ -169,8 +169,11 @@ the exact parsed workspace member set:
   including `cfg_attr`, independent of comments and whitespace.
 
 Only three hash-locked inventory tests may read the oracle through
-`include_str!`; split `concat!` path fragments outside those files are rejected.
-The workspace member set is frozen, so a new member outside
+`include_str!`. Outside those files, decoded Rust string surfaces may not
+reference either `source-oracles/alor-stage5` or
+`hybrid_intraday_runtime.rs`, regardless of `concat!`, `stringify!`,
+escape sequences, or macro-meta indirection. The workspace member set is
+frozen, so a new member outside
 `crates/` cannot bypass the gate. Stage 5B-2b must open exactly the declared
 path while all alternate crate/path targets remain forbidden.
 

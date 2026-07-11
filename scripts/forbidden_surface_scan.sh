@@ -71,6 +71,68 @@ import tomllib
 failures = 0
 
 
+def decode_rust_string_fragment(fragment):
+    decoded = []
+    index = 0
+    escape_map = {
+        "0": "\0",
+        "n": "\n",
+        "r": "\r",
+        "t": "\t",
+        "\\": "\\",
+        "'": "'",
+        '"': '"',
+    }
+    while index < len(fragment):
+        if fragment[index] != "\\":
+            decoded.append(fragment[index])
+            index += 1
+            continue
+        if index + 1 >= len(fragment):
+            decoded.append("\\")
+            break
+
+        escaped = fragment[index + 1]
+        if escaped in escape_map:
+            decoded.append(escape_map[escaped])
+            index += 2
+            continue
+        if escaped == "x" and index + 3 < len(fragment):
+            digits = fragment[index + 2 : index + 4]
+            try:
+                decoded.append(chr(int(digits, 16)))
+                index += 4
+                continue
+            except ValueError:
+                pass
+        if escaped == "u" and index + 2 < len(fragment) and fragment[index + 2] == "{":
+            closing_brace = fragment.find("}", index + 3)
+            if closing_brace != -1:
+                digits = fragment[index + 3 : closing_brace].replace("_", "")
+                try:
+                    decoded.append(chr(int(digits, 16)))
+                    index = closing_brace + 1
+                    continue
+                except (ValueError, OverflowError):
+                    pass
+        if escaped == "\n":
+            index += 2
+            while index < len(fragment) and fragment[index].isspace():
+                index += 1
+            continue
+        if escaped == "\r":
+            index += 2
+            if index < len(fragment) and fragment[index] == "\n":
+                index += 1
+            while index < len(fragment) and fragment[index].isspace():
+                index += 1
+            continue
+
+        decoded.extend(("\\", escaped))
+        index += 2
+    return "".join(decoded)
+
+
 def rust_tokens_and_string_fragments(source):
     """Return code tokens and string fragments needed by the Stage 5 guard."""
 
@@ -162,13 +224,17 @@ def rust_tokens_and_string_fragments(source):
         if source[index] == '"':
             quoted_end = skip_quoted(index)
             content_end = quoted_end - 1 if quoted_end < source_len else source_len
-            string_fragments.append(source[index + 1 : content_end])
+            string_fragments.append(
+                decode_rust_string_fragment(source[index + 1 : content_end])
+            )
             index = quoted_end
             continue
         if source[index] in ("b", "c") and index + 1 < source_len and source[index + 1] == '"':
             quoted_end = skip_quoted(index + 1)
             content_end = quoted_end - 1 if quoted_end < source_len else source_len
-            string_fragments.append(source[index + 2 : content_end])
+            string_fragments.append(
+                decode_rust_string_fragment(source[index + 2 : content_end])
+            )
             index = quoted_end
             continue
         if source[index] == "'":
@@ -209,14 +275,6 @@ def rust_tokens_and_string_fragments(source):
         index += 1
 
     return tokens, string_fragments
-
-
-def has_token_sequence(tokens, expected):
-    width = len(expected)
-    return any(
-        tokens[index : index + width] == expected
-        for index in range(len(tokens) - width + 1)
-    )
 
 
 def has_path_meta_in_attribute(tokens):
@@ -448,8 +506,9 @@ allowed_wrapper_oracle_include_str_paths = {
     Path("crates/strategy-runtime-core/tests/wrapper_bracket_terminal_inventory.rs"),
 }
 wrapper_oracle_filename = "hybrid_intraday_runtime.rs"
-wrapper_oracle_relative_path = (
-    "source-oracles/alor-stage5/hybrid_intraday_runtime.rs"
+wrapper_oracle_reference_markers = (
+    "source-oracles/alor-stage5",
+    wrapper_oracle_filename,
 )
 
 for candidate in workspace_rs_files:
@@ -458,16 +517,15 @@ for candidate in workspace_rs_files:
         candidate_source
     )
     has_wrapper_identifier = "HybridIntradayRuntimeStrategy" in candidate_source
-    has_oracle_filename = wrapper_oracle_filename in candidate_source
     has_forbidden_include = "include" in candidate_tokens
     has_forbidden_path_attribute = has_path_meta_in_attribute(candidate_tokens)
-    has_include_str_macro = has_token_sequence(candidate_tokens, ["include_str", "!"])
-    has_split_oracle_reference = wrapper_oracle_relative_path in "".join(
-        candidate_string_fragments
+    decoded_string_surface = "".join(candidate_string_fragments)
+    has_oracle_reference = any(
+        marker in decoded_string_surface
+        for marker in wrapper_oracle_reference_markers
     )
-    unapproved_oracle_text_read = (
-        (has_oracle_filename or has_split_oracle_reference)
-        and has_include_str_macro
+    unapproved_oracle_reference = (
+        has_oracle_reference
         and candidate not in allowed_wrapper_oracle_include_str_paths
     )
     wrapper_markers = [
@@ -475,7 +533,7 @@ for candidate in workspace_rs_files:
         has_wrapper_identifier,
         has_forbidden_include,
         has_forbidden_path_attribute,
-        unapproved_oracle_text_read,
+        unapproved_oracle_reference,
     ]
     if any(wrapper_markers):
         print(

@@ -299,6 +299,23 @@ rm -f "$cfg_attr_path"
 mv "$alternate_lib_backup" "$alternate_lib"
 
 cp "$alternate_lib" "$alternate_lib_backup"
+macro_meta_path="$tmp_root/crates/broker-core/src/stage5_macro_meta_path.rs"
+printf '%s\n' \
+  'macro_rules! make_module {' \
+  '    ($meta:meta) => {' \
+  '        #[$meta]' \
+  '        mod stage5_wrapper;' \
+  '    };' \
+  '}' \
+  'make_module!(' \
+  '    path = "../../../source-oracles/alor-stage5/hybrid_intraday_runtime.rs"' \
+  ');' > "$macro_meta_path"
+printf '\npub mod stage5_macro_meta_path;\n' >> "$alternate_lib"
+expect_scanner_failure "macro-meta-path-wrapper-activation"
+rm -f "$macro_meta_path"
+mv "$alternate_lib_backup" "$alternate_lib"
+
+cp "$alternate_lib" "$alternate_lib_backup"
 split_oracle_read="$tmp_root/crates/broker-core/src/stage5_split_oracle_read.rs"
 printf '%s\n' \
   'pub const ORACLE: &str = include_str!(concat!(' \
@@ -310,6 +327,42 @@ printf '%s\n' \
 printf '\npub mod stage5_split_oracle_read;\n' >> "$alternate_lib"
 expect_scanner_failure "split-path-oracle-include-str-outside-allowlist"
 rm -f "$split_oracle_read"
+mv "$alternate_lib_backup" "$alternate_lib"
+
+cp "$alternate_lib" "$alternate_lib_backup"
+escaped_oracle_read="$tmp_root/crates/broker-core/src/stage5_escaped_oracle_read.rs"
+printf '%s\n' \
+  'pub const ORACLE: &str = include_str!(' \
+  '    "../../../source-oracles/alor-stage5/hybrid_intraday_\x72untime.rs"' \
+  ');' > "$escaped_oracle_read"
+printf '\npub mod stage5_escaped_oracle_read;\n' >> "$alternate_lib"
+expect_scanner_failure "escaped-oracle-include-str-outside-allowlist"
+rm -f "$escaped_oracle_read"
+mv "$alternate_lib_backup" "$alternate_lib"
+
+cp "$alternate_lib" "$alternate_lib_backup"
+unicode_oracle_read="$tmp_root/crates/broker-core/src/stage5_unicode_oracle_read.rs"
+printf '%s\n' \
+  'pub const ORACLE: &str = include_str!(' \
+  '    "../../../source-oracles/alor-stage5/hybrid_intraday_\u{72}untime.rs"' \
+  ');' > "$unicode_oracle_read"
+printf '\npub mod stage5_unicode_oracle_read;\n' >> "$alternate_lib"
+expect_scanner_failure "unicode-escaped-oracle-filename"
+rm -f "$unicode_oracle_read"
+mv "$alternate_lib_backup" "$alternate_lib"
+
+cp "$alternate_lib" "$alternate_lib_backup"
+stringify_oracle_read="$tmp_root/crates/broker-core/src/stage5_stringify_oracle_read.rs"
+printf '%s\n' \
+  'pub const ORACLE: &str = include_str!(concat!(' \
+  '    env!("CARGO_MANIFEST_DIR"),' \
+  '    "/../../source-oracles/alor-stage5/hybrid_intraday_",' \
+  '    stringify!(runtime),' \
+  '    ".rs"' \
+  '));' > "$stringify_oracle_read"
+printf '\npub mod stage5_stringify_oracle_read;\n' >> "$alternate_lib"
+expect_scanner_failure "stringify-split-oracle-include-str"
+rm -f "$stringify_oracle_read"
 mv "$alternate_lib_backup" "$alternate_lib"
 
 cp "$alternate_lib" "$alternate_lib_backup"
