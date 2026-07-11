@@ -9,6 +9,7 @@ cp -R "$workspace_root/scripts" "$tmp_root/scripts"
 cp -R "$workspace_root/crates" "$tmp_root/crates"
 cp -R "$workspace_root/source-oracles" "$tmp_root/source-oracles"
 cp "$workspace_root/Cargo.toml" "$tmp_root/Cargo.toml"
+cp "$workspace_root/Cargo.lock" "$tmp_root/Cargo.lock"
 mkdir -p "$tmp_root/config" "$tmp_root/tests/fixtures/stage5"
 cp "$workspace_root/config/imoexf-hybrid-high180-profile.redacted.toml" "$tmp_root/config/"
 cp "$workspace_root/tests/fixtures/stage5/imoexf_high180_profile_binding.json" "$tmp_root/tests/fixtures/stage5/"
@@ -191,6 +192,74 @@ perl -0pi -e 's/    "crates\/strategy-runtime-core",/    "crates\/strategy-runti
 expect_scanner_failure "add-wrapper-in-new-workspace-member-outside-crates"
 mv "$root_manifest_backup" "$root_manifest"
 rm -rf "$external_member"
+
+cp "$root_manifest" "$root_manifest_backup"
+perl -0pi -e 's/]\n\n\[workspace\.package\]/]\nexclude = ["stage5-wrapper"]\n\n[workspace.package]/' "$root_manifest"
+expect_scanner_failure "workspace-exclude-drift"
+mv "$root_manifest_backup" "$root_manifest"
+
+external_member="$tmp_root/stage5-wrapper"
+broker_core_manifest="$tmp_root/crates/broker-core/Cargo.toml"
+broker_core_manifest_backup="$broker_core_manifest.bak"
+mkdir -p "$external_member/src"
+printf '%s\n' \
+  '[package]' \
+  'name = "stage5-wrapper"' \
+  'version = "0.0.0"' \
+  'edition = "2021"' > "$external_member/Cargo.toml"
+printf '%s\n' \
+  'pub struct HybridIntradayRuntimeStrategy;' \
+  'pub use HybridIntradayRuntimeStrategy as Runtime;' > "$external_member/src/lib.rs"
+cp "$broker_core_manifest" "$broker_core_manifest_backup"
+printf '\nstage5-wrapper = { path = "../../stage5-wrapper" }\n' >> "$broker_core_manifest"
+expect_scanner_failure "unapproved-path-dependency-edge"
+mv "$broker_core_manifest_backup" "$broker_core_manifest"
+rm -rf "$external_member"
+
+external_member="$tmp_root/stage5-wrapper"
+mkdir -p "$external_member/src"
+printf '%s\n' \
+  '[package]' \
+  'name = "stage5-wrapper"' \
+  'version = "0.0.0"' \
+  'edition = "2021"' > "$external_member/Cargo.toml"
+printf '%s\n' \
+  'pub struct HybridIntradayRuntimeStrategy;' \
+  'pub use HybridIntradayRuntimeStrategy as Runtime;' > "$external_member/src/lib.rs"
+cp "$root_manifest" "$root_manifest_backup"
+cp "$broker_core_manifest" "$broker_core_manifest_backup"
+perl -0pi -e 's/]\n\n\[workspace\.package\]/]\nexclude = ["stage5-wrapper"]\n\n[workspace.package]/' "$root_manifest"
+printf '\nstage5-wrapper = { path = "../../stage5-wrapper" }\n' >> "$broker_core_manifest"
+expect_scanner_failure "excluded-local-path-dependency-wrapper"
+mv "$root_manifest_backup" "$root_manifest"
+mv "$broker_core_manifest_backup" "$broker_core_manifest"
+rm -rf "$external_member"
+
+alias_fixture_dir="$tmp_root/crates/broker-core/fixtures"
+mkdir -p "$alias_fixture_dir"
+cp "$tmp_root/source-oracles/alor-stage5/hybrid_intraday_runtime.rs" \
+  "$alias_fixture_dir/stage5_wrapper_alias.txt"
+expect_scanner_failure "duplicate-oracle-under-alias-filename"
+rm -f "$alias_fixture_dir/stage5_wrapper_alias.txt"
+
+printf 'pub struct HybridIntradayRuntimeStrategy;\n' \
+  > "$alias_fixture_dir/stage5_wrapper.inc"
+cp "$alternate_lib" "$alternate_lib_backup"
+macro_alias_path="$tmp_root/crates/broker-core/src/stage5_macro_alias_path.rs"
+printf '%s\n' \
+  'macro_rules! make_module {' \
+  '    ($meta:meta) => {' \
+  '        #[$meta]' \
+  '        mod stage5_wrapper;' \
+  '    };' \
+  '}' \
+  'make_module!(path = "../fixtures/stage5_wrapper.inc");' \
+  > "$macro_alias_path"
+printf '\npub mod stage5_macro_alias_path;\n' >> "$alternate_lib"
+expect_scanner_failure "macro-meta-path-to-renamed-wrapper-inc"
+rm -f "$macro_alias_path" "$alias_fixture_dir/stage5_wrapper.inc"
+mv "$alternate_lib_backup" "$alternate_lib"
+rmdir "$alias_fixture_dir"
 
 alternate_lib_backup="$alternate_lib.bak"
 cp "$alternate_lib" "$alternate_lib_backup"

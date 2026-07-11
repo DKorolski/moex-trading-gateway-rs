@@ -70,6 +70,32 @@ import tomllib
 
 failures = 0
 
+cargo_control_hashes = {
+    Path("Cargo.toml"): "1c3e7dd1b83a6a8942e02cb520d49f33ed3ef77f2970854b9fdcddc7f261bc3e",
+    Path("Cargo.lock"): "e1e5aa68437c99e820db7803f5142e263084c39bff62d1075a1636d02ca98711",
+    Path("crates/broker-cli/Cargo.toml"): "8f642b380ae8db32047504e632d1b710cdbc235f5058f57ad0780d72182f2754",
+    Path("crates/broker-core/Cargo.toml"): "e807ab613c52d8325d1c46b1f679b319ab72ffeb69196e5a52aacecbd694dc8d",
+    Path("crates/broker-finam/Cargo.toml"): "2a4f78beac8390e06e035e1c7ba0c0a71d230165297ad452ff3c4eeb1a2107db",
+    Path("crates/finam-gateway/Cargo.toml"): "95b937eb4d166212869d196a1173f40b358c64cf91906ecaef19d7268820f06c",
+    Path("crates/strategy-runtime-core/Cargo.toml"): "00f18c0d3ddc6f7fb4196edc2a51f18da034070555aad980c35098cbd4ed5fd0",
+}
+for cargo_control_path, expected_sha256 in cargo_control_hashes.items():
+    if not cargo_control_path.is_file():
+        print(
+            f"forbidden-surface-scan: Cargo control file missing {cargo_control_path}",
+            file=sys.stderr,
+        )
+        failures += 1
+        continue
+    actual_sha256 = hashlib.sha256(cargo_control_path.read_bytes()).hexdigest()
+    if actual_sha256 != expected_sha256:
+        print(
+            "forbidden-surface-scan: Cargo compilation control drifted at "
+            f"{cargo_control_path}: actual={actual_sha256} expected={expected_sha256}",
+            file=sys.stderr,
+        )
+        failures += 1
+
 
 def decode_rust_string_fragment(fragment):
     decoded = []
@@ -307,7 +333,48 @@ def has_path_meta_in_attribute(tokens):
         index = cursor
     return False
 
+
+def has_path_assignment_in_macro_invocation(tokens):
+    matching_delimiter = {"(": ")", "[": "]", "{": "}"}
+    for index, token in enumerate(tokens[:-1]):
+        if token != "!" or tokens[index + 1] not in matching_delimiter:
+            continue
+        stack = [matching_delimiter[tokens[index + 1]]]
+        cursor = index + 2
+        while cursor < len(tokens) and stack:
+            current = tokens[cursor]
+            if current in matching_delimiter:
+                stack.append(matching_delimiter[current])
+            elif current == stack[-1]:
+                stack.pop()
+            elif (
+                current == "path"
+                and cursor + 1 < len(tokens)
+                and tokens[cursor + 1] == "="
+            ):
+                return True
+            cursor += 1
+    return False
+
+
+def has_macro_generated_attribute(tokens):
+    for index in range(len(tokens) - 2):
+        if tokens[index : index + 2] != ["#", "["]:
+            continue
+        depth = 1
+        cursor = index + 2
+        while cursor < len(tokens) and depth:
+            if tokens[cursor] == "[":
+                depth += 1
+            elif tokens[cursor] == "]":
+                depth -= 1
+            elif tokens[cursor] == "$":
+                return True
+            cursor += 1
+    return False
+
 root_manifest_path = Path("Cargo.toml")
+root_manifest = {}
 expected_workspace_members = {
     "crates/broker-core",
     "crates/broker-finam",
@@ -344,7 +411,52 @@ if workspace_members != expected_workspace_members:
     )
     failures += 1
 
-workspace_rs_files = []
+if workspace_excludes:
+    print(
+        "forbidden-surface-scan: workspace.exclude must remain empty before "
+        f"Stage 5B-2b; actual={sorted(workspace_excludes)}",
+        file=sys.stderr,
+    )
+    failures += 1
+
+workspace_source_candidate_files = set()
+workspace_member_paths = {
+    member: Path(member).resolve() for member in workspace_members
+}
+explicit_cargo_source_paths = set()
+expected_local_path_edges = {
+    ("crates/broker-finam", "crates/broker-core"),
+    ("crates/finam-gateway", "crates/broker-core"),
+    ("crates/finam-gateway", "crates/broker-finam"),
+    ("crates/broker-cli", "crates/broker-core"),
+    ("crates/broker-cli", "crates/broker-finam"),
+    ("crates/broker-cli", "crates/finam-gateway"),
+}
+observed_local_path_edges = set()
+
+dependency_section_names = (
+    "dependencies",
+    "dev-dependencies",
+    "build-dependencies",
+)
+
+
+def dependency_tables(manifest):
+    for section_name in dependency_section_names:
+        section = manifest.get(section_name, {})
+        if isinstance(section, dict):
+            yield section_name, section
+    targets = manifest.get("target", {})
+    if isinstance(targets, dict):
+        for target_name, target_config in targets.items():
+            if not isinstance(target_config, dict):
+                continue
+            for section_name in dependency_section_names:
+                section = target_config.get(section_name, {})
+                if isinstance(section, dict):
+                    yield f"target.{target_name}.{section_name}", section
+
+
 for member in sorted(workspace_members):
     member_path = Path(member)
     if not member_path.is_dir():
@@ -354,11 +466,134 @@ for member in sorted(workspace_members):
         )
         failures += 1
         continue
-    workspace_rs_files.extend(
+    workspace_source_candidate_files.update(
         path
-        for path in member_path.glob("**/*.rs")
-        if "target" not in path.parts and ".git" not in path.parts
+        for path in member_path.glob("**/*")
+        if path.is_file()
+        and (path.suffix in {".rs", ".inc", ".in"} or not path.suffix)
+        and "target" not in path.parts
+        and ".git" not in path.parts
     )
+
+    member_manifest_path = member_path / "Cargo.toml"
+    if not member_manifest_path.is_file():
+        print(
+            f"forbidden-surface-scan: member manifest missing {member_manifest_path}",
+            file=sys.stderr,
+        )
+        failures += 1
+        continue
+    try:
+        with member_manifest_path.open("rb") as manifest_file:
+            member_manifest = tomllib.load(manifest_file)
+    except (OSError, tomllib.TOMLDecodeError, TypeError) as error:
+        print(
+            f"forbidden-surface-scan: cannot parse {member_manifest_path}: {error}",
+            file=sys.stderr,
+        )
+        failures += 1
+        continue
+
+    package = member_manifest.get("package", {})
+    if isinstance(package, dict) and isinstance(package.get("build"), str):
+        explicit_cargo_source_paths.add(member_path / package["build"])
+    for target_kind in ("lib", "bin", "test", "example", "bench"):
+        target_configs = member_manifest.get(target_kind, [])
+        if isinstance(target_configs, dict):
+            target_configs = [target_configs]
+        if not isinstance(target_configs, list):
+            continue
+        for target_config in target_configs:
+            if isinstance(target_config, dict) and isinstance(target_config.get("path"), str):
+                explicit_cargo_source_paths.add(member_path / target_config["path"])
+
+    for section_name, dependencies in dependency_tables(member_manifest):
+        for dependency_name, dependency_spec in dependencies.items():
+            if not isinstance(dependency_spec, dict) or "path" not in dependency_spec:
+                continue
+            dependency_path_value = dependency_spec["path"]
+            if not isinstance(dependency_path_value, str):
+                print(
+                    "forbidden-surface-scan: local dependency path must be a string "
+                    f"at {member_manifest_path}:{section_name}.{dependency_name}",
+                    file=sys.stderr,
+                )
+                failures += 1
+                continue
+            dependency_path = (member_path / dependency_path_value).resolve()
+            target_member = next(
+                (
+                    candidate_member
+                    for candidate_member, candidate_path in workspace_member_paths.items()
+                    if candidate_path == dependency_path
+                ),
+                None,
+            )
+            edge = (member, target_member) if target_member is not None else None
+            if edge is not None:
+                observed_local_path_edges.add(edge)
+            if edge not in expected_local_path_edges:
+                print(
+                    "forbidden-surface-scan: unapproved local path dependency "
+                    f"{member}:{section_name}.{dependency_name} -> {dependency_path}",
+                    file=sys.stderr,
+                )
+                failures += 1
+
+if observed_local_path_edges != expected_local_path_edges:
+    print(
+        "forbidden-surface-scan: local path dependency edge set drifted: "
+        f"actual={sorted(observed_local_path_edges)} "
+        f"expected={sorted(expected_local_path_edges)}",
+        file=sys.stderr,
+    )
+    failures += 1
+
+workspace_dependency_table = root_manifest.get("workspace", {}).get("dependencies", {})
+if isinstance(workspace_dependency_table, dict):
+    for dependency_name, dependency_spec in workspace_dependency_table.items():
+        if isinstance(dependency_spec, dict) and "path" in dependency_spec:
+            print(
+                "forbidden-surface-scan: root workspace local path dependency is "
+                f"not allowed before Stage 5B-2b: {dependency_name}",
+                file=sys.stderr,
+            )
+            failures += 1
+
+for override_section in ("patch", "replace"):
+    if root_manifest.get(override_section):
+        print(
+            "forbidden-surface-scan: Cargo dependency override section is frozen "
+            f"before Stage 5B-2b: {override_section}",
+            file=sys.stderr,
+        )
+        failures += 1
+
+for explicit_source_path in explicit_cargo_source_paths:
+    resolved_source_path = explicit_source_path.resolve()
+    owning_member = next(
+        (
+            member
+            for member, member_path in workspace_member_paths.items()
+            if resolved_source_path.is_relative_to(member_path)
+        ),
+        None,
+    )
+    if owning_member is None:
+        print(
+            "forbidden-surface-scan: explicit Cargo source path escapes workspace "
+            f"member closure: {explicit_source_path}",
+            file=sys.stderr,
+        )
+        failures += 1
+    elif not explicit_source_path.is_file():
+        print(
+            f"forbidden-surface-scan: explicit Cargo source missing {explicit_source_path}",
+            file=sys.stderr,
+        )
+        failures += 1
+    else:
+        workspace_source_candidate_files.add(explicit_source_path)
 
 for path in Path("crates").glob("**/*.rs"):
     source = path.read_text()
@@ -510,15 +745,67 @@ wrapper_oracle_reference_markers = (
     "source-oracles/alor-stage5",
     wrapper_oracle_filename,
 )
+wrapper_oracle_path = Path(
+    "source-oracles/alor-stage5/hybrid_intraday_runtime.rs"
+)
+wrapper_oracle_sha256 = (
+    "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa"
+)
 
-for candidate in workspace_rs_files:
-    candidate_source = candidate.read_text()
+if not wrapper_oracle_path.is_file():
+    print(
+        f"forbidden-surface-scan: wrapper oracle missing {wrapper_oracle_path}",
+        file=sys.stderr,
+    )
+    failures += 1
+elif hashlib.sha256(wrapper_oracle_path.read_bytes()).hexdigest() != wrapper_oracle_sha256:
+    print(
+        "forbidden-surface-scan: wrapper oracle hash drifted before Stage 5B-2b",
+        file=sys.stderr,
+    )
+    failures += 1
+
+duplicate_scan_excluded_parts = {
+    ".git",
+    "target",
+    "tmp",
+    "reports",
+    "__pycache__",
+}
+for candidate in Path(".").glob("**/*"):
+    if not candidate.is_file() or any(
+        part in duplicate_scan_excluded_parts for part in candidate.parts
+    ):
+        continue
+    try:
+        candidate_sha256 = hashlib.sha256(candidate.read_bytes()).hexdigest()
+    except OSError as error:
+        print(
+            f"forbidden-surface-scan: cannot hash source candidate {candidate}: {error}",
+            file=sys.stderr,
+        )
+        failures += 1
+        continue
+    if candidate_sha256 == wrapper_oracle_sha256 and candidate != wrapper_oracle_path:
+        print(
+            "forbidden-surface-scan: duplicate wrapper oracle source is forbidden "
+            f"before Stage 5B-2b: {candidate}",
+            file=sys.stderr,
+        )
+        failures += 1
+
+for candidate in sorted(workspace_source_candidate_files):
+    candidate_source = candidate.read_text(errors="replace")
     candidate_tokens, candidate_string_fragments = rust_tokens_and_string_fragments(
         candidate_source
     )
     has_wrapper_identifier = "HybridIntradayRuntimeStrategy" in candidate_source
     has_forbidden_include = "include" in candidate_tokens
     has_forbidden_path_attribute = has_path_meta_in_attribute(candidate_tokens)
+    has_macro_path_assignment = has_path_assignment_in_macro_invocation(
+        candidate_tokens
+    )
+    has_generated_attribute = has_macro_generated_attribute(candidate_tokens)
     decoded_string_surface = "".join(candidate_string_fragments)
     has_oracle_reference = any(
         marker in decoded_string_surface
@@ -533,6 +820,8 @@ for candidate in workspace_rs_files:
         has_wrapper_identifier,
         has_forbidden_include,
         has_forbidden_path_attribute,
+        has_macro_path_assignment,
+        has_generated_attribute,
         unapproved_oracle_reference,
     ]
     if any(wrapper_markers):

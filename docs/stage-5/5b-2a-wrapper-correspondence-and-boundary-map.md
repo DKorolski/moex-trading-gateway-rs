@@ -166,16 +166,23 @@ the exact parsed workspace member set:
 - every code-context `include` identifier, including macro-indirected
   activation;
 - every `path = ...` meta item at any level of an attribute token tree,
-  including `cfg_attr`, independent of comments and whitespace.
+  including `cfg_attr`, independent of comments and whitespace;
+- `path = ...` inside macro invocation trees and attribute generation through
+  interpolated macro metavariables.
 
 Only three hash-locked inventory tests may read the oracle through
 `include_str!`. Outside those files, decoded Rust string surfaces may not
 reference either `source-oracles/alor-stage5` or
 `hybrid_intraday_runtime.rs`, regardless of `concat!`, `stringify!`,
 escape sequences, or macro-meta indirection. The workspace member set is
-frozen, so a new member outside
-`crates/` cannot bypass the gate. Stage 5B-2b must open exactly the declared
-path while all alternate crate/path targets remain forbidden.
+frozen and `workspace.exclude` must remain empty. All normal, dev, build and
+target-specific local path dependencies are resolved and checked against the
+accepted member-to-member edge set. Explicit Cargo source paths must remain
+inside their owning member. Potential `.rs`, `.inc`, `.in` and extensionless
+source aliases are scanned, and the exact oracle SHA-256 may occur only at its
+declared source path. Root/member manifests and `Cargo.lock` are independently
+hash-locked for this freeze. Stage 5B-2b must open exactly the declared path
+while all alternate crate/path targets remain forbidden.
 
 ## Accepted review backlog
 
