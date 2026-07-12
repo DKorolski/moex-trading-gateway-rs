@@ -631,6 +631,8 @@ pub struct Stage5cSemanticBarResult {
     origin: broker_core::HybridRuntimeBarOrigin,
     execution_eligible: bool,
     intents: Vec<crate::BrokerNeutralHybridIntent>,
+    expected_attribution_by_request:
+        HashMap<StrategyRequestId, broker_core::HybridRuntimeAttribution>,
 }
 
 impl Stage5cSemanticBarResult {
@@ -664,6 +666,7 @@ impl Stage5cSemanticBarResult {
         broker_core::HybridRuntimeBarOrigin,
         bool,
         Vec<crate::BrokerNeutralHybridIntent>,
+        HashMap<StrategyRequestId, broker_core::HybridRuntimeAttribution>,
     ) {
         (
             self.strategy,
@@ -672,6 +675,7 @@ impl Stage5cSemanticBarResult {
             self.origin,
             self.execution_eligible,
             self.intents,
+            self.expected_attribution_by_request,
         )
     }
 }
@@ -2525,6 +2529,8 @@ fn apply_stage5c_semantic_bar_at(
     if accepted.bar.close_time_utc > now.timestamp() {
         return Err(Stage5cSemanticBarError::FutureBar);
     }
+    let pre_callback_cleanup_ledger =
+        stage5cj_cleanup_attribution_ledger(Strategy::state(&strategy), admission.strategy_id());
     let context = stage5cf_semantic_context(&strategy, admission, accepted.bar.close_time_utc, now);
     let bar_close_ts = accepted.bar.close_time_utc;
     let origin = accepted.origin;
@@ -2537,6 +2543,14 @@ fn apply_stage5c_semantic_bar_at(
         },
     )
     .map_err(|_| Stage5cSemanticBarError::CallbackValidationFailed)?;
+    let expected_attribution_by_request =
+        stage5cj_expected_generated_attribution_by_request_from_ledger(
+            admission,
+            bar_close_ts,
+            &intents,
+            &pre_callback_cleanup_ledger,
+        )
+        .map_err(|_| Stage5cSemanticBarError::CallbackValidationFailed)?;
     Ok(Stage5cSemanticBarResult {
         strategy,
         recovery_receipt,
@@ -2544,6 +2558,7 @@ fn apply_stage5c_semantic_bar_at(
         origin,
         execution_eligible,
         intents,
+        expected_attribution_by_request,
     })
 }
 
@@ -2582,23 +2597,59 @@ fn settle_stage5c_semantic_result_with_expected_attribution(
         broker_core::HybridRuntimeAttribution,
     >,
 ) -> Result<Stage5cSettledPaperStrategy, Stage5cIntentSettlementError> {
-    let (strategy, recovery_receipt, bar_close_ts, origin, execution_eligible, intents) =
-        result.into_parts();
-    if intents.len() > u8::MAX as usize {
-        return Err(Stage5cIntentSettlementError::TooManyIntents);
-    }
+    let (
+        strategy,
+        recovery_receipt,
+        bar_close_ts,
+        origin,
+        execution_eligible,
+        intents,
+        mut result_expected_attribution_by_request,
+    ) = result.into_parts();
+    result_expected_attribution_by_request.extend(expected_attribution_by_request.clone());
     let admission = &recovery_receipt
         .warmup_receipt()
         .restore_receipt()
         .bootstrap_receipt()
         .admission;
-    let mut request_ids = Vec::with_capacity(intents.len());
-    let mut records = Vec::with_capacity(intents.len());
-    let mut seen_request_ids = HashSet::new();
-    let state = Strategy::state(&strategy);
     if !execution_eligible && !intents.is_empty() {
         return Err(Stage5cIntentSettlementError::ReplayIntentNotExecutable);
     }
+    let batch = stage5c_build_paper_intent_batch(
+        &strategy,
+        admission,
+        bar_close_ts,
+        origin,
+        intents,
+        &result_expected_attribution_by_request,
+    )?;
+    let settled_batch_history = vec![stage5ch_batch_summary(&batch)];
+    Ok(Stage5cSettledPaperStrategy {
+        strategy,
+        recovery_receipt,
+        batch,
+        settled_batch_history,
+    })
+}
+
+fn stage5c_build_paper_intent_batch(
+    strategy: &HybridIntradayRuntimeStrategy,
+    admission: &Stage5cPaperHostAdmission,
+    bar_close_ts: i64,
+    origin: broker_core::HybridRuntimeBarOrigin,
+    intents: Vec<crate::BrokerNeutralHybridIntent>,
+    expected_attribution_by_request: &HashMap<
+        StrategyRequestId,
+        broker_core::HybridRuntimeAttribution,
+    >,
+) -> Result<Stage5cPaperIntentBatch, Stage5cIntentSettlementError> {
+    if intents.len() > u8::MAX as usize {
+        return Err(Stage5cIntentSettlementError::TooManyIntents);
+    }
+    let mut request_ids = Vec::with_capacity(intents.len());
+    let mut records = Vec::with_capacity(intents.len());
+    let mut seen_request_ids = HashSet::new();
+    let state = Strategy::state(strategy);
     for intent in intents {
         validate_stage5cg_intent(
             &intent,
@@ -2639,26 +2690,15 @@ fn settle_stage5c_semantic_result_with_expected_attribution(
             intent,
         });
     }
-    let state_fingerprint = stage5c_state_fingerprint(state);
-    let strategy_id = admission.strategy_id().to_string();
-    let account_id = admission.account_id().clone();
-    let instrument = admission.target_instrument().clone();
-    let batch = Stage5cPaperIntentBatch {
-        strategy_id,
-        account_id,
-        instrument,
+    Ok(Stage5cPaperIntentBatch {
+        strategy_id: admission.strategy_id().to_string(),
+        account_id: admission.account_id().clone(),
+        instrument: admission.target_instrument().clone(),
         bar_close_ts,
-        state_fingerprint,
+        state_fingerprint: stage5c_state_fingerprint(state),
         request_ids,
         records,
         observation_only: origin == broker_core::HybridRuntimeBarOrigin::Replay,
-    };
-    let settled_batch_history = vec![stage5ch_batch_summary(&batch)];
-    Ok(Stage5cSettledPaperStrategy {
-        strategy,
-        recovery_receipt,
-        batch,
-        settled_batch_history,
     })
 }
 
@@ -3008,7 +3048,7 @@ pub fn resolve_stage5c_paper_broker_lifecycle(
     }
     let Stage5cResolvedPaperIntentBatchStrategy {
         mut strategy,
-        mut recovery_receipt,
+        recovery_receipt,
         resolved_batch: batch,
         ack_outcomes,
         mut settled_batch_history,
@@ -3019,8 +3059,7 @@ pub fn resolve_stage5c_paper_broker_lifecycle(
         .bootstrap_receipt()
         .admission;
     let broker_event_count = canonical_event_records.len();
-    let mut generated_intents = Vec::new();
-    let mut generated_expected_attribution_by_request = HashMap::new();
+    let mut generated_intent_batch: Option<Stage5cPaperIntentBatch> = None;
     for record in canonical_event_records {
         let Some(_intent_record) = batch
             .records
@@ -3036,11 +3075,12 @@ pub fn resolve_stage5c_paper_broker_lifecycle(
                 Stage5cPaperBrokerLifecycleError::UnknownEventRequestId,
             ));
         };
+        let source_ts = record.payload.source_ts_utc();
         let context = stage5cj_broker_lifecycle_context(
             &strategy,
             admission,
             batch.bar_close_ts(),
-            record.payload.source_ts_utc(),
+            source_ts,
         );
         let cleanup_ledger = stage5cj_cleanup_attribution_ledger(
             Strategy::state(&strategy),
@@ -3071,58 +3111,44 @@ pub fn resolve_stage5c_paper_broker_lifecycle(
                 Stage5cPaperBrokerLifecycleError::CallbackValidationFailed,
             )
         })?;
-        for intent in &intents {
-            if let Some(expected_attribution) =
-                stage5cj_expected_cleanup_attribution_from_ledger(&cleanup_ledger, intent)
-            {
-                let request_id = stage5cg_source_request_id(
-                    admission.strategy_id(),
-                    admission.account_id().as_str(),
-                    &admission.target_instrument().symbol,
-                    batch.bar_close_ts(),
-                    intent,
+        if !intents.is_empty() {
+            let expected_attribution_by_request =
+                stage5cj_expected_generated_attribution_by_request_from_ledger(
+                    admission,
+                    source_ts,
+                    &intents,
+                    &cleanup_ledger,
                 )
                 .map_err(|_| {
                     Stage5cPaperBrokerLifecycleFailure::Terminal(
                         Stage5cPaperBrokerLifecycleError::CallbackGeneratedIntentTerminal,
                     )
                 })?;
-                generated_expected_attribution_by_request
-                    .insert(request_id, expected_attribution.clone());
-            }
-        }
-        generated_intents.extend(intents);
-    }
-    let generated_intent_batch = if generated_intents.is_empty() {
-        None
-    } else {
-        let generated = settle_stage5c_semantic_result_with_expected_attribution(
-            Stage5cSemanticBarResult {
-                strategy,
-                recovery_receipt,
-                bar_close_ts: batch.bar_close_ts(),
-                origin: broker_core::HybridRuntimeBarOrigin::Live,
-                execution_eligible: true,
-                intents: generated_intents,
-            },
-            &generated_expected_attribution_by_request,
-        )
-        .map_err(|_| {
-            Stage5cPaperBrokerLifecycleFailure::Terminal(
-                Stage5cPaperBrokerLifecycleError::CallbackGeneratedIntentTerminal,
+            let callback_batch = stage5c_build_paper_intent_batch(
+                &strategy,
+                admission,
+                source_ts,
+                broker_core::HybridRuntimeBarOrigin::Live,
+                intents,
+                &expected_attribution_by_request,
             )
-        })?;
-        let Stage5cSettledPaperStrategy {
-            strategy: generated_strategy,
-            recovery_receipt: generated_recovery_receipt,
-            batch: generated_batch,
-            settled_batch_history: generated_history,
-        } = generated;
-        strategy = generated_strategy;
-        recovery_receipt = generated_recovery_receipt;
-        settled_batch_history = generated_history;
-        Some(generated_batch)
-    };
+            .map_err(|_| {
+                Stage5cPaperBrokerLifecycleFailure::Terminal(
+                    Stage5cPaperBrokerLifecycleError::CallbackGeneratedIntentTerminal,
+                )
+            })?;
+            stage5cj_merge_generated_batch(&mut generated_intent_batch, callback_batch).map_err(
+                |_| {
+                    Stage5cPaperBrokerLifecycleFailure::Terminal(
+                        Stage5cPaperBrokerLifecycleError::CallbackGeneratedIntentTerminal,
+                    )
+                },
+            )?;
+        }
+    }
+    if let Some(generated_batch) = &generated_intent_batch {
+        settled_batch_history.push(stage5ch_batch_summary(generated_batch));
+    }
     let resolved_batch_summary = stage5ch_batch_summary(&batch);
     Ok(Stage5cBrokerLifecycleResolvedPaperStrategy {
         strategy,
@@ -3145,6 +3171,25 @@ fn stage5cj_block(
         reason,
         resolved,
     }))
+}
+
+fn stage5cj_merge_generated_batch(
+    target: &mut Option<Stage5cPaperIntentBatch>,
+    mut next: Stage5cPaperIntentBatch,
+) -> Result<(), Stage5cIntentSettlementError> {
+    let Some(existing) = target else {
+        *target = Some(next);
+        return Ok(());
+    };
+    let mut seen: HashSet<_> = existing.request_ids.iter().copied().collect();
+    for request_id in &next.request_ids {
+        if !seen.insert(*request_id) {
+            return Err(Stage5cIntentSettlementError::DuplicateRequestId);
+        }
+    }
+    existing.request_ids.append(&mut next.request_ids);
+    existing.records.append(&mut next.records);
+    Ok(())
 }
 
 fn stage5cj_event_identity(
@@ -3578,6 +3623,32 @@ fn stage5cj_expected_cleanup_attribution_from_ledger(
         }
         _ => None,
     }
+}
+
+fn stage5cj_expected_generated_attribution_by_request_from_ledger(
+    admission: &Stage5cPaperHostAdmission,
+    source_ts: i64,
+    intents: &[crate::BrokerNeutralHybridIntent],
+    ledger: &Stage5cCleanupAttributionLedger,
+) -> Result<
+    HashMap<StrategyRequestId, broker_core::HybridRuntimeAttribution>,
+    Stage5cIntentSettlementError,
+> {
+    let mut expected = HashMap::new();
+    for intent in intents {
+        if let Some(attribution) = stage5cj_expected_cleanup_attribution_from_ledger(ledger, intent)
+        {
+            let request_id = stage5cg_source_request_id(
+                admission.strategy_id(),
+                admission.account_id().as_str(),
+                &admission.target_instrument().symbol,
+                source_ts,
+                intent,
+            )?;
+            expected.insert(request_id, attribution);
+        }
+    }
+    Ok(expected)
 }
 
 fn stage5cj_build_expected_attribution(
@@ -5155,6 +5226,7 @@ mod bootstrap_notification_tests {
             origin,
             execution_eligible: origin == broker_core::HybridRuntimeBarOrigin::Live,
             intents,
+            expected_attribution_by_request: HashMap::new(),
         }
     }
 
@@ -5744,6 +5816,7 @@ mod bootstrap_notification_tests {
             origin: broker_core::HybridRuntimeBarOrigin::Live,
             execution_eligible: true,
             intents: Vec::new(),
+            expected_attribution_by_request: HashMap::new(),
         })
         .unwrap();
         assert_eq!(settled.intent_batch().intent_count(), 0);
@@ -5783,6 +5856,7 @@ mod bootstrap_notification_tests {
                 origin: broker_core::HybridRuntimeBarOrigin::Live,
                 execution_eligible: true,
                 intents: vec![intent],
+                expected_attribution_by_request: HashMap::new(),
             }),
             Err(Stage5cIntentSettlementError::InvalidQuantity)
         ));
@@ -6057,6 +6131,7 @@ mod bootstrap_notification_tests {
             origin: broker_core::HybridRuntimeBarOrigin::Live,
             execution_eligible: true,
             intents: Vec::new(),
+            expected_attribution_by_request: HashMap::new(),
         })
         .unwrap();
         assert_eq!(settled.settled_batch_history().len(), 1);
@@ -6109,6 +6184,7 @@ mod bootstrap_notification_tests {
             origin: broker_core::HybridRuntimeBarOrigin::Live,
             execution_eligible: true,
             intents: Vec::new(),
+            expected_attribution_by_request: HashMap::new(),
         })
         .unwrap();
         let accepted = accept_stage5c_semantic_bar(semantic_input(first_close_ts)).unwrap();
@@ -6375,6 +6451,7 @@ mod bootstrap_notification_tests {
             origin: broker_core::HybridRuntimeBarOrigin::Live,
             execution_eligible: true,
             intents: Vec::new(),
+            expected_attribution_by_request: HashMap::new(),
         })
         .unwrap();
         let next_close_ts = Utc
@@ -6414,6 +6491,7 @@ mod bootstrap_notification_tests {
             origin: broker_core::HybridRuntimeBarOrigin::Live,
             execution_eligible: true,
             intents: Vec::new(),
+            expected_attribution_by_request: HashMap::new(),
         })
         .unwrap();
         let next_close_ts = Utc
@@ -6463,6 +6541,7 @@ mod bootstrap_notification_tests {
             origin: broker_core::HybridRuntimeBarOrigin::Live,
             execution_eligible: true,
             intents: Vec::new(),
+            expected_attribution_by_request: HashMap::new(),
         })
         .unwrap();
         let next_close_ts = Utc
@@ -6776,6 +6855,7 @@ mod bootstrap_notification_tests {
             origin: broker_core::HybridRuntimeBarOrigin::Live,
             execution_eligible: true,
             intents: Vec::new(),
+            expected_attribution_by_request: HashMap::new(),
         })
         .unwrap();
         assert!(matches!(
@@ -8236,6 +8316,47 @@ mod bootstrap_notification_tests {
             .generated_intent_batch()
             .expect("flat position cleanup must be preserved as no-send generated batch");
         assert_eq!(generated.intent_count(), 3);
+        let source_ts = bar_close_ts + 2;
+        assert!(generated
+            .request_ids()
+            .contains(&crate::deterministic_request_id(
+                "hybrid_imoexf",
+                "ACC_TEST_0001",
+                "IMOEXF",
+                "cancel:TP_ORDER_TEST_0001",
+                source_ts,
+                1,
+            )));
+        assert!(generated
+            .request_ids()
+            .contains(&crate::deterministic_request_id(
+                "hybrid_imoexf",
+                "ACC_TEST_0001",
+                "IMOEXF",
+                "cancel:SL_EXCHANGE_TEST_0001",
+                source_ts,
+                1,
+            )));
+        assert!(generated
+            .request_ids()
+            .contains(&crate::deterministic_request_id(
+                "hybrid_imoexf",
+                "ACC_TEST_0001",
+                "IMOEXF",
+                "delete_stop_limit:STOP_TEST_0001",
+                source_ts,
+                6,
+            )));
+        assert!(!generated
+            .request_ids()
+            .contains(&crate::deterministic_request_id(
+                "hybrid_imoexf",
+                "ACC_TEST_0001",
+                "IMOEXF",
+                "cancel:TP_ORDER_TEST_0001",
+                bar_close_ts,
+                1,
+            )));
         let roles: Vec<_> = generated
             .records
             .iter()
@@ -8261,6 +8382,99 @@ mod bootstrap_notification_tests {
                 attr.cycle_id() == "abc1230001"
                     && attr.owner() == Some(broker_core::HybridRuntimeOwner::MeanReversion)
             })));
+    }
+
+    #[test]
+    fn stage5cj_semantic_bar_cleanup_attribution_is_captured_before_wrapper_take() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered_until(
+            now,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
+                .single()
+                .unwrap(),
+        );
+        let (mut strategy, receipt) = recovered.into_parts();
+        let close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let mut state = Strategy::state(&strategy).clone();
+        match &mut state {
+            StrategyState::HybridIntradayRuntime {
+                active_cycle_id,
+                current_owner,
+                current_side,
+                last_position_qty,
+                tp_order_id,
+                sl_stop_order_id,
+                sl_exchange_order_id,
+                sl_triggered_ts,
+                mr_take_price,
+                mr_stop_price,
+                repair_deadline_ts,
+                ..
+            } => {
+                *active_cycle_id = Some("abc1230001".to_string());
+                *current_owner = Some(crate::hybrid_intraday::Owner::MeanReversion);
+                *current_side = Some(crate::hybrid_intraday::Side::Long);
+                *last_position_qty = 1.0;
+                *tp_order_id = Some(BrokerOrderId::new("TP_ORDER_TEST_0001"));
+                *sl_stop_order_id = Some(BrokerStopOrderId::new("STOP_TEST_0001"));
+                *sl_exchange_order_id = Some(BrokerOrderId::new("SL_EXCHANGE_TEST_0001"));
+                *sl_triggered_ts = Some(close_ts - 31);
+                *mr_take_price = Some(2235.0);
+                *mr_stop_price = Some(2210.0);
+                *repair_deadline_ts = Some(close_ts - 1);
+            }
+            StrategyState::Idle => panic!("expected hybrid runtime state"),
+        }
+        Strategy::set_state(&mut strategy, state);
+        let recovered = Stage5cPendingRecoveredPaperStrategy { strategy, receipt };
+        let accepted = accept_stage5c_semantic_bar(semantic_input(close_ts)).unwrap();
+        let semantic = apply_stage5c_semantic_bar_at(
+            recovered,
+            accepted,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 10, 30)
+                .single()
+                .unwrap(),
+        )
+        .unwrap();
+        let settled = settle_stage5c_semantic_result(semantic).unwrap();
+        let cleanup_records: Vec<_> = settled
+            .intent_batch()
+            .records
+            .iter()
+            .filter(|record| {
+                record.intent_class == crate::BrokerNeutralHybridIntentClass::CancelCleanup
+            })
+            .collect();
+        assert_eq!(cleanup_records.len(), 2);
+        assert!(cleanup_records.iter().all(|record| record
+            .expected_attribution
+            .as_ref()
+            .is_some_and(|attr| attr.cycle_id() == "abc1230001")));
+        assert!(cleanup_records.iter().any(|record| record
+            .expected_attribution
+            .as_ref()
+            .and_then(broker_core::HybridRuntimeAttribution::role)
+            == Some(broker_core::HybridRuntimeOrderRole::TakeProfit)));
+        assert_eq!(
+            cleanup_records
+                .iter()
+                .filter(|record| {
+                    record
+                        .expected_attribution
+                        .as_ref()
+                        .and_then(broker_core::HybridRuntimeAttribution::role)
+                        == Some(broker_core::HybridRuntimeOrderRole::StopLoss)
+                })
+                .count(),
+            1
+        );
     }
 
     #[test]

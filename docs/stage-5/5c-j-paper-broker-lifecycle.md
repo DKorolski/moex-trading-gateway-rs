@@ -56,10 +56,18 @@ Gates:
   `Position` lifecycle expectation until target quantity is reached;
 - sequential position preflight tracks accepted position watermark and blocks
   partial entry regression before source callbacks;
-- callback-generated cleanup intents are preserved as a new no-send generated
-  intent batch and are re-settled through the Stage 5C-g escrow policy;
+- callback-generated intents are preserved as no-send generated intent batches
+  and are re-settled through the Stage 5C-g escrow policy;
+- callback-generated request IDs are bound to the exact broker event
+  `source_ts_utc`, not to the parent semantic-bar close timestamp;
+- multiple callback-generated batches are merged only after duplicate request-ID
+  checks, and generated batch summaries are appended to existing settled history;
 - cleanup attribution for callback-generated intents is captured from the
-  pre-callback TP/SL ledger before the wrapper removes broker object IDs.
+  pre-callback TP/SL ledger before the wrapper removes broker object IDs;
+- semantic-bar-generated cleanup attribution is also captured before
+  `on_broker_bar`, so cleanup produced inside the semantic callback keeps exact
+  original TP/SL cycle, owner and role after the source wrapper removes broker
+  object IDs.
 - unknown order/stop statuses are blocked before callback;
 - event instrument must match the admitted target instrument;
 - event timestamp must not predate the ACK timestamp;
