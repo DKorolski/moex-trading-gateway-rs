@@ -1401,10 +1401,12 @@ pub fn prove_stage5c_pending_recovery_claim(
                 .any(|stream| stream.stream_kind == *kind)
         })
         || input.streams.iter().any(|stream| {
-            stream.stream_name.trim().is_empty()
-                || stream.consumer_group.trim().is_empty()
+            stream.stream_name
+                != canonical_pending_stream_name(stream.stream_kind, &input.account_id)
+                || stream.consumer_group
+                    != format!("paper-runtime:{}:{}", input.account_id, input.strategy_id)
                 || stream.terminal_claim_cursor != "0-0"
-                || stream.snapshot_boundary_entry_id.trim().is_empty()
+                || parse_redis_stream_id(&stream.snapshot_boundary_entry_id).is_none()
         })
     {
         return Err(Stage5cPendingRecoveryError::ClaimBoundaryInvalid);
@@ -1425,7 +1427,7 @@ pub fn accept_stage5c_pending_recovery_evidence(
     let mut unique = HashMap::<(String, String), Stage5cPendingRecoveryEvent>::new();
     let mut duplicate_events = 0usize;
     for event in input.events {
-        if event.stream_name.trim().is_empty() || event.entry_id.trim().is_empty() {
+        if event.stream_name.trim().is_empty() || parse_redis_stream_id(&event.entry_id).is_none() {
             return Err(Stage5cPendingRecoveryError::InvalidEventIdentity);
         }
         let boundary = input
@@ -1463,11 +1465,38 @@ pub fn accept_stage5c_pending_recovery_evidence(
     {
         return Err(Stage5cPendingRecoveryError::NonMonotonicSequence);
     }
+    if input.claim_proof.streams.iter().any(|stream| {
+        stream.claimed_count
+            != events
+                .iter()
+                .filter(|event| event.stream_kind == stream.stream_kind)
+                .count()
+    }) {
+        return Err(Stage5cPendingRecoveryError::ClaimBoundaryInvalid);
+    }
     Ok(Stage5cAcceptedPendingRecoveryEvidence {
         events,
         duplicate_events,
         claim_proof: input.claim_proof,
     })
+}
+
+fn canonical_pending_stream_name(
+    kind: Stage5cPendingStreamKind,
+    account: &BrokerAccountId,
+) -> String {
+    let prefix = match kind {
+        Stage5cPendingStreamKind::Ack => "cmd.acks",
+        Stage5cPendingStreamKind::Order => "broker.orders",
+        Stage5cPendingStreamKind::StopOrder => "broker.stop_orders",
+        Stage5cPendingStreamKind::Position => "broker.positions",
+    };
+    format!("{prefix}.{account}")
+}
+
+fn parse_redis_stream_id(value: &str) -> Option<(u64, u64)> {
+    let (milliseconds, sequence) = value.split_once('-')?;
+    Some((milliseconds.parse().ok()?, sequence.parse().ok()?))
 }
 
 pub fn recover_stage5c_pending_streams(
@@ -1499,7 +1528,6 @@ fn recover_stage5c_pending_streams_at(
     {
         return Err(Stage5cPendingRecoveryError::ClaimScopeMismatch);
     }
-    let snapshot_ts = admission.bootstrap_snapshot().received_ts.timestamp();
     for event in &evidence.events {
         let instrument = match &event.payload {
             Stage5cPendingRecoveryPayload::Ack(_) => None,
@@ -1556,8 +1584,18 @@ fn recover_stage5c_pending_streams_at(
             strategy_now_ts_utc: recovered_ts.timestamp(),
             last_bar_ts_utc: None,
         };
+        let boundary = evidence
+            .claim_proof
+            .streams
+            .iter()
+            .find(|stream| stream.stream_kind == event.stream_kind)
+            .expect("accepted evidence has every typed stream");
+        let entry_id =
+            parse_redis_stream_id(&event.entry_id).expect("accepted evidence has valid entry IDs");
+        let snapshot_boundary = parse_redis_stream_id(&boundary.snapshot_boundary_entry_id)
+            .expect("accepted proof has valid boundary IDs");
         if !matches!(&event.payload, Stage5cPendingRecoveryPayload::Ack(_))
-            && event_ts <= snapshot_ts
+            && entry_id <= snapshot_boundary
         {
             continue;
         }
@@ -2387,7 +2425,13 @@ mod bootstrap_notification_tests {
             ),
         };
         let warmed = warmed_strategy(now);
-        let proof = recovery_claim(&warmed, now).unwrap();
+        let mut proof = recovery_claim(&warmed, now).unwrap();
+        proof
+            .streams
+            .iter_mut()
+            .find(|stream| stream.stream_kind == Stage5cPendingStreamKind::Position)
+            .unwrap()
+            .claimed_count = 1;
         let evidence =
             accept_stage5c_pending_recovery_evidence(Stage5cPendingRecoveryEvidenceInput {
                 events: vec![event.clone(), event],
@@ -2459,7 +2503,7 @@ mod bootstrap_notification_tests {
                         |(stream_kind, stream_name)| Stage5cPendingStreamClaimBoundary {
                             stream_kind,
                             stream_name: stream_name.to_string(),
-                            consumer_group: "paper-runtime".to_string(),
+                            consumer_group: "paper-runtime:ACC_TEST_0001:hybrid_imoexf".to_string(),
                             terminal_claim_cursor: cursor.to_string(),
                             snapshot_boundary_entry_id: "0-0".to_string(),
                             claimed_count: 0,
