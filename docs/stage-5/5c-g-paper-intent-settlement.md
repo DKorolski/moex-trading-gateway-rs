@@ -25,6 +25,14 @@ request ID collisions fail closed instead of being hidden by an escrow index.
 Replay bars with nonzero intents fail closed as `ReplayIntentNotExecutable`
 until a separate observation-only gate is reviewed.
 
+Accepted source hardening: safety exit branches that already emit executable
+live exits now arm the same pending exit lifecycle before returning intents.
+This covers `sl_triggered_escalation` and `repair_deadline_force_flatten`, so
+future ACK handling can still clear pending state only by exact
+`StrategyRequestId`. The operational reason remains recorded in
+`safe_mode_reason`; the pending-exit reason uses the existing source enum value
+`MeanRevTimeCutoff` as lifecycle metadata.
+
 The batch also binds the post-callback strategy-state SHA256 fingerprint.
 
 Zero-intent bars produce an explicit settled batch with count zero. Intents are

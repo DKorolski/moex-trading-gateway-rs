@@ -781,9 +781,9 @@ wrapper_oracle_sha256 = (
     "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa"
 )
 compiled_wrapper_sha256 = (
-    "7cff5ee4646720c996e066ed9c7aafeae80dd80cfd8f89b3e09725e26dc8fb1b"
+    "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c"
 )
-compiled_wrapper_line_count = 6886
+compiled_wrapper_line_count = 6936
 
 if not wrapper_oracle_path.is_file():
     print(

@@ -1424,6 +1424,22 @@ impl HybridIntradayRuntimeStrategy {
         intents
     }
 
+    fn arm_pending_exit_lifecycle(
+        &mut self,
+        ctx: &StrategyCtx,
+        created_ts_utc: i64,
+        side: OrderSide,
+        owner: Owner,
+        reason: ReasonCode,
+        cycle_id: [u8; 10],
+    ) {
+        self.active_cycle_id = Some(cycle_id);
+        self.current_owner = Some(owner);
+        self.pending_exit = Some(PendingExit { owner, reason });
+        self.pending_exit_request_id = Some(self.live_request_id(ctx, created_ts_utc, side));
+        self.pending_exit_created_ts_utc = Some(created_ts_utc);
+    }
+
     fn mark_bracket_terminal_reconcile(&mut self) {
         self.bracket_terminal_reconcile_started_ms = Some(Utc::now().timestamp_millis());
     }
@@ -2073,6 +2089,14 @@ impl HybridIntradayRuntimeStrategy {
                 .unwrap_or_else(|| self.next_cycle_id(now_ts.max(0)));
             let comment = self.build_comment(ctx, &cycle_id, owner, TagRole::Exit);
             let reference_price = self.live_reference_price();
+            self.arm_pending_exit_lifecycle(
+                ctx,
+                now_ts,
+                side,
+                owner,
+                ReasonCode::MeanRevTimeCutoff,
+                cycle_id,
+            );
             let mut intents = Vec::new();
             if let Some(tp_order_id) = self.tp_order_id.take() {
                 intents.push(
@@ -2129,6 +2153,14 @@ impl HybridIntradayRuntimeStrategy {
             let owner = self.current_owner.unwrap_or(Owner::MeanReversion);
             let comment = self.build_comment(ctx, &cycle_id, owner, TagRole::Exit);
             let reference_price = self.live_reference_price();
+            self.arm_pending_exit_lifecycle(
+                ctx,
+                now_ts,
+                side,
+                owner,
+                ReasonCode::MeanRevTimeCutoff,
+                cycle_id,
+            );
             self.enter_safe_mode("repair_deadline_force_flatten");
             return vec![self
                 .build_live_entry_exit_intent(
@@ -5013,6 +5045,11 @@ mod tests {
             Some("sl_triggered_escalation")
         );
         assert!(strategy.sl_triggered_ts.is_none());
+        assert_eq!(
+            strategy.pending_exit_request_id,
+            Some(strategy.live_request_id(&ctx, 1_700_000_131, OrderSide::Sell))
+        );
+        assert_eq!(strategy.pending_exit_created_ts_utc, Some(1_700_000_131));
     }
 
     #[test]
@@ -5039,6 +5076,10 @@ mod tests {
                 } if matches!(intent.as_ref(), Intent::Place { price, qty, side: OrderSide::Sell, .. } if (*qty - 1.0).abs() <= f64::EPSILON && (*price - 100.5).abs() <= 1e-9)
             )
         }));
+        assert_eq!(
+            strategy.pending_exit_request_id,
+            Some(strategy.live_request_id(&ctx, 1_700_000_131, OrderSide::Sell))
+        );
     }
 
     #[test]
@@ -5116,6 +5157,11 @@ mod tests {
                 intent_class: IntentClass::Exit
             }] if matches!(intent.as_ref(), Intent::Market { qty, side: OrderSide::Sell, .. } if (*qty - 2.0).abs() <= f64::EPSILON)
         ));
+        assert_eq!(
+            strategy.pending_exit_request_id,
+            Some(strategy.live_request_id(&ctx, 1_700_000_101, OrderSide::Sell))
+        );
+        assert_eq!(strategy.pending_exit_created_ts_utc, Some(1_700_000_101));
     }
 
     #[test]
@@ -5139,6 +5185,10 @@ mod tests {
                 intent_class: IntentClass::Exit
             }] if matches!(intent.as_ref(), Intent::Place { price, qty, side: OrderSide::Sell, .. } if (*qty - 2.0).abs() <= f64::EPSILON && (*price - 100.5).abs() <= 1e-9)
         ));
+        assert_eq!(
+            strategy.pending_exit_request_id,
+            Some(strategy.live_request_id(&ctx, 1_700_000_101, OrderSide::Sell))
+        );
     }
 
     #[test]
