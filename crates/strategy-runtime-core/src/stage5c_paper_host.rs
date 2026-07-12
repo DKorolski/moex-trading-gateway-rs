@@ -598,6 +598,7 @@ pub struct Stage5cSemanticBarInput {
 pub struct Stage5cAcceptedSemanticBar {
     bar: broker_core::HybridRuntimeBarEvent,
     tick_size: f64,
+    origin: broker_core::HybridRuntimeBarOrigin,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -627,6 +628,8 @@ pub struct Stage5cSemanticBarResult {
     strategy: HybridIntradayRuntimeStrategy,
     recovery_receipt: Stage5cPendingRecoveryReceipt,
     bar_close_ts: i64,
+    origin: broker_core::HybridRuntimeBarOrigin,
+    execution_eligible: bool,
     intents: Vec<crate::BrokerNeutralHybridIntent>,
 }
 
@@ -636,6 +639,12 @@ impl Stage5cSemanticBarResult {
     }
     pub fn captured_intent_count(&self) -> usize {
         self.intents.len()
+    }
+    pub fn origin(&self) -> broker_core::HybridRuntimeBarOrigin {
+        self.origin
+    }
+    pub fn execution_eligible(&self) -> bool {
+        self.execution_eligible
     }
     pub fn intent_sink_attached(&self) -> bool {
         false
@@ -652,12 +661,16 @@ impl Stage5cSemanticBarResult {
         HybridIntradayRuntimeStrategy,
         Stage5cPendingRecoveryReceipt,
         i64,
+        broker_core::HybridRuntimeBarOrigin,
+        bool,
         Vec<crate::BrokerNeutralHybridIntent>,
     ) {
         (
             self.strategy,
             self.recovery_receipt,
             self.bar_close_ts,
+            self.origin,
+            self.execution_eligible,
             self.intents,
         )
     }
@@ -673,6 +686,11 @@ pub enum Stage5cIntentSettlementError {
     InvalidPrice,
     PriceNotTickAligned,
     InvalidStopEnd,
+    ReplayIntentNotExecutable,
+    MissingPendingRequest,
+    RequestIdMismatch,
+    DuplicateRequestId,
+    UnsupportedIntentAction,
 }
 
 impl std::fmt::Display for Stage5cIntentSettlementError {
@@ -689,15 +707,45 @@ pub struct Stage5cPaperIntentBatch {
     bar_close_ts: i64,
     state_fingerprint: String,
     request_ids: Vec<StrategyRequestId>,
-    intents: Vec<crate::BrokerNeutralHybridIntent>,
+    records: Vec<Stage5cPaperIntentRecord>,
+    observation_only: bool,
+}
+
+struct Stage5cPaperIntentRecord {
+    request_id: StrategyRequestId,
+    intent_class: crate::BrokerNeutralHybridIntentClass,
+    intent: crate::BrokerNeutralHybridIntent,
 }
 
 impl Stage5cPaperIntentBatch {
     pub fn intent_count(&self) -> usize {
-        self.intents.len()
+        self.records.len()
     }
     pub fn request_ids(&self) -> &[StrategyRequestId] {
         &self.request_ids
+    }
+    pub fn record_request_ids(&self) -> Vec<StrategyRequestId> {
+        self.records
+            .iter()
+            .map(|record| record.request_id)
+            .collect()
+    }
+    pub fn intent_classes(&self) -> Vec<crate::BrokerNeutralHybridIntentClass> {
+        self.records
+            .iter()
+            .map(|record| record.intent_class)
+            .collect()
+    }
+    pub fn has_actionable_intents(&self) -> bool {
+        self.records.iter().any(|record| {
+            !matches!(
+                record.intent.base_intent(),
+                crate::BrokerNeutralHybridIntent::Cancel { .. }
+            )
+        })
+    }
+    pub fn observation_only(&self) -> bool {
+        self.observation_only
     }
     pub fn state_fingerprint(&self) -> &str {
         &self.state_fingerprint
@@ -1864,6 +1912,7 @@ pub fn accept_stage5c_semantic_bar(
         return Err(Stage5cSemanticBarError::Stage3Rejected);
     }
     Ok(Stage5cAcceptedSemanticBar {
+        origin: input.bar.origin,
         bar: input.bar,
         tick_size: input.tick_size,
     })
@@ -1912,6 +1961,8 @@ fn apply_stage5c_semantic_bar_at(
     }
     let context = stage5cf_semantic_context(&strategy, admission, accepted.bar.close_time_utc, now);
     let bar_close_ts = accepted.bar.close_time_utc;
+    let origin = accepted.origin;
+    let execution_eligible = origin == broker_core::HybridRuntimeBarOrigin::Live;
     let intents = crate::BrokerNeutralHybridStrategy::on_broker_bar(
         &mut strategy,
         broker_core::HybridRuntimeCallbackInput {
@@ -1924,6 +1975,8 @@ fn apply_stage5c_semantic_bar_at(
         strategy,
         recovery_receipt,
         bar_close_ts,
+        origin,
+        execution_eligible,
         intents,
     })
 }
@@ -1953,7 +2006,8 @@ fn stage5cf_semantic_context(
 pub fn settle_stage5c_semantic_result(
     result: Stage5cSemanticBarResult,
 ) -> Result<Stage5cSettledPaperStrategy, Stage5cIntentSettlementError> {
-    let (strategy, recovery_receipt, bar_close_ts, intents) = result.into_parts();
+    let (strategy, recovery_receipt, bar_close_ts, origin, execution_eligible, intents) =
+        result.into_parts();
     if intents.len() > u8::MAX as usize {
         return Err(Stage5cIntentSettlementError::TooManyIntents);
     }
@@ -1963,9 +2017,15 @@ pub fn settle_stage5c_semantic_result(
         .bootstrap_receipt()
         .admission;
     let mut request_ids = Vec::with_capacity(intents.len());
-    for (index, intent) in intents.iter().enumerate() {
+    let mut records = Vec::with_capacity(intents.len());
+    let mut seen_request_ids = HashSet::new();
+    let state = Strategy::state(&strategy);
+    if !execution_eligible && !intents.is_empty() {
+        return Err(Stage5cIntentSettlementError::ReplayIntentNotExecutable);
+    }
+    for intent in intents {
         validate_stage5cg_intent(
-            intent,
+            &intent,
             &admission.target_instrument().symbol,
             admission.tick_size(),
             bar_close_ts,
@@ -1973,17 +2033,25 @@ pub fn settle_stage5c_semantic_result(
         let class = intent
             .explicit_class()
             .ok_or(Stage5cIntentSettlementError::MissingIntentClass)?;
-        request_ids.push(crate::deterministic_request_id(
+        let request_id = stage5cg_source_request_id(
             admission.strategy_id(),
             admission.account_id().as_str(),
             &admission.target_instrument().symbol,
-            &format!("paper_escrow_{class:?}"),
             bar_close_ts,
-            index as u8,
-        ));
+            &intent,
+        )?;
+        stage5cg_verify_pending_request_id(state, class, request_id)?;
+        if !seen_request_ids.insert(request_id) {
+            return Err(Stage5cIntentSettlementError::DuplicateRequestId);
+        }
+        request_ids.push(request_id);
+        records.push(Stage5cPaperIntentRecord {
+            request_id,
+            intent_class: class,
+            intent,
+        });
     }
-    let state_bytes =
-        serde_json::to_vec(Strategy::state(&strategy)).expect("strategy state is serializable");
+    let state_bytes = serde_json::to_vec(state).expect("strategy state is serializable");
     let state_fingerprint = format!("{:x}", Sha256::digest(&state_bytes));
     let strategy_id = admission.strategy_id().to_string();
     let account_id = admission.account_id().clone();
@@ -1998,9 +2066,115 @@ pub fn settle_stage5c_semantic_result(
             bar_close_ts,
             state_fingerprint,
             request_ids,
-            intents,
+            records,
+            observation_only: origin == broker_core::HybridRuntimeBarOrigin::Replay,
         },
     })
+}
+
+fn stage5cg_source_request_id(
+    strategy_id: &str,
+    account_id: &str,
+    symbol: &str,
+    bar_close_ts: i64,
+    intent: &crate::BrokerNeutralHybridIntent,
+) -> Result<StrategyRequestId, Stage5cIntentSettlementError> {
+    use crate::BrokerNeutralHybridIntent as Intent;
+    use crate::BrokerNeutralOrderSide as OrderSide;
+    match intent.base_intent() {
+        Intent::Place { .. } => Ok(crate::deterministic_request_id(
+            strategy_id,
+            account_id,
+            symbol,
+            "place",
+            bar_close_ts,
+            0,
+        )),
+        Intent::Cancel { .. } => Ok(crate::deterministic_request_id(
+            strategy_id,
+            account_id,
+            symbol,
+            "cancel",
+            bar_close_ts,
+            1,
+        )),
+        Intent::Replace { .. } => Ok(crate::deterministic_request_id(
+            strategy_id,
+            account_id,
+            symbol,
+            "replace",
+            bar_close_ts,
+            2,
+        )),
+        Intent::Market { side, .. } => {
+            let seq = match side {
+                OrderSide::Buy => 3,
+                OrderSide::Sell => 4,
+            };
+            Ok(crate::deterministic_request_id(
+                strategy_id,
+                account_id,
+                symbol,
+                "market",
+                bar_close_ts,
+                seq,
+            ))
+        }
+        Intent::CreateStopLimit { .. } => Ok(crate::deterministic_request_id(
+            strategy_id,
+            account_id,
+            symbol,
+            "create_stop_limit",
+            bar_close_ts,
+            5,
+        )),
+        Intent::DeleteStopLimit { .. } => Ok(crate::deterministic_request_id(
+            strategy_id,
+            account_id,
+            symbol,
+            "delete_stop_limit",
+            bar_close_ts,
+            6,
+        )),
+        Intent::Classified { .. } | Intent::Routed { .. } => {
+            Err(Stage5cIntentSettlementError::UnsupportedIntentAction)
+        }
+    }
+}
+
+fn stage5cg_verify_pending_request_id(
+    state: &StrategyState,
+    class: crate::BrokerNeutralHybridIntentClass,
+    request_id: StrategyRequestId,
+) -> Result<(), Stage5cIntentSettlementError> {
+    let expected = match state {
+        StrategyState::HybridIntradayRuntime {
+            pending_entry_request_id,
+            pending_exit_request_id,
+            pending_tp_request_id,
+            pending_sl_request_id,
+            ..
+        } => match class {
+            crate::BrokerNeutralHybridIntentClass::Entry => *pending_entry_request_id,
+            crate::BrokerNeutralHybridIntentClass::Exit => *pending_exit_request_id,
+            crate::BrokerNeutralHybridIntentClass::ProtectiveRepair => {
+                if *pending_tp_request_id == Some(request_id) {
+                    *pending_tp_request_id
+                } else {
+                    *pending_sl_request_id
+                }
+            }
+            crate::BrokerNeutralHybridIntentClass::CancelCleanup => {
+                return Ok(());
+            }
+        },
+        _ => None,
+    };
+    match expected {
+        Some(expected) if expected == request_id => Ok(()),
+        Some(_) => Err(Stage5cIntentSettlementError::RequestIdMismatch),
+        None => Err(Stage5cIntentSettlementError::MissingPendingRequest),
+    }
 }
 
 fn validate_stage5cg_intent(
@@ -2079,7 +2253,7 @@ fn validate_stage5cg_base_intent(
 }
 
 fn validate_stage5cg_price(price: f64, tick_size: f64) -> Result<(), Stage5cIntentSettlementError> {
-    if !price.is_finite() {
+    if !price.is_finite() || price <= 0.0 {
         return Err(Stage5cIntentSettlementError::InvalidPrice);
     }
     let ticks = price / tick_size;
@@ -3045,6 +3219,110 @@ mod bootstrap_notification_tests {
         recover_stage5c_pending_streams_at(warmed, evidence, now).unwrap()
     }
 
+    fn set_hybrid_pending_request(
+        strategy: &mut HybridIntradayRuntimeStrategy,
+        class: crate::BrokerNeutralHybridIntentClass,
+        request_id: StrategyRequestId,
+    ) {
+        let mut state = Strategy::state(strategy).clone();
+        match &mut state {
+            StrategyState::HybridIntradayRuntime {
+                pending_entry_request_id,
+                pending_exit_request_id,
+                pending_tp_request_id,
+                ..
+            } => match class {
+                crate::BrokerNeutralHybridIntentClass::Entry => {
+                    *pending_entry_request_id = Some(request_id);
+                }
+                crate::BrokerNeutralHybridIntentClass::Exit => {
+                    *pending_exit_request_id = Some(request_id);
+                }
+                crate::BrokerNeutralHybridIntentClass::ProtectiveRepair => {
+                    *pending_tp_request_id = Some(request_id);
+                }
+                crate::BrokerNeutralHybridIntentClass::CancelCleanup => {}
+            },
+            StrategyState::Idle => panic!("expected hybrid runtime state"),
+        }
+        Strategy::set_state(strategy, state);
+    }
+
+    fn set_hybrid_pending_sl_request(
+        strategy: &mut HybridIntradayRuntimeStrategy,
+        request_id: StrategyRequestId,
+    ) {
+        let mut state = Strategy::state(strategy).clone();
+        match &mut state {
+            StrategyState::HybridIntradayRuntime {
+                pending_sl_request_id,
+                ..
+            } => {
+                *pending_sl_request_id = Some(request_id);
+            }
+            StrategyState::Idle => panic!("expected hybrid runtime state"),
+        }
+        Strategy::set_state(strategy, state);
+    }
+
+    fn stage5cg_semantic_result(
+        strategy: HybridIntradayRuntimeStrategy,
+        recovery_receipt: Stage5cPendingRecoveryReceipt,
+        bar_close_ts: i64,
+        origin: broker_core::HybridRuntimeBarOrigin,
+        intents: Vec<crate::BrokerNeutralHybridIntent>,
+    ) -> Stage5cSemanticBarResult {
+        Stage5cSemanticBarResult {
+            strategy,
+            recovery_receipt,
+            bar_close_ts,
+            origin,
+            execution_eligible: origin == broker_core::HybridRuntimeBarOrigin::Live,
+            intents,
+        }
+    }
+
+    fn stage5cg_market_intent(
+        side: crate::BrokerNeutralOrderSide,
+        class: crate::BrokerNeutralHybridIntentClass,
+    ) -> crate::BrokerNeutralHybridIntent {
+        crate::BrokerNeutralHybridIntent::Market {
+            qty: 1.0,
+            side,
+            fill_price: Some(2227.5),
+            comment: None,
+        }
+        .with_class(class)
+        .with_symbol("IMOEXF")
+    }
+
+    fn stage5cg_place_intent() -> crate::BrokerNeutralHybridIntent {
+        crate::BrokerNeutralHybridIntent::Place {
+            price: 2230.0,
+            qty: 1.0,
+            side: crate::BrokerNeutralOrderSide::Sell,
+            comment: None,
+        }
+        .with_class(crate::BrokerNeutralHybridIntentClass::ProtectiveRepair)
+        .with_symbol("IMOEXF")
+    }
+
+    fn stage5cg_stop_intent(stop_end_unix_time: i64) -> crate::BrokerNeutralHybridIntent {
+        crate::BrokerNeutralHybridIntent::CreateStopLimit {
+            side: crate::BrokerNeutralOrderSide::Sell,
+            qty: 1.0,
+            trigger_price: 2210.0,
+            price: 2209.5,
+            condition: crate::runtime_compat::StopLimitCondition::LessOrEqual,
+            stop_end_unix_time,
+            comment: None,
+            instrument_group: None,
+            check_duplicates: Some(true),
+        }
+        .with_class(crate::BrokerNeutralHybridIntentClass::ProtectiveRepair)
+        .with_symbol("IMOEXF")
+    }
+
     #[test]
     fn stage5cg_settles_zero_intent_result_without_sink() {
         let now = Utc
@@ -3057,11 +3335,14 @@ mod bootstrap_notification_tests {
             strategy,
             recovery_receipt,
             bar_close_ts: now.timestamp() + 600,
+            origin: broker_core::HybridRuntimeBarOrigin::Live,
+            execution_eligible: true,
             intents: Vec::new(),
         })
         .unwrap();
         assert_eq!(settled.intent_batch().intent_count(), 0);
         assert!(settled.intent_batch().request_ids().is_empty());
+        assert!(!settled.intent_batch().observation_only());
         assert!(!settled.intent_sink_attached());
         assert!(!settled.broker_transport_attached());
         let _ = Strategy::state(settled.strategy());
@@ -3088,9 +3369,255 @@ mod bootstrap_notification_tests {
                 strategy,
                 recovery_receipt,
                 bar_close_ts: now.timestamp() + 600,
+                origin: broker_core::HybridRuntimeBarOrigin::Live,
+                execution_eligible: true,
                 intents: vec![intent],
             }),
             Err(Stage5cIntentSettlementError::InvalidQuantity)
         ));
+    }
+
+    #[test]
+    fn stage5cg_live_entry_batch_id_matches_pending_entry_request_id() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered(now);
+        let (mut strategy, recovery_receipt) = recovered.into_parts();
+        let bar_close_ts = now.timestamp() + 600;
+        let expected = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "market",
+            bar_close_ts,
+            3,
+        );
+        set_hybrid_pending_request(
+            &mut strategy,
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            expected,
+        );
+        let settled = settle_stage5c_semantic_result(stage5cg_semantic_result(
+            strategy,
+            recovery_receipt,
+            bar_close_ts,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            vec![stage5cg_market_intent(
+                crate::BrokerNeutralOrderSide::Buy,
+                crate::BrokerNeutralHybridIntentClass::Entry,
+            )],
+        ))
+        .unwrap();
+        assert_eq!(settled.intent_batch().request_ids(), &[expected]);
+        assert_eq!(
+            settled.intent_batch().request_ids().first().copied(),
+            match Strategy::state(settled.strategy()) {
+                StrategyState::HybridIntradayRuntime {
+                    pending_entry_request_id,
+                    ..
+                } => *pending_entry_request_id,
+                StrategyState::Idle => None,
+            }
+        );
+    }
+
+    #[test]
+    fn stage5cg_live_exit_batch_id_matches_pending_exit_request_id() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered(now);
+        let (mut strategy, recovery_receipt) = recovered.into_parts();
+        let bar_close_ts = now.timestamp() + 600;
+        let expected = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "market",
+            bar_close_ts,
+            4,
+        );
+        set_hybrid_pending_request(
+            &mut strategy,
+            crate::BrokerNeutralHybridIntentClass::Exit,
+            expected,
+        );
+        let settled = settle_stage5c_semantic_result(stage5cg_semantic_result(
+            strategy,
+            recovery_receipt,
+            bar_close_ts,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            vec![stage5cg_market_intent(
+                crate::BrokerNeutralOrderSide::Sell,
+                crate::BrokerNeutralHybridIntentClass::Exit,
+            )],
+        ))
+        .unwrap();
+        assert_eq!(settled.intent_batch().request_ids(), &[expected]);
+    }
+
+    #[test]
+    fn stage5cg_protective_tp_sl_ids_match_wrapper_pending_ids() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered(now);
+        let (mut strategy, recovery_receipt) = recovered.into_parts();
+        let bar_close_ts = now.timestamp() + 600;
+        let tp_expected = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "place",
+            bar_close_ts,
+            0,
+        );
+        let sl_expected = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "create_stop_limit",
+            bar_close_ts,
+            5,
+        );
+        set_hybrid_pending_request(
+            &mut strategy,
+            crate::BrokerNeutralHybridIntentClass::ProtectiveRepair,
+            tp_expected,
+        );
+        set_hybrid_pending_sl_request(&mut strategy, sl_expected);
+        let settled = settle_stage5c_semantic_result(stage5cg_semantic_result(
+            strategy,
+            recovery_receipt,
+            bar_close_ts,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            vec![
+                stage5cg_place_intent(),
+                stage5cg_stop_intent(bar_close_ts + 600),
+            ],
+        ))
+        .unwrap();
+        assert_eq!(
+            settled.intent_batch().request_ids(),
+            &[tp_expected, sl_expected]
+        );
+    }
+
+    #[test]
+    fn stage5cg_replay_intent_is_blocked() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered(now);
+        let (mut strategy, recovery_receipt) = recovered.into_parts();
+        let bar_close_ts = now.timestamp() + 600;
+        let expected = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "market",
+            bar_close_ts,
+            3,
+        );
+        set_hybrid_pending_request(
+            &mut strategy,
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            expected,
+        );
+        assert!(matches!(
+            settle_stage5c_semantic_result(stage5cg_semantic_result(
+                strategy,
+                recovery_receipt,
+                bar_close_ts,
+                broker_core::HybridRuntimeBarOrigin::Replay,
+                vec![stage5cg_market_intent(
+                    crate::BrokerNeutralOrderSide::Buy,
+                    crate::BrokerNeutralHybridIntentClass::Entry,
+                )],
+            )),
+            Err(Stage5cIntentSettlementError::ReplayIntentNotExecutable)
+        ));
+    }
+
+    #[test]
+    fn stage5cg_source_request_id_collision_is_blocked_not_hidden_by_index() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered(now);
+        let (mut strategy, recovery_receipt) = recovered.into_parts();
+        let bar_close_ts = now.timestamp() + 600;
+        let expected = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "place",
+            bar_close_ts,
+            0,
+        );
+        set_hybrid_pending_request(
+            &mut strategy,
+            crate::BrokerNeutralHybridIntentClass::ProtectiveRepair,
+            expected,
+        );
+        assert!(matches!(
+            settle_stage5c_semantic_result(stage5cg_semantic_result(
+                strategy,
+                recovery_receipt,
+                bar_close_ts,
+                broker_core::HybridRuntimeBarOrigin::Live,
+                vec![stage5cg_place_intent(), stage5cg_place_intent()],
+            )),
+            Err(Stage5cIntentSettlementError::DuplicateRequestId)
+        ));
+    }
+
+    #[test]
+    fn stage5cg_nonzero_valid_intent_batch_preserves_state_fingerprint() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered(now);
+        let (mut strategy, recovery_receipt) = recovered.into_parts();
+        let bar_close_ts = now.timestamp() + 600;
+        let expected = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "market",
+            bar_close_ts,
+            3,
+        );
+        set_hybrid_pending_request(
+            &mut strategy,
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            expected,
+        );
+        let expected_fingerprint = format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(Strategy::state(&strategy)).unwrap())
+        );
+        let settled = settle_stage5c_semantic_result(stage5cg_semantic_result(
+            strategy,
+            recovery_receipt,
+            bar_close_ts,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            vec![stage5cg_market_intent(
+                crate::BrokerNeutralOrderSide::Buy,
+                crate::BrokerNeutralHybridIntentClass::Entry,
+            )],
+        ))
+        .unwrap();
+        assert_eq!(
+            settled.intent_batch().state_fingerprint(),
+            expected_fingerprint
+        );
     }
 }

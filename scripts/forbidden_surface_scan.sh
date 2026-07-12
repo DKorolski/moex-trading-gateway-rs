@@ -1544,7 +1544,7 @@ expected_stage5_profile_artifacts = {
         "821e241970df245f7aaaeb78312537c29512173108c59f40f7f449eb44cb8aa4"
     ),
     Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"): (
-        "c7c2d7bc5544a730c5412c2bbbbbf663b768f5515ebb0f9b5c07c5e73bd3fbcc"
+        "491309a65b522a36d2f33095fdc00ee742d3729e3ba78796e29bd409d2fde96f"
     ),
     Path("tests/fixtures/stage5/stage5cb_bootstrap_notification.json"): (
         "9db7888d27374eeaa8ac046c1df1727a3e3cd085c938a76945d22b9bd68f00de"
@@ -1562,7 +1562,7 @@ expected_stage5_profile_artifacts = {
         "e33b96f5eda32274bf7e771f2d365f726fc1929d7d8f62ba237b522566ffee96"
     ),
     Path("tests/fixtures/stage5/stage5cg_paper_intent_settlement.json"): (
-        "04b796fea79edacc87bd35acc0d95593bfb70944685aa7fc9d417fa63ed857b8"
+        "810d7d22f3e9f0bd5fe1d162e36dd2b2981e8553d9419fbce501e43cb3449d3e"
     ),
     Path("crates/broker-core/src/hybrid_strategy_boundary.rs"): (
         "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d"
