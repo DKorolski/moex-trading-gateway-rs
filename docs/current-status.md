@@ -104,9 +104,10 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   settled zero-intent batches, preserves unresolved nonzero escrow batches, and
   keeps timer, sink, Redis and broker transport closed.
 - Stage 5C-i paper intent lifecycle / ACK escrow resolution is a review
-  candidate. It consumes nonzero settled batches, requires exact ACK coverage
-  for captured request IDs, applies only broker-neutral ACK callbacks, and still
-  leaves order/stop/position lifecycle, Redis, transport and execution closed.
+  candidate. It consumes nonzero settled batches, requires exact ordered ACK
+  coverage for captured request IDs, preserves full escrow and typed ACK
+  outcomes, applies only broker-neutral ACK callbacks, and still leaves
+  order/stop/position lifecycle, Redis, transport and execution closed.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

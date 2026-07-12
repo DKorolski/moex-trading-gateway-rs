@@ -927,7 +927,23 @@ impl std::error::Error for Stage5cNextBarLoopFailure {}
 
 #[derive(Debug, Clone)]
 pub struct Stage5cPaperIntentLifecycleInput {
-    pub acks: Vec<broker_core::HybridRuntimeCommandAck>,
+    pub ack_records: Vec<Stage5cPaperAckRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage5cPaperAckRecord {
+    pub total_sequence: u64,
+    pub ack: broker_core::HybridRuntimeCommandAck,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage5cPaperAckOutcome {
+    pub total_sequence: u64,
+    pub request_id: StrategyRequestId,
+    pub status: broker_core::HybridRuntimeAckStatus,
+    pub broker_order_id: Option<BrokerOrderId>,
+    pub error_code: Option<broker_core::HybridRuntimeAckErrorCode>,
+    pub processed_ts_utc: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -938,8 +954,11 @@ pub enum Stage5cPaperIntentLifecycleError {
     MissingAck,
     DuplicateAck,
     UnknownAckRequestId,
+    DuplicateSequence,
+    NonMonotonicSequence,
+    AckTimestampBeforeIntentBar,
     CallbackValidationFailed,
-    UnexpectedIntent,
+    CallbackGeneratedIntentTerminal,
 }
 
 impl std::fmt::Display for Stage5cPaperIntentLifecycleError {
@@ -953,10 +972,72 @@ impl std::fmt::Display for Stage5cPaperIntentLifecycleError {
 
 impl std::error::Error for Stage5cPaperIntentLifecycleError {}
 
+pub struct Stage5cPaperIntentLifecycleBlocked {
+    reason: Stage5cPaperIntentLifecycleError,
+    settled: Stage5cSettledPaperStrategy,
+}
+
+impl Stage5cPaperIntentLifecycleBlocked {
+    pub fn reason(&self) -> Stage5cPaperIntentLifecycleError {
+        self.reason
+    }
+    pub fn settled(&self) -> &Stage5cSettledPaperStrategy {
+        &self.settled
+    }
+    pub fn into_settled(self) -> Stage5cSettledPaperStrategy {
+        self.settled
+    }
+}
+
+impl std::fmt::Debug for Stage5cPaperIntentLifecycleBlocked {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Stage5cPaperIntentLifecycleBlocked")
+            .field("reason", &self.reason)
+            .field("bar_close_ts", &self.settled.intent_batch().bar_close_ts())
+            .field("intent_count", &self.settled.intent_batch().intent_count())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug)]
+pub enum Stage5cPaperIntentLifecycleFailure {
+    Blocked(Box<Stage5cPaperIntentLifecycleBlocked>),
+    Terminal(Stage5cPaperIntentLifecycleError),
+}
+
+impl Stage5cPaperIntentLifecycleFailure {
+    pub fn reason(&self) -> Stage5cPaperIntentLifecycleError {
+        match self {
+            Self::Blocked(blocked) => blocked.reason(),
+            Self::Terminal(reason) => *reason,
+        }
+    }
+    pub fn into_blocked(self) -> Option<Stage5cPaperIntentLifecycleBlocked> {
+        match self {
+            Self::Blocked(blocked) => Some(*blocked),
+            Self::Terminal(_) => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Stage5cPaperIntentLifecycleFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "Stage 5C paper intent lifecycle failed: {:?}",
+            self.reason()
+        )
+    }
+}
+
+impl std::error::Error for Stage5cPaperIntentLifecycleFailure {}
+
 pub struct Stage5cResolvedPaperIntentBatchStrategy {
     strategy: HybridIntradayRuntimeStrategy,
     recovery_receipt: Stage5cPendingRecoveryReceipt,
-    resolved_batch: Stage5cPaperIntentBatchSummary,
+    resolved_batch: Stage5cPaperIntentBatch,
+    ack_outcomes: Vec<Stage5cPaperAckOutcome>,
     settled_batch_history: Vec<Stage5cPaperIntentBatchSummary>,
 }
 
@@ -964,8 +1045,9 @@ impl std::fmt::Debug for Stage5cResolvedPaperIntentBatchStrategy {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("Stage5cResolvedPaperIntentBatchStrategy")
-            .field("resolved_bar_close_ts", &self.resolved_batch.bar_close_ts)
-            .field("resolved_intent_count", &self.resolved_batch.intent_count)
+            .field("resolved_bar_close_ts", &self.resolved_batch.bar_close_ts())
+            .field("resolved_intent_count", &self.resolved_batch.intent_count())
+            .field("ack_outcome_count", &self.ack_outcomes.len())
             .field(
                 "settled_batch_history_len",
                 &self.settled_batch_history.len(),
@@ -977,7 +1059,14 @@ impl std::fmt::Debug for Stage5cResolvedPaperIntentBatchStrategy {
 }
 
 impl Stage5cResolvedPaperIntentBatchStrategy {
-    pub fn resolved_batch(&self) -> &Stage5cPaperIntentBatchSummary {
+    pub fn resolved_batch_summary(&self) -> Stage5cPaperIntentBatchSummary {
+        stage5ch_batch_summary(&self.resolved_batch)
+    }
+    pub fn ack_outcomes(&self) -> &[Stage5cPaperAckOutcome] {
+        &self.ack_outcomes
+    }
+    #[cfg(test)]
+    fn full_resolved_batch(&self) -> &Stage5cPaperIntentBatch {
         &self.resolved_batch
     }
     pub fn settled_batch_history(&self) -> &[Stage5cPaperIntentBatchSummary] {
@@ -2362,27 +2451,69 @@ fn advance_stage5c_controlled_next_bar_at(
 pub fn resolve_stage5c_paper_intent_lifecycle(
     settled: Stage5cSettledPaperStrategy,
     input: Stage5cPaperIntentLifecycleInput,
-) -> Result<Stage5cResolvedPaperIntentBatchStrategy, Stage5cPaperIntentLifecycleError> {
+) -> Result<Stage5cResolvedPaperIntentBatchStrategy, Stage5cPaperIntentLifecycleFailure> {
     if settled.batch.intent_count() == 0 {
-        return Err(Stage5cPaperIntentLifecycleError::EmptyIntentBatch);
+        return Err(Stage5cPaperIntentLifecycleFailure::Blocked(Box::new(
+            Stage5cPaperIntentLifecycleBlocked {
+                reason: Stage5cPaperIntentLifecycleError::EmptyIntentBatch,
+                settled,
+            },
+        )));
     }
     let state_fingerprint = stage5c_state_fingerprint(Strategy::state(&settled.strategy));
     if state_fingerprint != settled.batch.state_fingerprint {
-        return Err(Stage5cPaperIntentLifecycleError::StateFingerprintMismatch);
+        return Err(Stage5cPaperIntentLifecycleFailure::Blocked(Box::new(
+            Stage5cPaperIntentLifecycleBlocked {
+                reason: Stage5cPaperIntentLifecycleError::StateFingerprintMismatch,
+                settled,
+            },
+        )));
     }
     let expected_request_ids: HashSet<StrategyRequestId> =
         settled.batch.request_ids.iter().copied().collect();
     let mut seen = HashSet::new();
-    for ack in &input.acks {
-        if !expected_request_ids.contains(&ack.request_id) {
-            return Err(Stage5cPaperIntentLifecycleError::UnknownAckRequestId);
+    let mut sequences = HashSet::new();
+    for record in &input.ack_records {
+        if !sequences.insert(record.total_sequence) {
+            return Err(Stage5cPaperIntentLifecycleFailure::Blocked(Box::new(
+                Stage5cPaperIntentLifecycleBlocked {
+                    reason: Stage5cPaperIntentLifecycleError::DuplicateSequence,
+                    settled,
+                },
+            )));
         }
-        if !seen.insert(ack.request_id) {
-            return Err(Stage5cPaperIntentLifecycleError::DuplicateAck);
+        if record.ack.processed_ts_utc < settled.batch.bar_close_ts() {
+            return Err(Stage5cPaperIntentLifecycleFailure::Blocked(Box::new(
+                Stage5cPaperIntentLifecycleBlocked {
+                    reason: Stage5cPaperIntentLifecycleError::AckTimestampBeforeIntentBar,
+                    settled,
+                },
+            )));
+        }
+        if !expected_request_ids.contains(&record.ack.request_id) {
+            return Err(Stage5cPaperIntentLifecycleFailure::Blocked(Box::new(
+                Stage5cPaperIntentLifecycleBlocked {
+                    reason: Stage5cPaperIntentLifecycleError::UnknownAckRequestId,
+                    settled,
+                },
+            )));
+        }
+        if !seen.insert(record.ack.request_id) {
+            return Err(Stage5cPaperIntentLifecycleFailure::Blocked(Box::new(
+                Stage5cPaperIntentLifecycleBlocked {
+                    reason: Stage5cPaperIntentLifecycleError::DuplicateAck,
+                    settled,
+                },
+            )));
         }
     }
     if seen.len() != expected_request_ids.len() {
-        return Err(Stage5cPaperIntentLifecycleError::MissingAck);
+        return Err(Stage5cPaperIntentLifecycleFailure::Blocked(Box::new(
+            Stage5cPaperIntentLifecycleBlocked {
+                reason: Stage5cPaperIntentLifecycleError::MissingAck,
+                settled,
+            },
+        )));
     }
     let Stage5cSettledPaperStrategy {
         mut strategy,
@@ -2390,17 +2521,43 @@ pub fn resolve_stage5c_paper_intent_lifecycle(
         batch,
         settled_batch_history,
     } = settled;
-    for ack in input.acks {
-        let intents = crate::BrokerNeutralHybridStrategy::on_broker_ack(&mut strategy, ack)
-            .map_err(|_| Stage5cPaperIntentLifecycleError::CallbackValidationFailed)?;
-        if !intents.is_empty() {
-            return Err(Stage5cPaperIntentLifecycleError::UnexpectedIntent);
+    let mut ack_records = input.ack_records;
+    ack_records.sort_by_key(|record| record.total_sequence);
+    let mut last_sequence = None;
+    let mut ack_outcomes = Vec::with_capacity(ack_records.len());
+    for record in ack_records {
+        if last_sequence.is_some_and(|previous| record.total_sequence <= previous) {
+            return Err(Stage5cPaperIntentLifecycleFailure::Terminal(
+                Stage5cPaperIntentLifecycleError::NonMonotonicSequence,
+            ));
         }
+        last_sequence = Some(record.total_sequence);
+        let outcome = Stage5cPaperAckOutcome {
+            total_sequence: record.total_sequence,
+            request_id: record.ack.request_id,
+            status: record.ack.status,
+            broker_order_id: record.ack.broker_order_id.clone(),
+            error_code: record.ack.error_code.clone(),
+            processed_ts_utc: record.ack.processed_ts_utc,
+        };
+        let intents = crate::BrokerNeutralHybridStrategy::on_broker_ack(&mut strategy, record.ack)
+            .map_err(|_| {
+                Stage5cPaperIntentLifecycleFailure::Terminal(
+                    Stage5cPaperIntentLifecycleError::CallbackValidationFailed,
+                )
+            })?;
+        if !intents.is_empty() {
+            return Err(Stage5cPaperIntentLifecycleFailure::Terminal(
+                Stage5cPaperIntentLifecycleError::CallbackGeneratedIntentTerminal,
+            ));
+        }
+        ack_outcomes.push(outcome);
     }
     Ok(Stage5cResolvedPaperIntentBatchStrategy {
         strategy,
         recovery_receipt,
-        resolved_batch: stage5ch_batch_summary(&batch),
+        resolved_batch: batch,
+        ack_outcomes,
         settled_batch_history,
     })
 }
@@ -3696,17 +3853,38 @@ mod bootstrap_notification_tests {
     }
 
     fn stage5ci_ack(request_id: StrategyRequestId) -> broker_core::HybridRuntimeCommandAck {
-        broker_core::HybridRuntimeCommandAck {
+        stage5ci_ack_with(
             request_id,
-            status: broker_core::HybridRuntimeAckStatus::Accepted,
-            broker_order_id: Some(BrokerOrderId::new("ORDER_TEST_ACK_0001")),
-            error_code: None,
-            error_message: None,
-            processed_ts_utc: Utc
-                .with_ymd_and_hms(2026, 7, 13, 9, 10, 1)
+            broker_core::HybridRuntimeAckStatus::Accepted,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 10, 1)
                 .single()
                 .unwrap()
                 .timestamp(),
+        )
+    }
+
+    fn stage5ci_ack_with(
+        request_id: StrategyRequestId,
+        status: broker_core::HybridRuntimeAckStatus,
+        processed_ts_utc: i64,
+    ) -> broker_core::HybridRuntimeCommandAck {
+        broker_core::HybridRuntimeCommandAck {
+            request_id,
+            status,
+            broker_order_id: Some(BrokerOrderId::new("ORDER_TEST_ACK_0001")),
+            error_code: None,
+            error_message: None,
+            processed_ts_utc,
+        }
+    }
+
+    fn stage5ci_ack_record(
+        total_sequence: u64,
+        request_id: StrategyRequestId,
+    ) -> Stage5cPaperAckRecord {
+        Stage5cPaperAckRecord {
+            total_sequence,
+            ack: stage5ci_ack(request_id),
         }
     }
 
@@ -3752,6 +3930,64 @@ mod bootstrap_notification_tests {
         ))
         .unwrap();
         (settled, expected_request_id, bar_close_ts)
+    }
+
+    fn stage5ci_protective_settled() -> (
+        Stage5cSettledPaperStrategy,
+        StrategyRequestId,
+        StrategyRequestId,
+        i64,
+    ) {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered_until(
+            now,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
+                .single()
+                .unwrap(),
+        );
+        let (mut strategy, recovery_receipt) = recovered.into_parts();
+        let bar_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let tp_expected = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "place",
+            bar_close_ts,
+            0,
+        );
+        let sl_expected = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "create_stop_limit",
+            bar_close_ts,
+            5,
+        );
+        set_hybrid_pending_request(
+            &mut strategy,
+            crate::BrokerNeutralHybridIntentClass::ProtectiveRepair,
+            tp_expected,
+        );
+        set_hybrid_pending_sl_request(&mut strategy, sl_expected);
+        let settled = settle_stage5c_semantic_result(stage5cg_semantic_result(
+            strategy,
+            recovery_receipt,
+            bar_close_ts,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            vec![
+                stage5cg_place_intent(),
+                stage5cg_stop_intent(bar_close_ts + 600),
+            ],
+        ))
+        .unwrap();
+        (settled, tp_expected, sl_expected, bar_close_ts)
     }
 
     #[test]
@@ -4516,14 +4752,27 @@ mod bootstrap_notification_tests {
         let resolved = resolve_stage5c_paper_intent_lifecycle(
             settled,
             Stage5cPaperIntentLifecycleInput {
-                acks: vec![stage5ci_ack(expected_request_id)],
+                ack_records: vec![stage5ci_ack_record(1, expected_request_id)],
             },
         )
         .unwrap();
-        assert_eq!(resolved.resolved_batch().intent_count, 1);
+        let summary = resolved.resolved_batch_summary();
+        assert_eq!(summary.intent_count, 1);
+        assert_eq!(summary.request_ids, vec![expected_request_id]);
         assert_eq!(
-            resolved.resolved_batch().request_ids,
+            resolved.full_resolved_batch().record_request_ids(),
             vec![expected_request_id]
+        );
+        assert_eq!(resolved.ack_outcomes().len(), 1);
+        assert_eq!(resolved.ack_outcomes()[0].total_sequence, 1);
+        assert_eq!(resolved.ack_outcomes()[0].request_id, expected_request_id);
+        assert_eq!(
+            resolved.ack_outcomes()[0].status,
+            broker_core::HybridRuntimeAckStatus::Accepted
+        );
+        assert_eq!(
+            resolved.ack_outcomes()[0].broker_order_id,
+            Some(BrokerOrderId::new("ORDER_TEST_ACK_0001"))
         );
         assert_eq!(resolved.settled_batch_history().len(), 1);
         assert!(!resolved.intent_sink_attached());
@@ -4545,13 +4794,20 @@ mod bootstrap_notification_tests {
     #[test]
     fn stage5ci_rejects_missing_unknown_and_duplicate_ack() {
         let (settled_for_missing, _, bar_close_ts) = stage5ci_entry_settled();
-        assert!(matches!(
-            resolve_stage5c_paper_intent_lifecycle(
-                settled_for_missing,
-                Stage5cPaperIntentLifecycleInput { acks: Vec::new() },
-            ),
-            Err(Stage5cPaperIntentLifecycleError::MissingAck)
-        ));
+        let blocked = resolve_stage5c_paper_intent_lifecycle(
+            settled_for_missing,
+            Stage5cPaperIntentLifecycleInput {
+                ack_records: Vec::new(),
+            },
+        )
+        .expect_err("missing ACK must preserve settled type-state")
+        .into_blocked()
+        .expect("missing ACK is a recoverable preflight block");
+        assert_eq!(
+            blocked.reason(),
+            Stage5cPaperIntentLifecycleError::MissingAck
+        );
+        assert_eq!(blocked.settled().intent_batch().intent_count(), 1);
         let unknown = crate::deterministic_request_id(
             "hybrid_imoexf",
             "ACC_TEST_0001",
@@ -4565,23 +4821,23 @@ mod bootstrap_notification_tests {
             resolve_stage5c_paper_intent_lifecycle(
                 settled_for_unknown,
                 Stage5cPaperIntentLifecycleInput {
-                    acks: vec![stage5ci_ack(unknown)]
+                    ack_records: vec![stage5ci_ack_record(1, unknown)]
                 },
             ),
-            Err(Stage5cPaperIntentLifecycleError::UnknownAckRequestId)
+            Err(Stage5cPaperIntentLifecycleFailure::Blocked(_))
         ));
         let (settled_for_duplicate, expected_request_id, _) = stage5ci_entry_settled();
         assert!(matches!(
             resolve_stage5c_paper_intent_lifecycle(
                 settled_for_duplicate,
                 Stage5cPaperIntentLifecycleInput {
-                    acks: vec![
-                        stage5ci_ack(expected_request_id),
-                        stage5ci_ack(expected_request_id)
+                    ack_records: vec![
+                        stage5ci_ack_record(1, expected_request_id),
+                        stage5ci_ack_record(2, expected_request_id)
                     ],
                 },
             ),
-            Err(Stage5cPaperIntentLifecycleError::DuplicateAck)
+            Err(Stage5cPaperIntentLifecycleFailure::Blocked(_))
         ));
     }
 
@@ -4659,11 +4915,102 @@ mod bootstrap_notification_tests {
             resolve_stage5c_paper_intent_lifecycle(
                 drifted,
                 Stage5cPaperIntentLifecycleInput {
-                    acks: vec![stage5ci_ack(expected_request_id)]
+                    ack_records: vec![stage5ci_ack_record(1, expected_request_id)]
                 },
             ),
-            Err(Stage5cPaperIntentLifecycleError::StateFingerprintMismatch)
+            Err(Stage5cPaperIntentLifecycleFailure::Blocked(_))
         ));
+    }
+
+    #[test]
+    fn stage5ci_same_ack_set_has_one_canonical_application_order() {
+        let (settled_a, tp_request_id, sl_request_id, bar_close_ts) = stage5ci_protective_settled();
+        let (settled_b, _, _, _) = stage5ci_protective_settled();
+        let tp_ack = Stage5cPaperAckRecord {
+            total_sequence: 1,
+            ack: stage5ci_ack_with(
+                tp_request_id,
+                broker_core::HybridRuntimeAckStatus::Rejected,
+                bar_close_ts + 100,
+            ),
+        };
+        let sl_ack = Stage5cPaperAckRecord {
+            total_sequence: 2,
+            ack: stage5ci_ack_with(
+                sl_request_id,
+                broker_core::HybridRuntimeAckStatus::Rejected,
+                bar_close_ts + 200,
+            ),
+        };
+        let resolved_a = resolve_stage5c_paper_intent_lifecycle(
+            settled_a,
+            Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![tp_ack.clone(), sl_ack.clone()],
+            },
+        )
+        .unwrap();
+        let resolved_b = resolve_stage5c_paper_intent_lifecycle(
+            settled_b,
+            Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![sl_ack, tp_ack],
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            resolved_a.post_lifecycle_state_fingerprint(),
+            resolved_b.post_lifecycle_state_fingerprint()
+        );
+        assert_eq!(
+            resolved_b
+                .ack_outcomes()
+                .iter()
+                .map(|outcome| outcome.total_sequence)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+    }
+
+    #[test]
+    fn stage5ci_rejects_duplicate_sequence_and_ack_before_intent_bar() {
+        let (settled_duplicate, expected_request_id, _) = stage5ci_entry_settled();
+        let duplicate = resolve_stage5c_paper_intent_lifecycle(
+            settled_duplicate,
+            Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![
+                    stage5ci_ack_record(1, expected_request_id),
+                    stage5ci_ack_record(1, expected_request_id),
+                ],
+            },
+        )
+        .expect_err("duplicate sequence must be blocked")
+        .into_blocked()
+        .expect("duplicate sequence is a recoverable preflight block");
+        assert_eq!(
+            duplicate.reason(),
+            Stage5cPaperIntentLifecycleError::DuplicateSequence
+        );
+
+        let (settled_early, expected_request_id, bar_close_ts) = stage5ci_entry_settled();
+        let early = resolve_stage5c_paper_intent_lifecycle(
+            settled_early,
+            Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![Stage5cPaperAckRecord {
+                    total_sequence: 1,
+                    ack: stage5ci_ack_with(
+                        expected_request_id,
+                        broker_core::HybridRuntimeAckStatus::Accepted,
+                        bar_close_ts - 1,
+                    ),
+                }],
+            },
+        )
+        .expect_err("ACK before intent bar must be blocked")
+        .into_blocked()
+        .expect("early ACK is a recoverable preflight block");
+        assert_eq!(
+            early.reason(),
+            Stage5cPaperIntentLifecycleError::AckTimestampBeforeIntentBar
+        );
     }
 
     #[test]
@@ -4695,9 +5042,11 @@ mod bootstrap_notification_tests {
         assert!(matches!(
             resolve_stage5c_paper_intent_lifecycle(
                 settled,
-                Stage5cPaperIntentLifecycleInput { acks: Vec::new() },
+                Stage5cPaperIntentLifecycleInput {
+                    ack_records: Vec::new()
+                },
             ),
-            Err(Stage5cPaperIntentLifecycleError::EmptyIntentBatch)
+            Err(Stage5cPaperIntentLifecycleFailure::Blocked(_))
         ));
     }
 }

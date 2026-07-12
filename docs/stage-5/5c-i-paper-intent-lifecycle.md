@@ -13,11 +13,18 @@ Gates:
   fingerprint;
 - every ACK request ID must belong to the settled batch;
 - every settled batch request ID must receive exactly one ACK;
-- duplicate and unknown ACK request IDs are rejected;
+- ACK input is provided as records with a strict `total_sequence`;
+- duplicate sequence, duplicate request ID and unknown request ID are rejected;
+- ACKs before the intent bar close are rejected;
+- canonical application order is by `total_sequence`, independent of input Vec
+  order;
+- recoverable preflight blocks return the original settled type-state;
+- successful ACK coverage preserves the full escrow batch and typed ACK
+  outcomes for the next lifecycle facade;
 - no new request IDs are generated;
 - no semantic bar callback is invoked;
 - ACKs are applied only through the broker-neutral runtime callback;
-- callback-produced intents are rejected.
+- callback-produced intents are explicit terminal evidence.
 
 Still closed:
 
