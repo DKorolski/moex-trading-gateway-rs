@@ -721,6 +721,8 @@ pub struct Stage5cPaperIntentBatchSummary {
     pub account_id: BrokerAccountId,
     pub instrument: InstrumentId,
     pub bar_close_ts: i64,
+    pub min_source_event_ts: i64,
+    pub max_source_event_ts: i64,
     pub state_fingerprint: String,
     pub request_ids: Vec<StrategyRequestId>,
     pub intent_count: usize,
@@ -730,6 +732,7 @@ pub struct Stage5cPaperIntentBatchSummary {
 #[derive(Clone)]
 struct Stage5cPaperIntentRecord {
     request_id: StrategyRequestId,
+    source_event_ts: i64,
     intent_class: crate::BrokerNeutralHybridIntentClass,
     intent: crate::BrokerNeutralHybridIntent,
     expected_attribution: Option<broker_core::HybridRuntimeAttribution>,
@@ -752,6 +755,12 @@ impl Stage5cPaperIntentBatch {
         self.records
             .iter()
             .map(|record| record.request_id)
+            .collect()
+    }
+    pub fn record_source_event_ts_by_request(&self) -> Vec<(StrategyRequestId, i64)> {
+        self.records
+            .iter()
+            .map(|record| (record.request_id, record.source_event_ts))
             .collect()
     }
     pub fn intent_classes(&self) -> Vec<crate::BrokerNeutralHybridIntentClass> {
@@ -2685,6 +2694,7 @@ fn stage5c_build_paper_intent_batch(
             });
         records.push(Stage5cPaperIntentRecord {
             request_id,
+            source_event_ts: bar_close_ts,
             intent_class: class,
             expected_attribution,
             intent,
@@ -2703,11 +2713,25 @@ fn stage5c_build_paper_intent_batch(
 }
 
 fn stage5ch_batch_summary(batch: &Stage5cPaperIntentBatch) -> Stage5cPaperIntentBatchSummary {
+    let min_source_event_ts = batch
+        .records
+        .iter()
+        .map(|record| record.source_event_ts)
+        .min()
+        .unwrap_or(batch.bar_close_ts);
+    let max_source_event_ts = batch
+        .records
+        .iter()
+        .map(|record| record.source_event_ts)
+        .max()
+        .unwrap_or(batch.bar_close_ts);
     Stage5cPaperIntentBatchSummary {
         strategy_id: batch.strategy_id.clone(),
         account_id: batch.account_id.clone(),
         instrument: batch.instrument.clone(),
         bar_close_ts: batch.bar_close_ts,
+        min_source_event_ts,
+        max_source_event_ts,
         state_fingerprint: batch.state_fingerprint.clone(),
         request_ids: batch.request_ids.clone(),
         intent_count: batch.intent_count(),
@@ -2805,6 +2829,12 @@ pub fn resolve_stage5c_paper_intent_lifecycle(
     }
     let expected_request_ids: HashSet<StrategyRequestId> =
         settled.batch.request_ids.iter().copied().collect();
+    let source_ts_by_request: HashMap<StrategyRequestId, i64> = settled
+        .batch
+        .records
+        .iter()
+        .map(|record| (record.request_id, record.source_event_ts))
+        .collect();
     let mut seen = HashSet::new();
     let mut sequences = HashSet::new();
     for record in &input.ack_records {
@@ -2816,7 +2846,15 @@ pub fn resolve_stage5c_paper_intent_lifecycle(
                 },
             )));
         }
-        if record.ack.processed_ts_utc < settled.batch.bar_close_ts() {
+        let Some(source_event_ts) = source_ts_by_request.get(&record.ack.request_id) else {
+            return Err(Stage5cPaperIntentLifecycleFailure::Blocked(Box::new(
+                Stage5cPaperIntentLifecycleBlocked {
+                    reason: Stage5cPaperIntentLifecycleError::UnknownAckRequestId,
+                    settled,
+                },
+            )));
+        };
+        if record.ack.processed_ts_utc < *source_event_ts {
             return Err(Stage5cPaperIntentLifecycleFailure::Blocked(Box::new(
                 Stage5cPaperIntentLifecycleBlocked {
                     reason: Stage5cPaperIntentLifecycleError::AckTimestampBeforeIntentBar,
@@ -3146,7 +3184,8 @@ pub fn resolve_stage5c_paper_broker_lifecycle(
             )?;
         }
     }
-    if let Some(generated_batch) = &generated_intent_batch {
+    if let Some(generated_batch) = &mut generated_intent_batch {
+        generated_batch.state_fingerprint = stage5c_state_fingerprint(Strategy::state(&strategy));
         settled_batch_history.push(stage5ch_batch_summary(generated_batch));
     }
     let resolved_batch_summary = stage5ch_batch_summary(&batch);
@@ -3187,6 +3226,7 @@ fn stage5cj_merge_generated_batch(
             return Err(Stage5cIntentSettlementError::DuplicateRequestId);
         }
     }
+    existing.bar_close_ts = existing.bar_close_ts.min(next.bar_close_ts);
     existing.request_ids.append(&mut next.request_ids);
     existing.records.append(&mut next.records);
     Ok(())
@@ -8382,6 +8422,219 @@ mod bootstrap_notification_tests {
                 attr.cycle_id() == "abc1230001"
                     && attr.owner() == Some(broker_core::HybridRuntimeOwner::MeanReversion)
             })));
+    }
+
+    #[test]
+    fn stage5cj_merged_generated_batch_preserves_per_record_source_ts_and_final_fingerprint() {
+        fn run_multi_callback_generated_case() -> (
+            Stage5cBrokerLifecycleResolvedPaperStrategy,
+            StrategyRequestId,
+            StrategyRequestId,
+            i64,
+            i64,
+        ) {
+            let (settled, tp_request_id, sl_request_id, bar_close_ts) =
+                stage5ci_protective_settled();
+            let mut resolved = resolve_stage5c_paper_intent_lifecycle(
+                settled,
+                Stage5cPaperIntentLifecycleInput {
+                    ack_records: vec![
+                        Stage5cPaperAckRecord {
+                            total_sequence: 1,
+                            ack: broker_core::HybridRuntimeCommandAck {
+                                broker_order_id: Some(BrokerOrderId::new("TP_ORDER_TEST_0001")),
+                                ..stage5ci_ack_with(
+                                    tp_request_id,
+                                    broker_core::HybridRuntimeAckStatus::Accepted,
+                                    bar_close_ts + 1,
+                                )
+                            },
+                        },
+                        Stage5cPaperAckRecord {
+                            total_sequence: 2,
+                            ack: broker_core::HybridRuntimeCommandAck {
+                                broker_order_id: Some(BrokerOrderId::new("SL_EXCHANGE_TEST_0001")),
+                                ..stage5ci_ack_with(
+                                    sl_request_id,
+                                    broker_core::HybridRuntimeAckStatus::Accepted,
+                                    bar_close_ts + 1,
+                                )
+                            },
+                        },
+                    ],
+                },
+            )
+            .unwrap();
+            let mut state = Strategy::state(&resolved.strategy).clone();
+            match &mut state {
+                StrategyState::HybridIntradayRuntime {
+                    active_cycle_id,
+                    current_owner,
+                    current_side,
+                    last_position_qty,
+                    ..
+                } => {
+                    *active_cycle_id = Some("abc1230001".to_string());
+                    *current_owner = Some(crate::hybrid_intraday::Owner::MeanReversion);
+                    *current_side = Some(crate::hybrid_intraday::Side::Long);
+                    *last_position_qty = 1.0;
+                }
+                StrategyState::Idle => panic!("expected hybrid runtime state"),
+            }
+            Strategy::set_state(&mut resolved.strategy, state);
+            let stop_ts = bar_close_ts + 2;
+            let flat_ts = bar_close_ts + 5;
+            let broker_resolved = resolve_stage5c_paper_broker_lifecycle(
+                resolved,
+                Stage5cPaperBrokerLifecycleInput {
+                    event_records: vec![
+                        stage5cj_order_event(
+                            3,
+                            tp_request_id,
+                            BrokerOrderId::new("TP_ORDER_TEST_0001"),
+                            "working",
+                            bar_close_ts + 1,
+                        ),
+                        stage5cj_stop_event(
+                            4,
+                            sl_request_id,
+                            BrokerOrderId::new("SL_EXCHANGE_TEST_0001"),
+                            "triggered",
+                            bar_close_ts + 600,
+                            stop_ts,
+                        ),
+                        stage5cj_position_event(5, sl_request_id, 0.0, flat_ts),
+                    ],
+                },
+            )
+            .unwrap();
+            (
+                broker_resolved,
+                tp_request_id,
+                sl_request_id,
+                stop_ts,
+                flat_ts,
+            )
+        }
+
+        let (broker_resolved, _, _, stop_ts, flat_ts) = run_multi_callback_generated_case();
+        let generated = broker_resolved
+            .generated_intent_batch()
+            .expect("stop trigger and flat position must produce generated cleanup batch");
+        assert_eq!(generated.intent_count(), 2);
+        assert_eq!(
+            generated.state_fingerprint(),
+            broker_resolved.post_broker_lifecycle_state_fingerprint()
+        );
+        let source_ts_by_request: HashMap<_, _> = generated
+            .record_source_event_ts_by_request()
+            .into_iter()
+            .collect();
+        let cancel_tp_request_id = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "cancel:TP_ORDER_TEST_0001",
+            stop_ts,
+            1,
+        );
+        let cancel_sl_request_id = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "cancel:SL_EXCHANGE_TEST_0001",
+            flat_ts,
+            1,
+        );
+        assert_eq!(
+            source_ts_by_request.get(&cancel_tp_request_id),
+            Some(&stop_ts)
+        );
+        assert_eq!(
+            source_ts_by_request.get(&cancel_sl_request_id),
+            Some(&flat_ts)
+        );
+        let summary = broker_resolved.generated_intent_batch_summary().unwrap();
+        assert_eq!(summary.min_source_event_ts, stop_ts);
+        assert_eq!(summary.max_source_event_ts, flat_ts);
+
+        let (mut early_broker_resolved, _, _, _, early_flat_ts) =
+            run_multi_callback_generated_case();
+        let early_generated_batch = early_broker_resolved
+            .generated_intent_batch
+            .take()
+            .expect("generated batch must exist");
+        let early_settled = Stage5cSettledPaperStrategy {
+            strategy: early_broker_resolved.strategy,
+            recovery_receipt: early_broker_resolved.recovery_receipt,
+            batch: early_generated_batch,
+            settled_batch_history: early_broker_resolved.settled_batch_history,
+        };
+        assert_eq!(
+            resolve_stage5c_paper_intent_lifecycle(
+                early_settled,
+                Stage5cPaperIntentLifecycleInput {
+                    ack_records: vec![
+                        Stage5cPaperAckRecord {
+                            total_sequence: 6,
+                            ack: stage5ci_ack_with(
+                                cancel_tp_request_id,
+                                broker_core::HybridRuntimeAckStatus::Accepted,
+                                stop_ts,
+                            ),
+                        },
+                        Stage5cPaperAckRecord {
+                            total_sequence: 7,
+                            ack: stage5ci_ack_with(
+                                cancel_sl_request_id,
+                                broker_core::HybridRuntimeAckStatus::Accepted,
+                                early_flat_ts - 1,
+                            ),
+                        },
+                    ],
+                },
+            )
+            .expect_err("second generated ACK before its own source timestamp must block")
+            .reason(),
+            Stage5cPaperIntentLifecycleError::AckTimestampBeforeIntentBar
+        );
+
+        let (mut ok_broker_resolved, _, _, _, ok_flat_ts) = run_multi_callback_generated_case();
+        let ok_generated_batch = ok_broker_resolved
+            .generated_intent_batch
+            .take()
+            .expect("generated batch must exist");
+        let ok_settled = Stage5cSettledPaperStrategy {
+            strategy: ok_broker_resolved.strategy,
+            recovery_receipt: ok_broker_resolved.recovery_receipt,
+            batch: ok_generated_batch,
+            settled_batch_history: ok_broker_resolved.settled_batch_history,
+        };
+        let generated_ack_resolved = resolve_stage5c_paper_intent_lifecycle(
+            ok_settled,
+            Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![
+                    Stage5cPaperAckRecord {
+                        total_sequence: 6,
+                        ack: stage5ci_ack_with(
+                            cancel_tp_request_id,
+                            broker_core::HybridRuntimeAckStatus::Accepted,
+                            stop_ts,
+                        ),
+                    },
+                    Stage5cPaperAckRecord {
+                        total_sequence: 7,
+                        ack: stage5ci_ack_with(
+                            cancel_sl_request_id,
+                            broker_core::HybridRuntimeAckStatus::Accepted,
+                            ok_flat_ts,
+                        ),
+                    },
+                ],
+            },
+        )
+        .expect("generated ACK lifecycle must use final fingerprint and per-record source ts");
+        assert_eq!(generated_ack_resolved.ack_outcomes().len(), 2);
     }
 
     #[test]

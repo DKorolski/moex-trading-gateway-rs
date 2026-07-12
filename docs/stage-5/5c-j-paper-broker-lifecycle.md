@@ -61,7 +61,11 @@ Gates:
 - callback-generated request IDs are bound to the exact broker event
   `source_ts_utc`, not to the parent semantic-bar close timestamp;
 - multiple callback-generated batches are merged only after duplicate request-ID
-  checks, and generated batch summaries are appended to existing settled history;
+  checks, generated records retain their own source timestamps, the merged
+  generated batch fingerprint is rebound to the final post-callback strategy
+  state, and generated batch summaries are appended to existing settled history;
+- generated summaries expose `min_source_event_ts` and `max_source_event_ts` so
+  multi-callback evidence does not pretend to have a single creation timestamp;
 - cleanup attribution for callback-generated intents is captured from the
   pre-callback TP/SL ledger before the wrapper removes broker object IDs;
 - semantic-bar-generated cleanup attribution is also captured before

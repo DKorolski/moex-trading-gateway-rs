@@ -15,7 +15,9 @@ Gates:
 - every settled batch request ID must receive exactly one ACK;
 - ACK input is provided as records with a strict `total_sequence`;
 - duplicate sequence, duplicate request ID and unknown request ID are rejected;
-- ACKs before the intent bar close are rejected;
+- ACKs before the escrowed intent source timestamp are rejected; for merged
+  callback-generated batches this is checked per record, not against one
+  batch-level timestamp;
 - canonical application order is by `total_sequence`, independent of input Vec
   order;
 - recoverable preflight blocks return the original settled type-state;
