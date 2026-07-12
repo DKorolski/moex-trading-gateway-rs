@@ -22,6 +22,7 @@ cp "$workspace_root/tests/fixtures/stage5/stage5cd_history_warmup.json" "$tmp_ro
 cp "$workspace_root/tests/fixtures/stage5/stage5ce_pending_recovery.json" "$tmp_root/tests/fixtures/stage5/"
 cp "$workspace_root/tests/fixtures/stage5/stage5cf_semantic_bar.json" "$tmp_root/tests/fixtures/stage5/"
 cp "$workspace_root/tests/fixtures/stage5/stage5cg_paper_intent_settlement.json" "$tmp_root/tests/fixtures/stage5/"
+cp "$workspace_root/tests/fixtures/stage5/stage5ch_controlled_next_bar_loop.json" "$tmp_root/tests/fixtures/stage5/"
 
 if ! (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >/tmp/moex_negative_scan.$$ 2>&1; then
   cat /tmp/moex_negative_scan.$$ >&2
@@ -94,6 +95,7 @@ run_negative_case "stage5cd-warmup-fixture-drift" '# stage5cd negative fixture d
 run_negative_case "stage5ce-recovery-fixture-drift" '# stage5ce negative fixture drift' "$tmp_root/tests/fixtures/stage5/stage5ce_pending_recovery.json"
 run_negative_case "stage5cf-semantic-fixture-drift" '# stage5cf negative fixture drift' "$tmp_root/tests/fixtures/stage5/stage5cf_semantic_bar.json"
 run_negative_case "stage5cg-settlement-fixture-drift" '# stage5cg negative fixture drift' "$tmp_root/tests/fixtures/stage5/stage5cg_paper_intent_settlement.json"
+run_negative_case "stage5ch-next-bar-loop-fixture-drift" '# stage5ch negative fixture drift' "$tmp_root/tests/fixtures/stage5/stage5ch_controlled_next_bar_loop.json"
 
 semantic_ledger="$tmp_root/crates/strategy-runtime-core/source-correspondence.toml"
 semantic_target="$tmp_root/crates/strategy-runtime-core/src/hybrid_intraday/intraday_breakout.rs"

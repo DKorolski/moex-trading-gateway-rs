@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "stage": "Stage5C-h",
+  "status": "controlled_next_bar_loop_no_send",
+  "consumes": "Stage5cSettledPaperStrategy",
+  "next_input": "Stage5cAcceptedSemanticBar",
+  "produces": "Stage5cSettledPaperStrategy",
+  "requires_successful_previous_settlement": true,
+  "requires_monotonic_bar_close": true,
+  "reuses_stage3_final_m10_admission": true,
+  "rechecks_broker_truth_expiry": true,
+  "redispatches_previous_escrowed_intents": false,
+  "stores_redacted_batch_history": true,
+  "timer_enabled": false,
+  "intent_sink_attached": false,
+  "redis_command_stream_attached": false,
+  "broker_transport_attached": false
+}
