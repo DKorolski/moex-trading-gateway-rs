@@ -781,9 +781,9 @@ wrapper_oracle_sha256 = (
     "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa"
 )
 compiled_wrapper_sha256 = (
-    "a0991ffb49a1e7f92ac99112c848993750695cf9dbbb45ab8db092b3ef3ae155"
+    "7cff5ee4646720c996e066ed9c7aafeae80dd80cfd8f89b3e09725e26dc8fb1b"
 )
-compiled_wrapper_line_count = 6882
+compiled_wrapper_line_count = 6886
 
 if not wrapper_oracle_path.is_file():
     print(
@@ -1381,7 +1381,7 @@ if wrapper_oracle_rs_files != {str(wrapper_oracle_path)}:
 
 stage5b2_manifest_path = semantic_kernel_root / "stage5b2-source-correspondence.toml"
 expected_stage5b2_manifest_sha256 = (
-    "4cc89056c7c1d9d29b5a739da7fcf41a4bdf2ff8efbd2aef5cfbd5c074bf068a"
+    "5a53d02d31468cf44f35b623fbddaf7938ce780988a85ed239615a3ba09d3397"
 )
 if not stage5b2_manifest_path.is_file():
     print(
@@ -1417,8 +1417,8 @@ else:
         "oracle_sha256": wrapper_oracle_sha256,
         "oracle_line_count": 6203,
         "accepted_stage5b1_manifest_unchanged": True,
-        "target_sha256": "a0991ffb49a1e7f92ac99112c848993750695cf9dbbb45ab8db092b3ef3ae155",
-        "target_line_count": 6882,
+        "target_sha256": "7cff5ee4646720c996e066ed9c7aafeae80dd80cfd8f89b3e09725e26dc8fb1b",
+        "target_line_count": 6886,
         "wrapper_copied": True,
         "wrapper_compiled": True,
         "runtime_host_attached": False,
@@ -1544,7 +1544,7 @@ expected_stage5_profile_artifacts = {
         "821e241970df245f7aaaeb78312537c29512173108c59f40f7f449eb44cb8aa4"
     ),
     Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"): (
-        "e2ea8bb893f91fe5912c452f92ceb117c6722a23e348d688ddbe9e135b308767"
+        "0d2a2429835e4939c23b3ff548d9b0bc2817e8ddb6c491f42f042edc3831020e"
     ),
     Path("tests/fixtures/stage5/stage5cb_bootstrap_notification.json"): (
         "9db7888d27374eeaa8ac046c1df1727a3e3cd085c938a76945d22b9bd68f00de"
@@ -1559,7 +1559,7 @@ expected_stage5_profile_artifacts = {
         "4bea0ec0cf2a066c29024d909f846426f12b39fe2c4546eb633cf7f906cdc28c"
     ),
     Path("tests/fixtures/stage5/stage5cf_semantic_bar.json"): (
-        "444bb14f4b359f0b937df9ac50dc5f43448bc82d214503b952b1fede3582d7be"
+        "e33b96f5eda32274bf7e771f2d365f726fc1929d7d8f62ba237b522566ffee96"
     ),
     Path("crates/broker-core/src/hybrid_strategy_boundary.rs"): (
         "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d"

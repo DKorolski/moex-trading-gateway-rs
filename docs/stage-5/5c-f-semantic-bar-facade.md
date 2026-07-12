@@ -6,7 +6,10 @@ The facade consumes only `Stage5cPendingRecoveredPaperStrategy` and an opaque
 Stage 3-accepted final M10 bar. Before mutation it rechecks broker-truth expiry,
 exact instrument/tick binding, future time and strict ordering after both
 history and recovery boundaries. Forming, raw M1, native FINAM M10 pending
-characterization, stale and duplicate bars fail closed.
+characterization, stale and duplicate bars fail closed. Actual OHLCV is checked
+for finiteness/structure/non-negative volume and close time must align to M10.
+Callback `position_qty` is read from current recovered strategy state rather
+than the original bootstrap snapshot.
 
 Only `on_broker_bar` is invoked in paper/LiveReady context. Generated intents
 are captured inside `Stage5cSemanticBarResult`; no sink, Redis command stream,

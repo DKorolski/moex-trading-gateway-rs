@@ -223,6 +223,10 @@ impl HybridIntradayRuntimeStrategy {
         )
     }
 
+    pub(crate) fn stage5c_current_position_qty(&self) -> f64 {
+        self.last_position_qty
+    }
+
     const MIN_MR_TAKE_DISTANCE_TICKS: f64 = 2.0;
     const MAX_CLEANUP_STOP_RETRIES: u32 = 3;
     const BRACKET_TERMINAL_RECONCILE_GRACE_MS: i64 = 3_000;

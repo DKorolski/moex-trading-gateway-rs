@@ -610,6 +610,9 @@ pub enum Stage5cSemanticBarError {
     FutureBar,
     InvalidTimestamp,
     CallbackValidationFailed,
+    UnalignedTimestamp,
+    InvalidOhlc,
+    InvalidVolume,
 }
 
 impl std::fmt::Display for Stage5cSemanticBarError {
@@ -1733,6 +1736,26 @@ pub fn accept_stage5c_semantic_bar(
     ) {
         return Err(Stage5cSemanticBarError::Stage3Rejected);
     }
+    if input.bar.close_time_utc.rem_euclid(600) != 0 {
+        return Err(Stage5cSemanticBarError::UnalignedTimestamp);
+    }
+    if ![
+        input.bar.open,
+        input.bar.high,
+        input.bar.low,
+        input.bar.close,
+    ]
+    .iter()
+    .all(|value| value.is_finite())
+        || input.bar.low > input.bar.high
+        || input.bar.high < input.bar.open.max(input.bar.close)
+        || input.bar.low > input.bar.open.min(input.bar.close)
+    {
+        return Err(Stage5cSemanticBarError::InvalidOhlc);
+    }
+    if !input.bar.volume.is_finite() || input.bar.volume < 0.0 {
+        return Err(Stage5cSemanticBarError::InvalidVolume);
+    }
     let gate_bar = broker_core::event::Bar {
         instrument: input.bar.instrument.clone(),
         source_kind: broker_core::MarketDataSourceKind::LiveStream,
@@ -1796,20 +1819,7 @@ fn apply_stage5c_semantic_bar_at(
     if accepted.bar.close_time_utc > now.timestamp() {
         return Err(Stage5cSemanticBarError::FutureBar);
     }
-    let context = broker_core::HybridRuntimeStrategyContext {
-        strategy_id: admission.strategy_id().to_string(),
-        request_namespace_account: admission.account_id().clone(),
-        instrument: admission.target_instrument().clone(),
-        tick_size: admission.tick_size(),
-        trade_mode: broker_core::HybridRuntimeTradeMode::Paper,
-        paper_execution_mode: broker_core::HybridRuntimePaperExecutionMode::LiveOnly,
-        allow_live_orders: false,
-        gateway_phase: broker_core::HybridRuntimeGatewayPhase::LiveReady,
-        position_qty: admission.bootstrap_snapshot().target_position_qty.to_f64(),
-        event_ts_utc: accepted.bar.close_time_utc,
-        strategy_now_ts_utc: now.timestamp(),
-        last_bar_ts_utc: Some(accepted.bar.close_time_utc),
-    };
+    let context = stage5cf_semantic_context(&strategy, admission, accepted.bar.close_time_utc, now);
     let bar_close_ts = accepted.bar.close_time_utc;
     let intents = crate::BrokerNeutralHybridStrategy::on_broker_bar(
         &mut strategy,
@@ -1825,6 +1835,28 @@ fn apply_stage5c_semantic_bar_at(
         bar_close_ts,
         intents,
     })
+}
+
+fn stage5cf_semantic_context(
+    strategy: &HybridIntradayRuntimeStrategy,
+    admission: &Stage5cPaperHostAdmission,
+    bar_close_ts: i64,
+    now: DateTime<Utc>,
+) -> broker_core::HybridRuntimeStrategyContext {
+    broker_core::HybridRuntimeStrategyContext {
+        strategy_id: admission.strategy_id().to_string(),
+        request_namespace_account: admission.account_id().clone(),
+        instrument: admission.target_instrument().clone(),
+        tick_size: admission.tick_size(),
+        trade_mode: broker_core::HybridRuntimeTradeMode::Paper,
+        paper_execution_mode: broker_core::HybridRuntimePaperExecutionMode::LiveOnly,
+        allow_live_orders: false,
+        gateway_phase: broker_core::HybridRuntimeGatewayPhase::LiveReady,
+        position_qty: Some(strategy.stage5c_current_position_qty()),
+        event_ts_utc: bar_close_ts,
+        strategy_now_ts_utc: now.timestamp(),
+        last_bar_ts_utc: Some(bar_close_ts),
+    }
 }
 
 #[cfg(test)]
@@ -2691,5 +2723,83 @@ mod bootstrap_notification_tests {
                     .collect(),
             },
         )
+    }
+
+    fn semantic_input(close_ts: i64) -> Stage5cSemanticBarInput {
+        let mut bar = history_bar(close_ts);
+        bar.origin = broker_core::HybridRuntimeBarOrigin::Live;
+        Stage5cSemanticBarInput {
+            bar,
+            provenance: broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(
+            ),
+            tick_size: 0.5,
+        }
+    }
+
+    #[test]
+    fn stage5cf_validates_actual_payload_matrix() {
+        let close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 10, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        assert!(accept_stage5c_semantic_bar(semantic_input(close_ts)).is_ok());
+        assert!(matches!(
+            accept_stage5c_semantic_bar(semantic_input(close_ts + 1)),
+            Err(Stage5cSemanticBarError::UnalignedTimestamp)
+        ));
+        let mut invalid = semantic_input(close_ts);
+        invalid.bar.high = 2190.0;
+        assert!(matches!(
+            accept_stage5c_semantic_bar(invalid),
+            Err(Stage5cSemanticBarError::InvalidOhlc)
+        ));
+        let mut non_finite = semantic_input(close_ts);
+        non_finite.bar.close = f64::NAN;
+        assert!(matches!(
+            accept_stage5c_semantic_bar(non_finite),
+            Err(Stage5cSemanticBarError::InvalidOhlc)
+        ));
+        let mut volume = semantic_input(close_ts);
+        volume.bar.volume = -1.0;
+        assert!(matches!(
+            accept_stage5c_semantic_bar(volume),
+            Err(Stage5cSemanticBarError::InvalidVolume)
+        ));
+    }
+
+    #[test]
+    fn stage5cf_context_uses_current_strategy_position() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 13, 9, 0, 0).single().unwrap();
+        let admission = admission(Decimal::ZERO, now + chrono::Duration::minutes(20));
+        let mut strategy = strategy("IMOEXF", 0.5);
+        let context = StrategyCtx {
+            strategy_id: "hybrid_imoexf".to_string(),
+            portfolio: "ACC_TEST_0001".to_string(),
+            exchange: "Moex".to_string(),
+            symbol: "IMOEXF".to_string(),
+            tick_size: 0.5,
+            trade_mode: TradeMode::Paper,
+            paper_execution_mode: PaperExecutionMode::LiveOnly,
+            allow_live_orders: false,
+            gateway_phase: GatewayPhase::SyncingGap,
+            position_qty: Some(1.0),
+            event_ts_utc: now.timestamp(),
+            now_ts_utc: now.timestamp(),
+            last_bar_ts: None,
+        };
+        Strategy::on_position(
+            &mut strategy,
+            &context,
+            &PositionEvent {
+                symbol: "IMOEXF".to_string(),
+                qty: 1.0,
+                existing: true,
+                avg_price: 2200.0,
+                ts_utc: now.timestamp(),
+            },
+        );
+        let semantic = stage5cf_semantic_context(&strategy, &admission, now.timestamp(), now);
+        assert_eq!(semantic.position_qty, Some(1.0));
     }
 }
