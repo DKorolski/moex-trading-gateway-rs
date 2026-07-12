@@ -120,6 +120,10 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   timer-generated cleanup attribution before callback mutation, and still keeps
   the timer loop, sink, Redis, transport, FINAM command consumer and
   runtime-live closed.
+- Stage 5C-l timer-result settlement facade is a review candidate. It consumes
+  only Stage 5C-k timer type-state, turns zero-intent timers into continuation
+  checkpoints, and routes nonzero timer-generated batches back through Stage
+  5C-i/5C-j without opening sink, Redis, transport or runtime-live.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

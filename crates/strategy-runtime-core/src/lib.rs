@@ -51,8 +51,8 @@ pub use stage5c_paper_host::{
     prepare_stage5c_without_runtime_state, prove_stage5c_pending_recovery_claim,
     recover_stage5c_pending_streams, resolve_stage5c_paper_broker_lifecycle,
     resolve_stage5c_paper_intent_lifecycle, resolve_stage5c_paper_timer,
-    restore_stage5c_runtime_state, settle_stage5c_semantic_result, warmup_stage5c_history,
-    Stage5cAcceptedHistoryBatch, Stage5cAcceptedPendingRecoveryEvidence,
+    restore_stage5c_runtime_state, settle_stage5c_semantic_result, settle_stage5c_timer_result,
+    warmup_stage5c_history, Stage5cAcceptedHistoryBatch, Stage5cAcceptedPendingRecoveryEvidence,
     Stage5cAcceptedSemanticBar, Stage5cBootstrapNotificationError,
     Stage5cBootstrapNotificationReceipt, Stage5cBootstrappedPaperStrategy,
     Stage5cBrokerLifecycleResolvedPaperStrategy, Stage5cHistoryBatchInput,
@@ -76,8 +76,9 @@ pub use stage5c_paper_host::{
     Stage5cRuntimeStateRestoreError, Stage5cRuntimeStateRestoreInput,
     Stage5cRuntimeStateRestoreReceipt, Stage5cRuntimeStateRestoredPaperStrategy,
     Stage5cSemanticBarError, Stage5cSemanticBarInput, Stage5cSemanticBarResult,
-    Stage5cSettledPaperStrategy, Stage5cTimerResolvedPaperStrategy, Stage5cWarmedPaperStrategy,
-    STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION, STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION,
+    Stage5cSettledPaperStrategy, Stage5cTimerResolvedPaperStrategy, Stage5cTimerSettlement,
+    Stage5cWarmedPaperStrategy, STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION,
+    STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION,
 };
 
 pub(crate) mod live_guard {
