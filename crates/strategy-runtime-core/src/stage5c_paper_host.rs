@@ -393,6 +393,7 @@ pub struct Stage5cHistoryWarmupReceipt {
     processed_bars: usize,
     input_bars: usize,
     source_mode: broker_core::Stage3StrategyBarSourceMode,
+    last_history_ts: i64,
 }
 
 impl Stage5cHistoryWarmupReceipt {
@@ -418,6 +419,9 @@ impl Stage5cHistoryWarmupReceipt {
 
     pub fn source_mode(&self) -> broker_core::Stage3StrategyBarSourceMode {
         self.source_mode
+    }
+    pub fn last_history_ts(&self) -> i64 {
+        self.last_history_ts
     }
 
     pub fn warmup_started(&self) -> bool {
@@ -584,6 +588,75 @@ pub struct Stage5cPendingRecoveredPaperStrategy {
     receipt: Stage5cPendingRecoveryReceipt,
 }
 
+pub struct Stage5cSemanticBarInput {
+    pub bar: broker_core::HybridRuntimeBarEvent,
+    pub provenance: broker_core::Stage3StrategyBarProvenance,
+    pub tick_size: f64,
+}
+
+pub struct Stage5cAcceptedSemanticBar {
+    bar: broker_core::HybridRuntimeBarEvent,
+    tick_size: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5cSemanticBarError {
+    Stage3Rejected,
+    InstrumentMismatch,
+    TickSizeMismatch,
+    BrokerTruthExpired,
+    StaleOrDuplicateBar,
+    FutureBar,
+    InvalidTimestamp,
+    CallbackValidationFailed,
+}
+
+impl std::fmt::Display for Stage5cSemanticBarError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "Stage 5C semantic bar blocked: {self:?}")
+    }
+}
+impl std::error::Error for Stage5cSemanticBarError {}
+
+pub struct Stage5cSemanticBarResult {
+    strategy: HybridIntradayRuntimeStrategy,
+    recovery_receipt: Stage5cPendingRecoveryReceipt,
+    bar_close_ts: i64,
+    intents: Vec<crate::BrokerNeutralHybridIntent>,
+}
+
+impl Stage5cSemanticBarResult {
+    pub fn bar_close_ts(&self) -> i64 {
+        self.bar_close_ts
+    }
+    pub fn captured_intent_count(&self) -> usize {
+        self.intents.len()
+    }
+    pub fn intent_sink_attached(&self) -> bool {
+        false
+    }
+    pub fn broker_transport_attached(&self) -> bool {
+        false
+    }
+    pub fn recovery_receipt(&self) -> &Stage5cPendingRecoveryReceipt {
+        &self.recovery_receipt
+    }
+    #[expect(
+        dead_code,
+        reason = "reserved for the still-closed next-bar/timer gate"
+    )]
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        HybridIntradayRuntimeStrategy,
+        Stage5cPendingRecoveryReceipt,
+        Vec<crate::BrokerNeutralHybridIntent>,
+    ) {
+        (self.strategy, self.recovery_receipt, self.intents)
+    }
+}
+
 impl Stage5cPendingRecoveredPaperStrategy {
     pub fn receipt(&self) -> &Stage5cPendingRecoveryReceipt {
         &self.receipt
@@ -593,10 +666,6 @@ impl Stage5cPendingRecoveredPaperStrategy {
         &self.strategy
     }
 
-    #[expect(
-        dead_code,
-        reason = "reserved consume-only transition for the still-closed semantic bar gate"
-    )]
     pub(crate) fn into_parts(
         self,
     ) -> (HybridIntradayRuntimeStrategy, Stage5cPendingRecoveryReceipt) {
@@ -1303,6 +1372,7 @@ fn warmup_stage5c_history_at(
 
     let input_bars = history.bars.len();
     let source_mode = history.provenance.source_mode;
+    let last_history_ts = history.end_ts;
     let mut bars = Vec::with_capacity(input_bars);
     for bar in history.bars {
         bars.push(crate::runtime_compat::BarEvent {
@@ -1347,6 +1417,7 @@ fn warmup_stage5c_history_at(
             processed_bars,
             input_bars,
             source_mode,
+            last_history_ts,
         },
     })
 }
@@ -1645,6 +1716,114 @@ fn recover_stage5c_pending_streams_at(
             replayed_events,
             duplicate_events,
         },
+    })
+}
+
+pub fn accept_stage5c_semantic_bar(
+    input: Stage5cSemanticBarInput,
+) -> Result<Stage5cAcceptedSemanticBar, Stage5cSemanticBarError> {
+    let close_ts = DateTime::<Utc>::from_timestamp(input.bar.close_time_utc, 0)
+        .ok_or(Stage5cSemanticBarError::InvalidTimestamp)?;
+    let open_ts = close_ts
+        .checked_sub_signed(chrono::Duration::seconds(600))
+        .ok_or(Stage5cSemanticBarError::InvalidTimestamp)?;
+    if !matches!(
+        input.bar.origin,
+        broker_core::HybridRuntimeBarOrigin::Live | broker_core::HybridRuntimeBarOrigin::Replay
+    ) {
+        return Err(Stage5cSemanticBarError::Stage3Rejected);
+    }
+    let gate_bar = broker_core::event::Bar {
+        instrument: input.bar.instrument.clone(),
+        source_kind: broker_core::MarketDataSourceKind::LiveStream,
+        timeframe_sec: input.bar.timeframe_sec,
+        open_ts,
+        close_ts,
+        open: rust_decimal::Decimal::ZERO,
+        high: rust_decimal::Decimal::ZERO,
+        low: rust_decimal::Decimal::ZERO,
+        close: rust_decimal::Decimal::ZERO,
+        volume: rust_decimal::Decimal::ZERO,
+        is_final: input.bar.is_final,
+    };
+    if !broker_core::evaluate_stage3_strategy_input_gate(&gate_bar, &input.provenance).accepted {
+        return Err(Stage5cSemanticBarError::Stage3Rejected);
+    }
+    Ok(Stage5cAcceptedSemanticBar {
+        bar: input.bar,
+        tick_size: input.tick_size,
+    })
+}
+
+pub fn apply_stage5c_semantic_bar(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+) -> Result<Stage5cSemanticBarResult, Stage5cSemanticBarError> {
+    apply_stage5c_semantic_bar_at(recovered, accepted, Utc::now())
+}
+
+fn apply_stage5c_semantic_bar_at(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    now: DateTime<Utc>,
+) -> Result<Stage5cSemanticBarResult, Stage5cSemanticBarError> {
+    let (mut strategy, recovery_receipt) = recovered.into_parts();
+    let admission = &recovery_receipt
+        .warmup_receipt()
+        .restore_receipt()
+        .bootstrap_receipt()
+        .admission;
+    if now
+        > recovery_receipt
+            .warmup_receipt()
+            .restore_receipt()
+            .bootstrap_receipt()
+            .expires_at()
+    {
+        return Err(Stage5cSemanticBarError::BrokerTruthExpired);
+    }
+    if accepted.bar.instrument != *admission.target_instrument() {
+        return Err(Stage5cSemanticBarError::InstrumentMismatch);
+    }
+    if !same_tick_size(accepted.tick_size, admission.tick_size()) {
+        return Err(Stage5cSemanticBarError::TickSizeMismatch);
+    }
+    if accepted.bar.close_time_utc <= recovery_receipt.recovered_ts().timestamp()
+        || accepted.bar.close_time_utc <= recovery_receipt.warmup_receipt().last_history_ts()
+    {
+        return Err(Stage5cSemanticBarError::StaleOrDuplicateBar);
+    }
+    if accepted.bar.close_time_utc > now.timestamp() {
+        return Err(Stage5cSemanticBarError::FutureBar);
+    }
+    let context = broker_core::HybridRuntimeStrategyContext {
+        strategy_id: admission.strategy_id().to_string(),
+        request_namespace_account: admission.account_id().clone(),
+        instrument: admission.target_instrument().clone(),
+        tick_size: admission.tick_size(),
+        trade_mode: broker_core::HybridRuntimeTradeMode::Paper,
+        paper_execution_mode: broker_core::HybridRuntimePaperExecutionMode::LiveOnly,
+        allow_live_orders: false,
+        gateway_phase: broker_core::HybridRuntimeGatewayPhase::LiveReady,
+        position_qty: admission.bootstrap_snapshot().target_position_qty.to_f64(),
+        event_ts_utc: accepted.bar.close_time_utc,
+        strategy_now_ts_utc: now.timestamp(),
+        last_bar_ts_utc: Some(accepted.bar.close_time_utc),
+    };
+    let bar_close_ts = accepted.bar.close_time_utc;
+    let intents = crate::BrokerNeutralHybridStrategy::on_broker_bar(
+        &mut strategy,
+        broker_core::HybridRuntimeCallbackInput {
+            context,
+            payload: accepted.bar,
+        },
+    )
+    .map_err(|_| Stage5cSemanticBarError::CallbackValidationFailed)?;
+    Ok(Stage5cSemanticBarResult {
+        strategy,
+        recovery_receipt,
+        bar_close_ts,
+        intents,
     })
 }
 

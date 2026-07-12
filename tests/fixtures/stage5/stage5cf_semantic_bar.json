@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "stage": "Stage5C-f",
+  "status": "first_semantic_bar_paper_no_send",
+  "consumes": "Stage5cPendingRecoveredPaperStrategy",
+  "canonical_stage3_final_m10_required": true,
+  "strictly_after_history_and_recovery": true,
+  "future_allowed": false,
+  "generated_intents_captured_opaque": true,
+  "intent_sink_attached": false,
+  "broker_transport_attached": false,
+  "timer_enabled": false,
+  "real_post_delete_added": false
+}

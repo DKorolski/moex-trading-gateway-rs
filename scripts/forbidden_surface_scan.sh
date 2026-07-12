@@ -1013,7 +1013,7 @@ if semantic_build_script.exists():
 
 semantic_lib_path = semantic_kernel_root / "src/lib.rs"
 expected_semantic_lib_sha256 = (
-    "80c6d14cc0a6100908fcb9ef8701bd2318e4687eec4a430f1a7be312b34b8e47"
+    "0b8d5800ce1f3066e1a4bf621e00c50c72b0a888dc9956a5923c18f4b8ef39b5"
 )
 if not semantic_lib_path.is_file():
     print(
@@ -1544,7 +1544,7 @@ expected_stage5_profile_artifacts = {
         "821e241970df245f7aaaeb78312537c29512173108c59f40f7f449eb44cb8aa4"
     ),
     Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"): (
-        "f90d1a82ee5211aa8b6db3c9cd3ac524113b833f2c1dbfa8cd693143d4d0ed34"
+        "e2ea8bb893f91fe5912c452f92ceb117c6722a23e348d688ddbe9e135b308767"
     ),
     Path("tests/fixtures/stage5/stage5cb_bootstrap_notification.json"): (
         "9db7888d27374eeaa8ac046c1df1727a3e3cd085c938a76945d22b9bd68f00de"
@@ -1557,6 +1557,9 @@ expected_stage5_profile_artifacts = {
     ),
     Path("tests/fixtures/stage5/stage5ce_pending_recovery.json"): (
         "4bea0ec0cf2a066c29024d909f846426f12b39fe2c4546eb633cf7f906cdc28c"
+    ),
+    Path("tests/fixtures/stage5/stage5cf_semantic_bar.json"): (
+        "444bb14f4b359f0b937df9ac50dc5f43448bc82d214503b952b1fede3582d7be"
     ),
     Path("crates/broker-core/src/hybrid_strategy_boundary.rs"): (
         "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d"

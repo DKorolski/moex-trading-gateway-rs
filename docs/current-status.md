@@ -89,10 +89,14 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   of exact-target final chronological M10 history with no future timestamps.
   It returns an opaque warmed type-state. Recovery, semantic bars, intent sink
   and all execution surfaces remain closed.
-- Stage 5C-e pending-stream recovery facade is a review candidate. It consumes
+- Stage 5C-e pending-stream recovery facade is accepted. It consumes
   the warmed type-state, accepts only complete opaque recovery evidence,
   deterministically deduplicates replayed stream entries and rejects callback
   intents. Semantic bars, intent sink, runtime host and execution remain closed.
+- Stage 5C-f first semantic-bar facade is a review candidate. It consumes the
+  recovered type-state and a Stage 3-accepted final M10 capability, captures
+  generated intents in an opaque paper result, and attaches no sink, Redis
+  command stream or broker transport. Timers and execution remain closed.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
