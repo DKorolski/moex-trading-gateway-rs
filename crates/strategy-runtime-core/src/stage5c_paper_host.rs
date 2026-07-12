@@ -783,6 +783,22 @@ pub struct Stage5cSettledPaperStrategy {
     settled_batch_history: Vec<Stage5cPaperIntentBatchSummary>,
 }
 
+impl std::fmt::Debug for Stage5cSettledPaperStrategy {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Stage5cSettledPaperStrategy")
+            .field("bar_close_ts", &self.batch.bar_close_ts())
+            .field("intent_count", &self.batch.intent_count())
+            .field(
+                "settled_batch_history_len",
+                &self.settled_batch_history.len(),
+            )
+            .field("intent_sink_attached", &false)
+            .field("broker_transport_attached", &false)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Stage5cSettledPaperStrategy {
     pub fn intent_batch(&self) -> &Stage5cPaperIntentBatch {
         &self.batch
@@ -821,6 +837,7 @@ impl Stage5cSettledPaperStrategy {
 #[serde(rename_all = "snake_case")]
 pub enum Stage5cNextBarLoopError {
     NonMonotonicBar,
+    UnresolvedIntentBatch,
     Semantic(Stage5cSemanticBarError),
     Settlement(Stage5cIntentSettlementError),
 }
@@ -835,6 +852,77 @@ impl std::fmt::Display for Stage5cNextBarLoopError {
 }
 
 impl std::error::Error for Stage5cNextBarLoopError {}
+
+pub struct Stage5cNextBarBlocked {
+    reason: Stage5cNextBarLoopError,
+    settled: Stage5cSettledPaperStrategy,
+}
+
+impl Stage5cNextBarBlocked {
+    pub fn reason(&self) -> Stage5cNextBarLoopError {
+        self.reason
+    }
+    pub fn settled(&self) -> &Stage5cSettledPaperStrategy {
+        &self.settled
+    }
+    pub fn into_settled(self) -> Stage5cSettledPaperStrategy {
+        self.settled
+    }
+}
+
+impl std::fmt::Debug for Stage5cNextBarBlocked {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Stage5cNextBarBlocked")
+            .field("reason", &self.reason)
+            .field(
+                "previous_bar_close_ts",
+                &self.settled.intent_batch().bar_close_ts(),
+            )
+            .field(
+                "previous_intent_count",
+                &self.settled.intent_batch().intent_count(),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Display for Stage5cNextBarBlocked {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "Stage 5C next bar blocked: {:?}", self.reason)
+    }
+}
+
+impl std::error::Error for Stage5cNextBarBlocked {}
+
+#[derive(Debug)]
+pub enum Stage5cNextBarLoopFailure {
+    Blocked(Box<Stage5cNextBarBlocked>),
+    Failed(Stage5cNextBarLoopError),
+}
+
+impl Stage5cNextBarLoopFailure {
+    pub fn reason(&self) -> Stage5cNextBarLoopError {
+        match self {
+            Self::Blocked(blocked) => blocked.reason(),
+            Self::Failed(reason) => *reason,
+        }
+    }
+    pub fn into_blocked(self) -> Option<Stage5cNextBarBlocked> {
+        match self {
+            Self::Blocked(blocked) => Some(*blocked),
+            Self::Failed(_) => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Stage5cNextBarLoopFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "Stage 5C next bar failed: {:?}", self.reason())
+    }
+}
+
+impl std::error::Error for Stage5cNextBarLoopFailure {}
 
 impl Stage5cPendingRecoveredPaperStrategy {
     pub fn receipt(&self) -> &Stage5cPendingRecoveryReceipt {
@@ -2128,7 +2216,7 @@ fn stage5ch_batch_summary(batch: &Stage5cPaperIntentBatch) -> Stage5cPaperIntent
 pub fn advance_stage5c_controlled_next_bar(
     settled: Stage5cSettledPaperStrategy,
     accepted: Stage5cAcceptedSemanticBar,
-) -> Result<Stage5cSettledPaperStrategy, Stage5cNextBarLoopError> {
+) -> Result<Stage5cSettledPaperStrategy, Stage5cNextBarLoopFailure> {
     advance_stage5c_controlled_next_bar_at(settled, accepted, Utc::now())
 }
 
@@ -2136,9 +2224,39 @@ fn advance_stage5c_controlled_next_bar_at(
     settled: Stage5cSettledPaperStrategy,
     accepted: Stage5cAcceptedSemanticBar,
     now: DateTime<Utc>,
-) -> Result<Stage5cSettledPaperStrategy, Stage5cNextBarLoopError> {
+) -> Result<Stage5cSettledPaperStrategy, Stage5cNextBarLoopFailure> {
     if accepted.bar.close_time_utc <= settled.batch.bar_close_ts() {
-        return Err(Stage5cNextBarLoopError::NonMonotonicBar);
+        return Err(Stage5cNextBarLoopFailure::Blocked(Box::new(
+            Stage5cNextBarBlocked {
+                reason: Stage5cNextBarLoopError::NonMonotonicBar,
+                settled,
+            },
+        )));
+    }
+    if settled.batch.intent_count() > 0 {
+        return Err(Stage5cNextBarLoopFailure::Blocked(Box::new(
+            Stage5cNextBarBlocked {
+                reason: Stage5cNextBarLoopError::UnresolvedIntentBatch,
+                settled,
+            },
+        )));
+    }
+    if now
+        > settled
+            .recovery_receipt
+            .warmup_receipt()
+            .restore_receipt()
+            .bootstrap_receipt()
+            .expires_at()
+    {
+        return Err(Stage5cNextBarLoopFailure::Blocked(Box::new(
+            Stage5cNextBarBlocked {
+                reason: Stage5cNextBarLoopError::Semantic(
+                    Stage5cSemanticBarError::BrokerTruthExpired,
+                ),
+                settled,
+            },
+        )));
     }
     let mut history = settled.settled_batch_history.clone();
     let (strategy, recovery_receipt, _) = settled.into_parts();
@@ -2146,10 +2264,12 @@ fn advance_stage5c_controlled_next_bar_at(
         strategy,
         receipt: recovery_receipt,
     };
-    let semantic = apply_stage5c_semantic_bar_at(recovered, accepted, now)
-        .map_err(Stage5cNextBarLoopError::Semantic)?;
-    let mut next =
-        settle_stage5c_semantic_result(semantic).map_err(Stage5cNextBarLoopError::Settlement)?;
+    let semantic = apply_stage5c_semantic_bar_at(recovered, accepted, now).map_err(|reason| {
+        Stage5cNextBarLoopFailure::Failed(Stage5cNextBarLoopError::Semantic(reason))
+    })?;
+    let mut next = settle_stage5c_semantic_result(semantic).map_err(|reason| {
+        Stage5cNextBarLoopFailure::Failed(Stage5cNextBarLoopError::Settlement(reason))
+    })?;
     history.push(stage5ch_batch_summary(next.intent_batch()));
     next.settled_batch_history = history;
     Ok(next)
@@ -3437,6 +3557,14 @@ mod bootstrap_notification_tests {
         .with_symbol("IMOEXF")
     }
 
+    fn stage5cg_cancel_intent() -> crate::BrokerNeutralHybridIntent {
+        crate::BrokerNeutralHybridIntent::Cancel {
+            order_id: BrokerOrderId::new("ORDER_TEST_0001"),
+        }
+        .with_class(crate::BrokerNeutralHybridIntentClass::CancelCleanup)
+        .with_symbol("IMOEXF")
+    }
+
     #[test]
     fn stage5cg_settles_zero_intent_result_without_sink() {
         let now = Utc
@@ -3820,16 +3948,335 @@ mod bootstrap_notification_tests {
         })
         .unwrap();
         let accepted = accept_stage5c_semantic_bar(semantic_input(first_close_ts)).unwrap();
-        assert!(matches!(
-            advance_stage5c_controlled_next_bar_at(
-                settled,
-                accepted,
-                Utc.with_ymd_and_hms(2026, 7, 13, 9, 20, 30)
-                    .single()
-                    .unwrap(),
-            ),
-            Err(Stage5cNextBarLoopError::NonMonotonicBar)
-        ));
+        let failure = advance_stage5c_controlled_next_bar_at(
+            settled,
+            accepted,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 20, 30)
+                .single()
+                .unwrap(),
+        )
+        .expect_err("non-monotonic bar must be blocked before callback");
+        assert_eq!(failure.reason(), Stage5cNextBarLoopError::NonMonotonicBar);
+        assert!(failure.into_blocked().is_some());
+    }
+
+    #[test]
+    fn stage5ch_nonzero_live_batch_blocks_next_bar_and_preserves_full_intent_batch() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered_until(
+            now,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
+                .single()
+                .unwrap(),
+        );
+        let (mut strategy, recovery_receipt) = recovered.into_parts();
+        let first_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let expected_request_id = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "market",
+            first_close_ts,
+            3,
+        );
+        set_hybrid_pending_request(
+            &mut strategy,
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            expected_request_id,
+        );
+        let expected_state_fingerprint = format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(Strategy::state(&strategy)).unwrap())
+        );
+        let settled = settle_stage5c_semantic_result(stage5cg_semantic_result(
+            strategy,
+            recovery_receipt,
+            first_close_ts,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            vec![stage5cg_market_intent(
+                crate::BrokerNeutralOrderSide::Buy,
+                crate::BrokerNeutralHybridIntentClass::Entry,
+            )],
+        ))
+        .unwrap();
+        assert_eq!(settled.intent_batch().intent_count(), 1);
+        let next_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 20, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let accepted = accept_stage5c_semantic_bar(semantic_input(next_close_ts)).unwrap();
+        let failure = advance_stage5c_controlled_next_bar_at(
+            settled,
+            accepted,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 20, 30)
+                .single()
+                .unwrap(),
+        )
+        .expect_err("unresolved live intent batch must block the next bar");
+        assert_eq!(
+            failure.reason(),
+            Stage5cNextBarLoopError::UnresolvedIntentBatch
+        );
+        let blocked = failure
+            .into_blocked()
+            .expect("unresolved batch must preserve settled type-state");
+        assert_eq!(
+            blocked.reason(),
+            Stage5cNextBarLoopError::UnresolvedIntentBatch
+        );
+        assert_eq!(blocked.settled().intent_batch().intent_count(), 1);
+        assert_eq!(
+            blocked.settled().intent_batch().request_ids(),
+            &[expected_request_id]
+        );
+        assert_eq!(
+            blocked.settled().intent_batch().record_request_ids(),
+            vec![expected_request_id]
+        );
+        assert_eq!(
+            blocked.settled().intent_batch().intent_classes(),
+            vec![crate::BrokerNeutralHybridIntentClass::Entry]
+        );
+        assert_eq!(
+            blocked.settled().intent_batch().state_fingerprint(),
+            expected_state_fingerprint
+        );
+        assert_eq!(
+            match Strategy::state(blocked.settled().strategy()) {
+                StrategyState::HybridIntradayRuntime {
+                    pending_entry_request_id,
+                    ..
+                } => *pending_entry_request_id,
+                StrategyState::Idle => None,
+            },
+            Some(expected_request_id)
+        );
+    }
+
+    #[test]
+    fn stage5ch_unresolved_batch_does_not_invoke_on_broker_bar_or_change_strategy_state() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered_until(
+            now,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
+                .single()
+                .unwrap(),
+        );
+        let (mut strategy, recovery_receipt) = recovered.into_parts();
+        let first_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let expected_request_id = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "market",
+            first_close_ts,
+            3,
+        );
+        set_hybrid_pending_request(
+            &mut strategy,
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            expected_request_id,
+        );
+        let settled = settle_stage5c_semantic_result(stage5cg_semantic_result(
+            strategy,
+            recovery_receipt,
+            first_close_ts,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            vec![stage5cg_market_intent(
+                crate::BrokerNeutralOrderSide::Buy,
+                crate::BrokerNeutralHybridIntentClass::Entry,
+            )],
+        ))
+        .unwrap();
+        let before_state = serde_json::to_value(Strategy::state(settled.strategy())).unwrap();
+        let next_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 20, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let accepted = accept_stage5c_semantic_bar(semantic_input(next_close_ts)).unwrap();
+        let blocked = advance_stage5c_controlled_next_bar_at(
+            settled,
+            accepted,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 20, 30)
+                .single()
+                .unwrap(),
+        )
+        .expect_err("unresolved live intent batch must block the next bar")
+        .into_blocked()
+        .expect("blocked unresolved batch must return original settled state");
+        let after_state =
+            serde_json::to_value(Strategy::state(blocked.settled().strategy())).unwrap();
+        assert_eq!(after_state, before_state);
+        assert_eq!(
+            blocked.settled().intent_batch().bar_close_ts(),
+            first_close_ts
+        );
+    }
+
+    #[test]
+    fn stage5ch_cancel_only_batch_is_still_unresolved() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered_until(
+            now,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
+                .single()
+                .unwrap(),
+        );
+        let (strategy, recovery_receipt) = recovered.into_parts();
+        let first_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let settled = settle_stage5c_semantic_result(stage5cg_semantic_result(
+            strategy,
+            recovery_receipt,
+            first_close_ts,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            vec![stage5cg_cancel_intent()],
+        ))
+        .unwrap();
+        assert_eq!(settled.intent_batch().intent_count(), 1);
+        assert!(!settled.intent_batch().has_actionable_intents());
+        let next_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 20, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let accepted = accept_stage5c_semantic_bar(semantic_input(next_close_ts)).unwrap();
+        let failure = advance_stage5c_controlled_next_bar_at(
+            settled,
+            accepted,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 20, 30)
+                .single()
+                .unwrap(),
+        )
+        .expect_err("cancel-only batch still requires lifecycle settlement");
+        assert_eq!(
+            failure.reason(),
+            Stage5cNextBarLoopError::UnresolvedIntentBatch
+        );
+        assert_eq!(
+            failure
+                .into_blocked()
+                .expect("cancel-only block must preserve batch")
+                .settled()
+                .intent_batch()
+                .intent_classes(),
+            vec![crate::BrokerNeutralHybridIntentClass::CancelCleanup]
+        );
+    }
+
+    #[test]
+    fn stage5ch_zero_intent_batch_allows_next_bar() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered_until(
+            now,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
+                .single()
+                .unwrap(),
+        );
+        let (strategy, recovery_receipt) = recovered.into_parts();
+        let first_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let settled = settle_stage5c_semantic_result(Stage5cSemanticBarResult {
+            strategy,
+            recovery_receipt,
+            bar_close_ts: first_close_ts,
+            origin: broker_core::HybridRuntimeBarOrigin::Live,
+            execution_eligible: true,
+            intents: Vec::new(),
+        })
+        .unwrap();
+        let next_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 20, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let accepted = accept_stage5c_semantic_bar(semantic_input(next_close_ts)).unwrap();
+        let advanced = advance_stage5c_controlled_next_bar_at(
+            settled,
+            accepted,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 20, 30)
+                .single()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(advanced.intent_batch().bar_close_ts(), next_close_ts);
+    }
+
+    #[test]
+    fn stage5ch_broker_truth_expiry_block_preserves_settled_state() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered(now);
+        let (strategy, recovery_receipt) = recovered.into_parts();
+        let first_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let settled = settle_stage5c_semantic_result(Stage5cSemanticBarResult {
+            strategy,
+            recovery_receipt,
+            bar_close_ts: first_close_ts,
+            origin: broker_core::HybridRuntimeBarOrigin::Live,
+            execution_eligible: true,
+            intents: Vec::new(),
+        })
+        .unwrap();
+        let next_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 20, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let accepted = accept_stage5c_semantic_bar(semantic_input(next_close_ts)).unwrap();
+        let failure = advance_stage5c_controlled_next_bar_at(
+            settled,
+            accepted,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 31)
+                .single()
+                .unwrap(),
+        )
+        .expect_err("expired broker truth must block before callback");
+        assert_eq!(
+            failure.reason(),
+            Stage5cNextBarLoopError::Semantic(Stage5cSemanticBarError::BrokerTruthExpired)
+        );
+        let blocked = failure
+            .into_blocked()
+            .expect("preflight expiry must preserve settled state");
+        assert_eq!(
+            blocked.settled().intent_batch().bar_close_ts(),
+            first_close_ts
+        );
     }
 
     #[test]
@@ -3860,17 +4307,17 @@ mod bootstrap_notification_tests {
             .unwrap()
             .timestamp();
         let accepted = accept_stage5c_semantic_bar(semantic_input(next_close_ts)).unwrap();
-        assert!(matches!(
+        assert_eq!(
             advance_stage5c_controlled_next_bar_at(
                 settled,
                 accepted,
                 Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 31)
                     .single()
                     .unwrap(),
-            ),
-            Err(Stage5cNextBarLoopError::Semantic(
-                Stage5cSemanticBarError::BrokerTruthExpired
-            ))
-        ));
+            )
+            .expect_err("expired broker truth must block")
+            .reason(),
+            Stage5cNextBarLoopError::Semantic(Stage5cSemanticBarError::BrokerTruthExpired)
+        );
     }
 }

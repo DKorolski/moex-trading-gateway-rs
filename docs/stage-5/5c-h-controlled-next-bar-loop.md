@@ -10,11 +10,14 @@ returning the next `Stage5cSettledPaperStrategy`.
 Gates:
 
 - input must be a settled type-state, not a raw strategy or raw semantic result;
+- previous settled batch must have `intent_count == 0`;
+- any previous nonzero batch, including cancel-only batches, blocks before the
+  next bar callback and returns the original settled type-state;
 - next bar close time must be strictly greater than the previous settled batch;
-- broker-truth expiry is rechecked through the semantic bar path;
+- broker-truth expiry is rechecked before consuming the settled type-state;
 - Stage 3 final-M10 admission is reused before callback;
 - escrowed intents from previous batches are never redispatched;
-- redacted settled batch summaries are accumulated for parity evidence.
+- internal settled batch summaries are accumulated for parity evidence.
 
 Still closed:
 
