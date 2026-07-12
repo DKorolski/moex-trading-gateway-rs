@@ -11,7 +11,7 @@ use broker_core::{
     StrategyRequestId, STAGE4_BOOTSTRAP_EVIDENCE_REPORT_SCHEMA_VERSION,
     STAGE4_RUNTIME_BOOTSTRAP_APPLICATION_SCHEMA_VERSION,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1285,6 +1285,135 @@ pub struct Stage5cBrokerLifecycleResolvedPaperStrategy {
     generated_intent_batch: Option<Stage5cPaperIntentBatch>,
     settled_batch_history: Vec<Stage5cPaperIntentBatchSummary>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5cPaperTimerError {
+    BrokerTruthExpired,
+    NonMonotonicTimer,
+    UnresolvedBrokerLifecycle,
+    UnresolvedGeneratedIntentBatch,
+    CallbackValidationFailed,
+    GeneratedIntentTerminal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage5cPaperTimerInput {
+    pub now_ts_utc_ms: i64,
+}
+
+pub struct Stage5cTimerResolvedPaperStrategy {
+    strategy: HybridIntradayRuntimeStrategy,
+    recovery_receipt: Stage5cPendingRecoveryReceipt,
+    resolved_batch_summary: Stage5cPaperIntentBatchSummary,
+    timer_ts_utc_ms: i64,
+    generated_intent_batch: Option<Stage5cPaperIntentBatch>,
+    settled_batch_history: Vec<Stage5cPaperIntentBatchSummary>,
+}
+
+impl std::fmt::Debug for Stage5cTimerResolvedPaperStrategy {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Stage5cTimerResolvedPaperStrategy")
+            .field("timer_ts_utc_ms", &self.timer_ts_utc_ms)
+            .field("generated_intent_count", &self.generated_intent_count())
+            .field("intent_sink_attached", &false)
+            .field("broker_transport_attached", &false)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Stage5cTimerResolvedPaperStrategy {
+    pub fn timer_ts_utc_ms(&self) -> i64 {
+        self.timer_ts_utc_ms
+    }
+    pub fn generated_intent_count(&self) -> usize {
+        self.generated_intent_batch
+            .as_ref()
+            .map(Stage5cPaperIntentBatch::intent_count)
+            .unwrap_or_default()
+    }
+    pub fn generated_intent_batch_summary(&self) -> Option<Stage5cPaperIntentBatchSummary> {
+        self.generated_intent_batch
+            .as_ref()
+            .map(stage5ch_batch_summary)
+    }
+    pub fn settled_batch_history(&self) -> &[Stage5cPaperIntentBatchSummary] {
+        &self.settled_batch_history
+    }
+    pub fn recovery_receipt(&self) -> &Stage5cPendingRecoveryReceipt {
+        &self.recovery_receipt
+    }
+    pub fn resolved_batch_summary(&self) -> &Stage5cPaperIntentBatchSummary {
+        &self.resolved_batch_summary
+    }
+    pub fn post_timer_state_fingerprint(&self) -> String {
+        stage5c_state_fingerprint(Strategy::state(&self.strategy))
+    }
+    pub fn intent_sink_attached(&self) -> bool {
+        false
+    }
+    pub fn broker_transport_attached(&self) -> bool {
+        false
+    }
+    pub fn redis_command_stream_attached(&self) -> bool {
+        false
+    }
+}
+
+pub struct Stage5cPaperTimerBlocked {
+    reason: Stage5cPaperTimerError,
+    resolved: Stage5cBrokerLifecycleResolvedPaperStrategy,
+}
+
+impl std::fmt::Debug for Stage5cPaperTimerBlocked {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Stage5cPaperTimerBlocked")
+            .field("reason", &self.reason)
+            .field(
+                "resolved_bar_close_ts",
+                &self.resolved.resolved_batch_summary.bar_close_ts,
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+impl Stage5cPaperTimerBlocked {
+    pub fn reason(&self) -> Stage5cPaperTimerError {
+        self.reason
+    }
+    pub fn resolved(&self) -> &Stage5cBrokerLifecycleResolvedPaperStrategy {
+        &self.resolved
+    }
+}
+
+#[derive(Debug)]
+pub enum Stage5cPaperTimerFailure {
+    Blocked(Box<Stage5cPaperTimerBlocked>),
+    Terminal(Stage5cPaperTimerError),
+}
+
+impl Stage5cPaperTimerFailure {
+    pub fn reason(&self) -> Stage5cPaperTimerError {
+        match self {
+            Self::Blocked(blocked) => blocked.reason(),
+            Self::Terminal(reason) => *reason,
+        }
+    }
+}
+
+impl std::fmt::Display for Stage5cPaperTimerFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "Stage 5C paper timer failed: {:?}",
+            self.reason()
+        )
+    }
+}
+
+impl std::error::Error for Stage5cPaperTimerFailure {}
 
 impl std::fmt::Debug for Stage5cBrokerLifecycleResolvedPaperStrategy {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3211,6 +3340,137 @@ pub fn resolve_stage5c_paper_broker_lifecycle(
         generated_intent_batch,
         settled_batch_history,
     })
+}
+
+pub fn resolve_stage5c_paper_timer(
+    resolved: Stage5cBrokerLifecycleResolvedPaperStrategy,
+    input: Stage5cPaperTimerInput,
+) -> Result<Stage5cTimerResolvedPaperStrategy, Stage5cPaperTimerFailure> {
+    if !resolved.remaining_lifecycle_expectations.is_empty() {
+        return Err(stage5ck_block(
+            Stage5cPaperTimerError::UnresolvedBrokerLifecycle,
+            resolved,
+        ));
+    }
+    if resolved.generated_intent_batch.is_some() {
+        return Err(stage5ck_block(
+            Stage5cPaperTimerError::UnresolvedGeneratedIntentBatch,
+            resolved,
+        ));
+    }
+    if input.now_ts_utc_ms.div_euclid(1_000) < resolved.resolved_batch_summary.max_source_event_ts {
+        return Err(stage5ck_block(
+            Stage5cPaperTimerError::NonMonotonicTimer,
+            resolved,
+        ));
+    }
+    let Some(timer_now) = Utc.timestamp_millis_opt(input.now_ts_utc_ms).single() else {
+        return Err(stage5ck_block(
+            Stage5cPaperTimerError::BrokerTruthExpired,
+            resolved,
+        ));
+    };
+    if timer_now
+        > resolved
+            .recovery_receipt
+            .warmup_receipt()
+            .restore_receipt()
+            .bootstrap_receipt()
+            .expires_at()
+    {
+        return Err(stage5ck_block(
+            Stage5cPaperTimerError::BrokerTruthExpired,
+            resolved,
+        ));
+    }
+    let Stage5cBrokerLifecycleResolvedPaperStrategy {
+        mut strategy,
+        recovery_receipt,
+        resolved_batch_summary,
+        mut settled_batch_history,
+        ..
+    } = resolved;
+    let admission = &recovery_receipt
+        .warmup_receipt()
+        .restore_receipt()
+        .bootstrap_receipt()
+        .admission;
+    let timer_ts_utc = input.now_ts_utc_ms.div_euclid(1_000);
+    let context = stage5ck_timer_context(&strategy, admission, &resolved_batch_summary, input);
+    let intents = crate::BrokerNeutralHybridStrategy::on_broker_timer(
+        &mut strategy,
+        broker_core::HybridRuntimeCallbackInput {
+            context,
+            payload: broker_core::HybridRuntimeTimerEvent {
+                now_ts_utc_ms: input.now_ts_utc_ms,
+            },
+        },
+    )
+    .map_err(|_| {
+        Stage5cPaperTimerFailure::Terminal(Stage5cPaperTimerError::CallbackValidationFailed)
+    })?;
+    let generated_intent_batch = if intents.is_empty() {
+        None
+    } else {
+        let batch = stage5c_build_paper_intent_batch(
+            &strategy,
+            admission,
+            timer_ts_utc,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            intents,
+            &HashMap::new(),
+        )
+        .map_err(|_| {
+            Stage5cPaperTimerFailure::Terminal(Stage5cPaperTimerError::GeneratedIntentTerminal)
+        })?;
+        stage5cj_verify_generated_batch_final_pending_consistency(
+            Strategy::state(&strategy),
+            &batch,
+        )
+        .map_err(|_| {
+            Stage5cPaperTimerFailure::Terminal(Stage5cPaperTimerError::GeneratedIntentTerminal)
+        })?;
+        settled_batch_history.push(stage5ch_batch_summary(&batch));
+        Some(batch)
+    };
+    Ok(Stage5cTimerResolvedPaperStrategy {
+        strategy,
+        recovery_receipt,
+        resolved_batch_summary,
+        timer_ts_utc_ms: input.now_ts_utc_ms,
+        generated_intent_batch,
+        settled_batch_history,
+    })
+}
+
+fn stage5ck_block(
+    reason: Stage5cPaperTimerError,
+    resolved: Stage5cBrokerLifecycleResolvedPaperStrategy,
+) -> Stage5cPaperTimerFailure {
+    Stage5cPaperTimerFailure::Blocked(Box::new(Stage5cPaperTimerBlocked { reason, resolved }))
+}
+
+fn stage5ck_timer_context(
+    strategy: &HybridIntradayRuntimeStrategy,
+    admission: &Stage5cPaperHostAdmission,
+    resolved_batch_summary: &Stage5cPaperIntentBatchSummary,
+    input: Stage5cPaperTimerInput,
+) -> broker_core::HybridRuntimeStrategyContext {
+    let timer_ts_utc = input.now_ts_utc_ms.div_euclid(1_000);
+    broker_core::HybridRuntimeStrategyContext {
+        strategy_id: admission.strategy_id().to_string(),
+        request_namespace_account: admission.account_id().clone(),
+        instrument: admission.target_instrument().clone(),
+        tick_size: admission.tick_size(),
+        trade_mode: broker_core::HybridRuntimeTradeMode::Paper,
+        paper_execution_mode: broker_core::HybridRuntimePaperExecutionMode::LiveOnly,
+        allow_live_orders: false,
+        gateway_phase: broker_core::HybridRuntimeGatewayPhase::LiveReady,
+        position_qty: Some(strategy.stage5c_current_position_qty()),
+        event_ts_utc: timer_ts_utc,
+        strategy_now_ts_utc: timer_ts_utc,
+        last_bar_ts_utc: Some(resolved_batch_summary.max_source_event_ts),
+    }
 }
 
 fn stage5cj_block(
@@ -8746,6 +9006,175 @@ mod bootstrap_notification_tests {
             &cleanup_batch,
         )
         .expect("cleanup generated intents do not require final pending state");
+    }
+
+    fn stage5ck_clean_broker_resolved() -> (Stage5cBrokerLifecycleResolvedPaperStrategy, i64) {
+        let (settled, request_id, bar_close_ts) = stage5ci_exit_settled();
+        let resolved = resolve_stage5c_paper_intent_lifecycle(
+            settled,
+            Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![stage5ci_ack_record(1, request_id)],
+            },
+        )
+        .unwrap();
+        let broker_resolved = resolve_stage5c_paper_broker_lifecycle(
+            resolved,
+            Stage5cPaperBrokerLifecycleInput {
+                event_records: vec![stage5cj_position_event(
+                    2,
+                    request_id,
+                    0.0,
+                    bar_close_ts + 2,
+                )],
+            },
+        )
+        .unwrap();
+        (broker_resolved, bar_close_ts)
+    }
+
+    #[test]
+    fn stage5ck_zero_intent_timer_invokes_only_paper_timer_callback() {
+        let (broker_resolved, bar_close_ts) = stage5ck_clean_broker_resolved();
+        let timer = resolve_stage5c_paper_timer(
+            broker_resolved,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: (bar_close_ts + 10) * 1_000,
+            },
+        )
+        .unwrap();
+        assert_eq!(timer.generated_intent_count(), 0);
+        assert!(!timer.intent_sink_attached());
+        assert!(!timer.broker_transport_attached());
+        assert!(!timer.redis_command_stream_attached());
+    }
+
+    #[test]
+    fn stage5ck_blocks_unresolved_broker_lifecycle_and_generated_batch() {
+        let (settled, tp_request_id, sl_request_id, bar_close_ts) = stage5ci_protective_settled();
+        let resolved = resolve_stage5c_paper_intent_lifecycle(
+            settled,
+            Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![
+                    Stage5cPaperAckRecord {
+                        total_sequence: 1,
+                        ack: stage5ci_ack_with(
+                            tp_request_id,
+                            broker_core::HybridRuntimeAckStatus::Accepted,
+                            bar_close_ts + 1,
+                        ),
+                    },
+                    Stage5cPaperAckRecord {
+                        total_sequence: 2,
+                        ack: stage5ci_ack_with(
+                            sl_request_id,
+                            broker_core::HybridRuntimeAckStatus::Accepted,
+                            bar_close_ts + 1,
+                        ),
+                    },
+                ],
+            },
+        )
+        .unwrap();
+        let broker_resolved = resolve_stage5c_paper_broker_lifecycle(
+            resolved,
+            Stage5cPaperBrokerLifecycleInput {
+                event_records: vec![
+                    stage5cj_order_event(
+                        3,
+                        tp_request_id,
+                        BrokerOrderId::new("ORDER_TEST_ACK_0001"),
+                        "working",
+                        bar_close_ts + 2,
+                    ),
+                    stage5cj_stop_event(
+                        4,
+                        sl_request_id,
+                        BrokerOrderId::new("ORDER_TEST_ACK_0001"),
+                        "working",
+                        bar_close_ts + 600,
+                        bar_close_ts + 2,
+                    ),
+                ],
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            resolve_stage5c_paper_timer(
+                broker_resolved,
+                Stage5cPaperTimerInput {
+                    now_ts_utc_ms: (bar_close_ts + 10) * 1_000,
+                },
+            )
+            .expect_err("timer must wait for complete broker lifecycle")
+            .reason(),
+            Stage5cPaperTimerError::UnresolvedBrokerLifecycle
+        );
+
+        let (settled, request_id, bar_close_ts) = stage5ci_exit_settled();
+        let resolved = resolve_stage5c_paper_intent_lifecycle(
+            settled,
+            Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![stage5ci_ack_record(1, request_id)],
+            },
+        )
+        .unwrap();
+        let Stage5cResolvedPaperIntentBatchStrategy {
+            mut strategy,
+            recovery_receipt,
+            resolved_batch,
+            ack_outcomes,
+            settled_batch_history,
+        } = resolved;
+        let mut state = Strategy::state(&strategy).clone();
+        match &mut state {
+            StrategyState::HybridIntradayRuntime {
+                active_cycle_id,
+                current_owner,
+                current_side,
+                last_position_qty,
+                tp_order_id,
+                ..
+            } => {
+                *active_cycle_id = Some("abc1230001".to_string());
+                *current_owner = Some(crate::hybrid_intraday::Owner::MeanReversion);
+                *current_side = Some(crate::hybrid_intraday::Side::Long);
+                *last_position_qty = 1.0;
+                *tp_order_id = Some(BrokerOrderId::new("TP_ORDER_TEST_0001"));
+            }
+            StrategyState::Idle => panic!("expected hybrid runtime state"),
+        }
+        Strategy::set_state(&mut strategy, state);
+        let resolved = Stage5cResolvedPaperIntentBatchStrategy {
+            strategy,
+            recovery_receipt,
+            resolved_batch,
+            ack_outcomes,
+            settled_batch_history,
+        };
+        let broker_resolved = resolve_stage5c_paper_broker_lifecycle(
+            resolved,
+            Stage5cPaperBrokerLifecycleInput {
+                event_records: vec![stage5cj_position_event(
+                    2,
+                    request_id,
+                    0.0,
+                    bar_close_ts + 2,
+                )],
+            },
+        )
+        .unwrap();
+        assert!(broker_resolved.generated_intent_count() > 0);
+        assert_eq!(
+            resolve_stage5c_paper_timer(
+                broker_resolved,
+                Stage5cPaperTimerInput {
+                    now_ts_utc_ms: (bar_close_ts + 10) * 1_000,
+                },
+            )
+            .expect_err("timer must wait for generated batch lifecycle")
+            .reason(),
+            Stage5cPaperTimerError::UnresolvedGeneratedIntentBatch
+        );
     }
 
     #[test]

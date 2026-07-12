@@ -1013,7 +1013,7 @@ if semantic_build_script.exists():
 
 semantic_lib_path = semantic_kernel_root / "src/lib.rs"
 expected_semantic_lib_sha256 = (
-    "96e639425c93150fac063c613c92629a340a90658c892ae99ba642ffa59f836b"
+    "59e50d73b8afbb4719268d97e591685a366bcd3e99da16da6f9ace72ce783b78"
 )
 if not semantic_lib_path.is_file():
     print(
@@ -1544,7 +1544,7 @@ expected_stage5_profile_artifacts = {
         "821e241970df245f7aaaeb78312537c29512173108c59f40f7f449eb44cb8aa4"
     ),
     Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"): (
-        "480daef987d3ed76944b6fb656d8d17c0577d887db175b05174eba1b68be41f2"
+        "d3ac707fc667da3bdbb2e36ddfffaa6a355c89529fe31b17bfdb2c5003462f48"
     ),
     Path("tests/fixtures/stage5/stage5ch_controlled_next_bar_loop.json"): (
         "687a94ea97c437715039dc8f44c53539094c89d2c5e9c34d83162e24515f2699"
