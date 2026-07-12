@@ -18,6 +18,7 @@ cp "$workspace_root/tests/fixtures/stage5/stage5b2_callback_state_mapping.json" 
 cp "$workspace_root/tests/fixtures/stage5/stage5c_paper_host_admission.json" "$tmp_root/tests/fixtures/stage5/"
 cp "$workspace_root/tests/fixtures/stage5/stage5cb_bootstrap_notification.json" "$tmp_root/tests/fixtures/stage5/"
 cp "$workspace_root/tests/fixtures/stage5/stage5cc_runtime_state_restore.json" "$tmp_root/tests/fixtures/stage5/"
+cp "$workspace_root/tests/fixtures/stage5/stage5cd_history_warmup.json" "$tmp_root/tests/fixtures/stage5/"
 
 if ! (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >/tmp/moex_negative_scan.$$ 2>&1; then
   cat /tmp/moex_negative_scan.$$ >&2
@@ -86,6 +87,7 @@ run_negative_case "stage5c-paper-host-source-drift" '// stage5c negative admissi
 run_negative_case "stage5c-paper-host-fixture-drift" '# stage5c negative fixture drift' "$tmp_root/tests/fixtures/stage5/stage5c_paper_host_admission.json"
 run_negative_case "stage5cb-bootstrap-fixture-drift" '# stage5cb negative fixture drift' "$tmp_root/tests/fixtures/stage5/stage5cb_bootstrap_notification.json"
 run_negative_case "stage5cc-restore-fixture-drift" '# stage5cc negative fixture drift' "$tmp_root/tests/fixtures/stage5/stage5cc_runtime_state_restore.json"
+run_negative_case "stage5cd-warmup-fixture-drift" '# stage5cd negative fixture drift' "$tmp_root/tests/fixtures/stage5/stage5cd_history_warmup.json"
 
 semantic_ledger="$tmp_root/crates/strategy-runtime-core/source-correspondence.toml"
 semantic_target="$tmp_root/crates/strategy-runtime-core/src/hybrid_intraday/intraday_breakout.rs"

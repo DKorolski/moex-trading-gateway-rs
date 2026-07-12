@@ -46,14 +46,15 @@ pub use runtime_compat::{
 };
 pub use stage5c_paper_host::{
     admit_stage5c_paper_host, notify_stage5c_bootstrap, notify_stage5c_runtime_state_restored,
-    prepare_stage5c_without_runtime_state, restore_stage5c_runtime_state,
+    prepare_stage5c_without_runtime_state, restore_stage5c_runtime_state, warmup_stage5c_history,
     Stage5cBootstrapNotificationError, Stage5cBootstrapNotificationReceipt,
-    Stage5cBootstrappedPaperStrategy, Stage5cLegacyNumericOrderIdPolicy, Stage5cPaperHostAdmission,
+    Stage5cBootstrappedPaperStrategy, Stage5cHistoryWarmupError, Stage5cHistoryWarmupInput,
+    Stage5cHistoryWarmupReceipt, Stage5cLegacyNumericOrderIdPolicy, Stage5cPaperHostAdmission,
     Stage5cPaperHostAdmissionError, Stage5cPaperHostAdmissionInput,
     Stage5cRuntimeStateLoadedPaperStrategy, Stage5cRuntimeStateRestoreError,
     Stage5cRuntimeStateRestoreInput, Stage5cRuntimeStateRestoreReceipt,
-    Stage5cRuntimeStateRestoredPaperStrategy, STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION,
-    STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION,
+    Stage5cRuntimeStateRestoredPaperStrategy, Stage5cWarmedPaperStrategy,
+    STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION, STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION,
 };
 
 pub(crate) mod live_guard {

@@ -1013,7 +1013,7 @@ if semantic_build_script.exists():
 
 semantic_lib_path = semantic_kernel_root / "src/lib.rs"
 expected_semantic_lib_sha256 = (
-    "09b0a47aa16dedad0d0f47f7f2ac3c04bc09d228d7766bb8b7e660a279e18620"
+    "c2d06beeb347b1b0d88b61662d571e576cb88c71815b130e9c8072afdf892b9d"
 )
 if not semantic_lib_path.is_file():
     print(
@@ -1306,7 +1306,7 @@ else:
             "2226fc838e69d00027778f3824dfe4d40c84b1b0cb888106d18df2339f20affb"
         ),
         semantic_kernel_root / "tests/stage5c_paper_host_admission.rs": (
-            "7b3b9c1a7c1b7200cd2e5e1539f650ca5d26ac9260ebf5e873aa60c8d1011d4f"
+            "c32506df6562d035452d6466bc44362f10cd6149019918c17448e16f0bad42b7"
         ),
         semantic_kernel_root / "tests/wrapper_bracket_terminal_inventory.rs": (
             "b276b376d33073454fd0df243b6d87a351724794d95d52126a8258e9324aeafe"
@@ -1544,13 +1544,16 @@ expected_stage5_profile_artifacts = {
         "821e241970df245f7aaaeb78312537c29512173108c59f40f7f449eb44cb8aa4"
     ),
     Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"): (
-        "63c7e4b08d7f8d75d2e2fdadc3a1fb30d49579192d3038876065b572d9451fae"
+        "b0e8e47195acb161ca44f75197a988624fe24d6b876181abdcebf0fb7662c377"
     ),
     Path("tests/fixtures/stage5/stage5cb_bootstrap_notification.json"): (
         "9db7888d27374eeaa8ac046c1df1727a3e3cd085c938a76945d22b9bd68f00de"
     ),
     Path("tests/fixtures/stage5/stage5cc_runtime_state_restore.json"): (
         "ca28733fb7321450d56cd017f410ac5bf1214d81a63435c5d4a2302a64165bc8"
+    ),
+    Path("tests/fixtures/stage5/stage5cd_history_warmup.json"): (
+        "14ca5fb6b37d5a60b9e9b5d1daecd5b79b9f71f07a96368a4eab3afe10593215"
     ),
     Path("crates/broker-core/src/hybrid_strategy_boundary.rs"): (
         "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d"
