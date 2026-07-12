@@ -103,11 +103,17 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 5C-h controlled next-bar loop is accepted. It advances only from
   settled zero-intent batches, preserves unresolved nonzero escrow batches, and
   keeps timer, sink, Redis and broker transport closed.
-- Stage 5C-i paper intent lifecycle / ACK escrow resolution is a review
-  candidate. It consumes nonzero settled batches, requires exact ordered ACK
-  coverage for captured request IDs, preserves full escrow and typed ACK
-  outcomes, applies only broker-neutral ACK callbacks, and still leaves
-  order/stop/position lifecycle, Redis, transport and execution closed.
+- Stage 5C-i paper intent lifecycle / ACK escrow resolution is accepted. It
+  consumes nonzero settled batches, requires exact ordered ACK coverage for
+  captured request IDs, preserves full escrow and typed ACK outcomes, applies
+  only broker-neutral ACK callbacks, and still leaves Redis, transport and
+  execution closed.
+- Stage 5C-j paper broker lifecycle facade is a review candidate. It consumes
+  only Stage 5C-i resolved batches, maps active ACK outcomes to expected
+  `Order`/`StopOrder`/`Position` paper evidence, blocks terminal ACKs with
+  broker-state events, canonicalizes event sequence, deduplicates identical
+  events, and keeps timer, sink, Redis, transport, FINAM command consumer and
+  runtime-live closed.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

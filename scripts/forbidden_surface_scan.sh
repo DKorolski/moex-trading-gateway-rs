@@ -1013,7 +1013,7 @@ if semantic_build_script.exists():
 
 semantic_lib_path = semantic_kernel_root / "src/lib.rs"
 expected_semantic_lib_sha256 = (
-    "dc17b0c70d8bf973ee4f56bbd3d6b79550b1f6cb9ff5e5a4da73197a22bdbc4b"
+    "f5655319f69122a635284cc408d94f2041076d7c9bdf7ad5bb64486b74908925"
 )
 if not semantic_lib_path.is_file():
     print(
@@ -1544,13 +1544,16 @@ expected_stage5_profile_artifacts = {
         "821e241970df245f7aaaeb78312537c29512173108c59f40f7f449eb44cb8aa4"
     ),
     Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"): (
-        "cae4a187e39a90416b3dfe99cfac026c7ab698744d5395e91590fab1787ad53b"
+        "5af85525d042fabb2d4e7806e8322bfe06aeab8c582923d5a6f9eae18c683e16"
     ),
     Path("tests/fixtures/stage5/stage5ch_controlled_next_bar_loop.json"): (
         "687a94ea97c437715039dc8f44c53539094c89d2c5e9c34d83162e24515f2699"
     ),
     Path("tests/fixtures/stage5/stage5ci_paper_intent_lifecycle.json"): (
         "9c23a730d142f47882ba08cd9d86b8f354c235e37048aae6c49e628422bc86de"
+    ),
+    Path("tests/fixtures/stage5/stage5cj_paper_broker_lifecycle.json"): (
+        "a93984ed4570d45067bae5e3cdede6fc848bfab296b5972719481050c1ee6ef0"
     ),
     Path("tests/fixtures/stage5/stage5cb_bootstrap_notification.json"): (
         "9db7888d27374eeaa8ac046c1df1727a3e3cd085c938a76945d22b9bd68f00de"
