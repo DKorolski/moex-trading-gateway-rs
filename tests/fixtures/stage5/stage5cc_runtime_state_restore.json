@@ -2,7 +2,13 @@
   "schema_version": 1,
   "stage": "Stage5C-c",
   "status": "linear_runtime_state_restore_paper_no_send",
-  "consumes": "Stage5cBootstrappedPaperStrategy",
+  "lifecycle_order": [
+    "load_runtime_state",
+    "notify_bootstrap_snapshot",
+    "notify_runtime_state_restored"
+  ],
+  "load_produces": "Stage5cRuntimeStateLoadedPaperStrategy",
+  "notify_consumes": "Stage5cBootstrappedPaperStrategy",
   "produces": "Stage5cRuntimeStateRestoredPaperStrategy",
   "validation_before_mutation": true,
   "binding": [
@@ -10,9 +16,16 @@
     "account_id",
     "instrument",
     "tick_size",
-    "same_owned_strategy_configuration"
+    "config_fingerprint",
+    "profile",
+    "mr_variant",
+    "mr_gate_policy",
+    "risk_gate_mode"
   ],
   "broker_truth_position_may_be_overwritten": false,
+  "broker_truth_applied_after_persisted_state": true,
+  "side_must_match_broker_position": true,
+  "stale_persisted_broker_ids_may_survive": false,
   "legacy_numeric_order_id_policy_explicit": true,
   "callback": "on_runtime_state_restored",
   "lifecycle": {

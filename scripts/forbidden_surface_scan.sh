@@ -72,12 +72,12 @@ failures = 0
 
 cargo_control_hashes = {
     Path("Cargo.toml"): "1c3e7dd1b83a6a8942e02cb520d49f33ed3ef77f2970854b9fdcddc7f261bc3e",
-    Path("Cargo.lock"): "0861ce37f998b34f2fd6a1ca867c22fdfe655d03a865a4a48ee691906e672c56",
+    Path("Cargo.lock"): "ff535d0490a848e43631906ee8abd8633630d162714299f7628c0e5fe8a0b36b",
     Path("crates/broker-cli/Cargo.toml"): "8f642b380ae8db32047504e632d1b710cdbc235f5058f57ad0780d72182f2754",
     Path("crates/broker-core/Cargo.toml"): "e807ab613c52d8325d1c46b1f679b319ab72ffeb69196e5a52aacecbd694dc8d",
     Path("crates/broker-finam/Cargo.toml"): "2a4f78beac8390e06e035e1c7ba0c0a71d230165297ad452ff3c4eeb1a2107db",
     Path("crates/finam-gateway/Cargo.toml"): "95b937eb4d166212869d196a1173f40b358c64cf91906ecaef19d7268820f06c",
-    Path("crates/strategy-runtime-core/Cargo.toml"): "4f816eccefaa41cd895d6a956ce81b58a546a3d0c4f158843d3e92fff48066da",
+    Path("crates/strategy-runtime-core/Cargo.toml"): "8246636dfc245e4fd4cdd99c8e09496a6cb11a3f1dbc03605fc50aae58f90e07",
 }
 for cargo_control_path, expected_sha256 in cargo_control_hashes.items():
     if not cargo_control_path.is_file():
@@ -781,9 +781,9 @@ wrapper_oracle_sha256 = (
     "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa"
 )
 compiled_wrapper_sha256 = (
-    "3eb531e5def117a7574da9c46453046edeff041426ed9fad8c8adbeb2cb6cbd0"
+    "a0991ffb49a1e7f92ac99112c848993750695cf9dbbb45ab8db092b3ef3ae155"
 )
-compiled_wrapper_line_count = 6867
+compiled_wrapper_line_count = 6882
 
 if not wrapper_oracle_path.is_file():
     print(
@@ -943,7 +943,7 @@ if semantic_workspace_member in workspace_excludes:
 
 semantic_crate_manifest_path = semantic_kernel_root / "Cargo.toml"
 expected_semantic_crate_manifest_sha256 = (
-    "4f816eccefaa41cd895d6a956ce81b58a546a3d0c4f158843d3e92fff48066da"
+    "8246636dfc245e4fd4cdd99c8e09496a6cb11a3f1dbc03605fc50aae58f90e07"
 )
 if not semantic_crate_manifest_path.is_file():
     print(
@@ -1013,7 +1013,7 @@ if semantic_build_script.exists():
 
 semantic_lib_path = semantic_kernel_root / "src/lib.rs"
 expected_semantic_lib_sha256 = (
-    "3a5dffd68a0bdb967232a8a99edd565e8bc3f82405508372a5bcee15289b34c1"
+    "09b0a47aa16dedad0d0f47f7f2ac3c04bc09d228d7766bb8b7e660a279e18620"
 )
 if not semantic_lib_path.is_file():
     print(
@@ -1381,7 +1381,7 @@ if wrapper_oracle_rs_files != {str(wrapper_oracle_path)}:
 
 stage5b2_manifest_path = semantic_kernel_root / "stage5b2-source-correspondence.toml"
 expected_stage5b2_manifest_sha256 = (
-    "50998f0efa7b3b24b7e5df431944e7d5445f97c4c4276aecfce6a5f9d4e9e41b"
+    "4cc89056c7c1d9d29b5a739da7fcf41a4bdf2ff8efbd2aef5cfbd5c074bf068a"
 )
 if not stage5b2_manifest_path.is_file():
     print(
@@ -1417,8 +1417,8 @@ else:
         "oracle_sha256": wrapper_oracle_sha256,
         "oracle_line_count": 6203,
         "accepted_stage5b1_manifest_unchanged": True,
-        "target_sha256": "3eb531e5def117a7574da9c46453046edeff041426ed9fad8c8adbeb2cb6cbd0",
-        "target_line_count": 6867,
+        "target_sha256": "a0991ffb49a1e7f92ac99112c848993750695cf9dbbb45ab8db092b3ef3ae155",
+        "target_line_count": 6882,
         "wrapper_copied": True,
         "wrapper_compiled": True,
         "runtime_host_attached": False,
@@ -1544,13 +1544,13 @@ expected_stage5_profile_artifacts = {
         "821e241970df245f7aaaeb78312537c29512173108c59f40f7f449eb44cb8aa4"
     ),
     Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"): (
-        "e1c81380eb922440a92e27f61a166139c7e4513cb022a9ceabcadc4a23baeb87"
+        "63c7e4b08d7f8d75d2e2fdadc3a1fb30d49579192d3038876065b572d9451fae"
     ),
     Path("tests/fixtures/stage5/stage5cb_bootstrap_notification.json"): (
         "9db7888d27374eeaa8ac046c1df1727a3e3cd085c938a76945d22b9bd68f00de"
     ),
     Path("tests/fixtures/stage5/stage5cc_runtime_state_restore.json"): (
-        "08dfa2eb89add026f4b43f779f1bdd5b50bcba5eb08f11751268b616e4712e38"
+        "ca28733fb7321450d56cd017f410ac5bf1214d81a63435c5d4a2302a64165bc8"
     ),
     Path("crates/broker-core/src/hybrid_strategy_boundary.rs"): (
         "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d"

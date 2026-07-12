@@ -189,6 +189,7 @@ impl Stage5cBootstrapNotificationReceipt {
 pub struct Stage5cBootstrappedPaperStrategy {
     strategy: HybridIntradayRuntimeStrategy,
     receipt: Stage5cBootstrapNotificationReceipt,
+    restored: RuntimeStateRestored,
 }
 
 impl Stage5cBootstrappedPaperStrategy {
@@ -206,9 +207,16 @@ impl Stage5cBootstrappedPaperStrategy {
     ) -> (
         HybridIntradayRuntimeStrategy,
         Stage5cBootstrapNotificationReceipt,
+        RuntimeStateRestored,
     ) {
-        (self.strategy, self.receipt)
+        (self.strategy, self.receipt, self.restored)
     }
+}
+
+pub struct Stage5cRuntimeStateLoadedPaperStrategy {
+    strategy: HybridIntradayRuntimeStrategy,
+    admission: Stage5cPaperHostAdmission,
+    restored: RuntimeStateRestored,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -221,10 +229,18 @@ pub enum Stage5cLegacyNumericOrderIdPolicy {
 /// Persisted-state envelope supplied to the one-shot restore gate.
 pub struct Stage5cRuntimeStateRestoreInput {
     pub schema_version: u16,
+    pub state_schema_version: u16,
+    pub strategy_kind: String,
     pub strategy_id: String,
     pub account_id: BrokerAccountId,
     pub instrument: InstrumentId,
     pub tick_size: f64,
+    pub config_fingerprint: String,
+    pub profile: String,
+    pub mr_variant: String,
+    pub mr_gate_policy: String,
+    pub risk_gate_mode: String,
+    pub persisted_ts: DateTime<Utc>,
     pub state_json: String,
     pub known_order_ids: Vec<BrokerOrderId>,
     pub pending_requests: Vec<StrategyRequestId>,
@@ -240,10 +256,18 @@ pub enum Stage5cRuntimeStateRestoreError {
     AccountMismatch,
     InstrumentMismatch,
     TickSizeMismatch,
+    StateSchemaMismatch,
+    StrategyKindMismatch,
+    ConfigFingerprintMismatch,
+    ProfileBindingMismatch,
+    PersistedStateFromFuture,
     InvalidStateJson,
     WrongStrategyStateKind,
     LegacyNumericOrderIdRejected,
+    InvalidLegacyNumericOrderId,
     BrokerTruthPositionMismatch,
+    BrokerTruthSideMismatch,
+    BrokerOwnedOrderIdMismatch,
 }
 
 impl std::fmt::Display for Stage5cRuntimeStateRestoreError {
@@ -543,27 +567,44 @@ pub(crate) fn admit_stage5c_paper_host_at(
     })
 }
 
-/// Consumes the admission, preventing accidental duplicate notification.
+pub fn prepare_stage5c_without_runtime_state(
+    strategy: HybridIntradayRuntimeStrategy,
+    admission: Stage5cPaperHostAdmission,
+) -> Stage5cRuntimeStateLoadedPaperStrategy {
+    Stage5cRuntimeStateLoadedPaperStrategy {
+        strategy,
+        admission,
+        restored: RuntimeStateRestored {
+            known_order_ids: Vec::new(),
+            pending_requests: Vec::new(),
+        },
+    }
+}
+
+/// Consumes the state-loaded type-state, preventing duplicate notification.
 ///
 /// ```compile_fail
-/// # use strategy_runtime_core::{notify_stage5c_bootstrap, HybridIntradayRuntimeStrategy, Stage5cPaperHostAdmission};
-/// # fn duplicate(strategy: HybridIntradayRuntimeStrategy, admission: Stage5cPaperHostAdmission) {
-/// let _ = notify_stage5c_bootstrap(strategy, admission);
-/// let _ = notify_stage5c_bootstrap(strategy, admission);
+/// # use strategy_runtime_core::{notify_stage5c_bootstrap, Stage5cRuntimeStateLoadedPaperStrategy};
+/// # fn duplicate(loaded: Stage5cRuntimeStateLoadedPaperStrategy) {
+/// let _ = notify_stage5c_bootstrap(loaded);
+/// let _ = notify_stage5c_bootstrap(loaded);
 /// # }
 /// ```
 pub fn notify_stage5c_bootstrap(
-    strategy: HybridIntradayRuntimeStrategy,
-    admission: Stage5cPaperHostAdmission,
+    loaded: Stage5cRuntimeStateLoadedPaperStrategy,
 ) -> Result<Stage5cBootstrappedPaperStrategy, Stage5cBootstrapNotificationError> {
-    notify_stage5c_bootstrap_at(strategy, admission, Utc::now())
+    notify_stage5c_bootstrap_at(loaded, Utc::now())
 }
 
 pub(crate) fn notify_stage5c_bootstrap_at(
-    mut strategy: HybridIntradayRuntimeStrategy,
-    admission: Stage5cPaperHostAdmission,
+    loaded: Stage5cRuntimeStateLoadedPaperStrategy,
     notification_now: DateTime<Utc>,
 ) -> Result<Stage5cBootstrappedPaperStrategy, Stage5cBootstrapNotificationError> {
+    let Stage5cRuntimeStateLoadedPaperStrategy {
+        mut strategy,
+        admission,
+        restored,
+    } = loaded;
     validate_stage5cb_notification(&strategy, &admission, notification_now)?;
     let snapshot = admission.bootstrap_snapshot();
     let position_qty = snapshot
@@ -629,6 +670,7 @@ pub(crate) fn notify_stage5c_bootstrap_at(
             admission,
             notified_ts: notification_now,
         },
+        restored,
     })
 }
 
@@ -666,28 +708,35 @@ fn validate_stage5cb_notification(
     Ok(())
 }
 
-/// Applies persisted semantic state and emits exactly one restore notification.
-/// The bootstrapped type-state is consumed, so neither restore nor bootstrap can
-/// be repeated on the same strategy instance.
+/// Validates and loads persisted semantic state before broker truth bootstrap.
 pub fn restore_stage5c_runtime_state(
-    bootstrapped: Stage5cBootstrappedPaperStrategy,
+    strategy: HybridIntradayRuntimeStrategy,
+    admission: Stage5cPaperHostAdmission,
     input: Stage5cRuntimeStateRestoreInput,
-) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5cRuntimeStateRestoreError> {
-    restore_stage5c_runtime_state_at(bootstrapped, input, Utc::now())
+) -> Result<Stage5cRuntimeStateLoadedPaperStrategy, Stage5cRuntimeStateRestoreError> {
+    restore_stage5c_runtime_state_at(strategy, admission, input, Utc::now())
 }
 
 fn restore_stage5c_runtime_state_at(
-    bootstrapped: Stage5cBootstrappedPaperStrategy,
+    mut strategy: HybridIntradayRuntimeStrategy,
+    admission: Stage5cPaperHostAdmission,
     input: Stage5cRuntimeStateRestoreInput,
     restored_ts: DateTime<Utc>,
-) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5cRuntimeStateRestoreError> {
-    let (mut strategy, bootstrap_receipt) = bootstrapped.into_parts();
-    let admission = &bootstrap_receipt.admission;
+) -> Result<Stage5cRuntimeStateLoadedPaperStrategy, Stage5cRuntimeStateRestoreError> {
     if input.schema_version != STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION {
         return Err(Stage5cRuntimeStateRestoreError::SchemaMismatch);
     }
+    if input.state_schema_version != 1 {
+        return Err(Stage5cRuntimeStateRestoreError::StateSchemaMismatch);
+    }
+    if input.strategy_kind != "hybrid_intraday_runtime" {
+        return Err(Stage5cRuntimeStateRestoreError::StrategyKindMismatch);
+    }
     if restored_ts > admission.expires_at() {
         return Err(Stage5cRuntimeStateRestoreError::AdmissionExpired);
+    }
+    if input.persisted_ts > restored_ts {
+        return Err(Stage5cRuntimeStateRestoreError::PersistedStateFromFuture);
     }
     if input.strategy_id != admission.strategy_id() {
         return Err(Stage5cRuntimeStateRestoreError::StrategyIdMismatch);
@@ -701,20 +750,31 @@ fn restore_stage5c_runtime_state_at(
     if !same_tick_size(input.tick_size, admission.tick_size()) {
         return Err(Stage5cRuntimeStateRestoreError::TickSizeMismatch);
     }
-
-    let raw_state: serde_json::Value = serde_json::from_str(&input.state_json)
-        .map_err(|_| Stage5cRuntimeStateRestoreError::InvalidStateJson)?;
-    if input.legacy_numeric_order_id_policy == Stage5cLegacyNumericOrderIdPolicy::Reject
-        && contains_numeric_order_id(&raw_state)
-    {
-        return Err(Stage5cRuntimeStateRestoreError::LegacyNumericOrderIdRejected);
+    if input.config_fingerprint != strategy.stage5c_config_fingerprint() {
+        return Err(Stage5cRuntimeStateRestoreError::ConfigFingerprintMismatch);
     }
+    let profile = strategy.stage5c_profile_binding();
+    if (
+        input.profile,
+        input.mr_variant,
+        input.mr_gate_policy,
+        input.risk_gate_mode,
+    ) != profile
+    {
+        return Err(Stage5cRuntimeStateRestoreError::ProfileBindingMismatch);
+    }
+
+    let mut raw_state: serde_json::Value = serde_json::from_str(&input.state_json)
+        .map_err(|_| Stage5cRuntimeStateRestoreError::InvalidStateJson)?;
+    normalize_legacy_order_ids(&mut raw_state, input.legacy_numeric_order_id_policy)?;
     let restored_state: StrategyState = serde_json::from_value(raw_state)
         .map_err(|_| Stage5cRuntimeStateRestoreError::InvalidStateJson)?;
-    let restored_position_qty = match &restored_state {
+    let (restored_position_qty, restored_side) = match &restored_state {
         StrategyState::HybridIntradayRuntime {
-            last_position_qty, ..
-        } => last_position_qty,
+            last_position_qty,
+            current_side,
+            ..
+        } => (*last_position_qty, *current_side),
         StrategyState::Idle => {
             return Err(Stage5cRuntimeStateRestoreError::WrongStrategyStateKind);
         }
@@ -727,8 +787,45 @@ fn restore_stage5c_runtime_state_at(
     if (restored_position_qty - broker_position_qty).abs() > f64::EPSILON {
         return Err(Stage5cRuntimeStateRestoreError::BrokerTruthPositionMismatch);
     }
+    let expected_side = if broker_position_qty > f64::EPSILON {
+        Some(crate::hybrid_intraday::Side::Long)
+    } else if broker_position_qty < -f64::EPSILON {
+        Some(crate::hybrid_intraday::Side::Short)
+    } else {
+        None
+    };
+    if expected_side.is_some() && restored_side.is_some() && restored_side != expected_side {
+        return Err(Stage5cRuntimeStateRestoreError::BrokerTruthSideMismatch);
+    }
 
     Strategy::set_state(&mut strategy, restored_state);
+    Ok(Stage5cRuntimeStateLoadedPaperStrategy {
+        strategy,
+        admission,
+        restored: RuntimeStateRestored {
+            known_order_ids: input.known_order_ids,
+            pending_requests: input.pending_requests,
+        },
+    })
+}
+
+pub fn notify_stage5c_runtime_state_restored(
+    bootstrapped: Stage5cBootstrappedPaperStrategy,
+) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5cRuntimeStateRestoreError> {
+    notify_stage5c_runtime_state_restored_at(bootstrapped, Utc::now())
+}
+
+fn notify_stage5c_runtime_state_restored_at(
+    bootstrapped: Stage5cBootstrappedPaperStrategy,
+    restored_ts: DateTime<Utc>,
+) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5cRuntimeStateRestoreError> {
+    let (mut strategy, bootstrap_receipt, restored) = bootstrapped.into_parts();
+    let admission = &bootstrap_receipt.admission;
+    let broker_position_qty = admission
+        .bootstrap_snapshot()
+        .target_position_qty
+        .to_f64()
+        .ok_or(Stage5cRuntimeStateRestoreError::BrokerTruthPositionMismatch)?;
     let context = StrategyCtx {
         strategy_id: admission.strategy_id().to_string(),
         portfolio: admission.account_id().as_str().to_string(),
@@ -744,15 +841,12 @@ fn restore_stage5c_runtime_state_at(
         now_ts_utc: restored_ts.timestamp(),
         last_bar_ts: None,
     };
-    let restored = RuntimeStateRestored {
-        known_order_ids: input.known_order_ids,
-        pending_requests: input.pending_requests,
-    };
     let intents = Strategy::on_runtime_state_restored(&mut strategy, &context, &restored);
     debug_assert!(
         intents.is_empty(),
         "accepted source runtime-state restore must not emit intents"
     );
+    validate_post_bootstrap_broker_truth(&strategy, admission)?;
 
     Ok(Stage5cRuntimeStateRestoredPaperStrategy {
         strategy,
@@ -767,14 +861,83 @@ fn same_tick_size(left: f64, right: f64) -> bool {
     left.is_finite() && right.is_finite() && (left - right).abs() <= f64::EPSILON
 }
 
-fn contains_numeric_order_id(value: &serde_json::Value) -> bool {
+fn normalize_legacy_order_ids(
+    value: &mut serde_json::Value,
+    policy: Stage5cLegacyNumericOrderIdPolicy,
+) -> Result<(), Stage5cRuntimeStateRestoreError> {
     match value {
-        serde_json::Value::Object(fields) => fields.iter().any(|(name, value)| {
-            matches!(name.as_str(), "tp_order_id" | "sl_exchange_order_id") && value.is_number()
-                || contains_numeric_order_id(value)
-        }),
-        serde_json::Value::Array(values) => values.iter().any(contains_numeric_order_id),
-        _ => false,
+        serde_json::Value::Object(fields) => {
+            for (name, field) in fields {
+                if matches!(name.as_str(), "tp_order_id" | "sl_exchange_order_id")
+                    && field.is_number()
+                {
+                    if policy == Stage5cLegacyNumericOrderIdPolicy::Reject {
+                        return Err(Stage5cRuntimeStateRestoreError::LegacyNumericOrderIdRejected);
+                    }
+                    let numeric = field
+                        .as_i64()
+                        .filter(|value| *value > 0)
+                        .ok_or(Stage5cRuntimeStateRestoreError::InvalidLegacyNumericOrderId)?;
+                    let converted =
+                        BrokerOrderId::try_from_legacy_alor_numeric(numeric).map_err(|_| {
+                            Stage5cRuntimeStateRestoreError::InvalidLegacyNumericOrderId
+                        })?;
+                    *field = serde_json::Value::String(converted.as_str().to_string());
+                } else {
+                    normalize_legacy_order_ids(field, policy)?;
+                }
+            }
+            Ok(())
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                normalize_legacy_order_ids(value, policy)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn validate_post_bootstrap_broker_truth(
+    strategy: &HybridIntradayRuntimeStrategy,
+    admission: &Stage5cPaperHostAdmission,
+) -> Result<(), Stage5cRuntimeStateRestoreError> {
+    let state = Strategy::state(strategy);
+    let broker_qty = admission
+        .bootstrap_snapshot()
+        .target_position_qty
+        .to_f64()
+        .ok_or(Stage5cRuntimeStateRestoreError::BrokerTruthPositionMismatch)?;
+    match state {
+        StrategyState::HybridIntradayRuntime {
+            last_position_qty,
+            current_side,
+            tp_order_id,
+            sl_stop_order_id,
+            sl_exchange_order_id,
+            ..
+        } => {
+            if (*last_position_qty - broker_qty).abs() > f64::EPSILON {
+                return Err(Stage5cRuntimeStateRestoreError::BrokerTruthPositionMismatch);
+            }
+            let expected = if broker_qty > f64::EPSILON {
+                Some(crate::hybrid_intraday::Side::Long)
+            } else if broker_qty < -f64::EPSILON {
+                Some(crate::hybrid_intraday::Side::Short)
+            } else {
+                None
+            };
+            if expected.is_some() && *current_side != expected {
+                return Err(Stage5cRuntimeStateRestoreError::BrokerTruthSideMismatch);
+            }
+            if tp_order_id.is_some() || sl_stop_order_id.is_some() || sl_exchange_order_id.is_some()
+            {
+                return Err(Stage5cRuntimeStateRestoreError::BrokerOwnedOrderIdMismatch);
+            }
+            Ok(())
+        }
+        StrategyState::Idle => Err(Stage5cRuntimeStateRestoreError::WrongStrategyStateKind),
     }
 }
 
@@ -911,12 +1074,12 @@ mod bootstrap_notification_tests {
             .single()
             .expect("expiry");
         let exact_snapshot = admission(Decimal::ONE, expiry).bootstrap_snapshot().clone();
-        let bootstrapped = notify_stage5c_bootstrap_at(
+        let loaded = prepare_stage5c_without_runtime_state(
             strategy("IMOEXF", 0.5),
             admission(Decimal::ONE, expiry),
-            expiry,
-        )
-        .expect("notification at expiry remains valid");
+        );
+        let bootstrapped = notify_stage5c_bootstrap_at(loaded, expiry)
+            .expect("notification at expiry remains valid");
         let receipt = bootstrapped.receipt();
 
         assert_eq!(receipt.bootstrap_snapshot(), &exact_snapshot);
@@ -971,24 +1134,48 @@ mod bootstrap_notification_tests {
     }
 
     fn restore_input(
-        bootstrapped: &Stage5cBootstrappedPaperStrategy,
+        configured: &HybridIntradayRuntimeStrategy,
+        accepted: &Stage5cPaperHostAdmission,
+        persisted_ts: DateTime<Utc>,
     ) -> Stage5cRuntimeStateRestoreInput {
+        let qty_decimal = accepted.bootstrap_snapshot().target_position_qty;
+        let seed_loaded = prepare_stage5c_without_runtime_state(
+            strategy("IMOEXF", 0.5),
+            admission(qty_decimal, accepted.expires_at()),
+        );
+        let seeded = notify_stage5c_bootstrap_at(seed_loaded, persisted_ts).expect("seed state");
+        let mut state = serde_json::to_value(Strategy::state(seeded.strategy()))
+            .expect("persisted state value");
+        let qty = accepted
+            .bootstrap_snapshot()
+            .target_position_qty
+            .to_f64()
+            .expect("qty");
+        state["HybridIntradayRuntime"]["last_position_qty"] = serde_json::json!(qty);
+        state["HybridIntradayRuntime"]["current_side"] = if qty > 0.0 {
+            serde_json::json!("long")
+        } else if qty < 0.0 {
+            serde_json::json!("short")
+        } else {
+            serde_json::Value::Null
+        };
+        let (profile, mr_variant, mr_gate_policy, risk_gate_mode) =
+            configured.stage5c_profile_binding();
         Stage5cRuntimeStateRestoreInput {
             schema_version: STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION,
-            strategy_id: bootstrapped.receipt().strategy_id().to_string(),
-            account_id: bootstrapped
-                .receipt()
-                .bootstrap_snapshot()
-                .account_id
-                .clone(),
-            instrument: bootstrapped
-                .receipt()
-                .bootstrap_snapshot()
-                .instrument
-                .clone(),
+            state_schema_version: 1,
+            strategy_kind: "hybrid_intraday_runtime".to_string(),
+            strategy_id: accepted.strategy_id().to_string(),
+            account_id: accepted.account_id().clone(),
+            instrument: accepted.target_instrument().clone(),
             tick_size: 0.5,
-            state_json: serde_json::to_string(Strategy::state(bootstrapped.strategy()))
-                .expect("state JSON"),
+            config_fingerprint: configured.stage5c_config_fingerprint(),
+            profile,
+            mr_variant,
+            mr_gate_policy,
+            risk_gate_mode,
+            persisted_ts,
+            state_json: serde_json::to_string(&state).expect("state JSON"),
             known_order_ids: Vec::new(),
             pending_requests: Vec::new(),
             legacy_numeric_order_id_policy: Stage5cLegacyNumericOrderIdPolicy::Reject,
@@ -1001,15 +1188,14 @@ mod bootstrap_notification_tests {
             .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
             .single()
             .expect("timestamp");
-        let bootstrapped = notify_stage5c_bootstrap_at(
-            strategy("IMOEXF", 0.5),
-            admission(Decimal::ONE, now + chrono::Duration::minutes(1)),
-            now,
-        )
-        .expect("bootstrap");
-        let input = restore_input(&bootstrapped);
-        let restored =
-            restore_stage5c_runtime_state_at(bootstrapped, input, now).expect("validated restore");
+        let strategy = strategy("IMOEXF", 0.5);
+        let admission = admission(Decimal::ONE, now + chrono::Duration::minutes(1));
+        let input = restore_input(&strategy, &admission, now);
+        let loaded = restore_stage5c_runtime_state_at(strategy, admission, input, now)
+            .expect("validated load");
+        let bootstrapped = notify_stage5c_bootstrap_at(loaded, now).expect("bootstrap");
+        let restored = notify_stage5c_runtime_state_restored_at(bootstrapped, now)
+            .expect("restore notification");
 
         assert!(restored.receipt().runtime_state_restored());
         assert!(!restored.receipt().warmup_started());
@@ -1026,29 +1212,143 @@ mod bootstrap_notification_tests {
             .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
             .single()
             .expect("timestamp");
-        let bootstrapped = notify_stage5c_bootstrap_at(
-            strategy("IMOEXF", 0.5),
-            admission(Decimal::ONE, now + chrono::Duration::minutes(1)),
-            now,
-        )
-        .expect("bootstrap");
-        let mut input = restore_input(&bootstrapped);
+        let strategy = strategy("IMOEXF", 0.5);
+        let admission = admission(Decimal::ONE, now + chrono::Duration::minutes(1));
+        let mut input = restore_input(&strategy, &admission, now);
         let mut state: serde_json::Value =
             serde_json::from_str(&input.state_json).expect("state value");
         state["HybridIntradayRuntime"]["last_position_qty"] = serde_json::json!(0.0);
         input.state_json = serde_json::to_string(&state).expect("state JSON");
 
         assert!(matches!(
-            restore_stage5c_runtime_state_at(bootstrapped, input, now),
+            restore_stage5c_runtime_state_at(strategy, admission, input, now),
             Err(Stage5cRuntimeStateRestoreError::BrokerTruthPositionMismatch)
         ));
     }
 
     #[test]
     fn stage5cc_requires_explicit_legacy_numeric_order_id_policy() {
-        let numeric = serde_json::json!({"tp_order_id": 123});
-        assert!(contains_numeric_order_id(&numeric));
-        let string = serde_json::json!({"tp_order_id": "123"});
-        assert!(!contains_numeric_order_id(&string));
+        let mut numeric = serde_json::json!({"tp_order_id": 123});
+        normalize_legacy_order_ids(
+            &mut numeric,
+            Stage5cLegacyNumericOrderIdPolicy::ConvertPositiveAlorNumeric,
+        )
+        .expect("positive conversion");
+        assert_eq!(numeric["tp_order_id"], "123");
+    }
+
+    #[test]
+    fn stage5cc_rejects_short_side_for_long_broker_position() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
+            .single()
+            .unwrap();
+        let strategy = strategy("IMOEXF", 0.5);
+        let admission = admission(Decimal::ONE, now + chrono::Duration::minutes(1));
+        let mut input = restore_input(&strategy, &admission, now);
+        let mut state: serde_json::Value = serde_json::from_str(&input.state_json).unwrap();
+        state["HybridIntradayRuntime"]["current_side"] = serde_json::json!("short");
+        input.state_json = serde_json::to_string(&state).unwrap();
+        assert!(matches!(
+            restore_stage5c_runtime_state_at(strategy, admission, input, now),
+            Err(Stage5cRuntimeStateRestoreError::BrokerTruthSideMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage5cc_rejects_long_side_for_short_broker_position() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
+            .single()
+            .unwrap();
+        let strategy = strategy("IMOEXF", 0.5);
+        let admission = admission(Decimal::NEGATIVE_ONE, now + chrono::Duration::minutes(1));
+        let mut input = restore_input(&strategy, &admission, now);
+        let mut state: serde_json::Value = serde_json::from_str(&input.state_json).unwrap();
+        state["HybridIntradayRuntime"]["current_side"] = serde_json::json!("long");
+        input.state_json = serde_json::to_string(&state).unwrap();
+        assert!(matches!(
+            restore_stage5c_runtime_state_at(strategy, admission, input, now),
+            Err(Stage5cRuntimeStateRestoreError::BrokerTruthSideMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage5cc_bootstrap_removes_stale_persisted_broker_ids() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
+            .single()
+            .unwrap();
+        let strategy = strategy("IMOEXF", 0.5);
+        let admission = admission(Decimal::ONE, now + chrono::Duration::minutes(1));
+        let mut input = restore_input(&strategy, &admission, now);
+        let mut state: serde_json::Value = serde_json::from_str(&input.state_json).unwrap();
+        state["HybridIntradayRuntime"]["tp_order_id"] = serde_json::json!("123");
+        state["HybridIntradayRuntime"]["sl_stop_order_id"] = serde_json::json!("STOP-OLD");
+        state["HybridIntradayRuntime"]["sl_exchange_order_id"] = serde_json::json!("456");
+        input.state_json = serde_json::to_string(&state).unwrap();
+        let loaded = restore_stage5c_runtime_state_at(strategy, admission, input, now).unwrap();
+        let bootstrapped = notify_stage5c_bootstrap_at(loaded, now).unwrap();
+        let restored = notify_stage5c_runtime_state_restored_at(bootstrapped, now).unwrap();
+        let state = serde_json::to_value(Strategy::state(restored.strategy())).unwrap();
+        assert!(state["HybridIntradayRuntime"]["tp_order_id"].is_null());
+        assert!(state["HybridIntradayRuntime"]["sl_stop_order_id"].is_null());
+        assert!(state["HybridIntradayRuntime"]["sl_exchange_order_id"].is_null());
+    }
+
+    #[test]
+    fn stage5cc_legacy_numeric_conversion_and_invalid_matrix() {
+        for invalid in [
+            serde_json::json!(0),
+            serde_json::json!(-1),
+            serde_json::json!(1.5),
+            serde_json::json!(u64::MAX),
+        ] {
+            let mut value = serde_json::json!({"tp_order_id": invalid});
+            assert_eq!(
+                normalize_legacy_order_ids(
+                    &mut value,
+                    Stage5cLegacyNumericOrderIdPolicy::ConvertPositiveAlorNumeric,
+                ),
+                Err(Stage5cRuntimeStateRestoreError::InvalidLegacyNumericOrderId)
+            );
+        }
+        let mut rejected = serde_json::json!({"sl_exchange_order_id": 456});
+        assert_eq!(
+            normalize_legacy_order_ids(&mut rejected, Stage5cLegacyNumericOrderIdPolicy::Reject),
+            Err(Stage5cRuntimeStateRestoreError::LegacyNumericOrderIdRejected)
+        );
+        let mut string_ids = serde_json::json!({"tp_order_id": "FINAM-123"});
+        normalize_legacy_order_ids(
+            &mut string_ids,
+            Stage5cLegacyNumericOrderIdPolicy::ConvertPositiveAlorNumeric,
+        )
+        .unwrap();
+        assert_eq!(string_ids["tp_order_id"], "FINAM-123");
+    }
+
+    #[test]
+    fn stage5cc_full_state_converts_positive_numeric_tp_and_sl_ids() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
+            .single()
+            .unwrap();
+        let strategy = strategy("IMOEXF", 0.5);
+        let admission = admission(Decimal::ONE, now + chrono::Duration::minutes(1));
+        let mut input = restore_input(&strategy, &admission, now);
+        let mut state: serde_json::Value = serde_json::from_str(&input.state_json).unwrap();
+        state["HybridIntradayRuntime"]["tp_order_id"] = serde_json::json!(123);
+        state["HybridIntradayRuntime"]["sl_exchange_order_id"] = serde_json::json!(456);
+        input.state_json = serde_json::to_string(&state).unwrap();
+        input.legacy_numeric_order_id_policy =
+            Stage5cLegacyNumericOrderIdPolicy::ConvertPositiveAlorNumeric;
+
+        let loaded = restore_stage5c_runtime_state_at(strategy, admission, input, now).unwrap();
+        let state = serde_json::to_value(Strategy::state(&loaded.strategy)).unwrap();
+        assert_eq!(state["HybridIntradayRuntime"]["tp_order_id"], "123");
+        assert_eq!(
+            state["HybridIntradayRuntime"]["sl_exchange_order_id"],
+            "456"
+        );
     }
 }

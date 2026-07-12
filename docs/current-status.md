@@ -77,13 +77,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   returns `Stage5cBootstrappedPaperStrategy` owning that same strategy instance.
   Every later lifecycle step remains false; active target orders stay blocked
   until ownership-complete mapping is accepted.
-- Stage 5C-c runtime-state restore facade is a review candidate. It consumes
-  the bootstrapped type-state, validates schema and complete lifecycle binding
-  before mutation, rejects persisted position conflict with admitted broker
-  truth, applies `set_state` and exactly one `on_runtime_state_restored`, then
-  returns the same owned strategy in a new opaque type-state. Numeric legacy
-  ALOR order IDs require an explicit conversion policy. Warmup, recovery, bars,
-  intents and all execution surfaces remain closed.
+- Stage 5C-c runtime-state restore facade hardening is a review candidate. It
+  validates provenance and loads persisted state before exact broker bootstrap,
+  matching the ALOR lifecycle, then emits exactly one restored-state callback.
+  Quantity/side and broker-owned order-ID postconditions preserve broker truth;
+  positive legacy ALOR numeric IDs are genuinely normalized only under an
+  explicit policy. Warmup, recovery, bars, intents and execution remain closed.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

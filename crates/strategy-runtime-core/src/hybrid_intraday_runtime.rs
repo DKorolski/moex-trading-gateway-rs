@@ -5,6 +5,7 @@ use chrono::{
     Datelike, Duration as ChronoDuration, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime,
     TimeZone, Utc, Weekday,
 };
+use sha2::{Digest, Sha256};
 use tracing::{debug, info, warn};
 
 use crate::runtime_compat::{AckStatus, CommandAck, IntentClass, OrderSide, StopLimitCondition};
@@ -208,6 +209,20 @@ pub struct HybridIntradayRuntimeStrategy {
 }
 
 impl HybridIntradayRuntimeStrategy {
+    pub fn stage5c_config_fingerprint(&self) -> String {
+        let canonical = format!("{:?}", self.config);
+        format!("{:x}", Sha256::digest(canonical.as_bytes()))
+    }
+
+    pub(crate) fn stage5c_profile_binding(&self) -> (String, String, String, String) {
+        (
+            format!("{:?}", self.config.profile),
+            format!("{:?}", self.config.mr_variant),
+            format!("{:?}", self.config.mr_gate_policy),
+            format!("{:?}", self.config.risk_gate_mode),
+        )
+    }
+
     const MIN_MR_TAKE_DISTANCE_TICKS: f64 = 2.0;
     const MAX_CLEANUP_STOP_RETRIES: u32 = 3;
     const BRACKET_TERMINAL_RECONCILE_GRACE_MS: i64 = 3_000;
