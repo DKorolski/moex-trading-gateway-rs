@@ -408,6 +408,20 @@ fn stage5cd_fixture_freezes_canonical_warmup_only_boundary() {
 }
 
 #[test]
+fn stage5ce_fixture_freezes_pending_recovery_only_boundary() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/stage5/stage5ce_pending_recovery.json"
+    ))
+    .expect("Stage 5C-e fixture");
+    assert_eq!(fixture["stage"], "Stage5C-e");
+    assert_eq!(fixture["claim_complete_required"], true);
+    assert_eq!(fixture["identical_duplicates_deduplicated"], true);
+    assert_eq!(fixture["unexpected_intents_allowed"], false);
+    assert_eq!(fixture["lifecycle"]["semantic_bar_enabled"], false);
+    assert_eq!(fixture["execution"]["endpoint_calls_allowed"], false);
+}
+
+#[test]
 fn stage5c_capability_binds_exact_admitted_bootstrap_snapshot() {
     let canonical = canonical_input();
     let expected_snapshot = canonical.evidence.applied_snapshot().clone();

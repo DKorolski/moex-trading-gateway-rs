@@ -448,11 +448,112 @@ impl Stage5cWarmedPaperStrategy {
         &self.strategy
     }
 
+    pub(crate) fn into_parts(self) -> (HybridIntradayRuntimeStrategy, Stage5cHistoryWarmupReceipt) {
+        (self.strategy, self.receipt)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Stage5cPendingRecoveryPayload {
+    Ack(broker_core::HybridRuntimeCommandAck),
+    Order(broker_core::HybridRuntimeOrderEvent),
+    StopOrder(broker_core::HybridRuntimeStopOrderEvent),
+    Position(broker_core::HybridRuntimePositionEvent),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Stage5cPendingRecoveryEvent {
+    pub stream: String,
+    pub entry_id: String,
+    pub sequence: u64,
+    pub payload: Stage5cPendingRecoveryPayload,
+}
+
+pub struct Stage5cPendingRecoveryEvidenceInput {
+    pub events: Vec<Stage5cPendingRecoveryEvent>,
+    pub claim_complete: bool,
+    pub snapshot_boundary_reached: bool,
+}
+
+pub struct Stage5cAcceptedPendingRecoveryEvidence {
+    events: Vec<Stage5cPendingRecoveryEvent>,
+    duplicate_events: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5cPendingRecoveryError {
+    EvidenceIncomplete,
+    InvalidEventIdentity,
+    ConflictingDuplicate,
+    NonMonotonicSequence,
+    BrokerTruthExpired,
+    LifecycleTimestampReversal,
+    InstrumentMismatch,
+    CallbackValidationFailed,
+    UnexpectedIntent,
+}
+
+impl std::fmt::Display for Stage5cPendingRecoveryError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "Stage 5C pending recovery blocked: {self:?}")
+    }
+}
+
+impl std::error::Error for Stage5cPendingRecoveryError {}
+
+pub struct Stage5cPendingRecoveryReceipt {
+    warmup_receipt: Stage5cHistoryWarmupReceipt,
+    recovered_ts: DateTime<Utc>,
+    replayed_events: usize,
+    duplicate_events: usize,
+}
+
+impl Stage5cPendingRecoveryReceipt {
+    pub fn recovered_ts(&self) -> DateTime<Utc> {
+        self.recovered_ts
+    }
+    pub fn replayed_events(&self) -> usize {
+        self.replayed_events
+    }
+    pub fn duplicate_events(&self) -> usize {
+        self.duplicate_events
+    }
+    pub fn pending_recovery_started(&self) -> bool {
+        true
+    }
+    pub fn semantic_bar_enabled(&self) -> bool {
+        false
+    }
+    pub fn intent_sink_attached(&self) -> bool {
+        false
+    }
+    pub fn warmup_receipt(&self) -> &Stage5cHistoryWarmupReceipt {
+        &self.warmup_receipt
+    }
+}
+
+pub struct Stage5cPendingRecoveredPaperStrategy {
+    strategy: HybridIntradayRuntimeStrategy,
+    receipt: Stage5cPendingRecoveryReceipt,
+}
+
+impl Stage5cPendingRecoveredPaperStrategy {
+    pub fn receipt(&self) -> &Stage5cPendingRecoveryReceipt {
+        &self.receipt
+    }
+    #[cfg(test)]
+    fn strategy(&self) -> &HybridIntradayRuntimeStrategy {
+        &self.strategy
+    }
+
     #[expect(
         dead_code,
-        reason = "reserved consume-only transition for the still-closed pending recovery gate"
+        reason = "reserved consume-only transition for the still-closed semantic bar gate"
     )]
-    pub(crate) fn into_parts(self) -> (HybridIntradayRuntimeStrategy, Stage5cHistoryWarmupReceipt) {
+    pub(crate) fn into_parts(
+        self,
+    ) -> (HybridIntradayRuntimeStrategy, Stage5cPendingRecoveryReceipt) {
         (self.strategy, self.receipt)
     }
 }
@@ -1221,6 +1322,147 @@ fn validate_stage5cd_time_boundary(
     Ok(())
 }
 
+pub fn accept_stage5c_pending_recovery_evidence(
+    input: Stage5cPendingRecoveryEvidenceInput,
+) -> Result<Stage5cAcceptedPendingRecoveryEvidence, Stage5cPendingRecoveryError> {
+    if !input.claim_complete || !input.snapshot_boundary_reached {
+        return Err(Stage5cPendingRecoveryError::EvidenceIncomplete);
+    }
+    let mut unique = HashMap::<(String, String), Stage5cPendingRecoveryEvent>::new();
+    let mut duplicate_events = 0usize;
+    for event in input.events {
+        if event.stream.trim().is_empty() || event.entry_id.trim().is_empty() {
+            return Err(Stage5cPendingRecoveryError::InvalidEventIdentity);
+        }
+        let key = (event.stream.clone(), event.entry_id.clone());
+        if let Some(existing) = unique.get(&key) {
+            if existing != &event {
+                return Err(Stage5cPendingRecoveryError::ConflictingDuplicate);
+            }
+            duplicate_events += 1;
+        } else {
+            unique.insert(key, event);
+        }
+    }
+    let mut events: Vec<_> = unique.into_values().collect();
+    events.sort_by_key(|event| event.sequence);
+    if events
+        .windows(2)
+        .any(|pair| pair[0].sequence >= pair[1].sequence)
+    {
+        return Err(Stage5cPendingRecoveryError::NonMonotonicSequence);
+    }
+    Ok(Stage5cAcceptedPendingRecoveryEvidence {
+        events,
+        duplicate_events,
+    })
+}
+
+pub fn recover_stage5c_pending_streams(
+    warmed: Stage5cWarmedPaperStrategy,
+    evidence: Stage5cAcceptedPendingRecoveryEvidence,
+) -> Result<Stage5cPendingRecoveredPaperStrategy, Stage5cPendingRecoveryError> {
+    recover_stage5c_pending_streams_at(warmed, evidence, Utc::now())
+}
+
+fn recover_stage5c_pending_streams_at(
+    warmed: Stage5cWarmedPaperStrategy,
+    evidence: Stage5cAcceptedPendingRecoveryEvidence,
+    recovered_ts: DateTime<Utc>,
+) -> Result<Stage5cPendingRecoveredPaperStrategy, Stage5cPendingRecoveryError> {
+    let (mut strategy, warmup_receipt) = warmed.into_parts();
+    let bootstrap_receipt = warmup_receipt.restore_receipt().bootstrap_receipt();
+    let admission = &bootstrap_receipt.admission;
+    if recovered_ts > bootstrap_receipt.expires_at() {
+        return Err(Stage5cPendingRecoveryError::BrokerTruthExpired);
+    }
+    if warmup_receipt.started_ts() > recovered_ts {
+        return Err(Stage5cPendingRecoveryError::LifecycleTimestampReversal);
+    }
+    for event in &evidence.events {
+        let instrument = match &event.payload {
+            Stage5cPendingRecoveryPayload::Ack(_) => None,
+            Stage5cPendingRecoveryPayload::Order(value) => Some(&value.instrument),
+            Stage5cPendingRecoveryPayload::StopOrder(value) => Some(&value.instrument),
+            Stage5cPendingRecoveryPayload::Position(value) => Some(&value.instrument),
+        };
+        if instrument.is_some_and(|value| value != admission.target_instrument()) {
+            return Err(Stage5cPendingRecoveryError::InstrumentMismatch);
+        }
+    }
+    let position_qty = admission.bootstrap_snapshot().target_position_qty.to_f64();
+    let mut replayed_events = 0usize;
+    let duplicate_events = evidence.duplicate_events;
+    for event in evidence.events {
+        let event_ts = match &event.payload {
+            Stage5cPendingRecoveryPayload::Ack(value) => value.processed_ts_utc,
+            Stage5cPendingRecoveryPayload::Order(value) => value.source_ts_utc,
+            Stage5cPendingRecoveryPayload::StopOrder(value) => value.source_ts_utc,
+            Stage5cPendingRecoveryPayload::Position(value) => value.source_ts_utc,
+        };
+        let context = broker_core::HybridRuntimeStrategyContext {
+            strategy_id: admission.strategy_id().to_string(),
+            request_namespace_account: admission.account_id().clone(),
+            instrument: admission.target_instrument().clone(),
+            tick_size: admission.tick_size(),
+            trade_mode: broker_core::HybridRuntimeTradeMode::Paper,
+            paper_execution_mode: broker_core::HybridRuntimePaperExecutionMode::LiveOnly,
+            allow_live_orders: false,
+            gateway_phase: broker_core::HybridRuntimeGatewayPhase::CatchingUp,
+            position_qty,
+            event_ts_utc: event_ts,
+            strategy_now_ts_utc: recovered_ts.timestamp(),
+            last_bar_ts_utc: None,
+        };
+        let result = match event.payload {
+            Stage5cPendingRecoveryPayload::Ack(value) => {
+                crate::BrokerNeutralHybridStrategy::on_broker_ack(&mut strategy, value)
+            }
+            Stage5cPendingRecoveryPayload::Order(value) => {
+                crate::BrokerNeutralHybridStrategy::on_broker_order(
+                    &mut strategy,
+                    broker_core::HybridRuntimeCallbackInput {
+                        context,
+                        payload: value,
+                    },
+                )
+            }
+            Stage5cPendingRecoveryPayload::StopOrder(value) => {
+                crate::BrokerNeutralHybridStrategy::on_broker_stop_order(
+                    &mut strategy,
+                    broker_core::HybridRuntimeCallbackInput {
+                        context,
+                        payload: value,
+                    },
+                )
+            }
+            Stage5cPendingRecoveryPayload::Position(value) => {
+                crate::BrokerNeutralHybridStrategy::on_broker_position(
+                    &mut strategy,
+                    broker_core::HybridRuntimeCallbackInput {
+                        context,
+                        payload: value,
+                    },
+                )
+            }
+        }
+        .map_err(|_| Stage5cPendingRecoveryError::CallbackValidationFailed)?;
+        if !result.is_empty() {
+            return Err(Stage5cPendingRecoveryError::UnexpectedIntent);
+        }
+        replayed_events += 1;
+    }
+    Ok(Stage5cPendingRecoveredPaperStrategy {
+        strategy,
+        receipt: Stage5cPendingRecoveryReceipt {
+            warmup_receipt,
+            recovered_ts,
+            replayed_events,
+            duplicate_events,
+        },
+    })
+}
+
 #[cfg(test)]
 mod bootstrap_notification_tests {
     use super::*;
@@ -1667,6 +1909,20 @@ mod bootstrap_notification_tests {
         .expect("canonical history")
     }
 
+    fn warmed_strategy(now: DateTime<Utc>) -> Stage5cWarmedPaperStrategy {
+        let close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 10, 10, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        warmup_stage5c_history_at(
+            restored_strategy(now),
+            accepted_history(vec![history_bar(close_ts)]),
+            now,
+        )
+        .unwrap()
+    }
+
     #[test]
     fn stage5cd_warms_canonical_history_without_opening_later_gates() {
         let now = Utc
@@ -1937,5 +2193,71 @@ mod bootstrap_notification_tests {
             before,
             serde_json::to_value(Strategy::state(restored.strategy())).unwrap()
         );
+    }
+
+    #[test]
+    fn stage5ce_recovers_complete_empty_pending_set_without_opening_later_gates() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
+            .single()
+            .unwrap();
+        let evidence =
+            accept_stage5c_pending_recovery_evidence(Stage5cPendingRecoveryEvidenceInput {
+                events: Vec::new(),
+                claim_complete: true,
+                snapshot_boundary_reached: true,
+            })
+            .unwrap();
+        let recovered = recover_stage5c_pending_streams_at(warmed_strategy(now), evidence, now)
+            .expect("empty recovery");
+        assert!(recovered.receipt().pending_recovery_started());
+        assert_eq!(recovered.receipt().replayed_events(), 0);
+        assert!(!recovered.receipt().semantic_bar_enabled());
+        assert!(!recovered.receipt().intent_sink_attached());
+        let _ = Strategy::state(recovered.strategy());
+    }
+
+    #[test]
+    fn stage5ce_deduplicates_identical_pending_events() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
+            .single()
+            .unwrap();
+        let event = Stage5cPendingRecoveryEvent {
+            stream: "cmd.acks.ACC_TEST_0001".to_string(),
+            entry_id: "1-0".to_string(),
+            sequence: 1,
+            payload: Stage5cPendingRecoveryPayload::Ack(broker_core::HybridRuntimeCommandAck {
+                request_id: StrategyRequestId::new(uuid::Uuid::from_u128(1)),
+                status: broker_core::HybridRuntimeAckStatus::Accepted,
+                broker_order_id: None,
+                error_code: None,
+                error_message: None,
+                processed_ts_utc: now.timestamp(),
+            }),
+        };
+        let evidence =
+            accept_stage5c_pending_recovery_evidence(Stage5cPendingRecoveryEvidenceInput {
+                events: vec![event.clone(), event],
+                claim_complete: true,
+                snapshot_boundary_reached: true,
+            })
+            .unwrap();
+        let recovered = recover_stage5c_pending_streams_at(warmed_strategy(now), evidence, now)
+            .expect("deduplicated recovery");
+        assert_eq!(recovered.receipt().replayed_events(), 1);
+        assert_eq!(recovered.receipt().duplicate_events(), 1);
+    }
+
+    #[test]
+    fn stage5ce_rejects_incomplete_and_conflicting_recovery_evidence() {
+        assert!(matches!(
+            accept_stage5c_pending_recovery_evidence(Stage5cPendingRecoveryEvidenceInput {
+                events: Vec::new(),
+                claim_complete: false,
+                snapshot_boundary_reached: true,
+            }),
+            Err(Stage5cPendingRecoveryError::EvidenceIncomplete)
+        ));
     }
 }

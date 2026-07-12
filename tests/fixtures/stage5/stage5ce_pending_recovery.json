@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "stage": "Stage5C-e",
+  "status": "pending_recovery_paper_no_send",
+  "consumes": "Stage5cWarmedPaperStrategy",
+  "produces": "Stage5cPendingRecoveredPaperStrategy",
+  "claim_complete_required": true,
+  "snapshot_boundary_required": true,
+  "stable_stream_entry_identity_required": true,
+  "total_sequence_required": true,
+  "identical_duplicates_deduplicated": true,
+  "conflicting_duplicates_rejected": true,
+  "unexpected_intents_allowed": false,
+  "lifecycle": {
+    "pending_recovery_started": true,
+    "semantic_bar_enabled": false,
+    "intent_sink_attached": false
+  },
+  "execution": {
+    "runtime_host_attached": false,
+    "command_consumer_enabled": false,
+    "endpoint_calls_allowed": false,
+    "real_post_delete_added": false
+  }
+}

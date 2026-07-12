@@ -83,12 +83,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   Quantity/side and broker-owned order-ID postconditions preserve broker truth;
   positive legacy ALOR numeric IDs are genuinely normalized only under an
   explicit policy. Warmup, recovery, bars, intents and execution remain closed.
-- Stage 5C-d canonical history warmup facade is a review candidate. It consumes
+- Stage 5C-d canonical history warmup facade is accepted. It consumes
   the restored type-state, rechecks evidence freshness and lifecycle timestamp
   monotonicity, and accepts only an opaque Stage 3 provenance/gap-proven batch
   of exact-target final chronological M10 history with no future timestamps.
   It returns an opaque warmed type-state. Recovery, semantic bars, intent sink
   and all execution surfaces remain closed.
+- Stage 5C-e pending-stream recovery facade is a review candidate. It consumes
+  the warmed type-state, accepts only complete opaque recovery evidence,
+  deterministically deduplicates replayed stream entries and rejects callback
+  intents. Semantic bars, intent sink, runtime host and execution remain closed.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
