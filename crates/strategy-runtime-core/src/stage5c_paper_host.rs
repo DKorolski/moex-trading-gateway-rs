@@ -1106,6 +1106,8 @@ pub enum Stage5cPaperBrokerLifecycleError {
     AttributionCycleMismatch,
     IntentFieldMismatch,
     MissingTerminalLifecycleEvent,
+    UnknownOrderStatus,
+    UnknownStopOrderStatus,
     CallbackValidationFailed,
     CallbackGeneratedIntentTerminal,
 }
@@ -2907,8 +2909,7 @@ pub fn resolve_stage5c_paper_broker_lifecycle(
                     resolved,
                 ));
             }
-            let expected_kind = stage5cj_expected_event_kind(&intent_record.intent);
-            if record.payload.kind() != expected_kind {
+            if !stage5cj_allowed_event_kinds(intent_record).contains(&record.payload.kind()) {
                 return Err(stage5cj_block(
                     Stage5cPaperBrokerLifecycleError::UnexpectedBrokerEventKind,
                     resolved,
@@ -2931,15 +2932,18 @@ pub fn resolve_stage5c_paper_broker_lifecycle(
                     }
                 });
             }
-            if stage5cj_event_is_terminal_for_intent(record, &intent_record.intent) {
+            if stage5cj_event_is_terminal_for_intent(record, intent_record, request_events) {
                 terminal_seen = true;
             }
         }
         if !terminal_seen {
             remaining_lifecycle_expectations.push(Stage5cPaperBrokerLifecycleExpectation {
                 request_id: intent_record.request_id,
-                expected_event_kind: stage5cj_expected_event_kind(&intent_record.intent),
-                reason: "terminal_event_not_observed".to_string(),
+                expected_event_kind: stage5cj_next_expected_event_kind(
+                    intent_record,
+                    request_events,
+                ),
+                reason: "terminal_lifecycle_not_observed".to_string(),
             });
         }
     }
@@ -3084,6 +3088,48 @@ fn stage5cj_expected_event_kind(
     }
 }
 
+fn stage5cj_allowed_event_kinds(
+    intent_record: &Stage5cPaperIntentRecord,
+) -> Vec<Stage5cPaperBrokerEventKind> {
+    use crate::BrokerNeutralHybridIntent as Intent;
+    match intent_record.intent.base_intent() {
+        Intent::Market { .. } => vec![Stage5cPaperBrokerEventKind::Position],
+        Intent::Place { .. } => match intent_record.intent_class {
+            crate::BrokerNeutralHybridIntentClass::Entry
+            | crate::BrokerNeutralHybridIntentClass::Exit
+            | crate::BrokerNeutralHybridIntentClass::ProtectiveRepair => vec![
+                Stage5cPaperBrokerEventKind::Order,
+                Stage5cPaperBrokerEventKind::Position,
+            ],
+            crate::BrokerNeutralHybridIntentClass::CancelCleanup => {
+                vec![Stage5cPaperBrokerEventKind::Order]
+            }
+        },
+        Intent::Cancel { .. } | Intent::Replace { .. } => {
+            vec![Stage5cPaperBrokerEventKind::Order]
+        }
+        Intent::CreateStopLimit { .. } => vec![
+            Stage5cPaperBrokerEventKind::StopOrder,
+            Stage5cPaperBrokerEventKind::Position,
+        ],
+        Intent::DeleteStopLimit { .. } => vec![Stage5cPaperBrokerEventKind::StopOrder],
+        Intent::Classified { .. } | Intent::Routed { .. } => {
+            unreachable!("base_intent unwraps wrappers")
+        }
+    }
+}
+
+fn stage5cj_next_expected_event_kind(
+    intent_record: &Stage5cPaperIntentRecord,
+    events: &[Stage5cPaperBrokerEventRecord],
+) -> Stage5cPaperBrokerEventKind {
+    if stage5cj_lifecycle_has_terminal_order_like_event(intent_record, events) {
+        Stage5cPaperBrokerEventKind::Position
+    } else {
+        stage5cj_expected_event_kind(&intent_record.intent)
+    }
+}
+
 fn stage5cj_validate_event_mapping(
     record: &Stage5cPaperBrokerEventRecord,
     ack: &Stage5cPaperAckOutcome,
@@ -3109,7 +3155,8 @@ fn stage5cj_validate_event_mapping(
             stage5cj_validate_attribution(
                 order.attribution.as_ref(),
                 admission_strategy_id,
-                stage5cj_expected_order_role(intent),
+                stage5cj_expected_order_role(intent_record),
+                stage5cj_expected_comment(intent),
             )?;
             stage5cj_validate_order_fields(order, intent)?;
         }
@@ -3124,7 +3171,8 @@ fn stage5cj_validate_event_mapping(
             stage5cj_validate_attribution(
                 stop.attribution.as_ref(),
                 admission_strategy_id,
-                stage5cj_expected_order_role(intent),
+                stage5cj_expected_order_role(intent_record),
+                stage5cj_expected_comment(intent),
             )?;
             stage5cj_validate_stop_fields(stop, intent)?;
             if let crate::BrokerNeutralHybridIntent::DeleteStopLimit { order_id, .. } =
@@ -3137,22 +3185,34 @@ fn stage5cj_validate_event_mapping(
                 }
             }
         }
-        Stage5cPaperBrokerEventPayload::Position(position) => {
-            if !matches!(
-                intent.base_intent(),
-                crate::BrokerNeutralHybridIntent::Market { .. }
-            ) || !stage5cj_market_position_transition_is_valid(
-                intent_record.intent_class,
-                intent,
-                pre_position_qty,
-                position.qty,
-                position.existing,
-            ) {
+        Stage5cPaperBrokerEventPayload::Position(position) => match intent.base_intent() {
+            crate::BrokerNeutralHybridIntent::Market { .. } => {
+                if !stage5cj_market_position_transition_is_valid(
+                    intent_record.intent_class,
+                    intent,
+                    pre_position_qty,
+                    position.qty,
+                    position.existing,
+                ) {
+                    return Err(Stage5cPaperBrokerLifecycleFailure::Terminal(
+                        Stage5cPaperBrokerLifecycleError::PositionEventRequiresMarketIntent,
+                    ));
+                }
+            }
+            crate::BrokerNeutralHybridIntent::Place { .. }
+            | crate::BrokerNeutralHybridIntent::CreateStopLimit { .. } => {
+                if !position.existing {
+                    return Err(Stage5cPaperBrokerLifecycleFailure::Terminal(
+                        Stage5cPaperBrokerLifecycleError::PositionEventRequiresMarketIntent,
+                    ));
+                }
+            }
+            _ => {
                 return Err(Stage5cPaperBrokerLifecycleFailure::Terminal(
-                    Stage5cPaperBrokerLifecycleError::PositionEventRequiresMarketIntent,
+                    Stage5cPaperBrokerLifecycleError::UnexpectedBrokerEventKind,
                 ));
             }
-        }
+        },
     }
     Ok(())
 }
@@ -3187,6 +3247,7 @@ fn stage5cj_validate_attribution(
     attribution: Option<&broker_core::HybridRuntimeAttribution>,
     admission_strategy_id: &str,
     expected_role: Option<broker_core::HybridRuntimeOrderRole>,
+    expected_comment: Option<&str>,
 ) -> Result<(), Stage5cPaperBrokerLifecycleFailure> {
     let Some(attribution) = attribution else {
         return Err(Stage5cPaperBrokerLifecycleFailure::Terminal(
@@ -3203,22 +3264,51 @@ fn stage5cj_validate_attribution(
             Stage5cPaperBrokerLifecycleError::AttributionRoleMismatch,
         ));
     }
+    if let Some(expected_comment) = expected_comment {
+        let expected = broker_core::HybridRuntimeAttribution::parse_source_comment(
+            expected_comment.to_string(),
+        )
+        .map_err(|_| {
+            Stage5cPaperBrokerLifecycleFailure::Terminal(
+                Stage5cPaperBrokerLifecycleError::AttributionCycleMismatch,
+            )
+        })?;
+        if attribution.cycle_id() != expected.cycle_id()
+            || attribution.owner() != expected.owner()
+            || attribution.role() != expected.role()
+        {
+            return Err(Stage5cPaperBrokerLifecycleFailure::Terminal(
+                Stage5cPaperBrokerLifecycleError::AttributionCycleMismatch,
+            ));
+        }
+    }
     Ok(())
 }
 
 fn stage5cj_expected_order_role(
-    intent: &crate::BrokerNeutralHybridIntent,
+    intent_record: &Stage5cPaperIntentRecord,
 ) -> Option<broker_core::HybridRuntimeOrderRole> {
-    match intent.base_intent() {
-        crate::BrokerNeutralHybridIntent::Place { .. } => {
-            Some(broker_core::HybridRuntimeOrderRole::TakeProfit)
-        }
+    match intent_record.intent.base_intent() {
+        crate::BrokerNeutralHybridIntent::Place { .. } => match intent_record.intent_class {
+            crate::BrokerNeutralHybridIntentClass::Entry => {
+                Some(broker_core::HybridRuntimeOrderRole::Entry)
+            }
+            crate::BrokerNeutralHybridIntentClass::Exit => {
+                Some(broker_core::HybridRuntimeOrderRole::Exit)
+            }
+            crate::BrokerNeutralHybridIntentClass::ProtectiveRepair => {
+                Some(broker_core::HybridRuntimeOrderRole::TakeProfit)
+            }
+            crate::BrokerNeutralHybridIntentClass::CancelCleanup => {
+                Some(broker_core::HybridRuntimeOrderRole::Cancel)
+            }
+        },
         crate::BrokerNeutralHybridIntent::CreateStopLimit { .. } => {
             Some(broker_core::HybridRuntimeOrderRole::StopLoss)
         }
         crate::BrokerNeutralHybridIntent::Cancel { .. }
         | crate::BrokerNeutralHybridIntent::DeleteStopLimit { .. } => {
-            Some(broker_core::HybridRuntimeOrderRole::Cancel)
+            stage5cj_expected_role_from_comment(stage5cj_expected_comment(&intent_record.intent))
         }
         crate::BrokerNeutralHybridIntent::Replace { .. } => {
             Some(broker_core::HybridRuntimeOrderRole::TakeProfit)
@@ -3229,10 +3319,34 @@ fn stage5cj_expected_order_role(
     }
 }
 
+fn stage5cj_expected_comment(intent: &crate::BrokerNeutralHybridIntent) -> Option<&str> {
+    match intent.base_intent() {
+        crate::BrokerNeutralHybridIntent::Place { comment, .. }
+        | crate::BrokerNeutralHybridIntent::Market { comment, .. }
+        | crate::BrokerNeutralHybridIntent::CreateStopLimit { comment, .. } => comment.as_deref(),
+        _ => None,
+    }
+}
+
+fn stage5cj_expected_role_from_comment(
+    comment: Option<&str>,
+) -> Option<broker_core::HybridRuntimeOrderRole> {
+    comment
+        .and_then(|comment| {
+            broker_core::HybridRuntimeAttribution::parse_source_comment(comment).ok()
+        })
+        .and_then(|attribution| attribution.role())
+}
+
 fn stage5cj_validate_order_fields(
     order: &broker_core::HybridRuntimeOrderEvent,
     intent: &crate::BrokerNeutralHybridIntent,
 ) -> Result<(), Stage5cPaperBrokerLifecycleFailure> {
+    if !stage5cj_order_status_is_known(&order.status) {
+        return Err(Stage5cPaperBrokerLifecycleFailure::Terminal(
+            Stage5cPaperBrokerLifecycleError::UnknownOrderStatus,
+        ));
+    }
     match intent.base_intent() {
         crate::BrokerNeutralHybridIntent::Place {
             price, qty, side, ..
@@ -3280,6 +3394,11 @@ fn stage5cj_validate_stop_fields(
     stop: &broker_core::HybridRuntimeStopOrderEvent,
     intent: &crate::BrokerNeutralHybridIntent,
 ) -> Result<(), Stage5cPaperBrokerLifecycleFailure> {
+    if !stage5cj_stop_status_is_known(&stop.status) {
+        return Err(Stage5cPaperBrokerLifecycleFailure::Terminal(
+            Stage5cPaperBrokerLifecycleError::UnknownStopOrderStatus,
+        ));
+    }
     match intent.base_intent() {
         crate::BrokerNeutralHybridIntent::CreateStopLimit {
             side,
@@ -3313,22 +3432,39 @@ fn stage5cj_validate_stop_fields(
 
 fn stage5cj_event_is_terminal_for_intent(
     record: &Stage5cPaperBrokerEventRecord,
-    intent: &crate::BrokerNeutralHybridIntent,
+    intent_record: &Stage5cPaperIntentRecord,
+    events: &[Stage5cPaperBrokerEventRecord],
 ) -> bool {
-    match (&record.payload, intent.base_intent()) {
+    match (&record.payload, intent_record.intent.base_intent()) {
         (
-            Stage5cPaperBrokerEventPayload::Position(_),
-            crate::BrokerNeutralHybridIntent::Market { .. },
-        ) => true,
+            Stage5cPaperBrokerEventPayload::Position(position),
+            crate::BrokerNeutralHybridIntent::Market { qty, .. },
+        ) => stage5cj_market_position_is_terminal(intent_record.intent_class, *qty, position.qty),
+        (
+            Stage5cPaperBrokerEventPayload::Position(position),
+            crate::BrokerNeutralHybridIntent::Place { .. },
+        ) => {
+            stage5cj_lifecycle_has_terminal_order_like_event(intent_record, events)
+                && stage5cj_position_confirms_place_terminal(
+                    intent_record.intent_class,
+                    position.qty,
+                )
+        }
+        (
+            Stage5cPaperBrokerEventPayload::Position(position),
+            crate::BrokerNeutralHybridIntent::CreateStopLimit { .. },
+        ) => {
+            stage5cj_lifecycle_has_terminal_order_like_event(intent_record, events)
+                && position.qty.abs() <= f64::EPSILON
+        }
         (
             Stage5cPaperBrokerEventPayload::Order(order),
             crate::BrokerNeutralHybridIntent::Cancel { .. },
         ) => stage5cj_order_status_is_cancel_terminal(&order.status),
         (
             Stage5cPaperBrokerEventPayload::Order(order),
-            crate::BrokerNeutralHybridIntent::Place { .. }
-            | crate::BrokerNeutralHybridIntent::Replace { .. },
-        ) => stage5cj_order_status_is_filled(&order.status),
+            crate::BrokerNeutralHybridIntent::Replace { .. },
+        ) => stage5cj_order_status_is_known(&order.status),
         (
             Stage5cPaperBrokerEventPayload::StopOrder(stop),
             crate::BrokerNeutralHybridIntent::DeleteStopLimit { .. },
@@ -3338,6 +3474,54 @@ fn stage5cj_event_is_terminal_for_intent(
             crate::BrokerNeutralHybridIntent::CreateStopLimit { .. },
         ) => stage5cj_stop_status_is_terminal(&stop.status),
         _ => false,
+    }
+}
+
+fn stage5cj_lifecycle_has_terminal_order_like_event(
+    intent_record: &Stage5cPaperIntentRecord,
+    events: &[Stage5cPaperBrokerEventRecord],
+) -> bool {
+    events.iter().any(
+        |event| match (&event.payload, intent_record.intent.base_intent()) {
+            (
+                Stage5cPaperBrokerEventPayload::Order(order),
+                crate::BrokerNeutralHybridIntent::Place { .. },
+            ) => stage5cj_order_status_is_filled(&order.status),
+            (
+                Stage5cPaperBrokerEventPayload::StopOrder(stop),
+                crate::BrokerNeutralHybridIntent::CreateStopLimit { .. },
+            ) => stage5cj_stop_status_is_terminal(&stop.status),
+            _ => false,
+        },
+    )
+}
+
+fn stage5cj_market_position_is_terminal(
+    intent_class: crate::BrokerNeutralHybridIntentClass,
+    target_qty: f64,
+    position_qty: f64,
+) -> bool {
+    match intent_class {
+        crate::BrokerNeutralHybridIntentClass::Entry => {
+            position_qty.abs() + f64::EPSILON >= target_qty.abs()
+        }
+        crate::BrokerNeutralHybridIntentClass::Exit => position_qty.abs() <= f64::EPSILON,
+        crate::BrokerNeutralHybridIntentClass::ProtectiveRepair
+        | crate::BrokerNeutralHybridIntentClass::CancelCleanup => false,
+    }
+}
+
+fn stage5cj_position_confirms_place_terminal(
+    intent_class: crate::BrokerNeutralHybridIntentClass,
+    position_qty: f64,
+) -> bool {
+    match intent_class {
+        crate::BrokerNeutralHybridIntentClass::Entry => position_qty.abs() > f64::EPSILON,
+        crate::BrokerNeutralHybridIntentClass::Exit
+        | crate::BrokerNeutralHybridIntentClass::ProtectiveRepair => {
+            position_qty.abs() <= f64::EPSILON
+        }
+        crate::BrokerNeutralHybridIntentClass::CancelCleanup => false,
     }
 }
 
@@ -3362,11 +3546,32 @@ fn stage5cj_order_status_is_cancel_terminal(status: &str) -> bool {
     )
 }
 
+fn stage5cj_order_status_is_known(status: &str) -> bool {
+    stage5cj_order_status_is_working(status)
+        || stage5cj_order_status_is_filled(status)
+        || stage5cj_order_status_is_cancel_terminal(status)
+}
+
 fn stage5cj_stop_status_is_terminal(status: &str) -> bool {
     matches!(
         status.to_ascii_lowercase().as_str(),
-        "triggered" | "filled" | "executed" | "done" | "completed" | "canceled" | "cancelled"
+        "triggered"
+            | "filled"
+            | "executed"
+            | "done"
+            | "completed"
+            | "canceled"
+            | "cancelled"
+            | "expired"
+            | "rejected"
     )
+}
+
+fn stage5cj_stop_status_is_known(status: &str) -> bool {
+    matches!(
+        status.to_ascii_lowercase().as_str(),
+        "working" | "active" | "accepted" | "new"
+    ) || stage5cj_stop_status_is_terminal(status)
 }
 
 fn stage5cj_side_matches(actual: &str, expected: crate::BrokerNeutralOrderSide) -> bool {
@@ -4671,7 +4876,7 @@ mod bootstrap_notification_tests {
             price: 2230.0,
             qty: 1.0,
             side: crate::BrokerNeutralOrderSide::Sell,
-            comment: None,
+            comment: Some("HYB|sid=hybrid_imoexf|c=abc1230001|o=MR|r=TP".to_string()),
         }
         .with_class(crate::BrokerNeutralHybridIntentClass::ProtectiveRepair)
         .with_symbol("IMOEXF")
@@ -4685,7 +4890,7 @@ mod bootstrap_notification_tests {
             price: 2209.5,
             condition: crate::runtime_compat::StopLimitCondition::LessOrEqual,
             stop_end_unix_time,
-            comment: None,
+            comment: Some("HYB|sid=hybrid_imoexf|c=abc1230001|o=MR|r=SL".to_string()),
             instrument_group: None,
             check_duplicates: Some(true),
         }
@@ -4759,8 +4964,15 @@ mod bootstrap_notification_tests {
     }
 
     fn stage5cj_attribution(role: &str) -> broker_core::HybridRuntimeAttribution {
+        stage5cj_attribution_with_cycle(role, "abc1230001")
+    }
+
+    fn stage5cj_attribution_with_cycle(
+        role: &str,
+        cycle: &str,
+    ) -> broker_core::HybridRuntimeAttribution {
         broker_core::HybridRuntimeAttribution::parse_source_comment(format!(
-            "HYB|sid=hybrid_imoexf|c=abc1230001|o=MR|r={role}"
+            "HYB|sid=hybrid_imoexf|c={cycle}|o=MR|r={role}"
         ))
         .unwrap()
     }
@@ -4791,6 +5003,41 @@ mod bootstrap_notification_tests {
                 price: 2230.0,
                 existing: true,
                 attribution: Some(stage5cj_attribution("TP")),
+                source_ts_utc,
+            }),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn stage5cj_order_event_with_role(
+        total_sequence: u64,
+        request_id: StrategyRequestId,
+        order_id: BrokerOrderId,
+        status: &str,
+        side: &str,
+        price: f64,
+        role: &str,
+        source_ts_utc: i64,
+    ) -> Stage5cPaperBrokerEventRecord {
+        Stage5cPaperBrokerEventRecord {
+            total_sequence,
+            request_id,
+            payload: Stage5cPaperBrokerEventPayload::Order(broker_core::HybridRuntimeOrderEvent {
+                order_id,
+                request_id: Some(request_id),
+                instrument: target(),
+                status: status.to_string(),
+                side: side.to_string(),
+                order_type: "limit".to_string(),
+                qty: 1.0,
+                filled_qty: if stage5cj_order_status_is_filled(status) {
+                    1.0
+                } else {
+                    0.0
+                },
+                price,
+                existing: true,
+                attribution: Some(stage5cj_attribution(role)),
                 source_ts_utc,
             }),
         }
@@ -6398,7 +6645,7 @@ mod bootstrap_notification_tests {
             broker_b.post_broker_lifecycle_state_fingerprint()
         );
         assert_eq!(broker_b.broker_event_count(), 2);
-        assert_eq!(broker_b.remaining_lifecycle_expectations().len(), 1);
+        assert_eq!(broker_b.remaining_lifecycle_expectations().len(), 2);
     }
 
     #[test]
@@ -6446,11 +6693,12 @@ mod bootstrap_notification_tests {
                         "working",
                         bar_close_ts + 2,
                     ),
+                    stage5cj_position_event(5, tp_request_id, 0.0, bar_close_ts + 4),
                 ],
             },
         )
         .unwrap();
-        assert_eq!(broker_resolved.broker_event_count(), 2);
+        assert_eq!(broker_resolved.broker_event_count(), 3);
         assert!(broker_resolved
             .remaining_lifecycle_expectations()
             .is_empty());
@@ -6631,6 +6879,294 @@ mod bootstrap_notification_tests {
             .expect_err("same request with different payload is conflicting duplicate")
             .reason(),
             Stage5cPaperBrokerLifecycleError::ConflictingDuplicateEvent
+        );
+    }
+
+    #[test]
+    fn stage5cj_marketable_limit_entry_exit_accept_source_roles_and_position_confirmation() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered_until(
+            now,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
+                .single()
+                .unwrap(),
+        );
+        let (mut strategy, recovery_receipt) = recovered.into_parts();
+        let bar_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let entry_request_id = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "place",
+            bar_close_ts,
+            0,
+        );
+        set_hybrid_pending_request(
+            &mut strategy,
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            entry_request_id,
+        );
+        let entry_intent = crate::BrokerNeutralHybridIntent::Place {
+            price: 2230.0,
+            qty: 1.0,
+            side: crate::BrokerNeutralOrderSide::Buy,
+            comment: Some("HYB|sid=hybrid_imoexf|c=abc1230001|o=MR|r=ENTRY".to_string()),
+        }
+        .with_class(crate::BrokerNeutralHybridIntentClass::Entry)
+        .with_symbol("IMOEXF");
+        let settled = settle_stage5c_semantic_result(stage5cg_semantic_result(
+            strategy,
+            recovery_receipt,
+            bar_close_ts,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            vec![entry_intent],
+        ))
+        .unwrap();
+        let resolved = resolve_stage5c_paper_intent_lifecycle(
+            settled,
+            Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![stage5ci_ack_record(1, entry_request_id)],
+            },
+        )
+        .unwrap();
+        let broker_resolved = resolve_stage5c_paper_broker_lifecycle(
+            resolved,
+            Stage5cPaperBrokerLifecycleInput {
+                event_records: vec![
+                    stage5cj_order_event_with_role(
+                        2,
+                        entry_request_id,
+                        BrokerOrderId::new("ORDER_TEST_ACK_0001"),
+                        "filled",
+                        "buy",
+                        2230.0,
+                        "ENTRY",
+                        bar_close_ts + 2,
+                    ),
+                    stage5cj_position_event(3, entry_request_id, 1.0, bar_close_ts + 3),
+                ],
+            },
+        )
+        .unwrap();
+        assert!(broker_resolved
+            .remaining_lifecycle_expectations()
+            .is_empty());
+
+        let recovered = empty_recovered_until(
+            now,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
+                .single()
+                .unwrap(),
+        );
+        let (mut strategy, recovery_receipt) = recovered.into_parts();
+        let exit_request_id = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "place",
+            bar_close_ts,
+            0,
+        );
+        let mut state = Strategy::state(&strategy).clone();
+        match &mut state {
+            StrategyState::HybridIntradayRuntime {
+                active_cycle_id,
+                last_position_qty,
+                current_side,
+                pending_exit_request_id,
+                ..
+            } => {
+                *active_cycle_id = Some("abc1230001".to_string());
+                *last_position_qty = 1.0;
+                *current_side = Some(crate::hybrid_intraday::Side::Long);
+                *pending_exit_request_id = Some(exit_request_id);
+            }
+            StrategyState::Idle => panic!("expected hybrid runtime state"),
+        }
+        Strategy::set_state(&mut strategy, state);
+        let exit_intent = crate::BrokerNeutralHybridIntent::Place {
+            price: 2220.0,
+            qty: 1.0,
+            side: crate::BrokerNeutralOrderSide::Sell,
+            comment: Some("HYB|sid=hybrid_imoexf|c=abc1230001|o=MR|r=EXIT".to_string()),
+        }
+        .with_class(crate::BrokerNeutralHybridIntentClass::Exit)
+        .with_symbol("IMOEXF");
+        set_hybrid_pending_request(
+            &mut strategy,
+            crate::BrokerNeutralHybridIntentClass::Exit,
+            exit_request_id,
+        );
+        let settled = settle_stage5c_semantic_result(stage5cg_semantic_result(
+            strategy,
+            recovery_receipt,
+            bar_close_ts,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            vec![exit_intent],
+        ))
+        .unwrap();
+        let resolved = resolve_stage5c_paper_intent_lifecycle(
+            settled,
+            Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![stage5ci_ack_record(1, exit_request_id)],
+            },
+        )
+        .unwrap();
+        let broker_resolved = resolve_stage5c_paper_broker_lifecycle(
+            resolved,
+            Stage5cPaperBrokerLifecycleInput {
+                event_records: vec![
+                    stage5cj_order_event_with_role(
+                        2,
+                        exit_request_id,
+                        BrokerOrderId::new("ORDER_TEST_ACK_0001"),
+                        "filled",
+                        "sell",
+                        2220.0,
+                        "EXIT",
+                        bar_close_ts + 2,
+                    ),
+                    stage5cj_position_event(3, exit_request_id, 0.0, bar_close_ts + 3),
+                ],
+            },
+        )
+        .unwrap();
+        assert!(broker_resolved
+            .remaining_lifecycle_expectations()
+            .is_empty());
+    }
+
+    #[test]
+    fn stage5cj_tp_cancel_accepts_original_tp_attribution_and_wrong_cycle_blocks() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered_until(
+            now,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
+                .single()
+                .unwrap(),
+        );
+        let (strategy, recovery_receipt) = recovered.into_parts();
+        let bar_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let cancel_request_id = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "cancel",
+            bar_close_ts,
+            1,
+        );
+        let cancel_intent = crate::BrokerNeutralHybridIntent::Cancel {
+            order_id: BrokerOrderId::new("ORDER_TEST_0001"),
+        }
+        .with_class(crate::BrokerNeutralHybridIntentClass::CancelCleanup)
+        .with_symbol("IMOEXF");
+        let settled = settle_stage5c_semantic_result(stage5cg_semantic_result(
+            strategy,
+            recovery_receipt,
+            bar_close_ts,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            vec![cancel_intent],
+        ))
+        .unwrap();
+        let resolved = resolve_stage5c_paper_intent_lifecycle(
+            settled,
+            Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![Stage5cPaperAckRecord {
+                    total_sequence: 1,
+                    ack: broker_core::HybridRuntimeCommandAck {
+                        broker_order_id: Some(BrokerOrderId::new("ORDER_TEST_0001")),
+                        ..stage5ci_ack(cancel_request_id)
+                    },
+                }],
+            },
+        )
+        .unwrap();
+        let broker_resolved = resolve_stage5c_paper_broker_lifecycle(
+            resolved,
+            Stage5cPaperBrokerLifecycleInput {
+                event_records: vec![stage5cj_order_event_with_role(
+                    2,
+                    cancel_request_id,
+                    BrokerOrderId::new("ORDER_TEST_0001"),
+                    "canceled",
+                    "sell",
+                    2230.0,
+                    "TP",
+                    bar_close_ts + 2,
+                )],
+            },
+        )
+        .unwrap();
+        assert!(broker_resolved
+            .remaining_lifecycle_expectations()
+            .is_empty());
+
+        let (settled, tp_request_id, _, bar_close_ts) = stage5ci_protective_settled();
+        let resolved = resolve_stage5c_paper_intent_lifecycle(
+            settled,
+            Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![
+                    Stage5cPaperAckRecord {
+                        total_sequence: 1,
+                        ack: stage5ci_ack_with(
+                            tp_request_id,
+                            broker_core::HybridRuntimeAckStatus::Accepted,
+                            bar_close_ts + 1,
+                        ),
+                    },
+                    Stage5cPaperAckRecord {
+                        total_sequence: 2,
+                        ack: stage5ci_ack_with(
+                            crate::deterministic_request_id(
+                                "hybrid_imoexf",
+                                "ACC_TEST_0001",
+                                "IMOEXF",
+                                "create_stop_limit",
+                                bar_close_ts,
+                                5,
+                            ),
+                            broker_core::HybridRuntimeAckStatus::Rejected,
+                            bar_close_ts + 1,
+                        ),
+                    },
+                ],
+            },
+        )
+        .unwrap();
+        let mut event = stage5cj_order_event(
+            3,
+            tp_request_id,
+            BrokerOrderId::new("ORDER_TEST_ACK_0001"),
+            "working",
+            bar_close_ts + 2,
+        );
+        if let Stage5cPaperBrokerEventPayload::Order(order) = &mut event.payload {
+            order.attribution = Some(stage5cj_attribution_with_cycle("TP", "deadbeef01"));
+        }
+        assert_eq!(
+            resolve_stage5c_paper_broker_lifecycle(
+                resolved,
+                Stage5cPaperBrokerLifecycleInput {
+                    event_records: vec![event]
+                },
+            )
+            .expect_err("wrong HYB cycle must be blocked before source callback")
+            .reason(),
+            Stage5cPaperBrokerLifecycleError::AttributionCycleMismatch
         );
     }
 

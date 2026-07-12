@@ -9,8 +9,12 @@ or unresolved intent batches.
 It applies paper broker-state evidence for the already ACKed batch:
 
 - `Market` intents require a `Position` event;
-- `Place`, `Cancel` and `Replace` intents require an `Order` event;
-- `CreateStopLimit` and `DeleteStopLimit` intents require a `StopOrder` event.
+- `Place` entry/exit/protective intents require `Order` evidence and, after a
+  terminal fill, `Position` confirmation;
+- `Cancel` and `Replace` intents require an `Order` event;
+- `CreateStopLimit` intents require `StopOrder` evidence and, after trigger or
+  execution, `Position` confirmation;
+- `DeleteStopLimit` intents require a `StopOrder` event.
 - Market entry validates the resulting position direction against the intent
   side;
 - Market exit validates a nonzero previous position transitioning to flat.
@@ -31,10 +35,14 @@ Gates:
 - `Order` events must carry the exact request ID;
 - `BrokerOrderId` / `StopOrderId` mappings are checked where broker evidence
   provides the ID;
-- `Order` and `StopOrder` events must carry strategy-owned HYB attribution with
-  the expected action role;
+- `Order` and `StopOrder` events must carry source-compatible strategy-owned
+  HYB attribution with the expected action role and cycle;
+- marketable-limit `Place` entry/exit accepts `ENTRY`/`EXIT`, protective
+  `Place` accepts `TP`, and cleanup cancel/delete accepts original object
+  attribution instead of an artificial `CANCEL` role;
 - action-specific side, quantity, price, stop price and expiry fields must match
   the original escrowed intent;
+- unknown order/stop statuses are blocked before callback;
 - event instrument must match the admitted target instrument;
 - event timestamp must not predate the ACK timestamp;
 - deterministic event validation is completed before the first source callback
