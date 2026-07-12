@@ -13,10 +13,14 @@ Gates:
 - `remaining_lifecycle_expectations` must be empty;
 - any callback-generated batch from Stage 5C-j must be resolved before timer;
 - broker-truth expiry is rechecked;
-- timer timestamp must be monotonic against the resolved source-event range;
+- timer timestamp must be monotonic against the broker-lifecycle watermark,
+  including resolved intent source timestamps, ACK timestamps and applied
+  broker event timestamps;
 - context remains `TradeMode::Paper`, `allow_live_orders = false`;
 - timer callback-generated intents are captured as a no-send generated batch;
 - generated records use per-record `source_event_ts`;
+- generated cleanup attribution is captured before `on_broker_timer`, including
+  TP/SL protective IDs and pending-entry ENTRY attribution;
 - generated executable intents must still match final pending request state;
 - generated cleanup remains an explicit no-pending lifecycle;
 - nonzero timer output does not dispatch and must go through Stage 5C-g/i/j

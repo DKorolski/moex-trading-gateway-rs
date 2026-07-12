@@ -743,6 +743,7 @@ struct Stage5cPaperIntentRecord {
 struct Stage5cCleanupAttributionLedger {
     broker_orders: HashMap<BrokerOrderId, broker_core::HybridRuntimeAttribution>,
     stop_orders: HashMap<BrokerStopOrderId, broker_core::HybridRuntimeAttribution>,
+    pending_entry_attribution: Option<broker_core::HybridRuntimeAttribution>,
 }
 
 impl Stage5cPaperIntentBatch {
@@ -1282,6 +1283,7 @@ pub struct Stage5cBrokerLifecycleResolvedPaperStrategy {
     ack_outcomes: Vec<Stage5cPaperAckOutcome>,
     broker_event_count: usize,
     remaining_lifecycle_expectations: Vec<Stage5cPaperBrokerLifecycleExpectation>,
+    lifecycle_watermark_ts_utc: i64,
     generated_intent_batch: Option<Stage5cPaperIntentBatch>,
     settled_batch_history: Vec<Stage5cPaperIntentBatchSummary>,
 }
@@ -1386,6 +1388,10 @@ impl Stage5cPaperTimerBlocked {
     pub fn resolved(&self) -> &Stage5cBrokerLifecycleResolvedPaperStrategy {
         &self.resolved
     }
+    #[cfg(test)]
+    fn into_resolved(self) -> Stage5cBrokerLifecycleResolvedPaperStrategy {
+        self.resolved
+    }
 }
 
 #[derive(Debug)]
@@ -1399,6 +1405,13 @@ impl Stage5cPaperTimerFailure {
         match self {
             Self::Blocked(blocked) => blocked.reason(),
             Self::Terminal(reason) => *reason,
+        }
+    }
+    #[cfg(test)]
+    fn into_blocked(self) -> Option<Box<Stage5cPaperTimerBlocked>> {
+        match self {
+            Self::Blocked(blocked) => Some(blocked),
+            Self::Terminal(_) => None,
         }
     }
 }
@@ -1424,6 +1437,10 @@ impl std::fmt::Debug for Stage5cBrokerLifecycleResolvedPaperStrategy {
                 &self.resolved_batch_summary.bar_close_ts,
             )
             .field("broker_event_count", &self.broker_event_count)
+            .field(
+                "lifecycle_watermark_ts_utc",
+                &self.lifecycle_watermark_ts_utc,
+            )
             .field(
                 "remaining_lifecycle_expectation_count",
                 &self.remaining_lifecycle_expectations.len(),
@@ -1461,6 +1478,9 @@ impl Stage5cBrokerLifecycleResolvedPaperStrategy {
     }
     pub fn remaining_lifecycle_expectations(&self) -> &[Stage5cPaperBrokerLifecycleExpectation] {
         &self.remaining_lifecycle_expectations
+    }
+    pub fn lifecycle_watermark_ts_utc(&self) -> i64 {
+        self.lifecycle_watermark_ts_utc
     }
     pub fn generated_intent_count(&self) -> usize {
         self.generated_intent_batch
@@ -3228,6 +3248,8 @@ pub fn resolve_stage5c_paper_broker_lifecycle(
         .bootstrap_receipt()
         .admission;
     let broker_event_count = canonical_event_records.len();
+    let lifecycle_watermark_ts_utc =
+        stage5ck_lifecycle_watermark_ts_utc(&batch, &ack_outcomes, &canonical_event_records);
     let mut generated_intent_batch: Option<Stage5cPaperIntentBatch> = None;
     for record in canonical_event_records {
         let Some(_intent_record) = batch
@@ -3337,6 +3359,7 @@ pub fn resolve_stage5c_paper_broker_lifecycle(
         ack_outcomes,
         broker_event_count,
         remaining_lifecycle_expectations,
+        lifecycle_watermark_ts_utc,
         generated_intent_batch,
         settled_batch_history,
     })
@@ -3358,7 +3381,8 @@ pub fn resolve_stage5c_paper_timer(
             resolved,
         ));
     }
-    if input.now_ts_utc_ms.div_euclid(1_000) < resolved.resolved_batch_summary.max_source_event_ts {
+    let lifecycle_watermark_ts_utc_ms = resolved.lifecycle_watermark_ts_utc.saturating_mul(1_000);
+    if input.now_ts_utc_ms < lifecycle_watermark_ts_utc_ms {
         return Err(stage5ck_block(
             Stage5cPaperTimerError::NonMonotonicTimer,
             resolved,
@@ -3388,6 +3412,7 @@ pub fn resolve_stage5c_paper_timer(
         recovery_receipt,
         resolved_batch_summary,
         mut settled_batch_history,
+        lifecycle_watermark_ts_utc,
         ..
     } = resolved;
     let admission = &recovery_receipt
@@ -3396,7 +3421,9 @@ pub fn resolve_stage5c_paper_timer(
         .bootstrap_receipt()
         .admission;
     let timer_ts_utc = input.now_ts_utc_ms.div_euclid(1_000);
-    let context = stage5ck_timer_context(&strategy, admission, &resolved_batch_summary, input);
+    let cleanup_ledger =
+        stage5cj_cleanup_attribution_ledger(Strategy::state(&strategy), admission.strategy_id());
+    let context = stage5ck_timer_context(&strategy, admission, lifecycle_watermark_ts_utc, input);
     let intents = crate::BrokerNeutralHybridStrategy::on_broker_timer(
         &mut strategy,
         broker_core::HybridRuntimeCallbackInput {
@@ -3412,13 +3439,23 @@ pub fn resolve_stage5c_paper_timer(
     let generated_intent_batch = if intents.is_empty() {
         None
     } else {
+        let expected_attribution_by_request =
+            stage5cj_expected_generated_attribution_by_request_from_ledger(
+                admission,
+                timer_ts_utc,
+                &intents,
+                &cleanup_ledger,
+            )
+            .map_err(|_| {
+                Stage5cPaperTimerFailure::Terminal(Stage5cPaperTimerError::GeneratedIntentTerminal)
+            })?;
         let batch = stage5c_build_paper_intent_batch(
             &strategy,
             admission,
             timer_ts_utc,
             broker_core::HybridRuntimeBarOrigin::Live,
             intents,
-            &HashMap::new(),
+            &expected_attribution_by_request,
         )
         .map_err(|_| {
             Stage5cPaperTimerFailure::Terminal(Stage5cPaperTimerError::GeneratedIntentTerminal)
@@ -3453,7 +3490,7 @@ fn stage5ck_block(
 fn stage5ck_timer_context(
     strategy: &HybridIntradayRuntimeStrategy,
     admission: &Stage5cPaperHostAdmission,
-    resolved_batch_summary: &Stage5cPaperIntentBatchSummary,
+    lifecycle_watermark_ts_utc: i64,
     input: Stage5cPaperTimerInput,
 ) -> broker_core::HybridRuntimeStrategyContext {
     let timer_ts_utc = input.now_ts_utc_ms.div_euclid(1_000);
@@ -3469,8 +3506,26 @@ fn stage5ck_timer_context(
         position_qty: Some(strategy.stage5c_current_position_qty()),
         event_ts_utc: timer_ts_utc,
         strategy_now_ts_utc: timer_ts_utc,
-        last_bar_ts_utc: Some(resolved_batch_summary.max_source_event_ts),
+        last_bar_ts_utc: Some(lifecycle_watermark_ts_utc),
     }
+}
+
+fn stage5ck_lifecycle_watermark_ts_utc(
+    batch: &Stage5cPaperIntentBatch,
+    ack_outcomes: &[Stage5cPaperAckOutcome],
+    event_records: &[Stage5cPaperBrokerEventRecord],
+) -> i64 {
+    let mut watermark = batch.bar_close_ts();
+    for record in &batch.records {
+        watermark = watermark.max(record.source_event_ts);
+    }
+    for ack in ack_outcomes {
+        watermark = watermark.max(ack.processed_ts_utc);
+    }
+    for record in event_records {
+        watermark = watermark.max(record.payload.source_ts_utc());
+    }
+    watermark
 }
 
 fn stage5cj_block(
@@ -3896,6 +3951,8 @@ fn stage5cj_cleanup_attribution_ledger(
         tp_order_id,
         sl_stop_order_id,
         sl_exchange_order_id,
+        pending_entry_owner,
+        pending_entry_cycle_id,
         ..
     } = state
     else {
@@ -3928,6 +3985,12 @@ fn stage5cj_cleanup_attribution_ledger(
                 .insert(stop_order_id.clone(), attribution);
         }
     }
+    ledger.pending_entry_attribution = stage5cj_build_expected_attribution(
+        strategy_id,
+        pending_entry_cycle_id,
+        pending_entry_owner,
+        broker_core::HybridRuntimeOrderRole::Entry,
+    );
     ledger
 }
 
@@ -3936,9 +3999,11 @@ fn stage5cj_expected_cleanup_attribution_from_ledger(
     intent: &crate::BrokerNeutralHybridIntent,
 ) -> Option<broker_core::HybridRuntimeAttribution> {
     match intent.base_intent() {
-        crate::BrokerNeutralHybridIntent::Cancel { order_id } => {
-            ledger.broker_orders.get(order_id).cloned()
-        }
+        crate::BrokerNeutralHybridIntent::Cancel { order_id } => ledger
+            .broker_orders
+            .get(order_id)
+            .cloned()
+            .or_else(|| ledger.pending_entry_attribution.clone()),
         crate::BrokerNeutralHybridIntent::DeleteStopLimit { order_id, .. } => {
             ledger.stop_orders.get(order_id).cloned()
         }
@@ -9008,6 +9073,35 @@ mod bootstrap_notification_tests {
         .expect("cleanup generated intents do not require final pending state");
     }
 
+    fn stage5ck_clean_broker_resolved_at(
+        ack_ts_utc: i64,
+        position_ts_utc: i64,
+    ) -> (Stage5cBrokerLifecycleResolvedPaperStrategy, i64) {
+        let (settled, request_id, bar_close_ts) = stage5ci_exit_settled();
+        let resolved = resolve_stage5c_paper_intent_lifecycle(
+            settled,
+            Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![Stage5cPaperAckRecord {
+                    total_sequence: 1,
+                    ack: stage5ci_ack_with(
+                        request_id,
+                        broker_core::HybridRuntimeAckStatus::Accepted,
+                        ack_ts_utc,
+                    ),
+                }],
+            },
+        )
+        .unwrap();
+        let broker_resolved = resolve_stage5c_paper_broker_lifecycle(
+            resolved,
+            Stage5cPaperBrokerLifecycleInput {
+                event_records: vec![stage5cj_position_event(2, request_id, 0.0, position_ts_utc)],
+            },
+        )
+        .unwrap();
+        (broker_resolved, bar_close_ts)
+    }
+
     fn stage5ck_clean_broker_resolved() -> (Stage5cBrokerLifecycleResolvedPaperStrategy, i64) {
         let (settled, request_id, bar_close_ts) = stage5ci_exit_settled();
         let resolved = resolve_stage5c_paper_intent_lifecycle(
@@ -9046,6 +9140,67 @@ mod bootstrap_notification_tests {
         assert!(!timer.intent_sink_attached());
         assert!(!timer.broker_transport_attached());
         assert!(!timer.redis_command_stream_attached());
+    }
+
+    #[test]
+    fn stage5ck_timer_clock_is_bound_to_lifecycle_watermark() {
+        let (broker_resolved, bar_close_ts) = stage5ck_clean_broker_resolved();
+        assert_eq!(
+            broker_resolved.lifecycle_watermark_ts_utc(),
+            bar_close_ts + 2
+        );
+        let blocked = resolve_stage5c_paper_timer(
+            broker_resolved,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: (bar_close_ts + 1) * 1_000,
+            },
+        )
+        .expect_err("timer before latest PositionEvent must be blocked")
+        .into_blocked()
+        .expect("non-monotonic timer preserves broker-resolved type-state");
+        assert_eq!(blocked.reason(), Stage5cPaperTimerError::NonMonotonicTimer);
+        let broker_resolved = blocked.into_resolved();
+        assert_eq!(
+            broker_resolved.lifecycle_watermark_ts_utc(),
+            bar_close_ts + 2
+        );
+
+        let timer = resolve_stage5c_paper_timer(
+            broker_resolved,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: (bar_close_ts + 2) * 1_000,
+            },
+        )
+        .expect("timer exactly at lifecycle watermark is allowed");
+        assert_eq!(timer.generated_intent_count(), 0);
+
+        let (broker_resolved, bar_close_ts) =
+            stage5ck_clean_broker_resolved_at(bar_close_ts + 5, bar_close_ts + 5);
+        assert_eq!(
+            broker_resolved.lifecycle_watermark_ts_utc(),
+            bar_close_ts + 5
+        );
+        assert_eq!(
+            resolve_stage5c_paper_timer(
+                broker_resolved,
+                Stage5cPaperTimerInput {
+                    now_ts_utc_ms: (bar_close_ts + 4) * 1_000,
+                },
+            )
+            .expect_err("timer before latest ACK/event timestamp must be blocked")
+            .reason(),
+            Stage5cPaperTimerError::NonMonotonicTimer
+        );
+
+        let (broker_resolved, bar_close_ts) = stage5ck_clean_broker_resolved();
+        let timer = resolve_stage5c_paper_timer(
+            broker_resolved,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: (bar_close_ts + 10) * 1_000,
+            },
+        )
+        .expect("timer later than lifecycle watermark is allowed");
+        assert_eq!(timer.generated_intent_count(), 0);
     }
 
     #[test]
@@ -9267,6 +9422,60 @@ mod bootstrap_notification_tests {
                 })
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn stage5ck_partial_entry_cleanup_uses_pending_entry_attribution() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered_until(
+            now,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
+                .single()
+                .unwrap(),
+        );
+        let (mut strategy, receipt) = recovered.into_parts();
+        let strategy_id = receipt
+            .warmup_receipt()
+            .restore_receipt()
+            .bootstrap_receipt()
+            .admission
+            .strategy_id()
+            .to_string();
+        let mut state = Strategy::state(&strategy).clone();
+        match &mut state {
+            StrategyState::HybridIntradayRuntime {
+                pending_entry_owner,
+                pending_entry_side,
+                pending_entry_cycle_id,
+                pending_entry_request_id,
+                ..
+            } => {
+                *pending_entry_owner = Some(crate::hybrid_intraday::Owner::MeanReversion);
+                *pending_entry_side = Some(crate::hybrid_intraday::Side::Long);
+                *pending_entry_cycle_id = Some("abc1230001".to_string());
+                *pending_entry_request_id =
+                    Some(StrategyRequestId::from(uuid::Uuid::from_u128(0x5c0ffee)));
+            }
+            StrategyState::Idle => panic!("expected hybrid runtime state"),
+        }
+        Strategy::set_state(&mut strategy, state);
+
+        let ledger = stage5cj_cleanup_attribution_ledger(Strategy::state(&strategy), &strategy_id);
+        let cancel_entry = crate::BrokerNeutralHybridIntent::Cancel {
+            order_id: BrokerOrderId::new("ENTRY_WORKING_ORDER_TEST_0001"),
+        }
+        .with_class(crate::BrokerNeutralHybridIntentClass::CancelCleanup);
+        let attribution = stage5cj_expected_cleanup_attribution_from_ledger(&ledger, &cancel_entry)
+            .expect("pending-entry cleanup cancel receives exact ENTRY attribution");
+        assert_eq!(attribution.strategy_id(), strategy_id);
+        assert_eq!(attribution.cycle_id(), "abc1230001");
+        assert_eq!(
+            attribution.role(),
+            Some(broker_core::HybridRuntimeOrderRole::Entry)
         );
     }
 
