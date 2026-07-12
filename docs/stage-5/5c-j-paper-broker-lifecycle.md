@@ -66,6 +66,11 @@ Gates:
   state, and generated batch summaries are appended to existing settled history;
 - generated summaries expose `min_source_event_ts` and `max_source_event_ts` so
   multi-callback evidence does not pretend to have a single creation timestamp;
+- generated summaries also expose `origin_bar_close_ts` as an explicit alias for
+  the legacy `bar_close_ts` field while existing consumers are migrated;
+- executable generated intents (`Entry`, `Exit`, `ProtectiveRepair`) are
+  accepted only if the final post-callback state still contains the matching
+  pending request ID; cleanup intents remain an explicit no-pending lifecycle;
 - cleanup attribution for callback-generated intents is captured from the
   pre-callback TP/SL ledger before the wrapper removes broker object IDs;
 - semantic-bar-generated cleanup attribution is also captured before

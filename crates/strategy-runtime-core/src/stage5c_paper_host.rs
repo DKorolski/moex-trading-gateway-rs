@@ -720,6 +720,7 @@ pub struct Stage5cPaperIntentBatchSummary {
     pub strategy_id: String,
     pub account_id: BrokerAccountId,
     pub instrument: InstrumentId,
+    pub origin_bar_close_ts: i64,
     pub bar_close_ts: i64,
     pub min_source_event_ts: i64,
     pub max_source_event_ts: i64,
@@ -2729,6 +2730,7 @@ fn stage5ch_batch_summary(batch: &Stage5cPaperIntentBatch) -> Stage5cPaperIntent
         strategy_id: batch.strategy_id.clone(),
         account_id: batch.account_id.clone(),
         instrument: batch.instrument.clone(),
+        origin_bar_close_ts: batch.bar_close_ts,
         bar_close_ts: batch.bar_close_ts,
         min_source_event_ts,
         max_source_event_ts,
@@ -3185,6 +3187,15 @@ pub fn resolve_stage5c_paper_broker_lifecycle(
         }
     }
     if let Some(generated_batch) = &mut generated_intent_batch {
+        stage5cj_verify_generated_batch_final_pending_consistency(
+            Strategy::state(&strategy),
+            generated_batch,
+        )
+        .map_err(|_| {
+            Stage5cPaperBrokerLifecycleFailure::Terminal(
+                Stage5cPaperBrokerLifecycleError::CallbackGeneratedIntentTerminal,
+            )
+        })?;
         generated_batch.state_fingerprint = stage5c_state_fingerprint(Strategy::state(&strategy));
         settled_batch_history.push(stage5ch_batch_summary(generated_batch));
     }
@@ -3229,6 +3240,16 @@ fn stage5cj_merge_generated_batch(
     existing.bar_close_ts = existing.bar_close_ts.min(next.bar_close_ts);
     existing.request_ids.append(&mut next.request_ids);
     existing.records.append(&mut next.records);
+    Ok(())
+}
+
+fn stage5cj_verify_generated_batch_final_pending_consistency(
+    final_state: &StrategyState,
+    generated_batch: &Stage5cPaperIntentBatch,
+) -> Result<(), Stage5cIntentSettlementError> {
+    for record in &generated_batch.records {
+        stage5cg_verify_pending_request_id(final_state, record.intent_class, record.request_id)?;
+    }
     Ok(())
 }
 
@@ -8635,6 +8656,96 @@ mod bootstrap_notification_tests {
         )
         .expect("generated ACK lifecycle must use final fingerprint and per-record source ts");
         assert_eq!(generated_ack_resolved.ack_outcomes().len(), 2);
+    }
+
+    #[test]
+    fn stage5cj_generated_executable_intents_require_final_pending_state() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered_until(
+            now,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
+                .single()
+                .unwrap(),
+        );
+        let (strategy, receipt) = recovered.into_parts();
+        let admission = &receipt
+            .warmup_receipt()
+            .restore_receipt()
+            .bootstrap_receipt()
+            .admission;
+        let source_ts = now.timestamp() + 600;
+        let exit_request_id = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "market",
+            source_ts,
+            4,
+        );
+        let cleanup_request_id = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "cancel:TP_ORDER_TEST_0001",
+            source_ts,
+            1,
+        );
+        let exit_batch = Stage5cPaperIntentBatch {
+            strategy_id: admission.strategy_id().to_string(),
+            account_id: admission.account_id().clone(),
+            instrument: admission.target_instrument().clone(),
+            bar_close_ts: source_ts,
+            state_fingerprint: stage5c_state_fingerprint(Strategy::state(&strategy)),
+            request_ids: vec![exit_request_id],
+            records: vec![Stage5cPaperIntentRecord {
+                request_id: exit_request_id,
+                source_event_ts: source_ts,
+                intent_class: crate::BrokerNeutralHybridIntentClass::Exit,
+                intent: stage5cg_market_intent(
+                    crate::BrokerNeutralOrderSide::Sell,
+                    crate::BrokerNeutralHybridIntentClass::Exit,
+                ),
+                expected_attribution: None,
+            }],
+            observation_only: false,
+        };
+        assert_eq!(
+            stage5cj_verify_generated_batch_final_pending_consistency(
+                Strategy::state(&strategy),
+                &exit_batch,
+            )
+            .expect_err("executable generated exit without final pending state must block"),
+            Stage5cIntentSettlementError::MissingPendingRequest
+        );
+
+        let cleanup_batch = Stage5cPaperIntentBatch {
+            strategy_id: admission.strategy_id().to_string(),
+            account_id: admission.account_id().clone(),
+            instrument: admission.target_instrument().clone(),
+            bar_close_ts: source_ts,
+            state_fingerprint: stage5c_state_fingerprint(Strategy::state(&strategy)),
+            request_ids: vec![cleanup_request_id],
+            records: vec![Stage5cPaperIntentRecord {
+                request_id: cleanup_request_id,
+                source_event_ts: source_ts,
+                intent_class: crate::BrokerNeutralHybridIntentClass::CancelCleanup,
+                intent: crate::BrokerNeutralHybridIntent::Cancel {
+                    order_id: BrokerOrderId::new("TP_ORDER_TEST_0001"),
+                }
+                .with_class(crate::BrokerNeutralHybridIntentClass::CancelCleanup)
+                .with_symbol("IMOEXF"),
+                expected_attribution: None,
+            }],
+            observation_only: false,
+        };
+        stage5cj_verify_generated_batch_final_pending_consistency(
+            Strategy::state(&strategy),
+            &cleanup_batch,
+        )
+        .expect("cleanup generated intents do not require final pending state");
     }
 
     #[test]
