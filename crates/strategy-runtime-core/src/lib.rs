@@ -47,6 +47,7 @@ pub use runtime_compat::{
 pub use stage5c_paper_host::{
     accept_stage5c_history_batch, accept_stage5c_pending_recovery_evidence,
     accept_stage5c_semantic_bar, admit_stage5c_paper_host, advance_stage5c_controlled_next_bar,
+    advance_stage5c_timer_settlement_next_bar, advance_stage5c_timer_settlement_timer,
     apply_stage5c_semantic_bar, notify_stage5c_bootstrap, notify_stage5c_runtime_state_restored,
     prepare_stage5c_without_runtime_state, prove_stage5c_pending_recovery_claim,
     recover_stage5c_pending_streams, resolve_stage5c_paper_broker_lifecycle,
@@ -76,7 +77,8 @@ pub use stage5c_paper_host::{
     Stage5cRuntimeStateRestoreError, Stage5cRuntimeStateRestoreInput,
     Stage5cRuntimeStateRestoreReceipt, Stage5cRuntimeStateRestoredPaperStrategy,
     Stage5cSemanticBarError, Stage5cSemanticBarInput, Stage5cSemanticBarResult,
-    Stage5cSettledPaperStrategy, Stage5cTimerResolvedPaperStrategy, Stage5cTimerSettlement,
+    Stage5cSettledPaperStrategy, Stage5cTimerContinuationBlocked, Stage5cTimerContinuationError,
+    Stage5cTimerContinuationFailure, Stage5cTimerResolvedPaperStrategy, Stage5cTimerSettlement,
     Stage5cWarmedPaperStrategy, STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION,
     STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION,
 };

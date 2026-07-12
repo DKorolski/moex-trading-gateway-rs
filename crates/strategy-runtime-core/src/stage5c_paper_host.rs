@@ -1415,6 +1415,84 @@ impl Stage5cTimerSettlement {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5cTimerContinuationError {
+    GeneratedIntentBatchRequiresLifecycle,
+    NonMonotonicTimer,
+    BrokerTruthExpired,
+    CallbackValidationFailed,
+    GeneratedIntentTerminal,
+    NextBar(Stage5cNextBarLoopError),
+}
+
+pub struct Stage5cTimerContinuationBlocked {
+    reason: Stage5cTimerContinuationError,
+    settlement: Stage5cTimerSettlement,
+}
+
+impl Stage5cTimerContinuationBlocked {
+    pub fn reason(&self) -> Stage5cTimerContinuationError {
+        self.reason
+    }
+    pub fn settlement(&self) -> &Stage5cTimerSettlement {
+        &self.settlement
+    }
+    pub fn into_settlement(self) -> Stage5cTimerSettlement {
+        self.settlement
+    }
+}
+
+impl std::fmt::Debug for Stage5cTimerContinuationBlocked {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Stage5cTimerContinuationBlocked")
+            .field("reason", &self.reason)
+            .field(
+                "checkpoint_ts",
+                &self.settlement.settled().intent_batch().bar_close_ts(),
+            )
+            .field(
+                "intent_count",
+                &self.settlement.settled().intent_batch().intent_count(),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug)]
+pub enum Stage5cTimerContinuationFailure {
+    Blocked(Box<Stage5cTimerContinuationBlocked>),
+    Terminal(Stage5cTimerContinuationError),
+}
+
+impl Stage5cTimerContinuationFailure {
+    pub fn reason(&self) -> Stage5cTimerContinuationError {
+        match self {
+            Self::Blocked(blocked) => blocked.reason(),
+            Self::Terminal(reason) => *reason,
+        }
+    }
+    pub fn into_blocked(self) -> Option<Stage5cTimerContinuationBlocked> {
+        match self {
+            Self::Blocked(blocked) => Some(*blocked),
+            Self::Terminal(_) => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Stage5cTimerContinuationFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "Stage 5C timer continuation failed: {:?}",
+            self.reason()
+        )
+    }
+}
+
+impl std::error::Error for Stage5cTimerContinuationFailure {}
+
 pub struct Stage5cPaperTimerBlocked {
     reason: Stage5cPaperTimerError,
     resolved: Stage5cBrokerLifecycleResolvedPaperStrategy,
@@ -3568,6 +3646,44 @@ pub fn settle_stage5c_timer_result(
     }
 }
 
+pub fn advance_stage5c_timer_settlement_next_bar(
+    settlement: Stage5cTimerSettlement,
+    accepted: Stage5cAcceptedSemanticBar,
+) -> Result<Stage5cSettledPaperStrategy, Stage5cTimerContinuationFailure> {
+    advance_stage5c_timer_settlement_next_bar_at(settlement, accepted, Utc::now())
+}
+
+fn advance_stage5c_timer_settlement_next_bar_at(
+    settlement: Stage5cTimerSettlement,
+    accepted: Stage5cAcceptedSemanticBar,
+    now: DateTime<Utc>,
+) -> Result<Stage5cSettledPaperStrategy, Stage5cTimerContinuationFailure> {
+    let Stage5cTimerSettlement::ReadyForContinuation(settled) = settlement else {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::GeneratedIntentBatchRequiresLifecycle,
+            settlement,
+        ));
+    };
+    advance_stage5c_controlled_next_bar_at(settled, accepted, now).map_err(|failure| {
+        Stage5cTimerContinuationFailure::Terminal(Stage5cTimerContinuationError::NextBar(
+            failure.reason(),
+        ))
+    })
+}
+
+pub fn advance_stage5c_timer_settlement_timer(
+    settlement: Stage5cTimerSettlement,
+    input: Stage5cPaperTimerInput,
+) -> Result<Stage5cTimerResolvedPaperStrategy, Stage5cTimerContinuationFailure> {
+    let Stage5cTimerSettlement::ReadyForContinuation(settled) = settlement else {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::GeneratedIntentBatchRequiresLifecycle,
+            settlement,
+        ));
+    };
+    stage5cm_advance_timer_from_settled(settled, input)
+}
+
 fn stage5ck_block(
     reason: Stage5cPaperTimerError,
     resolved: Stage5cBrokerLifecycleResolvedPaperStrategy,
@@ -3638,6 +3754,132 @@ fn stage5cl_zero_timer_batch(
         records: Vec::new(),
         observation_only: resolved_batch_summary.observation_only,
     }
+}
+
+fn stage5cm_block(
+    reason: Stage5cTimerContinuationError,
+    settlement: Stage5cTimerSettlement,
+) -> Stage5cTimerContinuationFailure {
+    Stage5cTimerContinuationFailure::Blocked(Box::new(Stage5cTimerContinuationBlocked {
+        reason,
+        settlement,
+    }))
+}
+
+fn stage5cm_advance_timer_from_settled(
+    settled: Stage5cSettledPaperStrategy,
+    input: Stage5cPaperTimerInput,
+) -> Result<Stage5cTimerResolvedPaperStrategy, Stage5cTimerContinuationFailure> {
+    if settled.batch.intent_count() > 0 {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::GeneratedIntentBatchRequiresLifecycle,
+            Stage5cTimerSettlement::GeneratedIntentBatch(settled),
+        ));
+    }
+    let checkpoint_ts_utc_ms = settled.batch.bar_close_ts().saturating_mul(1_000);
+    if input.now_ts_utc_ms <= checkpoint_ts_utc_ms {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::NonMonotonicTimer,
+            Stage5cTimerSettlement::ReadyForContinuation(settled),
+        ));
+    }
+    let Some(timer_now) = Utc.timestamp_millis_opt(input.now_ts_utc_ms).single() else {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::BrokerTruthExpired,
+            Stage5cTimerSettlement::ReadyForContinuation(settled),
+        ));
+    };
+    if timer_now
+        > settled
+            .recovery_receipt
+            .warmup_receipt()
+            .restore_receipt()
+            .bootstrap_receipt()
+            .expires_at()
+    {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::BrokerTruthExpired,
+            Stage5cTimerSettlement::ReadyForContinuation(settled),
+        ));
+    }
+    let Stage5cSettledPaperStrategy {
+        mut strategy,
+        recovery_receipt,
+        batch,
+        mut settled_batch_history,
+    } = settled;
+    let admission = &recovery_receipt
+        .warmup_receipt()
+        .restore_receipt()
+        .bootstrap_receipt()
+        .admission;
+    let timer_ts_utc = input.now_ts_utc_ms.div_euclid(1_000);
+    let cleanup_ledger =
+        stage5cj_cleanup_attribution_ledger(Strategy::state(&strategy), admission.strategy_id());
+    let context = stage5ck_timer_context(&strategy, admission, batch.bar_close_ts(), input);
+    let intents = crate::BrokerNeutralHybridStrategy::on_broker_timer(
+        &mut strategy,
+        broker_core::HybridRuntimeCallbackInput {
+            context,
+            payload: broker_core::HybridRuntimeTimerEvent {
+                now_ts_utc_ms: input.now_ts_utc_ms,
+            },
+        },
+    )
+    .map_err(|_| {
+        Stage5cTimerContinuationFailure::Terminal(
+            Stage5cTimerContinuationError::CallbackValidationFailed,
+        )
+    })?;
+    let generated_intent_batch = if intents.is_empty() {
+        None
+    } else {
+        let expected_attribution_by_request =
+            stage5cj_expected_generated_attribution_by_request_from_ledger(
+                admission,
+                timer_ts_utc,
+                &intents,
+                &cleanup_ledger,
+            )
+            .map_err(|_| {
+                Stage5cTimerContinuationFailure::Terminal(
+                    Stage5cTimerContinuationError::GeneratedIntentTerminal,
+                )
+            })?;
+        let generated_batch = stage5c_build_paper_intent_batch(
+            &strategy,
+            admission,
+            timer_ts_utc,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            intents,
+            &expected_attribution_by_request,
+        )
+        .map_err(|_| {
+            Stage5cTimerContinuationFailure::Terminal(
+                Stage5cTimerContinuationError::GeneratedIntentTerminal,
+            )
+        })?;
+        stage5cj_verify_generated_batch_final_pending_consistency(
+            Strategy::state(&strategy),
+            &generated_batch,
+        )
+        .map_err(|_| {
+            Stage5cTimerContinuationFailure::Terminal(
+                Stage5cTimerContinuationError::GeneratedIntentTerminal,
+            )
+        })?;
+        settled_batch_history.push(stage5ch_batch_summary(&generated_batch));
+        Some(generated_batch)
+    };
+    let resolved_batch_summary = stage5ch_batch_summary(&batch);
+    Ok(Stage5cTimerResolvedPaperStrategy {
+        strategy,
+        recovery_receipt,
+        resolved_batch_summary,
+        timer_ts_utc_ms: input.now_ts_utc_ms,
+        generated_intent_batch,
+        settled_batch_history,
+    })
 }
 
 fn stage5cj_block(
@@ -9682,6 +9924,109 @@ mod bootstrap_notification_tests {
         )
         .expect("timer-generated batch reuses the Stage 5C-i ACK lifecycle");
         assert_eq!(resolved.resolved_batch_summary().intent_count, 1);
+    }
+
+    #[test]
+    fn stage5cm_ready_checkpoint_can_continue_to_timer_or_bar_once() {
+        let (broker_resolved, bar_close_ts) = stage5ck_clean_broker_resolved();
+        let timer_ts_utc = bar_close_ts + 10;
+        let first_timer = resolve_stage5c_paper_timer(
+            broker_resolved,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: timer_ts_utc * 1_000,
+            },
+        )
+        .unwrap();
+        let ready = settle_stage5c_timer_result(first_timer);
+        let second_timer = advance_stage5c_timer_settlement_timer(
+            ready,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: (timer_ts_utc + 1) * 1_000,
+            },
+        )
+        .expect("ready timer checkpoint may advance to one later timer");
+        assert_eq!(second_timer.generated_intent_count(), 0);
+
+        let (broker_resolved, bar_close_ts) = stage5ck_clean_broker_resolved();
+        let timer_ts_utc = bar_close_ts + 10;
+        let first_timer = resolve_stage5c_paper_timer(
+            broker_resolved,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: timer_ts_utc * 1_000,
+            },
+        )
+        .unwrap();
+        let ready = settle_stage5c_timer_result(first_timer);
+        let next_close_ts = bar_close_ts + 600;
+        let advanced = advance_stage5c_timer_settlement_next_bar_at(
+            ready,
+            accept_stage5c_semantic_bar(semantic_input(next_close_ts)).unwrap(),
+            Utc.timestamp_opt(next_close_ts + 30, 0).single().unwrap(),
+        )
+        .expect("ready timer checkpoint may advance to one later bar");
+        assert_eq!(advanced.intent_batch().bar_close_ts(), next_close_ts);
+    }
+
+    #[test]
+    fn stage5cm_generated_timer_batch_blocks_continuation_until_lifecycle() {
+        let (settled, _, bar_close_ts) = stage5ci_exit_settled();
+        let Stage5cSettledPaperStrategy {
+            strategy,
+            recovery_receipt,
+            batch,
+            settled_batch_history,
+        } = settled;
+        let timer = Stage5cTimerResolvedPaperStrategy {
+            strategy,
+            recovery_receipt,
+            resolved_batch_summary: stage5ch_batch_summary(&batch),
+            timer_ts_utc_ms: (bar_close_ts + 10) * 1_000,
+            generated_intent_batch: Some(batch),
+            settled_batch_history,
+        };
+        let generated = settle_stage5c_timer_result(timer);
+        assert_eq!(
+            advance_stage5c_timer_settlement_next_bar(
+                generated,
+                accept_stage5c_semantic_bar(semantic_input(bar_close_ts + 600)).unwrap(),
+            )
+            .expect_err("generated timer batch cannot advance directly to next bar")
+            .reason(),
+            Stage5cTimerContinuationError::GeneratedIntentBatchRequiresLifecycle
+        );
+
+        let (settled, _, bar_close_ts) = stage5ci_exit_settled();
+        let Stage5cSettledPaperStrategy {
+            strategy,
+            recovery_receipt,
+            batch,
+            settled_batch_history,
+        } = settled;
+        let timer = Stage5cTimerResolvedPaperStrategy {
+            strategy,
+            recovery_receipt,
+            resolved_batch_summary: stage5ch_batch_summary(&batch),
+            timer_ts_utc_ms: (bar_close_ts + 10) * 1_000,
+            generated_intent_batch: Some(batch),
+            settled_batch_history,
+        };
+        let generated = settle_stage5c_timer_result(timer);
+        let blocked = advance_stage5c_timer_settlement_timer(
+            generated,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: (bar_close_ts + 11) * 1_000,
+            },
+        )
+        .expect_err("generated timer batch cannot advance directly to another timer");
+        assert_eq!(
+            blocked.reason(),
+            Stage5cTimerContinuationError::GeneratedIntentBatchRequiresLifecycle
+        );
+        assert!(blocked
+            .into_blocked()
+            .expect("blocked generated batch preserves settlement")
+            .settlement()
+            .is_generated_intent_batch());
     }
 
     #[test]
