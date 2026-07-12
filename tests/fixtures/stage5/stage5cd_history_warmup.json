@@ -5,6 +5,15 @@
   "consumes": "Stage5cRuntimeStateRestoredPaperStrategy",
   "produces": "Stage5cWarmedPaperStrategy",
   "freshness_rechecked": true,
+  "opaque_stage3_accepted_batch_required": true,
+  "stage3_gate": "evaluate_stage3_strategy_input_gate",
+  "finam_provenance": {
+    "source_mode": "finam_derived_m1_to_m10",
+    "source_timeframe_sec": 60,
+    "target_timeframe_sec": 600,
+    "aggregation_complete": true,
+    "gap_absence_proven": true
+  },
   "timestamp_order": [
     "checked",
     "issued",
@@ -19,6 +28,8 @@
     "exact_target_instrument": true,
     "strictly_chronological": true,
     "duplicate_timestamps_allowed": false,
+    "future_timestamps_allowed": false,
+    "timestamps_representable_in_utc": true,
     "ohlc_validated": true,
     "volume_validated": true
   },

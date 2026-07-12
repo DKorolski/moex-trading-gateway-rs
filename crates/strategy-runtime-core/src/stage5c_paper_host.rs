@@ -342,8 +342,17 @@ impl Stage5cRuntimeStateRestoredPaperStrategy {
     }
 }
 
-pub struct Stage5cHistoryWarmupInput {
+pub struct Stage5cHistoryBatchInput {
     pub bars: Vec<broker_core::HybridRuntimeBarEvent>,
+    pub provenance: broker_core::Stage3StrategyBarProvenance,
+}
+
+pub struct Stage5cAcceptedHistoryBatch {
+    bars: Vec<broker_core::HybridRuntimeBarEvent>,
+    provenance: broker_core::Stage3StrategyBarProvenance,
+    instrument: InstrumentId,
+    start_ts: i64,
+    end_ts: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -361,6 +370,9 @@ pub enum Stage5cHistoryWarmupError {
     InvalidOhlc,
     InvalidVolume,
     NoEligibleHistoryBars,
+    Stage3ProvenanceRejected,
+    FutureHistoryBar,
+    InvalidHistoryTimestamp,
 }
 
 impl std::fmt::Display for Stage5cHistoryWarmupError {
@@ -375,6 +387,8 @@ pub struct Stage5cHistoryWarmupReceipt {
     restore_receipt: Stage5cRuntimeStateRestoreReceipt,
     started_ts: DateTime<Utc>,
     processed_bars: usize,
+    input_bars: usize,
+    source_mode: broker_core::Stage3StrategyBarSourceMode,
 }
 
 impl Stage5cHistoryWarmupReceipt {
@@ -388,6 +402,18 @@ impl Stage5cHistoryWarmupReceipt {
 
     pub fn processed_bars(&self) -> usize {
         self.processed_bars
+    }
+
+    pub fn input_bars(&self) -> usize {
+        self.input_bars
+    }
+
+    pub fn skipped_bars(&self) -> usize {
+        self.input_bars.saturating_sub(self.processed_bars)
+    }
+
+    pub fn source_mode(&self) -> broker_core::Stage3StrategyBarSourceMode {
+        self.source_mode
     }
 
     pub fn warmup_started(&self) -> bool {
@@ -1026,39 +1052,16 @@ fn validate_post_bootstrap_broker_truth(
     }
 }
 
-pub fn warmup_stage5c_history(
-    restored: Stage5cRuntimeStateRestoredPaperStrategy,
-    input: Stage5cHistoryWarmupInput,
-) -> Result<Stage5cWarmedPaperStrategy, Stage5cHistoryWarmupError> {
-    warmup_stage5c_history_at(restored, input, Utc::now())
-}
-
-fn warmup_stage5c_history_at(
-    restored: Stage5cRuntimeStateRestoredPaperStrategy,
-    input: Stage5cHistoryWarmupInput,
-    warmup_now: DateTime<Utc>,
-) -> Result<Stage5cWarmedPaperStrategy, Stage5cHistoryWarmupError> {
-    let (mut strategy, restore_receipt) = restored.into_parts();
-    let bootstrap_receipt = restore_receipt.bootstrap_receipt();
-    let admission = &bootstrap_receipt.admission;
-    if warmup_now > bootstrap_receipt.expires_at() {
-        return Err(Stage5cHistoryWarmupError::BrokerTruthExpired);
-    }
-    if !(admission.checked_ts() <= admission.issued_ts()
-        && admission.issued_ts() <= bootstrap_receipt.notified_ts()
-        && bootstrap_receipt.notified_ts() <= restore_receipt.restored_ts()
-        && restore_receipt.restored_ts() <= warmup_now)
-    {
-        return Err(Stage5cHistoryWarmupError::LifecycleTimestampReversal);
-    }
+pub fn accept_stage5c_history_batch(
+    input: Stage5cHistoryBatchInput,
+) -> Result<Stage5cAcceptedHistoryBatch, Stage5cHistoryWarmupError> {
     if input.bars.is_empty() {
         return Err(Stage5cHistoryWarmupError::EmptyHistory);
     }
-
+    let instrument = input.bars[0].instrument.clone();
     let mut previous_close_ts = None;
-    let mut bars = Vec::with_capacity(input.bars.len());
-    for bar in input.bars {
-        if bar.instrument != *admission.target_instrument() {
+    for bar in &input.bars {
+        if bar.instrument != instrument {
             return Err(Stage5cHistoryWarmupError::InstrumentMismatch);
         }
         if bar.timeframe_sec != 600 {
@@ -1073,6 +1076,11 @@ fn warmup_stage5c_history_at(
         if bar.close_time_utc.rem_euclid(600) != 0 {
             return Err(Stage5cHistoryWarmupError::UnalignedTimestamp);
         }
+        let close_ts = DateTime::<Utc>::from_timestamp(bar.close_time_utc, 0)
+            .ok_or(Stage5cHistoryWarmupError::InvalidHistoryTimestamp)?;
+        let open_ts = close_ts
+            .checked_sub_signed(chrono::Duration::seconds(600))
+            .ok_or(Stage5cHistoryWarmupError::InvalidHistoryTimestamp)?;
         if previous_close_ts.is_some_and(|previous| bar.close_time_utc <= previous) {
             return Err(Stage5cHistoryWarmupError::NonMonotonicTimestamp);
         }
@@ -1089,6 +1097,65 @@ fn warmup_stage5c_history_at(
         if !bar.volume.is_finite() || bar.volume < 0.0 {
             return Err(Stage5cHistoryWarmupError::InvalidVolume);
         }
+        let stage3_bar = broker_core::event::Bar {
+            instrument: bar.instrument.clone(),
+            source_kind: broker_core::MarketDataSourceKind::HistoricalPoll,
+            timeframe_sec: bar.timeframe_sec,
+            open_ts,
+            close_ts,
+            open: rust_decimal::Decimal::ZERO,
+            high: rust_decimal::Decimal::ZERO,
+            low: rust_decimal::Decimal::ZERO,
+            close: rust_decimal::Decimal::ZERO,
+            volume: rust_decimal::Decimal::ZERO,
+            is_final: bar.is_final,
+        };
+        if !broker_core::evaluate_stage3_strategy_input_gate(&stage3_bar, &input.provenance)
+            .accepted
+        {
+            return Err(Stage5cHistoryWarmupError::Stage3ProvenanceRejected);
+        }
+    }
+    Ok(Stage5cAcceptedHistoryBatch {
+        start_ts: input.bars[0].close_time_utc,
+        end_ts: input.bars.last().expect("non-empty history").close_time_utc,
+        bars: input.bars,
+        provenance: input.provenance,
+        instrument,
+    })
+}
+
+pub fn warmup_stage5c_history(
+    restored: Stage5cRuntimeStateRestoredPaperStrategy,
+    history: Stage5cAcceptedHistoryBatch,
+) -> Result<Stage5cWarmedPaperStrategy, Stage5cHistoryWarmupError> {
+    warmup_stage5c_history_at(restored, history, Utc::now())
+}
+
+fn warmup_stage5c_history_at(
+    restored: Stage5cRuntimeStateRestoredPaperStrategy,
+    history: Stage5cAcceptedHistoryBatch,
+    warmup_now: DateTime<Utc>,
+) -> Result<Stage5cWarmedPaperStrategy, Stage5cHistoryWarmupError> {
+    let (mut strategy, restore_receipt) = restored.into_parts();
+    let bootstrap_receipt = restore_receipt.bootstrap_receipt();
+    let admission = &bootstrap_receipt.admission;
+    if warmup_now > bootstrap_receipt.expires_at() {
+        return Err(Stage5cHistoryWarmupError::BrokerTruthExpired);
+    }
+    if !(admission.checked_ts() <= admission.issued_ts()
+        && admission.issued_ts() <= bootstrap_receipt.notified_ts()
+        && bootstrap_receipt.notified_ts() <= restore_receipt.restored_ts()
+        && restore_receipt.restored_ts() <= warmup_now)
+    {
+        return Err(Stage5cHistoryWarmupError::LifecycleTimestampReversal);
+    }
+    validate_stage5cd_time_boundary(&history, admission, warmup_now)?;
+
+    let input_bars = history.bars.len();
+    let source_mode = history.provenance.source_mode;
+    let mut bars = Vec::with_capacity(input_bars);
+    for bar in history.bars {
         bars.push(crate::runtime_compat::BarEvent {
             symbol: bar.instrument.symbol,
             close_time_utc: bar.close_time_utc,
@@ -1129,8 +1196,29 @@ fn warmup_stage5c_history_at(
             restore_receipt,
             started_ts: warmup_now,
             processed_bars,
+            input_bars,
+            source_mode,
         },
     })
+}
+
+fn validate_stage5cd_time_boundary(
+    history: &Stage5cAcceptedHistoryBatch,
+    admission: &Stage5cPaperHostAdmission,
+    warmup_now: DateTime<Utc>,
+) -> Result<(), Stage5cHistoryWarmupError> {
+    if history.instrument != *admission.target_instrument() {
+        return Err(Stage5cHistoryWarmupError::InstrumentMismatch);
+    }
+    if DateTime::<Utc>::from_timestamp(history.start_ts, 0).is_none()
+        || DateTime::<Utc>::from_timestamp(history.end_ts, 0).is_none()
+    {
+        return Err(Stage5cHistoryWarmupError::InvalidHistoryTimestamp);
+    }
+    if history.end_ts > warmup_now.timestamp() {
+        return Err(Stage5cHistoryWarmupError::FutureHistoryBar);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1568,6 +1656,17 @@ mod bootstrap_notification_tests {
         }
     }
 
+    fn accepted_history(
+        bars: Vec<broker_core::HybridRuntimeBarEvent>,
+    ) -> Stage5cAcceptedHistoryBatch {
+        accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+            bars,
+            provenance: broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(
+            ),
+        })
+        .expect("canonical history")
+    }
+
     #[test]
     fn stage5cd_warms_canonical_history_without_opening_later_gates() {
         let now = Utc
@@ -1581,9 +1680,7 @@ mod bootstrap_notification_tests {
             .timestamp();
         let warmed = warmup_stage5c_history_at(
             restored_strategy(now),
-            Stage5cHistoryWarmupInput {
-                bars: vec![history_bar(close_ts)],
-            },
+            accepted_history(vec![history_bar(close_ts)]),
             now,
         )
         .unwrap();
@@ -1597,10 +1694,6 @@ mod bootstrap_notification_tests {
 
     #[test]
     fn stage5cd_rejects_noncanonical_history_matrix() {
-        let now = Utc
-            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
-            .single()
-            .unwrap();
         let close_ts = Utc
             .with_ymd_and_hms(2026, 7, 10, 10, 0, 0)
             .single()
@@ -1609,61 +1702,51 @@ mod bootstrap_notification_tests {
         let mut wrong_timeframe = history_bar(close_ts);
         wrong_timeframe.timeframe_sec = 60;
         assert!(matches!(
-            warmup_stage5c_history_at(
-                restored_strategy(now),
-                Stage5cHistoryWarmupInput {
-                    bars: vec![wrong_timeframe]
-                },
-                now,
-            ),
+            accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+                bars: vec![wrong_timeframe],
+                provenance:
+                    broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+            }),
             Err(Stage5cHistoryWarmupError::InvalidTimeframe)
         ));
         let duplicate = history_bar(close_ts);
         assert!(matches!(
-            warmup_stage5c_history_at(
-                restored_strategy(now),
-                Stage5cHistoryWarmupInput {
-                    bars: vec![duplicate.clone(), duplicate],
-                },
-                now,
-            ),
+            accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+                bars: vec![duplicate.clone(), duplicate],
+                provenance:
+                    broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+            }),
             Err(Stage5cHistoryWarmupError::NonMonotonicTimestamp)
         ));
         let mut forming = history_bar(close_ts);
         forming.is_final = false;
         assert!(matches!(
-            warmup_stage5c_history_at(
-                restored_strategy(now),
-                Stage5cHistoryWarmupInput {
-                    bars: vec![forming]
-                },
-                now,
-            ),
+            accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+                bars: vec![forming],
+                provenance:
+                    broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+            }),
             Err(Stage5cHistoryWarmupError::NonFinalBar)
         ));
 
         let mut wrong_origin = history_bar(close_ts);
         wrong_origin.origin = broker_core::HybridRuntimeBarOrigin::Live;
         assert!(matches!(
-            warmup_stage5c_history_at(
-                restored_strategy(now),
-                Stage5cHistoryWarmupInput {
-                    bars: vec![wrong_origin]
-                },
-                now,
-            ),
+            accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+                bars: vec![wrong_origin],
+                provenance:
+                    broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+            }),
             Err(Stage5cHistoryWarmupError::InvalidOrigin)
         ));
         let mut invalid_ohlc = history_bar(close_ts);
         invalid_ohlc.high = 2190.0;
         assert!(matches!(
-            warmup_stage5c_history_at(
-                restored_strategy(now),
-                Stage5cHistoryWarmupInput {
-                    bars: vec![invalid_ohlc]
-                },
-                now,
-            ),
+            accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+                bars: vec![invalid_ohlc],
+                provenance:
+                    broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+            }),
             Err(Stage5cHistoryWarmupError::InvalidOhlc)
         ));
     }
@@ -1682,9 +1765,7 @@ mod bootstrap_notification_tests {
         assert!(matches!(
             warmup_stage5c_history_at(
                 restored_strategy(now),
-                Stage5cHistoryWarmupInput {
-                    bars: vec![history_bar(close_ts)]
-                },
+                accepted_history(vec![history_bar(close_ts)]),
                 now + chrono::Duration::minutes(3),
             ),
             Err(Stage5cHistoryWarmupError::BrokerTruthExpired)
@@ -1692,12 +1773,169 @@ mod bootstrap_notification_tests {
         assert!(matches!(
             warmup_stage5c_history_at(
                 restored_strategy(now),
-                Stage5cHistoryWarmupInput {
-                    bars: vec![history_bar(close_ts)]
-                },
+                accepted_history(vec![history_bar(close_ts)]),
                 now - chrono::Duration::seconds(1),
             ),
             Err(Stage5cHistoryWarmupError::LifecycleTimestampReversal)
         ));
+    }
+
+    #[test]
+    fn stage5cd_rejects_unapproved_stage3_provenance_matrix() {
+        let close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 10, 10, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        for provenance in [
+            broker_core::Stage3StrategyBarProvenance::raw_finam_m1(),
+            broker_core::Stage3StrategyBarProvenance::finam_native_m10_pending(),
+        ] {
+            assert!(matches!(
+                accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+                    bars: vec![history_bar(close_ts)],
+                    provenance,
+                }),
+                Err(Stage5cHistoryWarmupError::Stage3ProvenanceRejected)
+            ));
+        }
+        let mut incomplete =
+            broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete();
+        incomplete.aggregation_complete = false;
+        assert!(matches!(
+            accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+                bars: vec![history_bar(close_ts)],
+                provenance: incomplete,
+            }),
+            Err(Stage5cHistoryWarmupError::Stage3ProvenanceRejected)
+        ));
+        let mut gap_unproven =
+            broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete();
+        gap_unproven.gap_absence_proven = false;
+        assert!(matches!(
+            accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+                bars: vec![history_bar(close_ts)],
+                provenance: gap_unproven,
+            }),
+            Err(Stage5cHistoryWarmupError::Stage3ProvenanceRejected)
+        ));
+    }
+
+    #[test]
+    fn stage5cd_rejects_future_and_unrepresentable_history_timestamps() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 13, 9, 0, 0).single().unwrap();
+        let future = now.timestamp() + 600;
+        assert!(matches!(
+            warmup_stage5c_history_at(
+                restored_strategy(now),
+                accepted_history(vec![history_bar(future)]),
+                now,
+            ),
+            Err(Stage5cHistoryWarmupError::FutureHistoryBar)
+        ));
+        let unrepresentable = i64::MAX - i64::MAX.rem_euclid(600);
+        assert!(matches!(
+            accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+                bars: vec![history_bar(unrepresentable)],
+                provenance:
+                    broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+            }),
+            Err(Stage5cHistoryWarmupError::InvalidHistoryTimestamp)
+        ));
+        assert!(warmup_stage5c_history_at(
+            restored_strategy(now),
+            accepted_history(vec![history_bar(now.timestamp())]),
+            now,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn stage5cd_executes_remaining_history_error_matrix() {
+        let close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 10, 10, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        assert!(matches!(
+            accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+                bars: Vec::new(),
+                provenance:
+                    broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+            }),
+            Err(Stage5cHistoryWarmupError::EmptyHistory)
+        ));
+        let mut another_instrument = history_bar(close_ts + 600);
+        another_instrument.instrument.symbol = "RI".to_string();
+        assert!(matches!(
+            accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+                bars: vec![history_bar(close_ts), another_instrument],
+                provenance:
+                    broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+            }),
+            Err(Stage5cHistoryWarmupError::InstrumentMismatch)
+        ));
+        let mut unaligned = history_bar(close_ts + 1);
+        assert!(matches!(
+            accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+                bars: vec![unaligned.clone()],
+                provenance:
+                    broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+            }),
+            Err(Stage5cHistoryWarmupError::UnalignedTimestamp)
+        ));
+        unaligned.close_time_utc = close_ts;
+        unaligned.volume = -1.0;
+        assert!(matches!(
+            accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+                bars: vec![unaligned],
+                provenance:
+                    broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+            }),
+            Err(Stage5cHistoryWarmupError::InvalidVolume)
+        ));
+        let saturday = Utc.with_ymd_and_hms(2026, 7, 11, 9, 0, 0).single().unwrap();
+        assert!(matches!(
+            warmup_stage5c_history_at(
+                restored_strategy(saturday),
+                accepted_history(vec![history_bar(saturday.timestamp())]),
+                saturday,
+            ),
+            Err(Stage5cHistoryWarmupError::NoEligibleHistoryBars)
+        ));
+    }
+
+    #[test]
+    fn stage5cd_rejected_provenance_and_future_time_do_not_mutate_strategy() {
+        let strategy = strategy("IMOEXF", 0.5);
+        let before = serde_json::to_value(Strategy::state(&strategy)).unwrap();
+        let close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 10, 10, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        assert!(accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+            bars: vec![history_bar(close_ts)],
+            provenance: broker_core::Stage3StrategyBarProvenance::raw_finam_m1(),
+        })
+        .is_err());
+        assert_eq!(
+            before,
+            serde_json::to_value(Strategy::state(&strategy)).unwrap()
+        );
+
+        let now = Utc.with_ymd_and_hms(2026, 7, 13, 9, 0, 0).single().unwrap();
+        let restored = restored_strategy(now);
+        let before = serde_json::to_value(Strategy::state(restored.strategy())).unwrap();
+        let history = accepted_history(vec![history_bar(now.timestamp() + 600)]);
+        let admission = &restored.receipt().bootstrap_receipt().admission;
+        assert_eq!(
+            validate_stage5cd_time_boundary(&history, admission, now),
+            Err(Stage5cHistoryWarmupError::FutureHistoryBar)
+        );
+        assert_eq!(
+            before,
+            serde_json::to_value(Strategy::state(restored.strategy())).unwrap()
+        );
     }
 }

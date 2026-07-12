@@ -85,9 +85,10 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   explicit policy. Warmup, recovery, bars, intents and execution remain closed.
 - Stage 5C-d canonical history warmup facade is a review candidate. It consumes
   the restored type-state, rechecks evidence freshness and lifecycle timestamp
-  monotonicity, accepts only exact-target final chronological M10 history, and
-  returns an opaque warmed type-state. Recovery, semantic bars, intent sink and
-  all execution surfaces remain closed.
+  monotonicity, and accepts only an opaque Stage 3 provenance/gap-proven batch
+  of exact-target final chronological M10 history with no future timestamps.
+  It returns an opaque warmed type-state. Recovery, semantic bars, intent sink
+  and all execution surfaces remain closed.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

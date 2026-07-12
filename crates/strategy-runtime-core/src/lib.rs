@@ -45,10 +45,11 @@ pub use runtime_compat::{
     OrderSide as BrokerNeutralOrderSide, StopLimitCondition as BrokerNeutralStopLimitCondition,
 };
 pub use stage5c_paper_host::{
-    admit_stage5c_paper_host, notify_stage5c_bootstrap, notify_stage5c_runtime_state_restored,
-    prepare_stage5c_without_runtime_state, restore_stage5c_runtime_state, warmup_stage5c_history,
+    accept_stage5c_history_batch, admit_stage5c_paper_host, notify_stage5c_bootstrap,
+    notify_stage5c_runtime_state_restored, prepare_stage5c_without_runtime_state,
+    restore_stage5c_runtime_state, warmup_stage5c_history, Stage5cAcceptedHistoryBatch,
     Stage5cBootstrapNotificationError, Stage5cBootstrapNotificationReceipt,
-    Stage5cBootstrappedPaperStrategy, Stage5cHistoryWarmupError, Stage5cHistoryWarmupInput,
+    Stage5cBootstrappedPaperStrategy, Stage5cHistoryBatchInput, Stage5cHistoryWarmupError,
     Stage5cHistoryWarmupReceipt, Stage5cLegacyNumericOrderIdPolicy, Stage5cPaperHostAdmission,
     Stage5cPaperHostAdmissionError, Stage5cPaperHostAdmissionInput,
     Stage5cRuntimeStateLoadedPaperStrategy, Stage5cRuntimeStateRestoreError,
