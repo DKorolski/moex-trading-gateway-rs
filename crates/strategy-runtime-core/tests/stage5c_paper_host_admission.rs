@@ -414,7 +414,7 @@ fn stage5ce_fixture_freezes_pending_recovery_only_boundary() {
     ))
     .expect("Stage 5C-e fixture");
     assert_eq!(fixture["stage"], "Stage5C-e");
-    assert_eq!(fixture["claim_complete_required"], true);
+    assert_eq!(fixture["opaque_warmed_bound_claim_proof_required"], true);
     assert_eq!(fixture["identical_duplicates_deduplicated"], true);
     assert_eq!(fixture["unexpected_intents_allowed"], false);
     assert_eq!(fixture["lifecycle"]["semantic_bar_enabled"], false);

@@ -284,6 +284,7 @@ impl std::error::Error for Stage5cRuntimeStateRestoreError {}
 pub struct Stage5cRuntimeStateRestoreReceipt {
     bootstrap_receipt: Stage5cBootstrapNotificationReceipt,
     restored_ts: DateTime<Utc>,
+    pending_requests: Vec<StrategyRequestId>,
 }
 
 impl Stage5cRuntimeStateRestoreReceipt {
@@ -297,6 +298,9 @@ impl Stage5cRuntimeStateRestoreReceipt {
 
     pub fn runtime_state_restored(&self) -> bool {
         true
+    }
+    pub fn pending_requests(&self) -> &[StrategyRequestId] {
+        &self.pending_requests
     }
 
     pub fn warmup_started(&self) -> bool {
@@ -461,23 +465,59 @@ pub enum Stage5cPendingRecoveryPayload {
     Position(broker_core::HybridRuntimePositionEvent),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Stage5cPendingStreamKind {
+    Ack,
+    Order,
+    StopOrder,
+    Position,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stage5cPendingRecoveryEvent {
-    pub stream: String,
+    pub stream_kind: Stage5cPendingStreamKind,
+    pub stream_name: String,
     pub entry_id: String,
     pub sequence: u64,
     pub payload: Stage5cPendingRecoveryPayload,
 }
 
+pub struct Stage5cPendingStreamClaimBoundary {
+    pub stream_kind: Stage5cPendingStreamKind,
+    pub stream_name: String,
+    pub consumer_group: String,
+    pub terminal_claim_cursor: String,
+    pub snapshot_boundary_entry_id: String,
+    pub claimed_count: usize,
+}
+
+pub struct Stage5cPendingRecoveryClaimProofInput {
+    pub strategy_id: String,
+    pub account_id: BrokerAccountId,
+    pub target_instrument: InstrumentId,
+    pub snapshot_received_ts: DateTime<Utc>,
+    pub completed_ts: DateTime<Utc>,
+    pub streams: Vec<Stage5cPendingStreamClaimBoundary>,
+}
+
+pub struct Stage5cPendingRecoveryClaimProof {
+    strategy_id: String,
+    account_id: BrokerAccountId,
+    target_instrument: InstrumentId,
+    snapshot_received_ts: DateTime<Utc>,
+    completed_ts: DateTime<Utc>,
+    streams: Vec<Stage5cPendingStreamClaimBoundary>,
+}
+
 pub struct Stage5cPendingRecoveryEvidenceInput {
     pub events: Vec<Stage5cPendingRecoveryEvent>,
-    pub claim_complete: bool,
-    pub snapshot_boundary_reached: bool,
+    pub claim_proof: Stage5cPendingRecoveryClaimProof,
 }
 
 pub struct Stage5cAcceptedPendingRecoveryEvidence {
     events: Vec<Stage5cPendingRecoveryEvent>,
     duplicate_events: usize,
+    claim_proof: Stage5cPendingRecoveryClaimProof,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -492,6 +532,12 @@ pub enum Stage5cPendingRecoveryError {
     InstrumentMismatch,
     CallbackValidationFailed,
     UnexpectedIntent,
+    ClaimScopeMismatch,
+    ClaimBoundaryInvalid,
+    StreamKindMismatch,
+    FutureEvent,
+    InvalidEventTimestamp,
+    AckNotPending,
 }
 
 impl std::fmt::Display for Stage5cPendingRecoveryError {
@@ -1053,6 +1099,7 @@ fn notify_stage5c_runtime_state_restored_at(
         now_ts_utc: restored_ts.timestamp(),
         last_bar_ts: None,
     };
+    let pending_requests = restored.pending_requests.clone();
     let intents = Strategy::on_runtime_state_restored(&mut strategy, &context, &restored);
     debug_assert!(
         intents.is_empty(),
@@ -1065,6 +1112,7 @@ fn notify_stage5c_runtime_state_restored_at(
         receipt: Stage5cRuntimeStateRestoreReceipt {
             bootstrap_receipt,
             restored_ts,
+            pending_requests,
         },
     })
 }
@@ -1322,19 +1370,82 @@ fn validate_stage5cd_time_boundary(
     Ok(())
 }
 
+pub fn prove_stage5c_pending_recovery_claim(
+    warmed: &Stage5cWarmedPaperStrategy,
+    input: Stage5cPendingRecoveryClaimProofInput,
+) -> Result<Stage5cPendingRecoveryClaimProof, Stage5cPendingRecoveryError> {
+    let admission = &warmed
+        .receipt()
+        .restore_receipt()
+        .bootstrap_receipt()
+        .admission;
+    if input.strategy_id != admission.strategy_id()
+        || input.account_id != *admission.account_id()
+        || input.target_instrument != *admission.target_instrument()
+        || input.snapshot_received_ts != admission.bootstrap_snapshot().received_ts
+    {
+        return Err(Stage5cPendingRecoveryError::ClaimScopeMismatch);
+    }
+    let required = [
+        Stage5cPendingStreamKind::Ack,
+        Stage5cPendingStreamKind::Order,
+        Stage5cPendingStreamKind::StopOrder,
+        Stage5cPendingStreamKind::Position,
+    ];
+    if input.completed_ts < warmed.receipt().started_ts()
+        || input.streams.len() != required.len()
+        || required.iter().any(|kind| {
+            !input
+                .streams
+                .iter()
+                .any(|stream| stream.stream_kind == *kind)
+        })
+        || input.streams.iter().any(|stream| {
+            stream.stream_name.trim().is_empty()
+                || stream.consumer_group.trim().is_empty()
+                || stream.terminal_claim_cursor != "0-0"
+                || stream.snapshot_boundary_entry_id.trim().is_empty()
+        })
+    {
+        return Err(Stage5cPendingRecoveryError::ClaimBoundaryInvalid);
+    }
+    Ok(Stage5cPendingRecoveryClaimProof {
+        strategy_id: input.strategy_id,
+        account_id: input.account_id,
+        target_instrument: input.target_instrument,
+        snapshot_received_ts: input.snapshot_received_ts,
+        completed_ts: input.completed_ts,
+        streams: input.streams,
+    })
+}
+
 pub fn accept_stage5c_pending_recovery_evidence(
     input: Stage5cPendingRecoveryEvidenceInput,
 ) -> Result<Stage5cAcceptedPendingRecoveryEvidence, Stage5cPendingRecoveryError> {
-    if !input.claim_complete || !input.snapshot_boundary_reached {
-        return Err(Stage5cPendingRecoveryError::EvidenceIncomplete);
-    }
     let mut unique = HashMap::<(String, String), Stage5cPendingRecoveryEvent>::new();
     let mut duplicate_events = 0usize;
     for event in input.events {
-        if event.stream.trim().is_empty() || event.entry_id.trim().is_empty() {
+        if event.stream_name.trim().is_empty() || event.entry_id.trim().is_empty() {
             return Err(Stage5cPendingRecoveryError::InvalidEventIdentity);
         }
-        let key = (event.stream.clone(), event.entry_id.clone());
+        let boundary = input
+            .claim_proof
+            .streams
+            .iter()
+            .find(|stream| {
+                stream.stream_kind == event.stream_kind && stream.stream_name == event.stream_name
+            })
+            .ok_or(Stage5cPendingRecoveryError::StreamKindMismatch)?;
+        let payload_kind = match &event.payload {
+            Stage5cPendingRecoveryPayload::Ack(_) => Stage5cPendingStreamKind::Ack,
+            Stage5cPendingRecoveryPayload::Order(_) => Stage5cPendingStreamKind::Order,
+            Stage5cPendingRecoveryPayload::StopOrder(_) => Stage5cPendingStreamKind::StopOrder,
+            Stage5cPendingRecoveryPayload::Position(_) => Stage5cPendingStreamKind::Position,
+        };
+        if payload_kind != event.stream_kind || boundary.consumer_group.trim().is_empty() {
+            return Err(Stage5cPendingRecoveryError::StreamKindMismatch);
+        }
+        let key = (event.stream_name.clone(), event.entry_id.clone());
         if let Some(existing) = unique.get(&key) {
             if existing != &event {
                 return Err(Stage5cPendingRecoveryError::ConflictingDuplicate);
@@ -1355,6 +1466,7 @@ pub fn accept_stage5c_pending_recovery_evidence(
     Ok(Stage5cAcceptedPendingRecoveryEvidence {
         events,
         duplicate_events,
+        claim_proof: input.claim_proof,
     })
 }
 
@@ -1379,6 +1491,15 @@ fn recover_stage5c_pending_streams_at(
     if warmup_receipt.started_ts() > recovered_ts {
         return Err(Stage5cPendingRecoveryError::LifecycleTimestampReversal);
     }
+    if evidence.claim_proof.strategy_id != admission.strategy_id()
+        || evidence.claim_proof.account_id != *admission.account_id()
+        || evidence.claim_proof.target_instrument != *admission.target_instrument()
+        || evidence.claim_proof.snapshot_received_ts != admission.bootstrap_snapshot().received_ts
+        || evidence.claim_proof.completed_ts > recovered_ts
+    {
+        return Err(Stage5cPendingRecoveryError::ClaimScopeMismatch);
+    }
+    let snapshot_ts = admission.bootstrap_snapshot().received_ts.timestamp();
     for event in &evidence.events {
         let instrument = match &event.payload {
             Stage5cPendingRecoveryPayload::Ack(_) => None,
@@ -1388,6 +1509,27 @@ fn recover_stage5c_pending_streams_at(
         };
         if instrument.is_some_and(|value| value != admission.target_instrument()) {
             return Err(Stage5cPendingRecoveryError::InstrumentMismatch);
+        }
+        let event_ts = match &event.payload {
+            Stage5cPendingRecoveryPayload::Ack(value) => value.processed_ts_utc,
+            Stage5cPendingRecoveryPayload::Order(value) => value.source_ts_utc,
+            Stage5cPendingRecoveryPayload::StopOrder(value) => value.source_ts_utc,
+            Stage5cPendingRecoveryPayload::Position(value) => value.source_ts_utc,
+        };
+        if DateTime::<Utc>::from_timestamp(event_ts, 0).is_none() {
+            return Err(Stage5cPendingRecoveryError::InvalidEventTimestamp);
+        }
+        if event_ts > recovered_ts.timestamp() {
+            return Err(Stage5cPendingRecoveryError::FutureEvent);
+        }
+        if let Stage5cPendingRecoveryPayload::Ack(value) = &event.payload {
+            if !warmup_receipt
+                .restore_receipt()
+                .pending_requests()
+                .contains(&value.request_id)
+            {
+                return Err(Stage5cPendingRecoveryError::AckNotPending);
+            }
         }
     }
     let position_qty = admission.bootstrap_snapshot().target_position_qty.to_f64();
@@ -1414,6 +1556,11 @@ fn recover_stage5c_pending_streams_at(
             strategy_now_ts_utc: recovered_ts.timestamp(),
             last_bar_ts_utc: None,
         };
+        if !matches!(&event.payload, Stage5cPendingRecoveryPayload::Ack(_))
+            && event_ts <= snapshot_ts
+        {
+            continue;
+        }
         let result = match event.payload {
             Stage5cPendingRecoveryPayload::Ack(value) => {
                 crate::BrokerNeutralHybridStrategy::on_broker_ack(&mut strategy, value)
@@ -2201,15 +2348,16 @@ mod bootstrap_notification_tests {
             .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
             .single()
             .unwrap();
+        let warmed = warmed_strategy(now);
+        let proof = recovery_claim(&warmed, now).unwrap();
         let evidence =
             accept_stage5c_pending_recovery_evidence(Stage5cPendingRecoveryEvidenceInput {
                 events: Vec::new(),
-                claim_complete: true,
-                snapshot_boundary_reached: true,
+                claim_proof: proof,
             })
             .unwrap();
-        let recovered = recover_stage5c_pending_streams_at(warmed_strategy(now), evidence, now)
-            .expect("empty recovery");
+        let recovered =
+            recover_stage5c_pending_streams_at(warmed, evidence, now).expect("empty recovery");
         assert!(recovered.receipt().pending_recovery_started());
         assert_eq!(recovered.receipt().replayed_events(), 0);
         assert!(!recovered.receipt().semantic_bar_enabled());
@@ -2224,26 +2372,29 @@ mod bootstrap_notification_tests {
             .single()
             .unwrap();
         let event = Stage5cPendingRecoveryEvent {
-            stream: "cmd.acks.ACC_TEST_0001".to_string(),
+            stream_kind: Stage5cPendingStreamKind::Position,
+            stream_name: "broker.positions.ACC_TEST_0001".to_string(),
             entry_id: "1-0".to_string(),
             sequence: 1,
-            payload: Stage5cPendingRecoveryPayload::Ack(broker_core::HybridRuntimeCommandAck {
-                request_id: StrategyRequestId::new(uuid::Uuid::from_u128(1)),
-                status: broker_core::HybridRuntimeAckStatus::Accepted,
-                broker_order_id: None,
-                error_code: None,
-                error_message: None,
-                processed_ts_utc: now.timestamp(),
-            }),
+            payload: Stage5cPendingRecoveryPayload::Position(
+                broker_core::HybridRuntimePositionEvent {
+                    instrument: target(),
+                    qty: 0.0,
+                    existing: true,
+                    avg_price: 0.0,
+                    source_ts_utc: now.timestamp(),
+                },
+            ),
         };
+        let warmed = warmed_strategy(now);
+        let proof = recovery_claim(&warmed, now).unwrap();
         let evidence =
             accept_stage5c_pending_recovery_evidence(Stage5cPendingRecoveryEvidenceInput {
                 events: vec![event.clone(), event],
-                claim_complete: true,
-                snapshot_boundary_reached: true,
+                claim_proof: proof,
             })
             .unwrap();
-        let recovered = recover_stage5c_pending_streams_at(warmed_strategy(now), evidence, now)
+        let recovered = recover_stage5c_pending_streams_at(warmed, evidence, now)
             .expect("deduplicated recovery");
         assert_eq!(recovered.receipt().replayed_events(), 1);
         assert_eq!(recovered.receipt().duplicate_events(), 1);
@@ -2251,13 +2402,71 @@ mod bootstrap_notification_tests {
 
     #[test]
     fn stage5ce_rejects_incomplete_and_conflicting_recovery_evidence() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 11, 9, 0, 30)
+            .single()
+            .unwrap();
+        let warmed = warmed_strategy(now);
         assert!(matches!(
-            accept_stage5c_pending_recovery_evidence(Stage5cPendingRecoveryEvidenceInput {
-                events: Vec::new(),
-                claim_complete: false,
-                snapshot_boundary_reached: true,
-            }),
-            Err(Stage5cPendingRecoveryError::EvidenceIncomplete)
+            recovery_claim_with_cursor(&warmed, now, "1-0"),
+            Err(Stage5cPendingRecoveryError::ClaimBoundaryInvalid)
         ));
+    }
+
+    fn recovery_claim(
+        warmed: &Stage5cWarmedPaperStrategy,
+        now: DateTime<Utc>,
+    ) -> Result<Stage5cPendingRecoveryClaimProof, Stage5cPendingRecoveryError> {
+        recovery_claim_with_cursor(warmed, now, "0-0")
+    }
+
+    fn recovery_claim_with_cursor(
+        warmed: &Stage5cWarmedPaperStrategy,
+        now: DateTime<Utc>,
+        cursor: &str,
+    ) -> Result<Stage5cPendingRecoveryClaimProof, Stage5cPendingRecoveryError> {
+        let admission = &warmed
+            .receipt()
+            .restore_receipt()
+            .bootstrap_receipt()
+            .admission;
+        let names = [
+            (Stage5cPendingStreamKind::Ack, "cmd.acks.ACC_TEST_0001"),
+            (
+                Stage5cPendingStreamKind::Order,
+                "broker.orders.ACC_TEST_0001",
+            ),
+            (
+                Stage5cPendingStreamKind::StopOrder,
+                "broker.stop_orders.ACC_TEST_0001",
+            ),
+            (
+                Stage5cPendingStreamKind::Position,
+                "broker.positions.ACC_TEST_0001",
+            ),
+        ];
+        prove_stage5c_pending_recovery_claim(
+            warmed,
+            Stage5cPendingRecoveryClaimProofInput {
+                strategy_id: admission.strategy_id().to_string(),
+                account_id: admission.account_id().clone(),
+                target_instrument: admission.target_instrument().clone(),
+                snapshot_received_ts: admission.bootstrap_snapshot().received_ts,
+                completed_ts: now,
+                streams: names
+                    .into_iter()
+                    .map(
+                        |(stream_kind, stream_name)| Stage5cPendingStreamClaimBoundary {
+                            stream_kind,
+                            stream_name: stream_name.to_string(),
+                            consumer_group: "paper-runtime".to_string(),
+                            terminal_claim_cursor: cursor.to_string(),
+                            snapshot_boundary_entry_id: "0-0".to_string(),
+                            claimed_count: 0,
+                        },
+                    )
+                    .collect(),
+            },
+        )
     }
 }
