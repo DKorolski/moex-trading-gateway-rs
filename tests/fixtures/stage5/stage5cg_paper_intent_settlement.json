@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "stage": "Stage5C-g",
+  "status": "paper_intent_escrow_no_send",
+  "consumes": "Stage5cSemanticBarResult",
+  "produces": "Stage5cSettledPaperStrategy",
+  "opaque_batch": "Stage5cPaperIntentBatch",
+  "validates": ["intent_class", "instrument_namespace", "quantity", "price", "tick_alignment", "stop_expiry"],
+  "deterministic_request_ids": true,
+  "strategy_state_fingerprint_bound": true,
+  "zero_intent_settlement_explicit": true,
+  "intent_sink_attached": false,
+  "redis_command_stream_attached": false,
+  "broker_transport_attached": false,
+  "timer_enabled": false
+}
