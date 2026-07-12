@@ -1544,7 +1544,7 @@ expected_stage5_profile_artifacts = {
         "821e241970df245f7aaaeb78312537c29512173108c59f40f7f449eb44cb8aa4"
     ),
     Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"): (
-        "f6156c8a881a1bb431128b446aa97be5b5753dbe412eabf58e55ed515eb0eeb2"
+        "135f7696d3485c13b21fcd2c3c8519f45453027a678a2a71168a444ad5823d54"
     ),
     Path("tests/fixtures/stage5/stage5ch_controlled_next_bar_loop.json"): (
         "687a94ea97c437715039dc8f44c53539094c89d2c5e9c34d83162e24515f2699"
@@ -1553,7 +1553,7 @@ expected_stage5_profile_artifacts = {
         "9c23a730d142f47882ba08cd9d86b8f354c235e37048aae6c49e628422bc86de"
     ),
     Path("tests/fixtures/stage5/stage5cj_paper_broker_lifecycle.json"): (
-        "1bbde2f10ea51efa0106a84b2055ed5bf80afed582a0be28563e752504a188bd"
+        "14cdd518383b86d5a223d65ef46969450ea7a8573df21c6c6c520b817571621d"
     ),
     Path("tests/fixtures/stage5/stage5cb_bootstrap_notification.json"): (
         "9db7888d27374eeaa8ac046c1df1727a3e3cd085c938a76945d22b9bd68f00de"

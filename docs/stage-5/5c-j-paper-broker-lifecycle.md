@@ -33,6 +33,9 @@ Gates:
   distinct transitions, for example `working -> filled`;
 - position confirmation can complete a `Place` / stop-execution lifecycle only
   when the corresponding filled/triggered event precedes it by `total_sequence`;
+- non-execution terminal `Place` order statuses (`canceled` / `expired` /
+  `rejected`) complete the lifecycle without position evidence, while `filled`
+  still requires position confirmation;
 - stop statuses are split into working, execution, and non-execution terminal:
   `triggered` / `executed` / `filled` require flat position confirmation, while
   `canceled` / `expired` / `rejected` terminate without position evidence;
@@ -51,6 +54,12 @@ Gates:
 - market and marketable-limit entries block wrong-side broker positions and
   overfill before source callbacks; partial fills preserve a remaining
   `Position` lifecycle expectation until target quantity is reached;
+- sequential position preflight tracks accepted position watermark and blocks
+  partial entry regression before source callbacks;
+- callback-generated cleanup intents are preserved as a new no-send generated
+  intent batch and are re-settled through the Stage 5C-g escrow policy;
+- cleanup attribution for callback-generated intents is captured from the
+  pre-callback TP/SL ledger before the wrapper removes broker object IDs.
 - unknown order/stop statuses are blocked before callback;
 - event instrument must match the admitted target instrument;
 - event timestamp must not predate the ACK timestamp;
