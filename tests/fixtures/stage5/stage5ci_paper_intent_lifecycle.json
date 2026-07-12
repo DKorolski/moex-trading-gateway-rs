@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "stage": "Stage5C-i",
+  "status": "paper_intent_lifecycle_ack_only_no_send",
+  "consumes": "Stage5cSettledPaperStrategy",
+  "requires_intent_count_nonzero": true,
+  "requires_state_fingerprint_match": true,
+  "requires_exact_ack_request_ids": true,
+  "rejects_missing_ack": true,
+  "rejects_duplicate_ack": true,
+  "rejects_unknown_ack_request_id": true,
+  "generates_new_request_ids": false,
+  "invokes_semantic_bar_callback": false,
+  "uses_broker_neutral_ack_callback": true,
+  "rejects_callback_generated_intents": true,
+  "order_fill_lifecycle_enabled": false,
+  "position_lifecycle_enabled": false,
+  "timer_enabled": false,
+  "intent_sink_attached": false,
+  "redis_command_stream_attached": false,
+  "broker_transport_attached": false
+}

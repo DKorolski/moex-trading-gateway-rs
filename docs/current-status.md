@@ -97,9 +97,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   recovered type-state and a Stage 3-accepted final M10 capability, captures
   generated intents in an opaque paper result, and attaches no sink, Redis
   command stream or broker transport. Timers and execution remain closed.
-- Stage 5C-g paper intent settlement/escrow is a review candidate. It consumes
-  the first semantic result, validates captured intent shapes and returns an
-  opaque state-bound batch without Redis, sink, transport or send.
+- Stage 5C-g paper intent settlement/escrow is accepted. It consumes semantic
+  results, validates captured intent shapes and returns an opaque state-bound
+  batch without Redis, sink, transport or send.
+- Stage 5C-h controlled next-bar loop is accepted. It advances only from
+  settled zero-intent batches, preserves unresolved nonzero escrow batches, and
+  keeps timer, sink, Redis and broker transport closed.
+- Stage 5C-i paper intent lifecycle / ACK escrow resolution is a review
+  candidate. It consumes nonzero settled batches, requires exact ACK coverage
+  for captured request IDs, applies only broker-neutral ACK callbacks, and still
+  leaves order/stop/position lifecycle, Redis, transport and execution closed.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

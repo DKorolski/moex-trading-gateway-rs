@@ -723,6 +723,7 @@ pub struct Stage5cPaperIntentBatchSummary {
     pub observation_only: bool,
 }
 
+#[derive(Clone)]
 struct Stage5cPaperIntentRecord {
     request_id: StrategyRequestId,
     intent_class: crate::BrokerNeutralHybridIntentClass,
@@ -923,6 +924,85 @@ impl std::fmt::Display for Stage5cNextBarLoopFailure {
 }
 
 impl std::error::Error for Stage5cNextBarLoopFailure {}
+
+#[derive(Debug, Clone)]
+pub struct Stage5cPaperIntentLifecycleInput {
+    pub acks: Vec<broker_core::HybridRuntimeCommandAck>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5cPaperIntentLifecycleError {
+    EmptyIntentBatch,
+    StateFingerprintMismatch,
+    MissingAck,
+    DuplicateAck,
+    UnknownAckRequestId,
+    CallbackValidationFailed,
+    UnexpectedIntent,
+}
+
+impl std::fmt::Display for Stage5cPaperIntentLifecycleError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "Stage 5C paper intent lifecycle blocked: {self:?}"
+        )
+    }
+}
+
+impl std::error::Error for Stage5cPaperIntentLifecycleError {}
+
+pub struct Stage5cResolvedPaperIntentBatchStrategy {
+    strategy: HybridIntradayRuntimeStrategy,
+    recovery_receipt: Stage5cPendingRecoveryReceipt,
+    resolved_batch: Stage5cPaperIntentBatchSummary,
+    settled_batch_history: Vec<Stage5cPaperIntentBatchSummary>,
+}
+
+impl std::fmt::Debug for Stage5cResolvedPaperIntentBatchStrategy {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Stage5cResolvedPaperIntentBatchStrategy")
+            .field("resolved_bar_close_ts", &self.resolved_batch.bar_close_ts)
+            .field("resolved_intent_count", &self.resolved_batch.intent_count)
+            .field(
+                "settled_batch_history_len",
+                &self.settled_batch_history.len(),
+            )
+            .field("intent_sink_attached", &false)
+            .field("broker_transport_attached", &false)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Stage5cResolvedPaperIntentBatchStrategy {
+    pub fn resolved_batch(&self) -> &Stage5cPaperIntentBatchSummary {
+        &self.resolved_batch
+    }
+    pub fn settled_batch_history(&self) -> &[Stage5cPaperIntentBatchSummary] {
+        &self.settled_batch_history
+    }
+    pub fn intent_sink_attached(&self) -> bool {
+        false
+    }
+    pub fn broker_transport_attached(&self) -> bool {
+        false
+    }
+    pub fn timer_path_enabled(&self) -> bool {
+        false
+    }
+    pub fn recovery_receipt(&self) -> &Stage5cPendingRecoveryReceipt {
+        &self.recovery_receipt
+    }
+    pub fn post_lifecycle_state_fingerprint(&self) -> String {
+        stage5c_state_fingerprint(Strategy::state(&self.strategy))
+    }
+    #[cfg(test)]
+    fn strategy(&self) -> &HybridIntradayRuntimeStrategy {
+        &self.strategy
+    }
+}
 
 impl Stage5cPendingRecoveredPaperStrategy {
     pub fn receipt(&self) -> &Stage5cPendingRecoveryReceipt {
@@ -2176,8 +2256,7 @@ pub fn settle_stage5c_semantic_result(
             intent,
         });
     }
-    let state_bytes = serde_json::to_vec(state).expect("strategy state is serializable");
-    let state_fingerprint = format!("{:x}", Sha256::digest(&state_bytes));
+    let state_fingerprint = stage5c_state_fingerprint(state);
     let strategy_id = admission.strategy_id().to_string();
     let account_id = admission.account_id().clone();
     let instrument = admission.target_instrument().clone();
@@ -2211,6 +2290,11 @@ fn stage5ch_batch_summary(batch: &Stage5cPaperIntentBatch) -> Stage5cPaperIntent
         intent_count: batch.intent_count(),
         observation_only: batch.observation_only,
     }
+}
+
+fn stage5c_state_fingerprint(state: &StrategyState) -> String {
+    let state_bytes = serde_json::to_vec(state).expect("strategy state is serializable");
+    format!("{:x}", Sha256::digest(&state_bytes))
 }
 
 pub fn advance_stage5c_controlled_next_bar(
@@ -2273,6 +2357,52 @@ fn advance_stage5c_controlled_next_bar_at(
     history.push(stage5ch_batch_summary(next.intent_batch()));
     next.settled_batch_history = history;
     Ok(next)
+}
+
+pub fn resolve_stage5c_paper_intent_lifecycle(
+    settled: Stage5cSettledPaperStrategy,
+    input: Stage5cPaperIntentLifecycleInput,
+) -> Result<Stage5cResolvedPaperIntentBatchStrategy, Stage5cPaperIntentLifecycleError> {
+    if settled.batch.intent_count() == 0 {
+        return Err(Stage5cPaperIntentLifecycleError::EmptyIntentBatch);
+    }
+    let state_fingerprint = stage5c_state_fingerprint(Strategy::state(&settled.strategy));
+    if state_fingerprint != settled.batch.state_fingerprint {
+        return Err(Stage5cPaperIntentLifecycleError::StateFingerprintMismatch);
+    }
+    let expected_request_ids: HashSet<StrategyRequestId> =
+        settled.batch.request_ids.iter().copied().collect();
+    let mut seen = HashSet::new();
+    for ack in &input.acks {
+        if !expected_request_ids.contains(&ack.request_id) {
+            return Err(Stage5cPaperIntentLifecycleError::UnknownAckRequestId);
+        }
+        if !seen.insert(ack.request_id) {
+            return Err(Stage5cPaperIntentLifecycleError::DuplicateAck);
+        }
+    }
+    if seen.len() != expected_request_ids.len() {
+        return Err(Stage5cPaperIntentLifecycleError::MissingAck);
+    }
+    let Stage5cSettledPaperStrategy {
+        mut strategy,
+        recovery_receipt,
+        batch,
+        settled_batch_history,
+    } = settled;
+    for ack in input.acks {
+        let intents = crate::BrokerNeutralHybridStrategy::on_broker_ack(&mut strategy, ack)
+            .map_err(|_| Stage5cPaperIntentLifecycleError::CallbackValidationFailed)?;
+        if !intents.is_empty() {
+            return Err(Stage5cPaperIntentLifecycleError::UnexpectedIntent);
+        }
+    }
+    Ok(Stage5cResolvedPaperIntentBatchStrategy {
+        strategy,
+        recovery_receipt,
+        resolved_batch: stage5ch_batch_summary(&batch),
+        settled_batch_history,
+    })
 }
 
 fn stage5cg_source_request_id(
@@ -3565,6 +3695,65 @@ mod bootstrap_notification_tests {
         .with_symbol("IMOEXF")
     }
 
+    fn stage5ci_ack(request_id: StrategyRequestId) -> broker_core::HybridRuntimeCommandAck {
+        broker_core::HybridRuntimeCommandAck {
+            request_id,
+            status: broker_core::HybridRuntimeAckStatus::Accepted,
+            broker_order_id: Some(BrokerOrderId::new("ORDER_TEST_ACK_0001")),
+            error_code: None,
+            error_message: None,
+            processed_ts_utc: Utc
+                .with_ymd_and_hms(2026, 7, 13, 9, 10, 1)
+                .single()
+                .unwrap()
+                .timestamp(),
+        }
+    }
+
+    fn stage5ci_entry_settled() -> (Stage5cSettledPaperStrategy, StrategyRequestId, i64) {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered_until(
+            now,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
+                .single()
+                .unwrap(),
+        );
+        let (mut strategy, recovery_receipt) = recovered.into_parts();
+        let bar_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let expected_request_id = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "market",
+            bar_close_ts,
+            3,
+        );
+        set_hybrid_pending_request(
+            &mut strategy,
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            expected_request_id,
+        );
+        let settled = settle_stage5c_semantic_result(stage5cg_semantic_result(
+            strategy,
+            recovery_receipt,
+            bar_close_ts,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            vec![stage5cg_market_intent(
+                crate::BrokerNeutralOrderSide::Buy,
+                crate::BrokerNeutralHybridIntentClass::Entry,
+            )],
+        ))
+        .unwrap();
+        (settled, expected_request_id, bar_close_ts)
+    }
+
     #[test]
     fn stage5cg_settles_zero_intent_result_without_sink() {
         let now = Utc
@@ -4319,5 +4508,196 @@ mod bootstrap_notification_tests {
             .reason(),
             Stage5cNextBarLoopError::Semantic(Stage5cSemanticBarError::BrokerTruthExpired)
         );
+    }
+
+    #[test]
+    fn stage5ci_resolves_nonzero_batch_by_exact_ack_without_sink_or_transport() {
+        let (settled, expected_request_id, _) = stage5ci_entry_settled();
+        let resolved = resolve_stage5c_paper_intent_lifecycle(
+            settled,
+            Stage5cPaperIntentLifecycleInput {
+                acks: vec![stage5ci_ack(expected_request_id)],
+            },
+        )
+        .unwrap();
+        assert_eq!(resolved.resolved_batch().intent_count, 1);
+        assert_eq!(
+            resolved.resolved_batch().request_ids,
+            vec![expected_request_id]
+        );
+        assert_eq!(resolved.settled_batch_history().len(), 1);
+        assert!(!resolved.intent_sink_attached());
+        assert!(!resolved.broker_transport_attached());
+        assert!(!resolved.timer_path_enabled());
+        assert_eq!(
+            match Strategy::state(resolved.strategy()) {
+                StrategyState::HybridIntradayRuntime {
+                    pending_entry_request_id,
+                    ..
+                } => *pending_entry_request_id,
+                StrategyState::Idle => None,
+            },
+            Some(expected_request_id),
+            "accepted ACK alone is not a fill/position lifecycle and must not fake flat/filled state"
+        );
+    }
+
+    #[test]
+    fn stage5ci_rejects_missing_unknown_and_duplicate_ack() {
+        let (settled_for_missing, _, bar_close_ts) = stage5ci_entry_settled();
+        assert!(matches!(
+            resolve_stage5c_paper_intent_lifecycle(
+                settled_for_missing,
+                Stage5cPaperIntentLifecycleInput { acks: Vec::new() },
+            ),
+            Err(Stage5cPaperIntentLifecycleError::MissingAck)
+        ));
+        let unknown = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "market",
+            bar_close_ts,
+            4,
+        );
+        let (settled_for_unknown, _, _) = stage5ci_entry_settled();
+        assert!(matches!(
+            resolve_stage5c_paper_intent_lifecycle(
+                settled_for_unknown,
+                Stage5cPaperIntentLifecycleInput {
+                    acks: vec![stage5ci_ack(unknown)]
+                },
+            ),
+            Err(Stage5cPaperIntentLifecycleError::UnknownAckRequestId)
+        ));
+        let (settled_for_duplicate, expected_request_id, _) = stage5ci_entry_settled();
+        assert!(matches!(
+            resolve_stage5c_paper_intent_lifecycle(
+                settled_for_duplicate,
+                Stage5cPaperIntentLifecycleInput {
+                    acks: vec![
+                        stage5ci_ack(expected_request_id),
+                        stage5ci_ack(expected_request_id)
+                    ],
+                },
+            ),
+            Err(Stage5cPaperIntentLifecycleError::DuplicateAck)
+        ));
+    }
+
+    #[test]
+    fn stage5ci_rejects_state_fingerprint_mismatch() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered_until(
+            now,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
+                .single()
+                .unwrap(),
+        );
+        let (mut strategy, recovery_receipt) = recovered.into_parts();
+        let bar_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let expected_request_id = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "market",
+            bar_close_ts,
+            3,
+        );
+        set_hybrid_pending_request(
+            &mut strategy,
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            expected_request_id,
+        );
+        let settled = settle_stage5c_semantic_result(stage5cg_semantic_result(
+            strategy,
+            recovery_receipt,
+            bar_close_ts,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            vec![stage5cg_market_intent(
+                crate::BrokerNeutralOrderSide::Buy,
+                crate::BrokerNeutralHybridIntentClass::Entry,
+            )],
+        ))
+        .unwrap();
+        let (mut strategy, recovery_receipt, batch) = settled.into_parts();
+        set_hybrid_pending_request(
+            &mut strategy,
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::deterministic_request_id(
+                "hybrid_imoexf",
+                "ACC_TEST_0001",
+                "IMOEXF",
+                "market",
+                bar_close_ts + 600,
+                3,
+            ),
+        );
+        let drifted = Stage5cSettledPaperStrategy {
+            strategy,
+            recovery_receipt,
+            batch: Stage5cPaperIntentBatch {
+                strategy_id: batch.strategy_id.clone(),
+                account_id: batch.account_id.clone(),
+                instrument: batch.instrument.clone(),
+                bar_close_ts: batch.bar_close_ts,
+                state_fingerprint: batch.state_fingerprint.clone(),
+                request_ids: batch.request_ids.clone(),
+                records: batch.records.clone(),
+                observation_only: batch.observation_only,
+            },
+            settled_batch_history: vec![stage5ch_batch_summary(&batch)],
+        };
+        assert!(matches!(
+            resolve_stage5c_paper_intent_lifecycle(
+                drifted,
+                Stage5cPaperIntentLifecycleInput {
+                    acks: vec![stage5ci_ack(expected_request_id)]
+                },
+            ),
+            Err(Stage5cPaperIntentLifecycleError::StateFingerprintMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage5ci_rejects_empty_intent_batch() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered_until(
+            now,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
+                .single()
+                .unwrap(),
+        );
+        let (strategy, recovery_receipt) = recovered.into_parts();
+        let settled = settle_stage5c_semantic_result(Stage5cSemanticBarResult {
+            strategy,
+            recovery_receipt,
+            bar_close_ts: Utc
+                .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+                .single()
+                .unwrap()
+                .timestamp(),
+            origin: broker_core::HybridRuntimeBarOrigin::Live,
+            execution_eligible: true,
+            intents: Vec::new(),
+        })
+        .unwrap();
+        assert!(matches!(
+            resolve_stage5c_paper_intent_lifecycle(
+                settled,
+                Stage5cPaperIntentLifecycleInput { acks: Vec::new() },
+            ),
+            Err(Stage5cPaperIntentLifecycleError::EmptyIntentBatch)
+        ));
     }
 }
