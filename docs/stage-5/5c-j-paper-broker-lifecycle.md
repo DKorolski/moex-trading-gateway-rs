@@ -16,7 +16,7 @@ It applies paper broker-state evidence for the already ACKed batch:
   execution, `Position` confirmation;
 - `DeleteStopLimit` intents require a `StopOrder` event.
 - Market entry validates the resulting position direction against the intent
-  side;
+  side and target quantity;
 - Market exit validates a nonzero previous position transitioning to flat.
 
 Gates:
@@ -31,6 +31,11 @@ Gates:
 - conflicting duplicate events are blocked;
 - multiple lifecycle events for the same request are allowed when they are
   distinct transitions, for example `working -> filled`;
+- position confirmation can complete a `Place` / stop-execution lifecycle only
+  when the corresponding filled/triggered event precedes it by `total_sequence`;
+- stop statuses are split into working, execution, and non-execution terminal:
+  `triggered` / `executed` / `filled` require flat position confirmation, while
+  `canceled` / `expired` / `rejected` terminate without position evidence;
 - `StrategyRequestId` must belong to the resolved batch;
 - `Order` events must carry the exact request ID;
 - `BrokerOrderId` / `StopOrderId` mappings are checked where broker evidence
@@ -39,9 +44,13 @@ Gates:
   HYB attribution with the expected action role and cycle;
 - marketable-limit `Place` entry/exit accepts `ENTRY`/`EXIT`, protective
   `Place` accepts `TP`, and cleanup cancel/delete accepts original object
-  attribution instead of an artificial `CANCEL` role;
+  attribution, including exact cycle/owner/role, instead of an artificial
+  `CANCEL` role;
 - action-specific side, quantity, price, stop price and expiry fields must match
   the original escrowed intent;
+- market and marketable-limit entries block wrong-side broker positions and
+  overfill before source callbacks; partial fills preserve a remaining
+  `Position` lifecycle expectation until target quantity is reached;
 - unknown order/stop statuses are blocked before callback;
 - event instrument must match the admitted target instrument;
 - event timestamp must not predate the ACK timestamp;
