@@ -27,7 +27,7 @@ Accepted event kinds:
 - one final M10 semantic bar;
 - explicit semantic-result settlement;
 - one ACK lifecycle input;
-- one full broker-lifecycle event batch;
+- one terminal-complete broker-lifecycle event batch;
 - explicit broker-lifecycle-result settlement;
 - one timer input;
 - explicit timer-result settlement.
@@ -35,8 +35,12 @@ Accepted event kinds:
 Coordinator gates:
 
 - invalid state/event pairs are blocked and preserve the input state;
-- broker events enter only as a full Stage 5C-j batch, preserving atomic
-  preflight semantics for multi-request and multi-event lifecycles;
+- broker events enter only as a terminal-complete Stage 5C-j batch, preserving
+  atomic preflight semantics for multi-request and multi-event lifecycles;
+- incomplete broker lifecycle batches, such as `working` without terminal
+  `filled`/`position` confirmation, are blocked before callbacks and preserve
+  the ACK-resolved intent lifecycle state for a later retry with the complete
+  batch;
 - final bars, ACKs, broker batches and timers are routed only through existing
   Stage 5C functions;
 - callback-generated broker intents are settled into an opaque generated batch

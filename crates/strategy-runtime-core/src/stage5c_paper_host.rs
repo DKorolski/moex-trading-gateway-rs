@@ -1936,6 +1936,7 @@ pub enum Stage5cPaperLoopError {
     NextBar(Stage5cNextBarLoopError),
     IntentLifecycle(Stage5cPaperIntentLifecycleError),
     BrokerLifecycle(Stage5cPaperBrokerLifecycleError),
+    BrokerLifecycleIncompleteBatch,
     Timer(Stage5cPaperTimerError),
     BrokerLifecycleRequiresGeneratedAck,
     BrokerLifecycleUnresolved,
@@ -2044,6 +2045,12 @@ fn stage5cn_resolve_broker_event(
     resolved: Stage5cResolvedPaperIntentBatchStrategy,
     input: Stage5cPaperBrokerLifecycleInput,
 ) -> Result<Stage5cPaperLoopState, Stage5cPaperLoopFailure> {
+    if let Err(reason) = stage5cn_require_terminal_broker_lifecycle_batch(&resolved, &input) {
+        return Err(stage5cn_preserved(
+            reason,
+            Stage5cPaperLoopState::IntentLifecycleResolved(Box::new(resolved)),
+        ));
+    }
     resolve_stage5c_paper_broker_lifecycle(resolved, input)
         .map(|state| Stage5cPaperLoopState::BrokerLifecycleResolved(Box::new(state)))
         .map_err(|failure| {
@@ -2058,6 +2065,138 @@ fn stage5cn_resolve_broker_event(
                 None => stage5cn_terminal(reason),
             }
         })
+}
+
+fn stage5cn_require_terminal_broker_lifecycle_batch(
+    resolved: &Stage5cResolvedPaperIntentBatchStrategy,
+    input: &Stage5cPaperBrokerLifecycleInput,
+) -> Result<(), Stage5cPaperLoopError> {
+    let mut sequences = HashSet::new();
+    let mut event_identity_records: HashMap<String, Stage5cPaperBrokerEventRecord> = HashMap::new();
+    for record in &input.event_records {
+        if !sequences.insert(record.total_sequence) {
+            return Err(Stage5cPaperLoopError::BrokerLifecycle(
+                Stage5cPaperBrokerLifecycleError::DuplicateSequence,
+            ));
+        }
+        if !resolved
+            .resolved_batch
+            .request_ids
+            .contains(&record.request_id)
+        {
+            return Err(Stage5cPaperLoopError::BrokerLifecycle(
+                Stage5cPaperBrokerLifecycleError::UnknownEventRequestId,
+            ));
+        }
+        if record.payload.instrument() != resolved.resolved_batch.instrument() {
+            return Err(Stage5cPaperLoopError::BrokerLifecycle(
+                Stage5cPaperBrokerLifecycleError::InstrumentMismatch,
+            ));
+        }
+        let identity = stage5cj_event_identity(record).map_err(|_| {
+            Stage5cPaperLoopError::BrokerLifecycle(
+                Stage5cPaperBrokerLifecycleError::CallbackValidationFailed,
+            )
+        })?;
+        if let Some(previous) = event_identity_records.get_mut(&identity) {
+            if record.payload != previous.payload {
+                return Err(Stage5cPaperLoopError::BrokerLifecycle(
+                    Stage5cPaperBrokerLifecycleError::ConflictingDuplicateEvent,
+                ));
+            }
+            if record.total_sequence < previous.total_sequence {
+                *previous = record.clone();
+            }
+            continue;
+        }
+        event_identity_records.insert(identity, record.clone());
+    }
+
+    let mut canonical_event_records: Vec<_> = event_identity_records.into_values().collect();
+    canonical_event_records.sort_by_key(|record| record.total_sequence);
+    let admission_strategy_id = resolved
+        .recovery_receipt
+        .warmup_receipt()
+        .restore_receipt()
+        .bootstrap_receipt()
+        .admission
+        .strategy_id()
+        .to_string();
+    let ack_by_request: HashMap<StrategyRequestId, Stage5cPaperAckOutcome> = resolved
+        .ack_outcomes
+        .iter()
+        .cloned()
+        .map(|outcome| (outcome.request_id, outcome))
+        .collect();
+    let mut events_by_request: HashMap<StrategyRequestId, Vec<Stage5cPaperBrokerEventRecord>> =
+        HashMap::new();
+    for record in &canonical_event_records {
+        events_by_request
+            .entry(record.request_id)
+            .or_default()
+            .push(record.clone());
+    }
+    for intent_record in &resolved.resolved_batch.records {
+        let ack = ack_by_request
+            .get(&intent_record.request_id)
+            .expect("ACK lifecycle enforces exact request coverage");
+        let request_events = events_by_request
+            .get(&intent_record.request_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        if stage5cj_ack_is_terminal(ack.status) {
+            if !request_events.is_empty() {
+                return Err(Stage5cPaperLoopError::BrokerLifecycle(
+                    Stage5cPaperBrokerLifecycleError::EventForTerminalAck,
+                ));
+            }
+            continue;
+        }
+        if request_events.is_empty() {
+            return Err(Stage5cPaperLoopError::BrokerLifecycle(
+                Stage5cPaperBrokerLifecycleError::MissingExpectedBrokerEvent,
+            ));
+        }
+        let mut terminal_seen = false;
+        let mut simulated_position_qty = stage5cj_position_qty(Strategy::state(&resolved.strategy));
+        for record in request_events {
+            if record.payload.source_ts_utc() < ack.processed_ts_utc {
+                return Err(Stage5cPaperLoopError::BrokerLifecycle(
+                    Stage5cPaperBrokerLifecycleError::EventTimestampBeforeAck,
+                ));
+            }
+            if !stage5cj_allowed_event_kinds(intent_record).contains(&record.payload.kind()) {
+                return Err(Stage5cPaperLoopError::BrokerLifecycle(
+                    Stage5cPaperBrokerLifecycleError::UnexpectedBrokerEventKind,
+                ));
+            }
+            stage5cj_validate_event_mapping(
+                record,
+                ack,
+                intent_record,
+                &admission_strategy_id,
+                simulated_position_qty,
+            )
+            .map_err(|failure| match failure {
+                Stage5cPaperBrokerLifecycleFailure::Blocked(blocked) => {
+                    Stage5cPaperLoopError::BrokerLifecycle(blocked.reason())
+                }
+                Stage5cPaperBrokerLifecycleFailure::Terminal(reason) => {
+                    Stage5cPaperLoopError::BrokerLifecycle(reason)
+                }
+            })?;
+            if stage5cj_event_is_terminal_for_intent(record, intent_record, request_events) {
+                terminal_seen = true;
+            }
+            if let Stage5cPaperBrokerEventPayload::Position(position) = &record.payload {
+                simulated_position_qty = position.qty;
+            }
+        }
+        if !terminal_seen {
+            return Err(Stage5cPaperLoopError::BrokerLifecycleIncompleteBatch);
+        }
+    }
+    Ok(())
 }
 
 fn stage5cn_resolve_timer(
@@ -11036,14 +11175,14 @@ mod bootstrap_notification_tests {
                             3,
                             tp_request_id,
                             BrokerOrderId::new("ORDER_TEST_ACK_0001"),
-                            "working",
+                            "canceled",
                             bar_close_ts + 2,
                         ),
                         stage5cj_stop_event(
                             4,
                             sl_request_id,
                             BrokerOrderId::new("ORDER_TEST_ACK_0001"),
-                            "working",
+                            "canceled",
                             bar_close_ts + 600,
                             bar_close_ts + 2,
                         ),
@@ -11102,13 +11241,78 @@ mod bootstrap_notification_tests {
         .expect_err("missing SL event blocks atomic Stage 5C-j preflight");
         assert_eq!(
             failure.reason(),
-            Stage5cPaperLoopError::BrokerLifecycle(
-                Stage5cPaperBrokerLifecycleError::MissingExpectedBrokerEvent
-            )
+            Stage5cPaperLoopError::BrokerLifecycleIncompleteBatch
         );
         assert_eq!(
             failure.preserved_state().map(Stage5cPaperLoopState::kind),
             Some(Stage5cPaperLoopStateKind::IntentLifecycleResolved)
+        );
+    }
+
+    #[test]
+    fn stage5cn_working_only_batch_preserves_state_and_can_retry_full_batch() {
+        let (settled, request_id, bar_close_ts) =
+            stage5cj_place_entry_settled(crate::BrokerNeutralOrderSide::Buy, 1.0);
+        let intent_resolved = advance_stage5c_paper_loop_once(
+            Stage5cPaperLoopState::Settled(Box::new(settled)),
+            Stage5cPaperLoopEvent::Ack(Box::new(Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![stage5ci_ack_record(1, request_id)],
+            })),
+        )
+        .expect("entry ACK resolves");
+        let blocked = advance_stage5c_paper_loop_once(
+            intent_resolved,
+            Stage5cPaperLoopEvent::BrokerLifecycleBatch(Box::new(
+                Stage5cPaperBrokerLifecycleInput {
+                    event_records: vec![stage5cj_place_order_event(
+                        2,
+                        request_id,
+                        "working",
+                        "buy",
+                        1.0,
+                        bar_close_ts + 2,
+                    )],
+                },
+            )),
+        )
+        .expect_err("working-only batch is incomplete and must not invoke callbacks");
+        assert_eq!(
+            blocked.reason(),
+            Stage5cPaperLoopError::BrokerLifecycleIncompleteBatch
+        );
+        let preserved = blocked
+            .into_preserved_state()
+            .expect("incomplete broker batch preserves intent lifecycle state");
+        let completed = advance_stage5c_paper_loop_once(
+            preserved,
+            Stage5cPaperLoopEvent::BrokerLifecycleBatch(Box::new(
+                Stage5cPaperBrokerLifecycleInput {
+                    event_records: vec![
+                        stage5cj_place_order_event(
+                            2,
+                            request_id,
+                            "working",
+                            "buy",
+                            1.0,
+                            bar_close_ts + 2,
+                        ),
+                        stage5cj_place_order_event(
+                            3,
+                            request_id,
+                            "filled",
+                            "buy",
+                            1.0,
+                            bar_close_ts + 3,
+                        ),
+                        stage5cj_position_event(4, request_id, 1.0, bar_close_ts + 4),
+                    ],
+                },
+            )),
+        )
+        .expect("caller can retry later with the complete terminal broker batch");
+        assert_eq!(
+            completed.kind(),
+            Stage5cPaperLoopStateKind::BrokerLifecycleResolved
         );
     }
 
@@ -11329,33 +11533,36 @@ mod bootstrap_notification_tests {
             })),
         )
         .unwrap();
-        let unresolved_broker = advance_stage5c_paper_loop_once(
-            intent_resolved,
-            Stage5cPaperLoopEvent::BrokerLifecycleBatch(Box::new(
-                Stage5cPaperBrokerLifecycleInput {
-                    event_records: vec![
-                        stage5cj_order_event(
-                            3,
-                            tp_request_id,
-                            BrokerOrderId::new("ORDER_TEST_ACK_0001"),
-                            "working",
-                            bar_close_ts + 2,
-                        ),
-                        stage5cj_stop_event(
-                            4,
-                            sl_request_id,
-                            BrokerOrderId::new("ORDER_TEST_ACK_0001"),
-                            "working",
-                            bar_close_ts + 600,
-                            bar_close_ts + 2,
-                        ),
-                    ],
-                },
-            )),
-        )
-        .unwrap();
+        let unresolved_broker = match intent_resolved {
+            Stage5cPaperLoopState::IntentLifecycleResolved(resolved) => {
+                resolve_stage5c_paper_broker_lifecycle(
+                    *resolved,
+                    Stage5cPaperBrokerLifecycleInput {
+                        event_records: vec![
+                            stage5cj_order_event(
+                                3,
+                                tp_request_id,
+                                BrokerOrderId::new("ORDER_TEST_ACK_0001"),
+                                "working",
+                                bar_close_ts + 2,
+                            ),
+                            stage5cj_stop_event(
+                                4,
+                                sl_request_id,
+                                BrokerOrderId::new("ORDER_TEST_ACK_0001"),
+                                "working",
+                                bar_close_ts + 600,
+                                bar_close_ts + 2,
+                            ),
+                        ],
+                    },
+                )
+                .expect("raw Stage 5C-j facade can still represent unresolved lifecycle")
+            }
+            _ => panic!("expected intent lifecycle resolved state"),
+        };
         let failure = advance_stage5c_paper_loop_once(
-            unresolved_broker,
+            Stage5cPaperLoopState::BrokerLifecycleResolved(Box::new(unresolved_broker)),
             Stage5cPaperLoopEvent::Timer(Stage5cPaperTimerInput {
                 now_ts_utc_ms: (bar_close_ts + 10) * 1_000,
             }),

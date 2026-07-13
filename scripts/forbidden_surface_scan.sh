@@ -1544,7 +1544,7 @@ expected_stage5_profile_artifacts = {
         "821e241970df245f7aaaeb78312537c29512173108c59f40f7f449eb44cb8aa4"
     ),
     Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"): (
-        "bea4bef720bc8ba2ae7a88d03ea6b6f3b6351eac39ff59461eb63e9833280ad9"
+        "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857"
     ),
     Path("tests/fixtures/stage5/stage5ch_controlled_next_bar_loop.json"): (
         "687a94ea97c437715039dc8f44c53539094c89d2c5e9c34d83162e24515f2699"
