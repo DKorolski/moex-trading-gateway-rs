@@ -18,6 +18,7 @@ Accepted input state kinds:
 - settled paper intent batch;
 - ACK-resolved intent batch;
 - broker-lifecycle-resolved batch;
+- broker-lifecycle settlement;
 - timer-resolved strategy;
 - opaque timer settlement.
 
@@ -26,20 +27,24 @@ Accepted event kinds:
 - one final M10 semantic bar;
 - explicit semantic-result settlement;
 - one ACK lifecycle input;
-- one `Order` broker event;
-- one `StopOrder` broker event;
-- one `Position` broker event;
+- one full broker-lifecycle event batch;
+- explicit broker-lifecycle-result settlement;
 - one timer input;
 - explicit timer-result settlement.
 
 Coordinator gates:
 
 - invalid state/event pairs are blocked and preserve the input state;
-- broker event wrapper kind must match the broker payload kind;
-- final bars, ACKs, broker events and timers are routed only through existing
+- broker events enter only as a full Stage 5C-j batch, preserving atomic
+  preflight semantics for multi-request and multi-event lifecycles;
+- final bars, ACKs, broker batches and timers are routed only through existing
   Stage 5C functions;
+- callback-generated broker intents are settled into an opaque generated batch
+  and must re-enter the ACK lifecycle before timer or bar continuation;
 - generated timer batches can re-enter the ACK lifecycle only through the
   generated-batch extractor accepted in Stage 5C-m;
+- recoverable timer blocks preserve the broker-lifecycle-resolved state exposed
+  by Stage 5C-k;
 - ready timer settlements cannot be unwrapped or ACK-resolved;
 - recoverable blocks preserve their corresponding type-state when the
   underlying facade exposes it;

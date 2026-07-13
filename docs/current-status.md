@@ -132,9 +132,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   generated timer batches until Stage 5C-i/5C-j lifecycle resolution.
 - Stage 5C-n bounded deterministic paper-loop coordinator is a review
   candidate. It consumes one accepted Stage 5C type-state and one explicit
-  event per call, delegates only to existing Stage 5C facades, preserves
-  recoverable state where available, and keeps autonomous loops, Redis, sink,
-  transport, FINAM command consumer and runtime-live closed.
+  event per call, accepts broker lifecycle only as an atomic Stage 5C-j batch,
+  settles callback-generated broker intents back into ACK lifecycle, delegates
+  only to existing Stage 5C facades, preserves recoverable state where
+  available, and keeps autonomous loops, Redis, sink, transport, FINAM command
+  consumer and runtime-live closed.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
