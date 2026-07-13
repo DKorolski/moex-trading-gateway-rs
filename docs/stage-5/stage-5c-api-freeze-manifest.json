@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "stage": "5C",
+  "status": "api_freeze_candidate",
+  "generated_on": "2026-07-13",
+  "accepted_implementation_baseline": {
+    "short_commit": "69cc73b",
+    "full_commit": "69cc73b7f33d8cb418c784ac993856d8a487693d",
+    "handoff_archive": "moex-trading-project-69cc73b.zip",
+    "handoff_sha256": "0b614ebe83b0a8af85cde0ca7a1ae481457813edad72626cd4bb5972c9c83f91"
+  },
+  "accepted_slices": [
+    "5C-a",
+    "5C-b",
+    "5C-c",
+    "5C-d",
+    "5C-e",
+    "5C-f",
+    "5C-g",
+    "5C-h",
+    "5C-i",
+    "5C-j",
+    "5C-k",
+    "5C-l",
+    "5C-m",
+    "5C-n"
+  ],
+  "source_hashes": {
+    "source-oracles/alor-stage5/hybrid_intraday_runtime.rs": "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa",
+    "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
+    "crates/strategy-runtime-core/src/hybrid_intraday/mod.rs": "c70e3847f1a99e00c5d078d19b7b5f103d9b4d26853886b0b47d4805818ac84c",
+    "crates/strategy-runtime-core/src/hybrid_intraday/intraday_breakout.rs": "a3b125f282f201b66dfa8d2685f22aa94048856a5145d537b76dc8934a5f9ae5",
+    "crates/strategy-runtime-core/src/hybrid_intraday/mean_reversion.rs": "4aecdeeb0bee8bcbae10cd2596c13d4450885b4ad7a8899346b14d743d4039ab",
+    "crates/strategy-runtime-core/src/hybrid_intraday/high180.rs": "e1f39a3afdf9745682682da0083f97ac0fa5361f979525d5ea383d6a6aa64456",
+    "crates/strategy-runtime-core/src/hybrid_intraday/orchestrator.rs": "1e784411d348fcf090887f7f50062b0cbd34494912288100c1ca1d851d8d5bd9",
+    "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs": "c85779ec5023e602cb6088e116fb58ed0bc80c31828499a0bd4557e2034dee34",
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
+    "crates/strategy-runtime-core/src/lib.rs": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25"
+  },
+  "public_functions": [
+    "admit_stage5c_paper_host",
+    "notify_stage5c_bootstrap",
+    "prepare_stage5c_without_runtime_state",
+    "restore_stage5c_runtime_state",
+    "notify_stage5c_runtime_state_restored",
+    "accept_stage5c_history_batch",
+    "warmup_stage5c_history",
+    "accept_stage5c_pending_recovery_evidence",
+    "prove_stage5c_pending_recovery_claim",
+    "recover_stage5c_pending_streams",
+    "accept_stage5c_semantic_bar",
+    "apply_stage5c_semantic_bar",
+    "settle_stage5c_semantic_result",
+    "advance_stage5c_controlled_next_bar",
+    "resolve_stage5c_paper_intent_lifecycle",
+    "resolve_stage5c_paper_broker_lifecycle",
+    "settle_stage5c_broker_lifecycle_result",
+    "resolve_stage5c_paper_timer",
+    "settle_stage5c_timer_result",
+    "advance_stage5c_timer_settlement_next_bar",
+    "advance_stage5c_timer_settlement_timer",
+    "advance_stage5c_paper_loop_once"
+  ],
+  "closed_surfaces": [
+    "intent_sink",
+    "redis_command_stream",
+    "redis_consumer_group",
+    "broker_transport",
+    "finam_command_consumer",
+    "real_post_delete_order_endpoints",
+    "runtime_live",
+    "broker_side_stop_sltp_bracket_execution"
+  ],
+  "stage5c_n_policy": {
+    "broker_lifecycle_input": "terminal_complete_batch_only",
+    "incomplete_batch_behavior": "block_before_callbacks_and_preserve_ack_resolved_state",
+    "generated_broker_intents": "must_reenter_ack_lifecycle",
+    "timer_generated_intents": "must_reenter_ack_lifecycle",
+    "autonomous_loop": false
+  },
+  "next_stage_allowed_after_acceptance": "Stage 5D state/riskgate persistence design",
+  "next_stage_blocked_until_acceptance": [
+    "redis_stream_bridge",
+    "finam_execution",
+    "runtime_live",
+    "long_running_paper_shadow"
+  ]
+}

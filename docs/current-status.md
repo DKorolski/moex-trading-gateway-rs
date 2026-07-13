@@ -130,14 +130,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   later timer, preserves ready settlement on recoverable next-bar blocks,
   exposes the settlement only as an opaque public capability, and blocks
   generated timer batches until Stage 5C-i/5C-j lifecycle resolution.
-- Stage 5C-n bounded deterministic paper-loop coordinator is a review
-  candidate. It consumes one accepted Stage 5C type-state and one explicit
-  event per call, accepts broker lifecycle only as a terminal-complete atomic
-  Stage 5C-j batch, rejects incomplete working-only batches before callbacks
-  while preserving ACK-resolved state for retry, settles callback-generated
-  broker intents back into ACK lifecycle, delegates only to existing Stage 5C
-  facades, preserves recoverable state where available, and keeps autonomous
-  loops, Redis, sink, transport, FINAM command consumer and runtime-live closed.
+- Stage 5C-n bounded deterministic paper-loop coordinator is accepted. It
+  consumes one accepted Stage 5C type-state and one explicit event per call,
+  accepts broker lifecycle only as a terminal-complete atomic Stage 5C-j batch,
+  rejects incomplete working-only batches before callbacks while preserving
+  ACK-resolved state for retry, settles callback-generated broker intents back
+  into ACK lifecycle, delegates only to existing Stage 5C facades, preserves
+  recoverable state where available, and keeps autonomous loops, Redis, sink,
+  transport, FINAM command consumer and runtime-live closed.
+- Stage 5C acceptance/API-freeze package is a review candidate. It summarizes
+  accepted 5C-a...5C-n slices, freezes the public paper-host API candidate,
+  records source hashes, documents the coordinator transition matrix and keeps
+  Stage 5D blocked until reviewer acceptance.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
