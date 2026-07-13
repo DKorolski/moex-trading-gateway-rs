@@ -1712,6 +1712,192 @@ pub struct Stage5cPaperBrokerLifecycleExpectation {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5cPaperLoopStateKind {
+    PendingRecovered,
+    SemanticResult,
+    Settled,
+    IntentLifecycleResolved,
+    BrokerLifecycleResolved,
+    TimerResolved,
+    TimerSettlement,
+}
+
+pub enum Stage5cPaperLoopState {
+    PendingRecovered(Box<Stage5cPendingRecoveredPaperStrategy>),
+    SemanticResult(Box<Stage5cSemanticBarResult>),
+    Settled(Box<Stage5cSettledPaperStrategy>),
+    IntentLifecycleResolved(Box<Stage5cResolvedPaperIntentBatchStrategy>),
+    BrokerLifecycleResolved(Box<Stage5cBrokerLifecycleResolvedPaperStrategy>),
+    TimerResolved(Box<Stage5cTimerResolvedPaperStrategy>),
+    TimerSettlement(Box<Stage5cTimerSettlement>),
+}
+
+impl std::fmt::Debug for Stage5cPaperLoopState {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Stage5cPaperLoopState")
+            .field("kind", &self.kind())
+            .field("intent_sink_attached", &self.intent_sink_attached())
+            .field(
+                "broker_transport_attached",
+                &self.broker_transport_attached(),
+            )
+            .field(
+                "redis_command_stream_attached",
+                &self.redis_command_stream_attached(),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+impl Stage5cPaperLoopState {
+    pub fn kind(&self) -> Stage5cPaperLoopStateKind {
+        match self {
+            Self::PendingRecovered(_) => Stage5cPaperLoopStateKind::PendingRecovered,
+            Self::SemanticResult(_) => Stage5cPaperLoopStateKind::SemanticResult,
+            Self::Settled(_) => Stage5cPaperLoopStateKind::Settled,
+            Self::IntentLifecycleResolved(_) => Stage5cPaperLoopStateKind::IntentLifecycleResolved,
+            Self::BrokerLifecycleResolved(_) => Stage5cPaperLoopStateKind::BrokerLifecycleResolved,
+            Self::TimerResolved(_) => Stage5cPaperLoopStateKind::TimerResolved,
+            Self::TimerSettlement(_) => Stage5cPaperLoopStateKind::TimerSettlement,
+        }
+    }
+
+    pub fn intent_sink_attached(&self) -> bool {
+        false
+    }
+
+    pub fn broker_transport_attached(&self) -> bool {
+        false
+    }
+
+    pub fn redis_command_stream_attached(&self) -> bool {
+        false
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5cPaperLoopEventKind {
+    FinalM10Bar,
+    SettleSemanticResult,
+    Ack,
+    OrderEvent,
+    StopOrderEvent,
+    PositionEvent,
+    Timer,
+    SettleTimerResult,
+}
+
+pub enum Stage5cPaperLoopEvent {
+    FinalM10Bar(Box<Stage5cAcceptedSemanticBar>),
+    SettleSemanticResult,
+    Ack(Box<Stage5cPaperIntentLifecycleInput>),
+    OrderEvent(Box<Stage5cPaperBrokerEventRecord>),
+    StopOrderEvent(Box<Stage5cPaperBrokerEventRecord>),
+    PositionEvent(Box<Stage5cPaperBrokerEventRecord>),
+    Timer(Stage5cPaperTimerInput),
+    SettleTimerResult,
+}
+
+impl std::fmt::Debug for Stage5cPaperLoopEvent {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Stage5cPaperLoopEvent")
+            .field("kind", &self.kind())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Stage5cPaperLoopEvent {
+    pub fn kind(&self) -> Stage5cPaperLoopEventKind {
+        match self {
+            Self::FinalM10Bar(_) => Stage5cPaperLoopEventKind::FinalM10Bar,
+            Self::SettleSemanticResult => Stage5cPaperLoopEventKind::SettleSemanticResult,
+            Self::Ack(_) => Stage5cPaperLoopEventKind::Ack,
+            Self::OrderEvent(_) => Stage5cPaperLoopEventKind::OrderEvent,
+            Self::StopOrderEvent(_) => Stage5cPaperLoopEventKind::StopOrderEvent,
+            Self::PositionEvent(_) => Stage5cPaperLoopEventKind::PositionEvent,
+            Self::Timer(_) => Stage5cPaperLoopEventKind::Timer,
+            Self::SettleTimerResult => Stage5cPaperLoopEventKind::SettleTimerResult,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5cPaperLoopError {
+    InvalidTransition {
+        state: Stage5cPaperLoopStateKind,
+        event: Stage5cPaperLoopEventKind,
+    },
+    BrokerEventKindMismatch {
+        expected: Stage5cPaperBrokerEventKind,
+        actual: Stage5cPaperBrokerEventKind,
+    },
+    Semantic(Stage5cSemanticBarError),
+    IntentSettlement(Stage5cIntentSettlementError),
+    NextBar(Stage5cNextBarLoopError),
+    IntentLifecycle(Stage5cPaperIntentLifecycleError),
+    BrokerLifecycle(Stage5cPaperBrokerLifecycleError),
+    Timer(Stage5cPaperTimerError),
+    TimerContinuation(Stage5cTimerContinuationError),
+}
+
+impl std::fmt::Display for Stage5cPaperLoopError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "Stage 5C bounded paper loop blocked: {self:?}")
+    }
+}
+
+impl std::error::Error for Stage5cPaperLoopError {}
+
+pub struct Stage5cPaperLoopFailure {
+    reason: Stage5cPaperLoopError,
+    preserved_state: Option<Box<Stage5cPaperLoopState>>,
+}
+
+impl std::fmt::Debug for Stage5cPaperLoopFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Stage5cPaperLoopFailure")
+            .field("reason", &self.reason)
+            .field(
+                "preserved_state_kind",
+                &self.preserved_state.as_ref().map(|state| state.kind()),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+impl Stage5cPaperLoopFailure {
+    pub fn reason(&self) -> Stage5cPaperLoopError {
+        self.reason
+    }
+
+    pub fn preserved_state(&self) -> Option<&Stage5cPaperLoopState> {
+        self.preserved_state.as_deref()
+    }
+
+    pub fn into_preserved_state(self) -> Option<Stage5cPaperLoopState> {
+        self.preserved_state.map(|state| *state)
+    }
+}
+
+impl std::fmt::Display for Stage5cPaperLoopFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "Stage 5C bounded paper loop failed: {:?}",
+            self.reason
+        )
+    }
+}
+
+impl std::error::Error for Stage5cPaperLoopFailure {}
+
 impl Stage5cPendingRecoveredPaperStrategy {
     pub fn receipt(&self) -> &Stage5cPendingRecoveryReceipt {
         &self.receipt
@@ -1725,6 +1911,234 @@ impl Stage5cPendingRecoveredPaperStrategy {
         self,
     ) -> (HybridIntradayRuntimeStrategy, Stage5cPendingRecoveryReceipt) {
         (self.strategy, self.receipt)
+    }
+}
+
+fn stage5cn_invalid_transition(
+    state: Stage5cPaperLoopState,
+    event: Stage5cPaperLoopEventKind,
+) -> Stage5cPaperLoopFailure {
+    Stage5cPaperLoopFailure {
+        reason: Stage5cPaperLoopError::InvalidTransition {
+            state: state.kind(),
+            event,
+        },
+        preserved_state: Some(Box::new(state)),
+    }
+}
+
+fn stage5cn_terminal(reason: Stage5cPaperLoopError) -> Stage5cPaperLoopFailure {
+    Stage5cPaperLoopFailure {
+        reason,
+        preserved_state: None,
+    }
+}
+
+fn stage5cn_preserved(
+    reason: Stage5cPaperLoopError,
+    state: Stage5cPaperLoopState,
+) -> Stage5cPaperLoopFailure {
+    Stage5cPaperLoopFailure {
+        reason,
+        preserved_state: Some(Box::new(state)),
+    }
+}
+
+fn stage5cn_single_broker_event_input(
+    expected: Stage5cPaperBrokerEventKind,
+    record: Stage5cPaperBrokerEventRecord,
+) -> Result<Stage5cPaperBrokerLifecycleInput, Stage5cPaperLoopError> {
+    let actual = record.payload.kind();
+    if actual != expected {
+        return Err(Stage5cPaperLoopError::BrokerEventKindMismatch { expected, actual });
+    }
+    Ok(Stage5cPaperBrokerLifecycleInput {
+        event_records: vec![record],
+    })
+}
+
+fn stage5cn_resolve_broker_event(
+    resolved: Stage5cResolvedPaperIntentBatchStrategy,
+    input: Stage5cPaperBrokerLifecycleInput,
+) -> Result<Stage5cPaperLoopState, Stage5cPaperLoopFailure> {
+    resolve_stage5c_paper_broker_lifecycle(resolved, input)
+        .map(|state| Stage5cPaperLoopState::BrokerLifecycleResolved(Box::new(state)))
+        .map_err(|failure| {
+            let reason = Stage5cPaperLoopError::BrokerLifecycle(failure.reason());
+            match failure.into_blocked() {
+                Some(blocked) => stage5cn_preserved(
+                    reason,
+                    Stage5cPaperLoopState::IntentLifecycleResolved(Box::new(
+                        blocked.into_resolved(),
+                    )),
+                ),
+                None => stage5cn_terminal(reason),
+            }
+        })
+}
+
+pub fn advance_stage5c_paper_loop_once(
+    state: Stage5cPaperLoopState,
+    event: Stage5cPaperLoopEvent,
+) -> Result<Stage5cPaperLoopState, Stage5cPaperLoopFailure> {
+    let event_kind = event.kind();
+    match (state, event) {
+        (
+            Stage5cPaperLoopState::PendingRecovered(recovered),
+            Stage5cPaperLoopEvent::FinalM10Bar(bar),
+        ) => apply_stage5c_semantic_bar(*recovered, *bar)
+            .map(|state| Stage5cPaperLoopState::SemanticResult(Box::new(state)))
+            .map_err(|reason| stage5cn_terminal(Stage5cPaperLoopError::Semantic(reason))),
+        (
+            Stage5cPaperLoopState::SemanticResult(result),
+            Stage5cPaperLoopEvent::SettleSemanticResult,
+        ) => settle_stage5c_semantic_result(*result)
+            .map(|state| Stage5cPaperLoopState::Settled(Box::new(state)))
+            .map_err(|reason| stage5cn_terminal(Stage5cPaperLoopError::IntentSettlement(reason))),
+        (Stage5cPaperLoopState::Settled(settled), Stage5cPaperLoopEvent::FinalM10Bar(bar)) => {
+            advance_stage5c_controlled_next_bar(*settled, *bar)
+                .map(|state| Stage5cPaperLoopState::Settled(Box::new(state)))
+                .map_err(|failure| {
+                    let reason = Stage5cPaperLoopError::NextBar(failure.reason());
+                    match failure.into_blocked() {
+                        Some(blocked) => stage5cn_preserved(
+                            reason,
+                            Stage5cPaperLoopState::Settled(Box::new(blocked.into_settled())),
+                        ),
+                        None => stage5cn_terminal(reason),
+                    }
+                })
+        }
+        (Stage5cPaperLoopState::Settled(settled), Stage5cPaperLoopEvent::Ack(input)) => {
+            resolve_stage5c_paper_intent_lifecycle(*settled, *input)
+                .map(|state| Stage5cPaperLoopState::IntentLifecycleResolved(Box::new(state)))
+                .map_err(|failure| {
+                    let reason = Stage5cPaperLoopError::IntentLifecycle(failure.reason());
+                    match failure.into_blocked() {
+                        Some(blocked) => stage5cn_preserved(
+                            reason,
+                            Stage5cPaperLoopState::Settled(Box::new(blocked.into_settled())),
+                        ),
+                        None => stage5cn_terminal(reason),
+                    }
+                })
+        }
+        (
+            Stage5cPaperLoopState::IntentLifecycleResolved(resolved),
+            Stage5cPaperLoopEvent::OrderEvent(record),
+        ) => {
+            let input = match stage5cn_single_broker_event_input(
+                Stage5cPaperBrokerEventKind::Order,
+                *record,
+            ) {
+                Ok(input) => input,
+                Err(reason) => {
+                    return Err(stage5cn_preserved(
+                        reason,
+                        Stage5cPaperLoopState::IntentLifecycleResolved(resolved),
+                    ))
+                }
+            };
+            stage5cn_resolve_broker_event(*resolved, input)
+        }
+        (
+            Stage5cPaperLoopState::IntentLifecycleResolved(resolved),
+            Stage5cPaperLoopEvent::StopOrderEvent(record),
+        ) => {
+            let input = match stage5cn_single_broker_event_input(
+                Stage5cPaperBrokerEventKind::StopOrder,
+                *record,
+            ) {
+                Ok(input) => input,
+                Err(reason) => {
+                    return Err(stage5cn_preserved(
+                        reason,
+                        Stage5cPaperLoopState::IntentLifecycleResolved(resolved),
+                    ))
+                }
+            };
+            stage5cn_resolve_broker_event(*resolved, input)
+        }
+        (
+            Stage5cPaperLoopState::IntentLifecycleResolved(resolved),
+            Stage5cPaperLoopEvent::PositionEvent(record),
+        ) => {
+            let input = match stage5cn_single_broker_event_input(
+                Stage5cPaperBrokerEventKind::Position,
+                *record,
+            ) {
+                Ok(input) => input,
+                Err(reason) => {
+                    return Err(stage5cn_preserved(
+                        reason,
+                        Stage5cPaperLoopState::IntentLifecycleResolved(resolved),
+                    ))
+                }
+            };
+            stage5cn_resolve_broker_event(*resolved, input)
+        }
+        (
+            Stage5cPaperLoopState::BrokerLifecycleResolved(resolved),
+            Stage5cPaperLoopEvent::Timer(input),
+        ) => resolve_stage5c_paper_timer(*resolved, input)
+            .map(|state| Stage5cPaperLoopState::TimerResolved(Box::new(state)))
+            .map_err(|failure| stage5cn_terminal(Stage5cPaperLoopError::Timer(failure.reason()))),
+        (Stage5cPaperLoopState::TimerResolved(timer), Stage5cPaperLoopEvent::SettleTimerResult) => {
+            Ok(Stage5cPaperLoopState::TimerSettlement(Box::new(
+                settle_stage5c_timer_result(*timer),
+            )))
+        }
+        (
+            Stage5cPaperLoopState::TimerSettlement(settlement),
+            Stage5cPaperLoopEvent::FinalM10Bar(bar),
+        ) => advance_stage5c_timer_settlement_next_bar(*settlement, *bar)
+            .map(|state| Stage5cPaperLoopState::Settled(Box::new(state)))
+            .map_err(|failure| {
+                let reason = Stage5cPaperLoopError::TimerContinuation(failure.reason());
+                match failure.into_blocked() {
+                    Some(blocked) => stage5cn_preserved(
+                        reason,
+                        Stage5cPaperLoopState::TimerSettlement(Box::new(blocked.into_settlement())),
+                    ),
+                    None => stage5cn_terminal(reason),
+                }
+            }),
+        (
+            Stage5cPaperLoopState::TimerSettlement(settlement),
+            Stage5cPaperLoopEvent::Timer(input),
+        ) => advance_stage5c_timer_settlement_timer(*settlement, input)
+            .map(|state| Stage5cPaperLoopState::TimerResolved(Box::new(state)))
+            .map_err(|failure| {
+                let reason = Stage5cPaperLoopError::TimerContinuation(failure.reason());
+                match failure.into_blocked() {
+                    Some(blocked) => stage5cn_preserved(
+                        reason,
+                        Stage5cPaperLoopState::TimerSettlement(Box::new(blocked.into_settlement())),
+                    ),
+                    None => stage5cn_terminal(reason),
+                }
+            }),
+        (Stage5cPaperLoopState::TimerSettlement(settlement), Stage5cPaperLoopEvent::Ack(input)) => {
+            match (*settlement).into_generated_intent_batch() {
+                Ok(settled) => resolve_stage5c_paper_intent_lifecycle(settled, *input)
+                    .map(|state| Stage5cPaperLoopState::IntentLifecycleResolved(Box::new(state)))
+                    .map_err(|failure| {
+                        let reason = Stage5cPaperLoopError::IntentLifecycle(failure.reason());
+                        match failure.into_blocked() {
+                            Some(blocked) => stage5cn_preserved(
+                                reason,
+                                Stage5cPaperLoopState::Settled(Box::new(blocked.into_settled())),
+                            ),
+                            None => stage5cn_terminal(reason),
+                        }
+                    }),
+                Err(settlement) => Err(stage5cn_invalid_transition(
+                    Stage5cPaperLoopState::TimerSettlement(settlement),
+                    Stage5cPaperLoopEventKind::Ack,
+                )),
+            }
+        }
+        (state, _) => Err(stage5cn_invalid_transition(state, event_kind)),
     }
 }
 
@@ -6929,22 +7343,11 @@ mod bootstrap_notification_tests {
 
     #[test]
     fn stage5ch_controlled_next_bar_requires_settled_input_and_accumulates_history() {
-        let now = Utc
-            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
-            .single()
-            .unwrap();
-        let recovered = empty_recovered_until(
-            now,
-            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
-                .single()
-                .unwrap(),
-        );
+        let wall_now = Utc::now();
+        let now = wall_now - chrono::Duration::hours(3);
+        let recovered = empty_recovered_until(now, wall_now + chrono::Duration::hours(1));
         let (strategy, recovery_receipt) = recovered.into_parts();
-        let first_close_ts = Utc
-            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
-            .single()
-            .unwrap()
-            .timestamp();
+        let first_close_ts = wall_now.timestamp().div_euclid(600) * 600 - 7_200;
         let settled = settle_stage5c_semantic_result(Stage5cSemanticBarResult {
             strategy,
             recovery_receipt,
@@ -6956,18 +7359,12 @@ mod bootstrap_notification_tests {
         })
         .unwrap();
         assert_eq!(settled.settled_batch_history().len(), 1);
-        let next_close_ts = Utc
-            .with_ymd_and_hms(2026, 7, 13, 9, 20, 0)
-            .single()
-            .unwrap()
-            .timestamp();
+        let next_close_ts = first_close_ts + 600;
         let accepted = accept_stage5c_semantic_bar(semantic_input(next_close_ts)).unwrap();
         let advanced = advance_stage5c_controlled_next_bar_at(
             settled,
             accepted,
-            Utc.with_ymd_and_hms(2026, 7, 13, 9, 20, 30)
-                .single()
-                .unwrap(),
+            DateTime::<Utc>::from_timestamp(next_close_ts + 30, 0).unwrap(),
         )
         .unwrap();
         assert_eq!(advanced.intent_batch().bar_close_ts(), next_close_ts);
@@ -10324,6 +10721,154 @@ mod bootstrap_notification_tests {
             .expect("blocked generated batch preserves settlement")
             .settlement()
             .is_generated_intent_batch());
+    }
+
+    #[test]
+    fn stage5cn_settle_is_bounded_no_send_step() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 0, 30)
+            .single()
+            .unwrap();
+        let recovered = empty_recovered_until(
+            now,
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 40, 30)
+                .single()
+                .unwrap(),
+        );
+        let (strategy, recovery_receipt) = recovered.into_parts();
+        let first_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let semantic_state =
+            Stage5cPaperLoopState::SemanticResult(Box::new(Stage5cSemanticBarResult {
+                strategy,
+                recovery_receipt,
+                bar_close_ts: first_close_ts,
+                origin: broker_core::HybridRuntimeBarOrigin::Live,
+                execution_eligible: true,
+                intents: Vec::new(),
+                expected_attribution_by_request: HashMap::new(),
+            }));
+
+        let settled_state = advance_stage5c_paper_loop_once(
+            semantic_state,
+            Stage5cPaperLoopEvent::SettleSemanticResult,
+        )
+        .expect("bounded loop settles the captured semantic result explicitly");
+        assert_eq!(settled_state.kind(), Stage5cPaperLoopStateKind::Settled);
+        assert!(!settled_state.intent_sink_attached());
+        assert!(!settled_state.broker_transport_attached());
+        assert!(!settled_state.redis_command_stream_attached());
+    }
+
+    #[test]
+    fn stage5cn_invalid_transition_preserves_input_state() {
+        let recovered = empty_recovered(Utc::now());
+        let failure = advance_stage5c_paper_loop_once(
+            Stage5cPaperLoopState::PendingRecovered(Box::new(recovered)),
+            Stage5cPaperLoopEvent::Timer(Stage5cPaperTimerInput {
+                now_ts_utc_ms: Utc::now().timestamp_millis(),
+            }),
+        )
+        .expect_err("timer is not a valid first paper-loop event");
+        assert_eq!(
+            failure.reason(),
+            Stage5cPaperLoopError::InvalidTransition {
+                state: Stage5cPaperLoopStateKind::PendingRecovered,
+                event: Stage5cPaperLoopEventKind::Timer,
+            }
+        );
+        assert_eq!(
+            failure.preserved_state().map(Stage5cPaperLoopState::kind),
+            Some(Stage5cPaperLoopStateKind::PendingRecovered)
+        );
+    }
+
+    #[test]
+    fn stage5cn_generated_timer_batch_can_reenter_ack_lifecycle() {
+        let (settled, request_id, bar_close_ts) = stage5ci_exit_settled();
+        let Stage5cSettledPaperStrategy {
+            strategy,
+            recovery_receipt,
+            batch,
+            settled_batch_history,
+        } = settled;
+        let timer = Stage5cTimerResolvedPaperStrategy {
+            strategy,
+            recovery_receipt,
+            resolved_batch_summary: stage5ch_batch_summary(&batch),
+            timer_ts_utc_ms: (bar_close_ts + 10) * 1_000,
+            generated_intent_batch: Some(batch),
+            settled_batch_history,
+        };
+        let timer_settlement = settle_stage5c_timer_result(timer);
+        let resolved = advance_stage5c_paper_loop_once(
+            Stage5cPaperLoopState::TimerSettlement(Box::new(timer_settlement)),
+            Stage5cPaperLoopEvent::Ack(Box::new(Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![stage5ci_ack_record(1, request_id)],
+            })),
+        )
+        .expect("generated timer batch reenters ACK lifecycle through coordinator");
+        assert_eq!(
+            resolved.kind(),
+            Stage5cPaperLoopStateKind::IntentLifecycleResolved
+        );
+    }
+
+    #[test]
+    fn stage5cn_ready_timer_settlement_rejects_ack_without_revealing_ready_state() {
+        let (settlement, _, _) = stage5cm_ready_subsecond_checkpoint();
+        let failure = advance_stage5c_paper_loop_once(
+            Stage5cPaperLoopState::TimerSettlement(Box::new(settlement)),
+            Stage5cPaperLoopEvent::Ack(Box::new(Stage5cPaperIntentLifecycleInput {
+                ack_records: Vec::new(),
+            })),
+        )
+        .expect_err("ready timer settlement is not a generated batch");
+        assert_eq!(
+            failure.reason(),
+            Stage5cPaperLoopError::InvalidTransition {
+                state: Stage5cPaperLoopStateKind::TimerSettlement,
+                event: Stage5cPaperLoopEventKind::Ack,
+            }
+        );
+        assert_eq!(
+            failure.preserved_state().map(Stage5cPaperLoopState::kind),
+            Some(Stage5cPaperLoopStateKind::TimerSettlement)
+        );
+    }
+
+    #[test]
+    fn stage5cn_broker_event_variant_must_match_payload_kind() {
+        let (settled, request_id, bar_close_ts) =
+            stage5cj_place_entry_settled(crate::BrokerNeutralOrderSide::Buy, 1.0);
+        let resolved = resolve_stage5c_paper_intent_lifecycle(
+            settled,
+            Stage5cPaperIntentLifecycleInput {
+                ack_records: vec![stage5ci_ack_record(1, request_id)],
+            },
+        )
+        .unwrap();
+        let order_record =
+            stage5cj_place_order_event(2, request_id, "working", "buy", 1.0, bar_close_ts + 2);
+        let failure = advance_stage5c_paper_loop_once(
+            Stage5cPaperLoopState::IntentLifecycleResolved(Box::new(resolved)),
+            Stage5cPaperLoopEvent::PositionEvent(Box::new(order_record)),
+        )
+        .expect_err("event wrapper kind must match broker payload kind");
+        assert_eq!(
+            failure.reason(),
+            Stage5cPaperLoopError::BrokerEventKindMismatch {
+                expected: Stage5cPaperBrokerEventKind::Position,
+                actual: Stage5cPaperBrokerEventKind::Order,
+            }
+        );
+        assert_eq!(
+            failure.preserved_state().map(Stage5cPaperLoopState::kind),
+            Some(Stage5cPaperLoopStateKind::IntentLifecycleResolved)
+        );
     }
 
     #[test]
