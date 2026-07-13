@@ -18,6 +18,34 @@
 //! ```compile_fail
 //! use strategy_runtime_core::state::StrategyState;
 //! ```
+//!
+//! ```compile_fail
+//! use strategy_runtime_core::{Stage5cSettledPaperStrategy, Stage5cTimerSettlement};
+//!
+//! let settled: Stage5cSettledPaperStrategy = unreachable!();
+//! let _forged = Stage5cTimerSettlement::ReadyForContinuation {
+//!     settled,
+//!     checkpoint_ts_utc_ms: 0,
+//! };
+//! ```
+//!
+//! ```compile_fail
+//! use strategy_runtime_core::{Stage5cSettledPaperStrategy, Stage5cTimerSettlement};
+//!
+//! let settled: Stage5cSettledPaperStrategy = unreachable!();
+//! let _forged = Stage5cTimerSettlement::GeneratedIntentBatch(settled);
+//! ```
+//!
+//! ```compile_fail
+//! use strategy_runtime_core::{
+//!     advance_stage5c_controlled_next_bar, Stage5cAcceptedSemanticBar, Stage5cTimerSettlement,
+//! };
+//!
+//! let settlement: Stage5cTimerSettlement = unreachable!();
+//! let accepted: Stage5cAcceptedSemanticBar = unreachable!();
+//! let settled = settlement.into_settled();
+//! let _ = advance_stage5c_controlled_next_bar(settled, accepted);
+//! ```
 
 pub mod hybrid_intraday;
 // The accepted source wrapper intentionally retains Stage 5C/5D callbacks

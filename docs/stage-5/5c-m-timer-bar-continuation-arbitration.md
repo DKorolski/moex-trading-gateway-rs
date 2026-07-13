@@ -9,6 +9,10 @@ FINAM command surfaces.
 Gates:
 
 - input must be a Stage 5C-l timer settlement type-state;
+- the public settlement type is an opaque capability; downstream crates cannot
+  construct `ReadyForContinuation`, construct `GeneratedIntentBatch`, forge
+  `checkpoint_ts_utc_ms`, or extract a ready settled state for direct
+  `advance_stage5c_controlled_next_bar(...)` bypass;
 - only `ReadyForContinuation` can advance;
 - `GeneratedIntentBatch` is blocked until Stage 5C-i ACK lifecycle and Stage
   5C-j broker lifecycle resolve it;

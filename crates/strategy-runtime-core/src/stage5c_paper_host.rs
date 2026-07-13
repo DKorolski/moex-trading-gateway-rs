@@ -1363,7 +1363,11 @@ impl Stage5cTimerResolvedPaperStrategy {
     }
 }
 
-pub enum Stage5cTimerSettlement {
+pub struct Stage5cTimerSettlement {
+    inner: Stage5cTimerSettlementKind,
+}
+
+enum Stage5cTimerSettlementKind {
     ReadyForContinuation {
         settled: Stage5cSettledPaperStrategy,
         checkpoint_ts_utc_ms: i64,
@@ -1373,12 +1377,14 @@ pub enum Stage5cTimerSettlement {
 
 impl std::fmt::Debug for Stage5cTimerSettlement {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (kind, settled, checkpoint_ts_utc_ms) = match self {
-            Self::ReadyForContinuation {
+        let (kind, settled, checkpoint_ts_utc_ms) = match &self.inner {
+            Stage5cTimerSettlementKind::ReadyForContinuation {
                 settled,
                 checkpoint_ts_utc_ms,
             } => ("ReadyForContinuation", settled, Some(*checkpoint_ts_utc_ms)),
-            Self::GeneratedIntentBatch(settled) => ("GeneratedIntentBatch", settled, None),
+            Stage5cTimerSettlementKind::GeneratedIntentBatch(settled) => {
+                ("GeneratedIntentBatch", settled, None)
+            }
         };
         formatter
             .debug_struct("Stage5cTimerSettlement")
@@ -1395,33 +1401,61 @@ impl std::fmt::Debug for Stage5cTimerSettlement {
 }
 
 impl Stage5cTimerSettlement {
-    pub fn is_ready_for_continuation(&self) -> bool {
-        matches!(self, Self::ReadyForContinuation { .. })
-    }
-    pub fn is_generated_intent_batch(&self) -> bool {
-        matches!(self, Self::GeneratedIntentBatch(_))
-    }
-    pub fn settled(&self) -> &Stage5cSettledPaperStrategy {
-        match self {
-            Self::ReadyForContinuation { settled, .. } | Self::GeneratedIntentBatch(settled) => {
-                settled
-            }
+    fn ready_for_continuation(
+        settled: Stage5cSettledPaperStrategy,
+        checkpoint_ts_utc_ms: i64,
+    ) -> Self {
+        Self {
+            inner: Stage5cTimerSettlementKind::ReadyForContinuation {
+                settled,
+                checkpoint_ts_utc_ms,
+            },
         }
     }
-    pub fn into_settled(self) -> Stage5cSettledPaperStrategy {
-        match self {
-            Self::ReadyForContinuation { settled, .. } | Self::GeneratedIntentBatch(settled) => {
-                settled
-            }
+
+    fn generated_intent_batch(settled: Stage5cSettledPaperStrategy) -> Self {
+        Self {
+            inner: Stage5cTimerSettlementKind::GeneratedIntentBatch(settled),
+        }
+    }
+
+    pub fn is_ready_for_continuation(&self) -> bool {
+        matches!(
+            self.inner,
+            Stage5cTimerSettlementKind::ReadyForContinuation { .. }
+        )
+    }
+    pub fn is_generated_intent_batch(&self) -> bool {
+        matches!(
+            self.inner,
+            Stage5cTimerSettlementKind::GeneratedIntentBatch(_)
+        )
+    }
+    pub fn settled(&self) -> &Stage5cSettledPaperStrategy {
+        match &self.inner {
+            Stage5cTimerSettlementKind::ReadyForContinuation { settled, .. }
+            | Stage5cTimerSettlementKind::GeneratedIntentBatch(settled) => settled,
+        }
+    }
+    pub fn into_generated_intent_batch(self) -> Result<Stage5cSettledPaperStrategy, Box<Self>> {
+        match self.inner {
+            Stage5cTimerSettlementKind::GeneratedIntentBatch(settled) => Ok(settled),
+            Stage5cTimerSettlementKind::ReadyForContinuation {
+                settled,
+                checkpoint_ts_utc_ms,
+            } => Err(Box::new(Self::ready_for_continuation(
+                settled,
+                checkpoint_ts_utc_ms,
+            ))),
         }
     }
     pub fn checkpoint_ts_utc_ms(&self) -> Option<i64> {
-        match self {
-            Self::ReadyForContinuation {
+        match &self.inner {
+            Stage5cTimerSettlementKind::ReadyForContinuation {
                 checkpoint_ts_utc_ms,
                 ..
             } => Some(*checkpoint_ts_utc_ms),
-            Self::GeneratedIntentBatch(_) => None,
+            Stage5cTimerSettlementKind::GeneratedIntentBatch(_) => None,
         }
     }
     pub fn intent_sink_attached(&self) -> bool {
@@ -3642,12 +3676,14 @@ pub fn settle_stage5c_timer_result(
         mut settled_batch_history,
     } = timer;
     match generated_intent_batch {
-        Some(batch) => Stage5cTimerSettlement::GeneratedIntentBatch(Stage5cSettledPaperStrategy {
-            strategy,
-            recovery_receipt,
-            batch,
-            settled_batch_history,
-        }),
+        Some(batch) => {
+            Stage5cTimerSettlement::generated_intent_batch(Stage5cSettledPaperStrategy {
+                strategy,
+                recovery_receipt,
+                batch,
+                settled_batch_history,
+            })
+        }
         None => {
             let batch = stage5cl_zero_timer_batch(
                 &strategy,
@@ -3656,15 +3692,15 @@ pub fn settle_stage5c_timer_result(
                 timer_ts_utc_ms,
             );
             settled_batch_history.push(stage5ch_batch_summary(&batch));
-            Stage5cTimerSettlement::ReadyForContinuation {
-                settled: Stage5cSettledPaperStrategy {
+            Stage5cTimerSettlement::ready_for_continuation(
+                Stage5cSettledPaperStrategy {
                     strategy,
                     recovery_receipt,
                     batch,
                     settled_batch_history,
                 },
-                checkpoint_ts_utc_ms: timer_ts_utc_ms,
-            }
+                timer_ts_utc_ms,
+            )
         }
     }
 }
@@ -3681,15 +3717,15 @@ fn advance_stage5c_timer_settlement_next_bar_at(
     accepted: Stage5cAcceptedSemanticBar,
     now: DateTime<Utc>,
 ) -> Result<Stage5cSettledPaperStrategy, Stage5cTimerContinuationFailure> {
-    let (settled, checkpoint_ts_utc_ms) = match settlement {
-        Stage5cTimerSettlement::ReadyForContinuation {
+    let (settled, checkpoint_ts_utc_ms) = match settlement.inner {
+        Stage5cTimerSettlementKind::ReadyForContinuation {
             settled,
             checkpoint_ts_utc_ms,
         } => (settled, checkpoint_ts_utc_ms),
-        Stage5cTimerSettlement::GeneratedIntentBatch(settled) => {
+        Stage5cTimerSettlementKind::GeneratedIntentBatch(settled) => {
             return Err(stage5cm_block(
                 Stage5cTimerContinuationError::GeneratedIntentBatchRequiresLifecycle,
-                Stage5cTimerSettlement::GeneratedIntentBatch(settled),
+                Stage5cTimerSettlement::generated_intent_batch(settled),
             ));
         }
     };
@@ -3699,10 +3735,10 @@ fn advance_stage5c_timer_settlement_next_bar_at(
             let reason = blocked.reason();
             Err(stage5cm_block(
                 Stage5cTimerContinuationError::NextBar(reason),
-                Stage5cTimerSettlement::ReadyForContinuation {
-                    settled: blocked.into_settled(),
+                Stage5cTimerSettlement::ready_for_continuation(
+                    blocked.into_settled(),
                     checkpoint_ts_utc_ms,
-                },
+                ),
             ))
         }
         Err(Stage5cNextBarLoopFailure::Failed(reason)) => {
@@ -3717,14 +3753,14 @@ pub fn advance_stage5c_timer_settlement_timer(
     settlement: Stage5cTimerSettlement,
     input: Stage5cPaperTimerInput,
 ) -> Result<Stage5cTimerResolvedPaperStrategy, Stage5cTimerContinuationFailure> {
-    match settlement {
-        Stage5cTimerSettlement::ReadyForContinuation {
+    match settlement.inner {
+        Stage5cTimerSettlementKind::ReadyForContinuation {
             settled,
             checkpoint_ts_utc_ms,
         } => stage5cm_advance_timer_from_settled(settled, input, checkpoint_ts_utc_ms),
-        Stage5cTimerSettlement::GeneratedIntentBatch(settled) => Err(stage5cm_block(
+        Stage5cTimerSettlementKind::GeneratedIntentBatch(settled) => Err(stage5cm_block(
             Stage5cTimerContinuationError::GeneratedIntentBatchRequiresLifecycle,
-            Stage5cTimerSettlement::GeneratedIntentBatch(settled),
+            Stage5cTimerSettlement::generated_intent_batch(settled),
         )),
     }
 }
@@ -3819,25 +3855,19 @@ fn stage5cm_advance_timer_from_settled(
     if settled.batch.intent_count() > 0 {
         return Err(stage5cm_block(
             Stage5cTimerContinuationError::GeneratedIntentBatchRequiresLifecycle,
-            Stage5cTimerSettlement::GeneratedIntentBatch(settled),
+            Stage5cTimerSettlement::generated_intent_batch(settled),
         ));
     }
     if input.now_ts_utc_ms <= checkpoint_ts_utc_ms {
         return Err(stage5cm_block(
             Stage5cTimerContinuationError::NonMonotonicTimer,
-            Stage5cTimerSettlement::ReadyForContinuation {
-                settled,
-                checkpoint_ts_utc_ms,
-            },
+            Stage5cTimerSettlement::ready_for_continuation(settled, checkpoint_ts_utc_ms),
         ));
     }
     let Some(timer_now) = Utc.timestamp_millis_opt(input.now_ts_utc_ms).single() else {
         return Err(stage5cm_block(
             Stage5cTimerContinuationError::BrokerTruthExpired,
-            Stage5cTimerSettlement::ReadyForContinuation {
-                settled,
-                checkpoint_ts_utc_ms,
-            },
+            Stage5cTimerSettlement::ready_for_continuation(settled, checkpoint_ts_utc_ms),
         ));
     };
     if timer_now
@@ -3850,10 +3880,7 @@ fn stage5cm_advance_timer_from_settled(
     {
         return Err(stage5cm_block(
             Stage5cTimerContinuationError::BrokerTruthExpired,
-            Stage5cTimerSettlement::ReadyForContinuation {
-                settled,
-                checkpoint_ts_utc_ms,
-            },
+            Stage5cTimerSettlement::ready_for_continuation(settled, checkpoint_ts_utc_ms),
         ));
     }
     let Stage5cSettledPaperStrategy {
@@ -9912,8 +9939,8 @@ mod bootstrap_notification_tests {
 
         let next_close_ts = bar_close_ts + 600;
         let accepted = accept_stage5c_semantic_bar(semantic_input(next_close_ts)).unwrap();
-        let advanced = advance_stage5c_controlled_next_bar_at(
-            settlement.into_settled(),
+        let advanced = advance_stage5c_timer_settlement_next_bar_at(
+            settlement,
             accepted,
             Utc.timestamp_opt(next_close_ts + 30, 0).single().unwrap(),
         )
@@ -9943,9 +9970,12 @@ mod bootstrap_notification_tests {
         let settlement = settle_stage5c_timer_result(timer);
         assert!(settlement.is_generated_intent_batch());
         assert_eq!(settlement.settled().intent_batch().intent_count(), 1);
+        let generated_settled = settlement
+            .into_generated_intent_batch()
+            .expect("generated timer settlement exposes only the generated batch");
         assert_eq!(
             advance_stage5c_controlled_next_bar_at(
-                settlement.into_settled(),
+                generated_settled,
                 accept_stage5c_semantic_bar(semantic_input(bar_close_ts + 600)).unwrap(),
                 Utc.timestamp_opt(bar_close_ts + 630, 0).single().unwrap(),
             )
@@ -9969,7 +9999,9 @@ mod bootstrap_notification_tests {
             generated_intent_batch: Some(batch),
             settled_batch_history,
         };
-        let generated_settled = settle_stage5c_timer_result(timer).into_settled();
+        let generated_settled = settle_stage5c_timer_result(timer)
+            .into_generated_intent_batch()
+            .expect("timer-generated batch reuses the Stage 5C-i ACK lifecycle");
         let resolved = resolve_stage5c_paper_intent_lifecycle(
             generated_settled,
             Stage5cPaperIntentLifecycleInput {

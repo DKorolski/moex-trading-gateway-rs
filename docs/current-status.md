@@ -128,8 +128,9 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   candidate. It consumes only Stage 5C-l timer settlements, stores the exact
   millisecond timer checkpoint, allows one ready checkpoint to continue to
   either one later final bar or one later timer, preserves ready settlement on
-  recoverable next-bar blocks, and blocks generated timer batches until Stage
-  5C-i/5C-j lifecycle resolution.
+  recoverable next-bar blocks, exposes the settlement only as an opaque public
+  capability, and blocks generated timer batches until Stage 5C-i/5C-j
+  lifecycle resolution.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
