@@ -1364,19 +1364,26 @@ impl Stage5cTimerResolvedPaperStrategy {
 }
 
 pub enum Stage5cTimerSettlement {
-    ReadyForContinuation(Stage5cSettledPaperStrategy),
+    ReadyForContinuation {
+        settled: Stage5cSettledPaperStrategy,
+        checkpoint_ts_utc_ms: i64,
+    },
     GeneratedIntentBatch(Stage5cSettledPaperStrategy),
 }
 
 impl std::fmt::Debug for Stage5cTimerSettlement {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (kind, settled) = match self {
-            Self::ReadyForContinuation(settled) => ("ReadyForContinuation", settled),
-            Self::GeneratedIntentBatch(settled) => ("GeneratedIntentBatch", settled),
+        let (kind, settled, checkpoint_ts_utc_ms) = match self {
+            Self::ReadyForContinuation {
+                settled,
+                checkpoint_ts_utc_ms,
+            } => ("ReadyForContinuation", settled, Some(*checkpoint_ts_utc_ms)),
+            Self::GeneratedIntentBatch(settled) => ("GeneratedIntentBatch", settled, None),
         };
         formatter
             .debug_struct("Stage5cTimerSettlement")
             .field("kind", &kind)
+            .field("checkpoint_ts_utc_ms", &checkpoint_ts_utc_ms)
             .field(
                 "timer_result_intent_count",
                 &settled.intent_batch().intent_count(),
@@ -1389,19 +1396,32 @@ impl std::fmt::Debug for Stage5cTimerSettlement {
 
 impl Stage5cTimerSettlement {
     pub fn is_ready_for_continuation(&self) -> bool {
-        matches!(self, Self::ReadyForContinuation(_))
+        matches!(self, Self::ReadyForContinuation { .. })
     }
     pub fn is_generated_intent_batch(&self) -> bool {
         matches!(self, Self::GeneratedIntentBatch(_))
     }
     pub fn settled(&self) -> &Stage5cSettledPaperStrategy {
         match self {
-            Self::ReadyForContinuation(settled) | Self::GeneratedIntentBatch(settled) => settled,
+            Self::ReadyForContinuation { settled, .. } | Self::GeneratedIntentBatch(settled) => {
+                settled
+            }
         }
     }
     pub fn into_settled(self) -> Stage5cSettledPaperStrategy {
         match self {
-            Self::ReadyForContinuation(settled) | Self::GeneratedIntentBatch(settled) => settled,
+            Self::ReadyForContinuation { settled, .. } | Self::GeneratedIntentBatch(settled) => {
+                settled
+            }
+        }
+    }
+    pub fn checkpoint_ts_utc_ms(&self) -> Option<i64> {
+        match self {
+            Self::ReadyForContinuation {
+                checkpoint_ts_utc_ms,
+                ..
+            } => Some(*checkpoint_ts_utc_ms),
+            Self::GeneratedIntentBatch(_) => None,
         }
     }
     pub fn intent_sink_attached(&self) -> bool {
@@ -1449,8 +1469,8 @@ impl std::fmt::Debug for Stage5cTimerContinuationBlocked {
             .debug_struct("Stage5cTimerContinuationBlocked")
             .field("reason", &self.reason)
             .field(
-                "checkpoint_ts",
-                &self.settlement.settled().intent_batch().bar_close_ts(),
+                "checkpoint_ts_utc_ms",
+                &self.settlement.checkpoint_ts_utc_ms(),
             )
             .field(
                 "intent_count",
@@ -3636,12 +3656,15 @@ pub fn settle_stage5c_timer_result(
                 timer_ts_utc_ms,
             );
             settled_batch_history.push(stage5ch_batch_summary(&batch));
-            Stage5cTimerSettlement::ReadyForContinuation(Stage5cSettledPaperStrategy {
-                strategy,
-                recovery_receipt,
-                batch,
-                settled_batch_history,
-            })
+            Stage5cTimerSettlement::ReadyForContinuation {
+                settled: Stage5cSettledPaperStrategy {
+                    strategy,
+                    recovery_receipt,
+                    batch,
+                    settled_batch_history,
+                },
+                checkpoint_ts_utc_ms: timer_ts_utc_ms,
+            }
         }
     }
 }
@@ -3658,30 +3681,52 @@ fn advance_stage5c_timer_settlement_next_bar_at(
     accepted: Stage5cAcceptedSemanticBar,
     now: DateTime<Utc>,
 ) -> Result<Stage5cSettledPaperStrategy, Stage5cTimerContinuationFailure> {
-    let Stage5cTimerSettlement::ReadyForContinuation(settled) = settlement else {
-        return Err(stage5cm_block(
-            Stage5cTimerContinuationError::GeneratedIntentBatchRequiresLifecycle,
-            settlement,
-        ));
+    let (settled, checkpoint_ts_utc_ms) = match settlement {
+        Stage5cTimerSettlement::ReadyForContinuation {
+            settled,
+            checkpoint_ts_utc_ms,
+        } => (settled, checkpoint_ts_utc_ms),
+        Stage5cTimerSettlement::GeneratedIntentBatch(settled) => {
+            return Err(stage5cm_block(
+                Stage5cTimerContinuationError::GeneratedIntentBatchRequiresLifecycle,
+                Stage5cTimerSettlement::GeneratedIntentBatch(settled),
+            ));
+        }
     };
-    advance_stage5c_controlled_next_bar_at(settled, accepted, now).map_err(|failure| {
-        Stage5cTimerContinuationFailure::Terminal(Stage5cTimerContinuationError::NextBar(
-            failure.reason(),
-        ))
-    })
+    match advance_stage5c_controlled_next_bar_at(settled, accepted, now) {
+        Ok(advanced) => Ok(advanced),
+        Err(Stage5cNextBarLoopFailure::Blocked(blocked)) => {
+            let reason = blocked.reason();
+            Err(stage5cm_block(
+                Stage5cTimerContinuationError::NextBar(reason),
+                Stage5cTimerSettlement::ReadyForContinuation {
+                    settled: blocked.into_settled(),
+                    checkpoint_ts_utc_ms,
+                },
+            ))
+        }
+        Err(Stage5cNextBarLoopFailure::Failed(reason)) => {
+            Err(Stage5cTimerContinuationFailure::Terminal(
+                Stage5cTimerContinuationError::NextBar(reason),
+            ))
+        }
+    }
 }
 
 pub fn advance_stage5c_timer_settlement_timer(
     settlement: Stage5cTimerSettlement,
     input: Stage5cPaperTimerInput,
 ) -> Result<Stage5cTimerResolvedPaperStrategy, Stage5cTimerContinuationFailure> {
-    let Stage5cTimerSettlement::ReadyForContinuation(settled) = settlement else {
-        return Err(stage5cm_block(
+    match settlement {
+        Stage5cTimerSettlement::ReadyForContinuation {
+            settled,
+            checkpoint_ts_utc_ms,
+        } => stage5cm_advance_timer_from_settled(settled, input, checkpoint_ts_utc_ms),
+        Stage5cTimerSettlement::GeneratedIntentBatch(settled) => Err(stage5cm_block(
             Stage5cTimerContinuationError::GeneratedIntentBatchRequiresLifecycle,
-            settlement,
-        ));
-    };
-    stage5cm_advance_timer_from_settled(settled, input)
+            Stage5cTimerSettlement::GeneratedIntentBatch(settled),
+        )),
+    }
 }
 
 fn stage5ck_block(
@@ -3769,6 +3814,7 @@ fn stage5cm_block(
 fn stage5cm_advance_timer_from_settled(
     settled: Stage5cSettledPaperStrategy,
     input: Stage5cPaperTimerInput,
+    checkpoint_ts_utc_ms: i64,
 ) -> Result<Stage5cTimerResolvedPaperStrategy, Stage5cTimerContinuationFailure> {
     if settled.batch.intent_count() > 0 {
         return Err(stage5cm_block(
@@ -3776,17 +3822,22 @@ fn stage5cm_advance_timer_from_settled(
             Stage5cTimerSettlement::GeneratedIntentBatch(settled),
         ));
     }
-    let checkpoint_ts_utc_ms = settled.batch.bar_close_ts().saturating_mul(1_000);
     if input.now_ts_utc_ms <= checkpoint_ts_utc_ms {
         return Err(stage5cm_block(
             Stage5cTimerContinuationError::NonMonotonicTimer,
-            Stage5cTimerSettlement::ReadyForContinuation(settled),
+            Stage5cTimerSettlement::ReadyForContinuation {
+                settled,
+                checkpoint_ts_utc_ms,
+            },
         ));
     }
     let Some(timer_now) = Utc.timestamp_millis_opt(input.now_ts_utc_ms).single() else {
         return Err(stage5cm_block(
             Stage5cTimerContinuationError::BrokerTruthExpired,
-            Stage5cTimerSettlement::ReadyForContinuation(settled),
+            Stage5cTimerSettlement::ReadyForContinuation {
+                settled,
+                checkpoint_ts_utc_ms,
+            },
         ));
     };
     if timer_now
@@ -3799,7 +3850,10 @@ fn stage5cm_advance_timer_from_settled(
     {
         return Err(stage5cm_block(
             Stage5cTimerContinuationError::BrokerTruthExpired,
-            Stage5cTimerSettlement::ReadyForContinuation(settled),
+            Stage5cTimerSettlement::ReadyForContinuation {
+                settled,
+                checkpoint_ts_utc_ms,
+            },
         ));
     }
     let Stage5cSettledPaperStrategy {
@@ -9965,6 +10019,217 @@ mod bootstrap_notification_tests {
         )
         .expect("ready timer checkpoint may advance to one later bar");
         assert_eq!(advanced.intent_batch().bar_close_ts(), next_close_ts);
+    }
+
+    fn stage5cm_ready_subsecond_checkpoint() -> (Stage5cTimerSettlement, i64, i64) {
+        let (broker_resolved, bar_close_ts) = stage5ck_clean_broker_resolved();
+        let checkpoint_ts_utc_ms = (bar_close_ts + 10) * 1_000 + 900;
+        let timer = resolve_stage5c_paper_timer(
+            broker_resolved,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: checkpoint_ts_utc_ms,
+            },
+        )
+        .unwrap();
+        let settlement = settle_stage5c_timer_result(timer);
+        assert!(settlement.is_ready_for_continuation());
+        assert_eq!(
+            settlement.checkpoint_ts_utc_ms(),
+            Some(checkpoint_ts_utc_ms)
+        );
+        (settlement, bar_close_ts, checkpoint_ts_utc_ms)
+    }
+
+    #[test]
+    fn stage5cm_timer_before_exact_millisecond_checkpoint_is_blocked() {
+        let (settlement, _, checkpoint_ts_utc_ms) = stage5cm_ready_subsecond_checkpoint();
+        let blocked = advance_stage5c_timer_settlement_timer(
+            settlement,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: checkpoint_ts_utc_ms - 400,
+            },
+        )
+        .expect_err("timer before exact millisecond checkpoint must be blocked");
+        assert_eq!(
+            blocked.reason(),
+            Stage5cTimerContinuationError::NonMonotonicTimer
+        );
+        assert_eq!(
+            blocked
+                .into_blocked()
+                .unwrap()
+                .settlement()
+                .checkpoint_ts_utc_ms(),
+            Some(checkpoint_ts_utc_ms)
+        );
+    }
+
+    #[test]
+    fn stage5cm_timer_equal_to_exact_checkpoint_is_blocked() {
+        let (settlement, _, checkpoint_ts_utc_ms) = stage5cm_ready_subsecond_checkpoint();
+        let blocked = advance_stage5c_timer_settlement_timer(
+            settlement,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: checkpoint_ts_utc_ms,
+            },
+        )
+        .expect_err("timer equal to exact millisecond checkpoint must be blocked");
+        assert_eq!(
+            blocked.reason(),
+            Stage5cTimerContinuationError::NonMonotonicTimer
+        );
+    }
+
+    #[test]
+    fn stage5cm_timer_one_millisecond_after_checkpoint_is_accepted() {
+        let (settlement, _, checkpoint_ts_utc_ms) = stage5cm_ready_subsecond_checkpoint();
+        let advanced = advance_stage5c_timer_settlement_timer(
+            settlement,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: checkpoint_ts_utc_ms + 1,
+            },
+        )
+        .expect("timer one millisecond after exact checkpoint is monotonic");
+        assert_eq!(advanced.generated_intent_count(), 0);
+        assert_eq!(advanced.timer_ts_utc_ms(), checkpoint_ts_utc_ms + 1);
+    }
+
+    #[test]
+    fn stage5cm_blocked_subsecond_timer_preserves_settlement() {
+        let (settlement, _, checkpoint_ts_utc_ms) = stage5cm_ready_subsecond_checkpoint();
+        let blocked = advance_stage5c_timer_settlement_timer(
+            settlement,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: checkpoint_ts_utc_ms - 400,
+            },
+        )
+        .expect_err("subsecond nonmonotonic timer is recoverable");
+        let blocked = blocked.into_blocked().unwrap();
+        assert!(blocked.settlement().is_ready_for_continuation());
+        assert_eq!(
+            blocked.settlement().checkpoint_ts_utc_ms(),
+            Some(checkpoint_ts_utc_ms)
+        );
+        assert_eq!(
+            blocked.settlement().settled().intent_batch().intent_count(),
+            0
+        );
+    }
+
+    #[test]
+    fn stage5cm_nonmonotonic_next_bar_preserves_ready_settlement() {
+        let (settlement, bar_close_ts, checkpoint_ts_utc_ms) =
+            stage5cm_ready_subsecond_checkpoint();
+        let previous_fingerprint = settlement
+            .settled()
+            .intent_batch()
+            .state_fingerprint()
+            .to_string();
+        let blocked = advance_stage5c_timer_settlement_next_bar_at(
+            settlement,
+            accept_stage5c_semantic_bar(semantic_input(bar_close_ts)).unwrap(),
+            Utc.timestamp_opt(bar_close_ts + 30, 0).single().unwrap(),
+        )
+        .expect_err("nonmonotonic next bar must preserve ready settlement");
+        assert_eq!(
+            blocked.reason(),
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::NonMonotonicBar)
+        );
+        let blocked = blocked.into_blocked().unwrap();
+        assert!(blocked.settlement().is_ready_for_continuation());
+        assert_eq!(
+            blocked.settlement().checkpoint_ts_utc_ms(),
+            Some(checkpoint_ts_utc_ms)
+        );
+        assert_eq!(
+            blocked
+                .settlement()
+                .settled()
+                .intent_batch()
+                .state_fingerprint(),
+            previous_fingerprint
+        );
+    }
+
+    #[test]
+    fn stage5cm_expired_next_bar_preserves_ready_settlement() {
+        let (settlement, bar_close_ts, checkpoint_ts_utc_ms) =
+            stage5cm_ready_subsecond_checkpoint();
+        let expires_at = settlement
+            .settled()
+            .recovery_receipt()
+            .warmup_receipt()
+            .restore_receipt()
+            .bootstrap_receipt()
+            .expires_at();
+        let blocked = advance_stage5c_timer_settlement_next_bar_at(
+            settlement,
+            accept_stage5c_semantic_bar(semantic_input(bar_close_ts + 600)).unwrap(),
+            expires_at + chrono::Duration::milliseconds(1),
+        )
+        .expect_err("expired next bar preflight must preserve ready settlement");
+        assert_eq!(
+            blocked.reason(),
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::Semantic(
+                Stage5cSemanticBarError::BrokerTruthExpired,
+            ))
+        );
+        let blocked = blocked.into_blocked().unwrap();
+        assert!(blocked.settlement().is_ready_for_continuation());
+        assert_eq!(
+            blocked.settlement().checkpoint_ts_utc_ms(),
+            Some(checkpoint_ts_utc_ms)
+        );
+    }
+
+    #[test]
+    fn stage5cm_blocked_next_bar_does_not_invoke_callback() {
+        let (settlement, bar_close_ts, _) = stage5cm_ready_subsecond_checkpoint();
+        let previous_fingerprint = settlement
+            .settled()
+            .intent_batch()
+            .state_fingerprint()
+            .to_string();
+        let blocked = advance_stage5c_timer_settlement_next_bar_at(
+            settlement,
+            accept_stage5c_semantic_bar(semantic_input(bar_close_ts)).unwrap(),
+            Utc.timestamp_opt(bar_close_ts + 30, 0).single().unwrap(),
+        )
+        .expect_err("blocked next bar should stop before semantic callback");
+        let blocked_settlement = blocked.into_blocked().unwrap().into_settlement();
+        assert_eq!(
+            blocked_settlement
+                .settled()
+                .intent_batch()
+                .state_fingerprint(),
+            previous_fingerprint
+        );
+        assert_eq!(
+            blocked_settlement.settled().intent_batch().intent_count(),
+            0
+        );
+    }
+
+    #[test]
+    fn stage5cm_blocked_next_bar_allows_later_timer_retry() {
+        let (settlement, bar_close_ts, checkpoint_ts_utc_ms) =
+            stage5cm_ready_subsecond_checkpoint();
+        let blocked = advance_stage5c_timer_settlement_next_bar_at(
+            settlement,
+            accept_stage5c_semantic_bar(semantic_input(bar_close_ts)).unwrap(),
+            Utc.timestamp_opt(bar_close_ts + 30, 0).single().unwrap(),
+        )
+        .expect_err("recoverable next-bar block should return settlement for retry");
+        let retry_settlement = blocked.into_blocked().unwrap().into_settlement();
+        let retry = advance_stage5c_timer_settlement_timer(
+            retry_settlement,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: checkpoint_ts_utc_ms + 1,
+            },
+        )
+        .expect("ready settlement returned from blocked next-bar may continue via timer");
+        assert_eq!(retry.generated_intent_count(), 0);
+        assert_eq!(retry.timer_ts_utc_ms(), checkpoint_ts_utc_ms + 1);
     }
 
     #[test]

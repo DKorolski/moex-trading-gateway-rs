@@ -108,26 +108,28 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   captured request IDs, preserves full escrow and typed ACK outcomes, applies
   only broker-neutral ACK callbacks, and still leaves Redis, transport and
   execution closed.
-- Stage 5C-j paper broker lifecycle facade is a review candidate. It consumes
+- Stage 5C-j paper broker lifecycle facade is accepted. It consumes
   only Stage 5C-i resolved batches, maps active ACK outcomes to expected
   `Order`/`StopOrder`/`Position` paper evidence, blocks terminal ACKs with
   broker-state events, canonicalizes event sequence, deduplicates identical
   events, and keeps timer, sink, Redis, transport, FINAM command consumer and
   runtime-live closed.
-- Stage 5C-k controlled paper timer facade is a review candidate. It consumes
+- Stage 5C-k controlled paper timer facade is accepted. It consumes
   only fully resolved Stage 5C-j broker-lifecycle type-state, checks timer
   monotonicity against the ACK/broker-event lifecycle watermark, captures
   timer-generated cleanup attribution before callback mutation, and still keeps
   the timer loop, sink, Redis, transport, FINAM command consumer and
   runtime-live closed.
-- Stage 5C-l timer-result settlement facade is a review candidate. It consumes
+- Stage 5C-l timer-result settlement facade is accepted. It consumes
   only Stage 5C-k timer type-state, turns zero-intent timers into continuation
   checkpoints, and routes nonzero timer-generated batches back through Stage
   5C-i/5C-j without opening sink, Redis, transport or runtime-live.
-- Stage 5C-m timer/bar continuation arbitration is a review candidate. It
-  consumes only Stage 5C-l timer settlements, allows one ready checkpoint to
-  continue to either one later final bar or one later timer, and blocks
-  generated timer batches until Stage 5C-i/5C-j lifecycle resolution.
+- Stage 5C-m timer/bar continuation arbitration is a targeted hardening review
+  candidate. It consumes only Stage 5C-l timer settlements, stores the exact
+  millisecond timer checkpoint, allows one ready checkpoint to continue to
+  either one later final bar or one later timer, preserves ready settlement on
+  recoverable next-bar blocks, and blocks generated timer batches until Stage
+  5C-i/5C-j lifecycle resolution.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
