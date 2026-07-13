@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "stage": "5C",
   "status": "api_freeze_candidate",
   "generated_on": "2026-07-13",
@@ -26,41 +26,17 @@
     "5C-n"
   ],
   "source_hashes": {
-    "source-oracles/alor-stage5/hybrid_intraday_runtime.rs": "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa",
-    "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
-    "crates/strategy-runtime-core/src/hybrid_intraday/mod.rs": "c70e3847f1a99e00c5d078d19b7b5f103d9b4d26853886b0b47d4805818ac84c",
+    "crates/strategy-runtime-core/src/hybrid_intraday/high180.rs": "e1f39a3afdf9745682682da0083f97ac0fa5361f979525d5ea383d6a6aa64456",
     "crates/strategy-runtime-core/src/hybrid_intraday/intraday_breakout.rs": "a3b125f282f201b66dfa8d2685f22aa94048856a5145d537b76dc8934a5f9ae5",
     "crates/strategy-runtime-core/src/hybrid_intraday/mean_reversion.rs": "4aecdeeb0bee8bcbae10cd2596c13d4450885b4ad7a8899346b14d743d4039ab",
-    "crates/strategy-runtime-core/src/hybrid_intraday/high180.rs": "e1f39a3afdf9745682682da0083f97ac0fa5361f979525d5ea383d6a6aa64456",
+    "crates/strategy-runtime-core/src/hybrid_intraday/mod.rs": "c70e3847f1a99e00c5d078d19b7b5f103d9b4d26853886b0b47d4805818ac84c",
     "crates/strategy-runtime-core/src/hybrid_intraday/orchestrator.rs": "1e784411d348fcf090887f7f50062b0cbd34494912288100c1ca1d851d8d5bd9",
     "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs": "c85779ec5023e602cb6088e116fb58ed0bc80c31828499a0bd4557e2034dee34",
+    "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
+    "crates/strategy-runtime-core/src/lib.rs": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-    "crates/strategy-runtime-core/src/lib.rs": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25"
+    "source-oracles/alor-stage5/hybrid_intraday_runtime.rs": "6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa"
   },
-  "public_functions": [
-    "admit_stage5c_paper_host",
-    "notify_stage5c_bootstrap",
-    "prepare_stage5c_without_runtime_state",
-    "restore_stage5c_runtime_state",
-    "notify_stage5c_runtime_state_restored",
-    "accept_stage5c_history_batch",
-    "warmup_stage5c_history",
-    "accept_stage5c_pending_recovery_evidence",
-    "prove_stage5c_pending_recovery_claim",
-    "recover_stage5c_pending_streams",
-    "accept_stage5c_semantic_bar",
-    "apply_stage5c_semantic_bar",
-    "settle_stage5c_semantic_result",
-    "advance_stage5c_controlled_next_bar",
-    "resolve_stage5c_paper_intent_lifecycle",
-    "resolve_stage5c_paper_broker_lifecycle",
-    "settle_stage5c_broker_lifecycle_result",
-    "resolve_stage5c_paper_timer",
-    "settle_stage5c_timer_result",
-    "advance_stage5c_timer_settlement_next_bar",
-    "advance_stage5c_timer_settlement_timer",
-    "advance_stage5c_paper_loop_once"
-  ],
   "closed_surfaces": [
     "intent_sink",
     "redis_command_stream",
@@ -84,5 +60,2172 @@
     "finam_execution",
     "runtime_live",
     "long_running_paper_shadow"
+  ],
+  "manifest_checker": "scripts/stage5c_api_freeze_check.py",
+  "public_constants": [
+    {
+      "name": "STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION",
+      "type": "u16",
+      "signature": "pub const STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION: u16 = 1"
+    },
+    {
+      "name": "STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION",
+      "type": "u16",
+      "signature": "pub const STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION: u16 = 1"
+    }
+  ],
+  "public_free_functions": [
+    {
+      "name": "accept_stage5c_history_batch",
+      "signature": "pub fn accept_stage5c_history_batch( input: Stage5cHistoryBatchInput, ) -> Result<Stage5cAcceptedHistoryBatch, Stage5cHistoryWarmupError>"
+    },
+    {
+      "name": "accept_stage5c_pending_recovery_evidence",
+      "signature": "pub fn accept_stage5c_pending_recovery_evidence( input: Stage5cPendingRecoveryEvidenceInput, ) -> Result<Stage5cAcceptedPendingRecoveryEvidence, Stage5cPendingRecoveryError>"
+    },
+    {
+      "name": "accept_stage5c_semantic_bar",
+      "signature": "pub fn accept_stage5c_semantic_bar( input: Stage5cSemanticBarInput, ) -> Result<Stage5cAcceptedSemanticBar, Stage5cSemanticBarError>"
+    },
+    {
+      "name": "admit_stage5c_paper_host",
+      "signature": "pub fn admit_stage5c_paper_host( input: Stage5cPaperHostAdmissionInput<'_>, ) -> Result<Stage5cPaperHostAdmission, Stage5cPaperHostAdmissionError>"
+    },
+    {
+      "name": "advance_stage5c_controlled_next_bar",
+      "signature": "pub fn advance_stage5c_controlled_next_bar( settled: Stage5cSettledPaperStrategy, accepted: Stage5cAcceptedSemanticBar, ) -> Result<Stage5cSettledPaperStrategy, Stage5cNextBarLoopFailure>"
+    },
+    {
+      "name": "advance_stage5c_paper_loop_once",
+      "signature": "pub fn advance_stage5c_paper_loop_once( state: Stage5cPaperLoopState, event: Stage5cPaperLoopEvent, ) -> Result<Stage5cPaperLoopState, Stage5cPaperLoopFailure>"
+    },
+    {
+      "name": "advance_stage5c_timer_settlement_next_bar",
+      "signature": "pub fn advance_stage5c_timer_settlement_next_bar( settlement: Stage5cTimerSettlement, accepted: Stage5cAcceptedSemanticBar, ) -> Result<Stage5cSettledPaperStrategy, Stage5cTimerContinuationFailure>"
+    },
+    {
+      "name": "advance_stage5c_timer_settlement_timer",
+      "signature": "pub fn advance_stage5c_timer_settlement_timer( settlement: Stage5cTimerSettlement, input: Stage5cPaperTimerInput, ) -> Result<Stage5cTimerResolvedPaperStrategy, Stage5cTimerContinuationFailure>"
+    },
+    {
+      "name": "apply_stage5c_semantic_bar",
+      "signature": "pub fn apply_stage5c_semantic_bar( recovered: Stage5cPendingRecoveredPaperStrategy, accepted: Stage5cAcceptedSemanticBar, ) -> Result<Stage5cSemanticBarResult, Stage5cSemanticBarError>"
+    },
+    {
+      "name": "notify_stage5c_bootstrap",
+      "signature": "pub fn notify_stage5c_bootstrap( loaded: Stage5cRuntimeStateLoadedPaperStrategy, ) -> Result<Stage5cBootstrappedPaperStrategy, Stage5cBootstrapNotificationError>"
+    },
+    {
+      "name": "notify_stage5c_runtime_state_restored",
+      "signature": "pub fn notify_stage5c_runtime_state_restored( bootstrapped: Stage5cBootstrappedPaperStrategy, ) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5cRuntimeStateRestoreError>"
+    },
+    {
+      "name": "prepare_stage5c_without_runtime_state",
+      "signature": "pub fn prepare_stage5c_without_runtime_state( strategy: HybridIntradayRuntimeStrategy, admission: Stage5cPaperHostAdmission, ) -> Stage5cRuntimeStateLoadedPaperStrategy"
+    },
+    {
+      "name": "prove_stage5c_pending_recovery_claim",
+      "signature": "pub fn prove_stage5c_pending_recovery_claim( warmed: &Stage5cWarmedPaperStrategy, input: Stage5cPendingRecoveryClaimProofInput, ) -> Result<Stage5cPendingRecoveryClaimProof, Stage5cPendingRecoveryError>"
+    },
+    {
+      "name": "recover_stage5c_pending_streams",
+      "signature": "pub fn recover_stage5c_pending_streams( warmed: Stage5cWarmedPaperStrategy, evidence: Stage5cAcceptedPendingRecoveryEvidence, ) -> Result<Stage5cPendingRecoveredPaperStrategy, Stage5cPendingRecoveryError>"
+    },
+    {
+      "name": "resolve_stage5c_paper_broker_lifecycle",
+      "signature": "pub fn resolve_stage5c_paper_broker_lifecycle( resolved: Stage5cResolvedPaperIntentBatchStrategy, input: Stage5cPaperBrokerLifecycleInput, ) -> Result<Stage5cBrokerLifecycleResolvedPaperStrategy, Stage5cPaperBrokerLifecycleFailure>"
+    },
+    {
+      "name": "resolve_stage5c_paper_intent_lifecycle",
+      "signature": "pub fn resolve_stage5c_paper_intent_lifecycle( settled: Stage5cSettledPaperStrategy, input: Stage5cPaperIntentLifecycleInput, ) -> Result<Stage5cResolvedPaperIntentBatchStrategy, Stage5cPaperIntentLifecycleFailure>"
+    },
+    {
+      "name": "resolve_stage5c_paper_timer",
+      "signature": "pub fn resolve_stage5c_paper_timer( resolved: Stage5cBrokerLifecycleResolvedPaperStrategy, input: Stage5cPaperTimerInput, ) -> Result<Stage5cTimerResolvedPaperStrategy, Stage5cPaperTimerFailure>"
+    },
+    {
+      "name": "restore_stage5c_runtime_state",
+      "signature": "pub fn restore_stage5c_runtime_state( strategy: HybridIntradayRuntimeStrategy, admission: Stage5cPaperHostAdmission, input: Stage5cRuntimeStateRestoreInput, ) -> Result<Stage5cRuntimeStateLoadedPaperStrategy, Stage5cRuntimeStateRestoreError>"
+    },
+    {
+      "name": "settle_stage5c_broker_lifecycle_result",
+      "signature": "pub fn settle_stage5c_broker_lifecycle_result( resolved: Stage5cBrokerLifecycleResolvedPaperStrategy, ) -> Stage5cBrokerLifecycleSettlement"
+    },
+    {
+      "name": "settle_stage5c_semantic_result",
+      "signature": "pub fn settle_stage5c_semantic_result( result: Stage5cSemanticBarResult, ) -> Result<Stage5cSettledPaperStrategy, Stage5cIntentSettlementError>"
+    },
+    {
+      "name": "settle_stage5c_timer_result",
+      "signature": "pub fn settle_stage5c_timer_result( timer: Stage5cTimerResolvedPaperStrategy, ) -> Stage5cTimerSettlement"
+    },
+    {
+      "name": "warmup_stage5c_history",
+      "signature": "pub fn warmup_stage5c_history( restored: Stage5cRuntimeStateRestoredPaperStrategy, history: Stage5cAcceptedHistoryBatch, ) -> Result<Stage5cWarmedPaperStrategy, Stage5cHistoryWarmupError>"
+    }
+  ],
+  "public_types": [
+    {
+      "name": "Stage5cAcceptedHistoryBatch",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cAcceptedPendingRecoveryEvidence",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cAcceptedSemanticBar",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cBootstrapNotificationError",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "AdmissionExpired",
+        "StrategyTargetMismatch",
+        "StrategyTickSizeMismatch",
+        "ActiveOrdersRequireOwnershipMapping",
+        "SnapshotAccountMismatch",
+        "SnapshotInstrumentMismatch",
+        "PositionQuantityNotRepresentable",
+        "PositionAveragePriceNotRepresentable"
+      ]
+    },
+    {
+      "name": "Stage5cBootstrapNotificationReceipt",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cBootstrappedPaperStrategy",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cBrokerLifecycleResolvedPaperStrategy",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cBrokerLifecycleSettlement",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cHistoryBatchInput",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "bars",
+          "type": "Vec<broker_core::HybridRuntimeBarEvent>"
+        },
+        {
+          "name": "provenance",
+          "type": "broker_core::Stage3StrategyBarProvenance"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cHistoryWarmupError",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "BrokerTruthExpired",
+        "LifecycleTimestampReversal",
+        "EmptyHistory",
+        "InstrumentMismatch",
+        "InvalidTimeframe",
+        "NonFinalBar",
+        "InvalidOrigin",
+        "NonMonotonicTimestamp",
+        "UnalignedTimestamp",
+        "InvalidOhlc",
+        "InvalidVolume",
+        "NoEligibleHistoryBars",
+        "Stage3ProvenanceRejected",
+        "FutureHistoryBar",
+        "InvalidHistoryTimestamp"
+      ]
+    },
+    {
+      "name": "Stage5cHistoryWarmupReceipt",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cIntentSettlementError",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "TooManyIntents",
+        "MissingIntentClass",
+        "InstrumentNamespaceMismatch",
+        "InvalidQuantity",
+        "InvalidPrice",
+        "PriceNotTickAligned",
+        "InvalidStopEnd",
+        "ReplayIntentNotExecutable",
+        "MissingPendingRequest",
+        "RequestIdMismatch",
+        "DuplicateRequestId",
+        "UnsupportedIntentAction"
+      ]
+    },
+    {
+      "name": "Stage5cLegacyNumericOrderIdPolicy",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "Reject",
+        "ConvertPositiveAlorNumeric"
+      ]
+    },
+    {
+      "name": "Stage5cNextBarBlocked",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cNextBarLoopError",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "NonMonotonicBar",
+        "UnresolvedIntentBatch",
+        "Semantic",
+        "Settlement"
+      ]
+    },
+    {
+      "name": "Stage5cNextBarLoopFailure",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "Blocked",
+        "Failed"
+      ]
+    },
+    {
+      "name": "Stage5cPaperAckOutcome",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "total_sequence",
+          "type": "u64"
+        },
+        {
+          "name": "request_id",
+          "type": "StrategyRequestId"
+        },
+        {
+          "name": "status",
+          "type": "broker_core::HybridRuntimeAckStatus"
+        },
+        {
+          "name": "broker_order_id",
+          "type": "Option<BrokerOrderId>"
+        },
+        {
+          "name": "error_code",
+          "type": "Option<broker_core::HybridRuntimeAckErrorCode>"
+        },
+        {
+          "name": "processed_ts_utc",
+          "type": "i64"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPaperAckRecord",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "total_sequence",
+          "type": "u64"
+        },
+        {
+          "name": "ack",
+          "type": "broker_core::HybridRuntimeCommandAck"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPaperBrokerEventKind",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "Order",
+        "StopOrder",
+        "Position"
+      ]
+    },
+    {
+      "name": "Stage5cPaperBrokerEventPayload",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "Order",
+        "StopOrder",
+        "Position"
+      ]
+    },
+    {
+      "name": "Stage5cPaperBrokerEventRecord",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "total_sequence",
+          "type": "u64"
+        },
+        {
+          "name": "request_id",
+          "type": "StrategyRequestId"
+        },
+        {
+          "name": "payload",
+          "type": "Stage5cPaperBrokerEventPayload"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPaperBrokerLifecycleBlocked",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPaperBrokerLifecycleError",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "DuplicateSequence",
+        "UnknownEventRequestId",
+        "DuplicateEvent",
+        "ConflictingDuplicateEvent",
+        "EventForTerminalAck",
+        "MissingExpectedBrokerEvent",
+        "UnexpectedBrokerEventKind",
+        "EventTimestampBeforeAck",
+        "InstrumentMismatch",
+        "OrderRequestIdMismatch",
+        "BrokerOrderIdMismatch",
+        "StopOrderIdMismatch",
+        "PositionEventRequiresMarketIntent",
+        "PositionSideMismatch",
+        "PositionOverfill",
+        "PositionRegression",
+        "AttributionMissing",
+        "AttributionStrategyMismatch",
+        "AttributionRoleMismatch",
+        "AttributionCycleMismatch",
+        "IntentFieldMismatch",
+        "MissingTerminalLifecycleEvent",
+        "UnknownOrderStatus",
+        "UnknownStopOrderStatus",
+        "CallbackValidationFailed",
+        "CallbackGeneratedIntentTerminal"
+      ]
+    },
+    {
+      "name": "Stage5cPaperBrokerLifecycleExpectation",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "request_id",
+          "type": "StrategyRequestId"
+        },
+        {
+          "name": "expected_event_kind",
+          "type": "Stage5cPaperBrokerEventKind"
+        },
+        {
+          "name": "reason",
+          "type": "String"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPaperBrokerLifecycleFailure",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "Blocked",
+        "Terminal"
+      ]
+    },
+    {
+      "name": "Stage5cPaperBrokerLifecycleInput",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "event_records",
+          "type": "Vec<Stage5cPaperBrokerEventRecord>"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPaperHostAdmission",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPaperHostAdmissionError",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "Stage4ReportSchemaMismatch",
+        "Stage4ReportNotAccepted",
+        "Stage4EvidenceChainInconsistent",
+        "Stage4SafetyBoundaryOpen",
+        "Stage4ApplicationSchemaMismatch",
+        "Stage4ApplicationNotApplied",
+        "Stage4ApplicationInconsistent",
+        "Stage4ApplicationSnapshotMissing",
+        "Stage4ReportApplicationMismatch",
+        "TargetInstrumentMismatch",
+        "AccountScopeMismatch",
+        "InstrumentSpecMismatch",
+        "InvalidInstrumentPriceStep",
+        "TickSizeMismatch",
+        "LiveOrdersRequested",
+        "StrategyIdEmpty",
+        "EvidenceCheckedInFuture",
+        "EvidenceExpired"
+      ]
+    },
+    {
+      "name": "Stage5cPaperHostAdmissionInput",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "stage4_evidence",
+          "type": "Stage4AcceptedPaperHostEvidence"
+        },
+        {
+          "name": "strategy_id",
+          "type": "String"
+        },
+        {
+          "name": "instrument_spec",
+          "type": "&'a BrokerInstrumentSpec"
+        },
+        {
+          "name": "configured_account_id",
+          "type": "&'a BrokerAccountId"
+        },
+        {
+          "name": "configured_target_instrument",
+          "type": "&'a InstrumentId"
+        },
+        {
+          "name": "configured_tick_size",
+          "type": "f64"
+        },
+        {
+          "name": "allow_live_orders",
+          "type": "bool"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPaperIntentBatch",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPaperIntentBatchSummary",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "strategy_id",
+          "type": "String"
+        },
+        {
+          "name": "account_id",
+          "type": "BrokerAccountId"
+        },
+        {
+          "name": "instrument",
+          "type": "InstrumentId"
+        },
+        {
+          "name": "origin_bar_close_ts",
+          "type": "i64"
+        },
+        {
+          "name": "bar_close_ts",
+          "type": "i64"
+        },
+        {
+          "name": "min_source_event_ts",
+          "type": "i64"
+        },
+        {
+          "name": "max_source_event_ts",
+          "type": "i64"
+        },
+        {
+          "name": "state_fingerprint",
+          "type": "String"
+        },
+        {
+          "name": "request_ids",
+          "type": "Vec<StrategyRequestId>"
+        },
+        {
+          "name": "intent_count",
+          "type": "usize"
+        },
+        {
+          "name": "observation_only",
+          "type": "bool"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPaperIntentLifecycleBlocked",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPaperIntentLifecycleError",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "EmptyIntentBatch",
+        "StateFingerprintMismatch",
+        "MissingAck",
+        "DuplicateAck",
+        "UnknownAckRequestId",
+        "DuplicateSequence",
+        "NonMonotonicSequence",
+        "AckTimestampBeforeIntentBar",
+        "CallbackValidationFailed",
+        "CallbackGeneratedIntentTerminal"
+      ]
+    },
+    {
+      "name": "Stage5cPaperIntentLifecycleFailure",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "Blocked",
+        "Terminal"
+      ]
+    },
+    {
+      "name": "Stage5cPaperIntentLifecycleInput",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "ack_records",
+          "type": "Vec<Stage5cPaperAckRecord>"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPaperLoopError",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "InvalidTransition",
+        "Semantic",
+        "IntentSettlement",
+        "NextBar",
+        "IntentLifecycle",
+        "BrokerLifecycle",
+        "BrokerLifecycleIncompleteBatch",
+        "Timer",
+        "BrokerLifecycleRequiresGeneratedAck",
+        "BrokerLifecycleUnresolved",
+        "TimerContinuation"
+      ]
+    },
+    {
+      "name": "Stage5cPaperLoopEvent",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "FinalM10Bar",
+        "SettleSemanticResult",
+        "Ack",
+        "BrokerLifecycleBatch",
+        "SettleBrokerLifecycleResult",
+        "Timer",
+        "SettleTimerResult"
+      ]
+    },
+    {
+      "name": "Stage5cPaperLoopEventKind",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "FinalM10Bar",
+        "SettleSemanticResult",
+        "Ack",
+        "BrokerLifecycleBatch",
+        "SettleBrokerLifecycleResult",
+        "Timer",
+        "SettleTimerResult"
+      ]
+    },
+    {
+      "name": "Stage5cPaperLoopFailure",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPaperLoopState",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "PendingRecovered",
+        "SemanticResult",
+        "Settled",
+        "IntentLifecycleResolved",
+        "BrokerLifecycleResolved",
+        "BrokerLifecycleSettlement",
+        "TimerResolved",
+        "TimerSettlement"
+      ]
+    },
+    {
+      "name": "Stage5cPaperLoopStateKind",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "PendingRecovered",
+        "SemanticResult",
+        "Settled",
+        "IntentLifecycleResolved",
+        "BrokerLifecycleResolved",
+        "BrokerLifecycleSettlement",
+        "TimerResolved",
+        "TimerSettlement"
+      ]
+    },
+    {
+      "name": "Stage5cPaperTimerBlocked",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPaperTimerError",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "BrokerTruthExpired",
+        "NonMonotonicTimer",
+        "UnresolvedBrokerLifecycle",
+        "UnresolvedGeneratedIntentBatch",
+        "CallbackValidationFailed",
+        "GeneratedIntentTerminal"
+      ]
+    },
+    {
+      "name": "Stage5cPaperTimerFailure",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "Blocked",
+        "Terminal"
+      ]
+    },
+    {
+      "name": "Stage5cPaperTimerInput",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "now_ts_utc_ms",
+          "type": "i64"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPendingRecoveredPaperStrategy",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPendingRecoveryClaimProof",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPendingRecoveryClaimProofInput",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "strategy_id",
+          "type": "String"
+        },
+        {
+          "name": "account_id",
+          "type": "BrokerAccountId"
+        },
+        {
+          "name": "target_instrument",
+          "type": "InstrumentId"
+        },
+        {
+          "name": "snapshot_received_ts",
+          "type": "DateTime<Utc>"
+        },
+        {
+          "name": "completed_ts",
+          "type": "DateTime<Utc>"
+        },
+        {
+          "name": "streams",
+          "type": "Vec<Stage5cPendingStreamClaimBoundary>"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPendingRecoveryError",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "EvidenceIncomplete",
+        "InvalidEventIdentity",
+        "ConflictingDuplicate",
+        "NonMonotonicSequence",
+        "BrokerTruthExpired",
+        "LifecycleTimestampReversal",
+        "InstrumentMismatch",
+        "CallbackValidationFailed",
+        "UnexpectedIntent",
+        "ClaimScopeMismatch",
+        "ClaimBoundaryInvalid",
+        "StreamKindMismatch",
+        "FutureEvent",
+        "InvalidEventTimestamp",
+        "AckNotPending"
+      ]
+    },
+    {
+      "name": "Stage5cPendingRecoveryEvent",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "stream_kind",
+          "type": "Stage5cPendingStreamKind"
+        },
+        {
+          "name": "stream_name",
+          "type": "String"
+        },
+        {
+          "name": "entry_id",
+          "type": "String"
+        },
+        {
+          "name": "sequence",
+          "type": "u64"
+        },
+        {
+          "name": "payload",
+          "type": "Stage5cPendingRecoveryPayload"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPendingRecoveryEvidenceInput",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "events",
+          "type": "Vec<Stage5cPendingRecoveryEvent>"
+        },
+        {
+          "name": "claim_proof",
+          "type": "Stage5cPendingRecoveryClaimProof"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPendingRecoveryPayload",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "Ack",
+        "Order",
+        "StopOrder",
+        "Position"
+      ]
+    },
+    {
+      "name": "Stage5cPendingRecoveryReceipt",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPendingStreamClaimBoundary",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "stream_kind",
+          "type": "Stage5cPendingStreamKind"
+        },
+        {
+          "name": "stream_name",
+          "type": "String"
+        },
+        {
+          "name": "consumer_group",
+          "type": "String"
+        },
+        {
+          "name": "terminal_claim_cursor",
+          "type": "String"
+        },
+        {
+          "name": "snapshot_boundary_entry_id",
+          "type": "String"
+        },
+        {
+          "name": "claimed_count",
+          "type": "usize"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cPendingStreamKind",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "Ack",
+        "Order",
+        "StopOrder",
+        "Position"
+      ]
+    },
+    {
+      "name": "Stage5cResolvedPaperIntentBatchStrategy",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cRuntimeStateLoadedPaperStrategy",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cRuntimeStateRestoreError",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "SchemaMismatch",
+        "AdmissionExpired",
+        "StrategyIdMismatch",
+        "AccountMismatch",
+        "InstrumentMismatch",
+        "TickSizeMismatch",
+        "StateSchemaMismatch",
+        "StrategyKindMismatch",
+        "ConfigFingerprintMismatch",
+        "ProfileBindingMismatch",
+        "PersistedStateFromFuture",
+        "InvalidStateJson",
+        "WrongStrategyStateKind",
+        "LegacyNumericOrderIdRejected",
+        "InvalidLegacyNumericOrderId",
+        "BrokerTruthPositionMismatch",
+        "BrokerTruthSideMismatch",
+        "BrokerOwnedOrderIdMismatch"
+      ]
+    },
+    {
+      "name": "Stage5cRuntimeStateRestoreInput",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "schema_version",
+          "type": "u16"
+        },
+        {
+          "name": "state_schema_version",
+          "type": "u16"
+        },
+        {
+          "name": "strategy_kind",
+          "type": "String"
+        },
+        {
+          "name": "strategy_id",
+          "type": "String"
+        },
+        {
+          "name": "account_id",
+          "type": "BrokerAccountId"
+        },
+        {
+          "name": "instrument",
+          "type": "InstrumentId"
+        },
+        {
+          "name": "tick_size",
+          "type": "f64"
+        },
+        {
+          "name": "config_fingerprint",
+          "type": "String"
+        },
+        {
+          "name": "profile",
+          "type": "String"
+        },
+        {
+          "name": "mr_variant",
+          "type": "String"
+        },
+        {
+          "name": "mr_gate_policy",
+          "type": "String"
+        },
+        {
+          "name": "risk_gate_mode",
+          "type": "String"
+        },
+        {
+          "name": "persisted_ts",
+          "type": "DateTime<Utc>"
+        },
+        {
+          "name": "state_json",
+          "type": "String"
+        },
+        {
+          "name": "known_order_ids",
+          "type": "Vec<BrokerOrderId>"
+        },
+        {
+          "name": "pending_requests",
+          "type": "Vec<StrategyRequestId>"
+        },
+        {
+          "name": "legacy_numeric_order_id_policy",
+          "type": "Stage5cLegacyNumericOrderIdPolicy"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cRuntimeStateRestoreReceipt",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cRuntimeStateRestoredPaperStrategy",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cSemanticBarError",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "Stage3Rejected",
+        "InstrumentMismatch",
+        "TickSizeMismatch",
+        "BrokerTruthExpired",
+        "StaleOrDuplicateBar",
+        "FutureBar",
+        "InvalidTimestamp",
+        "CallbackValidationFailed",
+        "UnalignedTimestamp",
+        "InvalidOhlc",
+        "InvalidVolume"
+      ]
+    },
+    {
+      "name": "Stage5cSemanticBarInput",
+      "kind": "struct",
+      "opaque": false,
+      "public_fields": [
+        {
+          "name": "bar",
+          "type": "broker_core::HybridRuntimeBarEvent"
+        },
+        {
+          "name": "provenance",
+          "type": "broker_core::Stage3StrategyBarProvenance"
+        },
+        {
+          "name": "tick_size",
+          "type": "f64"
+        }
+      ],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cSemanticBarResult",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cSettledPaperStrategy",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cTimerContinuationBlocked",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cTimerContinuationError",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "GeneratedIntentBatchRequiresLifecycle",
+        "NonMonotonicTimer",
+        "BrokerTruthExpired",
+        "CallbackValidationFailed",
+        "GeneratedIntentTerminal",
+        "NextBar"
+      ]
+    },
+    {
+      "name": "Stage5cTimerContinuationFailure",
+      "kind": "enum",
+      "opaque": false,
+      "public_fields": [],
+      "public_variants": [
+        "Blocked",
+        "Terminal"
+      ]
+    },
+    {
+      "name": "Stage5cTimerResolvedPaperStrategy",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cTimerSettlement",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    },
+    {
+      "name": "Stage5cWarmedPaperStrategy",
+      "kind": "struct",
+      "opaque": true,
+      "public_fields": [],
+      "public_variants": []
+    }
+  ],
+  "public_methods": [
+    {
+      "type": "Stage5cBootstrapNotificationReceipt",
+      "name": "bootstrap_snapshot",
+      "signature": "pub fn bootstrap_snapshot(&self) -> &RuntimeHostBootstrapSnapshot"
+    },
+    {
+      "type": "Stage5cBootstrapNotificationReceipt",
+      "name": "expires_at",
+      "signature": "pub fn expires_at(&self) -> DateTime<Utc>"
+    },
+    {
+      "type": "Stage5cBootstrapNotificationReceipt",
+      "name": "intent_sink_attached",
+      "signature": "pub fn intent_sink_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cBootstrapNotificationReceipt",
+      "name": "notified_ts",
+      "signature": "pub fn notified_ts(&self) -> DateTime<Utc>"
+    },
+    {
+      "type": "Stage5cBootstrapNotificationReceipt",
+      "name": "pending_recovery_started",
+      "signature": "pub fn pending_recovery_started(&self) -> bool"
+    },
+    {
+      "type": "Stage5cBootstrapNotificationReceipt",
+      "name": "runtime_state_restored",
+      "signature": "pub fn runtime_state_restored(&self) -> bool"
+    },
+    {
+      "type": "Stage5cBootstrapNotificationReceipt",
+      "name": "semantic_bar_enabled",
+      "signature": "pub fn semantic_bar_enabled(&self) -> bool"
+    },
+    {
+      "type": "Stage5cBootstrapNotificationReceipt",
+      "name": "strategy_id",
+      "signature": "pub fn strategy_id(&self) -> &str"
+    },
+    {
+      "type": "Stage5cBootstrapNotificationReceipt",
+      "name": "warmup_started",
+      "signature": "pub fn warmup_started(&self) -> bool"
+    },
+    {
+      "type": "Stage5cBootstrappedPaperStrategy",
+      "name": "receipt",
+      "signature": "pub fn receipt(&self) -> &Stage5cBootstrapNotificationReceipt"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleResolvedPaperStrategy",
+      "name": "ack_outcomes",
+      "signature": "pub fn ack_outcomes(&self) -> &[Stage5cPaperAckOutcome]"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleResolvedPaperStrategy",
+      "name": "broker_event_count",
+      "signature": "pub fn broker_event_count(&self) -> usize"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleResolvedPaperStrategy",
+      "name": "broker_transport_attached",
+      "signature": "pub fn broker_transport_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleResolvedPaperStrategy",
+      "name": "full_resolved_intent_count",
+      "signature": "pub fn full_resolved_intent_count(&self) -> usize"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleResolvedPaperStrategy",
+      "name": "generated_intent_batch_summary",
+      "signature": "pub fn generated_intent_batch_summary(&self) -> Option<Stage5cPaperIntentBatchSummary>"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleResolvedPaperStrategy",
+      "name": "generated_intent_count",
+      "signature": "pub fn generated_intent_count(&self) -> usize"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleResolvedPaperStrategy",
+      "name": "intent_sink_attached",
+      "signature": "pub fn intent_sink_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleResolvedPaperStrategy",
+      "name": "lifecycle_watermark_ts_utc",
+      "signature": "pub fn lifecycle_watermark_ts_utc(&self) -> i64"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleResolvedPaperStrategy",
+      "name": "post_broker_lifecycle_state_fingerprint",
+      "signature": "pub fn post_broker_lifecycle_state_fingerprint(&self) -> String"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleResolvedPaperStrategy",
+      "name": "recovery_receipt",
+      "signature": "pub fn recovery_receipt(&self) -> &Stage5cPendingRecoveryReceipt"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleResolvedPaperStrategy",
+      "name": "remaining_lifecycle_expectations",
+      "signature": "pub fn remaining_lifecycle_expectations(&self) -> &[Stage5cPaperBrokerLifecycleExpectation]"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleResolvedPaperStrategy",
+      "name": "resolved_batch_summary",
+      "signature": "pub fn resolved_batch_summary(&self) -> &Stage5cPaperIntentBatchSummary"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleResolvedPaperStrategy",
+      "name": "settled_batch_history",
+      "signature": "pub fn settled_batch_history(&self) -> &[Stage5cPaperIntentBatchSummary]"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleResolvedPaperStrategy",
+      "name": "timer_path_enabled",
+      "signature": "pub fn timer_path_enabled(&self) -> bool"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleSettlement",
+      "name": "broker_transport_attached",
+      "signature": "pub fn broker_transport_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleSettlement",
+      "name": "intent_sink_attached",
+      "signature": "pub fn intent_sink_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleSettlement",
+      "name": "is_generated_intent_batch",
+      "signature": "pub fn is_generated_intent_batch(&self) -> bool"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleSettlement",
+      "name": "is_ready_for_timer",
+      "signature": "pub fn is_ready_for_timer(&self) -> bool"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleSettlement",
+      "name": "is_unresolved_broker_lifecycle",
+      "signature": "pub fn is_unresolved_broker_lifecycle(&self) -> bool"
+    },
+    {
+      "type": "Stage5cBrokerLifecycleSettlement",
+      "name": "redis_command_stream_attached",
+      "signature": "pub fn redis_command_stream_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cHistoryWarmupReceipt",
+      "name": "input_bars",
+      "signature": "pub fn input_bars(&self) -> usize"
+    },
+    {
+      "type": "Stage5cHistoryWarmupReceipt",
+      "name": "intent_sink_attached",
+      "signature": "pub fn intent_sink_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cHistoryWarmupReceipt",
+      "name": "last_history_ts",
+      "signature": "pub fn last_history_ts(&self) -> i64"
+    },
+    {
+      "type": "Stage5cHistoryWarmupReceipt",
+      "name": "pending_recovery_started",
+      "signature": "pub fn pending_recovery_started(&self) -> bool"
+    },
+    {
+      "type": "Stage5cHistoryWarmupReceipt",
+      "name": "processed_bars",
+      "signature": "pub fn processed_bars(&self) -> usize"
+    },
+    {
+      "type": "Stage5cHistoryWarmupReceipt",
+      "name": "restore_receipt",
+      "signature": "pub fn restore_receipt(&self) -> &Stage5cRuntimeStateRestoreReceipt"
+    },
+    {
+      "type": "Stage5cHistoryWarmupReceipt",
+      "name": "semantic_bar_enabled",
+      "signature": "pub fn semantic_bar_enabled(&self) -> bool"
+    },
+    {
+      "type": "Stage5cHistoryWarmupReceipt",
+      "name": "skipped_bars",
+      "signature": "pub fn skipped_bars(&self) -> usize"
+    },
+    {
+      "type": "Stage5cHistoryWarmupReceipt",
+      "name": "source_mode",
+      "signature": "pub fn source_mode(&self) -> broker_core::Stage3StrategyBarSourceMode"
+    },
+    {
+      "type": "Stage5cHistoryWarmupReceipt",
+      "name": "started_ts",
+      "signature": "pub fn started_ts(&self) -> DateTime<Utc>"
+    },
+    {
+      "type": "Stage5cHistoryWarmupReceipt",
+      "name": "warmup_started",
+      "signature": "pub fn warmup_started(&self) -> bool"
+    },
+    {
+      "type": "Stage5cNextBarBlocked",
+      "name": "into_settled",
+      "signature": "pub fn into_settled(self) -> Stage5cSettledPaperStrategy"
+    },
+    {
+      "type": "Stage5cNextBarBlocked",
+      "name": "reason",
+      "signature": "pub fn reason(&self) -> Stage5cNextBarLoopError"
+    },
+    {
+      "type": "Stage5cNextBarBlocked",
+      "name": "settled",
+      "signature": "pub fn settled(&self) -> &Stage5cSettledPaperStrategy"
+    },
+    {
+      "type": "Stage5cNextBarLoopFailure",
+      "name": "into_blocked",
+      "signature": "pub fn into_blocked(self) -> Option<Stage5cNextBarBlocked>"
+    },
+    {
+      "type": "Stage5cNextBarLoopFailure",
+      "name": "reason",
+      "signature": "pub fn reason(&self) -> Stage5cNextBarLoopError"
+    },
+    {
+      "type": "Stage5cPaperBrokerLifecycleBlocked",
+      "name": "into_resolved",
+      "signature": "pub fn into_resolved(self) -> Stage5cResolvedPaperIntentBatchStrategy"
+    },
+    {
+      "type": "Stage5cPaperBrokerLifecycleBlocked",
+      "name": "reason",
+      "signature": "pub fn reason(&self) -> Stage5cPaperBrokerLifecycleError"
+    },
+    {
+      "type": "Stage5cPaperBrokerLifecycleBlocked",
+      "name": "resolved",
+      "signature": "pub fn resolved(&self) -> &Stage5cResolvedPaperIntentBatchStrategy"
+    },
+    {
+      "type": "Stage5cPaperBrokerLifecycleFailure",
+      "name": "into_blocked",
+      "signature": "pub fn into_blocked(self) -> Option<Stage5cPaperBrokerLifecycleBlocked>"
+    },
+    {
+      "type": "Stage5cPaperBrokerLifecycleFailure",
+      "name": "reason",
+      "signature": "pub fn reason(&self) -> Stage5cPaperBrokerLifecycleError"
+    },
+    {
+      "type": "Stage5cPaperHostAdmission",
+      "name": "account_id",
+      "signature": "pub fn account_id(&self) -> &BrokerAccountId"
+    },
+    {
+      "type": "Stage5cPaperHostAdmission",
+      "name": "bootstrap_snapshot",
+      "signature": "pub fn bootstrap_snapshot(&self) -> &RuntimeHostBootstrapSnapshot"
+    },
+    {
+      "type": "Stage5cPaperHostAdmission",
+      "name": "checked_ts",
+      "signature": "pub fn checked_ts(&self) -> DateTime<Utc>"
+    },
+    {
+      "type": "Stage5cPaperHostAdmission",
+      "name": "expires_at",
+      "signature": "pub fn expires_at(&self) -> DateTime<Utc>"
+    },
+    {
+      "type": "Stage5cPaperHostAdmission",
+      "name": "intent_sink_attached",
+      "signature": "pub fn intent_sink_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cPaperHostAdmission",
+      "name": "is_paper_only",
+      "signature": "pub fn is_paper_only(&self) -> bool"
+    },
+    {
+      "type": "Stage5cPaperHostAdmission",
+      "name": "issued_ts",
+      "signature": "pub fn issued_ts(&self) -> DateTime<Utc>"
+    },
+    {
+      "type": "Stage5cPaperHostAdmission",
+      "name": "runtime_host_attached",
+      "signature": "pub fn runtime_host_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cPaperHostAdmission",
+      "name": "schema_version",
+      "signature": "pub fn schema_version(&self) -> u16"
+    },
+    {
+      "type": "Stage5cPaperHostAdmission",
+      "name": "strategy_id",
+      "signature": "pub fn strategy_id(&self) -> &str"
+    },
+    {
+      "type": "Stage5cPaperHostAdmission",
+      "name": "target_instrument",
+      "signature": "pub fn target_instrument(&self) -> &InstrumentId"
+    },
+    {
+      "type": "Stage5cPaperHostAdmission",
+      "name": "tick_size",
+      "signature": "pub fn tick_size(&self) -> f64"
+    },
+    {
+      "type": "Stage5cPaperIntentBatch",
+      "name": "account_id",
+      "signature": "pub fn account_id(&self) -> &BrokerAccountId"
+    },
+    {
+      "type": "Stage5cPaperIntentBatch",
+      "name": "bar_close_ts",
+      "signature": "pub fn bar_close_ts(&self) -> i64"
+    },
+    {
+      "type": "Stage5cPaperIntentBatch",
+      "name": "has_actionable_intents",
+      "signature": "pub fn has_actionable_intents(&self) -> bool"
+    },
+    {
+      "type": "Stage5cPaperIntentBatch",
+      "name": "instrument",
+      "signature": "pub fn instrument(&self) -> &InstrumentId"
+    },
+    {
+      "type": "Stage5cPaperIntentBatch",
+      "name": "intent_classes",
+      "signature": "pub fn intent_classes(&self) -> Vec<crate::BrokerNeutralHybridIntentClass>"
+    },
+    {
+      "type": "Stage5cPaperIntentBatch",
+      "name": "intent_count",
+      "signature": "pub fn intent_count(&self) -> usize"
+    },
+    {
+      "type": "Stage5cPaperIntentBatch",
+      "name": "observation_only",
+      "signature": "pub fn observation_only(&self) -> bool"
+    },
+    {
+      "type": "Stage5cPaperIntentBatch",
+      "name": "record_request_ids",
+      "signature": "pub fn record_request_ids(&self) -> Vec<StrategyRequestId>"
+    },
+    {
+      "type": "Stage5cPaperIntentBatch",
+      "name": "record_source_event_ts_by_request",
+      "signature": "pub fn record_source_event_ts_by_request(&self) -> Vec<(StrategyRequestId, i64)>"
+    },
+    {
+      "type": "Stage5cPaperIntentBatch",
+      "name": "request_ids",
+      "signature": "pub fn request_ids(&self) -> &[StrategyRequestId]"
+    },
+    {
+      "type": "Stage5cPaperIntentBatch",
+      "name": "state_fingerprint",
+      "signature": "pub fn state_fingerprint(&self) -> &str"
+    },
+    {
+      "type": "Stage5cPaperIntentBatch",
+      "name": "strategy_id",
+      "signature": "pub fn strategy_id(&self) -> &str"
+    },
+    {
+      "type": "Stage5cPaperIntentLifecycleBlocked",
+      "name": "into_settled",
+      "signature": "pub fn into_settled(self) -> Stage5cSettledPaperStrategy"
+    },
+    {
+      "type": "Stage5cPaperIntentLifecycleBlocked",
+      "name": "reason",
+      "signature": "pub fn reason(&self) -> Stage5cPaperIntentLifecycleError"
+    },
+    {
+      "type": "Stage5cPaperIntentLifecycleBlocked",
+      "name": "settled",
+      "signature": "pub fn settled(&self) -> &Stage5cSettledPaperStrategy"
+    },
+    {
+      "type": "Stage5cPaperIntentLifecycleFailure",
+      "name": "into_blocked",
+      "signature": "pub fn into_blocked(self) -> Option<Stage5cPaperIntentLifecycleBlocked>"
+    },
+    {
+      "type": "Stage5cPaperIntentLifecycleFailure",
+      "name": "reason",
+      "signature": "pub fn reason(&self) -> Stage5cPaperIntentLifecycleError"
+    },
+    {
+      "type": "Stage5cPaperLoopEvent",
+      "name": "kind",
+      "signature": "pub fn kind(&self) -> Stage5cPaperLoopEventKind"
+    },
+    {
+      "type": "Stage5cPaperLoopFailure",
+      "name": "into_preserved_state",
+      "signature": "pub fn into_preserved_state(self) -> Option<Stage5cPaperLoopState>"
+    },
+    {
+      "type": "Stage5cPaperLoopFailure",
+      "name": "preserved_state",
+      "signature": "pub fn preserved_state(&self) -> Option<&Stage5cPaperLoopState>"
+    },
+    {
+      "type": "Stage5cPaperLoopFailure",
+      "name": "reason",
+      "signature": "pub fn reason(&self) -> Stage5cPaperLoopError"
+    },
+    {
+      "type": "Stage5cPaperLoopState",
+      "name": "broker_transport_attached",
+      "signature": "pub fn broker_transport_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cPaperLoopState",
+      "name": "intent_sink_attached",
+      "signature": "pub fn intent_sink_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cPaperLoopState",
+      "name": "kind",
+      "signature": "pub fn kind(&self) -> Stage5cPaperLoopStateKind"
+    },
+    {
+      "type": "Stage5cPaperLoopState",
+      "name": "redis_command_stream_attached",
+      "signature": "pub fn redis_command_stream_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cPaperTimerBlocked",
+      "name": "reason",
+      "signature": "pub fn reason(&self) -> Stage5cPaperTimerError"
+    },
+    {
+      "type": "Stage5cPaperTimerBlocked",
+      "name": "resolved",
+      "signature": "pub fn resolved(&self) -> &Stage5cBrokerLifecycleResolvedPaperStrategy"
+    },
+    {
+      "type": "Stage5cPaperTimerFailure",
+      "name": "reason",
+      "signature": "pub fn reason(&self) -> Stage5cPaperTimerError"
+    },
+    {
+      "type": "Stage5cPendingRecoveredPaperStrategy",
+      "name": "receipt",
+      "signature": "pub fn receipt(&self) -> &Stage5cPendingRecoveryReceipt"
+    },
+    {
+      "type": "Stage5cPendingRecoveryReceipt",
+      "name": "duplicate_events",
+      "signature": "pub fn duplicate_events(&self) -> usize"
+    },
+    {
+      "type": "Stage5cPendingRecoveryReceipt",
+      "name": "intent_sink_attached",
+      "signature": "pub fn intent_sink_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cPendingRecoveryReceipt",
+      "name": "pending_recovery_started",
+      "signature": "pub fn pending_recovery_started(&self) -> bool"
+    },
+    {
+      "type": "Stage5cPendingRecoveryReceipt",
+      "name": "recovered_ts",
+      "signature": "pub fn recovered_ts(&self) -> DateTime<Utc>"
+    },
+    {
+      "type": "Stage5cPendingRecoveryReceipt",
+      "name": "replayed_events",
+      "signature": "pub fn replayed_events(&self) -> usize"
+    },
+    {
+      "type": "Stage5cPendingRecoveryReceipt",
+      "name": "semantic_bar_enabled",
+      "signature": "pub fn semantic_bar_enabled(&self) -> bool"
+    },
+    {
+      "type": "Stage5cPendingRecoveryReceipt",
+      "name": "warmup_receipt",
+      "signature": "pub fn warmup_receipt(&self) -> &Stage5cHistoryWarmupReceipt"
+    },
+    {
+      "type": "Stage5cResolvedPaperIntentBatchStrategy",
+      "name": "ack_outcomes",
+      "signature": "pub fn ack_outcomes(&self) -> &[Stage5cPaperAckOutcome]"
+    },
+    {
+      "type": "Stage5cResolvedPaperIntentBatchStrategy",
+      "name": "broker_transport_attached",
+      "signature": "pub fn broker_transport_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cResolvedPaperIntentBatchStrategy",
+      "name": "intent_sink_attached",
+      "signature": "pub fn intent_sink_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cResolvedPaperIntentBatchStrategy",
+      "name": "post_lifecycle_state_fingerprint",
+      "signature": "pub fn post_lifecycle_state_fingerprint(&self) -> String"
+    },
+    {
+      "type": "Stage5cResolvedPaperIntentBatchStrategy",
+      "name": "recovery_receipt",
+      "signature": "pub fn recovery_receipt(&self) -> &Stage5cPendingRecoveryReceipt"
+    },
+    {
+      "type": "Stage5cResolvedPaperIntentBatchStrategy",
+      "name": "resolved_batch_summary",
+      "signature": "pub fn resolved_batch_summary(&self) -> Stage5cPaperIntentBatchSummary"
+    },
+    {
+      "type": "Stage5cResolvedPaperIntentBatchStrategy",
+      "name": "settled_batch_history",
+      "signature": "pub fn settled_batch_history(&self) -> &[Stage5cPaperIntentBatchSummary]"
+    },
+    {
+      "type": "Stage5cResolvedPaperIntentBatchStrategy",
+      "name": "timer_path_enabled",
+      "signature": "pub fn timer_path_enabled(&self) -> bool"
+    },
+    {
+      "type": "Stage5cRuntimeStateRestoreReceipt",
+      "name": "bootstrap_receipt",
+      "signature": "pub fn bootstrap_receipt(&self) -> &Stage5cBootstrapNotificationReceipt"
+    },
+    {
+      "type": "Stage5cRuntimeStateRestoreReceipt",
+      "name": "intent_sink_attached",
+      "signature": "pub fn intent_sink_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cRuntimeStateRestoreReceipt",
+      "name": "pending_recovery_started",
+      "signature": "pub fn pending_recovery_started(&self) -> bool"
+    },
+    {
+      "type": "Stage5cRuntimeStateRestoreReceipt",
+      "name": "pending_requests",
+      "signature": "pub fn pending_requests(&self) -> &[StrategyRequestId]"
+    },
+    {
+      "type": "Stage5cRuntimeStateRestoreReceipt",
+      "name": "restored_ts",
+      "signature": "pub fn restored_ts(&self) -> DateTime<Utc>"
+    },
+    {
+      "type": "Stage5cRuntimeStateRestoreReceipt",
+      "name": "runtime_state_restored",
+      "signature": "pub fn runtime_state_restored(&self) -> bool"
+    },
+    {
+      "type": "Stage5cRuntimeStateRestoreReceipt",
+      "name": "semantic_bar_enabled",
+      "signature": "pub fn semantic_bar_enabled(&self) -> bool"
+    },
+    {
+      "type": "Stage5cRuntimeStateRestoreReceipt",
+      "name": "warmup_started",
+      "signature": "pub fn warmup_started(&self) -> bool"
+    },
+    {
+      "type": "Stage5cRuntimeStateRestoredPaperStrategy",
+      "name": "receipt",
+      "signature": "pub fn receipt(&self) -> &Stage5cRuntimeStateRestoreReceipt"
+    },
+    {
+      "type": "Stage5cSemanticBarResult",
+      "name": "bar_close_ts",
+      "signature": "pub fn bar_close_ts(&self) -> i64"
+    },
+    {
+      "type": "Stage5cSemanticBarResult",
+      "name": "broker_transport_attached",
+      "signature": "pub fn broker_transport_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cSemanticBarResult",
+      "name": "captured_intent_count",
+      "signature": "pub fn captured_intent_count(&self) -> usize"
+    },
+    {
+      "type": "Stage5cSemanticBarResult",
+      "name": "execution_eligible",
+      "signature": "pub fn execution_eligible(&self) -> bool"
+    },
+    {
+      "type": "Stage5cSemanticBarResult",
+      "name": "intent_sink_attached",
+      "signature": "pub fn intent_sink_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cSemanticBarResult",
+      "name": "origin",
+      "signature": "pub fn origin(&self) -> broker_core::HybridRuntimeBarOrigin"
+    },
+    {
+      "type": "Stage5cSemanticBarResult",
+      "name": "recovery_receipt",
+      "signature": "pub fn recovery_receipt(&self) -> &Stage5cPendingRecoveryReceipt"
+    },
+    {
+      "type": "Stage5cSettledPaperStrategy",
+      "name": "broker_transport_attached",
+      "signature": "pub fn broker_transport_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cSettledPaperStrategy",
+      "name": "intent_batch",
+      "signature": "pub fn intent_batch(&self) -> &Stage5cPaperIntentBatch"
+    },
+    {
+      "type": "Stage5cSettledPaperStrategy",
+      "name": "intent_sink_attached",
+      "signature": "pub fn intent_sink_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cSettledPaperStrategy",
+      "name": "recovery_receipt",
+      "signature": "pub fn recovery_receipt(&self) -> &Stage5cPendingRecoveryReceipt"
+    },
+    {
+      "type": "Stage5cSettledPaperStrategy",
+      "name": "settled_batch_history",
+      "signature": "pub fn settled_batch_history(&self) -> &[Stage5cPaperIntentBatchSummary]"
+    },
+    {
+      "type": "Stage5cSettledPaperStrategy",
+      "name": "timer_path_enabled",
+      "signature": "pub fn timer_path_enabled(&self) -> bool"
+    },
+    {
+      "type": "Stage5cTimerContinuationBlocked",
+      "name": "into_settlement",
+      "signature": "pub fn into_settlement(self) -> Stage5cTimerSettlement"
+    },
+    {
+      "type": "Stage5cTimerContinuationBlocked",
+      "name": "reason",
+      "signature": "pub fn reason(&self) -> Stage5cTimerContinuationError"
+    },
+    {
+      "type": "Stage5cTimerContinuationBlocked",
+      "name": "settlement",
+      "signature": "pub fn settlement(&self) -> &Stage5cTimerSettlement"
+    },
+    {
+      "type": "Stage5cTimerContinuationFailure",
+      "name": "into_blocked",
+      "signature": "pub fn into_blocked(self) -> Option<Stage5cTimerContinuationBlocked>"
+    },
+    {
+      "type": "Stage5cTimerContinuationFailure",
+      "name": "reason",
+      "signature": "pub fn reason(&self) -> Stage5cTimerContinuationError"
+    },
+    {
+      "type": "Stage5cTimerResolvedPaperStrategy",
+      "name": "broker_transport_attached",
+      "signature": "pub fn broker_transport_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cTimerResolvedPaperStrategy",
+      "name": "generated_intent_batch_summary",
+      "signature": "pub fn generated_intent_batch_summary(&self) -> Option<Stage5cPaperIntentBatchSummary>"
+    },
+    {
+      "type": "Stage5cTimerResolvedPaperStrategy",
+      "name": "generated_intent_count",
+      "signature": "pub fn generated_intent_count(&self) -> usize"
+    },
+    {
+      "type": "Stage5cTimerResolvedPaperStrategy",
+      "name": "intent_sink_attached",
+      "signature": "pub fn intent_sink_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cTimerResolvedPaperStrategy",
+      "name": "post_timer_state_fingerprint",
+      "signature": "pub fn post_timer_state_fingerprint(&self) -> String"
+    },
+    {
+      "type": "Stage5cTimerResolvedPaperStrategy",
+      "name": "recovery_receipt",
+      "signature": "pub fn recovery_receipt(&self) -> &Stage5cPendingRecoveryReceipt"
+    },
+    {
+      "type": "Stage5cTimerResolvedPaperStrategy",
+      "name": "redis_command_stream_attached",
+      "signature": "pub fn redis_command_stream_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cTimerResolvedPaperStrategy",
+      "name": "resolved_batch_summary",
+      "signature": "pub fn resolved_batch_summary(&self) -> &Stage5cPaperIntentBatchSummary"
+    },
+    {
+      "type": "Stage5cTimerResolvedPaperStrategy",
+      "name": "settled_batch_history",
+      "signature": "pub fn settled_batch_history(&self) -> &[Stage5cPaperIntentBatchSummary]"
+    },
+    {
+      "type": "Stage5cTimerResolvedPaperStrategy",
+      "name": "timer_ts_utc_ms",
+      "signature": "pub fn timer_ts_utc_ms(&self) -> i64"
+    },
+    {
+      "type": "Stage5cTimerSettlement",
+      "name": "broker_transport_attached",
+      "signature": "pub fn broker_transport_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cTimerSettlement",
+      "name": "checkpoint_ts_utc_ms",
+      "signature": "pub fn checkpoint_ts_utc_ms(&self) -> Option<i64>"
+    },
+    {
+      "type": "Stage5cTimerSettlement",
+      "name": "intent_sink_attached",
+      "signature": "pub fn intent_sink_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cTimerSettlement",
+      "name": "into_generated_intent_batch",
+      "signature": "pub fn into_generated_intent_batch(self) -> Result<Stage5cSettledPaperStrategy, Box<Self>>"
+    },
+    {
+      "type": "Stage5cTimerSettlement",
+      "name": "is_generated_intent_batch",
+      "signature": "pub fn is_generated_intent_batch(&self) -> bool"
+    },
+    {
+      "type": "Stage5cTimerSettlement",
+      "name": "is_ready_for_continuation",
+      "signature": "pub fn is_ready_for_continuation(&self) -> bool"
+    },
+    {
+      "type": "Stage5cTimerSettlement",
+      "name": "redis_command_stream_attached",
+      "signature": "pub fn redis_command_stream_attached(&self) -> bool"
+    },
+    {
+      "type": "Stage5cTimerSettlement",
+      "name": "settled",
+      "signature": "pub fn settled(&self) -> &Stage5cSettledPaperStrategy"
+    },
+    {
+      "type": "Stage5cWarmedPaperStrategy",
+      "name": "receipt",
+      "signature": "pub fn receipt(&self) -> &Stage5cHistoryWarmupReceipt"
+    }
+  ],
+  "public_reexports": [
+    "STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION",
+    "STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION",
+    "Stage5cAcceptedHistoryBatch",
+    "Stage5cAcceptedPendingRecoveryEvidence",
+    "Stage5cAcceptedSemanticBar",
+    "Stage5cBootstrapNotificationError",
+    "Stage5cBootstrapNotificationReceipt",
+    "Stage5cBootstrappedPaperStrategy",
+    "Stage5cBrokerLifecycleResolvedPaperStrategy",
+    "Stage5cBrokerLifecycleSettlement",
+    "Stage5cHistoryBatchInput",
+    "Stage5cHistoryWarmupError",
+    "Stage5cHistoryWarmupReceipt",
+    "Stage5cIntentSettlementError",
+    "Stage5cLegacyNumericOrderIdPolicy",
+    "Stage5cNextBarBlocked",
+    "Stage5cNextBarLoopError",
+    "Stage5cNextBarLoopFailure",
+    "Stage5cPaperAckOutcome",
+    "Stage5cPaperAckRecord",
+    "Stage5cPaperBrokerEventKind",
+    "Stage5cPaperBrokerEventPayload",
+    "Stage5cPaperBrokerEventRecord",
+    "Stage5cPaperBrokerLifecycleBlocked",
+    "Stage5cPaperBrokerLifecycleError",
+    "Stage5cPaperBrokerLifecycleExpectation",
+    "Stage5cPaperBrokerLifecycleFailure",
+    "Stage5cPaperBrokerLifecycleInput",
+    "Stage5cPaperHostAdmission",
+    "Stage5cPaperHostAdmissionError",
+    "Stage5cPaperHostAdmissionInput",
+    "Stage5cPaperIntentBatch",
+    "Stage5cPaperIntentBatchSummary",
+    "Stage5cPaperIntentLifecycleBlocked",
+    "Stage5cPaperIntentLifecycleError",
+    "Stage5cPaperIntentLifecycleFailure",
+    "Stage5cPaperIntentLifecycleInput",
+    "Stage5cPaperLoopError",
+    "Stage5cPaperLoopEvent",
+    "Stage5cPaperLoopEventKind",
+    "Stage5cPaperLoopFailure",
+    "Stage5cPaperLoopState",
+    "Stage5cPaperLoopStateKind",
+    "Stage5cPaperTimerBlocked",
+    "Stage5cPaperTimerError",
+    "Stage5cPaperTimerFailure",
+    "Stage5cPaperTimerInput",
+    "Stage5cPendingRecoveredPaperStrategy",
+    "Stage5cPendingRecoveryClaimProof",
+    "Stage5cPendingRecoveryClaimProofInput",
+    "Stage5cPendingRecoveryError",
+    "Stage5cPendingRecoveryEvent",
+    "Stage5cPendingRecoveryEvidenceInput",
+    "Stage5cPendingRecoveryPayload",
+    "Stage5cPendingRecoveryReceipt",
+    "Stage5cPendingStreamClaimBoundary",
+    "Stage5cPendingStreamKind",
+    "Stage5cResolvedPaperIntentBatchStrategy",
+    "Stage5cRuntimeStateLoadedPaperStrategy",
+    "Stage5cRuntimeStateRestoreError",
+    "Stage5cRuntimeStateRestoreInput",
+    "Stage5cRuntimeStateRestoreReceipt",
+    "Stage5cRuntimeStateRestoredPaperStrategy",
+    "Stage5cSemanticBarError",
+    "Stage5cSemanticBarInput",
+    "Stage5cSemanticBarResult",
+    "Stage5cSettledPaperStrategy",
+    "Stage5cTimerContinuationBlocked",
+    "Stage5cTimerContinuationError",
+    "Stage5cTimerContinuationFailure",
+    "Stage5cTimerResolvedPaperStrategy",
+    "Stage5cTimerSettlement",
+    "Stage5cWarmedPaperStrategy",
+    "accept_stage5c_history_batch",
+    "accept_stage5c_pending_recovery_evidence",
+    "accept_stage5c_semantic_bar",
+    "admit_stage5c_paper_host",
+    "advance_stage5c_controlled_next_bar",
+    "advance_stage5c_paper_loop_once",
+    "advance_stage5c_timer_settlement_next_bar",
+    "advance_stage5c_timer_settlement_timer",
+    "apply_stage5c_semantic_bar",
+    "notify_stage5c_bootstrap",
+    "notify_stage5c_runtime_state_restored",
+    "prepare_stage5c_without_runtime_state",
+    "prove_stage5c_pending_recovery_claim",
+    "recover_stage5c_pending_streams",
+    "resolve_stage5c_paper_broker_lifecycle",
+    "resolve_stage5c_paper_intent_lifecycle",
+    "resolve_stage5c_paper_timer",
+    "restore_stage5c_runtime_state",
+    "settle_stage5c_broker_lifecycle_result",
+    "settle_stage5c_semantic_result",
+    "settle_stage5c_timer_result",
+    "warmup_stage5c_history"
+  ],
+  "opaque_capabilities": [
+    "Stage5cAcceptedHistoryBatch",
+    "Stage5cAcceptedPendingRecoveryEvidence",
+    "Stage5cAcceptedSemanticBar",
+    "Stage5cBootstrapNotificationReceipt",
+    "Stage5cBootstrappedPaperStrategy",
+    "Stage5cBrokerLifecycleResolvedPaperStrategy",
+    "Stage5cBrokerLifecycleSettlement",
+    "Stage5cHistoryWarmupReceipt",
+    "Stage5cNextBarBlocked",
+    "Stage5cPaperBrokerLifecycleBlocked",
+    "Stage5cPaperHostAdmission",
+    "Stage5cPaperIntentBatch",
+    "Stage5cPaperIntentLifecycleBlocked",
+    "Stage5cPaperLoopFailure",
+    "Stage5cPaperTimerBlocked",
+    "Stage5cPendingRecoveredPaperStrategy",
+    "Stage5cPendingRecoveryClaimProof",
+    "Stage5cPendingRecoveryReceipt",
+    "Stage5cResolvedPaperIntentBatchStrategy",
+    "Stage5cRuntimeStateLoadedPaperStrategy",
+    "Stage5cRuntimeStateRestoreReceipt",
+    "Stage5cRuntimeStateRestoredPaperStrategy",
+    "Stage5cSemanticBarResult",
+    "Stage5cSettledPaperStrategy",
+    "Stage5cTimerContinuationBlocked",
+    "Stage5cTimerResolvedPaperStrategy",
+    "Stage5cTimerSettlement",
+    "Stage5cWarmedPaperStrategy"
+  ],
+  "externally_constructible_enums": [
+    "Stage5cBootstrapNotificationError",
+    "Stage5cHistoryWarmupError",
+    "Stage5cIntentSettlementError",
+    "Stage5cLegacyNumericOrderIdPolicy",
+    "Stage5cNextBarLoopError",
+    "Stage5cNextBarLoopFailure",
+    "Stage5cPaperBrokerEventKind",
+    "Stage5cPaperBrokerEventPayload",
+    "Stage5cPaperBrokerLifecycleError",
+    "Stage5cPaperBrokerLifecycleFailure",
+    "Stage5cPaperHostAdmissionError",
+    "Stage5cPaperIntentLifecycleError",
+    "Stage5cPaperIntentLifecycleFailure",
+    "Stage5cPaperLoopError",
+    "Stage5cPaperLoopEvent",
+    "Stage5cPaperLoopEventKind",
+    "Stage5cPaperLoopState",
+    "Stage5cPaperLoopStateKind",
+    "Stage5cPaperTimerError",
+    "Stage5cPaperTimerFailure",
+    "Stage5cPendingRecoveryError",
+    "Stage5cPendingRecoveryPayload",
+    "Stage5cPendingStreamKind",
+    "Stage5cRuntimeStateRestoreError",
+    "Stage5cSemanticBarError",
+    "Stage5cTimerContinuationError",
+    "Stage5cTimerContinuationFailure"
+  ],
+  "normalized_signature_hash": "026cd7236db27936876c111352bd86c3a69b0b71faf3170897ecc785be175ae4",
+  "public_surface_counts": {
+    "public_reexports": 95,
+    "public_constants": 2,
+    "public_free_functions": 22,
+    "public_types": 71,
+    "public_methods": 153,
+    "opaque_capabilities": 28,
+    "externally_constructible_enums": 27
+  },
+  "executable_evidence_map": [
+    {
+      "transition": "admission_prepare_restore_bootstrap_restored",
+      "tests": [
+        "stage5cc_restores_same_strategy_and_opens_no_later_gate"
+      ]
+    },
+    {
+      "transition": "clean_admission_prepare_bootstrap",
+      "tests": [
+        "stage5cb_uses_exact_snapshot_and_opens_no_later_lifecycle_step"
+      ]
+    },
+    {
+      "transition": "history_warmup",
+      "tests": [
+        "stage5cd_warms_canonical_history_without_opening_later_gates"
+      ]
+    },
+    {
+      "transition": "pending_recovery",
+      "tests": [
+        "stage5ce_recovers_complete_empty_pending_set_without_opening_later_gates"
+      ]
+    },
+    {
+      "transition": "semantic_bar_settlement",
+      "tests": [
+        "stage5cg_settles_zero_intent_result_without_sink"
+      ]
+    },
+    {
+      "transition": "controlled_next_bar",
+      "tests": [
+        "stage5ch_controlled_next_bar_requires_settled_input_and_accumulates_history"
+      ]
+    },
+    {
+      "transition": "ack_lifecycle",
+      "tests": [
+        "stage5ci_resolves_nonzero_batch_by_exact_ack_without_sink_or_transport"
+      ]
+    },
+    {
+      "transition": "terminal_complete_broker_batch",
+      "tests": [
+        "stage5cn_working_filled_position_batch_resolves_as_one_atomic_step"
+      ]
+    },
+    {
+      "transition": "generated_intent_ack_lifecycle_timer_settlement",
+      "tests": [
+        "stage5cn_callback_generated_broker_intents_settle_and_reenter_ack_lifecycle"
+      ]
+    },
+    {
+      "transition": "timer_continuation",
+      "tests": [
+        "stage5cm_ready_checkpoint_can_continue_to_timer_or_bar_once"
+      ]
+    },
+    {
+      "transition": "blocked_invalid_transitions_preserve_state",
+      "tests": [
+        "stage5cn_invalid_transition_preserves_input_state",
+        "stage5cn_working_only_batch_preserves_state_and_can_retry_full_batch"
+      ]
+    }
   ]
 }

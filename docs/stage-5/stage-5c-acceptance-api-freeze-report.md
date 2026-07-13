@@ -1,6 +1,6 @@
 # Stage 5C — acceptance and API-freeze report
 
-Status: review candidate. Date: 2026-07-13.
+Status: revised review candidate after closure HOLD. Date: 2026-07-13.
 
 This package closes the functional Stage 5C implementation and freezes the
 paper/mock host API candidate. It does not add a new runtime facade and does
@@ -76,6 +76,27 @@ The Stage 5C public API is the re-exported paper-host surface in
 The machine-readable companion manifest is:
 `docs/stage-5/stage-5c-api-freeze-manifest.json`.
 
+Manifest schema version 2 freezes the full Stage 5C public type-state surface,
+not just the free functions:
+
+- 95 public re-exported Stage 5C symbols;
+- 22 public free functions with normalized signatures;
+- 2 public constants;
+- 71 public Stage 5C structs/enums, including public enum variants and public
+  struct fields;
+- 153 public methods with normalized signatures;
+- 28 opaque public capability structs;
+- 27 externally constructible public enums;
+- normalized public-surface signature hash:
+  `026cd7236db27936876c111352bd86c3a69b0b71faf3170897ecc785be175ae4`.
+
+The manifest is enforced by `scripts/stage5c_api_freeze_check.py`, and
+`scripts/forbidden_surface_scan.sh` invokes that checker as part of the
+mandatory scanner path. Therefore future drift in source hashes, re-exports,
+function signatures, public types, public fields, public variants, public
+methods, opaque capability classification or executable evidence mapping is a
+scanner failure.
+
 ## 4. Coordinator transition matrix
 
 | State | Event | Result |
@@ -86,6 +107,7 @@ The machine-readable companion manifest is:
 | `Settled` | `Ack` | `IntentLifecycleResolved` via Stage 5C-i. |
 | `IntentLifecycleResolved` | `BrokerLifecycleBatch` | `BrokerLifecycleResolved` only for terminal-complete Stage 5C-j batch. |
 | `BrokerLifecycleResolved` | `SettleBrokerLifecycleResult` | `BrokerLifecycleSettlement`. |
+| `BrokerLifecycleResolved` | `Timer` | Supported shortcut to `TimerResolved`; Stage 5C-k still checks unresolved lifecycle expectations, generated intent batches, expired broker truth and non-monotonic timer. |
 | `BrokerLifecycleSettlement::GeneratedIntentBatch` | `Ack` | Re-enters Stage 5C-i. |
 | `BrokerLifecycleSettlement::ReadyForTimer` | `Timer` | `TimerResolved` via Stage 5C-k. |
 | `TimerResolved` | `SettleTimerResult` | `TimerSettlement` via Stage 5C-l. |
@@ -96,12 +118,23 @@ The machine-readable companion manifest is:
 Invalid state/event pairs fail closed and preserve the input state when a
 recoverable state is available.
 
+Explicitly blocked examples include:
+
+- `GeneratedIntentBatch + Timer` before the generated ACK lifecycle resolves;
+- `ReadyForTimer + Ack`;
+- `IntentLifecycleResolved + Ack` without a terminal-complete broker batch;
+- `UnresolvedBrokerLifecycle + Ack`;
+- `UnresolvedBrokerLifecycle + Timer`;
+- `PendingRecovered + Ack/Timer`;
+- `SemanticResult + Ack/Timer`.
+
 ## 5. Callback coverage matrix
 
 | Source callback | Stage 5C facade | Boundary rule |
 | --- | --- | --- |
-| Bootstrap notification | 5C-b | One-shot, admission-bound, no later lifecycle step. |
-| Runtime state restore | 5C-c | Broker-truth-bound restore; stale broker IDs are removed. |
+| Runtime state load | 5C-c or clean-start 5C-c bypass | Persisted runtime state is loaded and validated before bootstrap notification; clean start uses `prepare_stage5c_without_runtime_state`. |
+| Bootstrap notification | 5C-b | One-shot, admission-bound broker-truth bootstrap after runtime-state load/preparation; no later lifecycle step. |
+| Runtime-state-restored callback | 5C-c | Emitted after bootstrap notification; stale broker IDs are removed before restore notification completes. |
 | History warmup | 5C-d | Canonical history only; provenance/freshness checked. |
 | Pending stream recovery | 5C-e | Pending streams claimed before semantic bars. |
 | Final semantic bar | 5C-f/5C-g/5C-h | Closed final M10 bar only; paper intent batch is escrowed. |
@@ -117,8 +150,9 @@ The accepted Stage 5C path is:
 
 ```text
 admission
-→ bootstrap notification
-→ runtime state restore
+→ load persisted runtime state, or prepare clean runtime state
+→ bootstrap notification with broker truth
+→ runtime-state-restored callback
 → canonical history warmup
 → pending recovery
 → accepted final M10 bar
@@ -136,6 +170,37 @@ admission
 This path remains in-process, paper-only and deterministic. It has no Redis
 consumer, no broker transport, no FINAM command consumer and no real order
 endpoint.
+
+The persisted-state startup path is:
+
+```text
+admit_stage5c_paper_host
+→ restore_stage5c_runtime_state
+→ notify_stage5c_bootstrap
+→ notify_stage5c_runtime_state_restored
+→ accept/warmup history
+→ pending recovery
+```
+
+The clean-start startup path is:
+
+```text
+admit_stage5c_paper_host
+→ prepare_stage5c_without_runtime_state
+→ notify_stage5c_bootstrap
+→ notify_stage5c_runtime_state_restored
+→ accept/warmup history
+→ pending recovery
+```
+
+Executable evidence is machine-readable in
+`docs/stage-5/stage-5c-api-freeze-manifest.json` under
+`executable_evidence_map`. The API-freeze checker verifies that every mapped
+transition points to an existing Stage 5C regression test. The map covers
+startup ordering, history warmup, pending recovery, semantic-bar settlement,
+controlled next-bar progression, ACK lifecycle, terminal-complete broker
+lifecycle, generated-intent ACK re-entry, timer settlement, timer continuation
+and blocked transition preservation.
 
 ## 7. External buffering contract
 

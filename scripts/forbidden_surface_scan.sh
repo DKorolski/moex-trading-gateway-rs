@@ -1649,6 +1649,8 @@ if "\npub async fn run_finam_real_readonly_operator_contract_probe" not in sourc
 sys.exit(1 if failures else 0)
 PY
 
+"$python_with_tomllib" scripts/stage5c_api_freeze_check.py
+
 if (( failures > 0 )); then
   exit 1
 fi
