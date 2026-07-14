@@ -13,6 +13,7 @@ cp "$workspace_root/Cargo.lock" "$tmp_root/Cargo.lock"
 mkdir -p "$tmp_root/config" "$tmp_root/tests/fixtures/stage5"
 mkdir -p "$tmp_root/docs/stage-5"
 cp "$workspace_root/config/imoexf-hybrid-high180-profile.redacted.toml" "$tmp_root/config/"
+cp "$workspace_root/docs/stage-5/stage-5c-acceptance-api-freeze-report.md" "$tmp_root/docs/stage-5/"
 cp "$workspace_root/docs/stage-5/stage-5c-api-freeze-manifest.json" "$tmp_root/docs/stage-5/"
 cp "$workspace_root/tests/fixtures/stage5/imoexf_high180_profile_binding.json" "$tmp_root/tests/fixtures/stage5/"
 cp "$workspace_root/tests/fixtures/stage5/bracket_terminal_reconciliation.json" "$tmp_root/tests/fixtures/stage5/"
@@ -103,6 +104,67 @@ run_negative_case "stage5ch-next-bar-loop-fixture-drift" '# stage5ch negative fi
 run_negative_case "stage5ci-paper-intent-lifecycle-fixture-drift" '# stage5ci negative fixture drift' "$tmp_root/tests/fixtures/stage5/stage5ci_paper_intent_lifecycle.json"
 run_negative_case "stage5cj-paper-broker-lifecycle-fixture-drift" '# stage5cj negative fixture drift' "$tmp_root/tests/fixtures/stage5/stage5cj_paper_broker_lifecycle.json"
 run_negative_case "stage5c-api-freeze-manifest-drift" '# stage5c negative manifest drift' "$tmp_root/docs/stage-5/stage-5c-api-freeze-manifest.json"
+
+stage5c_manifest="$tmp_root/docs/stage-5/stage-5c-api-freeze-manifest.json"
+run_manifest_json_mutation_case() {
+  local case_name="$1"
+  local mutation="$2"
+  local backup="$stage5c_manifest.bak"
+
+  cp "$stage5c_manifest" "$backup"
+  MUTATION="$mutation" STAGE5C_MANIFEST="$stage5c_manifest" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+path = Path(os.environ["STAGE5C_MANIFEST"])
+mutation = os.environ["MUTATION"]
+manifest = json.loads(path.read_text())
+
+if mutation == "empty_evidence_map":
+    manifest["executable_evidence_map"] = []
+elif mutation == "remove_evidence_transition":
+    manifest["executable_evidence_map"] = manifest["executable_evidence_map"][1:]
+elif mutation == "remove_source_hash_path":
+    manifest["source_hashes"].pop("crates/strategy-runtime-core/src/lib.rs")
+elif mutation == "alter_baseline_full_commit":
+    manifest["accepted_implementation_baseline"]["full_commit"] = "deadbeef"
+elif mutation == "alter_baseline_handoff_sha256":
+    manifest["accepted_implementation_baseline"]["handoff_sha256"] = "0" * 64
+elif mutation == "remove_accepted_slice":
+    manifest["accepted_slices"] = manifest["accepted_slices"][:-1]
+elif mutation == "remove_public_type":
+    manifest["public_types"] = [
+        item
+        for item in manifest["public_types"]
+        if item["name"] != "Stage5cTimerSettlement"
+    ]
+elif mutation == "remove_public_method":
+    manifest["public_methods"] = [
+        item
+        for item in manifest["public_methods"]
+        if not (
+            item["type"] == "Stage5cTimerSettlement"
+            and item["name"] == "is_ready_for_continuation"
+        )
+    ]
+else:
+    raise SystemExit(f"unknown mutation: {mutation}")
+
+path.write_text(json.dumps(manifest, indent=2) + "\n")
+PY
+  expect_scanner_failure "$case_name"
+  mv "$backup" "$stage5c_manifest"
+}
+
+run_manifest_json_mutation_case "stage5c-empty-evidence-map-valid-json" "empty_evidence_map"
+run_manifest_json_mutation_case "stage5c-remove-evidence-transition-valid-json" "remove_evidence_transition"
+run_manifest_json_mutation_case "stage5c-remove-source-hash-path-valid-json" "remove_source_hash_path"
+run_manifest_json_mutation_case "stage5c-alter-baseline-full-commit-valid-json" "alter_baseline_full_commit"
+run_manifest_json_mutation_case "stage5c-alter-baseline-handoff-sha-valid-json" "alter_baseline_handoff_sha256"
+run_manifest_json_mutation_case "stage5c-remove-accepted-slice-valid-json" "remove_accepted_slice"
+run_manifest_json_mutation_case "stage5c-remove-public-type-valid-json" "remove_public_type"
+run_manifest_json_mutation_case "stage5c-remove-public-method-valid-json" "remove_public_method"
 
 semantic_ledger="$tmp_root/crates/strategy-runtime-core/source-correspondence.toml"
 semantic_target="$tmp_root/crates/strategy-runtime-core/src/hybrid_intraday/intraday_breakout.rs"

@@ -1546,6 +1546,15 @@ expected_stage5_profile_artifacts = {
     Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"): (
         "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857"
     ),
+    Path("docs/stage-5/stage-5c-acceptance-api-freeze-report.md"): (
+        "1d15c992ce1658fea6d7ec8a25094b094400ba00b764ac23d32c525207d19b48"
+    ),
+    Path("docs/stage-5/stage-5c-api-freeze-manifest.json"): (
+        "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323"
+    ),
+    Path("scripts/stage5c_api_freeze_check.py"): (
+        "e494e92ffb5f8d90b6a581c7b99e4e80f1906aeedfa1e7446d428eb31c757209"
+    ),
     Path("tests/fixtures/stage5/stage5ch_controlled_next_bar_loop.json"): (
         "687a94ea97c437715039dc8f44c53539094c89d2c5e9c34d83162e24515f2699"
     ),

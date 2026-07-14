@@ -97,6 +97,22 @@ function signatures, public types, public fields, public variants, public
 methods, opaque capability classification or executable evidence mapping is a
 scanner failure.
 
+The checker is also self-completeness hardened. It does not trust the manifest
+to define its own closure contract. Instead, canonical constants in the checker
+require:
+
+- exact accepted baseline metadata for `69cc73b7f33d8cb418c784ac993856d8a487693d`;
+- exact ten-file frozen source-hash path set;
+- exact accepted slices `5C-a` through `5C-n`;
+- exact closed execution surfaces and Stage 5C-n terminal-complete policy;
+- exact Stage 5D blockers;
+- exact canonical executable evidence map.
+
+The negative harness now includes valid-JSON semantic mutations for empty
+evidence maps, removed evidence transitions, removed source-hash paths, altered
+baseline metadata, removed accepted slices, removed public types and removed
+public methods. These cases must fail the mandatory scanner path.
+
 ## 4. Coordinator transition matrix
 
 | State | Event | Result |

@@ -83,6 +83,69 @@ DEFAULT_EVIDENCE_MAP = [
     },
 ]
 
+REQUIRED_BASELINE = {
+    "short_commit": "69cc73b",
+    "full_commit": "69cc73b7f33d8cb418c784ac993856d8a487693d",
+    "handoff_archive": "moex-trading-project-69cc73b.zip",
+    "handoff_sha256": "0b614ebe83b0a8af85cde0ca7a1ae481457813edad72626cd4bb5972c9c83f91",
+}
+
+REQUIRED_SOURCE_HASH_PATHS = {
+    "source-oracles/alor-stage5/hybrid_intraday_runtime.rs",
+    "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs",
+    "crates/strategy-runtime-core/src/hybrid_intraday/mod.rs",
+    "crates/strategy-runtime-core/src/hybrid_intraday/intraday_breakout.rs",
+    "crates/strategy-runtime-core/src/hybrid_intraday/mean_reversion.rs",
+    "crates/strategy-runtime-core/src/hybrid_intraday/high180.rs",
+    "crates/strategy-runtime-core/src/hybrid_intraday/orchestrator.rs",
+    "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+    "crates/strategy-runtime-core/src/lib.rs",
+}
+
+REQUIRED_ACCEPTED_SLICES = [
+    "5C-a",
+    "5C-b",
+    "5C-c",
+    "5C-d",
+    "5C-e",
+    "5C-f",
+    "5C-g",
+    "5C-h",
+    "5C-i",
+    "5C-j",
+    "5C-k",
+    "5C-l",
+    "5C-m",
+    "5C-n",
+]
+
+REQUIRED_CLOSED_SURFACES = [
+    "intent_sink",
+    "redis_command_stream",
+    "redis_consumer_group",
+    "broker_transport",
+    "finam_command_consumer",
+    "real_post_delete_order_endpoints",
+    "runtime_live",
+    "broker_side_stop_sltp_bracket_execution",
+]
+
+REQUIRED_STAGE5C_N_POLICY = {
+    "broker_lifecycle_input": "terminal_complete_batch_only",
+    "incomplete_batch_behavior": "block_before_callbacks_and_preserve_ack_resolved_state",
+    "generated_broker_intents": "must_reenter_ack_lifecycle",
+    "timer_generated_intents": "must_reenter_ack_lifecycle",
+    "autonomous_loop": False,
+}
+
+REQUIRED_NEXT_STAGE_BLOCKERS = [
+    "redis_stream_bridge",
+    "finam_execution",
+    "runtime_live",
+    "long_running_paper_shadow",
+]
+
 
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -288,6 +351,11 @@ def derive_manifest_surface() -> dict[str, Any]:
 
 def validate_evidence_tests(stage5c_source: str, evidence_map: list[dict[str, Any]]) -> list[str]:
     failures = []
+    if evidence_map != DEFAULT_EVIDENCE_MAP:
+        failures.append("executable_evidence_map must match the canonical required evidence map")
+    transitions = [entry.get("transition") for entry in evidence_map]
+    if len(transitions) != len(set(transitions)):
+        failures.append("executable_evidence_map contains duplicate transition IDs")
     for entry in evidence_map:
         transition = entry.get("transition", "<missing transition>")
         tests = entry.get("tests", [])
@@ -295,7 +363,11 @@ def validate_evidence_tests(stage5c_source: str, evidence_map: list[dict[str, An
             failures.append(f"evidence transition {transition} has no tests")
             continue
         for test_name in tests:
-            if not re.search(rf"\n\s*fn {re.escape(test_name)}\s*\(", stage5c_source):
+            if not re.search(
+                rf"#\[test\]\s*fn {re.escape(test_name)}\s*\(",
+                stage5c_source,
+                re.S,
+            ):
                 failures.append(f"evidence test {test_name} missing for {transition}")
     return failures
 
@@ -306,8 +378,14 @@ def build_updated_manifest(existing: dict[str, Any]) -> dict[str, Any]:
     manifest["schema_version"] = 2
     manifest["status"] = "api_freeze_candidate"
     manifest["manifest_checker"] = "scripts/stage5c_api_freeze_check.py"
+    manifest["accepted_implementation_baseline"] = REQUIRED_BASELINE
+    manifest["accepted_slices"] = REQUIRED_ACCEPTED_SLICES
+    manifest["closed_surfaces"] = REQUIRED_CLOSED_SURFACES
+    manifest["stage5c_n_policy"] = REQUIRED_STAGE5C_N_POLICY
+    manifest["next_stage_allowed_after_acceptance"] = "Stage 5D state/riskgate persistence design"
+    manifest["next_stage_blocked_until_acceptance"] = REQUIRED_NEXT_STAGE_BLOCKERS
     manifest["source_hashes"] = {
-        path: sha256_file(ROOT / path) for path in sorted(existing.get("source_hashes", {}))
+        path: sha256_file(ROOT / path) for path in sorted(REQUIRED_SOURCE_HASH_PATHS)
     }
     surface = derive_manifest_surface()
     manifest.update(surface)
@@ -320,9 +398,7 @@ def build_updated_manifest(existing: dict[str, Any]) -> dict[str, Any]:
         "opaque_capabilities": len(surface["opaque_capabilities"]),
         "externally_constructible_enums": len(surface["externally_constructible_enums"]),
     }
-    manifest["executable_evidence_map"] = existing.get(
-        "executable_evidence_map", DEFAULT_EVIDENCE_MAP
-    )
+    manifest["executable_evidence_map"] = DEFAULT_EVIDENCE_MAP
     return manifest
 
 
@@ -335,10 +411,55 @@ def check_manifest(manifest: dict[str, Any]) -> list[str]:
     failures = []
     if manifest.get("schema_version") != 2:
         failures.append("schema_version must be 2")
-    if manifest.get("accepted_implementation_baseline", {}).get("short_commit") != "69cc73b":
-        failures.append("accepted implementation baseline short commit must remain 69cc73b")
+    compare(
+        "accepted_implementation_baseline",
+        REQUIRED_BASELINE,
+        manifest.get("accepted_implementation_baseline"),
+        failures,
+    )
+    compare("stage", "5C", manifest.get("stage"), failures)
+    compare("status", "api_freeze_candidate", manifest.get("status"), failures)
+    compare(
+        "manifest_checker",
+        "scripts/stage5c_api_freeze_check.py",
+        manifest.get("manifest_checker"),
+        failures,
+    )
+    compare("accepted_slices", REQUIRED_ACCEPTED_SLICES, manifest.get("accepted_slices"), failures)
+    compare("closed_surfaces", REQUIRED_CLOSED_SURFACES, manifest.get("closed_surfaces"), failures)
+    compare(
+        "stage5c_n_policy",
+        REQUIRED_STAGE5C_N_POLICY,
+        manifest.get("stage5c_n_policy"),
+        failures,
+    )
+    compare(
+        "next_stage_allowed_after_acceptance",
+        "Stage 5D state/riskgate persistence design",
+        manifest.get("next_stage_allowed_after_acceptance"),
+        failures,
+    )
+    compare(
+        "next_stage_blocked_until_acceptance",
+        REQUIRED_NEXT_STAGE_BLOCKERS,
+        manifest.get("next_stage_blocked_until_acceptance"),
+        failures,
+    )
 
-    for path, expected in manifest.get("source_hashes", {}).items():
+    manifest_source_hashes = manifest.get("source_hashes")
+    if not isinstance(manifest_source_hashes, dict):
+        failures.append("source_hashes must be an object")
+        manifest_source_hashes = {}
+    actual_source_hash_paths = set(manifest_source_hashes)
+    if actual_source_hash_paths != REQUIRED_SOURCE_HASH_PATHS:
+        failures.append(
+            "source_hashes path set mismatch: "
+            f"actual={sorted(actual_source_hash_paths)} "
+            f"expected={sorted(REQUIRED_SOURCE_HASH_PATHS)}"
+        )
+
+    for path in sorted(REQUIRED_SOURCE_HASH_PATHS):
+        expected = manifest_source_hashes.get(path)
         actual_path = ROOT / path
         if not actual_path.is_file():
             failures.append(f"source hash path missing: {path}")
@@ -348,6 +469,17 @@ def check_manifest(manifest: dict[str, Any]) -> list[str]:
             failures.append(f"source hash mismatch for {path}: actual={actual} expected={expected}")
 
     surface = derive_manifest_surface()
+    declared_public_symbols = sorted(
+        item["name"] for item in surface["public_constants"]
+    ) + sorted(item["name"] for item in surface["public_free_functions"]) + sorted(
+        item["name"] for item in surface["public_types"]
+    )
+    compare(
+        "public declaration/re-export set",
+        sorted(declared_public_symbols),
+        surface["public_reexports"],
+        failures,
+    )
     for key in [
         "public_reexports",
         "public_constants",

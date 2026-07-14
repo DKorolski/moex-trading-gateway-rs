@@ -142,8 +142,10 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   summarizes accepted 5C-a...5C-n slices, fixes startup ordering as
   state-load/clean-prepare -> broker-truth bootstrap ->
   runtime-state-restored, freezes the full paper-host type-state API through a
-  machine-readable manifest plus checker, documents the actual coordinator
-  transition matrix, and keeps Stage 5D blocked until reviewer acceptance.
+  machine-readable manifest plus checker, enforces manifest self-completeness
+  through canonical checker constants and valid-JSON negative harness cases,
+  documents the actual coordinator transition matrix, and keeps Stage 5D
+  blocked until reviewer acceptance.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
