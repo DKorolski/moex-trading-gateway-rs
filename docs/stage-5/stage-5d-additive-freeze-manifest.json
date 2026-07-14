@@ -4,6 +4,14 @@
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
+  "stage5c_compatibility_checker": {
+    "path": "scripts/stage5c_api_freeze_check.py",
+    "sha256": "6aa1a30f87d296df09bf18c84b29b944ad7af8aaa59961c54bcbe6ff0a601537"
+  },
+  "historical_stage5c_checker": {
+    "path": "tests/fixtures/stage5/stage5c_api_freeze_check.closure.py",
+    "sha256": "e494e92ffb5f8d90b6a581c7b99e4e80f1906aeedfa1e7446d428eb31c757209"
+  },
   "stage5c_closure_baseline": {
     "short_commit": "69cc73b",
     "full_commit": "69cc73b7f33d8cb418c784ac993856d8a487693d",
@@ -74,6 +82,20 @@
     "public_namespace_leakage",
     "raw_strategy_extractor",
     "missing_historical_baseline",
-    "legacy_restore_bypass"
+    "closed_surface_downgrade",
+    "negative_cases_removed",
+    "manifest_checker_changed",
+    "negative_harness_changed",
+    "stage5d_symbol_removed",
+    "stage5d_symbol_added",
+    "current_compat_checker_drift",
+    "historical_checker_missing",
+    "historical_checker_content_drift",
+    "historical_current_checker_substitution",
+    "legacy_restore_direct_call",
+    "legacy_restore_alias_call",
+    "legacy_restore_multiline_call",
+    "legacy_restore_function_reference",
+    "legacy_restore_qualified_whitespace"
   ]
 }

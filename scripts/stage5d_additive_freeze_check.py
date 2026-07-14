@@ -24,10 +24,22 @@ DEFAULT_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_REL = Path("docs/stage-5/stage-5d-additive-freeze-manifest.json")
 STAGE5C_MANIFEST_REL = Path("docs/stage-5/stage-5c-api-freeze-manifest.json")
 STAGE5C_CHECKER_REL = Path("scripts/stage5c_api_freeze_check.py")
+STAGE5C_CLOSURE_CHECKER_REL = Path("tests/fixtures/stage5/stage5c_api_freeze_check.closure.py")
 LIB_REL = Path("crates/strategy-runtime-core/src/lib.rs")
 STAGE5C_HOST_REL = Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs")
 WRAPPER_REL = Path("crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs")
 STAGE5D_REL = Path("crates/strategy-runtime-core/src/stage5d_persistence.rs")
+
+EXPECTED_MANIFEST_CHECKER = "scripts/stage5d_additive_freeze_check.py"
+EXPECTED_NEGATIVE_HARNESS = "scripts/stage5d_additive_freeze_negative_harness.py"
+EXPECTED_STAGE5C_COMPATIBILITY_CHECKER = {
+    "path": "scripts/stage5c_api_freeze_check.py",
+    "sha256": "6aa1a30f87d296df09bf18c84b29b944ad7af8aaa59961c54bcbe6ff0a601537",
+}
+EXPECTED_HISTORICAL_STAGE5C_CHECKER = {
+    "path": "tests/fixtures/stage5/stage5c_api_freeze_check.closure.py",
+    "sha256": "e494e92ffb5f8d90b6a581c7b99e4e80f1906aeedfa1e7446d428eb31c757209",
+}
 
 EXPECTED_STAGE5C_CLOSURE = {
     "short_commit": "69cc73b",
@@ -45,6 +57,51 @@ APPROVED_BRIDGE_FILES = {
     str(WRAPPER_REL): ["runtime-private-snapshot"],
 }
 
+EXPECTED_CLOSED_SURFACES = {
+    "redis": False,
+    "finam": False,
+    "transport": False,
+    "dispatch": False,
+    "runtime_live": False,
+    "broker_execution": False,
+    "runtime_private_mutation": False,
+}
+
+EXPECTED_NEGATIVE_CASES = [
+    "stage5c_api_drift",
+    "trading_region_drift",
+    "additive_region_escape",
+    "public_namespace_leakage",
+    "raw_strategy_extractor",
+    "missing_historical_baseline",
+    "closed_surface_downgrade",
+    "negative_cases_removed",
+    "manifest_checker_changed",
+    "negative_harness_changed",
+    "stage5d_symbol_removed",
+    "stage5d_symbol_added",
+    "current_compat_checker_drift",
+    "historical_checker_missing",
+    "historical_checker_content_drift",
+    "historical_current_checker_substitution",
+    "legacy_restore_direct_call",
+    "legacy_restore_alias_call",
+    "legacy_restore_multiline_call",
+    "legacy_restore_function_reference",
+    "legacy_restore_qualified_whitespace",
+]
+
+EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
+    "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
+    "Stage5dAdditiveFreezeEvidence",
+    "Stage5dBootstrappedPaperStrategy",
+    "Stage5dPrivateStateAppliedPaperStrategy",
+    "Stage5dRestoreBlockReason",
+    "Stage5dRestoreBlocked",
+    "Stage5dRiskGateInjectedPaperStrategy",
+    "Stage5dValidatedRuntimePrivateExtension",
+]
+
 FORBIDDEN_STAGE5D_PUBLIC_PATTERNS = [
     re.compile(r"pub\s+fn\s+.*(?:raw|inner|extract|into_parts|strategy)", re.I),
     re.compile(r"pub\s+struct\s+(?!Stage5d)[A-Za-z0-9_]+"),
@@ -52,10 +109,10 @@ FORBIDDEN_STAGE5D_PUBLIC_PATTERNS = [
     re.compile(r"pub\s+const\s+(?!STAGE5D)[A-Za-z0-9_]+"),
 ]
 
-LEGACY_RESTORE_CALLS = [
-    "restore_stage5c_runtime_state(",
-    "notify_stage5c_bootstrap(",
-    "notify_stage5c_runtime_state_restored(",
+LEGACY_RESTORE_IDENTIFIERS = [
+    "restore_stage5c_runtime_state",
+    "notify_stage5c_bootstrap",
+    "notify_stage5c_runtime_state_restored",
 ]
 
 ALLOWED_LEGACY_RESTORE_CALL_PATHS = {
@@ -179,9 +236,11 @@ def validate_legacy_restore_call_sites(root: Path, failures: list[str]) -> None:
         if rel in ALLOWED_LEGACY_RESTORE_CALL_PATHS:
             continue
         source = path.read_text(errors="replace")
-        for token in LEGACY_RESTORE_CALLS:
-            if token in source:
-                failures.append(f"legacy Stage 5C restore bypass call-site forbidden: {rel}: {token}")
+        for identifier in LEGACY_RESTORE_IDENTIFIERS:
+            if re.search(rf"\b{re.escape(identifier)}\b", source):
+                failures.append(
+                    f"legacy Stage 5C restore bypass symbol forbidden: {rel}: {identifier}"
+                )
 
 
 def validate(root: Path, manifest_path: Path) -> list[str]:
@@ -196,6 +255,20 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:
         failures.append("Stage 5C closure baseline reference mismatch")
+    if manifest.get("manifest_checker") != EXPECTED_MANIFEST_CHECKER:
+        failures.append("manifest_checker mismatch")
+    if manifest.get("negative_harness") != EXPECTED_NEGATIVE_HARNESS:
+        failures.append("negative_harness mismatch")
+    if manifest.get("closed_surfaces") != EXPECTED_CLOSED_SURFACES:
+        failures.append("closed_surfaces mismatch")
+    if manifest.get("negative_cases") != EXPECTED_NEGATIVE_CASES:
+        failures.append("negative_cases mismatch")
+    if manifest.get("stage5d_public_symbols") != EXPECTED_STAGE5D_PUBLIC_SYMBOLS:
+        failures.append("Stage5d public symbol contract mismatch")
+    if manifest.get("stage5c_compatibility_checker") != EXPECTED_STAGE5C_COMPATIBILITY_CHECKER:
+        failures.append("Stage 5C compatibility checker manifest entry mismatch")
+    if manifest.get("historical_stage5c_checker") != EXPECTED_HISTORICAL_STAGE5C_CHECKER:
+        failures.append("historical Stage 5C checker manifest entry mismatch")
 
     stage5c_manifest_hash = sha256_file(root / STAGE5C_MANIFEST_REL)
     if stage5c_manifest_hash != EXPECTED_STAGE5C_CLOSURE["manifest_sha256"]:
@@ -205,6 +278,20 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
     report_hash = sha256_file(root / "docs/stage-5/stage-5c-acceptance-api-freeze-report.md")
     if report_hash != EXPECTED_STAGE5C_CLOSURE["report_sha256"]:
         failures.append(f"Stage 5C closure report hash mismatch: actual={report_hash}")
+    compatibility_checker_hash = sha256_file(root / STAGE5C_CHECKER_REL)
+    if compatibility_checker_hash != EXPECTED_STAGE5C_COMPATIBILITY_CHECKER["sha256"]:
+        failures.append(
+            f"Stage 5C compatibility checker hash mismatch: actual={compatibility_checker_hash}"
+        )
+    historical_checker_path = root / STAGE5C_CLOSURE_CHECKER_REL
+    if not historical_checker_path.is_file():
+        failures.append("historical Stage 5C closure checker artifact missing")
+    else:
+        historical_checker_hash = sha256_file(historical_checker_path)
+        if historical_checker_hash != EXPECTED_HISTORICAL_STAGE5C_CHECKER["sha256"]:
+            failures.append(
+                f"historical Stage 5C closure checker hash mismatch: actual={historical_checker_hash}"
+            )
 
     validate_stage5c_public_shape(root, manifest, failures)
 
@@ -250,10 +337,10 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
             for match in pattern.finditer(stage5d_source):
                 failures.append(f"forbidden Stage 5D public surface: {match.group(0)}")
         public_symbols = parse_stage5d_public_symbols(stage5d_source)
-        if public_symbols != manifest.get("stage5d_public_symbols"):
+        if public_symbols != EXPECTED_STAGE5D_PUBLIC_SYMBOLS:
             failures.append(
                 f"Stage5d public symbol mismatch actual={public_symbols} "
-                f"expected={manifest.get('stage5d_public_symbols')}"
+                f"expected={EXPECTED_STAGE5D_PUBLIC_SYMBOLS}"
             )
         reexports = parse_stage5d_reexports((root / LIB_REL).read_text())
         if reexports != public_symbols:

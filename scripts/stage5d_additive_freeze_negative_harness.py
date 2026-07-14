@@ -89,6 +89,112 @@ def mutate_missing_historical_baseline(root: Path) -> None:
     )
 
 
+def mutate_closed_surface_downgrade(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage-5d-additive-freeze-manifest.json",
+        '"redis": false',
+        '"redis": true',
+    )
+    replace_once(
+        root / "docs/stage-5/stage-5d-additive-freeze-manifest.json",
+        '"runtime_private_mutation": false',
+        '"runtime_private_mutation": true',
+    )
+
+
+def mutate_negative_cases_removed(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage-5d-additive-freeze-manifest.json",
+        '"negative_cases": [',
+        '"negative_cases": [],\n  "negative_cases_removed_original": [',
+    )
+
+
+def mutate_manifest_checker_changed(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage-5d-additive-freeze-manifest.json",
+        '"manifest_checker": "scripts/stage5d_additive_freeze_check.py"',
+        '"manifest_checker": "scripts/other.py"',
+    )
+
+
+def mutate_negative_harness_changed(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage-5d-additive-freeze-manifest.json",
+        '"negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py"',
+        '"negative_harness": "scripts/other.py"',
+    )
+
+
+def mutate_stage5d_symbol_removed(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage-5d-additive-freeze-manifest.json",
+        '    "Stage5dValidatedRuntimePrivateExtension"',
+        '    "Stage5dSymbolRemovedForNegativeTest"',
+    )
+
+
+def mutate_stage5d_symbol_added(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage-5d-additive-freeze-manifest.json",
+        '    "Stage5dValidatedRuntimePrivateExtension"',
+        '    "Stage5dValidatedRuntimePrivateExtension",\n    "Stage5dUnexpected"',
+    )
+
+
+def mutate_current_compat_checker_drift(root: Path) -> None:
+    append_text(root / "scripts/stage5c_api_freeze_check.py", "\n# forbidden compat drift\n")
+
+
+def mutate_historical_checker_missing(root: Path) -> None:
+    (root / "tests/fixtures/stage5/stage5c_api_freeze_check.closure.py").unlink()
+
+
+def mutate_historical_checker_content_drift(root: Path) -> None:
+    append_text(
+        root / "tests/fixtures/stage5/stage5c_api_freeze_check.closure.py",
+        "\n# forbidden historical drift\n",
+    )
+
+
+def mutate_historical_current_checker_substitution(root: Path) -> None:
+    current = root / "scripts/stage5c_api_freeze_check.py"
+    historical = root / "tests/fixtures/stage5/stage5c_api_freeze_check.closure.py"
+    historical.write_bytes(current.read_bytes())
+
+
+def append_forbidden_restore_reference(root: Path, body: str) -> None:
+    append_text(
+        root / "crates/strategy-runtime-core/src/runtime_compat.rs",
+        "\n#[allow(dead_code)]\nfn stage5d_negative_legacy_restore_reference() {\n"
+        + body
+        + "\n}\n",
+    )
+
+
+def mutate_legacy_restore_direct_call(root: Path) -> None:
+    append_forbidden_restore_reference(root, "    restore_stage5c_runtime_state();")
+
+
+def mutate_legacy_restore_alias_call(root: Path) -> None:
+    append_forbidden_restore_reference(
+        root,
+        "    use crate::restore_stage5c_runtime_state as legacy_restore;\n    legacy_restore();",
+    )
+
+
+def mutate_legacy_restore_multiline_call(root: Path) -> None:
+    append_forbidden_restore_reference(root, "    restore_stage5c_runtime_state\n        ();")
+
+
+def mutate_legacy_restore_function_reference(root: Path) -> None:
+    append_forbidden_restore_reference(root, "    let _legacy = crate::restore_stage5c_runtime_state;")
+
+
+def mutate_legacy_restore_qualified_whitespace(root: Path) -> None:
+    append_forbidden_restore_reference(root, "    crate :: notify_stage5c_runtime_state_restored();")
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -107,7 +213,21 @@ CASES = [
     ("public_namespace_leakage", mutate_public_namespace_leakage, "forbidden Stage 5D public surface"),
     ("raw_strategy_extractor", mutate_raw_strategy_extractor, "forbidden Stage 5D public surface"),
     ("missing_historical_baseline", mutate_missing_historical_baseline, "closure baseline reference mismatch"),
-    ("legacy_restore_bypass", mutate_legacy_restore_bypass, "legacy Stage 5C restore bypass"),
+    ("closed_surface_downgrade", mutate_closed_surface_downgrade, "closed_surfaces mismatch"),
+    ("negative_cases_removed", mutate_negative_cases_removed, "negative_cases mismatch"),
+    ("manifest_checker_changed", mutate_manifest_checker_changed, "manifest_checker mismatch"),
+    ("negative_harness_changed", mutate_negative_harness_changed, "negative_harness mismatch"),
+    ("stage5d_symbol_removed", mutate_stage5d_symbol_removed, "Stage5d public symbol contract mismatch"),
+    ("stage5d_symbol_added", mutate_stage5d_symbol_added, "Stage5d public symbol contract mismatch"),
+    ("current_compat_checker_drift", mutate_current_compat_checker_drift, "compatibility checker hash mismatch"),
+    ("historical_checker_missing", mutate_historical_checker_missing, "historical Stage 5C closure checker artifact missing"),
+    ("historical_checker_content_drift", mutate_historical_checker_content_drift, "historical Stage 5C closure checker hash mismatch"),
+    ("historical_current_checker_substitution", mutate_historical_current_checker_substitution, "historical Stage 5C closure checker hash mismatch"),
+    ("legacy_restore_direct_call", mutate_legacy_restore_direct_call, "legacy Stage 5C restore bypass symbol forbidden"),
+    ("legacy_restore_alias_call", mutate_legacy_restore_alias_call, "legacy Stage 5C restore bypass symbol forbidden"),
+    ("legacy_restore_multiline_call", mutate_legacy_restore_multiline_call, "legacy Stage 5C restore bypass symbol forbidden"),
+    ("legacy_restore_function_reference", mutate_legacy_restore_function_reference, "legacy Stage 5C restore bypass symbol forbidden"),
+    ("legacy_restore_qualified_whitespace", mutate_legacy_restore_qualified_whitespace, "legacy Stage 5C restore bypass symbol forbidden"),
 ]
 
 
@@ -123,8 +243,10 @@ def main() -> int:
             print("stage5d-negative-harness: clean checker run failed", file=sys.stderr)
             return 1
 
+        case_root = base / "case"
         for name, mutator, expected in CASES:
-            case_root = base / name
+            if case_root.exists():
+                shutil.rmtree(case_root)
             shutil.copytree(clean, case_root)
             mutator(case_root)
             result = run_checker(case_root)
@@ -139,6 +261,7 @@ def main() -> int:
                     file=sys.stderr,
                 )
                 return 1
+            shutil.rmtree(case_root)
     print("stage5d-negative-harness: ok")
     return 0
 

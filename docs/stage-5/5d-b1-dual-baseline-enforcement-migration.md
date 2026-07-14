@@ -13,12 +13,18 @@ any persistence DTO mutation or runtime-private restore logic.
   `scripts/stage5d_additive_freeze_check.py`.
 - Stage 5D negative harness:
   `scripts/stage5d_additive_freeze_negative_harness.py`.
+- Self-validating manifest contract:
+  checker-owned constants validate manifest checker path, negative harness path,
+  closed surfaces, negative case list, Stage5d public symbols, current
+  compatibility checker, and historical closure checker artifact.
+- Historical Stage 5C checker artifact:
+  `tests/fixtures/stage5/stage5c_api_freeze_check.closure.py`.
 - Stage 5C checker compatibility mode:
   Stage 5C public API shape remains frozen, while approved Stage 5D bridge
   files move to the additive baseline.
 - Forbidden surface scanner migration:
-  scanner now runs Stage 5C API freeze, Stage 5D additive freeze, and Stage 5D
-  negative harness.
+  scanner now runs Stage 5C API freeze and Stage 5D additive freeze, while the
+  Stage 5D negative harness is a separate explicit gate.
 - Additive bridge regions:
   `lib.rs`, `hybrid_intraday_runtime.rs`, and `stage5c_paper_host.rs` have
   explicit `STAGE5D-ADDITIVE-BRIDGE` markers.
@@ -53,7 +59,18 @@ The negative harness requires failures for:
 - public non-Stage5d namespace leakage;
 - raw strategy extractor;
 - missing historical Stage 5C baseline;
-- legacy Stage 5C persisted-restore production bypass.
+- closed-surface downgrade;
+- negative-case removal;
+- manifest checker / negative harness path drift;
+- Stage5d public symbol removal/addition;
+- current compatibility checker drift;
+- historical checker missing/content drift/substitution;
+- legacy Stage 5C persisted-restore production bypass via direct call, alias,
+  multiline call, function reference, and qualified path with whitespace.
+
+The normal forbidden-surface scanner does not run the full negative harness
+inline, to keep the normal scanner bounded. Handoff/CI must run the negative
+harness as a separate gate.
 
 ## 4. Explicitly not implemented
 

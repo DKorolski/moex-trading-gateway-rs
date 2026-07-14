@@ -149,10 +149,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   5D-b1 dual-baseline enforcement migration is the current review candidate:
   Stage 5D additive manifest/checker, negative harness, Stage 5C compatibility
   checker mode, scanner migration, approved additive bridge markers, immutable
-  Stage 5C closure references, and opaque Stage5d skeleton symbols. Stage 5D-b1
-  does not implement persistence DTO mutation, runtime-private snapshot
-  application, riskgate injection, Redis bridge, FINAM execution, broker
-  transport, runtime-live or autonomous loop.
+  Stage 5C closure references, manifest self-validation, current/historical
+  checker trust-chain pinning, fail-closed legacy restore symbol scanning, and
+  opaque Stage5d skeleton symbols. Stage 5D-b1 does not implement persistence
+  DTO mutation, runtime-private snapshot application, riskgate injection, Redis
+  bridge, FINAM execution, broker transport, runtime-live or autonomous loop.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

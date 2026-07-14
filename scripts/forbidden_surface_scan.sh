@@ -1538,13 +1538,19 @@ expected_stage5_profile_artifacts = {
         "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323"
     ),
     Path("docs/stage-5/stage-5d-additive-freeze-manifest.json"): (
-        "7f953ca410d470830064523ef69fd39093a08092a74205a5daaed2b7474f656a"
+        "af503d2d6e0b232536d0f4d7efee95b8a5394d51587928a8842275bd01e972b7"
+    ),
+    Path("scripts/stage5c_api_freeze_check.py"): (
+        "6aa1a30f87d296df09bf18c84b29b944ad7af8aaa59961c54bcbe6ff0a601537"
     ),
     Path("scripts/stage5d_additive_freeze_check.py"): (
-        "a1a0618a4f9eae243c6cd80ae968460b3c76647d9d874a12a709c6e180f71179"
+        "dbe898cb3589414da1effcc3a9b275420619d417298bce3a35e703c1a0263253"
     ),
     Path("scripts/stage5d_additive_freeze_negative_harness.py"): (
-        "d581bce9fade53357a01393027fbd66293fc566ca024b42ba0d2fe8c23b377f5"
+        "fd1eb588f5f5659c093aab904982f730795f16fd105874b3b51260f18fdc499f"
+    ),
+    Path("tests/fixtures/stage5/stage5c_api_freeze_check.closure.py"): (
+        "e494e92ffb5f8d90b6a581c7b99e4e80f1906aeedfa1e7446d428eb31c757209"
     ),
     Path("tests/fixtures/stage5/stage5ch_controlled_next_bar_loop.json"): (
         "687a94ea97c437715039dc8f44c53539094c89d2c5e9c34d83162e24515f2699"
@@ -1651,7 +1657,6 @@ PY
 
 "$python_with_tomllib" scripts/stage5c_api_freeze_check.py
 "$python_with_tomllib" scripts/stage5d_additive_freeze_check.py
-"$python_with_tomllib" scripts/stage5d_additive_freeze_negative_harness.py
 
 if (( failures > 0 )); then
   exit 1
