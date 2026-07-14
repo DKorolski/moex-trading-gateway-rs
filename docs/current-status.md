@@ -145,10 +145,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   self-completeness checks, the actual coordinator transition matrix, and the
   no-send execution boundary. Any future change to frozen Stage 5C API/source
   requires an explicit Stage 5C reopening review.
-- Stage 5D-a persistence ownership and schema inventory is a review
-  candidate. It inventories runtime/riskgate persisted, derived and
-  broker-truth-authoritative fields and remains design-only: no Redis bridge,
-  FINAM execution, broker transport, runtime-live or autonomous loop.
+- Stage 5D-a persistence ownership and schema inventory is a revised review
+  candidate after design HOLD. It defines the controlled Stage 5D additive
+  persistence seam, inventories all 71 serialized `StrategyState` fields,
+  documents runtime-private restart gaps and their persist/derive/block
+  policies, fixes riskgate authority/injection order, and remains design-only:
+  no Redis bridge, FINAM execution, broker transport, runtime-live or
+  autonomous loop.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
