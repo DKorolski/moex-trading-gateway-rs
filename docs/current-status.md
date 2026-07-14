@@ -138,14 +138,17 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   into ACK lifecycle, delegates only to existing Stage 5C facades, preserves
   recoverable state where available, and keeps autonomous loops, Redis, sink,
   transport, FINAM command consumer and runtime-live closed.
-- Stage 5C acceptance/API-freeze package is a revised review candidate. It
-  summarizes accepted 5C-a...5C-n slices, fixes startup ordering as
+- Stage 5C acceptance/API-freeze package is accepted and Stage 5C is formally
+  closed. The closure freezes accepted 5C-a...5C-n slices, startup ordering as
   state-load/clean-prepare -> broker-truth bootstrap ->
-  runtime-state-restored, freezes the full paper-host type-state API through a
-  machine-readable manifest plus checker, enforces manifest self-completeness
-  through canonical checker constants and valid-JSON negative harness cases,
-  documents the actual coordinator transition matrix, and keeps Stage 5D
-  blocked until reviewer acceptance.
+  runtime-state-restored, the full paper-host type-state API, manifest
+  self-completeness checks, the actual coordinator transition matrix, and the
+  no-send execution boundary. Any future change to frozen Stage 5C API/source
+  requires an explicit Stage 5C reopening review.
+- Stage 5D-a persistence ownership and schema inventory is a review
+  candidate. It inventories runtime/riskgate persisted, derived and
+  broker-truth-authoritative fields and remains design-only: no Redis bridge,
+  FINAM execution, broker transport, runtime-live or autonomous loop.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
