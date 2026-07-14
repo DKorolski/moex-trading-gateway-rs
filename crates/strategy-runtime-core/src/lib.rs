@@ -57,6 +57,9 @@ mod hybrid_intraday_runtime;
 #[allow(dead_code)]
 mod runtime_compat;
 mod stage5c_paper_host;
+// STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5d-module
+mod stage5d_persistence;
+// STAGE5D-ADDITIVE-BRIDGE-END: lib-stage5d-module
 
 pub use hybrid_intraday_runtime::{
     BrokerNeutralHybridCallbackResult, BrokerNeutralHybridStrategy, HybridIntradayProfile,
@@ -114,6 +117,14 @@ pub use stage5c_paper_host::{
     Stage5cWarmedPaperStrategy, STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION,
     STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION,
 };
+// STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5d-exports
+pub use stage5d_persistence::{
+    Stage5dAdditiveFreezeEvidence, Stage5dBootstrappedPaperStrategy,
+    Stage5dPrivateStateAppliedPaperStrategy, Stage5dRestoreBlockReason, Stage5dRestoreBlocked,
+    Stage5dRiskGateInjectedPaperStrategy, Stage5dValidatedRuntimePrivateExtension,
+    STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION,
+};
+// STAGE5D-ADDITIVE-BRIDGE-END: lib-stage5d-exports
 
 pub(crate) mod live_guard {
     pub use crate::runtime_compat::GatewayPhase;

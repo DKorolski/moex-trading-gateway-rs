@@ -22,6 +22,10 @@ use crate::strategy_host::{
     RiskGateSessionFinalization, StopOrderEvent, Strategy, StrategyCtx,
 };
 
+// STAGE5D-ADDITIVE-BRIDGE-BEGIN: runtime-private-snapshot
+// Stage 5D-b1 marker only. Future reviewed slices may add crate-private
+// runtime-private snapshot export/apply glue in this additive region.
+// STAGE5D-ADDITIVE-BRIDGE-END: runtime-private-snapshot
 const RISK_GATE_MAKER_COST_POINTS: f64 = 0.1;
 
 #[derive(Debug, Clone)]

@@ -103,6 +103,12 @@ REQUIRED_SOURCE_HASH_PATHS = {
     "crates/strategy-runtime-core/src/lib.rs",
 }
 
+STAGE5D_APPROVED_ADDITIVE_SOURCE_PATHS = {
+    "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs",
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+    "crates/strategy-runtime-core/src/lib.rs",
+}
+
 REQUIRED_ACCEPTED_SLICES = [
     "5C-a",
     "5C-b",
@@ -463,6 +469,8 @@ def check_manifest(manifest: dict[str, Any]) -> list[str]:
         actual_path = ROOT / path
         if not actual_path.is_file():
             failures.append(f"source hash path missing: {path}")
+            continue
+        if path in STAGE5D_APPROVED_ADDITIVE_SOURCE_PATHS:
             continue
         actual = sha256_file(actual_path)
         if actual != expected:

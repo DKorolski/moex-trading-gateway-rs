@@ -25,6 +25,10 @@ use crate::runtime_compat::{
 pub const STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION: u16 = 1;
 pub const STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION: u16 = 1;
 
+// STAGE5D-ADDITIVE-BRIDGE-BEGIN: type-state-transitions
+// Stage 5D-b1 marker only. Future reviewed slices may add crate-private
+// Stage5c/Stage5d type-state transition glue in this additive region.
+// STAGE5D-ADDITIVE-BRIDGE-END: type-state-transitions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Stage5cPaperHostAdmissionError {

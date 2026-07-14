@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "stage": "5D-b1",
+  "status": "additive_freeze_candidate",
+  "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
+  "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
+  "stage5c_closure_baseline": {
+    "short_commit": "69cc73b",
+    "full_commit": "69cc73b7f33d8cb418c784ac993856d8a487693d",
+    "handoff_archive": "moex-trading-project-69cc73b.zip",
+    "handoff_sha256": "0b614ebe83b0a8af85cde0ca7a1ae481457813edad72626cd4bb5972c9c83f91",
+    "manifest_sha256": "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323",
+    "report_sha256": "1d15c992ce1658fea6d7ec8a25094b094400ba00b764ac23d32c525207d19b48",
+    "original_checker_sha256": "e494e92ffb5f8d90b6a581c7b99e4e80f1906aeedfa1e7446d428eb31c757209"
+  },
+  "stage5c_public_api": {
+    "public_symbol_count": 95,
+    "normalized_signature_hash": "026cd7236db27936876c111352bd86c3a69b0b71faf3170897ecc785be175ae4"
+  },
+  "approved_bridge_files": {
+    "crates/strategy-runtime-core/src/lib.rs": {
+      "closure_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
+      "current_sha256": "70c46c09431bbc614c476eed1ce4b703ca20e21bee5f80e078990fe9e3f92336",
+      "stripped_without_additive_regions_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
+      "additive_regions": [
+        "lib-stage5d-module",
+        "lib-stage5d-exports"
+      ]
+    },
+    "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": {
+      "closure_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
+      "current_sha256": "faf66c94d35c112f56d0f59bf228aa0cbbe27719817cff04fd51054afd86a441",
+      "stripped_without_additive_regions_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
+      "additive_regions": [
+        "runtime-private-snapshot"
+      ]
+    },
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
+      "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
+      "current_sha256": "bbf00846649927203ddece69a898b932bdbfa3feb870b9a4f6b86dcbeb4ff796",
+      "stripped_without_additive_regions_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
+      "additive_regions": [
+        "type-state-transitions"
+      ]
+    }
+  },
+  "stage5d_persistence_file": {
+    "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+    "current_sha256": "86a5a8d6bed0d059ed8e882c776591131360b1df92515b2878fd93f33cceda10"
+  },
+  "stage5d_public_symbols": [
+    "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
+    "Stage5dAdditiveFreezeEvidence",
+    "Stage5dBootstrappedPaperStrategy",
+    "Stage5dPrivateStateAppliedPaperStrategy",
+    "Stage5dRestoreBlockReason",
+    "Stage5dRestoreBlocked",
+    "Stage5dRiskGateInjectedPaperStrategy",
+    "Stage5dValidatedRuntimePrivateExtension"
+  ],
+  "closed_surfaces": {
+    "redis": false,
+    "finam": false,
+    "transport": false,
+    "dispatch": false,
+    "runtime_live": false,
+    "broker_execution": false,
+    "runtime_private_mutation": false
+  },
+  "negative_cases": [
+    "stage5c_api_drift",
+    "trading_region_drift",
+    "additive_region_escape",
+    "public_namespace_leakage",
+    "raw_strategy_extractor",
+    "missing_historical_baseline",
+    "legacy_restore_bypass"
+  ]
+}

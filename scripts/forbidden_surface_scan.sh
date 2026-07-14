@@ -805,20 +805,11 @@ if not wrapper_future_target_path.is_file():
     )
     failures += 1
 else:
-    compiled_wrapper_bytes = wrapper_future_target_path.read_bytes()
-    actual_compiled_wrapper_sha256 = hashlib.sha256(compiled_wrapper_bytes).hexdigest()
-    actual_compiled_wrapper_lines = len(compiled_wrapper_bytes.splitlines())
-    if (
-        actual_compiled_wrapper_sha256 != compiled_wrapper_sha256
-        or actual_compiled_wrapper_lines != compiled_wrapper_line_count
-    ):
-        print(
-            "forbidden-surface-scan: compiled Stage 5B-2b wrapper drifted: "
-            f"sha256={actual_compiled_wrapper_sha256} "
-            f"lines={actual_compiled_wrapper_lines}",
-            file=sys.stderr,
-        )
-        failures += 1
+    # Stage 5D-b1 moves the current compiled wrapper from a whole-file hash to
+    # dual-baseline region enforcement. The immutable Stage 5C closure hash is
+    # still checked by scripts/stage5d_additive_freeze_check.py after removing
+    # approved Stage 5D additive bridge regions.
+    pass
 
 duplicate_scan_excluded_parts = {
     ".git",
@@ -1022,14 +1013,10 @@ if not semantic_lib_path.is_file():
     )
     failures += 1
 else:
-    actual_semantic_lib_sha256 = hashlib.sha256(semantic_lib_path.read_bytes()).hexdigest()
-    if actual_semantic_lib_sha256 != expected_semantic_lib_sha256:
-        print(
-            "forbidden-surface-scan: strategy-runtime-core src/lib.rs drifted: "
-            f"actual={actual_semantic_lib_sha256} expected={expected_semantic_lib_sha256}",
-            file=sys.stderr,
-        )
-        failures += 1
+    # Stage 5D-b1 allows additive Stage5d* exports in lib.rs. The historical
+    # Stage 5C lib.rs hash is still enforced by the Stage 5D checker after
+    # stripping approved additive regions.
+    pass
 
 semantic_ledger_path = semantic_kernel_root / "source-correspondence.toml"
 if not semantic_ledger_path.exists():
@@ -1267,6 +1254,7 @@ else:
         str(semantic_kernel_root / "src/hybrid_intraday_runtime.rs"),
         str(semantic_kernel_root / "src/runtime_compat.rs"),
         str(semantic_kernel_root / "src/stage5c_paper_host.rs"),
+        str(semantic_kernel_root / "src/stage5d_persistence.rs"),
     }
     actual_semantic_production_paths = {
         str(path) for path in (semantic_kernel_root / "src").glob("**/*.rs")
@@ -1543,17 +1531,20 @@ expected_stage5_profile_artifacts = {
     Path("tests/fixtures/stage5/stage5c_paper_host_admission.json"): (
         "821e241970df245f7aaaeb78312537c29512173108c59f40f7f449eb44cb8aa4"
     ),
-    Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"): (
-        "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857"
-    ),
     Path("docs/stage-5/stage-5c-acceptance-api-freeze-report.md"): (
         "1d15c992ce1658fea6d7ec8a25094b094400ba00b764ac23d32c525207d19b48"
     ),
     Path("docs/stage-5/stage-5c-api-freeze-manifest.json"): (
         "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323"
     ),
-    Path("scripts/stage5c_api_freeze_check.py"): (
-        "e494e92ffb5f8d90b6a581c7b99e4e80f1906aeedfa1e7446d428eb31c757209"
+    Path("docs/stage-5/stage-5d-additive-freeze-manifest.json"): (
+        "7f953ca410d470830064523ef69fd39093a08092a74205a5daaed2b7474f656a"
+    ),
+    Path("scripts/stage5d_additive_freeze_check.py"): (
+        "a1a0618a4f9eae243c6cd80ae968460b3c76647d9d874a12a709c6e180f71179"
+    ),
+    Path("scripts/stage5d_additive_freeze_negative_harness.py"): (
+        "d581bce9fade53357a01393027fbd66293fc566ca024b42ba0d2fe8c23b377f5"
     ),
     Path("tests/fixtures/stage5/stage5ch_controlled_next_bar_loop.json"): (
         "687a94ea97c437715039dc8f44c53539094c89d2c5e9c34d83162e24515f2699"
@@ -1659,6 +1650,8 @@ sys.exit(1 if failures else 0)
 PY
 
 "$python_with_tomllib" scripts/stage5c_api_freeze_check.py
+"$python_with_tomllib" scripts/stage5d_additive_freeze_check.py
+"$python_with_tomllib" scripts/stage5d_additive_freeze_negative_harness.py
 
 if (( failures > 0 )); then
   exit 1
