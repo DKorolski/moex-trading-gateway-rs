@@ -1,12 +1,12 @@
 # Stage 5D-a — persistence ownership and schema inventory
 
-Status: accepted inventory, pending Stage 5D-a2 controlled freeze-extension
+Status: accepted inventory, pending Stage 5D-a3 enforcement/type-state bridge
 design. Scope: design/inventory only.
 
 Stage 5C is formally closed. Stage 5D-a starts the state/riskgate persistence
 work without changing the frozen Stage 5C public API. Exact source-hash changes
-needed for Stage 5D are handled only by the separate Stage 5D-a2 controlled
-additive freeze-extension design.
+needed for Stage 5D are handled by the Stage 5D-a2/a3 controlled additive
+freeze-extension design.
 
 This slice does not add Redis stream bridges, command consumers, FINAM
 execution, broker transport, runtime-live, autonomous loops, or broker-side
@@ -83,8 +83,9 @@ Stage 5D-a2 defines the reviewed extension with these rules:
 | Persistence producer | A Stage 5D capability consumes/borrows accepted Stage 5C/host-owned state internally and emits a versioned persistence envelope. |
 | Persistence consumer | A Stage 5D restore capability validates envelope + broker truth + riskgate authority before re-entering Stage 5C startup. |
 
-Therefore Stage 5D-b must not start DTO/schema implementation until Stage 5D-a2
-selects and freezes the additive bridge. Stage 5D-a2 is design-only and must
+Therefore Stage 5D-b must not start DTO/schema implementation until Stage 5D-a3
+selects and freezes both the additive enforcement migration and exact
+Stage5c/Stage5d type-state bridge. Stage 5D-a2/a3 are design-only and must
 prove the bridge can enter and exit the Stage 5C type-state chain without
 opening Redis, FINAM, transport, dispatch, runtime-live, public raw strategy
 extractors, or broker execution.
@@ -589,15 +590,17 @@ This slice delivers only:
 
 - this ownership/schema inventory;
 - `docs/stage-5/5d-a2-controlled-additive-freeze-extension.md` as the
-  follow-up design-only answer to the implementable seam HOLD;
+  controlled additive-extension principle;
+- `docs/stage-5/5d-a3-additive-freeze-enforcement-and-type-state-bridge.md` as
+  the follow-up design-only answer to the enforcement/type-state HOLD;
 - `docs/current-status.md` update marking Stage 5C closed and Stage 5D-a as a
-  held inventory with Stage 5D-a2 as the next gate.
+  held inventory with Stage 5D-a3 as the next gate.
 
 No production source changes are part of Stage 5D-a.
 
 ## 10. Next proposed slices
 
-If Stage 5D-a2 is accepted:
+If Stage 5D-a3 is accepted:
 
 1. Stage 5D-b — Stage 5D manifest/checker plus versioned envelope DTO/API.
 2. Stage 5D-c — runtime-private snapshot DTO fixtures and corruption gates.

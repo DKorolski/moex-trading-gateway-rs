@@ -1,6 +1,7 @@
 # Stage 5D-a2 — controlled additive freeze-extension design
 
-Status: review candidate. Scope: design-only, no production source changes.
+Status: extension principle accepted, pending Stage 5D-a3 enforcement and
+exact type-state bridge. Scope: design-only, no production source changes.
 
 Stage 5D-a accepted the persistence ownership inventory, but final acceptance
 is blocked until the implementable code/API seam is chosen. This slice defines
@@ -153,12 +154,16 @@ classify them before DTO freeze:
 
 ## 8. Broker-object recovery indexes
 
-`known_order_ids` remains a broker-order recovery index. Stage 5D-b must choose
-one of two designs before DTO/API freeze:
+`known_order_ids` remains a broker-order recovery index. Stage 5D-a3 chooses
+the concrete design before DTO/API freeze:
 
-1. add a separate typed `known_stop_order_ids: Vec<BrokerStopOrderId>`; or
-2. use one typed broker-object index that differentiates order, stop order,
-   trade and client-correlation namespaces.
+```text
+known_order_ids: Vec<BrokerOrderId>
+known_stop_order_ids: Vec<BrokerStopOrderId>
+known_trade_ids: Vec<BrokerTradeId>
+known_client_order_ids: Vec<ClientOrderId>
+pending_requests: Vec<StrategyRequestId>
+```
 
 A plain untyped string list is not acceptable for mixed broker objects.
 
@@ -179,7 +184,7 @@ retries through a reviewed recovery path; it must not silently overwrite.
 
 ## 10. Required gates for implementing the extension
 
-Stage 5D-b may start only after a reviewed Stage 5D-a2 package proves:
+Stage 5D-b may start only after a reviewed Stage 5D-a3 package proves:
 
 1. the 95 Stage 5C public symbols/signatures are unchanged;
 2. no new public extractor exposes opaque Stage 5C state;
@@ -190,13 +195,17 @@ Stage 5D-b may start only after a reviewed Stage 5D-a2 package proves:
 6. riskgate injection preserves the linear Stage 5C capability chain;
 7. Stage 5C callback order is unchanged;
 8. BO/MR/high180/orchestrator/riskgate formulas are unchanged;
-9. Stage 5D manifest pins only `Stage5d*` API and additive source hashes;
+9. dual-baseline enforcement pins Stage 5D `Stage5d*` API, additive source
+   hashes, approved bridge regions, and the historical Stage 5C baseline
+   reference;
 10. Redis, FINAM, transport, dispatch, runtime-live and broker execution remain
     closed.
 
 ## 11. Resulting roadmap
 
-If Stage 5D-a2 is accepted:
+Stage 5D-a2 chooses the controlled additive-extension principle. Stage 5D-a3
+chooses the enforcement migration and exact type-state seam. If Stage 5D-a3 is
+accepted:
 
 1. Stage 5D-b — Stage 5D manifest/checker plus versioned envelope DTO/API.
 2. Stage 5D-c — runtime-private snapshot DTO fixtures and corruption gates.
