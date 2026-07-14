@@ -28,7 +28,7 @@
   "approved_bridge_files": {
     "crates/strategy-runtime-core/src/lib.rs": {
       "closure_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
-      "current_sha256": "cbe5e0bae31f0655ddfb03577a9fc7f2cb676355708368b51dcf4135a304be9e",
+      "current_sha256": "e325dac5023781ea6781f96a6286ea6eea772a934e0da654fc734e61b9ec8de3",
       "stripped_without_additive_regions_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
       "additive_regions": [
         "lib-stage5d-module",
@@ -54,13 +54,14 @@
   },
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "5358c857b12f8b9e690e291120555d2d823fc5f3d884b7c96192cdc655304271"
+    "current_sha256": "c4f3ee43ac4dc53ad48b305808605399c3cb7503db35d8beddb010e5d5973464"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
     "STAGE5D_PERSISTENCE_ENVELOPE_SCHEMA_VERSION",
     "STAGE5D_RISKGATE_SCHEMA_VERSION",
     "STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION",
+    "STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION",
     "Stage5dAdditiveFreezeEvidence",
     "Stage5dBootstrappedPaperStrategy",
     "Stage5dBracketReconciliationTimer",
@@ -75,6 +76,7 @@
     "Stage5dPendingEntryExtension",
     "Stage5dPendingExitExtension",
     "Stage5dPersistenceEnvelope",
+    "Stage5dPersistenceStage",
     "Stage5dPrivateStateAppliedPaperStrategy",
     "Stage5dRecoveryIndexes",
     "Stage5dRestoreBlockReason",
@@ -87,6 +89,9 @@
     "Stage5dRiskGatePersistence",
     "Stage5dRuntimePrivateExtension",
     "Stage5dSide",
+    "Stage5dSnapshotBinding",
+    "Stage5dStrategyKind",
+    "Stage5dStrategyStatePayload",
     "Stage5dTimestampUnits",
     "Stage5dValidatedRuntimePrivateExtension"
   ],
@@ -134,6 +139,7 @@
       "STAGE5D_PERSISTENCE_ENVELOPE_SCHEMA_VERSION",
       "STAGE5D_RISKGATE_SCHEMA_VERSION",
       "STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION",
+      "STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION",
       "Stage5dAdditiveFreezeEvidence",
       "Stage5dBootstrappedPaperStrategy",
       "Stage5dBracketReconciliationTimer",
@@ -148,6 +154,7 @@
       "Stage5dPendingEntryExtension",
       "Stage5dPendingExitExtension",
       "Stage5dPersistenceEnvelope",
+      "Stage5dPersistenceStage",
       "Stage5dPrivateStateAppliedPaperStrategy",
       "Stage5dRecoveryIndexes",
       "Stage5dRestoreBlockReason",
@@ -160,6 +167,9 @@
       "Stage5dRiskGatePersistence",
       "Stage5dRuntimePrivateExtension",
       "Stage5dSide",
+      "Stage5dSnapshotBinding",
+      "Stage5dStrategyKind",
+      "Stage5dStrategyStatePayload",
       "Stage5dTimestampUnits",
       "Stage5dValidatedRuntimePrivateExtension"
     ],
@@ -183,6 +193,11 @@
         "name": "STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION",
         "type": "u16",
         "signature": "pub const STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION: u16 = 1"
+      },
+      {
+        "name": "STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION",
+        "type": "u16",
+        "signature": "pub const STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION: u16 = 1"
       }
     ],
     "public_free_functions": [],
@@ -232,9 +247,7 @@
         "public_fields": [],
         "public_variants": [
           "Market",
-          "MarketableLimit",
-          "Bracket",
-          "Unknown"
+          "Bracket"
         ]
       },
       {
@@ -243,9 +256,11 @@
         "opaque": false,
         "public_fields": [],
         "public_variants": [
+          "DeserializationFailed",
           "EnvelopeSchemaMismatch",
           "RuntimePrivateSchemaMismatch",
           "RiskGateSchemaMismatch",
+          "StrategyStateSchemaMismatch",
           "RequiredFieldEmpty",
           "PayloadChecksumMismatch",
           "SerializationFailed"
@@ -275,11 +290,15 @@
         "public_variants": [
           "MorningMeanReversionLong",
           "MorningMeanReversionShort",
-          "IntradayBreakoutLong",
-          "IntradayBreakoutShort",
-          "Cleanup",
-          "Operator",
-          "Other"
+          "BreakoutLong",
+          "BreakoutShort",
+          "BreakoutEodExit",
+          "BreakoutStop2Long",
+          "BreakoutStop1Long",
+          "BreakoutStop2Short",
+          "BreakoutStop1Short",
+          "MeanRevTimeCutoff",
+          "WaitfixOvernightExit"
         ]
       },
       {
@@ -309,8 +328,7 @@
         "public_fields": [],
         "public_variants": [
           "MeanReversion",
-          "IntradayBreakout",
-          "Unknown"
+          "IntradayBreakout"
         ]
       },
       {
@@ -423,6 +441,14 @@
             "type": "String"
           },
           {
+            "name": "binding",
+            "type": "Stage5dSnapshotBinding"
+          },
+          {
+            "name": "strategy_state",
+            "type": "Stage5dStrategyStatePayload"
+          },
+          {
             "name": "payload_checksum_sha256",
             "type": "String"
           },
@@ -444,6 +470,15 @@
           }
         ],
         "public_variants": []
+      },
+      {
+        "name": "Stage5dPersistenceStage",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "Stage5d"
+        ]
       },
       {
         "name": "Stage5dPrivateStateAppliedPaperStrategy",
@@ -624,7 +659,7 @@
             "type": "String"
           },
           {
-            "name": "finalization_outbox",
+            "name": "durable_finalization_outbox",
             "type": "Vec<Stage5dRiskGateFinalizationOutboxRecord>"
           }
         ],
@@ -668,7 +703,7 @@
             "type": "Option<DateTime<Utc>>"
           },
           {
-            "name": "pending_riskgate_finalizations",
+            "name": "runtime_pending_finalizations",
             "type": "Vec<Stage5dRiskGateFinalizationOutboxRecord>"
           }
         ],
@@ -683,6 +718,87 @@
           "Long",
           "Short"
         ]
+      },
+      {
+        "name": "Stage5dSnapshotBinding",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "stage",
+            "type": "Stage5dPersistenceStage"
+          },
+          {
+            "name": "strategy_kind",
+            "type": "Stage5dStrategyKind"
+          },
+          {
+            "name": "strategy_id",
+            "type": "String"
+          },
+          {
+            "name": "account_id",
+            "type": "BrokerAccountId"
+          },
+          {
+            "name": "instrument_id",
+            "type": "InstrumentId"
+          },
+          {
+            "name": "profile_binding",
+            "type": "String"
+          },
+          {
+            "name": "broker_protocol_schema_version",
+            "type": "u16"
+          },
+          {
+            "name": "runtime_state_schema_version",
+            "type": "u16"
+          },
+          {
+            "name": "stage5c_compat_config_fingerprint",
+            "type": "String"
+          },
+          {
+            "name": "stage5d_canonical_config_fingerprint",
+            "type": "String"
+          },
+          {
+            "name": "source_commit_or_build_id",
+            "type": "String"
+          },
+          {
+            "name": "created_at_ts_utc",
+            "type": "DateTime<Utc>"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dStrategyKind",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "HybridIntraday"
+        ]
+      },
+      {
+        "name": "Stage5dStrategyStatePayload",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "schema_version",
+            "type": "u16"
+          },
+          {
+            "name": "strategy_state_json",
+            "type": "Value"
+          }
+        ],
+        "public_variants": []
       },
       {
         "name": "Stage5dTimestampUnits",
@@ -720,6 +836,11 @@
       },
       {
         "type": "Stage5dPersistenceEnvelope",
+        "name": "from_json_str_strict",
+        "signature": "pub fn from_json_str_strict(payload: &str) -> Result<Self, Stage5dEnvelopeValidationError>"
+      },
+      {
+        "type": "Stage5dPersistenceEnvelope",
         "name": "validate_schema_and_checksum",
         "signature": "pub fn validate_schema_and_checksum(&self) -> Result<(), Stage5dEnvelopeValidationError>"
       },
@@ -742,20 +863,22 @@
       "Stage5dEnvelopeValidationError",
       "Stage5dLifecycleReason",
       "Stage5dOwner",
+      "Stage5dPersistenceStage",
       "Stage5dRestoreBlockReason",
       "Stage5dRiskGateFinalizationState",
       "Stage5dSide",
+      "Stage5dStrategyKind",
       "Stage5dTimestampUnits"
     ],
-    "normalized_signature_hash": "ad907c2fae72a360019bc4e2ffd82a91e72dac7187ade580c714b66c595e83ef",
+    "normalized_signature_hash": "7a9a4b942d0196d47100a826a0eb4e2b60f48833511b4fc022a78b513dd07ea0",
     "public_surface_counts": {
-      "public_reexports": 32,
-      "public_constants": 4,
+      "public_reexports": 37,
+      "public_constants": 5,
       "public_free_functions": 0,
-      "public_types": 28,
-      "public_methods": 5,
+      "public_types": 32,
+      "public_methods": 6,
       "opaque_capabilities": 6,
-      "externally_constructible_enums": 8
+      "externally_constructible_enums": 10
     }
   }
 }

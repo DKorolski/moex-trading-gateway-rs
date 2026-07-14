@@ -1538,16 +1538,16 @@ expected_stage5_profile_artifacts = {
         "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323"
     ),
     Path("docs/stage-5/stage-5d-additive-freeze-manifest.json"): (
-        "ec22d6346c1a7f94a702b1e6c52f4aa938dee4308e0e96c3cd5d5b4768d10c6a"
+        "70aac24a8fb7962cb41585347d5bbc4a0672bcd7237ccc4594f0f9d0d4e99589"
     ),
     Path("docs/stage-5/5d-b2a-versioned-persistence-envelope-api-schema.md"): (
-        "f9d90ac5042b04bb999b19a9eb4e2489690edfd1abc9c4d81859332b1e5ad891"
+        "decede2e8969e5f8d2a9c71966689c9f3ece88a303dd91c4e1140ccd81abcca8"
     ),
     Path("scripts/stage5c_api_freeze_check.py"): (
         "6aa1a30f87d296df09bf18c84b29b944ad7af8aaa59961c54bcbe6ff0a601537"
     ),
     Path("scripts/stage5d_additive_freeze_check.py"): (
-        "9caa6564a5eebf6a37ffdbdc3e823220a5f109b21da31f9387d6e0b98fe82fac"
+        "dacd06b2159ed023eb3d9f075a01afaeba56c6a30f609bf1ca8f813abe3c4c3d"
     ),
     Path("scripts/stage5d_additive_freeze_negative_harness.py"): (
         "086ec8112c906441f472aedbcd4d34d1b08f88cdf6dbbd9df2b531b626b2c03c"
@@ -1565,16 +1565,16 @@ expected_stage5_profile_artifacts = {
         "14cdd518383b86d5a223d65ef46969450ea7a8573df21c6c6c520b817571621d"
     ),
     Path("tests/fixtures/stage5/stage5d_b2a_persistence_envelope.json"): (
-        "162260fc3db2612abb3b5f30c4871f815c42339abf18f367b7e215f2cad15b89"
+        "29c767b807a5c5acbf33abe16ee6fbe748c1a5821cc15df452118fde9475f565"
     ),
     Path("tests/fixtures/stage5/stage5d_b2a_persistence_envelope_corrupt_checksum.json"): (
-        "f9613d98345bb9ca8c16eb71b31805d6cf47129dba38338538a4697ff1dfcc18"
+        "6dda8895cea8c71675a8d633d390dcec99c235ab31d2131dcc9cd7b413527d7a"
     ),
     Path("tests/fixtures/stage5/stage5d_b2a_persistence_envelope_bad_version.json"): (
-        "bf4aa9ec2c53423357a4c42a5f91dc6542b3db7dfab3e5eac845cd2b79ff3ec5"
+        "f2922b549ad55dab739c16eb2395ae5c79f445d7f4b328b9dd0d830e7ff22087"
     ),
     Path("tests/fixtures/stage5/stage5d_b2a_persistence_envelope_empty_config.json"): (
-        "c7dca8b997d6d1b3ed2ff1b12a64b2d7873e4bcacef2e15e64cbcffef017fcf5"
+        "0361b765c146f8a20c1b7797b0bf4a83331cafc29e7d296e4cbca8deb99c9c04"
     ),
     Path("tests/fixtures/stage5/stage5cb_bootstrap_notification.json"): (
         "9db7888d27374eeaa8ac046c1df1727a3e3cd085c938a76945d22b9bd68f00de"

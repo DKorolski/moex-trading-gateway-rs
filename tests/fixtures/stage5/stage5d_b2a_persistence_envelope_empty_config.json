@@ -6,8 +6,51 @@
   "write_generation": 42,
   "persisted_at_ts_utc": "2026-07-14T06:10:00Z",
   "timestamp_units": "milliseconds",
-  "canonical_config_fingerprint": "",
-  "payload_checksum_sha256": "00b0a36d10fdb259006de1b4d6a54390e6809417de5bdf33ef3fe04c0fd77457",
+  "canonical_config_fingerprint": "cfg_sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "binding": {
+    "stage": "stage5d",
+    "strategy_kind": "hybrid_intraday",
+    "strategy_id": "hybrid_imoexf",
+    "account_id": "ACC_TEST_0001",
+    "instrument_id": {
+      "symbol": "IMOEXF",
+      "venue_symbol": "IMOEXF@RTSX",
+      "exchange": "Moex",
+      "market": "Futures"
+    },
+    "profile_binding": "imoexf_primary_high180_lb120",
+    "broker_protocol_schema_version": 2,
+    "runtime_state_schema_version": 2,
+    "stage5c_compat_config_fingerprint": "stage5c_cfg_sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "stage5d_canonical_config_fingerprint": "",
+    "source_commit_or_build_id": "source_commit:4f874c7dd7d583a44edfa42701ccb386cbe3e630",
+    "created_at_ts_utc": "2026-07-14T06:09:50Z"
+  },
+  "strategy_state": {
+    "schema_version": 1,
+    "strategy_state_json": {
+      "HybridIntradayRuntime": {
+        "active_cycle_id": "cycle-stage5d-b2a-0001",
+        "next_cycle_seq": 8,
+        "last_position_qty": 1.0,
+        "current_owner": "mean_reversion",
+        "current_side": "long",
+        "pending_entry_request_id": "11111111-1111-1111-1111-111111111111",
+        "pending_exit_request_id": null,
+        "tp_order_id": "FINAM-ORDER-1",
+        "sl_stop_order_id": "FINAM-STOP-1",
+        "safe_mode_close_only": false,
+        "entry_ready": true,
+        "last_bar_close": 2227.5,
+        "prev_day_close": 2234.5,
+        "current_day_high": 2262.0,
+        "current_day_low": 2165.5,
+        "current_day_close": 2227.5,
+        "prev_day_range": 60.5
+      }
+    }
+  },
+  "payload_checksum_sha256": "5147b3b11593c32e60a1d3c381803366bdd5cdf43e53cc8b9968afc975e46a94",
   "lifecycle_watermarks": {
     "persisted_event_watermark": "stream:stage5d:0007",
     "last_semantic_bar_ts": "2026-07-14T06:00:00Z",
@@ -36,7 +79,7 @@
       "owner": "mean_reversion",
       "side": "long",
       "reason": "morning_mean_reversion_long",
-      "entry_style": "marketable_limit",
+      "entry_style": "market",
       "target_qty": "1",
       "stop_price": "2200.0",
       "take_price": "2250.0",
@@ -47,7 +90,7 @@
     },
     "pending_exit": {
       "owner": "mean_reversion",
-      "reason": "cleanup",
+      "reason": "mean_rev_time_cutoff",
       "request_id": "22222222-2222-2222-2222-222222222222"
     },
     "bracket_reconciliation_timer": {
@@ -65,7 +108,7 @@
       ]
     },
     "last_processed_bar_ts": "2026-07-14T06:00:00Z",
-    "pending_riskgate_finalizations": [
+    "runtime_pending_finalizations": [
       {
         "session_date": "2026-07-14",
         "generation": 42,
@@ -92,7 +135,7 @@
       "ledger_rows_count": 221
     },
     "ledger_tail_hash": "ledger_tail_hash_0001",
-    "finalization_outbox": [
+    "durable_finalization_outbox": [
       {
         "session_date": "2026-07-14",
         "generation": 42,

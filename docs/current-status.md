@@ -149,10 +149,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   5D-b1 dual-baseline enforcement migration is accepted. Stage 5D-b2a adds the
   schema-only versioned persistence envelope/API surface: snapshot identity and
   revision metadata, write generation, timestamp units, canonical config
-  fingerprint, checksum validation, lifecycle watermarks, typed broker-neutral
-  recovery indexes, runtime-private extension DTOs, riskgate
-  ledger/materialized/outbox DTOs, deterministic fixtures, corrupt/version
-  negative validation, and full public Stage5d API-surface freeze enforcement.
+  fingerprint, account/instrument/profile/runtime binding, versioned semantic
+  StrategyState JSON payload, strict unknown-field decoding, checksum
+  validation, lifecycle watermarks, typed broker-neutral recovery indexes,
+  source-compatible runtime-private enums, runtime-private extension DTOs,
+  riskgate ledger/materialized/outbox DTOs, deterministic fixtures,
+  corrupt/version/config/unknown-field negative validation, and full public
+  Stage5d API-surface freeze enforcement.
   Stage 5D-b2a does not implement persistence DTO mutation, runtime-private
   snapshot application, riskgate injection, Redis bridge, FINAM execution,
   broker transport, runtime-live or autonomous loop.

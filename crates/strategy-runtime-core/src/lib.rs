@@ -124,14 +124,16 @@ pub use stage5d_persistence::{
     Stage5dEnvelopeValidationError, Stage5dExpectedWorkingSets, Stage5dLifecycleReason,
     Stage5dLifecycleWatermarks, Stage5dOwner, Stage5dPartialEntryTimer,
     Stage5dPendingEntryExtension, Stage5dPendingExitExtension, Stage5dPersistenceEnvelope,
-    Stage5dPrivateStateAppliedPaperStrategy, Stage5dRecoveryIndexes, Stage5dRestoreBlockReason,
-    Stage5dRestoreBlocked, Stage5dRiskGateFinalizationOutboxRecord,
+    Stage5dPersistenceStage, Stage5dPrivateStateAppliedPaperStrategy, Stage5dRecoveryIndexes,
+    Stage5dRestoreBlockReason, Stage5dRestoreBlocked, Stage5dRiskGateFinalizationOutboxRecord,
     Stage5dRiskGateFinalizationState, Stage5dRiskGateIdentity,
     Stage5dRiskGateInjectedPaperStrategy, Stage5dRiskGateMaterializedState,
-    Stage5dRiskGatePersistence, Stage5dRuntimePrivateExtension, Stage5dSide, Stage5dTimestampUnits,
-    Stage5dValidatedRuntimePrivateExtension, STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION,
-    STAGE5D_PERSISTENCE_ENVELOPE_SCHEMA_VERSION, STAGE5D_RISKGATE_SCHEMA_VERSION,
-    STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION,
+    Stage5dRiskGatePersistence, Stage5dRuntimePrivateExtension, Stage5dSide,
+    Stage5dSnapshotBinding, Stage5dStrategyKind, Stage5dStrategyStatePayload,
+    Stage5dTimestampUnits, Stage5dValidatedRuntimePrivateExtension,
+    STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION, STAGE5D_PERSISTENCE_ENVELOPE_SCHEMA_VERSION,
+    STAGE5D_RISKGATE_SCHEMA_VERSION, STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION,
+    STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION,
 };
 // STAGE5D-ADDITIVE-BRIDGE-END: lib-stage5d-exports
 

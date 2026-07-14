@@ -5,10 +5,12 @@
 //! transitions, Redis, FINAM, transport, dispatch, or runtime-live behavior.
 
 use broker_core::{
-    BrokerOrderId, BrokerStopOrderId, BrokerTradeId, ClientOrderId, StrategyRequestId,
+    BrokerAccountId, BrokerOrderId, BrokerStopOrderId, BrokerTradeId, ClientOrderId, InstrumentId,
+    StrategyRequestId,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 /// Stage 5D additive freeze manifest schema version.
@@ -19,6 +21,8 @@ pub const STAGE5D_PERSISTENCE_ENVELOPE_SCHEMA_VERSION: u16 = 1;
 pub const STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION: u16 = 1;
 /// Stage 5D riskgate persistence schema version.
 pub const STAGE5D_RISKGATE_SCHEMA_VERSION: u16 = 1;
+/// Stage 5D semantic strategy-state payload schema version.
+pub const STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION: u16 = 1;
 
 /// Opaque proof that a validated Stage 5D runtime-private extension has been
 /// applied in the persistence-enabled restore path.
@@ -91,6 +95,21 @@ pub enum Stage5dTimestampUnits {
     Milliseconds,
 }
 
+/// Persistence stage marker. Stage 5D envelopes cannot be silently reused by
+/// another persistence generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5dPersistenceStage {
+    Stage5d,
+}
+
+/// Runtime strategy kind bound to the persisted snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5dStrategyKind {
+    HybridIntraday,
+}
+
 /// Stable side enum for Stage 5D persistence schema.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -105,7 +124,6 @@ pub enum Stage5dSide {
 pub enum Stage5dOwner {
     MeanReversion,
     IntradayBreakout,
-    Unknown,
 }
 
 /// Stable entry-style enum for Stage 5D persistence schema.
@@ -113,9 +131,7 @@ pub enum Stage5dOwner {
 #[serde(rename_all = "snake_case")]
 pub enum Stage5dEntryStyle {
     Market,
-    MarketableLimit,
     Bracket,
-    Unknown,
 }
 
 /// Stable reason enum for Stage 5D persistence schema.
@@ -124,15 +140,48 @@ pub enum Stage5dEntryStyle {
 pub enum Stage5dLifecycleReason {
     MorningMeanReversionLong,
     MorningMeanReversionShort,
-    IntradayBreakoutLong,
-    IntradayBreakoutShort,
-    Cleanup,
-    Operator,
-    Other(String),
+    BreakoutLong,
+    BreakoutShort,
+    BreakoutEodExit,
+    BreakoutStop2Long,
+    BreakoutStop1Long,
+    BreakoutStop2Short,
+    BreakoutStop1Short,
+    MeanRevTimeCutoff,
+    WaitfixOvernightExit,
+}
+
+/// Snapshot binding that prevents a valid envelope from being restored against
+/// a different account, instrument, runtime profile or protocol generation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage5dSnapshotBinding {
+    pub stage: Stage5dPersistenceStage,
+    pub strategy_kind: Stage5dStrategyKind,
+    pub strategy_id: String,
+    pub account_id: BrokerAccountId,
+    pub instrument_id: InstrumentId,
+    pub profile_binding: String,
+    pub broker_protocol_schema_version: u16,
+    pub runtime_state_schema_version: u16,
+    pub stage5c_compat_config_fingerprint: String,
+    pub stage5d_canonical_config_fingerprint: String,
+    pub source_commit_or_build_id: String,
+    pub created_at_ts_utc: DateTime<Utc>,
+}
+
+/// Canonical semantic StrategyState payload. This is stored as JSON to avoid
+/// exporting runtime-private source structures through the public Stage 5D API.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage5dStrategyStatePayload {
+    pub schema_version: u16,
+    pub strategy_state_json: Value,
 }
 
 /// Lifecycle watermarks that bind restored state to processed data progress.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage5dLifecycleWatermarks {
     pub persisted_event_watermark: Option<String>,
     pub last_semantic_bar_ts: Option<DateTime<Utc>>,
@@ -142,6 +191,7 @@ pub struct Stage5dLifecycleWatermarks {
 /// Broker-neutral typed recovery indexes. Namespaces are intentionally
 /// separated; `ClientOrderId` never substitutes for `StrategyRequestId`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage5dRecoveryIndexes {
     pub known_order_ids: Vec<BrokerOrderId>,
     pub known_stop_order_ids: Vec<BrokerStopOrderId>,
@@ -153,6 +203,7 @@ pub struct Stage5dRecoveryIndexes {
 /// Runtime-private pending entry schema. This is a persistence representation,
 /// not the source-private runtime struct.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage5dPendingEntryExtension {
     pub owner: Stage5dOwner,
     pub side: Stage5dSide,
@@ -166,12 +217,14 @@ pub struct Stage5dPendingEntryExtension {
 
 /// Runtime-private partial-entry timer schema.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage5dPartialEntryTimer {
     pub partial_started_at_ms: i64,
 }
 
 /// Runtime-private pending exit schema.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage5dPendingExitExtension {
     pub owner: Stage5dOwner,
     pub reason: Stage5dLifecycleReason,
@@ -180,12 +233,14 @@ pub struct Stage5dPendingExitExtension {
 
 /// Runtime-private bracket reconciliation timer schema.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage5dBracketReconciliationTimer {
     pub bracket_terminal_reconcile_started_ms: i64,
 }
 
 /// Runtime-private cleanup retry schema.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage5dCleanupRetryState {
     pub cleanup_stop_retry_attempts: u32,
 }
@@ -193,6 +248,7 @@ pub struct Stage5dCleanupRetryState {
 /// Non-authoritative expected broker-object hints. Actual working sets must be
 /// rebuilt from broker truth before callbacks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage5dExpectedWorkingSets {
     pub expected_working_order_ids: Vec<BrokerOrderId>,
     pub expected_working_stop_order_ids: Vec<BrokerStopOrderId>,
@@ -200,6 +256,7 @@ pub struct Stage5dExpectedWorkingSets {
 
 /// Riskgate finalization outbox record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage5dRiskGateFinalizationOutboxRecord {
     pub session_date: String,
     pub generation: u64,
@@ -220,6 +277,7 @@ pub enum Stage5dRiskGateFinalizationState {
 /// Versioned Stage 5D runtime-private extension DTO. This DTO is schema-only in
 /// Stage 5D-b2a and is not applied to the runtime.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage5dRuntimePrivateExtension {
     pub schema_version: u16,
     pub pending_entry: Option<Stage5dPendingEntryExtension>,
@@ -229,11 +287,12 @@ pub struct Stage5dRuntimePrivateExtension {
     pub cleanup_retry_state: Option<Stage5dCleanupRetryState>,
     pub expected_working_sets: Stage5dExpectedWorkingSets,
     pub last_processed_bar_ts: Option<DateTime<Utc>>,
-    pub pending_riskgate_finalizations: Vec<Stage5dRiskGateFinalizationOutboxRecord>,
+    pub runtime_pending_finalizations: Vec<Stage5dRiskGateFinalizationOutboxRecord>,
 }
 
 /// Riskgate identity section.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage5dRiskGateIdentity {
     pub strategy_id: String,
     pub profile_id: String,
@@ -245,6 +304,7 @@ pub struct Stage5dRiskGateIdentity {
 
 /// Materialized riskgate projection.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage5dRiskGateMaterializedState {
     pub mr_enabled_current_session: bool,
     pub mr_enabled_next_session: bool,
@@ -255,16 +315,18 @@ pub struct Stage5dRiskGateMaterializedState {
 
 /// Riskgate persistence DTO. This is schema-only in Stage 5D-b2a.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage5dRiskGatePersistence {
     pub schema_version: u16,
     pub identity: Stage5dRiskGateIdentity,
     pub materialized_state: Stage5dRiskGateMaterializedState,
     pub ledger_tail_hash: String,
-    pub finalization_outbox: Vec<Stage5dRiskGateFinalizationOutboxRecord>,
+    pub durable_finalization_outbox: Vec<Stage5dRiskGateFinalizationOutboxRecord>,
 }
 
 /// Versioned Stage 5D persistence envelope DTO.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage5dPersistenceEnvelope {
     pub schema_version: u16,
     pub snapshot_id: String,
@@ -274,6 +336,8 @@ pub struct Stage5dPersistenceEnvelope {
     pub persisted_at_ts_utc: DateTime<Utc>,
     pub timestamp_units: Stage5dTimestampUnits,
     pub canonical_config_fingerprint: String,
+    pub binding: Stage5dSnapshotBinding,
+    pub strategy_state: Stage5dStrategyStatePayload,
     pub payload_checksum_sha256: String,
     pub lifecycle_watermarks: Stage5dLifecycleWatermarks,
     pub recovery_indexes: Stage5dRecoveryIndexes,
@@ -282,6 +346,15 @@ pub struct Stage5dPersistenceEnvelope {
 }
 
 impl Stage5dPersistenceEnvelope {
+    /// Strictly decode and validate an envelope from JSON. Unknown fields at any
+    /// Stage 5D DTO layer fail closed before checksum validation.
+    pub fn from_json_str_strict(payload: &str) -> Result<Self, Stage5dEnvelopeValidationError> {
+        let envelope: Self = serde_json::from_str(payload)
+            .map_err(|_| Stage5dEnvelopeValidationError::DeserializationFailed)?;
+        envelope.validate_schema_and_checksum()?;
+        Ok(envelope)
+    }
+
     /// Compute the canonical payload checksum with the checksum field cleared.
     pub fn compute_payload_checksum_sha256(
         &self,
@@ -306,7 +379,26 @@ impl Stage5dPersistenceEnvelope {
         if self.riskgate.schema_version != STAGE5D_RISKGATE_SCHEMA_VERSION {
             return Err(Stage5dEnvelopeValidationError::RiskGateSchemaMismatch);
         }
-        if self.snapshot_id.is_empty() || self.canonical_config_fingerprint.is_empty() {
+        if self.strategy_state.schema_version != STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION {
+            return Err(Stage5dEnvelopeValidationError::StrategyStateSchemaMismatch);
+        }
+        if self.snapshot_id.is_empty()
+            || self.canonical_config_fingerprint.is_empty()
+            || self.binding.strategy_id.is_empty()
+            || self.binding.profile_binding.is_empty()
+            || self.binding.stage5c_compat_config_fingerprint.is_empty()
+            || self.binding.stage5d_canonical_config_fingerprint.is_empty()
+            || self.binding.source_commit_or_build_id.is_empty()
+            || self.strategy_state.strategy_state_json.is_null()
+            || self.riskgate.identity.strategy_id.is_empty()
+            || self.riskgate.identity.profile_id.is_empty()
+            || self.riskgate.ledger_tail_hash.is_empty()
+        {
+            return Err(Stage5dEnvelopeValidationError::RequiredFieldEmpty);
+        }
+        if self.binding.broker_protocol_schema_version == 0
+            || self.binding.runtime_state_schema_version == 0
+        {
             return Err(Stage5dEnvelopeValidationError::RequiredFieldEmpty);
         }
         let expected = self.compute_payload_checksum_sha256()?;
@@ -320,9 +412,11 @@ impl Stage5dPersistenceEnvelope {
 /// Stage 5D envelope validation errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage5dEnvelopeValidationError {
+    DeserializationFailed,
     EnvelopeSchemaMismatch,
     RuntimePrivateSchemaMismatch,
     RiskGateSchemaMismatch,
+    StrategyStateSchemaMismatch,
     RequiredFieldEmpty,
     PayloadChecksumMismatch,
     SerializationFailed,
@@ -365,6 +459,35 @@ mod tests {
     fn stage5d_b2a_valid_fixture_roundtrips_and_validates_checksum() {
         let envelope = valid_fixture();
 
+        assert_eq!(envelope.binding.stage, Stage5dPersistenceStage::Stage5d);
+        assert_eq!(
+            envelope.binding.strategy_kind,
+            Stage5dStrategyKind::HybridIntraday
+        );
+        assert!(envelope
+            .strategy_state
+            .strategy_state_json
+            .get("HybridIntradayRuntime")
+            .is_some());
+        assert_eq!(
+            envelope
+                .runtime_private_extension
+                .pending_entry
+                .as_ref()
+                .expect("fixture pending entry")
+                .entry_style,
+            Stage5dEntryStyle::Market
+        );
+        assert_eq!(
+            envelope
+                .runtime_private_extension
+                .pending_exit
+                .as_ref()
+                .expect("fixture pending exit")
+                .reason,
+            Stage5dLifecycleReason::MeanRevTimeCutoff
+        );
+
         envelope
             .validate_schema_and_checksum()
             .expect("fixture checksum must match canonical payload");
@@ -404,6 +527,64 @@ mod tests {
         assert_eq!(
             envelope.validate_schema_and_checksum(),
             Err(Stage5dEnvelopeValidationError::RequiredFieldEmpty)
+        );
+    }
+
+    fn strict_fixture_with_inserted_field(anchor: &str, inserted_field: &str) -> String {
+        let payload =
+            include_str!("../../../tests/fixtures/stage5/stage5d_b2a_persistence_envelope.json");
+        payload.replacen(anchor, &format!("{anchor}\n{inserted_field}"), 1)
+    }
+
+    #[test]
+    fn stage5d_b2a_unknown_root_field_is_rejected_before_checksum() {
+        let payload = strict_fixture_with_inserted_field(
+            "  \"schema_version\": 1,",
+            "  \"unsupported_runtime_state\": {\"pending_real_order\": true},",
+        );
+
+        assert_eq!(
+            Stage5dPersistenceEnvelope::from_json_str_strict(&payload),
+            Err(Stage5dEnvelopeValidationError::DeserializationFailed)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_unknown_runtime_private_field_is_rejected_before_checksum() {
+        let payload = strict_fixture_with_inserted_field(
+            "  \"runtime_private_extension\": {\n    \"schema_version\": 1,",
+            "    \"unsupported_runtime_private\": true,",
+        );
+
+        assert_eq!(
+            Stage5dPersistenceEnvelope::from_json_str_strict(&payload),
+            Err(Stage5dEnvelopeValidationError::DeserializationFailed)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_unknown_riskgate_field_is_rejected_before_checksum() {
+        let payload = strict_fixture_with_inserted_field(
+            "  \"riskgate\": {\n    \"schema_version\": 1,",
+            "    \"unsupported_riskgate_state\": true,",
+        );
+
+        assert_eq!(
+            Stage5dPersistenceEnvelope::from_json_str_strict(&payload),
+            Err(Stage5dEnvelopeValidationError::DeserializationFailed)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_unknown_nested_outbox_field_is_rejected_before_checksum() {
+        let payload = strict_fixture_with_inserted_field(
+            "        \"session_date\": \"2026-07-14\",",
+            "        \"unsupported_outbox_field\": true,",
+        );
+
+        assert_eq!(
+            Stage5dPersistenceEnvelope::from_json_str_strict(&payload),
+            Err(Stage5dEnvelopeValidationError::DeserializationFailed)
         );
     }
 }
