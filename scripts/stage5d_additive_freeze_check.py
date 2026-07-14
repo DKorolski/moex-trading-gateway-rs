@@ -94,16 +94,41 @@ EXPECTED_NEGATIVE_CASES = [
     "legacy_alias_in_stage5d_persistence",
     "unexpected_legacy_reference_in_allowed_file",
     "legacy_reference_moved_to_wrong_region",
+    "stage5d_api_surface_drift",
 ]
 
 EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
+    "STAGE5D_PERSISTENCE_ENVELOPE_SCHEMA_VERSION",
+    "STAGE5D_RISKGATE_SCHEMA_VERSION",
+    "STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION",
     "Stage5dAdditiveFreezeEvidence",
     "Stage5dBootstrappedPaperStrategy",
+    "Stage5dBracketReconciliationTimer",
+    "Stage5dCleanupRetryState",
+    "Stage5dEntryStyle",
+    "Stage5dEnvelopeValidationError",
+    "Stage5dExpectedWorkingSets",
+    "Stage5dLifecycleReason",
+    "Stage5dLifecycleWatermarks",
+    "Stage5dOwner",
+    "Stage5dPartialEntryTimer",
+    "Stage5dPendingEntryExtension",
+    "Stage5dPendingExitExtension",
+    "Stage5dPersistenceEnvelope",
     "Stage5dPrivateStateAppliedPaperStrategy",
+    "Stage5dRecoveryIndexes",
     "Stage5dRestoreBlockReason",
     "Stage5dRestoreBlocked",
+    "Stage5dRiskGateFinalizationOutboxRecord",
+    "Stage5dRiskGateFinalizationState",
+    "Stage5dRiskGateIdentity",
     "Stage5dRiskGateInjectedPaperStrategy",
+    "Stage5dRiskGateMaterializedState",
+    "Stage5dRiskGatePersistence",
+    "Stage5dRuntimePrivateExtension",
+    "Stage5dSide",
+    "Stage5dTimestampUnits",
     "Stage5dValidatedRuntimePrivateExtension",
 ]
 
@@ -257,6 +282,182 @@ def parse_stage5d_public_symbols(source: str) -> list[str]:
     return sorted(symbols)
 
 
+def normalize_signature(text: str) -> str:
+    text = re.sub(r"//.*", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text.removesuffix("{").removesuffix(";").strip()
+
+
+def collect_signature(lines: list[str], start_index: int) -> tuple[str, int]:
+    parts = []
+    index = start_index
+    while index < len(lines):
+        line = lines[index].strip()
+        parts.append(line)
+        if "{" in line or line.endswith(";"):
+            break
+        index += 1
+    signature = " ".join(parts)
+    if "{" in signature:
+        signature = signature.split("{", 1)[0]
+    return normalize_signature(signature), index
+
+
+def top_level_brace_delta(line: str) -> int:
+    stripped = line.strip()
+    if stripped.startswith("//"):
+        return 0
+    return stripped.count("{") - stripped.count("}")
+
+
+def collect_block(lines: list[str], start_index: int) -> tuple[list[str], int]:
+    block = [lines[start_index]]
+    depth = top_level_brace_delta(lines[start_index])
+    index = start_index + 1
+    while index < len(lines) and depth > 0:
+        block.append(lines[index])
+        depth += top_level_brace_delta(lines[index])
+        index += 1
+    return block, index - 1
+
+
+def parse_struct_fields(block: list[str]) -> list[dict[str, str]]:
+    fields = []
+    for line in block[1:-1]:
+        stripped = line.strip().rstrip(",")
+        if not stripped.startswith("pub "):
+            continue
+        declaration = stripped.removeprefix("pub ").strip()
+        if ":" not in declaration:
+            continue
+        name, type_name = declaration.split(":", 1)
+        fields.append({"name": name.strip(), "type": normalize_signature(type_name)})
+    return fields
+
+
+def parse_enum_variants(block: list[str]) -> list[str]:
+    variants = []
+    depth = 0
+    for raw in block[1:-1]:
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith("//"):
+            continue
+        if depth == 0:
+            match = re.match(r"([A-Z][A-Za-z0-9_]*)", stripped)
+            if match:
+                variants.append(match.group(1))
+        depth += stripped.count("{") + stripped.count("(") - stripped.count("}") - stripped.count(")")
+        if depth < 0:
+            depth = 0
+    return variants
+
+
+def public_api_hash(surface: dict[str, Any]) -> str:
+    payload = json.dumps(surface, sort_keys=True, separators=(",", ":")).encode()
+    return sha256_bytes(payload)
+
+
+def parse_stage5d_surface(stage5d_source: str, lib_source: str) -> dict[str, Any]:
+    lines = stage5d_source.splitlines()
+    constants = []
+    free_functions = []
+    types: dict[str, dict[str, Any]] = {}
+    methods = []
+
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+
+        const_match = re.match(r"^pub const (STAGE5D[A-Za-z0-9_]+)\s*:\s*([^=]+)=", stripped)
+        if const_match:
+            constants.append(
+                {
+                    "name": const_match.group(1),
+                    "type": normalize_signature(const_match.group(2)),
+                    "signature": normalize_signature(stripped),
+                }
+            )
+
+        struct_match = re.match(r"^pub struct (Stage5d[A-Za-z0-9_]+)", stripped)
+        if struct_match:
+            name = struct_match.group(1)
+            block, end_index = collect_block(lines, index) if "{" in stripped else ([lines[index]], index)
+            fields = parse_struct_fields(block) if "{" in stripped else []
+            types[name] = {
+                "name": name,
+                "kind": "struct",
+                "opaque": len(fields) == 0,
+                "public_fields": fields,
+                "public_variants": [],
+            }
+            index = end_index
+
+        enum_match = re.match(r"^pub enum (Stage5d[A-Za-z0-9_]+)", stripped)
+        if enum_match:
+            name = enum_match.group(1)
+            block, end_index = collect_block(lines, index)
+            types[name] = {
+                "name": name,
+                "kind": "enum",
+                "opaque": False,
+                "public_fields": [],
+                "public_variants": parse_enum_variants(block),
+            }
+            index = end_index
+
+        fn_match = re.match(r"^pub fn (stage5d_[A-Za-z0-9_]+)", stripped)
+        if fn_match:
+            signature, end_index = collect_signature(lines, index)
+            free_functions.append({"name": fn_match.group(1), "signature": signature})
+            index = end_index
+
+        impl_match = re.match(r"^impl (Stage5d[A-Za-z0-9_]+)", stripped)
+        if impl_match and "{" in stripped:
+            type_name = impl_match.group(1)
+            block, end_index = collect_block(lines, index)
+            for offset, block_line in enumerate(block):
+                method_stripped = block_line.strip()
+                method_match = re.match(r"^pub fn ([A-Za-z0-9_]+)", method_stripped)
+                if not method_match:
+                    continue
+                signature, _ = collect_signature(block, offset)
+                methods.append(
+                    {
+                        "type": type_name,
+                        "name": method_match.group(1),
+                        "signature": signature,
+                    }
+                )
+            index = end_index
+
+        index += 1
+
+    surface = {
+        "public_reexports": parse_stage5d_reexports(lib_source),
+        "public_constants": sorted(constants, key=lambda item: item["name"]),
+        "public_free_functions": sorted(free_functions, key=lambda item: item["name"]),
+        "public_types": sorted(types.values(), key=lambda item: item["name"]),
+        "public_methods": sorted(methods, key=lambda item: (item["type"], item["name"], item["signature"])),
+    }
+    surface["opaque_capabilities"] = sorted(
+        item["name"] for item in surface["public_types"] if item["kind"] == "struct" and item["opaque"]
+    )
+    surface["externally_constructible_enums"] = sorted(
+        item["name"] for item in surface["public_types"] if item["kind"] == "enum"
+    )
+    surface["normalized_signature_hash"] = public_api_hash(surface)
+    surface["public_surface_counts"] = {
+        "public_reexports": len(surface["public_reexports"]),
+        "public_constants": len(surface["public_constants"]),
+        "public_free_functions": len(surface["public_free_functions"]),
+        "public_types": len(surface["public_types"]),
+        "public_methods": len(surface["public_methods"]),
+        "opaque_capabilities": len(surface["opaque_capabilities"]),
+        "externally_constructible_enums": len(surface["externally_constructible_enums"]),
+    }
+    return surface
+
+
 def parse_stage5d_reexports(lib_source: str) -> list[str]:
     match = re.search(r"pub use stage5d_persistence::\{(?P<body>.*?)\};", lib_source, re.S)
     if not match:
@@ -350,8 +551,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b1":
-        failures.append("stage must be 5D-b1")
+    if manifest.get("stage") != "5D-b2a":
+        failures.append("stage must be 5D-b2a")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:
@@ -448,6 +649,9 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
         reexports = parse_stage5d_reexports((root / LIB_REL).read_text())
         if reexports != public_symbols:
             failures.append(f"Stage5d re-export mismatch actual={reexports} expected={public_symbols}")
+        surface = parse_stage5d_surface(stage5d_source, (root / LIB_REL).read_text())
+        if surface != manifest.get("stage5d_public_api"):
+            failures.append("Stage5d public API surface mismatch")
 
     validate_legacy_restore_call_sites(root, failures)
     return failures

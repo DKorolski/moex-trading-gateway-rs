@@ -146,15 +146,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   no-send execution boundary. Any future change to frozen Stage 5C API/source
   requires an explicit Stage 5C reopening review.
 - Stage 5D-a/a2/a3 ownership and additive-extension design is accepted. Stage
-  5D-b1 dual-baseline enforcement migration is the current review candidate:
-  Stage 5D additive manifest/checker, negative harness, Stage 5C compatibility
-  checker mode, scanner migration, approved additive bridge markers, immutable
-  Stage 5C closure references, manifest self-validation, current/historical
-  checker trust-chain pinning, fail-closed direct/transitive legacy restore
-  symbol scanning, exact allowlisted legacy-reference counts, and opaque
-  Stage5d skeleton symbols. Stage 5D-b1 does not implement persistence DTO
-  mutation, runtime-private snapshot application, riskgate injection, Redis
-  bridge, FINAM execution, broker transport, runtime-live or autonomous loop.
+  5D-b1 dual-baseline enforcement migration is accepted. Stage 5D-b2a adds the
+  schema-only versioned persistence envelope/API surface: snapshot identity and
+  revision metadata, write generation, timestamp units, canonical config
+  fingerprint, checksum validation, lifecycle watermarks, typed broker-neutral
+  recovery indexes, runtime-private extension DTOs, riskgate
+  ledger/materialized/outbox DTOs, deterministic fixtures, corrupt/version
+  negative validation, and full public Stage5d API-surface freeze enforcement.
+  Stage 5D-b2a does not implement persistence DTO mutation, runtime-private
+  snapshot application, riskgate injection, Redis bridge, FINAM execution,
+  broker transport, runtime-live or autonomous loop.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-b1",
+  "stage": "5D-b2a",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -28,7 +28,7 @@
   "approved_bridge_files": {
     "crates/strategy-runtime-core/src/lib.rs": {
       "closure_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
-      "current_sha256": "70c46c09431bbc614c476eed1ce4b703ca20e21bee5f80e078990fe9e3f92336",
+      "current_sha256": "cbe5e0bae31f0655ddfb03577a9fc7f2cb676355708368b51dcf4135a304be9e",
       "stripped_without_additive_regions_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
       "additive_regions": [
         "lib-stage5d-module",
@@ -54,16 +54,40 @@
   },
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "86a5a8d6bed0d059ed8e882c776591131360b1df92515b2878fd93f33cceda10"
+    "current_sha256": "5358c857b12f8b9e690e291120555d2d823fc5f3d884b7c96192cdc655304271"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
+    "STAGE5D_PERSISTENCE_ENVELOPE_SCHEMA_VERSION",
+    "STAGE5D_RISKGATE_SCHEMA_VERSION",
+    "STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION",
     "Stage5dAdditiveFreezeEvidence",
     "Stage5dBootstrappedPaperStrategy",
+    "Stage5dBracketReconciliationTimer",
+    "Stage5dCleanupRetryState",
+    "Stage5dEntryStyle",
+    "Stage5dEnvelopeValidationError",
+    "Stage5dExpectedWorkingSets",
+    "Stage5dLifecycleReason",
+    "Stage5dLifecycleWatermarks",
+    "Stage5dOwner",
+    "Stage5dPartialEntryTimer",
+    "Stage5dPendingEntryExtension",
+    "Stage5dPendingExitExtension",
+    "Stage5dPersistenceEnvelope",
     "Stage5dPrivateStateAppliedPaperStrategy",
+    "Stage5dRecoveryIndexes",
     "Stage5dRestoreBlockReason",
     "Stage5dRestoreBlocked",
+    "Stage5dRiskGateFinalizationOutboxRecord",
+    "Stage5dRiskGateFinalizationState",
+    "Stage5dRiskGateIdentity",
     "Stage5dRiskGateInjectedPaperStrategy",
+    "Stage5dRiskGateMaterializedState",
+    "Stage5dRiskGatePersistence",
+    "Stage5dRuntimePrivateExtension",
+    "Stage5dSide",
+    "Stage5dTimestampUnits",
     "Stage5dValidatedRuntimePrivateExtension"
   ],
   "closed_surfaces": {
@@ -101,6 +125,637 @@
     "legacy_wrapper_in_stage5c_additive_region",
     "legacy_alias_in_stage5d_persistence",
     "unexpected_legacy_reference_in_allowed_file",
-    "legacy_reference_moved_to_wrong_region"
-  ]
+    "legacy_reference_moved_to_wrong_region",
+    "stage5d_api_surface_drift"
+  ],
+  "stage5d_public_api": {
+    "public_reexports": [
+      "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
+      "STAGE5D_PERSISTENCE_ENVELOPE_SCHEMA_VERSION",
+      "STAGE5D_RISKGATE_SCHEMA_VERSION",
+      "STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION",
+      "Stage5dAdditiveFreezeEvidence",
+      "Stage5dBootstrappedPaperStrategy",
+      "Stage5dBracketReconciliationTimer",
+      "Stage5dCleanupRetryState",
+      "Stage5dEntryStyle",
+      "Stage5dEnvelopeValidationError",
+      "Stage5dExpectedWorkingSets",
+      "Stage5dLifecycleReason",
+      "Stage5dLifecycleWatermarks",
+      "Stage5dOwner",
+      "Stage5dPartialEntryTimer",
+      "Stage5dPendingEntryExtension",
+      "Stage5dPendingExitExtension",
+      "Stage5dPersistenceEnvelope",
+      "Stage5dPrivateStateAppliedPaperStrategy",
+      "Stage5dRecoveryIndexes",
+      "Stage5dRestoreBlockReason",
+      "Stage5dRestoreBlocked",
+      "Stage5dRiskGateFinalizationOutboxRecord",
+      "Stage5dRiskGateFinalizationState",
+      "Stage5dRiskGateIdentity",
+      "Stage5dRiskGateInjectedPaperStrategy",
+      "Stage5dRiskGateMaterializedState",
+      "Stage5dRiskGatePersistence",
+      "Stage5dRuntimePrivateExtension",
+      "Stage5dSide",
+      "Stage5dTimestampUnits",
+      "Stage5dValidatedRuntimePrivateExtension"
+    ],
+    "public_constants": [
+      {
+        "name": "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
+        "type": "u16",
+        "signature": "pub const STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION: u16 = 1"
+      },
+      {
+        "name": "STAGE5D_PERSISTENCE_ENVELOPE_SCHEMA_VERSION",
+        "type": "u16",
+        "signature": "pub const STAGE5D_PERSISTENCE_ENVELOPE_SCHEMA_VERSION: u16 = 1"
+      },
+      {
+        "name": "STAGE5D_RISKGATE_SCHEMA_VERSION",
+        "type": "u16",
+        "signature": "pub const STAGE5D_RISKGATE_SCHEMA_VERSION: u16 = 1"
+      },
+      {
+        "name": "STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION",
+        "type": "u16",
+        "signature": "pub const STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION: u16 = 1"
+      }
+    ],
+    "public_free_functions": [],
+    "public_types": [
+      {
+        "name": "Stage5dAdditiveFreezeEvidence",
+        "kind": "struct",
+        "opaque": true,
+        "public_fields": [],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dBootstrappedPaperStrategy",
+        "kind": "struct",
+        "opaque": true,
+        "public_fields": [],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dBracketReconciliationTimer",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "bracket_terminal_reconcile_started_ms",
+            "type": "i64"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dCleanupRetryState",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "cleanup_stop_retry_attempts",
+            "type": "u32"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dEntryStyle",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "Market",
+          "MarketableLimit",
+          "Bracket",
+          "Unknown"
+        ]
+      },
+      {
+        "name": "Stage5dEnvelopeValidationError",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "EnvelopeSchemaMismatch",
+          "RuntimePrivateSchemaMismatch",
+          "RiskGateSchemaMismatch",
+          "RequiredFieldEmpty",
+          "PayloadChecksumMismatch",
+          "SerializationFailed"
+        ]
+      },
+      {
+        "name": "Stage5dExpectedWorkingSets",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "expected_working_order_ids",
+            "type": "Vec<BrokerOrderId>"
+          },
+          {
+            "name": "expected_working_stop_order_ids",
+            "type": "Vec<BrokerStopOrderId>"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dLifecycleReason",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "MorningMeanReversionLong",
+          "MorningMeanReversionShort",
+          "IntradayBreakoutLong",
+          "IntradayBreakoutShort",
+          "Cleanup",
+          "Operator",
+          "Other"
+        ]
+      },
+      {
+        "name": "Stage5dLifecycleWatermarks",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "persisted_event_watermark",
+            "type": "Option<String>"
+          },
+          {
+            "name": "last_semantic_bar_ts",
+            "type": "Option<DateTime<Utc>>"
+          },
+          {
+            "name": "last_broker_event_ts",
+            "type": "Option<DateTime<Utc>>"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dOwner",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "MeanReversion",
+          "IntradayBreakout",
+          "Unknown"
+        ]
+      },
+      {
+        "name": "Stage5dPartialEntryTimer",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "partial_started_at_ms",
+            "type": "i64"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dPendingEntryExtension",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "owner",
+            "type": "Stage5dOwner"
+          },
+          {
+            "name": "side",
+            "type": "Stage5dSide"
+          },
+          {
+            "name": "reason",
+            "type": "Stage5dLifecycleReason"
+          },
+          {
+            "name": "entry_style",
+            "type": "Stage5dEntryStyle"
+          },
+          {
+            "name": "target_qty",
+            "type": "String"
+          },
+          {
+            "name": "stop_price",
+            "type": "Option<String>"
+          },
+          {
+            "name": "take_price",
+            "type": "Option<String>"
+          },
+          {
+            "name": "request_id",
+            "type": "Option<StrategyRequestId>"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dPendingExitExtension",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "owner",
+            "type": "Stage5dOwner"
+          },
+          {
+            "name": "reason",
+            "type": "Stage5dLifecycleReason"
+          },
+          {
+            "name": "request_id",
+            "type": "StrategyRequestId"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dPersistenceEnvelope",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "schema_version",
+            "type": "u16"
+          },
+          {
+            "name": "snapshot_id",
+            "type": "String"
+          },
+          {
+            "name": "snapshot_revision",
+            "type": "u64"
+          },
+          {
+            "name": "previous_revision",
+            "type": "Option<u64>"
+          },
+          {
+            "name": "write_generation",
+            "type": "u64"
+          },
+          {
+            "name": "persisted_at_ts_utc",
+            "type": "DateTime<Utc>"
+          },
+          {
+            "name": "timestamp_units",
+            "type": "Stage5dTimestampUnits"
+          },
+          {
+            "name": "canonical_config_fingerprint",
+            "type": "String"
+          },
+          {
+            "name": "payload_checksum_sha256",
+            "type": "String"
+          },
+          {
+            "name": "lifecycle_watermarks",
+            "type": "Stage5dLifecycleWatermarks"
+          },
+          {
+            "name": "recovery_indexes",
+            "type": "Stage5dRecoveryIndexes"
+          },
+          {
+            "name": "runtime_private_extension",
+            "type": "Stage5dRuntimePrivateExtension"
+          },
+          {
+            "name": "riskgate",
+            "type": "Stage5dRiskGatePersistence"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dPrivateStateAppliedPaperStrategy",
+        "kind": "struct",
+        "opaque": true,
+        "public_fields": [],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dRecoveryIndexes",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "known_order_ids",
+            "type": "Vec<BrokerOrderId>"
+          },
+          {
+            "name": "known_stop_order_ids",
+            "type": "Vec<BrokerStopOrderId>"
+          },
+          {
+            "name": "known_trade_ids",
+            "type": "Vec<BrokerTradeId>"
+          },
+          {
+            "name": "known_client_order_ids",
+            "type": "Vec<ClientOrderId>"
+          },
+          {
+            "name": "pending_requests",
+            "type": "Vec<StrategyRequestId>"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dRestoreBlockReason",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "PrivateExtension",
+          "RiskGate",
+          "BrokerTruth",
+          "Integrity"
+        ]
+      },
+      {
+        "name": "Stage5dRestoreBlocked",
+        "kind": "struct",
+        "opaque": true,
+        "public_fields": [],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dRiskGateFinalizationOutboxRecord",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "session_date",
+            "type": "String"
+          },
+          {
+            "name": "generation",
+            "type": "u64"
+          },
+          {
+            "name": "state",
+            "type": "Stage5dRiskGateFinalizationState"
+          },
+          {
+            "name": "identity_hash",
+            "type": "String"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dRiskGateFinalizationState",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "Prepared",
+          "LedgerAppended",
+          "MaterializedUpdated",
+          "AcknowledgedInRuntime"
+        ]
+      },
+      {
+        "name": "Stage5dRiskGateIdentity",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "strategy_id",
+            "type": "String"
+          },
+          {
+            "name": "profile_id",
+            "type": "String"
+          },
+          {
+            "name": "mr_variant",
+            "type": "String"
+          },
+          {
+            "name": "timeframe",
+            "type": "String"
+          },
+          {
+            "name": "session_policy",
+            "type": "String"
+          },
+          {
+            "name": "model_version",
+            "type": "String"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dRiskGateInjectedPaperStrategy",
+        "kind": "struct",
+        "opaque": true,
+        "public_fields": [],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dRiskGateMaterializedState",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "mr_enabled_current_session",
+            "type": "bool"
+          },
+          {
+            "name": "mr_enabled_next_session",
+            "type": "bool"
+          },
+          {
+            "name": "rolling_sum_lb120",
+            "type": "String"
+          },
+          {
+            "name": "last_finalized_session_date",
+            "type": "Option<String>"
+          },
+          {
+            "name": "ledger_rows_count",
+            "type": "u64"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dRiskGatePersistence",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "schema_version",
+            "type": "u16"
+          },
+          {
+            "name": "identity",
+            "type": "Stage5dRiskGateIdentity"
+          },
+          {
+            "name": "materialized_state",
+            "type": "Stage5dRiskGateMaterializedState"
+          },
+          {
+            "name": "ledger_tail_hash",
+            "type": "String"
+          },
+          {
+            "name": "finalization_outbox",
+            "type": "Vec<Stage5dRiskGateFinalizationOutboxRecord>"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dRuntimePrivateExtension",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "schema_version",
+            "type": "u16"
+          },
+          {
+            "name": "pending_entry",
+            "type": "Option<Stage5dPendingEntryExtension>"
+          },
+          {
+            "name": "partial_entry_timer",
+            "type": "Option<Stage5dPartialEntryTimer>"
+          },
+          {
+            "name": "pending_exit",
+            "type": "Option<Stage5dPendingExitExtension>"
+          },
+          {
+            "name": "bracket_reconciliation_timer",
+            "type": "Option<Stage5dBracketReconciliationTimer>"
+          },
+          {
+            "name": "cleanup_retry_state",
+            "type": "Option<Stage5dCleanupRetryState>"
+          },
+          {
+            "name": "expected_working_sets",
+            "type": "Stage5dExpectedWorkingSets"
+          },
+          {
+            "name": "last_processed_bar_ts",
+            "type": "Option<DateTime<Utc>>"
+          },
+          {
+            "name": "pending_riskgate_finalizations",
+            "type": "Vec<Stage5dRiskGateFinalizationOutboxRecord>"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dSide",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "Long",
+          "Short"
+        ]
+      },
+      {
+        "name": "Stage5dTimestampUnits",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "Seconds",
+          "Milliseconds"
+        ]
+      },
+      {
+        "name": "Stage5dValidatedRuntimePrivateExtension",
+        "kind": "struct",
+        "opaque": true,
+        "public_fields": [],
+        "public_variants": []
+      }
+    ],
+    "public_methods": [
+      {
+        "type": "Stage5dAdditiveFreezeEvidence",
+        "name": "local",
+        "signature": "pub fn local() -> Self"
+      },
+      {
+        "type": "Stage5dAdditiveFreezeEvidence",
+        "name": "schema_version",
+        "signature": "pub fn schema_version(&self) -> u16"
+      },
+      {
+        "type": "Stage5dPersistenceEnvelope",
+        "name": "compute_payload_checksum_sha256",
+        "signature": "pub fn compute_payload_checksum_sha256( &self, ) -> Result<String, Stage5dEnvelopeValidationError>"
+      },
+      {
+        "type": "Stage5dPersistenceEnvelope",
+        "name": "validate_schema_and_checksum",
+        "signature": "pub fn validate_schema_and_checksum(&self) -> Result<(), Stage5dEnvelopeValidationError>"
+      },
+      {
+        "type": "Stage5dRestoreBlocked",
+        "name": "reason",
+        "signature": "pub fn reason(&self) -> Stage5dRestoreBlockReason"
+      }
+    ],
+    "opaque_capabilities": [
+      "Stage5dAdditiveFreezeEvidence",
+      "Stage5dBootstrappedPaperStrategy",
+      "Stage5dPrivateStateAppliedPaperStrategy",
+      "Stage5dRestoreBlocked",
+      "Stage5dRiskGateInjectedPaperStrategy",
+      "Stage5dValidatedRuntimePrivateExtension"
+    ],
+    "externally_constructible_enums": [
+      "Stage5dEntryStyle",
+      "Stage5dEnvelopeValidationError",
+      "Stage5dLifecycleReason",
+      "Stage5dOwner",
+      "Stage5dRestoreBlockReason",
+      "Stage5dRiskGateFinalizationState",
+      "Stage5dSide",
+      "Stage5dTimestampUnits"
+    ],
+    "normalized_signature_hash": "ad907c2fae72a360019bc4e2ffd82a91e72dac7187ade580c714b66c595e83ef",
+    "public_surface_counts": {
+      "public_reexports": 32,
+      "public_constants": 4,
+      "public_free_functions": 0,
+      "public_types": 28,
+      "public_methods": 5,
+      "opaque_capabilities": 6,
+      "externally_constructible_enums": 8
+    }
+  }
 }

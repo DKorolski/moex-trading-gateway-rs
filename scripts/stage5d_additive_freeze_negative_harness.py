@@ -283,6 +283,16 @@ def mutate_legacy_reference_moved_to_wrong_region(root: Path) -> None:
     update_manifest_bridge_hash(root, rel)
 
 
+def mutate_stage5d_api_surface_drift(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "pub pending_requests: Vec<StrategyRequestId>,",
+        "pub pending_requests: Vec<StrategyRequestId>,\n    pub negative_api_surface_drift: String,",
+    )
+    update_manifest_stage5d_hash(root)
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -321,6 +331,7 @@ CASES = [
     ("legacy_alias_in_stage5d_persistence", mutate_legacy_alias_in_stage5d_persistence, "forbidden in Stage 5D persistence surface"),
     ("unexpected_legacy_reference_in_allowed_file", mutate_unexpected_legacy_reference_in_allowed_file, "reference count mismatch"),
     ("legacy_reference_moved_to_wrong_region", mutate_legacy_reference_moved_to_wrong_region, "forbidden in additive region"),
+    ("stage5d_api_surface_drift", mutate_stage5d_api_surface_drift, "Stage5d public API surface mismatch"),
 ]
 
 
