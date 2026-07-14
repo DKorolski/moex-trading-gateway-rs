@@ -1,10 +1,12 @@
 # Stage 5D-a — persistence ownership and schema inventory
 
-Status: revised review candidate after Stage 5D-a design HOLD. Scope:
-design/inventory only.
+Status: accepted inventory, pending Stage 5D-a2 controlled freeze-extension
+design. Scope: design/inventory only.
 
 Stage 5C is formally closed. Stage 5D-a starts the state/riskgate persistence
-work without reopening the frozen Stage 5C API or any frozen Stage 5C source.
+work without changing the frozen Stage 5C public API. Exact source-hash changes
+needed for Stage 5D are handled only by the separate Stage 5D-a2 controlled
+additive freeze-extension design.
 
 This slice does not add Redis stream bridges, command consumers, FINAM
 execution, broker transport, runtime-live, autonomous loops, or broker-side
@@ -51,33 +53,41 @@ state envelope plus broker-truth bootstrap.
 Stage 5C remains closed. Stage 5D must not modify the frozen Stage 5C public
 type-state API or the accepted Stage 5C production source semantics.
 
-The implementable persistence seam is a controlled additive extension:
+The implementable persistence seam requires a controlled additive freeze
+extension. It is not implementable while simultaneously requiring all frozen
+Stage 5C source hashes to remain unchanged.
 
 ```text
 crates/strategy-runtime-core/src/stage5d_persistence.rs
+crates/strategy-runtime-core/src/lib.rs
+crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs
+crates/strategy-runtime-core/src/stage5c_paper_host.rs
 ```
 
-The new module may use existing crate-private state/callback seams inside
-`strategy-runtime-core`, including `Strategy::state()`, `Strategy::set_state()`,
-`on_risk_gate_state(...)`, and crate-private Stage 5C decomposition helpers
-where required. It must not change `stage5c_paper_host.rs`.
+The new `stage5d_persistence.rs` module alone is not enough. It must be paired
+with narrow crate-private bridge additions in the wrapper and Stage 5C
+type-state host so it can snapshot/restore runtime-private fields and preserve
+the linear Stage 5C capability chain.
 
-Adding public Stage 5D entrypoints will require an additive update to
-`crates/strategy-runtime-core/src/lib.rs`. That update is allowed only as a
-reviewed Stage 5D freeze extension with these rules:
+Stage 5D-a2 defines the reviewed extension with these rules:
 
 | Boundary | Policy |
 | --- | --- |
 | Stage 5C public symbols | The existing 95 Stage 5C symbols, signatures, type-state kinds, fields and methods remain unchanged. |
-| Stage 5C source hashes | The ten frozen Stage 5C source files stay unchanged unless Stage 5C is explicitly reopened. |
-| `lib.rs` change | May add a separate `stage5d_persistence` module and `Stage5d*` exports only after review. |
-| Scanner/checker behavior | Stage 5C checker continues to validate Stage 5C symbols exactly; a separate Stage 5D manifest/checker must register Stage 5D exports. |
+| Stage 5C source hashes | The previous Stage 5C closure hashes are archived as the closed baseline; a new versioned additive-extension baseline is pinned after review. |
+| `lib.rs` change | May add a separate `stage5d_persistence` module and `Stage5d*` exports only as part of the controlled extension. |
+| Runtime bridge | `hybrid_intraday_runtime.rs` may add crate-private export/apply methods for a versioned Stage 5D runtime-private snapshot DTO. |
+| Type-state bridge | `stage5c_paper_host.rs` may add crate-private Stage 5D mapping/transition helpers that preserve opaque public capabilities. |
+| Scanner/checker behavior | Stage 5C checker continues to validate the 95 public Stage 5C symbols exactly; a separate Stage 5D manifest/checker registers Stage 5D exports and pins the additive source baseline. |
 | Opaque Stage 5C capabilities | Must not gain public extractors that reveal inner strategy state. |
 | Persistence producer | A Stage 5D capability consumes/borrows accepted Stage 5C/host-owned state internally and emits a versioned persistence envelope. |
 | Persistence consumer | A Stage 5D restore capability validates envelope + broker truth + riskgate authority before re-entering Stage 5C startup. |
 
-Therefore Stage 5D-b must first introduce a Stage 5D API manifest/checker
-parallel to the Stage 5C freeze, rather than weakening the Stage 5C checker.
+Therefore Stage 5D-b must not start DTO/schema implementation until Stage 5D-a2
+selects and freezes the additive bridge. Stage 5D-a2 is design-only and must
+prove the bridge can enter and exit the Stage 5C type-state chain without
+opening Redis, FINAM, transport, dispatch, runtime-live, public raw strategy
+extractors, or broker execution.
 
 ## 3. Ownership classes
 
@@ -578,19 +588,21 @@ Stage 5D-b/5D-c should add deterministic fixtures for these restart shapes:
 This slice delivers only:
 
 - this ownership/schema inventory;
+- `docs/stage-5/5d-a2-controlled-additive-freeze-extension.md` as the
+  follow-up design-only answer to the implementable seam HOLD;
 - `docs/current-status.md` update marking Stage 5C closed and Stage 5D-a as a
-  review candidate.
+  held inventory with Stage 5D-a2 as the next gate.
 
 No production source changes are part of Stage 5D-a.
 
 ## 10. Next proposed slices
 
-If Stage 5D-a is accepted:
+If Stage 5D-a2 is accepted:
 
-1. Stage 5D-b — versioned persistence envelope DTO design and JSON fixtures.
-2. Stage 5D-c — deterministic restore/migration policy tests.
+1. Stage 5D-b — Stage 5D manifest/checker plus versioned envelope DTO/API.
+2. Stage 5D-c — runtime-private snapshot DTO fixtures and corruption gates.
 3. Stage 5D-d — riskgate ledger/materialized-state round-trip fixtures.
-4. Stage 5D-e — restart invariant matrix for flat/pending/open/safe-mode cases.
+4. Stage 5D-e — restore invariant matrix for flat/pending/open/safe-mode cases.
 5. Stage 5D-f — durable external broker-event accumulation design for Stage
    5C-n terminal-complete batches.
 
