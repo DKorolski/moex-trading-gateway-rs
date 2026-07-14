@@ -7,6 +7,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import hashlib
+import json
 from pathlib import Path
 
 
@@ -41,6 +43,32 @@ def replace_once(path: Path, old: str, new: str) -> None:
 
 def append_text(path: Path, text: str) -> None:
     path.write_text(path.read_text() + text)
+
+
+def sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def update_manifest_bridge_hash(root: Path, rel_path: str) -> None:
+    manifest_path = root / "docs/stage-5/stage-5d-additive-freeze-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["approved_bridge_files"][rel_path]["current_sha256"] = sha256_file(root / rel_path)
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+
+
+def update_manifest_stage5d_hash(root: Path) -> None:
+    manifest_path = root / "docs/stage-5/stage-5d-additive-freeze-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    rel_path = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    manifest["stage5d_persistence_file"]["current_sha256"] = sha256_file(root / rel_path)
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+
+
+def insert_before(path: Path, marker: str, text: str) -> None:
+    source = path.read_text()
+    if marker not in source:
+        raise RuntimeError(f"marker not found in {path}: {marker}")
+    path.write_text(source.replace(marker, text + marker, 1))
 
 
 def mutate_stage5c_api_drift(root: Path) -> None:
@@ -195,6 +223,66 @@ def mutate_legacy_restore_qualified_whitespace(root: Path) -> None:
     append_forbidden_restore_reference(root, "    crate :: notify_stage5c_runtime_state_restored();")
 
 
+def mutate_legacy_alias_reexport_in_lib_additive_region(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/lib.rs"
+    insert_before(
+        root / rel,
+        "// STAGE5D-ADDITIVE-BRIDGE-END: lib-stage5d-exports",
+        "pub use stage5c_paper_host::restore_stage5c_runtime_state as stage5d_legacy_restore_alias;\n",
+    )
+    update_manifest_bridge_hash(root, rel)
+    append_text(
+        root / "crates/strategy-runtime-core/src/runtime_compat.rs",
+        "\n#[allow(dead_code)]\nfn stage5d_negative_transitive_alias() {\n"
+        "    let _ = crate::stage5d_legacy_restore_alias;\n}\n",
+    )
+
+
+def mutate_legacy_wrapper_in_stage5c_additive_region(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    insert_before(
+        root / rel,
+        "// STAGE5D-ADDITIVE-BRIDGE-END: type-state-transitions",
+        "pub(crate) fn stage5d_legacy_restore_wrapper_for_negative_test() {\n"
+        "    let _ = restore_stage5c_runtime_state;\n"
+        "}\n",
+    )
+    update_manifest_bridge_hash(root, rel)
+    append_text(
+        root / "crates/strategy-runtime-core/src/runtime_compat.rs",
+        "\n#[allow(dead_code)]\nfn stage5d_negative_wrapper_alias() {\n"
+        "    let _ = crate::stage5c_paper_host::stage5d_legacy_restore_wrapper_for_negative_test;\n}\n",
+    )
+
+
+def mutate_legacy_alias_in_stage5d_persistence(root: Path) -> None:
+    append_text(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "\npub(crate) use crate::restore_stage5c_runtime_state as stage5d_private_legacy_alias;\n",
+    )
+    update_manifest_stage5d_hash(root)
+
+
+def mutate_unexpected_legacy_reference_in_allowed_file(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    insert_before(
+        root / rel,
+        "// STAGE5D-ADDITIVE-BRIDGE-END: type-state-transitions",
+        "const STAGE5D_NEGATIVE_LEGACY_REF: &str = \"notify_stage5c_bootstrap\";\n",
+    )
+    update_manifest_bridge_hash(root, rel)
+
+
+def mutate_legacy_reference_moved_to_wrong_region(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/lib.rs"
+    insert_before(
+        root / rel,
+        "// STAGE5D-ADDITIVE-BRIDGE-END: lib-stage5d-module",
+        "use crate::stage5c_paper_host::notify_stage5c_runtime_state_restored as _stage5d_wrong_region;\n",
+    )
+    update_manifest_bridge_hash(root, rel)
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -228,6 +316,11 @@ CASES = [
     ("legacy_restore_multiline_call", mutate_legacy_restore_multiline_call, "legacy Stage 5C restore bypass symbol forbidden"),
     ("legacy_restore_function_reference", mutate_legacy_restore_function_reference, "legacy Stage 5C restore bypass symbol forbidden"),
     ("legacy_restore_qualified_whitespace", mutate_legacy_restore_qualified_whitespace, "legacy Stage 5C restore bypass symbol forbidden"),
+    ("legacy_alias_reexport_in_lib_additive_region", mutate_legacy_alias_reexport_in_lib_additive_region, "forbidden in additive region"),
+    ("legacy_wrapper_in_stage5c_additive_region", mutate_legacy_wrapper_in_stage5c_additive_region, "forbidden in additive region"),
+    ("legacy_alias_in_stage5d_persistence", mutate_legacy_alias_in_stage5d_persistence, "forbidden in Stage 5D persistence surface"),
+    ("unexpected_legacy_reference_in_allowed_file", mutate_unexpected_legacy_reference_in_allowed_file, "reference count mismatch"),
+    ("legacy_reference_moved_to_wrong_region", mutate_legacy_reference_moved_to_wrong_region, "forbidden in additive region"),
 ]
 
 

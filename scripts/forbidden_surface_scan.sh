@@ -1538,16 +1538,16 @@ expected_stage5_profile_artifacts = {
         "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323"
     ),
     Path("docs/stage-5/stage-5d-additive-freeze-manifest.json"): (
-        "af503d2d6e0b232536d0f4d7efee95b8a5394d51587928a8842275bd01e972b7"
+        "7e8f7056ceb172eb67e27dae60858f65f84c6797090a6a1783b8ab70366f9468"
     ),
     Path("scripts/stage5c_api_freeze_check.py"): (
         "6aa1a30f87d296df09bf18c84b29b944ad7af8aaa59961c54bcbe6ff0a601537"
     ),
     Path("scripts/stage5d_additive_freeze_check.py"): (
-        "dbe898cb3589414da1effcc3a9b275420619d417298bce3a35e703c1a0263253"
+        "a48f1da1290c79df29b4e6efba4b3b8786974fdecedf625458bb723bc4749457"
     ),
     Path("scripts/stage5d_additive_freeze_negative_harness.py"): (
-        "fd1eb588f5f5659c093aab904982f730795f16fd105874b3b51260f18fdc499f"
+        "e0e60d1a332d6f7f2b7fc24e85b924dbde0816a508823ef4c1ba1951bb2a86cd"
     ),
     Path("tests/fixtures/stage5/stage5c_api_freeze_check.closure.py"): (
         "e494e92ffb5f8d90b6a581c7b99e4e80f1906aeedfa1e7446d428eb31c757209"

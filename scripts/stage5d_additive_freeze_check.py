@@ -89,6 +89,11 @@ EXPECTED_NEGATIVE_CASES = [
     "legacy_restore_multiline_call",
     "legacy_restore_function_reference",
     "legacy_restore_qualified_whitespace",
+    "legacy_alias_reexport_in_lib_additive_region",
+    "legacy_wrapper_in_stage5c_additive_region",
+    "legacy_alias_in_stage5d_persistence",
+    "unexpected_legacy_reference_in_allowed_file",
+    "legacy_reference_moved_to_wrong_region",
 ]
 
 EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
@@ -119,6 +124,24 @@ ALLOWED_LEGACY_RESTORE_CALL_PATHS = {
     str(LIB_REL),
     str(STAGE5C_HOST_REL),
     str(STAGE5D_REL),
+}
+
+EXPECTED_LEGACY_REFERENCE_COUNTS = {
+    str(LIB_REL): {
+        "restore_stage5c_runtime_state": 1,
+        "notify_stage5c_bootstrap": 1,
+        "notify_stage5c_runtime_state_restored": 1,
+    },
+    str(STAGE5C_HOST_REL): {
+        "restore_stage5c_runtime_state": 1,
+        "notify_stage5c_bootstrap": 4,
+        "notify_stage5c_runtime_state_restored": 1,
+    },
+    str(STAGE5D_REL): {
+        "restore_stage5c_runtime_state": 0,
+        "notify_stage5c_bootstrap": 0,
+        "notify_stage5c_runtime_state_restored": 0,
+    },
 }
 
 
@@ -179,6 +202,49 @@ def strip_additive_regions(path: Path, regions: list[str]) -> tuple[bytes, list[
     return stripped, failures
 
 
+def collect_additive_regions(path: Path, regions: list[str]) -> tuple[dict[str, str], list[str]]:
+    payload = path.read_text()
+    failures: list[str] = []
+    collected: dict[str, str] = {}
+    previous_start = -1
+    for region in regions:
+        begin = f"// STAGE5D-ADDITIVE-BRIDGE-BEGIN: {region}"
+        end = f"// STAGE5D-ADDITIVE-BRIDGE-END: {region}"
+        begin_count = payload.count(begin)
+        end_count = payload.count(end)
+        if begin_count != 1 or end_count != 1:
+            failures.append(
+                f"{path}: additive region {region} markers must appear exactly once "
+                f"(begin={begin_count}, end={end_count})"
+            )
+            continue
+        begin_index = payload.find(begin)
+        end_index = payload.find(end)
+        if begin_index <= previous_start:
+            failures.append(f"{path}: additive region {region} marker order drifted")
+        if end_index <= begin_index:
+            failures.append(f"{path}: additive region {region} closing marker precedes opening marker")
+            continue
+        collected[region] = payload[begin_index:end_index + len(end)]
+        previous_start = begin_index
+    return collected, failures
+
+
+def legacy_identifier_hits(source: str) -> list[str]:
+    return [
+        identifier
+        for identifier in LEGACY_RESTORE_IDENTIFIERS
+        if re.search(rf"\b{re.escape(identifier)}\b", source)
+    ]
+
+
+def legacy_identifier_counts(source: str) -> dict[str, int]:
+    return {
+        identifier: len(re.findall(rf"\b{re.escape(identifier)}\b", source))
+        for identifier in LEGACY_RESTORE_IDENTIFIERS
+    }
+
+
 def parse_stage5d_public_symbols(source: str) -> list[str]:
     symbols: set[str] = set()
     for pattern in [
@@ -236,11 +302,46 @@ def validate_legacy_restore_call_sites(root: Path, failures: list[str]) -> None:
         if rel in ALLOWED_LEGACY_RESTORE_CALL_PATHS:
             continue
         source = path.read_text(errors="replace")
-        for identifier in LEGACY_RESTORE_IDENTIFIERS:
-            if re.search(rf"\b{re.escape(identifier)}\b", source):
+        for identifier in legacy_identifier_hits(source):
+            failures.append(f"legacy Stage 5C restore bypass symbol forbidden: {rel}: {identifier}")
+
+    for rel, expected_counts in EXPECTED_LEGACY_REFERENCE_COUNTS.items():
+        path = root / rel
+        if not path.is_file():
+            failures.append(f"legacy Stage 5C restore allowlisted file missing: {rel}")
+            continue
+        actual_counts = legacy_identifier_counts(path.read_text(errors="replace"))
+        if actual_counts != expected_counts:
+            failures.append(
+                f"legacy Stage 5C restore reference count mismatch for {rel}: "
+                f"actual={actual_counts} expected={expected_counts}"
+            )
+
+
+def validate_no_legacy_identifiers_in_additive_regions(
+    root: Path,
+    approved_bridge_regions: dict[str, list[str]],
+    failures: list[str],
+) -> None:
+    for rel, regions in approved_bridge_regions.items():
+        path = root / rel
+        if not path.is_file():
+            continue
+        collected, marker_failures = collect_additive_regions(path, regions)
+        failures.extend(marker_failures)
+        for region, source in collected.items():
+            for identifier in legacy_identifier_hits(source):
                 failures.append(
-                    f"legacy Stage 5C restore bypass symbol forbidden: {rel}: {identifier}"
+                    "legacy Stage 5C restore symbol forbidden in additive region: "
+                    f"{rel}:{region}:{identifier}"
                 )
+
+    stage5d_path = root / STAGE5D_REL
+    if stage5d_path.is_file():
+        for identifier in legacy_identifier_hits(stage5d_path.read_text(errors="replace")):
+            failures.append(
+                f"legacy Stage 5C restore symbol forbidden in Stage 5D persistence surface: {identifier}"
+            )
 
 
 def validate(root: Path, manifest_path: Path) -> list[str]:
@@ -321,6 +422,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
             failures.append(f"{rel}: stripped hash mismatch actual={stripped_hash}")
         if stripped_hash != closure_hashes.get(rel):
             failures.append(f"{rel}: frozen region does not match Stage 5C closure source")
+
+    validate_no_legacy_identifiers_in_additive_regions(root, APPROVED_BRIDGE_FILES, failures)
 
     stage5d_record = manifest.get("stage5d_persistence_file", {})
     stage5d_path = root / STAGE5D_REL

@@ -17,6 +17,10 @@ any persistence DTO mutation or runtime-private restore logic.
   checker-owned constants validate manifest checker path, negative harness path,
   closed surfaces, negative case list, Stage5d public symbols, current
   compatibility checker, and historical closure checker artifact.
+- Transitive legacy-restore alias closure:
+  legacy Stage 5C restore identifiers are forbidden in Stage 5D additive
+  regions and in the Stage 5D persistence surface; allowlisted legacy
+  references are checked by exact file/identifier counts.
 - Historical Stage 5C checker artifact:
   `tests/fixtures/stage5/stage5c_api_freeze_check.closure.py`.
 - Stage 5C checker compatibility mode:
@@ -67,6 +71,11 @@ The negative harness requires failures for:
 - historical checker missing/content drift/substitution;
 - legacy Stage 5C persisted-restore production bypass via direct call, alias,
   multiline call, function reference, and qualified path with whitespace.
+- transitive legacy alias re-export in `lib.rs` additive region;
+- crate-private legacy wrapper in `stage5c_paper_host.rs` additive region;
+- legacy alias inside `stage5d_persistence.rs`;
+- unexpected extra legacy reference in an allowlisted file;
+- legacy reference moved into the wrong additive region.
 
 The normal forbidden-surface scanner does not run the full negative harness
 inline, to keep the normal scanner bounded. Handoff/CI must run the negative

@@ -96,6 +96,11 @@
     "legacy_restore_alias_call",
     "legacy_restore_multiline_call",
     "legacy_restore_function_reference",
-    "legacy_restore_qualified_whitespace"
+    "legacy_restore_qualified_whitespace",
+    "legacy_alias_reexport_in_lib_additive_region",
+    "legacy_wrapper_in_stage5c_additive_region",
+    "legacy_alias_in_stage5d_persistence",
+    "unexpected_legacy_reference_in_allowed_file",
+    "legacy_reference_moved_to_wrong_region"
   ]
 }
