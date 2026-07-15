@@ -116,6 +116,171 @@ impl Stage5cPaperHostAdmission {
         }
     }
 }
+
+#[cfg(test)]
+mod stage5d_pair_binding_restore_tests {
+    use super::*;
+    use rust_decimal::Decimal;
+    use serde_json::Value;
+
+    fn stage5d_test_strategy() -> HybridIntradayRuntimeStrategy {
+        HybridIntradayRuntimeStrategy::new(
+            crate::hybrid_intraday_runtime::HybridIntradayRuntimeConfig {
+                symbol: "IMOEXF".to_string(),
+                profile:
+                    crate::hybrid_intraday_runtime::HybridIntradayProfile::BaselineRuntimeHybrid,
+                mr_variant:
+                    crate::hybrid_intraday_runtime::MeanReversionVariant::ClassicPrevDayRange,
+                mr_gate_policy: crate::hybrid_intraday_runtime::MrGatePolicy::Disabled,
+                risk_gate_mode: crate::hybrid_intraday_runtime::RiskGateMode::Disabled,
+                risk_gate_seed_file: None,
+                risk_gate_ledger_key: None,
+                model_session_start_time: None,
+                model_session_end_time: None,
+                qty: 1.0,
+                live_order_style: crate::runtime_compat::MarketBuyAndCloseLiveOrderStyle::Market,
+                tick_size: 0.5,
+                marketable_limit_offset_ticks: 0,
+                timezone_offset_hours: 3,
+                session_close_hour: 23,
+                session_close_minute: 49,
+                weekends_off: true,
+                stop_end_buffer_sec: 60,
+                repair_deadline_sec: 180,
+                sl_escalate_timeout_sec: 30,
+                max_repair_retries: 3,
+                repair_backoff_base_sec: 5,
+                repair_backoff_max_sec: 60,
+                pending_timeout_sec: 30,
+                partial_entry_fill_timeout_ms: 3_000,
+                mr_config: crate::hybrid_intraday::MeanReversionConfig::default(),
+                breakout_config: crate::hybrid_intraday::IntradayBreakoutConfig::default(),
+                orchestrator_config: crate::hybrid_intraday::HybridOrchestratorConfig::default(),
+            },
+        )
+    }
+
+    fn stage5d_apply_valid_fixture() -> crate::stage5d_persistence::Stage5dPersistenceEnvelope {
+        let mut envelope: crate::stage5d_persistence::Stage5dPersistenceEnvelope =
+            serde_json::from_str(include_str!(
+                "../../../tests/fixtures/stage5/stage5d_b2a_persistence_envelope.json"
+            ))
+            .expect("fixture");
+        let entry = envelope
+            .runtime_private_extension
+            .pending_entry
+            .as_mut()
+            .expect("pending entry");
+        entry.owner = crate::stage5d_persistence::Stage5dOwner::MeanReversion;
+        entry.side = crate::stage5d_persistence::Stage5dSide::Long;
+        entry.entry_style = crate::stage5d_persistence::Stage5dEntryStyle::Bracket;
+        entry.target_qty = "3".to_string();
+        envelope
+    }
+
+    fn bind_fixture_to_strategy_config(
+        envelope: &mut crate::stage5d_persistence::Stage5dPersistenceEnvelope,
+        strategy: &HybridIntradayRuntimeStrategy,
+    ) {
+        let (profile, mr_variant, mr_gate_policy, risk_gate_mode) =
+            strategy.stage5c_profile_binding();
+        let profile_binding = format!("{profile}|{mr_variant}|{mr_gate_policy}|{risk_gate_mode}");
+        let canonical = strategy.stage5d_canonical_config_fingerprint();
+        envelope.binding.stage5c_compat_config_fingerprint = strategy.stage5c_config_fingerprint();
+        envelope.binding.profile_binding = profile_binding.clone();
+        envelope.riskgate.identity.profile_id = profile_binding;
+        envelope.binding.stage5d_canonical_config_fingerprint = canonical.clone();
+        envelope.canonical_config_fingerprint = canonical;
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum");
+    }
+
+    fn stage5c_restore_input_for(
+        strategy: &HybridIntradayRuntimeStrategy,
+        envelope: &crate::stage5d_persistence::Stage5dPersistenceEnvelope,
+    ) -> Stage5cRuntimeStateRestoreInput {
+        let (profile, mr_variant, mr_gate_policy, risk_gate_mode) =
+            strategy.stage5c_profile_binding();
+        Stage5cRuntimeStateRestoreInput {
+            schema_version: STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION,
+            state_schema_version: 1,
+            strategy_kind: "hybrid_intraday_runtime".to_string(),
+            strategy_id: envelope.binding.strategy_id.clone(),
+            account_id: envelope.binding.account_id.clone(),
+            instrument: envelope.binding.instrument_id.to_instrument_id(),
+            tick_size: 0.5,
+            config_fingerprint: strategy.stage5c_config_fingerprint(),
+            profile,
+            mr_variant,
+            mr_gate_policy,
+            risk_gate_mode,
+            persisted_ts: envelope.persisted_at_ts_utc,
+            state_json: serde_json::to_string(&envelope.strategy_state.strategy_state_json)
+                .expect("state json"),
+            known_order_ids: envelope.recovery_indexes.known_order_ids.clone(),
+            pending_requests: envelope.recovery_indexes.pending_requests.clone(),
+            legacy_numeric_order_id_policy: Stage5cLegacyNumericOrderIdPolicy::Reject,
+        }
+    }
+
+    fn expect_stage5d_bind_ok<T>(
+        result: Result<T, crate::stage5d_persistence::Stage5dRuntimePrivateApplyBlocked>,
+        message: &str,
+    ) -> T {
+        match result {
+            Ok(value) => value,
+            Err(blocked) => panic!("{message}: {:?}", blocked.reason()),
+        }
+    }
+
+    #[test]
+    fn stage5d_b2b_real_stage5c_restore_entry_ready_normalization_still_binds() {
+        let mut envelope = stage5d_apply_valid_fixture();
+        let strategy = stage5d_test_strategy();
+        if let Value::Object(fields) =
+            &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+        {
+            fields.insert("entry_ready".to_string(), Value::Bool(true));
+            fields.insert("last_bar_close".to_string(), Value::Null);
+            fields.insert("prev_day_close".to_string(), Value::Null);
+            fields.insert("current_day_high".to_string(), Value::Null);
+            fields.insert("current_day_low".to_string(), Value::Null);
+            fields.insert("prev_day_range".to_string(), Value::Null);
+            fields.insert("current_day_close".to_string(), Value::Null);
+            fields.insert("prev_day_return".to_string(), Value::Null);
+            fields.insert("day_before_close".to_string(), Value::Null);
+            fields.insert("today_start_local".to_string(), Value::Null);
+        }
+        bind_fixture_to_strategy_config(&mut envelope, &strategy);
+        let admission = Stage5cPaperHostAdmission::stage5d_test_new(
+            envelope.binding.strategy_id.clone(),
+            envelope.binding.account_id.clone(),
+            envelope.binding.instrument_id.to_instrument_id(),
+            0.5,
+            Decimal::new(5, 1),
+            Utc::now(),
+        );
+        let input = stage5c_restore_input_for(&strategy, &envelope);
+        let loaded = restore_stage5c_runtime_state(strategy, admission, input)
+            .expect("real Stage 5C restore must load persisted state");
+        let current = serde_json::to_value(Strategy::state(loaded.stage5d_strategy()))
+            .expect("current state");
+        assert_eq!(
+            current["HybridIntradayRuntime"]["entry_ready"],
+            Value::Bool(false)
+        );
+
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("entry_ready=true envelope remains schema valid");
+        let bound = expect_stage5d_bind_ok(
+            crate::stage5d_persistence::stage5d_bind_runtime_state_loaded(loaded, validated),
+            "persisted-owned projection must ignore pre-warmup entry_ready normalization",
+        );
+        assert_eq!(bound.snapshot_id(), "SNAP_STAGE5D_B2A_0001");
+    }
+}
 // STAGE5D-ADDITIVE-BRIDGE-END: type-state-transitions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

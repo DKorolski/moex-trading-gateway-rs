@@ -52,7 +52,13 @@ specific loaded Stage 5C capability:
 - admission strategy/account/instrument must match envelope binding;
 - runtime Stage 5C config fingerprint and profile binding must match envelope
   binding;
-- current semantic `StrategyState` must match the envelope semantic payload;
+- runtime Stage 5D canonical config fingerprint must match the authoritative
+  Stage 5D binding;
+- broker protocol/runtime state schema versions must match the supported
+  Stage 5D-b2b-a table;
+- current persisted-owned semantic `StrategyState` projection must match the
+  envelope semantic payload projection; recomputable warmup/readiness/cache
+  fields are retained for later gates but do not block private apply binding;
 - loaded known order ids and pending requests must match the envelope recovery
   indexes.
 
@@ -76,6 +82,15 @@ Regression tests prove:
   exposing the preserved capability;
 - missing `cleanup_retry_state` is rejected for schema v1 and nonzero cleanup
   retry attempts roundtrip exactly.
+- real Stage 5C restore with `entry_ready=true` persisted and `entry_ready=false`
+  before warmup still binds;
+- active-cycle/pending-request mismatches are blocked while recomputable field
+  mismatches are retained for later warmup verification;
+- Stage 5D canonical fingerprint and unsupported schema-version mismatches are
+  blocked;
+- source-impossible private states are rejected before mutation: cleanup retry
+  above source max, partial-entry sign/style violations, pending-exit while
+  flat/without active cycle, and bracket reconcile marker while flat.
 
 The Stage 5D additive manifest now labels this baseline as `5D-b2b-a` and pins
 the updated public API surface including the controlled bind/apply/retry Stage

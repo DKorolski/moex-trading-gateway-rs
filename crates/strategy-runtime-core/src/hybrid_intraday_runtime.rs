@@ -163,7 +163,135 @@ fn stage5d_parse_finite_f64(
     Ok(parsed)
 }
 
+fn stage5d_profile_name(value: HybridIntradayProfile) -> &'static str {
+    match value {
+        HybridIntradayProfile::BaselineRuntimeHybrid => "baseline_runtime_hybrid",
+        HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120 => {
+            "imoexf_primary_riskgate_high180_lb120"
+        }
+    }
+}
+
+fn stage5d_mr_variant_name(value: MeanReversionVariant) -> &'static str {
+    match value {
+        MeanReversionVariant::ClassicPrevDayRange => "classic_prev_day_range",
+        MeanReversionVariant::High180 => "high180",
+        MeanReversionVariant::Author41BoundaryShort => "author41_boundary_short",
+    }
+}
+
+fn stage5d_mr_gate_policy_name(value: MrGatePolicy) -> &'static str {
+    match value {
+        MrGatePolicy::Disabled => "disabled",
+        MrGatePolicy::ShadowPnlLb120Positive => "shadow_pnl_lb120_positive",
+    }
+}
+
+fn stage5d_risk_gate_mode_name(value: RiskGateMode) -> &'static str {
+    match value {
+        RiskGateMode::Disabled => "disabled",
+        RiskGateMode::BootstrapFromSeed => "bootstrap_from_seed",
+        RiskGateMode::NormalAppend => "normal_append",
+        RiskGateMode::RebuildFromHistory => "rebuild_from_history",
+        RiskGateMode::ShadowOnly => "shadow_only",
+        RiskGateMode::Enforced => "enforced",
+    }
+}
+
+fn stage5d_order_style_name(value: MarketBuyAndCloseLiveOrderStyle) -> &'static str {
+    match value {
+        MarketBuyAndCloseLiveOrderStyle::Market => "market",
+        MarketBuyAndCloseLiveOrderStyle::MarketableLimit => "marketable_limit",
+    }
+}
+
+fn stage5d_min_range_mode_name(
+    value: crate::strategies::hybrid_intraday::MinRangeMode,
+) -> &'static str {
+    match value {
+        crate::strategies::hybrid_intraday::MinRangeMode::Disabled => "disabled",
+        crate::strategies::hybrid_intraday::MinRangeMode::Absolute => "absolute",
+        crate::strategies::hybrid_intraday::MinRangeMode::RelativePrevClose => {
+            "relative_prev_close"
+        }
+    }
+}
+
+fn stage5d_breakout_eod_mode_name(value: BreakoutEodMode) -> &'static str {
+    match value {
+        BreakoutEodMode::SameDay => "same_day",
+        BreakoutEodMode::Overnight => "overnight",
+    }
+}
+
 impl HybridIntradayRuntimeStrategy {
+    pub(crate) fn stage5d_canonical_config_fingerprint(&self) -> String {
+        let mr = self.config.mr_config;
+        let breakout = self.config.breakout_config;
+        let orchestrator = self.config.orchestrator_config;
+        let descriptor = serde_json::json!({
+            "schema": "stage5d_canonical_hybrid_config_v1",
+            "symbol": &self.config.symbol,
+            "profile": stage5d_profile_name(self.config.profile),
+            "mr_variant": stage5d_mr_variant_name(self.config.mr_variant),
+            "mr_gate_policy": stage5d_mr_gate_policy_name(self.config.mr_gate_policy),
+            "risk_gate_mode": stage5d_risk_gate_mode_name(self.config.risk_gate_mode),
+            "qty": self.config.qty,
+            "tick_size": self.config.tick_size,
+            "live_order_style": stage5d_order_style_name(self.config.live_order_style),
+            "marketable_limit_offset_ticks": self.config.marketable_limit_offset_ticks,
+            "timezone_offset_hours": self.config.timezone_offset_hours,
+            "session_close_hour": self.config.session_close_hour,
+            "session_close_minute": self.config.session_close_minute,
+            "weekends_off": self.config.weekends_off,
+            "stop_end_buffer_sec": self.config.stop_end_buffer_sec,
+            "repair_deadline_sec": self.config.repair_deadline_sec,
+            "sl_escalate_timeout_sec": self.config.sl_escalate_timeout_sec,
+            "max_repair_retries": self.config.max_repair_retries,
+            "repair_backoff_base_sec": self.config.repair_backoff_base_sec,
+            "repair_backoff_max_sec": self.config.repair_backoff_max_sec,
+            "pending_timeout_sec": self.config.pending_timeout_sec,
+            "partial_entry_fill_timeout_ms": self.config.partial_entry_fill_timeout_ms,
+            "risk_gate_seed_configured": self.config.risk_gate_seed_file.is_some(),
+            "risk_gate_ledger_configured": self.config.risk_gate_ledger_key.is_some(),
+            "model_session_start_time": self.config.model_session_start_time.map(|value| value.format("%H:%M:%S").to_string()),
+            "model_session_end_time": self.config.model_session_end_time.map(|value| value.format("%H:%M:%S").to_string()),
+            "mr_config": {
+                "min_range_long": mr.min_range_long,
+                "max_range_long": mr.max_range_long,
+                "k_long": mr.k_long,
+                "take_k_long": mr.take_k_long,
+                "stop_k_long": mr.stop_k_long,
+                "min_range_short": mr.min_range_short,
+                "max_range_short": mr.max_range_short,
+                "k_short": mr.k_short,
+                "take_k_short": mr.take_k_short,
+                "stop_k_short": mr.stop_k_short,
+                "tick_size": mr.tick_size,
+                "session_end_time": mr.session_end_time.format("%H:%M:%S").to_string(),
+                "exit_offset_seconds": mr.exit_offset.num_seconds(),
+            },
+            "breakout_config": {
+                "k": breakout.k,
+                "stop1_range": breakout.stop1_range,
+                "stop2_range": breakout.stop2_range,
+                "big_move_threshold": breakout.big_move_threshold,
+                "min_range": breakout.min_range,
+                "min_range_mode": stage5d_min_range_mode_name(breakout.min_range_mode),
+                "exclude_weekends": breakout.exclude_weekends,
+                "wait_hours": breakout.wait_hours,
+            },
+            "orchestrator_config": {
+                "breakout_eod_mode": stage5d_breakout_eod_mode_name(orchestrator.breakout_eod_mode),
+                "breakout_overnight_exit_time": orchestrator.breakout_overnight_exit_time.format("%H:%M:%S").to_string(),
+            }
+        });
+        format!(
+            "stage5d_cfg_sha256:{:x}",
+            Sha256::digest(descriptor.to_string().as_bytes())
+        )
+    }
+
     pub(crate) fn stage5d_export_runtime_private_extension(
         &self,
     ) -> crate::stage5d_persistence::Stage5dRuntimePrivateExtension {
@@ -363,10 +491,39 @@ impl HybridIntradayRuntimeStrategy {
                 crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
             );
         }
-        if extension.cleanup_retry_state.is_none() {
-            return Err(
+        match &extension.cleanup_retry_state {
+            Some(state) if state.cleanup_stop_retry_attempts <= Self::MAX_CLEANUP_STOP_RETRIES => {}
+            Some(_) | None => {
+                return Err(
+                    crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
+                );
+            }
+        }
+        if extension.pending_entry.is_some() && self.last_position_qty.abs() > f64::EPSILON {
+            let extension_entry = extension.pending_entry.as_ref().ok_or(
                 crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
-            );
+            )?;
+            let target_qty = stage5d_parse_finite_f64(&extension_entry.target_qty)?;
+            let sign_matches = match extension_entry.side {
+                crate::stage5d_persistence::Stage5dSide::Long => {
+                    self.last_position_qty > f64::EPSILON
+                }
+                crate::stage5d_persistence::Stage5dSide::Short => {
+                    self.last_position_qty < -f64::EPSILON
+                }
+            };
+            if !sign_matches
+                || extension.partial_entry_timer.is_none()
+                || extension_entry.owner != crate::stage5d_persistence::Stage5dOwner::MeanReversion
+                || extension_entry.entry_style
+                    != crate::stage5d_persistence::Stage5dEntryStyle::Bracket
+                || target_qty <= 1.0
+                || self.last_position_qty.abs() + f64::EPSILON >= target_qty
+            {
+                return Err(
+                    crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
+                );
+            }
         }
         if self.pending_exit_request_id.is_some() && extension.pending_exit.is_none() {
             return Err(
@@ -379,6 +536,23 @@ impl HybridIntradayRuntimeStrategy {
                     crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
                 );
             }
+            if self.last_position_qty.abs() <= f64::EPSILON
+                || self.active_cycle_id.is_none()
+                || self
+                    .current_owner
+                    .is_some_and(|owner| owner != stage5d_owner_to_runtime(extension_exit.owner))
+            {
+                return Err(
+                    crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
+                );
+            }
+        }
+        if extension.bracket_reconciliation_timer.is_some()
+            && (self.last_position_qty.abs() <= f64::EPSILON || self.active_cycle_id.is_none())
+        {
+            return Err(
+                crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
+            );
         }
         for record in &extension.runtime_pending_finalizations {
             Self::parse_local_day(&record.session_date).ok_or(

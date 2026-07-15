@@ -164,7 +164,9 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   loaded-capability/envelope pair binding, validated-envelope gated private
   extension apply, retained opaque restore evidence, retry-capable opaque block
   preservation, required cleanup retry state, full pending
-  riskgate-finalization vector restoration, and no authoritative working-set
+  riskgate-finalization vector restoration, persisted-owned semantic projection
+  binding, authoritative Stage 5D canonical config/version binding,
+  source-private invariant preflight, and no authoritative working-set
   rehydration from persistence. The formal mutation policy is
   `controlled_validated_stage5d_apply_only`; Stage 5D-b2b-a still does not implement
   authoritative riskgate injection, Redis bridge, FINAM execution, broker

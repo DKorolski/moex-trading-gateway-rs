@@ -1,8 +1,8 @@
 //! Stage 5D additive persistence freeze surface.
 //!
-//! Stage 5D-b2a adds versioned persistence DTOs and schema validation. It does
-//! not implement runtime-private snapshot application, Stage 5C/Stage 5D
-//! transitions, Redis, FINAM, transport, dispatch, or runtime-live behavior.
+//! Stage 5D-b2a adds versioned persistence DTOs and schema validation.
+//! Stage 5D-b2b-a adds the controlled validated runtime-private bind/apply
+//! bridge. Redis, FINAM, transport, dispatch and runtime-live remain closed.
 
 use std::collections::HashSet;
 
@@ -27,6 +27,8 @@ pub const STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION: u16 = 1;
 pub const STAGE5D_RISKGATE_SCHEMA_VERSION: u16 = 1;
 /// Stage 5D semantic strategy-state payload schema version.
 pub const STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION: u16 = 1;
+const STAGE5D_SUPPORTED_BROKER_PROTOCOL_SCHEMA_VERSION: u16 = 2;
+const STAGE5D_SUPPORTED_RUNTIME_STATE_SCHEMA_VERSION: u16 = 2;
 
 /// Opaque proof that a validated Stage 5D runtime-private extension has been
 /// applied in the persistence-enabled restore path.
@@ -217,19 +219,37 @@ fn validate_loaded_envelope_binding(
     let strategy = loaded.stage5d_strategy();
     if strategy.stage5c_config_fingerprint() != envelope.binding.stage5c_compat_config_fingerprint
         || stage5d_profile_binding_string(strategy) != envelope.binding.profile_binding
+        || strategy.stage5d_canonical_config_fingerprint()
+            != envelope.binding.stage5d_canonical_config_fingerprint
+    {
+        return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+    }
+    if envelope.binding.broker_protocol_schema_version
+        != STAGE5D_SUPPORTED_BROKER_PROTOCOL_SCHEMA_VERSION
+        || envelope.binding.runtime_state_schema_version
+            != STAGE5D_SUPPORTED_RUNTIME_STATE_SCHEMA_VERSION
     {
         return Err(Stage5dEnvelopeValidationError::BindingMismatch);
     }
 
     let current_state = serde_json::to_value(Strategy::state(strategy))
         .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
-    if current_state != envelope.strategy_state.strategy_state_json {
+    if stage5d_persisted_owned_semantic_projection(current_state)?
+        != stage5d_persisted_owned_semantic_projection(
+            envelope.strategy_state.strategy_state_json.clone(),
+        )?
+    {
         return Err(Stage5dEnvelopeValidationError::BindingMismatch);
     }
 
     let restored = loaded.stage5d_restored();
-    if restored.known_order_ids != envelope.recovery_indexes.known_order_ids
-        || restored.pending_requests != envelope.recovery_indexes.pending_requests
+    let loaded_order_ids: HashSet<_> = restored.known_order_ids.iter().collect();
+    let envelope_order_ids: HashSet<_> = envelope.recovery_indexes.known_order_ids.iter().collect();
+    let loaded_pending_requests: HashSet<_> = restored.pending_requests.iter().collect();
+    let envelope_pending_requests: HashSet<_> =
+        envelope.recovery_indexes.pending_requests.iter().collect();
+    if loaded_order_ids != envelope_order_ids
+        || loaded_pending_requests != envelope_pending_requests
     {
         return Err(Stage5dEnvelopeValidationError::RecoveryIndexInconsistent);
     }
@@ -241,6 +261,37 @@ fn stage5d_profile_binding_string(
 ) -> String {
     let (profile, mr_variant, mr_gate_policy, risk_gate_mode) = strategy.stage5c_profile_binding();
     format!("{profile}|{mr_variant}|{mr_gate_policy}|{risk_gate_mode}")
+}
+
+fn stage5d_persisted_owned_semantic_projection(
+    mut value: Value,
+) -> Result<Value, Stage5dEnvelopeValidationError> {
+    let Some(state) = value.get_mut("HybridIntradayRuntime") else {
+        return Err(Stage5dEnvelopeValidationError::SemanticStateInvalid);
+    };
+    let Some(fields) = state.as_object_mut() else {
+        return Err(Stage5dEnvelopeValidationError::SemanticStateInvalid);
+    };
+    for recomputable in [
+        "entry_ready",
+        "last_bar_close",
+        "prev_day_close",
+        "last_day_local",
+        "current_day_high",
+        "current_day_low",
+        "current_day_close",
+        "prev_day_range",
+        "prev_day_return",
+        "day_before_close",
+        "today_start_local",
+        "risk_gate_mr_enabled_current_session",
+        "risk_gate_rolling_sum_lb120",
+        "risk_gate_last_finalized_session_date",
+        "risk_gate_ledger_rows_count",
+    ] {
+        fields.remove(recomputable);
+    }
+    Ok(value)
 }
 
 /// Redacted blocked-restore marker for future Stage 5D transitions.
@@ -1436,8 +1487,12 @@ mod tests {
         strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
     ) {
         let config_fingerprint = strategy.stage5c_config_fingerprint();
+        let canonical_config_fingerprint = strategy.stage5d_canonical_config_fingerprint();
         let profile_binding = profile_binding_for(strategy);
         envelope.binding.stage5c_compat_config_fingerprint = config_fingerprint;
+        envelope.binding.stage5d_canonical_config_fingerprint =
+            canonical_config_fingerprint.clone();
+        envelope.canonical_config_fingerprint = canonical_config_fingerprint;
         envelope.binding.profile_binding = profile_binding.clone();
         envelope.riskgate.identity.profile_id = profile_binding;
         envelope.payload_checksum_sha256 = envelope
@@ -1445,11 +1500,25 @@ mod tests {
             .expect("checksum recomputation must succeed");
     }
 
+    fn apply_valid_fixture() -> Stage5dPersistenceEnvelope {
+        fixture_with_mutated_envelope(|envelope| {
+            let entry = envelope
+                .runtime_private_extension
+                .pending_entry
+                .as_mut()
+                .expect("pending entry");
+            entry.owner = Stage5dOwner::MeanReversion;
+            entry.side = Stage5dSide::Long;
+            entry.entry_style = Stage5dEntryStyle::Bracket;
+            entry.target_qty = "3".to_string();
+        })
+    }
+
     fn stage5d_bound_test_fixture() -> (
         crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy,
         Stage5dPersistenceEnvelope,
     ) {
-        let mut envelope = valid_fixture();
+        let mut envelope = apply_valid_fixture();
         let mut strategy = stage5d_test_strategy();
         restore_semantic_state(&mut strategy, &envelope);
         bind_fixture_to_strategy_config(&mut envelope, &strategy);
@@ -2331,7 +2400,7 @@ mod tests {
 
     #[test]
     fn stage5d_b2b_runtime_private_apply_restores_full_pending_finalization_vector() {
-        let envelope = valid_fixture();
+        let envelope = apply_valid_fixture();
         let mut strategy = stage5d_test_strategy();
         restore_semantic_state(&mut strategy, &envelope);
 
@@ -2463,7 +2532,7 @@ mod tests {
         if let Value::Object(fields) =
             &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
         {
-            fields.insert("last_bar_close".to_string(), serde_json::json!(2228.0));
+            fields.insert("safe_mode_close_only".to_string(), Value::Bool(true));
         }
         envelope.payload_checksum_sha256 = envelope
             .compute_payload_checksum_sha256()
@@ -2620,7 +2689,7 @@ mod tests {
 
     #[test]
     fn stage5d_b2b_cleanup_retry_attempts_roundtrip_exactly() {
-        let mut envelope = valid_fixture();
+        let mut envelope = apply_valid_fixture();
         let mut strategy = stage5d_test_strategy();
         restore_semantic_state(&mut strategy, &envelope);
         envelope.runtime_private_extension.cleanup_retry_state = Some(Stage5dCleanupRetryState {
@@ -2641,5 +2710,265 @@ mod tests {
                 cleanup_stop_retry_attempts: 2,
             })
         );
+    }
+
+    #[test]
+    fn stage5d_b2b_public_bind_rejects_active_cycle_mismatch_before_apply() {
+        let (loaded, mut envelope) = stage5d_bound_test_fixture();
+        if let Value::Object(fields) =
+            &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+        {
+            fields.insert(
+                "active_cycle_id".to_string(),
+                Value::String("deadbeef00".to_string()),
+            );
+            fields.insert(
+                "pending_entry_cycle_id".to_string(),
+                Value::String("deadbeef00".to_string()),
+            );
+        }
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("cycle-mismatched envelope remains schema valid");
+
+        let blocked = expect_stage5d_blocked(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "active cycle mismatch must be blocked before apply",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dEnvelopeValidationError::BindingMismatch
+        );
+    }
+
+    #[test]
+    fn stage5d_b2b_public_bind_rejects_pending_request_index_mismatch_before_apply() {
+        let (loaded, envelope) = stage5d_bound_test_fixture();
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("envelope remains schema valid");
+        let (strategy, admission, restored) = loaded.stage5d_into_parts();
+        let mismatched_loaded =
+            crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
+                strategy,
+                admission,
+                crate::runtime_compat::RuntimeStateRestored {
+                    known_order_ids: restored.known_order_ids,
+                    pending_requests: Vec::new(),
+                },
+            );
+
+        let blocked = expect_stage5d_blocked(
+            stage5d_bind_runtime_state_loaded(mismatched_loaded, validated),
+            "pending request mismatch must be blocked before apply",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dEnvelopeValidationError::RecoveryIndexInconsistent
+        );
+    }
+
+    #[test]
+    fn stage5d_b2b_public_bind_accepts_recomputable_field_mismatch_before_warmup() {
+        let (loaded, mut envelope) = stage5d_bound_test_fixture();
+        if let Value::Object(fields) =
+            &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+        {
+            fields.insert("last_bar_close".to_string(), serde_json::json!(9999.5));
+            fields.insert("prev_day_close".to_string(), serde_json::json!(8888.5));
+            fields.insert("entry_ready".to_string(), Value::Bool(true));
+        }
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("recomputable field mismatch remains schema valid");
+
+        expect_stage5d_ok(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "recomputable mismatch must be retained for later warmup verification",
+        );
+    }
+
+    #[test]
+    fn stage5d_b2b_public_bind_rejects_stage5d_canonical_fingerprint_mismatch() {
+        let (loaded, mut envelope) = stage5d_bound_test_fixture();
+        envelope.canonical_config_fingerprint =
+            "stage5d_cfg_sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                .to_string();
+        envelope.binding.stage5d_canonical_config_fingerprint =
+            envelope.canonical_config_fingerprint.clone();
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("self-consistent wrong Stage 5D fingerprint remains schema valid");
+
+        let blocked = expect_stage5d_blocked(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "Stage 5D canonical fingerprint mismatch must be blocked",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dEnvelopeValidationError::BindingMismatch
+        );
+    }
+
+    #[test]
+    fn stage5d_b2b_public_bind_rejects_unsupported_schema_versions() {
+        let (loaded, mut envelope) = stage5d_bound_test_fixture();
+        envelope.binding.broker_protocol_schema_version = 999;
+        envelope.binding.runtime_state_schema_version = 999;
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("nonzero unsupported versions remain schema valid");
+
+        let blocked = expect_stage5d_blocked(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "unsupported schema versions must be blocked",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dEnvelopeValidationError::BindingMismatch
+        );
+    }
+
+    fn expect_private_apply_rejects_without_mutation(
+        mut envelope: Stage5dPersistenceEnvelope,
+        mutator: impl FnOnce(
+            &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+            &mut Stage5dRuntimePrivateExtension,
+        ),
+    ) {
+        let mut strategy = stage5d_test_strategy();
+        restore_semantic_state(&mut strategy, &envelope);
+        let mut extension = envelope.runtime_private_extension.clone();
+        mutator(&mut strategy, &mut extension);
+        let before = strategy.stage5d_export_runtime_private_extension();
+        assert_eq!(
+            strategy.stage5d_apply_runtime_private_extension(&extension),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
+        );
+        assert_eq!(strategy.stage5d_export_runtime_private_extension(), before);
+        envelope.runtime_private_extension = extension;
+    }
+
+    #[test]
+    fn stage5d_b2b_private_apply_rejects_cleanup_retry_above_source_max() {
+        expect_private_apply_rejects_without_mutation(valid_fixture(), |_strategy, extension| {
+            extension.cleanup_retry_state = Some(Stage5dCleanupRetryState {
+                cleanup_stop_retry_attempts: 4,
+            });
+        });
+    }
+
+    #[test]
+    fn stage5d_b2b_private_apply_rejects_partial_entry_sign_mismatch() {
+        expect_private_apply_rejects_without_mutation(valid_fixture(), |_strategy, extension| {
+            extension
+                .pending_entry
+                .as_mut()
+                .expect("pending entry")
+                .side = Stage5dSide::Short;
+        });
+
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["last_position_qty"] = serde_json::json!(-0.5);
+            state["HybridIntradayRuntime"]["current_side"] = Value::String("short".to_string());
+        });
+        expect_private_apply_rejects_without_mutation(envelope, |_strategy, extension| {
+            extension
+                .pending_entry
+                .as_mut()
+                .expect("pending entry")
+                .side = Stage5dSide::Long;
+        });
+    }
+
+    #[test]
+    fn stage5d_b2b_private_apply_rejects_market_or_breakout_partial_pending() {
+        expect_private_apply_rejects_without_mutation(valid_fixture(), |_strategy, extension| {
+            extension
+                .pending_entry
+                .as_mut()
+                .expect("pending entry")
+                .entry_style = Stage5dEntryStyle::Market;
+        });
+
+        expect_private_apply_rejects_without_mutation(valid_fixture(), |_strategy, extension| {
+            let entry = extension.pending_entry.as_mut().expect("pending entry");
+            entry.owner = Stage5dOwner::IntradayBreakout;
+            entry.entry_style = Stage5dEntryStyle::Market;
+        });
+    }
+
+    #[test]
+    fn stage5d_b2b_private_apply_rejects_pending_exit_while_flat_or_without_cycle() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["last_position_qty"] = serde_json::json!(0.0);
+            state["HybridIntradayRuntime"]["current_side"] = Value::Null;
+        });
+        expect_private_apply_rejects_without_mutation(envelope, |strategy, extension| {
+            extension.pending_exit = Some(Stage5dPendingExitExtension {
+                owner: Stage5dOwner::MeanReversion,
+                reason: Stage5dLifecycleReason::MeanRevTimeCutoff,
+                request_id: StrategyRequestId(
+                    uuid::Uuid::parse_str("22222222-2222-2222-2222-222222222222").expect("uuid"),
+                ),
+            });
+            let mut state =
+                serde_json::to_value(Strategy::state(strategy)).expect("strategy state");
+            state["HybridIntradayRuntime"]["pending_exit_request_id"] =
+                Value::String("22222222-2222-2222-2222-222222222222".to_string());
+            state["HybridIntradayRuntime"]["pending_exit_created_ts_utc"] =
+                serde_json::json!(1784009400_i64);
+            Strategy::set_state(
+                strategy,
+                serde_json::from_value(state).expect("mutated strategy state"),
+            );
+        });
+
+        expect_private_apply_rejects_without_mutation(valid_fixture(), |strategy, extension| {
+            extension.pending_exit = Some(Stage5dPendingExitExtension {
+                owner: Stage5dOwner::MeanReversion,
+                reason: Stage5dLifecycleReason::MeanRevTimeCutoff,
+                request_id: StrategyRequestId(
+                    uuid::Uuid::parse_str("22222222-2222-2222-2222-222222222222").expect("uuid"),
+                ),
+            });
+            let mut state =
+                serde_json::to_value(Strategy::state(strategy)).expect("strategy state");
+            state["HybridIntradayRuntime"]["active_cycle_id"] = Value::Null;
+            state["HybridIntradayRuntime"]["pending_exit_request_id"] =
+                Value::String("22222222-2222-2222-2222-222222222222".to_string());
+            state["HybridIntradayRuntime"]["pending_exit_created_ts_utc"] =
+                serde_json::json!(1784009400_i64);
+            Strategy::set_state(
+                strategy,
+                serde_json::from_value(state).expect("mutated strategy state"),
+            );
+        });
+    }
+
+    #[test]
+    fn stage5d_b2b_private_apply_rejects_bracket_reconcile_marker_while_flat() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["last_position_qty"] = serde_json::json!(0.0);
+            state["HybridIntradayRuntime"]["current_side"] = Value::Null;
+            state["HybridIntradayRuntime"]["active_cycle_id"] = Value::Null;
+        });
+        expect_private_apply_rejects_without_mutation(envelope, |_strategy, extension| {
+            extension.bracket_reconciliation_timer = Some(Stage5dBracketReconciliationTimer {
+                bracket_terminal_reconcile_started_ms: 1_784_009_300_000,
+            });
+        });
     }
 }

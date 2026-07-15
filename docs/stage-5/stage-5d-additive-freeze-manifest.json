@@ -37,7 +37,7 @@
     },
     "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": {
       "closure_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
-      "current_sha256": "99b467dd28c33db472c39352c7715ccb6c52d9c447954ac756e3ce404a795e61",
+      "current_sha256": "2ebff2a82e15d100a887f23f558914b9db9b213688869be1a9cdaa9b622f122f",
       "stripped_without_additive_regions_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
       "additive_regions": [
         "runtime-private-snapshot"
@@ -45,7 +45,7 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "34d8691d0c002f61249baf78fdcd535eab95d1b5a93840dee5020a12dc67f197",
+      "current_sha256": "a110b37f2bccdef14008fa36d79c1e68addc41ca8919d6342d5aaec9bd12e751",
       "stripped_without_additive_regions_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
       "additive_regions": [
         "type-state-transitions"
@@ -54,7 +54,7 @@
   },
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "a11dc6f717b33ffe340f387ee18c6d2601634c7cd109c2f70068fbf4dd20ccad"
+    "current_sha256": "326e943a8d9dbb9a3dc4625e4e4e1fd3c0a7a0479bdcbe84fd4b17f90ff6a362"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
