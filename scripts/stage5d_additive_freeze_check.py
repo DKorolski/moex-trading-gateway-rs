@@ -64,7 +64,7 @@ EXPECTED_CLOSED_SURFACES = {
     "dispatch": False,
     "runtime_live": False,
     "broker_execution": False,
-    "runtime_private_mutation": "controlled_validated_stage5d_apply_only",
+    "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_only",
 }
 
 EXPECTED_STAGE5C_PRIVATE_LAYOUT_EXTENSIONS = [
@@ -122,6 +122,8 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION",
     "STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION",
     "Stage5dAdditiveFreezeEvidence",
+    "Stage5dBootstrapBlockReason",
+    "Stage5dBootstrapBlocked",
     "Stage5dBootstrappedPaperStrategy",
     "Stage5dBracketReconciliationTimer",
     "Stage5dCleanupRetryState",
@@ -164,6 +166,7 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "Stage5dValidatedRuntimePrivateExtension",
     "stage5d_apply_runtime_private_extension",
     "stage5d_bind_runtime_state_loaded",
+    "stage5d_notify_broker_truth_bootstrap",
     "stage5d_retry_bind_runtime_state_loaded",
 ]
 
@@ -595,8 +598,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2b-a":
-        failures.append("stage must be 5D-b2b-a")
+    if manifest.get("stage") != "5D-b2b-b":
+        failures.append("stage must be 5D-b2b-b")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:

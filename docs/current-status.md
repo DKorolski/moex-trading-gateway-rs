@@ -160,7 +160,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   corrupt/version/config/unknown-field/semantic/timestamp/source-roundtrip/
   pending-lifecycle/recovery-index/riskgate-finalization negative validation,
   and full public Stage5d API-surface freeze enforcement. Stage 5D-b2b-a opens
-  the first controlled runtime-private export/apply bridge: exact
+  the first controlled runtime-private export/apply bridge, and Stage 5D-b2b-b
+  adds controlled broker-truth bootstrap notification after private apply: exact
   loaded-capability/envelope pair binding, validated-envelope gated private
   extension apply, retained opaque restore evidence, retry-capable opaque block
   preservation, required cleanup retry state, full pending
@@ -171,10 +172,14 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   fingerprint, pending-entry source-shape/config exactness checks,
   checker-owned exact private-layout extension enforcement with negative cases
   for self-authorized semantic drift, source-private invariant preflight, and no authoritative working-set
-  rehydration from persistence. The formal mutation policy is
-  `controlled_validated_stage5d_apply_only`; Stage 5D-b2b-a still does not implement
-  authoritative riskgate injection, Redis bridge, FINAM execution, broker
-  transport, runtime-live or autonomous loop.
+  rehydration from persistence. Stage 5D-b2b-b treats persistence working sets
+  only as hints, requires broker-truth position match, blocks missing expected
+  working orders, blocks stop hints until stop-truth surface opens, and still
+  fails closed on confirmed active target orders until ownership mapping opens.
+  The formal mutation policy is
+  `controlled_validated_stage5d_apply_then_broker_truth_bootstrap_only`; Stage
+  5D-b2b-b still does not implement authoritative riskgate injection, Redis
+  bridge, FINAM execution, broker transport, runtime-live or autonomous loop.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

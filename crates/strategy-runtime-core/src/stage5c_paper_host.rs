@@ -90,6 +90,51 @@ impl Stage5cRuntimeStateLoadedPaperStrategy {
     }
 }
 
+pub(crate) fn stage5d_bootstrap_preserving_loaded_at(
+    loaded: Stage5cRuntimeStateLoadedPaperStrategy,
+    notification_now: DateTime<Utc>,
+) -> Result<
+    Stage5cBootstrappedPaperStrategy,
+    Box<(
+        Stage5cRuntimeStateLoadedPaperStrategy,
+        Stage5cBootstrapNotificationError,
+    )>,
+> {
+    if let Err(error) = validate_stage5cb_notification(
+        loaded.stage5d_strategy(),
+        loaded.stage5d_admission(),
+        notification_now,
+    ) {
+        return Err(Box::new((loaded, error)));
+    }
+    let snapshot = loaded.stage5d_admission().bootstrap_snapshot();
+    if snapshot
+        .target_position_qty
+        .to_f64()
+        .filter(|value| value.is_finite())
+        .is_none()
+    {
+        return Err(Box::new((
+            loaded,
+            Stage5cBootstrapNotificationError::PositionQuantityNotRepresentable,
+        )));
+    }
+    if snapshot
+        .target_open_positions
+        .first()
+        .and_then(|position| position.avg_price)
+        .is_some_and(|price| price.to_f64().filter(|value| value.is_finite()).is_none())
+    {
+        return Err(Box::new((
+            loaded,
+            Stage5cBootstrapNotificationError::PositionAveragePriceNotRepresentable,
+        )));
+    }
+
+    Ok(notify_stage5c_bootstrap_at(loaded, notification_now)
+        .expect("Stage 5D prevalidated bootstrap notification must not fail"))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Stage5cRuntimeStateLoadOrigin {
     CleanStart,
@@ -134,6 +179,24 @@ impl Stage5cPaperHostAdmission {
             runtime_host_attached: false,
             intent_sink_attached: false,
         }
+    }
+
+    pub(crate) fn stage5d_test_with_target_active_orders(
+        mut self,
+        target_active_orders: Vec<broker_core::BrokerOrderSnapshot>,
+    ) -> Self {
+        self.bootstrap_snapshot.account_active_orders_count = target_active_orders.len();
+        self.bootstrap_snapshot.target_active_orders = target_active_orders;
+        self
+    }
+
+    pub(crate) fn stage5d_test_with_target_position_qty(
+        mut self,
+        target_position_qty: rust_decimal::Decimal,
+    ) -> Self {
+        self.bootstrap_snapshot.target_position_qty = target_position_qty;
+        self.bootstrap_snapshot.target_is_flat = target_position_qty == rust_decimal::Decimal::ZERO;
+        self
     }
 }
 

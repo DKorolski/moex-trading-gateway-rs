@@ -11,6 +11,7 @@ use broker_core::{
     InstrumentId, Market, StrategyRequestId,
 };
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, Utc, Weekday};
+use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -95,7 +96,33 @@ impl Stage5dEnvelopeBoundRuntimeStateLoaded {
 
 /// Opaque proof that the Stage 5D restore path has passed controlled bootstrap.
 pub struct Stage5dBootstrappedPaperStrategy {
-    _private: (),
+    bootstrapped: crate::stage5c_paper_host::Stage5cBootstrappedPaperStrategy,
+    envelope: Stage5dPersistenceEnvelope,
+}
+
+impl Stage5dBootstrappedPaperStrategy {
+    /// Redacted snapshot id for evidence and diagnostics.
+    pub fn snapshot_id(&self) -> &str {
+        &self.envelope.snapshot_id
+    }
+
+    /// Envelope schema version for evidence and diagnostics.
+    pub fn schema_version(&self) -> u16 {
+        self.envelope.schema_version
+    }
+
+    /// Redacted fingerprint of the validated restore evidence retained inside
+    /// this opaque capability.
+    pub fn evidence_fingerprint(&self) -> &str {
+        &self.envelope.payload_checksum_sha256
+    }
+
+    /// Redacted proof that the Stage 5C bootstrap callback already completed
+    /// inside this opaque Stage 5D capability.
+    pub fn bootstrap_notified(&self) -> bool {
+        let _ = &self.bootstrapped;
+        true
+    }
 }
 
 /// Opaque proof that authoritative riskgate state has been injected before the
@@ -128,6 +155,50 @@ impl Stage5dRuntimePrivateApplyBlocked {
         let _ = &self.loaded;
         true
     }
+}
+
+/// Recoverable Stage 5D bootstrap block. The original applied capability is
+/// retained internally so broker-truth bootstrap can be retried after the
+/// authoritative snapshot is corrected, without exposing runtime internals.
+pub struct Stage5dBootstrapBlocked {
+    applied: Box<Stage5dPrivateStateAppliedPaperStrategy>,
+    reason: Stage5dBootstrapBlockReason,
+}
+
+impl Stage5dBootstrapBlocked {
+    /// Return the redacted bootstrap block reason.
+    pub fn reason(&self) -> Stage5dBootstrapBlockReason {
+        self.reason
+    }
+
+    /// Redacted proof that the pre-bootstrap applied capability was preserved.
+    pub fn input_capability_preserved(&self) -> bool {
+        let _ = &self.applied;
+        true
+    }
+
+    /// Redacted snapshot id for evidence and diagnostics.
+    pub fn snapshot_id(&self) -> &str {
+        self.applied.snapshot_id()
+    }
+}
+
+/// Public redacted Stage 5D bootstrap blocker categories.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage5dBootstrapBlockReason {
+    AdmissionExpired,
+    StrategyTargetMismatch,
+    StrategyTickSizeMismatch,
+    ActiveOrdersRequireOwnershipMapping,
+    SnapshotAccountMismatch,
+    SnapshotInstrumentMismatch,
+    PositionQuantityNotRepresentable,
+    PositionAveragePriceNotRepresentable,
+    BindingMismatch,
+    BrokerTruthPositionMismatch,
+    ExpectedWorkingOrderMissing,
+    ExpectedWorkingStopUnsupported,
+    SemanticStateInvalid,
 }
 
 /// Opaque proof that the persistence envelope passed strict Stage 5D-b2a
@@ -214,6 +285,155 @@ pub fn stage5d_apply_runtime_private_extension(
             ),
         envelope,
     })
+}
+
+/// Notify controlled broker-truth bootstrap after Stage 5D runtime-private
+/// state has been applied.
+///
+/// This consumes only [`Stage5dPrivateStateAppliedPaperStrategy`]. The retained
+/// persistence working sets are treated as expected hints, while the Stage 5C
+/// admission broker snapshot remains authoritative. Missing or mismatched
+/// broker objects fail closed before any bootstrap callback is emitted.
+pub fn stage5d_notify_broker_truth_bootstrap(
+    applied: Stage5dPrivateStateAppliedPaperStrategy,
+) -> Result<Stage5dBootstrappedPaperStrategy, Stage5dBootstrapBlocked> {
+    stage5d_notify_broker_truth_bootstrap_at(applied, Utc::now())
+}
+
+fn stage5d_notify_broker_truth_bootstrap_at(
+    applied: Stage5dPrivateStateAppliedPaperStrategy,
+    notification_now: DateTime<Utc>,
+) -> Result<Stage5dBootstrappedPaperStrategy, Stage5dBootstrapBlocked> {
+    let Stage5dPrivateStateAppliedPaperStrategy { loaded, envelope } = applied;
+    if let Err(reason) = validate_stage5d_broker_truth_bootstrap(&loaded, &envelope) {
+        return Err(stage5d_bootstrap_blocked(loaded, envelope, reason));
+    }
+
+    match crate::stage5c_paper_host::stage5d_bootstrap_preserving_loaded_at(
+        loaded,
+        notification_now,
+    ) {
+        Ok(bootstrapped) => Ok(Stage5dBootstrappedPaperStrategy {
+            bootstrapped,
+            envelope,
+        }),
+        Err(blocked) => {
+            let (loaded, error) = *blocked;
+            Err(stage5d_bootstrap_blocked(
+                loaded,
+                envelope,
+                Stage5dBootstrapBlockReason::from(error),
+            ))
+        }
+    }
+}
+
+fn stage5d_bootstrap_blocked(
+    loaded: crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy,
+    envelope: Stage5dPersistenceEnvelope,
+    reason: Stage5dBootstrapBlockReason,
+) -> Stage5dBootstrapBlocked {
+    Stage5dBootstrapBlocked {
+        applied: Box::new(Stage5dPrivateStateAppliedPaperStrategy { loaded, envelope }),
+        reason,
+    }
+}
+
+fn validate_stage5d_broker_truth_bootstrap(
+    loaded: &crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy,
+    envelope: &Stage5dPersistenceEnvelope,
+) -> Result<(), Stage5dBootstrapBlockReason> {
+    let admission = loaded.stage5d_admission();
+    let snapshot = admission.bootstrap_snapshot();
+    if admission.strategy_id() != envelope.binding.strategy_id
+        || admission.account_id() != &envelope.binding.account_id
+        || admission.target_instrument() != &envelope.binding.instrument_id.to_instrument_id()
+        || snapshot.account_id != envelope.binding.account_id
+        || snapshot.instrument != envelope.binding.instrument_id.to_instrument_id()
+    {
+        return Err(Stage5dBootstrapBlockReason::BindingMismatch);
+    }
+
+    let persisted_qty = stage5d_persisted_position_qty(envelope)?;
+    let broker_qty = snapshot
+        .target_position_qty
+        .to_f64()
+        .filter(|value| value.is_finite())
+        .ok_or(Stage5dBootstrapBlockReason::PositionQuantityNotRepresentable)?;
+    if (persisted_qty - broker_qty).abs() > f64::EPSILON {
+        return Err(Stage5dBootstrapBlockReason::BrokerTruthPositionMismatch);
+    }
+
+    let broker_active_order_ids: HashSet<_> = snapshot
+        .target_active_orders
+        .iter()
+        .filter_map(|order| order.broker_order_id.as_ref())
+        .collect();
+    for expected in &envelope
+        .runtime_private_extension
+        .expected_working_sets
+        .expected_working_order_ids
+    {
+        if !broker_active_order_ids.contains(expected) {
+            return Err(Stage5dBootstrapBlockReason::ExpectedWorkingOrderMissing);
+        }
+    }
+    if !envelope
+        .runtime_private_extension
+        .expected_working_sets
+        .expected_working_stop_order_ids
+        .is_empty()
+    {
+        return Err(Stage5dBootstrapBlockReason::ExpectedWorkingStopUnsupported);
+    }
+
+    Ok(())
+}
+
+fn stage5d_persisted_position_qty(
+    envelope: &Stage5dPersistenceEnvelope,
+) -> Result<f64, Stage5dBootstrapBlockReason> {
+    let semantic: Stage5dSemanticStrategyStateV1 =
+        serde_json::from_value(envelope.strategy_state.strategy_state_json.clone())
+            .map_err(|_| Stage5dBootstrapBlockReason::SemanticStateInvalid)?;
+    let Stage5dSemanticStrategyStateV1::HybridIntradayRuntime(state) = semantic;
+    if !state.last_position_qty.is_finite() {
+        return Err(Stage5dBootstrapBlockReason::SemanticStateInvalid);
+    }
+    Ok(state.last_position_qty)
+}
+
+impl From<crate::stage5c_paper_host::Stage5cBootstrapNotificationError>
+    for Stage5dBootstrapBlockReason
+{
+    fn from(error: crate::stage5c_paper_host::Stage5cBootstrapNotificationError) -> Self {
+        match error {
+            crate::stage5c_paper_host::Stage5cBootstrapNotificationError::AdmissionExpired => {
+                Self::AdmissionExpired
+            }
+            crate::stage5c_paper_host::Stage5cBootstrapNotificationError::StrategyTargetMismatch => {
+                Self::StrategyTargetMismatch
+            }
+            crate::stage5c_paper_host::Stage5cBootstrapNotificationError::StrategyTickSizeMismatch => {
+                Self::StrategyTickSizeMismatch
+            }
+            crate::stage5c_paper_host::Stage5cBootstrapNotificationError::ActiveOrdersRequireOwnershipMapping => {
+                Self::ActiveOrdersRequireOwnershipMapping
+            }
+            crate::stage5c_paper_host::Stage5cBootstrapNotificationError::SnapshotAccountMismatch => {
+                Self::SnapshotAccountMismatch
+            }
+            crate::stage5c_paper_host::Stage5cBootstrapNotificationError::SnapshotInstrumentMismatch => {
+                Self::SnapshotInstrumentMismatch
+            }
+            crate::stage5c_paper_host::Stage5cBootstrapNotificationError::PositionQuantityNotRepresentable => {
+                Self::PositionQuantityNotRepresentable
+            }
+            crate::stage5c_paper_host::Stage5cBootstrapNotificationError::PositionAveragePriceNotRepresentable => {
+                Self::PositionAveragePriceNotRepresentable
+            }
+        }
+    }
 }
 
 fn validate_loaded_envelope_binding(
@@ -1753,6 +1973,117 @@ mod tests {
         }
     }
 
+    fn expect_stage5d_bootstrap_blocked<T>(
+        result: Result<T, Stage5dBootstrapBlocked>,
+        message: &str,
+    ) -> Stage5dBootstrapBlocked {
+        match result {
+            Ok(_) => panic!("{message}"),
+            Err(blocked) => blocked,
+        }
+    }
+
+    fn expect_stage5d_bootstrap_ok<T>(
+        result: Result<T, Stage5dBootstrapBlocked>,
+        message: &str,
+    ) -> T {
+        match result {
+            Ok(value) => value,
+            Err(blocked) => panic!("{message}: {:?}", blocked.reason()),
+        }
+    }
+
+    fn applied_stage5d_fixture() -> (
+        Stage5dPrivateStateAppliedPaperStrategy,
+        Stage5dPersistenceEnvelope,
+    ) {
+        applied_stage5d_fixture_with(|_| {}, |admission| admission)
+    }
+
+    fn applied_stage5d_fixture_with(
+        envelope_mutator: impl FnOnce(&mut Stage5dPersistenceEnvelope),
+        admission_mutator: impl FnOnce(
+            crate::stage5c_paper_host::Stage5cPaperHostAdmission,
+        ) -> crate::stage5c_paper_host::Stage5cPaperHostAdmission,
+    ) -> (
+        Stage5dPrivateStateAppliedPaperStrategy,
+        Stage5dPersistenceEnvelope,
+    ) {
+        let mut envelope = flat_persisted_fixture();
+        envelope_mutator(&mut envelope);
+        let mut strategy = stage5d_test_strategy_with_config(|config| {
+            config.qty = 3.0;
+        });
+        restore_semantic_state(&mut strategy, &envelope);
+        bind_fixture_to_strategy_config(&mut envelope, &strategy);
+        let position_qty = match &envelope.strategy_state.strategy_state_json {
+            Value::Object(root) => root
+                .get("HybridIntradayRuntime")
+                .and_then(|state| state.get("last_position_qty"))
+                .and_then(|qty| qty.as_f64())
+                .unwrap_or_default(),
+            _ => 0.0,
+        };
+        let admission = crate::stage5c_paper_host::Stage5cPaperHostAdmission::stage5d_test_new(
+            envelope.binding.strategy_id.clone(),
+            envelope.binding.account_id.clone(),
+            envelope.binding.instrument_id.to_instrument_id(),
+            0.5,
+            Decimal::from_f64_retain(position_qty).expect("test position qty must convert"),
+            envelope.persisted_at_ts_utc,
+        );
+        let restored = crate::runtime_compat::RuntimeStateRestored {
+            known_order_ids: envelope.recovery_indexes.known_order_ids.clone(),
+            pending_requests: envelope.recovery_indexes.pending_requests.clone(),
+        };
+        let loaded = crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
+            strategy,
+            admission_mutator(admission),
+            restored,
+            load_origin_for_envelope(&envelope),
+        );
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("mutated envelope remains schema valid");
+        let bound = expect_stage5d_ok(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "mutated fixture must bind",
+        );
+        let applied = expect_stage5d_ok(
+            stage5d_apply_runtime_private_extension(bound),
+            "mutated fixture must apply",
+        );
+        (applied, envelope)
+    }
+
+    fn stage5d_active_order(
+        account_id: BrokerAccountId,
+        instrument: InstrumentId,
+        order_id: BrokerOrderId,
+        received_ts: DateTime<Utc>,
+    ) -> broker_core::BrokerOrderSnapshot {
+        broker_core::BrokerOrderSnapshot {
+            account_id,
+            broker_order_id: Some(order_id),
+            client_order_id: None,
+            instrument,
+            side: broker_core::OrderSide::Buy,
+            order_type: broker_core::OrderType::Limit,
+            time_in_force: Some(broker_core::TimeInForce::Day),
+            status: broker_core::OrderStatus::Working,
+            lifecycle: broker_core::BrokerOrderLifecycle::Active,
+            qty: Decimal::ONE,
+            filled_qty: Decimal::ZERO,
+            remaining_qty: Some(Decimal::ONE),
+            limit_price: Some(Decimal::new(2210, 0)),
+            broker_asset_id: None,
+            board: None,
+            expiration_date: None,
+            source_ts: Some(received_ts),
+            received_ts,
+        }
+    }
+
     #[test]
     fn stage5d_b2a_valid_fixture_roundtrips_and_validates_checksum() {
         let envelope = valid_fixture();
@@ -2826,6 +3157,156 @@ mod tests {
         );
         assert_eq!(applied.evidence_fingerprint(), checksum);
         assert!(applied.runtime_private_applied());
+    }
+
+    #[test]
+    fn stage5d_b2bb_controlled_broker_truth_bootstrap_succeeds_after_private_apply() {
+        let (applied, envelope) = applied_stage5d_fixture();
+        let checksum = envelope.payload_checksum_sha256.clone();
+
+        let bootstrapped = expect_stage5d_bootstrap_ok(
+            stage5d_notify_broker_truth_bootstrap_at(applied, envelope.persisted_at_ts_utc),
+            "exact broker truth bootstrap must succeed",
+        );
+
+        assert_eq!(bootstrapped.snapshot_id(), "SNAP_STAGE5D_B2A_0001");
+        assert_eq!(
+            bootstrapped.schema_version(),
+            STAGE5D_PERSISTENCE_ENVELOPE_SCHEMA_VERSION
+        );
+        assert_eq!(bootstrapped.evidence_fingerprint(), checksum);
+        assert!(bootstrapped.bootstrap_notified());
+    }
+
+    #[test]
+    fn stage5d_b2bb_bootstrap_blocks_position_drift_before_callback() {
+        let (applied, envelope) = applied_stage5d_fixture_with(
+            |_| {},
+            |admission| admission.stage5d_test_with_target_position_qty(Decimal::new(15, 1)),
+        );
+
+        let blocked = expect_stage5d_bootstrap_blocked(
+            stage5d_notify_broker_truth_bootstrap_at(applied, envelope.persisted_at_ts_utc),
+            "broker/persisted position drift must block bootstrap",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dBootstrapBlockReason::BrokerTruthPositionMismatch
+        );
+        assert!(blocked.input_capability_preserved());
+        assert_eq!(blocked.snapshot_id(), "SNAP_STAGE5D_B2A_0001");
+    }
+
+    #[test]
+    fn stage5d_b2bb_bootstrap_blocks_missing_expected_working_order() {
+        let (applied, envelope) = applied_stage5d_fixture_with(
+            |envelope| {
+                envelope
+                    .runtime_private_extension
+                    .expected_working_sets
+                    .expected_working_order_ids
+                    .push(BrokerOrderId::new("EXPECTED-WORKING-ORDER"));
+                envelope
+                    .recovery_indexes
+                    .known_order_ids
+                    .push(BrokerOrderId::new("EXPECTED-WORKING-ORDER"));
+            },
+            |admission| admission,
+        );
+
+        let blocked = expect_stage5d_bootstrap_blocked(
+            stage5d_notify_broker_truth_bootstrap_at(applied, envelope.persisted_at_ts_utc),
+            "expected working order absent from broker truth must block bootstrap",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dBootstrapBlockReason::ExpectedWorkingOrderMissing
+        );
+        assert!(blocked.input_capability_preserved());
+    }
+
+    #[test]
+    fn stage5d_b2bb_bootstrap_treats_confirmed_active_order_as_closed_stage5c_surface() {
+        let expected_order_id_for_envelope = BrokerOrderId::new("EXPECTED-WORKING-ORDER");
+        let expected_order_id_for_admission = expected_order_id_for_envelope.clone();
+        let (applied, envelope) = applied_stage5d_fixture_with(
+            |envelope| {
+                envelope
+                    .runtime_private_extension
+                    .expected_working_sets
+                    .expected_working_order_ids
+                    .push(expected_order_id_for_envelope.clone());
+                envelope
+                    .recovery_indexes
+                    .known_order_ids
+                    .push(expected_order_id_for_envelope);
+            },
+            |admission| {
+                let order = stage5d_active_order(
+                    admission.account_id().clone(),
+                    admission.target_instrument().clone(),
+                    expected_order_id_for_admission,
+                    admission.checked_ts(),
+                );
+                admission.stage5d_test_with_target_active_orders(vec![order])
+            },
+        );
+
+        let blocked = expect_stage5d_bootstrap_blocked(
+            stage5d_notify_broker_truth_bootstrap_at(applied, envelope.persisted_at_ts_utc),
+            "active orders are matched but still closed until ownership mapping opens",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dBootstrapBlockReason::ActiveOrdersRequireOwnershipMapping
+        );
+        assert!(blocked.input_capability_preserved());
+    }
+
+    #[test]
+    fn stage5d_b2bb_bootstrap_blocks_expected_stop_hints_until_stop_surface_opens() {
+        let (applied, envelope) = applied_stage5d_fixture_with(
+            |envelope| {
+                envelope
+                    .runtime_private_extension
+                    .expected_working_sets
+                    .expected_working_stop_order_ids
+                    .push(BrokerStopOrderId::new("EXPECTED-WORKING-STOP"));
+                envelope
+                    .recovery_indexes
+                    .known_stop_order_ids
+                    .push(BrokerStopOrderId::new("EXPECTED-WORKING-STOP"));
+            },
+            |admission| admission,
+        );
+
+        let blocked = expect_stage5d_bootstrap_blocked(
+            stage5d_notify_broker_truth_bootstrap_at(applied, envelope.persisted_at_ts_utc),
+            "expected stop hints must block until broker stop truth surface opens",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dBootstrapBlockReason::ExpectedWorkingStopUnsupported
+        );
+        assert!(blocked.input_capability_preserved());
+    }
+
+    #[test]
+    fn stage5d_b2bb_bootstrap_preserves_applied_capability_on_expired_admission() {
+        let (applied, envelope) = applied_stage5d_fixture();
+
+        let blocked = expect_stage5d_bootstrap_blocked(
+            stage5d_notify_broker_truth_bootstrap_at(
+                applied,
+                envelope.persisted_at_ts_utc + chrono::Duration::hours(2),
+            ),
+            "expired admission must block without losing applied capability",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dBootstrapBlockReason::AdmissionExpired
+        );
+        assert!(blocked.input_capability_preserved());
     }
 
     #[test]

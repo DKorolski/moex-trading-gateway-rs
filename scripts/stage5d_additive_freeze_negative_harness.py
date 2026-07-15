@@ -174,7 +174,7 @@ def mutate_closed_surface_downgrade(root: Path) -> None:
     )
     replace_once(
         root / "docs/stage-5/stage-5d-additive-freeze-manifest.json",
-        '"runtime_private_mutation": "controlled_validated_stage5d_apply_only"',
+        '"runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_only"',
         '"runtime_private_mutation": "raw_mutation_allowed"',
     )
 

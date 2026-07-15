@@ -1,11 +1,13 @@
-# Stage 5D-b2b-a — runtime-private export/apply bridge foundation
+# Stage 5D-b2b-a/b — runtime-private apply and controlled bootstrap bridge
 
 Status: review candidate.
 
 Stage 5D-b2a closed the strict persistence schema and validated-envelope
-capability. Stage 5D-b2b-a opens the first controlled implementation slice:
-runtime-private extension export/apply, still without Redis, FINAM, broker
-transport, command dispatch, runtime-live or real order execution.
+capability. Stage 5D-b2b-a opened the first controlled implementation slice:
+runtime-private extension export/apply. Stage 5D-b2b-b adds the next controlled
+type-state transition: broker-truth bootstrap notification after private apply.
+Redis, FINAM, broker transport, command dispatch, runtime-live and real order
+execution remain closed.
 
 ## Scope
 
@@ -13,6 +15,7 @@ Implemented:
 
 - public `stage5d_bind_runtime_state_loaded(...)` transition;
 - public `stage5d_apply_runtime_private_extension(...)` transition;
+- public `stage5d_notify_broker_truth_bootstrap(...)` transition;
 - bind input requires `Stage5dValidatedPersistenceEnvelope` plus a Stage 5C
   loaded runtime capability;
 - apply input requires opaque `Stage5dEnvelopeBoundRuntimeStateLoaded`;
@@ -25,6 +28,12 @@ Implemented:
   block without exposing raw strategy state;
 - successful apply retains the validated restore evidence privately and exposes
   only redacted `snapshot_id`, `schema_version` and `evidence_fingerprint`;
+- bootstrap input requires the opaque `Stage5dPrivateStateAppliedPaperStrategy`
+  produced by the apply transition;
+- bootstrap output is opaque `Stage5dBootstrappedPaperStrategy`;
+- bootstrap block is represented by opaque `Stage5dBootstrapBlocked`, exposes
+  only redacted reason/snapshot id, and preserves the input applied capability
+  internally;
 - wrapper additive region now exports/applies runtime-private DTO fields:
   pending entry payload, partial-entry timer, pending-exit context,
   bracket-reconciliation timer, cleanup retry state, last processed bar
@@ -32,10 +41,11 @@ Implemented:
 
 Not implemented in this slice:
 
-- Stage 5D bootstrap wrapper;
 - authoritative riskgate injection;
 - final return to `Stage5cRuntimeStateRestoredPaperStrategy`;
-- broker working-set authority restoration;
+- broker working-set authority restoration beyond fail-closed hint checking;
+- active-order ownership mapping;
+- stop-order broker-truth surface;
 - Redis/FINAM/transport/dispatch/runtime-live.
 
 ## Working-set ownership
@@ -43,6 +53,17 @@ Not implemented in this slice:
 `expected_working_sets` remains a non-authoritative hint. The apply bridge does
 not rehydrate runtime working maps from persistence. Actual active objects must
 come from broker truth in a later gate.
+
+Stage 5D-b2b-b checks these hints against the authoritative Stage 5C admission
+broker snapshot before bootstrap notification:
+
+- persisted position quantity must match target broker truth position quantity;
+- expected working order ids must be present in target active broker orders;
+- confirmed target active orders still fail closed at Stage 5C with
+  `ActiveOrdersRequireOwnershipMapping` until ownership mapping is explicitly
+  opened;
+- expected working stop ids fail closed with
+  `ExpectedWorkingStopUnsupported` until a broker stop-truth surface is opened.
 
 ## Pair-binding contract
 
@@ -120,11 +141,22 @@ Regression tests prove:
   above source max, partial-entry sign/style violations, pending-entry
   target/config mismatch, MR/BO shape mismatches, pending-exit while flat/without
   active cycle, and bracket reconcile marker while flat.
+- controlled broker-truth bootstrap succeeds after private apply on an exact
+  flat persisted/broker snapshot;
+- position drift between persisted semantic state and broker truth blocks before
+  callback and preserves the applied capability;
+- missing expected working orders block before callback;
+- confirmed active working orders are matched, then still fail closed at the
+  Stage 5C ownership-mapping boundary;
+- expected stop hints fail closed until the stop-truth surface opens;
+- expired admission preserves the applied capability and exposes only a redacted
+  `AdmissionExpired` reason.
 
-The Stage 5D additive manifest now labels this baseline as `5D-b2b-a` and pins
-the updated public API surface including the controlled bind/apply/retry Stage
-5D transitions. The formal surface policy records
-`runtime_private_mutation = controlled_validated_stage5d_apply_only`; Redis,
+The Stage 5D additive manifest now labels this baseline as `5D-b2b-b` and pins
+the updated public API surface including the controlled bind/apply/bootstrap/
+retry Stage 5D transitions. The formal surface policy records
+`runtime_private_mutation =
+controlled_validated_stage5d_apply_then_broker_truth_bootstrap_only`; Redis,
 FINAM, transport, dispatch, runtime-live and broker execution remain closed.
 The manifest also records a controlled private-layout Stage 5C extension for
 the crate-private persisted-vs-clean load provenance marker; Stage 5C public API

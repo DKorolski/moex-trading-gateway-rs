@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-b2b-a",
+  "stage": "5D-b2b-b",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -28,7 +28,7 @@
   "approved_bridge_files": {
     "crates/strategy-runtime-core/src/lib.rs": {
       "closure_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
-      "current_sha256": "52a86da966d6c3ac86e5b18b018490e20f390e1009ca653bb5bf577581b817fc",
+      "current_sha256": "6aa860ff0c611c39df64a1eb8b99815f544312c7a8b00b7986d06d4d84cd7e43",
       "stripped_without_additive_regions_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
       "additive_regions": [
         "lib-stage5d-module",
@@ -45,7 +45,7 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "94c7fe82dad84d9bfc8c876b8b03beb09840bf3e35e717e54c85e81015692ce4",
+      "current_sha256": "a0679bd3962b53aa09c7a3f4e0f5008ca23138081e02ca697852d49f46124dfd",
       "stripped_without_additive_regions_sha256": "0ea1a8982965eb34cc113d41c821b22a3ab2c2e2f5a80112ce2561b48fc4ed3c",
       "additive_regions": [
         "type-state-transitions"
@@ -62,7 +62,7 @@
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "2a9aa66dfe30c1e5e92e6b9c4a018ada6c6068f341bcb91836c6bd293280ca0b"
+    "current_sha256": "42dbeb4238206f33fda386b986794bbef5c220706ff40b2f77f8995dc0ba7136"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -71,6 +71,8 @@
     "STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION",
     "STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION",
     "Stage5dAdditiveFreezeEvidence",
+    "Stage5dBootstrapBlockReason",
+    "Stage5dBootstrapBlocked",
     "Stage5dBootstrappedPaperStrategy",
     "Stage5dBracketReconciliationTimer",
     "Stage5dCleanupRetryState",
@@ -113,6 +115,7 @@
     "Stage5dValidatedRuntimePrivateExtension",
     "stage5d_apply_runtime_private_extension",
     "stage5d_bind_runtime_state_loaded",
+    "stage5d_notify_broker_truth_bootstrap",
     "stage5d_retry_bind_runtime_state_loaded"
   ],
   "closed_surfaces": {
@@ -122,7 +125,7 @@
     "dispatch": false,
     "runtime_live": false,
     "broker_execution": false,
-    "runtime_private_mutation": "controlled_validated_stage5d_apply_only"
+    "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_only"
   },
   "negative_cases": [
     "stage5c_api_drift",
@@ -168,6 +171,8 @@
       "STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION",
       "STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION",
       "Stage5dAdditiveFreezeEvidence",
+      "Stage5dBootstrapBlockReason",
+      "Stage5dBootstrapBlocked",
       "Stage5dBootstrappedPaperStrategy",
       "Stage5dBracketReconciliationTimer",
       "Stage5dCleanupRetryState",
@@ -210,6 +215,7 @@
       "Stage5dValidatedRuntimePrivateExtension",
       "stage5d_apply_runtime_private_extension",
       "stage5d_bind_runtime_state_loaded",
+      "stage5d_notify_broker_truth_bootstrap",
       "stage5d_retry_bind_runtime_state_loaded"
     ],
     "public_constants": [
@@ -249,6 +255,10 @@
         "signature": "pub fn stage5d_bind_runtime_state_loaded( loaded: crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy, validated: Stage5dValidatedPersistenceEnvelope, ) -> Result<Stage5dEnvelopeBoundRuntimeStateLoaded, Stage5dRuntimePrivateApplyBlocked>"
       },
       {
+        "name": "stage5d_notify_broker_truth_bootstrap",
+        "signature": "pub fn stage5d_notify_broker_truth_bootstrap( applied: Stage5dPrivateStateAppliedPaperStrategy, ) -> Result<Stage5dBootstrappedPaperStrategy, Stage5dBootstrapBlocked>"
+      },
+      {
         "name": "stage5d_retry_bind_runtime_state_loaded",
         "signature": "pub fn stage5d_retry_bind_runtime_state_loaded( blocked: Stage5dRuntimePrivateApplyBlocked, validated: Stage5dValidatedPersistenceEnvelope, ) -> Result<Stage5dEnvelopeBoundRuntimeStateLoaded, Stage5dRuntimePrivateApplyBlocked>"
       }
@@ -256,6 +266,34 @@
     "public_types": [
       {
         "name": "Stage5dAdditiveFreezeEvidence",
+        "kind": "struct",
+        "opaque": true,
+        "public_fields": [],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dBootstrapBlockReason",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "AdmissionExpired",
+          "StrategyTargetMismatch",
+          "StrategyTickSizeMismatch",
+          "ActiveOrdersRequireOwnershipMapping",
+          "SnapshotAccountMismatch",
+          "SnapshotInstrumentMismatch",
+          "PositionQuantityNotRepresentable",
+          "PositionAveragePriceNotRepresentable",
+          "BindingMismatch",
+          "BrokerTruthPositionMismatch",
+          "ExpectedWorkingOrderMissing",
+          "ExpectedWorkingStopUnsupported",
+          "SemanticStateInvalid"
+        ]
+      },
+      {
+        "name": "Stage5dBootstrapBlocked",
         "kind": "struct",
         "opaque": true,
         "public_fields": [],
@@ -1285,6 +1323,41 @@
         "signature": "pub fn schema_version(&self) -> u16"
       },
       {
+        "type": "Stage5dBootstrapBlocked",
+        "name": "input_capability_preserved",
+        "signature": "pub fn input_capability_preserved(&self) -> bool"
+      },
+      {
+        "type": "Stage5dBootstrapBlocked",
+        "name": "reason",
+        "signature": "pub fn reason(&self) -> Stage5dBootstrapBlockReason"
+      },
+      {
+        "type": "Stage5dBootstrapBlocked",
+        "name": "snapshot_id",
+        "signature": "pub fn snapshot_id(&self) -> &str"
+      },
+      {
+        "type": "Stage5dBootstrappedPaperStrategy",
+        "name": "bootstrap_notified",
+        "signature": "pub fn bootstrap_notified(&self) -> bool"
+      },
+      {
+        "type": "Stage5dBootstrappedPaperStrategy",
+        "name": "evidence_fingerprint",
+        "signature": "pub fn evidence_fingerprint(&self) -> &str"
+      },
+      {
+        "type": "Stage5dBootstrappedPaperStrategy",
+        "name": "schema_version",
+        "signature": "pub fn schema_version(&self) -> u16"
+      },
+      {
+        "type": "Stage5dBootstrappedPaperStrategy",
+        "name": "snapshot_id",
+        "signature": "pub fn snapshot_id(&self) -> &str"
+      },
+      {
         "type": "Stage5dEnvelopeBoundRuntimeStateLoaded",
         "name": "evidence_fingerprint",
         "signature": "pub fn evidence_fingerprint(&self) -> &str"
@@ -1377,6 +1450,7 @@
     ],
     "opaque_capabilities": [
       "Stage5dAdditiveFreezeEvidence",
+      "Stage5dBootstrapBlocked",
       "Stage5dBootstrappedPaperStrategy",
       "Stage5dEnvelopeBoundRuntimeStateLoaded",
       "Stage5dPrivateStateAppliedPaperStrategy",
@@ -1387,6 +1461,7 @@
       "Stage5dValidatedRuntimePrivateExtension"
     ],
     "externally_constructible_enums": [
+      "Stage5dBootstrapBlockReason",
       "Stage5dEntryStyle",
       "Stage5dEnvelopeValidationError",
       "Stage5dLifecycleReason",
@@ -1400,15 +1475,15 @@
       "Stage5dStructuredTimestampFormat",
       "Stage5dTimestampUnits"
     ],
-    "normalized_signature_hash": "c2e310a5f6da27d54503379fa64b475f825cbd0481dcfdf4998d1c3378abec5e",
+    "normalized_signature_hash": "e4b1933316babb05c857c0f3460a3aabef78178e44b39203ab36b76d7cc07f12",
     "public_surface_counts": {
-      "public_reexports": 49,
+      "public_reexports": 52,
       "public_constants": 5,
-      "public_free_functions": 3,
-      "public_types": 41,
-      "public_methods": 20,
-      "opaque_capabilities": 9,
-      "externally_constructible_enums": 12
+      "public_free_functions": 4,
+      "public_types": 43,
+      "public_methods": 27,
+      "opaque_capabilities": 10,
+      "externally_constructible_enums": 13
     }
   },
   "stage5d_public_api_summary": {
