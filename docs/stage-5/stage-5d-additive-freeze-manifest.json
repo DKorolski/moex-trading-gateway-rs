@@ -28,7 +28,7 @@
   "approved_bridge_files": {
     "crates/strategy-runtime-core/src/lib.rs": {
       "closure_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
-      "current_sha256": "6aa860ff0c611c39df64a1eb8b99815f544312c7a8b00b7986d06d4d84cd7e43",
+      "current_sha256": "d67bbbebe4aa0970ba1b65173c5a9bafdc74b5ee81c17c06ce015fcbe33de28d",
       "stripped_without_additive_regions_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
       "additive_regions": [
         "lib-stage5d-module",
@@ -62,7 +62,7 @@
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "42dbeb4238206f33fda386b986794bbef5c220706ff40b2f77f8995dc0ba7136"
+    "current_sha256": "509cd1fb5daedbfd67f79e04f0c8286dee4136d0a3503e79d187db829c1ef483"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -116,7 +116,8 @@
     "stage5d_apply_runtime_private_extension",
     "stage5d_bind_runtime_state_loaded",
     "stage5d_notify_broker_truth_bootstrap",
-    "stage5d_retry_bind_runtime_state_loaded"
+    "stage5d_retry_bind_runtime_state_loaded",
+    "stage5d_retry_broker_truth_bootstrap"
   ],
   "closed_surfaces": {
     "redis": false,
@@ -161,7 +162,12 @@
     "private_layout_extension_wrapper_path",
     "private_layout_extension_lib_path",
     "private_layout_self_authorized_semantic_drift",
-    "private_layout_extension_reason_id_changed"
+    "private_layout_extension_reason_id_changed",
+    "bootstrap_bridge_runtime_compat_direct_call",
+    "bootstrap_bridge_runtime_compat_alias_call",
+    "bootstrap_bridge_runtime_compat_forwarding_wrapper",
+    "bootstrap_bridge_runtime_compat_function_reference",
+    "bootstrap_bridge_second_stage5d_call"
   ],
   "stage5d_public_api": {
     "public_reexports": [
@@ -216,7 +222,8 @@
       "stage5d_apply_runtime_private_extension",
       "stage5d_bind_runtime_state_loaded",
       "stage5d_notify_broker_truth_bootstrap",
-      "stage5d_retry_bind_runtime_state_loaded"
+      "stage5d_retry_bind_runtime_state_loaded",
+      "stage5d_retry_broker_truth_bootstrap"
     ],
     "public_constants": [
       {
@@ -261,6 +268,10 @@
       {
         "name": "stage5d_retry_bind_runtime_state_loaded",
         "signature": "pub fn stage5d_retry_bind_runtime_state_loaded( blocked: Stage5dRuntimePrivateApplyBlocked, validated: Stage5dValidatedPersistenceEnvelope, ) -> Result<Stage5dEnvelopeBoundRuntimeStateLoaded, Stage5dRuntimePrivateApplyBlocked>"
+      },
+      {
+        "name": "stage5d_retry_broker_truth_bootstrap",
+        "signature": "pub fn stage5d_retry_broker_truth_bootstrap( blocked: Stage5dBootstrapBlocked, fresh_admission: crate::stage5c_paper_host::Stage5cPaperHostAdmission, ) -> Result<Stage5dBootstrappedPaperStrategy, Stage5dBootstrapBlocked>"
       }
     ],
     "public_types": [
@@ -1475,11 +1486,11 @@
       "Stage5dStructuredTimestampFormat",
       "Stage5dTimestampUnits"
     ],
-    "normalized_signature_hash": "e4b1933316babb05c857c0f3460a3aabef78178e44b39203ab36b76d7cc07f12",
+    "normalized_signature_hash": "a6a50bc33b9ff19abdd04593c4e00f48d7b5acec2cedd367ef5f5eebb31e333f",
     "public_surface_counts": {
-      "public_reexports": 52,
+      "public_reexports": 53,
       "public_constants": 5,
-      "public_free_functions": 4,
+      "public_free_functions": 5,
       "public_types": 43,
       "public_methods": 27,
       "opaque_capabilities": 10,

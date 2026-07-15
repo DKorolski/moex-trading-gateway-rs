@@ -121,9 +121,10 @@ pub use stage5c_paper_host::{
 pub use stage5d_persistence::{
     stage5d_apply_runtime_private_extension, stage5d_bind_runtime_state_loaded,
     stage5d_notify_broker_truth_bootstrap, stage5d_retry_bind_runtime_state_loaded,
-    Stage5dAdditiveFreezeEvidence, Stage5dBootstrapBlockReason, Stage5dBootstrapBlocked,
-    Stage5dBootstrappedPaperStrategy, Stage5dBracketReconciliationTimer, Stage5dCleanupRetryState,
-    Stage5dEntryStyle, Stage5dEnvelopeBoundRuntimeStateLoaded, Stage5dEnvelopeValidationError,
+    stage5d_retry_broker_truth_bootstrap, Stage5dAdditiveFreezeEvidence,
+    Stage5dBootstrapBlockReason, Stage5dBootstrapBlocked, Stage5dBootstrappedPaperStrategy,
+    Stage5dBracketReconciliationTimer, Stage5dCleanupRetryState, Stage5dEntryStyle,
+    Stage5dEnvelopeBoundRuntimeStateLoaded, Stage5dEnvelopeValidationError,
     Stage5dExpectedWorkingSets, Stage5dHybridIntradayStrategyStateV1, Stage5dInstrumentBinding,
     Stage5dLifecycleReason, Stage5dLifecycleWatermarks, Stage5dOwner, Stage5dPartialEntryTimer,
     Stage5dPendingEntryExtension, Stage5dPendingExitExtension, Stage5dPersistenceEnvelope,

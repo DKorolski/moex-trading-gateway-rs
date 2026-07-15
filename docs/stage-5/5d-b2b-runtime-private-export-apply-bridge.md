@@ -16,6 +16,7 @@ Implemented:
 - public `stage5d_bind_runtime_state_loaded(...)` transition;
 - public `stage5d_apply_runtime_private_extension(...)` transition;
 - public `stage5d_notify_broker_truth_bootstrap(...)` transition;
+- public `stage5d_retry_broker_truth_bootstrap(...)` transition;
 - bind input requires `Stage5dValidatedPersistenceEnvelope` plus a Stage 5C
   loaded runtime capability;
 - apply input requires opaque `Stage5dEnvelopeBoundRuntimeStateLoaded`;
@@ -34,6 +35,9 @@ Implemented:
 - bootstrap block is represented by opaque `Stage5dBootstrapBlocked`, exposes
   only redacted reason/snapshot id, and preserves the input applied capability
   internally;
+- bootstrap retry consumes only `Stage5dBootstrapBlocked` plus a fresh
+  `Stage5cPaperHostAdmission`; it replaces only authoritative broker-truth
+  admission and does not expose or re-run runtime-private apply;
 - wrapper additive region now exports/applies runtime-private DTO fields:
   pending entry payload, partial-entry timer, pending-exit context,
   bracket-reconciliation timer, cleanup retry state, last processed bar
@@ -64,6 +68,20 @@ broker snapshot before bootstrap notification:
   opened;
 - expected working stop ids fail closed with
   `ExpectedWorkingStopUnsupported` until a broker stop-truth surface is opened.
+
+If bootstrap blocks because the admission/broker snapshot is stale or
+incomplete, Stage 5D-b2b-b now supports a controlled refresh path:
+
+```text
+Stage5dBootstrapBlocked + fresh Stage5cPaperHostAdmission
+    -> stage5d_retry_broker_truth_bootstrap(...)
+    -> Stage5dBootstrappedPaperStrategy | Stage5dBootstrapBlocked
+```
+
+The fresh admission must match the retained strategy/account/instrument/tick
+binding and must not be older than the previous admission. Cross-account or
+cross-instrument refresh attempts fail closed and preserve the original applied
+capability.
 
 ## Pair-binding contract
 
@@ -151,6 +169,21 @@ Regression tests prove:
 - expected stop hints fail closed until the stop-truth surface opens;
 - expired admission preserves the applied capability and exposes only a redacted
   `AdmissionExpired` reason.
+- expired admission can retry successfully with a fresh matching admission;
+- missing expected order can retry with a fresh broker snapshot and then reaches
+  the exact active-order ownership-mapping boundary;
+- cross-account fresh admission is rejected and the blocked capability remains
+  preserved.
+
+The Stage 5D checker also pins the crate-private bootstrap bridge call-site
+contract:
+
+- `stage5d_bootstrap_preserving_loaded_at` may be defined exactly once in the
+  Stage 5C additive region;
+- production use is exactly one call inside
+  `stage5d_notify_broker_truth_bootstrap_at`;
+- direct calls, aliases, forwarding wrappers, function references and extra
+  Stage 5D calls are rejected by the negative harness.
 
 The Stage 5D additive manifest now labels this baseline as `5D-b2b-b` and pins
 the updated public API surface including the controlled bind/apply/bootstrap/

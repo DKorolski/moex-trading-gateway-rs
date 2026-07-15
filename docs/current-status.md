@@ -176,6 +176,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   only as hints, requires broker-truth position match, blocks missing expected
   working orders, blocks stop hints until stop-truth surface opens, and still
   fails closed on confirmed active target orders until ownership mapping opens.
+  Recoverable bootstrap blocks can now retry only through
+  `stage5d_retry_broker_truth_bootstrap(...)` with a fresh matching Stage 5C
+  admission; cross-binding refresh attempts preserve the blocked capability and
+  fail closed. The Stage 5D checker pins the crate-private bootstrap bridge to
+  one definition and one production call-site, with negative cases for direct
+  calls, aliases, forwarding wrappers, function references and extra Stage 5D
+  calls.
   The formal mutation policy is
   `controlled_validated_stage5d_apply_then_broker_truth_bootstrap_only`; Stage
   5D-b2b-b still does not implement authoritative riskgate injection, Redis

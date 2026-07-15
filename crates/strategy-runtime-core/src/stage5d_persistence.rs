@@ -300,6 +300,60 @@ pub fn stage5d_notify_broker_truth_bootstrap(
     stage5d_notify_broker_truth_bootstrap_at(applied, Utc::now())
 }
 
+/// Retry controlled broker-truth bootstrap with a fresh Stage 5C admission.
+///
+/// The retry path consumes only a preserved [`Stage5dBootstrapBlocked`]
+/// capability plus a newly admitted broker-truth snapshot. It does not expose
+/// the private-applied strategy and does not re-run runtime-private apply.
+pub fn stage5d_retry_broker_truth_bootstrap(
+    blocked: Stage5dBootstrapBlocked,
+    fresh_admission: crate::stage5c_paper_host::Stage5cPaperHostAdmission,
+) -> Result<Stage5dBootstrappedPaperStrategy, Stage5dBootstrapBlocked> {
+    stage5d_retry_broker_truth_bootstrap_at(blocked, fresh_admission, Utc::now())
+}
+
+fn stage5d_retry_broker_truth_bootstrap_at(
+    blocked: Stage5dBootstrapBlocked,
+    fresh_admission: crate::stage5c_paper_host::Stage5cPaperHostAdmission,
+    notification_now: DateTime<Utc>,
+) -> Result<Stage5dBootstrappedPaperStrategy, Stage5dBootstrapBlocked> {
+    let Stage5dBootstrapBlocked { applied, reason: _ } = blocked;
+    let Stage5dPrivateStateAppliedPaperStrategy { loaded, envelope } = *applied;
+    let (strategy, previous_admission, restored, load_origin) = loaded.stage5d_into_parts();
+    if !stage5d_fresh_admission_matches_applied_state(
+        &strategy,
+        &previous_admission,
+        &fresh_admission,
+        &envelope,
+        notification_now,
+    ) {
+        return Err(stage5d_bootstrap_blocked(
+            crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_from_parts(
+                strategy,
+                previous_admission,
+                restored,
+                load_origin,
+            ),
+            envelope,
+            Stage5dBootstrapBlockReason::BindingMismatch,
+        ));
+    }
+    let refreshed_loaded =
+        crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_from_parts(
+            strategy,
+            fresh_admission,
+            restored,
+            load_origin,
+        );
+    stage5d_notify_broker_truth_bootstrap_at(
+        Stage5dPrivateStateAppliedPaperStrategy {
+            loaded: refreshed_loaded,
+            envelope,
+        },
+        notification_now,
+    )
+}
+
 fn stage5d_notify_broker_truth_bootstrap_at(
     applied: Stage5dPrivateStateAppliedPaperStrategy,
     notification_now: DateTime<Utc>,
@@ -326,6 +380,31 @@ fn stage5d_notify_broker_truth_bootstrap_at(
             ))
         }
     }
+}
+
+fn stage5d_fresh_admission_matches_applied_state(
+    strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    previous_admission: &crate::stage5c_paper_host::Stage5cPaperHostAdmission,
+    fresh_admission: &crate::stage5c_paper_host::Stage5cPaperHostAdmission,
+    envelope: &Stage5dPersistenceEnvelope,
+    notification_now: DateTime<Utc>,
+) -> bool {
+    let (symbol_matches, tick_size_matches) = strategy.stage5c_binding_matches(
+        fresh_admission.target_instrument(),
+        fresh_admission.tick_size(),
+    );
+    symbol_matches
+        && tick_size_matches
+        && fresh_admission.strategy_id() == previous_admission.strategy_id()
+        && fresh_admission.strategy_id() == envelope.binding.strategy_id
+        && fresh_admission.account_id() == previous_admission.account_id()
+        && fresh_admission.account_id() == &envelope.binding.account_id
+        && fresh_admission.target_instrument() == previous_admission.target_instrument()
+        && fresh_admission.target_instrument() == &envelope.binding.instrument_id.to_instrument_id()
+        && fresh_admission.tick_size() == previous_admission.tick_size()
+        && fresh_admission.checked_ts() >= previous_admission.checked_ts()
+        && fresh_admission.issued_ts() >= previous_admission.issued_ts()
+        && notification_now <= fresh_admission.expires_at()
 }
 
 fn stage5d_bootstrap_blocked(
@@ -2084,6 +2163,21 @@ mod tests {
         }
     }
 
+    fn stage5d_fresh_admission_for_envelope(
+        envelope: &Stage5dPersistenceEnvelope,
+        target_position_qty: Decimal,
+        checked_ts: DateTime<Utc>,
+    ) -> crate::stage5c_paper_host::Stage5cPaperHostAdmission {
+        crate::stage5c_paper_host::Stage5cPaperHostAdmission::stage5d_test_new(
+            envelope.binding.strategy_id.clone(),
+            envelope.binding.account_id.clone(),
+            envelope.binding.instrument_id.to_instrument_id(),
+            0.5,
+            target_position_qty,
+            checked_ts,
+        )
+    }
+
     #[test]
     fn stage5d_b2a_valid_fixture_roundtrips_and_validates_checksum() {
         let envelope = valid_fixture();
@@ -3307,6 +3401,107 @@ mod tests {
             Stage5dBootstrapBlockReason::AdmissionExpired
         );
         assert!(blocked.input_capability_preserved());
+    }
+
+    #[test]
+    fn stage5d_b2bb_retry_expired_admission_with_fresh_admission_succeeds() {
+        let (applied, envelope) = applied_stage5d_fixture();
+        let expired_at = envelope.persisted_at_ts_utc + chrono::Duration::hours(2);
+        let blocked = expect_stage5d_bootstrap_blocked(
+            stage5d_notify_broker_truth_bootstrap_at(applied, expired_at),
+            "expired admission must preserve capability for retry",
+        );
+        let fresh_checked_ts = expired_at;
+        let fresh_admission =
+            stage5d_fresh_admission_for_envelope(&envelope, Decimal::ZERO, fresh_checked_ts);
+
+        let bootstrapped = expect_stage5d_bootstrap_ok(
+            stage5d_retry_broker_truth_bootstrap_at(blocked, fresh_admission, fresh_checked_ts),
+            "fresh matching admission must retry without reapplying private state",
+        );
+
+        assert_eq!(bootstrapped.snapshot_id(), "SNAP_STAGE5D_B2A_0001");
+        assert!(bootstrapped.bootstrap_notified());
+    }
+
+    #[test]
+    fn stage5d_b2bb_retry_missing_order_with_fresh_snapshot_reaches_active_order_boundary() {
+        let expected_order_id_for_envelope = BrokerOrderId::new("EXPECTED-WORKING-ORDER");
+        let expected_order_id_for_admission = expected_order_id_for_envelope.clone();
+        let (applied, envelope) = applied_stage5d_fixture_with(
+            |envelope| {
+                envelope
+                    .runtime_private_extension
+                    .expected_working_sets
+                    .expected_working_order_ids
+                    .push(expected_order_id_for_envelope.clone());
+                envelope
+                    .recovery_indexes
+                    .known_order_ids
+                    .push(expected_order_id_for_envelope);
+            },
+            |admission| admission,
+        );
+        let blocked = expect_stage5d_bootstrap_blocked(
+            stage5d_notify_broker_truth_bootstrap_at(applied, envelope.persisted_at_ts_utc),
+            "missing expected order must block before callback",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dBootstrapBlockReason::ExpectedWorkingOrderMissing
+        );
+        let fresh_ts = envelope.persisted_at_ts_utc + chrono::Duration::minutes(1);
+        let fresh_admission =
+            stage5d_fresh_admission_for_envelope(&envelope, Decimal::ZERO, fresh_ts)
+                .stage5d_test_with_target_active_orders(vec![stage5d_active_order(
+                    envelope.binding.account_id.clone(),
+                    envelope.binding.instrument_id.to_instrument_id(),
+                    expected_order_id_for_admission,
+                    fresh_ts,
+                )]);
+
+        let blocked = expect_stage5d_bootstrap_blocked(
+            stage5d_retry_broker_truth_bootstrap_at(blocked, fresh_admission, fresh_ts),
+            "confirmed active order must advance to ownership-mapping boundary",
+        );
+
+        assert_eq!(
+            blocked.reason(),
+            Stage5dBootstrapBlockReason::ActiveOrdersRequireOwnershipMapping
+        );
+        assert!(blocked.input_capability_preserved());
+    }
+
+    #[test]
+    fn stage5d_b2bb_retry_rejects_cross_account_fresh_admission_and_preserves_capability() {
+        let (applied, envelope) = applied_stage5d_fixture();
+        let expired_at = envelope.persisted_at_ts_utc + chrono::Duration::hours(2);
+        let blocked = expect_stage5d_bootstrap_blocked(
+            stage5d_notify_broker_truth_bootstrap_at(applied, expired_at),
+            "expired admission must preserve capability for retry",
+        );
+        let fresh_ts = expired_at;
+        let fresh_admission =
+            crate::stage5c_paper_host::Stage5cPaperHostAdmission::stage5d_test_new(
+                envelope.binding.strategy_id.clone(),
+                BrokerAccountId::new("ACC_TEST_0002"),
+                envelope.binding.instrument_id.to_instrument_id(),
+                0.5,
+                Decimal::ZERO,
+                fresh_ts,
+            );
+
+        let blocked = expect_stage5d_bootstrap_blocked(
+            stage5d_retry_broker_truth_bootstrap_at(blocked, fresh_admission, fresh_ts),
+            "cross-account fresh admission must not replace preserved capability",
+        );
+
+        assert_eq!(
+            blocked.reason(),
+            Stage5dBootstrapBlockReason::BindingMismatch
+        );
+        assert!(blocked.input_capability_preserved());
+        assert_eq!(blocked.snapshot_id(), "SNAP_STAGE5D_B2A_0001");
     }
 
     #[test]
