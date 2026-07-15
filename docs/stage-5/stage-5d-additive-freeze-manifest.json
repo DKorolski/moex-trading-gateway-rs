@@ -28,7 +28,7 @@
   "approved_bridge_files": {
     "crates/strategy-runtime-core/src/lib.rs": {
       "closure_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
-      "current_sha256": "91d1c0ff4f982f6cc254cfd626938514589c2912cbeb351f8dec2a93c5798941",
+      "current_sha256": "a535148d325c7e2f569a268f6b85c16a73c35c9d436a75c677a238ab982170ee",
       "stripped_without_additive_regions_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
       "additive_regions": [
         "lib-stage5d-module",
@@ -54,7 +54,7 @@
   },
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "b190c2ae003b9fc36195c9e036856614f0903204a1e79aab6237c3ec51feccd0"
+    "current_sha256": "55b8f1a471c6642079abba867f169fe58835bfcd59811fa7dae9f86c6f27346a"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -95,6 +95,8 @@
     "Stage5dSnapshotBinding",
     "Stage5dStrategyKind",
     "Stage5dStrategyStatePayload",
+    "Stage5dStructuredTimestampFormat",
+    "Stage5dTimestampPolicy",
     "Stage5dTimestampUnits",
     "Stage5dValidatedPersistenceEnvelope",
     "Stage5dValidatedRuntimePrivateExtension"
@@ -177,6 +179,8 @@
       "Stage5dSnapshotBinding",
       "Stage5dStrategyKind",
       "Stage5dStrategyStatePayload",
+      "Stage5dStructuredTimestampFormat",
+      "Stage5dTimestampPolicy",
       "Stage5dTimestampUnits",
       "Stage5dValidatedPersistenceEnvelope",
       "Stage5dValidatedRuntimePrivateExtension"
@@ -274,6 +278,10 @@
           "SemanticStateInvalid",
           "BindingMismatch",
           "PendingStateInconsistent",
+          "TimestampPolicyInvalid",
+          "TimestampChronologyInvalid",
+          "SourceRoundtripInconsistent",
+          "RecoveryIndexInconsistent",
           "SerializationFailed"
         ]
       },
@@ -760,8 +768,8 @@
             "type": "DateTime<Utc>"
           },
           {
-            "name": "timestamp_units",
-            "type": "Stage5dTimestampUnits"
+            "name": "timestamp_policy",
+            "type": "Stage5dTimestampPolicy"
           },
           {
             "name": "canonical_config_fingerprint",
@@ -1137,6 +1145,35 @@
         "public_variants": []
       },
       {
+        "name": "Stage5dStructuredTimestampFormat",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "Rfc3339Utc"
+        ]
+      },
+      {
+        "name": "Stage5dTimestampPolicy",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "semantic_event_ts_utc",
+            "type": "Stage5dTimestampUnits"
+          },
+          {
+            "name": "runtime_wall_clock_timer",
+            "type": "Stage5dTimestampUnits"
+          },
+          {
+            "name": "structured_timestamps",
+            "type": "Stage5dStructuredTimestampFormat"
+          }
+        ],
+        "public_variants": []
+      },
+      {
         "name": "Stage5dTimestampUnits",
         "kind": "enum",
         "opaque": false,
@@ -1238,17 +1275,18 @@
       "Stage5dSemanticStrategyStateV1",
       "Stage5dSide",
       "Stage5dStrategyKind",
+      "Stage5dStructuredTimestampFormat",
       "Stage5dTimestampUnits"
     ],
-    "normalized_signature_hash": "ec026aa5705ff416ead8ae262012c616ab642b2fac3ed047aa23794b6d0d43f4",
+    "normalized_signature_hash": "1a8c63e2fe58e4a39920b06637d45e51ea21ef21781945308a7b5049409e0be3",
     "public_surface_counts": {
-      "public_reexports": 41,
+      "public_reexports": 43,
       "public_constants": 5,
       "public_free_functions": 0,
-      "public_types": 36,
+      "public_types": 38,
       "public_methods": 11,
       "opaque_capabilities": 7,
-      "externally_constructible_enums": 11
+      "externally_constructible_enums": 12
     }
   }
 }

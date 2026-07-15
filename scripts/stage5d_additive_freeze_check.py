@@ -136,9 +136,11 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "Stage5dSnapshotBinding",
     "Stage5dStrategyKind",
     "Stage5dStrategyStatePayload",
+    "Stage5dStructuredTimestampFormat",
+    "Stage5dTimestampPolicy",
     "Stage5dTimestampUnits",
     "Stage5dValidatedPersistenceEnvelope",
-    "Stage5dValidatedRuntimePrivateExtension",
+    "Stage5dValidatedRuntimePrivateExtension"
 ]
 
 FORBIDDEN_STAGE5D_PUBLIC_PATTERNS = [

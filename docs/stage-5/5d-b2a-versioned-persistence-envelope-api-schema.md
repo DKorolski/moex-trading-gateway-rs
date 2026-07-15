@@ -9,8 +9,12 @@ no FINAM transport, no dispatch, and no runtime-live behavior are added.
 
 - `Stage5dPersistenceEnvelope` with explicit schema version, snapshot identity,
   snapshot revision, previous revision, write generation, persisted-at timestamp,
-  timestamp units, canonical config fingerprint, payload checksum, lifecycle
+  per-family timestamp policy, canonical config fingerprint, payload checksum, lifecycle
   watermarks, recovery indexes, runtime-private extension DTO and riskgate DTO.
+- `Stage5dTimestampPolicy`, which fixes source semantic lifecycle timestamps as
+  epoch seconds, runtime wall-clock timers as epoch milliseconds, and structured
+  timestamps as RFC3339 UTC. A single global timestamp unit is intentionally not
+  used because it cannot represent the source runtime contract.
 - `Stage5dSnapshotBinding` with stage, strategy kind, strategy/account,
   target instrument, profile binding, broker-protocol/runtime-state versions,
   Stage 5C/5D config fingerprints and source commit/build identity.
@@ -35,7 +39,8 @@ no FINAM transport, no dispatch, and no runtime-live behavior are added.
 - `Stage5dPersistenceEnvelope::validated_from_json_str_strict(...)` and
   `validate_restore_contract_schema_only(...)`, which produce opaque
   `Stage5dValidatedPersistenceEnvelope` only after checksum, semantic payload,
-  binding and pending-state consistency checks.
+  binding, timestamp chronology, source-roundtrip tuple, recovery-index and
+  pending-state consistency checks.
 
 The restorable enums intentionally match the accepted source semantics:
 
@@ -53,14 +58,14 @@ public methods, opaque capabilities and a normalized signature hash.
 
 Current surface counts:
 
-- public reexports: 41
+- public reexports: 43
 - public constants: 5
-- public types: 36
+- public types: 38
 - public methods: 11
 - opaque capabilities: 7
-- externally constructible enums: 11
+- externally constructible enums: 12
 - normalized signature hash:
-  `ec026aa5705ff416ead8ae262012c616ab642b2fac3ed047aa23794b6d0d43f4`
+  `1a8c63e2fe58e4a39920b06637d45e51ea21ef21781945308a7b5049409e0be3`
 
 The negative harness now includes `stage5d_api_surface_drift`, which mutates a
 public Stage5d DTO field and proves that the checker rejects the changed surface
@@ -90,16 +95,28 @@ Additional schema-only restore-contract tests reject:
 
 - scalar/array/wrong-variant semantic state payloads;
 - unknown, misspelled or invalidly typed semantic state fields;
-- inconsistent pending-entry state against semantic state and recovery indexes.
+- semantic timestamps encoded as milliseconds;
+- runtime wall-clock timers encoded as seconds;
+- timers after the persisted snapshot timestamp;
+- pending-entry creation after the last broker-event watermark;
+- source-local date/datetime strings that would parse to `None` in source;
+- partial deferred-entry/deferred-exit/shadow-position tuples;
+- missing pending request coverage for pending/deferred TP/SL/entry/exit;
+- broker object references or expected working sets missing from typed indexes;
+- duplicate recovery-index values;
+- inconsistent bidirectional pending-entry/private/timer state.
 
 The valid fixture is a single consistent partial MR entry restart scenario:
 
 - 10-character hex cycle id;
 - partial fill quantity below target quantity;
-- semantic pending-entry owner/side/cycle/request/timestamp populated;
+- semantic pending-entry owner/side/cycle/request/timestamp populated with source
+  epoch seconds;
 - matching runtime-private pending-entry DTO;
+- matching partial-entry timer populated with runtime epoch milliseconds;
 - matching `pending_requests` coverage;
 - no contradictory pending exit;
+- parseable source-local date/datetime strings;
 - top-level and binding Stage 5D config fingerprints equal.
 
 Riskgate finalization collections are named by role:

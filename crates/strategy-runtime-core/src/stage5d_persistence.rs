@@ -4,11 +4,13 @@
 //! not implement runtime-private snapshot application, Stage 5C/Stage 5D
 //! transitions, Redis, FINAM, transport, dispatch, or runtime-live behavior.
 
+use std::collections::HashSet;
+
 use broker_core::{
     BrokerAccountId, BrokerOrderId, BrokerStopOrderId, BrokerTradeId, ClientOrderId, Exchange,
     InstrumentId, Market, StrategyRequestId,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -106,12 +108,29 @@ impl Stage5dAdditiveFreezeEvidence {
     }
 }
 
-/// Timestamp units used by every numeric timestamp family in the envelope.
+/// Timestamp units used by a specific numeric timestamp family in the envelope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Stage5dTimestampUnits {
     Seconds,
     Milliseconds,
+}
+
+/// Structured timestamp encoding used by typed timestamp fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5dStructuredTimestampFormat {
+    Rfc3339Utc,
+}
+
+/// Per-family timestamp policy. Source runtime semantic lifecycle timestamps
+/// are epoch seconds, while runtime wall-clock timers are epoch milliseconds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage5dTimestampPolicy {
+    pub semantic_event_ts_utc: Stage5dTimestampUnits,
+    pub runtime_wall_clock_timer: Stage5dTimestampUnits,
+    pub structured_timestamps: Stage5dStructuredTimestampFormat,
 }
 
 /// Persistence stage marker. Stage 5D envelopes cannot be silently reused by
@@ -471,7 +490,7 @@ pub struct Stage5dPersistenceEnvelope {
     pub previous_revision: Option<u64>,
     pub write_generation: u64,
     pub persisted_at_ts_utc: DateTime<Utc>,
-    pub timestamp_units: Stage5dTimestampUnits,
+    pub timestamp_policy: Stage5dTimestampPolicy,
     pub canonical_config_fingerprint: String,
     pub binding: Stage5dSnapshotBinding,
     pub strategy_state: Stage5dStrategyStatePayload,
@@ -560,6 +579,7 @@ impl Stage5dPersistenceEnvelope {
         &self,
     ) -> Result<Stage5dValidatedPersistenceEnvelope, Stage5dEnvelopeValidationError> {
         self.validate_schema_and_checksum()?;
+        self.validate_timestamp_policy()?;
         if self.canonical_config_fingerprint != self.binding.stage5d_canonical_config_fingerprint {
             return Err(Stage5dEnvelopeValidationError::BindingMismatch);
         }
@@ -581,11 +601,233 @@ impl Stage5dPersistenceEnvelope {
         }
 
         let Stage5dSemanticStrategyStateV1::HybridIntradayRuntime(state) = &semantic;
+        self.validate_source_roundtrip_consistency(state)?;
         self.validate_hybrid_state_consistency(state)?;
 
         Ok(Stage5dValidatedPersistenceEnvelope {
             envelope: self.clone(),
         })
+    }
+
+    fn validate_timestamp_policy(&self) -> Result<(), Stage5dEnvelopeValidationError> {
+        if self.timestamp_policy.semantic_event_ts_utc != Stage5dTimestampUnits::Seconds
+            || self.timestamp_policy.runtime_wall_clock_timer != Stage5dTimestampUnits::Milliseconds
+            || self.timestamp_policy.structured_timestamps
+                != Stage5dStructuredTimestampFormat::Rfc3339Utc
+        {
+            return Err(Stage5dEnvelopeValidationError::TimestampPolicyInvalid);
+        }
+        Ok(())
+    }
+
+    fn validate_source_roundtrip_consistency(
+        &self,
+        state: &Stage5dHybridIntradayStrategyStateV1,
+    ) -> Result<(), Stage5dEnvelopeValidationError> {
+        validate_optional_local_date(state.last_day_local.as_deref())?;
+        validate_optional_local_datetime(state.today_start_local.as_deref())?;
+        validate_optional_local_date(state.overnight_exit_armed_date.as_deref())?;
+        validate_optional_local_date(state.risk_gate_shadow_session_date.as_deref())?;
+        validate_optional_local_date(state.risk_gate_pending_session_date.as_deref())?;
+        validate_optional_local_date(state.risk_gate_last_finalized_session_date.as_deref())?;
+        validate_optional_local_date(
+            self.riskgate
+                .materialized_state
+                .last_finalized_session_date
+                .as_deref(),
+        )?;
+        for record in self
+            .runtime_private_extension
+            .runtime_pending_finalizations
+            .iter()
+            .chain(self.riskgate.durable_finalization_outbox.iter())
+        {
+            validate_local_date(&record.session_date)?;
+        }
+
+        self.validate_semantic_timestamp(state.pending_entry_created_ts_utc)?;
+        self.validate_semantic_timestamp(state.deferred_entry_ts_utc)?;
+        self.validate_semantic_timestamp(state.pending_exit_created_ts_utc)?;
+        self.validate_semantic_timestamp(state.deferred_exit_ts_utc)?;
+        self.validate_semantic_timestamp(state.pending_tp_created_ts_utc)?;
+        self.validate_semantic_timestamp(state.pending_sl_created_ts_utc)?;
+        self.validate_semantic_timestamp(state.sl_triggered_ts)?;
+        self.validate_semantic_timestamp(state.repair_deadline_ts)?;
+        self.validate_semantic_timestamp(state.next_repair_at_ts)?;
+        self.validate_semantic_timestamp(state.risk_gate_shadow_entry_ts_utc)?;
+
+        self.validate_semantic_event_not_after_persisted(state.pending_entry_created_ts_utc)?;
+        self.validate_semantic_event_not_after_persisted(state.deferred_entry_ts_utc)?;
+        self.validate_semantic_event_not_after_persisted(state.pending_exit_created_ts_utc)?;
+        self.validate_semantic_event_not_after_persisted(state.deferred_exit_ts_utc)?;
+        self.validate_semantic_event_not_after_persisted(state.pending_tp_created_ts_utc)?;
+        self.validate_semantic_event_not_after_persisted(state.pending_sl_created_ts_utc)?;
+        self.validate_semantic_event_not_after_persisted(state.sl_triggered_ts)?;
+        self.validate_semantic_event_not_after_persisted(state.risk_gate_shadow_entry_ts_utc)?;
+
+        if let Some(created) = state.pending_entry_created_ts_utc {
+            if let Some(last_broker_event) = self.lifecycle_watermarks.last_broker_event_ts {
+                if created > last_broker_event.timestamp() {
+                    return Err(Stage5dEnvelopeValidationError::TimestampChronologyInvalid);
+                }
+            }
+        }
+
+        if let Some(timer) = &self.runtime_private_extension.partial_entry_timer {
+            self.validate_runtime_timer_ms(Some(timer.partial_started_at_ms))?;
+        }
+        if let Some(timer) = &self.runtime_private_extension.bracket_reconciliation_timer {
+            self.validate_runtime_timer_ms(Some(timer.bracket_terminal_reconcile_started_ms))?;
+        }
+
+        validate_deferred_entry_tuple(state)?;
+        validate_deferred_exit_tuple(state)?;
+        validate_optional_request_timestamp_pair(
+            state.pending_tp_request_id,
+            state.pending_tp_created_ts_utc,
+        )?;
+        validate_optional_request_timestamp_pair(
+            state.pending_sl_request_id,
+            state.pending_sl_created_ts_utc,
+        )?;
+        validate_shadow_position_tuple(state)?;
+        self.validate_recovery_indexes(state)?;
+        self.validate_broker_id_indexes(state)?;
+
+        Ok(())
+    }
+
+    fn validate_semantic_timestamp(
+        &self,
+        value: Option<i64>,
+    ) -> Result<(), Stage5dEnvelopeValidationError> {
+        if let Some(ts) = value {
+            if !(946_684_800..=4_102_444_800).contains(&ts) {
+                return Err(Stage5dEnvelopeValidationError::TimestampChronologyInvalid);
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_semantic_event_not_after_persisted(
+        &self,
+        value: Option<i64>,
+    ) -> Result<(), Stage5dEnvelopeValidationError> {
+        if let Some(ts) = value {
+            if ts > self.persisted_at_ts_utc.timestamp() {
+                return Err(Stage5dEnvelopeValidationError::TimestampChronologyInvalid);
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_runtime_timer_ms(
+        &self,
+        value: Option<i64>,
+    ) -> Result<(), Stage5dEnvelopeValidationError> {
+        if let Some(ts) = value {
+            if !(946_684_800_000..=self.persisted_at_ts_utc.timestamp_millis()).contains(&ts) {
+                return Err(Stage5dEnvelopeValidationError::TimestampChronologyInvalid);
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_recovery_indexes(
+        &self,
+        state: &Stage5dHybridIntradayStrategyStateV1,
+    ) -> Result<(), Stage5dEnvelopeValidationError> {
+        ensure_unique(&self.recovery_indexes.pending_requests)?;
+        ensure_unique(&self.recovery_indexes.known_order_ids)?;
+        ensure_unique(&self.recovery_indexes.known_stop_order_ids)?;
+        ensure_unique(&self.recovery_indexes.known_trade_ids)?;
+        ensure_unique(&self.recovery_indexes.known_client_order_ids)?;
+        ensure_unique(
+            &self
+                .runtime_private_extension
+                .expected_working_sets
+                .expected_working_order_ids,
+        )?;
+        ensure_unique(
+            &self
+                .runtime_private_extension
+                .expected_working_sets
+                .expected_working_stop_order_ids,
+        )?;
+
+        let expected_pending: HashSet<StrategyRequestId> = [
+            state.pending_entry_request_id,
+            state.deferred_entry_request_id,
+            state.pending_exit_request_id,
+            state.deferred_exit_request_id,
+            state.pending_tp_request_id,
+            state.pending_sl_request_id,
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        if expected_pending.len()
+            != [
+                state.pending_entry_request_id,
+                state.deferred_entry_request_id,
+                state.pending_exit_request_id,
+                state.deferred_exit_request_id,
+                state.pending_tp_request_id,
+                state.pending_sl_request_id,
+            ]
+            .into_iter()
+            .flatten()
+            .count()
+        {
+            return Err(Stage5dEnvelopeValidationError::RecoveryIndexInconsistent);
+        }
+        let actual_pending: HashSet<StrategyRequestId> = self
+            .recovery_indexes
+            .pending_requests
+            .iter()
+            .copied()
+            .collect();
+        if actual_pending != expected_pending {
+            return Err(Stage5dEnvelopeValidationError::RecoveryIndexInconsistent);
+        }
+        Ok(())
+    }
+
+    fn validate_broker_id_indexes(
+        &self,
+        state: &Stage5dHybridIntradayStrategyStateV1,
+    ) -> Result<(), Stage5dEnvelopeValidationError> {
+        if state
+            .tp_order_id
+            .as_ref()
+            .is_some_and(|id| !self.recovery_indexes.known_order_ids.contains(id))
+            || state
+                .sl_exchange_order_id
+                .as_ref()
+                .is_some_and(|id| !self.recovery_indexes.known_order_ids.contains(id))
+            || state
+                .sl_stop_order_id
+                .as_ref()
+                .is_some_and(|id| !self.recovery_indexes.known_stop_order_ids.contains(id))
+        {
+            return Err(Stage5dEnvelopeValidationError::RecoveryIndexInconsistent);
+        }
+        if self
+            .runtime_private_extension
+            .expected_working_sets
+            .expected_working_order_ids
+            .iter()
+            .any(|id| !self.recovery_indexes.known_order_ids.contains(id))
+            || self
+                .runtime_private_extension
+                .expected_working_sets
+                .expected_working_stop_order_ids
+                .iter()
+                .any(|id| !self.recovery_indexes.known_stop_order_ids.contains(id))
+        {
+            return Err(Stage5dEnvelopeValidationError::RecoveryIndexInconsistent);
+        }
+        Ok(())
     }
 
     fn validate_hybrid_state_consistency(
@@ -610,32 +852,66 @@ impl Stage5dPersistenceEnvelope {
         }
 
         let pending_requests = &self.recovery_indexes.pending_requests;
+        let semantic_pending_entry_present = state.pending_entry_owner.is_some()
+            || state.pending_entry_side.is_some()
+            || state.pending_entry_cycle_id.is_some()
+            || state.pending_entry_request_id.is_some()
+            || state.pending_entry_created_ts_utc.is_some();
+        if semantic_pending_entry_present != self.runtime_private_extension.pending_entry.is_some()
+            || self.runtime_private_extension.partial_entry_timer.is_some()
+                && self.runtime_private_extension.pending_entry.is_none()
+        {
+            return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
+        }
         if let Some(pending_entry) = &self.runtime_private_extension.pending_entry {
             let Some(request_id) = pending_entry.request_id else {
+                return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
+            };
+            let Some(pending_cycle) = state.pending_entry_cycle_id.as_deref() else {
                 return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
             };
             if state.pending_entry_request_id != Some(request_id)
                 || state.pending_entry_owner != Some(pending_entry.owner)
                 || state.pending_entry_side != Some(pending_entry.side)
-                || state.pending_entry_cycle_id.is_none()
                 || state.pending_entry_created_ts_utc.is_none()
+                || state.active_cycle_id.as_deref() != Some(pending_cycle)
                 || !pending_requests.contains(&request_id)
             {
                 return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
             }
 
-            if self.runtime_private_extension.partial_entry_timer.is_some() {
-                let target_qty: f64 = pending_entry
-                    .target_qty
-                    .parse()
-                    .map_err(|_| Stage5dEnvelopeValidationError::PendingStateInconsistent)?;
-                let filled_qty = state.last_position_qty.abs();
-                if !(filled_qty > 0.0 && filled_qty < target_qty) {
+            let target_qty: f64 = pending_entry
+                .target_qty
+                .parse()
+                .map_err(|_| Stage5dEnvelopeValidationError::PendingStateInconsistent)?;
+            if !target_qty.is_finite() || target_qty <= 0.0 {
+                return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
+            }
+            let filled_qty = state.last_position_qty.abs();
+            let timer_present = self.runtime_private_extension.partial_entry_timer.is_some();
+            if filled_qty == 0.0 && timer_present
+                || filled_qty > 0.0 && filled_qty < target_qty && !timer_present
+                || filled_qty >= target_qty
+            {
+                return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
+            }
+            if let Some(timer) = &self.runtime_private_extension.partial_entry_timer {
+                let Some(created) = state.pending_entry_created_ts_utc else {
                     return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
+                };
+                if timer.partial_started_at_ms < created.saturating_mul(1000) {
+                    return Err(Stage5dEnvelopeValidationError::TimestampChronologyInvalid);
                 }
             }
+        } else if self.runtime_private_extension.partial_entry_timer.is_some() {
+            return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
         }
 
+        let semantic_pending_exit_present =
+            state.pending_exit_request_id.is_some() || state.pending_exit_created_ts_utc.is_some();
+        if semantic_pending_exit_present != self.runtime_private_extension.pending_exit.is_some() {
+            return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
+        }
         if let Some(pending_exit) = &self.runtime_private_extension.pending_exit {
             if state.pending_exit_request_id != Some(pending_exit.request_id)
                 || state.pending_exit_created_ts_utc.is_none()
@@ -643,8 +919,6 @@ impl Stage5dPersistenceEnvelope {
             {
                 return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
             }
-        } else if state.pending_exit_request_id.is_some() {
-            return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
         }
 
         Ok(())
@@ -653,6 +927,118 @@ impl Stage5dPersistenceEnvelope {
 
 fn stage5d_cycle_id_is_valid(value: &str) -> bool {
     value.len() == 10 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn validate_local_date(value: &str) -> Result<(), Stage5dEnvelopeValidationError> {
+    let parsed = NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        .map_err(|_| Stage5dEnvelopeValidationError::SourceRoundtripInconsistent)?;
+    if parsed.format("%Y-%m-%d").to_string() != value {
+        return Err(Stage5dEnvelopeValidationError::SourceRoundtripInconsistent);
+    }
+    Ok(())
+}
+
+fn validate_optional_local_date(value: Option<&str>) -> Result<(), Stage5dEnvelopeValidationError> {
+    if let Some(value) = value {
+        validate_local_date(value)?;
+    }
+    Ok(())
+}
+
+fn validate_optional_local_datetime(
+    value: Option<&str>,
+) -> Result<(), Stage5dEnvelopeValidationError> {
+    if let Some(value) = value {
+        let parsed = NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S")
+            .map_err(|_| Stage5dEnvelopeValidationError::SourceRoundtripInconsistent)?;
+        if parsed.format("%Y-%m-%dT%H:%M:%S").to_string() != value {
+            return Err(Stage5dEnvelopeValidationError::SourceRoundtripInconsistent);
+        }
+    }
+    Ok(())
+}
+
+fn validate_deferred_entry_tuple(
+    state: &Stage5dHybridIntradayStrategyStateV1,
+) -> Result<(), Stage5dEnvelopeValidationError> {
+    let any = state.deferred_entry_owner.is_some()
+        || state.deferred_entry_side.is_some()
+        || state.deferred_entry_cycle_id.is_some()
+        || state.deferred_entry_entry_style.is_some()
+        || state.deferred_entry_reason.is_some()
+        || state.deferred_entry_stop_price.is_some()
+        || state.deferred_entry_take_price.is_some()
+        || state.deferred_entry_ts_utc.is_some()
+        || state.deferred_entry_request_id.is_some();
+    let required = state.deferred_entry_owner.is_some()
+        && state.deferred_entry_side.is_some()
+        && state.deferred_entry_cycle_id.is_some()
+        && state.deferred_entry_entry_style.is_some()
+        && state.deferred_entry_reason.is_some()
+        && state.deferred_entry_ts_utc.is_some()
+        && state.deferred_entry_request_id.is_some();
+    if any && !required {
+        return Err(Stage5dEnvelopeValidationError::SourceRoundtripInconsistent);
+    }
+    Ok(())
+}
+
+fn validate_deferred_exit_tuple(
+    state: &Stage5dHybridIntradayStrategyStateV1,
+) -> Result<(), Stage5dEnvelopeValidationError> {
+    let any = state.deferred_exit_owner.is_some()
+        || state.deferred_exit_reason.is_some()
+        || state.deferred_exit_cycle_id.is_some()
+        || state.deferred_exit_ts_utc.is_some()
+        || state.deferred_exit_request_id.is_some();
+    let required = state.deferred_exit_owner.is_some()
+        && state.deferred_exit_reason.is_some()
+        && state.deferred_exit_cycle_id.is_some()
+        && state.deferred_exit_ts_utc.is_some()
+        && state.deferred_exit_request_id.is_some();
+    if any && !required {
+        return Err(Stage5dEnvelopeValidationError::SourceRoundtripInconsistent);
+    }
+    Ok(())
+}
+
+fn validate_optional_request_timestamp_pair(
+    request_id: Option<StrategyRequestId>,
+    timestamp: Option<i64>,
+) -> Result<(), Stage5dEnvelopeValidationError> {
+    if request_id.is_some() != timestamp.is_some() {
+        return Err(Stage5dEnvelopeValidationError::SourceRoundtripInconsistent);
+    }
+    Ok(())
+}
+
+fn validate_shadow_position_tuple(
+    state: &Stage5dHybridIntradayStrategyStateV1,
+) -> Result<(), Stage5dEnvelopeValidationError> {
+    let any = state.risk_gate_shadow_entry_ts_utc.is_some()
+        || state.risk_gate_shadow_entry_price.is_some()
+        || state.risk_gate_shadow_side.is_some()
+        || state.risk_gate_shadow_target_price.is_some()
+        || state.risk_gate_shadow_stop_price.is_some();
+    let required = state.risk_gate_shadow_entry_ts_utc.is_some()
+        && state.risk_gate_shadow_entry_price.is_some()
+        && state.risk_gate_shadow_side.is_some()
+        && state.risk_gate_shadow_target_price.is_some()
+        && state.risk_gate_shadow_stop_price.is_some();
+    if any && !required {
+        return Err(Stage5dEnvelopeValidationError::SourceRoundtripInconsistent);
+    }
+    Ok(())
+}
+
+fn ensure_unique<T>(values: &[T]) -> Result<(), Stage5dEnvelopeValidationError>
+where
+    T: Eq + std::hash::Hash,
+{
+    if values.iter().collect::<HashSet<_>>().len() != values.len() {
+        return Err(Stage5dEnvelopeValidationError::RecoveryIndexInconsistent);
+    }
+    Ok(())
 }
 
 /// Stage 5D envelope validation errors.
@@ -668,6 +1054,10 @@ pub enum Stage5dEnvelopeValidationError {
     SemanticStateInvalid,
     BindingMismatch,
     PendingStateInconsistent,
+    TimestampPolicyInvalid,
+    TimestampChronologyInvalid,
+    SourceRoundtripInconsistent,
+    RecoveryIndexInconsistent,
     SerializationFailed,
 }
 
@@ -727,6 +1117,19 @@ mod tests {
         assert_eq!(
             state.pending_entry_request_id,
             Some(envelope.recovery_indexes.pending_requests[0])
+        );
+        assert_eq!(state.pending_entry_created_ts_utc, Some(1_784_009_340));
+        assert_eq!(
+            state.today_start_local.as_deref(),
+            Some("2026-07-14T09:00:00")
+        );
+        assert_eq!(
+            envelope.timestamp_policy.semantic_event_ts_utc,
+            Stage5dTimestampUnits::Seconds
+        );
+        assert_eq!(
+            envelope.timestamp_policy.runtime_wall_clock_timer,
+            Stage5dTimestampUnits::Milliseconds
         );
         assert_eq!(
             envelope
@@ -865,6 +1268,17 @@ mod tests {
         envelope
     }
 
+    fn fixture_with_mutated_envelope(
+        mutator: impl FnOnce(&mut Stage5dPersistenceEnvelope),
+    ) -> Stage5dPersistenceEnvelope {
+        let mut envelope = valid_fixture();
+        mutator(&mut envelope);
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+        envelope
+    }
+
     #[test]
     fn stage5d_b2a_scalar_strategy_state_payload_is_rejected() {
         let mut envelope = valid_fixture();
@@ -944,6 +1358,263 @@ mod tests {
         assert_eq!(
             envelope.validate_restore_contract_schema_only().map(|_| ()),
             Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_semantic_timestamp_in_milliseconds_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["pending_entry_created_ts_utc"] =
+                Value::Number(1_784_009_340_000_i64.into());
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::TimestampChronologyInvalid)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_runtime_timer_in_seconds_is_rejected() {
+        let envelope = fixture_with_mutated_envelope(|envelope| {
+            envelope
+                .runtime_private_extension
+                .partial_entry_timer
+                .as_mut()
+                .expect("fixture partial timer")
+                .partial_started_at_ms = 1_784_009_370;
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::TimestampChronologyInvalid)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_timer_after_persisted_at_is_rejected() {
+        let envelope = fixture_with_mutated_envelope(|envelope| {
+            envelope
+                .runtime_private_extension
+                .partial_entry_timer
+                .as_mut()
+                .expect("fixture partial timer")
+                .partial_started_at_ms = envelope.persisted_at_ts_utc.timestamp_millis() + 1;
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::TimestampChronologyInvalid)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_pending_created_after_last_broker_event_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["pending_entry_created_ts_utc"] =
+                Value::Number(1_784_009_400_i64.into());
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::TimestampChronologyInvalid)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_timestamp_policy_mismatch_is_rejected() {
+        let envelope = fixture_with_mutated_envelope(|envelope| {
+            envelope.timestamp_policy.semantic_event_ts_utc = Stage5dTimestampUnits::Milliseconds;
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::TimestampPolicyInvalid)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_semantic_pending_entry_without_private_extension_is_rejected() {
+        let envelope = fixture_with_mutated_envelope(|envelope| {
+            envelope.runtime_private_extension.pending_entry = None;
+            envelope.runtime_private_extension.partial_entry_timer = None;
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_private_pending_entry_without_semantic_lifecycle_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            let state = &mut state["HybridIntradayRuntime"];
+            state["pending_entry_owner"] = Value::Null;
+            state["pending_entry_side"] = Value::Null;
+            state["pending_entry_cycle_id"] = Value::Null;
+            state["pending_entry_request_id"] = Value::Null;
+            state["pending_entry_created_ts_utc"] = Value::Null;
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::RecoveryIndexInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_partial_position_without_timer_is_rejected() {
+        let envelope = fixture_with_mutated_envelope(|envelope| {
+            envelope.runtime_private_extension.partial_entry_timer = None;
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_timer_without_pending_entry_is_rejected() {
+        let envelope = fixture_with_mutated_envelope(|envelope| {
+            envelope.runtime_private_extension.pending_entry = None;
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_full_target_with_pending_entry_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["last_position_qty"] = serde_json::json!(1.0);
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_pending_entry_cycle_mismatch_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["pending_entry_cycle_id"] =
+                Value::String("aaaaaaaaaa".to_string());
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_invalid_source_local_date_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["last_day_local"] =
+                Value::String("bad-date".to_string());
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::SourceRoundtripInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_invalid_source_local_datetime_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["today_start_local"] =
+                Value::String("2026-07-14".to_string());
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::SourceRoundtripInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_partial_deferred_entry_tuple_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["deferred_entry_owner"] =
+                Value::String("mean_reversion".to_string());
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::SourceRoundtripInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_partial_deferred_exit_tuple_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["deferred_exit_owner"] =
+                Value::String("mean_reversion".to_string());
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::SourceRoundtripInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_partial_shadow_position_tuple_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["risk_gate_shadow_entry_price"] =
+                serde_json::json!(2227.0);
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::SourceRoundtripInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_pending_tp_missing_from_pending_requests_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["pending_tp_request_id"] =
+                Value::String("22222222-2222-2222-2222-222222222222".to_string());
+            state["HybridIntradayRuntime"]["pending_tp_created_ts_utc"] =
+                Value::Number(1_784_009_350_i64.into());
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::RecoveryIndexInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_broker_id_missing_from_known_index_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["tp_order_id"] =
+                Value::String("MISSING-ORDER-ID".to_string());
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::RecoveryIndexInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_duplicate_recovery_indexes_are_rejected() {
+        let envelope = fixture_with_mutated_envelope(|envelope| {
+            let duplicate = envelope.recovery_indexes.known_order_ids[0].clone();
+            envelope.recovery_indexes.known_order_ids.push(duplicate);
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::RecoveryIndexInconsistent)
         );
     }
 }
