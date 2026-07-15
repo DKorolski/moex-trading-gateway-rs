@@ -865,6 +865,27 @@ impl Stage5dPersistenceEnvelope {
         &self,
         state: &Stage5dHybridIntradayStrategyStateV1,
     ) -> Result<(), Stage5dEnvelopeValidationError> {
+        let mut previous_session: Option<NaiveDate> = None;
+        let current_shadow_session = state
+            .risk_gate_shadow_session_date
+            .as_deref()
+            .map(|session| {
+                NaiveDate::parse_from_str(session, "%Y-%m-%d")
+                    .map_err(|_| Stage5dEnvelopeValidationError::SourceRoundtripInconsistent)
+            })
+            .transpose()?;
+        for record in &self.runtime_private_extension.runtime_pending_finalizations {
+            let session_date = NaiveDate::parse_from_str(&record.session_date, "%Y-%m-%d")
+                .map_err(|_| Stage5dEnvelopeValidationError::SourceRoundtripInconsistent)?;
+            if previous_session.is_some_and(|previous| session_date <= previous) {
+                return Err(Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent);
+            }
+            if current_shadow_session.is_some_and(|current| session_date >= current) {
+                return Err(Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent);
+            }
+            previous_session = Some(session_date);
+        }
+
         match self
             .runtime_private_extension
             .runtime_pending_finalizations
@@ -1210,7 +1231,7 @@ mod tests {
         );
         assert_eq!(
             state.risk_gate_pending_session_date.as_deref(),
-            Some("2026-07-14")
+            Some("2026-07-12")
         );
         assert_eq!(state.risk_gate_pending_shadow_pnl_points, 12.5);
         assert_eq!(state.risk_gate_pending_shadow_trade_count, 2);
@@ -1220,12 +1241,12 @@ mod tests {
                 .runtime_pending_finalizations,
             vec![
                 Stage5dRuntimePendingRiskGateFinalization {
-                    session_date: "2026-07-14".to_string(),
+                    session_date: "2026-07-12".to_string(),
                     shadow_pnl_points: "12.5".to_string(),
                     shadow_trade_count: 2,
                 },
                 Stage5dRuntimePendingRiskGateFinalization {
-                    session_date: "2026-07-15".to_string(),
+                    session_date: "2026-07-13".to_string(),
                     shadow_pnl_points: "-3.25".to_string(),
                     shadow_trade_count: 1,
                 },
@@ -1787,14 +1808,14 @@ mod tests {
                 .runtime_private_extension
                 .runtime_pending_finalizations[0],
             Stage5dRuntimePendingRiskGateFinalization {
-                session_date: "2026-07-14".to_string(),
+                session_date: "2026-07-12".to_string(),
                 shadow_pnl_points: "12.5".to_string(),
                 shadow_trade_count: 2,
             }
         );
         assert_eq!(
             state.risk_gate_pending_session_date.as_deref(),
-            Some("2026-07-14")
+            Some("2026-07-12")
         );
 
         envelope
@@ -1855,5 +1876,76 @@ mod tests {
             envelope.validate_restore_contract_schema_only().map(|_| ()),
             Err(Stage5dEnvelopeValidationError::SourceRoundtripInconsistent)
         );
+    }
+
+    #[test]
+    fn stage5d_b2a_duplicate_runtime_finalization_date_is_rejected() {
+        let envelope = fixture_with_mutated_envelope(|envelope| {
+            envelope
+                .runtime_private_extension
+                .runtime_pending_finalizations[1]
+                .session_date = "2026-07-12".to_string();
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_out_of_order_runtime_finalization_dates_are_rejected() {
+        let envelope = fixture_with_mutated_envelope(|envelope| {
+            envelope
+                .runtime_private_extension
+                .runtime_pending_finalizations
+                .swap(0, 1);
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_runtime_finalization_equal_to_current_shadow_session_is_rejected() {
+        let envelope = fixture_with_mutated_envelope(|envelope| {
+            envelope
+                .runtime_private_extension
+                .runtime_pending_finalizations[1]
+                .session_date = "2026-07-14".to_string();
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_runtime_finalization_after_current_shadow_session_is_rejected() {
+        let envelope = fixture_with_mutated_envelope(|envelope| {
+            envelope
+                .runtime_private_extension
+                .runtime_pending_finalizations[1]
+                .session_date = "2026-07-15".to_string();
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_ordered_runtime_finalizations_without_current_shadow_session_are_accepted() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["risk_gate_shadow_session_date"] = Value::Null;
+        });
+
+        envelope
+            .validate_restore_contract_schema_only()
+            .expect("ordered finalization vector is valid before current shadow session is known");
     }
 }

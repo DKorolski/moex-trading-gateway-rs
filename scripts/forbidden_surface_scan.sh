@@ -1538,10 +1538,10 @@ expected_stage5_profile_artifacts = {
         "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323"
     ),
     Path("docs/stage-5/stage-5d-additive-freeze-manifest.json"): (
-        "9a0f8319061162476c247d79b6c7f729464b4c493a1a38ff062fb369a1b18df1"
+        "cae772f6db4e7482925abcdc7fb301b74b5ca12bba362ff02fd74cb3e31a6cc3"
     ),
     Path("docs/stage-5/5d-b2a-versioned-persistence-envelope-api-schema.md"): (
-        "936218829c266f021722bb8da8c745dfb2fc7df3764eb3eb303105ebd6c0751c"
+        "b5e9cc000728c7c034e9abde1286e8f4f36ba599fc410e64951498e81d26613c"
     ),
     Path("scripts/stage5c_api_freeze_check.py"): (
         "6aa1a30f87d296df09bf18c84b29b944ad7af8aaa59961c54bcbe6ff0a601537"
@@ -1565,16 +1565,16 @@ expected_stage5_profile_artifacts = {
         "14cdd518383b86d5a223d65ef46969450ea7a8573df21c6c6c520b817571621d"
     ),
     Path("tests/fixtures/stage5/stage5d_b2a_persistence_envelope.json"): (
-        "9c7c86e9fe7a74307a86242246e3a4b63eddef7b68ffb49cd9ba03f6e1b33dfd"
+        "9f4a27dc0c803fa67977a0eb6ee9305bcd2fdd71bf9c920a52e5ab3f69da4dbd"
     ),
     Path("tests/fixtures/stage5/stage5d_b2a_persistence_envelope_corrupt_checksum.json"): (
-        "52cc50ff37291a5b21cf0dc21d16c4a6e6fca89d70719097f2b8bb243b131076"
+        "9ae4435492c52bd695a7e45c4a4398838e286b9b6c8ed96741997c6ad8b84374"
     ),
     Path("tests/fixtures/stage5/stage5d_b2a_persistence_envelope_bad_version.json"): (
-        "dbb772c96fa05e14cbef1ae78e7a142881b9c681ff86accece618cc83671ca0a"
+        "2a0545698a2c540e0fbeb7b274e7ada261c705bbfe31e256ec965226104fd0b5"
     ),
     Path("tests/fixtures/stage5/stage5d_b2a_persistence_envelope_empty_config.json"): (
-        "20c8210f34f1f07d8942d363799f2809c315d0c34cb4bd441c35a9f9393b0883"
+        "1e919a816a853957b7bb2191f7e8401d044e15be562254c6c92880ac6b429efa"
     ),
     Path("tests/fixtures/stage5/stage5cb_bootstrap_notification.json"): (
         "9db7888d27374eeaa8ac046c1df1727a3e3cd085c938a76945d22b9bd68f00de"
