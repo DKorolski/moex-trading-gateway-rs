@@ -67,6 +67,17 @@ EXPECTED_CLOSED_SURFACES = {
     "runtime_private_mutation": "controlled_validated_stage5d_apply_only",
 }
 
+EXPECTED_STAGE5C_PRIVATE_LAYOUT_EXTENSIONS = [
+    {
+        "path": "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+        "reason_id": "stage5d-b2b-a-persisted-load-provenance-v1",
+        "public_api_unchanged": True,
+        "stripped_without_additive_regions_sha256": (
+            "0ea1a8982965eb34cc113d41c821b22a3ab2c2e2f5a80112ce2561b48fc4ed3c"
+        ),
+    }
+]
+
 EXPECTED_NEGATIVE_CASES = [
     "stage5c_api_drift",
     "trading_region_drift",
@@ -95,6 +106,13 @@ EXPECTED_NEGATIVE_CASES = [
     "unexpected_legacy_reference_in_allowed_file",
     "legacy_reference_moved_to_wrong_region",
     "stage5d_api_surface_drift",
+    "private_layout_extension_removed",
+    "private_layout_extension_hash_changed",
+    "private_layout_extension_additional_path",
+    "private_layout_extension_wrapper_path",
+    "private_layout_extension_lib_path",
+    "private_layout_self_authorized_semantic_drift",
+    "private_layout_extension_reason_id_changed",
 ]
 
 EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
@@ -593,6 +611,11 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
         failures.append("negative_cases mismatch")
     if manifest.get("stage5d_public_symbols") != EXPECTED_STAGE5D_PUBLIC_SYMBOLS:
         failures.append("Stage5d public symbol contract mismatch")
+    if (
+        manifest.get("stage5c_private_layout_extensions")
+        != EXPECTED_STAGE5C_PRIVATE_LAYOUT_EXTENSIONS
+    ):
+        failures.append("Stage 5C private layout extension contract mismatch")
     approved_private_layout_extensions = {
         extension.get("path"): extension
         for extension in manifest.get("stage5c_private_layout_extensions", [])
@@ -658,7 +681,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
                 extension is None
                 or extension.get("stripped_without_additive_regions_sha256") != stripped_hash
                 or extension.get("public_api_unchanged") is not True
-                or not extension.get("reason")
+                or extension.get("reason_id")
+                != "stage5d-b2b-a-persisted-load-provenance-v1"
             ):
                 failures.append(f"{rel}: frozen region does not match Stage 5C closure source")
 

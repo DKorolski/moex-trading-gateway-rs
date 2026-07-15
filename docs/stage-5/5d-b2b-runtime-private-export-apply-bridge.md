@@ -128,4 +128,8 @@ the updated public API surface including the controlled bind/apply/retry Stage
 FINAM, transport, dispatch, runtime-live and broker execution remain closed.
 The manifest also records a controlled private-layout Stage 5C extension for
 the crate-private persisted-vs-clean load provenance marker; Stage 5C public API
-shape remains pinned by the Stage 5C compatibility checker.
+shape remains pinned by the Stage 5C compatibility checker. The private-layout
+extension is checker-owned: exact path, `reason_id`, public-API flag and stripped
+hash are pinned in `stage5d_additive_freeze_check.py`, and the negative harness
+rejects removed/changed/extra extensions plus a self-authorized frozen semantic
+drift attempt.

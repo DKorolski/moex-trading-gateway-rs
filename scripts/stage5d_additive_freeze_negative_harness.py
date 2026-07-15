@@ -10,6 +10,7 @@ import tempfile
 import hashlib
 import json
 from pathlib import Path
+from typing import Callable
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +54,54 @@ def update_manifest_bridge_hash(root: Path, rel_path: str) -> None:
     manifest_path = root / "docs/stage-5/stage-5d-additive-freeze-manifest.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["approved_bridge_files"][rel_path]["current_sha256"] = sha256_file(root / rel_path)
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+
+
+def strip_additive_region(source: str, region: str) -> str:
+    begin = f"// STAGE5D-ADDITIVE-BRIDGE-BEGIN: {region}"
+    end = f"// STAGE5D-ADDITIVE-BRIDGE-END: {region}"
+    begin_index = source.index(begin)
+    end_index = source.index(end, begin_index) + len(end)
+    if end_index < len(source) and source[end_index : end_index + 1] == "\n":
+        end_index += 1
+    return source[:begin_index] + source[end_index:]
+
+
+def stripped_bridge_hash(root: Path, rel_path: str) -> str:
+    regions = {
+        "crates/strategy-runtime-core/src/lib.rs": [
+            "lib-stage5d-module",
+            "lib-stage5d-exports",
+        ],
+        "crates/strategy-runtime-core/src/stage5c_paper_host.rs": [
+            "type-state-transitions"
+        ],
+        "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": [
+            "runtime-private-snapshot"
+        ],
+    }[rel_path]
+    source = (root / rel_path).read_text()
+    for region in regions:
+        source = strip_additive_region(source, region)
+    return hashlib.sha256(source.encode()).hexdigest()
+
+
+def update_manifest_bridge_current_and_stripped_hash(root: Path, rel_path: str) -> None:
+    manifest_path = root / "docs/stage-5/stage-5d-additive-freeze-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["approved_bridge_files"][rel_path]["current_sha256"] = sha256_file(root / rel_path)
+    manifest["approved_bridge_files"][rel_path][
+        "stripped_without_additive_regions_sha256"
+    ] = stripped_bridge_hash(root, rel_path)
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+
+
+def mutate_private_layout_extensions(
+    root: Path, mutator: Callable[[list[dict]], None]
+) -> None:
+    manifest_path = root / "docs/stage-5/stage-5d-additive-freeze-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    mutator(manifest["stage5c_private_layout_extensions"])
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
 
 
@@ -293,6 +342,71 @@ def mutate_stage5d_api_surface_drift(root: Path) -> None:
     update_manifest_stage5d_hash(root)
 
 
+def mutate_private_layout_extension_removed(root: Path) -> None:
+    mutate_private_layout_extensions(root, lambda extensions: extensions.clear())
+
+
+def mutate_private_layout_extension_hash_changed(root: Path) -> None:
+    def mutator(extensions: list[dict]) -> None:
+        extensions[0]["stripped_without_additive_regions_sha256"] = "0" * 64
+
+    mutate_private_layout_extensions(root, mutator)
+
+
+def mutate_private_layout_extension_additional_path(root: Path) -> None:
+    def mutator(extensions: list[dict]) -> None:
+        extra = dict(extensions[0])
+        extra["path"] = "crates/strategy-runtime-core/src/runtime_compat.rs"
+        extensions.append(extra)
+
+    mutate_private_layout_extensions(root, mutator)
+
+
+def mutate_private_layout_extension_wrapper_path(root: Path) -> None:
+    def mutator(extensions: list[dict]) -> None:
+        extensions[0]["path"] = "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs"
+        extensions[0][
+            "stripped_without_additive_regions_sha256"
+        ] = stripped_bridge_hash(root, "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs")
+
+    mutate_private_layout_extensions(root, mutator)
+
+
+def mutate_private_layout_extension_lib_path(root: Path) -> None:
+    def mutator(extensions: list[dict]) -> None:
+        extensions[0]["path"] = "crates/strategy-runtime-core/src/lib.rs"
+        extensions[0]["stripped_without_additive_regions_sha256"] = stripped_bridge_hash(
+            root, "crates/strategy-runtime-core/src/lib.rs"
+        )
+
+    mutate_private_layout_extensions(root, mutator)
+
+
+def mutate_private_layout_self_authorized_semantic_drift(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs"
+    replace_once(
+        root / rel,
+        "const RISK_GATE_MAKER_COST_POINTS: f64 = 0.1;",
+        "const RISK_GATE_MAKER_COST_POINTS: f64 = 0.2;",
+    )
+    update_manifest_bridge_current_and_stripped_hash(root, rel)
+
+    def mutator(extensions: list[dict]) -> None:
+        extra = dict(extensions[0])
+        extra["path"] = rel
+        extra["stripped_without_additive_regions_sha256"] = stripped_bridge_hash(root, rel)
+        extensions.append(extra)
+
+    mutate_private_layout_extensions(root, mutator)
+
+
+def mutate_private_layout_extension_reason_id_changed(root: Path) -> None:
+    def mutator(extensions: list[dict]) -> None:
+        extensions[0]["reason_id"] = "stage5d-b2b-a-unreviewed-private-layout-v2"
+
+    mutate_private_layout_extensions(root, mutator)
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -332,6 +446,13 @@ CASES = [
     ("unexpected_legacy_reference_in_allowed_file", mutate_unexpected_legacy_reference_in_allowed_file, "reference count mismatch"),
     ("legacy_reference_moved_to_wrong_region", mutate_legacy_reference_moved_to_wrong_region, "forbidden in additive region"),
     ("stage5d_api_surface_drift", mutate_stage5d_api_surface_drift, "Stage5d public API surface mismatch"),
+    ("private_layout_extension_removed", mutate_private_layout_extension_removed, "Stage 5C private layout extension contract mismatch"),
+    ("private_layout_extension_hash_changed", mutate_private_layout_extension_hash_changed, "Stage 5C private layout extension contract mismatch"),
+    ("private_layout_extension_additional_path", mutate_private_layout_extension_additional_path, "Stage 5C private layout extension contract mismatch"),
+    ("private_layout_extension_wrapper_path", mutate_private_layout_extension_wrapper_path, "Stage 5C private layout extension contract mismatch"),
+    ("private_layout_extension_lib_path", mutate_private_layout_extension_lib_path, "Stage 5C private layout extension contract mismatch"),
+    ("private_layout_self_authorized_semantic_drift", mutate_private_layout_self_authorized_semantic_drift, "Stage 5C private layout extension contract mismatch"),
+    ("private_layout_extension_reason_id_changed", mutate_private_layout_extension_reason_id_changed, "Stage 5C private layout extension contract mismatch"),
 ]
 
 

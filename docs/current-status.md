@@ -169,7 +169,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   provenance fingerprints, authoritative Stage 5D canonical config/version/source
   build binding, hashed riskgate seed/ledger identity in the canonical
   fingerprint, pending-entry source-shape/config exactness checks,
-  source-private invariant preflight, and no authoritative working-set
+  checker-owned exact private-layout extension enforcement with negative cases
+  for self-authorized semantic drift, source-private invariant preflight, and no authoritative working-set
   rehydration from persistence. The formal mutation policy is
   `controlled_validated_stage5d_apply_only`; Stage 5D-b2b-a still does not implement
   authoritative riskgate injection, Redis bridge, FINAM execution, broker

@@ -55,7 +55,7 @@
   "stage5c_private_layout_extensions": [
     {
       "path": "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
-      "reason": "Stage 5D-b2b-a requires a crate-private persisted-vs-clean load provenance marker in the Stage5cRuntimeStateLoadedPaperStrategy capability; public Stage 5C API shape remains frozen by the Stage 5C compatibility checker.",
+      "reason_id": "stage5d-b2b-a-persisted-load-provenance-v1",
       "public_api_unchanged": true,
       "stripped_without_additive_regions_sha256": "0ea1a8982965eb34cc113d41c821b22a3ab2c2e2f5a80112ce2561b48fc4ed3c"
     }
@@ -151,7 +151,14 @@
     "legacy_alias_in_stage5d_persistence",
     "unexpected_legacy_reference_in_allowed_file",
     "legacy_reference_moved_to_wrong_region",
-    "stage5d_api_surface_drift"
+    "stage5d_api_surface_drift",
+    "private_layout_extension_removed",
+    "private_layout_extension_hash_changed",
+    "private_layout_extension_additional_path",
+    "private_layout_extension_wrapper_path",
+    "private_layout_extension_lib_path",
+    "private_layout_self_authorized_semantic_drift",
+    "private_layout_extension_reason_id_changed"
   ],
   "stage5d_public_api": {
     "public_reexports": [
