@@ -98,9 +98,9 @@
         "risk_gate_shadow_side": null,
         "risk_gate_shadow_target_price": null,
         "risk_gate_shadow_stop_price": null,
-        "risk_gate_pending_session_date": null,
-        "risk_gate_pending_shadow_pnl_points": 0.0,
-        "risk_gate_pending_shadow_trade_count": 0,
+        "risk_gate_pending_session_date": "2026-07-14",
+        "risk_gate_pending_shadow_pnl_points": 12.5,
+        "risk_gate_pending_shadow_trade_count": 2,
         "risk_gate_mr_enabled_current_session": true,
         "risk_gate_rolling_sum_lb120": 158.60000000000008,
         "risk_gate_last_finalized_session_date": "2026-07-13",
@@ -108,7 +108,7 @@
       }
     }
   },
-  "payload_checksum_sha256": "8e28c7ff7fc209b66ded174a7127c4c5c75e2b5d184b291eb205a3aed7060534",
+  "payload_checksum_sha256": "8193db39f6884635f7fb9ab15da66980bf245e385ff083f7beb89ed32ae5b13d",
   "lifecycle_watermarks": {
     "persisted_event_watermark": "stream:stage5d:0007",
     "last_semantic_bar_ts": "2026-07-14T06:00:00Z",
@@ -161,9 +161,13 @@
     "runtime_pending_finalizations": [
       {
         "session_date": "2026-07-14",
-        "generation": 42,
-        "state": "prepared",
-        "identity_hash": "riskgate_identity_hash_0001"
+        "shadow_pnl_points": "12.5",
+        "shadow_trade_count": 2
+      },
+      {
+        "session_date": "2026-07-15",
+        "shadow_pnl_points": "-3.25",
+        "shadow_trade_count": 1
       }
     ]
   },

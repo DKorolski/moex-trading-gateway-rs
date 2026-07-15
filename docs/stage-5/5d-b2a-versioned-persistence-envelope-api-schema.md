@@ -58,14 +58,14 @@ public methods, opaque capabilities and a normalized signature hash.
 
 Current surface counts:
 
-- public reexports: 43
+- public reexports: 44
 - public constants: 5
-- public types: 38
+- public types: 39
 - public methods: 11
 - opaque capabilities: 7
 - externally constructible enums: 12
 - normalized signature hash:
-  `1a8c63e2fe58e4a39920b06637d45e51ea21ef21781945308a7b5049409e0be3`
+  `271a05cf8c33f37095aec16cdbff6678fe14b7b1dee612d389da2445d4209753`
 
 The negative harness now includes `stage5d_api_surface_drift`, which mutates a
 public Stage5d DTO field and proves that the checker rejects the changed surface
@@ -98,13 +98,19 @@ Additional schema-only restore-contract tests reject:
 - semantic timestamps encoded as milliseconds;
 - runtime wall-clock timers encoded as seconds;
 - timers after the persisted snapshot timestamp;
-- pending-entry creation after the last broker-event watermark;
+- broker-event, semantic-bar or processed-bar watermarks after persisted-at;
+- processed-bar watermark ahead of semantic-bar watermark;
 - source-local date/datetime strings that would parse to `None` in source;
 - partial deferred-entry/deferred-exit/shadow-position tuples;
 - missing pending request coverage for pending/deferred TP/SL/entry/exit;
 - broker object references or expected working sets missing from typed indexes;
 - duplicate recovery-index values;
+- riskgate pending-finalization semantic cache mismatch;
 - inconsistent bidirectional pending-entry/private/timer state.
+
+Pending request creation is intentionally not ordered against an unrelated
+broker-event watermark: semantic-bar and broker-event streams are partial-order
+domains. A pending entry awaiting ACK may be newer than the last broker event.
 
 The valid fixture is a single consistent partial MR entry restart scenario:
 
@@ -117,11 +123,16 @@ The valid fixture is a single consistent partial MR entry restart scenario:
 - matching `pending_requests` coverage;
 - no contradictory pending exit;
 - parseable source-local date/datetime strings;
+- multi-record runtime pending riskgate finalization vector retaining per-record
+  PnL and trade-count payload;
+- semantic pending-finalization compatibility cache equal to the first runtime
+  pending finalization record;
 - top-level and binding Stage 5D config fingerprints equal.
 
 Riskgate finalization collections are named by role:
 
-- `runtime_pending_finalizations`: runtime-observed pending finalizations;
+- `runtime_pending_finalizations`: runtime-observed pending finalization payload
+  with source session date, shadow PnL points and shadow trade count;
 - `durable_finalization_outbox`: durable riskgate outbox state.
 
 Stage 5D-b2a defines the schema roles only; restore-contract validation for

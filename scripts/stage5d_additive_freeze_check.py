@@ -130,6 +130,7 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "Stage5dRiskGateInjectedPaperStrategy",
     "Stage5dRiskGateMaterializedState",
     "Stage5dRiskGatePersistence",
+    "Stage5dRuntimePendingRiskGateFinalization",
     "Stage5dRuntimePrivateExtension",
     "Stage5dSemanticStrategyStateV1",
     "Stage5dSide",

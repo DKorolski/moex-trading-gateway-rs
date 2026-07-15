@@ -154,10 +154,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   strict instrument binding, strict unknown-field decoding, checksum
   validation, lifecycle watermarks, typed broker-neutral recovery indexes,
   source-compatible runtime-private enums, runtime-private extension DTOs,
-  riskgate ledger/materialized/outbox DTOs, an opaque validated-envelope
+  riskgate ledger/materialized/outbox DTOs, source-exact runtime pending
+  riskgate finalization payloads, an opaque validated-envelope
   capability for future gates, deterministic fixtures,
   corrupt/version/config/unknown-field/semantic/timestamp/source-roundtrip/
-  pending-lifecycle/recovery-index negative validation,
+  pending-lifecycle/recovery-index/riskgate-finalization negative validation,
   and full public Stage5d API-surface freeze enforcement.
   Stage 5D-b2a does not implement persistence DTO mutation, runtime-private
   snapshot application, riskgate injection, Redis bridge, FINAM execution,

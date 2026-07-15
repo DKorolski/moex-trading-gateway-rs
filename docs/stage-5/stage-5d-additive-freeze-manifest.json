@@ -28,7 +28,7 @@
   "approved_bridge_files": {
     "crates/strategy-runtime-core/src/lib.rs": {
       "closure_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
-      "current_sha256": "a535148d325c7e2f569a268f6b85c16a73c35c9d436a75c677a238ab982170ee",
+      "current_sha256": "2936c214229918da57cd9fc59fcf91da5f2d42e6e87404b7d8a8332e94c5ede8",
       "stripped_without_additive_regions_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
       "additive_regions": [
         "lib-stage5d-module",
@@ -54,7 +54,7 @@
   },
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "55b8f1a471c6642079abba867f169fe58835bfcd59811fa7dae9f86c6f27346a"
+    "current_sha256": "4ff33a2b274340fd7bf1946c109d4827a8a8fa25030f82bac36eaed6e25b8d7b"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -89,6 +89,7 @@
     "Stage5dRiskGateInjectedPaperStrategy",
     "Stage5dRiskGateMaterializedState",
     "Stage5dRiskGatePersistence",
+    "Stage5dRuntimePendingRiskGateFinalization",
     "Stage5dRuntimePrivateExtension",
     "Stage5dSemanticStrategyStateV1",
     "Stage5dSide",
@@ -173,6 +174,7 @@
       "Stage5dRiskGateInjectedPaperStrategy",
       "Stage5dRiskGateMaterializedState",
       "Stage5dRiskGatePersistence",
+      "Stage5dRuntimePendingRiskGateFinalization",
       "Stage5dRuntimePrivateExtension",
       "Stage5dSemanticStrategyStateV1",
       "Stage5dSide",
@@ -282,6 +284,7 @@
           "TimestampChronologyInvalid",
           "SourceRoundtripInconsistent",
           "RecoveryIndexInconsistent",
+          "RiskGateFinalizationInconsistent",
           "SerializationFailed"
         ]
       },
@@ -1001,6 +1004,26 @@
         "public_variants": []
       },
       {
+        "name": "Stage5dRuntimePendingRiskGateFinalization",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "session_date",
+            "type": "String"
+          },
+          {
+            "name": "shadow_pnl_points",
+            "type": "String"
+          },
+          {
+            "name": "shadow_trade_count",
+            "type": "u32"
+          }
+        ],
+        "public_variants": []
+      },
+      {
         "name": "Stage5dRuntimePrivateExtension",
         "kind": "struct",
         "opaque": false,
@@ -1039,7 +1062,7 @@
           },
           {
             "name": "runtime_pending_finalizations",
-            "type": "Vec<Stage5dRiskGateFinalizationOutboxRecord>"
+            "type": "Vec<Stage5dRuntimePendingRiskGateFinalization>"
           }
         ],
         "public_variants": []
@@ -1278,12 +1301,12 @@
       "Stage5dStructuredTimestampFormat",
       "Stage5dTimestampUnits"
     ],
-    "normalized_signature_hash": "1a8c63e2fe58e4a39920b06637d45e51ea21ef21781945308a7b5049409e0be3",
+    "normalized_signature_hash": "271a05cf8c33f37095aec16cdbff6678fe14b7b1dee612d389da2445d4209753",
     "public_surface_counts": {
-      "public_reexports": 43,
+      "public_reexports": 44,
       "public_constants": 5,
       "public_free_functions": 0,
-      "public_types": 38,
+      "public_types": 39,
       "public_methods": 11,
       "opaque_capabilities": 7,
       "externally_constructible_enums": 12
