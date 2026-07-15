@@ -5,8 +5,8 @@
 //! transitions, Redis, FINAM, transport, dispatch, or runtime-live behavior.
 
 use broker_core::{
-    BrokerAccountId, BrokerOrderId, BrokerStopOrderId, BrokerTradeId, ClientOrderId, InstrumentId,
-    StrategyRequestId,
+    BrokerAccountId, BrokerOrderId, BrokerStopOrderId, BrokerTradeId, ClientOrderId, Exchange,
+    InstrumentId, Market, StrategyRequestId,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -44,6 +44,25 @@ pub struct Stage5dRiskGateInjectedPaperStrategy {
 /// Opaque validated runtime-private extension marker.
 pub struct Stage5dValidatedRuntimePrivateExtension {
     _private: (),
+}
+
+/// Opaque proof that the persistence envelope passed strict Stage 5D-b2a
+/// schema-only restore-contract validation. Future mutation gates must consume
+/// this capability, not a raw deserialized envelope.
+pub struct Stage5dValidatedPersistenceEnvelope {
+    envelope: Stage5dPersistenceEnvelope,
+}
+
+impl Stage5dValidatedPersistenceEnvelope {
+    /// Redacted snapshot id for evidence and diagnostics.
+    pub fn snapshot_id(&self) -> &str {
+        &self.envelope.snapshot_id
+    }
+
+    /// Envelope schema version for evidence and diagnostics.
+    pub fn schema_version(&self) -> u16 {
+        self.envelope.schema_version
+    }
 }
 
 /// Redacted blocked-restore marker for future Stage 5D transitions.
@@ -110,6 +129,30 @@ pub enum Stage5dStrategyKind {
     HybridIntraday,
 }
 
+/// Strict Stage 5D-owned instrument binding. This prevents unknown fields in
+/// broker-core `InstrumentId` JSON from being silently discarded before
+/// checksum validation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage5dInstrumentBinding {
+    pub symbol: String,
+    pub venue_symbol: Option<String>,
+    pub exchange: Exchange,
+    pub market: Market,
+}
+
+impl Stage5dInstrumentBinding {
+    /// Convert the strict binding into the broker-neutral core instrument id.
+    pub fn to_instrument_id(&self) -> InstrumentId {
+        InstrumentId {
+            symbol: self.symbol.clone(),
+            venue_symbol: self.venue_symbol.clone(),
+            exchange: self.exchange.clone(),
+            market: self.market.clone(),
+        }
+    }
+}
+
 /// Stable side enum for Stage 5D persistence schema.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -160,7 +203,7 @@ pub struct Stage5dSnapshotBinding {
     pub strategy_kind: Stage5dStrategyKind,
     pub strategy_id: String,
     pub account_id: BrokerAccountId,
-    pub instrument_id: InstrumentId,
+    pub instrument_id: Stage5dInstrumentBinding,
     pub profile_binding: String,
     pub broker_protocol_schema_version: u16,
     pub runtime_state_schema_version: u16,
@@ -177,6 +220,100 @@ pub struct Stage5dSnapshotBinding {
 pub struct Stage5dStrategyStatePayload {
     pub schema_version: u16,
     pub strategy_state_json: Value,
+}
+
+/// Strict Stage 5D semantic StrategyState payload root.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Stage5dSemanticStrategyStateV1 {
+    HybridIntradayRuntime(Stage5dHybridIntradayStrategyStateV1),
+}
+
+/// Strict Stage 5D mirror of the accepted HybridIntradayRuntime semantic
+/// `StrategyState` fields. This is a public persistence schema, not a runtime
+/// private source struct and not a mutation capability.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage5dHybridIntradayStrategyStateV1 {
+    pub active_cycle_id: Option<String>,
+    pub next_cycle_seq: u32,
+    pub last_position_qty: f64,
+    pub current_owner: Option<Stage5dOwner>,
+    pub current_side: Option<Stage5dSide>,
+    pub pending_entry_owner: Option<Stage5dOwner>,
+    pub pending_entry_side: Option<Stage5dSide>,
+    pub pending_entry_cycle_id: Option<String>,
+    pub pending_entry_request_id: Option<StrategyRequestId>,
+    pub pending_entry_created_ts_utc: Option<i64>,
+    pub deferred_entry_owner: Option<Stage5dOwner>,
+    pub deferred_entry_side: Option<Stage5dSide>,
+    pub deferred_entry_cycle_id: Option<String>,
+    pub deferred_entry_entry_style: Option<Stage5dEntryStyle>,
+    pub deferred_entry_reason: Option<Stage5dLifecycleReason>,
+    pub deferred_entry_stop_price: Option<f64>,
+    pub deferred_entry_take_price: Option<f64>,
+    pub deferred_entry_ts_utc: Option<i64>,
+    pub deferred_entry_request_id: Option<StrategyRequestId>,
+    pub pending_exit_request_id: Option<StrategyRequestId>,
+    pub pending_exit_created_ts_utc: Option<i64>,
+    pub deferred_exit_owner: Option<Stage5dOwner>,
+    pub deferred_exit_reason: Option<Stage5dLifecycleReason>,
+    pub deferred_exit_cycle_id: Option<String>,
+    pub deferred_exit_ts_utc: Option<i64>,
+    pub deferred_exit_request_id: Option<StrategyRequestId>,
+    pub pending_tp_request_id: Option<StrategyRequestId>,
+    pub pending_tp_created_ts_utc: Option<i64>,
+    pub pending_sl_request_id: Option<StrategyRequestId>,
+    pub pending_sl_created_ts_utc: Option<i64>,
+    pub tp_order_id: Option<BrokerOrderId>,
+    pub sl_stop_order_id: Option<BrokerStopOrderId>,
+    pub sl_exchange_order_id: Option<BrokerOrderId>,
+    pub sl_triggered_ts: Option<i64>,
+    pub mr_take_price: Option<f64>,
+    pub mr_stop_price: Option<f64>,
+    pub repair_deadline_ts: Option<i64>,
+    pub next_repair_at_ts: Option<i64>,
+    pub repair_backoff_level: u32,
+    pub repair_attempts: u32,
+    pub safe_mode_close_only: bool,
+    pub safe_mode_reason: Option<String>,
+    pub entry_ready: bool,
+    pub last_bar_close: Option<f64>,
+    pub prev_day_close: Option<f64>,
+    pub last_day_local: Option<String>,
+    pub current_day_high: Option<f64>,
+    pub current_day_low: Option<f64>,
+    pub current_day_close: Option<f64>,
+    pub prev_day_range: Option<f64>,
+    pub prev_day_return: Option<f64>,
+    pub day_before_close: Option<f64>,
+    pub today_start_local: Option<String>,
+    pub was_long_today: bool,
+    pub was_short_today: bool,
+    pub overnight_exit_armed_date: Option<String>,
+    pub risk_gate_shadow_session_date: Option<String>,
+    pub risk_gate_shadow_pnl_points: f64,
+    pub risk_gate_shadow_trade_count: u32,
+    pub risk_gate_shadow_entry_ts_utc: Option<i64>,
+    pub risk_gate_shadow_entry_price: Option<f64>,
+    pub risk_gate_shadow_side: Option<Stage5dSide>,
+    pub risk_gate_shadow_target_price: Option<f64>,
+    pub risk_gate_shadow_stop_price: Option<f64>,
+    pub risk_gate_pending_session_date: Option<String>,
+    pub risk_gate_pending_shadow_pnl_points: f64,
+    pub risk_gate_pending_shadow_trade_count: u32,
+    pub risk_gate_mr_enabled_current_session: Option<bool>,
+    pub risk_gate_rolling_sum_lb120: Option<f64>,
+    pub risk_gate_last_finalized_session_date: Option<String>,
+    pub risk_gate_ledger_rows_count: usize,
+}
+
+impl Stage5dHybridIntradayStrategyStateV1 {
+    fn active_cycle_id_is_valid(&self) -> bool {
+        self.active_cycle_id
+            .as_deref()
+            .map(stage5d_cycle_id_is_valid)
+            .unwrap_or(true)
+    }
 }
 
 /// Lifecycle watermarks that bind restored state to processed data progress.
@@ -355,6 +492,15 @@ impl Stage5dPersistenceEnvelope {
         Ok(envelope)
     }
 
+    /// Strictly decode, validate checksum/schema and prove schema-only
+    /// restore-contract consistency without mutating runtime state.
+    pub fn validated_from_json_str_strict(
+        payload: &str,
+    ) -> Result<Stage5dValidatedPersistenceEnvelope, Stage5dEnvelopeValidationError> {
+        let envelope = Self::from_json_str_strict(payload)?;
+        envelope.validate_restore_contract_schema_only()
+    }
+
     /// Compute the canonical payload checksum with the checksum field cleared.
     pub fn compute_payload_checksum_sha256(
         &self,
@@ -407,6 +553,106 @@ impl Stage5dPersistenceEnvelope {
         }
         Ok(())
     }
+
+    /// Validate semantic payload and cross-section consistency required before
+    /// any future restore mutation gate can consume this envelope.
+    pub fn validate_restore_contract_schema_only(
+        &self,
+    ) -> Result<Stage5dValidatedPersistenceEnvelope, Stage5dEnvelopeValidationError> {
+        self.validate_schema_and_checksum()?;
+        if self.canonical_config_fingerprint != self.binding.stage5d_canonical_config_fingerprint {
+            return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+        }
+        if self.binding.instrument_id.symbol.is_empty()
+            || self.binding.account_id.as_str().is_empty()
+            || self.riskgate.identity.strategy_id != self.binding.strategy_id
+            || self.riskgate.identity.profile_id != self.binding.profile_binding
+        {
+            return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+        }
+
+        let semantic: Stage5dSemanticStrategyStateV1 =
+            serde_json::from_value(self.strategy_state.strategy_state_json.clone())
+                .map_err(|_| Stage5dEnvelopeValidationError::SemanticStateInvalid)?;
+        let canonical = serde_json::to_value(&semantic)
+            .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+        if canonical != self.strategy_state.strategy_state_json {
+            return Err(Stage5dEnvelopeValidationError::SemanticStateInvalid);
+        }
+
+        let Stage5dSemanticStrategyStateV1::HybridIntradayRuntime(state) = &semantic;
+        self.validate_hybrid_state_consistency(state)?;
+
+        Ok(Stage5dValidatedPersistenceEnvelope {
+            envelope: self.clone(),
+        })
+    }
+
+    fn validate_hybrid_state_consistency(
+        &self,
+        state: &Stage5dHybridIntradayStrategyStateV1,
+    ) -> Result<(), Stage5dEnvelopeValidationError> {
+        if !state.active_cycle_id_is_valid()
+            || state
+                .pending_entry_cycle_id
+                .as_deref()
+                .is_some_and(|cycle| !stage5d_cycle_id_is_valid(cycle))
+            || state
+                .deferred_entry_cycle_id
+                .as_deref()
+                .is_some_and(|cycle| !stage5d_cycle_id_is_valid(cycle))
+            || state
+                .deferred_exit_cycle_id
+                .as_deref()
+                .is_some_and(|cycle| !stage5d_cycle_id_is_valid(cycle))
+        {
+            return Err(Stage5dEnvelopeValidationError::SemanticStateInvalid);
+        }
+
+        let pending_requests = &self.recovery_indexes.pending_requests;
+        if let Some(pending_entry) = &self.runtime_private_extension.pending_entry {
+            let Some(request_id) = pending_entry.request_id else {
+                return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
+            };
+            if state.pending_entry_request_id != Some(request_id)
+                || state.pending_entry_owner != Some(pending_entry.owner)
+                || state.pending_entry_side != Some(pending_entry.side)
+                || state.pending_entry_cycle_id.is_none()
+                || state.pending_entry_created_ts_utc.is_none()
+                || !pending_requests.contains(&request_id)
+            {
+                return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
+            }
+
+            if self.runtime_private_extension.partial_entry_timer.is_some() {
+                let target_qty: f64 = pending_entry
+                    .target_qty
+                    .parse()
+                    .map_err(|_| Stage5dEnvelopeValidationError::PendingStateInconsistent)?;
+                let filled_qty = state.last_position_qty.abs();
+                if !(filled_qty > 0.0 && filled_qty < target_qty) {
+                    return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
+                }
+            }
+        }
+
+        if let Some(pending_exit) = &self.runtime_private_extension.pending_exit {
+            if state.pending_exit_request_id != Some(pending_exit.request_id)
+                || state.pending_exit_created_ts_utc.is_none()
+                || !pending_requests.contains(&pending_exit.request_id)
+            {
+                return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
+            }
+        } else if state.pending_exit_request_id.is_some() {
+            return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
+        }
+
+        Ok(())
+    }
+}
+
+fn stage5d_cycle_id_is_valid(value: &str) -> bool {
+    value.len() == 10 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 /// Stage 5D envelope validation errors.
@@ -419,6 +665,9 @@ pub enum Stage5dEnvelopeValidationError {
     StrategyStateSchemaMismatch,
     RequiredFieldEmpty,
     PayloadChecksumMismatch,
+    SemanticStateInvalid,
+    BindingMismatch,
+    PendingStateInconsistent,
     SerializationFailed,
 }
 
@@ -469,6 +718,16 @@ mod tests {
             .strategy_state_json
             .get("HybridIntradayRuntime")
             .is_some());
+        let semantic: Stage5dSemanticStrategyStateV1 =
+            serde_json::from_value(envelope.strategy_state.strategy_state_json.clone())
+                .expect("semantic state must be strict Stage 5D state");
+        let Stage5dSemanticStrategyStateV1::HybridIntradayRuntime(state) = semantic;
+        assert_eq!(state.active_cycle_id.as_deref(), Some("6a4badd811"));
+        assert_eq!(state.last_position_qty, 0.5);
+        assert_eq!(
+            state.pending_entry_request_id,
+            Some(envelope.recovery_indexes.pending_requests[0])
+        );
         assert_eq!(
             envelope
                 .runtime_private_extension
@@ -478,19 +737,15 @@ mod tests {
                 .entry_style,
             Stage5dEntryStyle::Market
         );
-        assert_eq!(
-            envelope
-                .runtime_private_extension
-                .pending_exit
-                .as_ref()
-                .expect("fixture pending exit")
-                .reason,
-            Stage5dLifecycleReason::MeanRevTimeCutoff
-        );
+        assert!(envelope.runtime_private_extension.pending_exit.is_none());
 
         envelope
             .validate_schema_and_checksum()
             .expect("fixture checksum must match canonical payload");
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("fixture must pass schema-only restore contract");
+        assert_eq!(validated.snapshot_id(), "SNAP_STAGE5D_B2A_0001");
 
         let serialized = serde_json::to_value(&envelope).expect("fixture must serialize");
         let expected: Value = serde_json::from_str(include_str!(
@@ -585,6 +840,110 @@ mod tests {
         assert_eq!(
             Stage5dPersistenceEnvelope::from_json_str_strict(&payload),
             Err(Stage5dEnvelopeValidationError::DeserializationFailed)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_unknown_nested_instrument_field_is_rejected_before_checksum() {
+        let payload = strict_fixture_with_inserted_field(
+            "      \"symbol\": \"IMOEXF\",",
+            "      \"unsupported_instrument_binding\": true,",
+        );
+
+        assert_eq!(
+            Stage5dPersistenceEnvelope::from_json_str_strict(&payload),
+            Err(Stage5dEnvelopeValidationError::DeserializationFailed)
+        );
+    }
+
+    fn fixture_with_mutated_state(mutator: impl FnOnce(&mut Value)) -> Stage5dPersistenceEnvelope {
+        let mut envelope = valid_fixture();
+        mutator(&mut envelope.strategy_state.strategy_state_json);
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+        envelope
+    }
+
+    #[test]
+    fn stage5d_b2a_scalar_strategy_state_payload_is_rejected() {
+        let mut envelope = valid_fixture();
+        envelope.strategy_state.strategy_state_json = Value::Bool(true);
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::SemanticStateInvalid)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_unknown_semantic_state_field_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["pending_real_order"] = Value::Bool(true);
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::SemanticStateInvalid)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_wrong_semantic_state_variant_is_rejected() {
+        let mut envelope = valid_fixture();
+        envelope.strategy_state.strategy_state_json = serde_json::json!({"Idle": {}});
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::SemanticStateInvalid)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_misspelled_semantic_state_field_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            if let Value::Object(fields) = &mut state["HybridIntradayRuntime"] {
+                let active_cycle = fields
+                    .remove("active_cycle_id")
+                    .expect("fixture has active cycle");
+                fields.insert("misspelled_active_cycle".to_string(), active_cycle);
+            }
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::SemanticStateInvalid)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_invalid_semantic_field_type_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["last_position_qty"] =
+                Value::String("not-a-number".to_string());
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::SemanticStateInvalid)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2a_inconsistent_pending_entry_is_rejected() {
+        let envelope = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["pending_entry_cycle_id"] = Value::Null;
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
         );
     }
 }

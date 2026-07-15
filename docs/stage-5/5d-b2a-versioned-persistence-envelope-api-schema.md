@@ -15,8 +15,11 @@ no FINAM transport, no dispatch, and no runtime-live behavior are added.
   target instrument, profile binding, broker-protocol/runtime-state versions,
   Stage 5C/5D config fingerprints and source commit/build identity.
 - `Stage5dStrategyStatePayload` with a versioned canonical JSON semantic
-  `StrategyState` payload. The payload is not a public runtime-private source
-  struct and does not expose a raw strategy extractor.
+  `StrategyState` payload plus strict `Stage5dSemanticStrategyStateV1` /
+  `Stage5dHybridIntradayStrategyStateV1` schema. The payload is not a public
+  runtime-private source struct and does not expose a raw strategy extractor.
+- `Stage5dInstrumentBinding`, a strict Stage 5D-owned target instrument DTO
+  with conversion to broker-core `InstrumentId`.
 - Typed recovery indexes for `BrokerOrderId`, `BrokerStopOrderId`,
   `BrokerTradeId`, `ClientOrderId`, and `StrategyRequestId`. `ClientOrderId`
   remains distinct from `StrategyRequestId`.
@@ -29,6 +32,10 @@ no FINAM transport, no dispatch, and no runtime-live behavior are added.
 - `Stage5dPersistenceEnvelope::from_json_str_strict(...)`, a single public
   strict decode helper that rejects unknown Stage 5D DTO fields before checksum
   validation.
+- `Stage5dPersistenceEnvelope::validated_from_json_str_strict(...)` and
+  `validate_restore_contract_schema_only(...)`, which produce opaque
+  `Stage5dValidatedPersistenceEnvelope` only after checksum, semantic payload,
+  binding and pending-state consistency checks.
 
 The restorable enums intentionally match the accepted source semantics:
 
@@ -46,14 +53,14 @@ public methods, opaque capabilities and a normalized signature hash.
 
 Current surface counts:
 
-- public reexports: 37
+- public reexports: 41
 - public constants: 5
-- public types: 32
-- public methods: 6
-- opaque capabilities: 6
-- externally constructible enums: 10
+- public types: 36
+- public methods: 11
+- opaque capabilities: 7
+- externally constructible enums: 11
 - normalized signature hash:
-  `7a9a4b942d0196d47100a826a0eb4e2b60f48833511b4fc022a78b513dd07ea0`
+  `ec026aa5705ff416ead8ae262012c616ab642b2fac3ed047aa23794b6d0d43f4`
 
 The negative harness now includes `stage5d_api_surface_drift`, which mutates a
 public Stage5d DTO field and proves that the checker rejects the changed surface
@@ -77,6 +84,23 @@ Additional unit tests prove strict decode rejection for unknown fields at:
 - runtime-private extension;
 - riskgate section;
 - nested outbox record.
+- nested instrument binding.
+
+Additional schema-only restore-contract tests reject:
+
+- scalar/array/wrong-variant semantic state payloads;
+- unknown, misspelled or invalidly typed semantic state fields;
+- inconsistent pending-entry state against semantic state and recovery indexes.
+
+The valid fixture is a single consistent partial MR entry restart scenario:
+
+- 10-character hex cycle id;
+- partial fill quantity below target quantity;
+- semantic pending-entry owner/side/cycle/request/timestamp populated;
+- matching runtime-private pending-entry DTO;
+- matching `pending_requests` coverage;
+- no contradictory pending exit;
+- top-level and binding Stage 5D config fingerprints equal.
 
 Riskgate finalization collections are named by role:
 

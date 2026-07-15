@@ -6,7 +6,7 @@
   "write_generation": 42,
   "persisted_at_ts_utc": "2026-07-14T06:10:00Z",
   "timestamp_units": "milliseconds",
-  "canonical_config_fingerprint": "cfg_sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "canonical_config_fingerprint": "stage5d_cfg_sha256:3333333333333333333333333333333333333333333333333333333333333333",
   "binding": {
     "stage": "stage5d",
     "strategy_kind": "hybrid_intraday",
@@ -23,30 +23,84 @@
     "runtime_state_schema_version": 2,
     "stage5c_compat_config_fingerprint": "stage5c_cfg_sha256:2222222222222222222222222222222222222222222222222222222222222222",
     "stage5d_canonical_config_fingerprint": "stage5d_cfg_sha256:3333333333333333333333333333333333333333333333333333333333333333",
-    "source_commit_or_build_id": "source_commit:4f874c7dd7d583a44edfa42701ccb386cbe3e630",
+    "source_commit_or_build_id": "source_commit:92e6e0685b1cbab6f4c6271abe1db8ab690a1ded",
     "created_at_ts_utc": "2026-07-14T06:09:50Z"
   },
   "strategy_state": {
     "schema_version": 1,
     "strategy_state_json": {
       "HybridIntradayRuntime": {
-        "active_cycle_id": "cycle-stage5d-b2a-0001",
+        "active_cycle_id": "6a4badd811",
         "next_cycle_seq": 8,
-        "last_position_qty": 1.0,
+        "last_position_qty": 0.5,
         "current_owner": "mean_reversion",
         "current_side": "long",
+        "pending_entry_owner": "mean_reversion",
+        "pending_entry_side": "long",
+        "pending_entry_cycle_id": "6a4badd811",
         "pending_entry_request_id": "11111111-1111-1111-1111-111111111111",
+        "pending_entry_created_ts_utc": 1784051940000,
+        "deferred_entry_owner": null,
+        "deferred_entry_side": null,
+        "deferred_entry_cycle_id": null,
+        "deferred_entry_entry_style": null,
+        "deferred_entry_reason": null,
+        "deferred_entry_stop_price": null,
+        "deferred_entry_take_price": null,
+        "deferred_entry_ts_utc": null,
+        "deferred_entry_request_id": null,
         "pending_exit_request_id": null,
-        "tp_order_id": "FINAM-ORDER-1",
-        "sl_stop_order_id": "FINAM-STOP-1",
+        "pending_exit_created_ts_utc": null,
+        "deferred_exit_owner": null,
+        "deferred_exit_reason": null,
+        "deferred_exit_cycle_id": null,
+        "deferred_exit_ts_utc": null,
+        "deferred_exit_request_id": null,
+        "pending_tp_request_id": null,
+        "pending_tp_created_ts_utc": null,
+        "pending_sl_request_id": null,
+        "pending_sl_created_ts_utc": null,
+        "tp_order_id": null,
+        "sl_stop_order_id": null,
+        "sl_exchange_order_id": null,
+        "sl_triggered_ts": null,
+        "mr_take_price": 2250.0,
+        "mr_stop_price": 2200.0,
+        "repair_deadline_ts": null,
+        "next_repair_at_ts": null,
+        "repair_backoff_level": 0,
+        "repair_attempts": 0,
         "safe_mode_close_only": false,
-        "entry_ready": true,
+        "safe_mode_reason": null,
+        "entry_ready": false,
         "last_bar_close": 2227.5,
         "prev_day_close": 2234.5,
+        "last_day_local": "2026-07-14",
         "current_day_high": 2262.0,
         "current_day_low": 2165.5,
         "current_day_close": 2227.5,
-        "prev_day_range": 60.5
+        "prev_day_range": 60.5,
+        "prev_day_return": -0.0031,
+        "day_before_close": 2241.5,
+        "today_start_local": "2026-07-14",
+        "was_long_today": true,
+        "was_short_today": false,
+        "overnight_exit_armed_date": null,
+        "risk_gate_shadow_session_date": "2026-07-14",
+        "risk_gate_shadow_pnl_points": 0.0,
+        "risk_gate_shadow_trade_count": 0,
+        "risk_gate_shadow_entry_ts_utc": null,
+        "risk_gate_shadow_entry_price": null,
+        "risk_gate_shadow_side": null,
+        "risk_gate_shadow_target_price": null,
+        "risk_gate_shadow_stop_price": null,
+        "risk_gate_pending_session_date": null,
+        "risk_gate_pending_shadow_pnl_points": 0.0,
+        "risk_gate_pending_shadow_trade_count": 0,
+        "risk_gate_mr_enabled_current_session": true,
+        "risk_gate_rolling_sum_lb120": 158.60000000000008,
+        "risk_gate_last_finalized_session_date": "2026-07-13",
+        "risk_gate_ledger_rows_count": 221
       }
     }
   },
@@ -88,24 +142,16 @@
     "partial_entry_timer": {
       "partial_started_at_ms": 1784052000000
     },
-    "pending_exit": {
-      "owner": "mean_reversion",
-      "reason": "mean_rev_time_cutoff",
-      "request_id": "22222222-2222-2222-2222-222222222222"
-    },
-    "bracket_reconciliation_timer": {
-      "bracket_terminal_reconcile_started_ms": 1784052060000
-    },
+    "pending_exit": null,
+    "bracket_reconciliation_timer": null,
     "cleanup_retry_state": {
-      "cleanup_stop_retry_attempts": 1
+      "cleanup_stop_retry_attempts": 0
     },
     "expected_working_sets": {
       "expected_working_order_ids": [
         "FINAM-ORDER-1"
       ],
-      "expected_working_stop_order_ids": [
-        "FINAM-STOP-1"
-      ]
+      "expected_working_stop_order_ids": []
     },
     "last_processed_bar_ts": "2026-07-14T06:00:00Z",
     "runtime_pending_finalizations": [

@@ -110,6 +110,8 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "Stage5dEntryStyle",
     "Stage5dEnvelopeValidationError",
     "Stage5dExpectedWorkingSets",
+    "Stage5dHybridIntradayStrategyStateV1",
+    "Stage5dInstrumentBinding",
     "Stage5dLifecycleReason",
     "Stage5dLifecycleWatermarks",
     "Stage5dOwner",
@@ -129,11 +131,13 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "Stage5dRiskGateMaterializedState",
     "Stage5dRiskGatePersistence",
     "Stage5dRuntimePrivateExtension",
+    "Stage5dSemanticStrategyStateV1",
     "Stage5dSide",
     "Stage5dSnapshotBinding",
     "Stage5dStrategyKind",
     "Stage5dStrategyStatePayload",
     "Stage5dTimestampUnits",
+    "Stage5dValidatedPersistenceEnvelope",
     "Stage5dValidatedRuntimePrivateExtension",
 ]
 
