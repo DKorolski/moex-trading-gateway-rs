@@ -23,8 +23,366 @@ use crate::strategy_host::{
 };
 
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: runtime-private-snapshot
-// Stage 5D-b1 marker only. Future reviewed slices may add crate-private
-// runtime-private snapshot export/apply glue in this additive region.
+fn stage5d_owner_to_runtime(owner: crate::stage5d_persistence::Stage5dOwner) -> Owner {
+    match owner {
+        crate::stage5d_persistence::Stage5dOwner::MeanReversion => Owner::MeanReversion,
+        crate::stage5d_persistence::Stage5dOwner::IntradayBreakout => Owner::IntradayBreakout,
+    }
+}
+
+fn runtime_owner_to_stage5d(owner: Owner) -> crate::stage5d_persistence::Stage5dOwner {
+    match owner {
+        Owner::MeanReversion => crate::stage5d_persistence::Stage5dOwner::MeanReversion,
+        Owner::IntradayBreakout => crate::stage5d_persistence::Stage5dOwner::IntradayBreakout,
+    }
+}
+
+fn stage5d_side_to_runtime(side: crate::stage5d_persistence::Stage5dSide) -> Side {
+    match side {
+        crate::stage5d_persistence::Stage5dSide::Long => Side::Long,
+        crate::stage5d_persistence::Stage5dSide::Short => Side::Short,
+    }
+}
+
+fn runtime_side_to_stage5d(side: Side) -> crate::stage5d_persistence::Stage5dSide {
+    match side {
+        Side::Long => crate::stage5d_persistence::Stage5dSide::Long,
+        Side::Short => crate::stage5d_persistence::Stage5dSide::Short,
+    }
+}
+
+fn stage5d_entry_style_to_runtime(
+    style: crate::stage5d_persistence::Stage5dEntryStyle,
+) -> EntryStyle {
+    match style {
+        crate::stage5d_persistence::Stage5dEntryStyle::Market => EntryStyle::Market,
+        crate::stage5d_persistence::Stage5dEntryStyle::Bracket => EntryStyle::Bracket,
+    }
+}
+
+fn runtime_entry_style_to_stage5d(
+    style: EntryStyle,
+) -> crate::stage5d_persistence::Stage5dEntryStyle {
+    match style {
+        EntryStyle::Market => crate::stage5d_persistence::Stage5dEntryStyle::Market,
+        EntryStyle::Bracket => crate::stage5d_persistence::Stage5dEntryStyle::Bracket,
+    }
+}
+
+fn stage5d_reason_to_runtime(
+    reason: &crate::stage5d_persistence::Stage5dLifecycleReason,
+) -> ReasonCode {
+    match reason {
+        crate::stage5d_persistence::Stage5dLifecycleReason::MorningMeanReversionLong => {
+            ReasonCode::MorningMeanReversionLong
+        }
+        crate::stage5d_persistence::Stage5dLifecycleReason::MorningMeanReversionShort => {
+            ReasonCode::MorningMeanReversionShort
+        }
+        crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutLong => {
+            ReasonCode::BreakoutLong
+        }
+        crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutShort => {
+            ReasonCode::BreakoutShort
+        }
+        crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutEodExit => {
+            ReasonCode::BreakoutEodExit
+        }
+        crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutStop2Long => {
+            ReasonCode::BreakoutStop2Long
+        }
+        crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutStop1Long => {
+            ReasonCode::BreakoutStop1Long
+        }
+        crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutStop2Short => {
+            ReasonCode::BreakoutStop2Short
+        }
+        crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutStop1Short => {
+            ReasonCode::BreakoutStop1Short
+        }
+        crate::stage5d_persistence::Stage5dLifecycleReason::MeanRevTimeCutoff => {
+            ReasonCode::MeanRevTimeCutoff
+        }
+        crate::stage5d_persistence::Stage5dLifecycleReason::WaitfixOvernightExit => {
+            ReasonCode::WaitfixOvernightExit
+        }
+    }
+}
+
+fn runtime_reason_to_stage5d(
+    reason: ReasonCode,
+) -> crate::stage5d_persistence::Stage5dLifecycleReason {
+    match reason {
+        ReasonCode::MorningMeanReversionLong => {
+            crate::stage5d_persistence::Stage5dLifecycleReason::MorningMeanReversionLong
+        }
+        ReasonCode::MorningMeanReversionShort => {
+            crate::stage5d_persistence::Stage5dLifecycleReason::MorningMeanReversionShort
+        }
+        ReasonCode::BreakoutLong => {
+            crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutLong
+        }
+        ReasonCode::BreakoutShort => {
+            crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutShort
+        }
+        ReasonCode::BreakoutEodExit => {
+            crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutEodExit
+        }
+        ReasonCode::BreakoutStop2Long => {
+            crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutStop2Long
+        }
+        ReasonCode::BreakoutStop1Long => {
+            crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutStop1Long
+        }
+        ReasonCode::BreakoutStop2Short => {
+            crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutStop2Short
+        }
+        ReasonCode::BreakoutStop1Short => {
+            crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutStop1Short
+        }
+        ReasonCode::MeanRevTimeCutoff => {
+            crate::stage5d_persistence::Stage5dLifecycleReason::MeanRevTimeCutoff
+        }
+        ReasonCode::WaitfixOvernightExit => {
+            crate::stage5d_persistence::Stage5dLifecycleReason::WaitfixOvernightExit
+        }
+    }
+}
+
+fn stage5d_parse_finite_f64(
+    value: &str,
+) -> Result<f64, crate::stage5d_persistence::Stage5dEnvelopeValidationError> {
+    let parsed = value.parse::<f64>().map_err(|_| {
+        crate::stage5d_persistence::Stage5dEnvelopeValidationError::SourceRoundtripInconsistent
+    })?;
+    if !parsed.is_finite() {
+        return Err(
+            crate::stage5d_persistence::Stage5dEnvelopeValidationError::SourceRoundtripInconsistent,
+        );
+    }
+    Ok(parsed)
+}
+
+impl HybridIntradayRuntimeStrategy {
+    pub(crate) fn stage5d_export_runtime_private_extension(
+        &self,
+    ) -> crate::stage5d_persistence::Stage5dRuntimePrivateExtension {
+        let mut expected_working_order_ids: Vec<_> = self.working_orders.iter().cloned().collect();
+        expected_working_order_ids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+        let mut expected_working_stop_order_ids: Vec<_> =
+            self.working_stop_orders.iter().cloned().collect();
+        expected_working_stop_order_ids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+
+        crate::stage5d_persistence::Stage5dRuntimePrivateExtension {
+            schema_version:
+                crate::stage5d_persistence::STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION,
+            pending_entry: self.pending_entry.map(|entry| {
+                crate::stage5d_persistence::Stage5dPendingEntryExtension {
+                    owner: runtime_owner_to_stage5d(entry.owner),
+                    side: runtime_side_to_stage5d(entry.side),
+                    reason: runtime_reason_to_stage5d(entry.reason),
+                    entry_style: runtime_entry_style_to_stage5d(entry.entry_style),
+                    target_qty: entry.target_qty.to_string(),
+                    stop_price: entry.stop_price.map(|value| value.to_string()),
+                    take_price: entry.take_price.map(|value| value.to_string()),
+                    request_id: self.pending_entry_request_id,
+                }
+            }),
+            partial_entry_timer: self
+                .pending_entry
+                .and_then(|entry| entry.partial_started_at_ms)
+                .map(|partial_started_at_ms| {
+                    crate::stage5d_persistence::Stage5dPartialEntryTimer {
+                        partial_started_at_ms,
+                    }
+                }),
+            pending_exit: self.pending_exit.and_then(|exit| {
+                self.pending_exit_request_id.map(|request_id| {
+                    crate::stage5d_persistence::Stage5dPendingExitExtension {
+                        owner: runtime_owner_to_stage5d(exit.owner),
+                        reason: runtime_reason_to_stage5d(exit.reason),
+                        request_id,
+                    }
+                })
+            }),
+            bracket_reconciliation_timer: self.bracket_terminal_reconcile_started_ms.map(
+                |bracket_terminal_reconcile_started_ms| {
+                    crate::stage5d_persistence::Stage5dBracketReconciliationTimer {
+                        bracket_terminal_reconcile_started_ms,
+                    }
+                },
+            ),
+            cleanup_retry_state: Some(crate::stage5d_persistence::Stage5dCleanupRetryState {
+                cleanup_stop_retry_attempts: self.cleanup_stop_retry_attempts,
+            }),
+            expected_working_sets: crate::stage5d_persistence::Stage5dExpectedWorkingSets {
+                expected_working_order_ids,
+                expected_working_stop_order_ids,
+            },
+            last_processed_bar_ts: self
+                .last_processed_bar_ts
+                .and_then(|ts| Utc.timestamp_opt(ts, 0).single()),
+            runtime_pending_finalizations: self
+                .pending_risk_gate_finalizations
+                .iter()
+                .map(|finalization| {
+                    crate::stage5d_persistence::Stage5dRuntimePendingRiskGateFinalization {
+                        session_date: Self::format_local_day(finalization.session_date),
+                        shadow_pnl_points: finalization.shadow_pnl_points.to_string(),
+                        shadow_trade_count: finalization.shadow_trade_count,
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    pub(crate) fn stage5d_apply_runtime_private_extension(
+        &mut self,
+        extension: &crate::stage5d_persistence::Stage5dRuntimePrivateExtension,
+    ) -> Result<(), crate::stage5d_persistence::Stage5dEnvelopeValidationError> {
+        self.stage5d_validate_runtime_private_extension(extension)?;
+        if let Some(extension_entry) = &extension.pending_entry {
+            let pending = self.pending_entry.as_mut().ok_or(
+                crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
+            )?;
+            pending.reason = stage5d_reason_to_runtime(&extension_entry.reason);
+            pending.entry_style = stage5d_entry_style_to_runtime(extension_entry.entry_style);
+            pending.target_qty = stage5d_parse_finite_f64(&extension_entry.target_qty)?;
+            pending.stop_price = extension_entry
+                .stop_price
+                .as_deref()
+                .map(stage5d_parse_finite_f64)
+                .transpose()?;
+            pending.take_price = extension_entry
+                .take_price
+                .as_deref()
+                .map(stage5d_parse_finite_f64)
+                .transpose()?;
+            pending.partial_started_at_ms = extension
+                .partial_entry_timer
+                .as_ref()
+                .map(|timer| timer.partial_started_at_ms);
+        }
+
+        if let Some(extension_exit) = &extension.pending_exit {
+            self.pending_exit = Some(PendingExit {
+                owner: stage5d_owner_to_runtime(extension_exit.owner),
+                reason: stage5d_reason_to_runtime(&extension_exit.reason),
+            });
+            self.pending_exit_request_id = Some(extension_exit.request_id);
+        }
+
+        self.bracket_terminal_reconcile_started_ms = extension
+            .bracket_reconciliation_timer
+            .as_ref()
+            .map(|timer| timer.bracket_terminal_reconcile_started_ms);
+        self.cleanup_stop_retry_attempts = extension
+            .cleanup_retry_state
+            .as_ref()
+            .map(|state| state.cleanup_stop_retry_attempts)
+            .unwrap_or_default();
+        self.last_processed_bar_ts = extension
+            .last_processed_bar_ts
+            .map(|last_processed| last_processed.timestamp());
+        self.pending_risk_gate_finalizations = extension
+            .runtime_pending_finalizations
+            .iter()
+            .map(|record| {
+                Ok(RiskGateSessionFinalization {
+                    session_date: Self::parse_local_day(&record.session_date).ok_or(
+                        crate::stage5d_persistence::Stage5dEnvelopeValidationError::SourceRoundtripInconsistent,
+                    )?,
+                    shadow_pnl_points: stage5d_parse_finite_f64(&record.shadow_pnl_points)?,
+                    shadow_trade_count: record.shadow_trade_count,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        self.sync_state();
+        Ok(())
+    }
+
+    fn stage5d_validate_runtime_private_extension(
+        &self,
+        extension: &crate::stage5d_persistence::Stage5dRuntimePrivateExtension,
+    ) -> Result<(), crate::stage5d_persistence::Stage5dEnvelopeValidationError> {
+        if extension.schema_version
+            != crate::stage5d_persistence::STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION
+        {
+            return Err(
+                crate::stage5d_persistence::Stage5dEnvelopeValidationError::RuntimePrivateSchemaMismatch,
+            );
+        }
+        match (&self.pending_entry, &extension.pending_entry) {
+            (Some(current), Some(extension_entry)) => {
+                if current.owner != stage5d_owner_to_runtime(extension_entry.owner)
+                    || current.side != stage5d_side_to_runtime(extension_entry.side)
+                    || extension_entry
+                        .request_id
+                        .is_some_and(|request_id| Some(request_id) != self.pending_entry_request_id)
+                {
+                    return Err(
+                        crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
+                    );
+                }
+                let target_qty = stage5d_parse_finite_f64(&extension_entry.target_qty)?;
+                if target_qty <= 0.0 {
+                    return Err(
+                        crate::stage5d_persistence::Stage5dEnvelopeValidationError::SourceRoundtripInconsistent,
+                    );
+                }
+                if extension_entry
+                    .stop_price
+                    .as_deref()
+                    .map(stage5d_parse_finite_f64)
+                    .transpose()?
+                    .is_some_and(|value| value <= 0.0)
+                    || extension_entry
+                        .take_price
+                        .as_deref()
+                        .map(stage5d_parse_finite_f64)
+                        .transpose()?
+                        .is_some_and(|value| value <= 0.0)
+                {
+                    return Err(
+                        crate::stage5d_persistence::Stage5dEnvelopeValidationError::SourceRoundtripInconsistent,
+                    );
+                }
+            }
+            (None, Some(_)) | (Some(_), None) => {
+                return Err(
+                    crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
+                );
+            }
+            (None, None) => {}
+        }
+
+        if extension.partial_entry_timer.is_some() && extension.pending_entry.is_none() {
+            return Err(
+                crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
+            );
+        }
+        if self.pending_exit_request_id.is_some() && extension.pending_exit.is_none() {
+            return Err(
+                crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
+            );
+        }
+        if let Some(extension_exit) = &extension.pending_exit {
+            if Some(extension_exit.request_id) != self.pending_exit_request_id {
+                return Err(
+                    crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
+                );
+            }
+        }
+        for record in &extension.runtime_pending_finalizations {
+            Self::parse_local_day(&record.session_date).ok_or(
+                crate::stage5d_persistence::Stage5dEnvelopeValidationError::SourceRoundtripInconsistent,
+            )?;
+            stage5d_parse_finite_f64(&record.shadow_pnl_points)?;
+        }
+        Ok(())
+    }
+}
+
 // STAGE5D-ADDITIVE-BRIDGE-END: runtime-private-snapshot
 const RISK_GATE_MAKER_COST_POINTS: f64 = 0.1;
 

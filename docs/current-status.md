@@ -159,10 +159,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   capability for future gates, deterministic fixtures,
   corrupt/version/config/unknown-field/semantic/timestamp/source-roundtrip/
   pending-lifecycle/recovery-index/riskgate-finalization negative validation,
-  and full public Stage5d API-surface freeze enforcement.
-  Stage 5D-b2a does not implement persistence DTO mutation, runtime-private
-  snapshot application, riskgate injection, Redis bridge, FINAM execution,
-  broker transport, runtime-live or autonomous loop.
+  and full public Stage5d API-surface freeze enforcement. Stage 5D-b2b-a opens
+  the first controlled runtime-private export/apply bridge: validated-envelope
+  gated private extension apply, full pending riskgate-finalization vector
+  restoration, opaque block preservation, and no authoritative working-set
+  rehydration from persistence. Stage 5D-b2b-a still does not implement
+  authoritative riskgate injection, Redis bridge, FINAM execution, broker
+  transport, runtime-live or autonomous loop.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

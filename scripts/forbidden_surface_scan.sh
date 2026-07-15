@@ -767,6 +767,7 @@ allowed_wrapper_identifier_paths = {
     wrapper_future_target_path,
     Path("crates/strategy-runtime-core/src/lib.rs"),
     Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"),
+    Path("crates/strategy-runtime-core/src/stage5d_persistence.rs"),
     Path("crates/strategy-runtime-core/tests/stage5b2_boundary_manifest.rs"),
 }
 wrapper_oracle_filename = "hybrid_intraday_runtime.rs"
@@ -1538,7 +1539,7 @@ expected_stage5_profile_artifacts = {
         "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323"
     ),
     Path("docs/stage-5/stage-5d-additive-freeze-manifest.json"): (
-        "bd6d6d2b53efec27f6d34157646ddb32901f663a8a467cefc91feb3ea78323fa"
+        "8c48e994075e23065698a7d073c0325b73ce91b8275b10f61a1bab9c7d1addbd"
     ),
     Path("docs/stage-5/5d-b2a-versioned-persistence-envelope-api-schema.md"): (
         "9f6cc0f7a07c08f5fc67e6ef7904ced2c20b7f6a995204e288d6952792e034a6"
@@ -1547,7 +1548,7 @@ expected_stage5_profile_artifacts = {
         "6aa1a30f87d296df09bf18c84b29b944ad7af8aaa59961c54bcbe6ff0a601537"
     ),
     Path("scripts/stage5d_additive_freeze_check.py"): (
-        "fcaf5a034621c8e3c82882e16ed353d0da25a8bf03d74c0ad9cd195a7a8f473e"
+        "72a16b6e20bb9ca78a6045bbf2ca264fc5721f8e8a00b70bc25765b079b784c7"
     ),
     Path("scripts/stage5d_additive_freeze_negative_harness.py"): (
         "086ec8112c906441f472aedbcd4d34d1b08f88cdf6dbbd9df2b531b626b2c03c"

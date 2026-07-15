@@ -131,6 +131,7 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "Stage5dRiskGateMaterializedState",
     "Stage5dRiskGatePersistence",
     "Stage5dRuntimePendingRiskGateFinalization",
+    "Stage5dRuntimePrivateApplyBlocked",
     "Stage5dRuntimePrivateExtension",
     "Stage5dSemanticStrategyStateV1",
     "Stage5dSide",
@@ -141,7 +142,8 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "Stage5dTimestampPolicy",
     "Stage5dTimestampUnits",
     "Stage5dValidatedPersistenceEnvelope",
-    "Stage5dValidatedRuntimePrivateExtension"
+    "Stage5dValidatedRuntimePrivateExtension",
+    "stage5d_apply_runtime_private_extension",
 ]
 
 FORBIDDEN_STAGE5D_PUBLIC_PATTERNS = [
@@ -288,6 +290,7 @@ def parse_stage5d_public_symbols(source: str) -> list[str]:
         r"^pub\s+struct\s+(Stage5d[A-Za-z0-9_]+)",
         r"^pub\s+enum\s+(Stage5d[A-Za-z0-9_]+)",
         r"^pub\s+const\s+(STAGE5D[A-Za-z0-9_]+)",
+        r"^pub\s+fn\s+(stage5d_[A-Za-z0-9_]+)",
     ]:
         for match in re.finditer(pattern, source, re.M):
             symbols.add(match.group(1))
@@ -563,8 +566,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2a":
-        failures.append("stage must be 5D-b2a")
+    if manifest.get("stage") != "5D-b2b-a":
+        failures.append("stage must be 5D-b2b-a")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:

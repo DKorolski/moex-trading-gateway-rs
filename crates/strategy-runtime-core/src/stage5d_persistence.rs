@@ -29,7 +29,22 @@ pub const STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION: u16 = 1;
 /// Opaque proof that a validated Stage 5D runtime-private extension has been
 /// applied in the persistence-enabled restore path.
 pub struct Stage5dPrivateStateAppliedPaperStrategy {
-    _private: (),
+    loaded: crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy,
+    snapshot_id: String,
+}
+
+impl Stage5dPrivateStateAppliedPaperStrategy {
+    /// Redacted snapshot id for evidence and diagnostics.
+    pub fn snapshot_id(&self) -> &str {
+        &self.snapshot_id
+    }
+
+    /// Redacted proof that the loaded runtime capability is retained inside the
+    /// opaque Stage 5D wrapper.
+    pub fn runtime_private_applied(&self) -> bool {
+        let _ = &self.loaded;
+        true
+    }
 }
 
 /// Opaque proof that the Stage 5D restore path has passed controlled bootstrap.
@@ -46,6 +61,27 @@ pub struct Stage5dRiskGateInjectedPaperStrategy {
 /// Opaque validated runtime-private extension marker.
 pub struct Stage5dValidatedRuntimePrivateExtension {
     _private: (),
+}
+
+/// Recoverable Stage 5D runtime-private apply block. The original loaded
+/// capability is retained internally so no partial runtime mutation leaks to
+/// callers, while diagnostics expose only the redacted reason.
+pub struct Stage5dRuntimePrivateApplyBlocked {
+    loaded: Box<crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy>,
+    reason: Stage5dEnvelopeValidationError,
+}
+
+impl Stage5dRuntimePrivateApplyBlocked {
+    /// Return the redacted validation reason without exposing the strategy.
+    pub fn reason(&self) -> Stage5dEnvelopeValidationError {
+        self.reason
+    }
+
+    /// Redacted proof that the pre-mutation loaded capability was preserved.
+    pub fn input_capability_preserved(&self) -> bool {
+        let _ = &self.loaded;
+        true
+    }
 }
 
 /// Opaque proof that the persistence envelope passed strict Stage 5D-b2a
@@ -65,6 +101,42 @@ impl Stage5dValidatedPersistenceEnvelope {
     pub fn schema_version(&self) -> u16 {
         self.envelope.schema_version
     }
+}
+
+/// Apply the validated Stage 5D runtime-private extension before any Stage 5C
+/// bootstrap/runtime-restored callback is allowed to run.
+///
+/// The function consumes both input capabilities. It validates the private DTO
+/// against already-restored semantic state first, then mutates the runtime in a
+/// single apply step. Broker working sets are treated only as expected hints;
+/// authoritative active objects must still come from broker truth in later
+/// gates.
+pub fn stage5d_apply_runtime_private_extension(
+    loaded: crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy,
+    validated: Stage5dValidatedPersistenceEnvelope,
+) -> Result<Stage5dPrivateStateAppliedPaperStrategy, Stage5dRuntimePrivateApplyBlocked> {
+    let envelope = validated.envelope;
+    let (mut strategy, admission, restored) = loaded.stage5d_into_parts();
+    if let Err(reason) =
+        strategy.stage5d_apply_runtime_private_extension(&envelope.runtime_private_extension)
+    {
+        return Err(Stage5dRuntimePrivateApplyBlocked {
+            loaded: Box::new(
+                crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_from_parts(
+                    strategy, admission, restored,
+                ),
+            ),
+            reason,
+        });
+    }
+
+    Ok(Stage5dPrivateStateAppliedPaperStrategy {
+        loaded:
+            crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_from_parts(
+                strategy, admission, restored,
+            ),
+        snapshot_id: envelope.snapshot_id,
+    })
 }
 
 /// Redacted blocked-restore marker for future Stage 5D transitions.
@@ -1165,6 +1237,7 @@ pub enum Stage5dEnvelopeValidationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime_compat::Strategy;
     use serde_json::Value;
 
     fn valid_fixture() -> Stage5dPersistenceEnvelope {
@@ -1193,6 +1266,53 @@ mod tests {
             "../../../tests/fixtures/stage5/stage5d_b2a_persistence_envelope_empty_config.json"
         ))
         .expect("empty-config Stage 5D-b2a fixture must deserialize")
+    }
+
+    fn stage5d_test_strategy() -> crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy {
+        crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy::new(
+            crate::hybrid_intraday_runtime::HybridIntradayRuntimeConfig {
+                symbol: "IMOEXF".to_string(),
+                profile:
+                    crate::hybrid_intraday_runtime::HybridIntradayProfile::BaselineRuntimeHybrid,
+                mr_variant:
+                    crate::hybrid_intraday_runtime::MeanReversionVariant::ClassicPrevDayRange,
+                mr_gate_policy: crate::hybrid_intraday_runtime::MrGatePolicy::Disabled,
+                risk_gate_mode: crate::hybrid_intraday_runtime::RiskGateMode::Disabled,
+                risk_gate_seed_file: None,
+                risk_gate_ledger_key: None,
+                model_session_start_time: None,
+                model_session_end_time: None,
+                qty: 1.0,
+                live_order_style: crate::runtime_compat::MarketBuyAndCloseLiveOrderStyle::Market,
+                tick_size: 0.5,
+                marketable_limit_offset_ticks: 0,
+                timezone_offset_hours: 3,
+                session_close_hour: 23,
+                session_close_minute: 49,
+                weekends_off: true,
+                stop_end_buffer_sec: 60,
+                repair_deadline_sec: 180,
+                sl_escalate_timeout_sec: 30,
+                max_repair_retries: 3,
+                repair_backoff_base_sec: 5,
+                repair_backoff_max_sec: 60,
+                pending_timeout_sec: 30,
+                partial_entry_fill_timeout_ms: 3_000,
+                mr_config: crate::hybrid_intraday::MeanReversionConfig::default(),
+                breakout_config: crate::hybrid_intraday::IntradayBreakoutConfig::default(),
+                orchestrator_config: crate::hybrid_intraday::HybridOrchestratorConfig::default(),
+            },
+        )
+    }
+
+    fn restore_semantic_state(
+        strategy: &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        envelope: &Stage5dPersistenceEnvelope,
+    ) {
+        let state: crate::runtime_compat::StrategyState =
+            serde_json::from_value(envelope.strategy_state.strategy_state_json.clone())
+                .expect("Stage 5D semantic state must decode as source StrategyState");
+        Strategy::set_state(strategy, state);
     }
 
     #[test]
@@ -2029,5 +2149,90 @@ mod tests {
             envelope.validate_restore_contract_schema_only().map(|_| ()),
             Err(Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)
         );
+    }
+
+    #[test]
+    fn stage5d_b2b_runtime_private_apply_restores_full_pending_finalization_vector() {
+        let envelope = valid_fixture();
+        let mut strategy = stage5d_test_strategy();
+        restore_semantic_state(&mut strategy, &envelope);
+
+        let before_apply = strategy.stage5d_export_runtime_private_extension();
+        assert_eq!(before_apply.runtime_pending_finalizations.len(), 1);
+
+        strategy
+            .stage5d_apply_runtime_private_extension(&envelope.runtime_private_extension)
+            .expect("validated private extension must apply");
+
+        let exported = strategy.stage5d_export_runtime_private_extension();
+        assert_eq!(
+            exported.runtime_pending_finalizations,
+            envelope
+                .runtime_private_extension
+                .runtime_pending_finalizations
+        );
+        let exported_entry = exported.pending_entry.as_ref().expect("exported entry");
+        let envelope_entry = envelope
+            .runtime_private_extension
+            .pending_entry
+            .as_ref()
+            .expect("fixture entry");
+        assert_eq!(exported_entry.owner, envelope_entry.owner);
+        assert_eq!(exported_entry.side, envelope_entry.side);
+        assert_eq!(exported_entry.reason, envelope_entry.reason);
+        assert_eq!(exported_entry.entry_style, envelope_entry.entry_style);
+        assert_eq!(exported_entry.request_id, envelope_entry.request_id);
+        assert_eq!(
+            parse_finite_decimal_string(&exported_entry.target_qty),
+            parse_finite_decimal_string(&envelope_entry.target_qty)
+        );
+        assert_eq!(
+            exported_entry
+                .stop_price
+                .as_deref()
+                .map(parse_finite_decimal_string),
+            envelope_entry
+                .stop_price
+                .as_deref()
+                .map(parse_finite_decimal_string)
+        );
+        assert_eq!(
+            exported_entry
+                .take_price
+                .as_deref()
+                .map(parse_finite_decimal_string),
+            envelope_entry
+                .take_price
+                .as_deref()
+                .map(parse_finite_decimal_string)
+        );
+        assert_eq!(
+            exported.partial_entry_timer,
+            envelope.runtime_private_extension.partial_entry_timer
+        );
+        assert_eq!(
+            exported.cleanup_retry_state,
+            envelope.runtime_private_extension.cleanup_retry_state
+        );
+        assert!(exported
+            .expected_working_sets
+            .expected_working_order_ids
+            .is_empty());
+    }
+
+    #[test]
+    fn stage5d_b2b_runtime_private_apply_blocks_without_partial_mutation() {
+        let mut envelope = valid_fixture();
+        let mut strategy = stage5d_test_strategy();
+        restore_semantic_state(&mut strategy, &envelope);
+        let before = strategy.stage5d_export_runtime_private_extension();
+
+        envelope.runtime_private_extension.pending_entry = None;
+
+        assert_eq!(
+            strategy.stage5d_apply_runtime_private_extension(&envelope.runtime_private_extension),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
+        );
+        assert_eq!(strategy.stage5d_export_runtime_private_extension(), before);
     }
 }

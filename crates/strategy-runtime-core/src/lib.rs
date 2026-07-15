@@ -119,9 +119,9 @@ pub use stage5c_paper_host::{
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5d-exports
 pub use stage5d_persistence::{
-    Stage5dAdditiveFreezeEvidence, Stage5dBootstrappedPaperStrategy,
-    Stage5dBracketReconciliationTimer, Stage5dCleanupRetryState, Stage5dEntryStyle,
-    Stage5dEnvelopeValidationError, Stage5dExpectedWorkingSets,
+    stage5d_apply_runtime_private_extension, Stage5dAdditiveFreezeEvidence,
+    Stage5dBootstrappedPaperStrategy, Stage5dBracketReconciliationTimer, Stage5dCleanupRetryState,
+    Stage5dEntryStyle, Stage5dEnvelopeValidationError, Stage5dExpectedWorkingSets,
     Stage5dHybridIntradayStrategyStateV1, Stage5dInstrumentBinding, Stage5dLifecycleReason,
     Stage5dLifecycleWatermarks, Stage5dOwner, Stage5dPartialEntryTimer,
     Stage5dPendingEntryExtension, Stage5dPendingExitExtension, Stage5dPersistenceEnvelope,
@@ -130,12 +130,13 @@ pub use stage5d_persistence::{
     Stage5dRiskGateFinalizationState, Stage5dRiskGateIdentity,
     Stage5dRiskGateInjectedPaperStrategy, Stage5dRiskGateMaterializedState,
     Stage5dRiskGatePersistence, Stage5dRuntimePendingRiskGateFinalization,
-    Stage5dRuntimePrivateExtension, Stage5dSemanticStrategyStateV1, Stage5dSide,
-    Stage5dSnapshotBinding, Stage5dStrategyKind, Stage5dStrategyStatePayload,
-    Stage5dStructuredTimestampFormat, Stage5dTimestampPolicy, Stage5dTimestampUnits,
-    Stage5dValidatedPersistenceEnvelope, Stage5dValidatedRuntimePrivateExtension,
-    STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION, STAGE5D_PERSISTENCE_ENVELOPE_SCHEMA_VERSION,
-    STAGE5D_RISKGATE_SCHEMA_VERSION, STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION,
+    Stage5dRuntimePrivateApplyBlocked, Stage5dRuntimePrivateExtension,
+    Stage5dSemanticStrategyStateV1, Stage5dSide, Stage5dSnapshotBinding, Stage5dStrategyKind,
+    Stage5dStrategyStatePayload, Stage5dStructuredTimestampFormat, Stage5dTimestampPolicy,
+    Stage5dTimestampUnits, Stage5dValidatedPersistenceEnvelope,
+    Stage5dValidatedRuntimePrivateExtension, STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION,
+    STAGE5D_PERSISTENCE_ENVELOPE_SCHEMA_VERSION, STAGE5D_RISKGATE_SCHEMA_VERSION,
+    STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION,
     STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION,
 };
 // STAGE5D-ADDITIVE-BRIDGE-END: lib-stage5d-exports

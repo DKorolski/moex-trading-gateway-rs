@@ -26,8 +26,34 @@ pub const STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION: u16 = 1;
 pub const STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION: u16 = 1;
 
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: type-state-transitions
-// Stage 5D-b1 marker only. Future reviewed slices may add crate-private
-// Stage5c/Stage5d type-state transition glue in this additive region.
+impl Stage5cRuntimeStateLoadedPaperStrategy {
+    pub(crate) fn stage5d_into_parts(
+        self,
+    ) -> (
+        HybridIntradayRuntimeStrategy,
+        Stage5cPaperHostAdmission,
+        RuntimeStateRestored,
+    ) {
+        let Self {
+            strategy,
+            admission,
+            restored,
+        } = self;
+        (strategy, admission, restored)
+    }
+
+    pub(crate) fn stage5d_from_parts(
+        strategy: HybridIntradayRuntimeStrategy,
+        admission: Stage5cPaperHostAdmission,
+        restored: RuntimeStateRestored,
+    ) -> Self {
+        Self {
+            strategy,
+            admission,
+            restored,
+        }
+    }
+}
 // STAGE5D-ADDITIVE-BRIDGE-END: type-state-transitions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

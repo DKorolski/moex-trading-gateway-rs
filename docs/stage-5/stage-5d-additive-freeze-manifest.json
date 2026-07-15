@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-b2a",
+  "stage": "5D-b2b-a",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -28,7 +28,7 @@
   "approved_bridge_files": {
     "crates/strategy-runtime-core/src/lib.rs": {
       "closure_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
-      "current_sha256": "2936c214229918da57cd9fc59fcf91da5f2d42e6e87404b7d8a8332e94c5ede8",
+      "current_sha256": "caf93a89a95c4a1adf18d7e440e372a2ad9dfd70e3233accbae9a11b997a7922",
       "stripped_without_additive_regions_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
       "additive_regions": [
         "lib-stage5d-module",
@@ -37,7 +37,7 @@
     },
     "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": {
       "closure_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
-      "current_sha256": "faf66c94d35c112f56d0f59bf228aa0cbbe27719817cff04fd51054afd86a441",
+      "current_sha256": "1af686f254675e1c6862e85c2615579f907c960934eb0ccae29d4d65a949627b",
       "stripped_without_additive_regions_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
       "additive_regions": [
         "runtime-private-snapshot"
@@ -45,7 +45,7 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "bbf00846649927203ddece69a898b932bdbfa3feb870b9a4f6b86dcbeb4ff796",
+      "current_sha256": "64b92a622b386a90d7d463e6c292ed1f040c39dd27e462d8e32e320019980a70",
       "stripped_without_additive_regions_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
       "additive_regions": [
         "type-state-transitions"
@@ -54,7 +54,7 @@
   },
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "84ae3de9116c824881b6b8014f124beb8f1cd1a4b5d699ab864d8243a8a8f672"
+    "current_sha256": "6644d76289185512371d3af9223de02eb1a20ed6c243b020ca131b3fc719499a"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -90,6 +90,7 @@
     "Stage5dRiskGateMaterializedState",
     "Stage5dRiskGatePersistence",
     "Stage5dRuntimePendingRiskGateFinalization",
+    "Stage5dRuntimePrivateApplyBlocked",
     "Stage5dRuntimePrivateExtension",
     "Stage5dSemanticStrategyStateV1",
     "Stage5dSide",
@@ -100,7 +101,8 @@
     "Stage5dTimestampPolicy",
     "Stage5dTimestampUnits",
     "Stage5dValidatedPersistenceEnvelope",
-    "Stage5dValidatedRuntimePrivateExtension"
+    "Stage5dValidatedRuntimePrivateExtension",
+    "stage5d_apply_runtime_private_extension"
   ],
   "closed_surfaces": {
     "redis": false,
@@ -175,6 +177,7 @@
       "Stage5dRiskGateMaterializedState",
       "Stage5dRiskGatePersistence",
       "Stage5dRuntimePendingRiskGateFinalization",
+      "Stage5dRuntimePrivateApplyBlocked",
       "Stage5dRuntimePrivateExtension",
       "Stage5dSemanticStrategyStateV1",
       "Stage5dSide",
@@ -185,7 +188,8 @@
       "Stage5dTimestampPolicy",
       "Stage5dTimestampUnits",
       "Stage5dValidatedPersistenceEnvelope",
-      "Stage5dValidatedRuntimePrivateExtension"
+      "Stage5dValidatedRuntimePrivateExtension",
+      "stage5d_apply_runtime_private_extension"
     ],
     "public_constants": [
       {
@@ -214,7 +218,12 @@
         "signature": "pub const STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION: u16 = 1"
       }
     ],
-    "public_free_functions": [],
+    "public_free_functions": [
+      {
+        "name": "stage5d_apply_runtime_private_extension",
+        "signature": "pub fn stage5d_apply_runtime_private_extension( loaded: crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy, validated: Stage5dValidatedPersistenceEnvelope, ) -> Result<Stage5dPrivateStateAppliedPaperStrategy, Stage5dRuntimePrivateApplyBlocked>"
+      }
+    ],
     "public_types": [
       {
         "name": "Stage5dAdditiveFreezeEvidence",
@@ -1024,6 +1033,13 @@
         "public_variants": []
       },
       {
+        "name": "Stage5dRuntimePrivateApplyBlocked",
+        "kind": "struct",
+        "opaque": true,
+        "public_fields": [],
+        "public_variants": []
+      },
+      {
         "name": "Stage5dRuntimePrivateExtension",
         "kind": "struct",
         "opaque": false,
@@ -1263,9 +1279,29 @@
         "signature": "pub fn validated_from_json_str_strict( payload: &str, ) -> Result<Stage5dValidatedPersistenceEnvelope, Stage5dEnvelopeValidationError>"
       },
       {
+        "type": "Stage5dPrivateStateAppliedPaperStrategy",
+        "name": "runtime_private_applied",
+        "signature": "pub fn runtime_private_applied(&self) -> bool"
+      },
+      {
+        "type": "Stage5dPrivateStateAppliedPaperStrategy",
+        "name": "snapshot_id",
+        "signature": "pub fn snapshot_id(&self) -> &str"
+      },
+      {
         "type": "Stage5dRestoreBlocked",
         "name": "reason",
         "signature": "pub fn reason(&self) -> Stage5dRestoreBlockReason"
+      },
+      {
+        "type": "Stage5dRuntimePrivateApplyBlocked",
+        "name": "input_capability_preserved",
+        "signature": "pub fn input_capability_preserved(&self) -> bool"
+      },
+      {
+        "type": "Stage5dRuntimePrivateApplyBlocked",
+        "name": "reason",
+        "signature": "pub fn reason(&self) -> Stage5dEnvelopeValidationError"
       },
       {
         "type": "Stage5dValidatedPersistenceEnvelope",
@@ -1284,6 +1320,7 @@
       "Stage5dPrivateStateAppliedPaperStrategy",
       "Stage5dRestoreBlocked",
       "Stage5dRiskGateInjectedPaperStrategy",
+      "Stage5dRuntimePrivateApplyBlocked",
       "Stage5dValidatedPersistenceEnvelope",
       "Stage5dValidatedRuntimePrivateExtension"
     ],
@@ -1301,14 +1338,14 @@
       "Stage5dStructuredTimestampFormat",
       "Stage5dTimestampUnits"
     ],
-    "normalized_signature_hash": "271a05cf8c33f37095aec16cdbff6678fe14b7b1dee612d389da2445d4209753",
+    "normalized_signature_hash": "93d9a676a6e2cf802a22374178668388074da2e1ea42845ec3806bad8db6f511",
     "public_surface_counts": {
-      "public_reexports": 44,
+      "public_reexports": 46,
       "public_constants": 5,
-      "public_free_functions": 0,
-      "public_types": 39,
-      "public_methods": 11,
-      "opaque_capabilities": 7,
+      "public_free_functions": 1,
+      "public_types": 40,
+      "public_methods": 15,
+      "opaque_capabilities": 8,
       "externally_constructible_enums": 12
     }
   }
