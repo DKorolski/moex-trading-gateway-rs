@@ -280,7 +280,9 @@ impl HybridIntradayRuntimeStrategy {
             .cleanup_retry_state
             .as_ref()
             .map(|state| state.cleanup_stop_retry_attempts)
-            .unwrap_or_default();
+            .ok_or(
+                crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
+            )?;
         self.last_processed_bar_ts = extension
             .last_processed_bar_ts
             .map(|last_processed| last_processed.timestamp());
@@ -357,6 +359,11 @@ impl HybridIntradayRuntimeStrategy {
         }
 
         if extension.partial_entry_timer.is_some() && extension.pending_entry.is_none() {
+            return Err(
+                crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
+            );
+        }
+        if extension.cleanup_retry_state.is_none() {
             return Err(
                 crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
             );

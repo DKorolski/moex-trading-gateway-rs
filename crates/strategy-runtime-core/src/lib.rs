@@ -119,11 +119,12 @@ pub use stage5c_paper_host::{
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5d-exports
 pub use stage5d_persistence::{
-    stage5d_apply_runtime_private_extension, Stage5dAdditiveFreezeEvidence,
+    stage5d_apply_runtime_private_extension, stage5d_bind_runtime_state_loaded,
+    stage5d_retry_bind_runtime_state_loaded, Stage5dAdditiveFreezeEvidence,
     Stage5dBootstrappedPaperStrategy, Stage5dBracketReconciliationTimer, Stage5dCleanupRetryState,
-    Stage5dEntryStyle, Stage5dEnvelopeValidationError, Stage5dExpectedWorkingSets,
-    Stage5dHybridIntradayStrategyStateV1, Stage5dInstrumentBinding, Stage5dLifecycleReason,
-    Stage5dLifecycleWatermarks, Stage5dOwner, Stage5dPartialEntryTimer,
+    Stage5dEntryStyle, Stage5dEnvelopeBoundRuntimeStateLoaded, Stage5dEnvelopeValidationError,
+    Stage5dExpectedWorkingSets, Stage5dHybridIntradayStrategyStateV1, Stage5dInstrumentBinding,
+    Stage5dLifecycleReason, Stage5dLifecycleWatermarks, Stage5dOwner, Stage5dPartialEntryTimer,
     Stage5dPendingEntryExtension, Stage5dPendingExitExtension, Stage5dPersistenceEnvelope,
     Stage5dPersistenceStage, Stage5dPrivateStateAppliedPaperStrategy, Stage5dRecoveryIndexes,
     Stage5dRestoreBlockReason, Stage5dRestoreBlocked, Stage5dRiskGateFinalizationOutboxRecord,

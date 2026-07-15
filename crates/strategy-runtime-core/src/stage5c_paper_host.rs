@@ -27,6 +27,18 @@ pub const STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION: u16 = 1;
 
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: type-state-transitions
 impl Stage5cRuntimeStateLoadedPaperStrategy {
+    pub(crate) fn stage5d_strategy(&self) -> &HybridIntradayRuntimeStrategy {
+        &self.strategy
+    }
+
+    pub(crate) fn stage5d_admission(&self) -> &Stage5cPaperHostAdmission {
+        &self.admission
+    }
+
+    pub(crate) fn stage5d_restored(&self) -> &RuntimeStateRestored {
+        &self.restored
+    }
+
     pub(crate) fn stage5d_into_parts(
         self,
     ) -> (
@@ -51,6 +63,56 @@ impl Stage5cRuntimeStateLoadedPaperStrategy {
             strategy,
             admission,
             restored,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stage5d_test_loaded_from_parts(
+        strategy: HybridIntradayRuntimeStrategy,
+        admission: Stage5cPaperHostAdmission,
+        restored: RuntimeStateRestored,
+    ) -> Self {
+        Self {
+            strategy,
+            admission,
+            restored,
+        }
+    }
+}
+
+#[cfg(test)]
+impl Stage5cPaperHostAdmission {
+    pub(crate) fn stage5d_test_new(
+        strategy_id: String,
+        account_id: BrokerAccountId,
+        target_instrument: InstrumentId,
+        tick_size: f64,
+        target_position_qty: rust_decimal::Decimal,
+        checked_ts: DateTime<Utc>,
+    ) -> Self {
+        let bootstrap_snapshot = RuntimeHostBootstrapSnapshot {
+            account_id: account_id.clone(),
+            instrument: target_instrument.clone(),
+            target_position_qty,
+            target_open_positions: Vec::new(),
+            target_active_orders: Vec::new(),
+            account_active_orders_count: 0,
+            target_is_flat: target_position_qty == rust_decimal::Decimal::ZERO,
+            received_ts: checked_ts,
+        };
+        Self {
+            schema_version: STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION,
+            checked_ts,
+            issued_ts: checked_ts,
+            expires_at: checked_ts + chrono::Duration::hours(1),
+            strategy_id,
+            account_id,
+            target_instrument,
+            tick_size,
+            bootstrap_snapshot,
+            paper_only: true,
+            runtime_host_attached: false,
+            intent_sink_attached: false,
         }
     }
 }

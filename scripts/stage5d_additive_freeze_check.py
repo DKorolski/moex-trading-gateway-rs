@@ -64,7 +64,7 @@ EXPECTED_CLOSED_SURFACES = {
     "dispatch": False,
     "runtime_live": False,
     "broker_execution": False,
-    "runtime_private_mutation": False,
+    "runtime_private_mutation": "controlled_validated_stage5d_apply_only",
 }
 
 EXPECTED_NEGATIVE_CASES = [
@@ -108,6 +108,7 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "Stage5dBracketReconciliationTimer",
     "Stage5dCleanupRetryState",
     "Stage5dEntryStyle",
+    "Stage5dEnvelopeBoundRuntimeStateLoaded",
     "Stage5dEnvelopeValidationError",
     "Stage5dExpectedWorkingSets",
     "Stage5dHybridIntradayStrategyStateV1",
@@ -144,6 +145,8 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "Stage5dValidatedPersistenceEnvelope",
     "Stage5dValidatedRuntimePrivateExtension",
     "stage5d_apply_runtime_private_extension",
+    "stage5d_bind_runtime_state_loaded",
+    "stage5d_retry_bind_runtime_state_loaded",
 ]
 
 FORBIDDEN_STAGE5D_PUBLIC_PATTERNS = [

@@ -160,10 +160,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   corrupt/version/config/unknown-field/semantic/timestamp/source-roundtrip/
   pending-lifecycle/recovery-index/riskgate-finalization negative validation,
   and full public Stage5d API-surface freeze enforcement. Stage 5D-b2b-a opens
-  the first controlled runtime-private export/apply bridge: validated-envelope
-  gated private extension apply, full pending riskgate-finalization vector
-  restoration, opaque block preservation, and no authoritative working-set
-  rehydration from persistence. Stage 5D-b2b-a still does not implement
+  the first controlled runtime-private export/apply bridge: exact
+  loaded-capability/envelope pair binding, validated-envelope gated private
+  extension apply, retained opaque restore evidence, retry-capable opaque block
+  preservation, required cleanup retry state, full pending
+  riskgate-finalization vector restoration, and no authoritative working-set
+  rehydration from persistence. The formal mutation policy is
+  `controlled_validated_stage5d_apply_only`; Stage 5D-b2b-a still does not implement
   authoritative riskgate injection, Redis bridge, FINAM execution, broker
   transport, runtime-live or autonomous loop.
 - FINAM REST read-only/auth/client DTO and mapper foundation.

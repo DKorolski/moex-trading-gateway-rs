@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::runtime_compat::Strategy;
+
 /// Stage 5D additive freeze manifest schema version.
 pub const STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION: u16 = 1;
 /// Stage 5D persistence envelope schema version.
@@ -30,13 +32,24 @@ pub const STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION: u16 = 1;
 /// applied in the persistence-enabled restore path.
 pub struct Stage5dPrivateStateAppliedPaperStrategy {
     loaded: crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy,
-    snapshot_id: String,
+    envelope: Stage5dPersistenceEnvelope,
 }
 
 impl Stage5dPrivateStateAppliedPaperStrategy {
     /// Redacted snapshot id for evidence and diagnostics.
     pub fn snapshot_id(&self) -> &str {
-        &self.snapshot_id
+        &self.envelope.snapshot_id
+    }
+
+    /// Envelope schema version for evidence and diagnostics.
+    pub fn schema_version(&self) -> u16 {
+        self.envelope.schema_version
+    }
+
+    /// Redacted fingerprint of the validated restore evidence retained inside
+    /// this opaque capability.
+    pub fn evidence_fingerprint(&self) -> &str {
+        &self.envelope.payload_checksum_sha256
     }
 
     /// Redacted proof that the loaded runtime capability is retained inside the
@@ -44,6 +57,31 @@ impl Stage5dPrivateStateAppliedPaperStrategy {
     pub fn runtime_private_applied(&self) -> bool {
         let _ = &self.loaded;
         true
+    }
+}
+
+/// Opaque proof that a Stage 5C loaded runtime capability and a validated
+/// Stage 5D persistence envelope were pair-bound before private mutation.
+pub struct Stage5dEnvelopeBoundRuntimeStateLoaded {
+    loaded: crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy,
+    envelope: Stage5dPersistenceEnvelope,
+}
+
+impl Stage5dEnvelopeBoundRuntimeStateLoaded {
+    /// Redacted snapshot id for evidence and diagnostics.
+    pub fn snapshot_id(&self) -> &str {
+        &self.envelope.snapshot_id
+    }
+
+    /// Envelope schema version for evidence and diagnostics.
+    pub fn schema_version(&self) -> u16 {
+        self.envelope.schema_version
+    }
+
+    /// Redacted fingerprint of the validated restore evidence retained inside
+    /// this opaque capability.
+    pub fn evidence_fingerprint(&self) -> &str {
+        &self.envelope.payload_checksum_sha256
     }
 }
 
@@ -103,19 +141,44 @@ impl Stage5dValidatedPersistenceEnvelope {
     }
 }
 
-/// Apply the validated Stage 5D runtime-private extension before any Stage 5C
-/// bootstrap/runtime-restored callback is allowed to run.
-///
-/// The function consumes both input capabilities. It validates the private DTO
-/// against already-restored semantic state first, then mutates the runtime in a
-/// single apply step. Broker working sets are treated only as expected hints;
-/// authoritative active objects must still come from broker truth in later
-/// gates.
-pub fn stage5d_apply_runtime_private_extension(
+/// Bind a loaded Stage 5C runtime capability to one exact validated Stage 5D
+/// persistence envelope before any private mutation can happen.
+pub fn stage5d_bind_runtime_state_loaded(
     loaded: crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy,
     validated: Stage5dValidatedPersistenceEnvelope,
-) -> Result<Stage5dPrivateStateAppliedPaperStrategy, Stage5dRuntimePrivateApplyBlocked> {
+) -> Result<Stage5dEnvelopeBoundRuntimeStateLoaded, Stage5dRuntimePrivateApplyBlocked> {
     let envelope = validated.envelope;
+    if let Err(reason) = validate_loaded_envelope_binding(&loaded, &envelope) {
+        return Err(Stage5dRuntimePrivateApplyBlocked {
+            loaded: Box::new(loaded),
+            reason,
+        });
+    }
+
+    Ok(Stage5dEnvelopeBoundRuntimeStateLoaded { loaded, envelope })
+}
+
+/// Retry pair-binding after a recoverable Stage 5D block without exposing the
+/// preserved Stage 5C loaded runtime capability.
+pub fn stage5d_retry_bind_runtime_state_loaded(
+    blocked: Stage5dRuntimePrivateApplyBlocked,
+    validated: Stage5dValidatedPersistenceEnvelope,
+) -> Result<Stage5dEnvelopeBoundRuntimeStateLoaded, Stage5dRuntimePrivateApplyBlocked> {
+    stage5d_bind_runtime_state_loaded(*blocked.loaded, validated)
+}
+
+/// Apply the pair-bound Stage 5D runtime-private extension before any Stage 5C
+/// bootstrap/runtime-restored callback is allowed to run.
+///
+/// The function consumes a bound capability produced by
+/// [`stage5d_bind_runtime_state_loaded`]. It validates the private DTO against
+/// already-restored semantic state first, then mutates the runtime in a single
+/// apply step. Broker working sets are treated only as expected hints;
+/// authoritative active objects must still come from broker truth in later gates.
+pub fn stage5d_apply_runtime_private_extension(
+    bound: Stage5dEnvelopeBoundRuntimeStateLoaded,
+) -> Result<Stage5dPrivateStateAppliedPaperStrategy, Stage5dRuntimePrivateApplyBlocked> {
+    let Stage5dEnvelopeBoundRuntimeStateLoaded { loaded, envelope } = bound;
     let (mut strategy, admission, restored) = loaded.stage5d_into_parts();
     if let Err(reason) =
         strategy.stage5d_apply_runtime_private_extension(&envelope.runtime_private_extension)
@@ -135,8 +198,49 @@ pub fn stage5d_apply_runtime_private_extension(
             crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_from_parts(
                 strategy, admission, restored,
             ),
-        snapshot_id: envelope.snapshot_id,
+        envelope,
     })
+}
+
+fn validate_loaded_envelope_binding(
+    loaded: &crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy,
+    envelope: &Stage5dPersistenceEnvelope,
+) -> Result<(), Stage5dEnvelopeValidationError> {
+    let admission = loaded.stage5d_admission();
+    if admission.strategy_id() != envelope.binding.strategy_id
+        || admission.account_id() != &envelope.binding.account_id
+        || admission.target_instrument() != &envelope.binding.instrument_id.to_instrument_id()
+    {
+        return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+    }
+
+    let strategy = loaded.stage5d_strategy();
+    if strategy.stage5c_config_fingerprint() != envelope.binding.stage5c_compat_config_fingerprint
+        || stage5d_profile_binding_string(strategy) != envelope.binding.profile_binding
+    {
+        return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+    }
+
+    let current_state = serde_json::to_value(Strategy::state(strategy))
+        .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+    if current_state != envelope.strategy_state.strategy_state_json {
+        return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+    }
+
+    let restored = loaded.stage5d_restored();
+    if restored.known_order_ids != envelope.recovery_indexes.known_order_ids
+        || restored.pending_requests != envelope.recovery_indexes.pending_requests
+    {
+        return Err(Stage5dEnvelopeValidationError::RecoveryIndexInconsistent);
+    }
+    Ok(())
+}
+
+fn stage5d_profile_binding_string(
+    strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+) -> String {
+    let (profile, mr_variant, mr_gate_policy, risk_gate_mode) = strategy.stage5c_profile_binding();
+    format!("{profile}|{mr_variant}|{mr_gate_policy}|{risk_gate_mode}")
 }
 
 /// Redacted blocked-restore marker for future Stage 5D transitions.
@@ -665,6 +769,9 @@ impl Stage5dPersistenceEnvelope {
         self.validate_timestamp_policy()?;
         if self.canonical_config_fingerprint != self.binding.stage5d_canonical_config_fingerprint {
             return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+        }
+        if self.runtime_private_extension.cleanup_retry_state.is_none() {
+            return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
         }
         if self.binding.instrument_id.symbol.is_empty()
             || self.binding.account_id.as_str().is_empty()
@@ -1238,6 +1345,7 @@ pub enum Stage5dEnvelopeValidationError {
 mod tests {
     use super::*;
     use crate::runtime_compat::Strategy;
+    use rust_decimal::Decimal;
     use serde_json::Value;
 
     fn valid_fixture() -> Stage5dPersistenceEnvelope {
@@ -1313,6 +1421,76 @@ mod tests {
             serde_json::from_value(envelope.strategy_state.strategy_state_json.clone())
                 .expect("Stage 5D semantic state must decode as source StrategyState");
         Strategy::set_state(strategy, state);
+    }
+
+    fn profile_binding_for(
+        strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    ) -> String {
+        let (profile, mr_variant, mr_gate_policy, risk_gate_mode) =
+            strategy.stage5c_profile_binding();
+        format!("{profile}|{mr_variant}|{mr_gate_policy}|{risk_gate_mode}")
+    }
+
+    fn bind_fixture_to_strategy_config(
+        envelope: &mut Stage5dPersistenceEnvelope,
+        strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    ) {
+        let config_fingerprint = strategy.stage5c_config_fingerprint();
+        let profile_binding = profile_binding_for(strategy);
+        envelope.binding.stage5c_compat_config_fingerprint = config_fingerprint;
+        envelope.binding.profile_binding = profile_binding.clone();
+        envelope.riskgate.identity.profile_id = profile_binding;
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+    }
+
+    fn stage5d_bound_test_fixture() -> (
+        crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy,
+        Stage5dPersistenceEnvelope,
+    ) {
+        let mut envelope = valid_fixture();
+        let mut strategy = stage5d_test_strategy();
+        restore_semantic_state(&mut strategy, &envelope);
+        bind_fixture_to_strategy_config(&mut envelope, &strategy);
+        let admission = crate::stage5c_paper_host::Stage5cPaperHostAdmission::stage5d_test_new(
+            envelope.binding.strategy_id.clone(),
+            envelope.binding.account_id.clone(),
+            envelope.binding.instrument_id.to_instrument_id(),
+            0.5,
+            Decimal::new(5, 1),
+            envelope.persisted_at_ts_utc,
+        );
+        let restored = crate::runtime_compat::RuntimeStateRestored {
+            known_order_ids: envelope.recovery_indexes.known_order_ids.clone(),
+            pending_requests: envelope.recovery_indexes.pending_requests.clone(),
+        };
+        (
+            crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
+                strategy, admission, restored,
+            ),
+            envelope,
+        )
+    }
+
+    fn expect_stage5d_blocked<T>(
+        result: Result<T, Stage5dRuntimePrivateApplyBlocked>,
+        message: &str,
+    ) -> Stage5dRuntimePrivateApplyBlocked {
+        match result {
+            Ok(_) => panic!("{message}"),
+            Err(blocked) => blocked,
+        }
+    }
+
+    fn expect_stage5d_ok<T>(
+        result: Result<T, Stage5dRuntimePrivateApplyBlocked>,
+        message: &str,
+    ) -> T {
+        match result {
+            Ok(value) => value,
+            Err(blocked) => panic!("{message}: {:?}", blocked.reason()),
+        }
     }
 
     #[test]
@@ -2234,5 +2412,234 @@ mod tests {
             Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
         );
         assert_eq!(strategy.stage5d_export_runtime_private_extension(), before);
+    }
+
+    #[test]
+    fn stage5d_b2b_public_bind_rejects_account_mismatch_before_apply() {
+        let (loaded, mut envelope) = stage5d_bound_test_fixture();
+        envelope.binding.account_id = BrokerAccountId::new("ACC_TEST_0002");
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("envelope remains schema valid");
+
+        let blocked = expect_stage5d_blocked(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "cross-account loaded/envelope pair must be blocked",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dEnvelopeValidationError::BindingMismatch
+        );
+        assert!(blocked.input_capability_preserved());
+    }
+
+    #[test]
+    fn stage5d_b2b_public_bind_rejects_instrument_mismatch_before_apply() {
+        let (loaded, mut envelope) = stage5d_bound_test_fixture();
+        envelope.binding.instrument_id.symbol = "RTS-9.26".to_string();
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("envelope remains schema valid");
+
+        let blocked = expect_stage5d_blocked(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "cross-instrument loaded/envelope pair must be blocked",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dEnvelopeValidationError::BindingMismatch
+        );
+    }
+
+    #[test]
+    fn stage5d_b2b_public_bind_rejects_semantic_state_mismatch_before_apply() {
+        let (loaded, mut envelope) = stage5d_bound_test_fixture();
+        if let Value::Object(fields) =
+            &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+        {
+            fields.insert("last_bar_close".to_string(), serde_json::json!(2228.0));
+        }
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("envelope remains schema valid");
+
+        let blocked = expect_stage5d_blocked(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "semantic mismatch must be blocked before apply",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dEnvelopeValidationError::BindingMismatch
+        );
+    }
+
+    #[test]
+    fn stage5d_b2b_public_bind_rejects_recovery_index_mismatch_before_apply() {
+        let (loaded, envelope) = stage5d_bound_test_fixture();
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("envelope remains schema valid");
+        let (strategy, admission, restored) = loaded.stage5d_into_parts();
+        let mismatched_loaded =
+            crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
+                strategy,
+                admission,
+                crate::runtime_compat::RuntimeStateRestored {
+                    known_order_ids: Vec::new(),
+                    pending_requests: restored.pending_requests,
+                },
+            );
+
+        let blocked = expect_stage5d_blocked(
+            stage5d_bind_runtime_state_loaded(mismatched_loaded, validated),
+            "recovery-index mismatch must be blocked before apply",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dEnvelopeValidationError::RecoveryIndexInconsistent
+        );
+    }
+
+    #[test]
+    fn stage5d_b2b_public_bind_rejects_clean_loaded_against_nonclean_envelope() {
+        let (loaded, envelope) = stage5d_bound_test_fixture();
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("envelope remains schema valid");
+        let (strategy, admission, _restored) = loaded.stage5d_into_parts();
+        let clean_loaded =
+            crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
+                strategy,
+                admission,
+                crate::runtime_compat::RuntimeStateRestored {
+                    known_order_ids: Vec::new(),
+                    pending_requests: Vec::new(),
+                },
+            );
+
+        let blocked = expect_stage5d_blocked(
+            stage5d_bind_runtime_state_loaded(clean_loaded, validated),
+            "clean loaded capability cannot stand in for persisted restore",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dEnvelopeValidationError::RecoveryIndexInconsistent
+        );
+    }
+
+    #[test]
+    fn stage5d_b2b_public_bound_pair_applies_and_retains_restore_evidence() {
+        let (loaded, envelope) = stage5d_bound_test_fixture();
+        let checksum = envelope.payload_checksum_sha256.clone();
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("envelope remains schema valid");
+
+        let bound = expect_stage5d_ok(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "exact loaded/envelope pair must bind",
+        );
+        assert_eq!(bound.snapshot_id(), "SNAP_STAGE5D_B2A_0001");
+        assert_eq!(bound.evidence_fingerprint(), checksum);
+
+        let applied = expect_stage5d_ok(
+            stage5d_apply_runtime_private_extension(bound),
+            "bound private extension must apply",
+        );
+        assert_eq!(applied.snapshot_id(), "SNAP_STAGE5D_B2A_0001");
+        assert_eq!(
+            applied.schema_version(),
+            STAGE5D_PERSISTENCE_ENVELOPE_SCHEMA_VERSION
+        );
+        assert_eq!(applied.evidence_fingerprint(), checksum);
+        assert!(applied.runtime_private_applied());
+    }
+
+    #[test]
+    fn stage5d_b2b_blocked_capability_can_retry_with_matching_envelope() {
+        let (loaded, mut mismatched) = stage5d_bound_test_fixture();
+        let mut corrected = mismatched.clone();
+        mismatched.binding.account_id = BrokerAccountId::new("ACC_TEST_0002");
+        mismatched.payload_checksum_sha256 = mismatched
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+
+        let blocked = expect_stage5d_blocked(
+            stage5d_bind_runtime_state_loaded(
+                loaded,
+                mismatched
+                    .validate_restore_contract_schema_only()
+                    .expect("mismatched envelope remains schema valid"),
+            ),
+            "mismatched envelope must be blocked",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dEnvelopeValidationError::BindingMismatch
+        );
+
+        corrected.payload_checksum_sha256 = corrected
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+        let bound = expect_stage5d_ok(
+            stage5d_retry_bind_runtime_state_loaded(
+                blocked,
+                corrected
+                    .validate_restore_contract_schema_only()
+                    .expect("corrected envelope must validate"),
+            ),
+            "retry with exact envelope must recover preserved capability",
+        );
+        let applied = expect_stage5d_ok(
+            stage5d_apply_runtime_private_extension(bound),
+            "retried bound capability must apply",
+        );
+        assert_eq!(applied.snapshot_id(), "SNAP_STAGE5D_B2A_0001");
+    }
+
+    #[test]
+    fn stage5d_b2b_cleanup_retry_state_none_is_rejected_with_recomputed_checksum() {
+        let envelope = fixture_with_mutated_envelope(|envelope| {
+            envelope.runtime_private_extension.cleanup_retry_state = None;
+        });
+
+        assert_eq!(
+            envelope.validate_restore_contract_schema_only().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
+        );
+    }
+
+    #[test]
+    fn stage5d_b2b_cleanup_retry_attempts_roundtrip_exactly() {
+        let mut envelope = valid_fixture();
+        let mut strategy = stage5d_test_strategy();
+        restore_semantic_state(&mut strategy, &envelope);
+        envelope.runtime_private_extension.cleanup_retry_state = Some(Stage5dCleanupRetryState {
+            cleanup_stop_retry_attempts: 2,
+        });
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+
+        strategy
+            .stage5d_apply_runtime_private_extension(&envelope.runtime_private_extension)
+            .expect("validated private extension must apply");
+        assert_eq!(
+            strategy
+                .stage5d_export_runtime_private_extension()
+                .cleanup_retry_state,
+            Some(Stage5dCleanupRetryState {
+                cleanup_stop_retry_attempts: 2,
+            })
+        );
     }
 }
