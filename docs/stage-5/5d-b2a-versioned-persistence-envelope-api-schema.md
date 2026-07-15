@@ -106,8 +106,8 @@ Additional schema-only restore-contract tests reject:
 - broker object references or expected working sets missing from typed indexes;
 - duplicate recovery-index values;
 - riskgate pending-finalization semantic cache mismatch;
-- duplicate, out-of-order, current-session or future-session runtime pending
-  riskgate finalization dates;
+- duplicate, out-of-order, weekend, current-session or future-session runtime
+  pending riskgate finalization dates;
 - inconsistent bidirectional pending-entry/private/timer state.
 
 Pending request creation is intentionally not ordered against an unrelated
@@ -127,7 +127,7 @@ The valid fixture is a single consistent partial MR entry restart scenario:
 - parseable source-local date/datetime strings;
 - multi-record runtime pending riskgate finalization vector retaining per-record
   PnL and trade-count payload, with unique strictly increasing session dates
-  before the current shadow session;
+  on source-producible weekdays before the current shadow session;
 - semantic pending-finalization compatibility cache equal to the first runtime
   pending finalization record;
 - top-level and binding Stage 5D config fingerprints equal.

@@ -98,7 +98,7 @@
         "risk_gate_shadow_side": null,
         "risk_gate_shadow_target_price": null,
         "risk_gate_shadow_stop_price": null,
-        "risk_gate_pending_session_date": "2026-07-12",
+        "risk_gate_pending_session_date": "2026-07-10",
         "risk_gate_pending_shadow_pnl_points": 12.5,
         "risk_gate_pending_shadow_trade_count": 2,
         "risk_gate_mr_enabled_current_session": true,
@@ -108,7 +108,7 @@
       }
     }
   },
-  "payload_checksum_sha256": "9c13868bae514ccae02b7a7730e2b4d070f6263f6b7e3de6c5d96ae024e664d6",
+  "payload_checksum_sha256": "f9a8fda96dbc0350e6f7b081fc78aa935a9228f01e3467bd079f01b9722a4d52",
   "lifecycle_watermarks": {
     "persisted_event_watermark": "stream:stage5d:0007",
     "last_semantic_bar_ts": "2026-07-14T06:00:00Z",
@@ -160,7 +160,7 @@
     "last_processed_bar_ts": "2026-07-14T06:00:00Z",
     "runtime_pending_finalizations": [
       {
-        "session_date": "2026-07-12",
+        "session_date": "2026-07-10",
         "shadow_pnl_points": "12.5",
         "shadow_trade_count": 2
       },

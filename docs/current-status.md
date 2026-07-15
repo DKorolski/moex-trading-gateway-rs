@@ -155,7 +155,7 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   validation, lifecycle watermarks, typed broker-neutral recovery indexes,
   source-compatible runtime-private enums, runtime-private extension DTOs,
   riskgate ledger/materialized/outbox DTOs, source-exact runtime pending
-  riskgate finalization payloads with source-producible vector chronology, an opaque validated-envelope
+  riskgate finalization payloads with source-producible weekday vector chronology, an opaque validated-envelope
   capability for future gates, deterministic fixtures,
   corrupt/version/config/unknown-field/semantic/timestamp/source-roundtrip/
   pending-lifecycle/recovery-index/riskgate-finalization negative validation,

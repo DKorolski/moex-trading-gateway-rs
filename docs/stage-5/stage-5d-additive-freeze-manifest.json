@@ -54,7 +54,7 @@
   },
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "391ce6b72781c3142309ca08137bc7b57782985f8a5b053eaf3bd8cb0ab6c02e"
+    "current_sha256": "84ae3de9116c824881b6b8014f124beb8f1cd1a4b5d699ab864d8243a8a8f672"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
