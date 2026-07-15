@@ -165,7 +165,10 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   extension apply, retained opaque restore evidence, retry-capable opaque block
   preservation, required cleanup retry state, full pending
   riskgate-finalization vector restoration, persisted-owned semantic projection
-  binding, authoritative Stage 5D canonical config/version binding,
+  binding, crate-private persisted-vs-clean load provenance, semantic/recovery
+  provenance fingerprints, authoritative Stage 5D canonical config/version/source
+  build binding, hashed riskgate seed/ledger identity in the canonical
+  fingerprint, pending-entry source-shape/config exactness checks,
   source-private invariant preflight, and no authoritative working-set
   rehydration from persistence. The formal mutation policy is
   `controlled_validated_stage5d_apply_only`; Stage 5D-b2b-a still does not implement

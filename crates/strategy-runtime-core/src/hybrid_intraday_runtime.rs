@@ -224,6 +224,15 @@ fn stage5d_breakout_eod_mode_name(value: BreakoutEodMode) -> &'static str {
     }
 }
 
+fn stage5d_optional_identity_hash(value: Option<&str>) -> Option<String> {
+    value.map(|identity| {
+        format!(
+            "stage5d_identity_sha256:{:x}",
+            Sha256::digest(identity.as_bytes())
+        )
+    })
+}
+
 impl HybridIntradayRuntimeStrategy {
     pub(crate) fn stage5d_canonical_config_fingerprint(&self) -> String {
         let mr = self.config.mr_config;
@@ -231,6 +240,7 @@ impl HybridIntradayRuntimeStrategy {
         let orchestrator = self.config.orchestrator_config;
         let descriptor = serde_json::json!({
             "schema": "stage5d_canonical_hybrid_config_v1",
+            "runtime_semantic_compatibility_id": crate::stage5d_persistence::STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID,
             "symbol": &self.config.symbol,
             "profile": stage5d_profile_name(self.config.profile),
             "mr_variant": stage5d_mr_variant_name(self.config.mr_variant),
@@ -252,8 +262,8 @@ impl HybridIntradayRuntimeStrategy {
             "repair_backoff_max_sec": self.config.repair_backoff_max_sec,
             "pending_timeout_sec": self.config.pending_timeout_sec,
             "partial_entry_fill_timeout_ms": self.config.partial_entry_fill_timeout_ms,
-            "risk_gate_seed_configured": self.config.risk_gate_seed_file.is_some(),
-            "risk_gate_ledger_configured": self.config.risk_gate_ledger_key.is_some(),
+            "risk_gate_seed_identity_hash": stage5d_optional_identity_hash(self.config.risk_gate_seed_file.as_deref()),
+            "risk_gate_ledger_identity_hash": stage5d_optional_identity_hash(self.config.risk_gate_ledger_key.as_deref()),
             "model_session_start_time": self.config.model_session_start_time.map(|value| value.format("%H:%M:%S").to_string()),
             "model_session_end_time": self.config.model_session_end_time.map(|value| value.format("%H:%M:%S").to_string()),
             "mr_config": {
@@ -455,26 +465,78 @@ impl HybridIntradayRuntimeStrategy {
                     );
                 }
                 let target_qty = stage5d_parse_finite_f64(&extension_entry.target_qty)?;
-                if target_qty <= 0.0 {
+                let configured_target_qty = self.config.qty.max(1.0);
+                if target_qty <= 0.0 || (target_qty - configured_target_qty).abs() > f64::EPSILON {
                     return Err(
                         crate::stage5d_persistence::Stage5dEnvelopeValidationError::SourceRoundtripInconsistent,
                     );
                 }
-                if extension_entry
+                let stop_price = extension_entry
                     .stop_price
                     .as_deref()
                     .map(stage5d_parse_finite_f64)
-                    .transpose()?
-                    .is_some_and(|value| value <= 0.0)
-                    || extension_entry
-                        .take_price
-                        .as_deref()
-                        .map(stage5d_parse_finite_f64)
-                        .transpose()?
-                        .is_some_and(|value| value <= 0.0)
+                    .transpose()?;
+                let take_price = extension_entry
+                    .take_price
+                    .as_deref()
+                    .map(stage5d_parse_finite_f64)
+                    .transpose()?;
+                if stop_price.is_some_and(|value| value <= 0.0)
+                    || take_price.is_some_and(|value| value <= 0.0)
                 {
                     return Err(
                         crate::stage5d_persistence::Stage5dEnvelopeValidationError::SourceRoundtripInconsistent,
+                    );
+                }
+                let source_shape_valid = match (extension_entry.owner, extension_entry.side) {
+                    (
+                        crate::stage5d_persistence::Stage5dOwner::MeanReversion,
+                        crate::stage5d_persistence::Stage5dSide::Long,
+                    ) => {
+                        extension_entry.entry_style
+                            == crate::stage5d_persistence::Stage5dEntryStyle::Bracket
+                            && extension_entry.reason
+                                == crate::stage5d_persistence::Stage5dLifecycleReason::MorningMeanReversionLong
+                            && stop_price.is_some()
+                            && take_price.is_some()
+                    }
+                    (
+                        crate::stage5d_persistence::Stage5dOwner::MeanReversion,
+                        crate::stage5d_persistence::Stage5dSide::Short,
+                    ) => {
+                        extension_entry.entry_style
+                            == crate::stage5d_persistence::Stage5dEntryStyle::Bracket
+                            && extension_entry.reason
+                                == crate::stage5d_persistence::Stage5dLifecycleReason::MorningMeanReversionShort
+                            && stop_price.is_some()
+                            && take_price.is_some()
+                    }
+                    (
+                        crate::stage5d_persistence::Stage5dOwner::IntradayBreakout,
+                        crate::stage5d_persistence::Stage5dSide::Long,
+                    ) => {
+                        extension_entry.entry_style
+                            == crate::stage5d_persistence::Stage5dEntryStyle::Market
+                            && extension_entry.reason
+                                == crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutLong
+                            && stop_price.is_none()
+                            && take_price.is_none()
+                    }
+                    (
+                        crate::stage5d_persistence::Stage5dOwner::IntradayBreakout,
+                        crate::stage5d_persistence::Stage5dSide::Short,
+                    ) => {
+                        extension_entry.entry_style
+                            == crate::stage5d_persistence::Stage5dEntryStyle::Market
+                            && extension_entry.reason
+                                == crate::stage5d_persistence::Stage5dLifecycleReason::BreakoutShort
+                            && stop_price.is_none()
+                            && take_price.is_none()
+                    }
+                };
+                if !source_shape_valid {
+                    return Err(
+                        crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
                     );
                 }
             }
@@ -518,6 +580,7 @@ impl HybridIntradayRuntimeStrategy {
                 || extension_entry.entry_style
                     != crate::stage5d_persistence::Stage5dEntryStyle::Bracket
                 || target_qty <= 1.0
+                || self.config.qty.max(1.0) <= 1.0
                 || self.last_position_qty.abs() + f64::EPSILON >= target_qty
             {
                 return Err(

@@ -29,6 +29,12 @@ pub const STAGE5D_RISKGATE_SCHEMA_VERSION: u16 = 1;
 pub const STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION: u16 = 1;
 const STAGE5D_SUPPORTED_BROKER_PROTOCOL_SCHEMA_VERSION: u16 = 2;
 const STAGE5D_SUPPORTED_RUNTIME_STATE_SCHEMA_VERSION: u16 = 2;
+pub(crate) const STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID: &str =
+    "stage5d_runtime_semantic_compatibility_v1";
+const STAGE5D_COMPATIBLE_SOURCE_BUILD_IDS: &[&str] = &[
+    STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID,
+    "source_commit:92e6e0685b1cbab6f4c6271abe1db8ab690a1ded",
+];
 
 /// Opaque proof that a validated Stage 5D runtime-private extension has been
 /// applied in the persistence-enabled restore path.
@@ -181,14 +187,17 @@ pub fn stage5d_apply_runtime_private_extension(
     bound: Stage5dEnvelopeBoundRuntimeStateLoaded,
 ) -> Result<Stage5dPrivateStateAppliedPaperStrategy, Stage5dRuntimePrivateApplyBlocked> {
     let Stage5dEnvelopeBoundRuntimeStateLoaded { loaded, envelope } = bound;
-    let (mut strategy, admission, restored) = loaded.stage5d_into_parts();
+    let (mut strategy, admission, restored, load_origin) = loaded.stage5d_into_parts();
     if let Err(reason) =
         strategy.stage5d_apply_runtime_private_extension(&envelope.runtime_private_extension)
     {
         return Err(Stage5dRuntimePrivateApplyBlocked {
             loaded: Box::new(
                 crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_from_parts(
-                    strategy, admission, restored,
+                    strategy,
+                    admission,
+                    restored,
+                    load_origin,
                 ),
             ),
             reason,
@@ -198,7 +207,10 @@ pub fn stage5d_apply_runtime_private_extension(
     Ok(Stage5dPrivateStateAppliedPaperStrategy {
         loaded:
             crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_from_parts(
-                strategy, admission, restored,
+                strategy,
+                admission,
+                restored,
+                load_origin,
             ),
         envelope,
     })
@@ -228,6 +240,7 @@ fn validate_loaded_envelope_binding(
         != STAGE5D_SUPPORTED_BROKER_PROTOCOL_SCHEMA_VERSION
         || envelope.binding.runtime_state_schema_version
             != STAGE5D_SUPPORTED_RUNTIME_STATE_SCHEMA_VERSION
+        || !stage5d_source_build_is_compatible(&envelope.binding.source_commit_or_build_id)
     {
         return Err(Stage5dEnvelopeValidationError::BindingMismatch);
     }
@@ -253,7 +266,44 @@ fn validate_loaded_envelope_binding(
     {
         return Err(Stage5dEnvelopeValidationError::RecoveryIndexInconsistent);
     }
+    validate_loaded_origin_binding(loaded, envelope)?;
     Ok(())
+}
+
+fn validate_loaded_origin_binding(
+    loaded: &crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy,
+    envelope: &Stage5dPersistenceEnvelope,
+) -> Result<(), Stage5dEnvelopeValidationError> {
+    let crate::stage5c_paper_host::Stage5cRuntimeStateLoadOrigin::Persisted {
+        semantic_payload_fingerprint,
+        persisted_ts,
+        recovery_index_fingerprint,
+    } = loaded.stage5d_load_origin()
+    else {
+        return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+    };
+    let envelope_semantic_fingerprint =
+        crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(
+            &envelope.strategy_state.strategy_state_json,
+        )
+        .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+    let envelope_recovery_fingerprint =
+        crate::stage5c_paper_host::stage5c_recovery_index_fingerprint(
+            &envelope.recovery_indexes.known_order_ids,
+            &envelope.recovery_indexes.pending_requests,
+        )
+        .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+    if semantic_payload_fingerprint != &envelope_semantic_fingerprint
+        || persisted_ts != &envelope.persisted_at_ts_utc
+        || recovery_index_fingerprint != &envelope_recovery_fingerprint
+    {
+        return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+    }
+    Ok(())
+}
+
+fn stage5d_source_build_is_compatible(source_commit_or_build_id: &str) -> bool {
+    STAGE5D_COMPATIBLE_SOURCE_BUILD_IDS.contains(&source_commit_or_build_id)
 }
 
 fn stage5d_profile_binding_string(
@@ -1428,40 +1478,44 @@ mod tests {
     }
 
     fn stage5d_test_strategy() -> crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy {
-        crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy::new(
-            crate::hybrid_intraday_runtime::HybridIntradayRuntimeConfig {
-                symbol: "IMOEXF".to_string(),
-                profile:
-                    crate::hybrid_intraday_runtime::HybridIntradayProfile::BaselineRuntimeHybrid,
-                mr_variant:
-                    crate::hybrid_intraday_runtime::MeanReversionVariant::ClassicPrevDayRange,
-                mr_gate_policy: crate::hybrid_intraday_runtime::MrGatePolicy::Disabled,
-                risk_gate_mode: crate::hybrid_intraday_runtime::RiskGateMode::Disabled,
-                risk_gate_seed_file: None,
-                risk_gate_ledger_key: None,
-                model_session_start_time: None,
-                model_session_end_time: None,
-                qty: 1.0,
-                live_order_style: crate::runtime_compat::MarketBuyAndCloseLiveOrderStyle::Market,
-                tick_size: 0.5,
-                marketable_limit_offset_ticks: 0,
-                timezone_offset_hours: 3,
-                session_close_hour: 23,
-                session_close_minute: 49,
-                weekends_off: true,
-                stop_end_buffer_sec: 60,
-                repair_deadline_sec: 180,
-                sl_escalate_timeout_sec: 30,
-                max_repair_retries: 3,
-                repair_backoff_base_sec: 5,
-                repair_backoff_max_sec: 60,
-                pending_timeout_sec: 30,
-                partial_entry_fill_timeout_ms: 3_000,
-                mr_config: crate::hybrid_intraday::MeanReversionConfig::default(),
-                breakout_config: crate::hybrid_intraday::IntradayBreakoutConfig::default(),
-                orchestrator_config: crate::hybrid_intraday::HybridOrchestratorConfig::default(),
-            },
-        )
+        stage5d_test_strategy_with_config(|_| {})
+    }
+
+    fn stage5d_test_strategy_with_config(
+        mutator: impl FnOnce(&mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeConfig),
+    ) -> crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy {
+        let mut config = crate::hybrid_intraday_runtime::HybridIntradayRuntimeConfig {
+            symbol: "IMOEXF".to_string(),
+            profile: crate::hybrid_intraday_runtime::HybridIntradayProfile::BaselineRuntimeHybrid,
+            mr_variant: crate::hybrid_intraday_runtime::MeanReversionVariant::ClassicPrevDayRange,
+            mr_gate_policy: crate::hybrid_intraday_runtime::MrGatePolicy::Disabled,
+            risk_gate_mode: crate::hybrid_intraday_runtime::RiskGateMode::Disabled,
+            risk_gate_seed_file: None,
+            risk_gate_ledger_key: None,
+            model_session_start_time: None,
+            model_session_end_time: None,
+            qty: 1.0,
+            live_order_style: crate::runtime_compat::MarketBuyAndCloseLiveOrderStyle::Market,
+            tick_size: 0.5,
+            marketable_limit_offset_ticks: 0,
+            timezone_offset_hours: 3,
+            session_close_hour: 23,
+            session_close_minute: 49,
+            weekends_off: true,
+            stop_end_buffer_sec: 60,
+            repair_deadline_sec: 180,
+            sl_escalate_timeout_sec: 30,
+            max_repair_retries: 3,
+            repair_backoff_base_sec: 5,
+            repair_backoff_max_sec: 60,
+            pending_timeout_sec: 30,
+            partial_entry_fill_timeout_ms: 3_000,
+            mr_config: crate::hybrid_intraday::MeanReversionConfig::default(),
+            breakout_config: crate::hybrid_intraday::IntradayBreakoutConfig::default(),
+            orchestrator_config: crate::hybrid_intraday::HybridOrchestratorConfig::default(),
+        };
+        mutator(&mut config);
+        crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy::new(config)
     }
 
     fn restore_semantic_state(
@@ -1500,6 +1554,25 @@ mod tests {
             .expect("checksum recomputation must succeed");
     }
 
+    fn load_origin_for_envelope(
+        envelope: &Stage5dPersistenceEnvelope,
+    ) -> crate::stage5c_paper_host::Stage5cRuntimeStateLoadOrigin {
+        crate::stage5c_paper_host::Stage5cRuntimeStateLoadOrigin::Persisted {
+            semantic_payload_fingerprint:
+                crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(
+                    &envelope.strategy_state.strategy_state_json,
+                )
+                .expect("semantic fingerprint must serialize"),
+            persisted_ts: envelope.persisted_at_ts_utc,
+            recovery_index_fingerprint:
+                crate::stage5c_paper_host::stage5c_recovery_index_fingerprint(
+                    &envelope.recovery_indexes.known_order_ids,
+                    &envelope.recovery_indexes.pending_requests,
+                )
+                .expect("recovery fingerprint must serialize"),
+        }
+    }
+
     fn apply_valid_fixture() -> Stage5dPersistenceEnvelope {
         fixture_with_mutated_envelope(|envelope| {
             let entry = envelope
@@ -1511,6 +1584,77 @@ mod tests {
             entry.side = Stage5dSide::Long;
             entry.entry_style = Stage5dEntryStyle::Bracket;
             entry.target_qty = "3".to_string();
+            entry.reason = Stage5dLifecycleReason::MorningMeanReversionLong;
+            entry.stop_price = Some("2200.0".to_string());
+            entry.take_price = Some("2250.0".to_string());
+        })
+    }
+
+    fn apply_valid_fixture_with(
+        mutator: impl FnOnce(&mut Stage5dPersistenceEnvelope),
+    ) -> Stage5dPersistenceEnvelope {
+        let mut envelope = apply_valid_fixture();
+        mutator(&mut envelope);
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+        envelope
+    }
+
+    fn flat_persisted_fixture() -> Stage5dPersistenceEnvelope {
+        apply_valid_fixture_with(|envelope| {
+            if let Value::Object(fields) =
+                &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+            {
+                for key in [
+                    "active_cycle_id",
+                    "current_owner",
+                    "current_side",
+                    "pending_entry_owner",
+                    "pending_entry_side",
+                    "pending_entry_cycle_id",
+                    "pending_entry_request_id",
+                    "pending_entry_created_ts_utc",
+                    "mr_take_price",
+                    "mr_stop_price",
+                ] {
+                    fields.insert(key.to_string(), Value::Null);
+                }
+                fields.insert("last_position_qty".to_string(), serde_json::json!(0.0));
+            }
+            envelope.recovery_indexes.known_order_ids.clear();
+            envelope.recovery_indexes.known_stop_order_ids.clear();
+            envelope.recovery_indexes.known_trade_ids.clear();
+            envelope.recovery_indexes.known_client_order_ids.clear();
+            envelope.recovery_indexes.pending_requests.clear();
+            envelope.runtime_private_extension.pending_entry = None;
+            envelope.runtime_private_extension.partial_entry_timer = None;
+            envelope
+                .runtime_private_extension
+                .expected_working_sets
+                .expected_working_order_ids
+                .clear();
+            envelope
+                .runtime_private_extension
+                .expected_working_sets
+                .expected_working_stop_order_ids
+                .clear();
+        })
+    }
+
+    fn flat_pending_entry_fixture(
+        mutator: impl FnOnce(&mut Stage5dPersistenceEnvelope),
+    ) -> Stage5dPersistenceEnvelope {
+        apply_valid_fixture_with(|envelope| {
+            if let Value::Object(fields) =
+                &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+            {
+                fields.insert("last_position_qty".to_string(), serde_json::json!(0.0));
+                fields.insert("current_owner".to_string(), Value::Null);
+                fields.insert("current_side".to_string(), Value::Null);
+            }
+            envelope.runtime_private_extension.partial_entry_timer = None;
+            mutator(envelope);
         })
     }
 
@@ -1519,7 +1663,9 @@ mod tests {
         Stage5dPersistenceEnvelope,
     ) {
         let mut envelope = apply_valid_fixture();
-        let mut strategy = stage5d_test_strategy();
+        let mut strategy = stage5d_test_strategy_with_config(|config| {
+            config.qty = 3.0;
+        });
         restore_semantic_state(&mut strategy, &envelope);
         bind_fixture_to_strategy_config(&mut envelope, &strategy);
         let admission = crate::stage5c_paper_host::Stage5cPaperHostAdmission::stage5d_test_new(
@@ -1536,7 +1682,52 @@ mod tests {
         };
         (
             crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
-                strategy, admission, restored,
+                strategy,
+                admission,
+                restored,
+                load_origin_for_envelope(&envelope),
+            ),
+            envelope,
+        )
+    }
+
+    fn stage5d_loaded_for_envelope(
+        mut envelope: Stage5dPersistenceEnvelope,
+        strategy: crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        load_origin: crate::stage5c_paper_host::Stage5cRuntimeStateLoadOrigin,
+    ) -> (
+        crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy,
+        Stage5dPersistenceEnvelope,
+    ) {
+        let mut strategy = strategy;
+        restore_semantic_state(&mut strategy, &envelope);
+        bind_fixture_to_strategy_config(&mut envelope, &strategy);
+        let position_qty = match &envelope.strategy_state.strategy_state_json {
+            Value::Object(root) => root
+                .get("HybridIntradayRuntime")
+                .and_then(|state| state.get("last_position_qty"))
+                .and_then(|qty| qty.as_f64())
+                .unwrap_or_default(),
+            _ => 0.0,
+        };
+        let admission = crate::stage5c_paper_host::Stage5cPaperHostAdmission::stage5d_test_new(
+            envelope.binding.strategy_id.clone(),
+            envelope.binding.account_id.clone(),
+            envelope.binding.instrument_id.to_instrument_id(),
+            0.5,
+            Decimal::from_f64_retain(position_qty).expect("test position qty must convert"),
+            envelope.persisted_at_ts_utc,
+        );
+        let restored = crate::runtime_compat::RuntimeStateRestored {
+            known_order_ids: envelope.recovery_indexes.known_order_ids.clone(),
+            pending_requests: envelope.recovery_indexes.pending_requests.clone(),
+        };
+        (
+            crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
+                strategy,
+                admission,
+                restored,
+                load_origin,
             ),
             envelope,
         )
@@ -2401,7 +2592,9 @@ mod tests {
     #[test]
     fn stage5d_b2b_runtime_private_apply_restores_full_pending_finalization_vector() {
         let envelope = apply_valid_fixture();
-        let mut strategy = stage5d_test_strategy();
+        let mut strategy = stage5d_test_strategy_with_config(|config| {
+            config.qty = 3.0;
+        });
         restore_semantic_state(&mut strategy, &envelope);
 
         let before_apply = strategy.stage5d_export_runtime_private_extension();
@@ -2557,7 +2750,7 @@ mod tests {
         let validated = envelope
             .validate_restore_contract_schema_only()
             .expect("envelope remains schema valid");
-        let (strategy, admission, restored) = loaded.stage5d_into_parts();
+        let (strategy, admission, restored, load_origin) = loaded.stage5d_into_parts();
         let mismatched_loaded =
             crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
                 strategy,
@@ -2566,6 +2759,7 @@ mod tests {
                     known_order_ids: Vec::new(),
                     pending_requests: restored.pending_requests,
                 },
+                load_origin,
             );
 
         let blocked = expect_stage5d_blocked(
@@ -2584,7 +2778,7 @@ mod tests {
         let validated = envelope
             .validate_restore_contract_schema_only()
             .expect("envelope remains schema valid");
-        let (strategy, admission, _restored) = loaded.stage5d_into_parts();
+        let (strategy, admission, _restored, _load_origin) = loaded.stage5d_into_parts();
         let clean_loaded =
             crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
                 strategy,
@@ -2593,6 +2787,7 @@ mod tests {
                     known_order_ids: Vec::new(),
                     pending_requests: Vec::new(),
                 },
+                crate::stage5c_paper_host::Stage5cRuntimeStateLoadOrigin::CleanStart,
             );
 
         let blocked = expect_stage5d_blocked(
@@ -2690,7 +2885,9 @@ mod tests {
     #[test]
     fn stage5d_b2b_cleanup_retry_attempts_roundtrip_exactly() {
         let mut envelope = apply_valid_fixture();
-        let mut strategy = stage5d_test_strategy();
+        let mut strategy = stage5d_test_strategy_with_config(|config| {
+            config.qty = 3.0;
+        });
         restore_semantic_state(&mut strategy, &envelope);
         envelope.runtime_private_extension.cleanup_retry_state = Some(Stage5dCleanupRetryState {
             cleanup_stop_retry_attempts: 2,
@@ -2750,7 +2947,7 @@ mod tests {
         let validated = envelope
             .validate_restore_contract_schema_only()
             .expect("envelope remains schema valid");
-        let (strategy, admission, restored) = loaded.stage5d_into_parts();
+        let (strategy, admission, restored, load_origin) = loaded.stage5d_into_parts();
         let mismatched_loaded =
             crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
                 strategy,
@@ -2759,6 +2956,7 @@ mod tests {
                     known_order_ids: restored.known_order_ids,
                     pending_requests: Vec::new(),
                 },
+                load_origin,
             );
 
         let blocked = expect_stage5d_blocked(
@@ -2841,6 +3039,134 @@ mod tests {
         );
     }
 
+    #[test]
+    fn stage5d_b2b_public_bind_rejects_unsupported_source_build() {
+        let (loaded, mut envelope) = stage5d_bound_test_fixture();
+        envelope.binding.source_commit_or_build_id = "source_commit:unsupported".to_string();
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("unsupported source build remains schema valid");
+
+        let blocked = expect_stage5d_blocked(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "unsupported semantic source build must be blocked at pair-binding",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dEnvelopeValidationError::BindingMismatch
+        );
+    }
+
+    #[test]
+    fn stage5d_b2b_public_bind_accepts_allowlisted_prior_source_build() {
+        let (loaded, envelope) = stage5d_bound_test_fixture();
+        assert_eq!(
+            envelope.binding.source_commit_or_build_id,
+            "source_commit:92e6e0685b1cbab6f4c6271abe1db8ab690a1ded"
+        );
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("allowlisted prior source build remains schema valid");
+
+        expect_stage5d_ok(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "allowlisted prior source build must bind through explicit compatibility policy",
+        );
+    }
+
+    #[test]
+    fn stage5d_b2b_canonical_fingerprint_includes_riskgate_identity_hashes() {
+        let ledger_a = stage5d_test_strategy_with_config(|config| {
+            config.risk_gate_ledger_key = Some("ledger-A".to_string());
+        });
+        let ledger_b = stage5d_test_strategy_with_config(|config| {
+            config.risk_gate_ledger_key = Some("ledger-B".to_string());
+        });
+        let seed_a = stage5d_test_strategy_with_config(|config| {
+            config.risk_gate_seed_file = Some("/riskgate/seed-A.json".to_string());
+        });
+        let seed_b = stage5d_test_strategy_with_config(|config| {
+            config.risk_gate_seed_file = Some("/riskgate/seed-B.json".to_string());
+        });
+
+        assert_ne!(
+            ledger_a.stage5d_canonical_config_fingerprint(),
+            ledger_b.stage5d_canonical_config_fingerprint()
+        );
+        assert_ne!(
+            seed_a.stage5d_canonical_config_fingerprint(),
+            seed_b.stage5d_canonical_config_fingerprint()
+        );
+    }
+
+    #[test]
+    fn stage5d_b2b_public_bind_rejects_clean_flat_loaded_against_flat_persisted_envelope() {
+        let envelope = flat_persisted_fixture();
+        let (loaded, envelope) = stage5d_loaded_for_envelope(
+            envelope,
+            stage5d_test_strategy(),
+            crate::stage5c_paper_host::Stage5cRuntimeStateLoadOrigin::CleanStart,
+        );
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("flat envelope remains schema valid");
+
+        let blocked = expect_stage5d_blocked(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "clean-start loaded capability must not bind to a flat persisted envelope",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dEnvelopeValidationError::BindingMismatch
+        );
+    }
+
+    #[test]
+    fn stage5d_b2b_public_bind_accepts_persisted_flat_envelope_with_empty_indexes() {
+        let envelope = flat_persisted_fixture();
+        let origin = load_origin_for_envelope(&envelope);
+        let (loaded, envelope) =
+            stage5d_loaded_for_envelope(envelope, stage5d_test_strategy(), origin);
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("flat envelope remains schema valid");
+
+        expect_stage5d_ok(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "persisted flat loaded capability must bind to its own flat envelope",
+        );
+    }
+
+    #[test]
+    fn stage5d_b2b_public_bind_rejects_persisted_semantic_fingerprint_mismatch() {
+        let envelope = flat_persisted_fixture();
+        let mut origin = load_origin_for_envelope(&envelope);
+        if let crate::stage5c_paper_host::Stage5cRuntimeStateLoadOrigin::Persisted {
+            semantic_payload_fingerprint,
+            ..
+        } = &mut origin
+        {
+            *semantic_payload_fingerprint = "stage5c_semantic_sha256:bad".to_string();
+        }
+        let (loaded, envelope) =
+            stage5d_loaded_for_envelope(envelope, stage5d_test_strategy(), origin);
+        let validated = envelope
+            .validate_restore_contract_schema_only()
+            .expect("flat envelope remains schema valid");
+
+        let blocked = expect_stage5d_blocked(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "persisted loaded semantic fingerprint must match the envelope",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dEnvelopeValidationError::BindingMismatch
+        );
+    }
+
     fn expect_private_apply_rejects_without_mutation(
         mut envelope: Stage5dPersistenceEnvelope,
         mutator: impl FnOnce(
@@ -2908,6 +3234,171 @@ mod tests {
             entry.owner = Stage5dOwner::IntradayBreakout;
             entry.entry_style = Stage5dEntryStyle::Market;
         });
+    }
+
+    #[test]
+    fn stage5d_b2b_private_apply_rejects_target_qty_not_matching_runtime_config() {
+        let envelope = apply_valid_fixture();
+        let mut strategy = stage5d_test_strategy();
+        restore_semantic_state(&mut strategy, &envelope);
+        let before = strategy.stage5d_export_runtime_private_extension();
+
+        assert_eq!(
+            strategy.stage5d_apply_runtime_private_extension(&envelope.runtime_private_extension),
+            Err(Stage5dEnvelopeValidationError::SourceRoundtripInconsistent)
+        );
+        assert_eq!(strategy.stage5d_export_runtime_private_extension(), before);
+    }
+
+    #[test]
+    fn stage5d_b2b_private_apply_accepts_target_qty_matching_runtime_config() {
+        let envelope = apply_valid_fixture();
+        let mut strategy = stage5d_test_strategy_with_config(|config| {
+            config.qty = 3.0;
+        });
+        restore_semantic_state(&mut strategy, &envelope);
+
+        strategy
+            .stage5d_apply_runtime_private_extension(&envelope.runtime_private_extension)
+            .expect("source-valid config qty 3 / target qty 3 fixture must apply");
+    }
+
+    #[test]
+    fn stage5d_b2b_private_apply_rejects_flat_mr_market_pending_entry() {
+        let envelope = flat_pending_entry_fixture(|envelope| {
+            let entry = envelope
+                .runtime_private_extension
+                .pending_entry
+                .as_mut()
+                .expect("pending entry");
+            entry.entry_style = Stage5dEntryStyle::Market;
+            entry.reason = Stage5dLifecycleReason::MorningMeanReversionLong;
+        });
+        let mut strategy = stage5d_test_strategy_with_config(|config| {
+            config.qty = 3.0;
+        });
+        restore_semantic_state(&mut strategy, &envelope);
+        let before = strategy.stage5d_export_runtime_private_extension();
+
+        assert_eq!(
+            strategy.stage5d_apply_runtime_private_extension(&envelope.runtime_private_extension),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
+        );
+        assert_eq!(strategy.stage5d_export_runtime_private_extension(), before);
+    }
+
+    #[test]
+    fn stage5d_b2b_private_apply_rejects_flat_breakout_bracket_pending_entry() {
+        let envelope = flat_pending_entry_fixture(|envelope| {
+            if let Value::Object(fields) =
+                &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+            {
+                fields.insert(
+                    "pending_entry_owner".to_string(),
+                    Value::String("intraday_breakout".to_string()),
+                );
+            }
+            let entry = envelope
+                .runtime_private_extension
+                .pending_entry
+                .as_mut()
+                .expect("pending entry");
+            entry.owner = Stage5dOwner::IntradayBreakout;
+            entry.entry_style = Stage5dEntryStyle::Bracket;
+            entry.reason = Stage5dLifecycleReason::BreakoutLong;
+        });
+        let mut strategy = stage5d_test_strategy_with_config(|config| {
+            config.qty = 3.0;
+        });
+        restore_semantic_state(&mut strategy, &envelope);
+        let before = strategy.stage5d_export_runtime_private_extension();
+
+        assert_eq!(
+            strategy.stage5d_apply_runtime_private_extension(&envelope.runtime_private_extension),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
+        );
+        assert_eq!(strategy.stage5d_export_runtime_private_extension(), before);
+    }
+
+    #[test]
+    fn stage5d_b2b_private_apply_rejects_pending_entry_reason_side_mismatch() {
+        let envelope = flat_pending_entry_fixture(|envelope| {
+            let entry = envelope
+                .runtime_private_extension
+                .pending_entry
+                .as_mut()
+                .expect("pending entry");
+            entry.reason = Stage5dLifecycleReason::MorningMeanReversionShort;
+        });
+        let mut strategy = stage5d_test_strategy_with_config(|config| {
+            config.qty = 3.0;
+        });
+        restore_semantic_state(&mut strategy, &envelope);
+        let before = strategy.stage5d_export_runtime_private_extension();
+
+        assert_eq!(
+            strategy.stage5d_apply_runtime_private_extension(&envelope.runtime_private_extension),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
+        );
+        assert_eq!(strategy.stage5d_export_runtime_private_extension(), before);
+    }
+
+    #[test]
+    fn stage5d_b2b_private_apply_rejects_mr_bracket_without_stop_take() {
+        let envelope = flat_pending_entry_fixture(|envelope| {
+            let entry = envelope
+                .runtime_private_extension
+                .pending_entry
+                .as_mut()
+                .expect("pending entry");
+            entry.stop_price = None;
+        });
+        let mut strategy = stage5d_test_strategy_with_config(|config| {
+            config.qty = 3.0;
+        });
+        restore_semantic_state(&mut strategy, &envelope);
+        let before = strategy.stage5d_export_runtime_private_extension();
+
+        assert_eq!(
+            strategy.stage5d_apply_runtime_private_extension(&envelope.runtime_private_extension),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
+        );
+        assert_eq!(strategy.stage5d_export_runtime_private_extension(), before);
+    }
+
+    #[test]
+    fn stage5d_b2b_private_apply_rejects_breakout_market_with_stop_take() {
+        let envelope = flat_pending_entry_fixture(|envelope| {
+            if let Value::Object(fields) =
+                &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+            {
+                fields.insert(
+                    "pending_entry_owner".to_string(),
+                    Value::String("intraday_breakout".to_string()),
+                );
+            }
+            let entry = envelope
+                .runtime_private_extension
+                .pending_entry
+                .as_mut()
+                .expect("pending entry");
+            entry.owner = Stage5dOwner::IntradayBreakout;
+            entry.entry_style = Stage5dEntryStyle::Market;
+            entry.reason = Stage5dLifecycleReason::BreakoutLong;
+            entry.stop_price = Some("2200.0".to_string());
+            entry.take_price = None;
+        });
+        let mut strategy = stage5d_test_strategy_with_config(|config| {
+            config.qty = 3.0;
+        });
+        restore_semantic_state(&mut strategy, &envelope);
+        let before = strategy.stage5d_export_runtime_private_extension();
+
+        assert_eq!(
+            strategy.stage5d_apply_runtime_private_extension(&envelope.runtime_private_extension),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent)
+        );
+        assert_eq!(strategy.stage5d_export_runtime_private_extension(), before);
     }
 
     #[test]

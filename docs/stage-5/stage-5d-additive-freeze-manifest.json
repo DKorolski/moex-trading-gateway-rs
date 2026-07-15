@@ -37,7 +37,7 @@
     },
     "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": {
       "closure_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
-      "current_sha256": "2ebff2a82e15d100a887f23f558914b9db9b213688869be1a9cdaa9b622f122f",
+      "current_sha256": "55d1476f696e1d8065fd8506dbbe92c4dde23c3d3be7f89171b13639518940fb",
       "stripped_without_additive_regions_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
       "additive_regions": [
         "runtime-private-snapshot"
@@ -45,16 +45,24 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "a110b37f2bccdef14008fa36d79c1e68addc41ca8919d6342d5aaec9bd12e751",
-      "stripped_without_additive_regions_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
+      "current_sha256": "94c7fe82dad84d9bfc8c876b8b03beb09840bf3e35e717e54c85e81015692ce4",
+      "stripped_without_additive_regions_sha256": "0ea1a8982965eb34cc113d41c821b22a3ab2c2e2f5a80112ce2561b48fc4ed3c",
       "additive_regions": [
         "type-state-transitions"
       ]
     }
   },
+  "stage5c_private_layout_extensions": [
+    {
+      "path": "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+      "reason": "Stage 5D-b2b-a requires a crate-private persisted-vs-clean load provenance marker in the Stage5cRuntimeStateLoadedPaperStrategy capability; public Stage 5C API shape remains frozen by the Stage 5C compatibility checker.",
+      "public_api_unchanged": true,
+      "stripped_without_additive_regions_sha256": "0ea1a8982965eb34cc113d41c821b22a3ab2c2e2f5a80112ce2561b48fc4ed3c"
+    }
+  ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "326e943a8d9dbb9a3dc4625e4e4e1fd3c0a7a0479bdcbe84fd4b17f90ff6a362"
+    "current_sha256": "2a9aa66dfe30c1e5e92e6b9c4a018ada6c6068f341bcb91836c6bd293280ca0b"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",

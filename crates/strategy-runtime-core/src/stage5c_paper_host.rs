@@ -39,30 +39,38 @@ impl Stage5cRuntimeStateLoadedPaperStrategy {
         &self.restored
     }
 
+    pub(crate) fn stage5d_load_origin(&self) -> &Stage5cRuntimeStateLoadOrigin {
+        &self.load_origin
+    }
+
     pub(crate) fn stage5d_into_parts(
         self,
     ) -> (
         HybridIntradayRuntimeStrategy,
         Stage5cPaperHostAdmission,
         RuntimeStateRestored,
+        Stage5cRuntimeStateLoadOrigin,
     ) {
         let Self {
             strategy,
             admission,
             restored,
+            load_origin,
         } = self;
-        (strategy, admission, restored)
+        (strategy, admission, restored, load_origin)
     }
 
     pub(crate) fn stage5d_from_parts(
         strategy: HybridIntradayRuntimeStrategy,
         admission: Stage5cPaperHostAdmission,
         restored: RuntimeStateRestored,
+        load_origin: Stage5cRuntimeStateLoadOrigin,
     ) -> Self {
         Self {
             strategy,
             admission,
             restored,
+            load_origin,
         }
     }
 
@@ -71,13 +79,25 @@ impl Stage5cRuntimeStateLoadedPaperStrategy {
         strategy: HybridIntradayRuntimeStrategy,
         admission: Stage5cPaperHostAdmission,
         restored: RuntimeStateRestored,
+        load_origin: Stage5cRuntimeStateLoadOrigin,
     ) -> Self {
         Self {
             strategy,
             admission,
             restored,
+            load_origin,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Stage5cRuntimeStateLoadOrigin {
+    CleanStart,
+    Persisted {
+        semantic_payload_fingerprint: String,
+        persisted_ts: DateTime<Utc>,
+        recovery_index_fingerprint: String,
+    },
 }
 
 #[cfg(test)]
@@ -475,6 +495,7 @@ pub struct Stage5cRuntimeStateLoadedPaperStrategy {
     strategy: HybridIntradayRuntimeStrategy,
     admission: Stage5cPaperHostAdmission,
     restored: RuntimeStateRestored,
+    load_origin: Stage5cRuntimeStateLoadOrigin,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2930,6 +2951,7 @@ pub fn prepare_stage5c_without_runtime_state(
             known_order_ids: Vec::new(),
             pending_requests: Vec::new(),
         },
+        load_origin: Stage5cRuntimeStateLoadOrigin::CleanStart,
     }
 }
 
@@ -2956,6 +2978,7 @@ pub(crate) fn notify_stage5c_bootstrap_at(
         mut strategy,
         admission,
         restored,
+        load_origin: _,
     } = loaded;
     validate_stage5cb_notification(&strategy, &admission, notification_now)?;
     let snapshot = admission.bootstrap_snapshot();
@@ -3150,6 +3173,12 @@ fn restore_stage5c_runtime_state_at(
         return Err(Stage5cRuntimeStateRestoreError::BrokerTruthSideMismatch);
     }
 
+    let semantic_payload_fingerprint = stage5c_semantic_payload_fingerprint(&restored_state)
+        .map_err(|_| Stage5cRuntimeStateRestoreError::InvalidStateJson)?;
+    let recovery_index_fingerprint =
+        stage5c_recovery_index_fingerprint(&input.known_order_ids, &input.pending_requests)
+            .map_err(|_| Stage5cRuntimeStateRestoreError::InvalidStateJson)?;
+    let persisted_ts = input.persisted_ts;
     Strategy::set_state(&mut strategy, restored_state);
     Ok(Stage5cRuntimeStateLoadedPaperStrategy {
         strategy,
@@ -3158,7 +3187,88 @@ fn restore_stage5c_runtime_state_at(
             known_order_ids: input.known_order_ids,
             pending_requests: input.pending_requests,
         },
+        load_origin: Stage5cRuntimeStateLoadOrigin::Persisted {
+            semantic_payload_fingerprint,
+            persisted_ts,
+            recovery_index_fingerprint,
+        },
     })
+}
+
+pub(crate) fn stage5c_semantic_payload_fingerprint(
+    state: &StrategyState,
+) -> Result<String, serde_json::Error> {
+    let value = serde_json::to_value(state)?;
+    let value = stage5c_persisted_owned_semantic_projection(value);
+    let payload = serde_json::to_vec(&value)?;
+    Ok(format!(
+        "stage5c_semantic_sha256:{:x}",
+        Sha256::digest(payload)
+    ))
+}
+
+pub(crate) fn stage5c_semantic_value_fingerprint(
+    value: &serde_json::Value,
+) -> Result<String, serde_json::Error> {
+    let value = stage5c_persisted_owned_semantic_projection(value.clone());
+    let payload = serde_json::to_vec(&value)?;
+    Ok(format!(
+        "stage5c_semantic_sha256:{:x}",
+        Sha256::digest(payload)
+    ))
+}
+
+fn stage5c_persisted_owned_semantic_projection(mut value: serde_json::Value) -> serde_json::Value {
+    if let Some(fields) = value
+        .get_mut("HybridIntradayRuntime")
+        .and_then(|state| state.as_object_mut())
+    {
+        for recomputable in [
+            "entry_ready",
+            "last_bar_close",
+            "prev_day_close",
+            "last_day_local",
+            "current_day_high",
+            "current_day_low",
+            "current_day_close",
+            "prev_day_range",
+            "prev_day_return",
+            "day_before_close",
+            "today_start_local",
+            "risk_gate_mr_enabled_current_session",
+            "risk_gate_rolling_sum_lb120",
+            "risk_gate_last_finalized_session_date",
+            "risk_gate_ledger_rows_count",
+        ] {
+            fields.remove(recomputable);
+        }
+    }
+    value
+}
+
+pub(crate) fn stage5c_recovery_index_fingerprint(
+    known_order_ids: &[BrokerOrderId],
+    pending_requests: &[StrategyRequestId],
+) -> Result<String, serde_json::Error> {
+    let mut known_order_ids: Vec<_> = known_order_ids
+        .iter()
+        .map(|id| id.as_str().to_string())
+        .collect();
+    known_order_ids.sort();
+    let mut pending_requests: Vec<_> = pending_requests
+        .iter()
+        .map(|request| request.0.to_string())
+        .collect();
+    pending_requests.sort();
+    let payload = serde_json::json!({
+        "known_order_ids": known_order_ids,
+        "pending_requests": pending_requests,
+    });
+    let payload = serde_json::to_vec(&payload)?;
+    Ok(format!(
+        "stage5c_recovery_sha256:{:x}",
+        Sha256::digest(payload)
+    ))
 }
 
 pub fn notify_stage5c_runtime_state_restored(

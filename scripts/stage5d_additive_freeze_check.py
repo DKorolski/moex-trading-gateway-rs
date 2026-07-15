@@ -593,6 +593,11 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
         failures.append("negative_cases mismatch")
     if manifest.get("stage5d_public_symbols") != EXPECTED_STAGE5D_PUBLIC_SYMBOLS:
         failures.append("Stage5d public symbol contract mismatch")
+    approved_private_layout_extensions = {
+        extension.get("path"): extension
+        for extension in manifest.get("stage5c_private_layout_extensions", [])
+        if isinstance(extension, dict)
+    }
     if manifest.get("stage5c_compatibility_checker") != EXPECTED_STAGE5C_COMPATIBILITY_CHECKER:
         failures.append("Stage 5C compatibility checker manifest entry mismatch")
     if manifest.get("historical_stage5c_checker") != EXPECTED_HISTORICAL_STAGE5C_CHECKER:
@@ -648,7 +653,14 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
         if record.get("stripped_without_additive_regions_sha256") != stripped_hash:
             failures.append(f"{rel}: stripped hash mismatch actual={stripped_hash}")
         if stripped_hash != closure_hashes.get(rel):
-            failures.append(f"{rel}: frozen region does not match Stage 5C closure source")
+            extension = approved_private_layout_extensions.get(rel)
+            if (
+                extension is None
+                or extension.get("stripped_without_additive_regions_sha256") != stripped_hash
+                or extension.get("public_api_unchanged") is not True
+                or not extension.get("reason")
+            ):
+                failures.append(f"{rel}: frozen region does not match Stage 5C closure source")
 
     validate_no_legacy_identifiers_in_additive_regions(root, APPROVED_BRIDGE_FILES, failures)
 
