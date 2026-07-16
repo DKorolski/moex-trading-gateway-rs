@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-b2b-b",
+  "stage": "5D-b2b-c",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -28,7 +28,7 @@
   "approved_bridge_files": {
     "crates/strategy-runtime-core/src/lib.rs": {
       "closure_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
-      "current_sha256": "03ad3c96f7d0a5a56622a979410af878e45d0aadc16d3160df638ea692f59067",
+      "current_sha256": "d104b00c2c4a589065b19f3a47c14c3c0b36a7ad835709dae834933f902ed6e2",
       "stripped_without_additive_regions_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
       "additive_regions": [
         "lib-stage5d-module",
@@ -37,7 +37,7 @@
     },
     "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": {
       "closure_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
-      "current_sha256": "55d1476f696e1d8065fd8506dbbe92c4dde23c3d3be7f89171b13639518940fb",
+      "current_sha256": "ce7ede847b2c188384c04394fcfe05d65abdd11ae1d72383d6fa9136c9a74fb7",
       "stripped_without_additive_regions_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
       "additive_regions": [
         "runtime-private-snapshot"
@@ -45,7 +45,7 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "3f68387c36c23f72c4efcb59eb7076c0d4a1eeafa046550e7d5b791c9b0b7168",
+      "current_sha256": "9ed7d73815809cecaac21fe0aa8933abbdbb20e9c6dc2ffe195143c67e23e4ba",
       "stripped_without_additive_regions_sha256": "0ea1a8982965eb34cc113d41c821b22a3ab2c2e2f5a80112ce2561b48fc4ed3c",
       "additive_regions": [
         "type-state-transitions"
@@ -62,7 +62,7 @@
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "eea91a1c627921e5f186eee97a4a9ff92ccf4674595a9765b0409622c858d5d7"
+    "current_sha256": "76ed11adaa04e7b544aae70cd770211df4ff463e3d792cebbe10e05f824a743d"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -100,8 +100,12 @@
     "Stage5dRiskGateInjectedPaperStrategy",
     "Stage5dRiskGateInjectionBlockReason",
     "Stage5dRiskGateInjectionBlocked",
+    "Stage5dRiskGateLedgerEvidence",
+    "Stage5dRiskGateLedgerRecord",
     "Stage5dRiskGateMaterializedState",
     "Stage5dRiskGatePersistence",
+    "Stage5dRiskGateRowSource",
+    "Stage5dRiskGateRowStatus",
     "Stage5dRuntimePendingRiskGateFinalization",
     "Stage5dRuntimePrivateApplyBlocked",
     "Stage5dRuntimePrivateExtension",
@@ -114,13 +118,16 @@
     "Stage5dTimestampPolicy",
     "Stage5dTimestampUnits",
     "Stage5dValidatedPersistenceEnvelope",
+    "Stage5dValidatedRiskGateLedgerEvidence",
     "Stage5dValidatedRuntimePrivateExtension",
     "stage5d_apply_runtime_private_extension",
     "stage5d_bind_runtime_state_loaded",
     "stage5d_inject_authoritative_riskgate",
     "stage5d_notify_broker_truth_bootstrap",
+    "stage5d_retry_authoritative_riskgate_injection",
     "stage5d_retry_bind_runtime_state_loaded",
-    "stage5d_retry_broker_truth_bootstrap"
+    "stage5d_retry_broker_truth_bootstrap",
+    "stage5d_validate_riskgate_ledger_evidence"
   ],
   "closed_surfaces": {
     "redis": false,
@@ -214,8 +221,12 @@
       "Stage5dRiskGateInjectedPaperStrategy",
       "Stage5dRiskGateInjectionBlockReason",
       "Stage5dRiskGateInjectionBlocked",
+      "Stage5dRiskGateLedgerEvidence",
+      "Stage5dRiskGateLedgerRecord",
       "Stage5dRiskGateMaterializedState",
       "Stage5dRiskGatePersistence",
+      "Stage5dRiskGateRowSource",
+      "Stage5dRiskGateRowStatus",
       "Stage5dRuntimePendingRiskGateFinalization",
       "Stage5dRuntimePrivateApplyBlocked",
       "Stage5dRuntimePrivateExtension",
@@ -228,13 +239,16 @@
       "Stage5dTimestampPolicy",
       "Stage5dTimestampUnits",
       "Stage5dValidatedPersistenceEnvelope",
+      "Stage5dValidatedRiskGateLedgerEvidence",
       "Stage5dValidatedRuntimePrivateExtension",
       "stage5d_apply_runtime_private_extension",
       "stage5d_bind_runtime_state_loaded",
       "stage5d_inject_authoritative_riskgate",
       "stage5d_notify_broker_truth_bootstrap",
+      "stage5d_retry_authoritative_riskgate_injection",
       "stage5d_retry_bind_runtime_state_loaded",
-      "stage5d_retry_broker_truth_bootstrap"
+      "stage5d_retry_broker_truth_bootstrap",
+      "stage5d_validate_riskgate_ledger_evidence"
     ],
     "public_constants": [
       {
@@ -274,11 +288,15 @@
       },
       {
         "name": "stage5d_inject_authoritative_riskgate",
-        "signature": "pub fn stage5d_inject_authoritative_riskgate( bootstrapped: Stage5dBootstrappedPaperStrategy, ) -> Result<Stage5dRiskGateInjectedPaperStrategy, Stage5dRiskGateInjectionBlocked>"
+        "signature": "pub fn stage5d_inject_authoritative_riskgate( bootstrapped: Stage5dBootstrappedPaperStrategy, validated_evidence: Stage5dValidatedRiskGateLedgerEvidence, ) -> Result<Stage5dRiskGateInjectedPaperStrategy, Stage5dRiskGateInjectionBlocked>"
       },
       {
         "name": "stage5d_notify_broker_truth_bootstrap",
         "signature": "pub fn stage5d_notify_broker_truth_bootstrap( applied: Stage5dPrivateStateAppliedPaperStrategy, ) -> Result<Stage5dBootstrappedPaperStrategy, Stage5dBootstrapBlocked>"
+      },
+      {
+        "name": "stage5d_retry_authoritative_riskgate_injection",
+        "signature": "pub fn stage5d_retry_authoritative_riskgate_injection( blocked: Stage5dRiskGateInjectionBlocked, fresh_evidence: Stage5dValidatedRiskGateLedgerEvidence, ) -> Result<Stage5dRiskGateInjectedPaperStrategy, Stage5dRiskGateInjectionBlocked>"
       },
       {
         "name": "stage5d_retry_bind_runtime_state_loaded",
@@ -287,6 +305,10 @@
       {
         "name": "stage5d_retry_broker_truth_bootstrap",
         "signature": "pub fn stage5d_retry_broker_truth_bootstrap( blocked: Stage5dBootstrapBlocked, fresh_admission: crate::stage5c_paper_host::Stage5cPaperHostAdmission, ) -> Result<Stage5dBootstrappedPaperStrategy, Stage5dBootstrapBlocked>"
+      },
+      {
+        "name": "stage5d_validate_riskgate_ledger_evidence",
+        "signature": "pub fn stage5d_validate_riskgate_ledger_evidence( evidence: Stage5dRiskGateLedgerEvidence, ) -> Result<Stage5dValidatedRiskGateLedgerEvidence, Stage5dRiskGateInjectionBlockReason>"
       }
     ],
     "public_types": [
@@ -1063,10 +1085,17 @@
         "public_fields": [],
         "public_variants": [
           "BindingMismatch",
+          "RiskGateNotApplicable",
+          "LedgerEvidenceInvalid",
+          "LedgerTailMismatch",
+          "LedgerIdentityMismatch",
           "MaterializedStateMismatch",
           "MaterializedStateInvalid",
           "RuntimePendingFinalizationMissingFromOutbox",
-          "DuplicateOutboxSession"
+          "OutboxStateInconsistent",
+          "OutboxIdentityMismatch",
+          "DuplicateOutboxSession",
+          "DuplicateOutboxIdentity"
         ]
       },
       {
@@ -1077,21 +1106,109 @@
         "public_variants": []
       },
       {
-        "name": "Stage5dRiskGateMaterializedState",
+        "name": "Stage5dRiskGateLedgerEvidence",
         "kind": "struct",
         "opaque": false,
         "public_fields": [
           {
-            "name": "mr_enabled_current_session",
+            "name": "schema_version",
+            "type": "u16"
+          },
+          {
+            "name": "identity",
+            "type": "Stage5dRiskGateIdentity"
+          },
+          {
+            "name": "ledger_tail_hash",
+            "type": "String"
+          },
+          {
+            "name": "ledger_records",
+            "type": "Vec<Stage5dRiskGateLedgerRecord>"
+          },
+          {
+            "name": "seed_loaded",
             "type": "bool"
+          },
+          {
+            "name": "current_shadow_session_date",
+            "type": "Option<String>"
+          },
+          {
+            "name": "current_shadow_pnl_points",
+            "type": "String"
+          },
+          {
+            "name": "current_generation",
+            "type": "String"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dRiskGateLedgerRecord",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "session_date",
+            "type": "String"
+          },
+          {
+            "name": "shadow_pnl_points",
+            "type": "String"
+          },
+          {
+            "name": "shadow_trade_count",
+            "type": "u32"
+          },
+          {
+            "name": "rolling_sum_before_session",
+            "type": "String"
+          },
+          {
+            "name": "mr_enabled_for_session",
+            "type": "bool"
+          },
+          {
+            "name": "source",
+            "type": "Stage5dRiskGateRowSource"
+          },
+          {
+            "name": "status",
+            "type": "Stage5dRiskGateRowStatus"
+          },
+          {
+            "name": "rolling_sum_lb120",
+            "type": "String"
           },
           {
             "name": "mr_enabled_next_session",
             "type": "bool"
           },
           {
+            "name": "finalized_at_utc",
+            "type": "i64"
+          }
+        ],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dRiskGateMaterializedState",
+        "kind": "struct",
+        "opaque": false,
+        "public_fields": [
+          {
+            "name": "mr_enabled_current_session",
+            "type": "Option<bool>"
+          },
+          {
+            "name": "mr_enabled_next_session",
+            "type": "Option<bool>"
+          },
+          {
             "name": "rolling_sum_lb120",
-            "type": "String"
+            "type": "Option<String>"
           },
           {
             "name": "last_finalized_session_date",
@@ -1100,6 +1217,22 @@
           {
             "name": "ledger_rows_count",
             "type": "u64"
+          },
+          {
+            "name": "seed_loaded",
+            "type": "bool"
+          },
+          {
+            "name": "current_shadow_session_date",
+            "type": "Option<String>"
+          },
+          {
+            "name": "current_shadow_pnl_points",
+            "type": "String"
+          },
+          {
+            "name": "current_generation",
+            "type": "String"
           }
         ],
         "public_variants": []
@@ -1131,6 +1264,26 @@
           }
         ],
         "public_variants": []
+      },
+      {
+        "name": "Stage5dRiskGateRowSource",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "Seed",
+          "Runtime"
+        ]
+      },
+      {
+        "name": "Stage5dRiskGateRowStatus",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "Complete",
+          "Incomplete"
+        ]
       },
       {
         "name": "Stage5dRuntimePendingRiskGateFinalization",
@@ -1350,6 +1503,13 @@
         "public_variants": []
       },
       {
+        "name": "Stage5dValidatedRiskGateLedgerEvidence",
+        "kind": "struct",
+        "opaque": true,
+        "public_fields": [],
+        "public_variants": []
+      },
+      {
         "name": "Stage5dValidatedRuntimePrivateExtension",
         "kind": "struct",
         "opaque": true,
@@ -1527,6 +1687,16 @@
         "type": "Stage5dValidatedPersistenceEnvelope",
         "name": "snapshot_id",
         "signature": "pub fn snapshot_id(&self) -> &str"
+      },
+      {
+        "type": "Stage5dValidatedRiskGateLedgerEvidence",
+        "name": "ledger_records_count",
+        "signature": "pub fn ledger_records_count(&self) -> usize"
+      },
+      {
+        "type": "Stage5dValidatedRiskGateLedgerEvidence",
+        "name": "ledger_tail_hash",
+        "signature": "pub fn ledger_tail_hash(&self) -> &str"
       }
     ],
     "opaque_capabilities": [
@@ -1540,6 +1710,7 @@
       "Stage5dRiskGateInjectionBlocked",
       "Stage5dRuntimePrivateApplyBlocked",
       "Stage5dValidatedPersistenceEnvelope",
+      "Stage5dValidatedRiskGateLedgerEvidence",
       "Stage5dValidatedRuntimePrivateExtension"
     ],
     "externally_constructible_enums": [
@@ -1552,33 +1723,35 @@
       "Stage5dRestoreBlockReason",
       "Stage5dRiskGateFinalizationState",
       "Stage5dRiskGateInjectionBlockReason",
+      "Stage5dRiskGateRowSource",
+      "Stage5dRiskGateRowStatus",
       "Stage5dSemanticStrategyStateV1",
       "Stage5dSide",
       "Stage5dStrategyKind",
       "Stage5dStructuredTimestampFormat",
       "Stage5dTimestampUnits"
     ],
-    "normalized_signature_hash": "65bf2726722c1bd2885daf03b88dba6f206cf413f69f2448fcb10f496807f167",
+    "normalized_signature_hash": "8b620a650e451594f061fd4ac4ea9ff74ddaa1b4df5ac63b7be130058a39a219",
     "public_surface_counts": {
-      "public_reexports": 56,
+      "public_reexports": 63,
       "public_constants": 5,
-      "public_free_functions": 6,
-      "public_types": 45,
-      "public_methods": 34,
-      "opaque_capabilities": 11,
-      "externally_constructible_enums": 14
+      "public_free_functions": 8,
+      "public_types": 50,
+      "public_methods": 36,
+      "opaque_capabilities": 12,
+      "externally_constructible_enums": 16
     }
   },
   "stage5d_public_api_summary": {
-    "normalized_signature_hash": "65bf2726722c1bd2885daf03b88dba6f206cf413f69f2448fcb10f496807f167",
+    "normalized_signature_hash": "8b620a650e451594f061fd4ac4ea9ff74ddaa1b4df5ac63b7be130058a39a219",
     "public_surface_counts": {
-      "public_reexports": 56,
+      "public_reexports": 63,
       "public_constants": 5,
-      "public_free_functions": 6,
-      "public_types": 45,
-      "public_methods": 34,
-      "opaque_capabilities": 11,
-      "externally_constructible_enums": 14
+      "public_free_functions": 8,
+      "public_types": 50,
+      "public_methods": 36,
+      "opaque_capabilities": 12,
+      "externally_constructible_enums": 16
     }
   }
 }

@@ -90,6 +90,12 @@ impl Stage5cRuntimeStateLoadedPaperStrategy {
     }
 }
 
+impl Stage5cBootstrappedPaperStrategy {
+    pub(crate) fn stage5d_strategy(&self) -> &HybridIntradayRuntimeStrategy {
+        &self.strategy
+    }
+}
+
 pub(crate) fn stage5d_bootstrap_preserving_loaded_at(
     loaded: Stage5cRuntimeStateLoadedPaperStrategy,
     notification_now: DateTime<Utc>,
@@ -283,8 +289,7 @@ mod stage5d_pair_binding_restore_tests {
         let profile_binding = format!("{profile}|{mr_variant}|{mr_gate_policy}|{risk_gate_mode}");
         let canonical = strategy.stage5d_canonical_config_fingerprint();
         envelope.binding.stage5c_compat_config_fingerprint = strategy.stage5c_config_fingerprint();
-        envelope.binding.profile_binding = profile_binding.clone();
-        envelope.riskgate.identity.profile_id = profile_binding;
+        envelope.binding.profile_binding = profile_binding;
         envelope.binding.stage5d_canonical_config_fingerprint = canonical.clone();
         envelope.canonical_config_fingerprint = canonical;
         envelope.payload_checksum_sha256 = envelope

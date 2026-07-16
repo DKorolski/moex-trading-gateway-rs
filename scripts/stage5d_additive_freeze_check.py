@@ -32,7 +32,7 @@ STAGE5D_REL = Path("crates/strategy-runtime-core/src/stage5d_persistence.rs")
 STAGE5D_BOOTSTRAP_BRIDGE_IDENTIFIER = "stage5d_bootstrap_preserving_loaded_at"
 STAGE5D_BOOTSTRAP_BRIDGE_ALLOWED_CALL_FUNCTION = "stage5d_notify_broker_truth_bootstrap_at"
 STAGE5D_RISKGATE_BRIDGE_IDENTIFIER = "stage5d_inject_authoritative_riskgate_state"
-STAGE5D_RISKGATE_BRIDGE_ALLOWED_CALL_FUNCTION = "stage5d_inject_authoritative_riskgate"
+STAGE5D_RISKGATE_BRIDGE_ALLOWED_CALL_FUNCTION = "stage5d_inject_authoritative_riskgate_with_evidence"
 
 EXPECTED_MANIFEST_CHECKER = "scripts/stage5d_additive_freeze_check.py"
 EXPECTED_NEGATIVE_HARNESS = "scripts/stage5d_additive_freeze_negative_harness.py"
@@ -165,8 +165,12 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "Stage5dRiskGateInjectedPaperStrategy",
     "Stage5dRiskGateInjectionBlockReason",
     "Stage5dRiskGateInjectionBlocked",
+    "Stage5dRiskGateLedgerEvidence",
+    "Stage5dRiskGateLedgerRecord",
     "Stage5dRiskGateMaterializedState",
     "Stage5dRiskGatePersistence",
+    "Stage5dRiskGateRowSource",
+    "Stage5dRiskGateRowStatus",
     "Stage5dRuntimePendingRiskGateFinalization",
     "Stage5dRuntimePrivateApplyBlocked",
     "Stage5dRuntimePrivateExtension",
@@ -179,13 +183,16 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "Stage5dTimestampPolicy",
     "Stage5dTimestampUnits",
     "Stage5dValidatedPersistenceEnvelope",
+    "Stage5dValidatedRiskGateLedgerEvidence",
     "Stage5dValidatedRuntimePrivateExtension",
     "stage5d_apply_runtime_private_extension",
     "stage5d_bind_runtime_state_loaded",
     "stage5d_inject_authoritative_riskgate",
     "stage5d_notify_broker_truth_bootstrap",
+    "stage5d_retry_authoritative_riskgate_injection",
     "stage5d_retry_bind_runtime_state_loaded",
     "stage5d_retry_broker_truth_bootstrap",
+    "stage5d_validate_riskgate_ledger_evidence",
 ]
 
 FORBIDDEN_STAGE5D_PUBLIC_PATTERNS = [
@@ -686,8 +693,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2b-b":
-        failures.append("stage must be 5D-b2b-b")
+    if manifest.get("stage") != "5D-b2b-c":
+        failures.append("stage must be 5D-b2b-c")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:

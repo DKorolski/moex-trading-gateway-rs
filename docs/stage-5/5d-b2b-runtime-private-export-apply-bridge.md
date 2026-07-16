@@ -6,8 +6,9 @@ Stage 5D-b2a closed the strict persistence schema and validated-envelope
 capability. Stage 5D-b2b-a opened the first controlled implementation slice:
 runtime-private extension export/apply. Stage 5D-b2b-b adds the next controlled
 type-state transition: broker-truth bootstrap notification after private apply.
-Stage 5D-b2b-c adds authoritative riskgate projection injection after
-broker-truth bootstrap and before the runtime-state-restored callback.
+Stage 5D-b2b-c adds authoritative riskgate ledger evidence validation and
+riskgate projection injection after broker-truth bootstrap and before the
+runtime-state-restored callback.
 Redis, FINAM, broker transport, command dispatch, runtime-live and real order
 execution remain closed.
 
@@ -41,6 +42,9 @@ Implemented:
   `Stage5cPaperHostAdmission`; it replaces only authoritative broker-truth
   admission and does not expose or re-run runtime-private apply;
 - public `stage5d_inject_authoritative_riskgate(...)` transition;
+- public `stage5d_validate_riskgate_ledger_evidence(...)` transition;
+- public `stage5d_retry_authoritative_riskgate_injection(...)` transition;
+- riskgate injection requires opaque `Stage5dValidatedRiskGateLedgerEvidence`;
 - riskgate injection input requires the opaque
   `Stage5dBootstrappedPaperStrategy` produced by the controlled bootstrap
   transition;
@@ -49,10 +53,19 @@ Implemented:
 - riskgate injection block is represented by opaque
   `Stage5dRiskGateInjectionBlocked`, exposes only redacted reason/snapshot id,
   and preserves the input bootstrapped capability internally;
-- persisted riskgate materialized projection is cross-checked against the
+- authoritative ledger evidence contains normalized source-compatible ledger
+  records, full `RiskGateProfileIdentity`, ledger tail hash, seed/current-shadow
+  metadata and current generation;
+- materialized projection is rebuilt from ledger evidence through the source
+  riskgate rebuild function, then cross-checked against persisted cache and
   semantic runtime snapshot before callback;
-- runtime pending riskgate finalizations must be represented by durable outbox
-  sessions before the riskgate callback is allowed;
+- all riskgate identity fields are checked against runtime config:
+  strategy/profile/mr-variant/timeframe/session-policy/model-version;
+- disabled/non-applicable riskgate runtime profiles fail closed instead of
+  returning `riskgate_injected=true` after a source callback no-op;
+- runtime pending riskgate finalizations are checked against a durable outbox
+  state machine: generation, canonical identity hash, state, ledger-row
+  presence and payload binding;
 - actual riskgate callback is delegated through one checker-pinned crate-private
   Stage 5C bridge;
 - wrapper additive region now exports/applies runtime-private DTO fields:
@@ -63,6 +76,8 @@ Implemented:
 Not implemented in this slice:
 
 - final return to `Stage5cRuntimeStateRestoredPaperStrategy`;
+- Redis-backed live ledger reads; Stage 5D-b2b-c uses deterministic in-process
+  ledger evidence only;
 - broker working-set authority restoration beyond fail-closed hint checking;
 - active-order ownership mapping;
 - stop-order broker-truth surface;
@@ -195,6 +210,17 @@ Regression tests prove:
   bootstrapped capability;
 - runtime pending riskgate finalizations missing from durable outbox block
   before callback and preserve the bootstrapped capability.
+- full riskgate identity mismatches block: mr variant, timeframe, session
+  policy and model version;
+- disabled-profile callback no-op is rejected with explicit not-applicable
+  reason;
+- ledger tail hash drift is rejected before injection;
+- materialized state is rebuilt from source-compatible ledger records;
+- outbox crash-consistency rejects acknowledged runtime-pending records,
+  ledger-appended records without matching ledger rows, zero generations and
+  identity-hash mismatches;
+- blocked riskgate injection can retry with fresh validated ledger evidence
+  without repeating private apply or broker bootstrap.
 
 The Stage 5D checker also pins the crate-private bootstrap and riskgate bridge
 call-site contracts:
@@ -206,7 +232,7 @@ call-site contracts:
 - `stage5d_inject_authoritative_riskgate_state` may be defined exactly once in
   the Stage 5C additive region;
 - production use is exactly one call inside
-  `stage5d_inject_authoritative_riskgate`;
+  `stage5d_inject_authoritative_riskgate_with_evidence`;
 - direct calls, aliases, forwarding wrappers, function references and extra
   Stage 5D calls are rejected by the negative harness.
 

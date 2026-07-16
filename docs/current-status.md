@@ -179,11 +179,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   Recoverable bootstrap blocks can now retry only through
   `stage5d_retry_broker_truth_bootstrap(...)` with a fresh matching Stage 5C
   admission; cross-binding refresh attempts preserve the blocked capability and
-  fail closed. Stage 5D-b2b-c adds authoritative riskgate projection injection
-  through `stage5d_inject_authoritative_riskgate(...)` after broker-truth
-  bootstrap and before runtime-state-restored; it blocks semantic/materialized
-  riskgate drift and runtime pending finalizations that are absent from the
-  durable outbox. The Stage 5D checker pins both crate-private bootstrap and
+  fail closed. Stage 5D-b2b-c adds validated authoritative riskgate ledger
+  evidence plus riskgate projection injection through
+  `stage5d_inject_authoritative_riskgate(...)` after broker-truth bootstrap and
+  before runtime-state-restored. It rebuilds materialized state from
+  source-compatible normalized ledger records, checks all
+  `RiskGateProfileIdentity` fields against runtime config, blocks disabled
+  riskgate-profile callback no-ops, validates ledger-tail hash, enforces
+  durable outbox crash-consistency/idempotency identity, and supports controlled
+  retry with fresh validated ledger evidence without repeating private apply or
+  broker bootstrap. The Stage 5D checker pins both crate-private bootstrap and
   riskgate bridges to one definition and one production call-site, with negative
   cases for direct calls, aliases, forwarding wrappers, function references and
   extra Stage 5D calls.

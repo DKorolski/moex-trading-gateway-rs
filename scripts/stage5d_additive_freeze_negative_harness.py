@@ -497,7 +497,7 @@ def mutate_riskgate_bridge_second_stage5d_call(root: Path) -> None:
     rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
     insert_before(
         root / rel,
-        "fn stage5d_authoritative_riskgate_state_from_envelope(",
+        "fn stage5d_authoritative_riskgate_state_from_evidence(",
         "#[allow(dead_code)]\nfn stage5d_negative_second_riskgate_bridge_call(bootstrapped: crate::stage5c_paper_host::Stage5cBootstrappedPaperStrategy, riskgate: RiskGateRuntimeState) {\n"
         "    let _ = crate::stage5c_paper_host::stage5d_inject_authoritative_riskgate_state(bootstrapped, riskgate);\n"
         "}\n\n",

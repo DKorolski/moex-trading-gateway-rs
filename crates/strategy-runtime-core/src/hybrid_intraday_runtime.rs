@@ -625,6 +625,33 @@ impl HybridIntradayRuntimeStrategy {
         }
         Ok(())
     }
+
+    pub(crate) fn stage5d_riskgate_applicable(&self) -> bool {
+        self.risk_gate_shadow_enabled()
+    }
+
+    pub(crate) fn stage5d_expected_riskgate_identity(
+        &self,
+        strategy_id: impl Into<String>,
+    ) -> crate::hybrid_intraday::RiskGateProfileIdentity {
+        let profile_id = match self.config.profile {
+            HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120 => {
+                "imoexf_primary_high180_lb120".to_string()
+            }
+            HybridIntradayProfile::BaselineRuntimeHybrid => {
+                stage5d_profile_name(self.config.profile).to_string()
+            }
+        };
+        crate::hybrid_intraday::RiskGateProfileIdentity {
+            strategy_id: strategy_id.into(),
+            profile_id,
+            mr_variant: stage5d_mr_variant_name(self.config.mr_variant).to_string(),
+            timeframe: "10m".to_string(),
+            session_policy: "moex_forts_main_evening".to_string(),
+            model_version: crate::stage5d_persistence::STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID
+                .to_string(),
+        }
+    }
 }
 
 // STAGE5D-ADDITIVE-BRIDGE-END: runtime-private-snapshot
