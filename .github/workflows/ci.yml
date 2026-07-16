@@ -24,7 +24,7 @@ jobs:
 
       - name: Forbidden surface negative harness
         run: bash scripts/forbidden_surface_negative_harness.sh
-        timeout-minutes: 15
+        timeout-minutes: 30
 
       - name: Stage 5D additive freeze negative harness
         run: python3 scripts/stage5d_additive_freeze_negative_harness.py

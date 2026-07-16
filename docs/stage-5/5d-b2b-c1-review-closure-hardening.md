@@ -1,12 +1,55 @@
-# Stage 5D-b2b-c1/c1-r3 — review closure hardening
+# Stage 5D-b2b-c1/c1-r4 — review closure hardening
 
-Status: c1-r3 review candidate, 2026-07-16. This section supersedes the c1
+Status: c1-r4 review candidate, 2026-07-16. This section supersedes the c1
 crash-window and forbidden-harness claims below without rewriting their review
 history.
 
-This patch closes the six Stage 5D-b2b-c engineering-review findings without
-calling the final runtime-state-restored transition or opening Redis, FINAM,
-transport, dispatch, runtime-live or broker execution.
+This patch closes the remaining c1-r3 review findings without calling the final
+runtime-state-restored transition or opening Redis, FINAM, transport, dispatch,
+runtime-live or broker execution.
+
+## Stage 5D-b2b-c1-r4 superseding closure
+
+c1-r4 keeps the c1/c1-r2/c1-r3 design intact and closes the remaining
+authority/recovery gaps:
+
+| Review finding | Fix | Positive proof | Negative proof |
+|---|---|---|---|
+| Signed zero was ambiguous under `f64 ==` | Stage 5D riskgate authority accepts canonical zero only as `+0.0` serialized `0.0`; sign-negative zero is rejected before capability construction | Canonical decimal matrix includes `0.0`, `2.0`, `-0.5`, `0.5`, `0.5000000000000001`, `158.60000000000008` | `-0.0`, `-0`, empty, plus/exponent/leading-zero/trailing-point/NaN/infinity forms fail; ledger, evidence, materialized, pending and semantic negative-zero paths fail closed |
+| Current-shadow copies could agree on a source-impossible tuple | Add crate-private source-valid current-shadow validator after equality checks | Clean `None / 0.0 / 0 / no open tuple` and valid regular source sessions after finalized/pending sessions pass | `None` with PnL/trade/open tuple, weekend sessions, sessions equal/earlier than finalized or pending finalization fail |
+| Single-row recovery proof did not cover ordered multi-row frontiers | Add pure no-I/O ordered frontier simulator using production validation/injection after every simulated durable transition | Two-row `Acknowledged + Prepared` and `MaterializedUpdated + LedgerAppended` frontiers reach `recovery_complete` | Replay cannot duplicate append; pending clears only at runtime ack; runtime/materialized/ledger ordering is monotonic |
+| Forbidden harness advertised unsupported contention | Pin supported worker contract to default/max four workers and raise CI timeout to 30 minutes | Manifest, checker, worker, scanner and CI all agree on r4 contract | Timeout-lowering and scanner/worker contract-drift negative cases remain pinned |
+
+### Signed-zero policy
+
+```text
+canonical zero = +0.0, serialized exactly as "0.0"
+negative zero = invalid at every Stage 5D riskgate authority boundary
+```
+
+The source semantic oracle is not rewritten in this closure. Stage 5D rejects
+sign-negative zero as a validation rule before it can become durable authority.
+
+### Current-shadow source-validity policy
+
+```text
+session None
+  -> pnl is canonical +0.0
+  -> trade_count == 0
+  -> shadow open tuple absent
+
+session Some
+  -> regular source session
+  -> strictly after last finalized ledger session
+  -> strictly after every pending finalization session
+
+nonzero pnl OR trade_count > 0 OR shadow open tuple present
+  -> session must be Some
+```
+
+`risk_gate_shadow_trade_count` and the open-shadow tuple remain semantic-owned;
+c1-r4 validates their structural consistency with the authoritative session but
+does not reclassify them as ledger-derived.
 
 ## Finding closure matrix
 

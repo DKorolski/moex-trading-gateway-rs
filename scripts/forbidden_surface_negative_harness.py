@@ -230,7 +230,7 @@ def main() -> int:
 
         timeout = max(20, min(180, math.ceil(clean_duration * 8)))
         configured_workers = int(os.environ.get("FORBIDDEN_NEGATIVE_WORKERS", "4"))
-        workers = max(1, min(configured_workers, 8, len(CASES)))
+        workers = max(1, min(configured_workers, 4, len(CASES)))
         (base / "cases").mkdir()
         suite_started = time.monotonic()
         results: list[Run] = []

@@ -44,17 +44,17 @@ EXPECTED_FORBIDDEN_NEGATIVE_HARNESS_CONTRACT = {
     "launcher_path": "scripts/forbidden_surface_negative_harness.sh",
     "launcher_sha256": "1b4e6b494a7831640201924783d1f1bf7ea3deba0fd9051102b24ae7908dfc36",
     "coordinator_path": "scripts/forbidden_surface_negative_harness.py",
-    "coordinator_sha256": "1c2fd307aa7752ca2e8325d36c2cf26e54cbeee9aa801b22030d80568cfb3e93",
+    "coordinator_sha256": "2a1d4913d472439142c8922e070b4e9d8d9b10ebd149e1516451de2ae75ed775",
     "worker_path": "scripts/forbidden_surface_negative_case_worker.sh",
-    "worker_sha256": "2c26235aaa9b070c275a8eec7d032d35933502be44552e95da1d77e45059aed8",
-    "scanner_contract": "stage5d-b2bc1-r3-v1",
+    "worker_sha256": "0cfb8c28055e9b1e7351fa9e68a6473bdde669d2d44957839ede23263cda65ae",
+    "scanner_contract": "stage5d-b2bc1-r4-v1",
     "declared_cases": 81,
     "negative_cases": 80,
     "positive_controls": 1,
     "default_workers": 4,
-    "max_workers": 8,
+    "max_workers": 4,
     "minimum_case_timeout_seconds": 20,
-    "ci_timeout_minutes": 15,
+    "ci_timeout_minutes": 30,
 }
 EXPECTED_STAGE5C_COMPATIBILITY_CHECKER = {
     "path": "scripts/stage5c_api_freeze_check.py",
@@ -713,8 +713,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2b-c1-r3":
-        failures.append("stage must be 5D-b2b-c1-r3")
+    if manifest.get("stage") != "5D-b2b-c1-r4":
+        failures.append("stage must be 5D-b2b-c1-r4")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:

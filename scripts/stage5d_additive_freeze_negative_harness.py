@@ -687,7 +687,7 @@ def main() -> int:
 
         measured_timeout = max(10, min(120, math.ceil(clean_result.duration_seconds * 8)))
         configured_workers = int(os.environ.get("STAGE5D_NEGATIVE_WORKERS", "4"))
-        worker_count = max(1, min(configured_workers, 8, len(CASES)))
+        worker_count = max(1, min(configured_workers, 4, len(CASES)))
         (base / "cases").mkdir()
         results: list[CaseRun] = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:

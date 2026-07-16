@@ -159,15 +159,16 @@ safe-mode/manual-intervention, protective-state and riskgate restart fixtures.
 Current controlled sequence within Stage 5D is:
 
 ```text
-5D-b2b-c1-r3 exact current-shadow/recovery-frontier closure
+5D-b2b-c1-r4 signed-zero/current-shadow/multi-frontier closure
  -> separate acceptance review
 5D-b2b-d controlled runtime-state-restored return
  -> canonical envelope export, round-trip and restart/crash fixture matrix
 ```
 
-c1-r3 is no-I/O and accepts only exact durable outbox-explained projection lag.
-It additionally proves current-shadow overlap and stepwise recovery-frontier
-executability. It does not pre-authorize b2b-d, Redis, FINAM, transport or
+c1-r4 is no-I/O and accepts only exact durable outbox-explained projection lag.
+It additionally proves signed-zero rejection, source-valid current-shadow
+tuples and stepwise multi-row recovery-frontier executability with replay
+checks. It does not pre-authorize b2b-d, Redis, FINAM, transport or
 runtime-live.
 
 ### Stage 5E — Stage 4 lifecycle and event-time attachment
