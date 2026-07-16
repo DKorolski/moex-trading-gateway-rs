@@ -135,9 +135,33 @@ impl Stage5dBootstrappedPaperStrategy {
 
 /// Opaque proof that authoritative riskgate state has been injected before the
 /// runtime-state-restored callback.
+///
+/// A Stage 5D capability cannot bypass the separately reviewed restored-state
+/// transition by calling the Stage 5C callback directly.
+///
+/// ```compile_fail
+/// use strategy_runtime_core::{
+///     stage5d_notify_runtime_state_restored, Stage5dRiskGateInjectedPaperStrategy,
+/// };
+///
+/// let injected: Stage5dRiskGateInjectedPaperStrategy = unreachable!();
+/// let _ = stage5d_notify_runtime_state_restored(injected);
+/// ```
+///
+/// Recovery plans and decisions are crate-private, so downstream callers
+/// cannot construct, forge, or reorder them.
+///
+/// ```compile_fail
+/// use strategy_runtime_core::stage5d_persistence::Stage5dRiskGateRecoveryPlan;
+/// ```
+///
+/// ```compile_fail
+/// use strategy_runtime_core::stage5d_persistence::Stage5dRiskGateRecoveryPlanDecision;
+/// ```
 pub struct Stage5dRiskGateInjectedPaperStrategy {
     bootstrapped: crate::stage5c_paper_host::Stage5cBootstrappedPaperStrategy,
     envelope: Stage5dPersistenceEnvelope,
+    recovery_plan: Stage5dRiskGateRecoveryPlan,
 }
 
 impl Stage5dRiskGateInjectedPaperStrategy {
@@ -162,6 +186,24 @@ impl Stage5dRiskGateInjectedPaperStrategy {
     pub fn riskgate_injected(&self) -> bool {
         let _ = &self.bootstrapped;
         true
+    }
+
+    /// Redacted number of deterministic recovery decisions retained by this
+    /// opaque capability.
+    pub fn recovery_decision_count(&self) -> usize {
+        self.recovery_plan.decisions.len()
+    }
+
+    /// Whether the retained recovery proof contains no unresolved append,
+    /// materialization or runtime acknowledgement work.
+    pub fn recovery_complete(&self) -> bool {
+        self.recovery_plan.recovery_complete
+    }
+
+    /// Redacted fingerprint binding the retained recovery plan to the exact
+    /// envelope, ledger evidence, identity, generation and ordered frontiers.
+    pub fn recovery_plan_fingerprint(&self) -> &str {
+        &self.recovery_plan.plan_fingerprint_sha256
     }
 }
 
@@ -289,6 +331,7 @@ pub enum Stage5dRiskGateInjectionBlockReason {
     OutboxIdentityMismatch,
     DuplicateOutboxSession,
     DuplicateOutboxIdentity,
+    RecoveryPlanBindingMismatch,
 }
 
 /// Public redacted Stage 5D bootstrap blocker categories.
@@ -485,12 +528,12 @@ fn stage5d_inject_authoritative_riskgate_with_evidence(
         envelope,
     } = bootstrapped;
 
-    let riskgate = match stage5d_authoritative_riskgate_state_from_evidence(
+    let (riskgate, recovery_plan) = match stage5d_authoritative_riskgate_state_from_evidence(
         &stage5c_bootstrapped,
         &envelope,
-        &validated_evidence.evidence,
+        &validated_evidence,
     ) {
-        Ok(riskgate) => riskgate,
+        Ok(validated) => validated,
         Err(reason) => {
             return Err(Stage5dRiskGateInjectionBlocked {
                 bootstrapped: Box::new(Stage5dBootstrappedPaperStrategy {
@@ -510,6 +553,7 @@ fn stage5d_inject_authoritative_riskgate_with_evidence(
     Ok(Stage5dRiskGateInjectedPaperStrategy {
         bootstrapped,
         envelope,
+        recovery_plan,
     })
 }
 
@@ -558,8 +602,10 @@ fn stage5d_retry_broker_truth_bootstrap_at(
 fn stage5d_authoritative_riskgate_state_from_evidence(
     bootstrapped: &crate::stage5c_paper_host::Stage5cBootstrappedPaperStrategy,
     envelope: &Stage5dPersistenceEnvelope,
-    evidence: &Stage5dRiskGateLedgerEvidence,
-) -> Result<RiskGateRuntimeState, Stage5dRiskGateInjectionBlockReason> {
+    validated_evidence: &Stage5dValidatedRiskGateLedgerEvidence,
+) -> Result<(RiskGateRuntimeState, Stage5dRiskGateRecoveryPlan), Stage5dRiskGateInjectionBlockReason>
+{
+    let evidence = &validated_evidence.evidence;
     let strategy = bootstrapped.stage5d_strategy();
     if !strategy.stage5d_riskgate_applicable() {
         return Err(Stage5dRiskGateInjectionBlockReason::RiskGateNotApplicable);
@@ -603,26 +649,38 @@ fn stage5d_authoritative_riskgate_state_from_evidence(
     let current_shadow_pnl_points =
         parse_finite_decimal_string(&evidence.current_shadow_pnl_points)
             .map_err(|_| Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid)?;
-    let rebuilt = crate::hybrid_intraday::rebuild_materialized_state_from_ledger_records(
+    stage5d_require_source_canonical_riskgate_decimal(&evidence.current_shadow_pnl_points)?;
+
+    let analysis = stage5d_analyze_riskgate_crash_frontiers(
+        envelope,
+        evidence,
         &source_records,
+        &expected_identity,
         current_shadow_session_date,
         current_shadow_pnl_points,
-        evidence.seed_loaded,
-    )
-    .map_err(|_| Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid)?;
+    )?;
+    stage5d_compare_rebuilt_riskgate_materialized(
+        &envelope.riskgate.materialized_state,
+        &analysis.materialized_projection,
+    )?;
+    stage5d_compare_semantic_riskgate_materialized(&state, &analysis.runtime_projection)?;
 
-    stage5d_compare_rebuilt_riskgate_materialized(&envelope.riskgate.materialized_state, &rebuilt)?;
-    stage5d_compare_semantic_riskgate_materialized(&state, &rebuilt)?;
-    stage5d_validate_riskgate_outbox_state_machine(envelope, evidence, &source_records)?;
+    let recovery_plan =
+        stage5d_build_riskgate_recovery_plan(envelope, validated_evidence, &analysis)?;
+    stage5d_validate_riskgate_recovery_plan_binding(&recovery_plan, envelope, validated_evidence)?;
+    let runtime_projection = &analysis.runtime_projection;
 
-    Ok(RiskGateRuntimeState {
-        profile_id: evidence.identity.profile_id.clone(),
-        last_finalized_session_date: rebuilt.last_finalized_session_date,
-        rolling_sum_lb120: rebuilt.rolling_sum_lb120,
-        mr_enabled_current_session: rebuilt.mr_enabled_current_session,
-        mr_enabled_next_session: rebuilt.mr_enabled_next_session,
-        ledger_rows_count: rebuilt.ledger_rows_count,
-    })
+    Ok((
+        RiskGateRuntimeState {
+            profile_id: evidence.identity.profile_id.clone(),
+            last_finalized_session_date: runtime_projection.last_finalized_session_date,
+            rolling_sum_lb120: runtime_projection.rolling_sum_lb120,
+            mr_enabled_current_session: runtime_projection.mr_enabled_current_session,
+            mr_enabled_next_session: runtime_projection.mr_enabled_next_session,
+            ledger_rows_count: runtime_projection.ledger_rows_count,
+        },
+        recovery_plan,
+    ))
 }
 
 fn stage5d_riskgate_identity_matches_source(
@@ -696,7 +754,14 @@ fn stage5d_validate_source_exact_riskgate_records(
     persisted_at_ts_utc: Option<DateTime<Utc>>,
 ) -> Result<Vec<crate::hybrid_intraday::RiskGateLedgerRecord>, Stage5dRiskGateInjectionBlockReason>
 {
+    stage5d_require_source_canonical_riskgate_decimal(&evidence.current_shadow_pnl_points)?;
     let records = stage5d_source_riskgate_records_from_evidence(evidence)?;
+    let row_seed_loaded = records
+        .iter()
+        .any(|record| record.row.source == crate::hybrid_intraday::RiskGateRowSource::Seed);
+    if evidence.seed_loaded != row_seed_loaded {
+        return Err(Stage5dRiskGateInjectionBlockReason::LedgerRecordDerivedStateMismatch);
+    }
     let mut accepted_rows = Vec::with_capacity(records.len());
     let mut previous_finalized_at_utc = None;
     let mut runtime_rows_started = false;
@@ -788,9 +853,37 @@ fn stage5d_validate_canonical_riskgate_decimal(
     {
         return Err(Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid);
     }
-    parse_finite_decimal_string(value)
-        .map(|_| ())
-        .map_err(|_| Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid)
+    stage5d_require_source_canonical_riskgate_decimal(value)
+}
+
+fn stage5d_require_source_canonical_riskgate_decimal(
+    value: &str,
+) -> Result<(), Stage5dRiskGateInjectionBlockReason> {
+    let parsed = parse_finite_decimal_string(value)
+        .map_err(|_| Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid)?;
+    if stage5d_source_format_riskgate_decimal(parsed) != value {
+        return Err(Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid);
+    }
+    Ok(())
+}
+
+fn stage5d_source_format_riskgate_decimal(value: f64) -> String {
+    let fields = crate::hybrid_intraday::RiskGateMaterializedState {
+        last_finalized_session_date: None,
+        rolling_sum_lb120: None,
+        mr_enabled_current_session: None,
+        mr_enabled_next_session: None,
+        seed_loaded: false,
+        ledger_rows_count: 0,
+        current_shadow_session_date: None,
+        current_shadow_pnl_points: value,
+        current_generation: crate::hybrid_intraday::RISK_GATE_STATE_GENERATION.to_string(),
+    }
+    .redis_fields();
+    fields
+        .into_iter()
+        .find_map(|(key, value)| (key == "current_shadow_pnl_points").then_some(value))
+        .expect("source riskgate formatter must emit current_shadow_pnl_points")
 }
 
 fn stage5d_source_f64_eq(left: f64, right: f64) -> bool {
@@ -801,6 +894,14 @@ fn stage5d_compare_rebuilt_riskgate_materialized(
     persisted: &Stage5dRiskGateMaterializedState,
     rebuilt: &crate::hybrid_intraday::RiskGateMaterializedState,
 ) -> Result<(), Stage5dRiskGateInjectionBlockReason> {
+    if let Some(value) = persisted.rolling_sum_lb120.as_deref() {
+        stage5d_require_source_canonical_riskgate_decimal(value)
+            .map_err(|_| Stage5dRiskGateInjectionBlockReason::MaterializedStateInvalid)?;
+    }
+    if !persisted.current_shadow_pnl_points.is_empty() {
+        stage5d_require_source_canonical_riskgate_decimal(&persisted.current_shadow_pnl_points)
+            .map_err(|_| Stage5dRiskGateInjectionBlockReason::MaterializedStateInvalid)?;
+    }
     let persisted_rolling = persisted
         .rolling_sum_lb120
         .as_deref()
@@ -877,11 +978,69 @@ enum Stage5dRiskGateRecoveryDecision {
     AlreadyAcknowledged,
 }
 
-fn stage5d_validate_riskgate_outbox_state_machine(
+impl Stage5dRiskGateRecoveryDecision {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::AppendMissingLedgerRow => "append_missing_ledger_row",
+            Self::AdvanceToMaterialized => "advance_to_materialized",
+            Self::ReackRuntime => "reack_runtime",
+            Self::AlreadyAcknowledged => "already_acknowledged",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Stage5dRiskGateRecoveryPlanDecision {
+    session_date: NaiveDate,
+    generation: u64,
+    durable_state: Stage5dRiskGateFinalizationState,
+    action: Stage5dRiskGateRecoveryDecision,
+}
+
+#[derive(Debug, Clone)]
+struct Stage5dRiskGateAuthoritativeProjection {
+    external_ledger_records_count: usize,
+    recovery_target_records: Vec<crate::hybrid_intraday::RiskGateLedgerRecord>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Stage5dRiskGateLocalProjectionFrontier {
+    outbox_tail_start: usize,
+    ledger_records_count: usize,
+    materialized_records_count: usize,
+    runtime_records_count: usize,
+}
+
+#[derive(Debug, Clone)]
+struct Stage5dRiskGateCrashFrontierAnalysis {
+    authoritative: Stage5dRiskGateAuthoritativeProjection,
+    local: Stage5dRiskGateLocalProjectionFrontier,
+    decisions: Vec<Stage5dRiskGateRecoveryPlanDecision>,
+    materialized_projection: crate::hybrid_intraday::RiskGateMaterializedState,
+    runtime_projection: crate::hybrid_intraday::RiskGateMaterializedState,
+}
+
+#[derive(Debug, Clone)]
+struct Stage5dRiskGateRecoveryPlan {
+    envelope_fingerprint_sha256: String,
+    ledger_evidence_fingerprint_sha256: String,
+    identity_fingerprint_sha256: String,
+    source_generation: String,
+    local: Stage5dRiskGateLocalProjectionFrontier,
+    recovery_target_records_count: usize,
+    decisions: Vec<Stage5dRiskGateRecoveryPlanDecision>,
+    recovery_complete: bool,
+    plan_fingerprint_sha256: String,
+}
+
+fn stage5d_analyze_riskgate_crash_frontiers(
     envelope: &Stage5dPersistenceEnvelope,
     evidence: &Stage5dRiskGateLedgerEvidence,
     source_records: &[crate::hybrid_intraday::RiskGateLedgerRecord],
-) -> Result<Vec<Stage5dRiskGateRecoveryDecision>, Stage5dRiskGateInjectionBlockReason> {
+    source_identity: &crate::hybrid_intraday::RiskGateProfileIdentity,
+    current_shadow_session_date: Option<NaiveDate>,
+    current_shadow_pnl_points: f64,
+) -> Result<Stage5dRiskGateCrashFrontierAnalysis, Stage5dRiskGateInjectionBlockReason> {
     let ledger_by_session: HashMap<NaiveDate, &crate::hybrid_intraday::RiskGateLedgerRecord> =
         source_records
             .iter()
@@ -898,11 +1057,22 @@ fn stage5d_validate_riskgate_outbox_state_machine(
                     .map_err(|_| Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent)
             })
             .collect::<Result<_, _>>()?;
+    if pending_by_session.len()
+        != envelope
+            .runtime_private_extension
+            .runtime_pending_finalizations
+            .len()
+    {
+        return Err(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent);
+    }
 
     let mut outbox_sessions = HashSet::new();
     let mut outbox_identity_hashes = HashSet::new();
     let mut previous: Option<(NaiveDate, u64, u8)> = None;
-    let mut decisions = Vec::with_capacity(envelope.riskgate.durable_finalization_outbox.len());
+    let mut target_records = source_records.to_vec();
+    let mut outbox_dates = Vec::with_capacity(envelope.riskgate.durable_finalization_outbox.len());
+    let mut ledger_presence =
+        Vec::with_capacity(envelope.riskgate.durable_finalization_outbox.len());
     for record in &envelope.riskgate.durable_finalization_outbox {
         let session_date = NaiveDate::parse_from_str(&record.session_date, "%Y-%m-%d")
             .map_err(|_| Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent)?;
@@ -938,16 +1108,39 @@ fn stage5d_validate_riskgate_outbox_state_machine(
 
         let pending = pending_by_session.get(&session_date).copied();
         let ledger = ledger_by_session.get(&session_date).copied();
-        let decision = match record.state {
+        match record.state {
             Stage5dRiskGateFinalizationState::Prepared => {
                 let Some(pending) = pending else {
                     return Err(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent);
                 };
                 if let Some(ledger) = ledger {
                     stage5d_pending_matches_ledger(pending, ledger)?;
-                    Stage5dRiskGateRecoveryDecision::AdvanceToMaterialized
                 } else {
-                    Stage5dRiskGateRecoveryDecision::AppendMissingLedgerRow
+                    stage5d_require_source_canonical_riskgate_decimal(&pending.shadow_pnl_points)?;
+                    let rows = crate::hybrid_intraday::rows_from_ledger_records(&target_records)
+                        .map_err(|_| {
+                            Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent
+                        })?;
+                    let row = crate::hybrid_intraday::build_runtime_session_row(
+                        &rows,
+                        session_date,
+                        parse_finite_decimal_string(&pending.shadow_pnl_points).map_err(|_| {
+                            Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent
+                        })?,
+                        pending.shadow_trade_count,
+                    )
+                    .map_err(|_| Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent)?;
+                    let mut target_rows = rows;
+                    target_rows.push(row);
+                    let synthesized = crate::hybrid_intraday::build_ledger_records_from_rows(
+                        &target_rows,
+                        source_identity,
+                        envelope.persisted_at_ts_utc.timestamp(),
+                    )
+                    .map_err(|_| Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent)?
+                    .pop()
+                    .ok_or(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent)?;
+                    target_records.push(synthesized);
                 }
             }
             Stage5dRiskGateFinalizationState::LedgerAppended => {
@@ -957,7 +1150,6 @@ fn stage5d_validate_riskgate_outbox_state_machine(
                 if let Some(pending) = pending {
                     stage5d_pending_matches_ledger(pending, ledger)?;
                 }
-                Stage5dRiskGateRecoveryDecision::AdvanceToMaterialized
             }
             Stage5dRiskGateFinalizationState::MaterializedUpdated => {
                 let Some(ledger) = ledger else {
@@ -966,16 +1158,15 @@ fn stage5d_validate_riskgate_outbox_state_machine(
                 if let Some(pending) = pending {
                     stage5d_pending_matches_ledger(pending, ledger)?;
                 }
-                Stage5dRiskGateRecoveryDecision::ReackRuntime
             }
             Stage5dRiskGateFinalizationState::AcknowledgedInRuntime => {
                 if pending.is_some() || ledger.is_none() {
                     return Err(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent);
                 }
-                Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged
             }
-        };
-        decisions.push(decision);
+        }
+        outbox_dates.push(session_date);
+        ledger_presence.push(ledger.is_some());
     }
     for session_date in pending_by_session.keys() {
         if !outbox_sessions.contains(session_date) {
@@ -984,7 +1175,343 @@ fn stage5d_validate_riskgate_outbox_state_machine(
             );
         }
     }
-    Ok(decisions)
+
+    let outbox_indexes = outbox_dates
+        .iter()
+        .map(|session_date| {
+            target_records
+                .iter()
+                .position(|record| record.row.session_date == *session_date)
+                .ok_or(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let outbox_tail_start = outbox_indexes
+        .first()
+        .copied()
+        .unwrap_or(target_records.len());
+    if outbox_indexes
+        .iter()
+        .enumerate()
+        .any(|(offset, index)| *index != outbox_tail_start + offset)
+        || outbox_tail_start + outbox_indexes.len() != target_records.len()
+    {
+        return Err(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent);
+    }
+
+    let external_ledger_records_count = source_records.len();
+    let materialized_records_count = stage5d_find_materialized_projection_frontier(
+        &envelope.riskgate.materialized_state,
+        &target_records,
+        current_shadow_session_date,
+        current_shadow_pnl_points,
+        outbox_tail_start,
+        external_ledger_records_count,
+    )?;
+    let semantic: Stage5dSemanticStrategyStateV1 =
+        serde_json::from_value(envelope.strategy_state.strategy_state_json.clone())
+            .map_err(|_| Stage5dRiskGateInjectionBlockReason::MaterializedStateInvalid)?;
+    let Stage5dSemanticStrategyStateV1::HybridIntradayRuntime(semantic_state) = semantic;
+    let runtime_records_count = stage5d_find_runtime_projection_frontier(
+        &semantic_state,
+        &target_records,
+        current_shadow_session_date,
+        current_shadow_pnl_points,
+        outbox_tail_start,
+        materialized_records_count,
+    )?;
+    if runtime_records_count > materialized_records_count
+        || materialized_records_count > external_ledger_records_count
+    {
+        return Err(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent);
+    }
+
+    let mut decisions = Vec::with_capacity(outbox_dates.len());
+    for (offset, record) in envelope
+        .riskgate
+        .durable_finalization_outbox
+        .iter()
+        .enumerate()
+    {
+        let session_date = outbox_dates[offset];
+        let target_index = outbox_tail_start + offset;
+        let ledger_includes = ledger_presence[offset];
+        let materialized_includes = target_index < materialized_records_count;
+        let runtime_includes = target_index < runtime_records_count;
+        let pending = pending_by_session.get(&session_date).copied();
+        if runtime_includes && !materialized_includes || materialized_includes && !ledger_includes {
+            return Err(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent);
+        }
+        let action = match record.state {
+            Stage5dRiskGateFinalizationState::Prepared => {
+                if pending.is_none() || runtime_includes {
+                    return Err(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent);
+                }
+                if !ledger_includes {
+                    if materialized_includes {
+                        return Err(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent);
+                    }
+                    Stage5dRiskGateRecoveryDecision::AppendMissingLedgerRow
+                } else {
+                    // Preserve the durable Prepared -> materialized transition
+                    // even when an exact later projection survived the crash.
+                    Stage5dRiskGateRecoveryDecision::AdvanceToMaterialized
+                }
+            }
+            Stage5dRiskGateFinalizationState::LedgerAppended => {
+                if !ledger_includes {
+                    return Err(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent);
+                }
+                if runtime_includes {
+                    if pending.is_some() {
+                        return Err(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent);
+                    }
+                } else if materialized_includes && pending.is_none() {
+                    return Err(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent);
+                }
+                // Materialization/marker advancement remains idempotent; a
+                // lagging LedgerAppended marker cannot skip this transition.
+                Stage5dRiskGateRecoveryDecision::AdvanceToMaterialized
+            }
+            Stage5dRiskGateFinalizationState::MaterializedUpdated => {
+                if !ledger_includes || !materialized_includes {
+                    return Err(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent);
+                }
+                if runtime_includes {
+                    if pending.is_some() {
+                        return Err(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent);
+                    }
+                } else {
+                    if pending.is_none() {
+                        return Err(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent);
+                    }
+                }
+                // Runtime acknowledgement/marker advancement remains
+                // idempotent at this durable state.
+                Stage5dRiskGateRecoveryDecision::ReackRuntime
+            }
+            Stage5dRiskGateFinalizationState::AcknowledgedInRuntime => {
+                if !ledger_includes
+                    || !materialized_includes
+                    || !runtime_includes
+                    || pending.is_some()
+                {
+                    return Err(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent);
+                }
+                Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged
+            }
+        };
+        decisions.push(Stage5dRiskGateRecoveryPlanDecision {
+            session_date,
+            generation: record.generation,
+            durable_state: record.state,
+            action,
+        });
+    }
+
+    let materialized_projection = stage5d_rebuild_riskgate_projection_prefix(
+        &target_records,
+        materialized_records_count,
+        current_shadow_session_date,
+        current_shadow_pnl_points,
+    )?;
+    let runtime_projection = stage5d_rebuild_riskgate_projection_prefix(
+        &target_records,
+        runtime_records_count,
+        current_shadow_session_date,
+        current_shadow_pnl_points,
+    )?;
+    Ok(Stage5dRiskGateCrashFrontierAnalysis {
+        authoritative: Stage5dRiskGateAuthoritativeProjection {
+            external_ledger_records_count,
+            recovery_target_records: target_records,
+        },
+        local: Stage5dRiskGateLocalProjectionFrontier {
+            outbox_tail_start,
+            ledger_records_count: external_ledger_records_count,
+            materialized_records_count,
+            runtime_records_count,
+        },
+        decisions,
+        materialized_projection,
+        runtime_projection,
+    })
+}
+
+fn stage5d_find_materialized_projection_frontier(
+    persisted: &Stage5dRiskGateMaterializedState,
+    target_records: &[crate::hybrid_intraday::RiskGateLedgerRecord],
+    current_shadow_session_date: Option<NaiveDate>,
+    current_shadow_pnl_points: f64,
+    minimum_records_count: usize,
+    maximum_records_count: usize,
+) -> Result<usize, Stage5dRiskGateInjectionBlockReason> {
+    let mut matching = Vec::new();
+    for records_count in minimum_records_count..=maximum_records_count {
+        let candidate = stage5d_rebuild_riskgate_projection_prefix(
+            target_records,
+            records_count,
+            current_shadow_session_date,
+            current_shadow_pnl_points,
+        )?;
+        match stage5d_compare_rebuilt_riskgate_materialized(persisted, &candidate) {
+            Ok(()) => matching.push(records_count),
+            Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch) => {}
+            Err(reason) => return Err(reason),
+        }
+    }
+    match matching.as_slice() {
+        [records_count] => Ok(*records_count),
+        _ => Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch),
+    }
+}
+
+fn stage5d_find_runtime_projection_frontier(
+    semantic: &Stage5dHybridIntradayStrategyStateV1,
+    target_records: &[crate::hybrid_intraday::RiskGateLedgerRecord],
+    current_shadow_session_date: Option<NaiveDate>,
+    current_shadow_pnl_points: f64,
+    minimum_records_count: usize,
+    maximum_records_count: usize,
+) -> Result<usize, Stage5dRiskGateInjectionBlockReason> {
+    let mut matching = Vec::new();
+    for records_count in minimum_records_count..=maximum_records_count {
+        let candidate = stage5d_rebuild_riskgate_projection_prefix(
+            target_records,
+            records_count,
+            current_shadow_session_date,
+            current_shadow_pnl_points,
+        )?;
+        match stage5d_compare_semantic_riskgate_materialized(semantic, &candidate) {
+            Ok(()) => matching.push(records_count),
+            Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch) => {}
+            Err(reason) => return Err(reason),
+        }
+    }
+    match matching.as_slice() {
+        [records_count] => Ok(*records_count),
+        _ => Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch),
+    }
+}
+
+fn stage5d_rebuild_riskgate_projection_prefix(
+    target_records: &[crate::hybrid_intraday::RiskGateLedgerRecord],
+    records_count: usize,
+    current_shadow_session_date: Option<NaiveDate>,
+    current_shadow_pnl_points: f64,
+) -> Result<crate::hybrid_intraday::RiskGateMaterializedState, Stage5dRiskGateInjectionBlockReason>
+{
+    let records = target_records
+        .get(..records_count)
+        .ok_or(Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent)?;
+    let seed_loaded = records
+        .iter()
+        .any(|record| record.row.source == crate::hybrid_intraday::RiskGateRowSource::Seed);
+    crate::hybrid_intraday::rebuild_materialized_state_from_ledger_records(
+        records,
+        current_shadow_session_date,
+        current_shadow_pnl_points,
+        seed_loaded,
+    )
+    .map_err(|_| Stage5dRiskGateInjectionBlockReason::MaterializedStateInvalid)
+}
+
+fn stage5d_build_riskgate_recovery_plan(
+    envelope: &Stage5dPersistenceEnvelope,
+    validated_evidence: &Stage5dValidatedRiskGateLedgerEvidence,
+    analysis: &Stage5dRiskGateCrashFrontierAnalysis,
+) -> Result<Stage5dRiskGateRecoveryPlan, Stage5dRiskGateInjectionBlockReason> {
+    let identity_fingerprint_sha256 =
+        stage5d_compute_riskgate_identity_fingerprint(&validated_evidence.evidence.identity)?;
+    let recovery_complete = analysis.decisions.iter().all(|decision| {
+        decision.durable_state == Stage5dRiskGateFinalizationState::AcknowledgedInRuntime
+            && decision.action == Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged
+    });
+    let mut plan = Stage5dRiskGateRecoveryPlan {
+        envelope_fingerprint_sha256: envelope.payload_checksum_sha256.clone(),
+        ledger_evidence_fingerprint_sha256: validated_evidence.evidence_fingerprint_sha256.clone(),
+        identity_fingerprint_sha256,
+        source_generation: validated_evidence.evidence.current_generation.clone(),
+        local: analysis.local,
+        recovery_target_records_count: analysis.authoritative.recovery_target_records.len(),
+        decisions: analysis.decisions.clone(),
+        recovery_complete,
+        plan_fingerprint_sha256: String::new(),
+    };
+    if plan.local.ledger_records_count != analysis.authoritative.external_ledger_records_count {
+        return Err(Stage5dRiskGateInjectionBlockReason::RecoveryPlanBindingMismatch);
+    }
+    plan.plan_fingerprint_sha256 = stage5d_compute_riskgate_recovery_plan_fingerprint(&plan)?;
+    Ok(plan)
+}
+
+fn stage5d_compute_riskgate_identity_fingerprint(
+    identity: &Stage5dRiskGateIdentity,
+) -> Result<String, Stage5dRiskGateInjectionBlockReason> {
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "schema": "stage5d_riskgate_identity_fingerprint_v1",
+        "identity": identity,
+    }))
+    .map_err(|_| Stage5dRiskGateInjectionBlockReason::RecoveryPlanBindingMismatch)?;
+    Ok(format!(
+        "stage5d_riskgate_identity_sha256:{:x}",
+        Sha256::digest(payload)
+    ))
+}
+
+fn stage5d_compute_riskgate_recovery_plan_fingerprint(
+    plan: &Stage5dRiskGateRecoveryPlan,
+) -> Result<String, Stage5dRiskGateInjectionBlockReason> {
+    let decisions = plan
+        .decisions
+        .iter()
+        .map(|decision| {
+            serde_json::json!({
+                "session_date": decision.session_date.format("%Y-%m-%d").to_string(),
+                "generation": decision.generation,
+                "durable_state": stage5d_riskgate_outbox_state_name(decision.durable_state),
+                "action": decision.action.as_str(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "schema": "stage5d_riskgate_recovery_plan_v1",
+        "envelope_fingerprint_sha256": plan.envelope_fingerprint_sha256,
+        "ledger_evidence_fingerprint_sha256": plan.ledger_evidence_fingerprint_sha256,
+        "identity_fingerprint_sha256": plan.identity_fingerprint_sha256,
+        "source_generation": plan.source_generation,
+        "outbox_tail_start": plan.local.outbox_tail_start,
+        "ledger_records_count": plan.local.ledger_records_count,
+        "materialized_records_count": plan.local.materialized_records_count,
+        "runtime_records_count": plan.local.runtime_records_count,
+        "recovery_target_records_count": plan.recovery_target_records_count,
+        "decisions": decisions,
+        "recovery_complete": plan.recovery_complete,
+    }))
+    .map_err(|_| Stage5dRiskGateInjectionBlockReason::RecoveryPlanBindingMismatch)?;
+    Ok(format!(
+        "stage5d_riskgate_recovery_plan_sha256:{:x}",
+        Sha256::digest(payload)
+    ))
+}
+
+fn stage5d_validate_riskgate_recovery_plan_binding(
+    plan: &Stage5dRiskGateRecoveryPlan,
+    envelope: &Stage5dPersistenceEnvelope,
+    validated_evidence: &Stage5dValidatedRiskGateLedgerEvidence,
+) -> Result<(), Stage5dRiskGateInjectionBlockReason> {
+    let expected_identity =
+        stage5d_compute_riskgate_identity_fingerprint(&validated_evidence.evidence.identity)?;
+    let expected_plan = stage5d_compute_riskgate_recovery_plan_fingerprint(plan)?;
+    if plan.envelope_fingerprint_sha256 != envelope.payload_checksum_sha256
+        || plan.ledger_evidence_fingerprint_sha256 != validated_evidence.evidence_fingerprint_sha256
+        || plan.identity_fingerprint_sha256 != expected_identity
+        || plan.source_generation != validated_evidence.evidence.current_generation
+        || plan.local.ledger_records_count != validated_evidence.evidence.ledger_records.len()
+        || plan.plan_fingerprint_sha256 != expected_plan
+    {
+        return Err(Stage5dRiskGateInjectionBlockReason::RecoveryPlanBindingMismatch);
+    }
+    Ok(())
 }
 
 fn stage5d_riskgate_outbox_state_rank(state: Stage5dRiskGateFinalizationState) -> u8 {
@@ -996,10 +1523,21 @@ fn stage5d_riskgate_outbox_state_rank(state: Stage5dRiskGateFinalizationState) -
     }
 }
 
+fn stage5d_riskgate_outbox_state_name(state: Stage5dRiskGateFinalizationState) -> &'static str {
+    match state {
+        Stage5dRiskGateFinalizationState::Prepared => "prepared",
+        Stage5dRiskGateFinalizationState::LedgerAppended => "ledger_appended",
+        Stage5dRiskGateFinalizationState::MaterializedUpdated => "materialized_updated",
+        Stage5dRiskGateFinalizationState::AcknowledgedInRuntime => "acknowledged_in_runtime",
+    }
+}
+
 fn stage5d_pending_matches_ledger(
     pending: &Stage5dRuntimePendingRiskGateFinalization,
     ledger: &crate::hybrid_intraday::RiskGateLedgerRecord,
 ) -> Result<(), Stage5dRiskGateInjectionBlockReason> {
+    stage5d_require_source_canonical_riskgate_decimal(&pending.shadow_pnl_points)
+        .map_err(|_| Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent)?;
     let pending_pnl = parse_finite_decimal_string(&pending.shadow_pnl_points)
         .map_err(|_| Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent)?;
     if !stage5d_source_f64_eq(pending_pnl, ledger.row.shadow_pnl_points)
@@ -2960,6 +3498,18 @@ mod tests {
         Stage5dPersistenceEnvelope,
         Stage5dValidatedRiskGateLedgerEvidence,
     ) {
+        riskgate_enabled_bootstrapped_fixture_with_evidence(|envelope, _evidence| {
+            envelope_mutator(envelope);
+        })
+    }
+
+    fn riskgate_enabled_bootstrapped_fixture_with_evidence(
+        mutator: impl FnOnce(&mut Stage5dPersistenceEnvelope, &mut Stage5dRiskGateLedgerEvidence),
+    ) -> (
+        Stage5dBootstrappedPaperStrategy,
+        Stage5dPersistenceEnvelope,
+        Stage5dValidatedRiskGateLedgerEvidence,
+    ) {
         let mut envelope = flat_persisted_fixture();
         let mut strategy = stage5d_test_strategy_with_config(|config| {
             config.profile =
@@ -2971,13 +3521,14 @@ mod tests {
             config.qty = 3.0;
         });
         let identity = stage5d_test_riskgate_identity_for(&strategy, &envelope);
-        let evidence = stage5d_test_riskgate_evidence_for(&identity, &envelope);
+        let mut evidence = stage5d_test_riskgate_evidence_for(&identity, &envelope);
         stage5d_apply_riskgate_evidence_to_envelope(&mut envelope, &evidence);
-        envelope_mutator(&mut envelope);
+        mutator(&mut envelope, &mut evidence);
+        evidence = stage5d_test_rebuild_evidence_from_envelope(&envelope, &evidence);
+        envelope.riskgate.ledger_tail_hash = evidence.ledger_tail_hash.clone();
         envelope.payload_checksum_sha256 = envelope
             .compute_payload_checksum_sha256()
             .expect("checksum recomputation must succeed");
-        let evidence = stage5d_test_rebuild_evidence_from_envelope(&envelope, &evidence);
         restore_semantic_state(&mut strategy, &envelope);
         bind_fixture_to_strategy_config(&mut envelope, &strategy);
         let evidence = stage5d_test_rebuild_evidence_from_envelope(&envelope, &evidence);
@@ -3081,13 +3632,16 @@ mod tests {
         while rows.len() < 65 {
             if !matches!(date.weekday(), Weekday::Sat | Weekday::Sun) {
                 let idx = rows.len() as f64;
-                let row = crate::hybrid_intraday::build_runtime_session_row(
+                let mut row = crate::hybrid_intraday::build_runtime_session_row(
                     &rows,
                     date,
                     if (idx as i64) % 2 == 0 { 2.0 } else { -0.5 },
                     1,
                 )
                 .expect("source runtime row");
+                if rows.len() < 60 {
+                    row.source = crate::hybrid_intraday::RiskGateRowSource::Seed;
+                }
                 rows.push(row);
             }
             date += chrono::Duration::days(1);
@@ -3122,9 +3676,11 @@ mod tests {
     ) -> Stage5dRiskGateLedgerRecord {
         Stage5dRiskGateLedgerRecord {
             session_date: record.row.session_date.format("%Y-%m-%d").to_string(),
-            shadow_pnl_points: record.row.shadow_pnl_points.to_string(),
+            shadow_pnl_points: stage5d_source_format_riskgate_decimal(record.row.shadow_pnl_points),
             shadow_trade_count: record.row.shadow_trade_count,
-            rolling_sum_before_session: record.row.rolling_sum_before_session.to_string(),
+            rolling_sum_before_session: stage5d_source_format_riskgate_decimal(
+                record.row.rolling_sum_before_session,
+            ),
             mr_enabled_for_session: record.row.mr_enabled_for_session,
             source: match record.row.source {
                 crate::hybrid_intraday::RiskGateRowSource::Seed => Stage5dRiskGateRowSource::Seed,
@@ -3140,7 +3696,7 @@ mod tests {
                     Stage5dRiskGateRowStatus::Incomplete
                 }
             },
-            rolling_sum_lb120: record.rolling_sum_lb120.to_string(),
+            rolling_sum_lb120: stage5d_source_format_riskgate_decimal(record.rolling_sum_lb120),
             mr_enabled_next_session: record.mr_enabled_next_session,
             finalized_at_utc: record.finalized_at_utc,
         }
@@ -3223,7 +3779,7 @@ mod tests {
             mr_enabled_next_session: materialized.mr_enabled_next_session,
             rolling_sum_lb120: materialized
                 .rolling_sum_lb120
-                .map(|value| value.to_string()),
+                .map(stage5d_source_format_riskgate_decimal),
             last_finalized_session_date: materialized
                 .last_finalized_session_date
                 .map(|date| date.format("%Y-%m-%d").to_string()),
@@ -3232,7 +3788,9 @@ mod tests {
             current_shadow_session_date: materialized
                 .current_shadow_session_date
                 .map(|date| date.format("%Y-%m-%d").to_string()),
-            current_shadow_pnl_points: materialized.current_shadow_pnl_points.to_string(),
+            current_shadow_pnl_points: stage5d_source_format_riskgate_decimal(
+                materialized.current_shadow_pnl_points,
+            ),
             current_generation: materialized.current_generation.clone(),
         }
     }
@@ -3256,30 +3814,168 @@ mod tests {
         evidence
     }
 
-    fn stage5d_test_set_prepared_outbox_for_first_ledger_row(
+    fn stage5d_test_configure_single_tail_crash_frontier(
         envelope: &mut Stage5dPersistenceEnvelope,
-        shadow_pnl_points: &str,
+        evidence: &mut Stage5dRiskGateLedgerEvidence,
+        state: Stage5dRiskGateFinalizationState,
+        ledger_includes: bool,
+        materialized_includes: bool,
+        runtime_includes: bool,
+        pending_present: bool,
     ) {
-        let session_date = NaiveDate::from_ymd_opt(2026, 3, 2).expect("ledger date");
+        let pending = envelope
+            .runtime_private_extension
+            .runtime_pending_finalizations[0]
+            .clone();
         envelope
             .runtime_private_extension
-            .runtime_pending_finalizations = vec![Stage5dRuntimePendingRiskGateFinalization {
-            session_date: session_date.format("%Y-%m-%d").to_string(),
-            shadow_pnl_points: shadow_pnl_points.to_string(),
-            shadow_trade_count: 1,
-        }];
+            .runtime_pending_finalizations = if pending_present {
+            vec![pending.clone()]
+        } else {
+            Vec::new()
+        };
+        stage5d_test_sync_runtime_pending_cache(envelope);
+
+        if ledger_includes {
+            stage5d_test_append_pending_to_evidence(envelope, evidence, &pending);
+        }
+        let source_records =
+            stage5d_source_riskgate_records_from_evidence(evidence).expect("source records");
+        let row_index = if ledger_includes {
+            source_records.len() - 1
+        } else {
+            source_records.len()
+        };
+        let materialized_count = row_index + usize::from(materialized_includes);
+        let runtime_count = row_index + usize::from(runtime_includes);
+        stage5d_test_set_local_riskgate_projections(
+            envelope,
+            evidence,
+            &source_records,
+            materialized_count,
+            runtime_count,
+        );
+        let session_date =
+            NaiveDate::parse_from_str(&pending.session_date, "%Y-%m-%d").expect("pending date");
         envelope.riskgate.durable_finalization_outbox =
             vec![Stage5dRiskGateFinalizationOutboxRecord {
-                session_date: session_date.format("%Y-%m-%d").to_string(),
+                session_date: pending.session_date,
                 generation: 1,
-                state: Stage5dRiskGateFinalizationState::Prepared,
+                state,
                 identity_hash: stage5d_riskgate_outbox_identity_hash(
                     &envelope.riskgate.identity,
                     session_date,
                     1,
                 ),
             }];
-        stage5d_test_sync_runtime_pending_cache(envelope);
+    }
+
+    fn stage5d_test_append_pending_to_evidence(
+        envelope: &Stage5dPersistenceEnvelope,
+        evidence: &mut Stage5dRiskGateLedgerEvidence,
+        pending: &Stage5dRuntimePendingRiskGateFinalization,
+    ) {
+        let existing_records =
+            stage5d_source_riskgate_records_from_evidence(evidence).expect("source records");
+        let mut rows = crate::hybrid_intraday::rows_from_ledger_records(&existing_records)
+            .expect("source rows");
+        let session_date =
+            NaiveDate::parse_from_str(&pending.session_date, "%Y-%m-%d").expect("pending date");
+        rows.push(
+            crate::hybrid_intraday::build_runtime_session_row(
+                &rows,
+                session_date,
+                parse_finite_decimal_string(&pending.shadow_pnl_points).expect("pending pnl"),
+                pending.shadow_trade_count,
+            )
+            .expect("source runtime row"),
+        );
+        let source_identity = crate::hybrid_intraday::RiskGateProfileIdentity {
+            strategy_id: evidence.identity.strategy_id.clone(),
+            profile_id: evidence.identity.profile_id.clone(),
+            mr_variant: evidence.identity.mr_variant.clone(),
+            timeframe: evidence.identity.timeframe.clone(),
+            session_policy: evidence.identity.session_policy.clone(),
+            model_version: evidence.identity.model_version.clone(),
+        };
+        let record = crate::hybrid_intraday::build_ledger_records_from_rows(
+            &rows,
+            &source_identity,
+            envelope.persisted_at_ts_utc.timestamp(),
+        )
+        .expect("source ledger")
+        .pop()
+        .expect("appended record");
+        evidence
+            .ledger_records
+            .push(stage5d_test_stage_record_from_source(&record));
+    }
+
+    fn stage5d_test_set_local_riskgate_projections(
+        envelope: &mut Stage5dPersistenceEnvelope,
+        evidence: &Stage5dRiskGateLedgerEvidence,
+        source_records: &[crate::hybrid_intraday::RiskGateLedgerRecord],
+        materialized_count: usize,
+        runtime_count: usize,
+    ) {
+        let current_shadow_session_date = evidence
+            .current_shadow_session_date
+            .as_deref()
+            .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").expect("shadow date"));
+        let current_shadow_pnl_points =
+            parse_finite_decimal_string(&evidence.current_shadow_pnl_points).expect("shadow pnl");
+        let materialized = stage5d_rebuild_riskgate_projection_prefix(
+            source_records,
+            materialized_count,
+            current_shadow_session_date,
+            current_shadow_pnl_points,
+        )
+        .expect("materialized projection");
+        let runtime = stage5d_rebuild_riskgate_projection_prefix(
+            source_records,
+            runtime_count,
+            current_shadow_session_date,
+            current_shadow_pnl_points,
+        )
+        .expect("runtime projection");
+        envelope.riskgate.materialized_state =
+            stage5d_stage_materialized_from_source(&materialized);
+        stage5d_test_set_semantic_riskgate_projection(envelope, &runtime);
+    }
+
+    fn stage5d_test_set_semantic_riskgate_projection(
+        envelope: &mut Stage5dPersistenceEnvelope,
+        projection: &crate::hybrid_intraday::RiskGateMaterializedState,
+    ) {
+        if let Value::Object(fields) =
+            &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+        {
+            fields.insert(
+                "risk_gate_mr_enabled_current_session".to_string(),
+                projection
+                    .mr_enabled_current_session
+                    .map(Value::Bool)
+                    .unwrap_or(Value::Null),
+            );
+            fields.insert(
+                "risk_gate_rolling_sum_lb120".to_string(),
+                projection
+                    .rolling_sum_lb120
+                    .map(|value| serde_json::json!(value))
+                    .unwrap_or(Value::Null),
+            );
+            fields.insert(
+                "risk_gate_last_finalized_session_date".to_string(),
+                projection
+                    .last_finalized_session_date
+                    .map(|date| Value::String(date.format("%Y-%m-%d").to_string()))
+                    .unwrap_or(Value::Null),
+            );
+            fields.insert(
+                "risk_gate_ledger_rows_count".to_string(),
+                serde_json::json!(projection.ledger_rows_count),
+            );
+        }
     }
 
     fn stage5d_test_sync_runtime_pending_cache(envelope: &mut Stage5dPersistenceEnvelope) {
@@ -4473,6 +5169,141 @@ mod tests {
         assert_eq!(injected.evidence_fingerprint(), checksum);
         assert!(injected.riskgate_injected());
         assert!(riskgate_evidence_fingerprint.starts_with("stage5d_riskgate_evidence_sha256:"));
+        assert_eq!(injected.recovery_decision_count(), 2);
+        assert!(!injected.recovery_complete());
+        assert!(injected
+            .recovery_plan_fingerprint()
+            .starts_with("stage5d_riskgate_recovery_plan_sha256:"));
+    }
+
+    #[test]
+    fn stage5d_b2bc1r2_accepts_exact_durable_crash_frontiers_end_to_end() {
+        let cases = [
+            (
+                Stage5dRiskGateFinalizationState::LedgerAppended,
+                false,
+                false,
+                true,
+                Stage5dRiskGateRecoveryDecision::AdvanceToMaterialized,
+                false,
+            ),
+            (
+                Stage5dRiskGateFinalizationState::MaterializedUpdated,
+                true,
+                false,
+                true,
+                Stage5dRiskGateRecoveryDecision::ReackRuntime,
+                false,
+            ),
+            (
+                Stage5dRiskGateFinalizationState::AcknowledgedInRuntime,
+                true,
+                true,
+                false,
+                Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged,
+                true,
+            ),
+        ];
+
+        for (state, materialized, runtime, pending, expected_action, complete) in cases {
+            let (bootstrapped, _envelope, evidence) =
+                riskgate_enabled_bootstrapped_fixture_with_evidence(|envelope, evidence| {
+                    stage5d_test_configure_single_tail_crash_frontier(
+                        envelope,
+                        evidence,
+                        state,
+                        true,
+                        materialized,
+                        runtime,
+                        pending,
+                    );
+                });
+            let injected = expect_stage5d_riskgate_ok(
+                stage5d_inject_authoritative_riskgate(bootstrapped, evidence),
+                "exact durable crash frontier must be accepted",
+            );
+            assert_eq!(injected.recovery_plan.decisions.len(), 1);
+            assert_eq!(injected.recovery_plan.decisions[0].action, expected_action);
+            assert_eq!(injected.recovery_complete(), complete);
+        }
+    }
+
+    #[test]
+    fn stage5d_b2bc1r2_accepts_outbox_marker_lag_only_with_exact_projection_frontier() {
+        for (state, expected_action) in [
+            (
+                Stage5dRiskGateFinalizationState::Prepared,
+                Stage5dRiskGateRecoveryDecision::AdvanceToMaterialized,
+            ),
+            (
+                Stage5dRiskGateFinalizationState::LedgerAppended,
+                Stage5dRiskGateRecoveryDecision::AdvanceToMaterialized,
+            ),
+        ] {
+            let (bootstrapped, _envelope, evidence) =
+                riskgate_enabled_bootstrapped_fixture_with_evidence(|envelope, evidence| {
+                    stage5d_test_configure_single_tail_crash_frontier(
+                        envelope, evidence, state, true, true, false, true,
+                    );
+                });
+            let injected = expect_stage5d_riskgate_ok(
+                stage5d_inject_authoritative_riskgate(bootstrapped, evidence),
+                "outbox marker may lag only when exact later projection is durable",
+            );
+            assert_eq!(injected.recovery_plan.decisions[0].action, expected_action);
+        }
+    }
+
+    #[test]
+    fn stage5d_b2bc1r2_retained_recovery_plan_is_bound_and_tamper_evident() {
+        let (bootstrapped, envelope, evidence) = riskgate_enabled_bootstrapped_fixture_with(|_| {});
+        let duplicate_evidence =
+            stage5d_validate_riskgate_ledger_evidence(evidence.evidence.clone()).unwrap();
+        let mut injected = expect_stage5d_riskgate_ok(
+            stage5d_inject_authoritative_riskgate(bootstrapped, evidence),
+            "retained plan fixture must inject",
+        );
+        assert!(stage5d_validate_riskgate_recovery_plan_binding(
+            &injected.recovery_plan,
+            &envelope,
+            &duplicate_evidence,
+        )
+        .is_ok());
+
+        let mut wrong_envelope = envelope.clone();
+        wrong_envelope.payload_checksum_sha256.push_str("-wrong");
+        assert_eq!(
+            stage5d_validate_riskgate_recovery_plan_binding(
+                &injected.recovery_plan,
+                &wrong_envelope,
+                &duplicate_evidence,
+            ),
+            Err(Stage5dRiskGateInjectionBlockReason::RecoveryPlanBindingMismatch)
+        );
+
+        let mut wrong_evidence =
+            stage5d_validate_riskgate_ledger_evidence(duplicate_evidence.evidence.clone()).unwrap();
+        wrong_evidence
+            .evidence_fingerprint_sha256
+            .push_str("-wrong");
+        assert_eq!(
+            stage5d_validate_riskgate_recovery_plan_binding(
+                &injected.recovery_plan,
+                &envelope,
+                &wrong_evidence,
+            ),
+            Err(Stage5dRiskGateInjectionBlockReason::RecoveryPlanBindingMismatch)
+        );
+
+        injected.recovery_plan.local.runtime_records_count += 1;
+        assert_eq!(
+            stage5d_validate_riskgate_recovery_plan_binding(
+                &injected.recovery_plan,
+                &envelope,
+                &duplicate_evidence,
+            ),
+            Err(Stage5dRiskGateInjectionBlockReason::RecoveryPlanBindingMismatch)
+        );
     }
 
     #[test]
@@ -4500,6 +5331,141 @@ mod tests {
         );
         assert!(blocked.input_capability_preserved());
         assert_eq!(blocked.snapshot_id(), "SNAP_STAGE5D_B2A_0001");
+    }
+
+    #[test]
+    fn stage5d_b2bc1r2_rejects_unexplained_materialized_drift_at_reack_frontier() {
+        type Mutation = fn(&mut Stage5dPersistenceEnvelope);
+        let mutations: [Mutation; 5] = [
+            |envelope| {
+                envelope.riskgate.materialized_state.rolling_sum_lb120 = Some("999.0".to_string())
+            },
+            |envelope| {
+                let current = envelope
+                    .riskgate
+                    .materialized_state
+                    .mr_enabled_current_session
+                    .unwrap_or(false);
+                envelope
+                    .riskgate
+                    .materialized_state
+                    .mr_enabled_current_session = Some(!current);
+            },
+            |envelope| {
+                envelope
+                    .riskgate
+                    .materialized_state
+                    .last_finalized_session_date = Some("2026-01-02".to_string())
+            },
+            |envelope| envelope.riskgate.materialized_state.ledger_rows_count += 1,
+            |envelope| {
+                envelope.riskgate.materialized_state.seed_loaded =
+                    !envelope.riskgate.materialized_state.seed_loaded
+            },
+        ];
+
+        let frontiers = [
+            (
+                Stage5dRiskGateFinalizationState::Prepared,
+                false,
+                false,
+                false,
+                true,
+            ),
+            (
+                Stage5dRiskGateFinalizationState::Prepared,
+                true,
+                false,
+                false,
+                true,
+            ),
+            (
+                Stage5dRiskGateFinalizationState::LedgerAppended,
+                true,
+                false,
+                false,
+                true,
+            ),
+            (
+                Stage5dRiskGateFinalizationState::MaterializedUpdated,
+                true,
+                true,
+                false,
+                true,
+            ),
+            (
+                Stage5dRiskGateFinalizationState::AcknowledgedInRuntime,
+                true,
+                true,
+                true,
+                false,
+            ),
+        ];
+        for &(state, ledger, materialized, runtime, pending) in &frontiers {
+            for &mutate in &mutations {
+                let (bootstrapped, _envelope, evidence) =
+                    riskgate_enabled_bootstrapped_fixture_with_evidence(|envelope, evidence| {
+                        stage5d_test_configure_single_tail_crash_frontier(
+                            envelope,
+                            evidence,
+                            state,
+                            ledger,
+                            materialized,
+                            runtime,
+                            pending,
+                        );
+                        mutate(envelope);
+                    });
+                let blocked = expect_stage5d_riskgate_blocked(
+                    stage5d_inject_authoritative_riskgate(bootstrapped, evidence),
+                    "unexplained materialized drift must not be treated as crash lag",
+                );
+                assert_eq!(
+                    blocked.reason(),
+                    Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn stage5d_b2bc1r2_rejects_semantic_ahead_of_materialized_frontier() {
+        let (bootstrapped, _envelope, evidence) =
+            riskgate_enabled_bootstrapped_fixture_with_evidence(|envelope, evidence| {
+                stage5d_test_configure_single_tail_crash_frontier(
+                    envelope,
+                    evidence,
+                    Stage5dRiskGateFinalizationState::LedgerAppended,
+                    true,
+                    false,
+                    true,
+                    false,
+                );
+            });
+        let blocked = expect_stage5d_riskgate_blocked(
+            stage5d_inject_authoritative_riskgate(bootstrapped, evidence),
+            "runtime frontier cannot advance beyond materialized frontier",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch
+        );
+    }
+
+    #[test]
+    fn stage5d_b2bc1r2_decimal_text_must_equal_source_formatter_output() {
+        for canonical in ["0.0", "2.0", "-0.5", "158.60000000000008"] {
+            assert!(stage5d_require_source_canonical_riskgate_decimal(canonical).is_ok());
+        }
+        for noncanonical in [
+            "0", "2", "02.0", ".5", "1.", "-0", "+1.0", "1e0", " NaN", "inf",
+        ] {
+            assert_eq!(
+                stage5d_require_source_canonical_riskgate_decimal(noncanonical),
+                Err(Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid),
+                "non-source decimal must fail: {noncanonical}"
+            );
+        }
     }
 
     #[test]
@@ -4631,10 +5597,17 @@ mod tests {
             );
         }
 
-        let mut changed_metadata = raw;
-        changed_metadata.seed_loaded = !changed_metadata.seed_loaded;
+        let mut changed_metadata = raw.clone();
+        changed_metadata.current_shadow_pnl_points = "1.5".to_string();
         let changed = stage5d_validate_riskgate_ledger_evidence(changed_metadata).unwrap();
         assert_ne!(changed.evidence_fingerprint_sha256(), original_fingerprint);
+
+        let mut contradicted_seed = raw;
+        contradicted_seed.seed_loaded = !contradicted_seed.seed_loaded;
+        assert_eq!(
+            stage5d_validate_riskgate_ledger_evidence(contradicted_seed).map(|_| ()),
+            Err(Stage5dRiskGateInjectionBlockReason::LedgerRecordDerivedStateMismatch)
+        );
     }
 
     #[test]
@@ -4707,7 +5680,11 @@ mod tests {
         );
 
         let mut seed_after_runtime = evidence.evidence.clone();
-        seed_after_runtime.ledger_records[1].source = Stage5dRiskGateRowSource::Seed;
+        seed_after_runtime
+            .ledger_records
+            .last_mut()
+            .expect("runtime suffix")
+            .source = Stage5dRiskGateRowSource::Seed;
         assert_eq!(
             stage5d_validate_riskgate_ledger_evidence(stage5d_test_rehash_riskgate_evidence(
                 seed_after_runtime
@@ -4823,8 +5800,21 @@ mod tests {
     #[test]
     fn stage5d_b2bc1_riskgate_prepared_existing_row_requires_exact_payload() {
         let (bootstrapped, _envelope, evidence) =
-            riskgate_enabled_bootstrapped_fixture_with(|envelope| {
-                stage5d_test_set_prepared_outbox_for_first_ledger_row(envelope, "999.0");
+            riskgate_enabled_bootstrapped_fixture_with_evidence(|envelope, evidence| {
+                stage5d_test_configure_single_tail_crash_frontier(
+                    envelope,
+                    evidence,
+                    Stage5dRiskGateFinalizationState::Prepared,
+                    true,
+                    false,
+                    false,
+                    true,
+                );
+                envelope
+                    .runtime_private_extension
+                    .runtime_pending_finalizations[0]
+                    .shadow_pnl_points = "999.0".to_string();
+                stage5d_test_sync_runtime_pending_cache(envelope);
             });
 
         let blocked = expect_stage5d_riskgate_blocked(
@@ -4860,48 +5850,47 @@ mod tests {
 
     #[test]
     fn stage5d_b2bc1_riskgate_prepared_missing_rows_plan_one_append_each() {
-        let (_bootstrapped, envelope, evidence) =
-            riskgate_enabled_bootstrapped_fixture_with(|_| {});
-        let source_records =
-            stage5d_source_riskgate_records_from_evidence(&evidence.evidence).unwrap();
-        let decisions = stage5d_validate_riskgate_outbox_state_machine(
-            &envelope,
-            &evidence.evidence,
-            &source_records,
-        )
-        .expect("prepared missing ledger row has deterministic append plan");
+        let (bootstrapped, envelope, evidence) = riskgate_enabled_bootstrapped_fixture_with(|_| {});
+        let injected = expect_stage5d_riskgate_ok(
+            stage5d_inject_authoritative_riskgate(bootstrapped, evidence),
+            "prepared missing ledger rows must produce a retained append plan",
+        );
+        let decisions = &injected.recovery_plan.decisions;
         assert_eq!(
             decisions.len(),
             envelope.riskgate.durable_finalization_outbox.len()
         );
         assert!(decisions
             .iter()
-            .all(|decision| *decision == Stage5dRiskGateRecoveryDecision::AppendMissingLedgerRow));
+            .all(|decision| decision.action
+                == Stage5dRiskGateRecoveryDecision::AppendMissingLedgerRow));
+        assert!(!injected.recovery_complete());
     }
 
     #[test]
     fn stage5d_b2bc1_riskgate_prepared_existing_row_never_plans_duplicate_append() {
-        let (bootstrapped, envelope, evidence) =
-            riskgate_enabled_bootstrapped_fixture_with(|envelope| {
-                stage5d_test_set_prepared_outbox_for_first_ledger_row(envelope, "2.0");
+        let (bootstrapped, _envelope, evidence) =
+            riskgate_enabled_bootstrapped_fixture_with_evidence(|envelope, evidence| {
+                stage5d_test_configure_single_tail_crash_frontier(
+                    envelope,
+                    evidence,
+                    Stage5dRiskGateFinalizationState::Prepared,
+                    true,
+                    false,
+                    false,
+                    true,
+                );
             });
-        let source_records =
-            stage5d_source_riskgate_records_from_evidence(&evidence.evidence).unwrap();
-        let decisions = stage5d_validate_riskgate_outbox_state_machine(
-            &envelope,
-            &evidence.evidence,
-            &source_records,
-        )
-        .expect("matching pre-existing ledger row has deterministic recovery plan");
-        assert_eq!(
-            decisions,
-            vec![Stage5dRiskGateRecoveryDecision::AdvanceToMaterialized]
-        );
-        assert!(expect_stage5d_riskgate_ok(
+        let injected = expect_stage5d_riskgate_ok(
             stage5d_inject_authoritative_riskgate(bootstrapped, evidence),
             "matching prepared/ledger payload must be accepted without duplicate append",
-        )
-        .riskgate_injected());
+        );
+        let decisions = &injected.recovery_plan.decisions;
+        assert_eq!(
+            decisions[0].action,
+            Stage5dRiskGateRecoveryDecision::AdvanceToMaterialized
+        );
+        assert!(!injected.recovery_complete());
     }
 
     #[test]

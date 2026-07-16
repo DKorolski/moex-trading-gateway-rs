@@ -35,9 +35,27 @@ STAGE5D_BOOTSTRAP_BRIDGE_IDENTIFIER = "stage5d_bootstrap_preserving_loaded_at"
 STAGE5D_BOOTSTRAP_BRIDGE_ALLOWED_CALL_FUNCTION = "stage5d_notify_broker_truth_bootstrap_at"
 STAGE5D_RISKGATE_BRIDGE_IDENTIFIER = "stage5d_inject_authoritative_riskgate_state"
 STAGE5D_RISKGATE_BRIDGE_ALLOWED_CALL_FUNCTION = "stage5d_inject_authoritative_riskgate_with_evidence"
+FORBIDDEN_SCANNER_REL = Path("scripts/forbidden_surface_scan.sh")
+CI_REL = Path(".github/workflows/ci.yml")
 
 EXPECTED_MANIFEST_CHECKER = "scripts/stage5d_additive_freeze_check.py"
 EXPECTED_NEGATIVE_HARNESS = "scripts/stage5d_additive_freeze_negative_harness.py"
+EXPECTED_FORBIDDEN_NEGATIVE_HARNESS_CONTRACT = {
+    "launcher_path": "scripts/forbidden_surface_negative_harness.sh",
+    "launcher_sha256": "1b4e6b494a7831640201924783d1f1bf7ea3deba0fd9051102b24ae7908dfc36",
+    "coordinator_path": "scripts/forbidden_surface_negative_harness.py",
+    "coordinator_sha256": "1c2fd307aa7752ca2e8325d36c2cf26e54cbeee9aa801b22030d80568cfb3e93",
+    "worker_path": "scripts/forbidden_surface_negative_case_worker.sh",
+    "worker_sha256": "6f81c025526a1bf4ddd2e1206c745048aa17189b9b723a4294bd300dabcfa7d0",
+    "scanner_contract": "stage5d-b2bc1-r2-v1",
+    "declared_cases": 81,
+    "negative_cases": 80,
+    "positive_controls": 1,
+    "default_workers": 4,
+    "max_workers": 8,
+    "minimum_case_timeout_seconds": 20,
+    "ci_timeout_minutes": 8,
+}
 EXPECTED_STAGE5C_COMPATIBILITY_CHECKER = {
     "path": "scripts/stage5c_api_freeze_check.py",
     "sha256": "6aa1a30f87d296df09bf18c84b29b944ad7af8aaa59961c54bcbe6ff0a601537",
@@ -695,8 +713,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2b-c1":
-        failures.append("stage must be 5D-b2b-c1")
+    if manifest.get("stage") != "5D-b2b-c1-r2":
+        failures.append("stage must be 5D-b2b-c1-r2")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:
@@ -705,6 +723,69 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
         failures.append("manifest_checker mismatch")
     if manifest.get("negative_harness") != EXPECTED_NEGATIVE_HARNESS:
         failures.append("negative_harness mismatch")
+    forbidden_contract = manifest.get("forbidden_negative_harness_contract")
+    if forbidden_contract != EXPECTED_FORBIDDEN_NEGATIVE_HARNESS_CONTRACT:
+        failures.append("forbidden negative harness contract mismatch")
+    else:
+        for path_key, hash_key in (
+            ("launcher_path", "launcher_sha256"),
+            ("coordinator_path", "coordinator_sha256"),
+            ("worker_path", "worker_sha256"),
+        ):
+            artifact = root / forbidden_contract[path_key]
+            if not artifact.is_file() or sha256_file(artifact) != forbidden_contract[hash_key]:
+                failures.append(
+                    "forbidden negative harness artifact hash mismatch: "
+                    f"{forbidden_contract[path_key]}"
+                )
+        coordinator_source = (root / forbidden_contract["coordinator_path"]).read_text(
+            errors="replace"
+        )
+        worker_source = (root / forbidden_contract["worker_path"]).read_text(errors="replace")
+        required_coordinator_tokens = (
+            "if clean_result.returncode != 0:",
+            "case.expected_marker",
+            "declared != implemented",
+            "ThreadPoolExecutor",
+            "os.killpg",
+        )
+        required_worker_tokens = (
+            'grep -F -- "$expected_marker"',
+            "infrastructure failure is not valid case evidence",
+            "selected case did not execute exactly once",
+        )
+        if any(token not in coordinator_source for token in required_coordinator_tokens):
+            failures.append("forbidden negative harness coordinator contract incomplete")
+        if any(token not in worker_source for token in required_worker_tokens):
+            failures.append("forbidden negative harness worker contract incomplete")
+        if coordinator_source.count("Case(") != forbidden_contract["declared_cases"]:
+            failures.append("forbidden negative harness declared case inventory mismatch")
+        if worker_source.count("|failure'") != forbidden_contract["negative_cases"]:
+            failures.append("forbidden negative harness worker negative inventory mismatch")
+        if worker_source.count("|success'") != forbidden_contract["positive_controls"]:
+            failures.append("forbidden negative harness worker positive inventory mismatch")
+        scanner_source = (root / FORBIDDEN_SCANNER_REL).read_text(errors="replace")
+        scanner_marker = (
+            'FORBIDDEN_SURFACE_SCANNER_CONTRACT="'
+            f'{forbidden_contract["scanner_contract"]}"'
+        )
+        if scanner_source.count(scanner_marker) != 1:
+            failures.append("forbidden scanner contract marker mismatch")
+        ci_source = (root / CI_REL).read_text(errors="replace")
+        ci_timeout_match = re.search(
+            r"- name: Forbidden surface negative harness\s+"
+            r"run: bash scripts/forbidden_surface_negative_harness\.sh\s+"
+            r"timeout-minutes: (?P<minutes>\d+)",
+            ci_source,
+        )
+        if (
+            ci_timeout_match is None
+            or int(ci_timeout_match.group("minutes")) < forbidden_contract["ci_timeout_minutes"]
+        ):
+            failures.append(
+                "forbidden negative harness CI timeout is below "
+                f"{forbidden_contract['ci_timeout_minutes']} minutes"
+            )
     if manifest.get("closed_surfaces") != EXPECTED_CLOSED_SURFACES:
         failures.append("closed_surfaces mismatch")
     if manifest.get("negative_cases") != EXPECTED_NEGATIVE_CASES:

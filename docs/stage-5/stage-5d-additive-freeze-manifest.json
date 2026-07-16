@@ -1,9 +1,25 @@
 {
   "schema_version": 1,
-  "stage": "5D-b2b-c1",
+  "stage": "5D-b2b-c1-r2",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
+  "forbidden_negative_harness_contract": {
+    "launcher_path": "scripts/forbidden_surface_negative_harness.sh",
+    "launcher_sha256": "1b4e6b494a7831640201924783d1f1bf7ea3deba0fd9051102b24ae7908dfc36",
+    "coordinator_path": "scripts/forbidden_surface_negative_harness.py",
+    "coordinator_sha256": "1c2fd307aa7752ca2e8325d36c2cf26e54cbeee9aa801b22030d80568cfb3e93",
+    "worker_path": "scripts/forbidden_surface_negative_case_worker.sh",
+    "worker_sha256": "6f81c025526a1bf4ddd2e1206c745048aa17189b9b723a4294bd300dabcfa7d0",
+    "scanner_contract": "stage5d-b2bc1-r2-v1",
+    "declared_cases": 81,
+    "negative_cases": 80,
+    "positive_controls": 1,
+    "default_workers": 4,
+    "max_workers": 8,
+    "minimum_case_timeout_seconds": 20,
+    "ci_timeout_minutes": 8
+  },
   "stage5c_compatibility_checker": {
     "path": "scripts/stage5c_api_freeze_check.py",
     "sha256": "6aa1a30f87d296df09bf18c84b29b944ad7af8aaa59961c54bcbe6ff0a601537"
@@ -62,7 +78,7 @@
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "453f89a6746dc299db5259262563288ecd81b2ddbbca4fc2d19f9e838770580b"
+    "current_sha256": "24549d7e2593008b5bd6684780b262ed270051fe10b3fa75376b233abc801079"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -1098,7 +1114,8 @@
           "OutboxStateInconsistent",
           "OutboxIdentityMismatch",
           "DuplicateOutboxSession",
-          "DuplicateOutboxIdentity"
+          "DuplicateOutboxIdentity",
+          "RecoveryPlanBindingMismatch"
         ]
       },
       {
@@ -1643,6 +1660,21 @@
       },
       {
         "type": "Stage5dRiskGateInjectedPaperStrategy",
+        "name": "recovery_complete",
+        "signature": "pub fn recovery_complete(&self) -> bool"
+      },
+      {
+        "type": "Stage5dRiskGateInjectedPaperStrategy",
+        "name": "recovery_decision_count",
+        "signature": "pub fn recovery_decision_count(&self) -> usize"
+      },
+      {
+        "type": "Stage5dRiskGateInjectedPaperStrategy",
+        "name": "recovery_plan_fingerprint",
+        "signature": "pub fn recovery_plan_fingerprint(&self) -> &str"
+      },
+      {
+        "type": "Stage5dRiskGateInjectedPaperStrategy",
         "name": "riskgate_injected",
         "signature": "pub fn riskgate_injected(&self) -> bool"
       },
@@ -1739,25 +1771,25 @@
       "Stage5dStructuredTimestampFormat",
       "Stage5dTimestampUnits"
     ],
-    "normalized_signature_hash": "0cc29f434945af23d503b576c32aeb72bc59439c9a2c7df3339809013bf29bec",
+    "normalized_signature_hash": "06ae30292c763b23bad9bc45a39c488ceaa5da8370ccf968188108bbedb924b6",
     "public_surface_counts": {
       "public_reexports": 63,
       "public_constants": 5,
       "public_free_functions": 8,
       "public_types": 50,
-      "public_methods": 37,
+      "public_methods": 40,
       "opaque_capabilities": 12,
       "externally_constructible_enums": 16
     }
   },
   "stage5d_public_api_summary": {
-    "normalized_signature_hash": "0cc29f434945af23d503b576c32aeb72bc59439c9a2c7df3339809013bf29bec",
+    "normalized_signature_hash": "06ae30292c763b23bad9bc45a39c488ceaa5da8370ccf968188108bbedb924b6",
     "public_surface_counts": {
       "public_reexports": 63,
       "public_constants": 5,
       "public_free_functions": 8,
       "public_types": 50,
-      "public_methods": 37,
+      "public_methods": 40,
       "opaque_capabilities": 12,
       "externally_constructible_enums": 16
     }

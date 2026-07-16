@@ -58,7 +58,7 @@ from pathlib import Path
 
 manifest = {
     "schema_version": 1,
-    "review_stage": "5D-b2b-c1",
+    "review_stage": "5D-b2b-c1-r2",
     "source_commit": os.environ["SOURCE_COMMIT"],
     "source_ref": os.environ["SOURCE_REF"],
     "archive_name": os.environ["ARCHIVE_NAME"],
@@ -79,7 +79,8 @@ manifest = {
         "handoff_archive_safety",
         "checker_input_completeness",
         "cargo_fmt",
-        "cargo_test",
+        "cargo_test_all_targets",
+        "cargo_test_docs",
         "cargo_clippy",
     ],
 }

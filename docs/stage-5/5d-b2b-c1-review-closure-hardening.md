@@ -1,6 +1,8 @@
-# Stage 5D-b2b-c1 — review closure hardening
+# Stage 5D-b2b-c1/c1-r2 — review closure hardening
 
-Status: review candidate, 2026-07-16.
+Status: c1-r2 review candidate, 2026-07-16. This section supersedes the c1
+crash-window and forbidden-harness claims below without rewriting their review
+history.
 
 This patch closes the six Stage 5D-b2b-c engineering-review findings without
 calling the final runtime-state-restored transition or opening Redis, FINAM,
@@ -45,3 +47,66 @@ runtime-state-restored return not implemented
 
 The next authorized transition, after separate c1 acceptance, is Stage
 5D-b2b-d. This c1 package does not implement or pre-authorize that transition.
+
+## Stage 5D-b2b-c1-r2 superseding closure
+
+c1-r2 separates three private concepts that the first c1 candidate conflated:
+
+```text
+validated full ledger -> authoritative projection
+durable outbox states -> exact materialized/runtime prefix frontiers
+frontier delta -> ordered, bound, no-I/O recovery plan
+```
+
+Validation now derives the outbox/frontiers before comparing local projections.
+Only exact outbox-explained lag is accepted; there is no generic stale-state
+tolerance. The injected opaque capability retains the recovery plan bound to
+the envelope checksum, ledger-evidence fingerprint, riskgate identity,
+generation and ordered decisions. Public diagnostics expose only decision
+count, completion and a redacted plan fingerprint.
+
+### c1-r2 finding-to-test matrix
+
+| Review finding | Fix | Positive proof | Negative proof |
+|---|---|---|---|
+| Valid crash windows rejected before recovery analysis | Derive authoritative/materialized/runtime frontiers from source-exact ledger plus durable outbox before projection comparison | Public injection tests cover Prepared absent/present, LedgerAppended, MaterializedUpdated, Acknowledged and multi-row frontier | Every state rejects unrelated rolling sum, MR flag, date, count or generation drift; semantic-ahead/materialized-ahead and non-prefix states fail closed |
+| Recovery decisions were discarded | Retain a deterministic private recovery plan inside `Stage5dRiskGateInjectedPaperStrategy`; validate its complete binding before capability construction | Decision count/completion/fingerprint survive successful injection | Plan/evidence/envelope binding tamper returns `RecoveryPlanBindingMismatch`; compile-fail docs prove no direct restored transition or public plan/decision construction |
+| Forbidden harness accepted unrelated failures and was sequential | Machine-readable 81-case inventory, isolated bounded-parallel workers, case-specific markers, infrastructure-marker rejection and positive baseline | `81/81`, no missing/extra, four workers, 20-second per-case bound, about 40 seconds measured locally | Self-protection mutations remove marker checks/inventory/baseline check, lower CI timeout, drift worker/scanner contract and must fail with pinned diagnostics |
+| Decimal text admitted non-source forms | Parse finite value, format through the source formatter, require exact original text | Golden source forms include integer-as-one-decimal and ordinary fractional values | Whitespace, plus, exponent, leading zero, missing leading zero, trailing point, negative zero and wrong integer form fail |
+| `seed_loaded` was independently selectable metadata | Derive from any validated `Seed` ledger row and require evidence/materialized agreement | Seed and runtime-only fixtures produce the source value | Evidence/materialized contradictions fail closed |
+
+### Exact single-row crash matrix
+
+| Durable state | Ledger row | Materialized frontier | Runtime frontier | Deterministic action |
+|---|---:|---|---|---|
+| Prepared | absent | pre-row | pre-row with exact pending | `AppendMissingLedgerRow` |
+| Prepared | exact row present | pre-row or exact explained later frontier | exact explained frontier | `AdvanceToMaterialized` (never append again) |
+| LedgerAppended | present | pre-row | pre-row | `AdvanceToMaterialized` |
+| MaterializedUpdated | present | post-row | pre-row with exact pending | `ReackRuntime` |
+| AcknowledgedInRuntime | present | post-row | post-row, no pending | `AlreadyAcknowledged` |
+
+Multiple rows must form one strictly ordered session/generation tail. Runtime
+cannot be ahead of materialized, materialized cannot be ahead of authoritative
+ledger, and every lagging row has exactly one deterministic action.
+
+### Crash-window sequence
+
+```text
+Prepared
+  -> [possible crash: append action retained]
+LedgerAppended
+  -> [possible crash: materialize action retained]
+MaterializedUpdated
+  -> [possible crash: runtime re-ack retained]
+AcknowledgedInRuntime
+  -> recovery complete
+```
+
+The c1-r2 boundary remains no-I/O. It does not execute these actions and does
+not implement Stage 5D-b2b-d. Redis, FINAM, transport, dispatch, broker
+execution, runtime-live and the restored callback remain closed.
+
+For review, run `bash scripts/stage5d_b2bc_review_gate.sh`. The gate includes
+both freeze checkers, both negative harnesses, no-Redis/safety/fixture checks,
+workspace all-target tests, doc tests and clippy. Package only a clean committed
+tree after this gate passes.

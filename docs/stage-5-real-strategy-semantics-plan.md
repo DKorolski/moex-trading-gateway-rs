@@ -156,6 +156,18 @@ strings; new state must use broker-neutral typed ids.
 Acceptance includes clean flat, adopted non-flat, pending/deferred,
 safe-mode/manual-intervention, protective-state and riskgate restart fixtures.
 
+Current controlled sequence within Stage 5D is:
+
+```text
+5D-b2b-c1-r2 crash-frontier/recovery-plan closure
+ -> separate acceptance review
+5D-b2b-d controlled runtime-state-restored return
+ -> canonical envelope export, round-trip and restart/crash fixture matrix
+```
+
+c1-r2 is no-I/O and accepts only exact durable outbox-explained projection lag.
+It does not pre-authorize b2b-d, Redis, FINAM, transport or runtime-live.
+
 ### Stage 5E — Stage 4 lifecycle and event-time attachment
 
 Attach the strategy only behind the accepted Stage 4 chain:
