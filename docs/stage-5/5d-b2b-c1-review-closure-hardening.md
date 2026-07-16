@@ -1,12 +1,27 @@
-# Stage 5D-b2b-c1/c1-r4 — review closure hardening
+# Stage 5D-b2b-c1/c1-r5 — review closure hardening
 
-Status: c1-r4 review candidate, 2026-07-16. This section supersedes the c1
+Status: c1-r5 review candidate, 2026-07-16. This section supersedes the c1
 crash-window and forbidden-harness claims below without rewriting their review
 history.
 
 This patch closes the remaining c1-r3 review findings without calling the final
 runtime-state-restored transition or opening Redis, FINAM, transport, dispatch,
 runtime-live or broker execution.
+
+## Stage 5D-b2b-c1-r5 superseding closure
+
+c1-r5 keeps the c1-r4 authority/recovery boundary and closes the remaining
+review-provenance and source-binding findings:
+
+| Review finding | Fix | Positive proof | Negative proof |
+|---|---|---|---|
+| Actual runtime pending-finalization export could render `0.0`/`2.0` as `0`/`2` | Runtime export now uses the same Stage 5D authoritative riskgate decimal codec as evidence validation and rejects non-finite/negative-zero values before capability construction | Source-canonical export matrix covers `0.0`, `2.0`, `-0.5`, `0.5`, `0.5000000000000001`, `158.60000000000008` and survives JSON round-trip | Actual runtime export rejects `-0.0`, NaN and infinity before producing authoritative extension evidence |
+| Current-shadow validation was not fully tied to source chronology | Current-shadow validation now binds `last_day_local`, processed/persisted frontier, entry timestamp and open tuple geometry to the authoritative session | Source-valid shadow tuples after finalized/pending sessions pass | stale/local-date mismatch, impossible frontier, invalid geometry and nonzero PnL without trades fail closed |
+| Handoff manifest could carry stale review-stage/hash provenance | Packaging derives `review_stage` from the Stage 5D freeze manifest; archive safety recomputes checker/manifest hashes and validates short/full SHA and marker/manifest/archive-name binding | Generated handoff manifest matches the committed freeze stage and ZIP contents | dedicated provenance negative harness covers missing/stale stage, stale hashes, bad short/full relation and archive-name mismatch |
+
+c1-r5 still does not implement the final runtime-state-restored callback and
+does not open Redis, FINAM, transport, dispatch, runtime-live or broker
+execution.
 
 ## Stage 5D-b2b-c1-r4 superseding closure
 

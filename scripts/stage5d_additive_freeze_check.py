@@ -713,8 +713,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2b-c1-r4":
-        failures.append("stage must be 5D-b2b-c1-r4")
+    if manifest.get("stage") != "5D-b2b-c1-r5":
+        failures.append("stage must be 5D-b2b-c1-r5")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:

@@ -10,7 +10,7 @@ use broker_core::{
     BrokerAccountId, BrokerOrderId, BrokerStopOrderId, BrokerTradeId, ClientOrderId, Exchange,
     InstrumentId, Market, StrategyRequestId,
 };
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, Utc, Weekday};
+use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, Utc, Weekday};
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -669,9 +669,7 @@ fn stage5d_authoritative_riskgate_state_from_evidence(
         &state,
         &analysis.current_shadow_overlap,
         &source_records,
-        &envelope
-            .runtime_private_extension
-            .runtime_pending_finalizations,
+        envelope,
     )?;
 
     let recovery_plan =
@@ -886,22 +884,21 @@ fn stage5d_require_source_canonical_riskgate_decimal(
 }
 
 fn stage5d_source_format_riskgate_decimal(value: f64) -> String {
-    let fields = crate::hybrid_intraday::RiskGateMaterializedState {
-        last_finalized_session_date: None,
-        rolling_sum_lb120: None,
-        mr_enabled_current_session: None,
-        mr_enabled_next_session: None,
-        seed_loaded: false,
-        ledger_rows_count: 0,
-        current_shadow_session_date: None,
-        current_shadow_pnl_points: value,
-        current_generation: crate::hybrid_intraday::RISK_GATE_STATE_GENERATION.to_string(),
+    stage5d_format_authoritative_riskgate_decimal(value)
+        .expect("test/source riskgate decimal must be finite and non-negative-zero")
+}
+
+pub(crate) fn stage5d_format_authoritative_riskgate_decimal(
+    value: f64,
+) -> Result<String, Stage5dEnvelopeValidationError> {
+    if !value.is_finite() || stage5d_is_negative_zero(value) {
+        return Err(Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent);
     }
-    .redis_fields();
-    fields
-        .into_iter()
-        .find_map(|(key, value)| (key == "current_shadow_pnl_points").then_some(value))
-        .expect("source riskgate formatter must emit current_shadow_pnl_points")
+    if value.fract().abs() <= f64::EPSILON {
+        Ok(format!("{value:.1}"))
+    } else {
+        Ok(value.to_string())
+    }
 }
 
 fn stage5d_source_f64_eq(left: f64, right: f64) -> bool {
@@ -1033,7 +1030,7 @@ fn stage5d_validate_current_shadow_source_state(
     state: &Stage5dHybridIntradayStrategyStateV1,
     overlap: &Stage5dRiskGateCurrentShadowOverlap,
     finalized_rows: &[crate::hybrid_intraday::RiskGateLedgerRecord],
-    pending: &[Stage5dRuntimePendingRiskGateFinalization],
+    envelope: &Stage5dPersistenceEnvelope,
 ) -> Result<(), Stage5dRiskGateInjectionBlockReason> {
     let open_tuple_present = state.risk_gate_shadow_entry_ts_utc.is_some()
         || state.risk_gate_shadow_entry_price.is_some()
@@ -1053,17 +1050,89 @@ fn stage5d_validate_current_shadow_source_state(
             if matches!(session_date.weekday(), Weekday::Sat | Weekday::Sun) {
                 return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
             }
+            let last_day_local = state
+                .last_day_local
+                .as_deref()
+                .ok_or(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch)
+                .and_then(|value| {
+                    NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                        .map_err(|_| Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch)
+                })?;
+            if last_day_local != session_date {
+                return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
+            }
             if finalized_rows
                 .last()
                 .is_some_and(|record| session_date <= record.row.session_date)
             {
                 return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
             }
-            for pending in pending {
+            for pending in &envelope
+                .runtime_private_extension
+                .runtime_pending_finalizations
+            {
                 let pending_session = NaiveDate::parse_from_str(&pending.session_date, "%Y-%m-%d")
                     .map_err(|_| Stage5dRiskGateInjectionBlockReason::OutboxStateInconsistent)?;
                 if session_date <= pending_session {
                     return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
+                }
+            }
+            let offset = FixedOffset::east_opt(3 * 3600)
+                .ok_or(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch)?;
+            let processed_or_persisted = envelope
+                .runtime_private_extension
+                .last_processed_bar_ts
+                .unwrap_or(envelope.persisted_at_ts_utc);
+            if processed_or_persisted.with_timezone(&offset).date_naive() < session_date
+                || envelope
+                    .persisted_at_ts_utc
+                    .with_timezone(&offset)
+                    .date_naive()
+                    < session_date
+            {
+                return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
+            }
+            if open_tuple_present {
+                let entry_ts = state
+                    .risk_gate_shadow_entry_ts_utc
+                    .ok_or(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch)?;
+                let entry_dt = DateTime::<Utc>::from_timestamp(entry_ts, 0)
+                    .ok_or(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch)?;
+                if entry_dt.with_timezone(&offset).date_naive() != session_date
+                    || entry_dt > processed_or_persisted
+                    || entry_dt > envelope.persisted_at_ts_utc
+                {
+                    return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
+                }
+                let entry = state
+                    .risk_gate_shadow_entry_price
+                    .ok_or(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch)?;
+                let target = state
+                    .risk_gate_shadow_target_price
+                    .ok_or(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch)?;
+                let stop = state
+                    .risk_gate_shadow_stop_price
+                    .ok_or(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch)?;
+                if !entry.is_finite()
+                    || !target.is_finite()
+                    || !stop.is_finite()
+                    || entry <= 0.0
+                    || target <= 0.0
+                    || stop <= 0.0
+                {
+                    return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
+                }
+                match state
+                    .risk_gate_shadow_side
+                    .ok_or(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch)?
+                {
+                    Stage5dSide::Long if !(stop < entry && entry < target) => {
+                        return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
+                    }
+                    Stage5dSide::Short if !(target < entry && entry < stop) => {
+                        return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
+                    }
+                    Stage5dSide::Long | Stage5dSide::Short => {}
                 }
             }
         }
@@ -1073,6 +1142,9 @@ fn stage5d_validate_current_shadow_source_state(
         || open_tuple_present)
         && overlap.session_date.is_none()
     {
+        return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
+    }
+    if !stage5d_is_source_zero(overlap.pnl_points) && state.risk_gate_shadow_trade_count == 0 {
         return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
     }
     Ok(())
@@ -5250,14 +5322,18 @@ mod tests {
         });
         restore_semantic_state(&mut strategy, &envelope);
 
-        let before_apply = strategy.stage5d_export_runtime_private_extension();
+        let before_apply = strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("stage5d export");
         assert_eq!(before_apply.runtime_pending_finalizations.len(), 1);
 
         strategy
             .stage5d_apply_runtime_private_extension(&envelope.runtime_private_extension)
             .expect("validated private extension must apply");
 
-        let exported = strategy.stage5d_export_runtime_private_extension();
+        let exported = strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("stage5d export");
         assert_eq!(
             exported.runtime_pending_finalizations,
             envelope
@@ -6018,6 +6094,68 @@ mod tests {
     }
 
     #[test]
+    fn stage5d_b2bc1r5_actual_runtime_export_uses_source_canonical_riskgate_decimals() {
+        let session_date = NaiveDate::from_ymd_opt(2026, 1, 6).expect("date");
+        for (value, expected) in [
+            (0.0, "0.0"),
+            (2.0, "2.0"),
+            (-0.5, "-0.5"),
+            (0.5, "0.5"),
+            (0.5000000000000001, "0.5000000000000001"),
+            (158.60000000000008, "158.60000000000008"),
+        ] {
+            let mut strategy = stage5d_test_strategy_with_config(|config| {
+                config.profile =
+                    crate::hybrid_intraday_runtime::HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120;
+                config.risk_gate_mode = crate::hybrid_intraday_runtime::RiskGateMode::NormalAppend;
+            });
+            strategy.stage5d_test_replace_pending_riskgate_finalizations(vec![(
+                session_date,
+                value,
+                1,
+            )]);
+            let exported = strategy
+                .stage5d_export_runtime_private_extension()
+                .expect("source-valid riskgate decimal must export");
+            assert_eq!(
+                exported.runtime_pending_finalizations[0].shadow_pnl_points, expected,
+                "actual runtime export for {value} must be source-canonical"
+            );
+            let json = serde_json::to_string(&exported).expect("serialize extension");
+            let restored: Stage5dRuntimePrivateExtension =
+                serde_json::from_str(&json).expect("deserialize extension");
+            assert_eq!(
+                restored.runtime_pending_finalizations[0],
+                exported.runtime_pending_finalizations[0]
+            );
+        }
+    }
+
+    #[test]
+    fn stage5d_b2bc1r5_actual_runtime_export_rejects_invalid_riskgate_decimals() {
+        let session_date = NaiveDate::from_ymd_opt(2026, 1, 6).expect("date");
+        for value in [-0.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut strategy = stage5d_test_strategy_with_config(|config| {
+                config.profile =
+                    crate::hybrid_intraday_runtime::HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120;
+                config.risk_gate_mode = crate::hybrid_intraday_runtime::RiskGateMode::NormalAppend;
+            });
+            strategy.stage5d_test_replace_pending_riskgate_finalizations(vec![(
+                session_date,
+                value,
+                1,
+            )]);
+            assert_eq!(
+                strategy
+                    .stage5d_export_runtime_private_extension()
+                    .map(|_| ()),
+                Err(Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent),
+                "invalid actual runtime riskgate decimal must fail before durable authority export"
+            );
+        }
+    }
+
+    #[test]
     fn stage5d_b2bc1r4_rejects_negative_zero_at_every_riskgate_authority_boundary() {
         let ledger_cases: [fn(&mut Stage5dRiskGateLedgerEvidence); 3] = [
             |evidence| evidence.ledger_records[0].shadow_pnl_points = "-0.0".to_string(),
@@ -6291,17 +6429,25 @@ mod tests {
             riskgate_enabled_bootstrapped_fixture_with_evidence(|envelope, evidence| {
                 evidence.current_shadow_session_date = Some("2026-07-14".to_string());
                 evidence.current_shadow_pnl_points = "0.5".to_string();
+                envelope.runtime_private_extension.last_processed_bar_ts =
+                    DateTime::<Utc>::from_timestamp(1_784_008_800, 0);
+                envelope.lifecycle_watermarks.last_semantic_bar_ts =
+                    DateTime::<Utc>::from_timestamp(1_784_008_800, 0);
                 stage5d_apply_riskgate_evidence_to_envelope(envelope, evidence);
                 if let Value::Object(fields) =
                     &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
                 {
+                    fields.insert(
+                        "last_day_local".to_string(),
+                        Value::String("2026-07-14".to_string()),
+                    );
                     fields.insert(
                         "risk_gate_shadow_trade_count".to_string(),
                         serde_json::json!(1),
                     );
                     fields.insert(
                         "risk_gate_shadow_entry_ts_utc".to_string(),
-                        serde_json::json!(1_783_843_200_i64),
+                        serde_json::json!(1_784_008_800_i64),
                     );
                     fields.insert(
                         "risk_gate_shadow_entry_price".to_string(),
@@ -7265,6 +7411,7 @@ mod tests {
         assert_eq!(
             strategy
                 .stage5d_export_runtime_private_extension()
+                .expect("stage5d export")
                 .cleanup_retry_state,
             Some(Stage5dCleanupRetryState {
                 cleanup_stop_retry_attempts: 2,

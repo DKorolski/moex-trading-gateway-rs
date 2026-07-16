@@ -37,12 +37,30 @@ check_archive_safety() {
   local archive_name="moex-trading-project-0000000.zip"
   local archive_path="$gate_tmp/$archive_name"
   python3 scripts/copy_review_baseline.py "$repo_root" "$fixture_root" >/dev/null
+  local review_stage
+  local stage5c_checker_sha256
+  local stage5d_checker_sha256
+  local stage5d_manifest_sha256
+  review_stage="$("$python_with_tomllib" - "$fixture_root/docs/stage-5/stage-5d-additive-freeze-manifest.json" <<'PY'
+import json
+import sys
+print(json.loads(open(sys.argv[1]).read())["stage"])
+PY
+)"
+  stage5c_checker_sha256="$(shasum -a 256 "$fixture_root/scripts/stage5c_api_freeze_check.py" | awk '{print $1}')"
+  stage5d_checker_sha256="$(shasum -a 256 "$fixture_root/scripts/stage5d_additive_freeze_check.py" | awk '{print $1}')"
+  stage5d_manifest_sha256="$(shasum -a 256 "$fixture_root/docs/stage-5/stage-5d-additive-freeze-manifest.json" | awk '{print $1}')"
   printf '%s\n' \
     "source_commit=0000000" \
     "source_ref=0000000000000000000000000000000000000000" \
     "archive_name=$archive_name" >"$fixture_root/handoff-commit.txt"
+  REVIEW_STAGE="$review_stage" \
+  STAGE5C_CHECKER_SHA256="$stage5c_checker_sha256" \
+  STAGE5D_CHECKER_SHA256="$stage5d_checker_sha256" \
+  STAGE5D_MANIFEST_SHA256="$stage5d_manifest_sha256" \
   python3 - "$fixture_root/handoff-manifest.json" "$archive_name" <<'PY'
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -50,9 +68,13 @@ Path(sys.argv[1]).write_text(
     json.dumps(
         {
             "schema_version": 1,
+            "review_stage": os.environ["REVIEW_STAGE"],
             "source_commit": "0000000",
             "source_ref": "0000000000000000000000000000000000000000",
             "archive_name": sys.argv[2],
+            "stage5c_checker_sha256": os.environ["STAGE5C_CHECKER_SHA256"],
+            "stage5d_checker_sha256": os.environ["STAGE5D_CHECKER_SHA256"],
+            "stage5d_manifest_sha256": os.environ["STAGE5D_MANIFEST_SHA256"],
         },
         indent=2,
         sort_keys=True,
@@ -69,6 +91,7 @@ run_gate stage5d_additive_freeze python3 scripts/stage5d_additive_freeze_check.p
 run_gate forbidden_surface bash scripts/forbidden_surface_scan.sh
 run_gate forbidden_surface_negative bash scripts/forbidden_surface_negative_harness.sh
 run_gate stage5d_negative python3 scripts/stage5d_additive_freeze_negative_harness.py
+run_gate handoff_provenance_negative python3 scripts/handoff_provenance_negative_harness.py
 run_gate no_redis_smoke bash scripts/test_m4_3x_evidence_no_redis.sh
 run_gate python_syntax python3 -c 'import pathlib; paths=sorted(pathlib.Path("scripts").glob("*.py")); [compile(p.read_bytes(), str(p), "exec") for p in paths]; print(f"python-syntax: ok files={len(paths)}")'
 run_gate fixture_parse "$python_with_tomllib" -c 'import json, pathlib, tomllib; root=pathlib.Path("."); [json.loads(p.read_text()) for p in root.rglob("*.json") if not any(x in p.parts for x in ("target","tmp","reports",".git"))]; [tomllib.loads(p.read_text()) for p in root.rglob("*.toml") if not any(x in p.parts for x in ("target","tmp","reports",".git"))]; print("fixture-parse: ok")'

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-b2b-c1-r4",
+  "stage": "5D-b2b-c1-r5",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -53,7 +53,7 @@
     },
     "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": {
       "closure_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
-      "current_sha256": "ce7ede847b2c188384c04394fcfe05d65abdd11ae1d72383d6fa9136c9a74fb7",
+      "current_sha256": "12bdfc2e6819e9fb7923d96e33a364fed1016cb93478681412594b8bcb347b1c",
       "stripped_without_additive_regions_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
       "additive_regions": [
         "runtime-private-snapshot"
@@ -78,7 +78,7 @@
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "ecc16f728d33b07e9795c8b12feec8d986e3e5bb87125c87983bb77479b7f93e"
+    "current_sha256": "2679f560ef5ff30c721beb875d7b53e3a2f49e617a01c3bfaec5e246ccdcbb96"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",

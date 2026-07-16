@@ -304,14 +304,17 @@ impl HybridIntradayRuntimeStrategy {
 
     pub(crate) fn stage5d_export_runtime_private_extension(
         &self,
-    ) -> crate::stage5d_persistence::Stage5dRuntimePrivateExtension {
+    ) -> Result<
+        crate::stage5d_persistence::Stage5dRuntimePrivateExtension,
+        crate::stage5d_persistence::Stage5dEnvelopeValidationError,
+    > {
         let mut expected_working_order_ids: Vec<_> = self.working_orders.iter().cloned().collect();
         expected_working_order_ids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
         let mut expected_working_stop_order_ids: Vec<_> =
             self.working_stop_orders.iter().cloned().collect();
         expected_working_stop_order_ids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
 
-        crate::stage5d_persistence::Stage5dRuntimePrivateExtension {
+        Ok(crate::stage5d_persistence::Stage5dRuntimePrivateExtension {
             schema_version:
                 crate::stage5d_persistence::STAGE5D_RUNTIME_PRIVATE_EXTENSION_SCHEMA_VERSION,
             pending_entry: self.pending_entry.map(|entry| {
@@ -364,14 +367,17 @@ impl HybridIntradayRuntimeStrategy {
                 .pending_risk_gate_finalizations
                 .iter()
                 .map(|finalization| {
-                    crate::stage5d_persistence::Stage5dRuntimePendingRiskGateFinalization {
+                    Ok(crate::stage5d_persistence::Stage5dRuntimePendingRiskGateFinalization {
                         session_date: Self::format_local_day(finalization.session_date),
-                        shadow_pnl_points: finalization.shadow_pnl_points.to_string(),
+                        shadow_pnl_points:
+                            crate::stage5d_persistence::stage5d_format_authoritative_riskgate_decimal(
+                                finalization.shadow_pnl_points,
+                            )?,
                         shadow_trade_count: finalization.shadow_trade_count,
-                    }
+                    })
                 })
-                .collect(),
-        }
+                .collect::<Result<Vec<_>, crate::stage5d_persistence::Stage5dEnvelopeValidationError>>()?,
+        })
     }
 
     pub(crate) fn stage5d_apply_runtime_private_extension(
@@ -628,6 +634,24 @@ impl HybridIntradayRuntimeStrategy {
 
     pub(crate) fn stage5d_riskgate_applicable(&self) -> bool {
         self.risk_gate_shadow_enabled()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stage5d_test_replace_pending_riskgate_finalizations(
+        &mut self,
+        records: Vec<(NaiveDate, f64, u32)>,
+    ) {
+        self.pending_risk_gate_finalizations = records
+            .into_iter()
+            .map(|(session_date, shadow_pnl_points, shadow_trade_count)| {
+                RiskGateSessionFinalization {
+                    session_date,
+                    shadow_pnl_points,
+                    shadow_trade_count,
+                }
+            })
+            .collect();
+        self.sync_state();
     }
 
     pub(crate) fn stage5d_expected_riskgate_identity(

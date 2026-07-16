@@ -41,6 +41,12 @@ printf '%s\n' \
 stage5c_checker_sha256="$(shasum -a 256 "$repo_root/scripts/stage5c_api_freeze_check.py" | awk '{print $1}')"
 stage5d_checker_sha256="$(shasum -a 256 "$repo_root/scripts/stage5d_additive_freeze_check.py" | awk '{print $1}')"
 stage5d_manifest_sha256="$(shasum -a 256 "$repo_root/docs/stage-5/stage-5d-additive-freeze-manifest.json" | awk '{print $1}')"
+review_stage="$(python3 - "$repo_root/docs/stage-5/stage-5d-additive-freeze-manifest.json" <<'PY'
+import json
+import sys
+print(json.loads(open(sys.argv[1]).read())["stage"])
+PY
+)"
 created_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 SOURCE_COMMIT="$source_commit" \
@@ -50,6 +56,7 @@ CREATED_AT_UTC="$created_at_utc" \
 STAGE5C_CHECKER_SHA256="$stage5c_checker_sha256" \
 STAGE5D_CHECKER_SHA256="$stage5d_checker_sha256" \
 STAGE5D_MANIFEST_SHA256="$stage5d_manifest_sha256" \
+REVIEW_STAGE="$review_stage" \
 HANDOFF_MANIFEST="$handoff_manifest" \
 python3 - <<'PY'
 import json
@@ -58,7 +65,7 @@ from pathlib import Path
 
 manifest = {
     "schema_version": 1,
-    "review_stage": "5D-b2b-c1-r3",
+    "review_stage": os.environ["REVIEW_STAGE"],
     "source_commit": os.environ["SOURCE_COMMIT"],
     "source_ref": os.environ["SOURCE_REF"],
     "archive_name": os.environ["ARCHIVE_NAME"],
@@ -72,6 +79,7 @@ manifest = {
         "forbidden_surface",
         "forbidden_surface_negative",
         "stage5d_negative",
+        "handoff_provenance_negative",
         "no_redis_smoke",
         "python_syntax",
         "fixture_parse",
