@@ -174,7 +174,7 @@ def mutate_closed_surface_downgrade(root: Path) -> None:
     )
     replace_once(
         root / "docs/stage-5/stage-5d-additive-freeze-manifest.json",
-        '"runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_only"',
+        '"runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_only"',
         '"runtime_private_mutation": "raw_mutation_allowed"',
     )
 
@@ -456,6 +456,55 @@ def mutate_bootstrap_bridge_second_stage5d_call(root: Path) -> None:
     update_manifest_stage5d_hash(root)
 
 
+def mutate_riskgate_bridge_runtime_compat_direct_call(root: Path) -> None:
+    append_text(
+        root / "crates/strategy-runtime-core/src/runtime_compat.rs",
+        "\n#[allow(dead_code)]\nfn stage5d_negative_riskgate_bridge_direct_call(bootstrapped: crate::stage5c_paper_host::Stage5cBootstrappedPaperStrategy, riskgate: RiskGateRuntimeState) {\n"
+        "    let _ = crate::stage5c_paper_host::stage5d_inject_authoritative_riskgate_state(bootstrapped, riskgate);\n"
+        "}\n",
+    )
+
+
+def mutate_riskgate_bridge_runtime_compat_alias_call(root: Path) -> None:
+    append_text(
+        root / "crates/strategy-runtime-core/src/runtime_compat.rs",
+        "\n#[allow(dead_code)]\nfn stage5d_negative_riskgate_bridge_alias_call(bootstrapped: crate::stage5c_paper_host::Stage5cBootstrappedPaperStrategy, riskgate: RiskGateRuntimeState) {\n"
+        "    use crate::stage5c_paper_host::stage5d_inject_authoritative_riskgate_state as bypass_riskgate;\n"
+        "    let _ = bypass_riskgate(bootstrapped, riskgate);\n"
+        "}\n",
+    )
+
+
+def mutate_riskgate_bridge_runtime_compat_forwarding_wrapper(root: Path) -> None:
+    append_text(
+        root / "crates/strategy-runtime-core/src/runtime_compat.rs",
+        "\n#[allow(dead_code)]\nfn stage5d_negative_riskgate_bridge_forwarding_wrapper(bootstrapped: crate::stage5c_paper_host::Stage5cBootstrappedPaperStrategy, riskgate: RiskGateRuntimeState) {\n"
+        "    let _ = crate::stage5c_paper_host::stage5d_inject_authoritative_riskgate_state(bootstrapped, riskgate);\n"
+        "}\n",
+    )
+
+
+def mutate_riskgate_bridge_runtime_compat_function_reference(root: Path) -> None:
+    append_text(
+        root / "crates/strategy-runtime-core/src/runtime_compat.rs",
+        "\n#[allow(dead_code)]\nfn stage5d_negative_riskgate_bridge_function_reference() {\n"
+        "    let _bridge = crate::stage5c_paper_host::stage5d_inject_authoritative_riskgate_state;\n"
+        "}\n",
+    )
+
+
+def mutate_riskgate_bridge_second_stage5d_call(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    insert_before(
+        root / rel,
+        "fn stage5d_authoritative_riskgate_state_from_envelope(",
+        "#[allow(dead_code)]\nfn stage5d_negative_second_riskgate_bridge_call(bootstrapped: crate::stage5c_paper_host::Stage5cBootstrappedPaperStrategy, riskgate: RiskGateRuntimeState) {\n"
+        "    let _ = crate::stage5c_paper_host::stage5d_inject_authoritative_riskgate_state(bootstrapped, riskgate);\n"
+        "}\n\n",
+    )
+    update_manifest_stage5d_hash(root)
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -507,6 +556,11 @@ CASES = [
     ("bootstrap_bridge_runtime_compat_forwarding_wrapper", mutate_bootstrap_bridge_runtime_compat_forwarding_wrapper, "Stage 5D bootstrap bridge reference outside allowlist"),
     ("bootstrap_bridge_runtime_compat_function_reference", mutate_bootstrap_bridge_runtime_compat_function_reference, "Stage 5D bootstrap bridge reference outside allowlist"),
     ("bootstrap_bridge_second_stage5d_call", mutate_bootstrap_bridge_second_stage5d_call, "Stage 5D bootstrap bridge production call count mismatch"),
+    ("riskgate_bridge_runtime_compat_direct_call", mutate_riskgate_bridge_runtime_compat_direct_call, "Stage 5D riskgate bridge reference outside allowlist"),
+    ("riskgate_bridge_runtime_compat_alias_call", mutate_riskgate_bridge_runtime_compat_alias_call, "Stage 5D riskgate bridge reference outside allowlist"),
+    ("riskgate_bridge_runtime_compat_forwarding_wrapper", mutate_riskgate_bridge_runtime_compat_forwarding_wrapper, "Stage 5D riskgate bridge reference outside allowlist"),
+    ("riskgate_bridge_runtime_compat_function_reference", mutate_riskgate_bridge_runtime_compat_function_reference, "Stage 5D riskgate bridge reference outside allowlist"),
+    ("riskgate_bridge_second_stage5d_call", mutate_riskgate_bridge_second_stage5d_call, "Stage 5D riskgate bridge production call count mismatch"),
 ]
 
 

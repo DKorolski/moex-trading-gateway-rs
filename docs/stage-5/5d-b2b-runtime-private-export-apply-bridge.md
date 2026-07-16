@@ -1,4 +1,4 @@
-# Stage 5D-b2b-a/b — runtime-private apply and controlled bootstrap bridge
+# Stage 5D-b2b-a/b/c — runtime-private apply, bootstrap and riskgate bridge
 
 Status: review candidate.
 
@@ -6,6 +6,8 @@ Stage 5D-b2a closed the strict persistence schema and validated-envelope
 capability. Stage 5D-b2b-a opened the first controlled implementation slice:
 runtime-private extension export/apply. Stage 5D-b2b-b adds the next controlled
 type-state transition: broker-truth bootstrap notification after private apply.
+Stage 5D-b2b-c adds authoritative riskgate projection injection after
+broker-truth bootstrap and before the runtime-state-restored callback.
 Redis, FINAM, broker transport, command dispatch, runtime-live and real order
 execution remain closed.
 
@@ -38,6 +40,21 @@ Implemented:
 - bootstrap retry consumes only `Stage5dBootstrapBlocked` plus a fresh
   `Stage5cPaperHostAdmission`; it replaces only authoritative broker-truth
   admission and does not expose or re-run runtime-private apply;
+- public `stage5d_inject_authoritative_riskgate(...)` transition;
+- riskgate injection input requires the opaque
+  `Stage5dBootstrappedPaperStrategy` produced by the controlled bootstrap
+  transition;
+- riskgate injection output is opaque
+  `Stage5dRiskGateInjectedPaperStrategy`;
+- riskgate injection block is represented by opaque
+  `Stage5dRiskGateInjectionBlocked`, exposes only redacted reason/snapshot id,
+  and preserves the input bootstrapped capability internally;
+- persisted riskgate materialized projection is cross-checked against the
+  semantic runtime snapshot before callback;
+- runtime pending riskgate finalizations must be represented by durable outbox
+  sessions before the riskgate callback is allowed;
+- actual riskgate callback is delegated through one checker-pinned crate-private
+  Stage 5C bridge;
 - wrapper additive region now exports/applies runtime-private DTO fields:
   pending entry payload, partial-entry timer, pending-exit context,
   bracket-reconciliation timer, cleanup retry state, last processed bar
@@ -45,7 +62,6 @@ Implemented:
 
 Not implemented in this slice:
 
-- authoritative riskgate injection;
 - final return to `Stage5cRuntimeStateRestoredPaperStrategy`;
 - broker working-set authority restoration beyond fail-closed hint checking;
 - active-order ownership mapping;
@@ -174,23 +190,33 @@ Regression tests prove:
   the exact active-order ownership-mapping boundary;
 - cross-account fresh admission is rejected and the blocked capability remains
   preserved.
+- authoritative riskgate injection succeeds only after broker-truth bootstrap;
+- semantic/materialized riskgate drift blocks before callback and preserves the
+  bootstrapped capability;
+- runtime pending riskgate finalizations missing from durable outbox block
+  before callback and preserve the bootstrapped capability.
 
-The Stage 5D checker also pins the crate-private bootstrap bridge call-site
-contract:
+The Stage 5D checker also pins the crate-private bootstrap and riskgate bridge
+call-site contracts:
 
 - `stage5d_bootstrap_preserving_loaded_at` may be defined exactly once in the
   Stage 5C additive region;
 - production use is exactly one call inside
   `stage5d_notify_broker_truth_bootstrap_at`;
+- `stage5d_inject_authoritative_riskgate_state` may be defined exactly once in
+  the Stage 5C additive region;
+- production use is exactly one call inside
+  `stage5d_inject_authoritative_riskgate`;
 - direct calls, aliases, forwarding wrappers, function references and extra
   Stage 5D calls are rejected by the negative harness.
 
-The Stage 5D additive manifest now labels this baseline as `5D-b2b-b` and pins
+The Stage 5D additive manifest now labels this baseline as `5D-b2b-c` and pins
 the updated public API surface including the controlled bind/apply/bootstrap/
-retry Stage 5D transitions. The formal surface policy records
+retry/riskgate-injection Stage 5D transitions. The formal surface policy records
 `runtime_private_mutation =
-controlled_validated_stage5d_apply_then_broker_truth_bootstrap_only`; Redis,
-FINAM, transport, dispatch, runtime-live and broker execution remain closed.
+controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_only`;
+Redis, FINAM, transport, dispatch, runtime-live and broker execution remain
+closed.
 The manifest also records a controlled private-layout Stage 5C extension for
 the crate-private persisted-vs-clean load provenance marker; Stage 5C public API
 shape remains pinned by the Stage 5C compatibility checker. The private-layout

@@ -135,6 +135,19 @@ pub(crate) fn stage5d_bootstrap_preserving_loaded_at(
         .expect("Stage 5D prevalidated bootstrap notification must not fail"))
 }
 
+pub(crate) fn stage5d_inject_authoritative_riskgate_state(
+    bootstrapped: Stage5cBootstrappedPaperStrategy,
+    riskgate: crate::runtime_compat::RiskGateRuntimeState,
+) -> Stage5cBootstrappedPaperStrategy {
+    let (mut strategy, receipt, restored) = bootstrapped.into_parts();
+    Strategy::on_risk_gate_state(&mut strategy, &riskgate);
+    Stage5cBootstrappedPaperStrategy {
+        strategy,
+        receipt,
+        restored,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Stage5cRuntimeStateLoadOrigin {
     CleanStart,

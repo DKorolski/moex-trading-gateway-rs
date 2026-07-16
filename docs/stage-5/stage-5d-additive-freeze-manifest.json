@@ -28,7 +28,7 @@
   "approved_bridge_files": {
     "crates/strategy-runtime-core/src/lib.rs": {
       "closure_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
-      "current_sha256": "d67bbbebe4aa0970ba1b65173c5a9bafdc74b5ee81c17c06ce015fcbe33de28d",
+      "current_sha256": "03ad3c96f7d0a5a56622a979410af878e45d0aadc16d3160df638ea692f59067",
       "stripped_without_additive_regions_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
       "additive_regions": [
         "lib-stage5d-module",
@@ -45,7 +45,7 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "a0679bd3962b53aa09c7a3f4e0f5008ca23138081e02ca697852d49f46124dfd",
+      "current_sha256": "3f68387c36c23f72c4efcb59eb7076c0d4a1eeafa046550e7d5b791c9b0b7168",
       "stripped_without_additive_regions_sha256": "0ea1a8982965eb34cc113d41c821b22a3ab2c2e2f5a80112ce2561b48fc4ed3c",
       "additive_regions": [
         "type-state-transitions"
@@ -62,7 +62,7 @@
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "509cd1fb5daedbfd67f79e04f0c8286dee4136d0a3503e79d187db829c1ef483"
+    "current_sha256": "eea91a1c627921e5f186eee97a4a9ff92ccf4674595a9765b0409622c858d5d7"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -98,6 +98,8 @@
     "Stage5dRiskGateFinalizationState",
     "Stage5dRiskGateIdentity",
     "Stage5dRiskGateInjectedPaperStrategy",
+    "Stage5dRiskGateInjectionBlockReason",
+    "Stage5dRiskGateInjectionBlocked",
     "Stage5dRiskGateMaterializedState",
     "Stage5dRiskGatePersistence",
     "Stage5dRuntimePendingRiskGateFinalization",
@@ -115,6 +117,7 @@
     "Stage5dValidatedRuntimePrivateExtension",
     "stage5d_apply_runtime_private_extension",
     "stage5d_bind_runtime_state_loaded",
+    "stage5d_inject_authoritative_riskgate",
     "stage5d_notify_broker_truth_bootstrap",
     "stage5d_retry_bind_runtime_state_loaded",
     "stage5d_retry_broker_truth_bootstrap"
@@ -126,7 +129,7 @@
     "dispatch": false,
     "runtime_live": false,
     "broker_execution": false,
-    "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_only"
+    "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_only"
   },
   "negative_cases": [
     "stage5c_api_drift",
@@ -167,7 +170,12 @@
     "bootstrap_bridge_runtime_compat_alias_call",
     "bootstrap_bridge_runtime_compat_forwarding_wrapper",
     "bootstrap_bridge_runtime_compat_function_reference",
-    "bootstrap_bridge_second_stage5d_call"
+    "bootstrap_bridge_second_stage5d_call",
+    "riskgate_bridge_runtime_compat_direct_call",
+    "riskgate_bridge_runtime_compat_alias_call",
+    "riskgate_bridge_runtime_compat_forwarding_wrapper",
+    "riskgate_bridge_runtime_compat_function_reference",
+    "riskgate_bridge_second_stage5d_call"
   ],
   "stage5d_public_api": {
     "public_reexports": [
@@ -204,6 +212,8 @@
       "Stage5dRiskGateFinalizationState",
       "Stage5dRiskGateIdentity",
       "Stage5dRiskGateInjectedPaperStrategy",
+      "Stage5dRiskGateInjectionBlockReason",
+      "Stage5dRiskGateInjectionBlocked",
       "Stage5dRiskGateMaterializedState",
       "Stage5dRiskGatePersistence",
       "Stage5dRuntimePendingRiskGateFinalization",
@@ -221,6 +231,7 @@
       "Stage5dValidatedRuntimePrivateExtension",
       "stage5d_apply_runtime_private_extension",
       "stage5d_bind_runtime_state_loaded",
+      "stage5d_inject_authoritative_riskgate",
       "stage5d_notify_broker_truth_bootstrap",
       "stage5d_retry_bind_runtime_state_loaded",
       "stage5d_retry_broker_truth_bootstrap"
@@ -260,6 +271,10 @@
       {
         "name": "stage5d_bind_runtime_state_loaded",
         "signature": "pub fn stage5d_bind_runtime_state_loaded( loaded: crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy, validated: Stage5dValidatedPersistenceEnvelope, ) -> Result<Stage5dEnvelopeBoundRuntimeStateLoaded, Stage5dRuntimePrivateApplyBlocked>"
+      },
+      {
+        "name": "stage5d_inject_authoritative_riskgate",
+        "signature": "pub fn stage5d_inject_authoritative_riskgate( bootstrapped: Stage5dBootstrappedPaperStrategy, ) -> Result<Stage5dRiskGateInjectedPaperStrategy, Stage5dRiskGateInjectionBlocked>"
       },
       {
         "name": "stage5d_notify_broker_truth_bootstrap",
@@ -1042,6 +1057,26 @@
         "public_variants": []
       },
       {
+        "name": "Stage5dRiskGateInjectionBlockReason",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "BindingMismatch",
+          "MaterializedStateMismatch",
+          "MaterializedStateInvalid",
+          "RuntimePendingFinalizationMissingFromOutbox",
+          "DuplicateOutboxSession"
+        ]
+      },
+      {
+        "name": "Stage5dRiskGateInjectionBlocked",
+        "kind": "struct",
+        "opaque": true,
+        "public_fields": [],
+        "public_variants": []
+      },
+      {
         "name": "Stage5dRiskGateMaterializedState",
         "kind": "struct",
         "opaque": false,
@@ -1439,6 +1474,41 @@
         "signature": "pub fn reason(&self) -> Stage5dRestoreBlockReason"
       },
       {
+        "type": "Stage5dRiskGateInjectedPaperStrategy",
+        "name": "evidence_fingerprint",
+        "signature": "pub fn evidence_fingerprint(&self) -> &str"
+      },
+      {
+        "type": "Stage5dRiskGateInjectedPaperStrategy",
+        "name": "riskgate_injected",
+        "signature": "pub fn riskgate_injected(&self) -> bool"
+      },
+      {
+        "type": "Stage5dRiskGateInjectedPaperStrategy",
+        "name": "schema_version",
+        "signature": "pub fn schema_version(&self) -> u16"
+      },
+      {
+        "type": "Stage5dRiskGateInjectedPaperStrategy",
+        "name": "snapshot_id",
+        "signature": "pub fn snapshot_id(&self) -> &str"
+      },
+      {
+        "type": "Stage5dRiskGateInjectionBlocked",
+        "name": "input_capability_preserved",
+        "signature": "pub fn input_capability_preserved(&self) -> bool"
+      },
+      {
+        "type": "Stage5dRiskGateInjectionBlocked",
+        "name": "reason",
+        "signature": "pub fn reason(&self) -> Stage5dRiskGateInjectionBlockReason"
+      },
+      {
+        "type": "Stage5dRiskGateInjectionBlocked",
+        "name": "snapshot_id",
+        "signature": "pub fn snapshot_id(&self) -> &str"
+      },
+      {
         "type": "Stage5dRuntimePrivateApplyBlocked",
         "name": "input_capability_preserved",
         "signature": "pub fn input_capability_preserved(&self) -> bool"
@@ -1467,6 +1537,7 @@
       "Stage5dPrivateStateAppliedPaperStrategy",
       "Stage5dRestoreBlocked",
       "Stage5dRiskGateInjectedPaperStrategy",
+      "Stage5dRiskGateInjectionBlocked",
       "Stage5dRuntimePrivateApplyBlocked",
       "Stage5dValidatedPersistenceEnvelope",
       "Stage5dValidatedRuntimePrivateExtension"
@@ -1480,33 +1551,34 @@
       "Stage5dPersistenceStage",
       "Stage5dRestoreBlockReason",
       "Stage5dRiskGateFinalizationState",
+      "Stage5dRiskGateInjectionBlockReason",
       "Stage5dSemanticStrategyStateV1",
       "Stage5dSide",
       "Stage5dStrategyKind",
       "Stage5dStructuredTimestampFormat",
       "Stage5dTimestampUnits"
     ],
-    "normalized_signature_hash": "a6a50bc33b9ff19abdd04593c4e00f48d7b5acec2cedd367ef5f5eebb31e333f",
+    "normalized_signature_hash": "65bf2726722c1bd2885daf03b88dba6f206cf413f69f2448fcb10f496807f167",
     "public_surface_counts": {
-      "public_reexports": 53,
+      "public_reexports": 56,
       "public_constants": 5,
-      "public_free_functions": 5,
-      "public_types": 43,
-      "public_methods": 27,
-      "opaque_capabilities": 10,
-      "externally_constructible_enums": 13
+      "public_free_functions": 6,
+      "public_types": 45,
+      "public_methods": 34,
+      "opaque_capabilities": 11,
+      "externally_constructible_enums": 14
     }
   },
   "stage5d_public_api_summary": {
-    "normalized_signature_hash": "c2e310a5f6da27d54503379fa64b475f825cbd0481dcfdf4998d1c3378abec5e",
+    "normalized_signature_hash": "65bf2726722c1bd2885daf03b88dba6f206cf413f69f2448fcb10f496807f167",
     "public_surface_counts": {
-      "public_reexports": 49,
+      "public_reexports": 56,
       "public_constants": 5,
-      "public_free_functions": 3,
-      "public_types": 41,
-      "public_methods": 20,
-      "opaque_capabilities": 9,
-      "externally_constructible_enums": 12
+      "public_free_functions": 6,
+      "public_types": 45,
+      "public_methods": 34,
+      "opaque_capabilities": 11,
+      "externally_constructible_enums": 14
     }
   }
 }

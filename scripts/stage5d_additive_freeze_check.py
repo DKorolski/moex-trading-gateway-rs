@@ -31,6 +31,8 @@ WRAPPER_REL = Path("crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs"
 STAGE5D_REL = Path("crates/strategy-runtime-core/src/stage5d_persistence.rs")
 STAGE5D_BOOTSTRAP_BRIDGE_IDENTIFIER = "stage5d_bootstrap_preserving_loaded_at"
 STAGE5D_BOOTSTRAP_BRIDGE_ALLOWED_CALL_FUNCTION = "stage5d_notify_broker_truth_bootstrap_at"
+STAGE5D_RISKGATE_BRIDGE_IDENTIFIER = "stage5d_inject_authoritative_riskgate_state"
+STAGE5D_RISKGATE_BRIDGE_ALLOWED_CALL_FUNCTION = "stage5d_inject_authoritative_riskgate"
 
 EXPECTED_MANIFEST_CHECKER = "scripts/stage5d_additive_freeze_check.py"
 EXPECTED_NEGATIVE_HARNESS = "scripts/stage5d_additive_freeze_negative_harness.py"
@@ -66,7 +68,7 @@ EXPECTED_CLOSED_SURFACES = {
     "dispatch": False,
     "runtime_live": False,
     "broker_execution": False,
-    "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_only",
+    "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_only",
 }
 
 EXPECTED_STAGE5C_PRIVATE_LAYOUT_EXTENSIONS = [
@@ -120,6 +122,11 @@ EXPECTED_NEGATIVE_CASES = [
     "bootstrap_bridge_runtime_compat_forwarding_wrapper",
     "bootstrap_bridge_runtime_compat_function_reference",
     "bootstrap_bridge_second_stage5d_call",
+    "riskgate_bridge_runtime_compat_direct_call",
+    "riskgate_bridge_runtime_compat_alias_call",
+    "riskgate_bridge_runtime_compat_forwarding_wrapper",
+    "riskgate_bridge_runtime_compat_function_reference",
+    "riskgate_bridge_second_stage5d_call",
 ]
 
 EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
@@ -156,6 +163,8 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "Stage5dRiskGateFinalizationState",
     "Stage5dRiskGateIdentity",
     "Stage5dRiskGateInjectedPaperStrategy",
+    "Stage5dRiskGateInjectionBlockReason",
+    "Stage5dRiskGateInjectionBlocked",
     "Stage5dRiskGateMaterializedState",
     "Stage5dRiskGatePersistence",
     "Stage5dRuntimePendingRiskGateFinalization",
@@ -173,6 +182,7 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "Stage5dValidatedRuntimePrivateExtension",
     "stage5d_apply_runtime_private_extension",
     "stage5d_bind_runtime_state_loaded",
+    "stage5d_inject_authoritative_riskgate",
     "stage5d_notify_broker_truth_bootstrap",
     "stage5d_retry_bind_runtime_state_loaded",
     "stage5d_retry_broker_truth_bootstrap",
@@ -601,18 +611,24 @@ def validate_no_legacy_identifiers_in_additive_regions(
 
 
 def source_function_slice(source: str, function_name: str) -> str:
-    match = re.search(rf"\nfn\s+{re.escape(function_name)}\b", source)
+    match = re.search(rf"\n(?:pub\s+)?fn\s+{re.escape(function_name)}\b", source)
     if not match:
         return ""
     start = match.start()
-    next_match = re.search(r"\nfn\s+[A-Za-z0-9_]+\b", source[start + 1 :])
+    next_match = re.search(r"\n(?:pub\s+)?fn\s+[A-Za-z0-9_]+\b", source[start + 1 :])
     if next_match:
         return source[start : start + 1 + next_match.start()]
     return source[start:]
 
 
-def validate_stage5d_bootstrap_bridge_call_sites(root: Path, failures: list[str]) -> None:
-    identifier = STAGE5D_BOOTSTRAP_BRIDGE_IDENTIFIER
+def validate_stage5d_single_bridge_call_sites(
+    root: Path,
+    failures: list[str],
+    *,
+    label: str,
+    identifier: str,
+    allowed_call_function: str,
+) -> None:
     pattern = re.compile(rf"\b{re.escape(identifier)}\b")
     source_root = root / "crates/strategy-runtime-core/src"
     refs: dict[str, int] = {}
@@ -627,26 +643,41 @@ def validate_stage5d_bootstrap_bridge_call_sites(root: Path, failures: list[str]
     expected_definition = rf"pub\(crate\)\s+fn\s+{re.escape(identifier)}\s*\("
     if refs.get(stage5c_rel) != 1 or not re.search(expected_definition, stage5c_source):
         failures.append(
-            f"Stage 5D bootstrap bridge definition contract mismatch: {stage5c_rel}"
+            f"Stage 5D {label} bridge definition contract mismatch: {stage5c_rel}"
         )
     if refs.get(stage5d_rel) != 1:
         failures.append(
-            f"Stage 5D bootstrap bridge production call count mismatch: {stage5d_rel} "
+            f"Stage 5D {label} bridge production call count mismatch: {stage5d_rel} "
             f"actual={refs.get(stage5d_rel)} expected=1"
         )
-    allowed_function = source_function_slice(
-        stage5d_source, STAGE5D_BOOTSTRAP_BRIDGE_ALLOWED_CALL_FUNCTION
-    )
+    allowed_function = source_function_slice(stage5d_source, allowed_call_function)
     if len(pattern.findall(allowed_function)) != 1:
         failures.append(
-            "Stage 5D bootstrap bridge call must remain inside "
-            f"{STAGE5D_BOOTSTRAP_BRIDGE_ALLOWED_CALL_FUNCTION}"
+            f"Stage 5D {label} bridge call must remain inside "
+            f"{allowed_call_function}"
         )
     for rel, count in refs.items():
         if rel not in {stage5c_rel, stage5d_rel} and count:
             failures.append(
-                f"Stage 5D bootstrap bridge reference outside allowlist: {rel} count={count}"
+                f"Stage 5D {label} bridge reference outside allowlist: {rel} count={count}"
             )
+
+
+def validate_stage5d_bridge_call_sites(root: Path, failures: list[str]) -> None:
+    validate_stage5d_single_bridge_call_sites(
+        root,
+        failures,
+        label="bootstrap",
+        identifier=STAGE5D_BOOTSTRAP_BRIDGE_IDENTIFIER,
+        allowed_call_function=STAGE5D_BOOTSTRAP_BRIDGE_ALLOWED_CALL_FUNCTION,
+    )
+    validate_stage5d_single_bridge_call_sites(
+        root,
+        failures,
+        label="riskgate",
+        identifier=STAGE5D_RISKGATE_BRIDGE_IDENTIFIER,
+        allowed_call_function=STAGE5D_RISKGATE_BRIDGE_ALLOWED_CALL_FUNCTION,
+    )
 
 
 def validate(root: Path, manifest_path: Path) -> list[str]:
@@ -747,7 +778,7 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
                 failures.append(f"{rel}: frozen region does not match Stage 5C closure source")
 
     validate_no_legacy_identifiers_in_additive_regions(root, APPROVED_BRIDGE_FILES, failures)
-    validate_stage5d_bootstrap_bridge_call_sites(root, failures)
+    validate_stage5d_bridge_call_sites(root, failures)
 
     stage5d_record = manifest.get("stage5d_persistence_file", {})
     stage5d_path = root / STAGE5D_REL

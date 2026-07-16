@@ -171,22 +171,27 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   build binding, hashed riskgate seed/ledger identity in the canonical
   fingerprint, pending-entry source-shape/config exactness checks,
   checker-owned exact private-layout extension enforcement with negative cases
-  for self-authorized semantic drift, source-private invariant preflight, and no authoritative working-set
-  rehydration from persistence. Stage 5D-b2b-b treats persistence working sets
+  for self-authorized semantic drift, source-private invariant preflight, and no
+  authoritative working-set rehydration from persistence. Stage 5D-b2b-b treats persistence working sets
   only as hints, requires broker-truth position match, blocks missing expected
   working orders, blocks stop hints until stop-truth surface opens, and still
   fails closed on confirmed active target orders until ownership mapping opens.
   Recoverable bootstrap blocks can now retry only through
   `stage5d_retry_broker_truth_bootstrap(...)` with a fresh matching Stage 5C
   admission; cross-binding refresh attempts preserve the blocked capability and
-  fail closed. The Stage 5D checker pins the crate-private bootstrap bridge to
-  one definition and one production call-site, with negative cases for direct
-  calls, aliases, forwarding wrappers, function references and extra Stage 5D
-  calls.
+  fail closed. Stage 5D-b2b-c adds authoritative riskgate projection injection
+  through `stage5d_inject_authoritative_riskgate(...)` after broker-truth
+  bootstrap and before runtime-state-restored; it blocks semantic/materialized
+  riskgate drift and runtime pending finalizations that are absent from the
+  durable outbox. The Stage 5D checker pins both crate-private bootstrap and
+  riskgate bridges to one definition and one production call-site, with negative
+  cases for direct calls, aliases, forwarding wrappers, function references and
+  extra Stage 5D calls.
   The formal mutation policy is
-  `controlled_validated_stage5d_apply_then_broker_truth_bootstrap_only`; Stage
-  5D-b2b-b still does not implement authoritative riskgate injection, Redis
-  bridge, FINAM execution, broker transport, runtime-live or autonomous loop.
+  `controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_only`;
+  Stage 5D-b2b-c still does not implement final runtime-state-restored return,
+  Redis bridge, FINAM execution, broker transport, runtime-live or autonomous
+  loop.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
