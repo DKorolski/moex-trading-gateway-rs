@@ -719,7 +719,7 @@ run_replacement_case \
 run_replacement_case \
   "forbidden-ci-timeout-lowered" \
   "$tmp_root/.github/workflows/ci.yml" \
-  '        timeout-minutes: 8' \
+  '        timeout-minutes: 15' \
   '        timeout-minutes: 1'
 run_replacement_case \
   "forbidden-baseline-positive-bypass" \
@@ -729,7 +729,7 @@ run_replacement_case \
 run_replacement_case \
   "forbidden-scanner-contract-drift" \
   "$tmp_root/scripts/forbidden_surface_scan.sh" \
-  'FORBIDDEN_SURFACE_SCANNER_CONTRACT="stage5d-b2bc1-r2-v1"' \
+  'FORBIDDEN_SURFACE_SCANNER_CONTRACT="stage5d-b2bc1-r3-v1"' \
   'FORBIDDEN_SURFACE_SCANNER_CONTRACT="unreviewed"'
 
 if [[ "$case_executed" -ne 1 ]]; then

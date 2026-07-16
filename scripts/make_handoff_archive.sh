@@ -58,7 +58,7 @@ from pathlib import Path
 
 manifest = {
     "schema_version": 1,
-    "review_stage": "5D-b2b-c1-r2",
+    "review_stage": "5D-b2b-c1-r3",
     "source_commit": os.environ["SOURCE_COMMIT"],
     "source_ref": os.environ["SOURCE_REF"],
     "archive_name": os.environ["ARCHIVE_NAME"],

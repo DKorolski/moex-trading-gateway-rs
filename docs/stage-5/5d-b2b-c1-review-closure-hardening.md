@@ -1,6 +1,6 @@
-# Stage 5D-b2b-c1/c1-r2 — review closure hardening
+# Stage 5D-b2b-c1/c1-r3 — review closure hardening
 
-Status: c1-r2 review candidate, 2026-07-16. This section supersedes the c1
+Status: c1-r3 review candidate, 2026-07-16. This section supersedes the c1
 crash-window and forbidden-harness claims below without rewriting their review
 history.
 
@@ -110,3 +110,45 @@ For review, run `bash scripts/stage5d_b2bc_review_gate.sh`. The gate includes
 both freeze checkers, both negative harnesses, no-Redis/safety/fixture checks,
 workspace all-target tests, doc tests and clippy. Package only a clean committed
 tree after this gate passes.
+
+## Stage 5D-b2b-c1-r3 superseding closure
+
+c1-r3 closes the remaining review findings from the c1-r2 handoff while keeping
+the same no-I/O boundary. It does not implement the Stage 5D-b2b-d restored
+transition.
+
+| Review finding | Fix | Positive proof | Negative proof |
+|---|---|---|---|
+| Semantic current-shadow session/PnL was not bound to authoritative evidence | Add private exact overlap proof from validated evidence/materialized source and compare it to semantic runtime state before capability construction | Existing successful riskgate injection passes with matching overlap | Null/different semantic session and materially or minimally different semantic PnL fail closed |
+| Materialized current-shadow PnL could default to implicit zero and authority comparisons used epsilon | Require non-empty source-canonical materialized current-shadow PnL and exact source-compatible equality for rolling/current-shadow comparisons | Golden source decimals include `0.0`, `0.5`, `0.5000000000000001` and `158.60000000000008` where applicable | Empty, noncanonical and exact-but-wrong current-shadow materialized values fail closed |
+| Runtime-lagging recovery frontiers could lose pending evidence | Require exact pending finalization whenever runtime frontier excludes an outbox row; forbid pending once runtime includes it | Prepared, LedgerAppended, MaterializedUpdated and Acknowledged frontiers validate only with the expected pending state | Prepared/LedgerAppended/MaterializedUpdated without pending and Acknowledged with pending fail closed |
+| A first recovery action could lead to a dead-end frontier | Add pure no-I/O stepwise recovery tests: validate F0, simulate one durable action, revalidate F1, repeat to complete | Every accepted single-row crash window reaches `AlreadyAcknowledged` | Removed pending is rejected before planning |
+
+### Current-shadow ownership
+
+`current_shadow_session_date` and `current_shadow_pnl_points` are authoritative
+overlap fields: they exist in the evidence/materialized source and must match
+semantic runtime state exactly at injection time.
+
+`risk_gate_shadow_trade_count` and the open-shadow tuple
+(`risk_gate_shadow_entry_ts_utc`, price, side, target and stop) remain
+semantic-owned current-session state in this closure. They are bound by the
+exact envelope checksum, but c1-r3 does not claim they are ledger-derived.
+
+### Executable frontier sequence
+
+```text
+Prepared + pending
+  -> AppendMissingLedgerRow when ledger row is absent
+  -> LedgerAppended + pending
+  -> AdvanceToMaterialized
+  -> MaterializedUpdated + pending
+  -> ReackRuntime
+  -> AcknowledgedInRuntime without pending
+  -> AlreadyAcknowledged / recovery_complete
+```
+
+Marker lag is accepted only when the durable projection proves the later state
+and the next planned action remains monotonic and replay-safe. Runtime never
+advances ahead of materialized state, materialized never advances ahead of
+ledger, and pending is cleared only at runtime acknowledgement.

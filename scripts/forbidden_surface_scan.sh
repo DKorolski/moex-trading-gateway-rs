@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FORBIDDEN_SURFACE_SCANNER_CONTRACT="stage5d-b2bc1-r2-v1"
+FORBIDDEN_SURFACE_SCANNER_CONTRACT="stage5d-b2bc1-r3-v1"
 
 workspace_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$workspace_root"
@@ -1541,7 +1541,7 @@ expected_stage5_profile_artifacts = {
         "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323"
     ),
     Path("docs/stage-5/stage-5d-additive-freeze-manifest.json"): (
-        "7c1f4624b91e1b9bee0d34f464d7fd45db1e1e8d77cb1919ecda83cf06c85435"
+        "acf7172113149dcbdd93d6ae2542f7d0259c46d44b811918ee2a6ff6c483b5c0"
     ),
     Path("docs/stage-5/5d-b2a-versioned-persistence-envelope-api-schema.md"): (
         "9f6cc0f7a07c08f5fc67e6ef7904ced2c20b7f6a995204e288d6952792e034a6"
@@ -1550,7 +1550,7 @@ expected_stage5_profile_artifacts = {
         "6aa1a30f87d296df09bf18c84b29b944ad7af8aaa59961c54bcbe6ff0a601537"
     ),
     Path("scripts/stage5d_additive_freeze_check.py"): (
-        "7993069b31a2145b305285a3e20afbad41f5cb180a28def7c5c470571aa5c84c"
+        "7cf77176c3cfff6a38fe036fc10f7149a76246b5482ea52c9f47450c09364e47"
     ),
     Path("scripts/stage5d_additive_freeze_negative_harness.py"): (
         "89c49147162ad218cb064806431ce08f47a3e1ddfcdf1796354a3774b578865e"

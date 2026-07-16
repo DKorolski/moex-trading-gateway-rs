@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-b2b-c1-r2",
+  "stage": "5D-b2b-c1-r3",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -10,15 +10,15 @@
     "coordinator_path": "scripts/forbidden_surface_negative_harness.py",
     "coordinator_sha256": "1c2fd307aa7752ca2e8325d36c2cf26e54cbeee9aa801b22030d80568cfb3e93",
     "worker_path": "scripts/forbidden_surface_negative_case_worker.sh",
-    "worker_sha256": "6f81c025526a1bf4ddd2e1206c745048aa17189b9b723a4294bd300dabcfa7d0",
-    "scanner_contract": "stage5d-b2bc1-r2-v1",
+    "worker_sha256": "2c26235aaa9b070c275a8eec7d032d35933502be44552e95da1d77e45059aed8",
+    "scanner_contract": "stage5d-b2bc1-r3-v1",
     "declared_cases": 81,
     "negative_cases": 80,
     "positive_controls": 1,
     "default_workers": 4,
     "max_workers": 8,
     "minimum_case_timeout_seconds": 20,
-    "ci_timeout_minutes": 8
+    "ci_timeout_minutes": 15
   },
   "stage5c_compatibility_checker": {
     "path": "scripts/stage5c_api_freeze_check.py",
@@ -78,7 +78,7 @@
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "24549d7e2593008b5bd6684780b262ed270051fe10b3fa75376b233abc801079"
+    "current_sha256": "ce8b744758db50bbc0310df01c01a6428c8889af11071cf70dba3bd71a94a222"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
