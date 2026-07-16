@@ -2,40 +2,19 @@
 set -euo pipefail
 
 workspace_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/moex_forbidden_negative.XXXXXX")"
-trap 'rm -rf "$tmp_root"' EXIT
+tmp_parent="$(mktemp -d "${TMPDIR:-/tmp}/moex_forbidden_negative.XXXXXX")"
+tmp_root="$tmp_parent/baseline"
+scan_log="$tmp_parent/scanner.log"
+trap 'rm -rf "$tmp_parent"' EXIT
 
-cp -R "$workspace_root/scripts" "$tmp_root/scripts"
-cp -R "$workspace_root/crates" "$tmp_root/crates"
-cp -R "$workspace_root/source-oracles" "$tmp_root/source-oracles"
-cp "$workspace_root/Cargo.toml" "$tmp_root/Cargo.toml"
-cp "$workspace_root/Cargo.lock" "$tmp_root/Cargo.lock"
-mkdir -p "$tmp_root/config" "$tmp_root/tests/fixtures/stage5"
-mkdir -p "$tmp_root/docs/stage-5"
-cp "$workspace_root/config/imoexf-hybrid-high180-profile.redacted.toml" "$tmp_root/config/"
-cp "$workspace_root/docs/stage-5/stage-5c-acceptance-api-freeze-report.md" "$tmp_root/docs/stage-5/"
-cp "$workspace_root/docs/stage-5/stage-5c-api-freeze-manifest.json" "$tmp_root/docs/stage-5/"
-cp "$workspace_root/tests/fixtures/stage5/imoexf_high180_profile_binding.json" "$tmp_root/tests/fixtures/stage5/"
-cp "$workspace_root/tests/fixtures/stage5/bracket_terminal_reconciliation.json" "$tmp_root/tests/fixtures/stage5/"
-cp "$workspace_root/tests/fixtures/stage5/stage5b2_callback_state_mapping.json" "$tmp_root/tests/fixtures/stage5/"
-cp "$workspace_root/tests/fixtures/stage5/stage5c_paper_host_admission.json" "$tmp_root/tests/fixtures/stage5/"
-cp "$workspace_root/tests/fixtures/stage5/stage5cb_bootstrap_notification.json" "$tmp_root/tests/fixtures/stage5/"
-cp "$workspace_root/tests/fixtures/stage5/stage5cc_runtime_state_restore.json" "$tmp_root/tests/fixtures/stage5/"
-cp "$workspace_root/tests/fixtures/stage5/stage5cd_history_warmup.json" "$tmp_root/tests/fixtures/stage5/"
-cp "$workspace_root/tests/fixtures/stage5/stage5ce_pending_recovery.json" "$tmp_root/tests/fixtures/stage5/"
-cp "$workspace_root/tests/fixtures/stage5/stage5cf_semantic_bar.json" "$tmp_root/tests/fixtures/stage5/"
-cp "$workspace_root/tests/fixtures/stage5/stage5cg_paper_intent_settlement.json" "$tmp_root/tests/fixtures/stage5/"
-cp "$workspace_root/tests/fixtures/stage5/stage5ch_controlled_next_bar_loop.json" "$tmp_root/tests/fixtures/stage5/"
-cp "$workspace_root/tests/fixtures/stage5/stage5ci_paper_intent_lifecycle.json" "$tmp_root/tests/fixtures/stage5/"
-cp "$workspace_root/tests/fixtures/stage5/stage5cj_paper_broker_lifecycle.json" "$tmp_root/tests/fixtures/stage5/"
+python3 "$workspace_root/scripts/copy_review_baseline.py" "$workspace_root" "$tmp_root" >/dev/null
 
-if ! (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >/tmp/moex_negative_scan.$$ 2>&1; then
-  cat /tmp/moex_negative_scan.$$ >&2
-  rm -f /tmp/moex_negative_scan.$$
+if ! (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >"$scan_log" 2>&1; then
+  cat "$scan_log" >&2
   echo "forbidden-surface-negative-harness: copied baseline must pass before negative cases" >&2
   exit 1
 fi
-rm -f /tmp/moex_negative_scan.$$
+: >"$scan_log"
 
 run_negative_case() {
   local case_name="$1"
@@ -47,36 +26,33 @@ run_negative_case() {
 
   cp "$target" "$backup"
   printf '\n%s\n' "$injection" >> "$target"
-  if (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >/tmp/moex_negative_scan.$$ 2>&1; then
-    cat /tmp/moex_negative_scan.$$ >&2
-    rm -f /tmp/moex_negative_scan.$$
+  if (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >"$scan_log" 2>&1; then
+    cat "$scan_log" >&2
     echo "forbidden-surface-negative-harness: expected failure for $case_name" >&2
     exit 1
   fi
-  rm -f /tmp/moex_negative_scan.$$
+  : >"$scan_log"
   mv "$backup" "$target"
 }
 
 expect_scanner_failure() {
   local case_name="$1"
-  if (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >/tmp/moex_negative_scan.$$ 2>&1; then
-    cat /tmp/moex_negative_scan.$$ >&2
-    rm -f /tmp/moex_negative_scan.$$
+  if (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >"$scan_log" 2>&1; then
+    cat "$scan_log" >&2
     echo "forbidden-surface-negative-harness: expected failure for $case_name" >&2
     exit 1
   fi
-  rm -f /tmp/moex_negative_scan.$$
+  : >"$scan_log"
 }
 
 expect_scanner_success() {
   local case_name="$1"
-  if ! (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >/tmp/moex_negative_scan.$$ 2>&1; then
-    cat /tmp/moex_negative_scan.$$ >&2
-    rm -f /tmp/moex_negative_scan.$$
+  if ! (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >"$scan_log" 2>&1; then
+    cat "$scan_log" >&2
     echo "forbidden-surface-negative-harness: unexpected failure for $case_name" >&2
     exit 1
   fi
-  rm -f /tmp/moex_negative_scan.$$
+  : >"$scan_log"
 }
 
 run_negative_case "same-module-extra-post" 'fn _m3c_negative_same_module_post(client: reqwest::Client, url: &str) { let _ = client.post(url); }'
@@ -175,26 +151,24 @@ cp "$semantic_target" "$semantic_target_backup"
 perl -0pi -e 's/k: 0\.65,/k: 0.66,/' "$semantic_target"
 changed_target_sha="$(shasum -a 256 "$semantic_target" | awk '{print $1}')"
 perl -0pi -e 's/target_sha256 = "a3b125f282f201b66dfa8d2685f22aa94048856a5145d537b76dc8934a5f9ae5"/target_sha256 = "'"$changed_target_sha"'"/' "$semantic_ledger"
-if (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >/tmp/moex_negative_scan.$$ 2>&1; then
-  cat /tmp/moex_negative_scan.$$ >&2
-  rm -f /tmp/moex_negative_scan.$$
+if (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >"$scan_log" 2>&1; then
+  cat "$scan_log" >&2
   echo "forbidden-surface-negative-harness: expected immutable manifest failure for formula change plus ledger rehash" >&2
   exit 1
 fi
-rm -f /tmp/moex_negative_scan.$$
+: >"$scan_log"
 mv "$semantic_ledger_backup" "$semantic_ledger"
 mv "$semantic_target_backup" "$semantic_target"
 
 semantic_ledger_backup="$semantic_ledger.bak"
 cp "$semantic_ledger" "$semantic_ledger_backup"
 perl -0pi -e 's/alor_source_commit = "43242c89944d335d9cb0729b38bdd7d658378d5e"/alor_source_commit = "deadbeef"/' "$semantic_ledger"
-if (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >/tmp/moex_negative_scan.$$ 2>&1; then
-  cat /tmp/moex_negative_scan.$$ >&2
-  rm -f /tmp/moex_negative_scan.$$
+if (cd "$tmp_root" && bash scripts/forbidden_surface_scan.sh) >"$scan_log" 2>&1; then
+  cat "$scan_log" >&2
   echo "forbidden-surface-negative-harness: expected immutable source commit failure" >&2
   exit 1
 fi
-rm -f /tmp/moex_negative_scan.$$
+: >"$scan_log"
 mv "$semantic_ledger_backup" "$semantic_ledger"
 
 root_manifest="$tmp_root/Cargo.toml"

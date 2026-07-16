@@ -3,14 +3,24 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import shutil
 import subprocess
 import sys
 import tempfile
 import hashlib
 import json
+import math
+import os
+import signal
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+
+sys.dont_write_bytecode = True
+
+from copy_review_baseline import copy_review_baseline
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,21 +28,54 @@ CHECKER = Path("scripts/stage5d_additive_freeze_check.py")
 
 
 def copy_workspace(destination: Path) -> None:
-    def ignore(directory: str, names: list[str]) -> set[str]:
-        ignored = {".git", "target", "tmp", "reports", "__pycache__"}
-        return {name for name in names if name in ignored}
-
-    shutil.copytree(ROOT, destination, ignore=ignore)
+    copy_review_baseline(ROOT, destination)
 
 
-def run_checker(root: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+@dataclass(frozen=True)
+class CheckerRun:
+    returncode: int
+    stdout: str
+    stderr: str
+    duration_seconds: float
+    timed_out: bool = False
+
+
+@dataclass(frozen=True)
+class CaseRun:
+    index: int
+    name: str
+    passed: bool
+    diagnostics: str
+    duration_seconds: float
+
+
+def run_checker(root: Path, timeout_seconds: int) -> CheckerRun:
+    started = time.monotonic()
+    process = subprocess.Popen(
         [sys.executable, str(root / CHECKER), "--root", str(root)],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        check=False,
+        start_new_session=True,
     )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+        return CheckerRun(
+            returncode=process.returncode,
+            stdout=stdout,
+            stderr=stderr,
+            duration_seconds=time.monotonic() - started,
+        )
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        stdout, stderr = process.communicate()
+        return CheckerRun(
+            returncode=124,
+            stdout=stdout,
+            stderr=stderr + f"\nchecker timed out after {timeout_seconds}s\n",
+            duration_seconds=time.monotonic() - started,
+            timed_out=True,
+        )
 
 
 def replace_once(path: Path, old: str, new: str) -> None:
@@ -564,37 +607,116 @@ CASES = [
 ]
 
 
+def run_case(
+    base: Path,
+    clean: Path,
+    index: int,
+    case: tuple[str, Callable[[Path], None], str],
+    timeout_seconds: int,
+) -> CaseRun:
+    name, mutator, expected = case
+    case_root = base / "cases" / f"{index:02d}-{name}"
+    started = time.monotonic()
+    try:
+        shutil.copytree(clean, case_root)
+        mutator(case_root)
+        result = run_checker(case_root, timeout_seconds)
+        combined = result.stdout + result.stderr
+        if result.returncode == 0:
+            return CaseRun(
+                index,
+                name,
+                False,
+                "mutation unexpectedly passed the checker",
+                time.monotonic() - started,
+            )
+        if result.timed_out:
+            return CaseRun(
+                index,
+                name,
+                False,
+                combined.strip(),
+                time.monotonic() - started,
+            )
+        if expected not in combined:
+            return CaseRun(
+                index,
+                name,
+                False,
+                f"expected marker {expected!r} missing\n{combined}".strip(),
+                time.monotonic() - started,
+            )
+        return CaseRun(index, name, True, "", time.monotonic() - started)
+    except Exception as error:  # noqa: BLE001 - diagnostics must cross worker boundary
+        return CaseRun(index, name, False, repr(error), time.monotonic() - started)
+    finally:
+        shutil.rmtree(case_root, ignore_errors=True)
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="stage5d-negative-") as tmp:
         base = Path(tmp)
         clean = base / "clean"
         copy_workspace(clean)
-        clean_result = run_checker(clean)
+        manifest = json.loads(
+            (clean / "docs/stage-5/stage-5d-additive-freeze-manifest.json").read_text()
+        )
+        declared_names = manifest.get("negative_cases", [])
+        implemented_names = [name for name, _mutator, _expected in CASES]
+        missing = sorted(set(declared_names) - set(implemented_names))
+        extra = sorted(set(implemented_names) - set(declared_names))
+        if (
+            declared_names != implemented_names
+            or len(set(declared_names)) != len(declared_names)
+            or missing
+            or extra
+        ):
+            print(
+                "stage5d-negative-harness: manifest/case inventory mismatch "
+                f"missing={missing} extra={extra}",
+                file=sys.stderr,
+            )
+            return 1
+
+        clean_result = run_checker(clean, timeout_seconds=120)
         if clean_result.returncode != 0:
             print(clean_result.stdout)
             print(clean_result.stderr, file=sys.stderr)
             print("stage5d-negative-harness: clean checker run failed", file=sys.stderr)
             return 1
 
-        case_root = base / "case"
-        for name, mutator, expected in CASES:
-            if case_root.exists():
-                shutil.rmtree(case_root)
-            shutil.copytree(clean, case_root)
-            mutator(case_root)
-            result = run_checker(case_root)
-            combined = result.stdout + result.stderr
-            if result.returncode == 0:
-                print(f"stage5d-negative-harness: {name} unexpectedly passed", file=sys.stderr)
-                return 1
-            if expected not in combined:
-                print(combined, file=sys.stderr)
-                print(
-                    f"stage5d-negative-harness: {name} failed without expected marker {expected!r}",
-                    file=sys.stderr,
-                )
-                return 1
-            shutil.rmtree(case_root)
+        measured_timeout = max(10, min(120, math.ceil(clean_result.duration_seconds * 8)))
+        configured_workers = int(os.environ.get("STAGE5D_NEGATIVE_WORKERS", "4"))
+        worker_count = max(1, min(configured_workers, 8, len(CASES)))
+        (base / "cases").mkdir()
+        results: list[CaseRun] = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [
+                executor.submit(run_case, base, clean, index, case, measured_timeout)
+                for index, case in enumerate(CASES)
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                results.append(future.result())
+
+        results.sort(key=lambda result: result.index)
+        failures = [result for result in results if not result.passed]
+        print("Stage 5D negative harness isolated bounded-parallel verification")
+        print(f"cases_declared={len(declared_names)}")
+        print(f"workers={worker_count}")
+        print(f"case_timeout_seconds={measured_timeout}")
+        print(f"passed={len(results) - len(failures)}")
+        print(f"missing={missing}")
+        print(f"extra={extra}")
+        print(
+            "worst_case_seconds="
+            f"{max((result.duration_seconds for result in results), default=0.0):.3f}"
+        )
+        for result in results:
+            print(f"{'PASS' if result.passed else 'FAIL'} {result.name}")
+            if result.diagnostics:
+                print(result.diagnostics, file=sys.stderr)
+        if failures:
+            return 1
     print("stage5d-negative-harness: ok")
     return 0
 

@@ -26,6 +26,10 @@ jobs:
         run: bash scripts/forbidden_surface_negative_harness.sh
         timeout-minutes: 3
 
+      - name: Stage 5D additive freeze negative harness
+        run: python3 scripts/stage5d_additive_freeze_negative_harness.py
+        timeout-minutes: 5
+
       - name: No-Redis evidence smoke
         run: bash scripts/test_m4_3x_evidence_no_redis.sh
 

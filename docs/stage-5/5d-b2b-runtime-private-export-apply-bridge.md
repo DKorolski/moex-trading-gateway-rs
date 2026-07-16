@@ -1,6 +1,6 @@
-# Stage 5D-b2b-a/b/c — runtime-private apply, bootstrap and riskgate bridge
+# Stage 5D-b2b-a/b/c/c1 — runtime-private apply, bootstrap and riskgate bridge
 
-Status: review candidate.
+Status: Stage 5D-b2b-c1 review-closure candidate.
 
 Stage 5D-b2a closed the strict persistence schema and validated-envelope
 capability. Stage 5D-b2b-a opened the first controlled implementation slice:
@@ -8,7 +8,8 @@ runtime-private extension export/apply. Stage 5D-b2b-b adds the next controlled
 type-state transition: broker-truth bootstrap notification after private apply.
 Stage 5D-b2b-c adds authoritative riskgate ledger evidence validation and
 riskgate projection injection after broker-truth bootstrap and before the
-runtime-state-restored callback.
+runtime-state-restored callback. Stage 5D-b2b-c1 hardens that same boundary;
+it does not add the final restored transition.
 Redis, FINAM, broker transport, command dispatch, runtime-live and real order
 execution remain closed.
 
@@ -56,6 +57,14 @@ Implemented:
 - authoritative ledger evidence contains normalized source-compatible ledger
   records, full `RiskGateProfileIdentity`, ledger tail hash, seed/current-shadow
   metadata and current generation;
+- generation must equal the source `RISK_GATE_STATE_GENERATION` and the exact
+  envelope materialized generation; the record-tail hash retains its v1
+  meaning while a separate redacted evidence fingerprint binds tail,
+  seed/current-shadow metadata and generation;
+- every ledger row is source-producible: date/session/source/status chronology
+  is validated, source functions recompute all rolling and gate fields, and
+  finalization timestamps must be valid, monotonic, at/after their session and
+  not later than the envelope persistence timestamp;
 - materialized projection is rebuilt from ledger evidence through the source
   riskgate rebuild function, then cross-checked against persisted cache and
   semantic runtime snapshot before callback;
@@ -66,6 +75,10 @@ Implemented:
 - runtime pending riskgate finalizations are checked against a durable outbox
   state machine: generation, canonical identity hash, state, ledger-row
   presence and payload binding;
+- the no-I/O outbox validator emits one deterministic recovery decision:
+  `AppendMissingLedgerRow`, `AdvanceToMaterialized`, `ReackRuntime` or
+  `AlreadyAcknowledged`; prepared rows never plan a duplicate append and an
+  acknowledged state always requires matching durable ledger truth;
 - actual riskgate callback is delegated through one checker-pinned crate-private
   Stage 5C bridge;
 - wrapper additive region now exports/applies runtime-private DTO fields:
@@ -217,8 +230,15 @@ Regression tests prove:
 - ledger tail hash drift is rejected before injection;
 - materialized state is rebuilt from source-compatible ledger records;
 - outbox crash-consistency rejects acknowledged runtime-pending records,
-  ledger-appended records without matching ledger rows, zero generations and
+  acknowledged records without ledger truth, prepared records with mismatched
+  existing rows, ledger/materialized records without matching rows, duplicate
+  sessions/identities, reordered/zero generations, impossible state order and
   identity-hash mismatches;
+- unknown/empty generation, evidence/envelope generation drift, every mutated
+  derived row field, incomplete/source-order drift, invalid/decreasing/future
+  finalization timestamps, and noncanonical numeric evidence fail closed;
+- source-exact seed-prefix and runtime rows are accepted, and metadata changes
+  alter the separate evidence fingerprint without changing the v1 tail hash;
 - blocked riskgate injection can retry with fresh validated ledger evidence
   without repeating private apply or broker bootstrap.
 
@@ -236,7 +256,7 @@ call-site contracts:
 - direct calls, aliases, forwarding wrappers, function references and extra
   Stage 5D calls are rejected by the negative harness.
 
-The Stage 5D additive manifest now labels this baseline as `5D-b2b-c` and pins
+The Stage 5D additive manifest now labels this baseline as `5D-b2b-c1` and pins
 the updated public API surface including the controlled bind/apply/bootstrap/
 retry/riskgate-injection Stage 5D transitions. The formal surface policy records
 `runtime_private_mutation =
@@ -250,3 +270,16 @@ extension is checker-owned: exact path, `reason_id`, public-API flag and strippe
 hash are pinned in `stage5d_additive_freeze_check.py`, and the negative harness
 rejects removed/changed/extra extensions plus a self-authorized frozen semantic
 drift attempt.
+
+## Stage 5D-b2b-c1 review gates
+
+`scripts/stage5d_b2bc_review_gate.sh` runs the Stage 5C and Stage 5D positive
+checkers, normal and negative forbidden-surface gates, the isolated bounded
+parallel 44-case Stage 5D negative harness, no-Redis smoke, fixture parsing,
+handoff source safety, copied-baseline completeness, and workspace
+fmt/test/clippy. The manifest mutation policy remains exactly
+`controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_only`.
+
+The accepted Stage 5C closure report and hashes remain immutable historical
+evidence. Current candidate state is recorded here and in `current-status.md`;
+the historical report is not rewritten.

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-b2b-c",
+  "stage": "5D-b2b-c1",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -62,7 +62,7 @@
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "76ed11adaa04e7b544aae70cd770211df4ff463e3d792cebbe10e05f824a743d"
+    "current_sha256": "453f89a6746dc299db5259262563288ecd81b2ddbbca4fc2d19f9e838770580b"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -1088,7 +1088,10 @@
           "RiskGateNotApplicable",
           "LedgerEvidenceInvalid",
           "LedgerTailMismatch",
+          "LedgerGenerationMismatch",
           "LedgerIdentityMismatch",
+          "LedgerRecordDerivedStateMismatch",
+          "LedgerFinalizationTimestampInvalid",
           "MaterializedStateMismatch",
           "MaterializedStateInvalid",
           "RuntimePendingFinalizationMissingFromOutbox",
@@ -1690,6 +1693,11 @@
       },
       {
         "type": "Stage5dValidatedRiskGateLedgerEvidence",
+        "name": "evidence_fingerprint_sha256",
+        "signature": "pub fn evidence_fingerprint_sha256(&self) -> &str"
+      },
+      {
+        "type": "Stage5dValidatedRiskGateLedgerEvidence",
         "name": "ledger_records_count",
         "signature": "pub fn ledger_records_count(&self) -> usize"
       },
@@ -1731,25 +1739,25 @@
       "Stage5dStructuredTimestampFormat",
       "Stage5dTimestampUnits"
     ],
-    "normalized_signature_hash": "8b620a650e451594f061fd4ac4ea9ff74ddaa1b4df5ac63b7be130058a39a219",
+    "normalized_signature_hash": "0cc29f434945af23d503b576c32aeb72bc59439c9a2c7df3339809013bf29bec",
     "public_surface_counts": {
       "public_reexports": 63,
       "public_constants": 5,
       "public_free_functions": 8,
       "public_types": 50,
-      "public_methods": 36,
+      "public_methods": 37,
       "opaque_capabilities": 12,
       "externally_constructible_enums": 16
     }
   },
   "stage5d_public_api_summary": {
-    "normalized_signature_hash": "8b620a650e451594f061fd4ac4ea9ff74ddaa1b4df5ac63b7be130058a39a219",
+    "normalized_signature_hash": "0cc29f434945af23d503b576c32aeb72bc59439c9a2c7df3339809013bf29bec",
     "public_surface_counts": {
       "public_reexports": 63,
       "public_constants": 5,
       "public_free_functions": 8,
       "public_types": 50,
-      "public_methods": 36,
+      "public_methods": 37,
       "opaque_capabilities": 12,
       "externally_constructible_enums": 16
     }
