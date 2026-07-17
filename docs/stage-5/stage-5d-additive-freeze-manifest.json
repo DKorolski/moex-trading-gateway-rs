@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-b2b-c1-r6",
+  "stage": "5D-b2b-c1-r7",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -33,7 +33,7 @@
     "full_commit": "69cc73b7f33d8cb418c784ac993856d8a487693d",
     "handoff_archive": "moex-trading-project-69cc73b.zip",
     "handoff_sha256": "0b614ebe83b0a8af85cde0ca7a1ae481457813edad72626cd4bb5972c9c83f91",
-    "manifest_sha256": "e8da3004984b419aeefee73dcdb35a01daee672d0d4028e828d9bde7a3a51fd5",
+    "manifest_sha256": "ee6a190e9f95dfc7deecc78a230907cb5205d1d557b544981a37c62c13a3387b",
     "report_sha256": "1d15c992ce1658fea6d7ec8a25094b094400ba00b764ac23d32c525207d19b48",
     "original_checker_sha256": "e494e92ffb5f8d90b6a581c7b99e4e80f1906aeedfa1e7446d428eb31c757209"
   },
@@ -78,7 +78,7 @@
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "73168d7bcf5eb67cf266bbc105dd77ccb982f5001d8c7ee90cd356d1846e3d0b"
+    "current_sha256": "8f2edcd881eaa50c2b79b4af06a0cc555e058bbadb06b1e321128243b43aaf68"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",

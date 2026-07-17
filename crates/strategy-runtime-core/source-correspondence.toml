@@ -54,6 +54,6 @@ change_note = "One cfg(test) import changed from crate::strategies::hybrid_intra
 source_path = "strategy-runtime/src/strategies/hybrid_intraday/risk_gate.rs"
 source_sha256 = "c85779ec5023e602cb6088e116fb58ed0bc80c31828499a0bd4557e2034dee34"
 target_path = "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs"
-target_sha256 = "c193894ccd464be36a2cdf450cd720d1a0f2e88fe334db665801372f4b6d3afa"
+target_sha256 = "e5b80db163b0d97cfd50b8ad064c076850dbd2c15a95833895f5beb7a66d71a6"
 change_class = "ControlledStage5dSourceOwnedCodec"
 change_note = "Stage 5D-b2b-c1-r6 introduces the single source-owned fallible riskgate authority decimal codec used by Redis authority serialization, source parsing and Stage 5D consumers; trading formulas and signal semantics remain unchanged."

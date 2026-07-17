@@ -3368,6 +3368,296 @@ mod tests {
         crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy::new(config)
     }
 
+    fn stage5d_test_riskgate_runtime_strategy(
+    ) -> crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy {
+        stage5d_test_strategy_with_config(|config| {
+            config.profile =
+                crate::hybrid_intraday_runtime::HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120;
+            config.mr_variant = crate::hybrid_intraday_runtime::MeanReversionVariant::High180;
+            config.mr_gate_policy =
+                crate::hybrid_intraday_runtime::MrGatePolicy::ShadowPnlLb120Positive;
+            config.risk_gate_mode = crate::hybrid_intraday_runtime::RiskGateMode::NormalAppend;
+            config.qty = 3.0;
+        })
+    }
+
+    fn stage5d_test_source_ctx() -> crate::runtime_compat::StrategyCtx {
+        crate::runtime_compat::StrategyCtx {
+            strategy_id: "stage5d-source-riskgate".to_string(),
+            portfolio: "ACC_TEST_0001".to_string(),
+            exchange: "MOEX".to_string(),
+            symbol: "IMOEXF".to_string(),
+            tick_size: 0.5,
+            trade_mode: crate::runtime_compat::TradeMode::Live,
+            paper_execution_mode: crate::runtime_compat::PaperExecutionMode::LiveOnly,
+            allow_live_orders: true,
+            gateway_phase: crate::live_guard::GatewayPhase::LiveReady,
+            position_qty: Some(0.0),
+            event_ts_utc: 0,
+            now_ts_utc: 0,
+            last_bar_ts: Some(1),
+        }
+    }
+
+    fn stage5d_test_source_ts_local(y: i32, mo: u32, d: u32, h: u32, m: u32, s: u32) -> i64 {
+        NaiveDate::from_ymd_opt(y, mo, d)
+            .expect("source date")
+            .and_hms_opt(h, m, s)
+            .expect("source time")
+            .and_utc()
+            .timestamp()
+            - 3 * 3600
+    }
+
+    fn stage5d_test_source_bar_ohlc(
+        ts_utc: i64,
+        open: f64,
+        high: f64,
+        low: f64,
+        close: f64,
+    ) -> crate::runtime_compat::BarEvent {
+        crate::runtime_compat::BarEvent {
+            symbol: "IMOEXF".to_string(),
+            close_time_utc: ts_utc,
+            close,
+            o: open,
+            h: high,
+            l: low,
+            v: 1.0,
+            origin: crate::runtime_compat::DataOrigin::Live,
+        }
+    }
+
+    fn stage5d_test_source_runtime_with_real_pending_finalization() -> (
+        crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        Stage5dRuntimePrivateExtension,
+    ) {
+        let mut strategy = stage5d_test_riskgate_runtime_strategy();
+        let ctx = stage5d_test_source_ctx();
+
+        for bar in [
+            stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                100.2,
+                101.0,
+                99.0,
+                100.2,
+            ),
+            stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 10, 0),
+                99.9,
+                100.1,
+                99.8,
+                99.9,
+            ),
+            stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 7, 9, 0, 0),
+                100.0,
+                100.5,
+                99.5,
+                100.0,
+            ),
+        ] {
+            let _ = strategy.on_bar(&ctx, &bar);
+        }
+
+        let finalizations = strategy.risk_gate_session_finalizations();
+        assert_eq!(finalizations.len(), 1);
+        assert_eq!(
+            finalizations[0].session_date,
+            NaiveDate::from_ymd_opt(2026, 1, 6).expect("date")
+        );
+        assert_eq!(finalizations[0].shadow_trade_count, 0);
+        assert_eq!(finalizations[0].shadow_pnl_points, 0.0);
+
+        let exported = strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("source-produced runtime extension must export");
+        assert_eq!(exported.runtime_pending_finalizations.len(), 1);
+        assert_eq!(
+            exported.runtime_pending_finalizations[0].session_date,
+            "2026-01-06"
+        );
+        assert_eq!(
+            exported.runtime_pending_finalizations[0].shadow_pnl_points,
+            "0.0"
+        );
+        (strategy, exported)
+    }
+
+    fn stage5d_test_seed_riskgate_source_preconditions(
+        strategy: &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    ) {
+        let mut envelope = flat_persisted_fixture();
+        if let Value::Object(fields) =
+            &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+        {
+            for key in [
+                "active_cycle_id",
+                "current_owner",
+                "current_side",
+                "pending_entry_owner",
+                "pending_entry_side",
+                "pending_entry_cycle_id",
+                "pending_entry_request_id",
+                "pending_entry_created_ts_utc",
+                "risk_gate_shadow_session_date",
+                "risk_gate_shadow_entry_ts_utc",
+                "risk_gate_shadow_entry_price",
+                "risk_gate_shadow_side",
+                "risk_gate_shadow_target_price",
+                "risk_gate_shadow_stop_price",
+                "risk_gate_pending_session_date",
+                "risk_gate_mr_enabled_current_session",
+                "risk_gate_rolling_sum_lb120",
+                "risk_gate_last_finalized_session_date",
+            ] {
+                fields.insert(key.to_string(), Value::Null);
+            }
+            fields.insert("last_position_qty".to_string(), serde_json::json!(0.0));
+            fields.insert("entry_ready".to_string(), Value::Bool(true));
+            fields.insert("last_day_local".to_string(), Value::Null);
+            fields.insert("prev_day_close".to_string(), serde_json::json!(100.0));
+            fields.insert("prev_day_range".to_string(), serde_json::json!(4.0));
+            fields.insert(
+                "risk_gate_shadow_pnl_points".to_string(),
+                serde_json::json!(0.0),
+            );
+            fields.insert(
+                "risk_gate_shadow_trade_count".to_string(),
+                serde_json::json!(0),
+            );
+            fields.insert(
+                "risk_gate_pending_shadow_pnl_points".to_string(),
+                serde_json::json!(0.0),
+            );
+            fields.insert(
+                "risk_gate_pending_shadow_trade_count".to_string(),
+                serde_json::json!(0),
+            );
+            fields.insert(
+                "risk_gate_ledger_rows_count".to_string(),
+                serde_json::json!(0),
+            );
+        }
+        restore_semantic_state(strategy, &envelope);
+    }
+
+    fn stage5d_test_source_current_shadow_strategy(
+        bars: Vec<crate::runtime_compat::BarEvent>,
+    ) -> crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy {
+        let mut strategy = stage5d_test_riskgate_runtime_strategy();
+        stage5d_test_seed_riskgate_source_preconditions(&mut strategy);
+        let ctx = stage5d_test_source_ctx();
+        for bar in bars {
+            let _ = strategy.on_bar(&ctx, &bar);
+        }
+        strategy
+    }
+
+    fn stage5d_test_assert_source_current_shadow_full_path(
+        source_strategy: crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        expected_side: Option<&str>,
+        expected_trade_count: u32,
+        expected_pnl_text: &str,
+    ) {
+        let exported = source_strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("source current-shadow extension exports");
+        assert!(
+            exported.runtime_pending_finalizations.is_empty(),
+            "current-shadow positive path must not smuggle pending finalizations"
+        );
+        let mut envelope = flat_persisted_fixture();
+        envelope.strategy_state.strategy_state_json =
+            serde_json::to_value(source_strategy.state()).expect("source state serializes");
+        envelope.runtime_private_extension = exported;
+        if let Value::Object(fields) =
+            &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+        {
+            for key in [
+                "pending_entry_owner",
+                "pending_entry_side",
+                "pending_entry_cycle_id",
+                "pending_entry_request_id",
+                "pending_entry_created_ts_utc",
+                "deferred_entry_owner",
+                "deferred_entry_side",
+                "deferred_entry_cycle_id",
+                "deferred_entry_entry_style",
+                "deferred_entry_reason",
+                "deferred_entry_stop_price",
+                "deferred_entry_take_price",
+                "deferred_entry_ts_utc",
+                "deferred_entry_request_id",
+            ] {
+                fields.insert(key.to_string(), Value::Null);
+            }
+        }
+        envelope.runtime_private_extension.pending_entry = None;
+        envelope.runtime_private_extension.partial_entry_timer = None;
+        let identity = stage5d_test_riskgate_identity_for(&source_strategy, &envelope);
+        let source_pnl_points = envelope.strategy_state.strategy_state_json
+            ["HybridIntradayRuntime"]["risk_gate_shadow_pnl_points"]
+            .as_f64()
+            .expect("source shadow pnl");
+        let source_pnl_text =
+            crate::hybrid_intraday::format_riskgate_authority_decimal(source_pnl_points)
+                .expect("source shadow pnl must be authority-canonical");
+        assert_eq!(
+            source_pnl_text, expected_pnl_text,
+            "test expectation must match source-produced canonical pnl text"
+        );
+        let mut evidence = stage5d_test_riskgate_evidence_before_source_pending(
+            &identity,
+            &envelope,
+            "2026-01-06",
+        );
+        evidence.current_shadow_pnl_points = source_pnl_text;
+        evidence.ledger_tail_hash =
+            stage5d_compute_riskgate_ledger_tail_hash(&evidence).expect("shadow tail hash");
+        stage5d_apply_riskgate_evidence_to_envelope(&mut envelope, &evidence);
+        bind_fixture_to_strategy_config(&mut envelope, &source_strategy);
+        envelope.riskgate.ledger_tail_hash = evidence.ledger_tail_hash.clone();
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("source current-shadow checksum");
+        stage5d_test_normalize_persisted_checksum(&mut envelope);
+
+        if let Value::Object(fields) =
+            &envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+        {
+            assert_eq!(
+                fields
+                    .get("risk_gate_shadow_session_date")
+                    .and_then(Value::as_str),
+                Some("2026-01-06")
+            );
+            assert_eq!(
+                fields
+                    .get("risk_gate_shadow_trade_count")
+                    .and_then(Value::as_u64),
+                Some(expected_trade_count as u64)
+            );
+            assert_eq!(
+                fields.get("risk_gate_shadow_side").and_then(Value::as_str),
+                expected_side
+            );
+        }
+
+        let (bootstrapped, _strict_envelope, evidence) =
+            stage5d_test_bootstrap_strict_envelope_with_strategy(
+                envelope,
+                stage5d_test_riskgate_runtime_strategy(),
+                evidence,
+            );
+        let injected = expect_stage5d_riskgate_ok(
+            stage5d_inject_authoritative_riskgate(bootstrapped, evidence),
+            "source-produced current-shadow state must pass full Stage 5D path",
+        );
+        assert!(injected.recovery_complete());
+    }
+
     fn restore_semantic_state(
         strategy: &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
         envelope: &Stage5dPersistenceEnvelope,
@@ -3401,6 +3691,17 @@ mod tests {
         envelope.payload_checksum_sha256 = envelope
             .compute_payload_checksum_sha256()
             .expect("checksum recomputation must succeed");
+    }
+
+    fn stage5d_test_normalize_persisted_checksum(envelope: &mut Stage5dPersistenceEnvelope) {
+        let payload =
+            serde_json::to_string(envelope).expect("serialize envelope for normalization");
+        let mut normalized: Stage5dPersistenceEnvelope =
+            serde_json::from_str(&payload).expect("deserialize normalized envelope");
+        normalized.payload_checksum_sha256 = normalized
+            .compute_payload_checksum_sha256()
+            .expect("normalized checksum");
+        envelope.payload_checksum_sha256 = normalized.payload_checksum_sha256;
     }
 
     fn load_origin_for_envelope(
@@ -3949,6 +4250,70 @@ mod tests {
             ledger_records,
             seed_loaded: true,
             current_shadow_session_date: Some("2026-07-14".to_string()),
+            current_shadow_pnl_points: "0.0".to_string(),
+            current_generation: crate::hybrid_intraday::RISK_GATE_STATE_GENERATION.to_string(),
+        };
+        evidence.ledger_tail_hash =
+            stage5d_compute_riskgate_ledger_tail_hash(&evidence).expect("tail hash");
+        evidence
+    }
+
+    fn stage5d_test_riskgate_evidence_before_source_pending(
+        identity: &Stage5dRiskGateIdentity,
+        envelope: &Stage5dPersistenceEnvelope,
+        current_shadow_session_date: &str,
+    ) -> Stage5dRiskGateLedgerEvidence {
+        let source_identity = crate::hybrid_intraday::RiskGateProfileIdentity {
+            strategy_id: identity.strategy_id.clone(),
+            profile_id: identity.profile_id.clone(),
+            mr_variant: identity.mr_variant.clone(),
+            timeframe: identity.timeframe.clone(),
+            session_policy: identity.session_policy.clone(),
+            model_version: identity.model_version.clone(),
+        };
+        let mut date = NaiveDate::from_ymd_opt(2025, 10, 13).expect("date");
+        let stop = NaiveDate::from_ymd_opt(2026, 1, 6).expect("date");
+        let mut rows = Vec::new();
+        while date < stop {
+            if !matches!(date.weekday(), Weekday::Sat | Weekday::Sun) {
+                let idx = rows.len() as i64;
+                let mut row = crate::hybrid_intraday::build_runtime_session_row(
+                    &rows,
+                    date,
+                    if idx % 2 == 0 { 2.0 } else { -0.5 },
+                    1,
+                )
+                .expect("source seed row");
+                row.source = crate::hybrid_intraday::RiskGateRowSource::Seed;
+                rows.push(row);
+            }
+            date += chrono::Duration::days(1);
+        }
+        assert!(
+            rows.len() >= crate::hybrid_intraday::SHADOW_PNL_LB120_MIN_HISTORY_SESSIONS,
+            "source evidence must cover riskgate minimum history"
+        );
+        assert_eq!(
+            rows.last().expect("last seed").session_date,
+            NaiveDate::from_ymd_opt(2026, 1, 5).expect("date")
+        );
+        let records = crate::hybrid_intraday::build_ledger_records_from_rows(
+            &rows,
+            &source_identity,
+            envelope.persisted_at_ts_utc.timestamp(),
+        )
+        .expect("source ledger records");
+        let ledger_records = records
+            .iter()
+            .map(stage5d_test_stage_record_from_source)
+            .collect::<Vec<_>>();
+        let mut evidence = Stage5dRiskGateLedgerEvidence {
+            schema_version: STAGE5D_RISKGATE_SCHEMA_VERSION,
+            identity: identity.clone(),
+            ledger_tail_hash: String::new(),
+            ledger_records,
+            seed_loaded: true,
+            current_shadow_session_date: Some(current_shadow_session_date.to_string()),
             current_shadow_pnl_points: "0.0".to_string(),
             current_generation: crate::hybrid_intraday::RISK_GATE_STATE_GENERATION.to_string(),
         };
@@ -6269,88 +6634,231 @@ mod tests {
     }
 
     #[test]
-    fn stage5d_b2bc1r6_actual_runtime_finalizations_survive_strict_full_injection_path() {
-        let session_date = NaiveDate::from_ymd_opt(2026, 1, 6).expect("date");
-        for (value, expected) in [
-            (0.0, "0.0"),
-            (2.0, "2.0"),
-            (-0.5, "-0.5"),
-            (0.5, "0.5"),
-            (0.5000000000000001, "0.5000000000000001"),
-            (158.60000000000008, "158.60000000000008"),
-        ] {
-            let mut source_strategy = stage5d_test_strategy_with_config(|config| {
-                config.profile =
-                    crate::hybrid_intraday_runtime::HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120;
-                config.mr_variant = crate::hybrid_intraday_runtime::MeanReversionVariant::High180;
-                config.mr_gate_policy =
-                    crate::hybrid_intraday_runtime::MrGatePolicy::ShadowPnlLb120Positive;
-                config.risk_gate_mode = crate::hybrid_intraday_runtime::RiskGateMode::NormalAppend;
-                config.qty = 3.0;
-            });
-            source_strategy.stage5d_test_replace_pending_riskgate_finalizations(vec![(
-                session_date,
-                value,
-                1,
-            )]);
-            let exported = source_strategy
-                .stage5d_export_runtime_private_extension()
-                .expect("actual source runtime export must use source codec");
-            assert_eq!(
-                exported.runtime_pending_finalizations[0].shadow_pnl_points,
-                expected
+    fn stage5d_b2bc1r7_source_produced_pending_finalization_reaches_recovery_complete() {
+        let (source_strategy, exported) =
+            stage5d_test_source_runtime_with_real_pending_finalization();
+        let source_pending = exported.runtime_pending_finalizations[0].clone();
+
+        let mut envelope = flat_persisted_fixture();
+        envelope.strategy_state.strategy_state_json =
+            serde_json::to_value(source_strategy.state()).expect("source state serializes");
+        envelope.runtime_private_extension = exported;
+        let identity = stage5d_test_riskgate_identity_for(&source_strategy, &envelope);
+        let base_evidence = stage5d_test_riskgate_evidence_before_source_pending(
+            &identity,
+            &envelope,
+            "2026-01-07",
+        );
+        stage5d_apply_riskgate_evidence_to_envelope(&mut envelope, &base_evidence);
+        bind_fixture_to_strategy_config(&mut envelope, &source_strategy);
+        envelope.riskgate.ledger_tail_hash = base_evidence.ledger_tail_hash.clone();
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum after exact source export");
+
+        assert_eq!(
+            envelope
+                .runtime_private_extension
+                .runtime_pending_finalizations[0],
+            source_pending,
+            "strict envelope must carry the exact source-exported pending finalization"
+        );
+        assert_eq!(
+            envelope.riskgate.durable_finalization_outbox[0].state,
+            Stage5dRiskGateFinalizationState::Prepared
+        );
+        assert_eq!(
+            envelope.riskgate.durable_finalization_outbox[0].session_date,
+            source_pending.session_date
+        );
+
+        let mut durable_state = Stage5dRiskGateFinalizationState::Prepared;
+        let mut ledger = false;
+        let mut materialized = false;
+        let mut runtime = false;
+        let mut pending = true;
+        let mut saw_actions = Vec::new();
+
+        for _ in 0..4 {
+            let mut iteration_envelope = envelope.clone();
+            let mut iteration_evidence = base_evidence.clone();
+            stage5d_test_configure_single_tail_crash_frontier(
+                &mut iteration_envelope,
+                &mut iteration_evidence,
+                durable_state,
+                ledger,
+                materialized,
+                runtime,
+                pending,
             );
-
-            let mut envelope = flat_persisted_fixture();
-            let identity = stage5d_test_riskgate_identity_for(&source_strategy, &envelope);
-            let mut evidence = stage5d_test_riskgate_evidence_for(&identity, &envelope);
-            evidence.current_shadow_session_date = Some("2026-07-14".to_string());
-            evidence.current_shadow_pnl_points = expected.to_string();
-            stage5d_apply_riskgate_evidence_to_envelope(&mut envelope, &evidence);
-            if let Value::Object(fields) =
-                &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
-            {
-                fields.insert(
-                    "risk_gate_shadow_trade_count".to_string(),
-                    serde_json::json!(if value == 0.0 { 0 } else { 1 }),
-                );
-            }
-            bind_fixture_to_strategy_config(&mut envelope, &source_strategy);
-            envelope.riskgate.ledger_tail_hash = evidence.ledger_tail_hash.clone();
-            envelope.payload_checksum_sha256 = envelope
+            iteration_evidence.ledger_tail_hash =
+                stage5d_compute_riskgate_ledger_tail_hash(&iteration_evidence)
+                    .expect("iteration tail hash");
+            iteration_envelope.riskgate.ledger_tail_hash =
+                iteration_evidence.ledger_tail_hash.clone();
+            iteration_envelope.payload_checksum_sha256 = iteration_envelope
                 .compute_payload_checksum_sha256()
-                .expect("checksum after source export");
-            evidence = stage5d_test_rebuild_evidence_from_envelope(&envelope, &evidence);
-            envelope.riskgate.ledger_tail_hash = evidence.ledger_tail_hash.clone();
-            envelope.payload_checksum_sha256 = envelope
-                .compute_payload_checksum_sha256()
-                .expect("checksum after evidence binding");
-
-            let source_records =
-                stage5d_source_riskgate_records_from_evidence(&evidence).expect("source records");
-            assert!(source_records
-                .last()
-                .expect("ledger row")
-                .authority_redis_fields()
-                .expect("source ledger authority serialization")
-                .iter()
-                .all(|(_, text)| !matches!(text.as_str(), "0" | "2" | "-0.0")));
-
-            let (bootstrapped, _strict_envelope, evidence) =
+                .expect("iteration checksum");
+            let (bootstrapped, strict_envelope, evidence) =
                 stage5d_test_bootstrap_strict_envelope_with_strategy(
-                    envelope.clone(),
-                    source_strategy,
-                    evidence,
+                    iteration_envelope,
+                    stage5d_test_riskgate_runtime_strategy(),
+                    iteration_evidence,
                 );
+            assert_eq!(
+                strict_envelope
+                    .runtime_private_extension
+                    .runtime_pending_finalizations
+                    .first()
+                    .cloned(),
+                pending.then_some(source_pending.clone())
+            );
             let injected = expect_stage5d_riskgate_ok(
                 stage5d_inject_authoritative_riskgate(bootstrapped, evidence),
-                "strict source-exported envelope must inject riskgate",
+                "source-produced strict envelope must inject riskgate",
             );
+            let decision = injected.recovery_plan.decisions[0].action;
+            saw_actions.push(decision);
+            if injected.recovery_complete() {
+                assert_eq!(
+                    decision,
+                    Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged
+                );
+                assert!(ledger && materialized && runtime && !pending);
+                break;
+            }
+            match decision {
+                Stage5dRiskGateRecoveryDecision::AppendMissingLedgerRow => {
+                    assert!(!ledger && !materialized && !runtime && pending);
+                    ledger = true;
+                    durable_state = Stage5dRiskGateFinalizationState::LedgerAppended;
+                }
+                Stage5dRiskGateRecoveryDecision::AdvanceToMaterialized => {
+                    assert!(ledger && !runtime && pending);
+                    materialized = true;
+                    durable_state = Stage5dRiskGateFinalizationState::MaterializedUpdated;
+                }
+                Stage5dRiskGateRecoveryDecision::ReackRuntime => {
+                    assert!(ledger && materialized && pending);
+                    runtime = true;
+                    pending = false;
+                    durable_state = Stage5dRiskGateFinalizationState::AcknowledgedInRuntime;
+                }
+                Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged => {
+                    panic!("already-acknowledged cannot appear before recovery_complete")
+                }
+            }
+        }
+
+        assert_eq!(
+            saw_actions,
+            vec![
+                Stage5dRiskGateRecoveryDecision::AppendMissingLedgerRow,
+                Stage5dRiskGateRecoveryDecision::AdvanceToMaterialized,
+                Stage5dRiskGateRecoveryDecision::ReackRuntime,
+                Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged,
+            ],
+            "source-produced pending finalization must walk the complete durable recovery path"
+        );
+
+        let mut complete_envelope = envelope.clone();
+        let mut complete_evidence = base_evidence.clone();
+        stage5d_test_configure_single_tail_crash_frontier(
+            &mut complete_envelope,
+            &mut complete_evidence,
+            Stage5dRiskGateFinalizationState::AcknowledgedInRuntime,
+            true,
+            true,
+            true,
+            false,
+        );
+        complete_evidence.ledger_tail_hash =
+            stage5d_compute_riskgate_ledger_tail_hash(&complete_evidence)
+                .expect("complete tail hash");
+        complete_envelope.riskgate.ledger_tail_hash = complete_evidence.ledger_tail_hash.clone();
+        complete_envelope.payload_checksum_sha256 = complete_envelope
+            .compute_payload_checksum_sha256()
+            .expect("complete checksum");
+        for _ in 0..2 {
+            let (bootstrapped, strict_envelope, evidence) =
+                stage5d_test_bootstrap_strict_envelope_with_strategy(
+                    complete_envelope.clone(),
+                    stage5d_test_riskgate_runtime_strategy(),
+                    complete_evidence.clone(),
+                );
             assert!(
-                injected.recovery_decision_count() >= 1,
-                "pending source finalization must retain recovery plan"
+                strict_envelope
+                    .runtime_private_extension
+                    .runtime_pending_finalizations
+                    .is_empty(),
+                "runtime-pending vector must stay empty after acknowledged replay"
+            );
+            let injected = expect_stage5d_riskgate_ok(
+                stage5d_inject_authoritative_riskgate(bootstrapped, evidence),
+                "complete source-produced recovery replay must remain accepted",
+            );
+            assert!(injected.recovery_complete());
+            assert_eq!(
+                injected.recovery_plan.decisions[0].action,
+                Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged
             );
         }
+    }
+
+    #[test]
+    fn stage5d_b2bc1r7_source_produced_current_shadow_matrix_passes_full_path() {
+        let clean =
+            stage5d_test_source_current_shadow_strategy(vec![stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                100.0,
+                100.1,
+                99.9,
+                100.0,
+            )]);
+        stage5d_test_assert_source_current_shadow_full_path(clean, None, 0, "0.0");
+
+        let long_open =
+            stage5d_test_source_current_shadow_strategy(vec![stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                99.7,
+                102.0,
+                99.7,
+                99.7,
+            )]);
+        stage5d_test_assert_source_current_shadow_full_path(long_open, Some("long"), 0, "0.0");
+
+        let short_open =
+            stage5d_test_source_current_shadow_strategy(vec![stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                100.3,
+                100.3,
+                98.0,
+                100.3,
+            )]);
+        stage5d_test_assert_source_current_shadow_full_path(short_open, Some("short"), 0, "0.0");
+
+        let realized_pnl = stage5d_test_source_current_shadow_strategy(vec![
+            stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                99.7,
+                102.0,
+                99.7,
+                99.7,
+            ),
+            stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 10, 0),
+                101.0,
+                101.0,
+                100.8,
+                101.0,
+            ),
+        ]);
+        stage5d_test_assert_source_current_shadow_full_path(
+            realized_pnl,
+            None,
+            1,
+            "1.199999999999997",
+        );
     }
 
     #[test]

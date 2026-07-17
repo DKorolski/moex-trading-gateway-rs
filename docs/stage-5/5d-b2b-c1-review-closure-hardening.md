@@ -1,12 +1,28 @@
-# Stage 5D-b2b-c1/c1-r6 — review closure hardening
+# Stage 5D-b2b-c1/c1-r7 — review closure hardening
 
-Status: c1-r6 review candidate, 2026-07-17. This section supersedes the c1
+Status: c1-r7 review candidate, 2026-07-17. This section supersedes the c1
 crash-window and forbidden-harness claims below without rewriting their review
 history.
 
 This patch closes the remaining c1-r3 review findings without calling the final
 runtime-state-restored transition or opening Redis, FINAM, transport, dispatch,
 runtime-live or broker execution.
+
+## Stage 5D-b2b-c1-r7 superseding closure
+
+c1-r7 keeps the c1-r6 boundary and closes the review findings around codec
+closure and source-produced proof:
+
+| Review finding | Fix | Positive proof | Negative/control proof |
+|---|---|---|---|
+| Source-owned authority decimal codec could alias finite values near zero/integer boundaries | Exact integer detection replaces epsilon tolerance; formatter now checks that its own parser reconstructs the same `f64` bit pattern for every accepted value | Source codec tests cover zero, integers, adjacent representables, `f64::EPSILON`, `EPSILON / 2`, small finite values, min positive normal and subnormal, and large finite values | negative zero, NaN, infinities and noncanonical textual aliases fail closed |
+| Strict runtime finalization proof exported an extension but tested a different envelope | Real `HybridIntradayRuntimeStrategy::on_bar` callbacks produce the pending finalization; the exact exported runtime-private extension is assigned to the tested envelope | strict serialize/deserialize, bind, private apply, broker bootstrap, riskgate injection and restart simulation walk `Prepared -> LedgerAppended -> MaterializedUpdated -> AcknowledgedInRuntime -> AlreadyAcknowledged` | duplicate acknowledged replay remains idempotent and keeps runtime pending empty |
+| Current-shadow positives were hand-authored JSON | Source callbacks now produce clean/no-tuple, Long open, Short open and realized-PnL current-shadow states before full Stage 5D validation | each source-produced state passes strict envelope round-trip, bind/apply/bootstrap/riskgate injection with `recovery_complete` | unrelated order-pending lifecycle is stripped from the riskgate-only proof envelope; existing source-impossible current-shadow negatives remain pinned |
+| Freeze/correspondence hashes were stale after codec hardening | Stage 5C/5D manifests, checker and forbidden scanner correspondence are atomically rebound | `stage5d_b2bc_review_gate.sh` passes all required gates | forbidden-surface negative harness remains 81/81 and Stage 5D negative harness remains 44/44 |
+
+c1-r7 still does not implement the final runtime-state-restored callback and
+does not open Redis, FINAM, transport, dispatch, runtime-live or broker
+execution.
 
 ## Stage 5D-b2b-c1-r6 superseding closure
 

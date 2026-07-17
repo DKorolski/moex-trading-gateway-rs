@@ -349,11 +349,29 @@ pub(crate) fn format_riskgate_authority_decimal(
     if value == 0.0 && value.is_sign_negative() {
         return Err(RiskGateAuthorityDecimalError::NegativeZero);
     }
-    if value.fract().abs() <= f64::EPSILON {
-        Ok(format!("{value:.1}"))
+
+    let formatted = if value.fract() == 0.0 {
+        format!("{value:.1}")
     } else {
-        Ok(value.to_string())
+        value.to_string()
+    };
+    if formatted.contains(['e', 'E']) || formatted.starts_with('+') || formatted.trim() != formatted
+    {
+        return Err(RiskGateAuthorityDecimalError::NonCanonical);
     }
+    let parsed = formatted
+        .parse::<f64>()
+        .map_err(|_| RiskGateAuthorityDecimalError::NonCanonical)?;
+    if !parsed.is_finite() {
+        return Err(RiskGateAuthorityDecimalError::NonFinite);
+    }
+    if parsed == 0.0 && parsed.is_sign_negative() {
+        return Err(RiskGateAuthorityDecimalError::NegativeZero);
+    }
+    if parsed.to_bits() != value.to_bits() {
+        return Err(RiskGateAuthorityDecimalError::NonCanonical);
+    }
+    Ok(formatted)
 }
 
 pub(crate) fn parse_riskgate_authority_decimal(
@@ -1124,6 +1142,66 @@ mod tests {
             .expect("materialized state round-trips through redis fields");
 
         assert_eq!(parsed, state);
+    }
+
+    #[test]
+    fn authority_decimal_codec_is_lossless_for_every_accepted_value() {
+        let one_below = f64::from_bits(1.0_f64.to_bits() - 1);
+        let one_above = f64::from_bits(1.0_f64.to_bits() + 1);
+        for value in [
+            0.0,
+            2.0,
+            -0.5,
+            0.5,
+            0.5000000000000001,
+            158.60000000000008,
+            f64::EPSILON,
+            f64::EPSILON / 2.0,
+            1.0 + f64::EPSILON,
+            one_below,
+            one_above,
+            0.000001,
+            -0.000001,
+            f64::MIN_POSITIVE,
+            f64::from_bits(1),
+            0.00000000000000001,
+            -0.00000000000000001,
+            1.0e100,
+            -1.0e100,
+        ] {
+            let text = format_riskgate_authority_decimal(value)
+                .expect("accepted source authority decimal must format");
+            assert!(
+                !text.contains(['e', 'E']),
+                "authority text must stay in the non-exponent domain: {text}"
+            );
+            let parsed = parse_riskgate_authority_decimal(&text)
+                .expect("formatter output must be accepted by parser");
+            assert_eq!(
+                parsed.to_bits(),
+                value.to_bits(),
+                "authority decimal must round-trip losslessly for {value:?} via {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn authority_decimal_codec_rejects_unsupported_or_invalid_values_without_aliasing() {
+        for value in [-0.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(
+                format_riskgate_authority_decimal(value).is_err(),
+                "unsupported authority value {value:?} must fail closed instead of aliasing"
+            );
+        }
+
+        for alias in [
+            "0", "2", "-0.0", "-0", "+0.0", "0.0 ", " 0.0", "5e-1", "NaN", "inf", "-inf",
+        ] {
+            assert!(
+                parse_riskgate_authority_decimal(alias).is_err(),
+                "noncanonical or invalid authority decimal {alias:?} must fail"
+            );
+        }
     }
 
     #[test]
