@@ -70,7 +70,7 @@ EXPECTED_STAGE5C_CLOSURE = {
     "full_commit": "69cc73b7f33d8cb418c784ac993856d8a487693d",
     "handoff_archive": "moex-trading-project-69cc73b.zip",
     "handoff_sha256": "0b614ebe83b0a8af85cde0ca7a1ae481457813edad72626cd4bb5972c9c83f91",
-    "manifest_sha256": "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323",
+    "manifest_sha256": "e8da3004984b419aeefee73dcdb35a01daee672d0d4028e828d9bde7a3a51fd5",
     "report_sha256": "1d15c992ce1658fea6d7ec8a25094b094400ba00b764ac23d32c525207d19b48",
     "original_checker_sha256": "e494e92ffb5f8d90b6a581c7b99e4e80f1906aeedfa1e7446d428eb31c757209",
 }
@@ -713,8 +713,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2b-c1-r5":
-        failures.append("stage must be 5D-b2b-c1-r5")
+    if manifest.get("stage") != "5D-b2b-c1-r6":
+        failures.append("stage must be 5D-b2b-c1-r6")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:

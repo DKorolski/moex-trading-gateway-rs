@@ -188,7 +188,7 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   riskgate-profile callback no-ops, validates ledger-tail hash, enforces
   durable outbox crash-consistency/idempotency identity, and supports controlled
   retry with fresh validated ledger evidence without repeating private apply or
-  broker bootstrap. Stage 5D-b2b-c1-r5 is the active review-closure hardening
+  broker bootstrap. Stage 5D-b2b-c1-r6 is the active review-closure hardening
   candidate. It distinguishes full authoritative, durable materialized and
   semantic-runtime frontiers; accepts only exact outbox-explained crash lag;
   requires semantic current-shadow session/PnL to match authoritative materialized
@@ -210,7 +210,7 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   extra Stage 5D calls.
   The formal mutation policy is
   `controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_only`;
-  Stage 5D-b2b-c1-r5 still does not implement final runtime-state-restored return,
+  Stage 5D-b2b-c1-r6 still does not implement final runtime-state-restored return,
   Redis bridge, FINAM execution, broker transport, runtime-live or autonomous
   loop.
 - FINAM REST read-only/auth/client DTO and mapper foundation.

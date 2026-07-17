@@ -1082,8 +1082,8 @@ else:
         "strategy-runtime/src/strategies/hybrid_intraday/mod.rs": {
             "source_sha256": "c70e3847f1a99e00c5d078d19b7b5f103d9b4d26853886b0b47d4805818ac84c",
             "target_path": "crates/strategy-runtime-core/src/hybrid_intraday/mod.rs",
-            "target_sha256": "c70e3847f1a99e00c5d078d19b7b5f103d9b4d26853886b0b47d4805818ac84c",
-            "change_class": "CopiedUnchanged",
+            "target_sha256": "67224b1523d3eeeae924f10c77cb74582671dc24a5badef554843fe57d079fd1",
+            "change_class": "ControlledStage5dSourceOwnedCodec",
         },
         "strategy-runtime/src/strategies/hybrid_intraday/types.rs": {
             "source_sha256": "8b515e252bc493890483793887248a6a12bedcf072ab87c574d4d3efd3b7eedc",
@@ -1118,8 +1118,8 @@ else:
         "strategy-runtime/src/strategies/hybrid_intraday/risk_gate.rs": {
             "source_sha256": "c85779ec5023e602cb6088e116fb58ed0bc80c31828499a0bd4557e2034dee34",
             "target_path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
-            "target_sha256": "c85779ec5023e602cb6088e116fb58ed0bc80c31828499a0bd4557e2034dee34",
-            "change_class": "CopiedUnchanged",
+            "target_sha256": "c193894ccd464be36a2cdf450cd720d1a0f2e88fe334db665801372f4b6d3afa",
+            "change_class": "ControlledStage5dSourceOwnedCodec",
         },
     }
 
@@ -1538,10 +1538,10 @@ expected_stage5_profile_artifacts = {
         "1d15c992ce1658fea6d7ec8a25094b094400ba00b764ac23d32c525207d19b48"
     ),
     Path("docs/stage-5/stage-5c-api-freeze-manifest.json"): (
-        "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323"
+        "e8da3004984b419aeefee73dcdb35a01daee672d0d4028e828d9bde7a3a51fd5"
     ),
     Path("docs/stage-5/stage-5d-additive-freeze-manifest.json"): (
-        "7e80e60f67156102db526a68f620ea30d8ae5169291f6d656ee4413491371979"
+        "413cf0788a5d9b51b172c5d3c5675363d191316b23aa68b479d8efd5375c2a29"
     ),
     Path("docs/stage-5/5d-b2a-versioned-persistence-envelope-api-schema.md"): (
         "9f6cc0f7a07c08f5fc67e6ef7904ced2c20b7f6a995204e288d6952792e034a6"
@@ -1550,7 +1550,7 @@ expected_stage5_profile_artifacts = {
         "6aa1a30f87d296df09bf18c84b29b944ad7af8aaa59961c54bcbe6ff0a601537"
     ),
     Path("scripts/stage5d_additive_freeze_check.py"): (
-        "0c1ad86002cfba96ad537bf5e0c9b41b839194c710f22f6a848589ee0962f3b2"
+        "bca3b73e6381be744169d49e7e45118cf2d97af47696397fe41a15e6917bb3ec"
     ),
     Path("scripts/stage5d_additive_freeze_negative_harness.py"): (
         "c08230b5af60002f657527f3436453dd73a25a2533d3480b5d6ec0bed6b4b150"

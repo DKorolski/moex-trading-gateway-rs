@@ -22,4 +22,5 @@ pub use risk_gate::{
     RiskGateStartupMode, RISK_GATE_STATE_GENERATION, SHADOW_PNL_LB120_LOOKBACK_SESSIONS,
     SHADOW_PNL_LB120_MIN_HISTORY_SESSIONS,
 };
+pub(crate) use risk_gate::{format_riskgate_authority_decimal, parse_riskgate_authority_decimal};
 pub use types::{Action, EntrySignal, EntryStyle, ExitSignal, Owner, ReasonCode, Side};

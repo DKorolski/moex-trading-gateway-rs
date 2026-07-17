@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-b2b-c1-r5",
+  "stage": "5D-b2b-c1-r6",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -33,7 +33,7 @@
     "full_commit": "69cc73b7f33d8cb418c784ac993856d8a487693d",
     "handoff_archive": "moex-trading-project-69cc73b.zip",
     "handoff_sha256": "0b614ebe83b0a8af85cde0ca7a1ae481457813edad72626cd4bb5972c9c83f91",
-    "manifest_sha256": "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323",
+    "manifest_sha256": "e8da3004984b419aeefee73dcdb35a01daee672d0d4028e828d9bde7a3a51fd5",
     "report_sha256": "1d15c992ce1658fea6d7ec8a25094b094400ba00b764ac23d32c525207d19b48",
     "original_checker_sha256": "e494e92ffb5f8d90b6a581c7b99e4e80f1906aeedfa1e7446d428eb31c757209"
   },
@@ -53,7 +53,7 @@
     },
     "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": {
       "closure_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
-      "current_sha256": "12bdfc2e6819e9fb7923d96e33a364fed1016cb93478681412594b8bcb347b1c",
+      "current_sha256": "ef5083a040caa9a55f17a2f4891ed1b5e8e2a5577d4983a5d332579dcac70980",
       "stripped_without_additive_regions_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
       "additive_regions": [
         "runtime-private-snapshot"
@@ -78,7 +78,7 @@
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "2679f560ef5ff30c721beb875d7b53e3a2f49e617a01c3bfaec5e246ccdcbb96"
+    "current_sha256": "73168d7bcf5eb67cf266bbc105dd77ccb982f5001d8c7ee90cd356d1846e3d0b"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",

@@ -1,12 +1,27 @@
-# Stage 5D-b2b-c1/c1-r5 — review closure hardening
+# Stage 5D-b2b-c1/c1-r6 — review closure hardening
 
-Status: c1-r5 review candidate, 2026-07-16. This section supersedes the c1
+Status: c1-r6 review candidate, 2026-07-17. This section supersedes the c1
 crash-window and forbidden-harness claims below without rewriting their review
 history.
 
 This patch closes the remaining c1-r3 review findings without calling the final
 runtime-state-restored transition or opening Redis, FINAM, transport, dispatch,
 runtime-live or broker execution.
+
+## Stage 5D-b2b-c1-r6 superseding closure
+
+c1-r6 keeps the c1-r5 boundary and closes the remaining source-consistency and
+provenance gaps:
+
+| Review finding | Fix | Positive proof | Negative proof |
+|---|---|---|---|
+| Stage 5D and source riskgate used separate decimal formatters | Introduce one source-owned fallible riskgate authority decimal codec in the riskgate source module; Stage 5D and runtime export consume that codec | Source codec matrix covers `0.0`, `2.0`, `-0.5`, `0.5`, `0.5000000000000001`, `158.60000000000008`; strict bind/apply/bootstrap/inject path uses the same representation | noncanonical aliases, negative zero and non-finite values fail before authority output or Stage 5D validation |
+| Current-shadow chronology used hard-coded UTC+3 | Current-shadow validation now uses the exact bound runtime config timezone and weekend policy from the bootstrapped strategy | UTC+3 normal path and UTC+4 boundary-control pass under their own bound config | UTC+2 hard-coded-UTC+3 false-accept case fails closed; missing processed frontier for open tuple remains invalid |
+| Provenance negative coverage was incomplete | Handoff safety validates every manifest field before indexed access and rejects duplicate ZIP entries; negative harness expands to 28 marker-pinned mutations | generated handoff manifest binds review stage, checker hashes, manifest hashes, source short/full SHA and archive name | missing fields, stale hashes, malformed JSON, non-object manifest, marker mismatch, archive mismatch and duplicate member fail with pinned markers and no traceback |
+
+c1-r6 still does not implement the final runtime-state-restored callback and
+does not open Redis, FINAM, transport, dispatch, runtime-live or broker
+execution.
 
 ## Stage 5D-b2b-c1-r5 superseding closure
 

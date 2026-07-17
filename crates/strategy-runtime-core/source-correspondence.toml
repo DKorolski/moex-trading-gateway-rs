@@ -10,8 +10,9 @@ real_order_endpoint_added = false
 source_path = "strategy-runtime/src/strategies/hybrid_intraday/mod.rs"
 source_sha256 = "c70e3847f1a99e00c5d078d19b7b5f103d9b4d26853886b0b47d4805818ac84c"
 target_path = "crates/strategy-runtime-core/src/hybrid_intraday/mod.rs"
-target_sha256 = "c70e3847f1a99e00c5d078d19b7b5f103d9b4d26853886b0b47d4805818ac84c"
-change_class = "CopiedUnchanged"
+target_sha256 = "67224b1523d3eeeae924f10c77cb74582671dc24a5badef554843fe57d079fd1"
+change_class = "ControlledStage5dSourceOwnedCodec"
+change_note = "Stage 5D-b2b-c1-r6 exposes the source-owned riskgate authority decimal codec crate-privately; trading formulas and signal semantics remain unchanged."
 
 [[files]]
 source_path = "strategy-runtime/src/strategies/hybrid_intraday/types.rs"
@@ -53,5 +54,6 @@ change_note = "One cfg(test) import changed from crate::strategies::hybrid_intra
 source_path = "strategy-runtime/src/strategies/hybrid_intraday/risk_gate.rs"
 source_sha256 = "c85779ec5023e602cb6088e116fb58ed0bc80c31828499a0bd4557e2034dee34"
 target_path = "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs"
-target_sha256 = "c85779ec5023e602cb6088e116fb58ed0bc80c31828499a0bd4557e2034dee34"
-change_class = "CopiedUnchanged"
+target_sha256 = "c193894ccd464be36a2cdf450cd720d1a0f2e88fe334db665801372f4b6d3afa"
+change_class = "ControlledStage5dSourceOwnedCodec"
+change_note = "Stage 5D-b2b-c1-r6 introduces the single source-owned fallible riskgate authority decimal codec used by Redis authority serialization, source parsing and Stage 5D consumers; trading formulas and signal semantics remain unchanged."

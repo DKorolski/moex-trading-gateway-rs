@@ -72,12 +72,20 @@ def check_archive(path: Path) -> None:
         missing = sorted(required - set(names))
         if missing:
             raise SystemExit(f"handoff safety: missing generated markers: {missing}")
-        manifest = json.loads(archive.read("handoff-manifest.json"))
+        try:
+            manifest = json.loads(archive.read("handoff-manifest.json"))
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"handoff safety: malformed handoff manifest JSON: {exc}") from exc
+        if not isinstance(manifest, dict):
+            raise SystemExit("handoff safety: handoff manifest must be a JSON object")
         if manifest.get("schema_version") != 1:
             raise SystemExit("handoff safety: unsupported handoff manifest schema_version")
         review_stage = manifest.get("review_stage")
         if not isinstance(review_stage, str) or not review_stage:
             raise SystemExit("handoff safety: missing review_stage")
+        archive_name = manifest.get("archive_name")
+        if not isinstance(archive_name, str) or not archive_name:
+            raise SystemExit("handoff safety: missing archive_name")
         stage5d_manifest_name = "docs/stage-5/stage-5d-additive-freeze-manifest.json"
         stage5d_manifest = json.loads(archive.read(stage5d_manifest_name))
         if review_stage != stage5d_manifest.get("stage"):
@@ -95,25 +103,21 @@ def check_archive(path: Path) -> None:
                 raise SystemExit(f"handoff safety: {field} mismatch")
         source_commit = manifest.get("source_commit")
         source_ref = manifest.get("source_ref")
-        if (
-            not isinstance(source_commit, str)
-            or not re.fullmatch(r"[0-9a-f]{7,12}", source_commit)
-            or not isinstance(source_ref, str)
-            or not re.fullmatch(r"[0-9a-f]{40}", source_ref)
-            or not source_ref.startswith(source_commit)
+        if not isinstance(source_commit, str) or not re.fullmatch(
+            r"[0-9a-f]{7,12}", source_commit
         ):
+            raise SystemExit("handoff safety: missing or invalid source_commit")
+        if not isinstance(source_ref, str) or not re.fullmatch(r"[0-9a-f]{40}", source_ref):
+            raise SystemExit("handoff safety: missing or invalid source_ref")
+        if not source_ref.startswith(source_commit):
             raise SystemExit("handoff safety: source short/full commit mismatch")
         marker = archive.read("handoff-commit.txt").decode().splitlines()
         expected_marker = [
-            f"source_commit={manifest['source_commit']}",
-            f"source_ref={manifest['source_ref']}",
-            f"archive_name={manifest['archive_name']}",
+            f"source_commit={source_commit}",
+            f"source_ref={source_ref}",
+            f"archive_name={archive_name}",
         ]
-        if (
-            marker != expected_marker
-            or manifest["archive_name"] != path.name
-            or manifest.get("archive_name") != path.name
-        ):
+        if marker != expected_marker or archive_name != path.name:
             raise SystemExit("handoff safety: provenance marker/manifest mismatch")
     print("handoff-archive-safety: ok")
 

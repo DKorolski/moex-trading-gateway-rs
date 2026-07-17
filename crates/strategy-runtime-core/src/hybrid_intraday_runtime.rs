@@ -234,6 +234,14 @@ fn stage5d_optional_identity_hash(value: Option<&str>) -> Option<String> {
 }
 
 impl HybridIntradayRuntimeStrategy {
+    pub(crate) fn stage5d_timezone_offset_hours(&self) -> i32 {
+        self.config.timezone_offset_hours
+    }
+
+    pub(crate) fn stage5d_weekends_off(&self) -> bool {
+        self.config.weekends_off
+    }
+
     pub(crate) fn stage5d_canonical_config_fingerprint(&self) -> String {
         let mr = self.config.mr_config;
         let breakout = self.config.breakout_config;
@@ -370,9 +378,12 @@ impl HybridIntradayRuntimeStrategy {
                     Ok(crate::stage5d_persistence::Stage5dRuntimePendingRiskGateFinalization {
                         session_date: Self::format_local_day(finalization.session_date),
                         shadow_pnl_points:
-                            crate::stage5d_persistence::stage5d_format_authoritative_riskgate_decimal(
+                            crate::hybrid_intraday::format_riskgate_authority_decimal(
                                 finalization.shadow_pnl_points,
-                            )?,
+                            )
+                            .map_err(|_| {
+                                crate::stage5d_persistence::Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent
+                            })?,
                         shadow_trade_count: finalization.shadow_trade_count,
                     })
                 })

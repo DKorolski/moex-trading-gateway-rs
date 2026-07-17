@@ -8,6 +8,13 @@ pub const SHADOW_PNL_LB120_LOOKBACK_SESSIONS: usize = 120;
 pub const SHADOW_PNL_LB120_MIN_HISTORY_SESSIONS: usize = 60;
 pub const RISK_GATE_STATE_GENERATION: &str = "runtime-ledger-v1";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RiskGateAuthorityDecimalError {
+    NonFinite,
+    NegativeZero,
+    NonCanonical,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RiskGateSessionRow {
     pub session_date: NaiveDate,
@@ -113,7 +120,14 @@ impl RiskGateRedisKeys {
 
 impl RiskGateLedgerRecord {
     pub fn redis_fields(&self) -> Vec<(String, String)> {
-        vec![
+        self.authority_redis_fields()
+            .expect("risk gate authority decimal must be finite and source-canonical")
+    }
+
+    pub(crate) fn authority_redis_fields(
+        &self,
+    ) -> Result<Vec<(String, String)>, RiskGateAuthorityDecimalError> {
+        Ok(vec![
             (
                 "session_date".to_string(),
                 self.row.session_date.format("%Y-%m-%d").to_string(),
@@ -123,7 +137,7 @@ impl RiskGateLedgerRecord {
             ("timeframe".to_string(), self.timeframe.clone()),
             (
                 "shadow_pnl_points".to_string(),
-                format_float(self.row.shadow_pnl_points),
+                format_riskgate_authority_decimal(self.row.shadow_pnl_points)?,
             ),
             (
                 "shadow_trade_count".to_string(),
@@ -131,7 +145,7 @@ impl RiskGateLedgerRecord {
             ),
             (
                 "rolling_120_pnl_before_session".to_string(),
-                format_float(self.row.rolling_sum_before_session),
+                format_riskgate_authority_decimal(self.row.rolling_sum_before_session)?,
             ),
             (
                 "mr_enabled_for_session".to_string(),
@@ -139,7 +153,7 @@ impl RiskGateLedgerRecord {
             ),
             (
                 "rolling_sum_lb120".to_string(),
-                format_float(self.rolling_sum_lb120),
+                format_riskgate_authority_decimal(self.rolling_sum_lb120)?,
             ),
             (
                 "mr_enabled_next_session".to_string(),
@@ -153,7 +167,7 @@ impl RiskGateLedgerRecord {
                 "finalized_at_utc".to_string(),
                 self.finalized_at_utc.to_string(),
             ),
-        ]
+        ])
     }
 
     pub fn from_redis_fields(fields: &[(String, String)]) -> Result<Self, String> {
@@ -199,6 +213,13 @@ impl RiskGateLedgerRecord {
 
 impl RiskGateMaterializedState {
     pub fn redis_fields(&self) -> Vec<(String, String)> {
+        self.authority_redis_fields()
+            .expect("risk gate materialized authority decimal must be finite and source-canonical")
+    }
+
+    pub(crate) fn authority_redis_fields(
+        &self,
+    ) -> Result<Vec<(String, String)>, RiskGateAuthorityDecimalError> {
         let mut fields = vec![
             (
                 "seed_loaded".to_string(),
@@ -210,7 +231,7 @@ impl RiskGateMaterializedState {
             ),
             (
                 "current_shadow_pnl_points".to_string(),
-                format_float(self.current_shadow_pnl_points),
+                format_riskgate_authority_decimal(self.current_shadow_pnl_points)?,
             ),
             (
                 "current_generation".to_string(),
@@ -222,7 +243,7 @@ impl RiskGateMaterializedState {
             "last_finalized_session_date",
             self.last_finalized_session_date,
         );
-        push_optional_float(&mut fields, "rolling_sum_lb120", self.rolling_sum_lb120);
+        push_optional_authority_decimal(&mut fields, "rolling_sum_lb120", self.rolling_sum_lb120)?;
         push_optional_bool(
             &mut fields,
             "mr_enabled_current_session",
@@ -238,7 +259,7 @@ impl RiskGateMaterializedState {
             "current_shadow_session_date",
             self.current_shadow_session_date,
         );
-        fields
+        Ok(fields)
     }
 
     pub fn from_redis_fields(fields: &[(String, String)]) -> Result<Self, String> {
@@ -319,12 +340,45 @@ fn bool_field(value: bool) -> &'static str {
     }
 }
 
-fn format_float(value: f64) -> String {
-    if value.fract().abs() <= f64::EPSILON {
-        format!("{value:.1}")
-    } else {
-        value.to_string()
+pub(crate) fn format_riskgate_authority_decimal(
+    value: f64,
+) -> Result<String, RiskGateAuthorityDecimalError> {
+    if !value.is_finite() {
+        return Err(RiskGateAuthorityDecimalError::NonFinite);
     }
+    if value == 0.0 && value.is_sign_negative() {
+        return Err(RiskGateAuthorityDecimalError::NegativeZero);
+    }
+    if value.fract().abs() <= f64::EPSILON {
+        Ok(format!("{value:.1}"))
+    } else {
+        Ok(value.to_string())
+    }
+}
+
+pub(crate) fn parse_riskgate_authority_decimal(
+    value: &str,
+) -> Result<f64, RiskGateAuthorityDecimalError> {
+    if value.trim() != value
+        || value.is_empty()
+        || value.starts_with('+')
+        || value.contains(['e', 'E'])
+    {
+        return Err(RiskGateAuthorityDecimalError::NonCanonical);
+    }
+    let parsed = value
+        .parse::<f64>()
+        .map_err(|_| RiskGateAuthorityDecimalError::NonCanonical)?;
+    if !parsed.is_finite() {
+        return Err(RiskGateAuthorityDecimalError::NonFinite);
+    }
+    if parsed == 0.0 && parsed.is_sign_negative() {
+        return Err(RiskGateAuthorityDecimalError::NegativeZero);
+    }
+    if format_riskgate_authority_decimal(parsed)? != value {
+        return Err(RiskGateAuthorityDecimalError::NonCanonical);
+    }
+    Ok(parsed)
 }
 
 fn push_optional_date(fields: &mut Vec<(String, String)>, key: &str, value: Option<NaiveDate>) {
@@ -333,10 +387,15 @@ fn push_optional_date(fields: &mut Vec<(String, String)>, key: &str, value: Opti
     }
 }
 
-fn push_optional_float(fields: &mut Vec<(String, String)>, key: &str, value: Option<f64>) {
+fn push_optional_authority_decimal(
+    fields: &mut Vec<(String, String)>,
+    key: &str,
+    value: Option<f64>,
+) -> Result<(), RiskGateAuthorityDecimalError> {
     if let Some(value) = value {
-        fields.push((key.to_string(), format_float(value)));
+        fields.push((key.to_string(), format_riskgate_authority_decimal(value)?));
     }
+    Ok(())
 }
 
 fn push_optional_bool(fields: &mut Vec<(String, String)>, key: &str, value: Option<bool>) {
@@ -383,8 +442,8 @@ fn parse_optional_date(
 
 fn parse_required_f64(fields: &HashMap<&str, &str>, key: &str) -> Result<f64, String> {
     let raw = required_field(fields, key)?;
-    raw.parse::<f64>()
-        .map_err(|err| format!("invalid risk gate f64 field {key}={raw}: {err}"))
+    parse_riskgate_authority_decimal(raw)
+        .map_err(|err| format!("invalid risk gate authority decimal field {key}={raw}: {err:?}"))
 }
 
 fn parse_optional_f64(fields: &HashMap<&str, &str>, key: &str) -> Result<Option<f64>, String> {
@@ -393,8 +452,9 @@ fn parse_optional_f64(fields: &HashMap<&str, &str>, key: &str) -> Result<Option<
         .copied()
         .filter(|value| !value.trim().is_empty())
         .map(|raw| {
-            raw.parse::<f64>()
-                .map_err(|err| format!("invalid risk gate f64 field {key}={raw}: {err}"))
+            parse_riskgate_authority_decimal(raw).map_err(|err| {
+                format!("invalid risk gate authority decimal field {key}={raw}: {err:?}")
+            })
         })
         .transpose()
 }
