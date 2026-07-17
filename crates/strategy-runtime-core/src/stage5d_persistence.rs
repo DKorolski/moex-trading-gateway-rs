@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::runtime_compat::{RiskGateRuntimeState, Strategy};
+use crate::runtime_compat::{RiskGateRuntimeState, Strategy, StrategyState};
 
 /// Stage 5D additive freeze manifest schema version.
 pub const STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION: u16 = 1;
@@ -139,15 +139,10 @@ impl Stage5dBootstrappedPaperStrategy {
 /// runtime-state-restored callback.
 ///
 /// A Stage 5D capability cannot bypass the separately reviewed restored-state
-/// transition by calling the Stage 5C callback directly.
+/// transition by calling the crate-private Stage 5C bridge directly.
 ///
 /// ```compile_fail
-/// use strategy_runtime_core::{
-///     stage5d_notify_runtime_state_restored, Stage5dRiskGateInjectedPaperStrategy,
-/// };
-///
-/// let injected: Stage5dRiskGateInjectedPaperStrategy = unreachable!();
-/// let _ = stage5d_notify_runtime_state_restored(injected);
+/// use strategy_runtime_core::stage5c_paper_host;
 /// ```
 ///
 /// Recovery plans and decisions are crate-private, so downstream callers
@@ -207,6 +202,145 @@ impl Stage5dRiskGateInjectedPaperStrategy {
     pub fn recovery_plan_fingerprint(&self) -> &str {
         &self.recovery_plan.plan_fingerprint_sha256
     }
+}
+
+/// Public redacted outcome for the controlled Stage 5D runtime-state-restored
+/// transition. A block happens before the source callback and preserves the
+/// unchanged input capability. A terminal failure happens after callback
+/// execution has started and never exposes a retry capability.
+pub enum Stage5dRuntimeStateRestoreOutcome {
+    Blocked(Stage5dRuntimeStateRestoreBlocked),
+    Terminal(Stage5dRuntimeStateRestoreTerminalFailure),
+}
+
+/// Recoverable pre-callback block. The exact input capability is retained
+/// opaquely so callers can restart the recovery pipeline with fresh broker
+/// truth or complete unfinished durable recovery before retrying.
+pub struct Stage5dRuntimeStateRestoreBlocked {
+    injected: Box<Stage5dRiskGateInjectedPaperStrategy>,
+    reason: Stage5dRuntimeStateRestoreBlockedReason,
+}
+
+impl Stage5dRuntimeStateRestoreBlocked {
+    /// Redacted reason for the pre-callback block.
+    pub fn reason(&self) -> Stage5dRuntimeStateRestoreBlockedReason {
+        self.reason
+    }
+
+    /// Redacted proof that the input capability was preserved unchanged.
+    pub fn input_capability_preserved(&self) -> bool {
+        let _ = &self.injected;
+        true
+    }
+
+    /// Snapshot id retained for operator diagnostics.
+    pub fn snapshot_id(&self) -> &str {
+        self.injected.snapshot_id()
+    }
+
+    /// Redacted envelope/evidence fingerprint retained for diagnostics.
+    pub fn evidence_fingerprint(&self) -> &str {
+        self.injected.evidence_fingerprint()
+    }
+
+    /// Redacted recovery-plan fingerprint retained for diagnostics.
+    pub fn recovery_plan_fingerprint(&self) -> &str {
+        self.injected.recovery_plan_fingerprint()
+    }
+
+    /// Operator-safe recovery disposition.
+    pub fn recovery_disposition(&self) -> Stage5dRuntimeStateRestoreRecoveryDisposition {
+        match self.reason {
+            Stage5dRuntimeStateRestoreBlockedReason::RecoveryIncomplete
+            | Stage5dRuntimeStateRestoreBlockedReason::PendingRiskGateFinalizations
+            | Stage5dRuntimeStateRestoreBlockedReason::RecoveryPlanBindingMismatch => {
+                Stage5dRuntimeStateRestoreRecoveryDisposition::CompleteRecoveryThenRetryPipeline
+            }
+            Stage5dRuntimeStateRestoreBlockedReason::AdmissionExpired
+            | Stage5dRuntimeStateRestoreBlockedReason::BrokerTruthPositionMismatch
+            | Stage5dRuntimeStateRestoreBlockedReason::BrokerTruthSideMismatch
+            | Stage5dRuntimeStateRestoreBlockedReason::BrokerQuantityNotRepresentable => {
+                Stage5dRuntimeStateRestoreRecoveryDisposition::RestartWithFreshBrokerTruth
+            }
+            Stage5dRuntimeStateRestoreBlockedReason::LifecycleTimestampReversal
+            | Stage5dRuntimeStateRestoreBlockedReason::BrokerOwnedProtectiveId
+            | Stage5dRuntimeStateRestoreBlockedReason::ClosedBoundaryOpened
+            | Stage5dRuntimeStateRestoreBlockedReason::RecoveryIndexMismatch => {
+                Stage5dRuntimeStateRestoreRecoveryDisposition::RestartFromDurableEnvelope
+            }
+        }
+    }
+}
+
+/// Terminal post-callback failure. The consumed input capability is not
+/// exposed; operational recovery must restart from the durable envelope and
+/// fresh broker-truth admission.
+pub struct Stage5dRuntimeStateRestoreTerminalFailure {
+    reason: Stage5dRuntimeStateRestoreTerminalReason,
+    snapshot_id: String,
+    evidence_fingerprint: String,
+    recovery_plan_fingerprint: String,
+}
+
+impl Stage5dRuntimeStateRestoreTerminalFailure {
+    /// Redacted terminal reason.
+    pub fn reason(&self) -> Stage5dRuntimeStateRestoreTerminalReason {
+        self.reason
+    }
+
+    /// Snapshot id retained for operator diagnostics.
+    pub fn snapshot_id(&self) -> &str {
+        &self.snapshot_id
+    }
+
+    /// Redacted envelope/evidence fingerprint retained for diagnostics.
+    pub fn evidence_fingerprint(&self) -> &str {
+        &self.evidence_fingerprint
+    }
+
+    /// Redacted recovery-plan fingerprint retained for diagnostics.
+    pub fn recovery_plan_fingerprint(&self) -> &str {
+        &self.recovery_plan_fingerprint
+    }
+
+    /// Terminal failures never retain a retryable input capability.
+    pub fn retry_capability_available(&self) -> bool {
+        false
+    }
+}
+
+/// Redacted pre-callback block categories.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage5dRuntimeStateRestoreBlockedReason {
+    RecoveryIncomplete,
+    PendingRiskGateFinalizations,
+    RecoveryPlanBindingMismatch,
+    AdmissionExpired,
+    LifecycleTimestampReversal,
+    BrokerQuantityNotRepresentable,
+    BrokerTruthPositionMismatch,
+    BrokerTruthSideMismatch,
+    BrokerOwnedProtectiveId,
+    ClosedBoundaryOpened,
+    RecoveryIndexMismatch,
+}
+
+/// Redacted terminal post-callback categories.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage5dRuntimeStateRestoreTerminalReason {
+    CallbackEmittedIntent,
+    PostCallbackBrokerTruthPositionMismatch,
+    PostCallbackBrokerTruthSideMismatch,
+    PostCallbackBrokerOwnedProtectiveId,
+    PostCallbackStateInvalid,
+}
+
+/// Operator-safe recovery guidance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage5dRuntimeStateRestoreRecoveryDisposition {
+    RestartWithFreshBrokerTruth,
+    CompleteRecoveryThenRetryPipeline,
+    RestartFromDurableEnvelope,
 }
 
 /// Opaque validated runtime-private extension marker.
@@ -521,6 +655,21 @@ pub fn stage5d_retry_authoritative_riskgate_injection(
     stage5d_inject_authoritative_riskgate_with_evidence(*blocked.bootstrapped, fresh_evidence)
 }
 
+/// Notify the source runtime-state-restored callback exactly once after the
+/// Stage 5D persistence chain has completed runtime-private apply,
+/// broker-truth bootstrap and authoritative riskgate injection.
+///
+/// This is pure in-process lifecycle control. It does not open Redis, FINAM,
+/// transport, dispatch, broker execution or runtime-live.
+pub fn stage5d_notify_runtime_state_restored(
+    injected: Stage5dRiskGateInjectedPaperStrategy,
+) -> Result<
+    crate::stage5c_paper_host::Stage5cRuntimeStateRestoredPaperStrategy,
+    Stage5dRuntimeStateRestoreOutcome,
+> {
+    stage5d_notify_runtime_state_restored_at(injected, Utc::now())
+}
+
 fn stage5d_inject_authoritative_riskgate_with_evidence(
     bootstrapped: Stage5dBootstrappedPaperStrategy,
     validated_evidence: Stage5dValidatedRiskGateLedgerEvidence,
@@ -557,6 +706,214 @@ fn stage5d_inject_authoritative_riskgate_with_evidence(
         envelope,
         recovery_plan,
     })
+}
+
+fn stage5d_notify_runtime_state_restored_at(
+    injected: Stage5dRiskGateInjectedPaperStrategy,
+    restored_at: DateTime<Utc>,
+) -> Result<
+    crate::stage5c_paper_host::Stage5cRuntimeStateRestoredPaperStrategy,
+    Stage5dRuntimeStateRestoreOutcome,
+> {
+    if let Err(reason) = validate_stage5d_runtime_state_restored_preflight(&injected, restored_at) {
+        return Err(Stage5dRuntimeStateRestoreOutcome::Blocked(
+            stage5d_runtime_restore_blocked(injected, reason),
+        ));
+    }
+
+    let snapshot_id = injected.snapshot_id().to_string();
+    let evidence_fingerprint = injected.evidence_fingerprint().to_string();
+    let recovery_plan_fingerprint = injected.recovery_plan_fingerprint().to_string();
+    let Stage5dRiskGateInjectedPaperStrategy { bootstrapped, .. } = injected;
+    match crate::stage5c_paper_host::stage5d_notify_runtime_state_restored_bridge_at(
+        bootstrapped,
+        restored_at,
+    ) {
+        Ok(restored) => Ok(restored),
+        Err(reason) => Err(Stage5dRuntimeStateRestoreOutcome::Terminal(
+            stage5d_runtime_restore_terminal(
+                snapshot_id,
+                evidence_fingerprint,
+                recovery_plan_fingerprint,
+                reason,
+            ),
+        )),
+    }
+}
+
+#[cfg(test)]
+fn stage5d_test_notify_runtime_state_restored_forcing_intent_at(
+    injected: Stage5dRiskGateInjectedPaperStrategy,
+    restored_at: DateTime<Utc>,
+) -> Result<
+    crate::stage5c_paper_host::Stage5cRuntimeStateRestoredPaperStrategy,
+    Stage5dRuntimeStateRestoreOutcome,
+> {
+    if let Err(reason) = validate_stage5d_runtime_state_restored_preflight(&injected, restored_at) {
+        return Err(Stage5dRuntimeStateRestoreOutcome::Blocked(
+            stage5d_runtime_restore_blocked(injected, reason),
+        ));
+    }
+
+    let snapshot_id = injected.snapshot_id().to_string();
+    let evidence_fingerprint = injected.evidence_fingerprint().to_string();
+    let recovery_plan_fingerprint = injected.recovery_plan_fingerprint().to_string();
+    let Stage5dRiskGateInjectedPaperStrategy { bootstrapped, .. } = injected;
+    match crate::stage5c_paper_host::stage5d_test_notify_runtime_state_restored_bridge_forcing_intent_at(
+        bootstrapped,
+        restored_at,
+    ) {
+        Ok(restored) => Ok(restored),
+        Err(reason) => Err(Stage5dRuntimeStateRestoreOutcome::Terminal(
+            stage5d_runtime_restore_terminal(
+                snapshot_id,
+                evidence_fingerprint,
+                recovery_plan_fingerprint,
+                reason,
+            ),
+        )),
+    }
+}
+
+fn stage5d_runtime_restore_blocked(
+    injected: Stage5dRiskGateInjectedPaperStrategy,
+    reason: Stage5dRuntimeStateRestoreBlockedReason,
+) -> Stage5dRuntimeStateRestoreBlocked {
+    Stage5dRuntimeStateRestoreBlocked {
+        injected: Box::new(injected),
+        reason,
+    }
+}
+
+fn stage5d_runtime_restore_terminal(
+    snapshot_id: String,
+    evidence_fingerprint: String,
+    recovery_plan_fingerprint: String,
+    reason: crate::stage5c_paper_host::Stage5dRuntimeStateRestoredBridgeError,
+) -> Stage5dRuntimeStateRestoreTerminalFailure {
+    let reason = match reason {
+        crate::stage5c_paper_host::Stage5dRuntimeStateRestoredBridgeError::CallbackEmittedIntent => {
+            Stage5dRuntimeStateRestoreTerminalReason::CallbackEmittedIntent
+        }
+        crate::stage5c_paper_host::Stage5dRuntimeStateRestoredBridgeError::Stage5c(
+            crate::stage5c_paper_host::Stage5cRuntimeStateRestoreError::BrokerTruthPositionMismatch,
+        ) => Stage5dRuntimeStateRestoreTerminalReason::PostCallbackBrokerTruthPositionMismatch,
+        crate::stage5c_paper_host::Stage5dRuntimeStateRestoredBridgeError::Stage5c(
+            crate::stage5c_paper_host::Stage5cRuntimeStateRestoreError::BrokerTruthSideMismatch,
+        ) => Stage5dRuntimeStateRestoreTerminalReason::PostCallbackBrokerTruthSideMismatch,
+        crate::stage5c_paper_host::Stage5dRuntimeStateRestoredBridgeError::Stage5c(
+            crate::stage5c_paper_host::Stage5cRuntimeStateRestoreError::BrokerOwnedOrderIdMismatch,
+        ) => Stage5dRuntimeStateRestoreTerminalReason::PostCallbackBrokerOwnedProtectiveId,
+        crate::stage5c_paper_host::Stage5dRuntimeStateRestoredBridgeError::Stage5c(_) => {
+            Stage5dRuntimeStateRestoreTerminalReason::PostCallbackStateInvalid
+        }
+    };
+    Stage5dRuntimeStateRestoreTerminalFailure {
+        reason,
+        snapshot_id,
+        evidence_fingerprint,
+        recovery_plan_fingerprint,
+    }
+}
+
+fn validate_stage5d_runtime_state_restored_preflight(
+    injected: &Stage5dRiskGateInjectedPaperStrategy,
+    restored_at: DateTime<Utc>,
+) -> Result<(), Stage5dRuntimeStateRestoreBlockedReason> {
+    if !injected.recovery_plan.recovery_complete
+        || injected.recovery_plan.decisions.iter().any(|decision| {
+            decision.durable_state != Stage5dRiskGateFinalizationState::AcknowledgedInRuntime
+                || decision.action != Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged
+        })
+    {
+        return Err(Stage5dRuntimeStateRestoreBlockedReason::RecoveryIncomplete);
+    }
+    if !injected
+        .envelope
+        .runtime_private_extension
+        .runtime_pending_finalizations
+        .is_empty()
+    {
+        return Err(Stage5dRuntimeStateRestoreBlockedReason::PendingRiskGateFinalizations);
+    }
+    let expected_plan = stage5d_compute_riskgate_recovery_plan_fingerprint(&injected.recovery_plan)
+        .map_err(|_| Stage5dRuntimeStateRestoreBlockedReason::RecoveryPlanBindingMismatch)?;
+    if expected_plan != injected.recovery_plan.plan_fingerprint_sha256
+        || injected.recovery_plan.envelope_fingerprint_sha256
+            != injected.envelope.payload_checksum_sha256
+    {
+        return Err(Stage5dRuntimeStateRestoreBlockedReason::RecoveryPlanBindingMismatch);
+    }
+    if restored_at < injected.envelope.persisted_at_ts_utc {
+        return Err(Stage5dRuntimeStateRestoreBlockedReason::LifecycleTimestampReversal);
+    }
+
+    let admission = injected.bootstrapped.stage5d_admission();
+    if restored_at > admission.expires_at() {
+        return Err(Stage5dRuntimeStateRestoreBlockedReason::AdmissionExpired);
+    }
+    if !admission.is_paper_only()
+        || admission.runtime_host_attached()
+        || admission.intent_sink_attached()
+    {
+        return Err(Stage5dRuntimeStateRestoreBlockedReason::ClosedBoundaryOpened);
+    }
+    if injected.bootstrapped.stage5d_restored().known_order_ids
+        != injected.envelope.recovery_indexes.known_order_ids
+        || injected.bootstrapped.stage5d_restored().pending_requests
+            != injected.envelope.recovery_indexes.pending_requests
+    {
+        return Err(Stage5dRuntimeStateRestoreBlockedReason::RecoveryIndexMismatch);
+    }
+    validate_stage5d_runtime_restore_broker_truth(injected)
+}
+
+fn validate_stage5d_runtime_restore_broker_truth(
+    injected: &Stage5dRiskGateInjectedPaperStrategy,
+) -> Result<(), Stage5dRuntimeStateRestoreBlockedReason> {
+    let admission = injected.bootstrapped.stage5d_admission();
+    if admission.strategy_id() != injected.envelope.binding.strategy_id
+        || admission.account_id() != &injected.envelope.binding.account_id
+        || admission.target_instrument()
+            != &injected.envelope.binding.instrument_id.to_instrument_id()
+    {
+        return Err(Stage5dRuntimeStateRestoreBlockedReason::RecoveryPlanBindingMismatch);
+    }
+    let broker_qty = admission
+        .bootstrap_snapshot()
+        .target_position_qty
+        .to_f64()
+        .filter(|value| value.is_finite())
+        .ok_or(Stage5dRuntimeStateRestoreBlockedReason::BrokerQuantityNotRepresentable)?;
+    let state = Strategy::state(injected.bootstrapped.stage5d_strategy());
+    let StrategyState::HybridIntradayRuntime {
+        last_position_qty,
+        current_side,
+        tp_order_id,
+        sl_stop_order_id,
+        sl_exchange_order_id,
+        ..
+    } = state
+    else {
+        return Err(Stage5dRuntimeStateRestoreBlockedReason::RecoveryPlanBindingMismatch);
+    };
+    if (*last_position_qty - broker_qty).abs() > f64::EPSILON {
+        return Err(Stage5dRuntimeStateRestoreBlockedReason::BrokerTruthPositionMismatch);
+    }
+    let expected_side = if broker_qty > f64::EPSILON {
+        Some(crate::hybrid_intraday::Side::Long)
+    } else if broker_qty < -f64::EPSILON {
+        Some(crate::hybrid_intraday::Side::Short)
+    } else {
+        None
+    };
+    if expected_side.is_some() && *current_side != expected_side {
+        return Err(Stage5dRuntimeStateRestoreBlockedReason::BrokerTruthSideMismatch);
+    }
+    if tp_order_id.is_some() || sl_stop_order_id.is_some() || sl_exchange_order_id.is_some() {
+        return Err(Stage5dRuntimeStateRestoreBlockedReason::BrokerOwnedProtectiveId);
+    }
+    Ok(())
 }
 
 fn stage5d_retry_broker_truth_bootstrap_at(
@@ -3985,6 +4342,71 @@ mod tests {
         }
     }
 
+    fn expect_stage5d_restore_blocked<T>(
+        result: Result<T, Stage5dRuntimeStateRestoreOutcome>,
+        message: &str,
+    ) -> Stage5dRuntimeStateRestoreBlocked {
+        match result {
+            Ok(_) => panic!("{message}"),
+            Err(Stage5dRuntimeStateRestoreOutcome::Blocked(blocked)) => blocked,
+            Err(Stage5dRuntimeStateRestoreOutcome::Terminal(terminal)) => {
+                panic!("{message}: terminal {:?}", terminal.reason())
+            }
+        }
+    }
+
+    fn expect_stage5d_restore_terminal<T>(
+        result: Result<T, Stage5dRuntimeStateRestoreOutcome>,
+        message: &str,
+    ) -> Stage5dRuntimeStateRestoreTerminalFailure {
+        match result {
+            Ok(_) => panic!("{message}"),
+            Err(Stage5dRuntimeStateRestoreOutcome::Terminal(terminal)) => terminal,
+            Err(Stage5dRuntimeStateRestoreOutcome::Blocked(blocked)) => {
+                panic!("{message}: blocked {:?}", blocked.reason())
+            }
+        }
+    }
+
+    fn expect_stage5d_restore_ok<T>(
+        result: Result<T, Stage5dRuntimeStateRestoreOutcome>,
+        message: &str,
+    ) -> T {
+        match result {
+            Ok(value) => value,
+            Err(Stage5dRuntimeStateRestoreOutcome::Blocked(blocked)) => {
+                panic!("{message}: blocked {:?}", blocked.reason())
+            }
+            Err(Stage5dRuntimeStateRestoreOutcome::Terminal(terminal)) => {
+                panic!("{message}: terminal {:?}", terminal.reason())
+            }
+        }
+    }
+
+    fn stage5d_test_complete_injected_fixture() -> Stage5dRiskGateInjectedPaperStrategy {
+        let (bootstrapped, _envelope, validated_evidence) =
+            riskgate_enabled_bootstrapped_fixture_with_evidence(|envelope, evidence| {
+                stage5d_test_configure_single_tail_crash_frontier(
+                    envelope,
+                    evidence,
+                    Stage5dRiskGateFinalizationState::AcknowledgedInRuntime,
+                    true,
+                    true,
+                    true,
+                    false,
+                );
+            });
+        let injected = expect_stage5d_riskgate_ok(
+            stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
+            "complete fixture must inject riskgate",
+        );
+        assert!(
+            injected.recovery_complete(),
+            "complete fixture must be ready for restored callback"
+        );
+        injected
+    }
+
     fn applied_stage5d_fixture() -> (
         Stage5dPrivateStateAppliedPaperStrategy,
         Stage5dPersistenceEnvelope,
@@ -7108,6 +7530,107 @@ mod tests {
             blocked.reason(),
             Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch
         );
+    }
+
+    #[test]
+    fn stage5d_b2bd_runtime_state_restored_success_returns_stage5c_restored_capability() {
+        let injected = stage5d_test_complete_injected_fixture();
+        let restored_at = injected.envelope.persisted_at_ts_utc;
+        let restored = expect_stage5d_restore_ok(
+            stage5d_notify_runtime_state_restored_at(injected, restored_at),
+            "complete injected capability must return to Stage 5C restored",
+        );
+
+        assert!(restored.receipt().runtime_state_restored());
+        assert!(!restored.receipt().warmup_started());
+        assert!(!restored.receipt().pending_recovery_started());
+        assert!(!restored.receipt().semantic_bar_enabled());
+        assert!(!restored.receipt().intent_sink_attached());
+        assert!(restored.receipt().pending_requests().is_empty());
+    }
+
+    #[test]
+    fn stage5d_b2bd_exact_expiry_boundary_is_accepted() {
+        let injected = stage5d_test_complete_injected_fixture();
+        let expires_at = injected.bootstrapped.stage5d_admission().expires_at();
+        let restored = expect_stage5d_restore_ok(
+            stage5d_notify_runtime_state_restored_at(injected, expires_at),
+            "exact expiry boundary follows Stage 5C equality policy",
+        );
+        assert_eq!(restored.receipt().restored_ts(), expires_at);
+    }
+
+    #[test]
+    fn stage5d_b2bd_expired_admission_blocks_before_callback_and_preserves_input() {
+        let injected = stage5d_test_complete_injected_fixture();
+        let expired_at = injected.bootstrapped.stage5d_admission().expires_at()
+            + chrono::Duration::milliseconds(1);
+        let before_snapshot = injected.snapshot_id().to_string();
+        let blocked = expect_stage5d_restore_blocked(
+            stage5d_notify_runtime_state_restored_at(injected, expired_at),
+            "expired admission must block before callback",
+        );
+
+        assert_eq!(
+            blocked.reason(),
+            Stage5dRuntimeStateRestoreBlockedReason::AdmissionExpired
+        );
+        assert!(blocked.input_capability_preserved());
+        assert_eq!(blocked.snapshot_id(), before_snapshot);
+        assert_eq!(
+            blocked.recovery_disposition(),
+            Stage5dRuntimeStateRestoreRecoveryDisposition::RestartWithFreshBrokerTruth
+        );
+    }
+
+    #[test]
+    fn stage5d_b2bd_incomplete_recovery_blocks_before_callback() {
+        let (bootstrapped, _envelope, validated_evidence) =
+            riskgate_enabled_bootstrapped_fixture_with_evidence(|envelope, evidence| {
+                stage5d_test_configure_single_tail_crash_frontier(
+                    envelope,
+                    evidence,
+                    Stage5dRiskGateFinalizationState::Prepared,
+                    false,
+                    false,
+                    false,
+                    true,
+                );
+            });
+        let injected = expect_stage5d_riskgate_ok(
+            stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
+            "incomplete fixture still injects but is not callback-ready",
+        );
+        assert!(!injected.recovery_complete());
+        let restored_at = injected.envelope.persisted_at_ts_utc;
+        let blocked = expect_stage5d_restore_blocked(
+            stage5d_notify_runtime_state_restored_at(injected, restored_at),
+            "incomplete recovery must not reach callback",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dRuntimeStateRestoreBlockedReason::RecoveryIncomplete
+        );
+        assert!(blocked.input_capability_preserved());
+    }
+
+    #[test]
+    fn stage5d_b2bd_release_mode_nonempty_callback_intent_is_terminal() {
+        let injected = stage5d_test_complete_injected_fixture();
+        let restored_at = injected.envelope.persisted_at_ts_utc;
+        let terminal = expect_stage5d_restore_terminal(
+            stage5d_test_notify_runtime_state_restored_forcing_intent_at(injected, restored_at),
+            "non-empty callback intents must be terminal in release mode",
+        );
+
+        assert_eq!(
+            terminal.reason(),
+            Stage5dRuntimeStateRestoreTerminalReason::CallbackEmittedIntent
+        );
+        assert!(!terminal.retry_capability_available());
+        assert!(!terminal.snapshot_id().is_empty());
+        assert!(!terminal.evidence_fingerprint().is_empty());
+        assert!(!terminal.recovery_plan_fingerprint().is_empty());
     }
 
     #[test]

@@ -100,6 +100,7 @@ run_gate handoff_source_safety python3 scripts/handoff_safety_check.py --source-
 run_gate handoff_archive_safety check_archive_safety
 run_gate checker_input_completeness check_copied_baseline
 run_gate cargo_fmt cargo fmt --all --check
+run_gate cargo_test_stage5d_b2bd cargo test -p strategy-runtime-core b2bd --lib
 run_gate cargo_test_all_targets cargo test --workspace --all-targets
 run_gate cargo_test_docs cargo test --workspace --doc
 run_gate cargo_clippy cargo clippy --workspace --all-targets -- -D warnings

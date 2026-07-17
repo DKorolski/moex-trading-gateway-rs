@@ -94,6 +94,86 @@ impl Stage5cBootstrappedPaperStrategy {
     pub(crate) fn stage5d_strategy(&self) -> &HybridIntradayRuntimeStrategy {
         &self.strategy
     }
+
+    pub(crate) fn stage5d_admission(&self) -> &Stage5cPaperHostAdmission {
+        &self.receipt.admission
+    }
+
+    pub(crate) fn stage5d_restored(&self) -> &RuntimeStateRestored {
+        &self.restored
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5dRuntimeStateRestoredBridgeError {
+    Stage5c(Stage5cRuntimeStateRestoreError),
+    CallbackEmittedIntent,
+}
+
+pub(crate) fn stage5d_notify_runtime_state_restored_bridge_at(
+    bootstrapped: Stage5cBootstrappedPaperStrategy,
+    restored_ts: DateTime<Utc>,
+) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5dRuntimeStateRestoredBridgeError> {
+    stage5d_notify_runtime_state_restored_bridge_impl_at(bootstrapped, restored_ts, false)
+}
+
+#[cfg(test)]
+pub(crate) fn stage5d_test_notify_runtime_state_restored_bridge_forcing_intent_at(
+    bootstrapped: Stage5cBootstrappedPaperStrategy,
+    restored_ts: DateTime<Utc>,
+) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5dRuntimeStateRestoredBridgeError> {
+    stage5d_notify_runtime_state_restored_bridge_impl_at(bootstrapped, restored_ts, true)
+}
+
+fn stage5d_notify_runtime_state_restored_bridge_impl_at(
+    bootstrapped: Stage5cBootstrappedPaperStrategy,
+    restored_ts: DateTime<Utc>,
+    force_nonempty_intent_for_test: bool,
+) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5dRuntimeStateRestoredBridgeError> {
+    let (mut strategy, bootstrap_receipt, restored) = bootstrapped.into_parts();
+    let admission = &bootstrap_receipt.admission;
+    let broker_position_qty = admission
+        .bootstrap_snapshot()
+        .target_position_qty
+        .to_f64()
+        .ok_or(Stage5dRuntimeStateRestoredBridgeError::Stage5c(
+            Stage5cRuntimeStateRestoreError::BrokerTruthPositionMismatch,
+        ))?;
+    let context = StrategyCtx {
+        strategy_id: admission.strategy_id().to_string(),
+        portfolio: admission.account_id().as_str().to_string(),
+        exchange: format!("{:?}", admission.target_instrument().exchange),
+        symbol: admission.target_instrument().symbol.clone(),
+        tick_size: admission.tick_size(),
+        trade_mode: TradeMode::Paper,
+        paper_execution_mode: PaperExecutionMode::LiveOnly,
+        allow_live_orders: false,
+        gateway_phase: GatewayPhase::SyncingHistory,
+        position_qty: Some(broker_position_qty),
+        event_ts_utc: restored_ts.timestamp(),
+        now_ts_utc: restored_ts.timestamp(),
+        last_bar_ts: None,
+    };
+    let pending_requests = restored.pending_requests.clone();
+    let intents = Strategy::on_runtime_state_restored(&mut strategy, &context, &restored);
+    debug_assert!(
+        intents.is_empty(),
+        "accepted source runtime-state restore must not emit intents"
+    );
+    if !intents.is_empty() || force_nonempty_intent_for_test {
+        return Err(Stage5dRuntimeStateRestoredBridgeError::CallbackEmittedIntent);
+    }
+    validate_post_bootstrap_broker_truth(&strategy, admission)
+        .map_err(Stage5dRuntimeStateRestoredBridgeError::Stage5c)?;
+
+    Ok(Stage5cRuntimeStateRestoredPaperStrategy {
+        strategy,
+        receipt: Stage5cRuntimeStateRestoreReceipt {
+            bootstrap_receipt,
+            restored_ts,
+            pending_requests,
+        },
+    })
 }
 
 pub(crate) fn stage5d_bootstrap_preserving_loaded_at(

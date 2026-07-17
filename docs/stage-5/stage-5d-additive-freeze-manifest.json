@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-b2b-c1-r8",
+  "stage": "5D-b2b-d",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -44,7 +44,7 @@
   "approved_bridge_files": {
     "crates/strategy-runtime-core/src/lib.rs": {
       "closure_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
-      "current_sha256": "d104b00c2c4a589065b19f3a47c14c3c0b36a7ad835709dae834933f902ed6e2",
+      "current_sha256": "ab081d68f0fd936e60183156b6bfc2b753c2fdc8437cd8ee66aa2368ed5ee275",
       "stripped_without_additive_regions_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
       "additive_regions": [
         "lib-stage5d-module",
@@ -61,7 +61,7 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "9ed7d73815809cecaac21fe0aa8933abbdbb20e9c6dc2ffe195143c67e23e4ba",
+      "current_sha256": "74289033217f6c88ef29b11df2e68938b1d8ac762bc8d1285ef92c25702062e6",
       "stripped_without_additive_regions_sha256": "0ea1a8982965eb34cc113d41c821b22a3ab2c2e2f5a80112ce2561b48fc4ed3c",
       "additive_regions": [
         "type-state-transitions"
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "cf831ab3e6af6b30148bda01c38dd05a93583e405e8e0b585066d7c184016a5f"
+      "stage5d_consumer_sha256": "1ecc7a57f107d80d89dac3de37294153e1de8fb6f85fc14f73e5c1be9b1b7f4f"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "cf831ab3e6af6b30148bda01c38dd05a93583e405e8e0b585066d7c184016a5f"
+      "stage5d_consumer_sha256": "1ecc7a57f107d80d89dac3de37294153e1de8fb6f85fc14f73e5c1be9b1b7f4f"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "cf831ab3e6af6b30148bda01c38dd05a93583e405e8e0b585066d7c184016a5f"
+    "current_sha256": "1ecc7a57f107d80d89dac3de37294153e1de8fb6f85fc14f73e5c1be9b1b7f4f"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -155,6 +155,12 @@
     "Stage5dRuntimePendingRiskGateFinalization",
     "Stage5dRuntimePrivateApplyBlocked",
     "Stage5dRuntimePrivateExtension",
+    "Stage5dRuntimeStateRestoreBlocked",
+    "Stage5dRuntimeStateRestoreBlockedReason",
+    "Stage5dRuntimeStateRestoreOutcome",
+    "Stage5dRuntimeStateRestoreRecoveryDisposition",
+    "Stage5dRuntimeStateRestoreTerminalFailure",
+    "Stage5dRuntimeStateRestoreTerminalReason",
     "Stage5dSemanticStrategyStateV1",
     "Stage5dSide",
     "Stage5dSnapshotBinding",
@@ -170,6 +176,7 @@
     "stage5d_bind_runtime_state_loaded",
     "stage5d_inject_authoritative_riskgate",
     "stage5d_notify_broker_truth_bootstrap",
+    "stage5d_notify_runtime_state_restored",
     "stage5d_retry_authoritative_riskgate_injection",
     "stage5d_retry_bind_runtime_state_loaded",
     "stage5d_retry_broker_truth_bootstrap",
@@ -182,7 +189,7 @@
     "dispatch": false,
     "runtime_live": false,
     "broker_execution": false,
-    "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_only"
+    "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
   },
   "negative_cases": [
     "stage5c_api_drift",
@@ -228,7 +235,12 @@
     "riskgate_bridge_runtime_compat_alias_call",
     "riskgate_bridge_runtime_compat_forwarding_wrapper",
     "riskgate_bridge_runtime_compat_function_reference",
-    "riskgate_bridge_second_stage5d_call"
+    "riskgate_bridge_second_stage5d_call",
+    "runtime_restored_bridge_runtime_compat_direct_call",
+    "runtime_restored_bridge_runtime_compat_alias_call",
+    "runtime_restored_bridge_runtime_compat_function_reference",
+    "runtime_restored_bridge_second_stage5d_call",
+    "runtime_restored_bridge_made_public"
   ],
   "stage5d_public_api": {
     "public_reexports": [
@@ -276,6 +288,12 @@
       "Stage5dRuntimePendingRiskGateFinalization",
       "Stage5dRuntimePrivateApplyBlocked",
       "Stage5dRuntimePrivateExtension",
+      "Stage5dRuntimeStateRestoreBlocked",
+      "Stage5dRuntimeStateRestoreBlockedReason",
+      "Stage5dRuntimeStateRestoreOutcome",
+      "Stage5dRuntimeStateRestoreRecoveryDisposition",
+      "Stage5dRuntimeStateRestoreTerminalFailure",
+      "Stage5dRuntimeStateRestoreTerminalReason",
       "Stage5dSemanticStrategyStateV1",
       "Stage5dSide",
       "Stage5dSnapshotBinding",
@@ -291,6 +309,7 @@
       "stage5d_bind_runtime_state_loaded",
       "stage5d_inject_authoritative_riskgate",
       "stage5d_notify_broker_truth_bootstrap",
+      "stage5d_notify_runtime_state_restored",
       "stage5d_retry_authoritative_riskgate_injection",
       "stage5d_retry_bind_runtime_state_loaded",
       "stage5d_retry_broker_truth_bootstrap",
@@ -339,6 +358,10 @@
       {
         "name": "stage5d_notify_broker_truth_bootstrap",
         "signature": "pub fn stage5d_notify_broker_truth_bootstrap( applied: Stage5dPrivateStateAppliedPaperStrategy, ) -> Result<Stage5dBootstrappedPaperStrategy, Stage5dBootstrapBlocked>"
+      },
+      {
+        "name": "stage5d_notify_runtime_state_restored",
+        "signature": "pub fn stage5d_notify_runtime_state_restored( injected: Stage5dRiskGateInjectedPaperStrategy, ) -> Result< crate::stage5c_paper_host::Stage5cRuntimeStateRestoredPaperStrategy, Stage5dRuntimeStateRestoreOutcome, >"
       },
       {
         "name": "stage5d_retry_authoritative_riskgate_injection",
@@ -1407,6 +1430,73 @@
         "public_variants": []
       },
       {
+        "name": "Stage5dRuntimeStateRestoreBlocked",
+        "kind": "struct",
+        "opaque": true,
+        "public_fields": [],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dRuntimeStateRestoreBlockedReason",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "RecoveryIncomplete",
+          "PendingRiskGateFinalizations",
+          "RecoveryPlanBindingMismatch",
+          "AdmissionExpired",
+          "LifecycleTimestampReversal",
+          "BrokerQuantityNotRepresentable",
+          "BrokerTruthPositionMismatch",
+          "BrokerTruthSideMismatch",
+          "BrokerOwnedProtectiveId",
+          "ClosedBoundaryOpened",
+          "RecoveryIndexMismatch"
+        ]
+      },
+      {
+        "name": "Stage5dRuntimeStateRestoreOutcome",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "Blocked",
+          "Terminal"
+        ]
+      },
+      {
+        "name": "Stage5dRuntimeStateRestoreRecoveryDisposition",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "RestartWithFreshBrokerTruth",
+          "CompleteRecoveryThenRetryPipeline",
+          "RestartFromDurableEnvelope"
+        ]
+      },
+      {
+        "name": "Stage5dRuntimeStateRestoreTerminalFailure",
+        "kind": "struct",
+        "opaque": true,
+        "public_fields": [],
+        "public_variants": []
+      },
+      {
+        "name": "Stage5dRuntimeStateRestoreTerminalReason",
+        "kind": "enum",
+        "opaque": false,
+        "public_fields": [],
+        "public_variants": [
+          "CallbackEmittedIntent",
+          "PostCallbackBrokerTruthPositionMismatch",
+          "PostCallbackBrokerTruthSideMismatch",
+          "PostCallbackBrokerOwnedProtectiveId",
+          "PostCallbackStateInvalid"
+        ]
+      },
+      {
         "name": "Stage5dSemanticStrategyStateV1",
         "kind": "enum",
         "opaque": false,
@@ -1744,6 +1834,61 @@
         "signature": "pub fn reason(&self) -> Stage5dEnvelopeValidationError"
       },
       {
+        "type": "Stage5dRuntimeStateRestoreBlocked",
+        "name": "evidence_fingerprint",
+        "signature": "pub fn evidence_fingerprint(&self) -> &str"
+      },
+      {
+        "type": "Stage5dRuntimeStateRestoreBlocked",
+        "name": "input_capability_preserved",
+        "signature": "pub fn input_capability_preserved(&self) -> bool"
+      },
+      {
+        "type": "Stage5dRuntimeStateRestoreBlocked",
+        "name": "reason",
+        "signature": "pub fn reason(&self) -> Stage5dRuntimeStateRestoreBlockedReason"
+      },
+      {
+        "type": "Stage5dRuntimeStateRestoreBlocked",
+        "name": "recovery_disposition",
+        "signature": "pub fn recovery_disposition(&self) -> Stage5dRuntimeStateRestoreRecoveryDisposition"
+      },
+      {
+        "type": "Stage5dRuntimeStateRestoreBlocked",
+        "name": "recovery_plan_fingerprint",
+        "signature": "pub fn recovery_plan_fingerprint(&self) -> &str"
+      },
+      {
+        "type": "Stage5dRuntimeStateRestoreBlocked",
+        "name": "snapshot_id",
+        "signature": "pub fn snapshot_id(&self) -> &str"
+      },
+      {
+        "type": "Stage5dRuntimeStateRestoreTerminalFailure",
+        "name": "evidence_fingerprint",
+        "signature": "pub fn evidence_fingerprint(&self) -> &str"
+      },
+      {
+        "type": "Stage5dRuntimeStateRestoreTerminalFailure",
+        "name": "reason",
+        "signature": "pub fn reason(&self) -> Stage5dRuntimeStateRestoreTerminalReason"
+      },
+      {
+        "type": "Stage5dRuntimeStateRestoreTerminalFailure",
+        "name": "recovery_plan_fingerprint",
+        "signature": "pub fn recovery_plan_fingerprint(&self) -> &str"
+      },
+      {
+        "type": "Stage5dRuntimeStateRestoreTerminalFailure",
+        "name": "retry_capability_available",
+        "signature": "pub fn retry_capability_available(&self) -> bool"
+      },
+      {
+        "type": "Stage5dRuntimeStateRestoreTerminalFailure",
+        "name": "snapshot_id",
+        "signature": "pub fn snapshot_id(&self) -> &str"
+      },
+      {
         "type": "Stage5dValidatedPersistenceEnvelope",
         "name": "schema_version",
         "signature": "pub fn schema_version(&self) -> u16"
@@ -1779,6 +1924,8 @@
       "Stage5dRiskGateInjectedPaperStrategy",
       "Stage5dRiskGateInjectionBlocked",
       "Stage5dRuntimePrivateApplyBlocked",
+      "Stage5dRuntimeStateRestoreBlocked",
+      "Stage5dRuntimeStateRestoreTerminalFailure",
       "Stage5dValidatedPersistenceEnvelope",
       "Stage5dValidatedRiskGateLedgerEvidence",
       "Stage5dValidatedRuntimePrivateExtension"
@@ -1795,33 +1942,37 @@
       "Stage5dRiskGateInjectionBlockReason",
       "Stage5dRiskGateRowSource",
       "Stage5dRiskGateRowStatus",
+      "Stage5dRuntimeStateRestoreBlockedReason",
+      "Stage5dRuntimeStateRestoreOutcome",
+      "Stage5dRuntimeStateRestoreRecoveryDisposition",
+      "Stage5dRuntimeStateRestoreTerminalReason",
       "Stage5dSemanticStrategyStateV1",
       "Stage5dSide",
       "Stage5dStrategyKind",
       "Stage5dStructuredTimestampFormat",
       "Stage5dTimestampUnits"
     ],
-    "normalized_signature_hash": "06ae30292c763b23bad9bc45a39c488ceaa5da8370ccf968188108bbedb924b6",
+    "normalized_signature_hash": "74c30b13587a979c851bfe3cb79ec7ab5abf616e798a9f3d7e28ae5b294b0502",
     "public_surface_counts": {
-      "public_reexports": 63,
+      "public_reexports": 70,
       "public_constants": 5,
-      "public_free_functions": 8,
-      "public_types": 50,
-      "public_methods": 40,
-      "opaque_capabilities": 12,
-      "externally_constructible_enums": 16
+      "public_free_functions": 9,
+      "public_types": 56,
+      "public_methods": 51,
+      "opaque_capabilities": 14,
+      "externally_constructible_enums": 20
     }
   },
   "stage5d_public_api_summary": {
-    "normalized_signature_hash": "06ae30292c763b23bad9bc45a39c488ceaa5da8370ccf968188108bbedb924b6",
+    "normalized_signature_hash": "74c30b13587a979c851bfe3cb79ec7ab5abf616e798a9f3d7e28ae5b294b0502",
     "public_surface_counts": {
-      "public_reexports": 63,
+      "public_reexports": 70,
       "public_constants": 5,
-      "public_free_functions": 8,
-      "public_types": 50,
-      "public_methods": 40,
-      "opaque_capabilities": 12,
-      "externally_constructible_enums": 16
+      "public_free_functions": 9,
+      "public_types": 56,
+      "public_methods": 51,
+      "opaque_capabilities": 14,
+      "externally_constructible_enums": 20
     }
   }
 }

@@ -188,8 +188,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   riskgate-profile callback no-ops, validates ledger-tail hash, enforces
   durable outbox crash-consistency/idempotency identity, and supports controlled
   retry with fresh validated ledger evidence without repeating private apply or
-  broker bootstrap. Stage 5D-b2b-c1-r8 is the active review-closure hardening
-  candidate. It distinguishes full authoritative, durable materialized and
+  broker bootstrap. Stage 5D-b2b-c1-r8 closed the review hardening around the
+  riskgate-injected capability. It distinguishes full authoritative, durable materialized and
   semantic-runtime frontiers; accepts only exact outbox-explained crash lag;
   requires semantic current-shadow session/PnL to match authoritative materialized
   evidence exactly; rejects negative zero at Stage 5D riskgate authority
@@ -204,20 +204,27 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   5C closure manifest, represents riskgate codec changes through Stage 5D-owned
   controlled semantic extension evidence, validates later processed watermarks by
   the bound source runtime policy, and proves source-produced current-shadow
-  positives without post-export editing. CI requires the 44-case Stage 5D harness
+  positives without post-export editing. CI requires the 49-case Stage 5D harness
   plus the isolated marker-pinned 87-case forbidden harness with positive-baseline and
   self-protection checks. The forbidden harness supported worker contract is
   pinned at default/max four workers, 180-second per-case timeout and a
   75-minute CI timeout. Review
-  handoffs remain fail-closed and commit-bound. The Stage 5D checker pins both crate-private bootstrap and
-  riskgate bridges to one definition and one production call-site, with negative
-  cases for direct calls, aliases, forwarding wrappers, function references and
-  extra Stage 5D calls.
+  handoffs remain fail-closed and commit-bound. Stage 5D-b2b-d is the active
+  controlled runtime-state-restored transition candidate: it consumes only the
+  opaque `Stage5dRiskGateInjectedPaperStrategy`, requires complete
+  source-produced recovery evidence before the callback, delegates through one
+  checker-pinned crate-private Stage 5C bridge, returns the exact
+  `Stage5cRuntimeStateRestoredPaperStrategy` on success, preserves the input
+  capability on pre-callback blocks, treats post-callback failures as terminal,
+  and rejects any release-mode callback intent. The Stage 5D checker pins the
+  crate-private bootstrap, riskgate and runtime-state-restored bridges to one
+  definition and one production call-site each, with negative cases for direct
+  calls, aliases, forwarding wrappers, function references and extra Stage 5D
+  calls.
   The formal mutation policy is
-  `controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_only`;
-  Stage 5D-b2b-c1-r8 still does not implement final runtime-state-restored return,
-  Redis bridge, FINAM execution, broker transport, runtime-live or autonomous
-  loop.
+  `controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only`;
+  Redis bridge, FINAM execution, broker transport, runtime-live and autonomous
+  loop remain closed.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

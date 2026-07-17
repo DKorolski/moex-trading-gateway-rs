@@ -35,6 +35,8 @@ STAGE5D_BOOTSTRAP_BRIDGE_IDENTIFIER = "stage5d_bootstrap_preserving_loaded_at"
 STAGE5D_BOOTSTRAP_BRIDGE_ALLOWED_CALL_FUNCTION = "stage5d_notify_broker_truth_bootstrap_at"
 STAGE5D_RISKGATE_BRIDGE_IDENTIFIER = "stage5d_inject_authoritative_riskgate_state"
 STAGE5D_RISKGATE_BRIDGE_ALLOWED_CALL_FUNCTION = "stage5d_inject_authoritative_riskgate_with_evidence"
+STAGE5D_RUNTIME_RESTORED_BRIDGE_IDENTIFIER = "stage5d_notify_runtime_state_restored_bridge_at"
+STAGE5D_RUNTIME_RESTORED_BRIDGE_ALLOWED_CALL_FUNCTION = "stage5d_notify_runtime_state_restored_at"
 FORBIDDEN_SCANNER_REL = Path("scripts/forbidden_surface_scan.sh")
 CI_REL = Path(".github/workflows/ci.yml")
 
@@ -88,7 +90,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "cf831ab3e6af6b30148bda01c38dd05a93583e405e8e0b585066d7c184016a5f",
+        "stage5d_consumer_sha256": "1ecc7a57f107d80d89dac3de37294153e1de8fb6f85fc14f73e5c1be9b1b7f4f",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -102,7 +104,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "cf831ab3e6af6b30148bda01c38dd05a93583e405e8e0b585066d7c184016a5f",
+        "stage5d_consumer_sha256": "1ecc7a57f107d80d89dac3de37294153e1de8fb6f85fc14f73e5c1be9b1b7f4f",
     },
 ]
 
@@ -119,7 +121,7 @@ EXPECTED_CLOSED_SURFACES = {
     "dispatch": False,
     "runtime_live": False,
     "broker_execution": False,
-    "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_only",
+    "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only",
 }
 
 EXPECTED_STAGE5C_PRIVATE_LAYOUT_EXTENSIONS = [
@@ -178,6 +180,11 @@ EXPECTED_NEGATIVE_CASES = [
     "riskgate_bridge_runtime_compat_forwarding_wrapper",
     "riskgate_bridge_runtime_compat_function_reference",
     "riskgate_bridge_second_stage5d_call",
+    "runtime_restored_bridge_runtime_compat_direct_call",
+    "runtime_restored_bridge_runtime_compat_alias_call",
+    "runtime_restored_bridge_runtime_compat_function_reference",
+    "runtime_restored_bridge_second_stage5d_call",
+    "runtime_restored_bridge_made_public",
 ]
 
 EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
@@ -225,6 +232,12 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "Stage5dRuntimePendingRiskGateFinalization",
     "Stage5dRuntimePrivateApplyBlocked",
     "Stage5dRuntimePrivateExtension",
+    "Stage5dRuntimeStateRestoreBlocked",
+    "Stage5dRuntimeStateRestoreBlockedReason",
+    "Stage5dRuntimeStateRestoreOutcome",
+    "Stage5dRuntimeStateRestoreRecoveryDisposition",
+    "Stage5dRuntimeStateRestoreTerminalFailure",
+    "Stage5dRuntimeStateRestoreTerminalReason",
     "Stage5dSemanticStrategyStateV1",
     "Stage5dSide",
     "Stage5dSnapshotBinding",
@@ -240,6 +253,7 @@ EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "stage5d_bind_runtime_state_loaded",
     "stage5d_inject_authoritative_riskgate",
     "stage5d_notify_broker_truth_bootstrap",
+    "stage5d_notify_runtime_state_restored",
     "stage5d_retry_authoritative_riskgate_injection",
     "stage5d_retry_bind_runtime_state_loaded",
     "stage5d_retry_broker_truth_bootstrap",
@@ -736,6 +750,13 @@ def validate_stage5d_bridge_call_sites(root: Path, failures: list[str]) -> None:
         identifier=STAGE5D_RISKGATE_BRIDGE_IDENTIFIER,
         allowed_call_function=STAGE5D_RISKGATE_BRIDGE_ALLOWED_CALL_FUNCTION,
     )
+    validate_stage5d_single_bridge_call_sites(
+        root,
+        failures,
+        label="runtime-restored",
+        identifier=STAGE5D_RUNTIME_RESTORED_BRIDGE_IDENTIFIER,
+        allowed_call_function=STAGE5D_RUNTIME_RESTORED_BRIDGE_ALLOWED_CALL_FUNCTION,
+    )
 
 
 def validate(root: Path, manifest_path: Path) -> list[str]:
@@ -744,8 +765,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2b-c1-r8":
-        failures.append("stage must be 5D-b2b-c1-r8")
+    if manifest.get("stage") != "5D-b2b-d":
+        failures.append("stage must be 5D-b2b-d")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:

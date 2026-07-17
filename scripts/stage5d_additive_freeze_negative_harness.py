@@ -217,7 +217,7 @@ def mutate_closed_surface_downgrade(root: Path) -> None:
     )
     replace_once(
         root / "docs/stage-5/stage-5d-additive-freeze-manifest.json",
-        '"runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_only"',
+        '"runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"',
         '"runtime_private_mutation": "raw_mutation_allowed"',
     )
 
@@ -548,6 +548,56 @@ def mutate_riskgate_bridge_second_stage5d_call(root: Path) -> None:
     update_manifest_stage5d_hash(root)
 
 
+def mutate_runtime_restored_bridge_runtime_compat_direct_call(root: Path) -> None:
+    append_text(
+        root / "crates/strategy-runtime-core/src/runtime_compat.rs",
+        "\n#[allow(dead_code)]\nfn stage5d_negative_runtime_restored_bridge_direct_call(bootstrapped: crate::stage5c_paper_host::Stage5cBootstrappedPaperStrategy, now: chrono::DateTime<chrono::Utc>) {\n"
+        "    let _ = crate::stage5c_paper_host::stage5d_notify_runtime_state_restored_bridge_at(bootstrapped, now);\n"
+        "}\n",
+    )
+
+
+def mutate_runtime_restored_bridge_runtime_compat_alias_call(root: Path) -> None:
+    append_text(
+        root / "crates/strategy-runtime-core/src/runtime_compat.rs",
+        "\n#[allow(dead_code)]\nfn stage5d_negative_runtime_restored_bridge_alias_call(bootstrapped: crate::stage5c_paper_host::Stage5cBootstrappedPaperStrategy, now: chrono::DateTime<chrono::Utc>) {\n"
+        "    use crate::stage5c_paper_host::stage5d_notify_runtime_state_restored_bridge_at as bypass_restored;\n"
+        "    let _ = bypass_restored(bootstrapped, now);\n"
+        "}\n",
+    )
+
+
+def mutate_runtime_restored_bridge_runtime_compat_function_reference(root: Path) -> None:
+    append_text(
+        root / "crates/strategy-runtime-core/src/runtime_compat.rs",
+        "\n#[allow(dead_code)]\nfn stage5d_negative_runtime_restored_bridge_function_reference() {\n"
+        "    let _bridge = crate::stage5c_paper_host::stage5d_notify_runtime_state_restored_bridge_at;\n"
+        "}\n",
+    )
+
+
+def mutate_runtime_restored_bridge_second_stage5d_call(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    insert_before(
+        root / rel,
+        "fn validate_stage5d_runtime_state_restored_preflight(",
+        "#[allow(dead_code)]\nfn stage5d_negative_second_runtime_restored_bridge_call(bootstrapped: crate::stage5c_paper_host::Stage5cBootstrappedPaperStrategy, now: DateTime<Utc>) {\n"
+        "    let _ = crate::stage5c_paper_host::stage5d_notify_runtime_state_restored_bridge_at(bootstrapped, now);\n"
+        "}\n\n",
+    )
+    update_manifest_stage5d_hash(root)
+
+
+def mutate_runtime_restored_bridge_made_public(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    replace_once(
+        root / rel,
+        "pub(crate) fn stage5d_notify_runtime_state_restored_bridge_at(",
+        "pub fn stage5d_notify_runtime_state_restored_bridge_at(",
+    )
+    update_manifest_bridge_hash(root, rel)
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -604,6 +654,11 @@ CASES = [
     ("riskgate_bridge_runtime_compat_forwarding_wrapper", mutate_riskgate_bridge_runtime_compat_forwarding_wrapper, "Stage 5D riskgate bridge reference outside allowlist"),
     ("riskgate_bridge_runtime_compat_function_reference", mutate_riskgate_bridge_runtime_compat_function_reference, "Stage 5D riskgate bridge reference outside allowlist"),
     ("riskgate_bridge_second_stage5d_call", mutate_riskgate_bridge_second_stage5d_call, "Stage 5D riskgate bridge production call count mismatch"),
+    ("runtime_restored_bridge_runtime_compat_direct_call", mutate_runtime_restored_bridge_runtime_compat_direct_call, "Stage 5D runtime-restored bridge reference outside allowlist"),
+    ("runtime_restored_bridge_runtime_compat_alias_call", mutate_runtime_restored_bridge_runtime_compat_alias_call, "Stage 5D runtime-restored bridge reference outside allowlist"),
+    ("runtime_restored_bridge_runtime_compat_function_reference", mutate_runtime_restored_bridge_runtime_compat_function_reference, "Stage 5D runtime-restored bridge reference outside allowlist"),
+    ("runtime_restored_bridge_second_stage5d_call", mutate_runtime_restored_bridge_second_stage5d_call, "Stage 5D runtime-restored bridge production call count mismatch"),
+    ("runtime_restored_bridge_made_public", mutate_runtime_restored_bridge_made_public, "Stage 5D runtime-restored bridge definition contract mismatch"),
 ]
 
 

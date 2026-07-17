@@ -1,6 +1,6 @@
-# Stage 5D-b2b-a/b/c/c1-r8 — runtime-private apply, bootstrap and riskgate bridge
+# Stage 5D-b2b-a/b/c/c1-r8/d — runtime-private apply, bootstrap, riskgate and restored bridge
 
-Status: Stage 5D-b2b-c1-r8 review-closure candidate.
+Status: Stage 5D-b2b-d controlled runtime-state-restored candidate.
 
 Stage 5D-b2a closed the strict persistence schema and validated-envelope
 capability. Stage 5D-b2b-a opened the first controlled implementation slice:
@@ -9,7 +9,8 @@ type-state transition: broker-truth bootstrap notification after private apply.
 Stage 5D-b2b-c adds authoritative riskgate ledger evidence validation and
 riskgate projection injection after broker-truth bootstrap and before the
 runtime-state-restored callback. Stage 5D-b2b-c1-r8 hardens that same boundary;
-it does not add the final restored transition.
+Stage 5D-b2b-d opens the final controlled no-I/O return to the exact Stage 5C
+runtime-state-restored capability.
 Redis, FINAM, broker transport, command dispatch, runtime-live and real order
 execution remain closed.
 
@@ -82,7 +83,26 @@ Implemented:
   acknowledged state always requires matching durable ledger truth;
 - the opaque injection result retains a cryptographically bound private
   recovery plan; only redacted count/completion/fingerprint diagnostics are
-  public, and no restored transition exists in this slice;
+  public;
+- public `stage5d_notify_runtime_state_restored(...)` transition;
+- restored transition input requires the opaque
+  `Stage5dRiskGateInjectedPaperStrategy` produced by authoritative riskgate
+  injection;
+- restored transition validates complete source-produced recovery evidence,
+  broker-truth binding, runtime pending-finalization absence, admission freshness
+  and no runtime/live/intent-sink activation before the callback;
+- pre-callback blocks are represented by opaque
+  `Stage5dRuntimeStateRestoreBlocked`, expose only redacted reason/fingerprints,
+  and preserve the input riskgate-injected capability internally;
+- post-callback failures are represented by opaque
+  `Stage5dRuntimeStateRestoreTerminalFailure`, expose only redacted
+  reason/fingerprints, and never expose a retry capability;
+- release-mode non-empty runtime-state-restored callback intents are rejected as
+  terminal failures;
+- successful restored transition returns the exact
+  `Stage5cRuntimeStateRestoredPaperStrategy`;
+- actual runtime-state-restored callback is delegated through one
+  checker-pinned crate-private Stage 5C bridge;
 - decimal evidence must exactly round-trip through the source formatter and
   `seed_loaded` is derived from validated row provenance;
 - actual riskgate callback is delegated through one checker-pinned crate-private
@@ -94,7 +114,6 @@ Implemented:
 
 Not implemented in this slice:
 
-- final return to `Stage5cRuntimeStateRestoredPaperStrategy`;
 - Redis-backed live ledger reads; Stage 5D-b2b-c uses deterministic in-process
   ledger evidence only;
 - broker working-set authority restoration beyond fail-closed hint checking;
@@ -259,14 +278,18 @@ call-site contracts:
   the Stage 5C additive region;
 - production use is exactly one call inside
   `stage5d_inject_authoritative_riskgate_with_evidence`;
+- `stage5d_notify_runtime_state_restored_bridge_at` may be defined exactly once
+  in the Stage 5C additive region;
+- production use is exactly one call inside
+  `stage5d_notify_runtime_state_restored_at`;
 - direct calls, aliases, forwarding wrappers, function references and extra
   Stage 5D calls are rejected by the negative harness.
 
-The Stage 5D additive manifest now labels this baseline as `5D-b2b-c1-r8` and pins
+The Stage 5D additive manifest now labels this baseline as `5D-b2b-d` and pins
 the updated public API surface including the controlled bind/apply/bootstrap/
-retry/riskgate-injection Stage 5D transitions. The formal surface policy records
+retry/riskgate-injection/runtime-state-restored Stage 5D transitions. The formal surface policy records
 `runtime_private_mutation =
-controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_only`;
+controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only`;
 Redis, FINAM, transport, dispatch, runtime-live and broker execution remain
 closed.
 The manifest also records a controlled private-layout Stage 5C extension for
@@ -277,25 +300,29 @@ hash are pinned in `stage5d_additive_freeze_check.py`, and the negative harness
 rejects removed/changed/extra extensions plus a self-authorized frozen semantic
 drift attempt.
 
-## Stage 5D-b2b-c1-r8 review gates
+## Stage 5D-b2b-d review gates
 
-The r8 review gate summary is recorded in
+The b2b-d review gate summary is recorded in
+`docs/stage-5/5d-b2b-d-review-gate-summary.md`. The r8 review gate summary is recorded in
 `docs/stage-5/5d-b2b-c1-r8-review-gate-summary.md`. The r7 summary remains in
 `docs/stage-5/5d-b2b-c1-r7-review-gate-summary.md`, and the r6 summary remains in
 `docs/stage-5/5d-b2b-c1-r6-review-gate-summary.md` as historical evidence.
 
 `scripts/stage5d_b2bc_review_gate.sh` runs the Stage 5C and Stage 5D positive
 checkers, normal and marker-pinned 87-case forbidden-surface gates, the isolated
-bounded-parallel 44-case Stage 5D negative harness, no-Redis smoke, fixture parsing,
+bounded-parallel 49-case Stage 5D negative harness, no-Redis smoke, fixture parsing,
 handoff source safety, copied-baseline completeness, and workspace
 fmt/test/clippy. The manifest mutation policy remains exactly
-`controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_only`.
+`controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only`.
 The c1-r8 closure keeps the same no-I/O boundary, retains the c1-r4/c1-r5/c1-r6/c1-r7
 negative-zero/current-shadow/recovery-frontier and source-produced recovery
 protections, and adds immutable Stage 5C baseline governance, Stage 5D-owned
 codec-extension evidence, exact source current-shadow positives without
 post-export editing, and later-watermark classification by the bound source
 runtime policy.
+The b2b-d closure adds the exact restored callback bridge and expands the Stage
+5D negative harness to cover the bridge boundary. It does not open Redis, FINAM,
+broker transport, command dispatch, runtime-live or real order execution.
 The forbidden negative harness supported worker contract is pinned at
 default/max four workers, 180-second per-case timeout, and a 75-minute CI timeout
 with explicit headroom.
