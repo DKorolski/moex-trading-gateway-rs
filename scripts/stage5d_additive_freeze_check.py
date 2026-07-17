@@ -90,7 +90,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "7c2d1654360f4dfd2ed7e3f304334b0aaff233d3c4c8557b2caeb7629e0a8c17",
+        "stage5d_consumer_sha256": "03e3e36fc1c1ca4301499fce9d8bdb2788b6e3aab006ec62d7eb4010e33a3847",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -104,7 +104,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "7c2d1654360f4dfd2ed7e3f304334b0aaff233d3c4c8557b2caeb7629e0a8c17",
+        "stage5d_consumer_sha256": "03e3e36fc1c1ca4301499fce9d8bdb2788b6e3aab006ec62d7eb4010e33a3847",
     },
 ]
 
@@ -188,6 +188,18 @@ EXPECTED_NEGATIVE_CASES = [
     "runtime_restored_intent_runtime_guard_removed",
     "runtime_restored_intent_guard_after_debug_assert",
     "runtime_restored_post_callback_exact_guard_removed",
+    "runtime_restored_callback_count_hook_removed",
+    "runtime_restored_post_callback_position_guard_removed",
+    "runtime_restored_post_callback_side_guard_removed",
+    "runtime_restored_post_callback_protective_guard_removed",
+    "runtime_restored_preflight_invocation_removed",
+    "runtime_restored_recovery_complete_guard_removed",
+    "runtime_restored_pending_finalization_guard_removed",
+    "runtime_restored_recovery_plan_binding_guard_removed",
+    "runtime_restored_recovery_index_guard_removed",
+    "runtime_restored_closed_boundary_guard_removed",
+    "runtime_restored_blocked_retained_capability_removed",
+    "runtime_restored_terminal_retry_enabled",
     "runtime_restored_lifecycle_notification_guard_removed",
     "runtime_restored_flat_side_exact_guard_removed",
 ]
@@ -784,8 +796,58 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
         not in host_source
     ):
         failures.append("Stage 5D runtime-restored exact post-callback broker-truth guard missing")
+    post_guard_start = host_source.find(
+        "fn stage5d_validate_post_runtime_restored_broker_truth_exact("
+    )
+    post_guard_end = host_source.find(
+        "\npub(crate) fn stage5d_bootstrap_preserving_loaded_at", post_guard_start
+    )
+    post_guard_source = (
+        host_source[post_guard_start:post_guard_end]
+        if post_guard_start >= 0 and post_guard_end > post_guard_start
+        else ""
+    )
+    if (
+        "STAGE5D_RUNTIME_RESTORED_CALLBACK_COUNT.with(|count| count.set(count.get() + 1));"
+        not in host_source
+    ):
+        failures.append("Stage 5D runtime-restored callback-count proof hook missing")
+    if "if (*last_position_qty - broker_qty).abs() > f64::EPSILON {" not in post_guard_source:
+        failures.append("Stage 5D runtime-restored post-callback position guard missing")
+    if "if *current_side != expected_side {" not in post_guard_source:
+        failures.append("Stage 5D runtime-restored post-callback side guard missing")
+    if (
+        "if tp_order_id.is_some() || sl_stop_order_id.is_some() || sl_exchange_order_id.is_some() {"
+        not in post_guard_source
+    ):
+        failures.append("Stage 5D runtime-restored post-callback protective-id guard missing")
 
     stage5d_source = (root / STAGE5D_REL).read_text()
+    if stage5d_source.count(
+        "validate_stage5d_runtime_state_restored_preflight(&injected, restored_at)"
+    ) < 3:
+        failures.append("Stage 5D runtime-restored preflight invocation missing")
+    if "if !injected.recovery_plan.recovery_complete" not in stage5d_source:
+        failures.append("Stage 5D runtime-restored recovery-complete guard missing")
+    if (
+        "if !injected\n"
+        "        .envelope\n"
+        "        .runtime_private_extension\n"
+        "        .runtime_pending_finalizations\n"
+        "        .is_empty()"
+        not in stage5d_source
+    ):
+        failures.append("Stage 5D runtime-restored pending-finalization guard missing")
+    if "if expected_plan != injected.recovery_plan.plan_fingerprint_sha256" not in stage5d_source:
+        failures.append("Stage 5D runtime-restored recovery-plan binding guard missing")
+    if "if injected.bootstrapped.stage5d_restored().known_order_ids" not in stage5d_source:
+        failures.append("Stage 5D runtime-restored recovery-index guard missing")
+    if "admission.runtime_host_attached()" not in stage5d_source:
+        failures.append("Stage 5D runtime-restored closed-boundary guard missing")
+    if "injected: Box<Stage5dRiskGateInjectedPaperStrategy>" not in stage5d_source:
+        failures.append("Stage 5D runtime-restored blocked retained capability missing")
+    if "pub fn retry_capability_available(&self) -> bool {\n        false" not in stage5d_source:
+        failures.append("Stage 5D runtime-restored terminal retry denial missing")
     if "bootstrap_notified_at <= restored_at" not in stage5d_source:
         failures.append("Stage 5D runtime-restored lifecycle notification timestamp guard missing")
     if "if *current_side != expected_side {" not in stage5d_source:
@@ -798,8 +860,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2b-d1":
-        failures.append("stage must be 5D-b2b-d1")
+    if manifest.get("stage") != "5D-b2b-d1-r2":
+        failures.append("stage must be 5D-b2b-d1-r2")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:

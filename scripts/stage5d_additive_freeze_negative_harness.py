@@ -85,6 +85,13 @@ def replace_once(path: Path, old: str, new: str) -> None:
     path.write_text(source.replace(old, new, 1))
 
 
+def replace_all(path: Path, old: str, new: str) -> None:
+    source = path.read_text()
+    if old not in source:
+        raise RuntimeError(f"pattern not found in {path}: {old}")
+    path.write_text(source.replace(old, new))
+
+
 def append_text(path: Path, text: str) -> None:
     path.write_text(path.read_text() + text)
 
@@ -152,7 +159,11 @@ def update_manifest_stage5d_hash(root: Path) -> None:
     manifest_path = root / "docs/stage-5/stage-5d-additive-freeze-manifest.json"
     manifest = json.loads(manifest_path.read_text())
     rel_path = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
-    manifest["stage5d_persistence_file"]["current_sha256"] = sha256_file(root / rel_path)
+    stage5d_sha256 = sha256_file(root / rel_path)
+    manifest["stage5d_persistence_file"]["current_sha256"] = stage5d_sha256
+    for extension in manifest.get("controlled_source_semantic_extensions", []):
+        if extension.get("stage5d_consumer_path") == rel_path:
+            extension["stage5d_consumer_sha256"] = stage5d_sha256
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
 
 
@@ -628,6 +639,126 @@ def mutate_runtime_restored_post_callback_exact_guard_removed(root: Path) -> Non
     update_manifest_bridge_hash(root, rel)
 
 
+def mutate_runtime_restored_callback_count_hook_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    replace_once(
+        root / rel,
+        "    #[cfg(test)]\n    STAGE5D_RUNTIME_RESTORED_CALLBACK_COUNT.with(|count| count.set(count.get() + 1));\n",
+        "",
+    )
+    update_manifest_bridge_hash(root, rel)
+
+
+def mutate_runtime_restored_post_callback_position_guard_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    replace_all(
+        root / rel,
+        "    if (*last_position_qty - broker_qty).abs() > f64::EPSILON {",
+        "    if false && (*last_position_qty - broker_qty).abs() > f64::EPSILON {",
+    )
+    update_manifest_bridge_hash(root, rel)
+
+
+def mutate_runtime_restored_post_callback_side_guard_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    replace_once(
+        root / rel,
+        "    if *current_side != expected_side {",
+        "    if false && *current_side != expected_side {",
+    )
+    update_manifest_bridge_hash(root, rel)
+
+
+def mutate_runtime_restored_post_callback_protective_guard_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    replace_all(
+        root / rel,
+        "    if tp_order_id.is_some() || sl_stop_order_id.is_some() || sl_exchange_order_id.is_some() {",
+        "    if false && (tp_order_id.is_some() || sl_stop_order_id.is_some() || sl_exchange_order_id.is_some()) {",
+    )
+    update_manifest_bridge_hash(root, rel)
+
+
+def mutate_runtime_restored_preflight_invocation_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "    if let Err(reason) = validate_stage5d_runtime_state_restored_preflight(&injected, restored_at) {",
+        "    if false {",
+    )
+    update_manifest_stage5d_hash(root)
+
+
+def mutate_runtime_restored_recovery_complete_guard_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "    if !injected.recovery_plan.recovery_complete",
+        "    if false && !injected.recovery_plan.recovery_complete",
+    )
+    update_manifest_stage5d_hash(root)
+
+
+def mutate_runtime_restored_pending_finalization_guard_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        ".runtime_pending_finalizations\n        .is_empty()",
+        ".runtime_pending_finalizations\n        .len() == usize::MAX",
+    )
+    update_manifest_stage5d_hash(root)
+
+
+def mutate_runtime_restored_recovery_plan_binding_guard_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "expected_plan != injected.recovery_plan.plan_fingerprint_sha256",
+        "false && expected_plan != injected.recovery_plan.plan_fingerprint_sha256",
+    )
+    update_manifest_stage5d_hash(root)
+
+
+def mutate_runtime_restored_recovery_index_guard_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "if injected.bootstrapped.stage5d_restored().known_order_ids",
+        "if false && injected.bootstrapped.stage5d_restored().known_order_ids",
+    )
+    update_manifest_stage5d_hash(root)
+
+
+def mutate_runtime_restored_closed_boundary_guard_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "|| admission.runtime_host_attached()",
+        "|| false",
+    )
+    update_manifest_stage5d_hash(root)
+
+
+def mutate_runtime_restored_blocked_retained_capability_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "injected: Box<Stage5dRiskGateInjectedPaperStrategy>,",
+        "snapshot_id_only: String,",
+    )
+    update_manifest_stage5d_hash(root)
+
+
+def mutate_runtime_restored_terminal_retry_enabled(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "    pub fn retry_capability_available(&self) -> bool {\n        false\n    }",
+        "    pub fn retry_capability_available(&self) -> bool {\n        true\n    }",
+    )
+    update_manifest_stage5d_hash(root)
+
+
 def mutate_runtime_restored_lifecycle_notification_guard_removed(root: Path) -> None:
     rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
     replace_once(
@@ -712,6 +843,18 @@ CASES = [
     ("runtime_restored_intent_runtime_guard_removed", mutate_runtime_restored_intent_runtime_guard_removed, "Stage 5D runtime-restored intent runtime guard missing"),
     ("runtime_restored_intent_guard_after_debug_assert", mutate_runtime_restored_intent_guard_after_debug_assert, "Stage 5D runtime-restored intent runtime guard must precede debug_assert"),
     ("runtime_restored_post_callback_exact_guard_removed", mutate_runtime_restored_post_callback_exact_guard_removed, "Stage 5D runtime-restored exact post-callback broker-truth guard missing"),
+    ("runtime_restored_callback_count_hook_removed", mutate_runtime_restored_callback_count_hook_removed, "Stage 5D runtime-restored callback-count proof hook missing"),
+    ("runtime_restored_post_callback_position_guard_removed", mutate_runtime_restored_post_callback_position_guard_removed, "Stage 5D runtime-restored post-callback position guard missing"),
+    ("runtime_restored_post_callback_side_guard_removed", mutate_runtime_restored_post_callback_side_guard_removed, "Stage 5D runtime-restored post-callback side guard missing"),
+    ("runtime_restored_post_callback_protective_guard_removed", mutate_runtime_restored_post_callback_protective_guard_removed, "Stage 5D runtime-restored post-callback protective-id guard missing"),
+    ("runtime_restored_preflight_invocation_removed", mutate_runtime_restored_preflight_invocation_removed, "Stage 5D runtime-restored preflight invocation missing"),
+    ("runtime_restored_recovery_complete_guard_removed", mutate_runtime_restored_recovery_complete_guard_removed, "Stage 5D runtime-restored recovery-complete guard missing"),
+    ("runtime_restored_pending_finalization_guard_removed", mutate_runtime_restored_pending_finalization_guard_removed, "Stage 5D runtime-restored pending-finalization guard missing"),
+    ("runtime_restored_recovery_plan_binding_guard_removed", mutate_runtime_restored_recovery_plan_binding_guard_removed, "Stage 5D runtime-restored recovery-plan binding guard missing"),
+    ("runtime_restored_recovery_index_guard_removed", mutate_runtime_restored_recovery_index_guard_removed, "Stage 5D runtime-restored recovery-index guard missing"),
+    ("runtime_restored_closed_boundary_guard_removed", mutate_runtime_restored_closed_boundary_guard_removed, "Stage 5D runtime-restored closed-boundary guard missing"),
+    ("runtime_restored_blocked_retained_capability_removed", mutate_runtime_restored_blocked_retained_capability_removed, "Stage 5D runtime-restored blocked retained capability missing"),
+    ("runtime_restored_terminal_retry_enabled", mutate_runtime_restored_terminal_retry_enabled, "Stage 5D runtime-restored terminal retry denial missing"),
     ("runtime_restored_lifecycle_notification_guard_removed", mutate_runtime_restored_lifecycle_notification_guard_removed, "Stage 5D runtime-restored lifecycle notification timestamp guard missing"),
     ("runtime_restored_flat_side_exact_guard_removed", mutate_runtime_restored_flat_side_exact_guard_removed, "Stage 5D runtime-restored flat-side exact guard missing"),
 ]

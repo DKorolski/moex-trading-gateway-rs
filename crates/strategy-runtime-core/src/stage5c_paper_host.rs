@@ -26,6 +26,31 @@ pub const STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION: u16 = 1;
 pub const STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION: u16 = 1;
 
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: type-state-transitions
+#[cfg(test)]
+thread_local! {
+    static STAGE5D_RUNTIME_RESTORED_CALLBACK_COUNT: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn stage5d_test_reset_runtime_restored_callback_count() {
+    STAGE5D_RUNTIME_RESTORED_CALLBACK_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn stage5d_test_runtime_restored_callback_count() -> usize {
+    STAGE5D_RUNTIME_RESTORED_CALLBACK_COUNT.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) fn stage5d_test_warmup_stage5c_history_at(
+    restored: Stage5cRuntimeStateRestoredPaperStrategy,
+    history: Stage5cAcceptedHistoryBatch,
+    warmup_now: DateTime<Utc>,
+) -> Result<Stage5cWarmedPaperStrategy, Stage5cHistoryWarmupError> {
+    warmup_stage5c_history_at(restored, history, warmup_now)
+}
+
 impl Stage5cRuntimeStateLoadedPaperStrategy {
     pub(crate) fn stage5d_strategy(&self) -> &HybridIntradayRuntimeStrategy {
         &self.strategy
@@ -90,6 +115,13 @@ impl Stage5cRuntimeStateLoadedPaperStrategy {
     }
 }
 
+impl Stage5cRuntimeStateRestoredPaperStrategy {
+    #[cfg(test)]
+    pub(crate) fn stage5d_strategy(&self) -> &HybridIntradayRuntimeStrategy {
+        &self.strategy
+    }
+}
+
 impl Stage5cBootstrappedPaperStrategy {
     pub(crate) fn stage5d_strategy(&self) -> &HybridIntradayRuntimeStrategy {
         &self.strategy
@@ -111,6 +143,21 @@ impl Stage5cBootstrappedPaperStrategy {
     pub(crate) fn stage5d_test_set_strategy_state(&mut self, state: StrategyState) {
         Strategy::set_state(&mut self.strategy, state);
     }
+
+    #[cfg(test)]
+    pub(crate) fn stage5d_test_set_admission_target_position_qty(
+        &mut self,
+        target_position_qty: rust_decimal::Decimal,
+    ) {
+        self.receipt
+            .admission
+            .stage5d_test_set_target_position_qty(target_position_qty);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stage5d_test_mark_runtime_host_attached(&mut self) {
+        self.receipt.admission.runtime_host_attached = true;
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,7 +170,11 @@ pub(crate) fn stage5d_notify_runtime_state_restored_bridge_at(
     bootstrapped: Stage5cBootstrappedPaperStrategy,
     restored_ts: DateTime<Utc>,
 ) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5dRuntimeStateRestoredBridgeError> {
-    stage5d_notify_runtime_state_restored_bridge_impl_at(bootstrapped, restored_ts, false)
+    stage5d_notify_runtime_state_restored_bridge_impl_at(
+        bootstrapped,
+        restored_ts,
+        Stage5dRuntimeRestoredBridgeTestHook::None,
+    )
 }
 
 #[cfg(test)]
@@ -131,13 +182,38 @@ pub(crate) fn stage5d_test_notify_runtime_state_restored_bridge_forcing_intent_a
     bootstrapped: Stage5cBootstrappedPaperStrategy,
     restored_ts: DateTime<Utc>,
 ) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5dRuntimeStateRestoredBridgeError> {
-    stage5d_notify_runtime_state_restored_bridge_impl_at(bootstrapped, restored_ts, true)
+    stage5d_notify_runtime_state_restored_bridge_impl_at(
+        bootstrapped,
+        restored_ts,
+        Stage5dRuntimeRestoredBridgeTestHook::ForceIntent,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn stage5d_test_notify_runtime_state_restored_bridge_with_state_override_at(
+    bootstrapped: Stage5cBootstrappedPaperStrategy,
+    restored_ts: DateTime<Utc>,
+    state: StrategyState,
+) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5dRuntimeStateRestoredBridgeError> {
+    stage5d_notify_runtime_state_restored_bridge_impl_at(
+        bootstrapped,
+        restored_ts,
+        Stage5dRuntimeRestoredBridgeTestHook::OverrideStateAfterCallback(state),
+    )
+}
+
+enum Stage5dRuntimeRestoredBridgeTestHook {
+    None,
+    #[cfg(test)]
+    ForceIntent,
+    #[cfg(test)]
+    OverrideStateAfterCallback(StrategyState),
 }
 
 fn stage5d_notify_runtime_state_restored_bridge_impl_at(
     bootstrapped: Stage5cBootstrappedPaperStrategy,
     restored_ts: DateTime<Utc>,
-    force_nonempty_intent_for_test: bool,
+    _test_hook: Stage5dRuntimeRestoredBridgeTestHook,
 ) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5dRuntimeStateRestoredBridgeError> {
     let (mut strategy, bootstrap_receipt, restored) = bootstrapped.into_parts();
     let admission = &bootstrap_receipt.admission;
@@ -164,8 +240,16 @@ fn stage5d_notify_runtime_state_restored_bridge_impl_at(
         last_bar_ts: None,
     };
     let pending_requests = restored.pending_requests.clone();
-    let mut intents = Strategy::on_runtime_state_restored(&mut strategy, &context, &restored);
-    if force_nonempty_intent_for_test {
+    #[cfg(test)]
+    STAGE5D_RUNTIME_RESTORED_CALLBACK_COUNT.with(|count| count.set(count.get() + 1));
+    let intents = Strategy::on_runtime_state_restored(&mut strategy, &context, &restored);
+    #[cfg(test)]
+    let mut intents = intents;
+    #[cfg(test)]
+    if matches!(
+        _test_hook,
+        Stage5dRuntimeRestoredBridgeTestHook::ForceIntent
+    ) {
         intents.push(crate::runtime_compat::Intent::Market {
             qty: 0.0,
             side: crate::runtime_compat::OrderSide::Buy,
@@ -177,6 +261,10 @@ fn stage5d_notify_runtime_state_restored_bridge_impl_at(
         return Err(Stage5dRuntimeStateRestoredBridgeError::CallbackEmittedIntent);
     }
     debug_assert!(intents.is_empty());
+    #[cfg(test)]
+    if let Stage5dRuntimeRestoredBridgeTestHook::OverrideStateAfterCallback(state) = _test_hook {
+        Strategy::set_state(&mut strategy, state);
+    }
     validate_post_bootstrap_broker_truth(&strategy, admission)
         .map_err(Stage5dRuntimeStateRestoredBridgeError::Stage5c)?;
     stage5d_validate_post_runtime_restored_broker_truth_exact(&strategy, admission)?;
@@ -362,6 +450,14 @@ impl Stage5cPaperHostAdmission {
         self.bootstrap_snapshot.target_position_qty = target_position_qty;
         self.bootstrap_snapshot.target_is_flat = target_position_qty == rust_decimal::Decimal::ZERO;
         self
+    }
+
+    pub(crate) fn stage5d_test_set_target_position_qty(
+        &mut self,
+        target_position_qty: rust_decimal::Decimal,
+    ) {
+        self.bootstrap_snapshot.target_position_qty = target_position_qty;
+        self.bootstrap_snapshot.target_is_flat = target_position_qty == rust_decimal::Decimal::ZERO;
     }
 }
 
