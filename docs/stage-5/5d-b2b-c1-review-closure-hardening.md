@@ -1,12 +1,30 @@
-# Stage 5D-b2b-c1/c1-r7 — review closure hardening
+# Stage 5D-b2b-c1/c1-r8 — review closure hardening
 
-Status: c1-r7 review candidate, 2026-07-17. This section supersedes the c1
+Status: c1-r8 review candidate, 2026-07-17. This section supersedes the c1
 crash-window and forbidden-harness claims below without rewriting their review
 history.
 
 This patch closes the remaining c1-r3 review findings without calling the final
 runtime-state-restored transition or opening Redis, FINAM, transport, dispatch,
 runtime-live or broker execution.
+
+## Stage 5D-b2b-c1-r8 superseding closure
+
+c1-r8 keeps the c1-r7 no-I/O boundary and closes the review findings around
+immutable baseline governance, source-produced current-shadow proof and later
+watermark policy:
+
+| Review finding | Fix | Positive proof | Negative/control proof |
+|---|---|---|---|
+| Stage 5C closure evidence was rewritten to authorize Stage 5D codec changes | Restore the canonical Stage 5C manifest SHA `f8c555...` and keep the closure tuple immutable | Stage 5C checker passes against historical evidence | Stage 5D checker and scanner reject Stage 5C/Stage 5D manifest drift |
+| Riskgate codec ownership needed a Stage 5D-owned contract | Add `controlled_source_semantic_extensions` for `hybrid_intraday/mod.rs` and `risk_gate.rs`, bound to Stage 5C baseline hashes, current hashes, source-correspondence hash and Stage 5D consumer hash | Stage 5D checker proves the extension contract without trusting rewritten Stage 5C evidence | marker-pinned forbidden cases cover source codec drift, Stage 5D consumer drift, legacy writer replacement, extension removal and self-authorized baseline update |
+| Current-shadow positives edited source state after export | Positive helper now uses exact source semantic JSON and exact runtime-private export; live intent emission is suppressed by source context, not by post-export field clearing | source-produced clean/no-session, current no-open, Long open, Short open, realized nonzero PnL and ignored-watermark states pass strict deserialize/bind/apply/bootstrap/inject | direct JSON mutation remains limited to negative tests |
+| Later processed watermark was not bound to source policy | Add crate-private source classifier: weekend suppressed, before model session, after model session, regular model session | weekend and non-model later watermarks may preserve the prior current shadow only when produced by real callbacks | stale prior session after a later regular model-session watermark is rejected |
+| Forbidden harness timed out under supported contention | Pin four-worker timeout contract with 180-second per-case timeout and 75-minute CI timeout/headroom; add timeout self-test to the review gate | full forbidden harness reports `87/87`, `workers=4`, `case_timeout_seconds=180`, no missing/extra/timeouts | timeout-lowering, worker/scanner drift and baseline bypass cases remain pinned |
+
+c1-r8 still does not implement the final runtime-state-restored callback and
+does not open Redis, FINAM, transport, dispatch, runtime-live or broker
+execution.
 
 ## Stage 5D-b2b-c1-r7 superseding closure
 

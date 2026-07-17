@@ -233,6 +233,14 @@ fn stage5d_optional_identity_hash(value: Option<&str>) -> Option<String> {
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5dProcessedBarPolicy {
+    WeekendSuppressed,
+    BeforeModelSession,
+    AfterModelSession,
+    RegularModelSession,
+}
+
 impl HybridIntradayRuntimeStrategy {
     pub(crate) fn stage5d_timezone_offset_hours(&self) -> i32 {
         self.config.timezone_offset_hours
@@ -240,6 +248,35 @@ impl HybridIntradayRuntimeStrategy {
 
     pub(crate) fn stage5d_weekends_off(&self) -> bool {
         self.config.weekends_off
+    }
+
+    pub(crate) fn stage5d_model_session_start_time(&self) -> Option<NaiveTime> {
+        self.config.model_session_start_time
+    }
+
+    pub(crate) fn stage5d_model_session_end_time(&self) -> Option<NaiveTime> {
+        self.config.model_session_end_time
+    }
+
+    pub(crate) fn stage5d_classify_processed_bar_ts(
+        &self,
+        processed_bar_ts: chrono::DateTime<Utc>,
+    ) -> Option<Stage5dProcessedBarPolicy> {
+        let dt_local = self.utc_to_local_naive(processed_bar_ts.timestamp())?;
+        if self.suppress_weekend_signal_generation(dt_local) {
+            return Some(Stage5dProcessedBarPolicy::WeekendSuppressed);
+        }
+        if let Some(start) = self.stage5d_model_session_start_time() {
+            if dt_local.time() < start {
+                return Some(Stage5dProcessedBarPolicy::BeforeModelSession);
+            }
+        }
+        if let Some(end) = self.stage5d_model_session_end_time() {
+            if dt_local.time() > end {
+                return Some(Stage5dProcessedBarPolicy::AfterModelSession);
+            }
+        }
+        Some(Stage5dProcessedBarPolicy::RegularModelSession)
     }
 
     pub(crate) fn stage5d_canonical_config_fingerprint(&self) -> String {

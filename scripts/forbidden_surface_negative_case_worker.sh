@@ -27,6 +27,12 @@ implemented_cases=(
   'runtime-command-consumer-bypass|failure'
   'strategy-semantic-kernel-transport-dependency|failure'
   'strategy-semantic-source-correspondence-drift|failure'
+  'riskgate-source-codec-drift|failure'
+  'riskgate-stage5d-consumer-drift|failure'
+  'riskgate-authority-writer-wrapper-replacement|failure'
+  'controlled-source-extension-region-removed|failure'
+  'controlled-source-self-authorized-baseline-update|failure'
+  'immutable-stage5c-manifest-rewrite|failure'
   'strategy-integrated-wrapper-oracle-drift|failure'
   'strategy-high180-profile-fixture-drift|failure'
   'stage5c-paper-host-source-drift|failure'
@@ -187,6 +193,8 @@ run_replacement_case() {
   if ! should_run_case "$case_name"; then
     return 0
   fi
+  local backup="$target.bak"
+  cp "$target" "$backup"
   python3 - "$target" "$old" "$new" <<'PY'
 import sys
 from pathlib import Path
@@ -200,6 +208,7 @@ if source.count(old) < 1:
 path.write_text(source.replace(old, new, 1))
 PY
   scan_selected_case "$case_name"
+  mv "$backup" "$target"
 }
 
 expect_scanner_failure() {
@@ -229,6 +238,49 @@ run_negative_case "sltp-bracket-endpoint-expansion" 'fn _m3d_negative_sltp_brack
 run_negative_case "runtime-command-consumer-bypass" 'fn _m3d_negative_runtime_bypass() { let _ = reqwest::Method::POST; }' "$tmp_root/crates/finam-gateway/src/lib.rs"
 run_negative_case "strategy-semantic-kernel-transport-dependency" 'fn _stage5_negative_transport() { let _ = reqwest::Method::POST; }' "$tmp_root/crates/strategy-runtime-core/src/lib.rs"
 run_negative_case "strategy-semantic-source-correspondence-drift" '// stage5 negative source drift' "$tmp_root/crates/strategy-runtime-core/src/hybrid_intraday/types.rs"
+run_negative_case "riskgate-source-codec-drift" '// stage5d negative riskgate source codec drift' "$tmp_root/crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs"
+run_negative_case "riskgate-stage5d-consumer-drift" '// stage5d negative riskgate consumer drift' "$tmp_root/crates/strategy-runtime-core/src/stage5d_persistence.rs"
+
+run_replacement_case \
+  "riskgate-authority-writer-wrapper-replacement" \
+  "$tmp_root/crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs" \
+  "pub(crate) fn authority_redis_fields" \
+  "pub(crate) fn legacy_authority_redis_fields"
+
+stage5d_manifest="$tmp_root/docs/stage-5/stage-5d-additive-freeze-manifest.json"
+stage5d_manifest_backup="$stage5d_manifest.bak"
+run_stage5d_manifest_mutation_case() {
+  local case_name="$1"
+  local mutation="$2"
+
+  cp "$stage5d_manifest" "$stage5d_manifest_backup"
+  MUTATION="$mutation" STAGE5D_MANIFEST="$stage5d_manifest" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+path = Path(os.environ["STAGE5D_MANIFEST"])
+mutation = os.environ["MUTATION"]
+manifest = json.loads(path.read_text())
+
+if mutation == "remove_controlled_extension":
+    manifest["controlled_source_semantic_extensions"] = manifest["controlled_source_semantic_extensions"][1:]
+elif mutation == "self_authorized_baseline":
+    manifest["controlled_source_semantic_extensions"][0]["stage5c_baseline_sha256"] = manifest["controlled_source_semantic_extensions"][0]["current_sha256"]
+elif mutation == "rewrite_stage5c_closure_sha":
+    manifest["stage5c_closure_baseline"]["manifest_sha256"] = "0" * 64
+else:
+    raise SystemExit(f"unknown mutation: {mutation}")
+
+path.write_text(json.dumps(manifest, indent=2) + "\n")
+PY
+  expect_scanner_failure "$case_name"
+  mv "$stage5d_manifest_backup" "$stage5d_manifest"
+}
+
+run_stage5d_manifest_mutation_case "controlled-source-extension-region-removed" "remove_controlled_extension"
+run_stage5d_manifest_mutation_case "controlled-source-self-authorized-baseline-update" "self_authorized_baseline"
+run_stage5d_manifest_mutation_case "immutable-stage5c-manifest-rewrite" "rewrite_stage5c_closure_sha"
 run_negative_case "strategy-integrated-wrapper-oracle-drift" '// stage5 negative wrapper oracle drift' "$tmp_root/source-oracles/alor-stage5/hybrid_intraday_runtime.rs"
 run_negative_case "strategy-high180-profile-fixture-drift" '# stage5 negative profile drift' "$tmp_root/config/imoexf-hybrid-high180-profile.redacted.toml"
 run_negative_case "stage5c-paper-host-source-drift" '// stage5c negative admission drift' "$tmp_root/crates/strategy-runtime-core/src/stage5c_paper_host.rs"
@@ -719,7 +771,7 @@ run_replacement_case \
 run_replacement_case \
   "forbidden-ci-timeout-lowered" \
   "$tmp_root/.github/workflows/ci.yml" \
-  '        timeout-minutes: 30' \
+  '        timeout-minutes: 75' \
   '        timeout-minutes: 1'
 run_replacement_case \
   "forbidden-baseline-positive-bypass" \

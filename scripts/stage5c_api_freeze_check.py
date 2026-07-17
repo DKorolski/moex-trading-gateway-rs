@@ -104,6 +104,8 @@ REQUIRED_SOURCE_HASH_PATHS = {
 }
 
 STAGE5D_APPROVED_ADDITIVE_SOURCE_PATHS = {
+    "crates/strategy-runtime-core/src/hybrid_intraday/mod.rs",
+    "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
     "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs",
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
     "crates/strategy-runtime-core/src/lib.rs",

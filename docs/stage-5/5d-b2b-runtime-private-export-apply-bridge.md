@@ -1,6 +1,6 @@
-# Stage 5D-b2b-a/b/c/c1-r7 — runtime-private apply, bootstrap and riskgate bridge
+# Stage 5D-b2b-a/b/c/c1-r8 — runtime-private apply, bootstrap and riskgate bridge
 
-Status: Stage 5D-b2b-c1-r7 review-closure candidate.
+Status: Stage 5D-b2b-c1-r8 review-closure candidate.
 
 Stage 5D-b2a closed the strict persistence schema and validated-envelope
 capability. Stage 5D-b2b-a opened the first controlled implementation slice:
@@ -8,7 +8,7 @@ runtime-private extension export/apply. Stage 5D-b2b-b adds the next controlled
 type-state transition: broker-truth bootstrap notification after private apply.
 Stage 5D-b2b-c adds authoritative riskgate ledger evidence validation and
 riskgate projection injection after broker-truth bootstrap and before the
-runtime-state-restored callback. Stage 5D-b2b-c1-r7 hardens that same boundary;
+runtime-state-restored callback. Stage 5D-b2b-c1-r8 hardens that same boundary;
 it does not add the final restored transition.
 Redis, FINAM, broker transport, command dispatch, runtime-live and real order
 execution remain closed.
@@ -262,7 +262,7 @@ call-site contracts:
 - direct calls, aliases, forwarding wrappers, function references and extra
   Stage 5D calls are rejected by the negative harness.
 
-The Stage 5D additive manifest now labels this baseline as `5D-b2b-c1-r7` and pins
+The Stage 5D additive manifest now labels this baseline as `5D-b2b-c1-r8` and pins
 the updated public API surface including the controlled bind/apply/bootstrap/
 retry/riskgate-injection Stage 5D transitions. The formal surface policy records
 `runtime_private_mutation =
@@ -277,24 +277,28 @@ hash are pinned in `stage5d_additive_freeze_check.py`, and the negative harness
 rejects removed/changed/extra extensions plus a self-authorized frozen semantic
 drift attempt.
 
-## Stage 5D-b2b-c1-r7 review gates
+## Stage 5D-b2b-c1-r8 review gates
 
-The r7 review gate summary is recorded in
-`docs/stage-5/5d-b2b-c1-r7-review-gate-summary.md`. The r6 summary remains in
+The r8 review gate summary is recorded in
+`docs/stage-5/5d-b2b-c1-r8-review-gate-summary.md`. The r7 summary remains in
+`docs/stage-5/5d-b2b-c1-r7-review-gate-summary.md`, and the r6 summary remains in
 `docs/stage-5/5d-b2b-c1-r6-review-gate-summary.md` as historical evidence.
 
 `scripts/stage5d_b2bc_review_gate.sh` runs the Stage 5C and Stage 5D positive
-checkers, normal and marker-pinned 81-case forbidden-surface gates, the isolated
+checkers, normal and marker-pinned 87-case forbidden-surface gates, the isolated
 bounded-parallel 44-case Stage 5D negative harness, no-Redis smoke, fixture parsing,
 handoff source safety, copied-baseline completeness, and workspace
 fmt/test/clippy. The manifest mutation policy remains exactly
 `controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_only`.
-The c1-r7 closure keeps the same no-I/O boundary, retains the c1-r4/c1-r5/c1-r6
-negative-zero/current-shadow/recovery-frontier protections, and adds lossless
-source-owned riskgate authority decimal closure plus source-produced pending
-finalization and current-shadow full-path proofs.
+The c1-r8 closure keeps the same no-I/O boundary, retains the c1-r4/c1-r5/c1-r6/c1-r7
+negative-zero/current-shadow/recovery-frontier and source-produced recovery
+protections, and adds immutable Stage 5C baseline governance, Stage 5D-owned
+codec-extension evidence, exact source current-shadow positives without
+post-export editing, and later-watermark classification by the bound source
+runtime policy.
 The forbidden negative harness supported worker contract is pinned at
-default/max four workers with a 30-minute CI timeout.
+default/max four workers, 180-second per-case timeout, and a 75-minute CI timeout
+with explicit headroom.
 
 The accepted Stage 5C closure report and hashes remain immutable historical
 evidence. Current candidate state is recorded here and in `current-status.md`;

@@ -23,6 +23,11 @@ from copy_review_baseline import copy_review_baseline
 ROOT = Path(__file__).resolve().parents[1]
 SCANNER = Path("scripts/forbidden_surface_scan.sh")
 WORKER = Path("scripts/forbidden_surface_negative_case_worker.sh")
+SUPPORTED_WORKERS = 4
+CI_TIMEOUT_MINUTES = 75
+CI_HEADROOM_SECONDS = 300
+MIN_CASE_TIMEOUT_SECONDS = 180
+CLEAN_BASELINE_MULTIPLIER = 10
 
 
 @dataclass(frozen=True)
@@ -44,6 +49,12 @@ CASES = [
     Case("runtime-command-consumer-bypass", "Method::POST is not allowed in gateway/order surfaces"),
     Case("strategy-semantic-kernel-transport-dependency", "strategy semantic kernel contains forbidden transport/runtime token"),
     Case("strategy-semantic-source-correspondence-drift", "correspondence target hash mismatch for crates/strategy-runtime-core/src/hybrid_intraday/types.rs"),
+    Case("riskgate-source-codec-drift", "correspondence target hash mismatch for crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs"),
+    Case("riskgate-stage5d-consumer-drift", "controlled source extension consumer hash mismatch"),
+    Case("riskgate-authority-writer-wrapper-replacement", "correspondence target hash mismatch for crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs"),
+    Case("controlled-source-extension-region-removed", "Stage 5 profile artifact drifted for docs/stage-5/stage-5d-additive-freeze-manifest.json"),
+    Case("controlled-source-self-authorized-baseline-update", "Stage 5 profile artifact drifted for docs/stage-5/stage-5d-additive-freeze-manifest.json"),
+    Case("immutable-stage5c-manifest-rewrite", "Stage 5 profile artifact drifted for docs/stage-5/stage-5d-additive-freeze-manifest.json"),
     Case("strategy-integrated-wrapper-oracle-drift", "wrapper oracle hash drifted before Stage 5B-2b"),
     Case("strategy-high180-profile-fixture-drift", "Stage 5 profile artifact drifted for config/imoexf-hybrid-high180-profile.redacted.toml"),
     Case("stage5c-paper-host-source-drift", "crates/strategy-runtime-core/src/stage5c_paper_host.rs: current hash mismatch"),
@@ -130,6 +141,44 @@ class Run:
     diagnostics: str
 
 
+def supported_worker_count(configured_workers: int, cases_count: int) -> int:
+    return max(1, min(configured_workers, SUPPORTED_WORKERS, cases_count))
+
+
+def derive_case_timeout_seconds(
+    clean_duration_seconds: float,
+    workers: int,
+    cases_count: int,
+) -> int:
+    if workers != SUPPORTED_WORKERS:
+        raise ValueError("forbidden negative harness supports exactly four workers")
+    batches = max(1, math.ceil(cases_count / workers))
+    max_timeout_by_ci = max(
+        MIN_CASE_TIMEOUT_SECONDS,
+        ((CI_TIMEOUT_MINUTES * 60) - CI_HEADROOM_SECONDS) // batches,
+    )
+    clean_scaled = math.ceil(clean_duration_seconds * CLEAN_BASELINE_MULTIPLIER)
+    return min(max(MIN_CASE_TIMEOUT_SECONDS, clean_scaled), max_timeout_by_ci)
+
+
+def self_test_timeout_contract() -> int:
+    workers = supported_worker_count(SUPPORTED_WORKERS, 87)
+    timeout = derive_case_timeout_seconds(14.9, workers, 87)
+    batches = math.ceil(87 / workers)
+    bounded_seconds = timeout * batches
+    allowed_seconds = CI_TIMEOUT_MINUTES * 60 - CI_HEADROOM_SECONDS
+    assert workers == 4
+    assert timeout >= 180
+    assert bounded_seconds <= allowed_seconds
+    print(
+        "forbidden-surface-negative-harness-timeout-contract: ok "
+        f"workers={workers} case_timeout_seconds={timeout} "
+        f"batches={batches} bounded_seconds={bounded_seconds} "
+        f"ci_timeout_minutes={CI_TIMEOUT_MINUTES} headroom_seconds={CI_HEADROOM_SECONDS}"
+    )
+    return 0
+
+
 def run_process(command: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess[str]:
     process = subprocess.Popen(
         command,
@@ -203,6 +252,11 @@ def run_case(base: Path, clean: Path, index: int, case: Case, timeout: int) -> R
 
 
 def main() -> int:
+    if sys.argv[1:] == ["--self-test-timeout-contract"]:
+        return self_test_timeout_contract()
+    if sys.argv[1:]:
+        print("usage: forbidden_surface_negative_harness.py [--self-test-timeout-contract]", file=sys.stderr)
+        return 2
     with tempfile.TemporaryDirectory(prefix="forbidden-negative-") as tmp:
         base = Path(tmp)
         clean = base / "clean"
@@ -228,9 +282,9 @@ def main() -> int:
             print("forbidden-surface-negative-harness: clean baseline failed", file=sys.stderr)
             return 1
 
-        timeout = max(20, min(180, math.ceil(clean_duration * 8)))
         configured_workers = int(os.environ.get("FORBIDDEN_NEGATIVE_WORKERS", "4"))
-        workers = max(1, min(configured_workers, 4, len(CASES)))
+        workers = supported_worker_count(configured_workers, len(CASES))
+        timeout = derive_case_timeout_seconds(clean_duration, workers, len(CASES))
         (base / "cases").mkdir()
         suite_started = time.monotonic()
         results: list[Run] = []
@@ -251,6 +305,8 @@ def main() -> int:
         print(f"positive_controls={sum(case.expected_success for case in CASES)}")
         print(f"workers={workers}")
         print(f"case_timeout_seconds={timeout}")
+        print(f"ci_timeout_minutes={CI_TIMEOUT_MINUTES}")
+        print(f"ci_headroom_seconds={CI_HEADROOM_SECONDS}")
         print(f"passed={len(results) - len(failures)}")
         print(f"missing={missing}")
         print(f"extra={extra}")

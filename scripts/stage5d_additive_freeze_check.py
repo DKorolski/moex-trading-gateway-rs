@@ -44,21 +44,21 @@ EXPECTED_FORBIDDEN_NEGATIVE_HARNESS_CONTRACT = {
     "launcher_path": "scripts/forbidden_surface_negative_harness.sh",
     "launcher_sha256": "1b4e6b494a7831640201924783d1f1bf7ea3deba0fd9051102b24ae7908dfc36",
     "coordinator_path": "scripts/forbidden_surface_negative_harness.py",
-    "coordinator_sha256": "2a1d4913d472439142c8922e070b4e9d8d9b10ebd149e1516451de2ae75ed775",
+    "coordinator_sha256": "04053bd8c44d41dd229ec806ed5b4083260c33efefecd67a8f18555a653fd245",
     "worker_path": "scripts/forbidden_surface_negative_case_worker.sh",
-    "worker_sha256": "0cfb8c28055e9b1e7351fa9e68a6473bdde669d2d44957839ede23263cda65ae",
+    "worker_sha256": "c3d33055a4991f14b72da866285cc51f1c99644d2a05a87601e3c12d45a1b852",
     "scanner_contract": "stage5d-b2bc1-r4-v1",
-    "declared_cases": 81,
-    "negative_cases": 80,
+    "declared_cases": 87,
+    "negative_cases": 86,
     "positive_controls": 1,
     "default_workers": 4,
     "max_workers": 4,
-    "minimum_case_timeout_seconds": 20,
-    "ci_timeout_minutes": 30,
+    "minimum_case_timeout_seconds": 180,
+    "ci_timeout_minutes": 75,
 }
 EXPECTED_STAGE5C_COMPATIBILITY_CHECKER = {
     "path": "scripts/stage5c_api_freeze_check.py",
-    "sha256": "6aa1a30f87d296df09bf18c84b29b944ad7af8aaa59961c54bcbe6ff0a601537",
+    "sha256": "2ed629e4e7a157f03b25e55f7b294713855d84a5a9cef3b284d58baa60bc257d",
 }
 EXPECTED_HISTORICAL_STAGE5C_CHECKER = {
     "path": "tests/fixtures/stage5/stage5c_api_freeze_check.closure.py",
@@ -70,10 +70,41 @@ EXPECTED_STAGE5C_CLOSURE = {
     "full_commit": "69cc73b7f33d8cb418c784ac993856d8a487693d",
     "handoff_archive": "moex-trading-project-69cc73b.zip",
     "handoff_sha256": "0b614ebe83b0a8af85cde0ca7a1ae481457813edad72626cd4bb5972c9c83f91",
-    "manifest_sha256": "ee6a190e9f95dfc7deecc78a230907cb5205d1d557b544981a37c62c13a3387b",
+    "manifest_sha256": "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323",
     "report_sha256": "1d15c992ce1658fea6d7ec8a25094b094400ba00b764ac23d32c525207d19b48",
     "original_checker_sha256": "e494e92ffb5f8d90b6a581c7b99e4e80f1906aeedfa1e7446d428eb31c757209",
 }
+
+EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
+    {
+        "path": "crates/strategy-runtime-core/src/hybrid_intraday/mod.rs",
+        "stage5c_baseline_sha256": "c70e3847f1a99e00c5d078d19b7b5f103d9b4d26853886b0b47d4805818ac84c",
+        "current_sha256": "67224b1523d3eeeae924f10c77cb74582671dc24a5badef554843fe57d079fd1",
+        "reason_id": "stage5d-b2bc1-r8-source-owned-codec-crate-private-export",
+        "public_api_unchanged": True,
+        "approved_region_markers": [],
+        "source_correspondence_change_class": "ControlledStage5dSourceOwnedCodec",
+        "source_correspondence_path": "crates/strategy-runtime-core/source-correspondence.toml",
+        "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
+        "source_codec_owner": "hybrid_intraday/risk_gate.rs",
+        "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_consumer_sha256": "cf831ab3e6af6b30148bda01c38dd05a93583e405e8e0b585066d7c184016a5f",
+    },
+    {
+        "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
+        "stage5c_baseline_sha256": "c85779ec5023e602cb6088e116fb58ed0bc80c31828499a0bd4557e2034dee34",
+        "current_sha256": "e5b80db163b0d97cfd50b8ad064c076850dbd2c15a95833895f5beb7a66d71a6",
+        "reason_id": "stage5d-b2bc1-r8-riskgate-authority-decimal-codec-extension",
+        "public_api_unchanged": True,
+        "approved_region_markers": [],
+        "source_correspondence_change_class": "ControlledStage5dSourceOwnedCodec",
+        "source_correspondence_path": "crates/strategy-runtime-core/source-correspondence.toml",
+        "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
+        "source_codec_owner": "hybrid_intraday/risk_gate.rs",
+        "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_consumer_sha256": "cf831ab3e6af6b30148bda01c38dd05a93583e405e8e0b585066d7c184016a5f",
+    },
+]
 
 APPROVED_BRIDGE_FILES = {
     str(LIB_REL): ["lib-stage5d-module", "lib-stage5d-exports"],
@@ -713,8 +744,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2b-c1-r7":
-        failures.append("stage must be 5D-b2b-c1-r7")
+    if manifest.get("stage") != "5D-b2b-c1-r8":
+        failures.append("stage must be 5D-b2b-c1-r8")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:
@@ -748,6 +779,9 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
             "declared != implemented",
             "ThreadPoolExecutor",
             "os.killpg",
+            "derive_case_timeout_seconds",
+            "--self-test-timeout-contract",
+            "CI_HEADROOM_SECONDS",
         )
         required_worker_tokens = (
             'grep -F -- "$expected_marker"',
@@ -806,6 +840,47 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
         failures.append("Stage 5C compatibility checker manifest entry mismatch")
     if manifest.get("historical_stage5c_checker") != EXPECTED_HISTORICAL_STAGE5C_CHECKER:
         failures.append("historical Stage 5C checker manifest entry mismatch")
+    controlled_extensions = manifest.get("controlled_source_semantic_extensions")
+    if controlled_extensions != EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS:
+        failures.append("controlled source semantic extension contract mismatch")
+    else:
+        closure_hashes_for_extensions = json.loads((root / STAGE5C_MANIFEST_REL).read_text()).get(
+            "source_hashes", {}
+        )
+        source_correspondence_path = (
+            root
+            / EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS[0]["source_correspondence_path"]
+        )
+        if not source_correspondence_path.is_file():
+            failures.append("source correspondence ledger missing for controlled extension")
+        for extension in controlled_extensions:
+            extension_path = root / extension["path"]
+            if not extension_path.is_file():
+                failures.append(f"controlled source extension file missing: {extension['path']}")
+                continue
+            actual_hash = sha256_file(extension_path)
+            if actual_hash != extension["current_sha256"]:
+                failures.append(
+                    f"controlled source extension current hash mismatch for {extension['path']}: "
+                    f"actual={actual_hash}"
+                )
+            if closure_hashes_for_extensions.get(extension["path"]) != extension[
+                "stage5c_baseline_sha256"
+            ]:
+                failures.append(
+                    f"controlled source extension baseline mismatch for {extension['path']}"
+                )
+            if extension["source_correspondence_sha256"] != sha256_file(
+                source_correspondence_path
+            ):
+                failures.append("controlled source extension correspondence ledger hash mismatch")
+            consumer_path = root / extension["stage5d_consumer_path"]
+            if not consumer_path.is_file() or sha256_file(consumer_path) != extension[
+                "stage5d_consumer_sha256"
+            ]:
+                failures.append(
+                    f"controlled source extension consumer hash mismatch for {extension['path']}"
+                )
 
     stage5c_manifest_hash = sha256_file(root / STAGE5C_MANIFEST_REL)
     if stage5c_manifest_hash != EXPECTED_STAGE5C_CLOSURE["manifest_sha256"]:

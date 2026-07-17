@@ -89,6 +89,7 @@ PY
 run_gate stage5c_api_freeze python3 scripts/stage5c_api_freeze_check.py
 run_gate stage5d_additive_freeze python3 scripts/stage5d_additive_freeze_check.py
 run_gate forbidden_surface bash scripts/forbidden_surface_scan.sh
+run_gate forbidden_surface_timeout_contract python3 scripts/forbidden_surface_negative_harness.py --self-test-timeout-contract
 run_gate forbidden_surface_negative bash scripts/forbidden_surface_negative_harness.sh
 run_gate stage5d_negative python3 scripts/stage5d_additive_freeze_negative_harness.py
 run_gate handoff_provenance_negative python3 scripts/handoff_provenance_negative_harness.py

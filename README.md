@@ -17,12 +17,14 @@ Stage 5 is active: the real IMOEXF `HybridIntradayRuntime` semantics are being
 migrated from the frozen ALOR source. The BO/MR/high180/riskgate kernel and the
 integrated broker-neutral runtime wrapper are present. Stage 5C's deterministic
 paper/no-send host is accepted and frozen; Stage 5D is adding a versioned,
-source-exact persistence restore path. The current `5D-b2b-c1-r7` candidate
+source-exact persistence restore path. The current `5D-b2b-c1-r8` candidate
 stops after exact authoritative riskgate injection and review-closure
 hardening: a lossless source-owned riskgate authority decimal codec,
 source-produced pending-finalization recovery proof, source-produced
-current-shadow matrix, expanded handoff provenance verification and no-I/O
-recovery proofs. It does not yet return the final runtime-state-restored
+current-shadow matrix without post-export editing, exact later-watermark source
+policy, immutable Stage 5C baseline governance, controlled Stage 5D codec
+ownership evidence, expanded handoff provenance verification and no-I/O recovery
+proofs. It does not yet return the final runtime-state-restored
 capability.
 
 This repository is not enabled for continuous live trading.
@@ -81,7 +83,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 bash scripts/forbidden_surface_scan.sh
 bash scripts/forbidden_surface_negative_harness.sh
 python3 scripts/stage5d_additive_freeze_negative_harness.py
-# Full Stage 5D-b2b-c1-r7 closure gate:
+# Full Stage 5D-b2b-c1-r8 closure gate:
 bash scripts/stage5d_b2bc_review_gate.sh
 ```
 

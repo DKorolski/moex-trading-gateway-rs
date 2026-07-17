@@ -12,7 +12,7 @@ source_sha256 = "c70e3847f1a99e00c5d078d19b7b5f103d9b4d26853886b0b47d4805818ac84
 target_path = "crates/strategy-runtime-core/src/hybrid_intraday/mod.rs"
 target_sha256 = "67224b1523d3eeeae924f10c77cb74582671dc24a5badef554843fe57d079fd1"
 change_class = "ControlledStage5dSourceOwnedCodec"
-change_note = "Stage 5D-b2b-c1-r6 exposes the source-owned riskgate authority decimal codec crate-privately; trading formulas and signal semantics remain unchanged."
+change_note = "Stage 5D-b2b-c1-r6 exposes the source-owned riskgate authority decimal codec crate-privately; r7 makes the codec bit-exact/lossless; r8 restores immutable Stage 5C baseline governance and pins this export as a Stage 5D-owned semantic extension. Trading formulas and signal semantics remain unchanged."
 
 [[files]]
 source_path = "strategy-runtime/src/strategies/hybrid_intraday/types.rs"
@@ -56,4 +56,4 @@ source_sha256 = "c85779ec5023e602cb6088e116fb58ed0bc80c31828499a0bd4557e2034dee3
 target_path = "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs"
 target_sha256 = "e5b80db163b0d97cfd50b8ad064c076850dbd2c15a95833895f5beb7a66d71a6"
 change_class = "ControlledStage5dSourceOwnedCodec"
-change_note = "Stage 5D-b2b-c1-r6 introduces the single source-owned fallible riskgate authority decimal codec used by Redis authority serialization, source parsing and Stage 5D consumers; trading formulas and signal semantics remain unchanged."
+change_note = "Stage 5D-b2b-c1-r6 introduces the single source-owned fallible riskgate authority decimal codec used by Redis authority serialization, source parsing and Stage 5D consumers; r7 makes accepted decimal formatting bit-exact/lossless; r8 restores immutable Stage 5C baseline governance and pins this file as a Stage 5D-owned codec extension. Trading formulas and signal semantics remain unchanged."

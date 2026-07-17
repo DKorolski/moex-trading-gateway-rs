@@ -188,7 +188,7 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   riskgate-profile callback no-ops, validates ledger-tail hash, enforces
   durable outbox crash-consistency/idempotency identity, and supports controlled
   retry with fresh validated ledger evidence without repeating private apply or
-  broker bootstrap. Stage 5D-b2b-c1-r7 is the active review-closure hardening
+  broker bootstrap. Stage 5D-b2b-c1-r8 is the active review-closure hardening
   candidate. It distinguishes full authoritative, durable materialized and
   semantic-runtime frontiers; accepts only exact outbox-explained crash lag;
   requires semantic current-shadow session/PnL to match authoritative materialized
@@ -200,17 +200,22 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   count/completion/fingerprint diagnostics. Source-exact decimal canonicality,
   row-derived `seed_loaded`, exact runtime-pending evidence for every lagging
   runtime frontier and stepwise multi-row recovery-to-complete tests with replay
-  checks are enforced. CI requires the 44-case Stage 5D harness plus the isolated
-  marker-pinned 81-case forbidden harness with positive-baseline and
+  checks are enforced. c1-r8 additionally restores the canonical immutable Stage
+  5C closure manifest, represents riskgate codec changes through Stage 5D-owned
+  controlled semantic extension evidence, validates later processed watermarks by
+  the bound source runtime policy, and proves source-produced current-shadow
+  positives without post-export editing. CI requires the 44-case Stage 5D harness
+  plus the isolated marker-pinned 87-case forbidden harness with positive-baseline and
   self-protection checks. The forbidden harness supported worker contract is
-  pinned at default/max four workers with a 30-minute CI timeout. Review
+  pinned at default/max four workers, 180-second per-case timeout and a
+  75-minute CI timeout. Review
   handoffs remain fail-closed and commit-bound. The Stage 5D checker pins both crate-private bootstrap and
   riskgate bridges to one definition and one production call-site, with negative
   cases for direct calls, aliases, forwarding wrappers, function references and
   extra Stage 5D calls.
   The formal mutation policy is
   `controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_only`;
-  Stage 5D-b2b-c1-r7 still does not implement final runtime-state-restored return,
+  Stage 5D-b2b-c1-r8 still does not implement final runtime-state-restored return,
   Redis bridge, FINAM execution, broker transport, runtime-live or autonomous
   loop.
 - FINAM REST read-only/auth/client DTO and mapper foundation.

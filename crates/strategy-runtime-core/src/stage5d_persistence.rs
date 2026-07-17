@@ -10,6 +10,8 @@ use broker_core::{
     BrokerAccountId, BrokerOrderId, BrokerStopOrderId, BrokerTradeId, ClientOrderId, Exchange,
     InstrumentId, Market, StrategyRequestId,
 };
+#[cfg(test)]
+use chrono::NaiveTime;
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, Utc, Weekday};
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
@@ -1031,6 +1033,19 @@ fn stage5d_validate_current_shadow_source_state(
             {
                 return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
             }
+            if envelope
+                .runtime_private_extension
+                .last_processed_bar_ts
+                .map(|processed_bar_ts| {
+                    strategy.stage5d_classify_processed_bar_ts(processed_bar_ts)
+                        == Some(
+                            crate::hybrid_intraday_runtime::Stage5dProcessedBarPolicy::RegularModelSession,
+                        )
+                })
+                .unwrap_or(false)
+            {
+                return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
+            }
         }
         Some(session_date) => {
             if strategy.stage5d_weekends_off()
@@ -1082,6 +1097,18 @@ fn stage5d_validate_current_shadow_source_state(
                     < session_date
             {
                 return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
+            }
+            if let Some(processed_bar_ts) = processed_bar_ts {
+                let processed_date = processed_bar_ts.with_timezone(&offset).date_naive();
+                let policy = strategy
+                    .stage5d_classify_processed_bar_ts(processed_bar_ts)
+                    .ok_or(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch)?;
+                if processed_date > session_date
+                    && policy
+                        == crate::hybrid_intraday_runtime::Stage5dProcessedBarPolicy::RegularModelSession
+                {
+                    return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
+                }
             }
             if open_tuple_present {
                 let processed_bar_ts = processed_bar_ts
@@ -3370,6 +3397,12 @@ mod tests {
 
     fn stage5d_test_riskgate_runtime_strategy(
     ) -> crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy {
+        stage5d_test_riskgate_runtime_strategy_with_config(|_| {})
+    }
+
+    fn stage5d_test_riskgate_runtime_strategy_with_config(
+        mutator: impl FnOnce(&mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeConfig),
+    ) -> crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy {
         stage5d_test_strategy_with_config(|config| {
             config.profile =
                 crate::hybrid_intraday_runtime::HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120;
@@ -3378,6 +3411,7 @@ mod tests {
                 crate::hybrid_intraday_runtime::MrGatePolicy::ShadowPnlLb120Positive;
             config.risk_gate_mode = crate::hybrid_intraday_runtime::RiskGateMode::NormalAppend;
             config.qty = 3.0;
+            mutator(config);
         })
     }
 
@@ -3390,8 +3424,8 @@ mod tests {
             tick_size: 0.5,
             trade_mode: crate::runtime_compat::TradeMode::Live,
             paper_execution_mode: crate::runtime_compat::PaperExecutionMode::LiveOnly,
-            allow_live_orders: true,
-            gateway_phase: crate::live_guard::GatewayPhase::LiveReady,
+            allow_live_orders: false,
+            gateway_phase: crate::live_guard::GatewayPhase::SyncingHistory,
             position_qty: Some(0.0),
             event_ts_utc: 0,
             now_ts_utc: 0,
@@ -3546,17 +3580,29 @@ mod tests {
     fn stage5d_test_source_current_shadow_strategy(
         bars: Vec<crate::runtime_compat::BarEvent>,
     ) -> crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy {
-        let mut strategy = stage5d_test_riskgate_runtime_strategy();
+        stage5d_test_source_current_shadow_strategy_with_config(|_| {}, bars)
+    }
+
+    fn stage5d_test_source_current_shadow_strategy_with_config(
+        mutator: impl FnOnce(&mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeConfig),
+        bars: Vec<crate::runtime_compat::BarEvent>,
+    ) -> crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy {
+        let mut strategy = stage5d_test_riskgate_runtime_strategy_with_config(mutator);
         stage5d_test_seed_riskgate_source_preconditions(&mut strategy);
         let ctx = stage5d_test_source_ctx();
         for bar in bars {
-            let _ = strategy.on_bar(&ctx, &bar);
+            let intents = strategy.on_bar(&ctx, &bar);
+            assert!(
+                intents.is_empty(),
+                "source current-shadow positive fixture must not emit live intents"
+            );
         }
         strategy
     }
 
     fn stage5d_test_assert_source_current_shadow_full_path(
         source_strategy: crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        expected_session: Option<&str>,
         expected_side: Option<&str>,
         expected_trade_count: u32,
         expected_pnl_text: &str,
@@ -3568,39 +3614,35 @@ mod tests {
             exported.runtime_pending_finalizations.is_empty(),
             "current-shadow positive path must not smuggle pending finalizations"
         );
-        let mut envelope = flat_persisted_fixture();
-        envelope.strategy_state.strategy_state_json =
+        assert!(
+            exported.pending_entry.is_none()
+                && exported.partial_entry_timer.is_none()
+                && exported.pending_exit.is_none(),
+            "current-shadow positive path must be produced without pending lifecycle post-edits"
+        );
+        let source_state_json =
             serde_json::to_value(source_strategy.state()).expect("source state serializes");
+        let source_extension = exported.clone();
+        let mut envelope = flat_persisted_fixture();
+        envelope.strategy_state.strategy_state_json = source_state_json.clone();
         envelope.runtime_private_extension = exported;
-        if let Value::Object(fields) =
-            &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
-        {
-            for key in [
-                "pending_entry_owner",
-                "pending_entry_side",
-                "pending_entry_cycle_id",
-                "pending_entry_request_id",
-                "pending_entry_created_ts_utc",
-                "deferred_entry_owner",
-                "deferred_entry_side",
-                "deferred_entry_cycle_id",
-                "deferred_entry_entry_style",
-                "deferred_entry_reason",
-                "deferred_entry_stop_price",
-                "deferred_entry_take_price",
-                "deferred_entry_ts_utc",
-                "deferred_entry_request_id",
-            ] {
-                fields.insert(key.to_string(), Value::Null);
-            }
-        }
-        envelope.runtime_private_extension.pending_entry = None;
-        envelope.runtime_private_extension.partial_entry_timer = None;
+        assert_eq!(
+            envelope.strategy_state.strategy_state_json, source_state_json,
+            "positive path must use exact source semantic state before Stage 5D binding"
+        );
+        assert_eq!(
+            envelope.runtime_private_extension, source_extension,
+            "positive path must use exact source private export before Stage 5D binding"
+        );
         let identity = stage5d_test_riskgate_identity_for(&source_strategy, &envelope);
         let source_pnl_points = envelope.strategy_state.strategy_state_json
             ["HybridIntradayRuntime"]["risk_gate_shadow_pnl_points"]
             .as_f64()
             .expect("source shadow pnl");
+        let source_shadow_session = envelope.strategy_state.strategy_state_json
+            ["HybridIntradayRuntime"]["risk_gate_shadow_session_date"]
+            .as_str()
+            .map(str::to_string);
         let source_pnl_text =
             crate::hybrid_intraday::format_riskgate_authority_decimal(source_pnl_points)
                 .expect("source shadow pnl must be authority-canonical");
@@ -3611,7 +3653,7 @@ mod tests {
         let mut evidence = stage5d_test_riskgate_evidence_before_source_pending(
             &identity,
             &envelope,
-            "2026-01-06",
+            source_shadow_session.as_deref(),
         );
         evidence.current_shadow_pnl_points = source_pnl_text;
         evidence.ledger_tail_hash =
@@ -3631,7 +3673,7 @@ mod tests {
                 fields
                     .get("risk_gate_shadow_session_date")
                     .and_then(Value::as_str),
-                Some("2026-01-06")
+                expected_session
             );
             assert_eq!(
                 fields
@@ -3648,7 +3690,7 @@ mod tests {
         let (bootstrapped, _strict_envelope, evidence) =
             stage5d_test_bootstrap_strict_envelope_with_strategy(
                 envelope,
-                stage5d_test_riskgate_runtime_strategy(),
+                source_strategy,
                 evidence,
             );
         let injected = expect_stage5d_riskgate_ok(
@@ -4261,7 +4303,7 @@ mod tests {
     fn stage5d_test_riskgate_evidence_before_source_pending(
         identity: &Stage5dRiskGateIdentity,
         envelope: &Stage5dPersistenceEnvelope,
-        current_shadow_session_date: &str,
+        current_shadow_session_date: Option<&str>,
     ) -> Stage5dRiskGateLedgerEvidence {
         let source_identity = crate::hybrid_intraday::RiskGateProfileIdentity {
             strategy_id: identity.strategy_id.clone(),
@@ -4313,7 +4355,7 @@ mod tests {
             ledger_tail_hash: String::new(),
             ledger_records,
             seed_loaded: true,
-            current_shadow_session_date: Some(current_shadow_session_date.to_string()),
+            current_shadow_session_date: current_shadow_session_date.map(str::to_string),
             current_shadow_pnl_points: "0.0".to_string(),
             current_generation: crate::hybrid_intraday::RISK_GATE_STATE_GENERATION.to_string(),
         };
@@ -6647,7 +6689,7 @@ mod tests {
         let base_evidence = stage5d_test_riskgate_evidence_before_source_pending(
             &identity,
             &envelope,
-            "2026-01-07",
+            Some("2026-01-07"),
         );
         stage5d_apply_riskgate_evidence_to_envelope(&mut envelope, &base_evidence);
         bind_fixture_to_strategy_config(&mut envelope, &source_strategy);
@@ -6807,7 +6849,26 @@ mod tests {
 
     #[test]
     fn stage5d_b2bc1r7_source_produced_current_shadow_matrix_passes_full_path() {
-        let clean =
+        let true_clean = stage5d_test_source_current_shadow_strategy(Vec::new());
+        stage5d_test_assert_source_current_shadow_full_path(true_clean, None, None, 0, "0.0");
+
+        let no_session_weekend_ignored =
+            stage5d_test_source_current_shadow_strategy(vec![stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 10, 9, 0, 0),
+                100.0,
+                100.1,
+                99.9,
+                100.0,
+            )]);
+        stage5d_test_assert_source_current_shadow_full_path(
+            no_session_weekend_ignored,
+            None,
+            None,
+            0,
+            "0.0",
+        );
+
+        let clean_session =
             stage5d_test_source_current_shadow_strategy(vec![stage5d_test_source_bar_ohlc(
                 stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
                 100.0,
@@ -6815,7 +6876,13 @@ mod tests {
                 99.9,
                 100.0,
             )]);
-        stage5d_test_assert_source_current_shadow_full_path(clean, None, 0, "0.0");
+        stage5d_test_assert_source_current_shadow_full_path(
+            clean_session,
+            Some("2026-01-06"),
+            None,
+            0,
+            "0.0",
+        );
 
         let long_open =
             stage5d_test_source_current_shadow_strategy(vec![stage5d_test_source_bar_ohlc(
@@ -6825,7 +6892,13 @@ mod tests {
                 99.7,
                 99.7,
             )]);
-        stage5d_test_assert_source_current_shadow_full_path(long_open, Some("long"), 0, "0.0");
+        stage5d_test_assert_source_current_shadow_full_path(
+            long_open,
+            Some("2026-01-06"),
+            Some("long"),
+            0,
+            "0.0",
+        );
 
         let short_open =
             stage5d_test_source_current_shadow_strategy(vec![stage5d_test_source_bar_ohlc(
@@ -6835,7 +6908,13 @@ mod tests {
                 98.0,
                 100.3,
             )]);
-        stage5d_test_assert_source_current_shadow_full_path(short_open, Some("short"), 0, "0.0");
+        stage5d_test_assert_source_current_shadow_full_path(
+            short_open,
+            Some("2026-01-06"),
+            Some("short"),
+            0,
+            "0.0",
+        );
 
         let realized_pnl = stage5d_test_source_current_shadow_strategy(vec![
             stage5d_test_source_bar_ohlc(
@@ -6855,9 +6934,179 @@ mod tests {
         ]);
         stage5d_test_assert_source_current_shadow_full_path(
             realized_pnl,
+            Some("2026-01-06"),
             None,
             1,
             "1.199999999999997",
+        );
+
+        let weekend_later_watermark = stage5d_test_source_current_shadow_strategy(vec![
+            stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                100.0,
+                100.1,
+                99.9,
+                100.0,
+            ),
+            stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 10, 9, 0, 0),
+                100.0,
+                100.1,
+                99.9,
+                100.0,
+            ),
+        ]);
+        stage5d_test_assert_source_current_shadow_full_path(
+            weekend_later_watermark,
+            Some("2026-01-06"),
+            None,
+            0,
+            "0.0",
+        );
+
+        let before_model_later_watermark = stage5d_test_source_current_shadow_strategy_with_config(
+            |config| {
+                config.model_session_start_time = NaiveTime::from_hms_opt(9, 0, 0);
+                config.model_session_end_time = NaiveTime::from_hms_opt(18, 45, 0);
+            },
+            vec![
+                stage5d_test_source_bar_ohlc(
+                    stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                    100.0,
+                    100.1,
+                    99.9,
+                    100.0,
+                ),
+                stage5d_test_source_bar_ohlc(
+                    stage5d_test_source_ts_local(2026, 1, 7, 8, 30, 0),
+                    100.0,
+                    100.1,
+                    99.9,
+                    100.0,
+                ),
+            ],
+        );
+        stage5d_test_assert_source_current_shadow_full_path(
+            before_model_later_watermark,
+            Some("2026-01-06"),
+            None,
+            0,
+            "0.0",
+        );
+
+        let after_model_later_watermark = stage5d_test_source_current_shadow_strategy_with_config(
+            |config| {
+                config.model_session_start_time = NaiveTime::from_hms_opt(9, 0, 0);
+                config.model_session_end_time = NaiveTime::from_hms_opt(18, 45, 0);
+            },
+            vec![
+                stage5d_test_source_bar_ohlc(
+                    stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                    100.0,
+                    100.1,
+                    99.9,
+                    100.0,
+                ),
+                stage5d_test_source_bar_ohlc(
+                    stage5d_test_source_ts_local(2026, 1, 7, 19, 0, 0),
+                    100.0,
+                    100.1,
+                    99.9,
+                    100.0,
+                ),
+            ],
+        );
+        stage5d_test_assert_source_current_shadow_full_path(
+            after_model_later_watermark,
+            Some("2026-01-06"),
+            None,
+            0,
+            "0.0",
+        );
+    }
+
+    #[test]
+    fn stage5d_b2bc1r8_later_regular_model_watermark_must_advance_source_session() {
+        let advanced = stage5d_test_source_current_shadow_strategy(vec![
+            stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                100.0,
+                100.1,
+                99.9,
+                100.0,
+            ),
+            stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 7, 9, 0, 0),
+                100.0,
+                100.1,
+                99.9,
+                100.0,
+            ),
+        ]);
+        let state_json = serde_json::to_value(advanced.state()).expect("state");
+        assert_eq!(
+            state_json["HybridIntradayRuntime"]["risk_gate_shadow_session_date"].as_str(),
+            Some("2026-01-07")
+        );
+        let exported = advanced
+            .stage5d_export_runtime_private_extension()
+            .expect("export");
+        assert_eq!(exported.runtime_pending_finalizations.len(), 1);
+        assert_eq!(
+            exported.runtime_pending_finalizations[0].session_date,
+            "2026-01-06"
+        );
+    }
+
+    #[test]
+    fn stage5d_b2bc1r8_rejects_stale_session_after_later_regular_model_watermark() {
+        let stale =
+            stage5d_test_source_current_shadow_strategy(vec![stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                100.0,
+                100.1,
+                99.9,
+                100.0,
+            )]);
+        let mut envelope = flat_persisted_fixture();
+        envelope.strategy_state.strategy_state_json =
+            serde_json::to_value(stale.state()).expect("source state serializes");
+        envelope.runtime_private_extension = stale
+            .stage5d_export_runtime_private_extension()
+            .expect("source export");
+        envelope.runtime_private_extension.last_processed_bar_ts = Some(
+            DateTime::<Utc>::from_timestamp(stage5d_test_source_ts_local(2026, 1, 7, 9, 0, 0), 0)
+                .expect("regular model watermark"),
+        );
+        let identity = stage5d_test_riskgate_identity_for(&stale, &envelope);
+        let mut evidence = stage5d_test_riskgate_evidence_before_source_pending(
+            &identity,
+            &envelope,
+            Some("2026-01-06"),
+        );
+        stage5d_apply_riskgate_evidence_to_envelope(&mut envelope, &evidence);
+        bind_fixture_to_strategy_config(&mut envelope, &stale);
+        envelope.riskgate.ledger_tail_hash = evidence.ledger_tail_hash.clone();
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("checksum");
+        stage5d_test_normalize_persisted_checksum(&mut envelope);
+        evidence.ledger_tail_hash =
+            stage5d_compute_riskgate_ledger_tail_hash(&evidence).expect("tail hash");
+
+        let (bootstrapped, _strict_envelope, evidence) =
+            stage5d_test_bootstrap_strict_envelope_with_strategy(
+                envelope,
+                stage5d_test_riskgate_runtime_strategy(),
+                evidence,
+            );
+        let blocked = expect_stage5d_riskgate_blocked(
+            stage5d_inject_authoritative_riskgate(bootstrapped, evidence),
+            "old current shadow cannot survive a later regular model-session watermark",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch
         );
     }
 
@@ -7221,6 +7470,8 @@ mod tests {
             riskgate_enabled_bootstrapped_fixture_with_evidence(|envelope, evidence| {
                 evidence.current_shadow_session_date = None;
                 evidence.current_shadow_pnl_points = "0.0".to_string();
+                envelope.runtime_private_extension.last_processed_bar_ts = None;
+                envelope.lifecycle_watermarks.last_semantic_bar_ts = None;
                 stage5d_apply_riskgate_evidence_to_envelope(envelope, evidence);
             });
         expect_stage5d_riskgate_ok(
