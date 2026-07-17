@@ -598,6 +598,56 @@ def mutate_runtime_restored_bridge_made_public(root: Path) -> None:
     update_manifest_bridge_hash(root, rel)
 
 
+def mutate_runtime_restored_intent_runtime_guard_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    replace_once(
+        root / rel,
+        "    if !intents.is_empty() {\n        return Err(Stage5dRuntimeStateRestoredBridgeError::CallbackEmittedIntent);\n    }\n",
+        "",
+    )
+    update_manifest_bridge_hash(root, rel)
+
+
+def mutate_runtime_restored_intent_guard_after_debug_assert(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    replace_once(
+        root / rel,
+        "    if !intents.is_empty() {\n        return Err(Stage5dRuntimeStateRestoredBridgeError::CallbackEmittedIntent);\n    }\n    debug_assert!(intents.is_empty());",
+        "    debug_assert!(intents.is_empty());\n    if !intents.is_empty() {\n        return Err(Stage5dRuntimeStateRestoredBridgeError::CallbackEmittedIntent);\n    }",
+    )
+    update_manifest_bridge_hash(root, rel)
+
+
+def mutate_runtime_restored_post_callback_exact_guard_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    replace_once(
+        root / rel,
+        "    stage5d_validate_post_runtime_restored_broker_truth_exact(&strategy, admission)?;\n",
+        "",
+    )
+    update_manifest_bridge_hash(root, rel)
+
+
+def mutate_runtime_restored_lifecycle_notification_guard_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "&& bootstrap_notified_at <= restored_at",
+        "true",
+    )
+    update_manifest_stage5d_hash(root)
+
+
+def mutate_runtime_restored_flat_side_exact_guard_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "    if *current_side != expected_side {",
+        "    if expected_side.is_some() && *current_side != expected_side {",
+    )
+    update_manifest_stage5d_hash(root)
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -659,6 +709,11 @@ CASES = [
     ("runtime_restored_bridge_runtime_compat_function_reference", mutate_runtime_restored_bridge_runtime_compat_function_reference, "Stage 5D runtime-restored bridge reference outside allowlist"),
     ("runtime_restored_bridge_second_stage5d_call", mutate_runtime_restored_bridge_second_stage5d_call, "Stage 5D runtime-restored bridge production call count mismatch"),
     ("runtime_restored_bridge_made_public", mutate_runtime_restored_bridge_made_public, "Stage 5D runtime-restored bridge definition contract mismatch"),
+    ("runtime_restored_intent_runtime_guard_removed", mutate_runtime_restored_intent_runtime_guard_removed, "Stage 5D runtime-restored intent runtime guard missing"),
+    ("runtime_restored_intent_guard_after_debug_assert", mutate_runtime_restored_intent_guard_after_debug_assert, "Stage 5D runtime-restored intent runtime guard must precede debug_assert"),
+    ("runtime_restored_post_callback_exact_guard_removed", mutate_runtime_restored_post_callback_exact_guard_removed, "Stage 5D runtime-restored exact post-callback broker-truth guard missing"),
+    ("runtime_restored_lifecycle_notification_guard_removed", mutate_runtime_restored_lifecycle_notification_guard_removed, "Stage 5D runtime-restored lifecycle notification timestamp guard missing"),
+    ("runtime_restored_flat_side_exact_guard_removed", mutate_runtime_restored_flat_side_exact_guard_removed, "Stage 5D runtime-restored flat-side exact guard missing"),
 ]
 
 

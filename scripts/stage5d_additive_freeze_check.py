@@ -90,7 +90,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "1ecc7a57f107d80d89dac3de37294153e1de8fb6f85fc14f73e5c1be9b1b7f4f",
+        "stage5d_consumer_sha256": "7c2d1654360f4dfd2ed7e3f304334b0aaff233d3c4c8557b2caeb7629e0a8c17",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -104,7 +104,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "1ecc7a57f107d80d89dac3de37294153e1de8fb6f85fc14f73e5c1be9b1b7f4f",
+        "stage5d_consumer_sha256": "7c2d1654360f4dfd2ed7e3f304334b0aaff233d3c4c8557b2caeb7629e0a8c17",
     },
 ]
 
@@ -185,6 +185,11 @@ EXPECTED_NEGATIVE_CASES = [
     "runtime_restored_bridge_runtime_compat_function_reference",
     "runtime_restored_bridge_second_stage5d_call",
     "runtime_restored_bridge_made_public",
+    "runtime_restored_intent_runtime_guard_removed",
+    "runtime_restored_intent_guard_after_debug_assert",
+    "runtime_restored_post_callback_exact_guard_removed",
+    "runtime_restored_lifecycle_notification_guard_removed",
+    "runtime_restored_flat_side_exact_guard_removed",
 ]
 
 EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
@@ -759,14 +764,42 @@ def validate_stage5d_bridge_call_sites(root: Path, failures: list[str]) -> None:
     )
 
 
+def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
+    root: Path, failures: list[str]
+) -> None:
+    host_source = (root / STAGE5C_HOST_REL).read_text()
+    intent_guard = (
+        "if !intents.is_empty() {\n"
+        "        return Err(Stage5dRuntimeStateRestoredBridgeError::CallbackEmittedIntent);"
+    )
+    debug_assert_guard = "debug_assert!(intents.is_empty());"
+    if intent_guard not in host_source:
+        failures.append("Stage 5D runtime-restored intent runtime guard missing")
+    if debug_assert_guard in host_source and host_source.find(intent_guard) > host_source.find(
+        debug_assert_guard
+    ):
+        failures.append("Stage 5D runtime-restored intent runtime guard must precede debug_assert")
+    if (
+        "stage5d_validate_post_runtime_restored_broker_truth_exact(&strategy, admission)?"
+        not in host_source
+    ):
+        failures.append("Stage 5D runtime-restored exact post-callback broker-truth guard missing")
+
+    stage5d_source = (root / STAGE5D_REL).read_text()
+    if "bootstrap_notified_at <= restored_at" not in stage5d_source:
+        failures.append("Stage 5D runtime-restored lifecycle notification timestamp guard missing")
+    if "if *current_side != expected_side {" not in stage5d_source:
+        failures.append("Stage 5D runtime-restored flat-side exact guard missing")
+
+
 def validate(root: Path, manifest_path: Path) -> list[str]:
     failures: list[str] = []
     manifest = json.loads(manifest_path.read_text())
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2b-d":
-        failures.append("stage must be 5D-b2b-d")
+    if manifest.get("stage") != "5D-b2b-d1":
+        failures.append("stage must be 5D-b2b-d1")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:
@@ -965,6 +998,7 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     validate_no_legacy_identifiers_in_additive_regions(root, APPROVED_BRIDGE_FILES, failures)
     validate_stage5d_bridge_call_sites(root, failures)
+    validate_stage5d_b2bd1_runtime_restored_semantic_guards(root, failures)
 
     stage5d_record = manifest.get("stage5d_persistence_file", {})
     stage5d_path = root / STAGE5D_REL

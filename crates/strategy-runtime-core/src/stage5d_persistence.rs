@@ -849,6 +849,13 @@ fn validate_stage5d_runtime_state_restored_preflight(
     }
 
     let admission = injected.bootstrapped.stage5d_admission();
+    let bootstrap_notified_at = injected.bootstrapped.stage5d_bootstrap_notified_ts();
+    if !(admission.checked_ts() <= admission.issued_ts()
+        && admission.issued_ts() <= bootstrap_notified_at
+        && bootstrap_notified_at <= restored_at)
+    {
+        return Err(Stage5dRuntimeStateRestoreBlockedReason::LifecycleTimestampReversal);
+    }
     if restored_at > admission.expires_at() {
         return Err(Stage5dRuntimeStateRestoreBlockedReason::AdmissionExpired);
     }
@@ -907,7 +914,7 @@ fn validate_stage5d_runtime_restore_broker_truth(
     } else {
         None
     };
-    if expected_side.is_some() && *current_side != expected_side {
+    if *current_side != expected_side {
         return Err(Stage5dRuntimeStateRestoreBlockedReason::BrokerTruthSideMismatch);
     }
     if tp_order_id.is_some() || sl_stop_order_id.is_some() || sl_exchange_order_id.is_some() {
@@ -4384,18 +4391,34 @@ mod tests {
     }
 
     fn stage5d_test_complete_injected_fixture() -> Stage5dRiskGateInjectedPaperStrategy {
+        stage5d_test_complete_injected_fixture_with_position_and_bootstrap_delay(
+            0.0,
+            None,
+            chrono::Duration::zero(),
+        )
+    }
+
+    fn stage5d_test_complete_injected_fixture_with_position_and_bootstrap_delay(
+        qty: f64,
+        side: Option<&str>,
+        bootstrap_delay: chrono::Duration,
+    ) -> Stage5dRiskGateInjectedPaperStrategy {
         let (bootstrapped, _envelope, validated_evidence) =
-            riskgate_enabled_bootstrapped_fixture_with_evidence(|envelope, evidence| {
-                stage5d_test_configure_single_tail_crash_frontier(
-                    envelope,
-                    evidence,
-                    Stage5dRiskGateFinalizationState::AcknowledgedInRuntime,
-                    true,
-                    true,
-                    true,
-                    false,
-                );
-            });
+            riskgate_enabled_bootstrapped_fixture_with_bootstrap_delay(
+                bootstrap_delay,
+                |envelope, evidence| {
+                    stage5d_test_set_position_side(envelope, qty, side);
+                    stage5d_test_configure_single_tail_crash_frontier(
+                        envelope,
+                        evidence,
+                        Stage5dRiskGateFinalizationState::AcknowledgedInRuntime,
+                        true,
+                        true,
+                        true,
+                        false,
+                    );
+                },
+            );
         let injected = expect_stage5d_riskgate_ok(
             stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
             "complete fixture must inject riskgate",
@@ -4405,6 +4428,36 @@ mod tests {
             "complete fixture must be ready for restored callback"
         );
         injected
+    }
+
+    fn stage5d_test_set_position_side(
+        envelope: &mut Stage5dPersistenceEnvelope,
+        qty: f64,
+        side: Option<&str>,
+    ) {
+        if let Value::Object(fields) =
+            &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+        {
+            fields.insert("last_position_qty".to_string(), serde_json::json!(qty));
+            fields.insert(
+                "current_side".to_string(),
+                side.map(|value| Value::String(value.to_string()))
+                    .unwrap_or(Value::Null),
+            );
+            if qty.abs() <= f64::EPSILON {
+                fields.insert("active_cycle_id".to_string(), Value::Null);
+                fields.insert("current_owner".to_string(), Value::Null);
+            } else {
+                fields.insert(
+                    "active_cycle_id".to_string(),
+                    Value::String("stage5d-b2bd1-cycle".to_string()),
+                );
+                fields.insert(
+                    "current_owner".to_string(),
+                    Value::String("intraday_breakout".to_string()),
+                );
+            }
+        }
     }
 
     fn applied_stage5d_fixture() -> (
@@ -4489,12 +4542,47 @@ mod tests {
         Stage5dPersistenceEnvelope,
         Stage5dValidatedRiskGateLedgerEvidence,
     ) {
-        riskgate_enabled_bootstrapped_fixture_with_config_and_evidence(|_| {}, mutator)
+        riskgate_enabled_bootstrapped_fixture_with_config_evidence_and_bootstrap_delay(
+            |_| {},
+            mutator,
+            chrono::Duration::zero(),
+        )
+    }
+
+    fn riskgate_enabled_bootstrapped_fixture_with_bootstrap_delay(
+        bootstrap_delay: chrono::Duration,
+        mutator: impl FnOnce(&mut Stage5dPersistenceEnvelope, &mut Stage5dRiskGateLedgerEvidence),
+    ) -> (
+        Stage5dBootstrappedPaperStrategy,
+        Stage5dPersistenceEnvelope,
+        Stage5dValidatedRiskGateLedgerEvidence,
+    ) {
+        riskgate_enabled_bootstrapped_fixture_with_config_evidence_and_bootstrap_delay(
+            |_| {},
+            mutator,
+            bootstrap_delay,
+        )
     }
 
     fn riskgate_enabled_bootstrapped_fixture_with_config_and_evidence(
         config_mutator: impl FnOnce(&mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeConfig),
         mutator: impl FnOnce(&mut Stage5dPersistenceEnvelope, &mut Stage5dRiskGateLedgerEvidence),
+    ) -> (
+        Stage5dBootstrappedPaperStrategy,
+        Stage5dPersistenceEnvelope,
+        Stage5dValidatedRiskGateLedgerEvidence,
+    ) {
+        riskgate_enabled_bootstrapped_fixture_with_config_evidence_and_bootstrap_delay(
+            config_mutator,
+            mutator,
+            chrono::Duration::zero(),
+        )
+    }
+
+    fn riskgate_enabled_bootstrapped_fixture_with_config_evidence_and_bootstrap_delay(
+        config_mutator: impl FnOnce(&mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeConfig),
+        mutator: impl FnOnce(&mut Stage5dPersistenceEnvelope, &mut Stage5dRiskGateLedgerEvidence),
+        bootstrap_delay: chrono::Duration,
     ) -> (
         Stage5dBootstrappedPaperStrategy,
         Stage5dPersistenceEnvelope,
@@ -4562,8 +4650,9 @@ mod tests {
             stage5d_apply_runtime_private_extension(bound),
             "riskgate fixture private extension must apply",
         );
+        let bootstrap_notification_ts = envelope.persisted_at_ts_utc + bootstrap_delay;
         let bootstrapped = expect_stage5d_bootstrap_ok(
-            stage5d_notify_broker_truth_bootstrap_at(applied, envelope.persisted_at_ts_utc),
+            stage5d_notify_broker_truth_bootstrap_at(applied, bootstrap_notification_ts),
             "riskgate fixture bootstrap must succeed",
         );
         (bootstrapped, envelope, validated_evidence)
@@ -7558,6 +7647,96 @@ mod tests {
             "exact expiry boundary follows Stage 5C equality policy",
         );
         assert_eq!(restored.receipt().restored_ts(), expires_at);
+    }
+
+    #[test]
+    fn stage5d_b2bd1_exact_bootstrap_notification_boundary_is_accepted() {
+        let injected = stage5d_test_complete_injected_fixture_with_position_and_bootstrap_delay(
+            0.0,
+            None,
+            chrono::Duration::milliseconds(1),
+        );
+        let notified_at = injected.bootstrapped.stage5d_bootstrap_notified_ts();
+        let restored = expect_stage5d_restore_ok(
+            stage5d_notify_runtime_state_restored_at(injected, notified_at),
+            "exact bootstrap notification boundary must be accepted",
+        );
+        assert_eq!(restored.receipt().restored_ts(), notified_at);
+    }
+
+    #[test]
+    fn stage5d_b2bd1_restored_before_bootstrap_notification_blocks_before_callback() {
+        let injected = stage5d_test_complete_injected_fixture_with_position_and_bootstrap_delay(
+            0.0,
+            None,
+            chrono::Duration::milliseconds(2),
+        );
+        let before_notification = injected.bootstrapped.stage5d_bootstrap_notified_ts()
+            - chrono::Duration::milliseconds(1);
+        let blocked = expect_stage5d_restore_blocked(
+            stage5d_notify_runtime_state_restored_at(injected, before_notification),
+            "restored timestamp before bootstrap notification must block before callback",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dRuntimeStateRestoreBlockedReason::LifecycleTimestampReversal
+        );
+        assert!(blocked.input_capability_preserved());
+    }
+
+    fn stage5d_test_mutate_injected_current_side(
+        injected: &mut Stage5dRiskGateInjectedPaperStrategy,
+        side: Option<crate::hybrid_intraday::Side>,
+    ) {
+        let mut state = Strategy::state(injected.bootstrapped.stage5d_strategy()).clone();
+        let StrategyState::HybridIntradayRuntime { current_side, .. } = &mut state else {
+            panic!("test fixture must be hybrid runtime state");
+        };
+        *current_side = side;
+        injected.bootstrapped.stage5d_test_set_strategy_state(state);
+    }
+
+    #[test]
+    fn stage5d_b2bd1_flat_broker_side_is_exact_and_blocks_stale_side_before_callback() {
+        struct Case {
+            name: &'static str,
+            side: Option<crate::hybrid_intraday::Side>,
+            accepted: bool,
+        }
+
+        for case in [
+            Case {
+                name: "flat_none",
+                side: None,
+                accepted: true,
+            },
+            Case {
+                name: "flat_long",
+                side: Some(crate::hybrid_intraday::Side::Long),
+                accepted: false,
+            },
+            Case {
+                name: "flat_short",
+                side: Some(crate::hybrid_intraday::Side::Short),
+                accepted: false,
+            },
+        ] {
+            let mut injected = stage5d_test_complete_injected_fixture();
+            stage5d_test_mutate_injected_current_side(&mut injected, case.side);
+            let restored_at = injected.envelope.persisted_at_ts_utc;
+            let result = stage5d_notify_runtime_state_restored_at(injected, restored_at);
+            if case.accepted {
+                let restored = expect_stage5d_restore_ok(result, case.name);
+                assert_eq!(restored.receipt().restored_ts(), restored_at);
+            } else {
+                let blocked = expect_stage5d_restore_blocked(result, case.name);
+                assert_eq!(
+                    blocked.reason(),
+                    Stage5dRuntimeStateRestoreBlockedReason::BrokerTruthSideMismatch
+                );
+                assert!(blocked.input_capability_preserved());
+            }
+        }
     }
 
     #[test]

@@ -105,4 +105,4 @@ run_gate cargo_test_all_targets cargo test --workspace --all-targets
 run_gate cargo_test_docs cargo test --workspace --doc
 run_gate cargo_clippy cargo clippy --workspace --all-targets -- -D warnings
 
-echo "stage5d-b2bc-review-gate: all required gates passed"
+echo "stage5d-b2bd1-review-gate: all required gates passed"

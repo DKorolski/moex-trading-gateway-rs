@@ -1,6 +1,6 @@
 # Stage 5D-b2b-d — controlled runtime-state-restored transition
 
-Status: implementation candidate.
+Status: implementation candidate; hardened by Stage 5D-b2b-d1.
 
 Stage 5D-b2b-d opens one narrow no-I/O transition:
 
@@ -14,6 +14,10 @@ The transition is allowed only after private runtime state, broker truth,
 authoritative riskgate evidence and the deterministic recovery plan are complete.
 It does not open Redis, FINAM, broker transport, command dispatch, runtime-live,
 autonomous recovery workers or real execution.
+
+Stage 5D-b2b-d1 keeps this boundary and adds review-closure hardening for
+callback-intent handling, bootstrap-notification timestamp ordering and exact
+flat/long/short broker-side truth.
 
 ## Implemented boundary
 
@@ -82,4 +86,6 @@ bash scripts/stage5d_b2bc_review_gate.sh
 ```
 
 The Stage 5D additive negative harness is expected to include the restored-bridge
-boundary cases in addition to the c1-r8 cases.
+boundary cases in addition to the c1-r8 cases. In b2b-d1 it also includes
+marker-pinned semantic guard cases for intent guard ordering, timestamp
+chronology and exact side truth.

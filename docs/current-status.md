@@ -204,23 +204,26 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   5C closure manifest, represents riskgate codec changes through Stage 5D-owned
   controlled semantic extension evidence, validates later processed watermarks by
   the bound source runtime policy, and proves source-produced current-shadow
-  positives without post-export editing. CI requires the 49-case Stage 5D harness
+  positives without post-export editing. CI requires the 54-case Stage 5D harness
   plus the isolated marker-pinned 87-case forbidden harness with positive-baseline and
   self-protection checks. The forbidden harness supported worker contract is
   pinned at default/max four workers, 180-second per-case timeout and a
   75-minute CI timeout. Review
-  handoffs remain fail-closed and commit-bound. Stage 5D-b2b-d is the active
-  controlled runtime-state-restored transition candidate: it consumes only the
+  handoffs remain fail-closed and commit-bound. Stage 5D-b2b-d1 is the active
+  runtime-restored review-closure hardening candidate: it consumes only the
   opaque `Stage5dRiskGateInjectedPaperStrategy`, requires complete
   source-produced recovery evidence before the callback, delegates through one
   checker-pinned crate-private Stage 5C bridge, returns the exact
   `Stage5cRuntimeStateRestoredPaperStrategy` on success, preserves the input
   capability on pre-callback blocks, treats post-callback failures as terminal,
-  and rejects any release-mode callback intent. The Stage 5D checker pins the
+  rejects callback intents through the runtime guard before any debug assertion,
+  enforces bootstrap-notification chronology before callback, and treats
+  flat/long/short broker side truth as exact. The Stage 5D checker pins the
   crate-private bootstrap, riskgate and runtime-state-restored bridges to one
   definition and one production call-site each, with negative cases for direct
-  calls, aliases, forwarding wrappers, function references and extra Stage 5D
-  calls.
+  calls, aliases, forwarding wrappers, function references, extra Stage 5D
+  calls, missing intent guard, debug-assert-only guard, missing timestamp guard
+  and missing exact side guard.
   The formal mutation policy is
   `controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only`;
   Redis bridge, FINAM execution, broker transport, runtime-live and autonomous

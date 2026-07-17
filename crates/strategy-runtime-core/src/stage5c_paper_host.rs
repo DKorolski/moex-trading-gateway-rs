@@ -102,6 +102,15 @@ impl Stage5cBootstrappedPaperStrategy {
     pub(crate) fn stage5d_restored(&self) -> &RuntimeStateRestored {
         &self.restored
     }
+
+    pub(crate) fn stage5d_bootstrap_notified_ts(&self) -> DateTime<Utc> {
+        self.receipt.notified_ts
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stage5d_test_set_strategy_state(&mut self, state: StrategyState) {
+        Strategy::set_state(&mut self.strategy, state);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,16 +164,22 @@ fn stage5d_notify_runtime_state_restored_bridge_impl_at(
         last_bar_ts: None,
     };
     let pending_requests = restored.pending_requests.clone();
-    let intents = Strategy::on_runtime_state_restored(&mut strategy, &context, &restored);
-    debug_assert!(
-        intents.is_empty(),
-        "accepted source runtime-state restore must not emit intents"
-    );
-    if !intents.is_empty() || force_nonempty_intent_for_test {
+    let mut intents = Strategy::on_runtime_state_restored(&mut strategy, &context, &restored);
+    if force_nonempty_intent_for_test {
+        intents.push(crate::runtime_compat::Intent::Market {
+            qty: 0.0,
+            side: crate::runtime_compat::OrderSide::Buy,
+            fill_price: None,
+            comment: Some("stage5d-test-synthetic-restored-intent".to_string()),
+        });
+    }
+    if !intents.is_empty() {
         return Err(Stage5dRuntimeStateRestoredBridgeError::CallbackEmittedIntent);
     }
+    debug_assert!(intents.is_empty());
     validate_post_bootstrap_broker_truth(&strategy, admission)
         .map_err(Stage5dRuntimeStateRestoredBridgeError::Stage5c)?;
+    stage5d_validate_post_runtime_restored_broker_truth_exact(&strategy, admission)?;
 
     Ok(Stage5cRuntimeStateRestoredPaperStrategy {
         strategy,
@@ -174,6 +189,57 @@ fn stage5d_notify_runtime_state_restored_bridge_impl_at(
             pending_requests,
         },
     })
+}
+
+fn stage5d_validate_post_runtime_restored_broker_truth_exact(
+    strategy: &HybridIntradayRuntimeStrategy,
+    admission: &Stage5cPaperHostAdmission,
+) -> Result<(), Stage5dRuntimeStateRestoredBridgeError> {
+    let state = Strategy::state(strategy);
+    let broker_qty = admission
+        .bootstrap_snapshot()
+        .target_position_qty
+        .to_f64()
+        .filter(|value| value.is_finite())
+        .ok_or(Stage5dRuntimeStateRestoredBridgeError::Stage5c(
+            Stage5cRuntimeStateRestoreError::BrokerTruthPositionMismatch,
+        ))?;
+    let StrategyState::HybridIntradayRuntime {
+        last_position_qty,
+        current_side,
+        tp_order_id,
+        sl_stop_order_id,
+        sl_exchange_order_id,
+        ..
+    } = state
+    else {
+        return Err(Stage5dRuntimeStateRestoredBridgeError::Stage5c(
+            Stage5cRuntimeStateRestoreError::WrongStrategyStateKind,
+        ));
+    };
+    if (*last_position_qty - broker_qty).abs() > f64::EPSILON {
+        return Err(Stage5dRuntimeStateRestoredBridgeError::Stage5c(
+            Stage5cRuntimeStateRestoreError::BrokerTruthPositionMismatch,
+        ));
+    }
+    let expected_side = if broker_qty > f64::EPSILON {
+        Some(crate::hybrid_intraday::Side::Long)
+    } else if broker_qty < -f64::EPSILON {
+        Some(crate::hybrid_intraday::Side::Short)
+    } else {
+        None
+    };
+    if *current_side != expected_side {
+        return Err(Stage5dRuntimeStateRestoredBridgeError::Stage5c(
+            Stage5cRuntimeStateRestoreError::BrokerTruthSideMismatch,
+        ));
+    }
+    if tp_order_id.is_some() || sl_stop_order_id.is_some() || sl_exchange_order_id.is_some() {
+        return Err(Stage5dRuntimeStateRestoredBridgeError::Stage5c(
+            Stage5cRuntimeStateRestoreError::BrokerOwnedOrderIdMismatch,
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn stage5d_bootstrap_preserving_loaded_at(
