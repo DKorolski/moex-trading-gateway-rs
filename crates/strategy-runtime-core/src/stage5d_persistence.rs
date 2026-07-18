@@ -2593,6 +2593,237 @@ fn stage5d_source_build_is_compatible(source_commit_or_build_id: &str) -> bool {
     STAGE5D_COMPATIBLE_SOURCE_BUILD_IDS.contains(&source_commit_or_build_id)
 }
 
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub(crate) struct Stage5dCanonicalEnvelopeExportInput {
+    pub snapshot_id: String,
+    pub snapshot_revision: u64,
+    pub previous_revision: Option<u64>,
+    pub write_generation: u64,
+    pub persisted_at_ts_utc: DateTime<Utc>,
+    pub strategy_id: String,
+    pub account_id: BrokerAccountId,
+    pub instrument_id: InstrumentId,
+    pub source_commit_or_build_id: String,
+    pub lifecycle_watermarks: Stage5dLifecycleWatermarks,
+    pub riskgate: Stage5dRiskGatePersistence,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) struct Stage5dCanonicalEnvelopeExportReport {
+    pub snapshot_id: String,
+    pub payload_checksum_sha256: String,
+    pub semantic_payload_fingerprint: String,
+    pub recovery_index_fingerprint: String,
+    pub runtime_pending_finalizations_count: usize,
+    pub durable_finalization_outbox_count: usize,
+    pub redis_opened: bool,
+    pub finam_opened: bool,
+    pub dispatch_opened: bool,
+    pub runtime_live_opened: bool,
+}
+
+#[allow(dead_code)]
+pub(crate) fn stage5d_export_canonical_envelope_from_runtime(
+    strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    input: Stage5dCanonicalEnvelopeExportInput,
+) -> Result<
+    (
+        Stage5dPersistenceEnvelope,
+        Stage5dCanonicalEnvelopeExportReport,
+    ),
+    Stage5dEnvelopeValidationError,
+> {
+    if input.snapshot_id.is_empty()
+        || input.strategy_id.is_empty()
+        || input.source_commit_or_build_id.is_empty()
+        || !stage5d_source_build_is_compatible(&input.source_commit_or_build_id)
+        || input.riskgate.identity.strategy_id != input.strategy_id
+    {
+        return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+    }
+
+    let source_state_json = serde_json::to_value(Strategy::state(strategy))
+        .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+    let semantic: Stage5dSemanticStrategyStateV1 = serde_json::from_value(source_state_json)
+        .map_err(|_| Stage5dEnvelopeValidationError::SemanticStateInvalid)?;
+    let strategy_state_json = serde_json::to_value(&semantic)
+        .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+    let runtime_private_extension = strategy.stage5d_export_runtime_private_extension()?;
+    let recovery_indexes =
+        stage5d_canonical_recovery_indexes_from_runtime(&semantic, &runtime_private_extension)?;
+    let profile_binding = stage5d_profile_binding_string(strategy);
+    let stage5c_compat_config_fingerprint = strategy.stage5c_config_fingerprint();
+    let canonical_config_fingerprint = strategy.stage5d_canonical_config_fingerprint();
+
+    let mut envelope = Stage5dPersistenceEnvelope {
+        schema_version: STAGE5D_PERSISTENCE_ENVELOPE_SCHEMA_VERSION,
+        snapshot_id: input.snapshot_id,
+        snapshot_revision: input.snapshot_revision,
+        previous_revision: input.previous_revision,
+        write_generation: input.write_generation,
+        persisted_at_ts_utc: input.persisted_at_ts_utc,
+        timestamp_policy: Stage5dTimestampPolicy {
+            semantic_event_ts_utc: Stage5dTimestampUnits::Seconds,
+            runtime_wall_clock_timer: Stage5dTimestampUnits::Milliseconds,
+            structured_timestamps: Stage5dStructuredTimestampFormat::Rfc3339Utc,
+        },
+        canonical_config_fingerprint: canonical_config_fingerprint.clone(),
+        binding: Stage5dSnapshotBinding {
+            stage: Stage5dPersistenceStage::Stage5d,
+            strategy_kind: Stage5dStrategyKind::HybridIntraday,
+            strategy_id: input.strategy_id,
+            account_id: input.account_id,
+            instrument_id: Stage5dInstrumentBinding {
+                symbol: input.instrument_id.symbol,
+                venue_symbol: input.instrument_id.venue_symbol,
+                exchange: input.instrument_id.exchange,
+                market: input.instrument_id.market,
+            },
+            profile_binding,
+            broker_protocol_schema_version: STAGE5D_SUPPORTED_BROKER_PROTOCOL_SCHEMA_VERSION,
+            runtime_state_schema_version: STAGE5D_SUPPORTED_RUNTIME_STATE_SCHEMA_VERSION,
+            stage5c_compat_config_fingerprint,
+            stage5d_canonical_config_fingerprint: canonical_config_fingerprint.clone(),
+            source_commit_or_build_id: input.source_commit_or_build_id,
+            created_at_ts_utc: input.persisted_at_ts_utc,
+        },
+        strategy_state: Stage5dStrategyStatePayload {
+            schema_version: STAGE5D_STRATEGY_STATE_PAYLOAD_SCHEMA_VERSION,
+            strategy_state_json,
+        },
+        payload_checksum_sha256: String::new(),
+        lifecycle_watermarks: input.lifecycle_watermarks,
+        recovery_indexes,
+        runtime_private_extension,
+        riskgate: input.riskgate,
+    };
+    envelope.payload_checksum_sha256 = envelope.compute_payload_checksum_sha256()?;
+    let validated = envelope.validate_restore_contract_schema_only()?;
+    let semantic_payload_fingerprint =
+        crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(
+            &validated.envelope.strategy_state.strategy_state_json,
+        )
+        .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+    let recovery_index_fingerprint = crate::stage5c_paper_host::stage5c_recovery_index_fingerprint(
+        &validated.envelope.recovery_indexes.known_order_ids,
+        &validated.envelope.recovery_indexes.pending_requests,
+    )
+    .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+    let report = Stage5dCanonicalEnvelopeExportReport {
+        snapshot_id: validated.envelope.snapshot_id.clone(),
+        payload_checksum_sha256: validated.envelope.payload_checksum_sha256.clone(),
+        semantic_payload_fingerprint,
+        recovery_index_fingerprint,
+        runtime_pending_finalizations_count: validated
+            .envelope
+            .runtime_private_extension
+            .runtime_pending_finalizations
+            .len(),
+        durable_finalization_outbox_count: validated
+            .envelope
+            .riskgate
+            .durable_finalization_outbox
+            .len(),
+        redis_opened: false,
+        finam_opened: false,
+        dispatch_opened: false,
+        runtime_live_opened: false,
+    };
+    Ok((validated.envelope, report))
+}
+
+#[allow(dead_code)]
+fn stage5d_canonical_recovery_indexes_from_runtime(
+    semantic: &Stage5dSemanticStrategyStateV1,
+    runtime_private_extension: &Stage5dRuntimePrivateExtension,
+) -> Result<Stage5dRecoveryIndexes, Stage5dEnvelopeValidationError> {
+    let Stage5dSemanticStrategyStateV1::HybridIntradayRuntime(state) = semantic;
+    let mut indexes = Stage5dRecoveryIndexes {
+        known_order_ids: Vec::new(),
+        known_stop_order_ids: Vec::new(),
+        known_trade_ids: Vec::new(),
+        known_client_order_ids: Vec::new(),
+        pending_requests: Vec::new(),
+    };
+
+    push_unique_owned(&mut indexes.known_order_ids, state.tp_order_id.clone());
+    push_unique_owned(
+        &mut indexes.known_order_ids,
+        state.sl_exchange_order_id.clone(),
+    );
+    for order_id in &runtime_private_extension
+        .expected_working_sets
+        .expected_working_order_ids
+    {
+        push_unique_value(&mut indexes.known_order_ids, order_id.clone());
+    }
+    push_unique_owned(
+        &mut indexes.known_stop_order_ids,
+        state.sl_stop_order_id.clone(),
+    );
+    for stop_order_id in &runtime_private_extension
+        .expected_working_sets
+        .expected_working_stop_order_ids
+    {
+        push_unique_value(&mut indexes.known_stop_order_ids, stop_order_id.clone());
+    }
+
+    push_unique_owned(
+        &mut indexes.pending_requests,
+        state.pending_entry_request_id,
+    );
+    push_unique_owned(
+        &mut indexes.pending_requests,
+        state.deferred_entry_request_id,
+    );
+    push_unique_owned(&mut indexes.pending_requests, state.pending_exit_request_id);
+    push_unique_owned(
+        &mut indexes.pending_requests,
+        state.deferred_exit_request_id,
+    );
+    push_unique_owned(&mut indexes.pending_requests, state.pending_tp_request_id);
+    push_unique_owned(&mut indexes.pending_requests, state.pending_sl_request_id);
+    if let Some(pending_entry) = &runtime_private_extension.pending_entry {
+        if pending_entry.request_id != state.pending_entry_request_id {
+            return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
+        }
+    }
+    if let Some(pending_exit) = &runtime_private_extension.pending_exit {
+        if state.pending_exit_request_id != Some(pending_exit.request_id) {
+            return Err(Stage5dEnvelopeValidationError::PendingStateInconsistent);
+        }
+    }
+
+    ensure_unique(&indexes.known_order_ids)?;
+    ensure_unique(&indexes.known_stop_order_ids)?;
+    ensure_unique(&indexes.known_trade_ids)?;
+    ensure_unique(&indexes.known_client_order_ids)?;
+    ensure_unique(&indexes.pending_requests)?;
+    Ok(indexes)
+}
+
+#[allow(dead_code)]
+fn push_unique_owned<T>(values: &mut Vec<T>, value: Option<T>)
+where
+    T: Eq,
+{
+    if let Some(value) = value {
+        push_unique_value(values, value);
+    }
+}
+
+#[allow(dead_code)]
+fn push_unique_value<T>(values: &mut Vec<T>, value: T)
+where
+    T: Eq,
+{
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
+}
+
 fn stage5d_profile_binding_string(
     strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
 ) -> String {
@@ -5116,6 +5347,123 @@ mod tests {
             "strict envelope broker bootstrap must succeed",
         );
         (bootstrapped, envelope, validated_evidence)
+    }
+
+    fn stage5d_test_canonical_export_fixture(
+        snapshot_id: &str,
+        mutator: impl FnOnce(&mut Stage5dPersistenceEnvelope),
+    ) -> (
+        crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        Stage5dCanonicalEnvelopeExportInput,
+        Stage5dRiskGateLedgerEvidence,
+        Value,
+    ) {
+        let mut strategy = stage5d_test_riskgate_runtime_strategy();
+        let mut envelope = flat_persisted_fixture();
+        bind_fixture_to_strategy_config(&mut envelope, &strategy);
+        envelope.binding.strategy_id = "stage5d-final-source-export".to_string();
+        let identity = stage5d_test_riskgate_identity_for(&strategy, &envelope);
+        let evidence =
+            stage5d_test_riskgate_evidence_before_source_pending(&identity, &envelope, None);
+        stage5d_apply_riskgate_evidence_to_envelope(&mut envelope, &evidence);
+        if let Value::Object(fields) =
+            &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+        {
+            fields.insert("risk_gate_pending_session_date".to_string(), Value::Null);
+            fields.insert(
+                "risk_gate_pending_shadow_pnl_points".to_string(),
+                serde_json::json!(0.0),
+            );
+            fields.insert(
+                "risk_gate_pending_shadow_trade_count".to_string(),
+                serde_json::json!(0),
+            );
+        }
+        envelope
+            .runtime_private_extension
+            .runtime_pending_finalizations
+            .clear();
+        envelope.riskgate.durable_finalization_outbox.clear();
+        mutator(&mut envelope);
+        restore_semantic_state(&mut strategy, &envelope);
+        let expected_state =
+            serde_json::to_value(Strategy::state(&strategy)).expect("source state serializes");
+        let input = Stage5dCanonicalEnvelopeExportInput {
+            snapshot_id: snapshot_id.to_string(),
+            snapshot_revision: envelope.snapshot_revision,
+            previous_revision: envelope.previous_revision,
+            write_generation: envelope.write_generation,
+            persisted_at_ts_utc: envelope.persisted_at_ts_utc,
+            strategy_id: envelope.binding.strategy_id.clone(),
+            account_id: envelope.binding.account_id.clone(),
+            instrument_id: envelope.binding.instrument_id.to_instrument_id(),
+            source_commit_or_build_id: STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID.to_string(),
+            lifecycle_watermarks: envelope.lifecycle_watermarks.clone(),
+            riskgate: envelope.riskgate.clone(),
+        };
+        (strategy, input, evidence, expected_state)
+    }
+
+    fn stage5d_test_canonical_export_restart_restores_once(
+        snapshot_id: &str,
+        mutator: impl FnOnce(&mut Stage5dPersistenceEnvelope),
+    ) -> Stage5dCanonicalEnvelopeExportReport {
+        let (source_strategy, input, evidence, expected_state) =
+            stage5d_test_canonical_export_fixture(snapshot_id, mutator);
+        let (envelope, report) =
+            stage5d_export_canonical_envelope_from_runtime(&source_strategy, input)
+                .expect("source-owned canonical export must succeed");
+        assert_eq!(report.snapshot_id, snapshot_id);
+        assert_eq!(
+            report.payload_checksum_sha256,
+            envelope.payload_checksum_sha256
+        );
+        assert!(!report.semantic_payload_fingerprint.is_empty());
+        assert!(!report.recovery_index_fingerprint.is_empty());
+        assert_eq!(
+            envelope.strategy_state.strategy_state_json, expected_state,
+            "canonical export must persist exact source semantic state"
+        );
+        assert!(
+            !report.redis_opened
+                && !report.finam_opened
+                && !report.dispatch_opened
+                && !report.runtime_live_opened,
+            "canonical export/restart evidence must keep all live surfaces closed"
+        );
+
+        let durable_payload =
+            serde_json::to_string(&envelope).expect("canonical envelope must serialize");
+        let strict_envelope = Stage5dPersistenceEnvelope::from_json_str_strict(&durable_payload)
+            .expect("strict restart boundary must decode committed envelope");
+        let reencoded =
+            serde_json::to_string(&strict_envelope).expect("strict envelope must serialize");
+        assert_eq!(
+            durable_payload, reencoded,
+            "strict restart boundary must be deterministic and canonical"
+        );
+        let (bootstrapped, strict_envelope, validated_evidence) =
+            stage5d_test_bootstrap_strict_envelope_with_strategy(
+                strict_envelope,
+                source_strategy,
+                evidence,
+            );
+        let injected = expect_stage5d_riskgate_ok(
+            stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
+            "canonical restart fixture must inject authoritative riskgate",
+        );
+        assert!(injected.recovery_complete());
+        let restored = stage5d_test_assert_injected_restores_once(
+            injected,
+            "canonical restart fixture must reach restored callback exactly once",
+        );
+        assert_eq!(
+            serde_json::to_value(Strategy::state(restored.stage5d_strategy()))
+                .expect("restored source state serializes"),
+            strict_envelope.strategy_state.strategy_state_json,
+            "restored runtime state must match strict canonical envelope"
+        );
+        report
     }
 
     fn align_riskgate_outbox_to_runtime_pending(envelope: &mut Stage5dPersistenceEnvelope) {
@@ -10851,5 +11199,86 @@ mod tests {
                 bracket_terminal_reconcile_started_ms: 1_784_009_300_000,
             });
         });
+    }
+
+    #[test]
+    fn stage5d_final_canonical_export_restart_matrix_flat_long_short() {
+        for (snapshot_id, qty, side) in [
+            ("stage5d-final-flat", 0.0, None),
+            ("stage5d-final-open-long", 1.0, Some("long")),
+            ("stage5d-final-open-short", -1.0, Some("short")),
+        ] {
+            let report =
+                stage5d_test_canonical_export_restart_restores_once(snapshot_id, |envelope| {
+                    stage5d_test_set_position_side(envelope, qty, side);
+                });
+            assert_eq!(report.runtime_pending_finalizations_count, 0);
+            assert_eq!(report.durable_finalization_outbox_count, 0);
+        }
+    }
+
+    #[test]
+    fn stage5d_final_canonical_export_rejects_post_export_mutation_at_restart_boundary() {
+        let (source_strategy, input, _evidence, _expected_state) =
+            stage5d_test_canonical_export_fixture("stage5d-final-post-export-mutation", |_| {});
+        let (mut envelope, _report) =
+            stage5d_export_canonical_envelope_from_runtime(&source_strategy, input)
+                .expect("canonical export succeeds before mutation");
+
+        envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]["last_position_qty"] =
+            serde_json::json!(1.0);
+        let mutated_payload =
+            serde_json::to_string(&envelope).expect("mutated envelope serializes");
+
+        assert_eq!(
+            Stage5dPersistenceEnvelope::from_json_str_strict(&mutated_payload),
+            Err(Stage5dEnvelopeValidationError::PayloadChecksumMismatch),
+            "restart boundary must reject hand-mutated positive envelope"
+        );
+    }
+
+    #[test]
+    fn stage5d_final_canonical_export_binds_recovery_indexes_from_source_state() {
+        let order_id = BrokerOrderId::new("FINAM-ORDER-STAGE5D-FINAL");
+        let (source_strategy, input, _evidence, _expected_state) =
+            stage5d_test_canonical_export_fixture(
+                "stage5d-final-recovery-index-binding",
+                |envelope| {
+                    if let Value::Object(fields) =
+                        &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+                    {
+                        fields.insert(
+                            "active_cycle_id".to_string(),
+                            Value::String("5d2bd10001".to_string()),
+                        );
+                        fields.insert("last_position_qty".to_string(), serde_json::json!(-1.0));
+                        fields.insert(
+                            "current_owner".to_string(),
+                            Value::String("intraday_breakout".to_string()),
+                        );
+                        fields.insert(
+                            "current_side".to_string(),
+                            Value::String("short".to_string()),
+                        );
+                        fields.insert(
+                            "tp_order_id".to_string(),
+                            Value::String(order_id.to_string()),
+                        );
+                    }
+                },
+            );
+        let (envelope, report) =
+            stage5d_export_canonical_envelope_from_runtime(&source_strategy, input)
+                .expect("canonical export must succeed");
+
+        assert!(
+            envelope.recovery_indexes.pending_requests.is_empty(),
+            "known broker ids must not create synthetic pending StrategyRequestId entries"
+        );
+        assert_eq!(envelope.recovery_indexes.known_order_ids, vec![order_id]);
+        assert!(
+            !report.recovery_index_fingerprint.is_empty(),
+            "canonical export must emit redacted recovery-index evidence"
+        );
     }
 }

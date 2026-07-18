@@ -1053,6 +1053,46 @@ def mutate_runtime_restored_r6_identity_generation_ownership_removed(root: Path)
     )
 
 
+def mutate_runtime_restored_final_canonical_export_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_all(
+        root / rel,
+        "stage5d_export_canonical_envelope_from_runtime",
+        "stage5d_export_canonical_envelope_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_final_restart_matrix_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "stage5d_final_canonical_export_restart_matrix_flat_long_short",
+        "stage5d_final_restart_matrix_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_final_post_export_mutation_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "stage5d_final_canonical_export_rejects_post_export_mutation_at_restart_boundary",
+        "stage5d_final_post_export_mutation_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_final_recovery_index_binding_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "stage5d_final_canonical_export_binds_recovery_indexes_from_source_state",
+        "stage5d_final_recovery_index_binding_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -1158,6 +1198,10 @@ CASES = [
     ("runtime_restored_r6_expiry_ownership_removed", mutate_runtime_restored_r6_expiry_ownership_removed, "Stage 5D runtime-restored r6 ownership case inventory mismatch"),
     ("runtime_restored_r6_timestamp_ownership_removed", mutate_runtime_restored_r6_timestamp_ownership_removed, "Stage 5D runtime-restored r6 ownership case inventory mismatch"),
     ("runtime_restored_r6_identity_generation_ownership_removed", mutate_runtime_restored_r6_identity_generation_ownership_removed, "Stage 5D runtime-restored r6 ownership case inventory mismatch"),
+    ("runtime_restored_final_canonical_export_removed", mutate_runtime_restored_final_canonical_export_removed, "Stage 5D final canonical export production surface missing"),
+    ("runtime_restored_final_restart_matrix_removed", mutate_runtime_restored_final_restart_matrix_removed, "Stage 5D final canonical restart matrix proof missing"),
+    ("runtime_restored_final_post_export_mutation_removed", mutate_runtime_restored_final_post_export_mutation_removed, "Stage 5D final post-export mutation rejection proof missing"),
+    ("runtime_restored_final_recovery_index_binding_removed", mutate_runtime_restored_final_recovery_index_binding_removed, "Stage 5D final recovery-index binding proof missing"),
 ]
 
 

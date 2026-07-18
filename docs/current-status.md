@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-07-16.
+Status date: 2026-07-18.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -459,6 +459,12 @@ Green / mostly closed:
   dirty-start/manual-intervention placeholders as explicit paper parity fields.
 - `seed_required=true` can hard-block a parity run when the ALOR oracle seed is
   missing or cannot be parsed.
+- Stage 5C is closed and Stage 5D has a final restart-closure candidate:
+  canonical source-owned export from the actual `HybridIntradayRuntimeStrategy`
+  to a strict Stage 5D envelope, local durable JSON restart boundary, checksum
+  validation, loaded-state binding, private apply, broker-truth bootstrap,
+  authoritative riskgate injection and return to the Stage 5C restored
+  capability are covered in paper/no-send tests.
 - Safety flags remain closed in paper state:
   `live_orders_enabled=false`, `runtime_live_ready_enabled=false`,
   `command_consumer_to_real_finam_enabled=false`,
@@ -476,14 +482,9 @@ Amber:
   real ALOR hybrid BO/MR orchestrator.
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
-- Stage 5A freezes the source and acceptance inventory; Stage 5B source import
-  has started with the reviewable pure-kernel-only Stage 5B-1 slice. Wrapper,
-  host, state and differential parity work remain pending. Stage 5B-1a resolves
-  the P1 provenance/configuration blockers before wrapper migration. Stage
-  5B-1b closes workspace/target/source-set bypasses, while Stage 5B-2 is now
-  accepted with the wrapper compiled only inside `strategy-runtime-core` behind
-  the exclusive broker-neutral facade. Stage 5C paper/mock host admission has
-  started; the runtime host and all send paths remain unattached.
+- Stage 5D final restart closure is still a review candidate until accepted.
+  It proves the paper/no-send restart path, but does not authorize Stage 6+
+  durable command-chain work, command consumers or live execution.
 
 Red / not yet implemented:
 

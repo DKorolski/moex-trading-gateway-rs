@@ -93,7 +93,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "b71dfd604df2e1a17c42beaeb37a69e6e84782bc7131542c729b9428e39be1d7",
+        "stage5d_consumer_sha256": "e6b26fb423fdb9de1af53e311f0c0f134cce43cee135bf311b5f9baee9ee51bc",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -107,7 +107,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "b71dfd604df2e1a17c42beaeb37a69e6e84782bc7131542c729b9428e39be1d7",
+        "stage5d_consumer_sha256": "e6b26fb423fdb9de1af53e311f0c0f134cce43cee135bf311b5f9baee9ee51bc",
     },
 ]
 
@@ -232,6 +232,10 @@ EXPECTED_NEGATIVE_CASES = [
     "runtime_restored_r6_expiry_ownership_removed",
     "runtime_restored_r6_timestamp_ownership_removed",
     "runtime_restored_r6_identity_generation_ownership_removed",
+    "runtime_restored_final_canonical_export_removed",
+    "runtime_restored_final_restart_matrix_removed",
+    "runtime_restored_final_post_export_mutation_removed",
+    "runtime_restored_final_recovery_index_binding_removed",
 ]
 
 EXPECTED_RUNTIME_RESTORED_OWNERSHIP_IDS = [
@@ -1147,6 +1151,18 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
             "stage5d_b2bd1r6_earlier_gate_rejects_config_and_profile_mismatches",
     }
     for message, token in required_r3_tokens.items():
+        if token not in stage5d_source:
+            failures.append(message)
+    for message, token in {
+        "Stage 5D final canonical export production surface missing":
+            "stage5d_export_canonical_envelope_from_runtime",
+        "Stage 5D final canonical restart matrix proof missing":
+            "stage5d_final_canonical_export_restart_matrix_flat_long_short",
+        "Stage 5D final post-export mutation rejection proof missing":
+            "stage5d_final_canonical_export_rejects_post_export_mutation_at_restart_boundary",
+        "Stage 5D final recovery-index binding proof missing":
+            "stage5d_final_canonical_export_binds_recovery_indexes_from_source_state",
+    }.items():
         if token not in stage5d_source:
             failures.append(message)
     r5_summary = root / "docs/stage-5/5d-b2b-d1-r5-review-gate-summary.md"
