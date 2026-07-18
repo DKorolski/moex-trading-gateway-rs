@@ -96,7 +96,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "c11c90be5125e4c7e387c19ee796530a2ba3380add225aa1e9f4393092e2e074",
+        "stage5d_consumer_sha256": "aff5664f1ddd8074d65a0d9d310f9fd043d644ea3f65ec250dd40fa6c62d4b20",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -110,7 +110,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "c11c90be5125e4c7e387c19ee796530a2ba3380add225aa1e9f4393092e2e074",
+        "stage5d_consumer_sha256": "aff5664f1ddd8074d65a0d9d310f9fd043d644ea3f65ec250dd40fa6c62d4b20",
     },
 ]
 
@@ -255,9 +255,19 @@ EXPECTED_NEGATIVE_CASES = [
     "runtime_restored_final_r2_inventory_helper_owner",
     "runtime_restored_final_r2_stage5c_warmup_removed",
     "runtime_restored_final_r2_package_full_validation_removed",
+    "final_r3a_reproduction_test_removed",
+    "final_r3a_post_apply_private_equality_removed",
+    "final_r3a_post_apply_semantic_equality_removed",
+    "final_r3a_restored_callback_moved_before_private_apply",
+    "final_r3a_mr_long_short_mapping_swapped",
+    "final_r3a_bo_reason_mapping_changed",
+    "final_r3a_mr_stop_take_dropped",
+    "final_r3a_incomplete_mr_accepted",
+    "final_r3a_owner_side_reason_mismatch_accepted",
+    "final_r3a_unauthorized_set_state_source_change",
 ]
 
-EXPECTED_STAGE = "5D-final-restart-r3a"
+EXPECTED_STAGE = "5D-final-restart-r3a-r1"
 EXPECTED_FINAL_RESTART_INVENTORY_STAGE = "5D-final-restart-r2"
 
 EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
@@ -1352,13 +1362,58 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
             "stage5d_final_r3a_source_pending_entry_full_restart_matrix",
         "Stage 5D final r3a source-pending negative proof missing":
             "stage5d_final_r3a_source_pending_package_negatives_fail_closed",
-        "Stage 5D final r3a exact private apply before restored callback proof missing":
-            "private apply must restore exact pending shape before restored callback",
+        "Stage 5D final r3a exact private apply before bootstrap/callback proof missing":
+            "private apply must restore exact pending shape before broker bootstrap and restored callback",
+        "Stage 5D final r3a actual semantic post-apply equality proof missing":
+            "actual fresh Strategy::state after private apply must preserve exact semantic pending-entry field",
+        "Stage 5D final r3a actual private DTO equality proof missing":
+            "actual private partial-entry timer after private apply must equal source",
+        "Stage 5D final r3a non-partial timer absence proof missing":
+            "r3a non-partial source and restored partial-entry timers must both be absent",
         "Stage 5D final r3a source correction not required proof missing":
             "raw semantic set_state placeholder must not be treated as final restored shape",
+        "Stage 5D final r3a MR Long source case missing":
+            "stage5d-final-r3a-source-mr-long-pending-entry",
+        "Stage 5D final r3a MR Short source case missing":
+            "stage5d-final-r3a-source-mr-short-pending-entry",
+        "Stage 5D final r3a BO Long source case missing":
+            "stage5d-final-r3a-source-bo-long-pending-entry",
+        "Stage 5D final r3a BO Short source case missing":
+            "stage5d-final-r3a-source-bo-short-pending-entry",
+        "Stage 5D final r3a MR bracket mapping proof missing":
+            "Self::MrLong | Self::MrShort => Stage5dEntryStyle::Bracket",
+        "Stage 5D final r3a BO market mapping proof missing":
+            "Self::BoLong | Self::BoShort => Stage5dEntryStyle::Market",
+        "Stage 5D final r3a MR Long reason mapping proof missing":
+            "Self::MrLong => Stage5dLifecycleReason::MorningMeanReversionLong",
+        "Stage 5D final r3a MR Short reason mapping proof missing":
+            "Self::MrShort => Stage5dLifecycleReason::MorningMeanReversionShort",
+        "Stage 5D final r3a BO Long reason mapping proof missing":
+            "Self::BoLong => Stage5dLifecycleReason::BreakoutLong",
+        "Stage 5D final r3a BO Short reason mapping proof missing":
+            "Self::BoShort => Stage5dLifecycleReason::BreakoutShort",
+        "Stage 5D final r3a fail-closed MR missing stop/take proof missing":
+            "incomplete MR stop/take must fail closed after canonical package decode",
+        "Stage 5D final r3a fail-closed owner/side/reason mismatch proof missing":
+            "owner/side/reason mismatch must fail closed after canonical package decode",
+        "Stage 5D final r3a MR stop/take shape assertion missing":
+            "entry.stop_price.is_some() && entry.take_price.is_some()",
     }.items():
         if token not in stage5d_source:
             failures.append(message)
+    required_order = [
+        "        let applied = expect_stage5d_ok(\n            stage5d_apply_runtime_private_extension(bound)",
+        "        stage5d_test_assert_r3a_actual_post_apply_semantic_equality(",
+        "private apply must restore exact pending shape before broker bootstrap and restored callback",
+        "            stage5d_notify_broker_truth_bootstrap_at(applied",
+        "&format!(\"{case:?}: r3a source pending riskgate injection must succeed\")",
+        "        let restored = stage5d_test_assert_injected_restores_indexes_once(",
+    ]
+    positions = [stage5d_source.find(token) for token in required_order]
+    if any(position < 0 for position in positions):
+        failures.append("Stage 5D final r3a apply/bootstrap/callback ordering proof missing")
+    elif positions != sorted(positions):
+        failures.append("Stage 5D final r3a restored callback moved before private apply")
     r5_summary = root / "docs/stage-5/5d-b2b-d1-r5-review-gate-summary.md"
     if not r5_summary.exists():
         failures.append("Stage 5D runtime-restored r5 ownership summary missing")

@@ -122,6 +122,27 @@ existing boot-stale cleanup policy. r3a therefore proves exact shape before the
 callback and records the callback policy separately; it does not authorize
 runtime-live or active-order ownership mapping.
 
+## Stage 5D-final-restart-r3a-r1 closure
+
+Stage 5D-final-restart-r3a-r1 closes the two P1 findings from independent
+review of r3a:
+
+- the actual fresh runtime `Strategy::state(...)` is now read immediately after
+  `stage5d_apply_runtime_private_extension(...)` and before broker bootstrap,
+  then compared against the source runtime state for pending owner, side, cycle
+  id, request id and created timestamp;
+- the runtime-private pending-entry DTO is compared exactly at the same
+  post-apply/pre-bootstrap boundary, including reason, entry style, target
+  quantity, stop/take, request id and the explicit absence of a partial-entry
+  timer in all four non-partial cases;
+- the Stage 5D negative inventory is extended with r3a marker-pinned cases for
+  reproduction removal, semantic/private equality removal, callback-order
+  drift, MR/BO mapping drift, MR stop/take loss, fail-closed package mutations
+  and unauthorized `set_state(...)` source changes.
+
+The production conclusion remains unchanged: no `set_state(...)` source
+correction is currently required.
+
 ## Required next micro-stage
 
 The earlier hypothesis below is retained as historical context. It is superseded

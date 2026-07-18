@@ -1,10 +1,11 @@
 # Stage 5D final restart closure
 
 Status: Stage 5D-final-restart-r2 retained foundation plus
-Stage 5D-final-restart-r3a restore-ownership review candidate, no-I/O. The full
-r3 closure remains HOLD / CHANGES REQUIRED; see
+Stage 5D-final-restart-r3a-r1 restore-ownership review candidate, no-I/O. The
+full r3 closure remains HOLD / CHANGES REQUIRED; see
 [5d-final-restart-r3-discovery.md](5d-final-restart-r3-discovery.md) and
-[5d-final-restart-r3a-review-gate-summary.md](5d-final-restart-r3a-review-gate-summary.md).
+[5d-final-restart-r3a-review-gate-summary.md](5d-final-restart-r3a-review-gate-summary.md)
+plus [5d-final-restart-r3a-r1-review-gate-summary.md](5d-final-restart-r3a-r1-review-gate-summary.md).
 
 This slice closes the Stage 5D restart path from the actual
 `HybridIntradayRuntimeStrategy` source state into a canonical persistence

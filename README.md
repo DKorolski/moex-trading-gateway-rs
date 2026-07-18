@@ -20,11 +20,12 @@ paper/no-send host is accepted and frozen; Stage 5D is adding a versioned,
 source-exact persistence restore path. The Stage 5D-final-restart-r2 durable
 package is retained as foundation, while r3 remains under review closure work:
 the next gate must replace inventory/comment evidence with an executable full
-matrix. The r3a restore-ownership proof shows that exact MR/BO pending-entry
-shape is restored by Stage 5D runtime-private apply before the restored
-callback, so no source `set_state()` correction is currently required. Redis,
-FINAM, broker transport, dispatch, runtime-live and real execution remain
-closed.
+matrix. The r3a-r1 restore-ownership proof shows that exact MR/BO pending-entry
+shape is restored in the actual fresh runtime `Strategy::state(...)` plus
+runtime-private DTO by Stage 5D private apply before broker bootstrap and the
+restored callback, so no source `set_state()` correction is currently required.
+Redis, FINAM, broker transport, dispatch, runtime-live and real execution
+remain closed.
 
 This repository is not enabled for continuous live trading.
 

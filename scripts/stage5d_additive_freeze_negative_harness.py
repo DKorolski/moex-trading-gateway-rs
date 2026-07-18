@@ -1228,6 +1228,98 @@ def mutate_runtime_restored_final_r2_package_full_validation_removed(root: Path)
     update_stage5d_semantic_mutation_hashes(root)
 
 
+def mutate_final_r3a_reproduction_test_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_final_r3a_source_pending_entry_full_restart_matrix",
+        "stage5d_final_r3a_source_pending_entry_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3a_post_apply_private_equality_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "actual private partial-entry timer after private apply must equal source",
+        "actual private partial-entry timer equality removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3a_post_apply_semantic_equality_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "actual fresh Strategy::state after private apply must preserve exact semantic pending-entry field",
+        "actual fresh Strategy::state semantic equality removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3a_restored_callback_moved_before_private_apply(root: Path) -> None:
+    insert_before(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "        let applied = expect_stage5d_ok(\n            stage5d_apply_runtime_private_extension(bound),\n            \"r3a source pending private extension must apply\",",
+        "        let restored = stage5d_test_assert_injected_restores_indexes_once(\n",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3a_mr_long_short_mapping_swapped(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "Self::MrLong => Stage5dLifecycleReason::MorningMeanReversionLong",
+        "Self::MrLong => Stage5dLifecycleReason::MorningMeanReversionShort",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3a_bo_reason_mapping_changed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "Self::BoLong => Stage5dLifecycleReason::BreakoutLong",
+        "Self::BoLong => Stage5dLifecycleReason::BreakoutShort",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3a_mr_stop_take_dropped(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "entry.stop_price.is_some() && entry.take_price.is_some()",
+        "entry.stop_price.is_some() || entry.take_price.is_some()",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3a_incomplete_mr_accepted(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "incomplete MR stop/take must fail closed after canonical package decode",
+        "incomplete MR stop/take accepted",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3a_owner_side_reason_mismatch_accepted(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "owner/side/reason mismatch must fail closed after canonical package decode",
+        "owner/side/reason mismatch accepted",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3a_unauthorized_set_state_source_change(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs",
+        "entry_style: EntryStyle::Market,",
+        "entry_style: EntryStyle::Bracket,",
+    )
+    update_manifest_bridge_current_and_stripped_hash(
+        root, "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs"
+    )
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -1353,6 +1445,16 @@ CASES = [
     ("runtime_restored_final_r2_inventory_helper_owner", mutate_runtime_restored_final_r2_inventory_helper_owner, "Stage 5D final restart r1 scenario owning item is not a test"),
     ("runtime_restored_final_r2_stage5c_warmup_removed", mutate_runtime_restored_final_r2_stage5c_warmup_removed, "Stage 5D final r2 Stage 5C warmup continuation proof missing"),
     ("runtime_restored_final_r2_package_full_validation_removed", mutate_runtime_restored_final_r2_package_full_validation_removed, "Stage 5D final r2 full package validation proof missing"),
+    ("final_r3a_reproduction_test_removed", mutate_final_r3a_reproduction_test_removed, "Stage 5D final r3a source-pending full restart proof missing"),
+    ("final_r3a_post_apply_private_equality_removed", mutate_final_r3a_post_apply_private_equality_removed, "Stage 5D final r3a actual private DTO equality proof missing"),
+    ("final_r3a_post_apply_semantic_equality_removed", mutate_final_r3a_post_apply_semantic_equality_removed, "Stage 5D final r3a actual semantic post-apply equality proof missing"),
+    ("final_r3a_restored_callback_moved_before_private_apply", mutate_final_r3a_restored_callback_moved_before_private_apply, "Stage 5D final r3a restored callback moved before private apply"),
+    ("final_r3a_mr_long_short_mapping_swapped", mutate_final_r3a_mr_long_short_mapping_swapped, "Stage 5D final r3a MR Long reason mapping proof missing"),
+    ("final_r3a_bo_reason_mapping_changed", mutate_final_r3a_bo_reason_mapping_changed, "Stage 5D final r3a BO Long reason mapping proof missing"),
+    ("final_r3a_mr_stop_take_dropped", mutate_final_r3a_mr_stop_take_dropped, "Stage 5D final r3a MR stop/take shape assertion missing"),
+    ("final_r3a_incomplete_mr_accepted", mutate_final_r3a_incomplete_mr_accepted, "Stage 5D final r3a fail-closed MR missing stop/take proof missing"),
+    ("final_r3a_owner_side_reason_mismatch_accepted", mutate_final_r3a_owner_side_reason_mismatch_accepted, "Stage 5D final r3a fail-closed owner/side/reason mismatch proof missing"),
+    ("final_r3a_unauthorized_set_state_source_change", mutate_final_r3a_unauthorized_set_state_source_change, "frozen region does not match Stage 5C closure source"),
 ]
 
 
@@ -1385,6 +1487,14 @@ def run_case(
                 name,
                 False,
                 combined.strip(),
+                time.monotonic() - started,
+            )
+        if "Traceback (most recent call last)" in combined:
+            return CaseRun(
+                index,
+                name,
+                False,
+                f"infrastructure traceback is not a semantic PASS\n{combined}".strip(),
                 time.monotonic() - started,
             )
         if expected not in combined:

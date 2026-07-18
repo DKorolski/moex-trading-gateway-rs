@@ -1,6 +1,6 @@
 # Stage 5D-final-restart-r3a — review gate summary
 
-Status: review candidate, no-I/O.
+Status: superseded by Stage 5D-final-restart-r3a-r1 review candidate, no-I/O.
 
 Stage 5D-final-restart-r3a answers the restore-ownership question raised by the
 r3 discovery review.
@@ -69,9 +69,10 @@ Closed surfaces remain closed:
 ## Checker binding
 
 The Stage 5D additive freeze checker is advanced to
-`5D-final-restart-r3a` and marker-pins the new reproduction tests and the
-private-apply-before-callback proof. The immutable Stage 5C closure baseline is
-unchanged.
+`5D-final-restart-r3a-r1` in the follow-up closure and marker-pins the new
+reproduction tests, post-apply semantic/private equality proof and
+private-apply-before-callback ordering. The immutable Stage 5C closure baseline
+is unchanged.
 
 ## Next step
 

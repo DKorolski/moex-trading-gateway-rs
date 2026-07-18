@@ -4886,6 +4886,34 @@ mod tests {
         }
     }
 
+    fn stage5d_test_assert_r3a_actual_post_apply_semantic_equality(
+        case: Stage5dR3aPendingSourceCase,
+        source_state: &Value,
+        actual_strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    ) {
+        let actual_state =
+            serde_json::to_value(Strategy::state(actual_strategy)).expect("actual state");
+        let source_runtime = source_state
+            .get("HybridIntradayRuntime")
+            .unwrap_or_else(|| panic!("{case:?}: source state must be HybridIntradayRuntime"));
+        let actual_runtime = actual_state
+            .get("HybridIntradayRuntime")
+            .unwrap_or_else(|| panic!("{case:?}: actual state must be HybridIntradayRuntime"));
+        for field in [
+            "pending_entry_owner",
+            "pending_entry_side",
+            "pending_entry_cycle_id",
+            "pending_entry_request_id",
+            "pending_entry_created_ts_utc",
+        ] {
+            assert_eq!(
+                actual_runtime.get(field),
+                source_runtime.get(field),
+                "{case:?}: actual fresh Strategy::state after private apply must preserve exact semantic pending-entry field {field}"
+            );
+        }
+    }
+
     fn stage5d_test_r3a_input_and_evidence_for_source(
         source_strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
         snapshot_id: &str,
@@ -4978,7 +5006,6 @@ mod tests {
         let package_json = package
             .to_json_strict()
             .expect("r3a source pending package serializes");
-        drop(source_extension);
         drop(source_strategy);
 
         let decoded = Stage5dCanonicalRestartPackage::from_json_str_strict(&package_json)
@@ -5031,19 +5058,33 @@ mod tests {
             stage5d_apply_runtime_private_extension(bound),
             "r3a source pending private extension must apply",
         );
-        let bootstrapped = expect_stage5d_bootstrap_ok(
-            stage5d_notify_broker_truth_bootstrap_at(applied, strict_envelope.persisted_at_ts_utc),
-            "r3a source pending broker bootstrap must succeed",
+        stage5d_test_assert_r3a_actual_post_apply_semantic_equality(
+            case,
+            &source_state,
+            applied.loaded.stage5d_strategy(),
         );
-        let post_apply_extension = bootstrapped
-            .bootstrapped
+        let post_apply_extension = applied
+            .loaded
             .stage5d_strategy()
             .stage5d_export_runtime_private_extension()
             .expect("post-apply extension exports before restored callback");
         assert_eq!(
             post_apply_extension.pending_entry.as_ref(),
             Some(&source_entry),
-            "{case:?}: private apply must restore exact pending shape before restored callback"
+            "{case:?}: private apply must restore exact pending shape before broker bootstrap and restored callback"
+        );
+        assert_eq!(
+            post_apply_extension.partial_entry_timer, source_extension.partial_entry_timer,
+            "{case:?}: actual private partial-entry timer after private apply must equal source"
+        );
+        assert!(
+            source_extension.partial_entry_timer.is_none()
+                && post_apply_extension.partial_entry_timer.is_none(),
+            "{case:?}: r3a non-partial source and restored partial-entry timers must both be absent"
+        );
+        let bootstrapped = expect_stage5d_bootstrap_ok(
+            stage5d_notify_broker_truth_bootstrap_at(applied, strict_envelope.persisted_at_ts_utc),
+            "r3a source pending broker bootstrap must succeed",
         );
         let injected = expect_stage5d_riskgate_ok(
             stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),

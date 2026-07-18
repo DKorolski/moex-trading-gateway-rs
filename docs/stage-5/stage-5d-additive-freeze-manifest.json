@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-final-restart-r3a",
+  "stage": "5D-final-restart-r3a-r1",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "c11c90be5125e4c7e387c19ee796530a2ba3380add225aa1e9f4393092e2e074"
+      "stage5d_consumer_sha256": "aff5664f1ddd8074d65a0d9d310f9fd043d644ea3f65ec250dd40fa6c62d4b20"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "c11c90be5125e4c7e387c19ee796530a2ba3380add225aa1e9f4393092e2e074"
+      "stage5d_consumer_sha256": "aff5664f1ddd8074d65a0d9d310f9fd043d644ea3f65ec250dd40fa6c62d4b20"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "c11c90be5125e4c7e387c19ee796530a2ba3380add225aa1e9f4393092e2e074"
+    "current_sha256": "aff5664f1ddd8074d65a0d9d310f9fd043d644ea3f65ec250dd40fa6c62d4b20"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -304,7 +304,17 @@
     "runtime_restored_final_r2_inventory_reduced",
     "runtime_restored_final_r2_inventory_helper_owner",
     "runtime_restored_final_r2_stage5c_warmup_removed",
-    "runtime_restored_final_r2_package_full_validation_removed"
+    "runtime_restored_final_r2_package_full_validation_removed",
+    "final_r3a_reproduction_test_removed",
+    "final_r3a_post_apply_private_equality_removed",
+    "final_r3a_post_apply_semantic_equality_removed",
+    "final_r3a_restored_callback_moved_before_private_apply",
+    "final_r3a_mr_long_short_mapping_swapped",
+    "final_r3a_bo_reason_mapping_changed",
+    "final_r3a_mr_stop_take_dropped",
+    "final_r3a_incomplete_mr_accepted",
+    "final_r3a_owner_side_reason_mismatch_accepted",
+    "final_r3a_unauthorized_set_state_source_change"
   ],
   "stage5d_public_api": {
     "public_reexports": [
