@@ -42,6 +42,9 @@ CI_REL = Path(".github/workflows/ci.yml")
 RUNTIME_RESTORED_OWNERSHIP_REL = Path(
     "docs/stage-5/stage5d-b2bd1-r6-blocker-ownership.json"
 )
+FINAL_RESTART_INVENTORY_REL = Path(
+    "docs/stage-5/stage5d-final-restart-r1-scenario-inventory.json"
+)
 
 EXPECTED_MANIFEST_CHECKER = "scripts/stage5d_additive_freeze_check.py"
 EXPECTED_NEGATIVE_HARNESS = "scripts/stage5d_additive_freeze_negative_harness.py"
@@ -93,7 +96,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "e6b26fb423fdb9de1af53e311f0c0f134cce43cee135bf311b5f9baee9ee51bc",
+        "stage5d_consumer_sha256": "f2f6269eb85a62f27775d41f81976fcd92b66500d5014ff1283683a22ad20771",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -107,7 +110,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "e6b26fb423fdb9de1af53e311f0c0f134cce43cee135bf311b5f9baee9ee51bc",
+        "stage5d_consumer_sha256": "f2f6269eb85a62f27775d41f81976fcd92b66500d5014ff1283683a22ad20771",
     },
 ]
 
@@ -236,6 +239,29 @@ EXPECTED_NEGATIVE_CASES = [
     "runtime_restored_final_restart_matrix_removed",
     "runtime_restored_final_post_export_mutation_removed",
     "runtime_restored_final_recovery_index_binding_removed",
+    "runtime_restored_final_package_export_removed",
+    "runtime_restored_final_package_decode_removed",
+    "runtime_restored_final_package_corruption_removed",
+    "runtime_restored_final_clean_process_removed",
+    "runtime_restored_final_inventory_missing",
+    "runtime_restored_final_inventory_duplicate",
+]
+
+EXPECTED_STAGE = "5D-final-restart-r1"
+
+EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
+    "canonical_package_flat_clean_restart",
+    "canonical_package_long_clean_restart",
+    "canonical_package_short_clean_restart",
+    "canonical_package_post_export_mutation_rejected",
+    "canonical_package_corruption_rejected",
+    "canonical_package_clean_process_source_poisoning_ignored",
+    "canonical_package_recovery_indexes_bound",
+    "stage5c_continuation_after_restored_callback",
+    "malformed_json_and_unknown_fields_fail_closed",
+    "riskgate_generation_and_ledger_tail_bound",
+    "runtime_host_intent_sink_closed_surfaces",
+    "broker_truth_position_side_protective_guard",
 ]
 
 EXPECTED_RUNTIME_RESTORED_OWNERSHIP_IDS = [
@@ -996,9 +1022,93 @@ def validate_stage5d_runtime_restored_ownership_inventory(
                     f"Stage 5D runtime-restored r6 ownership row {case_id!r} must be earlier_gate"
                 )
         else:
+                failures.append(
+                    f"Stage 5D runtime-restored r6 ownership row {case_id!r} representable flag invalid"
+                )
+
+
+def validate_stage5d_final_restart_inventory(
+    root: Path, stage5d_source: str, failures: list[str]
+) -> None:
+    inventory_path = root / FINAL_RESTART_INVENTORY_REL
+    if not inventory_path.exists():
+        failures.append("Stage 5D final restart r1 scenario inventory missing")
+        return
+    try:
+        inventory = json.loads(inventory_path.read_text())
+    except json.JSONDecodeError:
+        failures.append("Stage 5D final restart r1 scenario inventory must be valid JSON")
+        return
+
+    if inventory.get("schema_version") != 1:
+        failures.append("Stage 5D final restart r1 scenario inventory schema mismatch")
+    if inventory.get("stage") != EXPECTED_STAGE:
+        failures.append("Stage 5D final restart r1 scenario inventory stage mismatch")
+    if inventory.get("closed_surfaces") != EXPECTED_CLOSED_SURFACES:
+        failures.append("Stage 5D final restart r1 scenario inventory closed-surface mismatch")
+
+    rows = inventory.get("scenario_rows")
+    if not isinstance(rows, list) or not rows:
+        failures.append("Stage 5D final restart r1 scenario rows missing")
+        return
+    case_ids = [row.get("case_id") for row in rows if isinstance(row, dict)]
+    if case_ids != EXPECTED_FINAL_RESTART_SCENARIO_IDS:
+        failures.append("Stage 5D final restart r1 scenario inventory mismatch")
+    if len(set(case_ids)) != len(case_ids):
+        failures.append("Stage 5D final restart r1 scenario ids must be unique")
+
+    required_fields = (
+        "case_id",
+        "category",
+        "source_produced",
+        "clean_process_restart",
+        "package_sections",
+        "expected_outcome",
+        "owning_test",
+        "expected_reason_or_fingerprint",
+        "restart_after_action",
+        "replay_idempotent",
+        "stage5c_continuation",
+        "closed_surfaces_proven",
+    )
+    for row in rows:
+        if not isinstance(row, dict):
+            failures.append("Stage 5D final restart r1 scenario row must be an object")
+            continue
+        case_id = row.get("case_id")
+        for field_name in required_fields:
+            if field_name not in row:
+                failures.append(
+                    f"Stage 5D final restart r1 scenario row {case_id!r} missing {field_name}"
+                )
+        if row.get("closed_surfaces_proven") != EXPECTED_CLOSED_SURFACES:
             failures.append(
-                f"Stage 5D runtime-restored r6 ownership row {case_id!r} representable flag invalid"
+                f"Stage 5D final restart r1 scenario row {case_id!r} closed-surface proof mismatch"
             )
+        owning_test = row.get("owning_test")
+        if isinstance(owning_test, str) and owning_test not in stage5d_source:
+            failures.append(
+                f"Stage 5D final restart r1 scenario owning test missing: {owning_test}"
+            )
+        elif not isinstance(owning_test, str):
+            failures.append(
+                f"Stage 5D final restart r1 scenario row {case_id!r} owning_test invalid"
+            )
+        package_sections = row.get("package_sections")
+        if not isinstance(package_sections, list):
+            failures.append(
+                f"Stage 5D final restart r1 scenario row {case_id!r} package_sections invalid"
+            )
+            continue
+        if row.get("source_produced") is True and row.get("clean_process_restart") is True:
+            required_sections = {
+                "stage5d_persistence_envelope",
+                "stage5d_riskgate_ledger_evidence",
+            }
+            if not required_sections.issubset(set(package_sections)):
+                failures.append(
+                    f"Stage 5D final restart r1 scenario row {case_id!r} lacks durable package sections"
+                )
 
 
 def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
@@ -1156,12 +1266,20 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
     for message, token in {
         "Stage 5D final canonical export production surface missing":
             "stage5d_export_canonical_envelope_from_runtime",
+        "Stage 5D final canonical package production surface missing":
+            "stage5d_export_canonical_restart_package_from_runtime",
+        "Stage 5D final package strict decode proof missing":
+            "Stage5dCanonicalRestartPackage::from_json_str_strict",
         "Stage 5D final canonical restart matrix proof missing":
             "stage5d_final_canonical_export_restart_matrix_flat_long_short",
         "Stage 5D final post-export mutation rejection proof missing":
             "stage5d_final_canonical_export_rejects_post_export_mutation_at_restart_boundary",
         "Stage 5D final recovery-index binding proof missing":
             "stage5d_final_canonical_export_binds_recovery_indexes_from_source_state",
+        "Stage 5D final package corruption proof missing":
+            "stage5d_final_restart_package_rejects_evidence_and_package_corruption",
+        "Stage 5D final clean-process poison proof missing":
+            "stage5d_final_clean_process_restart_does_not_reuse_poisoned_source_runtime",
     }.items():
         if token not in stage5d_source:
             failures.append(message)
@@ -1181,6 +1299,7 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
             if token not in r5_summary_source:
                 failures.append(message)
     validate_stage5d_runtime_restored_ownership_inventory(root, stage5d_source, failures)
+    validate_stage5d_final_restart_inventory(root, stage5d_source, failures)
 
 
 def validate(root: Path, manifest_path: Path) -> list[str]:
@@ -1189,8 +1308,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2b-d1-r6":
-        failures.append("stage must be 5D-b2b-d1-r6")
+    if manifest.get("stage") != EXPECTED_STAGE:
+        failures.append(f"stage must be {EXPECTED_STAGE}")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:

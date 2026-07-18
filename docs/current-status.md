@@ -459,12 +459,14 @@ Green / mostly closed:
   dirty-start/manual-intervention placeholders as explicit paper parity fields.
 - `seed_required=true` can hard-block a parity run when the ALOR oracle seed is
   missing or cannot be parsed.
-- Stage 5C is closed and Stage 5D has a final restart-closure candidate:
+- Stage 5C is closed and Stage 5D has a final restart-closure r1 candidate:
   canonical source-owned export from the actual `HybridIntradayRuntimeStrategy`
-  to a strict Stage 5D envelope, local durable JSON restart boundary, checksum
-  validation, loaded-state binding, private apply, broker-truth bootstrap,
-  authoritative riskgate injection and return to the Stage 5C restored
-  capability are covered in paper/no-send tests.
+  to a strict Stage 5D restart package containing both the persistence envelope
+  and durable riskgate ledger evidence. The r1 path proves strict package JSON
+  decode after source drop, package/evidence checksum validation, loaded-state
+  binding, private apply, broker-truth bootstrap, authoritative riskgate
+  injection and return to the Stage 5C restored capability in paper/no-send
+  tests.
 - Safety flags remain closed in paper state:
   `live_orders_enabled=false`, `runtime_live_ready_enabled=false`,
   `command_consumer_to_real_finam_enabled=false`,
@@ -482,8 +484,9 @@ Amber:
   real ALOR hybrid BO/MR orchestrator.
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
-- Stage 5D final restart closure is still a review candidate until accepted.
-  It proves the paper/no-send restart path, but does not authorize Stage 6+
+- Stage 5D final restart r1 closure is still a review candidate until accepted.
+  It proves the clean-process paper/no-send restart path through a durable
+  package boundary and scenario inventory, but does not authorize Stage 6+
   durable command-chain work, command consumers or live execution.
 
 Red / not yet implemented:

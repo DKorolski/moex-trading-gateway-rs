@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "stage": "5D-final-restart-r1",
+  "status": "clean_process_durable_restart_candidate",
+  "closed_surfaces": {
+    "redis": false,
+    "finam": false,
+    "transport": false,
+    "dispatch": false,
+    "runtime_live": false,
+    "broker_execution": false,
+    "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+  },
+  "scenario_rows": [
+    {
+      "case_id": "canonical_package_flat_clean_restart",
+      "category": "positive_clean_restart",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": ["stage5d_persistence_envelope", "stage5d_riskgate_ledger_evidence", "package_checksum"],
+      "expected_outcome": "runtime_state_restored",
+      "owning_test": "stage5d_final_canonical_export_restart_matrix_flat_long_short",
+      "expected_reason_or_fingerprint": "report.recovery_plan_fingerprint_sha256",
+      "restart_after_action": "strict_json_package_decode_after_source_drop",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "canonical_package_long_clean_restart",
+      "category": "positive_clean_restart",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": ["stage5d_persistence_envelope", "stage5d_riskgate_ledger_evidence", "package_checksum"],
+      "expected_outcome": "runtime_state_restored",
+      "owning_test": "stage5d_final_canonical_export_restart_matrix_flat_long_short",
+      "expected_reason_or_fingerprint": "stage5d_test_open_state(3.0, Stage5dSide::Long)",
+      "restart_after_action": "strict_json_package_decode_after_source_drop",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "canonical_package_short_clean_restart",
+      "category": "positive_clean_restart",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": ["stage5d_persistence_envelope", "stage5d_riskgate_ledger_evidence", "package_checksum"],
+      "expected_outcome": "runtime_state_restored",
+      "owning_test": "stage5d_final_canonical_export_restart_matrix_flat_long_short",
+      "expected_reason_or_fingerprint": "stage5d_test_open_state(-3.0, Stage5dSide::Short)",
+      "restart_after_action": "strict_json_package_decode_after_source_drop",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "canonical_package_post_export_mutation_rejected",
+      "category": "negative_restart_boundary",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": ["stage5d_persistence_envelope", "payload_checksum"],
+      "expected_outcome": "PayloadChecksumMismatch",
+      "owning_test": "stage5d_final_canonical_export_rejects_post_export_mutation_at_restart_boundary",
+      "expected_reason_or_fingerprint": "PayloadChecksumMismatch",
+      "restart_after_action": "mutated_envelope_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "canonical_package_corruption_rejected",
+      "category": "negative_restart_boundary",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": ["stage5d_persistence_envelope", "stage5d_riskgate_ledger_evidence", "package_checksum", "riskgate_evidence_checksum"],
+      "expected_outcome": "PayloadChecksumMismatch",
+      "owning_test": "stage5d_final_restart_package_rejects_evidence_and_package_corruption",
+      "expected_reason_or_fingerprint": "PayloadChecksumMismatch",
+      "restart_after_action": "mutated_package_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "canonical_package_clean_process_source_poisoning_ignored",
+      "category": "clean_process_proof",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": ["stage5d_persistence_envelope", "stage5d_riskgate_ledger_evidence", "package_checksum"],
+      "expected_outcome": "restored_state_equals_pre_poison_expected_state",
+      "owning_test": "stage5d_final_clean_process_restart_does_not_reuse_poisoned_source_runtime",
+      "expected_reason_or_fingerprint": "source_runtime_dropped_before_restart",
+      "restart_after_action": "source_poisoned_then_dropped_then_fresh_runtime_restore",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "canonical_package_recovery_indexes_bound",
+      "category": "positive_index_binding",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": ["stage5d_persistence_envelope", "stage5d_riskgate_ledger_evidence", "known_order_indexes", "pending_request_indexes"],
+      "expected_outcome": "recovery_indexes_preserved",
+      "owning_test": "stage5d_final_canonical_export_binds_recovery_indexes_from_source_state",
+      "expected_reason_or_fingerprint": "known_order_ids_and_pending_requests_bound",
+      "restart_after_action": "strict_json_package_decode_after_source_drop",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "stage5c_continuation_after_restored_callback",
+      "category": "continuation",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": ["stage5d_persistence_envelope", "stage5d_riskgate_ledger_evidence"],
+      "expected_outcome": "stage5c_runtime_state_restored_capability_returned",
+      "owning_test": "stage5d_final_canonical_export_restart_matrix_flat_long_short",
+      "expected_reason_or_fingerprint": "Stage5cRuntimeStateRestoredPaperStrategy",
+      "restart_after_action": "restored_callback_once",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "malformed_json_and_unknown_fields_fail_closed",
+      "category": "existing_oracle",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": ["stage5d_persistence_envelope", "stage5d_riskgate_ledger_evidence", "strict_json_decode"],
+      "expected_outcome": "fail_closed",
+      "owning_test": "stage5d_b2bd1r6_strict_malformed_payload_shapes_fail_closed",
+      "expected_reason_or_fingerprint": "strict_payload_shape_rejection",
+      "restart_after_action": "strict_json_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "riskgate_generation_and_ledger_tail_bound",
+      "category": "existing_oracle",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": ["stage5d_persistence_envelope", "stage5d_riskgate_ledger_evidence", "ledger_tail_hash", "current_generation"],
+      "expected_outcome": "validated_generation_and_ledger_tail",
+      "owning_test": "stage5d_b2bc1_riskgate_generation_is_source_exact_and_fingerprinted",
+      "expected_reason_or_fingerprint": "riskgate_generation_and_ledger_tail_hash",
+      "restart_after_action": "riskgate_evidence_validation",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "runtime_host_intent_sink_closed_surfaces",
+      "category": "existing_oracle",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": ["stage5d_persistence_envelope", "stage5d_riskgate_ledger_evidence", "stage5c_boundary_flags"],
+      "expected_outcome": "closed_surfaces_retained",
+      "owning_test": "stage5d_test_closed_boundary_flags",
+      "expected_reason_or_fingerprint": "live_orders_enabled_false_runtime_live_ready_false",
+      "restart_after_action": "preflight_and_callback",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "broker_truth_position_side_protective_guard",
+      "category": "existing_oracle",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": ["stage5d_persistence_envelope", "stage5d_riskgate_ledger_evidence", "broker_truth_snapshot"],
+      "expected_outcome": "fail_closed_on_mismatch",
+      "owning_test": "stage5d_b2bd1r4_broker_position_long_short_restore_with_genuine_open_positions",
+      "expected_reason_or_fingerprint": "broker_position_side_protective_exact_guard",
+      "restart_after_action": "post_callback_broker_truth_validation",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    }
+  ]
+}

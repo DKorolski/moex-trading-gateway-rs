@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-b2b-d1-r6",
+  "stage": "5D-final-restart-r1",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "e6b26fb423fdb9de1af53e311f0c0f134cce43cee135bf311b5f9baee9ee51bc"
+      "stage5d_consumer_sha256": "f2f6269eb85a62f27775d41f81976fcd92b66500d5014ff1283683a22ad20771"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "e6b26fb423fdb9de1af53e311f0c0f134cce43cee135bf311b5f9baee9ee51bc"
+      "stage5d_consumer_sha256": "f2f6269eb85a62f27775d41f81976fcd92b66500d5014ff1283683a22ad20771"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "e6b26fb423fdb9de1af53e311f0c0f134cce43cee135bf311b5f9baee9ee51bc"
+    "current_sha256": "f2f6269eb85a62f27775d41f81976fcd92b66500d5014ff1283683a22ad20771"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -288,7 +288,13 @@
     "runtime_restored_final_canonical_export_removed",
     "runtime_restored_final_restart_matrix_removed",
     "runtime_restored_final_post_export_mutation_removed",
-    "runtime_restored_final_recovery_index_binding_removed"
+    "runtime_restored_final_recovery_index_binding_removed",
+    "runtime_restored_final_package_export_removed",
+    "runtime_restored_final_package_decode_removed",
+    "runtime_restored_final_package_corruption_removed",
+    "runtime_restored_final_clean_process_removed",
+    "runtime_restored_final_inventory_missing",
+    "runtime_restored_final_inventory_duplicate"
   ],
   "stage5d_public_api": {
     "public_reexports": [

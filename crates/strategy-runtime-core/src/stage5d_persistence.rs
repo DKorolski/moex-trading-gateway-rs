@@ -2614,14 +2614,50 @@ pub(crate) struct Stage5dCanonicalEnvelopeExportInput {
 pub(crate) struct Stage5dCanonicalEnvelopeExportReport {
     pub snapshot_id: String,
     pub payload_checksum_sha256: String,
+    pub package_checksum_sha256: Option<String>,
+    pub riskgate_evidence_checksum_sha256: Option<String>,
+    pub riskgate_evidence_fingerprint_sha256: Option<String>,
     pub semantic_payload_fingerprint: String,
     pub recovery_index_fingerprint: String,
+    pub recovery_plan_fingerprint_sha256: Option<String>,
     pub runtime_pending_finalizations_count: usize,
     pub durable_finalization_outbox_count: usize,
     pub redis_opened: bool,
     pub finam_opened: bool,
     pub dispatch_opened: bool,
     pub runtime_live_opened: bool,
+}
+
+const STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION: u16 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Stage5dCanonicalRestartCheckpointState {
+    Committed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Stage5dCanonicalRestartPackage {
+    schema_version: u16,
+    snapshot_id: String,
+    snapshot_revision: u64,
+    previous_revision: Option<u64>,
+    write_generation: u64,
+    persisted_at_ts_utc: DateTime<Utc>,
+    checkpoint_state: Stage5dCanonicalRestartCheckpointState,
+    envelope_json: String,
+    envelope_sha256: String,
+    riskgate_evidence_json: String,
+    riskgate_evidence_sha256: String,
+    package_checksum_sha256: String,
+}
+
+#[allow(dead_code)]
+struct Stage5dDecodedCanonicalRestartPackage {
+    envelope: Stage5dPersistenceEnvelope,
+    validated_evidence: Stage5dValidatedRiskGateLedgerEvidence,
+    report: Stage5dCanonicalEnvelopeExportReport,
 }
 
 #[allow(dead_code)]
@@ -2714,8 +2750,12 @@ pub(crate) fn stage5d_export_canonical_envelope_from_runtime(
     let report = Stage5dCanonicalEnvelopeExportReport {
         snapshot_id: validated.envelope.snapshot_id.clone(),
         payload_checksum_sha256: validated.envelope.payload_checksum_sha256.clone(),
+        package_checksum_sha256: None,
+        riskgate_evidence_checksum_sha256: None,
+        riskgate_evidence_fingerprint_sha256: None,
         semantic_payload_fingerprint,
         recovery_index_fingerprint,
+        recovery_plan_fingerprint_sha256: None,
         runtime_pending_finalizations_count: validated
             .envelope
             .runtime_private_extension
@@ -2732,6 +2772,160 @@ pub(crate) fn stage5d_export_canonical_envelope_from_runtime(
         runtime_live_opened: false,
     };
     Ok((validated.envelope, report))
+}
+
+#[allow(dead_code)]
+fn stage5d_export_canonical_restart_package_from_runtime(
+    strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    input: Stage5dCanonicalEnvelopeExportInput,
+    evidence: Stage5dRiskGateLedgerEvidence,
+) -> Result<
+    (
+        Stage5dCanonicalRestartPackage,
+        Stage5dCanonicalEnvelopeExportReport,
+    ),
+    Stage5dEnvelopeValidationError,
+> {
+    let (envelope, mut report) = stage5d_export_canonical_envelope_from_runtime(strategy, input)?;
+    let validated_evidence = stage5d_validate_riskgate_ledger_evidence(evidence)
+        .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    stage5d_validate_package_cross_binding(&envelope, &validated_evidence.evidence)?;
+    let envelope_json = serde_json::to_string(&envelope)
+        .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+    let riskgate_evidence_json = serde_json::to_string(&validated_evidence.evidence)
+        .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+    let envelope_sha256 = sha256_text(&envelope_json);
+    let riskgate_evidence_sha256 = sha256_text(&riskgate_evidence_json);
+    let mut package = Stage5dCanonicalRestartPackage {
+        schema_version: STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION,
+        snapshot_id: envelope.snapshot_id.clone(),
+        snapshot_revision: envelope.snapshot_revision,
+        previous_revision: envelope.previous_revision,
+        write_generation: envelope.write_generation,
+        persisted_at_ts_utc: envelope.persisted_at_ts_utc,
+        checkpoint_state: Stage5dCanonicalRestartCheckpointState::Committed,
+        envelope_json,
+        envelope_sha256,
+        riskgate_evidence_json,
+        riskgate_evidence_sha256: riskgate_evidence_sha256.clone(),
+        package_checksum_sha256: String::new(),
+    };
+    package.package_checksum_sha256 = package.compute_package_checksum_sha256()?;
+    report.package_checksum_sha256 = Some(package.package_checksum_sha256.clone());
+    report.riskgate_evidence_checksum_sha256 = Some(riskgate_evidence_sha256);
+    report.riskgate_evidence_fingerprint_sha256 =
+        Some(validated_evidence.evidence_fingerprint_sha256.clone());
+    Ok((package, report))
+}
+
+#[allow(dead_code)]
+impl Stage5dCanonicalRestartPackage {
+    fn to_json_strict(&self) -> Result<String, Stage5dEnvelopeValidationError> {
+        self.validate_package_checksum()?;
+        serde_json::to_string(self).map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)
+    }
+
+    fn from_json_str_strict(
+        payload: &str,
+    ) -> Result<Stage5dDecodedCanonicalRestartPackage, Stage5dEnvelopeValidationError> {
+        let package: Self = serde_json::from_str(payload)
+            .map_err(|_| Stage5dEnvelopeValidationError::DeserializationFailed)?;
+        package.validate_package_checksum()?;
+        if package.schema_version != STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION
+            || package.checkpoint_state != Stage5dCanonicalRestartCheckpointState::Committed
+        {
+            return Err(Stage5dEnvelopeValidationError::EnvelopeSchemaMismatch);
+        }
+        if sha256_text(&package.envelope_json) != package.envelope_sha256
+            || sha256_text(&package.riskgate_evidence_json) != package.riskgate_evidence_sha256
+        {
+            return Err(Stage5dEnvelopeValidationError::PayloadChecksumMismatch);
+        }
+        let envelope = Stage5dPersistenceEnvelope::from_json_str_strict(&package.envelope_json)?;
+        if package.snapshot_id != envelope.snapshot_id
+            || package.snapshot_revision != envelope.snapshot_revision
+            || package.previous_revision != envelope.previous_revision
+            || package.write_generation != envelope.write_generation
+            || package.persisted_at_ts_utc != envelope.persisted_at_ts_utc
+        {
+            return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+        }
+        let evidence: Stage5dRiskGateLedgerEvidence =
+            serde_json::from_str(&package.riskgate_evidence_json)
+                .map_err(|_| Stage5dEnvelopeValidationError::DeserializationFailed)?;
+        let validated_evidence = stage5d_validate_riskgate_ledger_evidence(evidence)
+            .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+        stage5d_validate_package_cross_binding(&envelope, &validated_evidence.evidence)?;
+        let semantic_payload_fingerprint =
+            crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(
+                &envelope.strategy_state.strategy_state_json,
+            )
+            .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+        let recovery_index_fingerprint =
+            crate::stage5c_paper_host::stage5c_recovery_index_fingerprint(
+                &envelope.recovery_indexes.known_order_ids,
+                &envelope.recovery_indexes.pending_requests,
+            )
+            .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+        let report = Stage5dCanonicalEnvelopeExportReport {
+            snapshot_id: envelope.snapshot_id.clone(),
+            payload_checksum_sha256: envelope.payload_checksum_sha256.clone(),
+            package_checksum_sha256: Some(package.package_checksum_sha256.clone()),
+            riskgate_evidence_checksum_sha256: Some(package.riskgate_evidence_sha256.clone()),
+            riskgate_evidence_fingerprint_sha256: Some(
+                validated_evidence.evidence_fingerprint_sha256.clone(),
+            ),
+            semantic_payload_fingerprint,
+            recovery_index_fingerprint,
+            recovery_plan_fingerprint_sha256: None,
+            runtime_pending_finalizations_count: envelope
+                .runtime_private_extension
+                .runtime_pending_finalizations
+                .len(),
+            durable_finalization_outbox_count: envelope.riskgate.durable_finalization_outbox.len(),
+            redis_opened: false,
+            finam_opened: false,
+            dispatch_opened: false,
+            runtime_live_opened: false,
+        };
+        Ok(Stage5dDecodedCanonicalRestartPackage {
+            envelope,
+            validated_evidence,
+            report,
+        })
+    }
+
+    fn compute_package_checksum_sha256(&self) -> Result<String, Stage5dEnvelopeValidationError> {
+        let mut canonical = self.clone();
+        canonical.package_checksum_sha256.clear();
+        let payload = serde_json::to_vec(&canonical)
+            .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+        Ok(format!("{:x}", Sha256::digest(payload)))
+    }
+
+    fn validate_package_checksum(&self) -> Result<(), Stage5dEnvelopeValidationError> {
+        if self.package_checksum_sha256 != self.compute_package_checksum_sha256()? {
+            return Err(Stage5dEnvelopeValidationError::PayloadChecksumMismatch);
+        }
+        Ok(())
+    }
+}
+
+fn stage5d_validate_package_cross_binding(
+    envelope: &Stage5dPersistenceEnvelope,
+    evidence: &Stage5dRiskGateLedgerEvidence,
+) -> Result<(), Stage5dEnvelopeValidationError> {
+    if evidence.identity != envelope.riskgate.identity
+        || evidence.ledger_tail_hash != envelope.riskgate.ledger_tail_hash
+        || evidence.current_generation != envelope.riskgate.materialized_state.current_generation
+    {
+        return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+    }
+    Ok(())
+}
+
+fn sha256_text(value: &str) -> String {
+    format!("{:x}", Sha256::digest(value.as_bytes()))
 }
 
 #[allow(dead_code)]
@@ -5410,48 +5604,50 @@ mod tests {
     ) -> Stage5dCanonicalEnvelopeExportReport {
         let (source_strategy, input, evidence, expected_state) =
             stage5d_test_canonical_export_fixture(snapshot_id, mutator);
-        let (envelope, report) =
-            stage5d_export_canonical_envelope_from_runtime(&source_strategy, input)
-                .expect("source-owned canonical export must succeed");
+        let (package, report) = stage5d_export_canonical_restart_package_from_runtime(
+            &source_strategy,
+            input,
+            evidence,
+        )
+        .expect("source-owned canonical package export must succeed");
+        let durable_payload = package
+            .to_json_strict()
+            .expect("canonical package must serialize");
         assert_eq!(report.snapshot_id, snapshot_id);
-        assert_eq!(
-            report.payload_checksum_sha256,
-            envelope.payload_checksum_sha256
-        );
-        assert!(!report.semantic_payload_fingerprint.is_empty());
-        assert!(!report.recovery_index_fingerprint.is_empty());
-        assert_eq!(
-            envelope.strategy_state.strategy_state_json, expected_state,
-            "canonical export must persist exact source semantic state"
-        );
-        assert!(
-            !report.redis_opened
-                && !report.finam_opened
-                && !report.dispatch_opened
-                && !report.runtime_live_opened,
-            "canonical export/restart evidence must keep all live surfaces closed"
-        );
+        assert!(report.package_checksum_sha256.is_some());
+        assert!(report.riskgate_evidence_checksum_sha256.is_some());
+        assert!(report.riskgate_evidence_fingerprint_sha256.is_some());
 
-        let durable_payload =
-            serde_json::to_string(&envelope).expect("canonical envelope must serialize");
-        let strict_envelope = Stage5dPersistenceEnvelope::from_json_str_strict(&durable_payload)
-            .expect("strict restart boundary must decode committed envelope");
-        let reencoded =
-            serde_json::to_string(&strict_envelope).expect("strict envelope must serialize");
+        // Clean-process restart proof: the source runtime object and source
+        // evidence are unavailable after this point. A freshly constructed
+        // runtime receives only strict package bytes.
+        drop(source_strategy);
+        let decoded = Stage5dCanonicalRestartPackage::from_json_str_strict(&durable_payload)
+            .expect("strict restart boundary must decode committed package");
+        assert_eq!(
+            decoded.envelope.strategy_state.strategy_state_json, expected_state,
+            "canonical package must persist exact source semantic state"
+        );
+        let reencoded = serde_json::from_str::<Stage5dCanonicalRestartPackage>(&durable_payload)
+            .expect("package must deserialize for canonical re-encode")
+            .to_json_strict()
+            .expect("package must reserialize");
         assert_eq!(
             durable_payload, reencoded,
-            "strict restart boundary must be deterministic and canonical"
+            "strict restart package boundary must be deterministic and canonical"
         );
+        let fresh_strategy = stage5d_test_riskgate_runtime_strategy();
         let (bootstrapped, strict_envelope, validated_evidence) =
             stage5d_test_bootstrap_strict_envelope_with_strategy(
-                strict_envelope,
-                source_strategy,
-                evidence,
+                decoded.envelope,
+                fresh_strategy,
+                decoded.validated_evidence.evidence,
             );
         let injected = expect_stage5d_riskgate_ok(
             stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
             "canonical restart fixture must inject authoritative riskgate",
         );
+        let expected_recovery_plan_fingerprint = injected.recovery_plan_fingerprint().to_string();
         assert!(injected.recovery_complete());
         let restored = stage5d_test_assert_injected_restores_once(
             injected,
@@ -5463,6 +5659,8 @@ mod tests {
             strict_envelope.strategy_state.strategy_state_json,
             "restored runtime state must match strict canonical envelope"
         );
+        let mut report = decoded.report;
+        report.recovery_plan_fingerprint_sha256 = Some(expected_recovery_plan_fingerprint);
         report
     }
 
@@ -11234,6 +11432,95 @@ mod tests {
             Stage5dPersistenceEnvelope::from_json_str_strict(&mutated_payload),
             Err(Stage5dEnvelopeValidationError::PayloadChecksumMismatch),
             "restart boundary must reject hand-mutated positive envelope"
+        );
+    }
+
+    #[test]
+    fn stage5d_final_restart_package_rejects_evidence_and_package_corruption() {
+        let (source_strategy, input, evidence, _expected_state) =
+            stage5d_test_canonical_export_fixture("stage5d-final-package-corruption", |_| {});
+        let (mut package, _report) = stage5d_export_canonical_restart_package_from_runtime(
+            &source_strategy,
+            input,
+            evidence,
+        )
+        .expect("canonical package export succeeds");
+
+        let mut stale_package_checksum = package.clone();
+        stale_package_checksum.snapshot_revision += 1;
+        let stale_payload =
+            serde_json::to_string(&stale_package_checksum).expect("stale package serializes");
+        assert_eq!(
+            Stage5dCanonicalRestartPackage::from_json_str_strict(&stale_payload).map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::PayloadChecksumMismatch),
+            "package-level checksum must reject committed metadata mutation"
+        );
+
+        package.riskgate_evidence_json = package
+            .riskgate_evidence_json
+            .replace("\"seed_loaded\":true", "\"seed_loaded\":false");
+        package.package_checksum_sha256 = package
+            .compute_package_checksum_sha256()
+            .expect("package checksum after section mutation");
+        let evidence_corrupt_payload =
+            serde_json::to_string(&package).expect("corrupt package serializes");
+        assert_eq!(
+            Stage5dCanonicalRestartPackage::from_json_str_strict(&evidence_corrupt_payload)
+                .map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::PayloadChecksumMismatch),
+            "section checksum must reject riskgate evidence mutation even if package checksum is refreshed"
+        );
+    }
+
+    #[test]
+    fn stage5d_final_clean_process_restart_does_not_reuse_poisoned_source_runtime() {
+        let (mut source_strategy, input, evidence, expected_state) =
+            stage5d_test_canonical_export_fixture("stage5d-final-clean-process-poison", |_| {});
+        let (package, _report) = stage5d_export_canonical_restart_package_from_runtime(
+            &source_strategy,
+            input,
+            evidence,
+        )
+        .expect("source package export must succeed before source poisoning");
+        let durable_payload = package.to_json_strict().expect("package serializes");
+
+        let mut poisoned_state =
+            serde_json::to_value(Strategy::state(&source_strategy)).expect("source state");
+        poisoned_state["HybridIntradayRuntime"]["last_position_qty"] = serde_json::json!(-99.0);
+        poisoned_state["HybridIntradayRuntime"]["current_side"] =
+            Value::String("short".to_string());
+        Strategy::set_state(
+            &mut source_strategy,
+            serde_json::from_value(poisoned_state).expect("poisoned source state"),
+        );
+        drop(source_strategy);
+
+        let decoded = Stage5dCanonicalRestartPackage::from_json_str_strict(&durable_payload)
+            .expect("strict package restart must decode");
+        let fresh_strategy = stage5d_test_riskgate_runtime_strategy();
+        let (bootstrapped, strict_envelope, validated_evidence) =
+            stage5d_test_bootstrap_strict_envelope_with_strategy(
+                decoded.envelope,
+                fresh_strategy,
+                decoded.validated_evidence.evidence,
+            );
+        let injected = expect_stage5d_riskgate_ok(
+            stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
+            "poisoned source runtime must not influence decoded package restore",
+        );
+        let restored = stage5d_test_assert_injected_restores_once(
+            injected,
+            "poisoned source runtime must be dropped before restart callback",
+        );
+        assert_eq!(
+            strict_envelope.strategy_state.strategy_state_json, expected_state,
+            "strict envelope must retain pre-poison source state"
+        );
+        assert_eq!(
+            serde_json::to_value(Strategy::state(restored.stage5d_strategy()))
+                .expect("restored state serializes"),
+            expected_state,
+            "fresh runtime restore must not inherit poisoned source memory"
         );
     }
 

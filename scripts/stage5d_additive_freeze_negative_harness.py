@@ -1093,6 +1093,58 @@ def mutate_runtime_restored_final_recovery_index_binding_removed(root: Path) -> 
     update_stage5d_semantic_mutation_hashes(root)
 
 
+def mutate_runtime_restored_final_package_export_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_all(
+        root / rel,
+        "stage5d_export_canonical_restart_package_from_runtime",
+        "stage5d_export_canonical_restart_package_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_final_package_decode_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_all(
+        root / rel,
+        "Stage5dCanonicalRestartPackage::from_json_str_strict",
+        "Stage5dCanonicalRestartPackage::from_json_str_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_final_package_corruption_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "stage5d_final_restart_package_rejects_evidence_and_package_corruption",
+        "stage5d_final_restart_package_corruption_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_final_clean_process_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "stage5d_final_clean_process_restart_does_not_reuse_poisoned_source_runtime",
+        "stage5d_final_clean_process_restart_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_final_inventory_missing(root: Path) -> None:
+    (root / "docs/stage-5/stage5d-final-restart-r1-scenario-inventory.json").unlink()
+
+
+def mutate_runtime_restored_final_inventory_duplicate(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage5d-final-restart-r1-scenario-inventory.json",
+        '"case_id": "canonical_package_long_clean_restart"',
+        '"case_id": "canonical_package_flat_clean_restart"',
+    )
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -1202,6 +1254,12 @@ CASES = [
     ("runtime_restored_final_restart_matrix_removed", mutate_runtime_restored_final_restart_matrix_removed, "Stage 5D final canonical restart matrix proof missing"),
     ("runtime_restored_final_post_export_mutation_removed", mutate_runtime_restored_final_post_export_mutation_removed, "Stage 5D final post-export mutation rejection proof missing"),
     ("runtime_restored_final_recovery_index_binding_removed", mutate_runtime_restored_final_recovery_index_binding_removed, "Stage 5D final recovery-index binding proof missing"),
+    ("runtime_restored_final_package_export_removed", mutate_runtime_restored_final_package_export_removed, "Stage 5D final canonical package production surface missing"),
+    ("runtime_restored_final_package_decode_removed", mutate_runtime_restored_final_package_decode_removed, "Stage 5D final package strict decode proof missing"),
+    ("runtime_restored_final_package_corruption_removed", mutate_runtime_restored_final_package_corruption_removed, "Stage 5D final package corruption proof missing"),
+    ("runtime_restored_final_clean_process_removed", mutate_runtime_restored_final_clean_process_removed, "Stage 5D final clean-process poison proof missing"),
+    ("runtime_restored_final_inventory_missing", mutate_runtime_restored_final_inventory_missing, "Stage 5D final restart r1 scenario inventory missing"),
+    ("runtime_restored_final_inventory_duplicate", mutate_runtime_restored_final_inventory_duplicate, "Stage 5D final restart r1 scenario inventory mismatch"),
 ]
 
 

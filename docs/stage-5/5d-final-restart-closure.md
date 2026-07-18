@@ -1,10 +1,11 @@
 # Stage 5D final restart closure
 
-Status: implementation candidate, no-I/O.
+Status: Stage 5D-final-restart-r1 candidate, no-I/O.
 
 This slice closes the Stage 5D restart path from the actual
 `HybridIntradayRuntimeStrategy` source state into a canonical persistence
-envelope and back through the already accepted Stage 5D restore bridges.
+envelope and durable riskgate ledger evidence package, then back through the
+already accepted Stage 5D restore bridges.
 
 The trading boundary remains closed:
 
@@ -15,7 +16,7 @@ The trading boundary remains closed:
 - no runtime-live;
 - no broker execution.
 
-## Added production surface
+## Added crate-private production surface
 
 The new export coordinator is crate-private and source-owned:
 
@@ -36,12 +37,26 @@ It does not serialize raw private runtime internals outside the Stage 5D schema,
 does not repair a positive envelope after export, and does not open any broker
 or transport surface.
 
+Stage 5D-final-restart-r1 adds a crate-private
+`Stage5dCanonicalRestartPackage` boundary. The package carries:
+
+- strict Stage 5D persistence envelope JSON;
+- strict authoritative riskgate ledger evidence JSON;
+- independent section checksums;
+- package-level checksum over committed metadata and both durable sections;
+- source/recovery fingerprints in the redacted export report.
+
+Restart tests decode from the serialized package into a fresh runtime object
+after dropping the source runtime. A dedicated poison test mutates the original
+source object after export, drops it, and proves that fresh restore keeps the
+pre-poison state from the package.
+
 ## Positive restart matrix
 
 The focused final test matrix now covers canonical source export, local durable
-JSON serialization, strict restart decode/checksum validation, loaded-state
-binding, private apply, broker-truth bootstrap, riskgate injection and
-runtime-state-restored callback for:
+package JSON serialization, strict restart decode/checksum validation,
+loaded-state binding, private apply, broker-truth bootstrap, riskgate injection
+and runtime-state-restored callback for:
 
 - clean flat state;
 - open Long state;
@@ -57,9 +72,12 @@ The existing accepted Stage 5D tests remain the parity oracle for:
 
 ## Crash and negative coverage
 
-The final closure adds a direct negative for post-export positive-envelope
-mutation: a semantic mutation after export but before restart is rejected by the
-strict checksum boundary.
+The r1 closure adds direct negatives for:
+
+- post-export positive-envelope mutation;
+- package metadata mutation;
+- riskgate evidence section mutation even when package checksum is recomputed;
+- source runtime poisoning after package export.
 
 The existing Stage 5D gates continue to cover the broader crash/negative matrix:
 
@@ -73,6 +91,16 @@ The existing Stage 5D gates continue to cover the broader crash/negative matrix:
 - broker-truth position/side/protective-order contradictions;
 - non-paper/runtime-host/intent-sink boundary opening;
 - callback attempts before recovery completion.
+
+The machine-readable scenario inventory is:
+
+```text
+docs/stage-5/stage5d-final-restart-r1-scenario-inventory.json
+```
+
+The additive freeze checker validates its stage id, row order, unique case ids,
+closed-surface contract, owning tests and durable package sections for
+source-produced clean restart rows.
 
 ## Review gates
 
