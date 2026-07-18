@@ -17,14 +17,12 @@ Stage 5 is active: the real IMOEXF `HybridIntradayRuntime` semantics are being
 migrated from the frozen ALOR source. The BO/MR/high180/riskgate kernel and the
 integrated broker-neutral runtime wrapper are present. Stage 5C's deterministic
 paper/no-send host is accepted and frozen; Stage 5D is adding a versioned,
-source-exact persistence restore path. The current final Stage 5D restart
-closure candidate adds a crate-private canonical export from the actual runtime
-source state into a strict Stage 5D envelope, then proves local durable
-serialization, restart decode/checksum validation, loaded-state binding,
-runtime-private apply, broker-truth bootstrap, authoritative riskgate injection
-and return to the exact Stage 5C runtime-state-restored capability. Redis,
-FINAM, broker transport, dispatch, runtime-live and real execution remain
-closed.
+source-exact persistence restore path. The Stage 5D-final-restart-r2 durable
+package is retained as foundation, while r3 remains under review closure work:
+the next gate must replace inventory/comment evidence with an executable full
+matrix and resolve a discovered pending-entry restore-shape gap under the
+freeze policy. Redis, FINAM, broker transport, dispatch, runtime-live and real
+execution remain closed.
 
 This repository is not enabled for continuous live trading.
 

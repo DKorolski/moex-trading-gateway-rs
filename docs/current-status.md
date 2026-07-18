@@ -241,6 +241,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only`;
   Redis bridge, FINAM execution, broker transport, runtime-live and autonomous
   loop remain closed.
+- Stage 5D final restart r2 is retained only as the canonical durable-package
+  foundation. Stage 5D-final-restart-r3 remains HOLD / CHANGES REQUIRED until
+  the positive package matrix, crash/checkpoint simulator, negative matrix and
+  golden vectors are executable package-level evidence. Initial r3 work also
+  exposed a source-runtime pending-entry restore-shape gap for MR bracket
+  entries; correcting it requires an explicit freeze-extension micro-stage
+  before claiming final restart closure.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

@@ -1,6 +1,8 @@
 # Stage 5D final restart closure
 
-Status: Stage 5D-final-restart-r2 candidate, no-I/O.
+Status: Stage 5D-final-restart-r2 retained foundation, no-I/O. The follow-up
+Stage 5D-final-restart-r3 review remains HOLD / CHANGES REQUIRED; see
+[5d-final-restart-r3-discovery.md](5d-final-restart-r3-discovery.md).
 
 This slice closes the Stage 5D restart path from the actual
 `HybridIntradayRuntimeStrategy` source state into a canonical persistence
@@ -138,9 +140,9 @@ python3 scripts/stage5d_additive_freeze_negative_harness.py
 bash scripts/stage5d_b2bc_review_gate.sh
 ```
 
-## Next step after acceptance
+## Next step
 
-If this closure is accepted, Stage 5D can be treated as restart-capable for the
-paper/no-send runtime path. The next roadmap item should remain a separate
-Stage 5E integration decision: how and when to attach the restored paper runtime
-to gateway shadow data on VPS without enabling live execution.
+Do not move to Stage 5E from the r2 candidate. The next required work is the
+Stage 5D-final-restart-r3 closure sequence, preceded by the documented
+restore-shape freeze-extension if the MR pending-entry restore gap is accepted
+as a source-runtime correction.
