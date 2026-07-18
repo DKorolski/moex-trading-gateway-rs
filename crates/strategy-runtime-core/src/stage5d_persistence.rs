@@ -4481,6 +4481,10 @@ mod tests {
                 "pending_entry_cycle_id",
                 "pending_entry_request_id",
                 "pending_entry_created_ts_utc",
+                "current_day_high",
+                "current_day_low",
+                "current_day_close",
+                "today_start_local",
                 "risk_gate_shadow_session_date",
                 "risk_gate_shadow_entry_ts_utc",
                 "risk_gate_shadow_entry_price",
@@ -4499,6 +4503,9 @@ mod tests {
             fields.insert("last_day_local".to_string(), Value::Null);
             fields.insert("prev_day_close".to_string(), serde_json::json!(100.0));
             fields.insert("prev_day_range".to_string(), serde_json::json!(4.0));
+            fields.insert("day_before_close".to_string(), Value::Null);
+            fields.insert("was_long_today".to_string(), Value::Bool(false));
+            fields.insert("was_short_today".to_string(), Value::Bool(false));
             fields.insert(
                 "risk_gate_shadow_pnl_points".to_string(),
                 serde_json::json!(0.0),
@@ -4655,6 +4662,468 @@ mod tests {
             expected_restored_state_json,
             "restored transition must preserve exact source-produced current-shadow state"
         );
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Stage5dR3aPendingSourceCase {
+        MrLong,
+        MrShort,
+        BoLong,
+        BoShort,
+    }
+
+    impl Stage5dR3aPendingSourceCase {
+        fn snapshot_id(self) -> &'static str {
+            match self {
+                Self::MrLong => "stage5d-final-r3a-source-mr-long-pending-entry",
+                Self::MrShort => "stage5d-final-r3a-source-mr-short-pending-entry",
+                Self::BoLong => "stage5d-final-r3a-source-bo-long-pending-entry",
+                Self::BoShort => "stage5d-final-r3a-source-bo-short-pending-entry",
+            }
+        }
+
+        fn expected_owner(self) -> Stage5dOwner {
+            match self {
+                Self::MrLong | Self::MrShort => Stage5dOwner::MeanReversion,
+                Self::BoLong | Self::BoShort => Stage5dOwner::IntradayBreakout,
+            }
+        }
+
+        fn expected_side(self) -> Stage5dSide {
+            match self {
+                Self::MrLong | Self::BoLong => Stage5dSide::Long,
+                Self::MrShort | Self::BoShort => Stage5dSide::Short,
+            }
+        }
+
+        fn expected_reason(self) -> Stage5dLifecycleReason {
+            match self {
+                Self::MrLong => Stage5dLifecycleReason::MorningMeanReversionLong,
+                Self::MrShort => Stage5dLifecycleReason::MorningMeanReversionShort,
+                Self::BoLong => Stage5dLifecycleReason::BreakoutLong,
+                Self::BoShort => Stage5dLifecycleReason::BreakoutShort,
+            }
+        }
+
+        fn expected_entry_style(self) -> Stage5dEntryStyle {
+            match self {
+                Self::MrLong | Self::MrShort => Stage5dEntryStyle::Bracket,
+                Self::BoLong | Self::BoShort => Stage5dEntryStyle::Market,
+            }
+        }
+    }
+
+    fn stage5d_test_source_paper_ctx() -> crate::runtime_compat::StrategyCtx {
+        let mut ctx = stage5d_test_source_ctx();
+        ctx.trade_mode = crate::runtime_compat::TradeMode::Paper;
+        ctx.paper_execution_mode = crate::runtime_compat::PaperExecutionMode::HistorySim;
+        ctx.allow_live_orders = false;
+        ctx.gateway_phase = crate::live_guard::GatewayPhase::SyncingHistory;
+        ctx
+    }
+
+    fn stage5d_test_pending_case_empty_strategy(
+        _case: Stage5dR3aPendingSourceCase,
+    ) -> crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy {
+        stage5d_test_riskgate_runtime_strategy()
+    }
+
+    fn stage5d_test_source_pending_entry_strategy(
+        case: Stage5dR3aPendingSourceCase,
+    ) -> crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy {
+        let mut strategy = stage5d_test_pending_case_empty_strategy(case);
+        stage5d_test_seed_riskgate_source_preconditions(&mut strategy);
+        stage5d_test_seed_authoritative_riskgate_materialized_state(&mut strategy);
+        if matches!(
+            case,
+            Stage5dR3aPendingSourceCase::BoLong | Stage5dR3aPendingSourceCase::BoShort
+        ) {
+            stage5d_test_seed_bo_source_preconditions(&mut strategy);
+        }
+        let ctx = stage5d_test_source_paper_ctx();
+        let bars = match case {
+            Stage5dR3aPendingSourceCase::MrLong => vec![stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 10, 0),
+                99.7,
+                102.0,
+                99.7,
+                99.7,
+            )],
+            Stage5dR3aPendingSourceCase::MrShort => vec![stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 10, 0),
+                100.3,
+                100.3,
+                98.0,
+                100.3,
+            )],
+            Stage5dR3aPendingSourceCase::BoLong => vec![stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 12, 0, 0),
+                113.0,
+                116.0,
+                112.0,
+                115.0,
+            )],
+            Stage5dR3aPendingSourceCase::BoShort => vec![stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 12, 0, 0),
+                87.0,
+                88.0,
+                84.0,
+                85.0,
+            )],
+        };
+        let mut last_intents = Vec::new();
+        for bar in bars {
+            last_intents = strategy.on_bar(&ctx, &bar);
+        }
+        assert_eq!(
+            last_intents.len(),
+            1,
+            "{case:?} source callback must produce exactly one paper entry intent"
+        );
+        let exported = strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("source-produced pending entry extension exports");
+        let entry = exported
+            .pending_entry
+            .as_ref()
+            .unwrap_or_else(|| panic!("{case:?} source callback must produce a pending entry"));
+        stage5d_test_assert_pending_entry_shape(case, entry);
+        assert_eq!(
+            entry.request_id,
+            *match Strategy::state(&strategy) {
+                StrategyState::HybridIntradayRuntime {
+                    pending_entry_request_id,
+                    ..
+                } => pending_entry_request_id,
+                StrategyState::Idle => panic!("source pending strategy must not be idle"),
+            },
+            "{case:?} semantic and private pending request ids must match at source"
+        );
+        strategy
+    }
+
+    fn stage5d_test_seed_bo_source_preconditions(
+        strategy: &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    ) {
+        let mut state = serde_json::to_value(Strategy::state(strategy))
+            .expect("source BO seed state serializes");
+        if let Value::Object(fields) = &mut state["HybridIntradayRuntime"] {
+            fields.insert(
+                "last_day_local".to_string(),
+                Value::String("2026-01-06".to_string()),
+            );
+            fields.insert("current_day_high".to_string(), serde_json::json!(101.0));
+            fields.insert("current_day_low".to_string(), serde_json::json!(99.0));
+            fields.insert("current_day_close".to_string(), serde_json::json!(100.0));
+            fields.insert(
+                "today_start_local".to_string(),
+                Value::String("2026-01-06T09:00:00".to_string()),
+            );
+            fields.insert("prev_day_close".to_string(), serde_json::json!(100.0));
+            fields.insert("prev_day_range".to_string(), serde_json::json!(20.0));
+            fields.insert("prev_day_return".to_string(), Value::Null);
+            fields.insert("day_before_close".to_string(), serde_json::json!(100.0));
+        }
+        Strategy::set_state(
+            strategy,
+            serde_json::from_value(state).expect("source BO seed state deserializes"),
+        );
+    }
+
+    fn stage5d_test_seed_authoritative_riskgate_materialized_state(
+        strategy: &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    ) {
+        let mut envelope = flat_persisted_fixture();
+        envelope.binding.strategy_id = "stage5d-final-r3a-source-pending".to_string();
+        bind_fixture_to_strategy_config(&mut envelope, strategy);
+        let identity = stage5d_test_riskgate_identity_for(strategy, &envelope);
+        let evidence =
+            stage5d_test_riskgate_evidence_before_source_pending(&identity, &envelope, None);
+        let source_records =
+            stage5d_source_riskgate_records_from_evidence(&evidence).expect("source records");
+        let materialized = crate::hybrid_intraday::rebuild_materialized_state_from_ledger_records(
+            &source_records,
+            None,
+            0.0,
+            evidence.seed_loaded,
+        )
+        .expect("source materialized riskgate");
+        strategy.on_risk_gate_state(&RiskGateRuntimeState {
+            profile_id: identity.profile_id,
+            last_finalized_session_date: materialized.last_finalized_session_date,
+            rolling_sum_lb120: materialized.rolling_sum_lb120,
+            mr_enabled_current_session: materialized.mr_enabled_current_session,
+            mr_enabled_next_session: materialized.mr_enabled_next_session,
+            ledger_rows_count: materialized.ledger_rows_count,
+        });
+    }
+
+    fn stage5d_test_assert_pending_entry_shape(
+        case: Stage5dR3aPendingSourceCase,
+        entry: &Stage5dPendingEntryExtension,
+    ) {
+        assert_eq!(entry.owner, case.expected_owner(), "{case:?}: owner");
+        assert_eq!(entry.side, case.expected_side(), "{case:?}: side");
+        assert_eq!(entry.reason, case.expected_reason(), "{case:?}: reason");
+        assert_eq!(
+            entry.entry_style,
+            case.expected_entry_style(),
+            "{case:?}: entry style"
+        );
+        match case.expected_owner() {
+            Stage5dOwner::MeanReversion => {
+                assert!(
+                    entry.stop_price.is_some() && entry.take_price.is_some(),
+                    "{case:?}: MR bracket must carry stop/take"
+                );
+            }
+            Stage5dOwner::IntradayBreakout => {
+                assert!(
+                    entry.stop_price.is_none() && entry.take_price.is_none(),
+                    "{case:?}: BO market entry must not carry stop/take"
+                );
+            }
+        }
+    }
+
+    fn stage5d_test_r3a_input_and_evidence_for_source(
+        source_strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        snapshot_id: &str,
+    ) -> (
+        Stage5dCanonicalEnvelopeExportInput,
+        Stage5dRiskGateLedgerEvidence,
+    ) {
+        let source_state_json = serde_json::to_value(Strategy::state(source_strategy))
+            .expect("source state serializes");
+        let source_extension = source_strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("source private extension exports");
+        let mut envelope = flat_persisted_fixture();
+        envelope.snapshot_id = snapshot_id.to_string();
+        envelope.binding.strategy_id = "stage5d-final-r3a-source-pending".to_string();
+        envelope.strategy_state.strategy_state_json = source_state_json;
+        envelope.runtime_private_extension = source_extension;
+        let identity = stage5d_test_riskgate_identity_for(source_strategy, &envelope);
+        let source_shadow_session = envelope.strategy_state.strategy_state_json
+            ["HybridIntradayRuntime"]["risk_gate_shadow_session_date"]
+            .as_str()
+            .map(str::to_string);
+        let source_pnl_points = envelope.strategy_state.strategy_state_json
+            ["HybridIntradayRuntime"]["risk_gate_shadow_pnl_points"]
+            .as_f64()
+            .unwrap_or(0.0);
+        let mut evidence = stage5d_test_riskgate_evidence_before_source_pending(
+            &identity,
+            &envelope,
+            source_shadow_session.as_deref(),
+        );
+        evidence.current_shadow_pnl_points =
+            crate::hybrid_intraday::format_riskgate_authority_decimal(source_pnl_points)
+                .expect("source shadow pnl must be authority-canonical");
+        evidence.ledger_tail_hash =
+            stage5d_compute_riskgate_ledger_tail_hash(&evidence).expect("source ledger tail hash");
+        stage5d_apply_riskgate_evidence_to_envelope(&mut envelope, &evidence);
+        bind_fixture_to_strategy_config(&mut envelope, source_strategy);
+        envelope.riskgate.ledger_tail_hash = evidence.ledger_tail_hash.clone();
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("source pending checksum");
+        stage5d_test_normalize_persisted_checksum(&mut envelope);
+        let input = Stage5dCanonicalEnvelopeExportInput {
+            snapshot_id: envelope.snapshot_id.clone(),
+            snapshot_revision: envelope.snapshot_revision,
+            previous_revision: envelope.previous_revision,
+            write_generation: envelope.write_generation,
+            persisted_at_ts_utc: envelope.persisted_at_ts_utc,
+            strategy_id: envelope.binding.strategy_id.clone(),
+            account_id: envelope.binding.account_id.clone(),
+            instrument_id: envelope.binding.instrument_id.to_instrument_id(),
+            source_commit_or_build_id: STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID.to_string(),
+            lifecycle_watermarks: envelope.lifecycle_watermarks.clone(),
+            riskgate: envelope.riskgate.clone(),
+        };
+        (input, evidence)
+    }
+
+    fn stage5d_test_r3a_source_pending_full_restart(
+        case: Stage5dR3aPendingSourceCase,
+    ) -> Stage5dFinalR2PackageOutcome {
+        let source_strategy = stage5d_test_source_pending_entry_strategy(case);
+        let source_state =
+            serde_json::to_value(Strategy::state(&source_strategy)).expect("source state");
+        let source_semantic_fingerprint =
+            crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(&source_state)
+                .expect("source semantic fingerprint");
+        let source_extension = source_strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("source private extension exports");
+        let source_entry = source_extension
+            .pending_entry
+            .as_ref()
+            .expect("source pending entry")
+            .clone();
+        stage5d_test_assert_pending_entry_shape(case, &source_entry);
+        let (input, evidence) =
+            stage5d_test_r3a_input_and_evidence_for_source(&source_strategy, case.snapshot_id());
+        let (package, report) = stage5d_export_canonical_restart_package_from_runtime(
+            &source_strategy,
+            input,
+            evidence,
+        )
+        .expect("r3a source-owned pending package export must succeed");
+        assert!(!report.redis_opened);
+        assert!(!report.finam_opened);
+        assert!(!report.dispatch_opened);
+        assert!(!report.runtime_live_opened);
+        let package_json = package
+            .to_json_strict()
+            .expect("r3a source pending package serializes");
+        drop(source_extension);
+        drop(source_strategy);
+
+        let decoded = Stage5dCanonicalRestartPackage::from_json_str_strict(&package_json)
+            .expect("r3a source pending package decodes strictly");
+        assert_eq!(
+            decoded.envelope.strategy_state.strategy_state_json, source_state,
+            "{case:?}: package must contain exact source semantic state"
+        );
+        let mut fresh_strategy = stage5d_test_pending_case_empty_strategy(case);
+        restore_semantic_state(&mut fresh_strategy, &decoded.envelope);
+        let interim_extension = fresh_strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("interim placeholder extension exports");
+        assert_ne!(
+            interim_extension.pending_entry.as_ref(),
+            Some(&source_entry),
+            "{case:?}: raw semantic set_state placeholder must not be treated as final restored shape"
+        );
+
+        let validated_evidence = decoded.validated_evidence;
+        let strict_envelope = decoded.envelope;
+        let position_qty = match &strict_envelope.strategy_state.strategy_state_json {
+            Value::Object(root) => root
+                .get("HybridIntradayRuntime")
+                .and_then(|state| state.get("last_position_qty"))
+                .and_then(|qty| qty.as_f64())
+                .unwrap_or_default(),
+            _ => 0.0,
+        };
+        let admission = stage5d_test_admission_for_envelope(&strict_envelope, position_qty);
+        let restored_indexes = crate::runtime_compat::RuntimeStateRestored {
+            known_order_ids: strict_envelope.recovery_indexes.known_order_ids.clone(),
+            pending_requests: strict_envelope.recovery_indexes.pending_requests.clone(),
+        };
+        let loaded = crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
+            fresh_strategy,
+            admission,
+            restored_indexes,
+            load_origin_for_envelope(&strict_envelope),
+        );
+        let validated = strict_envelope
+            .clone()
+            .validate_restore_contract_schema_only()
+            .expect("r3a source pending strict envelope remains valid");
+        let bound = expect_stage5d_ok(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "r3a source pending loaded state must bind",
+        );
+        let applied = expect_stage5d_ok(
+            stage5d_apply_runtime_private_extension(bound),
+            "r3a source pending private extension must apply",
+        );
+        let bootstrapped = expect_stage5d_bootstrap_ok(
+            stage5d_notify_broker_truth_bootstrap_at(applied, strict_envelope.persisted_at_ts_utc),
+            "r3a source pending broker bootstrap must succeed",
+        );
+        let post_apply_extension = bootstrapped
+            .bootstrapped
+            .stage5d_strategy()
+            .stage5d_export_runtime_private_extension()
+            .expect("post-apply extension exports before restored callback");
+        assert_eq!(
+            post_apply_extension.pending_entry.as_ref(),
+            Some(&source_entry),
+            "{case:?}: private apply must restore exact pending shape before restored callback"
+        );
+        let injected = expect_stage5d_riskgate_ok(
+            stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
+            &format!("{case:?}: r3a source pending riskgate injection must succeed"),
+        );
+        assert!(injected.recovery_complete());
+        let recovery_plan_fingerprint = injected.recovery_plan_fingerprint().to_string();
+        let restored = stage5d_test_assert_injected_restores_indexes_once(
+            injected,
+            &strict_envelope.recovery_indexes.known_order_ids,
+            &strict_envelope.recovery_indexes.pending_requests,
+            "r3a source pending restored callback must run exactly once",
+        );
+        let restored_extension = restored
+            .stage5d_strategy()
+            .stage5d_export_runtime_private_extension()
+            .expect("restored extension exports");
+        assert!(
+            restored_extension.pending_entry.is_none(),
+            "{case:?}: existing boot-stale policy clears flat/no-working-order pending tail during restored callback"
+        );
+        assert_eq!(
+            crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(
+                &strict_envelope.strategy_state.strategy_state_json,
+            )
+            .expect("package semantic fingerprint"),
+            source_semantic_fingerprint,
+            "{case:?}: source/package semantic fingerprints must match before restored callback"
+        );
+        let restored_receipt_summary = format!(
+            "runtime_state_restored={};warmup_started={};pending_recovery_started={};semantic_bar_enabled={};known_orders={};pending_requests={}",
+            restored.receipt().runtime_state_restored(),
+            restored.receipt().warmup_started(),
+            restored.receipt().pending_recovery_started(),
+            restored.receipt().semantic_bar_enabled(),
+            restored.receipt().stage5d_test_known_order_ids().len(),
+            restored.receipt().pending_requests().len(),
+        );
+        let history = stage5d_test_history_batch_for_final_package(&strict_envelope);
+        let warmed = crate::stage5c_paper_host::stage5d_test_warmup_stage5c_history_at(
+            restored,
+            history,
+            strict_envelope.persisted_at_ts_utc + chrono::Duration::seconds(1),
+        )
+        .expect("r3a source pending Stage 5C continuation must succeed");
+        assert!(warmed.receipt().warmup_started());
+        assert!(!warmed.receipt().pending_recovery_started());
+        assert!(!warmed.receipt().semantic_bar_enabled());
+        let mut report = report;
+        report.recovery_plan_fingerprint_sha256 = Some(recovery_plan_fingerprint.clone());
+        Stage5dFinalR2PackageOutcome {
+            package_json,
+            package_checksum_sha256: report
+                .package_checksum_sha256
+                .clone()
+                .expect("package checksum"),
+            envelope_checksum_sha256: report.payload_checksum_sha256.clone(),
+            evidence_checksum_sha256: report
+                .riskgate_evidence_checksum_sha256
+                .clone()
+                .expect("evidence checksum"),
+            evidence_fingerprint_sha256: report
+                .riskgate_evidence_fingerprint_sha256
+                .clone()
+                .expect("evidence fingerprint"),
+            semantic_fingerprint_sha256: report.semantic_payload_fingerprint.clone(),
+            recovery_index_fingerprint_sha256: report.recovery_index_fingerprint.clone(),
+            recovery_plan_fingerprint_sha256: recovery_plan_fingerprint,
+            restored_receipt_summary,
+            redacted_restart_report: report,
+            warmed_processed_bars: warmed.receipt().processed_bars(),
+            runtime_pending_finalizations_count: strict_envelope
+                .runtime_private_extension
+                .runtime_pending_finalizations
+                .len(),
+            durable_finalization_outbox_count: strict_envelope
+                .riskgate
+                .durable_finalization_outbox
+                .len(),
+        }
     }
 
     fn restore_semantic_state(
@@ -12112,6 +12581,138 @@ mod tests {
         // current_shadow_long, current_shadow_short and current_shadow_realized_pnl
         // are produced through actual source runtime on_bar callbacks before
         // Stage 5D package/restart compatibility is checked by the final inventory.
+    }
+
+    #[test]
+    fn stage5d_final_r3a_source_pending_entry_full_restart_matrix() {
+        for case in [
+            Stage5dR3aPendingSourceCase::MrLong,
+            Stage5dR3aPendingSourceCase::MrShort,
+            Stage5dR3aPendingSourceCase::BoLong,
+            Stage5dR3aPendingSourceCase::BoShort,
+        ] {
+            let outcome = stage5d_test_r3a_source_pending_full_restart(case);
+            assert_eq!(
+                outcome.warmed_processed_bars, 1,
+                "{case:?}: Stage 5C continuation must run after restored callback"
+            );
+            assert!(
+                outcome
+                    .restored_receipt_summary
+                    .contains("runtime_state_restored=true"),
+                "{case:?}: restored callback must be reflected in receipt"
+            );
+            assert!(
+                outcome
+                    .restored_receipt_summary
+                    .contains("pending_requests=1"),
+                "{case:?}: pending request index must survive restart"
+            );
+            assert!(!outcome.semantic_fingerprint_sha256.is_empty());
+            assert!(!outcome.recovery_index_fingerprint_sha256.is_empty());
+            assert!(!outcome.recovery_plan_fingerprint_sha256.is_empty());
+            assert!(!outcome.redacted_restart_report.redis_opened);
+            assert!(!outcome.redacted_restart_report.finam_opened);
+            assert!(!outcome.redacted_restart_report.dispatch_opened);
+            assert!(!outcome.redacted_restart_report.runtime_live_opened);
+        }
+    }
+
+    fn stage5d_test_r3a_mutated_package_json(
+        case: Stage5dR3aPendingSourceCase,
+        mutator: impl FnOnce(&mut Stage5dPersistenceEnvelope),
+    ) -> String {
+        let source_strategy = stage5d_test_source_pending_entry_strategy(case);
+        let (input, evidence) =
+            stage5d_test_r3a_input_and_evidence_for_source(&source_strategy, case.snapshot_id());
+        let (mut package, _report) = stage5d_export_canonical_restart_package_from_runtime(
+            &source_strategy,
+            input,
+            evidence,
+        )
+        .expect("r3a source pending package export");
+        let mut envelope = Stage5dPersistenceEnvelope::from_json_str_strict(&package.envelope_json)
+            .expect("source package envelope decodes before mutation");
+        mutator(&mut envelope);
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("mutated envelope checksum recomputes");
+        package.envelope_json =
+            serde_json::to_string(&envelope).expect("mutated envelope serializes");
+        package.envelope_sha256 = sha256_text(&package.envelope_json);
+        package.package_checksum_sha256 = package
+            .compute_package_checksum_sha256()
+            .expect("mutated package checksum recomputes");
+        serde_json::to_string(&package).expect("mutated package serializes")
+    }
+
+    fn stage5d_test_r3a_decode_then_apply_mutated_package(
+        case: Stage5dR3aPendingSourceCase,
+        mutator: impl FnOnce(&mut Stage5dPersistenceEnvelope),
+    ) -> Result<(), Stage5dEnvelopeValidationError> {
+        let package_json = stage5d_test_r3a_mutated_package_json(case, mutator);
+        let decoded = Stage5dCanonicalRestartPackage::from_json_str_strict(&package_json)?;
+        let mut fresh_strategy = stage5d_test_pending_case_empty_strategy(case);
+        restore_semantic_state(&mut fresh_strategy, &decoded.envelope);
+        let position_qty = match &decoded.envelope.strategy_state.strategy_state_json {
+            Value::Object(root) => root
+                .get("HybridIntradayRuntime")
+                .and_then(|state| state.get("last_position_qty"))
+                .and_then(|qty| qty.as_f64())
+                .unwrap_or_default(),
+            _ => 0.0,
+        };
+        let admission = stage5d_test_admission_for_envelope(&decoded.envelope, position_qty);
+        let restored_indexes = crate::runtime_compat::RuntimeStateRestored {
+            known_order_ids: decoded.envelope.recovery_indexes.known_order_ids.clone(),
+            pending_requests: decoded.envelope.recovery_indexes.pending_requests.clone(),
+        };
+        let loaded = crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
+            fresh_strategy,
+            admission,
+            restored_indexes,
+            load_origin_for_envelope(&decoded.envelope),
+        );
+        let validated = decoded.envelope.validate_restore_contract_schema_only()?;
+        let bound = stage5d_bind_runtime_state_loaded(loaded, validated)
+            .map_err(|_| Stage5dEnvelopeValidationError::BindingMismatch)?;
+        stage5d_apply_runtime_private_extension(bound)
+            .map(|_| ())
+            .map_err(|blocked| blocked.reason)
+    }
+
+    #[test]
+    fn stage5d_final_r3a_source_pending_package_negatives_fail_closed() {
+        assert_eq!(
+            stage5d_test_r3a_decode_then_apply_mutated_package(
+                Stage5dR3aPendingSourceCase::MrLong,
+                |envelope| {
+                    envelope
+                        .runtime_private_extension
+                        .pending_entry
+                        .as_mut()
+                        .expect("pending entry")
+                        .take_price = None;
+                },
+            ),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent),
+            "incomplete MR stop/take must fail closed after canonical package decode"
+        );
+        assert_eq!(
+            stage5d_test_r3a_decode_then_apply_mutated_package(
+                Stage5dR3aPendingSourceCase::MrShort,
+                |envelope| {
+                    envelope
+                        .runtime_private_extension
+                        .pending_entry
+                        .as_mut()
+                        .expect("pending entry")
+                        .reason = Stage5dLifecycleReason::MorningMeanReversionLong;
+                },
+            ),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent),
+            "owner/side/reason mismatch must fail closed after canonical package decode"
+        );
     }
 
     #[test]

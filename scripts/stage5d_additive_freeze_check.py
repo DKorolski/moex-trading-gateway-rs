@@ -96,7 +96,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "0ce0a7358e5b5afad71edde367e162e7cf71bc44918fc78a787430e6a5483272",
+        "stage5d_consumer_sha256": "c11c90be5125e4c7e387c19ee796530a2ba3380add225aa1e9f4393092e2e074",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -110,7 +110,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "0ce0a7358e5b5afad71edde367e162e7cf71bc44918fc78a787430e6a5483272",
+        "stage5d_consumer_sha256": "c11c90be5125e4c7e387c19ee796530a2ba3380add225aa1e9f4393092e2e074",
     },
 ]
 
@@ -257,7 +257,8 @@ EXPECTED_NEGATIVE_CASES = [
     "runtime_restored_final_r2_package_full_validation_removed",
 ]
 
-EXPECTED_STAGE = "5D-final-restart-r2"
+EXPECTED_STAGE = "5D-final-restart-r3a"
+EXPECTED_FINAL_RESTART_INVENTORY_STAGE = "5D-final-restart-r2"
 
 EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
     "positive_clean_flat",
@@ -1091,7 +1092,7 @@ def validate_stage5d_final_restart_inventory(
 
     if inventory.get("schema_version") != 1:
         failures.append("Stage 5D final restart r1 scenario inventory schema mismatch")
-    if inventory.get("stage") != EXPECTED_STAGE:
+    if inventory.get("stage") != EXPECTED_FINAL_RESTART_INVENTORY_STAGE:
         failures.append("Stage 5D final restart r1 scenario inventory stage mismatch")
     if inventory.get("closed_surfaces") != EXPECTED_CLOSED_SURFACES:
         failures.append("Stage 5D final restart r1 scenario inventory closed-surface mismatch")
@@ -1347,6 +1348,14 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
             "r2 Stage 5C history warmup continuation must succeed",
         "Stage 5D final r2 full package validation proof missing":
             "self.validate_full_contract()?;",
+        "Stage 5D final r3a source-pending full restart proof missing":
+            "stage5d_final_r3a_source_pending_entry_full_restart_matrix",
+        "Stage 5D final r3a source-pending negative proof missing":
+            "stage5d_final_r3a_source_pending_package_negatives_fail_closed",
+        "Stage 5D final r3a exact private apply before restored callback proof missing":
+            "private apply must restore exact pending shape before restored callback",
+        "Stage 5D final r3a source correction not required proof missing":
+            "raw semantic set_state placeholder must not be treated as final restored shape",
     }.items():
         if token not in stage5d_source:
             failures.append(message)

@@ -1,8 +1,10 @@
 # Stage 5D final restart closure
 
-Status: Stage 5D-final-restart-r2 retained foundation, no-I/O. The follow-up
-Stage 5D-final-restart-r3 review remains HOLD / CHANGES REQUIRED; see
-[5d-final-restart-r3-discovery.md](5d-final-restart-r3-discovery.md).
+Status: Stage 5D-final-restart-r2 retained foundation plus
+Stage 5D-final-restart-r3a restore-ownership review candidate, no-I/O. The full
+r3 closure remains HOLD / CHANGES REQUIRED; see
+[5d-final-restart-r3-discovery.md](5d-final-restart-r3-discovery.md) and
+[5d-final-restart-r3a-review-gate-summary.md](5d-final-restart-r3a-review-gate-summary.md).
 
 This slice closes the Stage 5D restart path from the actual
 `HybridIntradayRuntimeStrategy` source state into a canonical persistence
@@ -142,7 +144,7 @@ bash scripts/stage5d_b2bc_review_gate.sh
 
 ## Next step
 
-Do not move to Stage 5E from the r2 candidate. The next required work is the
-Stage 5D-final-restart-r3 closure sequence, preceded by the documented
-restore-shape freeze-extension if the MR pending-entry restore gap is accepted
-as a source-runtime correction.
+Do not move to Stage 5E from the r2/r3a candidate. The next required work is the
+Stage 5D-final-restart-r3 closure sequence: full executable positive matrix,
+real crash/checkpoint simulator, package-negative matrix and pinned golden
+vectors.

@@ -244,10 +244,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 5D final restart r2 is retained only as the canonical durable-package
   foundation. Stage 5D-final-restart-r3 remains HOLD / CHANGES REQUIRED until
   the positive package matrix, crash/checkpoint simulator, negative matrix and
-  golden vectors are executable package-level evidence. Initial r3 work also
-  exposed a source-runtime pending-entry restore-shape gap for MR bracket
-  entries; correcting it requires an explicit freeze-extension micro-stage
-  before claiming final restart closure.
+  golden vectors are executable package-level evidence. Stage 5D-final-restart-r3a
+  adds a focused source-produced MR/BO pending-entry package restart matrix and
+  shows that exact pending shape is restored by runtime-private apply before the
+  restored callback; no `set_state()` source correction is currently required.
+  The existing restored-callback boot-stale cleanup for flat/no-working-order
+  pending tails remains documented for the later full r3 matrix.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
