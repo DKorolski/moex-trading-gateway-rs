@@ -145,18 +145,13 @@ impl Stage5cBootstrappedPaperStrategy {
     }
 
     #[cfg(test)]
-    pub(crate) fn stage5d_test_set_admission_target_position_qty(
-        &mut self,
-        target_position_qty: rust_decimal::Decimal,
-    ) {
-        self.receipt
-            .admission
-            .stage5d_test_set_target_position_qty(target_position_qty);
+    pub(crate) fn stage5d_test_mark_runtime_host_attached(&mut self) {
+        self.receipt.admission.runtime_host_attached = true;
     }
 
     #[cfg(test)]
-    pub(crate) fn stage5d_test_mark_runtime_host_attached(&mut self) {
-        self.receipt.admission.runtime_host_attached = true;
+    pub(crate) fn stage5d_test_mark_intent_sink_attached(&mut self) {
+        self.receipt.admission.intent_sink_attached = true;
     }
 }
 
@@ -198,7 +193,7 @@ pub(crate) fn stage5d_test_notify_runtime_state_restored_bridge_with_state_overr
     stage5d_notify_runtime_state_restored_bridge_impl_at(
         bootstrapped,
         restored_ts,
-        Stage5dRuntimeRestoredBridgeTestHook::OverrideStateAfterCallback(state),
+        Stage5dRuntimeRestoredBridgeTestHook::OverrideStateAfterCallback(Box::new(state)),
     )
 }
 
@@ -207,7 +202,7 @@ enum Stage5dRuntimeRestoredBridgeTestHook {
     #[cfg(test)]
     ForceIntent,
     #[cfg(test)]
-    OverrideStateAfterCallback(StrategyState),
+    OverrideStateAfterCallback(Box<StrategyState>),
 }
 
 fn stage5d_notify_runtime_state_restored_bridge_impl_at(
@@ -263,7 +258,7 @@ fn stage5d_notify_runtime_state_restored_bridge_impl_at(
     debug_assert!(intents.is_empty());
     #[cfg(test)]
     if let Stage5dRuntimeRestoredBridgeTestHook::OverrideStateAfterCallback(state) = _test_hook {
-        Strategy::set_state(&mut strategy, state);
+        Strategy::set_state(&mut strategy, *state);
     }
     validate_post_bootstrap_broker_truth(&strategy, admission)
         .map_err(Stage5dRuntimeStateRestoredBridgeError::Stage5c)?;
@@ -452,12 +447,12 @@ impl Stage5cPaperHostAdmission {
         self
     }
 
-    pub(crate) fn stage5d_test_set_target_position_qty(
-        &mut self,
-        target_position_qty: rust_decimal::Decimal,
-    ) {
-        self.bootstrap_snapshot.target_position_qty = target_position_qty;
-        self.bootstrap_snapshot.target_is_flat = target_position_qty == rust_decimal::Decimal::ZERO;
+    pub(crate) fn stage5d_test_with_target_open_positions(
+        mut self,
+        target_open_positions: Vec<broker_core::BrokerPositionSnapshot>,
+    ) -> Self {
+        self.bootstrap_snapshot.target_open_positions = target_open_positions;
+        self
     }
 }
 

@@ -155,6 +155,57 @@ impl Stage5dBootstrappedPaperStrategy {
 /// ```compile_fail
 /// use strategy_runtime_core::stage5d_persistence::Stage5dRiskGateRecoveryPlanDecision;
 /// ```
+///
+/// The injected capability cannot be constructed or unpacked externally because
+/// all fields are private.
+///
+/// ```compile_fail
+/// use strategy_runtime_core::stage5d_persistence::Stage5dRiskGateInjectedPaperStrategy;
+/// let forged = Stage5dRiskGateInjectedPaperStrategy {};
+/// ```
+///
+/// The transition consumes the injected input, so a second call cannot reuse the
+/// moved value.
+///
+/// ```compile_fail
+/// use strategy_runtime_core::stage5d_persistence::stage5d_notify_runtime_state_restored;
+/// # fn demo(injected: strategy_runtime_core::stage5d_persistence::Stage5dRiskGateInjectedPaperStrategy) {
+/// let _first = stage5d_notify_runtime_state_restored(injected);
+/// let _second = stage5d_notify_runtime_state_restored(injected);
+/// # }
+/// ```
+///
+/// A successful Stage 5C restored output cannot be converted back into a Stage
+/// 5D injected capability.
+///
+/// ```compile_fail
+/// # fn demo(restored: strategy_runtime_core::stage5c_paper_host::Stage5cRuntimeStateRestoredPaperStrategy) {
+/// let _: strategy_runtime_core::stage5d_persistence::Stage5dRiskGateInjectedPaperStrategy = restored;
+/// # }
+/// ```
+///
+/// Blocked and terminal outcomes are not interchangeable.
+///
+/// ```compile_fail
+/// # fn demo(outcome: strategy_runtime_core::stage5d_persistence::Stage5dRuntimeStateRestoreOutcome) {
+/// let strategy_runtime_core::stage5d_persistence::Stage5dRuntimeStateRestoreOutcome::Blocked(_blocked) = outcome else {
+///     return;
+/// };
+/// let strategy_runtime_core::stage5d_persistence::Stage5dRuntimeStateRestoreOutcome::Terminal(_terminal) = outcome else {
+///     return;
+/// };
+/// # }
+/// ```
+///
+/// Private preflight and test hooks cannot be imported externally.
+///
+/// ```compile_fail
+/// use strategy_runtime_core::stage5d_persistence::validate_stage5d_runtime_state_restored_preflight;
+/// ```
+///
+/// ```compile_fail
+/// use strategy_runtime_core::stage5d_persistence::stage5d_test_notify_runtime_state_restored_with_state_override_at;
+/// ```
 pub struct Stage5dRiskGateInjectedPaperStrategy {
     bootstrapped: crate::stage5c_paper_host::Stage5cBootstrappedPaperStrategy,
     envelope: Stage5dPersistenceEnvelope,
@@ -269,6 +320,11 @@ impl Stage5dRuntimeStateRestoreBlocked {
                 Stage5dRuntimeStateRestoreRecoveryDisposition::RestartFromDurableEnvelope
             }
         }
+    }
+
+    #[cfg(test)]
+    fn stage5d_test_strategy_state_fingerprint(&self) -> String {
+        stage5d_test_strategy_state_fingerprint(self.injected.bootstrapped.stage5d_strategy())
     }
 }
 
@@ -957,6 +1013,16 @@ fn validate_stage5d_runtime_restore_broker_truth(
         return Err(Stage5dRuntimeStateRestoreBlockedReason::BrokerOwnedProtectiveId);
     }
     Ok(())
+}
+
+#[cfg(test)]
+fn stage5d_test_strategy_state_fingerprint(
+    strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+) -> String {
+    let state = serde_json::to_value(crate::runtime_compat::Strategy::state(strategy))
+        .expect("test strategy state serializes");
+    crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(&state)
+        .expect("test strategy state fingerprints")
 }
 
 fn stage5d_retry_broker_truth_bootstrap_at(
@@ -4086,6 +4152,7 @@ mod tests {
                 expected_side
             );
         }
+        let expected_restored_state_json = envelope.strategy_state.strategy_state_json.clone();
 
         let (bootstrapped, _strict_envelope, evidence) =
             stage5d_test_bootstrap_strict_envelope_with_strategy(
@@ -4098,6 +4165,16 @@ mod tests {
             "source-produced current-shadow state must pass full Stage 5D path",
         );
         assert!(injected.recovery_complete());
+        let restored = stage5d_test_assert_injected_restores_once(
+            injected,
+            "source-produced current-shadow state must reach restored transition",
+        );
+        assert_eq!(
+            serde_json::to_value(Strategy::state(restored.stage5d_strategy()))
+                .expect("restored source state serializes"),
+            expected_restored_state_json,
+            "restored transition must preserve exact source-produced current-shadow state"
+        );
     }
 
     fn restore_semantic_state(
@@ -4133,6 +4210,36 @@ mod tests {
         envelope.payload_checksum_sha256 = envelope
             .compute_payload_checksum_sha256()
             .expect("checksum recomputation must succeed");
+    }
+
+    fn stage5d_test_admission_for_envelope(
+        envelope: &Stage5dPersistenceEnvelope,
+        position_qty: f64,
+    ) -> crate::stage5c_paper_host::Stage5cPaperHostAdmission {
+        let position_qty_decimal =
+            Decimal::from_f64_retain(position_qty).expect("test position qty must convert");
+        let admission = crate::stage5c_paper_host::Stage5cPaperHostAdmission::stage5d_test_new(
+            envelope.binding.strategy_id.clone(),
+            envelope.binding.account_id.clone(),
+            envelope.binding.instrument_id.to_instrument_id(),
+            0.5,
+            position_qty_decimal,
+            envelope.persisted_at_ts_utc,
+        );
+        if position_qty_decimal == Decimal::ZERO {
+            return admission;
+        }
+        admission.stage5d_test_with_target_open_positions(vec![
+            broker_core::BrokerPositionSnapshot {
+                account_id: envelope.binding.account_id.clone(),
+                instrument: envelope.binding.instrument_id.to_instrument_id(),
+                qty: position_qty_decimal,
+                avg_price: Some(Decimal::new(222_750, 2)),
+                unrealized_pnl: None,
+                source_ts: Some(envelope.persisted_at_ts_utc),
+                received_ts: envelope.persisted_at_ts_utc,
+            },
+        ])
     }
 
     fn stage5d_test_normalize_persisted_checksum(envelope: &mut Stage5dPersistenceEnvelope) {
@@ -4302,14 +4409,7 @@ mod tests {
                 .unwrap_or_default(),
             _ => 0.0,
         };
-        let admission = crate::stage5c_paper_host::Stage5cPaperHostAdmission::stage5d_test_new(
-            envelope.binding.strategy_id.clone(),
-            envelope.binding.account_id.clone(),
-            envelope.binding.instrument_id.to_instrument_id(),
-            0.5,
-            Decimal::from_f64_retain(position_qty).expect("test position qty must convert"),
-            envelope.persisted_at_ts_utc,
-        );
+        let admission = stage5d_test_admission_for_envelope(&envelope, position_qty);
         let restored = crate::runtime_compat::RuntimeStateRestored {
             known_order_ids: envelope.recovery_indexes.known_order_ids.clone(),
             pending_requests: envelope.recovery_indexes.pending_requests.clone(),
@@ -4444,6 +4544,21 @@ mod tests {
         assert!(!restored.receipt().intent_sink_attached());
     }
 
+    fn stage5d_test_assert_injected_restores_once(
+        injected: Stage5dRiskGateInjectedPaperStrategy,
+        label: &str,
+    ) -> crate::stage5c_paper_host::Stage5cRuntimeStateRestoredPaperStrategy {
+        let restored_at = injected.envelope.persisted_at_ts_utc;
+        stage5d_test_reset_restored_callback_count();
+        let restored = expect_stage5d_restore_ok(
+            stage5d_notify_runtime_state_restored_at(injected, restored_at),
+            label,
+        );
+        assert_eq!(stage5d_test_restored_callback_count(), 1, "{label}");
+        stage5d_test_assert_restored_success_baseline(&restored);
+        restored
+    }
+
     fn stage5d_test_complete_injected_fixture() -> Stage5dRiskGateInjectedPaperStrategy {
         stage5d_test_complete_injected_fixture_with_position_and_bootstrap_delay(
             0.0,
@@ -4481,35 +4596,6 @@ mod tests {
             injected.recovery_complete(),
             "complete fixture must be ready for restored callback"
         );
-        injected
-    }
-
-    fn stage5d_test_complete_injected_fixture_with_broker_consistent_position(
-        qty: f64,
-        side: crate::hybrid_intraday::Side,
-    ) -> Stage5dRiskGateInjectedPaperStrategy {
-        let mut injected = stage5d_test_complete_injected_fixture();
-        injected
-            .bootstrapped
-            .stage5d_test_set_admission_target_position_qty(
-                Decimal::from_f64_retain(qty).expect("test qty"),
-            );
-        let mut state = Strategy::state(injected.bootstrapped.stage5d_strategy()).clone();
-        let StrategyState::HybridIntradayRuntime {
-            last_position_qty,
-            current_side,
-            active_cycle_id,
-            current_owner,
-            ..
-        } = &mut state
-        else {
-            panic!("test fixture must be hybrid runtime state");
-        };
-        *last_position_qty = qty;
-        *current_side = Some(side);
-        *active_cycle_id = Some("stage5d-b2bd1r2-cycle".to_string());
-        *current_owner = Some(crate::hybrid_intraday::Owner::IntradayBreakout);
-        injected.bootstrapped.stage5d_test_set_strategy_state(state);
         injected
     }
 
@@ -4574,14 +4660,7 @@ mod tests {
                 .unwrap_or_default(),
             _ => 0.0,
         };
-        let admission = crate::stage5c_paper_host::Stage5cPaperHostAdmission::stage5d_test_new(
-            envelope.binding.strategy_id.clone(),
-            envelope.binding.account_id.clone(),
-            envelope.binding.instrument_id.to_instrument_id(),
-            0.5,
-            Decimal::from_f64_retain(position_qty).expect("test position qty must convert"),
-            envelope.persisted_at_ts_utc,
-        );
+        let admission = stage5d_test_admission_for_envelope(&envelope, position_qty);
         let restored = crate::runtime_compat::RuntimeStateRestored {
             known_order_ids: envelope.recovery_indexes.known_order_ids.clone(),
             pending_requests: envelope.recovery_indexes.pending_requests.clone(),
@@ -4704,14 +4783,7 @@ mod tests {
                 .unwrap_or_default(),
             _ => 0.0,
         };
-        let admission = crate::stage5c_paper_host::Stage5cPaperHostAdmission::stage5d_test_new(
-            envelope.binding.strategy_id.clone(),
-            envelope.binding.account_id.clone(),
-            envelope.binding.instrument_id.to_instrument_id(),
-            0.5,
-            Decimal::from_f64_retain(position_qty).expect("test position qty must convert"),
-            envelope.persisted_at_ts_utc,
-        );
+        let admission = stage5d_test_admission_for_envelope(&envelope, position_qty);
         let restored = crate::runtime_compat::RuntimeStateRestored {
             known_order_ids: envelope.recovery_indexes.known_order_ids.clone(),
             pending_requests: envelope.recovery_indexes.pending_requests.clone(),
@@ -5374,6 +5446,11 @@ mod tests {
                 Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged => {
                     assert!(ledger && materialized && runtime && !pending);
                     assert!(injected.recovery_complete());
+                    let restored = stage5d_test_assert_injected_restores_once(
+                        injected,
+                        "completed single-row recovery must reach restored transition",
+                    );
+                    assert!(restored.receipt().pending_requests().is_empty());
                     return;
                 }
             }
@@ -5401,6 +5478,11 @@ mod tests {
                         && row.runtime
                         && !row.pending
                 }));
+                let restored = stage5d_test_assert_injected_restores_once(
+                    injected,
+                    "completed multi-row recovery must reach restored transition",
+                );
+                assert!(restored.receipt().pending_requests().is_empty());
                 return;
             }
             let (index, decision) = injected
@@ -7720,32 +7802,62 @@ mod tests {
     }
 
     #[test]
-    fn stage5d_b2bd1r2_broker_consistent_long_and_short_restore_once() {
-        for (name, qty, side) in [
-            ("long", 3.0, crate::hybrid_intraday::Side::Long),
-            ("short", -3.0, crate::hybrid_intraday::Side::Short),
-        ] {
-            let injected =
-                stage5d_test_complete_injected_fixture_with_broker_consistent_position(qty, side);
-            let restored_at = injected.envelope.persisted_at_ts_utc;
-            stage5d_test_reset_restored_callback_count();
-            let restored = expect_stage5d_restore_ok(
-                stage5d_notify_runtime_state_restored_at(injected, restored_at),
-                name,
-            );
-            assert_eq!(stage5d_test_restored_callback_count(), 1, "{name}");
-            stage5d_test_assert_restored_success_baseline(&restored);
-            let StrategyState::HybridIntradayRuntime {
-                last_position_qty,
-                current_side,
-                ..
-            } = Strategy::state(restored.stage5d_strategy())
-            else {
-                panic!("{name}: restored state must be hybrid");
-            };
-            assert_eq!(*last_position_qty, qty, "{name}");
-            assert_eq!(*current_side, Some(side), "{name}");
-        }
+    fn stage5d_b2bd1r3_source_produced_current_shadow_long_short_and_realized_pnl_restore() {
+        let long_open =
+            stage5d_test_source_current_shadow_strategy(vec![stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                99.7,
+                102.0,
+                99.7,
+                99.7,
+            )]);
+        stage5d_test_assert_source_current_shadow_full_path(
+            long_open,
+            Some("2026-01-06"),
+            Some("long"),
+            0,
+            "0.0",
+        );
+
+        let short_open =
+            stage5d_test_source_current_shadow_strategy(vec![stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                100.3,
+                100.3,
+                98.0,
+                100.3,
+            )]);
+        stage5d_test_assert_source_current_shadow_full_path(
+            short_open,
+            Some("2026-01-06"),
+            Some("short"),
+            0,
+            "0.0",
+        );
+
+        let realized_pnl = stage5d_test_source_current_shadow_strategy(vec![
+            stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                99.7,
+                102.0,
+                99.7,
+                99.7,
+            ),
+            stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 10, 0),
+                101.0,
+                101.0,
+                100.8,
+                101.0,
+            ),
+        ]);
+        stage5d_test_assert_source_current_shadow_full_path(
+            realized_pnl,
+            Some("2026-01-06"),
+            None,
+            1,
+            "1.199999999999997",
+        );
     }
 
     #[test]
@@ -7982,6 +8094,29 @@ mod tests {
     }
 
     #[test]
+    fn stage5d_b2bd1r3_restored_before_persisted_envelope_blocks_before_callback() {
+        let injected = stage5d_test_complete_injected_fixture();
+        let before_persisted = injected.envelope.persisted_at_ts_utc - chrono::Duration::seconds(1);
+        let strategy_fingerprint =
+            stage5d_test_strategy_state_fingerprint(injected.bootstrapped.stage5d_strategy());
+        stage5d_test_reset_restored_callback_count();
+        let blocked = expect_stage5d_restore_blocked(
+            stage5d_notify_runtime_state_restored_at(injected, before_persisted),
+            "restored timestamp before persisted envelope must block before callback",
+        );
+        assert_eq!(stage5d_test_restored_callback_count(), 0);
+        assert_eq!(
+            blocked.reason(),
+            Stage5dRuntimeStateRestoreBlockedReason::LifecycleTimestampReversal
+        );
+        assert!(blocked.input_capability_preserved());
+        assert_eq!(
+            blocked.stage5d_test_strategy_state_fingerprint(),
+            strategy_fingerprint
+        );
+    }
+
+    #[test]
     fn stage5d_b2bd_expired_admission_blocks_before_callback_and_preserves_input() {
         let injected = stage5d_test_complete_injected_fixture();
         let expired_at = injected.bootstrapped.stage5d_admission().expires_at()
@@ -8110,6 +8245,12 @@ mod tests {
                 .stage5d_test_mark_runtime_host_attached();
         }
 
+        fn intent_sink_boundary(injected: &mut Stage5dRiskGateInjectedPaperStrategy) {
+            injected
+                .bootstrapped
+                .stage5d_test_mark_intent_sink_attached();
+        }
+
         for case in [
             Case {
                 name: "pending_finalization",
@@ -8156,6 +8297,11 @@ mod tests {
                 mutate: closed_boundary,
                 expected: Stage5dRuntimeStateRestoreBlockedReason::ClosedBoundaryOpened,
             },
+            Case {
+                name: "intent_sink_boundary",
+                mutate: intent_sink_boundary,
+                expected: Stage5dRuntimeStateRestoreBlockedReason::ClosedBoundaryOpened,
+            },
         ] {
             let mut injected = stage5d_test_complete_injected_fixture();
             (case.mutate)(&mut injected);
@@ -8163,6 +8309,8 @@ mod tests {
             let snapshot_id = injected.snapshot_id().to_string();
             let evidence = injected.evidence_fingerprint().to_string();
             let recovery = injected.recovery_plan_fingerprint().to_string();
+            let strategy_fingerprint =
+                stage5d_test_strategy_state_fingerprint(injected.bootstrapped.stage5d_strategy());
             stage5d_test_reset_restored_callback_count();
             let blocked = expect_stage5d_restore_blocked(
                 stage5d_notify_runtime_state_restored_at(injected, restored_at),
@@ -8176,6 +8324,12 @@ mod tests {
             assert_eq!(
                 blocked.recovery_plan_fingerprint(),
                 recovery,
+                "{}",
+                case.name
+            );
+            assert_eq!(
+                blocked.stage5d_test_strategy_state_fingerprint(),
+                strategy_fingerprint,
                 "{}",
                 case.name
             );

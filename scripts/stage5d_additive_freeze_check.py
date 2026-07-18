@@ -90,7 +90,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "03e3e36fc1c1ca4301499fce9d8bdb2788b6e3aab006ec62d7eb4010e33a3847",
+        "stage5d_consumer_sha256": "e8793feb61e270c967ee849cc0b0726bbef7547fa89dff1b0e03ded062012ffa",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -104,7 +104,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "03e3e36fc1c1ca4301499fce9d8bdb2788b6e3aab006ec62d7eb4010e33a3847",
+        "stage5d_consumer_sha256": "e8793feb61e270c967ee849cc0b0726bbef7547fa89dff1b0e03ded062012ffa",
     },
 ]
 
@@ -852,6 +852,29 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
         failures.append("Stage 5D runtime-restored lifecycle notification timestamp guard missing")
     if "if *current_side != expected_side {" not in stage5d_source:
         failures.append("Stage 5D runtime-restored flat-side exact guard missing")
+    required_r3_tokens = {
+        "Stage 5D runtime-restored source-produced current-shadow proof missing":
+            "stage5d_b2bd1r3_source_produced_current_shadow_long_short_and_realized_pnl_restore",
+        "Stage 5D runtime-restored single-row recovery transition proof missing":
+            "completed single-row recovery must reach restored transition",
+        "Stage 5D runtime-restored multi-row recovery transition proof missing":
+            "completed multi-row recovery must reach restored transition",
+        "Stage 5D runtime-restored blocked strategy fingerprint proof missing":
+            "stage5d_test_strategy_state_fingerprint()",
+        "Stage 5D runtime-restored compile-fail construction proof missing":
+            "let forged = Stage5dRiskGateInjectedPaperStrategy {};",
+        "Stage 5D runtime-restored compile-fail consumed-input proof missing":
+            "let _second = stage5d_notify_runtime_state_restored(injected);",
+        "Stage 5D runtime-restored compile-fail restored-to-injected proof missing":
+            "Stage5dRiskGateInjectedPaperStrategy = restored;",
+        "Stage 5D runtime-restored compile-fail blocked-terminal proof missing":
+            "Stage5dRuntimeStateRestoreOutcome::Terminal(_terminal) = outcome",
+        "Stage 5D runtime-restored compile-fail private preflight proof missing":
+            "use strategy_runtime_core::stage5d_persistence::validate_stage5d_runtime_state_restored_preflight;",
+    }
+    for message, token in required_r3_tokens.items():
+        if token not in stage5d_source:
+            failures.append(message)
 
 
 def validate(root: Path, manifest_path: Path) -> list[str]:
@@ -860,8 +883,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2b-d1-r2":
-        failures.append("stage must be 5D-b2b-d1-r2")
+    if manifest.get("stage") != "5D-b2b-d1-r3":
+        failures.append("stage must be 5D-b2b-d1-r3")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:

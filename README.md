@@ -17,15 +17,14 @@ Stage 5 is active: the real IMOEXF `HybridIntradayRuntime` semantics are being
 migrated from the frozen ALOR source. The BO/MR/high180/riskgate kernel and the
 integrated broker-neutral runtime wrapper are present. Stage 5C's deterministic
 paper/no-send host is accepted and frozen; Stage 5D is adding a versioned,
-source-exact persistence restore path. The current `5D-b2b-d1` candidate
-hardens the controlled no-I/O return from riskgate-injected Stage 5D state to
-the exact Stage 5C runtime-state-restored capability. It requires complete
-source-exact recovery evidence before the callback, preserves the input
-capability on pre-callback blocks, treats post-callback failures as terminal,
-rejects any callback intent before debug assertions in all build profiles,
-checks bootstrap notification chronology, enforces exact flat/long/short broker
-side truth, and keeps Redis, FINAM, broker transport, dispatch, runtime-live and
-real execution closed.
+source-exact persistence restore path. The current `5D-b2b-d1-r3` candidate
+closes the source-produced restored-transition evidence gap for the controlled
+no-I/O return from riskgate-injected Stage 5D state to the exact Stage 5C
+runtime-state-restored capability. It proves source-produced current-shadow
+Long/Short/realized-PnL paths, single-row and multi-row recovery restored
+transitions, pre-callback state-fingerprint stability, and compile-fail
+type-state boundaries while keeping Redis, FINAM, broker transport, dispatch,
+runtime-live and real execution closed.
 
 This repository is not enabled for continuous live trading.
 
@@ -83,7 +82,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 bash scripts/forbidden_surface_scan.sh
 bash scripts/forbidden_surface_negative_harness.sh
 python3 scripts/stage5d_additive_freeze_negative_harness.py
-# Full Stage 5D-b2b-d1 closure gate:
+# Full Stage 5D-b2b-d1-r3 closure gate:
 bash scripts/stage5d_b2bc_review_gate.sh
 ```
 
