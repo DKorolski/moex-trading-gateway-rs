@@ -1,6 +1,6 @@
 # Stage 5D final restart closure
 
-Status: Stage 5D-final-restart-r1 candidate, no-I/O.
+Status: Stage 5D-final-restart-r2 candidate, no-I/O.
 
 This slice closes the Stage 5D restart path from the actual
 `HybridIntradayRuntimeStrategy` source state into a canonical persistence
@@ -37,13 +37,14 @@ It does not serialize raw private runtime internals outside the Stage 5D schema,
 does not repair a positive envelope after export, and does not open any broker
 or transport surface.
 
-Stage 5D-final-restart-r1 adds a crate-private
+Stage 5D-final-restart-r2 keeps the crate-private
 `Stage5dCanonicalRestartPackage` boundary. The package carries:
 
 - strict Stage 5D persistence envelope JSON;
 - strict authoritative riskgate ledger evidence JSON;
 - independent section checksums;
 - package-level checksum over committed metadata and both durable sections;
+- full-contract validation before strict package serialization;
 - source/recovery fingerprints in the redacted export report.
 
 Restart tests decode from the serialized package into a fresh runtime object
@@ -53,10 +54,10 @@ pre-poison state from the package.
 
 ## Positive restart matrix
 
-The focused final test matrix now covers canonical source export, local durable
+The focused final test matrix covers canonical source export, local durable
 package JSON serialization, strict restart decode/checksum validation,
-loaded-state binding, private apply, broker-truth bootstrap, riskgate injection
-and runtime-state-restored callback for:
+loaded-state binding, private apply, broker-truth bootstrap, riskgate injection,
+runtime-state-restored callback and explicit Stage 5C warmup continuation for:
 
 - clean flat state;
 - open Long state;
@@ -70,14 +71,32 @@ The existing accepted Stage 5D tests remain the parity oracle for:
 - restart-safe recovery-frontier execution to completion;
 - explicit Stage 5C continuation after restored callback.
 
-## Crash and negative coverage
+The r2 inventory also pins additional package families that must remain visible
+before Stage 5D closure: pending entry/exit, deferred entry/exit, partial entry,
+safe-mode close-only, known-order/pending-request indexes, working protective
+order hints, already-complete recovery plan, and source-callback current-shadow
+Long/Short/realized-PnL.
 
-The r1 closure adds direct negatives for:
+## Crash, golden and negative coverage
+
+The r2 closure adds direct negatives for:
 
 - post-export positive-envelope mutation;
 - package metadata mutation;
 - riskgate evidence section mutation even when package checksum is recomputed;
-- source runtime poisoning after package export.
+- source runtime poisoning after package export;
+- removal of r2 full-matrix, source-callback, crash-store, negative-matrix,
+  golden-vector, Stage 5C continuation and full-package-validation proofs.
+
+It also adds deterministic durable-store crash/replay coverage for constructed
+no-bytes, truncated write, full-bytes-without-commit, committed-before-ledger,
+ledger-before-materialized, materialized-before-runtime-ack,
+runtime-ack-before-final-checkpoint, restart-after-each-recovery-action,
+idempotent replay-after-applied-action and multi-row between-row crash states.
+
+Golden-vector coverage pins stable package bytes, checksums, semantic
+fingerprints, recovery index fingerprints, recovery plan fingerprints, receipt
+summaries and redacted reports for flat/open/pending/multi-row restart families.
 
 The existing Stage 5D gates continue to cover the broader crash/negative matrix:
 
@@ -96,11 +115,12 @@ The machine-readable scenario inventory is:
 
 ```text
 docs/stage-5/stage5d-final-restart-r1-scenario-inventory.json
+docs/stage-5/stage5d-final-restart-r2-scenario-inventory.json
 ```
 
-The additive freeze checker validates its stage id, row order, unique case ids,
-closed-surface contract, owning tests and durable package sections for
-source-produced clean restart rows.
+The additive freeze checker validates the r2 stage id, 51-row order, unique case
+ids, closed-surface contract, owning tests, package sections and marker-pinned
+negative cases.
 
 ## Review gates
 
@@ -121,6 +141,6 @@ bash scripts/stage5d_b2bc_review_gate.sh
 ## Next step after acceptance
 
 If this closure is accepted, Stage 5D can be treated as restart-capable for the
-paper/no-send runtime path. The next roadmap item should be a separate Stage 5E
-integration decision: how and when to attach the restored paper runtime to
-gateway shadow data on VPS without enabling live execution.
+paper/no-send runtime path. The next roadmap item should remain a separate
+Stage 5E integration decision: how and when to attach the restored paper runtime
+to gateway shadow data on VPS without enabling live execution.

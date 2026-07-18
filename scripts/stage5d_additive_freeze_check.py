@@ -43,7 +43,7 @@ RUNTIME_RESTORED_OWNERSHIP_REL = Path(
     "docs/stage-5/stage5d-b2bd1-r6-blocker-ownership.json"
 )
 FINAL_RESTART_INVENTORY_REL = Path(
-    "docs/stage-5/stage5d-final-restart-r1-scenario-inventory.json"
+    "docs/stage-5/stage5d-final-restart-r2-scenario-inventory.json"
 )
 
 EXPECTED_MANIFEST_CHECKER = "scripts/stage5d_additive_freeze_check.py"
@@ -96,7 +96,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "f2f6269eb85a62f27775d41f81976fcd92b66500d5014ff1283683a22ad20771",
+        "stage5d_consumer_sha256": "0ce0a7358e5b5afad71edde367e162e7cf71bc44918fc78a787430e6a5483272",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -110,7 +110,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "f2f6269eb85a62f27775d41f81976fcd92b66500d5014ff1283683a22ad20771",
+        "stage5d_consumer_sha256": "0ce0a7358e5b5afad71edde367e162e7cf71bc44918fc78a787430e6a5483272",
     },
 ]
 
@@ -245,23 +245,72 @@ EXPECTED_NEGATIVE_CASES = [
     "runtime_restored_final_clean_process_removed",
     "runtime_restored_final_inventory_missing",
     "runtime_restored_final_inventory_duplicate",
+    "runtime_restored_final_r2_positive_matrix_removed",
+    "runtime_restored_final_r2_source_callback_removed",
+    "runtime_restored_final_r2_crash_store_removed",
+    "runtime_restored_final_r2_negative_matrix_removed",
+    "runtime_restored_final_r2_golden_vectors_removed",
+    "runtime_restored_final_r2_inventory_missing",
+    "runtime_restored_final_r2_inventory_reduced",
+    "runtime_restored_final_r2_inventory_helper_owner",
+    "runtime_restored_final_r2_stage5c_warmup_removed",
+    "runtime_restored_final_r2_package_full_validation_removed",
 ]
 
-EXPECTED_STAGE = "5D-final-restart-r1"
+EXPECTED_STAGE = "5D-final-restart-r2"
 
 EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
-    "canonical_package_flat_clean_restart",
-    "canonical_package_long_clean_restart",
-    "canonical_package_short_clean_restart",
-    "canonical_package_post_export_mutation_rejected",
-    "canonical_package_corruption_rejected",
-    "canonical_package_clean_process_source_poisoning_ignored",
-    "canonical_package_recovery_indexes_bound",
-    "stage5c_continuation_after_restored_callback",
-    "malformed_json_and_unknown_fields_fail_closed",
-    "riskgate_generation_and_ledger_tail_bound",
-    "runtime_host_intent_sink_closed_surfaces",
-    "broker_truth_position_side_protective_guard",
+    "positive_clean_flat",
+    "positive_broker_consistent_open_long",
+    "positive_broker_consistent_open_short",
+    "positive_pending_entry",
+    "positive_partial_entry",
+    "positive_pending_exit",
+    "positive_deferred_entry",
+    "positive_deferred_exit",
+    "positive_safe_mode_close_only",
+    "positive_non_empty_known_order_index",
+    "positive_non_empty_pending_request_index",
+    "positive_working_protective_order_hints",
+    "positive_already_complete_recovery_plan",
+    "positive_current_shadow_long",
+    "positive_current_shadow_short",
+    "positive_current_shadow_realized_pnl",
+    "crash_constructed_no_bytes",
+    "crash_truncated_partial_write",
+    "crash_full_bytes_no_commit_proof",
+    "crash_committed_before_ledger_append",
+    "crash_ledger_appended_before_materialized",
+    "crash_materialized_before_runtime_ack",
+    "crash_runtime_ack_before_final_checkpoint",
+    "crash_restart_after_each_recovery_action",
+    "crash_replay_after_each_already_applied_action",
+    "crash_multi_row_crash_between_rows",
+    "negative_outer_unknown_duplicate_malformed",
+    "negative_truncated_package",
+    "negative_unsupported_package_schema",
+    "negative_invalid_uncommitted_checkpoint_state",
+    "negative_envelope_checksum_corruption",
+    "negative_evidence_checksum_corruption",
+    "negative_package_checksum_corruption",
+    "negative_envelope_evidence_cross_binding_mismatch",
+    "negative_snapshot_revision_generation_mismatch",
+    "negative_strategy_account_instrument_config_profile_mismatch",
+    "negative_ledger_tail_generation_identity_mismatch",
+    "negative_semantic_private_contradiction",
+    "negative_recovery_index_mismatch",
+    "negative_unexplained_ledger_materialized_runtime_lag",
+    "negative_missing_duplicate_outbox_rows",
+    "negative_stale_incomplete_contradictory_broker_truth",
+    "negative_missing_working_order",
+    "negative_unknown_orphan_order_or_trade",
+    "negative_protective_hint_while_truth_surface_closed",
+    "negative_non_paper_runtime_host_intent_sink_opening",
+    "negative_callback_before_recovery_completion",
+    "golden_flat",
+    "golden_open_long",
+    "golden_pending_entry",
+    "golden_multi_row_recovery",
 ]
 
 EXPECTED_RUNTIME_RESTORED_OWNERSHIP_IDS = [
@@ -1094,6 +1143,10 @@ def validate_stage5d_final_restart_inventory(
             failures.append(
                 f"Stage 5D final restart r1 scenario row {case_id!r} owning_test invalid"
             )
+        elif not re.search(r"#\[test\]\s+fn\s+" + re.escape(owning_test) + r"\s*\(", stage5d_source):
+            failures.append(
+                f"Stage 5D final restart r1 scenario owning item is not a test: {owning_test}"
+            )
         package_sections = row.get("package_sections")
         if not isinstance(package_sections, list):
             failures.append(
@@ -1280,6 +1333,20 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
             "stage5d_final_restart_package_rejects_evidence_and_package_corruption",
         "Stage 5D final clean-process poison proof missing":
             "stage5d_final_clean_process_restart_does_not_reuse_poisoned_source_runtime",
+        "Stage 5D final r2 positive full-matrix proof missing":
+            "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation",
+        "Stage 5D final r2 source-callback proof missing":
+            "stage5d_final_r2_package_source_callback_current_shadow_matrix",
+        "Stage 5D final r2 crash-store replay proof missing":
+            "stage5d_final_r2_package_crash_store_replay_matrix",
+        "Stage 5D final r2 package negative proof missing":
+            "stage5d_final_r2_package_negative_matrix_fails_closed",
+        "Stage 5D final r2 golden-vector proof missing":
+            "stage5d_final_r2_package_golden_vectors_are_pinned_and_deterministic",
+        "Stage 5D final r2 Stage 5C warmup continuation proof missing":
+            "r2 Stage 5C history warmup continuation must succeed",
+        "Stage 5D final r2 full package validation proof missing":
+            "self.validate_full_contract()?;",
     }.items():
         if token not in stage5d_source:
             failures.append(message)

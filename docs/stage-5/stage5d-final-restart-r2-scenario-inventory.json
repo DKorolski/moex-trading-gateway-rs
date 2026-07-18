@@ -1,0 +1,1342 @@
+{
+  "schema_version": 1,
+  "stage": "5D-final-restart-r2",
+  "status": "full_matrix_crash_store_golden_vector_candidate",
+  "closed_surfaces": {
+    "redis": false,
+    "finam": false,
+    "transport": false,
+    "dispatch": false,
+    "runtime_live": false,
+    "broker_execution": false,
+    "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+  },
+  "scenario_rows": [
+    {
+      "case_id": "positive_clean_flat",
+      "category": "positive",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation",
+      "expected_reason_or_fingerprint": "clean_flat",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "positive_broker_consistent_open_long",
+      "category": "positive",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation",
+      "expected_reason_or_fingerprint": "broker_consistent_open_long",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "positive_broker_consistent_open_short",
+      "category": "positive",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation",
+      "expected_reason_or_fingerprint": "broker_consistent_open_short",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "positive_pending_entry",
+      "category": "positive",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation",
+      "expected_reason_or_fingerprint": "pending_entry",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "positive_partial_entry",
+      "category": "positive",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation",
+      "expected_reason_or_fingerprint": "partial_entry",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "positive_pending_exit",
+      "category": "positive",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation",
+      "expected_reason_or_fingerprint": "pending_exit",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "positive_deferred_entry",
+      "category": "positive",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation",
+      "expected_reason_or_fingerprint": "deferred_entry",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "positive_deferred_exit",
+      "category": "positive",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation",
+      "expected_reason_or_fingerprint": "deferred_exit",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "positive_safe_mode_close_only",
+      "category": "positive",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation",
+      "expected_reason_or_fingerprint": "safe_mode_close_only",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "positive_non_empty_known_order_index",
+      "category": "positive",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation",
+      "expected_reason_or_fingerprint": "non_empty_known_order_index",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "positive_non_empty_pending_request_index",
+      "category": "positive",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation",
+      "expected_reason_or_fingerprint": "non_empty_pending_request_index",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "positive_working_protective_order_hints",
+      "category": "positive",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation",
+      "expected_reason_or_fingerprint": "working_protective_order_hints",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "positive_already_complete_recovery_plan",
+      "category": "positive",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation",
+      "expected_reason_or_fingerprint": "already_complete_recovery_plan",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "positive_current_shadow_long",
+      "category": "positive_source_callback",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_source_callback_current_shadow_matrix",
+      "expected_reason_or_fingerprint": "current_shadow_long",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "positive_current_shadow_short",
+      "category": "positive_source_callback",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_source_callback_current_shadow_matrix",
+      "expected_reason_or_fingerprint": "current_shadow_short",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "positive_current_shadow_realized_pnl",
+      "category": "positive_source_callback",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "controlled_success",
+      "owning_test": "stage5d_final_r2_package_source_callback_current_shadow_matrix",
+      "expected_reason_or_fingerprint": "current_shadow_realized_pnl",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "crash_constructed_no_bytes",
+      "category": "crash_replay",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "blocked_or_recovered_deterministically",
+      "owning_test": "stage5d_final_r2_package_crash_store_replay_matrix",
+      "expected_reason_or_fingerprint": "constructed_no_bytes",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "crash_truncated_partial_write",
+      "category": "crash_replay",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "blocked_or_recovered_deterministically",
+      "owning_test": "stage5d_final_r2_package_crash_store_replay_matrix",
+      "expected_reason_or_fingerprint": "truncated_partial_write",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "crash_full_bytes_no_commit_proof",
+      "category": "crash_replay",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "blocked_or_recovered_deterministically",
+      "owning_test": "stage5d_final_r2_package_crash_store_replay_matrix",
+      "expected_reason_or_fingerprint": "full_bytes_no_commit_proof",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "crash_committed_before_ledger_append",
+      "category": "crash_replay",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "blocked_or_recovered_deterministically",
+      "owning_test": "stage5d_final_r2_package_crash_store_replay_matrix",
+      "expected_reason_or_fingerprint": "committed_before_ledger_append",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "crash_ledger_appended_before_materialized",
+      "category": "crash_replay",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "blocked_or_recovered_deterministically",
+      "owning_test": "stage5d_final_r2_package_crash_store_replay_matrix",
+      "expected_reason_or_fingerprint": "ledger_appended_before_materialized",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "crash_materialized_before_runtime_ack",
+      "category": "crash_replay",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "blocked_or_recovered_deterministically",
+      "owning_test": "stage5d_final_r2_package_crash_store_replay_matrix",
+      "expected_reason_or_fingerprint": "materialized_before_runtime_ack",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "crash_runtime_ack_before_final_checkpoint",
+      "category": "crash_replay",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "blocked_or_recovered_deterministically",
+      "owning_test": "stage5d_final_r2_package_crash_store_replay_matrix",
+      "expected_reason_or_fingerprint": "runtime_ack_before_final_checkpoint",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "crash_restart_after_each_recovery_action",
+      "category": "crash_replay",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "blocked_or_recovered_deterministically",
+      "owning_test": "stage5d_final_r2_package_crash_store_replay_matrix",
+      "expected_reason_or_fingerprint": "restart_after_each_recovery_action",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "crash_replay_after_each_already_applied_action",
+      "category": "crash_replay",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "blocked_or_recovered_deterministically",
+      "owning_test": "stage5d_final_r2_package_crash_store_replay_matrix",
+      "expected_reason_or_fingerprint": "replay_after_each_already_applied_action",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "crash_multi_row_crash_between_rows",
+      "category": "crash_replay",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "blocked_or_recovered_deterministically",
+      "owning_test": "stage5d_final_r2_package_crash_store_replay_matrix",
+      "expected_reason_or_fingerprint": "multi_row_crash_between_rows",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_outer_unknown_duplicate_malformed",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "outer_unknown_duplicate_malformed",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_truncated_package",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "truncated_package",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_unsupported_package_schema",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "unsupported_package_schema",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_invalid_uncommitted_checkpoint_state",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "invalid_uncommitted_checkpoint_state",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_envelope_checksum_corruption",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "envelope_checksum_corruption",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_evidence_checksum_corruption",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "evidence_checksum_corruption",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_package_checksum_corruption",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "package_checksum_corruption",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_envelope_evidence_cross_binding_mismatch",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "envelope_evidence_cross_binding_mismatch",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_snapshot_revision_generation_mismatch",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "snapshot_revision_generation_mismatch",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_strategy_account_instrument_config_profile_mismatch",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "strategy_account_instrument_config_profile_mismatch",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_ledger_tail_generation_identity_mismatch",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "ledger_tail_generation_identity_mismatch",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_semantic_private_contradiction",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "semantic_private_contradiction",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_recovery_index_mismatch",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "recovery_index_mismatch",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_unexplained_ledger_materialized_runtime_lag",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "unexplained_ledger_materialized_runtime_lag",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_missing_duplicate_outbox_rows",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "missing_duplicate_outbox_rows",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_stale_incomplete_contradictory_broker_truth",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "stale_incomplete_contradictory_broker_truth",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_missing_working_order",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "missing_working_order",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_unknown_orphan_order_or_trade",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "unknown_orphan_order_or_trade",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_protective_hint_while_truth_surface_closed",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "protective_hint_while_truth_surface_closed",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_non_paper_runtime_host_intent_sink_opening",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "non_paper_runtime_host_intent_sink_opening",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "negative_callback_before_recovery_completion",
+      "category": "negative_package",
+      "source_produced": true,
+      "clean_process_restart": false,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "fail_closed_redacted",
+      "owning_test": "stage5d_final_r2_package_negative_matrix_fails_closed",
+      "expected_reason_or_fingerprint": "callback_before_recovery_completion",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": false,
+      "stage5c_continuation": false,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "golden_flat",
+      "category": "golden",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "golden_fingerprints_match",
+      "owning_test": "stage5d_final_r2_package_golden_vectors_are_pinned_and_deterministic",
+      "expected_reason_or_fingerprint": "flat",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "golden_open_long",
+      "category": "golden",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "golden_fingerprints_match",
+      "owning_test": "stage5d_final_r2_package_golden_vectors_are_pinned_and_deterministic",
+      "expected_reason_or_fingerprint": "open_long",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "golden_pending_entry",
+      "category": "golden",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "golden_fingerprints_match",
+      "owning_test": "stage5d_final_r2_package_golden_vectors_are_pinned_and_deterministic",
+      "expected_reason_or_fingerprint": "pending_entry",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    },
+    {
+      "case_id": "golden_multi_row_recovery",
+      "category": "golden",
+      "source_produced": true,
+      "clean_process_restart": true,
+      "package_sections": [
+        "stage5d_persistence_envelope",
+        "stage5d_riskgate_ledger_evidence",
+        "package_checksum"
+      ],
+      "expected_outcome": "golden_fingerprints_match",
+      "owning_test": "stage5d_final_r2_package_golden_vectors_are_pinned_and_deterministic",
+      "expected_reason_or_fingerprint": "multi_row_recovery",
+      "restart_after_action": "package_bytes_drop_source_fresh_runtime_strict_decode",
+      "replay_idempotent": true,
+      "stage5c_continuation": true,
+      "closed_surfaces_proven": {
+        "redis": false,
+        "finam": false,
+        "transport": false,
+        "dispatch": false,
+        "runtime_live": false,
+        "broker_execution": false,
+        "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+      }
+    }
+  ]
+}

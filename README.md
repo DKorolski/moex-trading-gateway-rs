@@ -82,7 +82,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 bash scripts/forbidden_surface_scan.sh
 bash scripts/forbidden_surface_negative_harness.sh
 python3 scripts/stage5d_additive_freeze_negative_harness.py
-# Full Stage 5D-final-restart-r1 closure gate:
+# Full Stage 5D-final-restart-r2 closure gate:
 bash scripts/stage5d_b2bc_review_gate.sh
 # Focused final Stage 5D restart-closure check:
 cargo test -p strategy-runtime-core stage5d_final -- --nocapture

@@ -1134,15 +1134,98 @@ def mutate_runtime_restored_final_clean_process_removed(root: Path) -> None:
 
 
 def mutate_runtime_restored_final_inventory_missing(root: Path) -> None:
-    (root / "docs/stage-5/stage5d-final-restart-r1-scenario-inventory.json").unlink()
+    (root / "docs/stage-5/stage5d-final-restart-r2-scenario-inventory.json").unlink()
 
 
 def mutate_runtime_restored_final_inventory_duplicate(root: Path) -> None:
     replace_once(
-        root / "docs/stage-5/stage5d-final-restart-r1-scenario-inventory.json",
-        '"case_id": "canonical_package_long_clean_restart"',
-        '"case_id": "canonical_package_flat_clean_restart"',
+        root / "docs/stage-5/stage5d-final-restart-r2-scenario-inventory.json",
+        '"case_id": "positive_broker_consistent_open_long"',
+        '"case_id": "positive_clean_flat"',
     )
+
+
+def mutate_runtime_restored_final_r2_positive_matrix_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation",
+        "stage5d_final_r2_positive_matrix_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_final_r2_source_callback_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_final_r2_package_source_callback_current_shadow_matrix",
+        "stage5d_final_r2_source_callback_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_final_r2_crash_store_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_final_r2_package_crash_store_replay_matrix",
+        "stage5d_final_r2_crash_store_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_final_r2_negative_matrix_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_final_r2_package_negative_matrix_fails_closed",
+        "stage5d_final_r2_negative_matrix_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_final_r2_golden_vectors_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_final_r2_package_golden_vectors_are_pinned_and_deterministic",
+        "stage5d_final_r2_golden_vectors_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_final_r2_inventory_missing(root: Path) -> None:
+    (root / "docs/stage-5/stage5d-final-restart-r2-scenario-inventory.json").unlink()
+
+
+def mutate_runtime_restored_final_r2_inventory_reduced(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage5d-final-restart-r2-scenario-inventory.json",
+        '"case_id": "positive_pending_entry"',
+        '"case_id": "positive_pending_entry_removed"',
+    )
+
+
+def mutate_runtime_restored_final_r2_inventory_helper_owner(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage5d-final-restart-r2-scenario-inventory.json",
+        '"owning_test": "stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation"',
+        '"owning_test": "stage5d_test_closed_boundary_flags"',
+    )
+
+
+def mutate_runtime_restored_final_r2_stage5c_warmup_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "r2 Stage 5C history warmup continuation must succeed",
+        "r2 Stage 5C history warmup continuation removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_final_r2_package_full_validation_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "validate_full_contract",
+        "validate_package_checksum",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
 
 
 def mutate_legacy_restore_bypass(root: Path) -> None:
@@ -1260,6 +1343,16 @@ CASES = [
     ("runtime_restored_final_clean_process_removed", mutate_runtime_restored_final_clean_process_removed, "Stage 5D final clean-process poison proof missing"),
     ("runtime_restored_final_inventory_missing", mutate_runtime_restored_final_inventory_missing, "Stage 5D final restart r1 scenario inventory missing"),
     ("runtime_restored_final_inventory_duplicate", mutate_runtime_restored_final_inventory_duplicate, "Stage 5D final restart r1 scenario inventory mismatch"),
+    ("runtime_restored_final_r2_positive_matrix_removed", mutate_runtime_restored_final_r2_positive_matrix_removed, "Stage 5D final r2 positive full-matrix proof missing"),
+    ("runtime_restored_final_r2_source_callback_removed", mutate_runtime_restored_final_r2_source_callback_removed, "Stage 5D final r2 source-callback proof missing"),
+    ("runtime_restored_final_r2_crash_store_removed", mutate_runtime_restored_final_r2_crash_store_removed, "Stage 5D final r2 crash-store replay proof missing"),
+    ("runtime_restored_final_r2_negative_matrix_removed", mutate_runtime_restored_final_r2_negative_matrix_removed, "Stage 5D final r2 package negative proof missing"),
+    ("runtime_restored_final_r2_golden_vectors_removed", mutate_runtime_restored_final_r2_golden_vectors_removed, "Stage 5D final r2 golden-vector proof missing"),
+    ("runtime_restored_final_r2_inventory_missing", mutate_runtime_restored_final_r2_inventory_missing, "Stage 5D final restart r1 scenario inventory missing"),
+    ("runtime_restored_final_r2_inventory_reduced", mutate_runtime_restored_final_r2_inventory_reduced, "Stage 5D final restart r1 scenario inventory mismatch"),
+    ("runtime_restored_final_r2_inventory_helper_owner", mutate_runtime_restored_final_r2_inventory_helper_owner, "Stage 5D final restart r1 scenario owning item is not a test"),
+    ("runtime_restored_final_r2_stage5c_warmup_removed", mutate_runtime_restored_final_r2_stage5c_warmup_removed, "Stage 5D final r2 Stage 5C warmup continuation proof missing"),
+    ("runtime_restored_final_r2_package_full_validation_removed", mutate_runtime_restored_final_r2_package_full_validation_removed, "Stage 5D final r2 full package validation proof missing"),
 ]
 
 

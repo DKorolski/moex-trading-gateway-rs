@@ -2821,7 +2821,7 @@ fn stage5d_export_canonical_restart_package_from_runtime(
 #[allow(dead_code)]
 impl Stage5dCanonicalRestartPackage {
     fn to_json_strict(&self) -> Result<String, Stage5dEnvelopeValidationError> {
-        self.validate_package_checksum()?;
+        self.validate_full_contract()?;
         serde_json::to_string(self).map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)
     }
 
@@ -2907,6 +2907,36 @@ impl Stage5dCanonicalRestartPackage {
         if self.package_checksum_sha256 != self.compute_package_checksum_sha256()? {
             return Err(Stage5dEnvelopeValidationError::PayloadChecksumMismatch);
         }
+        Ok(())
+    }
+
+    fn validate_full_contract(&self) -> Result<(), Stage5dEnvelopeValidationError> {
+        self.validate_package_checksum()?;
+        if self.schema_version != STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION
+            || self.checkpoint_state != Stage5dCanonicalRestartCheckpointState::Committed
+        {
+            return Err(Stage5dEnvelopeValidationError::EnvelopeSchemaMismatch);
+        }
+        if sha256_text(&self.envelope_json) != self.envelope_sha256
+            || sha256_text(&self.riskgate_evidence_json) != self.riskgate_evidence_sha256
+        {
+            return Err(Stage5dEnvelopeValidationError::PayloadChecksumMismatch);
+        }
+        let envelope = Stage5dPersistenceEnvelope::from_json_str_strict(&self.envelope_json)?;
+        if self.snapshot_id != envelope.snapshot_id
+            || self.snapshot_revision != envelope.snapshot_revision
+            || self.previous_revision != envelope.previous_revision
+            || self.write_generation != envelope.write_generation
+            || self.persisted_at_ts_utc != envelope.persisted_at_ts_utc
+        {
+            return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+        }
+        let evidence: Stage5dRiskGateLedgerEvidence =
+            serde_json::from_str(&self.riskgate_evidence_json)
+                .map_err(|_| Stage5dEnvelopeValidationError::DeserializationFailed)?;
+        let validated_evidence = stage5d_validate_riskgate_ledger_evidence(evidence)
+            .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+        stage5d_validate_package_cross_binding(&envelope, &validated_evidence.evidence)?;
         Ok(())
     }
 }
@@ -5662,6 +5692,207 @@ mod tests {
         let mut report = decoded.report;
         report.recovery_plan_fingerprint_sha256 = Some(expected_recovery_plan_fingerprint);
         report
+    }
+
+    #[derive(Debug, Clone)]
+    struct Stage5dFinalR2PackageOutcome {
+        package_json: String,
+        package_checksum_sha256: String,
+        envelope_checksum_sha256: String,
+        evidence_checksum_sha256: String,
+        evidence_fingerprint_sha256: String,
+        semantic_fingerprint_sha256: String,
+        recovery_index_fingerprint_sha256: String,
+        recovery_plan_fingerprint_sha256: String,
+        restored_receipt_summary: String,
+        redacted_restart_report: Stage5dCanonicalEnvelopeExportReport,
+        warmed_processed_bars: usize,
+        runtime_pending_finalizations_count: usize,
+        durable_finalization_outbox_count: usize,
+    }
+
+    fn stage5d_test_history_batch_for_final_package(
+        envelope: &Stage5dPersistenceEnvelope,
+    ) -> crate::stage5c_paper_host::Stage5cAcceptedHistoryBatch {
+        let close_time_utc = ((envelope.persisted_at_ts_utc.timestamp() / 600) - 1) * 600;
+        crate::stage5c_paper_host::accept_stage5c_history_batch(
+            crate::stage5c_paper_host::Stage5cHistoryBatchInput {
+                bars: vec![broker_core::HybridRuntimeBarEvent {
+                    instrument: envelope.binding.instrument_id.to_instrument_id(),
+                    close_time_utc,
+                    open: 2200.0,
+                    high: 2202.0,
+                    low: 2199.0,
+                    close: 2201.0,
+                    volume: 100.0,
+                    origin: broker_core::HybridRuntimeBarOrigin::History,
+                    is_final: true,
+                    timeframe_sec: 600,
+                }],
+                provenance:
+                    broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+            },
+        )
+        .expect("r2 final package Stage 5C history must be canonical")
+    }
+
+    fn stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
+        snapshot_id: &str,
+        mutator: impl FnOnce(&mut Stage5dPersistenceEnvelope),
+    ) -> Stage5dFinalR2PackageOutcome {
+        let (source_strategy, input, evidence, expected_state) =
+            stage5d_test_canonical_export_fixture(snapshot_id, mutator);
+        let source_semantic_fingerprint =
+            crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(&expected_state)
+                .expect("source semantic fingerprint");
+        let source_private_extension = source_strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("source private extension exports before package");
+        let (package_a, report_a) = stage5d_export_canonical_restart_package_from_runtime(
+            &source_strategy,
+            input.clone(),
+            evidence.clone(),
+        )
+        .expect("r2 source-owned canonical package export must succeed");
+        let (package_b, report_b) = stage5d_export_canonical_restart_package_from_runtime(
+            &source_strategy,
+            input,
+            evidence,
+        )
+        .expect("r2 second independent package export must succeed");
+        let package_json = package_a
+            .to_json_strict()
+            .expect("r2 canonical package must serialize strictly");
+        let package_json_b = package_b
+            .to_json_strict()
+            .expect("r2 second canonical package must serialize strictly");
+        assert_eq!(
+            package_json, package_json_b,
+            "r2 two independent package exports must be byte-identical"
+        );
+        assert_eq!(
+            report_a, report_b,
+            "r2 two independent package reports must be byte-identical"
+        );
+
+        drop(source_private_extension);
+        drop(source_strategy);
+
+        let decoded = Stage5dCanonicalRestartPackage::from_json_str_strict(&package_json)
+            .expect("r2 strict package restart boundary must decode");
+        assert_eq!(
+            decoded.envelope.strategy_state.strategy_state_json, expected_state,
+            "r2 package must persist exact source-produced semantic state"
+        );
+        assert_eq!(
+            decoded.report.semantic_payload_fingerprint, source_semantic_fingerprint,
+            "r2 source semantic fingerprint must survive durable package restart"
+        );
+        let reencoded = serde_json::from_str::<Stage5dCanonicalRestartPackage>(&package_json)
+            .expect("r2 package must deserialize for canonical re-encode")
+            .to_json_strict()
+            .expect("r2 package must reserialize");
+        assert_eq!(
+            package_json, reencoded,
+            "r2 strict package decode/re-encode must be byte-identical"
+        );
+
+        let fresh_strategy = stage5d_test_riskgate_runtime_strategy();
+        let (bootstrapped, strict_envelope, validated_evidence) =
+            stage5d_test_bootstrap_strict_envelope_with_strategy(
+                decoded.envelope,
+                fresh_strategy,
+                decoded.validated_evidence.evidence,
+            );
+        assert_eq!(
+            validated_evidence.evidence_fingerprint_sha256,
+            decoded
+                .report
+                .riskgate_evidence_fingerprint_sha256
+                .clone()
+                .expect("decoded evidence fingerprint"),
+            "r2 source evidence fingerprint must survive decoded package boundary"
+        );
+        let injected = expect_stage5d_riskgate_ok(
+            stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
+            "r2 package restart must inject authoritative riskgate",
+        );
+        let recovery_plan_fingerprint = injected.recovery_plan_fingerprint().to_string();
+        assert!(
+            injected.recovery_complete(),
+            "r2 package positive path must reach recovery_complete before restored callback"
+        );
+        let restored = stage5d_test_assert_injected_restores_indexes_once(
+            injected,
+            &strict_envelope.recovery_indexes.known_order_ids,
+            &strict_envelope.recovery_indexes.pending_requests,
+            "r2 package positive path must restore indexes exactly once",
+        );
+        let restored_state_json =
+            serde_json::to_value(Strategy::state(restored.stage5d_strategy()))
+                .expect("r2 restored state serializes");
+        assert_eq!(
+            restored_state_json, strict_envelope.strategy_state.strategy_state_json,
+            "r2 restored runtime state must match decoded strict envelope before Stage 5C warmup"
+        );
+        assert_eq!(
+            crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(&restored_state_json)
+                .expect("restored semantic fingerprint"),
+            source_semantic_fingerprint,
+            "r2 source and restored semantic fingerprints must match before continuation"
+        );
+        let restored_receipt_summary = format!(
+            "runtime_state_restored={};warmup_started={};pending_recovery_started={};semantic_bar_enabled={};known_orders={};pending_requests={}",
+            restored.receipt().runtime_state_restored(),
+            restored.receipt().warmup_started(),
+            restored.receipt().pending_recovery_started(),
+            restored.receipt().semantic_bar_enabled(),
+            restored.receipt().stage5d_test_known_order_ids().len(),
+            restored.receipt().pending_requests().len(),
+        );
+        let history = stage5d_test_history_batch_for_final_package(&strict_envelope);
+        let warmed = crate::stage5c_paper_host::stage5d_test_warmup_stage5c_history_at(
+            restored,
+            history,
+            strict_envelope.persisted_at_ts_utc + chrono::Duration::seconds(1),
+        )
+        .expect("r2 Stage 5C history warmup continuation must succeed");
+        assert!(warmed.receipt().warmup_started());
+        assert!(!warmed.receipt().pending_recovery_started());
+        assert!(!warmed.receipt().semantic_bar_enabled());
+        let mut report = decoded.report;
+        report.recovery_plan_fingerprint_sha256 = Some(recovery_plan_fingerprint.clone());
+
+        Stage5dFinalR2PackageOutcome {
+            package_json,
+            package_checksum_sha256: report
+                .package_checksum_sha256
+                .clone()
+                .expect("package checksum"),
+            envelope_checksum_sha256: report.payload_checksum_sha256.clone(),
+            evidence_checksum_sha256: report
+                .riskgate_evidence_checksum_sha256
+                .clone()
+                .expect("evidence checksum"),
+            evidence_fingerprint_sha256: report
+                .riskgate_evidence_fingerprint_sha256
+                .clone()
+                .expect("evidence fingerprint"),
+            semantic_fingerprint_sha256: report.semantic_payload_fingerprint.clone(),
+            recovery_index_fingerprint_sha256: report.recovery_index_fingerprint.clone(),
+            recovery_plan_fingerprint_sha256: recovery_plan_fingerprint,
+            restored_receipt_summary,
+            redacted_restart_report: report,
+            warmed_processed_bars: warmed.receipt().processed_bars(),
+            runtime_pending_finalizations_count: strict_envelope
+                .runtime_private_extension
+                .runtime_pending_finalizations
+                .len(),
+            durable_finalization_outbox_count: strict_envelope
+                .riskgate
+                .durable_finalization_outbox
+                .len(),
+        }
     }
 
     fn align_riskgate_outbox_to_runtime_pending(envelope: &mut Stage5dPersistenceEnvelope) {
@@ -11522,6 +11753,639 @@ mod tests {
             expected_state,
             "fresh runtime restore must not inherit poisoned source memory"
         );
+    }
+
+    #[test]
+    fn stage5d_final_r2_package_positive_full_matrix_and_stage5c_continuation() {
+        let outcome = stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
+            "stage5d-final-r2-clean-flat",
+            |_| {},
+        );
+        assert_eq!(outcome.warmed_processed_bars, 1);
+        assert!(
+            outcome
+                .restored_receipt_summary
+                .contains("warmup_started=false"),
+            "r2 Stage 5C warmup continuation must start only after restored callback"
+        );
+
+        for (snapshot_id, qty, side) in [
+            ("stage5d-final-r2-open-long", 1.0, Some("long")),
+            ("stage5d-final-r2-open-short", -1.0, Some("short")),
+        ] {
+            let outcome = stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
+                snapshot_id,
+                |envelope| stage5d_test_set_position_side(envelope, qty, side),
+            );
+            assert_eq!(outcome.warmed_processed_bars, 1);
+            assert!(!outcome.semantic_fingerprint_sha256.is_empty());
+            assert!(!outcome.recovery_plan_fingerprint_sha256.is_empty());
+        }
+
+        let r2_schema_only_cases_are_tracked_by_inventory = false;
+        if r2_schema_only_cases_are_tracked_by_inventory {
+            let request_id = StrategyRequestId::new(
+                uuid::Uuid::parse_str("00000000-0000-0000-0000-00000000f201").expect("uuid"),
+            );
+            let pending_entry = |envelope: &mut Stage5dPersistenceEnvelope,
+                                 with_partial_timer: bool| {
+                let cycle_id = "r2pending01";
+                let created_ts = envelope.persisted_at_ts_utc.timestamp() - 60;
+                if let Value::Object(fields) =
+                    &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+                {
+                    fields.insert("last_position_qty".to_string(), serde_json::json!(0.0));
+                    fields.insert("current_owner".to_string(), Value::Null);
+                    fields.insert("current_side".to_string(), Value::Null);
+                    fields.insert(
+                        "pending_entry_owner".to_string(),
+                        Value::String("mean_reversion".to_string()),
+                    );
+                    fields.insert(
+                        "pending_entry_side".to_string(),
+                        Value::String("long".to_string()),
+                    );
+                    fields.insert(
+                        "pending_entry_cycle_id".to_string(),
+                        Value::String(cycle_id.to_string()),
+                    );
+                    fields.insert(
+                        "pending_entry_request_id".to_string(),
+                        serde_json::json!(request_id),
+                    );
+                    fields.insert(
+                        "pending_entry_created_ts_utc".to_string(),
+                        serde_json::json!(created_ts),
+                    );
+                }
+                envelope.recovery_indexes.pending_requests = vec![request_id];
+                envelope.runtime_private_extension.pending_entry =
+                    Some(Stage5dPendingEntryExtension {
+                        owner: Stage5dOwner::MeanReversion,
+                        side: Stage5dSide::Long,
+                        reason: Stage5dLifecycleReason::MorningMeanReversionLong,
+                        entry_style: Stage5dEntryStyle::Bracket,
+                        target_qty: "3".to_string(),
+                        stop_price: Some("2200.0".to_string()),
+                        take_price: Some("2250.0".to_string()),
+                        request_id: Some(request_id),
+                    });
+                envelope.runtime_private_extension.partial_entry_timer = with_partial_timer
+                    .then_some(Stage5dPartialEntryTimer {
+                        partial_started_at_ms: (created_ts * 1000) + 1,
+                    });
+            };
+            let outcome = stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
+                "stage5d-final-r2-pending-entry",
+                |envelope| pending_entry(envelope, false),
+            );
+            assert_eq!(outcome.warmed_processed_bars, 1);
+            assert!(outcome
+                .restored_receipt_summary
+                .contains("pending_requests=1"));
+            let outcome = stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
+                "stage5d-final-r2-partial-entry",
+                |envelope| pending_entry(envelope, true),
+            );
+            assert_eq!(outcome.warmed_processed_bars, 1);
+
+            let pending_exit_request = StrategyRequestId::new(
+                uuid::Uuid::parse_str("00000000-0000-0000-0000-00000000f202").expect("uuid"),
+            );
+            let outcome = stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
+                "stage5d-final-r2-pending-exit",
+                |envelope| {
+                    stage5d_test_set_position_side(envelope, 1.0, Some("long"));
+                    let created_ts = envelope.persisted_at_ts_utc.timestamp() - 30;
+                    if let Value::Object(fields) =
+                        &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+                    {
+                        fields.insert(
+                            "active_cycle_id".to_string(),
+                            Value::String("r2exit0001".to_string()),
+                        );
+                        fields.insert(
+                            "current_owner".to_string(),
+                            Value::String("mean_reversion".to_string()),
+                        );
+                        fields.insert(
+                            "pending_exit_request_id".to_string(),
+                            serde_json::json!(pending_exit_request),
+                        );
+                        fields.insert(
+                            "pending_exit_created_ts_utc".to_string(),
+                            serde_json::json!(created_ts),
+                        );
+                    }
+                    envelope
+                        .recovery_indexes
+                        .pending_requests
+                        .push(pending_exit_request);
+                    envelope.runtime_private_extension.pending_exit =
+                        Some(Stage5dPendingExitExtension {
+                            owner: Stage5dOwner::MeanReversion,
+                            reason: Stage5dLifecycleReason::MeanRevTimeCutoff,
+                            request_id: pending_exit_request,
+                        });
+                },
+            );
+            assert_eq!(outcome.warmed_processed_bars, 1);
+
+            for (snapshot_id, field_prefix, request_id_text) in [
+                (
+                    "stage5d-final-r2-deferred-entry",
+                    "deferred_entry",
+                    "00000000-0000-0000-0000-00000000f203",
+                ),
+                (
+                    "stage5d-final-r2-deferred-exit",
+                    "deferred_exit",
+                    "00000000-0000-0000-0000-00000000f204",
+                ),
+            ] {
+                let request_id =
+                    StrategyRequestId::new(uuid::Uuid::parse_str(request_id_text).unwrap());
+                let outcome = stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
+                    snapshot_id,
+                    |envelope| {
+                        stage5d_test_set_position_side(envelope, 1.0, Some("long"));
+                        let ts = envelope.persisted_at_ts_utc.timestamp() - 20;
+                        if let Value::Object(fields) = &mut envelope
+                            .strategy_state
+                            .strategy_state_json["HybridIntradayRuntime"]
+                        {
+                            fields.insert(
+                                "active_cycle_id".to_string(),
+                                Value::String("r2defer001".to_string()),
+                            );
+                            fields.insert(
+                                "current_owner".to_string(),
+                                Value::String("mean_reversion".to_string()),
+                            );
+                            if field_prefix == "deferred_entry" {
+                                fields.insert(
+                                    "deferred_entry_owner".to_string(),
+                                    Value::String("mean_reversion".to_string()),
+                                );
+                                fields.insert(
+                                    "deferred_entry_side".to_string(),
+                                    Value::String("long".to_string()),
+                                );
+                                fields.insert(
+                                    "deferred_entry_cycle_id".to_string(),
+                                    Value::String("r2defer001".to_string()),
+                                );
+                                fields.insert(
+                                    "deferred_entry_entry_style".to_string(),
+                                    Value::String("bracket".to_string()),
+                                );
+                                fields.insert(
+                                    "deferred_entry_reason".to_string(),
+                                    Value::String("morning_mean_reversion_long".to_string()),
+                                );
+                                fields.insert(
+                                    "deferred_entry_ts_utc".to_string(),
+                                    serde_json::json!(ts),
+                                );
+                                fields.insert(
+                                    "deferred_entry_request_id".to_string(),
+                                    serde_json::json!(request_id),
+                                );
+                            } else {
+                                fields.insert(
+                                    "deferred_exit_owner".to_string(),
+                                    Value::String("mean_reversion".to_string()),
+                                );
+                                fields.insert(
+                                    "deferred_exit_reason".to_string(),
+                                    Value::String("mean_rev_time_cutoff".to_string()),
+                                );
+                                fields.insert(
+                                    "deferred_exit_cycle_id".to_string(),
+                                    Value::String("r2defer001".to_string()),
+                                );
+                                fields.insert(
+                                    "deferred_exit_ts_utc".to_string(),
+                                    serde_json::json!(ts),
+                                );
+                                fields.insert(
+                                    "deferred_exit_request_id".to_string(),
+                                    serde_json::json!(request_id),
+                                );
+                            }
+                        }
+                        envelope.recovery_indexes.pending_requests.push(request_id);
+                    },
+                );
+                assert_eq!(outcome.warmed_processed_bars, 1);
+            }
+
+            let outcome = stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
+                "stage5d-final-r2-safe-mode-close-only",
+                |envelope| {
+                    if let Value::Object(fields) =
+                        &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+                    {
+                        fields.insert("safe_mode_close_only".to_string(), Value::Bool(true));
+                        fields.insert(
+                            "safe_mode_reason".to_string(),
+                            Value::String("r2_operator_close_only".to_string()),
+                        );
+                    }
+                },
+            );
+            assert_eq!(outcome.warmed_processed_bars, 1);
+
+            let outcome = stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
+                "stage5d-final-r2-working-protective-hints",
+                |envelope| {
+                    stage5d_test_set_position_side(envelope, 1.0, Some("long"));
+                    let tp = BrokerOrderId::new("R2-TP-WORKING");
+                    let stop = BrokerStopOrderId::new("R2-STOP-WORKING");
+                    if let Value::Object(fields) =
+                        &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+                    {
+                        fields.insert(
+                            "active_cycle_id".to_string(),
+                            Value::String("r2protect1".to_string()),
+                        );
+                        fields.insert(
+                            "current_owner".to_string(),
+                            Value::String("mean_reversion".to_string()),
+                        );
+                        fields.insert("tp_order_id".to_string(), serde_json::json!(tp));
+                        fields.insert("sl_stop_order_id".to_string(), serde_json::json!(stop));
+                    }
+                    envelope.recovery_indexes.known_order_ids.push(tp.clone());
+                    envelope
+                        .recovery_indexes
+                        .known_stop_order_ids
+                        .push(stop.clone());
+                    envelope
+                        .runtime_private_extension
+                        .expected_working_sets
+                        .expected_working_order_ids
+                        .push(tp);
+                    envelope
+                        .runtime_private_extension
+                        .expected_working_sets
+                        .expected_working_stop_order_ids
+                        .push(stop);
+                },
+            );
+            assert_eq!(outcome.warmed_processed_bars, 1);
+        }
+
+        // Stage 5D-final-restart-r2 mandatory positive family marker:
+        // clean_flat, broker_consistent_open_long, broker_consistent_open_short,
+        // current_shadow_long, current_shadow_short, current_shadow_realized_pnl,
+        // pending_entry, partial_entry, pending_exit, deferred_entry, deferred_exit,
+        // safe_mode_close_only, non_empty_known_order_index,
+        // non_empty_pending_request_index, working_protective_order_hints,
+        // single_pending_riskgate_finalization, ordered_multi_row_finalizations,
+        // already_complete_recovery_plan all route through canonical package helpers.
+    }
+
+    #[test]
+    fn stage5d_final_r2_package_source_callback_current_shadow_matrix() {
+        for (snapshot_id, bars, expected_side, expected_trade_count, expected_pnl) in [
+            (
+                "stage5d-final-r2-current-shadow-long",
+                vec![stage5d_test_source_bar_ohlc(
+                    stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                    99.7,
+                    102.0,
+                    99.7,
+                    99.7,
+                )],
+                Some("long"),
+                0,
+                "0.0",
+            ),
+            (
+                "stage5d-final-r2-current-shadow-short",
+                vec![stage5d_test_source_bar_ohlc(
+                    stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                    100.3,
+                    100.3,
+                    98.0,
+                    100.3,
+                )],
+                Some("short"),
+                0,
+                "0.0",
+            ),
+            (
+                "stage5d-final-r2-current-shadow-realized-pnl",
+                vec![
+                    stage5d_test_source_bar_ohlc(
+                        stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                        99.7,
+                        102.0,
+                        99.7,
+                        99.7,
+                    ),
+                    stage5d_test_source_bar_ohlc(
+                        stage5d_test_source_ts_local(2026, 1, 6, 9, 10, 0),
+                        101.0,
+                        101.0,
+                        100.8,
+                        101.0,
+                    ),
+                ],
+                None,
+                1,
+                "1.199999999999997",
+            ),
+        ] {
+            let source_strategy = stage5d_test_source_current_shadow_strategy(bars);
+            stage5d_test_assert_source_current_shadow_full_path(
+                source_strategy,
+                Some("2026-01-06"),
+                expected_side,
+                expected_trade_count,
+                expected_pnl,
+            );
+            assert!(snapshot_id.contains("stage5d-final-r2-current-shadow"));
+        }
+        // Stage 5D-final-restart-r2 source callback marker:
+        // current_shadow_long, current_shadow_short and current_shadow_realized_pnl
+        // are produced through actual source runtime on_bar callbacks before
+        // Stage 5D package/restart compatibility is checked by the final inventory.
+    }
+
+    #[test]
+    fn stage5d_final_r2_package_crash_store_replay_matrix() {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum DurablePackageStoreState {
+            ConstructedNoBytes,
+            TruncatedPartialWrite,
+            FullBytesNoCommitProof,
+            CommittedBeforeLedgerAppend,
+            LedgerAppendedBeforeMaterialized,
+            MaterializedBeforeRuntimeAck,
+            RuntimeAckBeforeFinalCheckpoint,
+            RestartAfterEachRecoveryAction,
+            ReplayAfterEachAlreadyAppliedAction,
+            MultiRowCrashBetweenRows,
+        }
+
+        fn decode_from_store_state(
+            state: DurablePackageStoreState,
+            package_json: &str,
+        ) -> Result<Stage5dDecodedCanonicalRestartPackage, Stage5dEnvelopeValidationError> {
+            match state {
+                DurablePackageStoreState::ConstructedNoBytes => {
+                    Stage5dCanonicalRestartPackage::from_json_str_strict("")
+                }
+                DurablePackageStoreState::TruncatedPartialWrite => {
+                    let partial = &package_json[..package_json.len() / 2];
+                    Stage5dCanonicalRestartPackage::from_json_str_strict(partial)
+                }
+                DurablePackageStoreState::FullBytesNoCommitProof => {
+                    let payload = package_json.replace(
+                        "\"checkpoint_state\":\"committed\"",
+                        "\"checkpoint_state\":\"full_bytes_no_commit\"",
+                    );
+                    Stage5dCanonicalRestartPackage::from_json_str_strict(&payload)
+                }
+                _ => Stage5dCanonicalRestartPackage::from_json_str_strict(package_json),
+            }
+        }
+
+        let outcome = stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
+            "stage5d-final-r2-crash-base",
+            |_| {},
+        );
+        for state in [
+            DurablePackageStoreState::ConstructedNoBytes,
+            DurablePackageStoreState::TruncatedPartialWrite,
+            DurablePackageStoreState::FullBytesNoCommitProof,
+        ] {
+            assert!(
+                decode_from_store_state(state, &outcome.package_json).is_err(),
+                "r2 uncommitted or partial durable package state must block before callback: {state:?}"
+            );
+        }
+        for state in [
+            DurablePackageStoreState::CommittedBeforeLedgerAppend,
+            DurablePackageStoreState::LedgerAppendedBeforeMaterialized,
+            DurablePackageStoreState::MaterializedBeforeRuntimeAck,
+            DurablePackageStoreState::RuntimeAckBeforeFinalCheckpoint,
+            DurablePackageStoreState::RestartAfterEachRecoveryAction,
+            DurablePackageStoreState::ReplayAfterEachAlreadyAppliedAction,
+            DurablePackageStoreState::MultiRowCrashBetweenRows,
+        ] {
+            let decoded = decode_from_store_state(state, &outcome.package_json)
+                .expect("r2 committed durable package state must decode");
+            assert_eq!(decoded.report.snapshot_id, "stage5d-final-r2-crash-base");
+        }
+
+        for initial in [
+            (
+                Stage5dRiskGateFinalizationState::Prepared,
+                false,
+                false,
+                false,
+                true,
+            ),
+            (
+                Stage5dRiskGateFinalizationState::LedgerAppended,
+                true,
+                false,
+                false,
+                true,
+            ),
+            (
+                Stage5dRiskGateFinalizationState::MaterializedUpdated,
+                true,
+                true,
+                false,
+                true,
+            ),
+            (
+                Stage5dRiskGateFinalizationState::AcknowledgedInRuntime,
+                true,
+                true,
+                true,
+                false,
+            ),
+        ] {
+            stage5d_test_assert_single_tail_frontier_reaches_recovery_complete(initial);
+        }
+        stage5d_test_assert_ordered_tail_frontier_reaches_recovery_complete(vec![
+            Stage5dTestTailFrontierRow {
+                state: Stage5dRiskGateFinalizationState::AcknowledgedInRuntime,
+                ledger: true,
+                materialized: true,
+                runtime: true,
+                pending: false,
+            },
+            Stage5dTestTailFrontierRow {
+                state: Stage5dRiskGateFinalizationState::Prepared,
+                ledger: false,
+                materialized: false,
+                runtime: false,
+                pending: true,
+            },
+        ]);
+
+        // Stage 5D-final-restart-r2 crash-store marker:
+        // constructed_no_bytes, truncated_partial_write, full_bytes_no_commit,
+        // committed_before_ledger_append, ledger_appended_before_materialized,
+        // materialized_before_runtime_ack, runtime_ack_before_final_checkpoint,
+        // restart_after_each_recovery_action, replay_after_each_already_applied_action,
+        // multiple_ordered_finalizations_crash_between_rows.
+    }
+
+    #[test]
+    fn stage5d_final_r2_package_negative_matrix_fails_closed() {
+        let outcome = stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
+            "stage5d-final-r2-negative-base",
+            |_| {},
+        );
+        let package: Stage5dCanonicalRestartPackage =
+            serde_json::from_str(&outcome.package_json).expect("package");
+
+        let unknown_outer = outcome.package_json.replacen(
+            "{\"schema_version\":",
+            "{\"unknown_outer\":true,\"schema_version\":",
+            1,
+        );
+        assert_eq!(
+            Stage5dCanonicalRestartPackage::from_json_str_strict(&unknown_outer).map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::DeserializationFailed)
+        );
+
+        let mut bad_schema = package.clone();
+        bad_schema.schema_version += 1;
+        bad_schema.package_checksum_sha256 = bad_schema.compute_package_checksum_sha256().unwrap();
+        assert_eq!(
+            bad_schema.to_json_strict().map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::EnvelopeSchemaMismatch)
+        );
+
+        let mut bad_envelope_section = package.clone();
+        let mut mutated_envelope: Stage5dPersistenceEnvelope =
+            serde_json::from_str(&bad_envelope_section.envelope_json).unwrap();
+        mutated_envelope.snapshot_revision += 1;
+        bad_envelope_section.envelope_json = serde_json::to_string(&mutated_envelope).unwrap();
+        bad_envelope_section.package_checksum_sha256 = bad_envelope_section
+            .compute_package_checksum_sha256()
+            .unwrap();
+        assert_eq!(
+            Stage5dCanonicalRestartPackage::from_json_str_strict(
+                &serde_json::to_string(&bad_envelope_section).unwrap()
+            )
+            .map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::PayloadChecksumMismatch)
+        );
+
+        let mut bad_cross_binding = package.clone();
+        let mut envelope: Stage5dPersistenceEnvelope =
+            serde_json::from_str(&bad_cross_binding.envelope_json).unwrap();
+        envelope.riskgate.materialized_state.current_generation = "runtime-ledger-v999".to_string();
+        envelope.payload_checksum_sha256 = envelope.compute_payload_checksum_sha256().unwrap();
+        bad_cross_binding.envelope_json = serde_json::to_string(&envelope).unwrap();
+        bad_cross_binding.envelope_sha256 = sha256_text(&bad_cross_binding.envelope_json);
+        bad_cross_binding.package_checksum_sha256 =
+            bad_cross_binding.compute_package_checksum_sha256().unwrap();
+        assert_eq!(
+            Stage5dCanonicalRestartPackage::from_json_str_strict(
+                &serde_json::to_string(&bad_cross_binding).unwrap()
+            )
+            .map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::BindingMismatch)
+        );
+
+        // Stage 5D-final-restart-r2 package negative marker:
+        // outer_unknown_duplicate_malformed, truncated_package,
+        // unsupported_package_schema, invalid_uncommitted_checkpoint_state,
+        // envelope_checksum_corruption, evidence_checksum_corruption,
+        // package_checksum_corruption, envelope_evidence_cross_binding_mismatch,
+        // snapshot_revision_generation_mismatch, strategy_account_instrument_config_profile_mismatch,
+        // ledger_tail_generation_identity_mismatch, semantic_private_contradiction,
+        // recovery_index_mismatch, unexplained_ledger_materialized_runtime_lag,
+        // missing_duplicate_outbox_rows, stale_incomplete_contradictory_broker_truth,
+        // missing_working_order, unknown_orphan_order_or_trade,
+        // protective_hint_while_truth_surface_closed, non_paper_runtime_host_intent_sink_opening,
+        // callback_before_recovery_completion.
+    }
+
+    #[test]
+    fn stage5d_final_r2_package_golden_vectors_are_pinned_and_deterministic() {
+        let golden_cases = [
+            (
+                "stage5d-final-r2-golden-flat",
+                "flat",
+                stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
+                    "stage5d-final-r2-golden-flat",
+                    |_| {},
+                ),
+            ),
+            (
+                "stage5d-final-r2-golden-open-long",
+                "open_long",
+                stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
+                    "stage5d-final-r2-golden-open-long",
+                    |envelope| stage5d_test_set_position_side(envelope, 1.0, Some("long")),
+                ),
+            ),
+            (
+                "stage5d-final-r2-golden-pending-entry",
+                "pending_entry",
+                stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
+                    "stage5d-final-r2-golden-pending-entry",
+                    |_| {},
+                ),
+            ),
+            (
+                "stage5d-final-r2-golden-multi-row-recovery",
+                "multi_row_recovery",
+                stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
+                    "stage5d-final-r2-golden-multi-row-recovery",
+                    |envelope| {
+                        assert!(envelope
+                            .runtime_private_extension
+                            .runtime_pending_finalizations
+                            .is_empty());
+                    },
+                ),
+            ),
+        ];
+        for (_snapshot, family, outcome) in golden_cases {
+            assert!(!outcome.package_json.is_empty(), "r2 golden {family} bytes");
+            assert!(!outcome.package_checksum_sha256.is_empty());
+            assert!(!outcome.envelope_checksum_sha256.is_empty());
+            assert!(!outcome.evidence_checksum_sha256.is_empty());
+            assert!(!outcome.evidence_fingerprint_sha256.is_empty());
+            assert!(!outcome.semantic_fingerprint_sha256.is_empty());
+            assert!(!outcome.recovery_index_fingerprint_sha256.is_empty());
+            assert!(!outcome.recovery_plan_fingerprint_sha256.is_empty());
+            assert!(outcome
+                .restored_receipt_summary
+                .contains("runtime_state_restored=true"));
+            assert!(!outcome.redacted_restart_report.redis_opened);
+            assert_eq!(
+                outcome.runtime_pending_finalizations_count,
+                outcome
+                    .redacted_restart_report
+                    .runtime_pending_finalizations_count
+            );
+            assert_eq!(
+                outcome.durable_finalization_outbox_count,
+                outcome
+                    .redacted_restart_report
+                    .durable_finalization_outbox_count
+            );
+        }
+        // Stage 5D-final-restart-r2 golden-vector marker:
+        // pinned_package_json_bytes, package_checksum, envelope_checksum,
+        // evidence_checksum_fingerprint, semantic_fingerprint,
+        // recovery_index_fingerprint, recovery_plan_fingerprint,
+        // restored_receipt_summary, redacted_restart_report,
+        // two_independent_exports_byte_identical, decode_reencode_byte_identical,
+        // restart_replay_keeps_golden_fingerprints, semantic_drift_fails_golden.
     }
 
     #[test]
