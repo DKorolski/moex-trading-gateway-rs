@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-b2b-d1-r3",
+  "stage": "5D-b2b-d1-r4",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -61,8 +61,8 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "b3a7b02815c7cd3ada1cb5976c88569d3128aa34226fb4271e73efb87fb58610",
-      "stripped_without_additive_regions_sha256": "0ea1a8982965eb34cc113d41c821b22a3ab2c2e2f5a80112ce2561b48fc4ed3c",
+      "current_sha256": "19244c5e576f57ba092d39f08c933172a2d34dd5c4b7be9979e52fba65df9261",
+      "stripped_without_additive_regions_sha256": "bcc2c4d6ff08d06c49f9716495ce177fc968a8dcd71f6b2c38bcb8d5b4cb0914",
       "additive_regions": [
         "type-state-transitions"
       ]
@@ -73,7 +73,7 @@
       "path": "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
       "reason_id": "stage5d-b2b-a-persisted-load-provenance-v1",
       "public_api_unchanged": true,
-      "stripped_without_additive_regions_sha256": "0ea1a8982965eb34cc113d41c821b22a3ab2c2e2f5a80112ce2561b48fc4ed3c"
+      "stripped_without_additive_regions_sha256": "bcc2c4d6ff08d06c49f9716495ce177fc968a8dcd71f6b2c38bcb8d5b4cb0914"
     }
   ],
   "controlled_source_semantic_extensions": [
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "e8793feb61e270c967ee849cc0b0726bbef7547fa89dff1b0e03ded062012ffa"
+      "stage5d_consumer_sha256": "b14520aff6a11012978ace86c53db5ca81d442d2538905cc9b10bc8ce8d0c1a2"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "e8793feb61e270c967ee849cc0b0726bbef7547fa89dff1b0e03ded062012ffa"
+      "stage5d_consumer_sha256": "b14520aff6a11012978ace86c53db5ca81d442d2538905cc9b10bc8ce8d0c1a2"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "e8793feb61e270c967ee849cc0b0726bbef7547fa89dff1b0e03ded062012ffa"
+    "current_sha256": "b14520aff6a11012978ace86c53db5ca81d442d2538905cc9b10bc8ce8d0c1a2"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -257,7 +257,19 @@
     "runtime_restored_blocked_retained_capability_removed",
     "runtime_restored_terminal_retry_enabled",
     "runtime_restored_lifecycle_notification_guard_removed",
-    "runtime_restored_flat_side_exact_guard_removed"
+    "runtime_restored_flat_side_exact_guard_removed",
+    "runtime_restored_r4_source_prebind_proof_removed",
+    "runtime_restored_r4_current_shadow_matrix_removed",
+    "runtime_restored_r4_single_row_restored_removed",
+    "runtime_restored_r4_multi_row_restored_removed",
+    "runtime_restored_r4_actual_long_removed",
+    "runtime_restored_r4_actual_short_removed",
+    "runtime_restored_r4_known_order_removed",
+    "runtime_restored_r4_pending_request_removed",
+    "runtime_restored_r4_blocked_fingerprint_removed",
+    "runtime_restored_r4_compilefail_private_field_removed",
+    "runtime_restored_r4_compilefail_private_bridge_removed",
+    "runtime_restored_r4_compilefail_consumed_input_removed"
   ],
   "stage5d_public_api": {
     "public_reexports": [

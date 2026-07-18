@@ -161,7 +161,7 @@ Current controlled sequence within Stage 5D is:
 ```text
 5D-b2b-c1-r8 signed-zero/current-shadow/multi-frontier closure
  -> accepted review hardening
-5D-b2b-d1-r3 controlled runtime-state-restored return closure
+5D-b2b-d1-r4 broker-position/recovery-index runtime-restored closure
  -> canonical envelope export, round-trip and restart/crash fixture matrix
 ```
 

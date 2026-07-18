@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import signal
 import time
 from dataclasses import dataclass
@@ -165,6 +166,23 @@ def update_manifest_stage5d_hash(root: Path) -> None:
         if extension.get("stage5d_consumer_path") == rel_path:
             extension["stage5d_consumer_sha256"] = stage5d_sha256
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+
+
+def update_stage5d_checker_expected_consumer_hash(root: Path) -> None:
+    checker_path = root / CHECKER
+    stage5d_sha256 = sha256_file(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs")
+    source = checker_path.read_text()
+    source = re.sub(
+        r'("stage5d_consumer_sha256": ")[0-9a-f]{64}(")',
+        rf"\g<1>{stage5d_sha256}\2",
+        source,
+    )
+    checker_path.write_text(source)
+
+
+def update_stage5d_semantic_mutation_hashes(root: Path) -> None:
+    update_manifest_stage5d_hash(root)
+    update_stage5d_checker_expected_consumer_hash(root)
 
 
 def insert_before(path: Path, marker: str, text: str) -> None:
@@ -779,6 +797,126 @@ def mutate_runtime_restored_flat_side_exact_guard_removed(root: Path) -> None:
     update_manifest_stage5d_hash(root)
 
 
+def mutate_runtime_restored_r4_source_prebind_proof_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "positive path must use exact source semantic state before Stage 5D binding",
+        "r4 mutated source prebind proof removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r4_current_shadow_matrix_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "stage5d_b2bd1r3_source_produced_current_shadow_long_short_and_realized_pnl_restore",
+        "stage5d_b2bd1r3_source_produced_current_shadow_matrix_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r4_single_row_restored_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "completed single-row recovery must reach restored transition",
+        "r4 mutated single-row restored proof removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r4_multi_row_restored_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "completed multi-row recovery must reach restored transition",
+        "r4 mutated multi-row restored proof removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r4_actual_long_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        '(3.0, "long", crate::hybrid_intraday::Side::Long)',
+        '(3.0, "long-removed", crate::hybrid_intraday::Side::Long)',
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r4_actual_short_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        '(-3.0, "short", crate::hybrid_intraday::Side::Short)',
+        '(-3.0, "short-removed", crate::hybrid_intraday::Side::Short)',
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r4_known_order_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "r4 non-empty known-order index must be preserved",
+        "r4 mutated known-order proof removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r4_pending_request_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "r4 non-empty pending-request index must be preserved",
+        "r4 mutated pending-request proof removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r4_blocked_fingerprint_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_all(
+        root / rel,
+        "blocked.stage5d_test_strategy_state_fingerprint()",
+        "blocked.stage5d_test_strategy_state_fingerprint_removed()",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r4_compilefail_private_field_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "let _raw_bootstrapped = injected.bootstrapped;",
+        "let _raw_bootstrapped_removed = ();",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r4_compilefail_private_bridge_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "use strategy_runtime_core::stage5c_paper_host::stage5d_notify_runtime_state_restored_bridge_at;",
+        "use strategy_runtime_core::stage5d_persistence::stage5d_notify_runtime_state_restored;",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r4_compilefail_consumed_input_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "let _second = stage5d_notify_runtime_state_restored(injected);",
+        "let _second_removed = ();",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -857,6 +995,18 @@ CASES = [
     ("runtime_restored_terminal_retry_enabled", mutate_runtime_restored_terminal_retry_enabled, "Stage 5D runtime-restored terminal retry denial missing"),
     ("runtime_restored_lifecycle_notification_guard_removed", mutate_runtime_restored_lifecycle_notification_guard_removed, "Stage 5D runtime-restored lifecycle notification timestamp guard missing"),
     ("runtime_restored_flat_side_exact_guard_removed", mutate_runtime_restored_flat_side_exact_guard_removed, "Stage 5D runtime-restored flat-side exact guard missing"),
+    ("runtime_restored_r4_source_prebind_proof_removed", mutate_runtime_restored_r4_source_prebind_proof_removed, "Stage 5D runtime-restored source pre-bind exact-state proof missing"),
+    ("runtime_restored_r4_current_shadow_matrix_removed", mutate_runtime_restored_r4_current_shadow_matrix_removed, "Stage 5D runtime-restored source-produced current-shadow proof missing"),
+    ("runtime_restored_r4_single_row_restored_removed", mutate_runtime_restored_r4_single_row_restored_removed, "Stage 5D runtime-restored single-row recovery transition proof missing"),
+    ("runtime_restored_r4_multi_row_restored_removed", mutate_runtime_restored_r4_multi_row_restored_removed, "Stage 5D runtime-restored multi-row recovery transition proof missing"),
+    ("runtime_restored_r4_actual_long_removed", mutate_runtime_restored_r4_actual_long_removed, "Stage 5D runtime-restored actual Long broker-position proof missing"),
+    ("runtime_restored_r4_actual_short_removed", mutate_runtime_restored_r4_actual_short_removed, "Stage 5D runtime-restored actual Short broker-position proof missing"),
+    ("runtime_restored_r4_known_order_removed", mutate_runtime_restored_r4_known_order_removed, "Stage 5D runtime-restored known-order preservation proof missing"),
+    ("runtime_restored_r4_pending_request_removed", mutate_runtime_restored_r4_pending_request_removed, "Stage 5D runtime-restored pending-request preservation proof missing"),
+    ("runtime_restored_r4_blocked_fingerprint_removed", mutate_runtime_restored_r4_blocked_fingerprint_removed, "Stage 5D runtime-restored blocked strategy fingerprint proof missing"),
+    ("runtime_restored_r4_compilefail_private_field_removed", mutate_runtime_restored_r4_compilefail_private_field_removed, "Stage 5D runtime-restored compile-fail private field proof missing"),
+    ("runtime_restored_r4_compilefail_private_bridge_removed", mutate_runtime_restored_r4_compilefail_private_bridge_removed, "Stage 5D runtime-restored compile-fail private bridge proof missing"),
+    ("runtime_restored_r4_compilefail_consumed_input_removed", mutate_runtime_restored_r4_compilefail_consumed_input_removed, "Stage 5D runtime-restored compile-fail consumed-input proof missing"),
 ]
 
 

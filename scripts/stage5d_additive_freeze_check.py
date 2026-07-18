@@ -90,7 +90,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "e8793feb61e270c967ee849cc0b0726bbef7547fa89dff1b0e03ded062012ffa",
+        "stage5d_consumer_sha256": "b14520aff6a11012978ace86c53db5ca81d442d2538905cc9b10bc8ce8d0c1a2",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -104,7 +104,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "e8793feb61e270c967ee849cc0b0726bbef7547fa89dff1b0e03ded062012ffa",
+        "stage5d_consumer_sha256": "b14520aff6a11012978ace86c53db5ca81d442d2538905cc9b10bc8ce8d0c1a2",
     },
 ]
 
@@ -130,7 +130,7 @@ EXPECTED_STAGE5C_PRIVATE_LAYOUT_EXTENSIONS = [
         "reason_id": "stage5d-b2b-a-persisted-load-provenance-v1",
         "public_api_unchanged": True,
         "stripped_without_additive_regions_sha256": (
-            "0ea1a8982965eb34cc113d41c821b22a3ab2c2e2f5a80112ce2561b48fc4ed3c"
+            "bcc2c4d6ff08d06c49f9716495ce177fc968a8dcd71f6b2c38bcb8d5b4cb0914"
         ),
     }
 ]
@@ -202,6 +202,18 @@ EXPECTED_NEGATIVE_CASES = [
     "runtime_restored_terminal_retry_enabled",
     "runtime_restored_lifecycle_notification_guard_removed",
     "runtime_restored_flat_side_exact_guard_removed",
+    "runtime_restored_r4_source_prebind_proof_removed",
+    "runtime_restored_r4_current_shadow_matrix_removed",
+    "runtime_restored_r4_single_row_restored_removed",
+    "runtime_restored_r4_multi_row_restored_removed",
+    "runtime_restored_r4_actual_long_removed",
+    "runtime_restored_r4_actual_short_removed",
+    "runtime_restored_r4_known_order_removed",
+    "runtime_restored_r4_pending_request_removed",
+    "runtime_restored_r4_blocked_fingerprint_removed",
+    "runtime_restored_r4_compilefail_private_field_removed",
+    "runtime_restored_r4_compilefail_private_bridge_removed",
+    "runtime_restored_r4_compilefail_consumed_input_removed",
 ]
 
 EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
@@ -710,6 +722,12 @@ def source_function_slice(source: str, function_name: str) -> str:
     return source[start:]
 
 
+def source_without_rustdoc_comments(source: str) -> str:
+    return "\n".join(
+        line for line in source.splitlines() if not line.lstrip().startswith("///")
+    )
+
+
 def validate_stage5d_single_bridge_call_sites(
     root: Path,
     failures: list[str],
@@ -723,12 +741,16 @@ def validate_stage5d_single_bridge_call_sites(
     refs: dict[str, int] = {}
     for path in sorted(source_root.rglob("*.rs")):
         rel = str(path.relative_to(root))
-        refs[rel] = len(pattern.findall(path.read_text(errors="replace")))
+        refs[rel] = len(
+            pattern.findall(source_without_rustdoc_comments(path.read_text(errors="replace")))
+        )
 
     stage5c_rel = str(STAGE5C_HOST_REL)
     stage5d_rel = str(STAGE5D_REL)
     stage5c_source = (root / STAGE5C_HOST_REL).read_text(errors="replace")
-    stage5d_source = (root / STAGE5D_REL).read_text(errors="replace")
+    stage5d_source = source_without_rustdoc_comments(
+        (root / STAGE5D_REL).read_text(errors="replace")
+    )
     expected_definition = rf"pub\(crate\)\s+fn\s+{re.escape(identifier)}\s*\("
     if refs.get(stage5c_rel) != 1 or not re.search(expected_definition, stage5c_source):
         failures.append(
@@ -860,7 +882,9 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
         "Stage 5D runtime-restored multi-row recovery transition proof missing":
             "completed multi-row recovery must reach restored transition",
         "Stage 5D runtime-restored blocked strategy fingerprint proof missing":
-            "stage5d_test_strategy_state_fingerprint()",
+            "blocked.stage5d_test_strategy_state_fingerprint()",
+        "Stage 5D runtime-restored source pre-bind exact-state proof missing":
+            "positive path must use exact source semantic state before Stage 5D binding",
         "Stage 5D runtime-restored compile-fail construction proof missing":
             "let forged = Stage5dRiskGateInjectedPaperStrategy {};",
         "Stage 5D runtime-restored compile-fail consumed-input proof missing":
@@ -871,6 +895,24 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
             "Stage5dRuntimeStateRestoreOutcome::Terminal(_terminal) = outcome",
         "Stage 5D runtime-restored compile-fail private preflight proof missing":
             "use strategy_runtime_core::stage5d_persistence::validate_stage5d_runtime_state_restored_preflight;",
+        "Stage 5D runtime-restored compile-fail private field proof missing":
+            "let _raw_bootstrapped = injected.bootstrapped;",
+        "Stage 5D runtime-restored compile-fail private bridge proof missing":
+            "use strategy_runtime_core::stage5c_paper_host::stage5d_notify_runtime_state_restored_bridge_at;",
+        "Stage 5D runtime-restored actual Long broker-position proof missing":
+            "(3.0, \"long\", crate::hybrid_intraday::Side::Long)",
+        "Stage 5D runtime-restored actual Short broker-position proof missing":
+            "(-3.0, \"short\", crate::hybrid_intraday::Side::Short)",
+        "Stage 5D runtime-restored genuine broker-position row proof missing":
+            "r4 actual broker-position positive must use a genuine broker position row",
+        "Stage 5D runtime-restored known-order preservation proof missing":
+            "r4 non-empty known-order index must be preserved",
+        "Stage 5D runtime-restored pending-request preservation proof missing":
+            "r4 non-empty pending-request index must be preserved",
+        "Stage 5D runtime-restored receipt known-order retention proof missing":
+            "stage5d_test_known_order_ids()",
+        "Stage 5D runtime-restored open-position side-mismatch proof missing":
+            "r4 open broker position Long/Short side mismatch must block before callback",
     }
     for message, token in required_r3_tokens.items():
         if token not in stage5d_source:
@@ -883,8 +925,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2b-d1-r3":
-        failures.append("stage must be 5D-b2b-d1-r3")
+    if manifest.get("stage") != "5D-b2b-d1-r4":
+        failures.append("stage must be 5D-b2b-d1-r4")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:

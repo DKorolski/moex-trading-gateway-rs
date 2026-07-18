@@ -1,8 +1,8 @@
-# Stage 5D-b2b-d1-r3 — source-produced runtime-restored closure hardening
+# Stage 5D-b2b-d1-r4 — broker-position and recovery-index closure hardening
 
 Status: implementation candidate.
 
-Stage 5D-b2b-d1-r3 closes the review findings from the first controlled
+Stage 5D-b2b-d1-r4 closes the review findings from the first controlled
 runtime-state-restored transition without opening any operational wiring.
 
 ## Scope
@@ -54,7 +54,7 @@ broker qty == 0 -> current_side == None
 
 - The Stage 5D bridge adds its own exact post-callback broker-truth validation
   while leaving the immutable Stage 5C baseline intact.
-- Stage 5D negative harness inventory expands from `54` to `66` cases with
+- Stage 5D negative harness inventory expands from `66` to `78` cases with
   marker-pinned checks for:
   - missing runtime intent guard;
   - guard moved after `debug_assert!`;
@@ -65,7 +65,10 @@ broker qty == 0 -> current_side == None
     transition proof;
   - missing single-row and multi-row recovery restored transitions;
   - missing pre-callback state-fingerprint preservation;
-  - missing compile-fail type-state guards.
+  - missing compile-fail type-state guards;
+  - missing source pre-bind exact-state proof;
+  - missing genuine broker-position Long/Short positives;
+  - missing non-empty known-order/pending-request retention positives.
 
 ## Focused evidence
 
@@ -88,6 +91,12 @@ Focused b2bd/b2bd1 unit tests cover:
 - rustdoc compile-fail examples cover unconstructible capability, consumed
   input, non-substitutable restored output, outcome type-state separation and
   private bridge/preflight imports.
+- genuine broker-position Long/Short fixtures carry real `target_open_positions`
+  rows and restore through the full strict pipeline;
+- non-empty known-order and pending-request indexes are retained through the
+  restored receipt;
+- open broker-position side mismatches block before callback through the common
+  callback-zero retained-capability assertion helper.
 
 ## Gate evidence
 
@@ -106,12 +115,12 @@ stage5d-b2bd1-review-gate: all required gates passed
 Pinned hashes:
 
 ```text
-stage5d_manifest_sha256: daaf80a9710f5646cf4db259f83010503643d1af3996ca6876d33ce520234a6e
-stage5d_checker_sha256: 54e8cdebfee04bc9227a5f44b3a235bf95e832f1e55cc36ad965328b1bf4956c
-stage5d_negative_harness_sha256: 490ecb1537faec688af22ba208f213aa366d56637a9e8314869a2f4949989b49
-forbidden_surface_scan_sha256: 8eef532650eab2b59328e46d2e79f7ff3c92bcf18ce40a311aff863cee66706a
-stage5c_paper_host_sha256: b3a7b02815c7cd3ada1cb5976c88569d3128aa34226fb4271e73efb87fb58610
-stage5d_persistence_sha256: e8793feb61e270c967ee849cc0b0726bbef7547fa89dff1b0e03ded062012ffa
+stage5d_manifest_sha256: cc98123d6b39408b7a79042340a1ecef058611cfbe0d1ac3f535ee600c1025b9
+stage5d_checker_sha256: 1a57390b3ab327f8ed1c6c2d528365633d898a86fce7ff4538b9001a1d01d8a2
+stage5d_negative_harness_sha256: 7788a64e45706a1731bd32d8a3acb1de841de6d3caba49805a00be9813e97afa
+forbidden_surface_scan_sha256: b2eb25d6dd54be86155df09f192e257c30083594fa505d3f7abfe252c3d49461
+stage5c_paper_host_sha256: 19244c5e576f57ba092d39f08c933172a2d34dd5c4b7be9979e52fba65df9261
+stage5d_persistence_sha256: b14520aff6a11012978ace86c53db5ca81d442d2538905cc9b10bc8ce8d0c1a2
 review_gate_script_sha256: a7656932f6fed90a21d6c4bfae15f19b4a721fa0cfc7afd1e455017aa8632355
 ```
 

@@ -234,6 +234,7 @@ fn stage5d_notify_runtime_state_restored_bridge_impl_at(
         now_ts_utc: restored_ts.timestamp(),
         last_bar_ts: None,
     };
+    let known_order_ids = restored.known_order_ids.clone();
     let pending_requests = restored.pending_requests.clone();
     #[cfg(test)]
     STAGE5D_RUNTIME_RESTORED_CALLBACK_COUNT.with(|count| count.set(count.get() + 1));
@@ -269,6 +270,7 @@ fn stage5d_notify_runtime_state_restored_bridge_impl_at(
         receipt: Stage5cRuntimeStateRestoreReceipt {
             bootstrap_receipt,
             restored_ts,
+            known_order_ids,
             pending_requests,
         },
     })
@@ -881,6 +883,8 @@ impl std::error::Error for Stage5cRuntimeStateRestoreError {}
 pub struct Stage5cRuntimeStateRestoreReceipt {
     bootstrap_receipt: Stage5cBootstrapNotificationReceipt,
     restored_ts: DateTime<Utc>,
+    #[allow(dead_code)]
+    known_order_ids: Vec<BrokerOrderId>,
     pending_requests: Vec<StrategyRequestId>,
 }
 
@@ -898,6 +902,11 @@ impl Stage5cRuntimeStateRestoreReceipt {
     }
     pub fn pending_requests(&self) -> &[StrategyRequestId] {
         &self.pending_requests
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stage5d_test_known_order_ids(&self) -> &[BrokerOrderId] {
+        &self.known_order_ids
     }
 
     pub fn warmup_started(&self) -> bool {
@@ -3621,6 +3630,7 @@ fn notify_stage5c_runtime_state_restored_at(
         now_ts_utc: restored_ts.timestamp(),
         last_bar_ts: None,
     };
+    let known_order_ids = restored.known_order_ids.clone();
     let pending_requests = restored.pending_requests.clone();
     let intents = Strategy::on_runtime_state_restored(&mut strategy, &context, &restored);
     debug_assert!(
@@ -3634,6 +3644,7 @@ fn notify_stage5c_runtime_state_restored_at(
         receipt: Stage5cRuntimeStateRestoreReceipt {
             bootstrap_receipt,
             restored_ts,
+            known_order_ids,
             pending_requests,
         },
     })
