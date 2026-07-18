@@ -153,6 +153,11 @@ impl Stage5cBootstrappedPaperStrategy {
     pub(crate) fn stage5d_test_mark_intent_sink_attached(&mut self) {
         self.receipt.admission.intent_sink_attached = true;
     }
+
+    #[cfg(test)]
+    pub(crate) fn stage5d_test_mark_not_paper_only(&mut self) {
+        self.receipt.admission.paper_only = false;
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

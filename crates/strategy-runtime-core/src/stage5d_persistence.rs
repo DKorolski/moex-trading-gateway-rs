@@ -4664,6 +4664,34 @@ mod tests {
         injected
     }
 
+    fn stage5d_test_complete_strict_injected_fixture_with_position(
+        qty: f64,
+        side: Option<&str>,
+    ) -> Stage5dRiskGateInjectedPaperStrategy {
+        let (bootstrapped, _envelope, validated_evidence) =
+            riskgate_enabled_strict_bootstrapped_fixture_with_evidence(|envelope, evidence| {
+                stage5d_test_set_position_side(envelope, qty, side);
+                stage5d_test_configure_single_tail_crash_frontier(
+                    envelope,
+                    evidence,
+                    Stage5dRiskGateFinalizationState::AcknowledgedInRuntime,
+                    true,
+                    true,
+                    true,
+                    false,
+                );
+            });
+        let injected = expect_stage5d_riskgate_ok(
+            stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
+            "r5 strict round-trip fixture must inject riskgate",
+        );
+        assert!(
+            injected.recovery_complete(),
+            "r5 strict round-trip fixture must be ready for restored callback"
+        );
+        injected
+    }
+
     fn stage5d_test_complete_injected_pending_entry_index_fixture(
     ) -> Stage5dRiskGateInjectedPaperStrategy {
         let request_id = StrategyRequestId::new(
@@ -4672,7 +4700,7 @@ mod tests {
         let cycle_id = "5d4c1e0001";
         let created_ts = 1_784_009_340_i64;
         let (bootstrapped, _envelope, validated_evidence) =
-            riskgate_enabled_bootstrapped_fixture_with_evidence(|envelope, evidence| {
+            riskgate_enabled_strict_bootstrapped_fixture_with_evidence(|envelope, evidence| {
                 stage5d_test_set_position_side(envelope, 0.5, Some("long"));
                 if let Value::Object(fields) =
                     &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
@@ -4955,6 +4983,42 @@ mod tests {
             "riskgate fixture bootstrap must succeed",
         );
         (bootstrapped, envelope, validated_evidence)
+    }
+
+    fn riskgate_enabled_strict_bootstrapped_fixture_with_evidence(
+        mutator: impl FnOnce(&mut Stage5dPersistenceEnvelope, &mut Stage5dRiskGateLedgerEvidence),
+    ) -> (
+        Stage5dBootstrappedPaperStrategy,
+        Stage5dPersistenceEnvelope,
+        Stage5dValidatedRiskGateLedgerEvidence,
+    ) {
+        let mut envelope = flat_persisted_fixture();
+        let mut strategy = stage5d_test_strategy_with_config(|config| {
+            config.profile =
+                crate::hybrid_intraday_runtime::HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120;
+            config.mr_variant = crate::hybrid_intraday_runtime::MeanReversionVariant::High180;
+            config.mr_gate_policy =
+                crate::hybrid_intraday_runtime::MrGatePolicy::ShadowPnlLb120Positive;
+            config.risk_gate_mode = crate::hybrid_intraday_runtime::RiskGateMode::NormalAppend;
+            config.qty = 3.0;
+        });
+        let identity = stage5d_test_riskgate_identity_for(&strategy, &envelope);
+        let mut evidence = stage5d_test_riskgate_evidence_for(&identity, &envelope);
+        stage5d_apply_riskgate_evidence_to_envelope(&mut envelope, &evidence);
+        mutator(&mut envelope, &mut evidence);
+        evidence = stage5d_test_rebuild_evidence_from_envelope(&envelope, &evidence);
+        envelope.riskgate.ledger_tail_hash = evidence.ledger_tail_hash.clone();
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("strict r5 checksum after riskgate evidence");
+        restore_semantic_state(&mut strategy, &envelope);
+        bind_fixture_to_strategy_config(&mut envelope, &strategy);
+        evidence = stage5d_test_rebuild_evidence_from_envelope(&envelope, &evidence);
+        envelope.riskgate.ledger_tail_hash = evidence.ledger_tail_hash.clone();
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("strict r5 checksum after source config binding");
+        stage5d_test_bootstrap_strict_envelope_with_strategy(envelope, strategy, evidence)
     }
 
     fn stage5d_test_bootstrap_strict_envelope_with_strategy(
@@ -8003,10 +8067,14 @@ mod tests {
             (3.0, "long", crate::hybrid_intraday::Side::Long),
             (-3.0, "short", crate::hybrid_intraday::Side::Short),
         ] {
-            let injected = stage5d_test_complete_injected_fixture_with_position_and_bootstrap_delay(
-                qty,
-                Some(side),
-                chrono::Duration::zero(),
+            let injected =
+                stage5d_test_complete_strict_injected_fixture_with_position(qty, Some(side));
+            assert!(
+                injected
+                    .envelope
+                    .validate_restore_contract_schema_only()
+                    .is_ok(),
+                "r5 strict JSON round-trip broker-position {side} evidence must remain schema-valid"
             );
             let snapshot = injected
                 .bootstrapped
@@ -8058,7 +8126,7 @@ mod tests {
     fn stage5d_b2bd1r4_non_empty_recovery_indexes_preserve_through_restored_receipt() {
         let known_order_id = BrokerOrderId::new("STAGE5D-R4-KNOWN-ORDER");
         let (bootstrapped, _envelope, validated_evidence) =
-            riskgate_enabled_bootstrapped_fixture_with_evidence(|envelope, evidence| {
+            riskgate_enabled_strict_bootstrapped_fixture_with_evidence(|envelope, evidence| {
                 envelope.recovery_indexes.known_order_ids = vec![known_order_id.clone()];
                 stage5d_test_configure_single_tail_crash_frontier(
                     envelope,
@@ -8075,6 +8143,13 @@ mod tests {
             "known-order index positive fixture must inject riskgate",
         );
         assert!(injected.recovery_complete());
+        assert!(
+            injected
+                .envelope
+                .validate_restore_contract_schema_only()
+                .is_ok(),
+            "r5 strict JSON round-trip known-order index evidence must remain schema-valid"
+        );
         stage5d_test_assert_injected_restores_indexes_once(
             injected,
             &[known_order_id],
@@ -8091,6 +8166,13 @@ mod tests {
         assert!(
             !expected_pending.is_empty(),
             "r4 pending-request positive must carry a non-empty source-compatible index"
+        );
+        assert!(
+            pending_injected
+                .envelope
+                .validate_restore_contract_schema_only()
+                .is_ok(),
+            "r5 strict JSON round-trip pending-request index evidence must remain schema-valid"
         );
         stage5d_test_assert_injected_restores_indexes_once(
             pending_injected,
@@ -8514,6 +8596,19 @@ mod tests {
                 .stage5d_test_mark_intent_sink_attached();
         }
 
+        fn not_paper_only_boundary(injected: &mut Stage5dRiskGateInjectedPaperStrategy) {
+            injected.bootstrapped.stage5d_test_mark_not_paper_only();
+        }
+
+        fn non_acknowledged_recovery_decision(injected: &mut Stage5dRiskGateInjectedPaperStrategy) {
+            let decision = injected
+                .recovery_plan
+                .decisions
+                .first_mut()
+                .expect("complete fixture carries one acknowledged decision");
+            decision.action = Stage5dRiskGateRecoveryDecision::ReackRuntime;
+        }
+
         for case in [
             Case {
                 name: "pending_finalization",
@@ -8564,6 +8659,16 @@ mod tests {
                 name: "intent_sink_boundary",
                 mutate: intent_sink_boundary,
                 expected: Stage5dRuntimeStateRestoreBlockedReason::ClosedBoundaryOpened,
+            },
+            Case {
+                name: "not_paper_only_boundary",
+                mutate: not_paper_only_boundary,
+                expected: Stage5dRuntimeStateRestoreBlockedReason::ClosedBoundaryOpened,
+            },
+            Case {
+                name: "non_acknowledged_recovery_decision",
+                mutate: non_acknowledged_recovery_decision,
+                expected: Stage5dRuntimeStateRestoreBlockedReason::RecoveryIncomplete,
             },
         ] {
             let mut injected = stage5d_test_complete_injected_fixture();

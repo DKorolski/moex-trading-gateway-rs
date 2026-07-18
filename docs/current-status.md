@@ -204,12 +204,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   5C closure manifest, represents riskgate codec changes through Stage 5D-owned
   controlled semantic extension evidence, validates later processed watermarks by
   the bound source runtime policy, and proves source-produced current-shadow
-  positives without post-export editing. CI requires the 78-case Stage 5D harness
+  positives without post-export editing. CI requires the 82-case Stage 5D harness
   plus the isolated marker-pinned 87-case forbidden harness with positive-baseline and
   self-protection checks. The forbidden harness supported worker contract is
   pinned at default/max four workers, 180-second per-case timeout and a
   75-minute CI timeout. Review
-  handoffs remain fail-closed and commit-bound. Stage 5D-b2b-d1-r4 is the active
+  handoffs remain fail-closed and commit-bound. Stage 5D-b2b-d1-r5 is the active
   runtime-restored review-closure hardening candidate: it consumes only the
   opaque `Stage5dRiskGateInjectedPaperStrategy`, requires complete
   source-produced recovery evidence before the callback, delegates through one
@@ -226,9 +226,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   missing exact side guard, missing source-produced Long/Short/realized-PnL
   restored-transition proof, missing single/multi-row recovery restored
   transitions, missing pre-callback state-fingerprint preservation, and missing
-  compile-fail type-state guards. r4 additionally pins genuine broker-position
-  Long/Short positives, non-empty known-order and pending-request retention,
-  open-position side-mismatch blockers and source pre-bind exact-state proof.
+  compile-fail type-state guards. r4/r5 additionally pin genuine
+  broker-position Long/Short positives through strict JSON round-trip,
+  non-empty known-order and pending-request retention through strict
+  round-trip, open-position side-mismatch blockers, explicit paper-only and
+  non-acknowledged recovery-decision blockers, blocker ownership evidence, and
+  source pre-bind exact-state proof.
   The formal mutation policy is
   `controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only`;
   Redis bridge, FINAM execution, broker transport, runtime-live and autonomous

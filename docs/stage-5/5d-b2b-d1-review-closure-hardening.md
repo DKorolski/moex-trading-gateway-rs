@@ -1,8 +1,8 @@
-# Stage 5D-b2b-d1-r4 — broker-position and recovery-index closure hardening
+# Stage 5D-b2b-d1-r5 — strict round-trip and blocker-ownership closure hardening
 
 Status: implementation candidate.
 
-Stage 5D-b2b-d1-r4 closes the review findings from the first controlled
+Stage 5D-b2b-d1-r5 closes the review findings from the first controlled
 runtime-state-restored transition without opening any operational wiring.
 
 ## Scope
@@ -54,7 +54,7 @@ broker qty == 0 -> current_side == None
 
 - The Stage 5D bridge adds its own exact post-callback broker-truth validation
   while leaving the immutable Stage 5C baseline intact.
-- Stage 5D negative harness inventory expands from `66` to `78` cases with
+- Stage 5D negative harness inventory expands from `66` to `82` cases with
   marker-pinned checks for:
   - missing runtime intent guard;
   - guard moved after `debug_assert!`;
@@ -69,6 +69,9 @@ broker qty == 0 -> current_side == None
   - missing source pre-bind exact-state proof;
   - missing genuine broker-position Long/Short positives;
   - missing non-empty known-order/pending-request retention positives.
+  - missing r5 strict round-trip helper/proofs;
+  - missing paper-only blocker proof;
+  - missing blocker ownership table.
 
 ## Focused evidence
 
@@ -92,11 +95,16 @@ Focused b2bd/b2bd1 unit tests cover:
   input, non-substitutable restored output, outcome type-state separation and
   private bridge/preflight imports.
 - genuine broker-position Long/Short fixtures carry real `target_open_positions`
-  rows and restore through the full strict pipeline;
+  rows and restore after strict JSON serialization and
+  `Stage5dPersistenceEnvelope::from_json_str_strict`;
 - non-empty known-order and pending-request indexes are retained through the
-  restored receipt;
+  restored receipt after the same strict JSON round-trip;
 - open broker-position side mismatches block before callback through the common
   callback-zero retained-capability assertion helper.
+- explicit `is_paper_only == false` and non-acknowledged recovery decision
+  blockers are covered by the common callback-zero assertion helper;
+- `docs/stage-5/5d-b2b-d1-r5-review-gate-summary.md` records blocker ownership
+  for every remaining mismatch, including cases owned before b2b-d.
 
 ## Gate evidence
 
@@ -115,12 +123,12 @@ stage5d-b2bd1-review-gate: all required gates passed
 Pinned hashes:
 
 ```text
-stage5d_manifest_sha256: cc98123d6b39408b7a79042340a1ecef058611cfbe0d1ac3f535ee600c1025b9
-stage5d_checker_sha256: 1a57390b3ab327f8ed1c6c2d528365633d898a86fce7ff4538b9001a1d01d8a2
-stage5d_negative_harness_sha256: 7788a64e45706a1731bd32d8a3acb1de841de6d3caba49805a00be9813e97afa
-forbidden_surface_scan_sha256: b2eb25d6dd54be86155df09f192e257c30083594fa505d3f7abfe252c3d49461
-stage5c_paper_host_sha256: 19244c5e576f57ba092d39f08c933172a2d34dd5c4b7be9979e52fba65df9261
-stage5d_persistence_sha256: b14520aff6a11012978ace86c53db5ca81d442d2538905cc9b10bc8ce8d0c1a2
+stage5d_manifest_sha256: a89bb91aedf1e45f74ee3dd5372afe102c19f0f67c79f0a9372c7ee4b52308f7
+stage5d_checker_sha256: 45053f0405abba67306929b851d07b0ef0948e1e17d8ead2b11d6502180e15fc
+stage5d_negative_harness_sha256: 54a89ea15064dfc36e0da8f08f4126bdcfaf4db277c09a9907d0695d469dcdd1
+forbidden_surface_scan_sha256: cae486ac6b83c2b386969d672ca644289fd85844bc317caaa96d3b43a6a6b01c
+stage5c_paper_host_sha256: 791c29147f4172982086520e17ea96a4251265db0c576c4a2be2e2b8f1a86a12
+stage5d_persistence_sha256: de3ca0742964522b45d2fcaefd2dc069bf42f2a88482df3c72e1bfb346f1d8fa
 review_gate_script_sha256: a7656932f6fed90a21d6c4bfae15f19b4a721fa0cfc7afd1e455017aa8632355
 ```
 

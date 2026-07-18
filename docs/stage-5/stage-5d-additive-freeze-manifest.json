@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-b2b-d1-r4",
+  "stage": "5D-b2b-d1-r5",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -61,7 +61,7 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "19244c5e576f57ba092d39f08c933172a2d34dd5c4b7be9979e52fba65df9261",
+      "current_sha256": "791c29147f4172982086520e17ea96a4251265db0c576c4a2be2e2b8f1a86a12",
       "stripped_without_additive_regions_sha256": "bcc2c4d6ff08d06c49f9716495ce177fc968a8dcd71f6b2c38bcb8d5b4cb0914",
       "additive_regions": [
         "type-state-transitions"
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "b14520aff6a11012978ace86c53db5ca81d442d2538905cc9b10bc8ce8d0c1a2"
+      "stage5d_consumer_sha256": "de3ca0742964522b45d2fcaefd2dc069bf42f2a88482df3c72e1bfb346f1d8fa"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "b14520aff6a11012978ace86c53db5ca81d442d2538905cc9b10bc8ce8d0c1a2"
+      "stage5d_consumer_sha256": "de3ca0742964522b45d2fcaefd2dc069bf42f2a88482df3c72e1bfb346f1d8fa"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "b14520aff6a11012978ace86c53db5ca81d442d2538905cc9b10bc8ce8d0c1a2"
+    "current_sha256": "de3ca0742964522b45d2fcaefd2dc069bf42f2a88482df3c72e1bfb346f1d8fa"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -269,7 +269,11 @@
     "runtime_restored_r4_blocked_fingerprint_removed",
     "runtime_restored_r4_compilefail_private_field_removed",
     "runtime_restored_r4_compilefail_private_bridge_removed",
-    "runtime_restored_r4_compilefail_consumed_input_removed"
+    "runtime_restored_r4_compilefail_consumed_input_removed",
+    "runtime_restored_r5_strict_helper_removed",
+    "runtime_restored_r5_known_order_strict_removed",
+    "runtime_restored_r5_not_paper_only_blocker_removed",
+    "runtime_restored_r5_ownership_table_removed"
   ],
   "stage5d_public_api": {
     "public_reexports": [

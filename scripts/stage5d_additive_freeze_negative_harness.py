@@ -917,6 +917,44 @@ def mutate_runtime_restored_r4_compilefail_consumed_input_removed(root: Path) ->
     update_stage5d_semantic_mutation_hashes(root)
 
 
+def mutate_runtime_restored_r5_strict_helper_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_all(
+        root / rel,
+        "riskgate_enabled_strict_bootstrapped_fixture_with_evidence",
+        "riskgate_enabled_non_strict_bootstrapped_fixture_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r5_known_order_strict_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "r5 strict JSON round-trip known-order index evidence",
+        "r5 mutated known-order strict evidence removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r5_not_paper_only_blocker_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_all(
+        root / rel,
+        "not_paper_only_boundary",
+        "paper_only_blocker_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r5_ownership_table_removed(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/5d-b2b-d1-r5-review-gate-summary.md",
+        "Stage 5D-b2b-d1-r5 blocker ownership table",
+        "Stage 5D-b2b-d1-r5 ownership removed",
+    )
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -1007,6 +1045,10 @@ CASES = [
     ("runtime_restored_r4_compilefail_private_field_removed", mutate_runtime_restored_r4_compilefail_private_field_removed, "Stage 5D runtime-restored compile-fail private field proof missing"),
     ("runtime_restored_r4_compilefail_private_bridge_removed", mutate_runtime_restored_r4_compilefail_private_bridge_removed, "Stage 5D runtime-restored compile-fail private bridge proof missing"),
     ("runtime_restored_r4_compilefail_consumed_input_removed", mutate_runtime_restored_r4_compilefail_consumed_input_removed, "Stage 5D runtime-restored compile-fail consumed-input proof missing"),
+    ("runtime_restored_r5_strict_helper_removed", mutate_runtime_restored_r5_strict_helper_removed, "Stage 5D runtime-restored strict round-trip helper missing"),
+    ("runtime_restored_r5_known_order_strict_removed", mutate_runtime_restored_r5_known_order_strict_removed, "Stage 5D runtime-restored strict known-order proof missing"),
+    ("runtime_restored_r5_not_paper_only_blocker_removed", mutate_runtime_restored_r5_not_paper_only_blocker_removed, "Stage 5D runtime-restored paper-only blocker proof missing"),
+    ("runtime_restored_r5_ownership_table_removed", mutate_runtime_restored_r5_ownership_table_removed, "Stage 5D runtime-restored blocker ownership table missing"),
 ]
 
 

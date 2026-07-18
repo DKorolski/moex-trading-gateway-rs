@@ -90,7 +90,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "b14520aff6a11012978ace86c53db5ca81d442d2538905cc9b10bc8ce8d0c1a2",
+        "stage5d_consumer_sha256": "de3ca0742964522b45d2fcaefd2dc069bf42f2a88482df3c72e1bfb346f1d8fa",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -104,7 +104,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "b14520aff6a11012978ace86c53db5ca81d442d2538905cc9b10bc8ce8d0c1a2",
+        "stage5d_consumer_sha256": "de3ca0742964522b45d2fcaefd2dc069bf42f2a88482df3c72e1bfb346f1d8fa",
     },
 ]
 
@@ -214,6 +214,10 @@ EXPECTED_NEGATIVE_CASES = [
     "runtime_restored_r4_compilefail_private_field_removed",
     "runtime_restored_r4_compilefail_private_bridge_removed",
     "runtime_restored_r4_compilefail_consumed_input_removed",
+    "runtime_restored_r5_strict_helper_removed",
+    "runtime_restored_r5_known_order_strict_removed",
+    "runtime_restored_r5_not_paper_only_blocker_removed",
+    "runtime_restored_r5_ownership_table_removed",
 ]
 
 EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
@@ -913,10 +917,37 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
             "stage5d_test_known_order_ids()",
         "Stage 5D runtime-restored open-position side-mismatch proof missing":
             "r4 open broker position Long/Short side mismatch must block before callback",
+        "Stage 5D runtime-restored strict round-trip helper missing":
+            "riskgate_enabled_strict_bootstrapped_fixture_with_evidence",
+        "Stage 5D runtime-restored strict broker-position proof missing":
+            "r5 strict JSON round-trip broker-position",
+        "Stage 5D runtime-restored strict known-order proof missing":
+            "r5 strict JSON round-trip known-order index evidence",
+        "Stage 5D runtime-restored strict pending-request proof missing":
+            "r5 strict JSON round-trip pending-request index evidence",
+        "Stage 5D runtime-restored paper-only blocker proof missing":
+            "not_paper_only_boundary",
+        "Stage 5D runtime-restored non-ack recovery decision proof missing":
+            "non_acknowledged_recovery_decision",
     }
     for message, token in required_r3_tokens.items():
         if token not in stage5d_source:
             failures.append(message)
+    r5_summary = root / "docs/stage-5/5d-b2b-d1-r5-review-gate-summary.md"
+    if not r5_summary.exists():
+        failures.append("Stage 5D runtime-restored r5 ownership summary missing")
+    else:
+        r5_summary_source = r5_summary.read_text()
+        for message, token in {
+            "Stage 5D runtime-restored blocker ownership table missing":
+                "Stage 5D-b2b-d1-r5 blocker ownership table",
+            "Stage 5D runtime-restored quantity ownership proof missing":
+                "BrokerQuantityNotRepresentable",
+            "Stage 5D runtime-restored earlier-stage ownership proof missing":
+                "owned before b2b-d",
+        }.items():
+            if token not in r5_summary_source:
+                failures.append(message)
 
 
 def validate(root: Path, manifest_path: Path) -> list[str]:
@@ -925,8 +956,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2b-d1-r4":
-        failures.append("stage must be 5D-b2b-d1-r4")
+    if manifest.get("stage") != "5D-b2b-d1-r5":
+        failures.append("stage must be 5D-b2b-d1-r5")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:
