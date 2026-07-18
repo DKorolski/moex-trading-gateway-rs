@@ -39,6 +39,9 @@ STAGE5D_RUNTIME_RESTORED_BRIDGE_IDENTIFIER = "stage5d_notify_runtime_state_resto
 STAGE5D_RUNTIME_RESTORED_BRIDGE_ALLOWED_CALL_FUNCTION = "stage5d_notify_runtime_state_restored_at"
 FORBIDDEN_SCANNER_REL = Path("scripts/forbidden_surface_scan.sh")
 CI_REL = Path(".github/workflows/ci.yml")
+RUNTIME_RESTORED_OWNERSHIP_REL = Path(
+    "docs/stage-5/stage5d-b2bd1-r6-blocker-ownership.json"
+)
 
 EXPECTED_MANIFEST_CHECKER = "scripts/stage5d_additive_freeze_check.py"
 EXPECTED_NEGATIVE_HARNESS = "scripts/stage5d_additive_freeze_negative_harness.py"
@@ -90,7 +93,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "de3ca0742964522b45d2fcaefd2dc069bf42f2a88482df3c72e1bfb346f1d8fa",
+        "stage5d_consumer_sha256": "b71dfd604df2e1a17c42beaeb37a69e6e84782bc7131542c729b9428e39be1d7",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -104,7 +107,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "de3ca0742964522b45d2fcaefd2dc069bf42f2a88482df3c72e1bfb346f1d8fa",
+        "stage5d_consumer_sha256": "b71dfd604df2e1a17c42beaeb37a69e6e84782bc7131542c729b9428e39be1d7",
     },
 ]
 
@@ -218,7 +221,60 @@ EXPECTED_NEGATIVE_CASES = [
     "runtime_restored_r5_known_order_strict_removed",
     "runtime_restored_r5_not_paper_only_blocker_removed",
     "runtime_restored_r5_ownership_table_removed",
+    "runtime_restored_r6_strict_long_removed",
+    "runtime_restored_r6_strict_short_removed",
+    "runtime_restored_r6_strict_known_order_removed",
+    "runtime_restored_r6_strict_pending_request_removed",
+    "runtime_restored_r6_common_blocked_helper_bypassed",
+    "runtime_restored_r6_quantity_ownership_removed",
+    "runtime_restored_r6_ownership_stage_changed",
+    "runtime_restored_r6_non_ack_decision_removed",
+    "runtime_restored_r6_expiry_ownership_removed",
+    "runtime_restored_r6_timestamp_ownership_removed",
+    "runtime_restored_r6_identity_generation_ownership_removed",
 ]
+
+EXPECTED_RUNTIME_RESTORED_OWNERSHIP_IDS = [
+    "recovery_incomplete",
+    "pending_riskgate_finalization",
+    "non_acknowledged_recovery_decision",
+    "recovery_plan_binding_mismatch",
+    "known_order_index_mismatch",
+    "pending_request_index_mismatch",
+    "admission_expired",
+    "lifecycle_timestamp_reversal_before_persisted",
+    "lifecycle_timestamp_reversal_before_bootstrap_notification",
+    "runtime_host_attached",
+    "intent_sink_attached",
+    "non_paper_admission",
+    "broker_position_mismatch",
+    "broker_side_mismatch_flat_long",
+    "broker_side_mismatch_flat_short",
+    "broker_side_mismatch_open_long",
+    "broker_side_mismatch_open_short",
+    "broker_owned_tp_id",
+    "broker_owned_stop_id",
+    "broker_owned_exchange_stop_id",
+    "broker_quantity_not_representable",
+    "strategy_mismatch",
+    "account_mismatch",
+    "instrument_mismatch",
+    "config_fingerprint_mismatch",
+    "profile_mismatch",
+    "riskgate_evidence_mismatch",
+    "riskgate_identity_mismatch",
+    "riskgate_generation_mismatch",
+]
+
+EXPECTED_RUNTIME_RESTORED_COMMON_HELPER_TESTS = {
+    "stage5d_b2bd_incomplete_recovery_blocks_before_callback",
+    "stage5d_b2bd1r2_pre_callback_matrix_blocks_without_callback",
+    "stage5d_b2bd_expired_admission_blocks_before_callback_and_preserves_input",
+    "stage5d_b2bd1r3_restored_before_persisted_envelope_blocks_before_callback",
+    "stage5d_b2bd1_restored_before_bootstrap_notification_blocks_before_callback",
+    "stage5d_b2bd1_flat_broker_side_is_exact_and_blocks_stale_side_before_callback",
+    "stage5d_b2bd1r4_open_broker_position_side_mismatch_blocks_before_callback",
+}
 
 EXPECTED_STAGE5D_PUBLIC_SYMBOLS = [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -726,6 +782,18 @@ def source_function_slice(source: str, function_name: str) -> str:
     return source[start:]
 
 
+def rust_test_body(source: str, test_name: str) -> str:
+    match = re.search(rf"\n\s*fn\s+{re.escape(test_name)}\s*\(", source)
+    if not match:
+        return ""
+    next_test = source.find("\n    #[test]", match.end())
+    if next_test == -1:
+        next_test = source.find("\n    fn ", match.end())
+    if next_test == -1:
+        next_test = len(source)
+    return source[match.start():next_test]
+
+
 def source_without_rustdoc_comments(source: str) -> str:
     return "\n".join(
         line for line in source.splitlines() if not line.lstrip().startswith("///")
@@ -802,6 +870,133 @@ def validate_stage5d_bridge_call_sites(root: Path, failures: list[str]) -> None:
     )
 
 
+def validate_stage5d_runtime_restored_ownership_inventory(
+    root: Path, stage5d_source: str, failures: list[str]
+) -> None:
+    ownership_path = root / RUNTIME_RESTORED_OWNERSHIP_REL
+    if not ownership_path.exists():
+        failures.append("Stage 5D runtime-restored r6 ownership inventory missing")
+        return
+    try:
+        inventory = json.loads(ownership_path.read_text())
+    except json.JSONDecodeError:
+        failures.append("Stage 5D runtime-restored r6 ownership inventory must be valid JSON")
+        return
+
+    if inventory.get("schema_version") != 1:
+        failures.append("Stage 5D runtime-restored r6 ownership inventory schema mismatch")
+    if inventory.get("stage") != "5D-b2b-d1-r6":
+        failures.append("Stage 5D runtime-restored r6 ownership stage mismatch")
+    if inventory.get("closed_surfaces") != {
+        "redis": False,
+        "finam": False,
+        "transport": False,
+        "dispatch": False,
+        "runtime_live": False,
+        "broker_execution": False,
+    }:
+        failures.append("Stage 5D runtime-restored r6 ownership closed-surface contract mismatch")
+
+    rows = inventory.get("ownership_rows")
+    if not isinstance(rows, list):
+        failures.append("Stage 5D runtime-restored r6 ownership rows missing")
+        return
+
+    ids = [row.get("case_id") for row in rows if isinstance(row, dict)]
+    if ids != EXPECTED_RUNTIME_RESTORED_OWNERSHIP_IDS:
+        failures.append("Stage 5D runtime-restored r6 ownership case inventory mismatch")
+    if len(set(ids)) != len(ids):
+        failures.append("Stage 5D runtime-restored r6 ownership case ids must be unique")
+
+    allowed_proof_kinds = {"common_helper", "earlier_gate", "defensive_branch"}
+    for row in rows:
+        if not isinstance(row, dict):
+            failures.append("Stage 5D runtime-restored r6 ownership row must be an object")
+            continue
+        case_id = row.get("case_id")
+        representable = row.get("representable_at_b2bd")
+        owning_stage = row.get("owning_stage")
+        owning_function = row.get("owning_function")
+        focused_test = row.get("focused_test")
+        expected_reason = row.get("expected_reason")
+        proof_kind = row.get("proof_kind")
+        source_domain_argument = row.get("source_domain_argument")
+
+        for field_name, value in {
+            "case_id": case_id,
+            "owning_stage": owning_stage,
+            "owning_function": owning_function,
+            "focused_test": focused_test,
+            "expected_reason": expected_reason,
+            "proof_kind": proof_kind,
+            "source_domain_argument": source_domain_argument,
+        }.items():
+            if not isinstance(value, str) or not value.strip():
+                failures.append(
+                    f"Stage 5D runtime-restored r6 ownership row {case_id!r} missing {field_name}"
+                )
+        if proof_kind not in allowed_proof_kinds:
+            failures.append(
+                f"Stage 5D runtime-restored r6 ownership row {case_id!r} has unsupported proof_kind"
+            )
+        if isinstance(owning_function, str):
+            for function_name in re.split(r"\s+and\s+|\s*/\s*", owning_function):
+                function_name = function_name.strip()
+                if function_name and function_name not in stage5d_source:
+                    failures.append(
+                        f"Stage 5D runtime-restored r6 ownership function missing: {function_name}"
+                    )
+        if isinstance(focused_test, str) and focused_test not in stage5d_source:
+            failures.append(
+                f"Stage 5D runtime-restored r6 ownership focused test missing: {focused_test}"
+            )
+
+        if representable is True:
+            if proof_kind != "common_helper":
+                failures.append(
+                    f"Stage 5D runtime-restored r6 ownership row {case_id!r} must use common_helper"
+                )
+            if owning_stage != "Stage 5D-b2b-d":
+                failures.append(
+                    f"Stage 5D runtime-restored r6 ownership row {case_id!r} must be owned by b2b-d"
+                )
+            if focused_test not in EXPECTED_RUNTIME_RESTORED_COMMON_HELPER_TESTS:
+                failures.append(
+                    f"Stage 5D runtime-restored r6 ownership row {case_id!r} has unexpected common-helper test"
+                )
+            elif "stage5d_test_assert_restore_blocks_before_callback(" not in rust_test_body(
+                stage5d_source, focused_test
+            ):
+                failures.append(
+                    f"Stage 5D runtime-restored r6 ownership row {case_id!r} focused test must use common helper"
+                )
+        elif representable is False:
+            if proof_kind == "common_helper":
+                failures.append(
+                    f"Stage 5D runtime-restored r6 ownership row {case_id!r} cannot use common_helper when not representable at b2b-d"
+                )
+            if (
+                case_id != "broker_quantity_not_representable"
+                and owning_stage == "Stage 5D-b2b-d"
+            ):
+                failures.append(
+                    f"Stage 5D runtime-restored r6 ownership row {case_id!r} must not be owned by b2b-d"
+                )
+            if case_id == "broker_quantity_not_representable":
+                if proof_kind != "defensive_branch":
+                    failures.append(
+                        "Stage 5D runtime-restored r6 quantity ownership must remain defensive_branch"
+                    )
+            elif proof_kind != "earlier_gate":
+                failures.append(
+                    f"Stage 5D runtime-restored r6 ownership row {case_id!r} must be earlier_gate"
+                )
+        else:
+            failures.append(
+                f"Stage 5D runtime-restored r6 ownership row {case_id!r} representable flag invalid"
+            )
+
+
 def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
     root: Path, failures: list[str]
 ) -> None:
@@ -849,6 +1044,9 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
         failures.append("Stage 5D runtime-restored post-callback protective-id guard missing")
 
     stage5d_source = (root / STAGE5D_REL).read_text()
+    preflight_source = source_function_slice(
+        stage5d_source, "validate_stage5d_runtime_state_restored_preflight"
+    )
     if stage5d_source.count(
         "validate_stage5d_runtime_state_restored_preflight(&injected, restored_at)"
     ) < 3:
@@ -868,7 +1066,7 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
         failures.append("Stage 5D runtime-restored recovery-plan binding guard missing")
     if "if injected.bootstrapped.stage5d_restored().known_order_ids" not in stage5d_source:
         failures.append("Stage 5D runtime-restored recovery-index guard missing")
-    if "admission.runtime_host_attached()" not in stage5d_source:
+    if "admission.runtime_host_attached()" not in preflight_source:
         failures.append("Stage 5D runtime-restored closed-boundary guard missing")
     if "injected: Box<Stage5dRiskGateInjectedPaperStrategy>" not in stage5d_source:
         failures.append("Stage 5D runtime-restored blocked retained capability missing")
@@ -878,6 +1076,8 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
         failures.append("Stage 5D runtime-restored lifecycle notification timestamp guard missing")
     if "if *current_side != expected_side {" not in stage5d_source:
         failures.append("Stage 5D runtime-restored flat-side exact guard missing")
+    if "stage5d_test_closed_boundary_flags()" not in stage5d_source:
+        failures.append("Stage 5D runtime-restored r6 closed-boundary retained flags proof missing")
     required_r3_tokens = {
         "Stage 5D runtime-restored source-produced current-shadow proof missing":
             "stage5d_b2bd1r3_source_produced_current_shadow_long_short_and_realized_pnl_restore",
@@ -929,6 +1129,22 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
             "not_paper_only_boundary",
         "Stage 5D runtime-restored non-ack recovery decision proof missing":
             "non_acknowledged_recovery_decision",
+        "Stage 5D runtime-restored strict Long proof missing":
+            "r6 strict JSON round-trip actual Long broker-position evidence",
+        "Stage 5D runtime-restored strict Short proof missing":
+            "r6 strict JSON round-trip actual Short broker-position evidence",
+        "Stage 5D runtime-restored r6 strict known-order proof missing":
+            "r6 strict JSON round-trip known-order index evidence",
+        "Stage 5D runtime-restored r6 strict pending-request proof missing":
+            "r6 strict JSON round-trip pending-request index evidence",
+        "Stage 5D runtime-restored r6 common blocked helper proof missing":
+            "r6 representable blockers use common callback-zero helper",
+        "Stage 5D runtime-restored r6 malformed payload proof missing":
+            "stage5d_b2bd1r6_strict_malformed_payload_shapes_fail_closed",
+        "Stage 5D runtime-restored r6 earlier strategy/account/instrument proof missing":
+            "stage5d_b2bd1r6_earlier_gate_rejects_strategy_account_instrument_mismatches",
+        "Stage 5D runtime-restored r6 config/profile proof missing":
+            "stage5d_b2bd1r6_earlier_gate_rejects_config_and_profile_mismatches",
     }
     for message, token in required_r3_tokens.items():
         if token not in stage5d_source:
@@ -948,6 +1164,7 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
         }.items():
             if token not in r5_summary_source:
                 failures.append(message)
+    validate_stage5d_runtime_restored_ownership_inventory(root, stage5d_source, failures)
 
 
 def validate(root: Path, manifest_path: Path) -> list[str]:
@@ -956,8 +1173,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
 
     if manifest.get("schema_version") != 1:
         failures.append("schema_version must be 1")
-    if manifest.get("stage") != "5D-b2b-d1-r5":
-        failures.append("stage must be 5D-b2b-d1-r5")
+    if manifest.get("stage") != "5D-b2b-d1-r6":
+        failures.append("stage must be 5D-b2b-d1-r6")
     if manifest.get("status") != "additive_freeze_candidate":
         failures.append("status must be additive_freeze_candidate")
     if manifest.get("stage5c_closure_baseline") != EXPECTED_STAGE5C_CLOSURE:

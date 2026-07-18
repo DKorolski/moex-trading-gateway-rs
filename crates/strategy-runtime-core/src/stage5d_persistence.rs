@@ -341,6 +341,16 @@ impl Stage5dRuntimeStateRestoreBlocked {
     fn stage5d_test_strategy_state_fingerprint(&self) -> String {
         stage5d_test_strategy_state_fingerprint(self.injected.bootstrapped.stage5d_strategy())
     }
+
+    #[cfg(test)]
+    fn stage5d_test_closed_boundary_flags(&self) -> (bool, bool, bool) {
+        let admission = self.injected.bootstrapped.stage5d_admission();
+        (
+            admission.is_paper_only(),
+            admission.runtime_host_attached(),
+            admission.intent_sink_attached(),
+        )
+    }
 }
 
 /// Terminal post-callback failure. The consumed input capability is not
@@ -4603,6 +4613,31 @@ mod tests {
         let snapshot_id = injected.snapshot_id().to_string();
         let evidence = injected.evidence_fingerprint().to_string();
         let recovery = injected.recovery_plan_fingerprint().to_string();
+        let admission = injected.bootstrapped.stage5d_admission();
+        let expected_boundary_flags = (
+            admission.is_paper_only(),
+            admission.runtime_host_attached(),
+            admission.intent_sink_attached(),
+        );
+        if expected != Stage5dRuntimeStateRestoreBlockedReason::ClosedBoundaryOpened {
+            assert!(
+                expected_boundary_flags.0,
+                "{label}: non-boundary block must retain paper-only admission"
+            );
+            assert!(
+                !expected_boundary_flags.1,
+                "{label}: non-boundary block must not attach runtime host"
+            );
+            assert!(
+                !expected_boundary_flags.2,
+                "{label}: non-boundary block must not attach intent sink"
+            );
+        } else {
+            assert!(
+                !expected_boundary_flags.0 || expected_boundary_flags.1 || expected_boundary_flags.2,
+                "{label}: ClosedBoundaryOpened fixture must deliberately mutate a closed-boundary flag"
+            );
+        }
         let strategy_fingerprint =
             stage5d_test_strategy_state_fingerprint(injected.bootstrapped.stage5d_strategy());
         stage5d_test_reset_restored_callback_count();
@@ -4620,6 +4655,15 @@ mod tests {
             blocked.stage5d_test_strategy_state_fingerprint(),
             strategy_fingerprint,
             "{label}: retained capability must keep strategy-state fingerprint unchanged"
+        );
+        assert_eq!(
+            blocked.stage5d_test_closed_boundary_flags(),
+            expected_boundary_flags,
+            "{label}: retained capability must preserve closed-boundary flags exactly"
+        );
+        assert!(
+            blocked.input_capability_preserved(),
+            "r6 representable blockers use common callback-zero helper"
         );
         blocked
     }
@@ -6798,6 +6842,108 @@ mod tests {
     }
 
     #[test]
+    fn stage5d_b2bd1r6_earlier_gate_rejects_strategy_account_instrument_mismatches() {
+        struct Case {
+            name: &'static str,
+            mutate: fn(&mut Stage5dPersistenceEnvelope),
+        }
+
+        fn strategy_mismatch(envelope: &mut Stage5dPersistenceEnvelope) {
+            envelope.binding.strategy_id = "hybrid_imoexf_other_strategy".to_string();
+            envelope.riskgate.identity.strategy_id = envelope.binding.strategy_id.clone();
+        }
+
+        fn account_mismatch(envelope: &mut Stage5dPersistenceEnvelope) {
+            envelope.binding.account_id = BrokerAccountId::new("ACC_TEST_0002");
+        }
+
+        fn instrument_mismatch(envelope: &mut Stage5dPersistenceEnvelope) {
+            envelope.binding.instrument_id.symbol = "RTS-9.26".to_string();
+        }
+
+        for case in [
+            Case {
+                name: "r6 earlier-owned strategy mismatch before restored transition",
+                mutate: strategy_mismatch,
+            },
+            Case {
+                name: "r6 earlier-owned account mismatch before restored transition",
+                mutate: account_mismatch,
+            },
+            Case {
+                name: "r6 earlier-owned instrument mismatch before restored transition",
+                mutate: instrument_mismatch,
+            },
+        ] {
+            let (loaded, mut envelope) = stage5d_bound_test_fixture();
+            (case.mutate)(&mut envelope);
+            envelope.payload_checksum_sha256 = envelope
+                .compute_payload_checksum_sha256()
+                .expect("checksum recomputation must succeed");
+            let validated = envelope
+                .validate_restore_contract_schema_only()
+                .expect("mismatched identity envelope remains schema-valid");
+
+            let blocked = expect_stage5d_blocked(
+                stage5d_bind_runtime_state_loaded(loaded, validated),
+                case.name,
+            );
+            assert_eq!(
+                blocked.reason(),
+                Stage5dEnvelopeValidationError::BindingMismatch
+            );
+        }
+    }
+
+    #[test]
+    fn stage5d_b2bd1r6_earlier_gate_rejects_config_and_profile_mismatches() {
+        struct Case {
+            name: &'static str,
+            mutate: fn(&mut Stage5dPersistenceEnvelope),
+        }
+
+        fn config_mismatch(envelope: &mut Stage5dPersistenceEnvelope) {
+            envelope.binding.stage5c_compat_config_fingerprint =
+                "stage5c_cfg_sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                    .to_string();
+        }
+
+        fn profile_mismatch(envelope: &mut Stage5dPersistenceEnvelope) {
+            envelope.binding.profile_binding =
+                "hybrid|author41|riskgate-enabled|wrong-profile".to_string();
+        }
+
+        for case in [
+            Case {
+                name: "r6 exact config fingerprint mismatch before restored transition",
+                mutate: config_mismatch,
+            },
+            Case {
+                name: "r6 exact profile binding mismatch before restored transition",
+                mutate: profile_mismatch,
+            },
+        ] {
+            let (loaded, mut envelope) = stage5d_bound_test_fixture();
+            (case.mutate)(&mut envelope);
+            envelope.payload_checksum_sha256 = envelope
+                .compute_payload_checksum_sha256()
+                .expect("checksum recomputation must succeed");
+            let validated = envelope
+                .validate_restore_contract_schema_only()
+                .expect("mismatched config/profile envelope remains schema-valid");
+
+            let blocked = expect_stage5d_blocked(
+                stage5d_bind_runtime_state_loaded(loaded, validated),
+                case.name,
+            );
+            assert_eq!(
+                blocked.reason(),
+                Stage5dEnvelopeValidationError::BindingMismatch
+            );
+        }
+    }
+
+    #[test]
     fn stage5d_b2b_public_bind_rejects_semantic_state_mismatch_before_apply() {
         let (loaded, mut envelope) = stage5d_bound_test_fixture();
         if let Value::Object(fields) =
@@ -8069,12 +8215,27 @@ mod tests {
         ] {
             let injected =
                 stage5d_test_complete_strict_injected_fixture_with_position(qty, Some(side));
+            let r6_strict_marker = match expected_side {
+                crate::hybrid_intraday::Side::Long => {
+                    "r6 strict JSON round-trip actual Long broker-position evidence"
+                }
+                crate::hybrid_intraday::Side::Short => {
+                    "r6 strict JSON round-trip actual Short broker-position evidence"
+                }
+            };
             assert!(
                 injected
                     .envelope
                     .validate_restore_contract_schema_only()
                     .is_ok(),
                 "r5 strict JSON round-trip broker-position {side} evidence must remain schema-valid"
+            );
+            assert!(
+                injected
+                    .envelope
+                    .validate_restore_contract_schema_only()
+                    .is_ok(),
+                "{r6_strict_marker}"
             );
             let snapshot = injected
                 .bootstrapped
@@ -8150,6 +8311,13 @@ mod tests {
                 .is_ok(),
             "r5 strict JSON round-trip known-order index evidence must remain schema-valid"
         );
+        assert!(
+            injected
+                .envelope
+                .validate_restore_contract_schema_only()
+                .is_ok(),
+            "r6 strict JSON round-trip known-order index evidence must remain schema-valid"
+        );
         stage5d_test_assert_injected_restores_indexes_once(
             injected,
             &[known_order_id],
@@ -8174,11 +8342,64 @@ mod tests {
                 .is_ok(),
             "r5 strict JSON round-trip pending-request index evidence must remain schema-valid"
         );
+        assert!(
+            pending_injected
+                .envelope
+                .validate_restore_contract_schema_only()
+                .is_ok(),
+            "r6 strict JSON round-trip pending-request index evidence must remain schema-valid"
+        );
         stage5d_test_assert_injected_restores_indexes_once(
             pending_injected,
             &[],
             &expected_pending,
             "r4 non-empty pending-request index must be preserved",
+        );
+    }
+
+    #[test]
+    fn stage5d_b2bd1r6_strict_malformed_payload_shapes_fail_closed() {
+        let mut malformed_known_order = serde_json::to_value(flat_persisted_fixture())
+            .expect("flat fixture serializes to JSON");
+        malformed_known_order["recovery_indexes"]["known_order_ids"] = serde_json::json!([""]);
+        let malformed_known_order_payload =
+            serde_json::to_string(&malformed_known_order).expect("malformed payload serializes");
+        assert_eq!(
+            Stage5dPersistenceEnvelope::from_json_str_strict(&malformed_known_order_payload)
+                .map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::DeserializationFailed),
+            "r6 strict malformed broker order id payload must fail during strict decode"
+        );
+
+        let impossible_pending_request = flat_persisted_fixture();
+        let mut impossible_pending_value = serde_json::to_value(&impossible_pending_request)
+            .expect("flat fixture serializes to JSON");
+        impossible_pending_value["recovery_indexes"]["pending_requests"] =
+            serde_json::json!(["00000000-0000-0000-0000-000000000556"]);
+        let mut impossible_pending: Stage5dPersistenceEnvelope =
+            serde_json::from_value(impossible_pending_value)
+                .expect("pending-request shape remains representable");
+        impossible_pending.payload_checksum_sha256 = impossible_pending
+            .compute_payload_checksum_sha256()
+            .expect("checksum recomputation must succeed");
+        assert_eq!(
+            impossible_pending
+                .validate_restore_contract_schema_only()
+                .map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::RecoveryIndexInconsistent),
+            "r6 strict malformed pending-request/state relationship must fail at schema boundary"
+        );
+
+        let impossible_position_side = fixture_with_mutated_state(|state| {
+            state["HybridIntradayRuntime"]["last_position_qty"] = serde_json::json!(1.0);
+            state["HybridIntradayRuntime"]["current_side"] = Value::Null;
+        });
+        assert_eq!(
+            impossible_position_side
+                .validate_restore_contract_schema_only()
+                .map(|_| ()),
+            Err(Stage5dEnvelopeValidationError::PendingStateInconsistent),
+            "r6 strict malformed non-flat position/current_side payload must fail before restored transition"
         );
     }
 
@@ -8276,17 +8497,12 @@ mod tests {
         );
         let before_notification = injected.bootstrapped.stage5d_bootstrap_notified_ts()
             - chrono::Duration::milliseconds(1);
-        stage5d_test_reset_restored_callback_count();
-        let blocked = expect_stage5d_restore_blocked(
-            stage5d_notify_runtime_state_restored_at(injected, before_notification),
+        stage5d_test_assert_restore_blocks_before_callback(
+            injected,
+            before_notification,
+            Stage5dRuntimeStateRestoreBlockedReason::LifecycleTimestampReversal,
             "restored timestamp before bootstrap notification must block before callback",
         );
-        assert_eq!(stage5d_test_restored_callback_count(), 0);
-        assert_eq!(
-            blocked.reason(),
-            Stage5dRuntimeStateRestoreBlockedReason::LifecycleTimestampReversal
-        );
-        assert!(blocked.input_capability_preserved());
     }
 
     fn stage5d_test_mutate_injected_current_side(
@@ -8397,20 +8613,19 @@ mod tests {
             let mut injected = stage5d_test_complete_injected_fixture();
             stage5d_test_mutate_injected_current_side(&mut injected, case.side);
             let restored_at = injected.envelope.persisted_at_ts_utc;
-            stage5d_test_reset_restored_callback_count();
-            let result = stage5d_notify_runtime_state_restored_at(injected, restored_at);
             if case.accepted {
+                stage5d_test_reset_restored_callback_count();
+                let result = stage5d_notify_runtime_state_restored_at(injected, restored_at);
                 let restored = expect_stage5d_restore_ok(result, case.name);
                 assert_eq!(stage5d_test_restored_callback_count(), 1);
                 assert_eq!(restored.receipt().restored_ts(), restored_at);
             } else {
-                let blocked = expect_stage5d_restore_blocked(result, case.name);
-                assert_eq!(stage5d_test_restored_callback_count(), 0);
-                assert_eq!(
-                    blocked.reason(),
-                    Stage5dRuntimeStateRestoreBlockedReason::BrokerTruthSideMismatch
+                stage5d_test_assert_restore_blocks_before_callback(
+                    injected,
+                    restored_at,
+                    Stage5dRuntimeStateRestoreBlockedReason::BrokerTruthSideMismatch,
+                    case.name,
                 );
-                assert!(blocked.input_capability_preserved());
             }
         }
     }
@@ -8442,22 +8657,11 @@ mod tests {
     fn stage5d_b2bd1r3_restored_before_persisted_envelope_blocks_before_callback() {
         let injected = stage5d_test_complete_injected_fixture();
         let before_persisted = injected.envelope.persisted_at_ts_utc - chrono::Duration::seconds(1);
-        let strategy_fingerprint =
-            stage5d_test_strategy_state_fingerprint(injected.bootstrapped.stage5d_strategy());
-        stage5d_test_reset_restored_callback_count();
-        let blocked = expect_stage5d_restore_blocked(
-            stage5d_notify_runtime_state_restored_at(injected, before_persisted),
+        stage5d_test_assert_restore_blocks_before_callback(
+            injected,
+            before_persisted,
+            Stage5dRuntimeStateRestoreBlockedReason::LifecycleTimestampReversal,
             "restored timestamp before persisted envelope must block before callback",
-        );
-        assert_eq!(stage5d_test_restored_callback_count(), 0);
-        assert_eq!(
-            blocked.reason(),
-            Stage5dRuntimeStateRestoreBlockedReason::LifecycleTimestampReversal
-        );
-        assert!(blocked.input_capability_preserved());
-        assert_eq!(
-            blocked.stage5d_test_strategy_state_fingerprint(),
-            strategy_fingerprint
         );
     }
 
@@ -8466,20 +8670,12 @@ mod tests {
         let injected = stage5d_test_complete_injected_fixture();
         let expired_at = injected.bootstrapped.stage5d_admission().expires_at()
             + chrono::Duration::milliseconds(1);
-        let before_snapshot = injected.snapshot_id().to_string();
-        stage5d_test_reset_restored_callback_count();
-        let blocked = expect_stage5d_restore_blocked(
-            stage5d_notify_runtime_state_restored_at(injected, expired_at),
+        let blocked = stage5d_test_assert_restore_blocks_before_callback(
+            injected,
+            expired_at,
+            Stage5dRuntimeStateRestoreBlockedReason::AdmissionExpired,
             "expired admission must block before callback",
         );
-
-        assert_eq!(stage5d_test_restored_callback_count(), 0);
-        assert_eq!(
-            blocked.reason(),
-            Stage5dRuntimeStateRestoreBlockedReason::AdmissionExpired
-        );
-        assert!(blocked.input_capability_preserved());
-        assert_eq!(blocked.snapshot_id(), before_snapshot);
         assert_eq!(
             blocked.recovery_disposition(),
             Stage5dRuntimeStateRestoreRecoveryDisposition::RestartWithFreshBrokerTruth
@@ -8506,17 +8702,12 @@ mod tests {
         );
         assert!(!injected.recovery_complete());
         let restored_at = injected.envelope.persisted_at_ts_utc;
-        stage5d_test_reset_restored_callback_count();
-        let blocked = expect_stage5d_restore_blocked(
-            stage5d_notify_runtime_state_restored_at(injected, restored_at),
+        stage5d_test_assert_restore_blocks_before_callback(
+            injected,
+            restored_at,
+            Stage5dRuntimeStateRestoreBlockedReason::RecoveryIncomplete,
             "incomplete recovery must not reach callback",
         );
-        assert_eq!(stage5d_test_restored_callback_count(), 0);
-        assert_eq!(
-            blocked.reason(),
-            Stage5dRuntimeStateRestoreBlockedReason::RecoveryIncomplete
-        );
-        assert!(blocked.input_capability_preserved());
     }
 
     #[test]

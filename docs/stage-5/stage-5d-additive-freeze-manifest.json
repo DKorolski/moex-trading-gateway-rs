@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-b2b-d1-r5",
+  "stage": "5D-b2b-d1-r6",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "de3ca0742964522b45d2fcaefd2dc069bf42f2a88482df3c72e1bfb346f1d8fa"
+      "stage5d_consumer_sha256": "b71dfd604df2e1a17c42beaeb37a69e6e84782bc7131542c729b9428e39be1d7"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "de3ca0742964522b45d2fcaefd2dc069bf42f2a88482df3c72e1bfb346f1d8fa"
+      "stage5d_consumer_sha256": "b71dfd604df2e1a17c42beaeb37a69e6e84782bc7131542c729b9428e39be1d7"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "de3ca0742964522b45d2fcaefd2dc069bf42f2a88482df3c72e1bfb346f1d8fa"
+    "current_sha256": "b71dfd604df2e1a17c42beaeb37a69e6e84782bc7131542c729b9428e39be1d7"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -273,7 +273,18 @@
     "runtime_restored_r5_strict_helper_removed",
     "runtime_restored_r5_known_order_strict_removed",
     "runtime_restored_r5_not_paper_only_blocker_removed",
-    "runtime_restored_r5_ownership_table_removed"
+    "runtime_restored_r5_ownership_table_removed",
+    "runtime_restored_r6_strict_long_removed",
+    "runtime_restored_r6_strict_short_removed",
+    "runtime_restored_r6_strict_known_order_removed",
+    "runtime_restored_r6_strict_pending_request_removed",
+    "runtime_restored_r6_common_blocked_helper_bypassed",
+    "runtime_restored_r6_quantity_ownership_removed",
+    "runtime_restored_r6_ownership_stage_changed",
+    "runtime_restored_r6_non_ack_decision_removed",
+    "runtime_restored_r6_expiry_ownership_removed",
+    "runtime_restored_r6_timestamp_ownership_removed",
+    "runtime_restored_r6_identity_generation_ownership_removed"
   ],
   "stage5d_public_api": {
     "public_reexports": [

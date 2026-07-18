@@ -1,0 +1,305 @@
+{
+  "schema_version": 1,
+  "stage": "5D-b2b-d1-r6",
+  "status": "acceptance_evidence_and_blocker_uniformity_closure",
+  "closed_surfaces": {
+    "redis": false,
+    "finam": false,
+    "transport": false,
+    "dispatch": false,
+    "runtime_live": false,
+    "broker_execution": false
+  },
+  "ownership_rows": [
+    {
+      "case_id": "recovery_incomplete",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_state_restored_preflight",
+      "focused_test": "stage5d_b2bd_incomplete_recovery_blocks_before_callback",
+      "expected_reason": "RecoveryIncomplete",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "unfinished durable recovery can still exist inside the injected capability and must block before callback"
+    },
+    {
+      "case_id": "pending_riskgate_finalization",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_state_restored_preflight",
+      "focused_test": "stage5d_b2bd1r2_pre_callback_matrix_blocks_without_callback",
+      "expected_reason": "PendingRiskGateFinalizations",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "runtime_pending_finalizations is retained in the envelope until deterministic recovery completes"
+    },
+    {
+      "case_id": "non_acknowledged_recovery_decision",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_state_restored_preflight",
+      "focused_test": "stage5d_b2bd1r2_pre_callback_matrix_blocks_without_callback",
+      "expected_reason": "RecoveryIncomplete",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "a durable decision not equal to AlreadyAcknowledged/AcknowledgedInRuntime is still recovery work, not callback-ready state"
+    },
+    {
+      "case_id": "recovery_plan_binding_mismatch",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_state_restored_preflight",
+      "focused_test": "stage5d_b2bd1r2_pre_callback_matrix_blocks_without_callback",
+      "expected_reason": "RecoveryPlanBindingMismatch",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "riskgate recovery-plan fingerprint must bind exact envelope, evidence, generation and ordered frontiers"
+    },
+    {
+      "case_id": "known_order_index_mismatch",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_state_restored_preflight",
+      "focused_test": "stage5d_b2bd1r2_pre_callback_matrix_blocks_without_callback",
+      "expected_reason": "RecoveryIndexMismatch",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "loaded recovered known-order ids must equal envelope recovery index at callback boundary"
+    },
+    {
+      "case_id": "pending_request_index_mismatch",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_state_restored_preflight",
+      "focused_test": "stage5d_b2bd1r2_pre_callback_matrix_blocks_without_callback",
+      "expected_reason": "RecoveryIndexMismatch",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "loaded recovered pending request ids must equal envelope recovery index at callback boundary"
+    },
+    {
+      "case_id": "admission_expired",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_state_restored_preflight",
+      "focused_test": "stage5d_b2bd_expired_admission_blocks_before_callback_and_preserves_input",
+      "expected_reason": "AdmissionExpired",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "paper admission may expire between broker-truth bootstrap and restored notification"
+    },
+    {
+      "case_id": "lifecycle_timestamp_reversal_before_persisted",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_state_restored_preflight",
+      "focused_test": "stage5d_b2bd1r3_restored_before_persisted_envelope_blocks_before_callback",
+      "expected_reason": "LifecycleTimestampReversal",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "restore timestamp cannot precede the durable envelope persisted timestamp"
+    },
+    {
+      "case_id": "lifecycle_timestamp_reversal_before_bootstrap_notification",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_state_restored_preflight",
+      "focused_test": "stage5d_b2bd1_restored_before_bootstrap_notification_blocks_before_callback",
+      "expected_reason": "LifecycleTimestampReversal",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "restored callback cannot be notified before broker-truth bootstrap notification"
+    },
+    {
+      "case_id": "runtime_host_attached",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_state_restored_preflight",
+      "focused_test": "stage5d_b2bd1r2_pre_callback_matrix_blocks_without_callback",
+      "expected_reason": "ClosedBoundaryOpened",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "runtime host attachment would open runtime-live and is prohibited in this no-I/O stage"
+    },
+    {
+      "case_id": "intent_sink_attached",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_state_restored_preflight",
+      "focused_test": "stage5d_b2bd1r2_pre_callback_matrix_blocks_without_callback",
+      "expected_reason": "ClosedBoundaryOpened",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "intent sink attachment would open dispatch and is prohibited in this no-I/O stage"
+    },
+    {
+      "case_id": "non_paper_admission",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_state_restored_preflight",
+      "focused_test": "stage5d_b2bd1r2_pre_callback_matrix_blocks_without_callback",
+      "expected_reason": "ClosedBoundaryOpened",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "Stage 5D restored transition accepts paper-only capabilities only"
+    },
+    {
+      "case_id": "broker_position_mismatch",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_restore_broker_truth",
+      "focused_test": "stage5d_b2bd1r2_pre_callback_matrix_blocks_without_callback",
+      "expected_reason": "BrokerTruthPositionMismatch",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "runtime last_position_qty must equal broker target instrument position quantity before callback"
+    },
+    {
+      "case_id": "broker_side_mismatch_flat_long",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_restore_broker_truth",
+      "focused_test": "stage5d_b2bd1_flat_broker_side_is_exact_and_blocks_stale_side_before_callback",
+      "expected_reason": "BrokerTruthSideMismatch",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "flat broker truth requires runtime current_side None, not stale Long"
+    },
+    {
+      "case_id": "broker_side_mismatch_flat_short",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_restore_broker_truth",
+      "focused_test": "stage5d_b2bd1_flat_broker_side_is_exact_and_blocks_stale_side_before_callback",
+      "expected_reason": "BrokerTruthSideMismatch",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "flat broker truth requires runtime current_side None, not stale Short"
+    },
+    {
+      "case_id": "broker_side_mismatch_open_long",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_restore_broker_truth",
+      "focused_test": "stage5d_b2bd1r4_open_broker_position_side_mismatch_blocks_before_callback",
+      "expected_reason": "BrokerTruthSideMismatch",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "positive broker quantity requires runtime current_side Long"
+    },
+    {
+      "case_id": "broker_side_mismatch_open_short",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_restore_broker_truth",
+      "focused_test": "stage5d_b2bd1r4_open_broker_position_side_mismatch_blocks_before_callback",
+      "expected_reason": "BrokerTruthSideMismatch",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "negative broker quantity requires runtime current_side Short"
+    },
+    {
+      "case_id": "broker_owned_tp_id",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_restore_broker_truth",
+      "focused_test": "stage5d_b2bd1r2_pre_callback_matrix_blocks_without_callback",
+      "expected_reason": "BrokerOwnedProtectiveId",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "broker-owned TP ids remain unsupported until ownership mapping is implemented"
+    },
+    {
+      "case_id": "broker_owned_stop_id",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_restore_broker_truth",
+      "focused_test": "stage5d_b2bd1r2_pre_callback_matrix_blocks_without_callback",
+      "expected_reason": "BrokerOwnedProtectiveId",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "broker-owned SL stop ids remain unsupported until ownership mapping is implemented"
+    },
+    {
+      "case_id": "broker_owned_exchange_stop_id",
+      "representable_at_b2bd": true,
+      "owning_stage": "Stage 5D-b2b-d",
+      "owning_function": "validate_stage5d_runtime_restore_broker_truth",
+      "focused_test": "stage5d_b2bd1r2_pre_callback_matrix_blocks_without_callback",
+      "expected_reason": "BrokerOwnedProtectiveId",
+      "proof_kind": "common_helper",
+      "source_domain_argument": "broker-owned exchange stop/order ids remain unsupported until ownership mapping is implemented"
+    },
+    {
+      "case_id": "broker_quantity_not_representable",
+      "representable_at_b2bd": false,
+      "owning_stage": "Stage 5D-b2b-b / Stage 5D-b2b-d defensive branch",
+      "owning_function": "validate_stage5d_broker_truth_bootstrap and validate_stage5d_runtime_restore_broker_truth",
+      "focused_test": "validate_stage5d_runtime_restore_broker_truth",
+      "expected_reason": "PositionQuantityNotRepresentable / BrokerQuantityNotRepresentable",
+      "proof_kind": "defensive_branch",
+      "source_domain_argument": "broker Decimal quantities are normalized before f64 conversion; this branch is defensive for non-finite conversion"
+    },
+    {
+      "case_id": "strategy_mismatch",
+      "representable_at_b2bd": false,
+      "owning_stage": "Stage 5D-b2b-a",
+      "owning_function": "validate_loaded_envelope_binding",
+      "focused_test": "stage5d_b2bd1r6_earlier_gate_rejects_strategy_account_instrument_mismatches",
+      "expected_reason": "BindingMismatch",
+      "proof_kind": "earlier_gate",
+      "source_domain_argument": "loaded strategy id must match the envelope binding before private apply/bootstrap/riskgate injection"
+    },
+    {
+      "case_id": "account_mismatch",
+      "representable_at_b2bd": false,
+      "owning_stage": "Stage 5D-b2b-a / Stage 5D-b2b-b",
+      "owning_function": "validate_loaded_envelope_binding and validate_stage5d_broker_truth_bootstrap",
+      "focused_test": "stage5d_b2bd1r6_earlier_gate_rejects_strategy_account_instrument_mismatches",
+      "expected_reason": "BindingMismatch",
+      "proof_kind": "earlier_gate",
+      "source_domain_argument": "loaded account and broker-truth account must match the envelope binding before restored transition"
+    },
+    {
+      "case_id": "instrument_mismatch",
+      "representable_at_b2bd": false,
+      "owning_stage": "Stage 5D-b2b-a / Stage 5D-b2b-b",
+      "owning_function": "validate_loaded_envelope_binding and validate_stage5d_broker_truth_bootstrap",
+      "focused_test": "stage5d_b2bd1r6_earlier_gate_rejects_strategy_account_instrument_mismatches",
+      "expected_reason": "BindingMismatch",
+      "proof_kind": "earlier_gate",
+      "source_domain_argument": "loaded instrument and broker-truth instrument must match the envelope binding before restored transition"
+    },
+    {
+      "case_id": "config_fingerprint_mismatch",
+      "representable_at_b2bd": false,
+      "owning_stage": "Stage 5D-b2b-a",
+      "owning_function": "validate_loaded_envelope_binding",
+      "focused_test": "stage5d_b2bd1r6_earlier_gate_rejects_config_and_profile_mismatches",
+      "expected_reason": "BindingMismatch",
+      "proof_kind": "earlier_gate",
+      "source_domain_argument": "stage5c_compat_config_fingerprint must match the source strategy config exactly"
+    },
+    {
+      "case_id": "profile_mismatch",
+      "representable_at_b2bd": false,
+      "owning_stage": "Stage 5D-b2b-a",
+      "owning_function": "validate_loaded_envelope_binding",
+      "focused_test": "stage5d_b2bd1r6_earlier_gate_rejects_config_and_profile_mismatches",
+      "expected_reason": "BindingMismatch",
+      "proof_kind": "earlier_gate",
+      "source_domain_argument": "profile_binding must match source profile/mr_variant/mr_gate_policy/risk_gate_mode exactly"
+    },
+    {
+      "case_id": "riskgate_evidence_mismatch",
+      "representable_at_b2bd": false,
+      "owning_stage": "Stage 5D-b2b-c",
+      "owning_function": "stage5d_validate_riskgate_ledger_evidence",
+      "focused_test": "stage5d_b2bc_riskgate_ledger_tail_hash_must_match_evidence",
+      "expected_reason": "LedgerTailHashMismatch",
+      "proof_kind": "earlier_gate",
+      "source_domain_argument": "validated riskgate evidence fingerprint/tail hash must bind to source-compatible ledger evidence before injection"
+    },
+    {
+      "case_id": "riskgate_identity_mismatch",
+      "representable_at_b2bd": false,
+      "owning_stage": "Stage 5D-b2b-c",
+      "owning_function": "stage5d_authoritative_riskgate_state_from_evidence",
+      "focused_test": "stage5d_b2bc_riskgate_injection_rejects_full_identity_mismatch",
+      "expected_reason": "IdentityMismatch",
+      "proof_kind": "earlier_gate",
+      "source_domain_argument": "riskgate identity is distinct from evidence hash and must match strategy/profile/model identity before injected capability exists"
+    },
+    {
+      "case_id": "riskgate_generation_mismatch",
+      "representable_at_b2bd": false,
+      "owning_stage": "Stage 5D-b2b-c1",
+      "owning_function": "stage5d_authoritative_riskgate_state_from_evidence",
+      "focused_test": "stage5d_b2bc1_riskgate_generation_must_match_envelope",
+      "expected_reason": "LedgerGenerationMismatch",
+      "proof_kind": "earlier_gate",
+      "source_domain_argument": "riskgate generation is distinct from evidence/identity and must match source/envelope generation before injected capability exists"
+    }
+  ]
+}

@@ -754,7 +754,7 @@ def mutate_runtime_restored_closed_boundary_guard_removed(root: Path) -> None:
         "|| admission.runtime_host_attached()",
         "|| false",
     )
-    update_manifest_stage5d_hash(root)
+    update_stage5d_semantic_mutation_hashes(root)
 
 
 def mutate_runtime_restored_blocked_retained_capability_removed(root: Path) -> None:
@@ -955,6 +955,104 @@ def mutate_runtime_restored_r5_ownership_table_removed(root: Path) -> None:
     )
 
 
+def mutate_runtime_restored_r6_strict_long_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "r6 strict JSON round-trip actual Long broker-position evidence",
+        "r6 mutated strict Long broker-position evidence removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r6_strict_short_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "r6 strict JSON round-trip actual Short broker-position evidence",
+        "r6 mutated strict Short broker-position evidence removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r6_strict_known_order_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "r6 strict JSON round-trip known-order index evidence",
+        "r6 mutated strict known-order evidence removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r6_strict_pending_request_removed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "r6 strict JSON round-trip pending-request index evidence",
+        "r6 mutated strict pending-request evidence removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r6_common_blocked_helper_bypassed(root: Path) -> None:
+    rel = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+    replace_once(
+        root / rel,
+        "r6 representable blockers use common callback-zero helper",
+        "r6 mutated common blocked helper proof removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_runtime_restored_r6_quantity_ownership_removed(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage5d-b2bd1-r6-blocker-ownership.json",
+        '"case_id": "broker_quantity_not_representable"',
+        '"case_id": "broker_quantity_removed"',
+    )
+
+
+def mutate_runtime_restored_r6_ownership_stage_changed(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage5d-b2bd1-r6-blocker-ownership.json",
+        '"owning_stage": "Stage 5D-b2b-a"',
+        '"owning_stage": "Stage 5D-b2b-d"',
+    )
+
+
+def mutate_runtime_restored_r6_non_ack_decision_removed(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage5d-b2bd1-r6-blocker-ownership.json",
+        '"case_id": "non_acknowledged_recovery_decision"',
+        '"case_id": "non_acknowledged_recovery_decision_removed"',
+    )
+
+
+def mutate_runtime_restored_r6_expiry_ownership_removed(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage5d-b2bd1-r6-blocker-ownership.json",
+        '"case_id": "admission_expired"',
+        '"case_id": "admission_expired_removed"',
+    )
+
+
+def mutate_runtime_restored_r6_timestamp_ownership_removed(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage5d-b2bd1-r6-blocker-ownership.json",
+        '"case_id": "lifecycle_timestamp_reversal_before_persisted"',
+        '"case_id": "lifecycle_timestamp_reversal_removed"',
+    )
+
+
+def mutate_runtime_restored_r6_identity_generation_ownership_removed(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage5d-b2bd1-r6-blocker-ownership.json",
+        '"case_id": "riskgate_generation_mismatch"',
+        '"case_id": "riskgate_generation_removed"',
+    )
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -1049,6 +1147,17 @@ CASES = [
     ("runtime_restored_r5_known_order_strict_removed", mutate_runtime_restored_r5_known_order_strict_removed, "Stage 5D runtime-restored strict known-order proof missing"),
     ("runtime_restored_r5_not_paper_only_blocker_removed", mutate_runtime_restored_r5_not_paper_only_blocker_removed, "Stage 5D runtime-restored paper-only blocker proof missing"),
     ("runtime_restored_r5_ownership_table_removed", mutate_runtime_restored_r5_ownership_table_removed, "Stage 5D runtime-restored blocker ownership table missing"),
+    ("runtime_restored_r6_strict_long_removed", mutate_runtime_restored_r6_strict_long_removed, "Stage 5D runtime-restored strict Long proof missing"),
+    ("runtime_restored_r6_strict_short_removed", mutate_runtime_restored_r6_strict_short_removed, "Stage 5D runtime-restored strict Short proof missing"),
+    ("runtime_restored_r6_strict_known_order_removed", mutate_runtime_restored_r6_strict_known_order_removed, "Stage 5D runtime-restored r6 strict known-order proof missing"),
+    ("runtime_restored_r6_strict_pending_request_removed", mutate_runtime_restored_r6_strict_pending_request_removed, "Stage 5D runtime-restored r6 strict pending-request proof missing"),
+    ("runtime_restored_r6_common_blocked_helper_bypassed", mutate_runtime_restored_r6_common_blocked_helper_bypassed, "Stage 5D runtime-restored r6 common blocked helper proof missing"),
+    ("runtime_restored_r6_quantity_ownership_removed", mutate_runtime_restored_r6_quantity_ownership_removed, "Stage 5D runtime-restored r6 ownership case inventory mismatch"),
+    ("runtime_restored_r6_ownership_stage_changed", mutate_runtime_restored_r6_ownership_stage_changed, "Stage 5D runtime-restored r6 ownership row 'strategy_mismatch' must not be owned by b2b-d"),
+    ("runtime_restored_r6_non_ack_decision_removed", mutate_runtime_restored_r6_non_ack_decision_removed, "Stage 5D runtime-restored r6 ownership case inventory mismatch"),
+    ("runtime_restored_r6_expiry_ownership_removed", mutate_runtime_restored_r6_expiry_ownership_removed, "Stage 5D runtime-restored r6 ownership case inventory mismatch"),
+    ("runtime_restored_r6_timestamp_ownership_removed", mutate_runtime_restored_r6_timestamp_ownership_removed, "Stage 5D runtime-restored r6 ownership case inventory mismatch"),
+    ("runtime_restored_r6_identity_generation_ownership_removed", mutate_runtime_restored_r6_identity_generation_ownership_removed, "Stage 5D runtime-restored r6 ownership case inventory mismatch"),
 ]
 
 

@@ -1,9 +1,10 @@
-# Stage 5D-b2b-d1-r5 — strict round-trip and blocker-ownership closure hardening
+# Stage 5D-b2b-d1-r6 — acceptance-evidence and blocker-uniformity closure hardening
 
 Status: implementation candidate.
 
-Stage 5D-b2b-d1-r5 closes the review findings from the first controlled
-runtime-state-restored transition without opening any operational wiring.
+Stage 5D-b2b-d1-r6 closes the r5 acceptance/evidence findings for the
+controlled runtime-state-restored transition without opening any operational
+wiring.
 
 ## Scope
 
@@ -54,7 +55,8 @@ broker qty == 0 -> current_side == None
 
 - The Stage 5D bridge adds its own exact post-callback broker-truth validation
   while leaving the immutable Stage 5C baseline intact.
-- Stage 5D negative harness inventory expands from `66` to `82` cases with
+- Stage 5D negative harness inventory expands from `66` through `82` to `93`
+  cases with
   marker-pinned checks for:
   - missing runtime intent guard;
   - guard moved after `debug_assert!`;
@@ -71,7 +73,10 @@ broker qty == 0 -> current_side == None
   - missing non-empty known-order/pending-request retention positives.
   - missing r5 strict round-trip helper/proofs;
   - missing paper-only blocker proof;
-  - missing blocker ownership table.
+  - missing blocker ownership table;
+  - missing r6 strict Long/Short/known-order/pending-request markers;
+  - bypassed common blocked helper;
+  - missing quantity/expiry/timestamp/non-ack/identity/generation ownership.
 
 ## Focused evidence
 
@@ -103,8 +108,28 @@ Focused b2bd/b2bd1 unit tests cover:
   callback-zero retained-capability assertion helper.
 - explicit `is_paper_only == false` and non-acknowledged recovery decision
   blockers are covered by the common callback-zero assertion helper;
-- `docs/stage-5/5d-b2b-d1-r5-review-gate-summary.md` records blocker ownership
-  for every remaining mismatch, including cases owned before b2b-d.
+- `docs/stage-5/stage5d-b2bd1-r6-blocker-ownership.json` records
+  machine-checked blocker ownership for every remaining mismatch, including
+  cases owned before b2b-d.
+
+## r6 logical coverage counts
+
+- Positive restored cases: 7 logical paths: clean restore, exact expiry,
+  exact bootstrap notification, strict Long, strict Short, strict known-order
+  index, strict pending-request index.
+- Representable blocker cases: 20 ownership rows, all routed through the common
+  callback-zero retained-capability helper.
+- Earlier-owned blocker cases: 8 ownership rows: strategy, account,
+  instrument, config, profile, riskgate evidence, riskgate identity and
+  riskgate generation.
+- Defensive branch: 1 row for broker quantity nonrepresentability.
+- Terminal cases: 4 post-callback terminal matrix categories plus the explicit
+  callback-intent terminal path.
+- Compile-fail cases: capability construction, consumed input, restored/injected
+  type separation, blocked/terminal separation and private bridge/preflight
+  imports.
+- Negative-harness cases: 93 Stage 5D additive cases and 87 forbidden-surface
+  marker-pinned cases.
 
 ## Gate evidence
 
