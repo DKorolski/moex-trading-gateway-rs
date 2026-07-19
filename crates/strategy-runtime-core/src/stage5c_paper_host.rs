@@ -120,6 +120,14 @@ impl Stage5cRuntimeStateRestoredPaperStrategy {
     pub(crate) fn stage5d_strategy(&self) -> &HybridIntradayRuntimeStrategy {
         &self.strategy
     }
+
+    #[cfg(test)]
+    pub(crate) fn stage5d_test_restored_from_parts(
+        strategy: HybridIntradayRuntimeStrategy,
+        receipt: Stage5cRuntimeStateRestoreReceipt,
+    ) -> Self {
+        Self { strategy, receipt }
+    }
 }
 
 impl Stage5cBootstrappedPaperStrategy {

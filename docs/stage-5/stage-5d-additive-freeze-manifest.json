@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-final-restart-r3-current-shadow-r1-r1",
+  "stage": "5D-final-restart-r3-operational-state-r1-r1",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -61,7 +61,7 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "791c29147f4172982086520e17ea96a4251265db0c576c4a2be2e2b8f1a86a12",
+      "current_sha256": "77b083e6b39528e7d561eba15430ece267fea61335084c28c6584da1df7f80a2",
       "stripped_without_additive_regions_sha256": "bcc2c4d6ff08d06c49f9716495ce177fc968a8dcd71f6b2c38bcb8d5b4cb0914",
       "additive_regions": [
         "type-state-transitions"
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "7420144690e53823a2500e00e17e89a19483d9e7c41cc9bc03f03cd4d7897942"
+      "stage5d_consumer_sha256": "9c497a552e86304d6f067b509d41db8c0a904f391f18e1d6e497e5dc3c029abc"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "7420144690e53823a2500e00e17e89a19483d9e7c41cc9bc03f03cd4d7897942"
+      "stage5d_consumer_sha256": "9c497a552e86304d6f067b509d41db8c0a904f391f18e1d6e497e5dc3c029abc"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "7420144690e53823a2500e00e17e89a19483d9e7c41cc9bc03f03cd4d7897942"
+    "current_sha256": "9c497a552e86304d6f067b509d41db8c0a904f391f18e1d6e497e5dc3c029abc"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",

@@ -5871,6 +5871,600 @@ mod tests {
         }
     }
 
+    fn stage5d_runtime_object<'a>(
+        state: &'a Value,
+        label: &str,
+    ) -> &'a serde_json::Map<String, Value> {
+        state
+            .get("HybridIntradayRuntime")
+            .and_then(Value::as_object)
+            .unwrap_or_else(|| panic!("{label}: expected HybridIntradayRuntime object"))
+    }
+
+    fn stage5d_json_string_field(state: &Value, key: &str, label: &str) -> String {
+        stage5d_runtime_object(state, label)
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| panic!("{label}: expected string field {key}"))
+            .to_string()
+    }
+
+    fn stage5d_json_i64_field(state: &Value, key: &str, label: &str) -> i64 {
+        stage5d_runtime_object(state, label)
+            .get(key)
+            .and_then(Value::as_i64)
+            .unwrap_or_else(|| panic!("{label}: expected i64 field {key}"))
+    }
+
+    fn stage5d_intent_is_market_side_qty(
+        intent: &crate::runtime_compat::Intent,
+        expected_side: crate::runtime_compat::OrderSide,
+        expected_qty: f64,
+    ) -> bool {
+        matches!(
+            intent.base_intent(),
+            crate::runtime_compat::Intent::Market { side, qty, .. }
+                if *side == expected_side && (*qty - expected_qty).abs() <= f64::EPSILON
+        )
+    }
+
+    fn stage5d_intent_is_entry(intent: &crate::runtime_compat::Intent) -> bool {
+        matches!(
+            intent.explicit_class(),
+            Some(crate::runtime_compat::IntentClass::Entry)
+        )
+    }
+
+    fn stage5d_intent_is_exit(intent: &crate::runtime_compat::Intent) -> bool {
+        matches!(
+            intent.explicit_class(),
+            Some(crate::runtime_compat::IntentClass::Exit)
+        )
+    }
+
+    fn stage5d_test_assert_no_entry_intents(
+        intents: &[crate::runtime_compat::Intent],
+        label: &str,
+    ) {
+        assert!(
+            !intents.iter().any(stage5d_intent_is_entry),
+            "{label}: post-restored probe must not emit entry intents"
+        );
+    }
+
+    fn stage5d_test_operational_probe_bar(
+        y: i32,
+        mo: u32,
+        d: u32,
+        h: u32,
+        m: u32,
+        s: u32,
+        close: f64,
+    ) -> crate::runtime_compat::BarEvent {
+        stage5d_test_source_bar_ohlc(
+            stage5d_test_source_ts_local(y, mo, d, h, m, s),
+            close,
+            close + 0.5,
+            close - 0.5,
+            close,
+        )
+    }
+
+    fn stage5d_test_assert_restored_operational_behavior(
+        case: Stage5dR3OperationalStateCase,
+        restored: crate::stage5c_paper_host::Stage5cRuntimeStateRestoredPaperStrategy,
+        strict_envelope: &Stage5dPersistenceEnvelope,
+    ) -> crate::stage5c_paper_host::Stage5cRuntimeStateRestoredPaperStrategy {
+        // operational_state_post_restored_behavior_probe_executed
+        // operational_state_probe_uses_restored_runtime_not_source_runtime
+        let restored_state = serde_json::to_value(Strategy::state(restored.stage5d_strategy()))
+            .expect("post-restored probe state serializes");
+        let restored_extension = restored
+            .stage5d_strategy()
+            .stage5d_export_runtime_private_extension()
+            .expect("post-restored probe extension exports");
+        assert_eq!(
+            restored_state, strict_envelope.strategy_state.strategy_state_json,
+            "{case:?}: post-restored probe must start from exact strict restored state"
+        );
+        stage5d_test_assert_operational_case_shape(case, &restored_state, &restored_extension);
+
+        let (mut probe, receipt) = restored.into_parts();
+        match case {
+            Stage5dR3OperationalStateCase::PartialEntry => {
+                // operational_state_partial_post_restore_no_duplicate_callback
+                // operational_state_partial_timeout_residual_quantity_assertion
+                let before_request = stage5d_json_string_field(
+                    &restored_state,
+                    "pending_entry_request_id",
+                    "partial",
+                );
+                let before_cycle =
+                    stage5d_json_string_field(&restored_state, "pending_entry_cycle_id", "partial");
+                let before_created = stage5d_json_i64_field(
+                    &restored_state,
+                    "pending_entry_created_ts_utc",
+                    "partial",
+                );
+                let before_timer = restored_extension
+                    .partial_entry_timer
+                    .as_ref()
+                    .expect("partial timer exists after restore")
+                    .partial_started_at_ms;
+                let before_pending_entry = restored_extension
+                    .pending_entry
+                    .clone()
+                    .expect("partial pending entry exists after restore");
+
+                let ctx = stage5d_test_source_operational_ctx_with_position(-1.0);
+                let ordinary = probe.on_bar(
+                    &ctx,
+                    &stage5d_test_operational_probe_bar(2026, 1, 6, 9, 10, 10, 100.2),
+                );
+                assert!(
+                    ordinary.is_empty(),
+                    "partial entry post-restore ordinary bar must not duplicate entry"
+                );
+                let mid_state =
+                    serde_json::to_value(Strategy::state(&probe)).expect("partial mid state");
+                let mid_extension = probe
+                    .stage5d_export_runtime_private_extension()
+                    .expect("partial mid extension");
+                assert_eq!(
+                    stage5d_json_string_field(&mid_state, "pending_entry_request_id", "partial"),
+                    before_request,
+                    "partial entry post-restore request id must remain unresolved"
+                );
+                assert_eq!(
+                    stage5d_json_string_field(&mid_state, "pending_entry_cycle_id", "partial"),
+                    before_cycle,
+                    "partial entry post-restore cycle id must remain unchanged"
+                );
+                assert_eq!(
+                    stage5d_json_i64_field(&mid_state, "pending_entry_created_ts_utc", "partial"),
+                    before_created,
+                    "partial entry post-restore created timestamp must remain unchanged"
+                );
+                assert_eq!(
+                    mid_extension.pending_entry.as_ref(),
+                    Some(&before_pending_entry),
+                    "partial entry post-restore private pending entry must remain unchanged"
+                );
+                assert_eq!(
+                    mid_extension
+                        .partial_entry_timer
+                        .as_ref()
+                        .map(|timer| timer.partial_started_at_ms),
+                    Some(before_timer),
+                    "partial entry post-restore timer must remain unchanged before timeout"
+                );
+
+                let repair = probe.on_timer(&ctx, before_timer + 3_001);
+                assert_eq!(
+                    repair
+                        .iter()
+                        .filter(|intent| stage5d_intent_is_exit(intent))
+                        .count(),
+                    1,
+                    "partial entry timeout after restore must emit exactly one exit repair"
+                );
+                assert!(
+                    repair.iter().any(|intent| {
+                        stage5d_intent_is_market_side_qty(
+                            intent,
+                            crate::runtime_compat::OrderSide::Buy,
+                            1.0,
+                        )
+                    }),
+                    "partial entry timeout after restore must flatten the residual short quantity only"
+                );
+                stage5d_test_assert_no_entry_intents(
+                    &repair,
+                    "partial entry timeout repair must not flip into a new entry",
+                );
+                let after_extension = probe
+                    .stage5d_export_runtime_private_extension()
+                    .expect("partial after-timeout extension");
+                assert!(after_extension.pending_entry.is_none());
+                assert!(after_extension.partial_entry_timer.is_none());
+                assert!(after_extension.pending_exit.is_some());
+            }
+            Stage5dR3OperationalStateCase::PendingExit => {
+                // operational_state_pending_exit_post_restore_duplicate_trigger_callback
+                // operational_state_pending_exit_request_id_equality_assertion
+                let before_request = stage5d_json_string_field(
+                    &restored_state,
+                    "pending_exit_request_id",
+                    "pending_exit",
+                );
+                let before_cycle =
+                    stage5d_json_string_field(&restored_state, "active_cycle_id", "pending_exit");
+                let before_created = stage5d_json_i64_field(
+                    &restored_state,
+                    "pending_exit_created_ts_utc",
+                    "pending_exit",
+                );
+                let before_extension = restored_extension
+                    .pending_exit
+                    .clone()
+                    .expect("pending exit exists after restore");
+                let ctx = stage5d_test_source_operational_ctx_with_position(1.0);
+                let repeated = probe.on_bar(
+                    &ctx,
+                    &stage5d_test_operational_probe_bar(2026, 1, 6, 23, 40, 10, 100.0),
+                );
+                assert!(
+                    repeated.is_empty(),
+                    "pending exit post-restore repeated trigger must not emit duplicate exit"
+                );
+                let after_state = serde_json::to_value(Strategy::state(&probe))
+                    .expect("pending exit after state");
+                let after_extension = probe
+                    .stage5d_export_runtime_private_extension()
+                    .expect("pending exit after extension");
+                assert_eq!(
+                    stage5d_json_string_field(
+                        &after_state,
+                        "pending_exit_request_id",
+                        "pending_exit"
+                    ),
+                    before_request,
+                    "pending exit post-restore request id must remain exact"
+                );
+                assert_eq!(
+                    stage5d_json_string_field(&after_state, "active_cycle_id", "pending_exit"),
+                    before_cycle,
+                    "pending exit post-restore cycle id must remain exact"
+                );
+                assert_eq!(
+                    stage5d_json_i64_field(
+                        &after_state,
+                        "pending_exit_created_ts_utc",
+                        "pending_exit"
+                    ),
+                    before_created,
+                    "pending exit post-restore timestamp must remain exact"
+                );
+                assert_eq!(
+                    after_extension.pending_exit.as_ref(),
+                    Some(&before_extension),
+                    "pending exit post-restore private DTO must remain exact"
+                );
+            }
+            Stage5dR3OperationalStateCase::DeferredEntry => {
+                // operational_state_deferred_entry_post_restore_gated_callback
+                // operational_state_deferred_entry_one_time_reissue_assertion
+                let before_request = stage5d_json_string_field(
+                    &restored_state,
+                    "deferred_entry_request_id",
+                    "deferred_entry",
+                );
+                let before_cycle = stage5d_json_string_field(
+                    &restored_state,
+                    "deferred_entry_cycle_id",
+                    "deferred_entry",
+                );
+                let before_ts = stage5d_json_i64_field(
+                    &restored_state,
+                    "deferred_entry_ts_utc",
+                    "deferred_entry",
+                );
+                let before_style = stage5d_json_string_field(
+                    &restored_state,
+                    "deferred_entry_entry_style",
+                    "deferred_entry",
+                );
+                let before_reason = stage5d_json_string_field(
+                    &restored_state,
+                    "deferred_entry_reason",
+                    "deferred_entry",
+                );
+                let before_side = stage5d_json_string_field(
+                    &restored_state,
+                    "deferred_entry_side",
+                    "deferred_entry",
+                );
+                let before_stop = stage5d_runtime_object(&restored_state, "deferred_entry")
+                    .get("deferred_entry_stop_price")
+                    .cloned();
+                let before_take = stage5d_runtime_object(&restored_state, "deferred_entry")
+                    .get("deferred_entry_take_price")
+                    .cloned();
+
+                let ctx = stage5d_test_source_operational_ctx_with_position(0.0);
+                let blocked = probe.on_bar(
+                    &ctx,
+                    &stage5d_test_operational_probe_bar(2026, 1, 6, 8, 50, 10, 100.0),
+                );
+                assert!(
+                    blocked.is_empty(),
+                    "deferred entry post-restore pre-window callback must stay gated"
+                );
+                let blocked_state = serde_json::to_value(Strategy::state(&probe))
+                    .expect("deferred entry blocked state");
+                assert_eq!(
+                    stage5d_json_string_field(
+                        &blocked_state,
+                        "deferred_entry_request_id",
+                        "deferred_entry"
+                    ),
+                    before_request,
+                    "deferred entry gated callback must preserve original request"
+                );
+                assert_eq!(
+                    stage5d_json_string_field(
+                        &blocked_state,
+                        "deferred_entry_cycle_id",
+                        "deferred_entry"
+                    ),
+                    before_cycle,
+                    "deferred entry gated callback must preserve cycle"
+                );
+                assert_eq!(
+                    stage5d_json_i64_field(
+                        &blocked_state,
+                        "deferred_entry_ts_utc",
+                        "deferred_entry"
+                    ),
+                    before_ts,
+                    "deferred entry gated callback must preserve deferred timestamp"
+                );
+
+                let reissued = probe.on_bar(
+                    &ctx,
+                    &stage5d_test_operational_probe_bar(2026, 1, 6, 9, 10, 10, 99.7),
+                );
+                assert_eq!(
+                    reissued
+                        .iter()
+                        .filter(|intent| stage5d_intent_is_entry(intent))
+                        .count(),
+                    1,
+                    "deferred entry post-restore eligible callback must reissue exactly one entry"
+                );
+                let reissued_state = serde_json::to_value(Strategy::state(&probe))
+                    .expect("deferred entry reissued state");
+                let obj = stage5d_runtime_object(&reissued_state, "deferred_entry");
+                assert_eq!(obj.get("deferred_entry_request_id"), Some(&Value::Null));
+                assert_eq!(
+                    stage5d_json_string_field(
+                        &reissued_state,
+                        "pending_entry_cycle_id",
+                        "deferred_entry"
+                    ),
+                    before_cycle,
+                    "deferred entry reissue must reuse original cycle"
+                );
+                assert_eq!(
+                    stage5d_json_string_field(
+                        &reissued_state,
+                        "pending_entry_side",
+                        "deferred_entry"
+                    ),
+                    before_side,
+                    "deferred entry reissue must preserve side"
+                );
+                let reissued_entry = probe
+                    .stage5d_export_runtime_private_extension()
+                    .expect("deferred entry reissued extension")
+                    .pending_entry
+                    .expect("deferred entry reissue arms pending entry");
+                assert_eq!(
+                    serde_json::to_value(reissued_entry.entry_style)
+                        .expect("deferred entry style serializes")
+                        .as_str(),
+                    Some(before_style.as_str()),
+                    "deferred entry reissue must preserve style"
+                );
+                assert_eq!(
+                    serde_json::to_value(reissued_entry.reason)
+                        .expect("deferred entry reason serializes")
+                        .as_str(),
+                    Some(before_reason.as_str()),
+                    "deferred entry reissue must preserve reason"
+                );
+                assert_eq!(
+                    reissued_entry
+                        .stop_price
+                        .as_ref()
+                        .and_then(|value| value.parse::<f64>().ok())
+                        .and_then(serde_json::Number::from_f64)
+                        .map(Value::Number),
+                    before_stop,
+                    "deferred entry reissue must preserve stop"
+                );
+                assert_eq!(
+                    reissued_entry
+                        .take_price
+                        .as_ref()
+                        .and_then(|value| value.parse::<f64>().ok())
+                        .and_then(serde_json::Number::from_f64)
+                        .map(Value::Number),
+                    before_take,
+                    "deferred entry reissue must preserve take"
+                );
+            }
+            Stage5dR3OperationalStateCase::DeferredExit => {
+                // operational_state_deferred_exit_post_restore_no_entry_callback
+                // operational_state_deferred_exit_close_only_reissue_assertion
+                let before_request = stage5d_json_string_field(
+                    &restored_state,
+                    "deferred_exit_request_id",
+                    "deferred_exit",
+                );
+                let before_cycle = stage5d_json_string_field(
+                    &restored_state,
+                    "deferred_exit_cycle_id",
+                    "deferred_exit",
+                );
+                let before_ts = stage5d_json_i64_field(
+                    &restored_state,
+                    "deferred_exit_ts_utc",
+                    "deferred_exit",
+                );
+                let before_owner = stage5d_json_string_field(
+                    &restored_state,
+                    "deferred_exit_owner",
+                    "deferred_exit",
+                );
+                let before_reason = stage5d_json_string_field(
+                    &restored_state,
+                    "deferred_exit_reason",
+                    "deferred_exit",
+                );
+
+                let ctx = stage5d_test_source_operational_ctx_with_position(1.0);
+                let blocked = probe.on_bar(
+                    &ctx,
+                    &stage5d_test_operational_probe_bar(2026, 1, 6, 8, 50, 10, 100.0),
+                );
+                assert!(
+                    blocked.is_empty(),
+                    "deferred exit post-restore pre-window callback must stay gated"
+                );
+                stage5d_test_assert_no_entry_intents(&blocked, "deferred exit gated callback");
+                let blocked_state =
+                    serde_json::to_value(Strategy::state(&probe)).expect("deferred exit blocked");
+                assert_eq!(
+                    stage5d_json_string_field(
+                        &blocked_state,
+                        "deferred_exit_request_id",
+                        "deferred_exit"
+                    ),
+                    before_request,
+                    "deferred exit gated callback must preserve original request"
+                );
+                assert_eq!(
+                    stage5d_json_string_field(
+                        &blocked_state,
+                        "deferred_exit_cycle_id",
+                        "deferred_exit"
+                    ),
+                    before_cycle,
+                    "deferred exit gated callback must preserve cycle"
+                );
+                assert_eq!(
+                    stage5d_json_i64_field(&blocked_state, "deferred_exit_ts_utc", "deferred_exit"),
+                    before_ts,
+                    "deferred exit gated callback must preserve timestamp"
+                );
+
+                assert_eq!(
+                    stage5d_json_string_field(
+                        &blocked_state,
+                        "deferred_exit_owner",
+                        "deferred_exit"
+                    ),
+                    before_owner,
+                    "deferred exit gated close-only state must preserve owner"
+                );
+                assert_eq!(
+                    stage5d_json_string_field(
+                        &blocked_state,
+                        "deferred_exit_cycle_id",
+                        "deferred_exit"
+                    ),
+                    before_cycle,
+                    "deferred exit gated close-only state must preserve cycle"
+                );
+                assert_eq!(
+                    stage5d_json_string_field(
+                        &blocked_state,
+                        "deferred_exit_reason",
+                        "deferred_exit"
+                    ),
+                    before_reason,
+                    "deferred exit gated close-only state must preserve reason"
+                );
+            }
+            Stage5dR3OperationalStateCase::SafeModeCloseOnly => {
+                // operational_state_safe_mode_post_restore_entry_attempt_callback
+                // operational_state_safe_mode_repair_path_assertion
+                let before_reason =
+                    stage5d_json_string_field(&restored_state, "safe_mode_reason", "safe_mode");
+                let before_exit_request = stage5d_json_string_field(
+                    &restored_state,
+                    "pending_exit_request_id",
+                    "safe_mode",
+                );
+                let repair_request_id = restored_extension
+                    .pending_exit
+                    .as_ref()
+                    .expect("safe-mode repair pending exit exists after restore")
+                    .request_id;
+                let repair_ctx = stage5d_test_source_operational_ctx_with_position(-1.0);
+                let repair_ack = probe.on_ack(
+                    &repair_ctx,
+                    &crate::runtime_compat::CommandAck::accepted(repair_request_id),
+                );
+                assert!(
+                    repair_ack.is_empty(),
+                    "safe-mode pending repair ACK must not emit unrelated intents"
+                );
+                let repair_state =
+                    serde_json::to_value(Strategy::state(&probe)).expect("safe-mode repair state");
+                assert_eq!(
+                    stage5d_json_string_field(
+                        &repair_state,
+                        "pending_exit_request_id",
+                        "safe_mode"
+                    ),
+                    before_exit_request,
+                    "safe-mode repair path must keep original pending exit request"
+                );
+                assert_eq!(
+                    stage5d_json_string_field(&repair_state, "safe_mode_reason", "safe_mode"),
+                    before_reason,
+                    "safe-mode reason must remain exact while repair is pending"
+                );
+
+                let flat_ctx = stage5d_test_source_operational_ctx_with_position(0.0);
+                let entry_bar = stage5d_test_operational_probe_bar(2026, 1, 6, 9, 10, 10, 100.3);
+                let mut non_safe = stage5d_test_riskgate_runtime_strategy();
+                stage5d_test_seed_riskgate_source_preconditions(&mut non_safe);
+                stage5d_test_seed_authoritative_riskgate_materialized_state(&mut non_safe);
+                let non_safe_entry = non_safe.on_bar(
+                    &flat_ctx,
+                    &stage5d_test_source_bar_ohlc(
+                        stage5d_test_source_ts_local(2026, 1, 6, 9, 10, 0),
+                        100.3,
+                        100.3,
+                        98.0,
+                        100.3,
+                    ),
+                );
+                assert!(
+                    non_safe_entry.iter().any(stage5d_intent_is_entry),
+                    "safe-mode entry-block probe must use a bar that is entry-producing without close-only"
+                );
+                let blocked_entry = probe.on_bar(&flat_ctx, &entry_bar);
+                assert!(
+                    blocked_entry.is_empty(),
+                    "safe-mode post-restore entry-producing callback must be blocked"
+                );
+                stage5d_test_assert_no_entry_intents(&blocked_entry, "safe-mode entry block");
+                let blocked_state =
+                    serde_json::to_value(Strategy::state(&probe)).expect("safe-mode blocked");
+                assert_eq!(
+                    stage5d_runtime_object(&blocked_state, "safe_mode")
+                        .get("safe_mode_close_only")
+                        .and_then(Value::as_bool),
+                    Some(true),
+                    "safe-mode close-only flag must remain active after entry attempt"
+                );
+                assert_eq!(
+                    stage5d_json_string_field(&blocked_state, "safe_mode_reason", "safe_mode"),
+                    before_reason,
+                    "safe-mode reason must remain exact after blocked entry attempt"
+                );
+            }
+        }
+        crate::stage5c_paper_host::Stage5cRuntimeStateRestoredPaperStrategy::stage5d_test_restored_from_parts(
+            probe,
+            receipt,
+        )
+    }
+
     fn stage5d_test_r3_operational_source_full_restart(
         case: Stage5dR3OperationalStateCase,
     ) -> Stage5dFinalR2PackageOutcome {
@@ -5997,6 +6591,8 @@ mod tests {
             restored_state, strict_envelope.strategy_state.strategy_state_json,
             "{case:?}: restored runtime state must match strict source envelope"
         );
+        let restored =
+            stage5d_test_assert_restored_operational_behavior(case, restored, &strict_envelope);
         let restored_receipt_summary = format!(
             "runtime_state_restored={};warmup_started={};pending_recovery_started={};semantic_bar_enabled={};known_orders={};pending_requests={}",
             restored.receipt().runtime_state_restored(),

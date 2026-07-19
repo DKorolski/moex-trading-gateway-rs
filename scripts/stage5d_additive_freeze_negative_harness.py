@@ -1853,7 +1853,7 @@ def mutate_final_r3_current_shadow_r1r1_stage5e_or_surface_opened(root: Path) ->
 def mutate_final_r3_operational_source_callback_removed(root: Path) -> None:
     replace_all(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "operational_state_partial_entry_actual_callbacks",
+        "operational_state_partial_post_restore_no_duplicate_callback",
         "operational_state_partial_entry_callback_removed",
     )
     update_stage5d_semantic_mutation_hashes(root)
@@ -1871,7 +1871,7 @@ def mutate_final_r3_operational_direct_substitution(root: Path) -> None:
 def mutate_final_r3_operational_source_runtime_reused(root: Path) -> None:
     replace_all(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "operational_state_source_runtime_destroyed_before_restart_boundary",
+        "operational_state_probe_uses_restored_runtime_not_source_runtime",
         "operational_state_source_runtime_reused_after_restart_boundary",
     )
     update_stage5d_semantic_mutation_hashes(root)
@@ -1898,7 +1898,7 @@ def mutate_final_r3_operational_private_apply_moved(root: Path) -> None:
 def mutate_final_r3_operational_lifecycle_equality_removed(root: Path) -> None:
     replace_all(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "operational_state_lifecycle_request_cycle_timestamp_equality_checked",
+        "operational_state_pending_exit_request_id_equality_assertion",
         "operational_state_lifecycle_equality_removed",
     )
     update_stage5d_semantic_mutation_hashes(root)
@@ -1907,7 +1907,7 @@ def mutate_final_r3_operational_lifecycle_equality_removed(root: Path) -> None:
 def mutate_final_r3_operational_partial_timer_removed(root: Path) -> None:
     replace_all(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "operational_state_partial_timer_quantity_evidence_checked",
+        "operational_state_partial_timeout_residual_quantity_assertion",
         "operational_state_partial_timer_quantity_evidence_removed",
     )
     update_stage5d_semantic_mutation_hashes(root)
@@ -1916,7 +1916,7 @@ def mutate_final_r3_operational_partial_timer_removed(root: Path) -> None:
 def mutate_final_r3_operational_deferred_entry_stop_take_removed(root: Path) -> None:
     replace_all(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "operational_state_deferred_entry_stop_take_reason_checked",
+        "operational_state_deferred_entry_one_time_reissue_assertion",
         "operational_state_deferred_entry_stop_take_reason_removed",
     )
     update_stage5d_semantic_mutation_hashes(root)
@@ -1925,7 +1925,7 @@ def mutate_final_r3_operational_deferred_entry_stop_take_removed(root: Path) -> 
 def mutate_final_r3_operational_safe_mode_entry_block_removed(root: Path) -> None:
     replace_all(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "operational_state_safe_mode_entry_block_checked",
+        "operational_state_safe_mode_post_restore_entry_attempt_callback",
         "operational_state_safe_mode_entry_block_removed",
     )
     update_stage5d_semantic_mutation_hashes(root)
@@ -1934,7 +1934,7 @@ def mutate_final_r3_operational_safe_mode_entry_block_removed(root: Path) -> Non
 def mutate_final_r3_operational_stage5c_continuation_removed(root: Path) -> None:
     replace_all(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "operational_state_stage5c_continuation_executed",
+        "stage5d_test_assert_restored_operational_behavior(case, restored, &strict_envelope)",
         "operational_state_stage5c_continuation_removed",
     )
     update_stage5d_semantic_mutation_hashes(root)
@@ -2155,7 +2155,7 @@ CASES = [
     ("final_r3_operational_partial_timer_removed", mutate_final_r3_operational_partial_timer_removed, "Stage 5D final r3 operational-state r1 marker proof missing"),
     ("final_r3_operational_deferred_entry_stop_take_removed", mutate_final_r3_operational_deferred_entry_stop_take_removed, "Stage 5D final r3 operational-state r1 marker proof missing"),
     ("final_r3_operational_safe_mode_entry_block_removed", mutate_final_r3_operational_safe_mode_entry_block_removed, "Stage 5D final r3 operational-state r1 marker proof missing"),
-    ("final_r3_operational_stage5c_continuation_removed", mutate_final_r3_operational_stage5c_continuation_removed, "Stage 5D final r3 operational-state r1 marker proof missing"),
+    ("final_r3_operational_stage5c_continuation_removed", mutate_final_r3_operational_stage5c_continuation_removed, "Stage 5D final r3 operational-state post-restored probe ordering invalid"),
     ("final_r3_operational_premature_next_group_promotion", mutate_final_r3_operational_premature_next_group_promotion, "Stage 5D final r3 accepted executable set mismatch"),
     ("final_r3_operational_stage5e_or_surface_opened", mutate_final_r3_operational_stage5e_or_surface_opened, "Stage 5D final r3 resumption inventory closed-surface mismatch"),
 ]

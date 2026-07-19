@@ -99,7 +99,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "7420144690e53823a2500e00e17e89a19483d9e7c41cc9bc03f03cd4d7897942",
+        "stage5d_consumer_sha256": "9c497a552e86304d6f067b509d41db8c0a904f391f18e1d6e497e5dc3c029abc",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -113,7 +113,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "7420144690e53823a2500e00e17e89a19483d9e7c41cc9bc03f03cd4d7897942",
+        "stage5d_consumer_sha256": "9c497a552e86304d6f067b509d41db8c0a904f391f18e1d6e497e5dc3c029abc",
     },
 ]
 
@@ -340,7 +340,7 @@ EXPECTED_NEGATIVE_CASES = [
     "final_r3_operational_stage5e_or_surface_opened",
 ]
 
-EXPECTED_STAGE = "5D-final-restart-r3-current-shadow-r1-r1"
+EXPECTED_STAGE = "5D-final-restart-r3-operational-state-r1-r1"
 EXPECTED_FINAL_RESTART_INVENTORY_STAGE = "5D-final-restart-r2"
 
 EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
@@ -1629,16 +1629,71 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         "operational_state_deferred_exit_close_only_semantics_checked",
         "operational_state_safe_mode_entry_block_checked",
         "operational_state_stage5c_continuation_executed",
+        "operational_state_post_restored_behavior_probe_executed",
+        "operational_state_probe_uses_restored_runtime_not_source_runtime",
+        "operational_state_partial_post_restore_no_duplicate_callback",
+        "operational_state_partial_timeout_residual_quantity_assertion",
+        "operational_state_pending_exit_post_restore_duplicate_trigger_callback",
+        "operational_state_pending_exit_request_id_equality_assertion",
+        "operational_state_deferred_entry_post_restore_gated_callback",
+        "operational_state_deferred_entry_one_time_reissue_assertion",
+        "operational_state_deferred_exit_post_restore_no_entry_callback",
+        "operational_state_deferred_exit_close_only_reissue_assertion",
+        "operational_state_safe_mode_post_restore_entry_attempt_callback",
+        "operational_state_safe_mode_repair_path_assertion",
         "accepted_executable_count_15",
         "todo_source_produced_count_6",
         "stage5d_test_source_operational_state_strategy",
         "stage5d_test_r3_operational_source_full_restart",
+        "stage5d_test_assert_restored_operational_behavior",
+        "let (mut probe, receipt) = restored.into_parts();",
+        "Stage5cRuntimeStateRestoredPaperStrategy::stage5d_test_restored_from_parts",
+        "probe.on_bar(",
+        "probe.on_timer(",
+        "probe.on_ack(",
         "stage5d_apply_runtime_private_extension(bound)",
         "stage5d_notify_broker_truth_bootstrap_at(applied, strict_envelope.persisted_at_ts_utc)",
     ]
     for token in required_operational_tokens:
         if token not in stage5d_source:
             failures.append("Stage 5D final r3 operational-state r1 marker proof missing")
+    restore_idx = stage5d_source.find("stage5d_test_assert_injected_restores_indexes_once(")
+    probe_idx = stage5d_source.find(
+        "stage5d_test_assert_restored_operational_behavior(case, restored, &strict_envelope)"
+    )
+    warmup_idx = stage5d_source.find("stage5d_test_warmup_stage5c_history_at(", probe_idx)
+    if not (restore_idx >= 0 and probe_idx > restore_idx and warmup_idx > probe_idx):
+        failures.append("Stage 5D final r3 operational-state post-restored probe ordering invalid")
+    helper_fn = "fn stage5d_test_assert_restored_operational_behavior("
+    helper_start = stage5d_source.find(helper_fn)
+    helper_end = stage5d_source.find(
+        "fn stage5d_test_r3_operational_source_full_restart",
+        helper_start + len(helper_fn),
+    )
+    helper_body = (
+        stage5d_source[helper_start:helper_end]
+        if helper_start >= 0 and helper_end >= 0
+        else ""
+    )
+    helper_required = [
+        "restored.into_parts()",
+        "PartialEntry =>",
+        "PendingExit =>",
+        "DeferredEntry =>",
+        "DeferredExit =>",
+        "SafeModeCloseOnly =>",
+        "ordinary.is_empty()",
+        "partial entry timeout after restore must emit exactly one exit repair",
+        "repeated.is_empty()",
+        "blocked.is_empty()",
+        "deferred entry post-restore eligible callback must reissue exactly one entry",
+        "stage5d_test_assert_no_entry_intents(&blocked, \"deferred exit gated callback\")",
+        "repair_ack.is_empty()",
+        "blocked_entry.is_empty()",
+    ]
+    for token in helper_required:
+        if token not in helper_body:
+            failures.append("Stage 5D final r3 operational-state post-restored behavior proof missing")
 
 
 def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
