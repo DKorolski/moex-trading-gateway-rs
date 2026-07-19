@@ -12809,6 +12809,14 @@ mod tests {
             "positive_ordered_multi_row_pending_finalizations",
             "positive_already_complete_recovery_plan",
         ];
+        let accepted_r3a_ids: std::collections::HashSet<_> = [
+            "positive_mr_long_bracket_pending_entry",
+            "positive_mr_short_bracket_pending_entry",
+            "positive_bo_long_market_pending_entry",
+            "positive_bo_short_market_pending_entry",
+        ]
+        .into_iter()
+        .collect();
         let observed: std::collections::HashSet<_> = rows
             .iter()
             .filter(|row| row["category"] == "positive")
@@ -12825,6 +12833,31 @@ mod tests {
                 "r3 resumption mandatory positive missing: {case_id}"
             );
         }
+        let accepted_observed: std::collections::HashSet<_> = rows
+            .iter()
+            .filter(|row| row["execution_status"] == "accepted_r3a_r1_source_produced")
+            .map(|row| row["case_id"].as_str().expect("case_id"))
+            .collect();
+        assert_eq!(
+            accepted_observed, accepted_r3a_ids,
+            "r3 resumption must accept only the four r3a-r1 executable rows"
+        );
+        let todo_rows: Vec<_> = rows
+            .iter()
+            .filter(|row| row["execution_status"] == "todo_source_produced")
+            .collect();
+        assert_eq!(
+            todo_rows.len(),
+            17,
+            "r3 resumption must keep exactly seventeen rows as TODO"
+        );
+        for row in todo_rows {
+            assert!(
+                row.get("owning_test").is_none() || row["owning_test"].is_null(),
+                "r3 resumption TODO row must not claim an owning test"
+            );
+        }
+        let mut accepted_cases_executed = 0usize;
         for (case_id, case) in [
             (
                 "positive_mr_long_bracket_pending_entry",
@@ -12857,17 +12890,17 @@ mod tests {
             assert!(outcome
                 .restored_receipt_summary
                 .contains("runtime_state_restored=true"));
+            accepted_cases_executed += 1;
         }
-        assert!(
-            rows.iter()
-                .filter(|row| row["execution_status"] == "todo_source_produced")
-                .count()
-                > 0,
-            "r3 resumption must not overclaim remaining source-producer TODO rows as closed"
+        assert_eq!(
+            accepted_cases_executed, 4,
+            "r3 resumption must execute exactly the four accepted r3a-r1 cases"
         );
         // Stage 5D-final-restart-r3 resumption marker:
         // mandatory_positive_count_21, r3a_r1_source_pending_reused,
-        // no_schema_only_positive_overclaim, stage5e_closed.
+        // accepted_executable_count_4, todo_source_produced_count_17,
+        // accepted_cases_executed_4, no_schema_only_positive_overclaim,
+        // no_todo_owning_test, stage5e_closed.
     }
 
     #[test]

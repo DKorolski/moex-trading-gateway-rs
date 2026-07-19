@@ -250,9 +250,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `Strategy::state(...)` lifecycle equality plus exact runtime-private DTO
   equality after private apply and before broker bootstrap/callback, and
   marker-pins Stage 5D negative cases. The current r3 resumption slice adds a
-  21-case mandatory positive inventory gate and re-executes the accepted r3a-r1
-  source-produced pending-entry proof while keeping the remaining rows marked
-  `todo_source_produced`; this deliberately avoids claiming full r3 closure.
+  21-case mandatory positive inventory gate with exactly four accepted
+  executable r3a-r1 rows and exactly seventeen `todo_source_produced` rows. It
+  re-executes the accepted r3a-r1 source-produced pending-entry proof and blocks
+  TODO rows from claiming an `owning_test`; this deliberately avoids claiming
+  full r3 closure.
   No `set_state()` source correction is currently required. The existing
   restored-callback boot-stale cleanup for flat/no-working-order pending tails
   remains documented for the later full r3 matrix.

@@ -99,7 +99,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "ee08753147182f30654c9712868878b8afb75c4aabf68e25cf5827ca7eb72f62",
+        "stage5d_consumer_sha256": "dda3e21a01b92c84618dfc925b4083b7cd5915967b1b307b22713469cdcbba23",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -113,7 +113,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "ee08753147182f30654c9712868878b8afb75c4aabf68e25cf5827ca7eb72f62",
+        "stage5d_consumer_sha256": "dda3e21a01b92c84618dfc925b4083b7cd5915967b1b307b22713469cdcbba23",
     },
 ]
 
@@ -270,6 +270,16 @@ EXPECTED_NEGATIVE_CASES = [
     "final_r3a_unauthorized_set_state_source_change",
     "final_r3_resumption_inventory_removed",
     "final_r3_resumption_r3a_reuse_removed",
+    "final_r3_resumption_clean_flat_prematurely_promoted",
+    "final_r3_resumption_current_shadow_prematurely_promoted",
+    "final_r3_resumption_unapproved_retained_status",
+    "final_r3_resumption_nonexistent_owning_test",
+    "final_r3_resumption_false_resumption_owner",
+    "final_r3_resumption_todo_set_reduced",
+    "final_r3_resumption_accepted_r3a_downgraded",
+    "final_r3_resumption_stage5e_marker_removed",
+    "final_r3_resumption_todo_non_null_owner",
+    "final_r3_resumption_accepted_null_owner",
 ]
 
 EXPECTED_STAGE = "5D-final-restart-r3-resumption"
@@ -351,6 +361,13 @@ EXPECTED_FINAL_RESTART_R3_POSITIVE_IDS = [
     "positive_single_pending_riskgate_finalization",
     "positive_ordered_multi_row_pending_finalizations",
     "positive_already_complete_recovery_plan",
+]
+
+EXPECTED_FINAL_RESTART_R3_ACCEPTED_IDS = [
+    "positive_mr_long_bracket_pending_entry",
+    "positive_mr_short_bracket_pending_entry",
+    "positive_bo_long_market_pending_entry",
+    "positive_bo_short_market_pending_entry",
 ]
 
 EXPECTED_RUNTIME_RESTORED_OWNERSHIP_IDS = [
@@ -1235,26 +1252,37 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         failures.append("Stage 5D final r3 mandatory positive inventory mismatch")
     if len(set(positive_ids)) != len(positive_ids):
         failures.append("Stage 5D final r3 mandatory positive ids must be unique")
-    r3a_ids = {
-        "positive_mr_long_bracket_pending_entry",
-        "positive_mr_short_bracket_pending_entry",
-        "positive_bo_long_market_pending_entry",
-        "positive_bo_short_market_pending_entry",
-    }
+    r3a_ids = set(EXPECTED_FINAL_RESTART_R3_ACCEPTED_IDS)
+    accepted_ids = []
+    todo_ids = []
     for row in rows:
         if not isinstance(row, dict):
             failures.append("Stage 5D final r3 resumption row must be object")
             continue
-        if row.get("case_id") in r3a_ids:
-            if row.get("owning_test") != "stage5d_final_r3a_source_pending_entry_full_restart_matrix":
+        if row.get("category") != "positive":
+            failures.append("Stage 5D final r3 row category must be positive")
+        case_id = row.get("case_id")
+        status = row.get("execution_status")
+        owning_test = row.get("owning_test")
+        if status == "accepted_r3a_r1_source_produced":
+            accepted_ids.append(case_id)
+            if case_id not in r3a_ids:
+                failures.append("Stage 5D final r3 accepted executable set mismatch")
+            if owning_test != "stage5d_final_r3a_source_pending_entry_full_restart_matrix":
                 failures.append("Stage 5D final r3 r3a-r1 reuse proof missing")
-            if row.get("execution_status") != "accepted_r3a_r1_source_produced":
-                failures.append("Stage 5D final r3 r3a-r1 source-produced status missing")
-    if not any(
-        isinstance(row, dict) and row.get("execution_status") == "todo_source_produced"
-        for row in rows
-    ):
-        failures.append("Stage 5D final r3 schema-only overclaim guard missing")
+        elif status == "todo_source_produced":
+            todo_ids.append(case_id)
+            if owning_test is not None:
+                failures.append("Stage 5D final r3 TODO row must not claim owning test")
+        else:
+            failures.append("Stage 5D final r3 unapproved execution status")
+        if status == "accepted_r3a_r1_source_produced" and owning_test is None:
+            failures.append("Stage 5D final r3 accepted row must have owning test")
+    if set(accepted_ids) != r3a_ids or len(accepted_ids) != len(r3a_ids):
+        failures.append("Stage 5D final r3 accepted executable set mismatch")
+    expected_todo_ids = set(EXPECTED_FINAL_RESTART_R3_POSITIVE_IDS) - r3a_ids
+    if set(todo_ids) != expected_todo_ids or len(todo_ids) != len(expected_todo_ids):
+        failures.append("Stage 5D final r3 TODO source-produced set mismatch")
 
 
 def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
@@ -1488,6 +1516,14 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
             "r3a_r1_source_pending_reused",
         "Stage 5D final r3 schema-only overclaim guard missing":
             "no_schema_only_positive_overclaim",
+        "Stage 5D final r3 accepted executable count proof missing":
+            "accepted_executable_count_4",
+        "Stage 5D final r3 TODO count proof missing":
+            "todo_source_produced_count_17",
+        "Stage 5D final r3 accepted execution count proof missing":
+            "accepted_cases_executed_4",
+        "Stage 5D final r3 TODO owner guard missing":
+            "no_todo_owning_test",
         "Stage 5D final r3 Stage 5E closed marker missing":
             "stage5e_closed",
     }.items():

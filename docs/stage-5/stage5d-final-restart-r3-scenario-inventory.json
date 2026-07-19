@@ -15,38 +15,44 @@
     {
       "case_id": "positive_clean_flat",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse",
-      "execution_status": "retained_from_r2_executable"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-core-state-group"
     },
     {
       "case_id": "positive_broker_consistent_open_long",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse",
-      "execution_status": "retained_from_r2_executable"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-core-state-group"
     },
     {
       "case_id": "positive_broker_consistent_open_short",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse",
-      "execution_status": "retained_from_r2_executable"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-core-state-group"
     },
     {
       "case_id": "positive_current_shadow_long",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse",
-      "execution_status": "retained_from_r2_source_callback"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-core-state-group"
     },
     {
       "case_id": "positive_current_shadow_short",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse",
-      "execution_status": "retained_from_r2_source_callback"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-core-state-group"
     },
     {
       "case_id": "positive_current_shadow_realized_pnl",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse",
-      "execution_status": "retained_from_r2_source_callback"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-core-state-group"
     },
     {
       "case_id": "positive_mr_long_bracket_pending_entry",
@@ -75,68 +81,79 @@
     {
       "case_id": "positive_partial_entry",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
-      "execution_status": "todo_source_produced"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-operational-state-group"
     },
     {
       "case_id": "positive_pending_exit",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
-      "execution_status": "todo_source_produced"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-operational-state-group"
     },
     {
       "case_id": "positive_deferred_entry",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
-      "execution_status": "todo_source_produced"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-operational-state-group"
     },
     {
       "case_id": "positive_deferred_exit",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
-      "execution_status": "todo_source_produced"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-operational-state-group"
     },
     {
       "case_id": "positive_safe_mode_close_only",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
-      "execution_status": "todo_source_produced"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-operational-state-group"
     },
     {
       "case_id": "positive_non_empty_known_order_index",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
-      "execution_status": "todo_source_produced"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-index-group"
     },
     {
       "case_id": "positive_non_empty_pending_request_index",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
-      "execution_status": "todo_source_produced"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-index-group"
     },
     {
       "case_id": "positive_working_protective_order_hints",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
-      "execution_status": "todo_source_produced"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-index-group"
     },
     {
       "case_id": "positive_single_pending_riskgate_finalization",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
-      "execution_status": "todo_source_produced"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-riskgate-group"
     },
     {
       "case_id": "positive_ordered_multi_row_pending_finalizations",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
-      "execution_status": "todo_source_produced"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-riskgate-group"
     },
     {
       "case_id": "positive_already_complete_recovery_plan",
       "category": "positive",
-      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
-      "execution_status": "todo_source_produced"
+      "owning_test": null,
+      "execution_status": "todo_source_produced",
+      "next_gate": "r3-positive-riskgate-group"
     }
   ]
 }

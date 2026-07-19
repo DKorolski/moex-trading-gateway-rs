@@ -1333,6 +1333,113 @@ def mutate_final_r3_resumption_r3a_reuse_removed(root: Path) -> None:
     update_stage5d_semantic_mutation_hashes(root)
 
 
+def mutate_final_r3_inventory_row(
+    root: Path,
+    case_id: str,
+    *,
+    execution_status: str | None = None,
+    owning_test: object = "__stage5d_unchanged__",
+    remove_row: bool = False,
+) -> None:
+    owning_unchanged = "__stage5d_unchanged__"
+    inventory_path = root / "docs/stage-5/stage5d-final-restart-r3-scenario-inventory.json"
+    inventory = json.loads(inventory_path.read_text())
+    rows = inventory["scenario_rows"]
+    for index, row in enumerate(rows):
+        if row.get("case_id") != case_id:
+            continue
+        if remove_row:
+            del rows[index]
+        else:
+            if execution_status is not None:
+                row["execution_status"] = execution_status
+            if owning_test != owning_unchanged:
+                row["owning_test"] = owning_test
+        inventory_path.write_text(json.dumps(inventory, indent=2, ensure_ascii=False) + "\n")
+        return
+    raise RuntimeError(f"r3 inventory case not found: {case_id}")
+
+
+def mutate_final_r3_resumption_clean_flat_prematurely_promoted(root: Path) -> None:
+    mutate_final_r3_inventory_row(
+        root,
+        "positive_clean_flat",
+        execution_status="accepted_r3a_r1_source_produced",
+        owning_test="stage5d_final_r3a_source_pending_entry_full_restart_matrix",
+    )
+
+
+def mutate_final_r3_resumption_current_shadow_prematurely_promoted(root: Path) -> None:
+    mutate_final_r3_inventory_row(
+        root,
+        "positive_current_shadow_long",
+        execution_status="accepted_r3a_r1_source_produced",
+        owning_test="stage5d_final_r3a_source_pending_entry_full_restart_matrix",
+    )
+
+
+def mutate_final_r3_resumption_unapproved_retained_status(root: Path) -> None:
+    mutate_final_r3_inventory_row(
+        root,
+        "positive_clean_flat",
+        execution_status="retained_from_r2_executable",
+    )
+
+
+def mutate_final_r3_resumption_nonexistent_owning_test(root: Path) -> None:
+    mutate_final_r3_inventory_row(
+        root,
+        "positive_clean_flat",
+        owning_test="stage5d_final_r3_missing_owner",
+    )
+
+
+def mutate_final_r3_resumption_false_resumption_owner(root: Path) -> None:
+    mutate_final_r3_inventory_row(
+        root,
+        "positive_clean_flat",
+        owning_test="stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse",
+    )
+
+
+def mutate_final_r3_resumption_todo_set_reduced(root: Path) -> None:
+    mutate_final_r3_inventory_row(root, "positive_clean_flat", remove_row=True)
+
+
+def mutate_final_r3_resumption_accepted_r3a_downgraded(root: Path) -> None:
+    mutate_final_r3_inventory_row(
+        root,
+        "positive_mr_long_bracket_pending_entry",
+        execution_status="todo_source_produced",
+        owning_test=None,
+    )
+
+
+def mutate_final_r3_resumption_stage5e_marker_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5e_closed",
+        "stage5e_reopened",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_resumption_todo_non_null_owner(root: Path) -> None:
+    mutate_final_r3_inventory_row(
+        root,
+        "positive_pending_exit",
+        owning_test="stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse",
+    )
+
+
+def mutate_final_r3_resumption_accepted_null_owner(root: Path) -> None:
+    mutate_final_r3_inventory_row(
+        root,
+        "positive_mr_short_bracket_pending_entry",
+        owning_test=None,
+    )
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -1470,6 +1577,16 @@ CASES = [
     ("final_r3a_unauthorized_set_state_source_change", mutate_final_r3a_unauthorized_set_state_source_change, "frozen region does not match Stage 5C closure source"),
     ("final_r3_resumption_inventory_removed", mutate_final_r3_resumption_inventory_removed, "Stage 5D final r3 resumption inventory proof missing"),
     ("final_r3_resumption_r3a_reuse_removed", mutate_final_r3_resumption_r3a_reuse_removed, "Stage 5D final r3 r3a-r1 reuse proof missing"),
+    ("final_r3_resumption_clean_flat_prematurely_promoted", mutate_final_r3_resumption_clean_flat_prematurely_promoted, "Stage 5D final r3 accepted executable set mismatch"),
+    ("final_r3_resumption_current_shadow_prematurely_promoted", mutate_final_r3_resumption_current_shadow_prematurely_promoted, "Stage 5D final r3 accepted executable set mismatch"),
+    ("final_r3_resumption_unapproved_retained_status", mutate_final_r3_resumption_unapproved_retained_status, "Stage 5D final r3 unapproved execution status"),
+    ("final_r3_resumption_nonexistent_owning_test", mutate_final_r3_resumption_nonexistent_owning_test, "Stage 5D final r3 TODO row must not claim owning test"),
+    ("final_r3_resumption_false_resumption_owner", mutate_final_r3_resumption_false_resumption_owner, "Stage 5D final r3 TODO row must not claim owning test"),
+    ("final_r3_resumption_todo_set_reduced", mutate_final_r3_resumption_todo_set_reduced, "Stage 5D final r3 mandatory positive inventory mismatch"),
+    ("final_r3_resumption_accepted_r3a_downgraded", mutate_final_r3_resumption_accepted_r3a_downgraded, "Stage 5D final r3 accepted executable set mismatch"),
+    ("final_r3_resumption_stage5e_marker_removed", mutate_final_r3_resumption_stage5e_marker_removed, "Stage 5D final r3 Stage 5E closed marker missing"),
+    ("final_r3_resumption_todo_non_null_owner", mutate_final_r3_resumption_todo_non_null_owner, "Stage 5D final r3 TODO row must not claim owning test"),
+    ("final_r3_resumption_accepted_null_owner", mutate_final_r3_resumption_accepted_null_owner, "Stage 5D final r3 r3a-r1 reuse proof missing"),
 ]
 
 

@@ -130,7 +130,8 @@ The additive freeze checker validates the r2 stage id, 51-row order, unique case
 ids, closed-surface contract, owning tests, package sections and marker-pinned
 negative cases. It also validates the r3 resumption inventory stage/status,
 closed surfaces, exact 21 mandatory positive case IDs, r3a-r1 executable reuse
-and the explicit not-yet-closed `todo_source_produced` guard.
+and the exact evidence partition: four accepted executable r3a-r1 rows, seventeen
+not-yet-closed `todo_source_produced` rows, and no owner on TODO rows.
 
 ## Review gates
 

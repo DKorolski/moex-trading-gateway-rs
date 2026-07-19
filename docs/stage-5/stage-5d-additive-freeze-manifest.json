@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "ee08753147182f30654c9712868878b8afb75c4aabf68e25cf5827ca7eb72f62"
+      "stage5d_consumer_sha256": "dda3e21a01b92c84618dfc925b4083b7cd5915967b1b307b22713469cdcbba23"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "ee08753147182f30654c9712868878b8afb75c4aabf68e25cf5827ca7eb72f62"
+      "stage5d_consumer_sha256": "dda3e21a01b92c84618dfc925b4083b7cd5915967b1b307b22713469cdcbba23"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "ee08753147182f30654c9712868878b8afb75c4aabf68e25cf5827ca7eb72f62"
+    "current_sha256": "dda3e21a01b92c84618dfc925b4083b7cd5915967b1b307b22713469cdcbba23"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -316,7 +316,17 @@
     "final_r3a_owner_side_reason_mismatch_accepted",
     "final_r3a_unauthorized_set_state_source_change",
     "final_r3_resumption_inventory_removed",
-    "final_r3_resumption_r3a_reuse_removed"
+    "final_r3_resumption_r3a_reuse_removed",
+    "final_r3_resumption_clean_flat_prematurely_promoted",
+    "final_r3_resumption_current_shadow_prematurely_promoted",
+    "final_r3_resumption_unapproved_retained_status",
+    "final_r3_resumption_nonexistent_owning_test",
+    "final_r3_resumption_false_resumption_owner",
+    "final_r3_resumption_todo_set_reduced",
+    "final_r3_resumption_accepted_r3a_downgraded",
+    "final_r3_resumption_stage5e_marker_removed",
+    "final_r3_resumption_todo_non_null_owner",
+    "final_r3_resumption_accepted_null_owner"
   ],
   "stage5d_public_api": {
     "public_reexports": [

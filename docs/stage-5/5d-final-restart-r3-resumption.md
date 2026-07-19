@@ -30,24 +30,24 @@ It pins the 21 mandatory positive restart cases from the r3 assignment:
 - clean flat;
 - open Long;
 - open Short;
+- current-shadow Long;
+- current-shadow Short;
+- current-shadow realized-PnL;
 - MR pending entry Long;
 - MR pending entry Short;
 - BO pending entry Long;
 - BO pending entry Short;
+- partial entry;
 - pending exit;
 - deferred entry;
 - deferred exit;
-- partial entry;
 - safe-mode close-only;
 - known-order index;
 - pending-request index;
 - working protective order hints;
+- single pending riskgate finalization;
+- ordered multi-row pending riskgate finalizations;
 - already-complete recovery plan;
-- source-callback current-shadow Long;
-- source-callback current-shadow Short;
-- source-callback realized-PnL;
-- source-callback rolling-sum/riskgate update;
-- source-callback lifecycle notification boundary.
 
 The r3a-r1 pending-entry rows are executable and owned by the accepted
 `stage5d_final_r3a_source_pending_entry_full_restart_matrix` test. The new
@@ -56,9 +56,10 @@ inventory, verifies the closed-surface contract, verifies the exact 21-case
 positive id set, and executes the r3a-r1 MR/BO pending-entry source-produced
 restart cases again.
 
-Rows that are not yet source-produced remain marked `todo_source_produced`.
-That marker is intentional: it prevents this slice from being confused with
-full r3 closure.
+Exactly four rows are executable/accepted in this slice. The other seventeen
+rows remain marked `todo_source_produced` and must not claim an `owning_test`.
+That marker is intentional: it prevents this slice from being confused with full
+r3 closure.
 
 ## Gates
 
@@ -69,12 +70,24 @@ The additive freeze checker now validates the r3 inventory and fails if:
 - closed-surface booleans drift;
 - the 21 positive case IDs drift;
 - r3a-r1 executable rows stop pointing to the accepted source-produced test;
-- all rows are marked complete prematurely.
+- accepted executable IDs are anything other than the four r3a-r1 rows;
+- TODO IDs are anything other than the remaining seventeen rows;
+- any TODO row claims an owning test;
+- any accepted row lacks its accepted owning test;
+- Stage 5E closed marker is removed.
 
 The Stage 5D negative harness adds direct mutations for:
 
 - removing the r3 resumption inventory;
-- removing the r3a-r1 reuse marker from the source test.
+- removing the r3a-r1 reuse marker from the source test;
+- prematurely promoting clean flat or current-shadow rows;
+- assigning unapproved retained status;
+- assigning nonexistent or false owning tests;
+- reducing the TODO set;
+- downgrading an accepted r3a row;
+- removing the Stage 5E closed marker;
+- adding an owner to a TODO row;
+- removing an owner from an accepted row.
 
 ## Next step
 

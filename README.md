@@ -20,8 +20,9 @@ paper/no-send host is accepted and frozen; Stage 5D is adding a versioned,
 source-exact persistence restore path. The Stage 5D-final-restart-r2 durable
 package is retained as foundation. Stage 5D-final-restart-r3 has resumed with a
 21-case mandatory positive inventory gate: the accepted r3a-r1 MR/BO
-pending-entry source-produced proof is reused and executed, while the remaining
-r3 cases stay explicitly marked TODO until they become source-produced
+pending-entry source-produced proof is reused and executed as the only four
+accepted rows, while the remaining seventeen r3 cases stay explicitly marked
+TODO without owning tests until they become source-produced
 executable evidence. The r3a-r1 restore-ownership proof shows that exact MR/BO
 pending-entry shape is restored in the actual fresh runtime
 `Strategy::state(...)` plus runtime-private DTO by Stage 5D private apply before
