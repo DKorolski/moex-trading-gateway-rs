@@ -475,6 +475,18 @@ impl HybridIntradayRuntimeStrategy {
             .ok_or(
                 crate::stage5d_persistence::Stage5dEnvelopeValidationError::PendingStateInconsistent,
             )?;
+        self.working_orders = extension
+            .expected_working_sets
+            .expected_working_order_ids
+            .iter()
+            .cloned()
+            .collect();
+        self.working_stop_orders = extension
+            .expected_working_sets
+            .expected_working_stop_order_ids
+            .iter()
+            .cloned()
+            .collect();
         self.last_processed_bar_ts = extension
             .last_processed_bar_ts
             .map(|last_processed| last_processed.timestamp());

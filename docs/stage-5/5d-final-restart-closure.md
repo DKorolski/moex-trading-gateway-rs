@@ -155,19 +155,25 @@ bash scripts/forbidden_surface_scan.sh
 python3 scripts/stage5d_additive_freeze_negative_harness.py
 bash scripts/stage5d_b2bc_review_gate.sh
 bash scripts/stage5d_final_restart_r3_operational_state_r1_r1_gate.sh
+bash scripts/stage5d_final_restart_r3_recovery_index_r1_gate.sh
 ```
 
 ## Next step
 
 Do not move to Stage 5E from the
-r2/r3a/r3-positive-core-r1b/current-shadow-r1-r1/operational-state-r1-r1 candidate.
+r2/r3a/r3-positive-core-r1b/current-shadow-r1-r1/operational-state-r1-r1/recovery-index-r1 candidate.
 The current-shadow materialized restore gap is localized and closed for
 Long/Short/realized-PnL through the approved Stage 5D validated
 materialized-apply boundary. Operational lifecycle states are now covered for
 partial entry, pending exit, deferred entry, deferred exit and safe-mode
 close-only through source callbacks, strict package decode, fresh-runtime
-restore, post-restored behavioral probes and Stage 5C continuation. Stale
-materialized source state is rejected
+restore, post-restored behavioral probes and Stage 5C continuation. Recovery
+indexes are now covered for source-produced known-order, pending-request and
+working protective TP hints. Stop-order truth remains unsupported/closed in
+Stage 5C; the accepted protective proof uses exact Stage 5D broker-truth
+validation and a test-only closed-boundary TP scrub before Stage 5C post-guard.
+Stale materialized source state is rejected
 before committed strict package bytes. The remaining Stage 5D-final-restart-r3
-closure sequence is still open: the remaining source-produced cases, real
-crash/checkpoint simulator, package-negative matrix and pinned golden vectors.
+closure sequence is still open: the remaining three riskgate/recovery-plan
+source-produced cases, real crash/checkpoint simulator, package-negative matrix
+and pinned golden vectors.

@@ -99,7 +99,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "9c497a552e86304d6f067b509d41db8c0a904f391f18e1d6e497e5dc3c029abc",
+        "stage5d_consumer_sha256": "fb86050ff702c8302302f0dd556acad8c6ab4ef0219329dd51444919d00260cf",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -113,7 +113,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "9c497a552e86304d6f067b509d41db8c0a904f391f18e1d6e497e5dc3c029abc",
+        "stage5d_consumer_sha256": "fb86050ff702c8302302f0dd556acad8c6ab4ef0219329dd51444919d00260cf",
     },
 ]
 
@@ -340,7 +340,7 @@ EXPECTED_NEGATIVE_CASES = [
     "final_r3_operational_stage5e_or_surface_opened",
 ]
 
-EXPECTED_STAGE = "5D-final-restart-r3-operational-state-r1-r1"
+EXPECTED_STAGE = "5D-final-restart-r3-recovery-index-r1"
 EXPECTED_FINAL_RESTART_INVENTORY_STAGE = "5D-final-restart-r2"
 
 EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
@@ -446,6 +446,12 @@ EXPECTED_FINAL_RESTART_R3_OPERATIONAL_STATE_IDS = [
     "positive_deferred_entry",
     "positive_deferred_exit",
     "positive_safe_mode_close_only",
+]
+
+EXPECTED_FINAL_RESTART_R3_RECOVERY_INDEX_IDS = [
+    "positive_non_empty_known_order_index",
+    "positive_non_empty_pending_request_index",
+    "positive_working_protective_order_hints",
 ]
 
 EXPECTED_RUNTIME_RESTORED_OWNERSHIP_IDS = [
@@ -1334,7 +1340,10 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
     core_ids = set(EXPECTED_FINAL_RESTART_R3_CORE_IDS)
     current_shadow_ids = set(EXPECTED_FINAL_RESTART_R3_CURRENT_SHADOW_IDS)
     operational_state_ids = set(EXPECTED_FINAL_RESTART_R3_OPERATIONAL_STATE_IDS)
-    accepted_expected_ids = r3a_ids | core_ids | current_shadow_ids | operational_state_ids
+    recovery_index_ids = set(EXPECTED_FINAL_RESTART_R3_RECOVERY_INDEX_IDS)
+    accepted_expected_ids = (
+        r3a_ids | core_ids | current_shadow_ids | operational_state_ids | recovery_index_ids
+    )
     accepted_ids = []
     todo_ids = []
     source_path = root / STAGE5D_REL
@@ -1434,6 +1443,38 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
             }.get(case_id)
             if per_case_flag and row.get(per_case_flag) is not True:
                 failures.append("Stage 5D final r3 operational-state lifecycle-specific proof missing")
+        elif status == "accepted_r3_recovery_index_r1_source_produced":
+            accepted_ids.append(case_id)
+            if case_id not in recovery_index_ids:
+                failures.append("Stage 5D final r3 accepted executable set mismatch")
+            if owning_test != "stage5d_final_r3_recovery_index_r1_source_produced_full_restart_matrix":
+                failures.append("Stage 5D final r3 recovery-index owner/status proof missing")
+            if row.get("producer_kind") != "runtime_callback":
+                failures.append("Stage 5D final r3 recovery-index producer lineage proof missing")
+            callbacks = row.get("producer_callbacks")
+            if not isinstance(callbacks, list) or not callbacks:
+                failures.append("Stage 5D final r3 recovery-index producer lineage proof missing")
+            for key in [
+                "canonical_package_path",
+                "source_object_destroyed",
+                "strict_decode_used",
+                "fresh_runtime_used",
+                "private_apply_before_bootstrap",
+                "duplicate_suppression_after_restore",
+                "stage5c_continuation_executed",
+            ]:
+                if row.get(key) is not True:
+                    failures.append("Stage 5D final r3 recovery-index producer lineage proof missing")
+            if case_id in {
+                "positive_non_empty_known_order_index",
+                "positive_working_protective_order_hints",
+            } and row.get("broker_truth_exact_working_order_checked") is not True:
+                failures.append("Stage 5D final r3 recovery-index broker-truth proof missing")
+            if (
+                case_id == "positive_non_empty_pending_request_index"
+                and row.get("terminal_resolution_no_orphan_index_checked") is not True
+            ):
+                failures.append("Stage 5D final r3 recovery-index terminal resolution proof missing")
         elif status == "todo_source_produced":
             todo_ids.append(case_id)
             if owning_test is not None:
@@ -1694,6 +1735,59 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
     for token in helper_required:
         if token not in helper_body:
             failures.append("Stage 5D final r3 operational-state post-restored behavior proof missing")
+
+    recovery_fn = "fn stage5d_final_r3_recovery_index_r1_source_produced_full_restart_matrix()"
+    recovery_start = stage5d_source.find(recovery_fn)
+    recovery_end = stage5d_source.find(
+        "#[test]",
+        recovery_start + len(recovery_fn),
+    )
+    recovery_body = (
+        stage5d_source[recovery_start:recovery_end]
+        if recovery_start >= 0 and recovery_end >= 0
+        else ""
+    )
+    if not recovery_body:
+        failures.append("Stage 5D final r3 recovery-index r1 matrix missing")
+    required_recovery_tokens = [
+        "recovery_index_cases_executed_3",
+        "recovery_index_known_order_source_order_event",
+        "recovery_index_pending_request_source_callback",
+        "recovery_index_working_protective_source_order_event",
+        "recovery_index_canonical_strict_decode_used",
+        "recovery_index_source_runtime_destroyed_before_restart_boundary",
+        "recovery_index_fresh_runtime_used",
+        "recovery_index_exact_post_apply_equality_checked",
+        "recovery_index_duplicate_suppression_after_restore",
+        "recovery_index_stage5c_continuation_executed",
+        "accepted_executable_count_18",
+        "todo_source_produced_count_3",
+        "stage5d_test_source_known_order_strategy",
+        "stage5d_test_source_working_protective_strategy",
+        "stage5d_test_r3_recovery_index_source_full_restart",
+        "stage5d_test_assert_restored_recovery_index_behavior",
+        "stage5d_test_bootstrap_expected_working_order_exact_at",
+        "source runtime must recognize known order id through on_order",
+        "source export must derive expected working set from runtime working order",
+        "Stage5dCanonicalRestartPackage::from_json_str_strict(&package_json)",
+        "drop(source_strategy);",
+        "restore_semantic_state(&mut fresh_strategy, &strict_envelope)",
+        "stage5d_apply_runtime_private_extension(bound)",
+        "validate_stage5d_broker_truth_bootstrap(&loaded_with_truth, &envelope)",
+        "broker truth must contain the expected working order before Stage 5C closed-boundary working-order bootstrap",
+        "stage5d_test_assert_injected_restores_indexes_once(",
+        "let (mut probe, receipt) = restored.into_parts();",
+        "duplicate replay after restore must not emit intents",
+        "terminal resolution must not leave orphan pending request in runtime state",
+        "missing extra expected working protective order must fail closed",
+        "protective terminal callback must not emit entry or flip intent",
+        "stage5d_test_warmup_stage5c_history_at(",
+    ]
+    for token in required_recovery_tokens:
+        if token not in stage5d_source:
+            failures.append("Stage 5D final r3 recovery-index r1 marker/code proof missing")
+    if "accepted_r3_recovery_index_r1_source_produced" not in stage5d_source:
+        failures.append("Stage 5D final r3 recovery-index inventory acceptance proof missing")
 
 
 def validate_stage5d_b2bd1_runtime_restored_semantic_guards(

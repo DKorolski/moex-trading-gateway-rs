@@ -51,6 +51,146 @@ pub(crate) fn stage5d_test_warmup_stage5c_history_at(
     warmup_stage5c_history_at(restored, history, warmup_now)
 }
 
+#[cfg(test)]
+pub(crate) fn stage5d_test_bootstrap_preserving_loaded_with_working_orders_at(
+    loaded: Stage5cRuntimeStateLoadedPaperStrategy,
+    notification_now: DateTime<Utc>,
+) -> Result<Stage5cBootstrappedPaperStrategy, Stage5cBootstrapNotificationError> {
+    let Stage5cRuntimeStateLoadedPaperStrategy {
+        mut strategy,
+        admission,
+        restored,
+        load_origin: _,
+    } = loaded;
+    let snapshot = admission.bootstrap_snapshot();
+    if notification_now > admission.expires_at() {
+        return Err(Stage5cBootstrapNotificationError::AdmissionExpired);
+    }
+    let (symbol_matches, tick_size_matches) =
+        strategy.stage5c_binding_matches(admission.target_instrument(), admission.tick_size());
+    if !symbol_matches {
+        return Err(Stage5cBootstrapNotificationError::StrategyTargetMismatch);
+    }
+    if !tick_size_matches {
+        return Err(Stage5cBootstrapNotificationError::StrategyTickSizeMismatch);
+    }
+    if snapshot.account_id != *admission.account_id() {
+        return Err(Stage5cBootstrapNotificationError::SnapshotAccountMismatch);
+    }
+    if snapshot.instrument != *admission.target_instrument() {
+        return Err(Stage5cBootstrapNotificationError::SnapshotInstrumentMismatch);
+    }
+    let position_qty = snapshot
+        .target_position_qty
+        .to_f64()
+        .filter(|value| value.is_finite())
+        .ok_or(Stage5cBootstrapNotificationError::PositionQuantityNotRepresentable)?;
+    let average_price = snapshot
+        .target_open_positions
+        .first()
+        .and_then(|position| position.avg_price)
+        .map(|price| {
+            price
+                .to_f64()
+                .filter(|value| value.is_finite())
+                .ok_or(Stage5cBootstrapNotificationError::PositionAveragePriceNotRepresentable)
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let mut positions_strategy = HashMap::new();
+    if !snapshot.target_open_positions.is_empty() || position_qty.abs() > f64::EPSILON {
+        positions_strategy.insert(
+            snapshot.instrument.symbol.clone(),
+            PositionEvent {
+                symbol: snapshot.instrument.symbol.clone(),
+                qty: position_qty,
+                existing: true,
+                avg_price: average_price,
+                ts_utc: snapshot.received_ts.timestamp(),
+            },
+        );
+    }
+    let restored_working_order_comment = match Strategy::state(&strategy) {
+        StrategyState::HybridIntradayRuntime {
+            active_cycle_id,
+            current_owner,
+            ..
+        } => active_cycle_id.as_ref().map(|cycle| {
+            let owner = match current_owner {
+                Some(crate::hybrid_intraday::Owner::MeanReversion) => "MR",
+                Some(crate::hybrid_intraday::Owner::IntradayBreakout) => "BO",
+                None => "BO",
+            };
+            format!(
+                "HYB|sid={}|c={cycle}|o={owner}|r=TP",
+                admission.strategy_id()
+            )
+        }),
+        StrategyState::Idle => None,
+    };
+    let working_orders_strategy = snapshot
+        .target_active_orders
+        .iter()
+        .filter_map(|order| {
+            let order_id = order.broker_order_id.clone()?;
+            Some((
+                order_id.clone(),
+                crate::runtime_compat::OrderEvent {
+                    order_id,
+                    request_id: None,
+                    symbol: order.instrument.symbol.clone(),
+                    status: "working".to_string(),
+                    side: format!("{:?}", order.side).to_ascii_lowercase(),
+                    order_type: format!("{:?}", order.order_type).to_ascii_lowercase(),
+                    qty: order.qty.to_f64().unwrap_or_default(),
+                    filled: order.filled_qty.to_f64().unwrap_or_default(),
+                    price: order
+                        .limit_price
+                        .and_then(|price| price.to_f64())
+                        .unwrap_or_default(),
+                    existing: true,
+                    comment: restored_working_order_comment.clone(),
+                    ts_utc: order.received_ts.timestamp(),
+                },
+            ))
+        })
+        .collect();
+    let source_snapshot = BootstrapSnapshot {
+        positions_strategy,
+        working_orders_strategy,
+        working_stop_orders_strategy: HashMap::new(),
+        snapshot_ts_utc: Some(snapshot.received_ts.timestamp()),
+    };
+    let context = StrategyCtx {
+        strategy_id: admission.strategy_id().to_string(),
+        portfolio: admission.account_id().as_str().to_string(),
+        exchange: format!("{:?}", admission.target_instrument().exchange),
+        symbol: admission.target_instrument().symbol.clone(),
+        tick_size: admission.tick_size(),
+        trade_mode: TradeMode::Paper,
+        paper_execution_mode: PaperExecutionMode::LiveOnly,
+        allow_live_orders: false,
+        gateway_phase: GatewayPhase::SyncingHistory,
+        position_qty: Some(position_qty),
+        event_ts_utc: snapshot.received_ts.timestamp(),
+        now_ts_utc: notification_now.timestamp(),
+        last_bar_ts: None,
+    };
+    let intents = Strategy::on_bootstrap_snapshot(&mut strategy, &context, &source_snapshot);
+    debug_assert!(
+        intents.is_empty(),
+        "accepted Stage 5D working-order bootstrap callback must not emit intents"
+    );
+    Ok(Stage5cBootstrappedPaperStrategy {
+        strategy,
+        receipt: Stage5cBootstrapNotificationReceipt {
+            admission,
+            notified_ts: notification_now,
+        },
+        restored,
+    })
+}
+
 impl Stage5cRuntimeStateLoadedPaperStrategy {
     pub(crate) fn stage5d_strategy(&self) -> &HybridIntradayRuntimeStrategy {
         &self.strategy

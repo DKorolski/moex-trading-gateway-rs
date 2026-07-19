@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-final-restart-r3-operational-state-r1-r1",
+  "stage": "5D-final-restart-r3-recovery-index-r1",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -53,7 +53,7 @@
     },
     "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": {
       "closure_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
-      "current_sha256": "b7732519c3ebd459ea293cec5c54f46ac037bcf1e31948310b7079e9983279b0",
+      "current_sha256": "7f5e3ad070c1bbc3ddca1e642d59b3f4cf75b9bb0d1651068df363323f1cd427",
       "stripped_without_additive_regions_sha256": "767815903b8bc07ee48ac96a9d4dac74553b6c32ae63326e141743b12d98b65c",
       "additive_regions": [
         "runtime-private-snapshot"
@@ -61,7 +61,7 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "77b083e6b39528e7d561eba15430ece267fea61335084c28c6584da1df7f80a2",
+      "current_sha256": "d7fbef319a8015b10c83b4e5ad0b4fdf9493e5f1f87b13faf672dca3245ddcb3",
       "stripped_without_additive_regions_sha256": "bcc2c4d6ff08d06c49f9716495ce177fc968a8dcd71f6b2c38bcb8d5b4cb0914",
       "additive_regions": [
         "type-state-transitions"
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "9c497a552e86304d6f067b509d41db8c0a904f391f18e1d6e497e5dc3c029abc"
+      "stage5d_consumer_sha256": "fb86050ff702c8302302f0dd556acad8c6ab4ef0219329dd51444919d00260cf"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "9c497a552e86304d6f067b509d41db8c0a904f391f18e1d6e497e5dc3c029abc"
+      "stage5d_consumer_sha256": "fb86050ff702c8302302f0dd556acad8c6ab4ef0219329dd51444919d00260cf"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "9c497a552e86304d6f067b509d41db8c0a904f391f18e1d6e497e5dc3c029abc"
+    "current_sha256": "fb86050ff702c8302302f0dd556acad8c6ab4ef0219329dd51444919d00260cf"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",

@@ -1430,7 +1430,7 @@ def mutate_final_r3_resumption_stage5e_marker_removed(root: Path) -> None:
 def mutate_final_r3_resumption_todo_non_null_owner(root: Path) -> None:
     mutate_final_r3_inventory_row(
         root,
-        "positive_non_empty_known_order_index",
+        "positive_single_pending_riskgate_finalization",
         owning_test="stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse",
     )
 
