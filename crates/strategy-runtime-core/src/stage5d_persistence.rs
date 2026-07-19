@@ -5430,6 +5430,627 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Stage5dR3OperationalStateCase {
+        PartialEntry,
+        PendingExit,
+        DeferredEntry,
+        DeferredExit,
+        SafeModeCloseOnly,
+    }
+
+    impl Stage5dR3OperationalStateCase {
+        fn snapshot_id(self) -> &'static str {
+            match self {
+                Self::PartialEntry => "stage5d-final-r3-operational-partial-entry",
+                Self::PendingExit => "stage5d-final-r3-operational-pending-exit",
+                Self::DeferredEntry => "stage5d-final-r3-operational-deferred-entry",
+                Self::DeferredExit => "stage5d-final-r3-operational-deferred-exit",
+                Self::SafeModeCloseOnly => "stage5d-final-r3-operational-safe-mode-close-only",
+            }
+        }
+
+        fn expected_position_qty(self) -> f64 {
+            match self {
+                Self::PartialEntry => -1.0,
+                Self::PendingExit => 1.0,
+                Self::DeferredEntry => 0.0,
+                Self::DeferredExit => 1.0,
+                Self::SafeModeCloseOnly => -1.0,
+            }
+        }
+
+        fn expected_pending_requests(self) -> usize {
+            match self {
+                Self::PartialEntry => 1,
+                Self::PendingExit => 1,
+                Self::DeferredEntry => 1,
+                Self::DeferredExit => 1,
+                Self::SafeModeCloseOnly => 1,
+            }
+        }
+    }
+
+    fn stage5d_test_source_operational_ctx_with_position(
+        position_qty: f64,
+    ) -> crate::runtime_compat::StrategyCtx {
+        let mut ctx = stage5d_test_source_paper_ctx();
+        ctx.position_qty = Some(position_qty);
+        ctx.gateway_phase = crate::live_guard::GatewayPhase::LiveReady;
+        ctx
+    }
+
+    fn stage5d_test_source_operational_state_strategy(
+        case: Stage5dR3OperationalStateCase,
+    ) -> crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy {
+        match case {
+            Stage5dR3OperationalStateCase::PartialEntry => {
+                let mut strategy = stage5d_test_source_pending_entry_strategy(
+                    Stage5dR3aPendingSourceCase::MrShort,
+                );
+                let req = match Strategy::state(&strategy) {
+                    StrategyState::HybridIntradayRuntime {
+                        pending_entry_request_id,
+                        ..
+                    } => pending_entry_request_id.expect("partial entry request id"),
+                    StrategyState::Idle => panic!("partial entry source must be hybrid"),
+                };
+                let ack_ctx = stage5d_test_source_operational_ctx_with_position(0.0);
+                let _ =
+                    strategy.on_ack(&ack_ctx, &crate::runtime_compat::CommandAck::accepted(req));
+                let fill_ctx = stage5d_test_source_operational_ctx_with_position(-1.0);
+                let intents = strategy.on_position(
+                    &fill_ctx,
+                    &crate::runtime_compat::PositionEvent {
+                        symbol: "IMOEXF".to_string(),
+                        qty: -1.0,
+                        existing: false,
+                        avg_price: 100.0,
+                        ts_utc: stage5d_test_source_ts_local(2026, 1, 6, 9, 11, 0),
+                    },
+                );
+                assert!(
+                    intents.is_empty(),
+                    "operational partial-entry source lifecycle must not create bracket before target"
+                );
+                let exported = strategy
+                    .stage5d_export_runtime_private_extension()
+                    .expect("partial entry extension exports");
+                assert!(exported.pending_entry.is_some());
+                assert!(exported.partial_entry_timer.is_some());
+                assert!(exported.pending_exit.is_none());
+                stage5d_test_apply_source_bootstrap_position(&mut strategy, -1.0);
+                strategy
+            }
+            Stage5dR3OperationalStateCase::PendingExit => {
+                let mut strategy = stage5d_test_source_broker_open_strategy(Stage5dSide::Long);
+                let exit_ctx = stage5d_test_source_operational_ctx_with_position(1.0);
+                let intents = strategy.on_bar(
+                    &exit_ctx,
+                    &stage5d_test_source_bar_ohlc(
+                        stage5d_test_source_ts_local(2026, 1, 6, 23, 40, 0),
+                        100.0,
+                        100.5,
+                        99.5,
+                        100.0,
+                    ),
+                );
+                assert_eq!(
+                    intents.len(),
+                    1,
+                    "operational pending-exit source lifecycle must emit one exit intent"
+                );
+                let exported = strategy
+                    .stage5d_export_runtime_private_extension()
+                    .expect("pending exit extension exports");
+                assert!(exported.pending_entry.is_none());
+                assert!(exported.pending_exit.is_some());
+                strategy
+            }
+            Stage5dR3OperationalStateCase::DeferredEntry => {
+                let mut strategy =
+                    stage5d_test_source_pending_entry_strategy(Stage5dR3aPendingSourceCase::MrLong);
+                let req = match Strategy::state(&strategy) {
+                    StrategyState::HybridIntradayRuntime {
+                        pending_entry_request_id,
+                        ..
+                    } => pending_entry_request_id.expect("deferred entry source request id"),
+                    StrategyState::Idle => panic!("deferred entry source must be hybrid"),
+                };
+                let ctx = stage5d_test_source_operational_ctx_with_position(0.0);
+                let _ = strategy.on_ack(
+                    &ctx,
+                    &crate::runtime_compat::CommandAck::rejected(
+                        req,
+                        "trading_window_closed",
+                        "validation failed",
+                    ),
+                );
+                let blocked_ctx = stage5d_test_source_operational_ctx_with_position(0.0);
+                let blocked = strategy.on_bar(
+                    &blocked_ctx,
+                    &stage5d_test_source_bar_ohlc(
+                        stage5d_test_source_ts_local(2026, 1, 6, 8, 50, 0),
+                        100.0,
+                        100.1,
+                        99.9,
+                        100.0,
+                    ),
+                );
+                assert!(
+                    blocked.is_empty(),
+                    "operational deferred-entry reissue must remain gated before model window opens"
+                );
+                let exported = strategy
+                    .stage5d_export_runtime_private_extension()
+                    .expect("deferred entry extension exports");
+                assert!(exported.pending_entry.is_none());
+                assert!(exported.pending_exit.is_none());
+                strategy
+            }
+            Stage5dR3OperationalStateCase::DeferredExit => {
+                let mut strategy = stage5d_test_source_broker_open_strategy(Stage5dSide::Long);
+                let exit_ctx = stage5d_test_source_operational_ctx_with_position(1.0);
+                let intents = strategy.on_bar(
+                    &exit_ctx,
+                    &stage5d_test_source_bar_ohlc(
+                        stage5d_test_source_ts_local(2026, 1, 6, 23, 40, 0),
+                        100.0,
+                        100.5,
+                        99.5,
+                        100.0,
+                    ),
+                );
+                assert_eq!(intents.len(), 1);
+                let req = match Strategy::state(&strategy) {
+                    StrategyState::HybridIntradayRuntime {
+                        pending_exit_request_id,
+                        ..
+                    } => pending_exit_request_id.expect("deferred exit source request id"),
+                    StrategyState::Idle => panic!("deferred exit source must be hybrid"),
+                };
+                let _ = strategy.on_ack(
+                    &exit_ctx,
+                    &crate::runtime_compat::CommandAck::rejected(
+                        req,
+                        "trading_window_closed",
+                        "validation failed",
+                    ),
+                );
+                let blocked_ctx = stage5d_test_source_operational_ctx_with_position(1.0);
+                let blocked = strategy.on_bar(
+                    &blocked_ctx,
+                    &stage5d_test_source_bar_ohlc(
+                        stage5d_test_source_ts_local(2026, 1, 6, 8, 50, 0),
+                        100.0,
+                        100.1,
+                        99.9,
+                        100.0,
+                    ),
+                );
+                assert!(
+                    blocked.is_empty(),
+                    "operational deferred-exit reissue must remain gated before model window opens"
+                );
+                let exported = strategy
+                    .stage5d_export_runtime_private_extension()
+                    .expect("deferred exit extension exports");
+                assert!(exported.pending_entry.is_none());
+                assert!(exported.pending_exit.is_none());
+                strategy
+            }
+            Stage5dR3OperationalStateCase::SafeModeCloseOnly => {
+                let mut strategy = stage5d_test_source_operational_state_strategy(
+                    Stage5dR3OperationalStateCase::PartialEntry,
+                );
+                let exported = strategy
+                    .stage5d_export_runtime_private_extension()
+                    .expect("partial entry extension exports before timer");
+                let timer = exported
+                    .partial_entry_timer
+                    .expect("partial timer source-produced");
+                let ctx = stage5d_test_source_operational_ctx_with_position(-1.0);
+                let intents = strategy.on_timer(&ctx, timer.partial_started_at_ms + 3_001);
+                assert!(
+                    intents.iter().any(|intent| matches!(
+                        intent.base_intent(),
+                        crate::runtime_compat::Intent::Market {
+                            side: crate::runtime_compat::OrderSide::Buy,
+                            qty,
+                            ..
+                        } if (*qty - 1.0).abs() <= f64::EPSILON
+                    )),
+                    "operational safe-mode source path must keep exit repair enabled"
+                );
+                let exported = strategy
+                    .stage5d_export_runtime_private_extension()
+                    .expect("safe-mode extension exports");
+                assert!(exported.pending_entry.is_none());
+                assert!(exported.pending_exit.is_some());
+                strategy
+            }
+        }
+    }
+
+    fn stage5d_test_apply_source_bootstrap_position(
+        strategy: &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        qty: f64,
+    ) {
+        let ctx = stage5d_test_source_operational_ctx_with_position(qty);
+        let mut snapshot = crate::runtime_compat::BootstrapSnapshot {
+            positions_strategy: std::collections::HashMap::new(),
+            working_orders_strategy: std::collections::HashMap::new(),
+            working_stop_orders_strategy: std::collections::HashMap::new(),
+            snapshot_ts_utc: Some(stage5d_test_source_ts_local(2026, 1, 6, 9, 11, 30)),
+        };
+        snapshot.positions_strategy.insert(
+            "IMOEXF".to_string(),
+            crate::runtime_compat::PositionEvent {
+                symbol: "IMOEXF".to_string(),
+                qty,
+                existing: true,
+                avg_price: 100.0,
+                ts_utc: stage5d_test_source_ts_local(2026, 1, 6, 9, 11, 30),
+            },
+        );
+        let intents = strategy.on_bootstrap_snapshot(&ctx, &snapshot);
+        assert!(
+            intents.is_empty(),
+            "source bootstrap truth alignment must not emit operational intents"
+        );
+    }
+
+    fn stage5d_test_r3_operational_input_and_evidence_for_source(
+        source_strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        snapshot_id: &str,
+    ) -> (
+        Stage5dCanonicalEnvelopeExportInput,
+        Stage5dRiskGateLedgerEvidence,
+    ) {
+        let source_state_json = serde_json::to_value(Strategy::state(source_strategy))
+            .expect("operational source state serializes");
+        let source_extension = source_strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("operational source private extension exports");
+        let mut envelope = flat_persisted_fixture();
+        envelope.snapshot_id = snapshot_id.to_string();
+        envelope.persisted_at_ts_utc =
+            DateTime::<Utc>::from_timestamp(1_790_000_000, 0).expect("operational persisted ts");
+        envelope.binding.created_at_ts_utc = envelope.persisted_at_ts_utc;
+        envelope.binding.strategy_id = "stage5d-final-r3-operational-state-r1".to_string();
+        envelope.strategy_state.strategy_state_json = source_state_json;
+        envelope.runtime_private_extension = source_extension;
+        let identity = stage5d_test_riskgate_identity_for(source_strategy, &envelope);
+        let source_shadow_session = envelope.strategy_state.strategy_state_json
+            ["HybridIntradayRuntime"]["risk_gate_shadow_session_date"]
+            .as_str()
+            .map(str::to_string);
+        let source_pnl_points = envelope.strategy_state.strategy_state_json
+            ["HybridIntradayRuntime"]["risk_gate_shadow_pnl_points"]
+            .as_f64()
+            .unwrap_or(0.0);
+        let mut evidence = stage5d_test_riskgate_evidence_before_source_pending(
+            &identity,
+            &envelope,
+            source_shadow_session.as_deref(),
+        );
+        evidence.current_shadow_pnl_points =
+            crate::hybrid_intraday::format_riskgate_authority_decimal(source_pnl_points)
+                .expect("operational source shadow pnl must be authority-canonical");
+        evidence.ledger_tail_hash =
+            stage5d_compute_riskgate_ledger_tail_hash(&evidence).expect("operational tail hash");
+        stage5d_apply_riskgate_evidence_to_envelope(&mut envelope, &evidence);
+        bind_fixture_to_strategy_config(&mut envelope, source_strategy);
+        envelope.riskgate.ledger_tail_hash = evidence.ledger_tail_hash.clone();
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("operational checksum");
+        stage5d_test_normalize_persisted_checksum(&mut envelope);
+        let input = Stage5dCanonicalEnvelopeExportInput {
+            snapshot_id: envelope.snapshot_id.clone(),
+            snapshot_revision: envelope.snapshot_revision,
+            previous_revision: envelope.previous_revision,
+            write_generation: envelope.write_generation,
+            persisted_at_ts_utc: envelope.persisted_at_ts_utc,
+            strategy_id: envelope.binding.strategy_id.clone(),
+            account_id: envelope.binding.account_id.clone(),
+            instrument_id: envelope.binding.instrument_id.to_instrument_id(),
+            source_commit_or_build_id: STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID.to_string(),
+            lifecycle_watermarks: envelope.lifecycle_watermarks.clone(),
+            riskgate: envelope.riskgate.clone(),
+        };
+        (input, evidence)
+    }
+
+    fn stage5d_test_assert_operational_case_shape(
+        case: Stage5dR3OperationalStateCase,
+        state: &Value,
+        extension: &Stage5dRuntimePrivateExtension,
+    ) {
+        let runtime = state
+            .get("HybridIntradayRuntime")
+            .unwrap_or_else(|| panic!("{case:?}: state must be HybridIntradayRuntime"));
+        assert_eq!(
+            runtime.get("last_position_qty").and_then(Value::as_f64),
+            Some(case.expected_position_qty()),
+            "{case:?}: broker truth position quantity must be target-scoped and source-produced"
+        );
+        match case {
+            Stage5dR3OperationalStateCase::PartialEntry => {
+                assert!(extension.pending_entry.is_some());
+                assert!(extension.partial_entry_timer.is_some());
+                assert!(extension.pending_exit.is_none());
+                assert_eq!(runtime.get("pending_exit_request_id"), Some(&Value::Null));
+                assert!(
+                    runtime
+                        .get("pending_entry_request_id")
+                        .and_then(Value::as_str)
+                        .is_some(),
+                    "partial entry must preserve request id"
+                );
+            }
+            Stage5dR3OperationalStateCase::PendingExit => {
+                assert!(extension.pending_entry.is_none());
+                assert!(extension.pending_exit.is_some());
+                assert!(
+                    runtime
+                        .get("pending_exit_request_id")
+                        .and_then(Value::as_str)
+                        .is_some(),
+                    "pending exit must preserve request id"
+                );
+                assert_eq!(
+                    runtime.get("current_owner").and_then(Value::as_str),
+                    Some("intraday_breakout"),
+                    "pending exit must preserve owner"
+                );
+            }
+            Stage5dR3OperationalStateCase::DeferredEntry => {
+                assert!(extension.pending_entry.is_none());
+                assert!(extension.pending_exit.is_none());
+                assert!(
+                    runtime
+                        .get("deferred_entry_request_id")
+                        .and_then(Value::as_str)
+                        .is_some(),
+                    "deferred entry must preserve original request id"
+                );
+                assert_eq!(
+                    runtime
+                        .get("deferred_entry_entry_style")
+                        .and_then(Value::as_str),
+                    Some("bracket"),
+                    "deferred MR entry must preserve bracket style"
+                );
+                assert!(
+                    runtime
+                        .get("deferred_entry_stop_price")
+                        .and_then(Value::as_f64)
+                        .is_some()
+                        && runtime
+                            .get("deferred_entry_take_price")
+                            .and_then(Value::as_f64)
+                            .is_some(),
+                    "deferred MR entry must preserve stop/take"
+                );
+            }
+            Stage5dR3OperationalStateCase::DeferredExit => {
+                assert!(extension.pending_entry.is_none());
+                assert!(extension.pending_exit.is_none());
+                assert!(
+                    runtime
+                        .get("deferred_exit_request_id")
+                        .and_then(Value::as_str)
+                        .is_some(),
+                    "deferred exit must preserve original request id"
+                );
+                assert_eq!(
+                    runtime.get("deferred_exit_owner").and_then(Value::as_str),
+                    Some("intraday_breakout"),
+                    "deferred exit must preserve owner"
+                );
+            }
+            Stage5dR3OperationalStateCase::SafeModeCloseOnly => {
+                assert!(extension.pending_entry.is_none());
+                assert!(extension.pending_exit.is_some());
+                assert_eq!(
+                    runtime.get("safe_mode_close_only").and_then(Value::as_bool),
+                    Some(true),
+                    "safe-mode close-only flag must survive strict bytes"
+                );
+                assert_eq!(
+                    runtime.get("safe_mode_reason").and_then(Value::as_str),
+                    Some("partial_entry_fill_timeout"),
+                    "safe-mode reason must remain redacted and exact"
+                );
+                assert_eq!(
+                    runtime.get("entry_ready").and_then(Value::as_bool),
+                    Some(true),
+                    "safe-mode must block normal entry through close-only flag, not by disabling repair"
+                );
+            }
+        }
+    }
+
+    fn stage5d_test_r3_operational_source_full_restart(
+        case: Stage5dR3OperationalStateCase,
+    ) -> Stage5dFinalR2PackageOutcome {
+        let source_strategy = stage5d_test_source_operational_state_strategy(case);
+        let source_state =
+            serde_json::to_value(Strategy::state(&source_strategy)).expect("operational state");
+        let source_extension = source_strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("operational extension exports");
+        stage5d_test_assert_operational_case_shape(case, &source_state, &source_extension);
+        let source_semantic_fingerprint =
+            crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(&source_state)
+                .expect("operational semantic fingerprint");
+        let (input, evidence) = stage5d_test_r3_operational_input_and_evidence_for_source(
+            &source_strategy,
+            case.snapshot_id(),
+        );
+        let (package, report) = stage5d_export_canonical_restart_package_from_runtime(
+            &source_strategy,
+            input,
+            evidence,
+        )
+        .expect("operational source-owned package export must succeed");
+        assert!(!report.redis_opened);
+        assert!(!report.finam_opened);
+        assert!(!report.dispatch_opened);
+        assert!(!report.runtime_live_opened);
+        let package_json = package
+            .to_json_strict()
+            .expect("operational package serializes strictly");
+        drop(source_strategy);
+
+        let decoded = Stage5dCanonicalRestartPackage::from_json_str_strict(&package_json)
+            .expect("operational strict package decodes");
+        assert_eq!(
+            decoded.envelope.strategy_state.strategy_state_json, source_state,
+            "{case:?}: strict package must preserve exact source semantic state"
+        );
+        assert_eq!(
+            decoded.report.semantic_payload_fingerprint, source_semantic_fingerprint,
+            "{case:?}: semantic fingerprint must survive durable package"
+        );
+
+        let mut fresh_strategy = stage5d_test_riskgate_runtime_strategy();
+        restore_semantic_state(&mut fresh_strategy, &decoded.envelope);
+        let interim_extension = fresh_strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("operational interim extension exports");
+        if source_extension.pending_entry.is_some() {
+            assert_ne!(
+                interim_extension.pending_entry, source_extension.pending_entry,
+                "{case:?}: semantic set_state placeholder must not substitute final private DTO"
+            );
+        }
+        let strict_envelope = decoded.envelope;
+        let validated_evidence = decoded.validated_evidence;
+        let restored_indexes = crate::runtime_compat::RuntimeStateRestored {
+            known_order_ids: strict_envelope.recovery_indexes.known_order_ids.clone(),
+            pending_requests: strict_envelope.recovery_indexes.pending_requests.clone(),
+        };
+        let admission =
+            stage5d_test_admission_for_envelope(&strict_envelope, case.expected_position_qty());
+        let loaded = crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
+            fresh_strategy,
+            admission,
+            restored_indexes,
+            load_origin_for_envelope(&strict_envelope),
+        );
+        let validated = strict_envelope
+            .clone()
+            .validate_restore_contract_schema_only()
+            .expect("operational strict envelope remains valid");
+        let bound = expect_stage5d_ok(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "operational loaded state must bind",
+        );
+        let applied = expect_stage5d_ok(
+            stage5d_apply_runtime_private_extension(bound),
+            "operational private extension must apply before broker bootstrap",
+        );
+        let post_apply_extension = applied
+            .loaded
+            .stage5d_strategy()
+            .stage5d_export_runtime_private_extension()
+            .expect("operational post-apply extension exports");
+        assert_eq!(
+            post_apply_extension, source_extension,
+            "{case:?}: private apply must restore exact source-produced private extension"
+        );
+        let post_apply_state =
+            serde_json::to_value(Strategy::state(applied.loaded.stage5d_strategy()))
+                .expect("operational post-apply state");
+        stage5d_test_assert_operational_case_shape(case, &post_apply_state, &post_apply_extension);
+        assert_eq!(
+            strict_envelope.recovery_indexes.pending_requests.len(),
+            case.expected_pending_requests(),
+            "{case:?}: pending request index must preserve lifecycle request ids"
+        );
+
+        let bootstrapped = expect_stage5d_bootstrap_ok(
+            stage5d_notify_broker_truth_bootstrap_at(applied, strict_envelope.persisted_at_ts_utc),
+            "operational broker-truth bootstrap must be consistent with source state",
+        );
+        let injected = expect_stage5d_riskgate_ok(
+            stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
+            "operational riskgate injection must succeed",
+        );
+        assert!(injected.recovery_complete());
+        let recovery_plan_fingerprint = injected.recovery_plan_fingerprint().to_string();
+        let restored = stage5d_test_assert_injected_restores_indexes_once(
+            injected,
+            &strict_envelope.recovery_indexes.known_order_ids,
+            &strict_envelope.recovery_indexes.pending_requests,
+            "operational restored callback must run exactly once",
+        );
+        let restored_state = serde_json::to_value(Strategy::state(restored.stage5d_strategy()))
+            .expect("operational restored state");
+        let restored_extension = restored
+            .stage5d_strategy()
+            .stage5d_export_runtime_private_extension()
+            .expect("operational restored extension exports");
+        stage5d_test_assert_operational_case_shape(case, &restored_state, &restored_extension);
+        assert_eq!(
+            restored_state, strict_envelope.strategy_state.strategy_state_json,
+            "{case:?}: restored runtime state must match strict source envelope"
+        );
+        let restored_receipt_summary = format!(
+            "runtime_state_restored={};warmup_started={};pending_recovery_started={};semantic_bar_enabled={};known_orders={};pending_requests={}",
+            restored.receipt().runtime_state_restored(),
+            restored.receipt().warmup_started(),
+            restored.receipt().pending_recovery_started(),
+            restored.receipt().semantic_bar_enabled(),
+            restored.receipt().stage5d_test_known_order_ids().len(),
+            restored.receipt().pending_requests().len(),
+        );
+        let history = stage5d_test_history_batch_for_final_package(&strict_envelope);
+        let warmed = crate::stage5c_paper_host::stage5d_test_warmup_stage5c_history_at(
+            restored,
+            history,
+            strict_envelope.persisted_at_ts_utc + chrono::Duration::seconds(1),
+        )
+        .expect("operational Stage 5C continuation must succeed");
+        assert!(warmed.receipt().warmup_started());
+        assert!(!warmed.receipt().pending_recovery_started());
+        assert!(!warmed.receipt().semantic_bar_enabled());
+        let mut report = report;
+        report.recovery_plan_fingerprint_sha256 = Some(recovery_plan_fingerprint.clone());
+        Stage5dFinalR2PackageOutcome {
+            package_json,
+            package_checksum_sha256: report
+                .package_checksum_sha256
+                .clone()
+                .expect("operational package checksum"),
+            envelope_checksum_sha256: report.payload_checksum_sha256.clone(),
+            evidence_checksum_sha256: report
+                .riskgate_evidence_checksum_sha256
+                .clone()
+                .expect("operational evidence checksum"),
+            evidence_fingerprint_sha256: report
+                .riskgate_evidence_fingerprint_sha256
+                .clone()
+                .expect("operational evidence fingerprint"),
+            semantic_fingerprint_sha256: report.semantic_payload_fingerprint.clone(),
+            recovery_index_fingerprint_sha256: report.recovery_index_fingerprint.clone(),
+            recovery_plan_fingerprint_sha256: recovery_plan_fingerprint,
+            restored_receipt_summary,
+            redacted_restart_report: report,
+            warmed_processed_bars: warmed.receipt().processed_bars(),
+            runtime_pending_finalizations_count: strict_envelope
+                .runtime_private_extension
+                .runtime_pending_finalizations
+                .len(),
+            durable_finalization_outbox_count: strict_envelope
+                .riskgate
+                .durable_finalization_outbox
+                .len(),
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum Stage5dR3PositiveCoreCase {
         CleanFlat,
         BrokerOpenLong,
@@ -10447,6 +11068,55 @@ mod tests {
     }
 
     #[test]
+    fn stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix() {
+        // operational_state_cases_executed_5
+        // operational_state_partial_entry_actual_callbacks
+        // operational_state_pending_exit_actual_callbacks
+        // operational_state_deferred_entry_actual_callbacks
+        // operational_state_deferred_exit_actual_callbacks
+        // operational_state_safe_mode_actual_callbacks
+        // operational_state_no_direct_strategy_state_mutation_as_producer
+        // operational_state_source_runtime_destroyed_before_restart_boundary
+        // strict_package_decode_used_for_operational_state
+        // operational_state_fresh_runtime_used
+        // operational_state_private_apply_before_bootstrap
+        // operational_state_broker_truth_exact_qty_checked
+        // operational_state_lifecycle_request_cycle_timestamp_equality_checked
+        // operational_state_partial_timer_quantity_evidence_checked
+        // operational_state_pending_exit_duplicate_suppression_checked
+        // operational_state_deferred_entry_stop_take_reason_checked
+        // operational_state_deferred_exit_close_only_semantics_checked
+        // operational_state_safe_mode_entry_block_checked
+        // operational_state_stage5c_continuation_executed
+        // accepted_executable_count_15
+        // todo_source_produced_count_6
+        let mut executed = 0;
+        for case in [
+            Stage5dR3OperationalStateCase::PartialEntry,
+            Stage5dR3OperationalStateCase::PendingExit,
+            Stage5dR3OperationalStateCase::DeferredEntry,
+            Stage5dR3OperationalStateCase::DeferredExit,
+            Stage5dR3OperationalStateCase::SafeModeCloseOnly,
+        ] {
+            let outcome = stage5d_test_r3_operational_source_full_restart(case);
+            assert!(
+                outcome.warmed_processed_bars > 0,
+                "{case:?}: Stage 5C continuation must process history"
+            );
+            assert_eq!(
+                outcome.runtime_pending_finalizations_count, 0,
+                "{case:?}: operational-state r1 must not promote riskgate-finalization cases"
+            );
+            assert_eq!(
+                outcome.durable_finalization_outbox_count, 0,
+                "{case:?}: operational-state r1 must not open finalization outbox cases"
+            );
+            executed += 1;
+        }
+        assert_eq!(executed, 5);
+    }
+
+    #[test]
     fn stage5d_b2bd1r4_broker_position_long_short_restore_with_genuine_open_positions() {
         for (qty, side, expected_side) in [
             (3.0, "long", crate::hybrid_intraday::Side::Long),
@@ -14039,6 +14709,15 @@ mod tests {
         ]
         .into_iter()
         .collect();
+        let accepted_operational_ids: std::collections::HashSet<_> = [
+            "positive_partial_entry",
+            "positive_pending_exit",
+            "positive_deferred_entry",
+            "positive_deferred_exit",
+            "positive_safe_mode_close_only",
+        ]
+        .into_iter()
+        .collect();
         let observed: std::collections::HashSet<_> = rows
             .iter()
             .filter(|row| row["category"] == "positive")
@@ -14061,6 +14740,7 @@ mod tests {
                 row["execution_status"] == "accepted_r3a_r1_source_produced"
                     || row["execution_status"] == "accepted_r3_positive_core_r1b_source_produced"
                     || row["execution_status"] == "accepted_r3_current_shadow_r1_source_produced"
+                    || row["execution_status"] == "accepted_r3_operational_state_r1_source_produced"
             })
             .map(|row| row["case_id"].as_str().expect("case_id"))
             .collect();
@@ -14068,10 +14748,11 @@ mod tests {
             .union(&accepted_core_ids)
             .copied()
             .chain(accepted_current_shadow_ids.iter().copied())
+            .chain(accepted_operational_ids.iter().copied())
             .collect();
         assert_eq!(
             accepted_observed, accepted_all,
-            "r3 current-shadow-r1 must accept three current-shadow rows plus positive-core-r1b and r3a-r1 rows"
+            "r3 operational-state-r1 must accept operational-state rows plus current-shadow-r1, positive-core-r1b and r3a-r1 rows"
         );
         let todo_rows: Vec<_> = rows
             .iter()
@@ -14079,8 +14760,8 @@ mod tests {
             .collect();
         assert_eq!(
             todo_rows.len(),
-            11,
-            "r3 current-shadow-r1 must keep exactly eleven rows as TODO"
+            6,
+            "r3 operational-state-r1 must keep exactly six rows as TODO"
         );
         for row in todo_rows {
             assert!(
@@ -14145,6 +14826,41 @@ mod tests {
                     row[key],
                     serde_json::json!(true),
                     "r3 current-shadow row missing producer proof field {key}"
+                );
+            }
+        }
+        for case_id in accepted_operational_ids.iter() {
+            let row = rows
+                .iter()
+                .find(|row| row["case_id"] == *case_id)
+                .expect("r3 operational-state row present");
+            assert_eq!(
+                row["owning_test"],
+                "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix"
+            );
+            assert_eq!(
+                row["execution_status"],
+                "accepted_r3_operational_state_r1_source_produced"
+            );
+            assert_eq!(row["producer_kind"], "runtime_callback");
+            assert_eq!(
+                row["producer_entrypoint"],
+                "stage5d_test_source_operational_state_strategy"
+            );
+            for key in [
+                "canonical_package_path",
+                "source_object_destroyed",
+                "strict_decode_used",
+                "fresh_runtime_used",
+                "private_apply_before_bootstrap",
+                "broker_truth_exact_qty_checked",
+                "lifecycle_request_cycle_timestamp_equality_checked",
+                "stage5c_continuation_executed",
+            ] {
+                assert_eq!(
+                    row[key],
+                    serde_json::json!(true),
+                    "r3 operational-state row missing producer proof field {key}"
                 );
             }
         }

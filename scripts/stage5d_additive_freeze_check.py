@@ -99,7 +99,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "779b33f296b33aa4e40f20b5adb09a57c737032f87fc1457e9332d4b0d0236cf",
+        "stage5d_consumer_sha256": "7420144690e53823a2500e00e17e89a19483d9e7c41cc9bc03f03cd4d7897942",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -113,7 +113,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "779b33f296b33aa4e40f20b5adb09a57c737032f87fc1457e9332d4b0d0236cf",
+        "stage5d_consumer_sha256": "7420144690e53823a2500e00e17e89a19483d9e7c41cc9bc03f03cd4d7897942",
     },
 ]
 
@@ -326,6 +326,18 @@ EXPECTED_NEGATIVE_CASES = [
     "final_r3_current_shadow_r1r1_lifecycle_fields_overwritten",
     "final_r3_current_shadow_r1r1_field_level_proof_removed",
     "final_r3_current_shadow_r1r1_stage5e_or_surface_opened",
+    "final_r3_operational_source_callback_removed",
+    "final_r3_operational_direct_substitution",
+    "final_r3_operational_source_runtime_reused",
+    "final_r3_operational_strict_decode_removed",
+    "final_r3_operational_private_apply_moved",
+    "final_r3_operational_lifecycle_equality_removed",
+    "final_r3_operational_partial_timer_removed",
+    "final_r3_operational_deferred_entry_stop_take_removed",
+    "final_r3_operational_safe_mode_entry_block_removed",
+    "final_r3_operational_stage5c_continuation_removed",
+    "final_r3_operational_premature_next_group_promotion",
+    "final_r3_operational_stage5e_or_surface_opened",
 ]
 
 EXPECTED_STAGE = "5D-final-restart-r3-current-shadow-r1-r1"
@@ -426,6 +438,14 @@ EXPECTED_FINAL_RESTART_R3_CURRENT_SHADOW_IDS = [
     "positive_current_shadow_long",
     "positive_current_shadow_short",
     "positive_current_shadow_realized_pnl",
+]
+
+EXPECTED_FINAL_RESTART_R3_OPERATIONAL_STATE_IDS = [
+    "positive_partial_entry",
+    "positive_pending_exit",
+    "positive_deferred_entry",
+    "positive_deferred_exit",
+    "positive_safe_mode_close_only",
 ]
 
 EXPECTED_RUNTIME_RESTORED_OWNERSHIP_IDS = [
@@ -1313,7 +1333,8 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
     r3a_ids = set(EXPECTED_FINAL_RESTART_R3_ACCEPTED_IDS)
     core_ids = set(EXPECTED_FINAL_RESTART_R3_CORE_IDS)
     current_shadow_ids = set(EXPECTED_FINAL_RESTART_R3_CURRENT_SHADOW_IDS)
-    accepted_expected_ids = r3a_ids | core_ids | current_shadow_ids
+    operational_state_ids = set(EXPECTED_FINAL_RESTART_R3_OPERATIONAL_STATE_IDS)
+    accepted_expected_ids = r3a_ids | core_ids | current_shadow_ids | operational_state_ids
     accepted_ids = []
     todo_ids = []
     source_path = root / STAGE5D_REL
@@ -1381,6 +1402,38 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
             ]:
                 if row.get(key) is not True:
                     failures.append("Stage 5D final r3 current-shadow producer lineage proof missing")
+        elif status == "accepted_r3_operational_state_r1_source_produced":
+            accepted_ids.append(case_id)
+            if case_id not in operational_state_ids:
+                failures.append("Stage 5D final r3 accepted executable set mismatch")
+            if owning_test != "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix":
+                failures.append("Stage 5D final r3 operational-state owner/status proof missing")
+            if row.get("producer_kind") != "runtime_callback":
+                failures.append("Stage 5D final r3 operational-state producer lineage proof missing")
+            callbacks = row.get("producer_callbacks")
+            if not isinstance(callbacks, list) or not callbacks:
+                failures.append("Stage 5D final r3 operational-state producer lineage proof missing")
+            for key in [
+                "canonical_package_path",
+                "source_object_destroyed",
+                "strict_decode_used",
+                "fresh_runtime_used",
+                "private_apply_before_bootstrap",
+                "broker_truth_exact_qty_checked",
+                "lifecycle_request_cycle_timestamp_equality_checked",
+                "stage5c_continuation_executed",
+            ]:
+                if row.get(key) is not True:
+                    failures.append("Stage 5D final r3 operational-state producer lineage proof missing")
+            per_case_flag = {
+                "positive_partial_entry": "partial_timer_quantity_evidence_checked",
+                "positive_pending_exit": "pending_exit_duplicate_suppression_checked",
+                "positive_deferred_entry": "deferred_entry_stop_take_reason_checked",
+                "positive_deferred_exit": "deferred_exit_close_only_semantics_checked",
+                "positive_safe_mode_close_only": "safe_mode_entry_block_checked",
+            }.get(case_id)
+            if per_case_flag and row.get(per_case_flag) is not True:
+                failures.append("Stage 5D final r3 operational-state lifecycle-specific proof missing")
         elif status == "todo_source_produced":
             todo_ids.append(case_id)
             if owning_test is not None:
@@ -1527,6 +1580,65 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
     for token in required_current_shadow_tokens:
         if token not in stage5d_source:
             failures.append("Stage 5D final r3 current-shadow r1 marker proof missing")
+    operational_fn = "fn stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix()"
+    operational_start = stage5d_source.find(operational_fn)
+    operational_end = stage5d_source.find(
+        "#[test]",
+        operational_start + len(operational_fn),
+    )
+    operational_body = (
+        stage5d_source[operational_start:operational_end]
+        if operational_start >= 0 and operational_end >= 0
+        else ""
+    )
+    required_operational_body_tokens = [
+        "Stage5dR3OperationalStateCase::PartialEntry",
+        "Stage5dR3OperationalStateCase::PendingExit",
+        "Stage5dR3OperationalStateCase::DeferredEntry",
+        "Stage5dR3OperationalStateCase::DeferredExit",
+        "Stage5dR3OperationalStateCase::SafeModeCloseOnly",
+        "stage5d_test_r3_operational_source_full_restart(case)",
+        "assert_eq!(executed, 5);",
+    ]
+    if any(token not in operational_body for token in required_operational_body_tokens):
+        failures.append("Stage 5D final r3 operational-state full-path proof missing")
+    for forbidden in [
+        "flat_persisted_fixture()",
+        "stage5d_test_canonical_package_full_restart_with_stage5c_continuation(",
+        "direct_operational_state_mutation_substitution",
+    ]:
+        if forbidden in operational_body:
+            failures.append("Stage 5D final r3 operational-state direct mutation guard missing")
+    required_operational_tokens = [
+        "operational_state_cases_executed_5",
+        "operational_state_partial_entry_actual_callbacks",
+        "operational_state_pending_exit_actual_callbacks",
+        "operational_state_deferred_entry_actual_callbacks",
+        "operational_state_deferred_exit_actual_callbacks",
+        "operational_state_safe_mode_actual_callbacks",
+        "operational_state_no_direct_strategy_state_mutation_as_producer",
+        "operational_state_source_runtime_destroyed_before_restart_boundary",
+        "strict_package_decode_used_for_operational_state",
+        "operational_state_fresh_runtime_used",
+        "operational_state_private_apply_before_bootstrap",
+        "operational_state_broker_truth_exact_qty_checked",
+        "operational_state_lifecycle_request_cycle_timestamp_equality_checked",
+        "operational_state_partial_timer_quantity_evidence_checked",
+        "operational_state_pending_exit_duplicate_suppression_checked",
+        "operational_state_deferred_entry_stop_take_reason_checked",
+        "operational_state_deferred_exit_close_only_semantics_checked",
+        "operational_state_safe_mode_entry_block_checked",
+        "operational_state_stage5c_continuation_executed",
+        "accepted_executable_count_15",
+        "todo_source_produced_count_6",
+        "stage5d_test_source_operational_state_strategy",
+        "stage5d_test_r3_operational_source_full_restart",
+        "stage5d_apply_runtime_private_extension(bound)",
+        "stage5d_notify_broker_truth_bootstrap_at(applied, strict_envelope.persisted_at_ts_utc)",
+    ]
+    for token in required_operational_tokens:
+        if token not in stage5d_source:
+            failures.append("Stage 5D final r3 operational-state r1 marker proof missing")
 
 
 def validate_stage5d_b2bd1_runtime_restored_semantic_guards(

@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "779b33f296b33aa4e40f20b5adb09a57c737032f87fc1457e9332d4b0d0236cf"
+      "stage5d_consumer_sha256": "7420144690e53823a2500e00e17e89a19483d9e7c41cc9bc03f03cd4d7897942"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "779b33f296b33aa4e40f20b5adb09a57c737032f87fc1457e9332d4b0d0236cf"
+      "stage5d_consumer_sha256": "7420144690e53823a2500e00e17e89a19483d9e7c41cc9bc03f03cd4d7897942"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "779b33f296b33aa4e40f20b5adb09a57c737032f87fc1457e9332d4b0d0236cf"
+    "current_sha256": "7420144690e53823a2500e00e17e89a19483d9e7c41cc9bc03f03cd4d7897942"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -372,7 +372,19 @@
     "final_r3_current_shadow_r1r1_unrestorable_committed_package",
     "final_r3_current_shadow_r1r1_lifecycle_fields_overwritten",
     "final_r3_current_shadow_r1r1_field_level_proof_removed",
-    "final_r3_current_shadow_r1r1_stage5e_or_surface_opened"
+    "final_r3_current_shadow_r1r1_stage5e_or_surface_opened",
+    "final_r3_operational_source_callback_removed",
+    "final_r3_operational_direct_substitution",
+    "final_r3_operational_source_runtime_reused",
+    "final_r3_operational_strict_decode_removed",
+    "final_r3_operational_private_apply_moved",
+    "final_r3_operational_lifecycle_equality_removed",
+    "final_r3_operational_partial_timer_removed",
+    "final_r3_operational_deferred_entry_stop_take_removed",
+    "final_r3_operational_safe_mode_entry_block_removed",
+    "final_r3_operational_stage5c_continuation_removed",
+    "final_r3_operational_premature_next_group_promotion",
+    "final_r3_operational_stage5e_or_surface_opened"
   ],
   "stage5d_public_api": {
     "public_reexports": [

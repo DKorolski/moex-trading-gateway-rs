@@ -123,37 +123,115 @@
     {
       "case_id": "positive_partial_entry",
       "category": "positive",
-      "owning_test": null,
-      "execution_status": "todo_source_produced",
-      "next_gate": "r3-positive-operational-state-group"
+    "owning_test": "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
+    "execution_status": "accepted_r3_operational_state_r1_source_produced",
+    "producer_kind": "runtime_callback",
+    "producer_entrypoint": "stage5d_test_source_operational_state_strategy",
+    "producer_callbacks": [
+        "on_bar",
+        "on_ack:accepted",
+        "on_position:partial_fill"
+      ],
+      "canonical_package_path": true,
+      "source_object_destroyed": true,
+      "strict_decode_used": true,
+      "fresh_runtime_used": true,
+      "private_apply_before_bootstrap": true,
+      "broker_truth_exact_qty_checked": true,
+      "partial_timer_quantity_evidence_checked": true,
+      "lifecycle_request_cycle_timestamp_equality_checked": true,
+      "stage5c_continuation_executed": true
     },
     {
       "case_id": "positive_pending_exit",
       "category": "positive",
-      "owning_test": null,
-      "execution_status": "todo_source_produced",
-      "next_gate": "r3-positive-operational-state-group"
+    "owning_test": "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
+    "execution_status": "accepted_r3_operational_state_r1_source_produced",
+    "producer_kind": "runtime_callback",
+    "producer_entrypoint": "stage5d_test_source_operational_state_strategy",
+    "producer_callbacks": [
+        "on_bar",
+        "on_position:bo_market_fill",
+        "on_bar:breakout_eod_exit"
+      ],
+      "canonical_package_path": true,
+      "source_object_destroyed": true,
+      "strict_decode_used": true,
+      "fresh_runtime_used": true,
+      "private_apply_before_bootstrap": true,
+      "broker_truth_exact_qty_checked": true,
+      "pending_exit_duplicate_suppression_checked": true,
+      "lifecycle_request_cycle_timestamp_equality_checked": true,
+      "stage5c_continuation_executed": true
     },
     {
       "case_id": "positive_deferred_entry",
       "category": "positive",
-      "owning_test": null,
-      "execution_status": "todo_source_produced",
-      "next_gate": "r3-positive-operational-state-group"
+    "owning_test": "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
+    "execution_status": "accepted_r3_operational_state_r1_source_produced",
+    "producer_kind": "runtime_callback",
+    "producer_entrypoint": "stage5d_test_source_operational_state_strategy",
+    "producer_callbacks": [
+        "on_bar",
+        "on_ack:rejected_trading_window_closed",
+        "on_bar:pre_model_window_reissue_gated"
+      ],
+      "canonical_package_path": true,
+      "source_object_destroyed": true,
+      "strict_decode_used": true,
+      "fresh_runtime_used": true,
+      "private_apply_before_bootstrap": true,
+      "broker_truth_exact_qty_checked": true,
+      "deferred_entry_stop_take_reason_checked": true,
+      "lifecycle_request_cycle_timestamp_equality_checked": true,
+      "stage5c_continuation_executed": true
     },
     {
       "case_id": "positive_deferred_exit",
       "category": "positive",
-      "owning_test": null,
-      "execution_status": "todo_source_produced",
-      "next_gate": "r3-positive-operational-state-group"
+    "owning_test": "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
+    "execution_status": "accepted_r3_operational_state_r1_source_produced",
+    "producer_kind": "runtime_callback",
+    "producer_entrypoint": "stage5d_test_source_operational_state_strategy",
+    "producer_callbacks": [
+        "on_bar",
+        "on_position:bo_market_fill",
+        "on_bar:breakout_eod_exit",
+        "on_ack:rejected_trading_window_closed",
+        "on_bar:pre_model_window_reissue_gated"
+      ],
+      "canonical_package_path": true,
+      "source_object_destroyed": true,
+      "strict_decode_used": true,
+      "fresh_runtime_used": true,
+      "private_apply_before_bootstrap": true,
+      "broker_truth_exact_qty_checked": true,
+      "deferred_exit_close_only_semantics_checked": true,
+      "lifecycle_request_cycle_timestamp_equality_checked": true,
+      "stage5c_continuation_executed": true
     },
     {
       "case_id": "positive_safe_mode_close_only",
       "category": "positive",
-      "owning_test": null,
-      "execution_status": "todo_source_produced",
-      "next_gate": "r3-positive-operational-state-group"
+    "owning_test": "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
+    "execution_status": "accepted_r3_operational_state_r1_source_produced",
+    "producer_kind": "runtime_callback",
+    "producer_entrypoint": "stage5d_test_source_operational_state_strategy",
+    "producer_callbacks": [
+        "on_bar",
+        "on_ack:accepted",
+        "on_position:partial_fill",
+        "on_timer:partial_entry_timeout"
+      ],
+      "canonical_package_path": true,
+      "source_object_destroyed": true,
+      "strict_decode_used": true,
+      "fresh_runtime_used": true,
+      "private_apply_before_bootstrap": true,
+      "broker_truth_exact_qty_checked": true,
+      "safe_mode_entry_block_checked": true,
+      "lifecycle_request_cycle_timestamp_equality_checked": true,
+      "stage5c_continuation_executed": true
     },
     {
       "case_id": "positive_non_empty_known_order_index",
