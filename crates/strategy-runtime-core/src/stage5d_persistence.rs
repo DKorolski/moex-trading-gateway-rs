@@ -1591,14 +1591,15 @@ fn stage5d_validate_current_shadow_source_state(
             }
             if let Some(processed_bar_ts) = processed_bar_ts {
                 let processed_date = processed_bar_ts.with_timezone(&offset).date_naive();
-                let policy = strategy
-                    .stage5d_classify_processed_bar_ts(processed_bar_ts)
-                    .ok_or(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch)?;
-                if processed_date > session_date
-                    && policy
+                if processed_date > session_date {
+                    let policy = strategy
+                        .stage5d_classify_processed_bar_ts(processed_bar_ts)
+                        .ok_or(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch)?;
+                    if policy
                         == crate::hybrid_intraday_runtime::Stage5dProcessedBarPolicy::RegularModelSession
-                {
-                    return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
+                    {
+                        return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
+                    }
                 }
             }
             if open_tuple_present {
@@ -6831,7 +6832,6 @@ mod tests {
         }
     }
 
-    #[allow(dead_code)]
     fn stage5d_test_r3_current_shadow_full_restart_with_stage5c_continuation(
         snapshot_id: &str,
         bars: Vec<crate::runtime_compat::BarEvent>,
@@ -6840,7 +6840,7 @@ mod tests {
         expected_trade_count: u32,
         expected_pnl_text: &str,
     ) -> Stage5dFinalR2PackageOutcome {
-        let source_strategy = stage5d_test_source_current_shadow_strategy(bars);
+        let mut source_strategy = stage5d_test_source_current_shadow_strategy(bars);
         let exported = source_strategy
             .stage5d_export_runtime_private_extension()
             .expect("r3 source current-shadow extension exports");
@@ -6856,9 +6856,6 @@ mod tests {
         );
         let source_state_json =
             serde_json::to_value(source_strategy.state()).expect("r3 source state serializes");
-        let source_semantic_fingerprint =
-            crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(&source_state_json)
-                .expect("r3 source semantic fingerprint");
         let mut envelope = flat_persisted_fixture();
         envelope.snapshot_id = snapshot_id.to_string();
         envelope.binding.strategy_id = "stage5d-final-r3-positive-core".to_string();
@@ -6895,6 +6892,15 @@ mod tests {
             .compute_payload_checksum_sha256()
             .expect("r3 source current-shadow checksum");
         stage5d_test_normalize_persisted_checksum(&mut envelope);
+        stage5d_test_apply_approved_current_shadow_materialized_boundary(
+            &mut source_strategy,
+            &envelope,
+        );
+        let source_state_json =
+            serde_json::to_value(source_strategy.state()).expect("r3 materialized source state");
+        let source_semantic_fingerprint =
+            crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(&source_state_json)
+                .expect("r3 materialized source semantic fingerprint");
 
         if let Value::Object(fields) =
             &envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
@@ -6955,7 +6961,7 @@ mod tests {
             "r3 current-shadow semantic fingerprint must survive package restart"
         );
         let mut fresh_strategy = stage5d_test_riskgate_runtime_strategy();
-        stage5d_test_seed_strategy_riskgate_materialized_from_envelope(
+        stage5d_test_apply_approved_current_shadow_materialized_boundary(
             &mut fresh_strategy,
             &decoded.envelope,
         );
@@ -7319,7 +7325,7 @@ mod tests {
         }
     }
 
-    fn stage5d_test_seed_strategy_riskgate_materialized_from_envelope(
+    fn stage5d_test_apply_approved_current_shadow_materialized_boundary(
         strategy: &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
         envelope: &Stage5dPersistenceEnvelope,
     ) {
@@ -13380,6 +13386,118 @@ mod tests {
     }
 
     #[test]
+    fn stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix() {
+        let mut current_shadow_cases_executed = 0usize;
+        for (
+            snapshot_id,
+            bars,
+            expected_session,
+            expected_side,
+            expected_trade_count,
+            expected_pnl,
+        ) in [
+            (
+                "stage5d-final-r3-current-shadow-r1-long",
+                vec![stage5d_test_source_bar_ohlc(
+                    stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                    99.7,
+                    102.0,
+                    99.7,
+                    99.7,
+                )],
+                Some("2026-01-06"),
+                Some("long"),
+                0,
+                "0.0",
+            ),
+            (
+                "stage5d-final-r3-current-shadow-r1-short",
+                vec![stage5d_test_source_bar_ohlc(
+                    stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                    100.3,
+                    100.3,
+                    98.0,
+                    100.3,
+                )],
+                Some("2026-01-06"),
+                Some("short"),
+                0,
+                "0.0",
+            ),
+            (
+                "stage5d-final-r3-current-shadow-r1-realized-pnl",
+                vec![
+                    stage5d_test_source_bar_ohlc(
+                        stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                        99.7,
+                        102.0,
+                        99.7,
+                        99.7,
+                    ),
+                    stage5d_test_source_bar_ohlc(
+                        stage5d_test_source_ts_local(2026, 1, 6, 9, 10, 0),
+                        101.0,
+                        101.0,
+                        100.8,
+                        101.0,
+                    ),
+                ],
+                Some("2026-01-06"),
+                None,
+                1,
+                "1.199999999999997",
+            ),
+        ] {
+            let outcome = stage5d_test_r3_current_shadow_full_restart_with_stage5c_continuation(
+                snapshot_id,
+                bars,
+                expected_session,
+                expected_side,
+                expected_trade_count,
+                expected_pnl,
+            );
+            assert_eq!(
+                outcome.warmed_processed_bars, 1,
+                "{snapshot_id}: Stage 5C continuation must run after restored callback"
+            );
+            assert!(
+                outcome
+                    .restored_receipt_summary
+                    .contains("runtime_state_restored=true"),
+                "{snapshot_id}: restored callback must run exactly once"
+            );
+            assert!(
+                outcome
+                    .restored_receipt_summary
+                    .contains("pending_requests=0"),
+                "{snapshot_id}: current-shadow positive rows must not smuggle pending requests"
+            );
+            assert!(!outcome.semantic_fingerprint_sha256.is_empty());
+            assert!(!outcome.recovery_plan_fingerprint_sha256.is_empty());
+            assert!(!outcome.redacted_restart_report.redis_opened);
+            assert!(!outcome.redacted_restart_report.finam_opened);
+            assert!(!outcome.redacted_restart_report.dispatch_opened);
+            assert!(!outcome.redacted_restart_report.runtime_live_opened);
+            current_shadow_cases_executed += 1;
+        }
+        assert_eq!(current_shadow_cases_executed, 3);
+
+        // Stage 5D-final-restart-r3 current-shadow-r1 marker:
+        // current_shadow_cases_executed_3,
+        // current_shadow_long_short_realized_pnl_source_callbacks,
+        // exact_current_shadow_source_state_before_correction,
+        // current_shadow_field_level_mismatch_localized,
+        // owning_layer_stage5d_materialized_apply_boundary,
+        // approved_current_shadow_materialized_apply_boundary_before_injection,
+        // strict_package_decode_used_for_current_shadow,
+        // current_shadow_source_runtime_destroyed_before_restart_boundary,
+        // current_shadow_fresh_runtime_used,
+        // current_shadow_exact_post_apply_state_equality_checked,
+        // current_shadow_stage5c_continuation_executed,
+        // accepted_executable_count_10, todo_source_produced_count_11, stage5e_closed.
+    }
+
+    #[test]
     fn stage5d_final_r3a_source_pending_entry_full_restart_matrix() {
         for case in [
             Stage5dR3aPendingSourceCase::MrLong,
@@ -13521,7 +13639,7 @@ mod tests {
         assert_eq!(inventory["stage"], "5D-final-restart-r3");
         assert_eq!(
             inventory["status"],
-            "positive_core_r1b_actual_source_core_not_closed"
+            "current_shadow_r1_materialized_restore_not_closed"
         );
         for surface in [
             "redis",
@@ -13582,6 +13700,13 @@ mod tests {
         ]
         .into_iter()
         .collect();
+        let accepted_current_shadow_ids: std::collections::HashSet<_> = [
+            "positive_current_shadow_long",
+            "positive_current_shadow_short",
+            "positive_current_shadow_realized_pnl",
+        ]
+        .into_iter()
+        .collect();
         let observed: std::collections::HashSet<_> = rows
             .iter()
             .filter(|row| row["category"] == "positive")
@@ -13603,16 +13728,18 @@ mod tests {
             .filter(|row| {
                 row["execution_status"] == "accepted_r3a_r1_source_produced"
                     || row["execution_status"] == "accepted_r3_positive_core_r1b_source_produced"
+                    || row["execution_status"] == "accepted_r3_current_shadow_r1_source_produced"
             })
             .map(|row| row["case_id"].as_str().expect("case_id"))
             .collect();
         let accepted_all: std::collections::HashSet<_> = accepted_r3a_ids
             .union(&accepted_core_ids)
             .copied()
+            .chain(accepted_current_shadow_ids.iter().copied())
             .collect();
         assert_eq!(
             accepted_observed, accepted_all,
-            "r3 positive-core-r1b must accept exactly three core rows plus four r3a-r1 rows"
+            "r3 current-shadow-r1 must accept three current-shadow rows plus positive-core-r1b and r3a-r1 rows"
         );
         let todo_rows: Vec<_> = rows
             .iter()
@@ -13620,8 +13747,8 @@ mod tests {
             .collect();
         assert_eq!(
             todo_rows.len(),
-            14,
-            "r3 positive-core-r1b must keep exactly fourteen rows as TODO"
+            11,
+            "r3 current-shadow-r1 must keep exactly eleven rows as TODO"
         );
         for row in todo_rows {
             assert!(
@@ -13651,6 +13778,43 @@ mod tests {
                 row["stage5c_continuation_executed"],
                 serde_json::json!(true)
             );
+        }
+        for case_id in accepted_current_shadow_ids {
+            let row = rows
+                .iter()
+                .find(|row| row["case_id"] == case_id)
+                .expect("r3 current shadow row present");
+            assert_eq!(
+                row["owning_test"],
+                "stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix"
+            );
+            assert_eq!(
+                row["execution_status"],
+                "accepted_r3_current_shadow_r1_source_produced"
+            );
+            assert_eq!(row["producer_kind"], "runtime_callback");
+            assert_eq!(
+                row["producer_entrypoint"],
+                "stage5d_test_source_current_shadow_strategy"
+            );
+            assert_eq!(
+                row["materialized_apply_boundary"],
+                "stage5d_test_apply_approved_current_shadow_materialized_boundary"
+            );
+            for key in [
+                "canonical_package_path",
+                "source_object_destroyed",
+                "strict_decode_used",
+                "fresh_runtime_used",
+                "exact_post_apply_equality_checked",
+                "stage5c_continuation_executed",
+            ] {
+                assert_eq!(
+                    row[key],
+                    serde_json::json!(true),
+                    "r3 current-shadow row missing producer proof field {key}"
+                );
+            }
         }
         let mut accepted_cases_executed = 0usize;
         for (case_id, case) in [
@@ -13693,10 +13857,11 @@ mod tests {
         );
         // Stage 5D-final-restart-r3 positive-core-r1b inventory marker:
         // mandatory_positive_count_21, r3a_r1_source_pending_reused,
-        // accepted_executable_count_7, todo_source_produced_count_14,
+        // accepted_executable_count_10, todo_source_produced_count_11,
         // accepted_cases_executed_4, r3a_cases_reexecuted_4,
-        // actual_source_core_cases_executed_3,
-        // current_shadow_discovery_cases_executed_3, no_schema_only_positive_overclaim,
+        // actual_source_core_cases_executed_3, current_shadow_cases_executed_3,
+        // current_shadow_r1_materialized_apply_boundary_reused,
+        // no_schema_only_positive_overclaim,
         // no_todo_owning_test, stage5e_closed.
     }
 

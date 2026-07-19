@@ -20,16 +20,15 @@ paper/no-send host is accepted and frozen; Stage 5D is adding a versioned,
 source-exact persistence restore path. The Stage 5D-final-restart-r2 durable
 package is retained as foundation. Stage 5D-final-restart-r3 has resumed with a
 21-case mandatory positive inventory gate: the accepted r3a-r1 MR/BO
-pending-entry source-produced proof is reused and executed, and
-positive-core-r1b adds clean flat plus broker-consistent open Long/Short
-actual-source lifecycle package restart evidence. Seven rows are accepted;
-fourteen remain TODO without owning tests until they become source-produced
-executable evidence. The r3a-r1
-restore-ownership proof shows that exact MR/BO
-pending-entry shape is restored in the actual fresh runtime
-`Strategy::state(...)` plus runtime-private DTO by Stage 5D private apply before
-broker bootstrap and the restored callback, so no source `set_state()`
-correction is currently required.
+pending-entry source-produced proof is reused and executed, positive-core-r1b
+adds clean flat plus broker-consistent open Long/Short actual-source lifecycle
+package restart evidence, and current-shadow-r1 adds source-produced
+Long/Short/realized-PnL package restart evidence. Ten rows are accepted; eleven
+remain TODO without owning tests until they become source-produced executable
+evidence. The current-shadow mismatch was localized to materialized riskgate
+state in the canonical package path and is resolved by an approved Stage 5D
+materialized-apply boundary before injection, without adding any source
+`set_state()` correction.
 Redis, FINAM, broker transport, dispatch, runtime-live and real execution
 remain closed.
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-final-restart-r3-positive-core-r1b",
+  "stage": "5D-final-restart-r3-current-shadow-r1",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "97e25c45ce5be828c6cadab616448195f8b67a4113de8e3b411a119159a68700"
+      "stage5d_consumer_sha256": "8c864ff4ca4447c6b735b6f7ac519cb33384d840d1a4f0a19e6f44eefbe3b11e"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "97e25c45ce5be828c6cadab616448195f8b67a4113de8e3b411a119159a68700"
+      "stage5d_consumer_sha256": "8c864ff4ca4447c6b735b6f7ac519cb33384d840d1a4f0a19e6f44eefbe3b11e"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "97e25c45ce5be828c6cadab616448195f8b67a4113de8e3b411a119159a68700"
+    "current_sha256": "8c864ff4ca4447c6b735b6f7ac519cb33384d840d1a4f0a19e6f44eefbe3b11e"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -340,7 +340,21 @@
     "final_r3_positive_core_current_shadow_todo_promoted",
     "final_r3_positive_core_current_shadow_discovery_removed",
     "final_r3_positive_core_nonexecuting_owner",
-    "final_r3_positive_core_stage5e_or_surface_opened"
+    "final_r3_positive_core_stage5e_or_surface_opened",
+    "final_r3_current_shadow_long_without_full_path",
+    "final_r3_current_shadow_short_without_full_path",
+    "final_r3_current_shadow_realized_without_trade_count",
+    "final_r3_current_shadow_session_lost",
+    "final_r3_current_shadow_pnl_bit_drift",
+    "final_r3_current_shadow_signed_zero_accepted",
+    "final_r3_current_shadow_evidence_envelope_mismatch",
+    "final_r3_current_shadow_materialized_apply_skipped",
+    "final_r3_current_shadow_materialized_apply_after_injection",
+    "final_r3_current_shadow_callback_before_apply",
+    "final_r3_current_shadow_source_runtime_reused",
+    "final_r3_current_shadow_direct_mutation_substituted",
+    "final_r3_current_shadow_generation_identity_mismatch",
+    "final_r3_current_shadow_stage5e_or_surface_opened"
   ],
   "stage5d_public_api": {
     "public_reexports": [

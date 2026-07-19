@@ -249,15 +249,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   package restart matrix, proves exact actual fresh runtime
   `Strategy::state(...)` lifecycle equality plus exact runtime-private DTO
   equality after private apply and before broker bootstrap/callback, and
-  marker-pins Stage 5D negative cases. The current r3 inventory gate now has
-  exactly seven accepted executable rows: four r3a-r1 pending-entry rows plus
-  positive-core-r1b clean flat and broker-consistent open Long/Short
-  actual-source lifecycle package restart rows. Fourteen rows remain
-  `todo_source_produced` without
-  `owning_test`; this deliberately avoids claiming full r3 closure. The
-  current-shadow Long/Short/realized-PnL rows remain TODO because executable
-  fresh strict package discovery localizes a materialized current-shadow restore
-  gap.
+  marker-pins Stage 5D negative cases. Stage 5D-final-restart-r3
+  current-shadow-r1 localizes the first current-shadow restore mismatch to
+  materialized riskgate state
+  (`risk_gate_mr_enabled_current_session`, `risk_gate_rolling_sum_lb120`,
+  `risk_gate_last_finalized_session_date`,
+  `risk_gate_ledger_rows_count`) and closes the Long/Short/realized-PnL rows by
+  applying the approved materialized-riskgate boundary before canonical package
+  export/injection. The current r3 inventory gate now has exactly ten accepted
+  executable rows: four r3a-r1 pending-entry rows, three positive-core-r1b
+  clean/open rows, and three current-shadow-r1 rows. Eleven rows remain
+  `todo_source_produced` without `owning_test`; this deliberately avoids
+  claiming full r3 closure.
   No `set_state()` source correction is currently required. The existing
   restored-callback boot-stale cleanup for flat/no-working-order pending tails
   remains documented for the later full r3 matrix.

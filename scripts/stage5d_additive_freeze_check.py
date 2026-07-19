@@ -99,7 +99,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "97e25c45ce5be828c6cadab616448195f8b67a4113de8e3b411a119159a68700",
+        "stage5d_consumer_sha256": "8c864ff4ca4447c6b735b6f7ac519cb33384d840d1a4f0a19e6f44eefbe3b11e",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -113,7 +113,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "97e25c45ce5be828c6cadab616448195f8b67a4113de8e3b411a119159a68700",
+        "stage5d_consumer_sha256": "8c864ff4ca4447c6b735b6f7ac519cb33384d840d1a4f0a19e6f44eefbe3b11e",
     },
 ]
 
@@ -294,9 +294,23 @@ EXPECTED_NEGATIVE_CASES = [
     "final_r3_positive_core_current_shadow_discovery_removed",
     "final_r3_positive_core_nonexecuting_owner",
     "final_r3_positive_core_stage5e_or_surface_opened",
+    "final_r3_current_shadow_long_without_full_path",
+    "final_r3_current_shadow_short_without_full_path",
+    "final_r3_current_shadow_realized_without_trade_count",
+    "final_r3_current_shadow_session_lost",
+    "final_r3_current_shadow_pnl_bit_drift",
+    "final_r3_current_shadow_signed_zero_accepted",
+    "final_r3_current_shadow_evidence_envelope_mismatch",
+    "final_r3_current_shadow_materialized_apply_skipped",
+    "final_r3_current_shadow_materialized_apply_after_injection",
+    "final_r3_current_shadow_callback_before_apply",
+    "final_r3_current_shadow_source_runtime_reused",
+    "final_r3_current_shadow_direct_mutation_substituted",
+    "final_r3_current_shadow_generation_identity_mismatch",
+    "final_r3_current_shadow_stage5e_or_surface_opened",
 ]
 
-EXPECTED_STAGE = "5D-final-restart-r3-positive-core-r1b"
+EXPECTED_STAGE = "5D-final-restart-r3-current-shadow-r1"
 EXPECTED_FINAL_RESTART_INVENTORY_STAGE = "5D-final-restart-r2"
 
 EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
@@ -388,6 +402,12 @@ EXPECTED_FINAL_RESTART_R3_CORE_IDS = [
     "positive_clean_flat",
     "positive_broker_consistent_open_long",
     "positive_broker_consistent_open_short",
+]
+
+EXPECTED_FINAL_RESTART_R3_CURRENT_SHADOW_IDS = [
+    "positive_current_shadow_long",
+    "positive_current_shadow_short",
+    "positive_current_shadow_realized_pnl",
 ]
 
 EXPECTED_RUNTIME_RESTORED_OWNERSHIP_IDS = [
@@ -1255,7 +1275,7 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         failures.append("Stage 5D final r3 resumption inventory schema mismatch")
     if inventory.get("stage") != "5D-final-restart-r3":
         failures.append("Stage 5D final r3 resumption inventory stage mismatch")
-    if inventory.get("status") != "positive_core_r1b_actual_source_core_not_closed":
+    if inventory.get("status") != "current_shadow_r1_materialized_restore_not_closed":
         failures.append("Stage 5D final r3 resumption inventory must not overclaim closure")
     if inventory.get("closed_surfaces") != EXPECTED_CLOSED_SURFACES:
         failures.append("Stage 5D final r3 resumption inventory closed-surface mismatch")
@@ -1274,7 +1294,8 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         failures.append("Stage 5D final r3 mandatory positive ids must be unique")
     r3a_ids = set(EXPECTED_FINAL_RESTART_R3_ACCEPTED_IDS)
     core_ids = set(EXPECTED_FINAL_RESTART_R3_CORE_IDS)
-    accepted_expected_ids = r3a_ids | core_ids
+    current_shadow_ids = set(EXPECTED_FINAL_RESTART_R3_CURRENT_SHADOW_IDS)
+    accepted_expected_ids = r3a_ids | core_ids | current_shadow_ids
     accepted_ids = []
     todo_ids = []
     source_path = root / STAGE5D_REL
@@ -1320,6 +1341,28 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
             ]:
                 if row.get(key) is not True:
                     failures.append("Stage 5D final r3 positive-core producer lineage proof missing")
+        elif status == "accepted_r3_current_shadow_r1_source_produced":
+            accepted_ids.append(case_id)
+            if case_id not in current_shadow_ids:
+                failures.append("Stage 5D final r3 accepted executable set mismatch")
+            if owning_test != "stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix":
+                failures.append("Stage 5D final r3 current-shadow owner/status proof missing")
+            if row.get("producer_kind") != "runtime_callback":
+                failures.append("Stage 5D final r3 current-shadow producer lineage proof missing")
+            if row.get("producer_entrypoint") != "stage5d_test_source_current_shadow_strategy":
+                failures.append("Stage 5D final r3 current-shadow producer lineage proof missing")
+            if row.get("materialized_apply_boundary") != "stage5d_test_apply_approved_current_shadow_materialized_boundary":
+                failures.append("Stage 5D final r3 current-shadow materialized apply proof missing")
+            for key in [
+                "canonical_package_path",
+                "source_object_destroyed",
+                "strict_decode_used",
+                "fresh_runtime_used",
+                "exact_post_apply_equality_checked",
+                "stage5c_continuation_executed",
+            ]:
+                if row.get(key) is not True:
+                    failures.append("Stage 5D final r3 current-shadow producer lineage proof missing")
         elif status == "todo_source_produced":
             todo_ids.append(case_id)
             if owning_test is not None:
@@ -1374,6 +1417,59 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         failures.append("Stage 5D final r3 positive-core actual post-apply equality proof missing")
     if "stage5d_final_r3_current_shadow_discovery_localizes_materialized_gap" not in stage5d_source:
         failures.append("Stage 5D final r3 current-shadow executable discovery proof missing")
+    current_shadow_fn = "fn stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix()"
+    current_shadow_start = stage5d_source.find(current_shadow_fn)
+    current_shadow_end = stage5d_source.find(
+        "#[test]",
+        current_shadow_start + len(current_shadow_fn),
+    )
+    current_shadow_body = (
+        stage5d_source[current_shadow_start:current_shadow_end]
+        if current_shadow_start >= 0 and current_shadow_end >= 0
+        else ""
+    )
+    if (
+        "stage5d_test_r3_current_shadow_full_restart_with_stage5c_continuation(" not in current_shadow_body
+        or "current_shadow_cases_executed += 1" not in current_shadow_body
+    ):
+        failures.append("Stage 5D final r3 current-shadow full-path proof missing")
+    required_current_shadow_body_tokens = [
+        "expected_trade_count,",
+        '"stage5d-final-r3-current-shadow-r1-long"',
+        '"stage5d-final-r3-current-shadow-r1-short"',
+        '"stage5d-final-r3-current-shadow-r1-realized-pnl"',
+        '"1.199999999999997"',
+        'assert_eq!(current_shadow_cases_executed, 3);',
+    ]
+    if any(token not in current_shadow_body for token in required_current_shadow_body_tokens):
+        failures.append("Stage 5D final r3 current-shadow full-path proof missing")
+    if current_shadow_body.count('"0.0"') < 2 or '"-0.0"' in current_shadow_body:
+        failures.append("Stage 5D final r3 current-shadow full-path proof missing")
+    for forbidden in [
+        "stage5d_test_canonical_package_full_restart_with_stage5c_continuation(",
+        "stage5d_test_set_position_side(",
+        "direct_current_shadow_mutation_substitution",
+    ]:
+        if forbidden in current_shadow_body:
+            failures.append("Stage 5D final r3 current-shadow direct mutation guard missing")
+    required_current_shadow_tokens = [
+        "current_shadow_cases_executed_3",
+        "current_shadow_long_short_realized_pnl_source_callbacks",
+        "exact_current_shadow_source_state_before_correction",
+        "current_shadow_field_level_mismatch_localized",
+        "owning_layer_stage5d_materialized_apply_boundary",
+        "approved_current_shadow_materialized_apply_boundary_before_injection",
+        "strict_package_decode_used_for_current_shadow",
+        "current_shadow_source_runtime_destroyed_before_restart_boundary",
+        "current_shadow_fresh_runtime_used",
+        "current_shadow_exact_post_apply_state_equality_checked",
+        "current_shadow_stage5c_continuation_executed",
+        "accepted_executable_count_10",
+        "todo_source_produced_count_11",
+    ]
+    for token in required_current_shadow_tokens:
+        if token not in stage5d_source:
+            failures.append("Stage 5D final r3 current-shadow r1 marker proof missing")
 
 
 def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
@@ -1608,9 +1704,9 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
         "Stage 5D final r3 schema-only overclaim guard missing":
             "no_schema_only_positive_overclaim",
         "Stage 5D final r3 accepted executable count proof missing":
-            "accepted_executable_count_7",
+            "accepted_executable_count_10",
         "Stage 5D final r3 TODO count proof missing":
-            "todo_source_produced_count_14",
+            "todo_source_produced_count_11",
         "Stage 5D final r3 accepted execution count proof missing":
             "accepted_cases_executed_4",
         "Stage 5D final r3 positive-core source-produced proof missing":
@@ -1629,6 +1725,10 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
             "actual_source_core_cases_executed_3",
         "Stage 5D final r3 current-shadow discovery execution proof missing":
             "current_shadow_discovery_cases_executed_3",
+        "Stage 5D final r3 current-shadow full-path proof missing":
+            "stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix",
+        "Stage 5D final r3 current-shadow materialized apply proof missing":
+            "approved_current_shadow_materialized_apply_boundary_before_injection",
         "Stage 5D final r3 TODO owner guard missing":
             "no_todo_owning_test",
         "Stage 5D final r3 Stage 5E closed marker missing":
