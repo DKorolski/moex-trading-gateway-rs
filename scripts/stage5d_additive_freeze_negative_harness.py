@@ -1229,7 +1229,7 @@ def mutate_runtime_restored_final_r2_package_full_validation_removed(root: Path)
 
 
 def mutate_final_r3a_reproduction_test_removed(root: Path) -> None:
-    replace_once(
+    replace_all(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
         "stage5d_final_r3a_source_pending_entry_full_restart_matrix",
         "stage5d_final_r3a_source_pending_entry_removed",
@@ -1318,6 +1318,19 @@ def mutate_final_r3a_unauthorized_set_state_source_change(root: Path) -> None:
     update_manifest_bridge_current_and_stripped_hash(
         root, "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs"
     )
+
+
+def mutate_final_r3_resumption_inventory_removed(root: Path) -> None:
+    (root / "docs/stage-5/stage5d-final-restart-r3-scenario-inventory.json").unlink()
+
+
+def mutate_final_r3_resumption_r3a_reuse_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "r3a_r1_source_pending_reused",
+        "r3a_r1_source_pending_reuse_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
 
 
 def mutate_legacy_restore_bypass(root: Path) -> None:
@@ -1455,6 +1468,8 @@ CASES = [
     ("final_r3a_incomplete_mr_accepted", mutate_final_r3a_incomplete_mr_accepted, "Stage 5D final r3a fail-closed MR missing stop/take proof missing"),
     ("final_r3a_owner_side_reason_mismatch_accepted", mutate_final_r3a_owner_side_reason_mismatch_accepted, "Stage 5D final r3a fail-closed owner/side/reason mismatch proof missing"),
     ("final_r3a_unauthorized_set_state_source_change", mutate_final_r3a_unauthorized_set_state_source_change, "frozen region does not match Stage 5C closure source"),
+    ("final_r3_resumption_inventory_removed", mutate_final_r3_resumption_inventory_removed, "Stage 5D final r3 resumption inventory proof missing"),
+    ("final_r3_resumption_r3a_reuse_removed", mutate_final_r3_resumption_r3a_reuse_removed, "Stage 5D final r3 r3a-r1 reuse proof missing"),
 ]
 
 

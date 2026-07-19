@@ -12757,6 +12757,120 @@ mod tests {
     }
 
     #[test]
+    fn stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse() {
+        let inventory: Value = serde_json::from_str(include_str!(
+            "../../../docs/stage-5/stage5d-final-restart-r3-scenario-inventory.json"
+        ))
+        .expect("Stage 5D-final-restart-r3 inventory must parse");
+        assert_eq!(inventory["schema_version"], serde_json::json!(1));
+        assert_eq!(inventory["stage"], "5D-final-restart-r3");
+        assert_eq!(inventory["status"], "resumption_inventory_not_closed");
+        for surface in [
+            "redis",
+            "finam",
+            "transport",
+            "dispatch",
+            "runtime_live",
+            "broker_execution",
+        ] {
+            assert_eq!(
+                inventory["closed_surfaces"][surface],
+                serde_json::json!(false),
+                "r3 resumption must keep {surface} closed"
+            );
+        }
+        assert_eq!(
+            inventory["closed_surfaces"]["runtime_private_mutation"],
+            "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+        );
+        let rows = inventory["scenario_rows"]
+            .as_array()
+            .expect("r3 inventory rows");
+        let mandatory_positive = [
+            "positive_clean_flat",
+            "positive_broker_consistent_open_long",
+            "positive_broker_consistent_open_short",
+            "positive_current_shadow_long",
+            "positive_current_shadow_short",
+            "positive_current_shadow_realized_pnl",
+            "positive_mr_long_bracket_pending_entry",
+            "positive_mr_short_bracket_pending_entry",
+            "positive_bo_long_market_pending_entry",
+            "positive_bo_short_market_pending_entry",
+            "positive_partial_entry",
+            "positive_pending_exit",
+            "positive_deferred_entry",
+            "positive_deferred_exit",
+            "positive_safe_mode_close_only",
+            "positive_non_empty_known_order_index",
+            "positive_non_empty_pending_request_index",
+            "positive_working_protective_order_hints",
+            "positive_single_pending_riskgate_finalization",
+            "positive_ordered_multi_row_pending_finalizations",
+            "positive_already_complete_recovery_plan",
+        ];
+        let observed: std::collections::HashSet<_> = rows
+            .iter()
+            .filter(|row| row["category"] == "positive")
+            .map(|row| row["case_id"].as_str().expect("case_id"))
+            .collect();
+        assert_eq!(
+            observed.len(),
+            mandatory_positive.len(),
+            "r3 resumption inventory must contain exactly the mandatory positive rows"
+        );
+        for case_id in mandatory_positive {
+            assert!(
+                observed.contains(case_id),
+                "r3 resumption mandatory positive missing: {case_id}"
+            );
+        }
+        for (case_id, case) in [
+            (
+                "positive_mr_long_bracket_pending_entry",
+                Stage5dR3aPendingSourceCase::MrLong,
+            ),
+            (
+                "positive_mr_short_bracket_pending_entry",
+                Stage5dR3aPendingSourceCase::MrShort,
+            ),
+            (
+                "positive_bo_long_market_pending_entry",
+                Stage5dR3aPendingSourceCase::BoLong,
+            ),
+            (
+                "positive_bo_short_market_pending_entry",
+                Stage5dR3aPendingSourceCase::BoShort,
+            ),
+        ] {
+            let row = rows
+                .iter()
+                .find(|row| row["case_id"] == case_id)
+                .expect("r3a row present");
+            assert_eq!(
+                row["owning_test"],
+                "stage5d_final_r3a_source_pending_entry_full_restart_matrix"
+            );
+            assert_eq!(row["execution_status"], "accepted_r3a_r1_source_produced");
+            let outcome = stage5d_test_r3a_source_pending_full_restart(case);
+            assert_eq!(outcome.warmed_processed_bars, 1);
+            assert!(outcome
+                .restored_receipt_summary
+                .contains("runtime_state_restored=true"));
+        }
+        assert!(
+            rows.iter()
+                .filter(|row| row["execution_status"] == "todo_source_produced")
+                .count()
+                > 0,
+            "r3 resumption must not overclaim remaining source-producer TODO rows as closed"
+        );
+        // Stage 5D-final-restart-r3 resumption marker:
+        // mandatory_positive_count_21, r3a_r1_source_pending_reused,
+        // no_schema_only_positive_overclaim, stage5e_closed.
+    }
+
+    #[test]
     fn stage5d_final_r2_package_crash_store_replay_matrix() {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         enum DurablePackageStoreState {

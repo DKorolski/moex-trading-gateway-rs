@@ -1,11 +1,13 @@
 # Stage 5D final restart closure
 
-Status: Stage 5D-final-restart-r2 retained foundation plus
-Stage 5D-final-restart-r3a-r1 restore-ownership review candidate, no-I/O. The
-full r3 closure remains HOLD / CHANGES REQUIRED; see
+Status: Stage 5D-final-restart-r2 retained foundation plus accepted
+Stage 5D-final-restart-r3a-r1 restore-ownership proof and
+Stage 5D-final-restart-r3 resumption inventory gate, no-I/O. The full r3
+closure remains incomplete; see
 [5d-final-restart-r3-discovery.md](5d-final-restart-r3-discovery.md) and
 [5d-final-restart-r3a-review-gate-summary.md](5d-final-restart-r3a-review-gate-summary.md)
-plus [5d-final-restart-r3a-r1-review-gate-summary.md](5d-final-restart-r3a-r1-review-gate-summary.md).
+plus [5d-final-restart-r3a-r1-review-gate-summary.md](5d-final-restart-r3a-r1-review-gate-summary.md)
+and [5d-final-restart-r3-resumption.md](5d-final-restart-r3-resumption.md).
 
 This slice closes the Stage 5D restart path from the actual
 `HybridIntradayRuntimeStrategy` source state into a canonical persistence
@@ -121,11 +123,14 @@ The machine-readable scenario inventory is:
 ```text
 docs/stage-5/stage5d-final-restart-r1-scenario-inventory.json
 docs/stage-5/stage5d-final-restart-r2-scenario-inventory.json
+docs/stage-5/stage5d-final-restart-r3-scenario-inventory.json
 ```
 
 The additive freeze checker validates the r2 stage id, 51-row order, unique case
 ids, closed-surface contract, owning tests, package sections and marker-pinned
-negative cases.
+negative cases. It also validates the r3 resumption inventory stage/status,
+closed surfaces, exact 21 mandatory positive case IDs, r3a-r1 executable reuse
+and the explicit not-yet-closed `todo_source_produced` guard.
 
 ## Review gates
 
@@ -145,7 +150,7 @@ bash scripts/stage5d_b2bc_review_gate.sh
 
 ## Next step
 
-Do not move to Stage 5E from the r2/r3a candidate. The next required work is the
-Stage 5D-final-restart-r3 closure sequence: full executable positive matrix,
-real crash/checkpoint simulator, package-negative matrix and pinned golden
-vectors.
+Do not move to Stage 5E from the r2/r3a/r3-resumption candidate. The next
+required work is the remaining Stage 5D-final-restart-r3 closure sequence: full
+executable positive matrix, real crash/checkpoint simulator, package-negative
+matrix and pinned golden vectors.

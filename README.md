@@ -18,12 +18,15 @@ migrated from the frozen ALOR source. The BO/MR/high180/riskgate kernel and the
 integrated broker-neutral runtime wrapper are present. Stage 5C's deterministic
 paper/no-send host is accepted and frozen; Stage 5D is adding a versioned,
 source-exact persistence restore path. The Stage 5D-final-restart-r2 durable
-package is retained as foundation, while r3 remains under review closure work:
-the next gate must replace inventory/comment evidence with an executable full
-matrix. The r3a-r1 restore-ownership proof shows that exact MR/BO pending-entry
-shape is restored in the actual fresh runtime `Strategy::state(...)` plus
-runtime-private DTO by Stage 5D private apply before broker bootstrap and the
-restored callback, so no source `set_state()` correction is currently required.
+package is retained as foundation. Stage 5D-final-restart-r3 has resumed with a
+21-case mandatory positive inventory gate: the accepted r3a-r1 MR/BO
+pending-entry source-produced proof is reused and executed, while the remaining
+r3 cases stay explicitly marked TODO until they become source-produced
+executable evidence. The r3a-r1 restore-ownership proof shows that exact MR/BO
+pending-entry shape is restored in the actual fresh runtime
+`Strategy::state(...)` plus runtime-private DTO by Stage 5D private apply before
+broker bootstrap and the restored callback, so no source `set_state()`
+correction is currently required.
 Redis, FINAM, broker transport, dispatch, runtime-live and real execution
 remain closed.
 
@@ -83,7 +86,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 bash scripts/forbidden_surface_scan.sh
 bash scripts/forbidden_surface_negative_harness.sh
 python3 scripts/stage5d_additive_freeze_negative_harness.py
-# Full Stage 5D-final-restart-r2 closure gate:
+# Full Stage 5D restart-closure gate:
 bash scripts/stage5d_b2bc_review_gate.sh
 # Focused final Stage 5D restart-closure check:
 cargo test -p strategy-runtime-core stage5d_final -- --nocapture

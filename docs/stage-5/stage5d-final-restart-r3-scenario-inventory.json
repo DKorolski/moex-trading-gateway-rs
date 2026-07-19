@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "stage": "5D-final-restart-r3",
+  "status": "resumption_inventory_not_closed",
+  "closed_surfaces": {
+    "redis": false,
+    "finam": false,
+    "transport": false,
+    "dispatch": false,
+    "runtime_live": false,
+    "broker_execution": false,
+    "runtime_private_mutation": "controlled_validated_stage5d_apply_then_broker_truth_bootstrap_then_riskgate_injection_then_restored_callback_only"
+  },
+  "scenario_rows": [
+    {
+      "case_id": "positive_clean_flat",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse",
+      "execution_status": "retained_from_r2_executable"
+    },
+    {
+      "case_id": "positive_broker_consistent_open_long",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse",
+      "execution_status": "retained_from_r2_executable"
+    },
+    {
+      "case_id": "positive_broker_consistent_open_short",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse",
+      "execution_status": "retained_from_r2_executable"
+    },
+    {
+      "case_id": "positive_current_shadow_long",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse",
+      "execution_status": "retained_from_r2_source_callback"
+    },
+    {
+      "case_id": "positive_current_shadow_short",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse",
+      "execution_status": "retained_from_r2_source_callback"
+    },
+    {
+      "case_id": "positive_current_shadow_realized_pnl",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse",
+      "execution_status": "retained_from_r2_source_callback"
+    },
+    {
+      "case_id": "positive_mr_long_bracket_pending_entry",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3a_source_pending_entry_full_restart_matrix",
+      "execution_status": "accepted_r3a_r1_source_produced"
+    },
+    {
+      "case_id": "positive_mr_short_bracket_pending_entry",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3a_source_pending_entry_full_restart_matrix",
+      "execution_status": "accepted_r3a_r1_source_produced"
+    },
+    {
+      "case_id": "positive_bo_long_market_pending_entry",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3a_source_pending_entry_full_restart_matrix",
+      "execution_status": "accepted_r3a_r1_source_produced"
+    },
+    {
+      "case_id": "positive_bo_short_market_pending_entry",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3a_source_pending_entry_full_restart_matrix",
+      "execution_status": "accepted_r3a_r1_source_produced"
+    },
+    {
+      "case_id": "positive_partial_entry",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
+      "execution_status": "todo_source_produced"
+    },
+    {
+      "case_id": "positive_pending_exit",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
+      "execution_status": "todo_source_produced"
+    },
+    {
+      "case_id": "positive_deferred_entry",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
+      "execution_status": "todo_source_produced"
+    },
+    {
+      "case_id": "positive_deferred_exit",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
+      "execution_status": "todo_source_produced"
+    },
+    {
+      "case_id": "positive_safe_mode_close_only",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
+      "execution_status": "todo_source_produced"
+    },
+    {
+      "case_id": "positive_non_empty_known_order_index",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
+      "execution_status": "todo_source_produced"
+    },
+    {
+      "case_id": "positive_non_empty_pending_request_index",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
+      "execution_status": "todo_source_produced"
+    },
+    {
+      "case_id": "positive_working_protective_order_hints",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
+      "execution_status": "todo_source_produced"
+    },
+    {
+      "case_id": "positive_single_pending_riskgate_finalization",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
+      "execution_status": "todo_source_produced"
+    },
+    {
+      "case_id": "positive_ordered_multi_row_pending_finalizations",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
+      "execution_status": "todo_source_produced"
+    },
+    {
+      "case_id": "positive_already_complete_recovery_plan",
+      "category": "positive",
+      "owning_test": "stage5d_final_r3_pending_source_producer_todo",
+      "execution_status": "todo_source_produced"
+    }
+  ]
+}

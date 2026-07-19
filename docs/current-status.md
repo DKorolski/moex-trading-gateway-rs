@@ -242,14 +242,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   Redis bridge, FINAM execution, broker transport, runtime-live and autonomous
   loop remain closed.
 - Stage 5D final restart r2 is retained only as the canonical durable-package
-  foundation. Stage 5D-final-restart-r3 remains HOLD / CHANGES REQUIRED until
-  the positive package matrix, crash/checkpoint simulator, negative matrix and
-  golden vectors are executable package-level evidence. Stage 5D-final-restart-r3a-r1
-  adds a focused source-produced MR/BO pending-entry package restart matrix,
-  proves exact actual fresh runtime `Strategy::state(...)` lifecycle equality
-  plus exact runtime-private DTO equality after private apply and before broker
-  bootstrap/callback, and marker-pins 123 Stage 5D negative cases. No
-  `set_state()` source correction is currently required. The existing
+  foundation. Stage 5D-final-restart-r3 remains incomplete until the remaining
+  positive package matrix, crash/checkpoint simulator, negative matrix and
+  golden vectors are executable package-level evidence. Stage
+  5D-final-restart-r3a-r1 adds a focused source-produced MR/BO pending-entry
+  package restart matrix, proves exact actual fresh runtime
+  `Strategy::state(...)` lifecycle equality plus exact runtime-private DTO
+  equality after private apply and before broker bootstrap/callback, and
+  marker-pins Stage 5D negative cases. The current r3 resumption slice adds a
+  21-case mandatory positive inventory gate and re-executes the accepted r3a-r1
+  source-produced pending-entry proof while keeping the remaining rows marked
+  `todo_source_produced`; this deliberately avoids claiming full r3 closure.
+  No `set_state()` source correction is currently required. The existing
   restored-callback boot-stale cleanup for flat/no-working-order pending tails
   remains documented for the later full r3 matrix.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
