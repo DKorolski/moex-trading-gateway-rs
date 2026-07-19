@@ -51,25 +51,28 @@ It pins the 21 mandatory positive restart cases from the r3 assignment:
 
 The r3a-r1 pending-entry rows are executable and owned by the accepted
 `stage5d_final_r3a_source_pending_entry_full_restart_matrix` test. The
-positive-core-r1a clean flat and broker-consistent open Long/Short rows are
+positive-core-r1b clean flat and broker-consistent open Long/Short rows are
 executable and owned by
-`stage5d_final_r3_positive_core_source_produced_full_restart_matrix`. The
+`stage5d_final_r3_positive_core_source_produced_full_restart_matrix`. They are
+produced through actual source runtime lifecycle callbacks, not direct
+persistence/envelope position mutation. The
 `stage5d_final_r3_resumption_inventory_and_r3a_r1_reuse` test parses the r3
 inventory, verifies the closed-surface contract, verifies the exact 21-case
 positive id set, and executes the r3a-r1 MR/BO pending-entry source-produced
 restart cases again.
 
-Exactly seven rows are executable/accepted after positive-core-r1a. The other
+Exactly seven rows are executable/accepted after positive-core-r1b. The other
 fourteen rows remain marked `todo_source_produced` and must not claim an
 `owning_test`.
 That marker is intentional: it prevents this slice from being confused with full
 r3 closure.
 
 Current-shadow Long/Short/realized-PnL remain TODO. Attempting to promote them
-through strict fresh package restart exposed a materialized current-shadow
-restore gap: the old direct helper used the original source runtime object, but
-the r3 clean-process contract requires a fresh runtime restored from package
-bytes.
+through strict fresh package restart now has an executable discovery proof that
+localizes the first mismatch as materialized riskgate state. The r3
+clean-process contract still requires a fresh runtime restored from package
+bytes, so current-shadow remains TODO until a separately reviewed restore
+ownership decision is made.
 
 ## Gates
 
@@ -81,7 +84,10 @@ The additive freeze checker now validates the r3 inventory and fails if:
 - the 21 positive case IDs drift;
 - r3a-r1 executable rows stop pointing to the accepted source-produced test;
 - accepted executable IDs are anything other than the four r3a-r1 rows plus the
-  three positive-core-r1a rows;
+  three positive-core-r1b rows;
+- positive-core accepted rows lack runtime-callback producer metadata,
+  source-object destruction, strict decode, fresh runtime or Stage 5C
+  continuation proof;
 - TODO IDs are anything other than the remaining fourteen rows;
 - any TODO row claims an owning test;
 - any accepted row lacks its accepted owning test;

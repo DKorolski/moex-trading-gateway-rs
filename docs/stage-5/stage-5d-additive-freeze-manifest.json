@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-final-restart-r3-positive-core-r1a",
+  "stage": "5D-final-restart-r3-positive-core-r1b",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "601be3a22c33d43c2415ef844b8272d6bbe606d111195bcd8a26bf6fcd3f9726"
+      "stage5d_consumer_sha256": "97e25c45ce5be828c6cadab616448195f8b67a4113de8e3b411a119159a68700"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "601be3a22c33d43c2415ef844b8272d6bbe606d111195bcd8a26bf6fcd3f9726"
+      "stage5d_consumer_sha256": "97e25c45ce5be828c6cadab616448195f8b67a4113de8e3b411a119159a68700"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "601be3a22c33d43c2415ef844b8272d6bbe606d111195bcd8a26bf6fcd3f9726"
+    "current_sha256": "97e25c45ce5be828c6cadab616448195f8b67a4113de8e3b411a119159a68700"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -326,7 +326,21 @@
     "final_r3_resumption_accepted_r3a_downgraded",
     "final_r3_resumption_stage5e_marker_removed",
     "final_r3_resumption_todo_non_null_owner",
-    "final_r3_resumption_accepted_null_owner"
+    "final_r3_resumption_accepted_null_owner",
+    "final_r3_positive_core_clean_fixture_substituted",
+    "final_r3_positive_core_long_direct_mutation_substituted",
+    "final_r3_positive_core_short_direct_mutation_substituted",
+    "final_r3_positive_core_source_callback_removed",
+    "final_r3_positive_core_source_runtime_not_dropped",
+    "final_r3_positive_core_strict_decode_removed",
+    "final_r3_positive_core_fresh_runtime_removed",
+    "final_r3_positive_core_post_apply_equality_removed",
+    "final_r3_positive_core_broker_truth_equality_removed",
+    "final_r3_positive_core_stage5c_warmup_removed",
+    "final_r3_positive_core_current_shadow_todo_promoted",
+    "final_r3_positive_core_current_shadow_discovery_removed",
+    "final_r3_positive_core_nonexecuting_owner",
+    "final_r3_positive_core_stage5e_or_surface_opened"
   ],
   "stage5d_public_api": {
     "public_reexports": [

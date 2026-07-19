@@ -2,7 +2,8 @@
 
 Status: Stage 5D-final-restart-r2 retained foundation plus accepted
 Stage 5D-final-restart-r3a-r1 restore-ownership proof, accepted r3 resumption
-inventory gate, and positive-core-r1a clean/open package evidence, no-I/O. The
+inventory gate, and positive-core-r1b actual-source clean/open package evidence,
+no-I/O. The
 full r3 closure remains incomplete; see
 [5d-final-restart-r3-discovery.md](5d-final-restart-r3-discovery.md) and
 [5d-final-restart-r3a-review-gate-summary.md](5d-final-restart-r3a-review-gate-summary.md)
@@ -130,8 +131,8 @@ The additive freeze checker validates the r2 stage id, 51-row order, unique case
 ids, closed-surface contract, owning tests, package sections and marker-pinned
 negative cases. It also validates the r3 inventory stage/status, closed
 surfaces, exact 21 mandatory positive case IDs, r3a-r1 executable reuse,
-positive-core-r1a clean/open executable ownership, and the exact evidence
-partition: seven accepted executable rows, fourteen not-yet-closed
+positive-core-r1b clean/open executable ownership and producer-lineage metadata,
+and the exact evidence partition: seven accepted executable rows, fourteen not-yet-closed
 `todo_source_produced` rows, and no owner on TODO rows.
 
 ## Review gates
@@ -152,7 +153,7 @@ bash scripts/stage5d_b2bc_review_gate.sh
 
 ## Next step
 
-Do not move to Stage 5E from the r2/r3a/r3-positive-core-r1a candidate. The
+Do not move to Stage 5E from the r2/r3a/r3-positive-core-r1b candidate. The
 next required work is the current-shadow materialized restore gap, then the
 remaining Stage 5D-final-restart-r3 closure sequence: full executable positive
 matrix, real crash/checkpoint simulator, package-negative matrix and pinned

@@ -251,11 +251,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   equality after private apply and before broker bootstrap/callback, and
   marker-pins Stage 5D negative cases. The current r3 inventory gate now has
   exactly seven accepted executable rows: four r3a-r1 pending-entry rows plus
-  positive-core-r1a clean flat and broker-consistent open Long/Short package
-  restart rows. Fourteen rows remain `todo_source_produced` without
+  positive-core-r1b clean flat and broker-consistent open Long/Short
+  actual-source lifecycle package restart rows. Fourteen rows remain
+  `todo_source_produced` without
   `owning_test`; this deliberately avoids claiming full r3 closure. The
-  current-shadow Long/Short/realized-PnL rows remain TODO because fresh strict
-  package restart exposed a materialized current-shadow restore gap.
+  current-shadow Long/Short/realized-PnL rows remain TODO because executable
+  fresh strict package discovery localizes a materialized current-shadow restore
+  gap.
   No `set_state()` source correction is currently required. The existing
   restored-callback boot-stale cleanup for flat/no-working-order pending tails
   remains documented for the later full r3 matrix.

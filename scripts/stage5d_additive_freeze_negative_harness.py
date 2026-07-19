@@ -1340,6 +1340,7 @@ def mutate_final_r3_inventory_row(
     execution_status: str | None = None,
     owning_test: object = "__stage5d_unchanged__",
     remove_row: bool = False,
+    **extra_fields: object,
 ) -> None:
     owning_unchanged = "__stage5d_unchanged__"
     inventory_path = root / "docs/stage-5/stage5d-final-restart-r3-scenario-inventory.json"
@@ -1355,6 +1356,8 @@ def mutate_final_r3_inventory_row(
                 row["execution_status"] = execution_status
             if owning_test != owning_unchanged:
                 row["owning_test"] = owning_test
+            for key, value in extra_fields.items():
+                row[key] = value
         inventory_path.write_text(json.dumps(inventory, indent=2, ensure_ascii=False) + "\n")
         return
     raise RuntimeError(f"r3 inventory case not found: {case_id}")
@@ -1438,6 +1441,133 @@ def mutate_final_r3_resumption_accepted_null_owner(root: Path) -> None:
         "positive_mr_short_bracket_pending_entry",
         owning_test=None,
     )
+
+
+def mutate_final_r3_positive_core_clean_fixture_substituted(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_test_r3_positive_core_source_full_restart(case)",
+        "stage5d_test_canonical_package_full_restart_with_stage5c_continuation(\"bad\", |_| {})",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_positive_core_long_direct_mutation_substituted(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "positive_core_broker_open_long_short_actual_source_lifecycle",
+        "positive_core_broker_open_long_short_direct_mutation",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_positive_core_short_direct_mutation_substituted(root: Path) -> None:
+    mutate_final_r3_inventory_row(
+        root,
+        "positive_broker_consistent_open_short",
+        producer_kind="direct_envelope_mutation",
+    )
+
+
+def mutate_final_r3_positive_core_source_callback_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_test_source_broker_open_strategy",
+        "stage5d_test_broker_open_fixture_strategy",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_positive_core_source_runtime_not_dropped(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "source_runtime_destroyed_before_restart_boundary",
+        "source_runtime_reused_after_restart_boundary",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_positive_core_strict_decode_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "strict_package_decode_used_for_positive_core",
+        "strict_package_decode_skipped_for_positive_core",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_positive_core_fresh_runtime_removed(root: Path) -> None:
+    mutate_final_r3_inventory_row(
+        root,
+        "positive_broker_consistent_open_long",
+        fresh_runtime_used=False,
+    )
+
+
+def mutate_final_r3_positive_core_post_apply_equality_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "actual post-apply/restored state must match strict source envelope",
+        "actual post-apply/restored state may drift",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_positive_core_broker_truth_equality_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "actual_post_apply_broker_truth_quantity_side_checked",
+        "actual_post_apply_broker_truth_quantity_side_unchecked",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_positive_core_stage5c_warmup_removed(root: Path) -> None:
+    mutate_final_r3_inventory_row(
+        root,
+        "positive_clean_flat",
+        stage5c_continuation_executed=False,
+    )
+
+
+def mutate_final_r3_positive_core_current_shadow_todo_promoted(root: Path) -> None:
+    mutate_final_r3_inventory_row(
+        root,
+        "positive_current_shadow_realized_pnl",
+        execution_status="accepted_r3_positive_core_r1b_source_produced",
+        owning_test="stage5d_final_r3_positive_core_source_produced_full_restart_matrix",
+        producer_kind="runtime_callback",
+        producer_entrypoint="stage5d_test_source_current_shadow_strategy",
+        canonical_package_path=True,
+        source_object_destroyed=True,
+        strict_decode_used=True,
+        fresh_runtime_used=True,
+        stage5c_continuation_executed=True,
+    )
+
+
+def mutate_final_r3_positive_core_current_shadow_discovery_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_final_r3_current_shadow_discovery_localizes_materialized_gap",
+        "stage5d_final_r3_current_shadow_discovery_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_positive_core_nonexecuting_owner(root: Path) -> None:
+    mutate_final_r3_inventory_row(
+        root,
+        "positive_clean_flat",
+        owning_test="stage5d_final_r3_current_shadow_discovery_localizes_materialized_gap",
+    )
+
+
+def mutate_final_r3_positive_core_stage5e_or_surface_opened(root: Path) -> None:
+    path = root / "docs/stage-5/stage5d-final-restart-r3-scenario-inventory.json"
+    data = json.loads(path.read_text())
+    data["closed_surfaces"]["runtime_live"] = True
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
 def mutate_legacy_restore_bypass(root: Path) -> None:
@@ -1587,6 +1717,20 @@ CASES = [
     ("final_r3_resumption_stage5e_marker_removed", mutate_final_r3_resumption_stage5e_marker_removed, "Stage 5D final r3 Stage 5E closed marker missing"),
     ("final_r3_resumption_todo_non_null_owner", mutate_final_r3_resumption_todo_non_null_owner, "Stage 5D final r3 TODO row must not claim owning test"),
     ("final_r3_resumption_accepted_null_owner", mutate_final_r3_resumption_accepted_null_owner, "Stage 5D final r3 r3a-r1 reuse proof missing"),
+    ("final_r3_positive_core_clean_fixture_substituted", mutate_final_r3_positive_core_clean_fixture_substituted, "Stage 5D final r3 positive-core fixture substitution guard missing"),
+    ("final_r3_positive_core_long_direct_mutation_substituted", mutate_final_r3_positive_core_long_direct_mutation_substituted, "Stage 5D final r3 positive-core open position package proof missing"),
+    ("final_r3_positive_core_short_direct_mutation_substituted", mutate_final_r3_positive_core_short_direct_mutation_substituted, "Stage 5D final r3 positive-core producer lineage proof missing"),
+    ("final_r3_positive_core_source_callback_removed", mutate_final_r3_positive_core_source_callback_removed, "Stage 5D final r3 positive-core producer lineage proof missing"),
+    ("final_r3_positive_core_source_runtime_not_dropped", mutate_final_r3_positive_core_source_runtime_not_dropped, "Stage 5D final r3 positive-core r1b marker proof missing"),
+    ("final_r3_positive_core_strict_decode_removed", mutate_final_r3_positive_core_strict_decode_removed, "Stage 5D final r3 positive-core r1b marker proof missing"),
+    ("final_r3_positive_core_fresh_runtime_removed", mutate_final_r3_positive_core_fresh_runtime_removed, "Stage 5D final r3 positive-core producer lineage proof missing"),
+    ("final_r3_positive_core_post_apply_equality_removed", mutate_final_r3_positive_core_post_apply_equality_removed, "Stage 5D final r3 positive-core actual post-apply equality proof missing"),
+    ("final_r3_positive_core_broker_truth_equality_removed", mutate_final_r3_positive_core_broker_truth_equality_removed, "Stage 5D final r3 positive-core r1b marker proof missing"),
+    ("final_r3_positive_core_stage5c_warmup_removed", mutate_final_r3_positive_core_stage5c_warmup_removed, "Stage 5D final r3 positive-core producer lineage proof missing"),
+    ("final_r3_positive_core_current_shadow_todo_promoted", mutate_final_r3_positive_core_current_shadow_todo_promoted, "Stage 5D final r3 accepted executable set mismatch"),
+    ("final_r3_positive_core_current_shadow_discovery_removed", mutate_final_r3_positive_core_current_shadow_discovery_removed, "Stage 5D final r3 current-shadow executable discovery proof missing"),
+    ("final_r3_positive_core_nonexecuting_owner", mutate_final_r3_positive_core_nonexecuting_owner, "Stage 5D final r3 positive-core owner/status proof missing"),
+    ("final_r3_positive_core_stage5e_or_surface_opened", mutate_final_r3_positive_core_stage5e_or_surface_opened, "Stage 5D final r3 resumption inventory closed-surface mismatch"),
 ]
 
 

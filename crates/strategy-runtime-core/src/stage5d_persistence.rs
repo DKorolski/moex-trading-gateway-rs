@@ -5167,6 +5167,432 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Stage5dR3PositiveCoreCase {
+        CleanFlat,
+        BrokerOpenLong,
+        BrokerOpenShort,
+    }
+
+    impl Stage5dR3PositiveCoreCase {
+        fn snapshot_id(self) -> &'static str {
+            match self {
+                Self::CleanFlat => "stage5d-final-r3-positive-core-clean-flat",
+                Self::BrokerOpenLong => "stage5d-final-r3-positive-core-broker-open-long",
+                Self::BrokerOpenShort => "stage5d-final-r3-positive-core-broker-open-short",
+            }
+        }
+
+        fn expected_qty(self) -> f64 {
+            match self {
+                Self::CleanFlat => 0.0,
+                Self::BrokerOpenLong => 1.0,
+                Self::BrokerOpenShort => -1.0,
+            }
+        }
+
+        fn expected_side(self) -> Option<&'static str> {
+            match self {
+                Self::CleanFlat => None,
+                Self::BrokerOpenLong => Some("long"),
+                Self::BrokerOpenShort => Some("short"),
+            }
+        }
+    }
+
+    fn stage5d_test_source_clean_flat_strategy(
+    ) -> crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy {
+        let mut strategy = stage5d_test_riskgate_runtime_strategy();
+        stage5d_test_seed_authoritative_riskgate_materialized_state(&mut strategy);
+        let ctx = stage5d_test_source_ctx();
+        let intents = strategy.on_bar(
+            &ctx,
+            &stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                100.0,
+                100.1,
+                99.9,
+                100.0,
+            ),
+        );
+        assert!(
+            intents.is_empty(),
+            "r1b clean flat source lifecycle must not emit entry/exit intents"
+        );
+        match Strategy::state(&strategy) {
+            StrategyState::HybridIntradayRuntime {
+                last_position_qty,
+                current_owner,
+                current_side,
+                pending_entry_request_id,
+                pending_exit_request_id,
+                ..
+            } => {
+                assert_eq!(*last_position_qty, 0.0);
+                assert!(current_owner.is_none());
+                assert!(current_side.is_none());
+                assert!(pending_entry_request_id.is_none());
+                assert!(pending_exit_request_id.is_none());
+            }
+            StrategyState::Idle => panic!("r1b clean flat must produce a real Hybrid state"),
+        }
+        strategy
+    }
+
+    fn stage5d_test_source_broker_open_strategy(
+        side: Stage5dSide,
+    ) -> crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy {
+        let pending_case = match side {
+            Stage5dSide::Long => Stage5dR3aPendingSourceCase::BoLong,
+            Stage5dSide::Short => Stage5dR3aPendingSourceCase::BoShort,
+        };
+        let mut strategy = stage5d_test_source_pending_entry_strategy(pending_case);
+        let ctx = stage5d_test_source_paper_ctx();
+        let qty = match side {
+            Stage5dSide::Long => 1.0,
+            Stage5dSide::Short => -1.0,
+        };
+        let intents = strategy.on_position(
+            &ctx,
+            &crate::runtime_compat::PositionEvent {
+                symbol: "IMOEXF".to_string(),
+                qty,
+                existing: false,
+                avg_price: 100.0,
+                ts_utc: stage5d_test_source_ts_local(2026, 1, 6, 12, 10, 0),
+            },
+        );
+        assert!(
+            intents.is_empty(),
+            "r1b BO market fill must not create bracket/cleanup intents"
+        );
+        let exported = strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("r1b source broker-open extension exports");
+        assert!(
+            exported.pending_entry.is_none()
+                && exported.pending_exit.is_none()
+                && exported.partial_entry_timer.is_none(),
+            "r1b source broker-open lifecycle must finish entry without pending tails"
+        );
+        match Strategy::state(&strategy) {
+            StrategyState::HybridIntradayRuntime {
+                last_position_qty,
+                current_owner,
+                current_side,
+                pending_entry_request_id,
+                pending_exit_request_id,
+                active_cycle_id,
+                ..
+            } => {
+                assert_eq!(*last_position_qty, qty);
+                assert_eq!(
+                    *current_owner,
+                    Some(crate::hybrid_intraday::Owner::IntradayBreakout)
+                );
+                let expected_source_side = match side {
+                    Stage5dSide::Long => crate::hybrid_intraday::Side::Long,
+                    Stage5dSide::Short => crate::hybrid_intraday::Side::Short,
+                };
+                assert_eq!(
+                    *current_side,
+                    Some(expected_source_side),
+                    "r1b source broker-open side must be source-produced"
+                );
+                assert!(active_cycle_id.is_some());
+                assert!(pending_entry_request_id.is_none());
+                assert!(pending_exit_request_id.is_none());
+            }
+            StrategyState::Idle => panic!("r1b broker-open must produce a real Hybrid state"),
+        }
+        strategy
+    }
+
+    fn stage5d_test_r3_positive_core_source_strategy(
+        case: Stage5dR3PositiveCoreCase,
+    ) -> crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy {
+        match case {
+            Stage5dR3PositiveCoreCase::CleanFlat => stage5d_test_source_clean_flat_strategy(),
+            Stage5dR3PositiveCoreCase::BrokerOpenLong => {
+                stage5d_test_source_broker_open_strategy(Stage5dSide::Long)
+            }
+            Stage5dR3PositiveCoreCase::BrokerOpenShort => {
+                stage5d_test_source_broker_open_strategy(Stage5dSide::Short)
+            }
+        }
+    }
+
+    fn stage5d_test_r3_positive_core_input_and_evidence_for_source(
+        source_strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        snapshot_id: &str,
+    ) -> (
+        Stage5dCanonicalEnvelopeExportInput,
+        Stage5dRiskGateLedgerEvidence,
+    ) {
+        let source_state_json = serde_json::to_value(Strategy::state(source_strategy))
+            .expect("r1b positive-core source state serializes");
+        let source_extension = source_strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("r1b positive-core source private extension exports");
+        let mut envelope = flat_persisted_fixture();
+        envelope.snapshot_id = snapshot_id.to_string();
+        envelope.binding.strategy_id = "stage5d-final-r3-positive-core-r1b".to_string();
+        envelope.strategy_state.strategy_state_json = source_state_json;
+        envelope.runtime_private_extension = source_extension;
+        let identity = stage5d_test_riskgate_identity_for(source_strategy, &envelope);
+        let source_shadow_session = envelope.strategy_state.strategy_state_json
+            ["HybridIntradayRuntime"]["risk_gate_shadow_session_date"]
+            .as_str()
+            .map(str::to_string);
+        let source_pnl_points = envelope.strategy_state.strategy_state_json
+            ["HybridIntradayRuntime"]["risk_gate_shadow_pnl_points"]
+            .as_f64()
+            .unwrap_or(0.0);
+        let mut evidence = stage5d_test_riskgate_evidence_before_source_pending(
+            &identity,
+            &envelope,
+            source_shadow_session.as_deref(),
+        );
+        evidence.current_shadow_pnl_points =
+            crate::hybrid_intraday::format_riskgate_authority_decimal(source_pnl_points)
+                .expect("r1b source shadow pnl must be authority-canonical");
+        evidence.ledger_tail_hash =
+            stage5d_compute_riskgate_ledger_tail_hash(&evidence).expect("r1b ledger tail hash");
+        stage5d_apply_riskgate_evidence_to_envelope(&mut envelope, &evidence);
+        bind_fixture_to_strategy_config(&mut envelope, source_strategy);
+        envelope.riskgate.ledger_tail_hash = evidence.ledger_tail_hash.clone();
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("r1b source core checksum");
+        stage5d_test_normalize_persisted_checksum(&mut envelope);
+        let input = Stage5dCanonicalEnvelopeExportInput {
+            snapshot_id: envelope.snapshot_id.clone(),
+            snapshot_revision: envelope.snapshot_revision,
+            previous_revision: envelope.previous_revision,
+            write_generation: envelope.write_generation,
+            persisted_at_ts_utc: envelope.persisted_at_ts_utc,
+            strategy_id: envelope.binding.strategy_id.clone(),
+            account_id: envelope.binding.account_id.clone(),
+            instrument_id: envelope.binding.instrument_id.to_instrument_id(),
+            source_commit_or_build_id: STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID.to_string(),
+            lifecycle_watermarks: envelope.lifecycle_watermarks.clone(),
+            riskgate: envelope.riskgate.clone(),
+        };
+        (input, evidence)
+    }
+
+    fn stage5d_test_r3_positive_core_source_full_restart(
+        case: Stage5dR3PositiveCoreCase,
+    ) -> Stage5dFinalR2PackageOutcome {
+        let source_strategy = stage5d_test_r3_positive_core_source_strategy(case);
+        let source_state =
+            serde_json::to_value(Strategy::state(&source_strategy)).expect("r1b source state");
+        let source_semantic_fingerprint =
+            crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(&source_state)
+                .expect("r1b source semantic fingerprint");
+        let source_extension = source_strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("r1b source private extension exports");
+        assert!(
+            source_extension.pending_entry.is_none()
+                && source_extension.pending_exit.is_none()
+                && source_extension.partial_entry_timer.is_none(),
+            "{case:?}: r1b accepted core source must not carry pending tails"
+        );
+        assert!(
+            source_extension.runtime_pending_finalizations.is_empty(),
+            "{case:?}: r1b accepted core source must not carry pending riskgate finalizations"
+        );
+        let source_runtime = source_state
+            .get("HybridIntradayRuntime")
+            .unwrap_or_else(|| panic!("{case:?}: r1b source state must be Hybrid"));
+        assert_eq!(
+            source_runtime
+                .get("last_position_qty")
+                .and_then(Value::as_f64),
+            Some(case.expected_qty()),
+            "{case:?}: source lifecycle must produce expected qty"
+        );
+        assert_eq!(
+            source_runtime.get("current_side").and_then(Value::as_str),
+            case.expected_side(),
+            "{case:?}: source lifecycle must produce expected side"
+        );
+        let (input, evidence) = stage5d_test_r3_positive_core_input_and_evidence_for_source(
+            &source_strategy,
+            case.snapshot_id(),
+        );
+        let (package, report) = stage5d_export_canonical_restart_package_from_runtime(
+            &source_strategy,
+            input,
+            evidence,
+        )
+        .expect("r1b source-owned positive-core package export must succeed");
+        assert!(!report.redis_opened);
+        assert!(!report.finam_opened);
+        assert!(!report.dispatch_opened);
+        assert!(!report.runtime_live_opened);
+        let package_json = package
+            .to_json_strict()
+            .expect("r1b positive-core package serializes");
+        drop(source_strategy);
+
+        let decoded = Stage5dCanonicalRestartPackage::from_json_str_strict(&package_json)
+            .expect("r1b strict package decode must succeed");
+        assert_eq!(
+            decoded.envelope.strategy_state.strategy_state_json, source_state,
+            "{case:?}: package must contain exact source-produced semantic state"
+        );
+        assert_eq!(
+            decoded.report.semantic_payload_fingerprint, source_semantic_fingerprint,
+            "{case:?}: semantic fingerprint must survive durable bytes"
+        );
+        let fresh_strategy = stage5d_test_riskgate_runtime_strategy();
+        let (bootstrapped, strict_envelope, validated_evidence) =
+            stage5d_test_bootstrap_strict_envelope_with_strategy(
+                decoded.envelope,
+                fresh_strategy,
+                decoded.validated_evidence.evidence,
+            );
+        let injected = expect_stage5d_riskgate_ok(
+            stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
+            &format!("{case:?}: r1b positive-core riskgate injection must succeed"),
+        );
+        assert!(injected.recovery_complete());
+        let recovery_plan_fingerprint = injected.recovery_plan_fingerprint().to_string();
+        let restored = stage5d_test_assert_injected_restores_indexes_once(
+            injected,
+            &strict_envelope.recovery_indexes.known_order_ids,
+            &strict_envelope.recovery_indexes.pending_requests,
+            "r1b positive-core restored callback must run exactly once",
+        );
+        let restored_state_json =
+            serde_json::to_value(Strategy::state(restored.stage5d_strategy()))
+                .expect("r1b restored state serializes");
+        assert_eq!(
+            restored_state_json, strict_envelope.strategy_state.strategy_state_json,
+            "{case:?}: actual post-apply/restored state must match strict source envelope"
+        );
+        let restored_runtime = restored_state_json
+            .get("HybridIntradayRuntime")
+            .unwrap_or_else(|| panic!("{case:?}: restored state must be Hybrid"));
+        assert_eq!(
+            restored_runtime
+                .get("last_position_qty")
+                .and_then(Value::as_f64),
+            Some(case.expected_qty()),
+            "{case:?}: broker-truth quantity must survive restored callback"
+        );
+        assert_eq!(
+            restored_runtime.get("current_side").and_then(Value::as_str),
+            case.expected_side(),
+            "{case:?}: broker-truth side must survive restored callback"
+        );
+        let restored_receipt_summary = format!(
+            "runtime_state_restored={};warmup_started={};pending_recovery_started={};semantic_bar_enabled={};known_orders={};pending_requests={}",
+            restored.receipt().runtime_state_restored(),
+            restored.receipt().warmup_started(),
+            restored.receipt().pending_recovery_started(),
+            restored.receipt().semantic_bar_enabled(),
+            restored.receipt().stage5d_test_known_order_ids().len(),
+            restored.receipt().pending_requests().len(),
+        );
+        let history = stage5d_test_history_batch_for_final_package(&strict_envelope);
+        let warmed = crate::stage5c_paper_host::stage5d_test_warmup_stage5c_history_at(
+            restored,
+            history,
+            strict_envelope.persisted_at_ts_utc + chrono::Duration::seconds(1),
+        )
+        .expect("r1b positive-core Stage 5C continuation must succeed");
+        assert!(warmed.receipt().warmup_started());
+        assert!(!warmed.receipt().pending_recovery_started());
+        assert!(!warmed.receipt().semantic_bar_enabled());
+        let mut report = report;
+        report.recovery_plan_fingerprint_sha256 = Some(recovery_plan_fingerprint.clone());
+        Stage5dFinalR2PackageOutcome {
+            package_json,
+            package_checksum_sha256: report
+                .package_checksum_sha256
+                .clone()
+                .expect("r1b package checksum"),
+            envelope_checksum_sha256: report.payload_checksum_sha256.clone(),
+            evidence_checksum_sha256: report
+                .riskgate_evidence_checksum_sha256
+                .clone()
+                .expect("r1b evidence checksum"),
+            evidence_fingerprint_sha256: report
+                .riskgate_evidence_fingerprint_sha256
+                .clone()
+                .expect("r1b evidence fingerprint"),
+            semantic_fingerprint_sha256: report.semantic_payload_fingerprint.clone(),
+            recovery_index_fingerprint_sha256: report.recovery_index_fingerprint.clone(),
+            recovery_plan_fingerprint_sha256: recovery_plan_fingerprint,
+            restored_receipt_summary,
+            redacted_restart_report: report,
+            warmed_processed_bars: warmed.receipt().processed_bars(),
+            runtime_pending_finalizations_count: strict_envelope
+                .runtime_private_extension
+                .runtime_pending_finalizations
+                .len(),
+            durable_finalization_outbox_count: strict_envelope
+                .riskgate
+                .durable_finalization_outbox
+                .len(),
+        }
+    }
+
+    fn stage5d_test_r3_current_shadow_discovery_without_preseed(
+        snapshot_id: &str,
+        bars: Vec<crate::runtime_compat::BarEvent>,
+        expected_pnl_text: &str,
+    ) -> Stage5dRiskGateInjectionBlocked {
+        let source_strategy = stage5d_test_source_current_shadow_strategy(bars);
+        let source_state_json =
+            serde_json::to_value(source_strategy.state()).expect("r1b shadow source state");
+        let source_pnl_points = source_state_json["HybridIntradayRuntime"]
+            ["risk_gate_shadow_pnl_points"]
+            .as_f64()
+            .expect("r1b shadow source pnl");
+        let source_pnl_text =
+            crate::hybrid_intraday::format_riskgate_authority_decimal(source_pnl_points)
+                .expect("r1b shadow pnl canonical");
+        assert_eq!(source_pnl_text, expected_pnl_text);
+        let (input, evidence) = stage5d_test_r3_positive_core_input_and_evidence_for_source(
+            &source_strategy,
+            snapshot_id,
+        );
+        let (package, report) = stage5d_export_canonical_restart_package_from_runtime(
+            &source_strategy,
+            input,
+            evidence,
+        )
+        .expect("r1b current-shadow package export must succeed before discovery");
+        assert!(!report.redis_opened && !report.finam_opened && !report.dispatch_opened);
+        let package_json = package
+            .to_json_strict()
+            .expect("r1b current-shadow package serializes");
+        drop(source_strategy);
+        let decoded = Stage5dCanonicalRestartPackage::from_json_str_strict(&package_json)
+            .expect("r1b current-shadow package decodes");
+        let fresh_strategy = stage5d_test_riskgate_runtime_strategy();
+        let (bootstrapped, _strict_envelope, validated_evidence) =
+            stage5d_test_bootstrap_strict_envelope_with_strategy(
+                decoded.envelope,
+                fresh_strategy,
+                decoded.validated_evidence.evidence,
+            );
+        let blocked = expect_stage5d_riskgate_blocked(
+            stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
+            "r1b current-shadow discovery must remain fail-closed on fresh runtime without preseed",
+        );
+        assert_eq!(
+            blocked.reason(),
+            Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch,
+            "r1b current-shadow first localized mismatch is materialized riskgate state"
+        );
+        blocked
+    }
+
     fn restore_semantic_state(
         strategy: &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
         envelope: &Stage5dPersistenceEnvelope,
@@ -12855,46 +13281,101 @@ mod tests {
 
     #[test]
     fn stage5d_final_r3_positive_core_source_produced_full_restart_matrix() {
-        let clean = stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
-            "stage5d-final-r3-positive-core-clean-flat",
-            |_| {},
-        );
-        assert_eq!(clean.warmed_processed_bars, 1);
-        assert!(clean
-            .restored_receipt_summary
-            .contains("runtime_state_restored=true"));
-        assert_eq!(clean.runtime_pending_finalizations_count, 0);
-        assert_eq!(clean.durable_finalization_outbox_count, 0);
-
-        for (snapshot_id, qty, side) in [
-            (
-                "stage5d-final-r3-positive-core-broker-open-long",
-                1.0,
-                Some("long"),
-            ),
-            (
-                "stage5d-final-r3-positive-core-broker-open-short",
-                -1.0,
-                Some("short"),
-            ),
+        let mut actual_source_core_cases_executed = 0usize;
+        for case in [
+            Stage5dR3PositiveCoreCase::CleanFlat,
+            Stage5dR3PositiveCoreCase::BrokerOpenLong,
+            Stage5dR3PositiveCoreCase::BrokerOpenShort,
         ] {
-            let outcome = stage5d_test_canonical_package_full_restart_with_stage5c_continuation(
-                snapshot_id,
-                |envelope| stage5d_test_set_position_side(envelope, qty, side),
-            );
+            let outcome = stage5d_test_r3_positive_core_source_full_restart(case);
             assert_eq!(outcome.warmed_processed_bars, 1);
             assert!(outcome
                 .restored_receipt_summary
                 .contains("runtime_state_restored=true"));
             assert!(!outcome.package_checksum_sha256.is_empty());
             assert!(!outcome.recovery_plan_fingerprint_sha256.is_empty());
+            assert_eq!(outcome.runtime_pending_finalizations_count, 0);
+            assert_eq!(outcome.durable_finalization_outbox_count, 0);
+            actual_source_core_cases_executed += 1;
+        }
+        assert_eq!(actual_source_core_cases_executed, 3);
+
+        // Stage 5D-final-restart-r3 positive-core-r1b marker:
+        // positive_core_accepted_count_3, positive_core_clean_flat_actual_source_lifecycle,
+        // positive_core_broker_open_long_short_actual_source_lifecycle,
+        // no_flat_persisted_fixture_as_positive_core_producer,
+        // no_stage5d_test_set_position_side_as_positive_core_producer,
+        // source_runtime_destroyed_before_restart_boundary,
+        // strict_package_decode_used_for_positive_core,
+        // actual_post_apply_state_equality_checked,
+        // actual_post_apply_broker_truth_quantity_side_checked,
+        // positive_core_accepted_cases_executed_3, actual_source_core_cases_executed_3,
+        // positive_core_todo_count_14, stage5e_closed.
+    }
+
+    #[test]
+    fn stage5d_final_r3_current_shadow_discovery_localizes_materialized_gap() {
+        for (snapshot_id, bars, expected_pnl) in [
+            (
+                "stage5d-final-r3-current-shadow-discovery-long",
+                vec![stage5d_test_source_bar_ohlc(
+                    stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                    99.7,
+                    102.0,
+                    99.7,
+                    99.7,
+                )],
+                "0.0",
+            ),
+            (
+                "stage5d-final-r3-current-shadow-discovery-short",
+                vec![stage5d_test_source_bar_ohlc(
+                    stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                    100.3,
+                    100.3,
+                    98.0,
+                    100.3,
+                )],
+                "0.0",
+            ),
+            (
+                "stage5d-final-r3-current-shadow-discovery-realized-pnl",
+                vec![
+                    stage5d_test_source_bar_ohlc(
+                        stage5d_test_source_ts_local(2026, 1, 6, 9, 0, 0),
+                        99.7,
+                        102.0,
+                        99.7,
+                        99.7,
+                    ),
+                    stage5d_test_source_bar_ohlc(
+                        stage5d_test_source_ts_local(2026, 1, 6, 9, 10, 0),
+                        101.0,
+                        101.0,
+                        100.8,
+                        101.0,
+                    ),
+                ],
+                "1.199999999999997",
+            ),
+        ] {
+            let blocked = stage5d_test_r3_current_shadow_discovery_without_preseed(
+                snapshot_id,
+                bars,
+                expected_pnl,
+            );
+            assert_eq!(
+                blocked.reason(),
+                Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch
+            );
         }
 
-        // Stage 5D-final-restart-r3 positive-core-r1 marker:
-        // positive_core_accepted_count_3, positive_core_clean_flat_source_package,
-        // positive_core_broker_open_long_short_source_package,
-        // positive_core_current_shadow_materialized_gap_discovered,
-        // positive_core_accepted_cases_executed_3, positive_core_todo_count_14,
+        // Stage 5D-final-restart-r3 current-shadow-discovery-r1b marker:
+        // current_shadow_discovery_cases_executed_3,
+        // current_shadow_rows_remain_todo_source_produced,
+        // current_shadow_discovery_without_preseed,
+        // current_shadow_first_mismatch_materialized_riskgate_state,
+        // current_shadow_no_production_restore_correction_authorized,
         // stage5e_closed.
     }
 
@@ -13038,7 +13519,10 @@ mod tests {
         .expect("Stage 5D-final-restart-r3 inventory must parse");
         assert_eq!(inventory["schema_version"], serde_json::json!(1));
         assert_eq!(inventory["stage"], "5D-final-restart-r3");
-        assert_eq!(inventory["status"], "positive_core_r1a_partial_not_closed");
+        assert_eq!(
+            inventory["status"],
+            "positive_core_r1b_actual_source_core_not_closed"
+        );
         for surface in [
             "redis",
             "finam",
@@ -13118,7 +13602,7 @@ mod tests {
             .iter()
             .filter(|row| {
                 row["execution_status"] == "accepted_r3a_r1_source_produced"
-                    || row["execution_status"] == "accepted_r3_positive_core_r1_source_produced"
+                    || row["execution_status"] == "accepted_r3_positive_core_r1b_source_produced"
             })
             .map(|row| row["case_id"].as_str().expect("case_id"))
             .collect();
@@ -13128,7 +13612,7 @@ mod tests {
             .collect();
         assert_eq!(
             accepted_observed, accepted_all,
-            "r3 positive-core-r1a must accept exactly three core rows plus four r3a-r1 rows"
+            "r3 positive-core-r1b must accept exactly three core rows plus four r3a-r1 rows"
         );
         let todo_rows: Vec<_> = rows
             .iter()
@@ -13137,7 +13621,7 @@ mod tests {
         assert_eq!(
             todo_rows.len(),
             14,
-            "r3 positive-core-r1a must keep exactly fourteen rows as TODO"
+            "r3 positive-core-r1b must keep exactly fourteen rows as TODO"
         );
         for row in todo_rows {
             assert!(
@@ -13156,7 +13640,16 @@ mod tests {
             );
             assert_eq!(
                 row["execution_status"],
-                "accepted_r3_positive_core_r1_source_produced"
+                "accepted_r3_positive_core_r1b_source_produced"
+            );
+            assert_eq!(row["producer_kind"], "runtime_callback");
+            assert_eq!(row["canonical_package_path"], serde_json::json!(true));
+            assert_eq!(row["source_object_destroyed"], serde_json::json!(true));
+            assert_eq!(row["strict_decode_used"], serde_json::json!(true));
+            assert_eq!(row["fresh_runtime_used"], serde_json::json!(true));
+            assert_eq!(
+                row["stage5c_continuation_executed"],
+                serde_json::json!(true)
             );
         }
         let mut accepted_cases_executed = 0usize;
@@ -13198,10 +13691,12 @@ mod tests {
             accepted_cases_executed, 4,
             "r3 resumption must execute exactly the four accepted r3a-r1 cases"
         );
-        // Stage 5D-final-restart-r3 resumption marker:
+        // Stage 5D-final-restart-r3 positive-core-r1b inventory marker:
         // mandatory_positive_count_21, r3a_r1_source_pending_reused,
         // accepted_executable_count_7, todo_source_produced_count_14,
-        // accepted_cases_executed_4, no_schema_only_positive_overclaim,
+        // accepted_cases_executed_4, r3a_cases_reexecuted_4,
+        // actual_source_core_cases_executed_3,
+        // current_shadow_discovery_cases_executed_3, no_schema_only_positive_overclaim,
         // no_todo_owning_test, stage5e_closed.
     }
 

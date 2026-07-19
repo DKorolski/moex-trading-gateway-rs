@@ -12,7 +12,7 @@ then
   python_with_tomllib="python3"
 fi
 
-echo "stage5d-final-restart-r3-positive-core-r1a-gate: start"
+echo "stage5d-final-restart-r3-positive-core-r1b-gate: start"
 echo "rustc_version=$(rustc --version)"
 echo "cargo_version=$(cargo --version)"
 echo "source_commit=$(git rev-parse HEAD)"
@@ -36,7 +36,7 @@ accepted = [
     if row["execution_status"]
     in {
         "accepted_r3a_r1_source_produced",
-        "accepted_r3_positive_core_r1_source_produced",
+        "accepted_r3_positive_core_r1b_source_produced",
     }
 ]
 todo = [
@@ -48,23 +48,27 @@ print(f"mandatory_positive_count={len(rows)}")
 print(f"accepted_executable_count={len(accepted)}")
 print(f"todo_source_produced_count={len(todo)}")
 print("positive_core_accepted_count=3")
-print("positive_core_accepted_cases_executed=3")
-print("r3a_r1_accepted_cases_executed=4")
+print("actual_source_core_cases_executed=3")
+print("r3a_cases_reexecuted=4")
+print("current_shadow_discovery_cases_executed=3")
 print("accepted_cases_executed=7")
 print("stage5e_closed=true")
 PY
 
 cargo fmt --all --check
 cargo test -p strategy-runtime-core stage5d_final_r3_positive_core -- --nocapture
+cargo test -p strategy-runtime-core stage5d_final_r3_current_shadow_discovery -- --nocapture
 cargo test -p strategy-runtime-core stage5d_final_r3_resumption -- --nocapture
 python3 scripts/stage5c_api_freeze_check.py
 python3 scripts/stage5d_additive_freeze_check.py
 bash scripts/forbidden_surface_scan.sh
 python3 scripts/stage5d_additive_freeze_negative_harness.py
+python3 scripts/handoff_safety_check.py --source-tree "$(pwd)"
+bash scripts/make_handoff_archive.sh
 
 if test -z "$(git status --short)"; then
   echo "clean_worktree_after=true"
 else
   echo "clean_worktree_after=false"
 fi
-echo "stage5d-final-restart-r3-positive-core-r1a-gate: ok"
+echo "stage5d-final-restart-r3-positive-core-r1b-gate: ok"

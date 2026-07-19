@@ -21,9 +21,10 @@ source-exact persistence restore path. The Stage 5D-final-restart-r2 durable
 package is retained as foundation. Stage 5D-final-restart-r3 has resumed with a
 21-case mandatory positive inventory gate: the accepted r3a-r1 MR/BO
 pending-entry source-produced proof is reused and executed, and
-positive-core-r1a adds clean flat plus broker-consistent open Long/Short package
-restart evidence. Seven rows are accepted; fourteen remain TODO without owning
-tests until they become source-produced executable evidence. The r3a-r1
+positive-core-r1b adds clean flat plus broker-consistent open Long/Short
+actual-source lifecycle package restart evidence. Seven rows are accepted;
+fourteen remain TODO without owning tests until they become source-produced
+executable evidence. The r3a-r1
 restore-ownership proof shows that exact MR/BO
 pending-entry shape is restored in the actual fresh runtime
 `Strategy::state(...)` plus runtime-private DTO by Stage 5D private apply before

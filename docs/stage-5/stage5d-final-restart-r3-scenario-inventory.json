@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "5D-final-restart-r3",
-  "status": "positive_core_r1a_partial_not_closed",
+  "status": "positive_core_r1b_actual_source_core_not_closed",
   "closed_surfaces": {
     "redis": false,
     "finam": false,
@@ -16,19 +16,40 @@
       "case_id": "positive_clean_flat",
       "category": "positive",
       "owning_test": "stage5d_final_r3_positive_core_source_produced_full_restart_matrix",
-      "execution_status": "accepted_r3_positive_core_r1_source_produced"
+      "execution_status": "accepted_r3_positive_core_r1b_source_produced",
+      "producer_kind": "runtime_callback",
+      "producer_entrypoint": "stage5d_test_source_clean_flat_strategy",
+      "canonical_package_path": true,
+      "source_object_destroyed": true,
+      "strict_decode_used": true,
+      "fresh_runtime_used": true,
+      "stage5c_continuation_executed": true
     },
     {
       "case_id": "positive_broker_consistent_open_long",
       "category": "positive",
       "owning_test": "stage5d_final_r3_positive_core_source_produced_full_restart_matrix",
-      "execution_status": "accepted_r3_positive_core_r1_source_produced"
+      "execution_status": "accepted_r3_positive_core_r1b_source_produced",
+      "producer_kind": "runtime_callback",
+      "producer_entrypoint": "stage5d_test_source_broker_open_strategy",
+      "canonical_package_path": true,
+      "source_object_destroyed": true,
+      "strict_decode_used": true,
+      "fresh_runtime_used": true,
+      "stage5c_continuation_executed": true
     },
     {
       "case_id": "positive_broker_consistent_open_short",
       "category": "positive",
       "owning_test": "stage5d_final_r3_positive_core_source_produced_full_restart_matrix",
-      "execution_status": "accepted_r3_positive_core_r1_source_produced"
+      "execution_status": "accepted_r3_positive_core_r1b_source_produced",
+      "producer_kind": "runtime_callback",
+      "producer_entrypoint": "stage5d_test_source_broker_open_strategy",
+      "canonical_package_path": true,
+      "source_object_destroyed": true,
+      "strict_decode_used": true,
+      "fresh_runtime_used": true,
+      "stage5c_continuation_executed": true
     },
     {
       "case_id": "positive_current_shadow_long",
