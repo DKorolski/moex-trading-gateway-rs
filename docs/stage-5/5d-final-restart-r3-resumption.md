@@ -1,8 +1,8 @@
 # Stage 5D-final-restart-r3 — resumption inventory gate
 
-Status: review candidate, no-I/O. This is a resumption/current-shadow-r1 slice
-after accepted Stage 5D-final-restart-r3a-r1 and positive-core-r1b, not full r3
-closure.
+Status: review candidate, no-I/O. This is a
+resumption/current-shadow-r1-r1 slice after accepted
+Stage 5D-final-restart-r3a-r1 and positive-core-r1b, not full r3 closure.
 
 The goal of this slice is to restart the larger r3 closure work without
 overclaiming evidence. It records the full required positive matrix, reuses the
@@ -57,7 +57,7 @@ executable and owned by
 `stage5d_final_r3_positive_core_source_produced_full_restart_matrix`. They are
 produced through actual source runtime lifecycle callbacks, not direct
 persistence/envelope position mutation. The
-current-shadow-r1 Long/Short/realized-PnL rows are executable and owned by
+current-shadow-r1-r1 Long/Short/realized-PnL rows are executable and owned by
 `stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix`. They
 are produced through current-shadow source callbacks, strict canonical package
 decode, fresh runtime restore, exact post-apply equality and Stage 5C
@@ -69,7 +69,7 @@ inventory, verifies the closed-surface contract, verifies the exact 21-case
 positive id set, and executes the r3a-r1 MR/BO pending-entry source-produced
 restart cases again.
 
-Exactly ten rows are executable/accepted after current-shadow-r1. The other
+Exactly ten rows are executable/accepted after current-shadow-r1-r1. The other
 eleven rows remain marked `todo_source_produced` and must not claim an
 `owning_test`.
 That marker is intentional: it prevents this slice from being confused with full
@@ -83,8 +83,11 @@ Before correction, the source runtime state had empty/default materialized
 current-shadow values while the ledger-derived package evidence rebuilt
 `mr_enabled=true`, `rolling_sum=47.0`, `last_finalized_session_date=2026-01-05`
 and `ledger_rows_count=61`. The owning layer is now the approved Stage 5D
-materialized-apply boundary before canonical package export/injection. This
-does not authorize source `set_state()` correction.
+validated materialized-apply boundary before canonical package export/injection.
+Canonical restart export now fails fast on the old stale-source sequence, so a
+committed strict-decodable package cannot be produced if it would
+deterministically fail at authoritative riskgate injection. This does not
+authorize source `set_state()` correction.
 
 ## Gates
 
@@ -126,6 +129,10 @@ The Stage 5D negative harness adds direct mutations for:
 - reusing the source runtime instead of a fresh restored runtime;
 - opening Stage 5E or any closed Redis/FINAM/transport/dispatch/runtime-live
   surface.
+- removing the production materialized-apply boundary or turning it into a
+  `#[cfg(test)]` helper;
+- allowing raw envelope authority, raw strategy extraction, partial mutation on
+  block, or stale package commit.
 
 ## Next step
 

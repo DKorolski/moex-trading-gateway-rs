@@ -250,13 +250,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `Strategy::state(...)` lifecycle equality plus exact runtime-private DTO
   equality after private apply and before broker bootstrap/callback, and
   marker-pins Stage 5D negative cases. Stage 5D-final-restart-r3
-  current-shadow-r1 localizes the first current-shadow restore mismatch to
+  current-shadow-r1-r1 localizes the first current-shadow restore mismatch to
   materialized riskgate state
   (`risk_gate_mr_enabled_current_session`, `risk_gate_rolling_sum_lb120`,
   `risk_gate_last_finalized_session_date`,
   `risk_gate_ledger_rows_count`) and closes the Long/Short/realized-PnL rows by
-  applying the approved materialized-riskgate boundary before canonical package
-  export/injection. The current r3 inventory gate now has exactly ten accepted
+  applying the approved validated materialized-riskgate boundary before
+  canonical package export/injection. Canonical restart export now rejects stale
+  source materialized state before committed strict package bytes can be
+  produced. The current r3 inventory gate now has exactly ten accepted
   executable rows: four r3a-r1 pending-entry rows, three positive-core-r1b
   clean/open rows, and three current-shadow-r1 rows. Eleven rows remain
   `todo_source_produced` without `owning_test`; this deliberately avoids

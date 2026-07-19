@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-final-restart-r3-current-shadow-r1",
+  "stage": "5D-final-restart-r3-current-shadow-r1-r1",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "8c864ff4ca4447c6b735b6f7ac519cb33384d840d1a4f0a19e6f44eefbe3b11e"
+      "stage5d_consumer_sha256": "779b33f296b33aa4e40f20b5adb09a57c737032f87fc1457e9332d4b0d0236cf"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "8c864ff4ca4447c6b735b6f7ac519cb33384d840d1a4f0a19e6f44eefbe3b11e"
+      "stage5d_consumer_sha256": "779b33f296b33aa4e40f20b5adb09a57c737032f87fc1457e9332d4b0d0236cf"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "8c864ff4ca4447c6b735b6f7ac519cb33384d840d1a4f0a19e6f44eefbe3b11e"
+    "current_sha256": "779b33f296b33aa4e40f20b5adb09a57c737032f87fc1457e9332d4b0d0236cf"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -354,7 +354,25 @@
     "final_r3_current_shadow_source_runtime_reused",
     "final_r3_current_shadow_direct_mutation_substituted",
     "final_r3_current_shadow_generation_identity_mismatch",
-    "final_r3_current_shadow_stage5e_or_surface_opened"
+    "final_r3_current_shadow_stage5e_or_surface_opened",
+    "final_r3_current_shadow_r1r1_production_boundary_removed",
+    "final_r3_current_shadow_r1r1_boundary_cfg_test_only",
+    "final_r3_current_shadow_r1r1_raw_envelope_authority",
+    "final_r3_current_shadow_r1r1_raw_strategy_extractor",
+    "final_r3_current_shadow_r1r1_apply_after_bootstrap",
+    "final_r3_current_shadow_r1r1_apply_after_injection",
+    "final_r3_current_shadow_r1r1_callback_before_apply",
+    "final_r3_current_shadow_r1r1_blocked_loses_capability",
+    "final_r3_current_shadow_r1r1_partial_mutation_on_block",
+    "final_r3_current_shadow_r1r1_identity_binding_removed",
+    "final_r3_current_shadow_r1r1_generation_binding_removed",
+    "final_r3_current_shadow_r1r1_ledger_tail_binding_removed",
+    "final_r3_current_shadow_r1r1_pnl_binding_removed",
+    "final_r3_current_shadow_r1r1_builder_accepts_stale_source",
+    "final_r3_current_shadow_r1r1_unrestorable_committed_package",
+    "final_r3_current_shadow_r1r1_lifecycle_fields_overwritten",
+    "final_r3_current_shadow_r1r1_field_level_proof_removed",
+    "final_r3_current_shadow_r1r1_stage5e_or_surface_opened"
   ],
   "stage5d_public_api": {
     "public_reexports": [

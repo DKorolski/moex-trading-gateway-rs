@@ -551,6 +551,60 @@ pub enum Stage5dRiskGateInjectionBlockReason {
     RecoveryPlanBindingMismatch,
 }
 
+/// Opaque proof that the Stage 5D current-shadow materialized riskgate
+/// projection was rebuilt from validated ledger evidence and applied before a
+/// canonical restart package can be committed or a restored runtime can advance
+/// to broker bootstrap/injection. This is an in-process type-state marker only:
+/// it performs no Redis, FINAM, transport, dispatch, runtime-live or broker
+/// execution.
+#[allow(dead_code)]
+pub(crate) struct Stage5dMaterializedRiskGateAppliedPaperStrategy {
+    snapshot_id: String,
+    evidence_fingerprint_sha256: String,
+    materialized_fingerprint_sha256: String,
+}
+
+#[allow(dead_code)]
+impl Stage5dMaterializedRiskGateAppliedPaperStrategy {
+    pub(crate) fn snapshot_id(&self) -> &str {
+        &self.snapshot_id
+    }
+
+    pub(crate) fn evidence_fingerprint(&self) -> &str {
+        &self.evidence_fingerprint_sha256
+    }
+
+    pub(crate) fn materialized_fingerprint(&self) -> &str {
+        &self.materialized_fingerprint_sha256
+    }
+}
+
+/// Recoverable pre-mutation block for the materialized-riskgate apply boundary.
+/// The validated envelope capability is retained opaquely so a caller can retry
+/// the same stage with corrected validated evidence without exposing raw
+/// strategy mutation authority.
+#[allow(dead_code)]
+pub(crate) struct Stage5dMaterializedRiskGateApplyBlocked {
+    validated_envelope: Box<Stage5dValidatedPersistenceEnvelope>,
+    reason: Stage5dRiskGateInjectionBlockReason,
+}
+
+#[allow(dead_code)]
+impl Stage5dMaterializedRiskGateApplyBlocked {
+    pub(crate) fn reason(&self) -> Stage5dRiskGateInjectionBlockReason {
+        self.reason
+    }
+
+    pub(crate) fn input_capability_preserved(&self) -> bool {
+        let _ = &self.validated_envelope;
+        true
+    }
+
+    pub(crate) fn snapshot_id(&self) -> &str {
+        self.validated_envelope.snapshot_id()
+    }
+}
+
 /// Public redacted Stage 5D bootstrap blocker categories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage5dBootstrapBlockReason {
@@ -734,6 +788,45 @@ pub fn stage5d_retry_authoritative_riskgate_injection(
     fresh_evidence: Stage5dValidatedRiskGateLedgerEvidence,
 ) -> Result<Stage5dRiskGateInjectedPaperStrategy, Stage5dRiskGateInjectionBlocked> {
     stage5d_inject_authoritative_riskgate_with_evidence(*blocked.bootstrapped, fresh_evidence)
+}
+
+/// Apply the validated materialized riskgate projection before canonical
+/// restart-package commit or before advancing a freshly restored current-shadow
+/// runtime to broker bootstrap/injection.
+///
+/// The function consumes a validated envelope capability and a validated ledger
+/// evidence capability. All binding, generation, ledger-tail, current-shadow,
+/// decimal and frontier checks run before mutation. On block the validated
+/// envelope capability is preserved in an opaque blocked result and the strategy
+/// is not partially mutated.
+#[allow(dead_code)]
+pub(crate) fn stage5d_apply_validated_materialized_riskgate_for_restart(
+    strategy: &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    validated_envelope: Stage5dValidatedPersistenceEnvelope,
+    validated_evidence: Stage5dValidatedRiskGateLedgerEvidence,
+) -> Result<Stage5dMaterializedRiskGateAppliedPaperStrategy, Stage5dMaterializedRiskGateApplyBlocked>
+{
+    let envelope = &validated_envelope.envelope;
+    let apply_state = match stage5d_build_validated_materialized_riskgate_apply_state(
+        strategy,
+        envelope,
+        &validated_evidence,
+    ) {
+        Ok(apply_state) => apply_state,
+        Err(reason) => {
+            return Err(Stage5dMaterializedRiskGateApplyBlocked {
+                validated_envelope: Box::new(validated_envelope),
+                reason,
+            });
+        }
+    };
+
+    strategy.on_risk_gate_state(&apply_state.riskgate_state);
+    Ok(Stage5dMaterializedRiskGateAppliedPaperStrategy {
+        snapshot_id: envelope.snapshot_id.clone(),
+        evidence_fingerprint_sha256: validated_evidence.evidence_fingerprint_sha256,
+        materialized_fingerprint_sha256: apply_state.materialized_fingerprint_sha256,
+    })
 }
 
 /// Notify the source runtime-state-restored callback exactly once after the
@@ -1183,6 +1276,169 @@ fn stage5d_authoritative_riskgate_state_from_evidence(
         },
         recovery_plan,
     ))
+}
+
+struct Stage5dValidatedMaterializedRiskGateApplyState {
+    riskgate_state: RiskGateRuntimeState,
+    materialized_fingerprint_sha256: String,
+}
+
+fn stage5d_build_validated_materialized_riskgate_apply_state(
+    strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    envelope: &Stage5dPersistenceEnvelope,
+    validated_evidence: &Stage5dValidatedRiskGateLedgerEvidence,
+) -> Result<Stage5dValidatedMaterializedRiskGateApplyState, Stage5dRiskGateInjectionBlockReason> {
+    let evidence = &validated_evidence.evidence;
+    if !strategy.stage5d_riskgate_applicable() {
+        return Err(Stage5dRiskGateInjectionBlockReason::RiskGateNotApplicable);
+    }
+
+    let expected_identity =
+        strategy.stage5d_expected_riskgate_identity(envelope.binding.strategy_id.clone());
+    if !stage5d_riskgate_identity_matches_source(&envelope.riskgate.identity, &expected_identity)
+        || !stage5d_riskgate_identity_matches_source(&evidence.identity, &expected_identity)
+    {
+        return Err(Stage5dRiskGateInjectionBlockReason::LedgerIdentityMismatch);
+    }
+    if evidence.ledger_tail_hash != envelope.riskgate.ledger_tail_hash {
+        return Err(Stage5dRiskGateInjectionBlockReason::LedgerTailMismatch);
+    }
+    if evidence.current_generation != crate::hybrid_intraday::RISK_GATE_STATE_GENERATION
+        || evidence.current_generation != envelope.riskgate.materialized_state.current_generation
+    {
+        return Err(Stage5dRiskGateInjectionBlockReason::LedgerGenerationMismatch);
+    }
+
+    let semantic: Stage5dSemanticStrategyStateV1 =
+        serde_json::from_value(envelope.strategy_state.strategy_state_json.clone())
+            .map_err(|_| Stage5dRiskGateInjectionBlockReason::MaterializedStateInvalid)?;
+    let Stage5dSemanticStrategyStateV1::HybridIntradayRuntime(state) = semantic;
+
+    let source_records = stage5d_validate_source_exact_riskgate_records(
+        evidence,
+        Some(envelope.persisted_at_ts_utc),
+    )?;
+    crate::hybrid_intraday::validate_ledger_record_identity(&source_records, &expected_identity)
+        .map_err(|_| Stage5dRiskGateInjectionBlockReason::LedgerIdentityMismatch)?;
+    let current_shadow_session_date = evidence
+        .current_shadow_session_date
+        .as_deref()
+        .map(|value| {
+            NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                .map_err(|_| Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid)
+        })
+        .transpose()?;
+    let current_shadow_pnl_points = crate::hybrid_intraday::parse_riskgate_authority_decimal(
+        &evidence.current_shadow_pnl_points,
+    )
+    .map_err(|_| Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid)?;
+
+    let analysis = stage5d_analyze_riskgate_crash_frontiers(
+        envelope,
+        evidence,
+        &source_records,
+        &expected_identity,
+        current_shadow_session_date,
+        current_shadow_pnl_points,
+    )?;
+    stage5d_compare_rebuilt_riskgate_materialized(
+        &envelope.riskgate.materialized_state,
+        &analysis.materialized_projection,
+    )?;
+    stage5d_compare_semantic_current_shadow_overlap(&state, &analysis.current_shadow_overlap)?;
+    stage5d_validate_current_shadow_source_state(
+        &state,
+        &analysis.current_shadow_overlap,
+        &source_records,
+        envelope,
+        strategy,
+    )?;
+    stage5d_validate_current_riskgate_recovery_decisions(&analysis)?;
+
+    let runtime_projection = &analysis.runtime_projection;
+    let riskgate_state = RiskGateRuntimeState {
+        profile_id: evidence.identity.profile_id.clone(),
+        last_finalized_session_date: runtime_projection.last_finalized_session_date,
+        rolling_sum_lb120: runtime_projection.rolling_sum_lb120,
+        mr_enabled_current_session: runtime_projection.mr_enabled_current_session,
+        mr_enabled_next_session: runtime_projection.mr_enabled_next_session,
+        ledger_rows_count: runtime_projection.ledger_rows_count,
+    };
+    let materialized_fingerprint_sha256 =
+        stage5d_riskgate_runtime_state_fingerprint_sha256(&riskgate_state);
+    Ok(Stage5dValidatedMaterializedRiskGateApplyState {
+        riskgate_state,
+        materialized_fingerprint_sha256,
+    })
+}
+
+fn stage5d_riskgate_runtime_state_fingerprint_sha256(state: &RiskGateRuntimeState) -> String {
+    let payload = format!(
+        "profile_id={};last_finalized_session_date={};rolling_sum_lb120={};mr_enabled_current_session={:?};mr_enabled_next_session={:?};ledger_rows_count={}",
+        state.profile_id,
+        state
+            .last_finalized_session_date
+            .map(|date| date.format("%Y-%m-%d").to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        state
+            .rolling_sum_lb120
+            .map(|value| {
+                crate::hybrid_intraday::format_riskgate_authority_decimal(value)
+                    .unwrap_or_else(|_| "invalid".to_string())
+            })
+            .unwrap_or_else(|| "none".to_string()),
+        state.mr_enabled_current_session,
+        state.mr_enabled_next_session,
+        state.ledger_rows_count,
+    );
+    sha256_text(&payload)
+}
+
+fn stage5d_validate_canonical_restart_export_self_consistency(
+    strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    envelope: &Stage5dPersistenceEnvelope,
+    validated_evidence: &Stage5dValidatedRiskGateLedgerEvidence,
+) -> Result<(), Stage5dEnvelopeValidationError> {
+    let apply_state = stage5d_build_validated_materialized_riskgate_apply_state(
+        strategy,
+        envelope,
+        validated_evidence,
+    )
+    .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    let semantic: Stage5dSemanticStrategyStateV1 =
+        serde_json::from_value(envelope.strategy_state.strategy_state_json.clone())
+            .map_err(|_| Stage5dEnvelopeValidationError::SemanticStateInvalid)?;
+    let Stage5dSemanticStrategyStateV1::HybridIntradayRuntime(state) = semantic;
+    stage5d_compare_semantic_materialized_to_runtime_state(&state, &apply_state.riskgate_state)
+        .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)
+}
+
+fn stage5d_compare_semantic_materialized_to_runtime_state(
+    state: &Stage5dHybridIntradayStrategyStateV1,
+    rebuilt: &RiskGateRuntimeState,
+) -> Result<(), Stage5dRiskGateInjectionBlockReason> {
+    let semantic_last = state
+        .risk_gate_last_finalized_session_date
+        .as_deref()
+        .map(|value| {
+            NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                .map_err(|_| Stage5dRiskGateInjectionBlockReason::MaterializedStateInvalid)
+        })
+        .transpose()?;
+    if let Some(value) = state.risk_gate_rolling_sum_lb120 {
+        stage5d_validate_semantic_authority_f64(value)?;
+    }
+    if state.risk_gate_mr_enabled_current_session != rebuilt.mr_enabled_current_session
+        || !stage5d_optional_source_f64_eq(
+            state.risk_gate_rolling_sum_lb120,
+            rebuilt.rolling_sum_lb120,
+        )
+        || semantic_last != rebuilt.last_finalized_session_date
+        || state.risk_gate_ledger_rows_count != rebuilt.ledger_rows_count
+    {
+        return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
+    }
+    Ok(())
 }
 
 fn stage5d_riskgate_identity_matches_source(
@@ -2791,6 +3047,11 @@ fn stage5d_export_canonical_restart_package_from_runtime(
     let validated_evidence = stage5d_validate_riskgate_ledger_evidence(evidence)
         .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
     stage5d_validate_package_cross_binding(&envelope, &validated_evidence.evidence)?;
+    stage5d_validate_canonical_restart_export_self_consistency(
+        strategy,
+        &envelope,
+        &validated_evidence,
+    )?;
     let envelope_json = serde_json::to_string(&envelope)
         .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
     let riskgate_evidence_json = serde_json::to_string(&validated_evidence.evidence)
@@ -5542,11 +5803,23 @@ mod tests {
         }
     }
 
+    struct Stage5dTestCurrentShadowMaterializedMismatchReport {
+        source_mr_enabled_current_session: Option<bool>,
+        authoritative_mr_enabled_current_session: Option<bool>,
+        source_rolling_sum_lb120: Option<f64>,
+        authoritative_rolling_sum_lb120: Option<String>,
+        source_last_finalized_session_date: Option<String>,
+        authoritative_last_finalized_session_date: Option<String>,
+        source_ledger_rows_count: u64,
+        authoritative_ledger_rows_count: u64,
+        export_error: Stage5dEnvelopeValidationError,
+    }
+
     fn stage5d_test_r3_current_shadow_discovery_without_preseed(
         snapshot_id: &str,
         bars: Vec<crate::runtime_compat::BarEvent>,
         expected_pnl_text: &str,
-    ) -> Stage5dRiskGateInjectionBlocked {
+    ) -> Stage5dTestCurrentShadowMaterializedMismatchReport {
         let source_strategy = stage5d_test_source_current_shadow_strategy(bars);
         let source_state_json =
             serde_json::to_value(source_strategy.state()).expect("r1b shadow source state");
@@ -5562,36 +5835,48 @@ mod tests {
             &source_strategy,
             snapshot_id,
         );
-        let (package, report) = stage5d_export_canonical_restart_package_from_runtime(
-            &source_strategy,
-            input,
-            evidence,
-        )
-        .expect("r1b current-shadow package export must succeed before discovery");
-        assert!(!report.redis_opened && !report.finam_opened && !report.dispatch_opened);
-        let package_json = package
-            .to_json_strict()
-            .expect("r1b current-shadow package serializes");
+        let mut envelope =
+            stage5d_export_canonical_envelope_from_runtime(&source_strategy, input.clone())
+                .expect("r1b current-shadow stale envelope export still builds schema-only")
+                .0;
+        stage5d_apply_riskgate_evidence_to_envelope(&mut envelope, &evidence);
+        envelope.riskgate.ledger_tail_hash = evidence.ledger_tail_hash.clone();
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("r1b current-shadow discovery checksum");
+        let source_fields = &source_state_json["HybridIntradayRuntime"];
+        let materialized = &envelope.riskgate.materialized_state;
+        let report = Stage5dTestCurrentShadowMaterializedMismatchReport {
+            source_mr_enabled_current_session: source_fields
+                ["risk_gate_mr_enabled_current_session"]
+                .as_bool(),
+            authoritative_mr_enabled_current_session: materialized.mr_enabled_current_session,
+            source_rolling_sum_lb120: source_fields["risk_gate_rolling_sum_lb120"].as_f64(),
+            authoritative_rolling_sum_lb120: materialized.rolling_sum_lb120.clone(),
+            source_last_finalized_session_date: source_fields
+                ["risk_gate_last_finalized_session_date"]
+                .as_str()
+                .map(str::to_string),
+            authoritative_last_finalized_session_date: materialized
+                .last_finalized_session_date
+                .clone(),
+            source_ledger_rows_count: source_fields["risk_gate_ledger_rows_count"]
+                .as_u64()
+                .expect("source ledger rows count"),
+            authoritative_ledger_rows_count: materialized.ledger_rows_count,
+            export_error: stage5d_export_canonical_restart_package_from_runtime(
+                &source_strategy,
+                input,
+                evidence,
+            )
+            .expect_err("stale current-shadow materialized source must fail before package commit"),
+        };
         drop(source_strategy);
-        let decoded = Stage5dCanonicalRestartPackage::from_json_str_strict(&package_json)
-            .expect("r1b current-shadow package decodes");
-        let fresh_strategy = stage5d_test_riskgate_runtime_strategy();
-        let (bootstrapped, _strict_envelope, validated_evidence) =
-            stage5d_test_bootstrap_strict_envelope_with_strategy(
-                decoded.envelope,
-                fresh_strategy,
-                decoded.validated_evidence.evidence,
-            );
-        let blocked = expect_stage5d_riskgate_blocked(
-            stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
-            "r1b current-shadow discovery must remain fail-closed on fresh runtime without preseed",
-        );
         assert_eq!(
-            blocked.reason(),
-            Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch,
-            "r1b current-shadow first localized mismatch is materialized riskgate state"
+            report.export_error,
+            Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent
         );
-        blocked
+        report
     }
 
     fn restore_semantic_state(
@@ -6895,6 +7180,7 @@ mod tests {
         stage5d_test_apply_approved_current_shadow_materialized_boundary(
             &mut source_strategy,
             &envelope,
+            &evidence,
         );
         let source_state_json =
             serde_json::to_value(source_strategy.state()).expect("r3 materialized source state");
@@ -6964,6 +7250,7 @@ mod tests {
         stage5d_test_apply_approved_current_shadow_materialized_boundary(
             &mut fresh_strategy,
             &decoded.envelope,
+            &decoded.validated_evidence.evidence,
         );
         let (bootstrapped, strict_envelope, validated_evidence) =
             stage5d_test_bootstrap_strict_envelope_with_strategy(
@@ -7328,23 +7615,27 @@ mod tests {
     fn stage5d_test_apply_approved_current_shadow_materialized_boundary(
         strategy: &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
         envelope: &Stage5dPersistenceEnvelope,
+        evidence: &Stage5dRiskGateLedgerEvidence,
     ) {
-        let materialized = &envelope.riskgate.materialized_state;
-        strategy.on_risk_gate_state(&RiskGateRuntimeState {
-            profile_id: envelope.riskgate.identity.profile_id.clone(),
-            last_finalized_session_date: materialized
-                .last_finalized_session_date
-                .as_deref()
-                .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").expect("date")),
-            rolling_sum_lb120: materialized
-                .rolling_sum_lb120
-                .as_deref()
-                .map(|value| parse_finite_decimal_string(value).expect("rolling sum")),
-            mr_enabled_current_session: materialized.mr_enabled_current_session,
-            mr_enabled_next_session: materialized.mr_enabled_next_session,
-            ledger_rows_count: usize::try_from(materialized.ledger_rows_count)
-                .expect("ledger rows count fits usize"),
-        });
+        let validated_envelope = envelope
+            .validate_restore_contract_schema_only()
+            .expect("current-shadow apply boundary requires validated envelope");
+        let validated_evidence = stage5d_validate_riskgate_ledger_evidence(evidence.clone())
+            .expect("current-shadow apply boundary requires validated evidence");
+        let proof = match stage5d_apply_validated_materialized_riskgate_for_restart(
+            strategy,
+            validated_envelope,
+            validated_evidence,
+        ) {
+            Ok(proof) => proof,
+            Err(blocked) => panic!(
+                "current-shadow materialized apply boundary must succeed: {:?}",
+                blocked.reason()
+            ),
+        };
+        assert_eq!(proof.snapshot_id(), envelope.snapshot_id);
+        assert!(!proof.evidence_fingerprint().is_empty());
+        assert!(!proof.materialized_fingerprint().is_empty());
     }
 
     fn stage5d_test_rebuild_evidence_from_envelope(
@@ -13365,23 +13656,60 @@ mod tests {
                 "1.199999999999997",
             ),
         ] {
-            let blocked = stage5d_test_r3_current_shadow_discovery_without_preseed(
+            let report = stage5d_test_r3_current_shadow_discovery_without_preseed(
                 snapshot_id,
                 bars,
                 expected_pnl,
             );
             assert_eq!(
-                blocked.reason(),
-                Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch
+                report.source_mr_enabled_current_session, None,
+                "{snapshot_id}: exact source risk_gate_mr_enabled_current_session before apply"
+            );
+            assert_eq!(
+                report.authoritative_mr_enabled_current_session,
+                Some(true),
+                "{snapshot_id}: exact authoritative risk_gate_mr_enabled_current_session"
+            );
+            assert_eq!(
+                report.source_rolling_sum_lb120, None,
+                "{snapshot_id}: exact source risk_gate_rolling_sum_lb120 before apply"
+            );
+            assert_eq!(
+                report.authoritative_rolling_sum_lb120.as_deref(),
+                Some("47.0"),
+                "{snapshot_id}: exact authoritative risk_gate_rolling_sum_lb120"
+            );
+            assert_eq!(
+                report.source_last_finalized_session_date, None,
+                "{snapshot_id}: exact source risk_gate_last_finalized_session_date before apply"
+            );
+            assert_eq!(
+                report.authoritative_last_finalized_session_date.as_deref(),
+                Some("2026-01-05"),
+                "{snapshot_id}: exact authoritative risk_gate_last_finalized_session_date"
+            );
+            assert_eq!(
+                report.source_ledger_rows_count, 0,
+                "{snapshot_id}: exact source risk_gate_ledger_rows_count before apply"
+            );
+            assert_eq!(
+                report.authoritative_ledger_rows_count, 61,
+                "{snapshot_id}: exact authoritative risk_gate_ledger_rows_count"
+            );
+            assert_eq!(
+                report.export_error,
+                Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent,
+                "{snapshot_id}: stale committed package must be rejected before strict bytes"
             );
         }
 
-        // Stage 5D-final-restart-r3 current-shadow-discovery-r1b marker:
+        // Stage 5D-final-restart-r3 current-shadow-discovery-r1-r1 marker:
         // current_shadow_discovery_cases_executed_3,
-        // current_shadow_rows_remain_todo_source_produced,
         // current_shadow_discovery_without_preseed,
         // current_shadow_first_mismatch_materialized_riskgate_state,
-        // current_shadow_no_production_restore_correction_authorized,
+        // current_shadow_field_level_mismatch_fields_4,
+        // current_shadow_stale_package_export_rejected_before_commit,
+        // current_shadow_no_committed_strict_package_then_materialized_mismatch,
         // stage5e_closed.
     }
 
@@ -13485,10 +13813,14 @@ mod tests {
         // Stage 5D-final-restart-r3 current-shadow-r1 marker:
         // current_shadow_cases_executed_3,
         // current_shadow_long_short_realized_pnl_source_callbacks,
+        // production_materialized_apply_cases_executed_6,
         // exact_current_shadow_source_state_before_correction,
         // current_shadow_field_level_mismatch_localized,
+        // current_shadow_field_level_mismatch_fields_4,
         // owning_layer_stage5d_materialized_apply_boundary,
         // approved_current_shadow_materialized_apply_boundary_before_injection,
+        // current_shadow_stale_package_export_rejected_before_commit,
+        // current_shadow_no_committed_strict_package_then_materialized_mismatch,
         // strict_package_decode_used_for_current_shadow,
         // current_shadow_source_runtime_destroyed_before_restart_boundary,
         // current_shadow_fresh_runtime_used,

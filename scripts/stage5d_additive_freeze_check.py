@@ -99,7 +99,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "8c864ff4ca4447c6b735b6f7ac519cb33384d840d1a4f0a19e6f44eefbe3b11e",
+        "stage5d_consumer_sha256": "779b33f296b33aa4e40f20b5adb09a57c737032f87fc1457e9332d4b0d0236cf",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -113,7 +113,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "8c864ff4ca4447c6b735b6f7ac519cb33384d840d1a4f0a19e6f44eefbe3b11e",
+        "stage5d_consumer_sha256": "779b33f296b33aa4e40f20b5adb09a57c737032f87fc1457e9332d4b0d0236cf",
     },
 ]
 
@@ -308,9 +308,27 @@ EXPECTED_NEGATIVE_CASES = [
     "final_r3_current_shadow_direct_mutation_substituted",
     "final_r3_current_shadow_generation_identity_mismatch",
     "final_r3_current_shadow_stage5e_or_surface_opened",
+    "final_r3_current_shadow_r1r1_production_boundary_removed",
+    "final_r3_current_shadow_r1r1_boundary_cfg_test_only",
+    "final_r3_current_shadow_r1r1_raw_envelope_authority",
+    "final_r3_current_shadow_r1r1_raw_strategy_extractor",
+    "final_r3_current_shadow_r1r1_apply_after_bootstrap",
+    "final_r3_current_shadow_r1r1_apply_after_injection",
+    "final_r3_current_shadow_r1r1_callback_before_apply",
+    "final_r3_current_shadow_r1r1_blocked_loses_capability",
+    "final_r3_current_shadow_r1r1_partial_mutation_on_block",
+    "final_r3_current_shadow_r1r1_identity_binding_removed",
+    "final_r3_current_shadow_r1r1_generation_binding_removed",
+    "final_r3_current_shadow_r1r1_ledger_tail_binding_removed",
+    "final_r3_current_shadow_r1r1_pnl_binding_removed",
+    "final_r3_current_shadow_r1r1_builder_accepts_stale_source",
+    "final_r3_current_shadow_r1r1_unrestorable_committed_package",
+    "final_r3_current_shadow_r1r1_lifecycle_fields_overwritten",
+    "final_r3_current_shadow_r1r1_field_level_proof_removed",
+    "final_r3_current_shadow_r1r1_stage5e_or_surface_opened",
 ]
 
-EXPECTED_STAGE = "5D-final-restart-r3-current-shadow-r1"
+EXPECTED_STAGE = "5D-final-restart-r3-current-shadow-r1-r1"
 EXPECTED_FINAL_RESTART_INVENTORY_STAGE = "5D-final-restart-r2"
 
 EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
@@ -1417,6 +1435,41 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         failures.append("Stage 5D final r3 positive-core actual post-apply equality proof missing")
     if "stage5d_final_r3_current_shadow_discovery_localizes_materialized_gap" not in stage5d_source:
         failures.append("Stage 5D final r3 current-shadow executable discovery proof missing")
+    test_module_start = stage5d_source.find("\n#[cfg(test)]\nmod tests")
+    materialized_boundary_start = stage5d_source.find(
+        "stage5d_apply_validated_materialized_riskgate_for_restart("
+    )
+    if materialized_boundary_start < 0 or (
+        test_module_start >= 0 and materialized_boundary_start > test_module_start
+    ):
+        failures.append("Stage 5D final r3 current-shadow production materialized apply boundary missing")
+    production_boundary_tokens = [
+        "Stage5dMaterializedRiskGateAppliedPaperStrategy",
+        "Stage5dMaterializedRiskGateApplyBlocked",
+        "Stage5dValidatedPersistenceEnvelope",
+        "Stage5dValidatedRiskGateLedgerEvidence",
+        "stage5d_build_validated_materialized_riskgate_apply_state(",
+        "validated_envelope",
+        "input_capability_preserved",
+        "strategy.on_risk_gate_state(&apply_state.riskgate_state)",
+        "stage5d_validate_canonical_restart_export_self_consistency(",
+        "stage5d_compare_semantic_materialized_to_runtime_state(",
+        "LedgerIdentityMismatch",
+        "LedgerGenerationMismatch",
+        "LedgerTailMismatch",
+        "&evidence.current_shadow_pnl_points,",
+    ]
+    if any(token not in stage5d_source for token in production_boundary_tokens):
+        failures.append("Stage 5D final r3 current-shadow production materialized apply proof missing")
+    forbidden_boundary_tokens = [
+        "pub(crate) fn stage5d_apply_validated_materialized_riskgate_for_restart(\n    strategy: &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,\n    envelope: &Stage5dPersistenceEnvelope",
+        "stage5d_raw_strategy_extractor",
+        "direct_current_shadow_materialized_mutation",
+        "#[cfg(test)]\npub(crate) fn stage5d_apply_validated_materialized_riskgate_for_restart(",
+        "source_current_shadow_lifecycle_overwrite",
+    ]
+    if any(token in stage5d_source for token in forbidden_boundary_tokens):
+        failures.append("Stage 5D final r3 current-shadow production materialized apply proof missing")
     current_shadow_fn = "fn stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix()"
     current_shadow_start = stage5d_source.find(current_shadow_fn)
     current_shadow_end = stage5d_source.find(
@@ -1457,8 +1510,12 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         "current_shadow_long_short_realized_pnl_source_callbacks",
         "exact_current_shadow_source_state_before_correction",
         "current_shadow_field_level_mismatch_localized",
+        "current_shadow_field_level_mismatch_fields_4",
         "owning_layer_stage5d_materialized_apply_boundary",
         "approved_current_shadow_materialized_apply_boundary_before_injection",
+        "current_shadow_stale_package_export_rejected_before_commit",
+        "current_shadow_no_committed_strict_package_then_materialized_mismatch",
+        "production_materialized_apply_cases_executed_6",
         "strict_package_decode_used_for_current_shadow",
         "current_shadow_source_runtime_destroyed_before_restart_boundary",
         "current_shadow_fresh_runtime_used",

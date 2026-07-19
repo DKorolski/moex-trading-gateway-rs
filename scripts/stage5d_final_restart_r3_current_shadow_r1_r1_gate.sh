@@ -12,7 +12,7 @@ then
   python_with_tomllib="python3"
 fi
 
-echo "stage5d-final-restart-r3-current-shadow-r1-gate: start"
+echo "stage5d-final-restart-r3-current-shadow-r1-r1-gate: start"
 echo "rustc_version=$(rustc --version)"
 echo "cargo_version=$(cargo --version)"
 echo "source_commit=$(git rev-parse HEAD)"
@@ -49,6 +49,9 @@ print(f"mandatory_positive_count={len(rows)}")
 print(f"accepted_executable_count={len(accepted)}")
 print(f"todo_source_produced_count={len(todo)}")
 print("current_shadow_cases_executed=3")
+print("production_materialized_apply_cases_executed=6")
+print("stale_package_export_rejected_or_normalized=true")
+print("field_level_mismatch_fields=4")
 print("r3a_cases_reexecuted=4")
 print("positive_core_cases_reexecuted=3")
 print("stage5e_closed=true")
@@ -75,4 +78,4 @@ if test -z "$(git status --short)"; then
 else
   echo "clean_worktree_after=false"
 fi
-echo "stage5d-final-restart-r3-current-shadow-r1-gate: ok"
+echo "stage5d-final-restart-r3-current-shadow-r1-r1-gate: ok"

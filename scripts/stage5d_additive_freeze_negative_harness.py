@@ -1695,6 +1695,161 @@ def mutate_final_r3_current_shadow_stage5e_or_surface_opened(root: Path) -> None
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
+def mutate_final_r3_current_shadow_r1r1_production_boundary_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_apply_validated_materialized_riskgate_for_restart",
+        "stage5d_apply_validated_materialized_riskgate_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_boundary_cfg_test_only(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "pub(crate) fn stage5d_apply_validated_materialized_riskgate_for_restart(",
+        "#[cfg(test)]\npub(crate) fn stage5d_apply_validated_materialized_riskgate_for_restart(",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_raw_envelope_authority(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "pub(crate) fn stage5d_apply_validated_materialized_riskgate_for_restart(\n    strategy: &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,\n    validated_envelope: Stage5dValidatedPersistenceEnvelope,",
+        "pub(crate) fn stage5d_apply_validated_materialized_riskgate_for_restart(\n    strategy: &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,\n    envelope: &Stage5dPersistenceEnvelope,",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_raw_strategy_extractor(root: Path) -> None:
+    append_text(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "\n// stage5d_raw_strategy_extractor\n",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_apply_after_bootstrap(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "approved_current_shadow_materialized_apply_boundary_before_injection",
+        "current_shadow_materialized_apply_after_bootstrap",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_apply_after_injection(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "owning_layer_stage5d_materialized_apply_boundary",
+        "current_shadow_materialized_apply_after_injection",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_callback_before_apply(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "current_shadow_stage5c_continuation_executed",
+        "current_shadow_callback_before_materialized_apply",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_blocked_loses_capability(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "input_capability_preserved",
+        "input_capability_lost",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_partial_mutation_on_block(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "strategy.on_risk_gate_state(&apply_state.riskgate_state)",
+        "direct_current_shadow_materialized_mutation",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_identity_binding_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "LedgerIdentityMismatch",
+        "LedgerIdentityBypassed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_generation_binding_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "LedgerGenerationMismatch",
+        "LedgerGenerationBypassed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_ledger_tail_binding_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "LedgerTailMismatch",
+        "LedgerTailBypassed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_pnl_binding_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "current_shadow_pnl_points",
+        "current_shadow_pnl_points_bypassed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_builder_accepts_stale_source(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_validate_canonical_restart_export_self_consistency(",
+        "stage5d_validate_canonical_restart_export_self_consistency_bypassed(",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_unrestorable_committed_package(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "current_shadow_no_committed_strict_package_then_materialized_mismatch",
+        "current_shadow_unrestorable_committed_package_allowed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_lifecycle_fields_overwritten(root: Path) -> None:
+    append_text(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "\n// source_current_shadow_lifecycle_overwrite\n",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_field_level_proof_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "current_shadow_field_level_mismatch_fields_4",
+        "current_shadow_field_level_mismatch_fields_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_current_shadow_r1r1_stage5e_or_surface_opened(root: Path) -> None:
+    mutate_final_r3_current_shadow_stage5e_or_surface_opened(root)
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -1870,6 +2025,24 @@ CASES = [
     ("final_r3_current_shadow_direct_mutation_substituted", mutate_final_r3_current_shadow_direct_mutation_substituted, "Stage 5D final r3 current-shadow producer lineage proof missing"),
     ("final_r3_current_shadow_generation_identity_mismatch", mutate_final_r3_current_shadow_generation_identity_mismatch, "Stage 5D final r3 current-shadow producer lineage proof missing"),
     ("final_r3_current_shadow_stage5e_or_surface_opened", mutate_final_r3_current_shadow_stage5e_or_surface_opened, "Stage 5D final r3 resumption inventory closed-surface mismatch"),
+    ("final_r3_current_shadow_r1r1_production_boundary_removed", mutate_final_r3_current_shadow_r1r1_production_boundary_removed, "Stage 5D final r3 current-shadow production materialized apply boundary missing"),
+    ("final_r3_current_shadow_r1r1_boundary_cfg_test_only", mutate_final_r3_current_shadow_r1r1_boundary_cfg_test_only, "Stage 5D final r3 current-shadow production materialized apply proof missing"),
+    ("final_r3_current_shadow_r1r1_raw_envelope_authority", mutate_final_r3_current_shadow_r1r1_raw_envelope_authority, "Stage 5D final r3 current-shadow production materialized apply proof missing"),
+    ("final_r3_current_shadow_r1r1_raw_strategy_extractor", mutate_final_r3_current_shadow_r1r1_raw_strategy_extractor, "Stage 5D final r3 current-shadow production materialized apply proof missing"),
+    ("final_r3_current_shadow_r1r1_apply_after_bootstrap", mutate_final_r3_current_shadow_r1r1_apply_after_bootstrap, "Stage 5D final r3 current-shadow r1 marker proof missing"),
+    ("final_r3_current_shadow_r1r1_apply_after_injection", mutate_final_r3_current_shadow_r1r1_apply_after_injection, "Stage 5D final r3 current-shadow r1 marker proof missing"),
+    ("final_r3_current_shadow_r1r1_callback_before_apply", mutate_final_r3_current_shadow_r1r1_callback_before_apply, "Stage 5D final r3 current-shadow r1 marker proof missing"),
+    ("final_r3_current_shadow_r1r1_blocked_loses_capability", mutate_final_r3_current_shadow_r1r1_blocked_loses_capability, "Stage 5D final r3 current-shadow production materialized apply proof missing"),
+    ("final_r3_current_shadow_r1r1_partial_mutation_on_block", mutate_final_r3_current_shadow_r1r1_partial_mutation_on_block, "Stage 5D final r3 current-shadow production materialized apply proof missing"),
+    ("final_r3_current_shadow_r1r1_identity_binding_removed", mutate_final_r3_current_shadow_r1r1_identity_binding_removed, "Stage 5D final r3 current-shadow production materialized apply proof missing"),
+    ("final_r3_current_shadow_r1r1_generation_binding_removed", mutate_final_r3_current_shadow_r1r1_generation_binding_removed, "Stage 5D final r3 current-shadow production materialized apply proof missing"),
+    ("final_r3_current_shadow_r1r1_ledger_tail_binding_removed", mutate_final_r3_current_shadow_r1r1_ledger_tail_binding_removed, "Stage 5D final r3 current-shadow production materialized apply proof missing"),
+    ("final_r3_current_shadow_r1r1_pnl_binding_removed", mutate_final_r3_current_shadow_r1r1_pnl_binding_removed, "Stage 5D final r3 current-shadow production materialized apply proof missing"),
+    ("final_r3_current_shadow_r1r1_builder_accepts_stale_source", mutate_final_r3_current_shadow_r1r1_builder_accepts_stale_source, "Stage 5D final r3 current-shadow production materialized apply proof missing"),
+    ("final_r3_current_shadow_r1r1_unrestorable_committed_package", mutate_final_r3_current_shadow_r1r1_unrestorable_committed_package, "Stage 5D final r3 current-shadow r1 marker proof missing"),
+    ("final_r3_current_shadow_r1r1_lifecycle_fields_overwritten", mutate_final_r3_current_shadow_r1r1_lifecycle_fields_overwritten, "Stage 5D final r3 current-shadow production materialized apply proof missing"),
+    ("final_r3_current_shadow_r1r1_field_level_proof_removed", mutate_final_r3_current_shadow_r1r1_field_level_proof_removed, "Stage 5D final r3 current-shadow r1 marker proof missing"),
+    ("final_r3_current_shadow_r1r1_stage5e_or_surface_opened", mutate_final_r3_current_shadow_r1r1_stage5e_or_surface_opened, "Stage 5D final r3 resumption inventory closed-surface mismatch"),
 ]
 
 
