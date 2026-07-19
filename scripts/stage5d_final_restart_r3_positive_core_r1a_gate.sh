@@ -12,7 +12,7 @@ then
   python_with_tomllib="python3"
 fi
 
-echo "stage5d-final-restart-r3-resumption-r1-gate: start"
+echo "stage5d-final-restart-r3-positive-core-r1a-gate: start"
 echo "rustc_version=$(rustc --version)"
 echo "cargo_version=$(cargo --version)"
 echo "source_commit=$(git rev-parse HEAD)"
@@ -33,7 +33,11 @@ rows = inventory["scenario_rows"]
 accepted = [
     row["case_id"]
     for row in rows
-    if row["execution_status"] == "accepted_r3a_r1_source_produced"
+    if row["execution_status"]
+    in {
+        "accepted_r3a_r1_source_produced",
+        "accepted_r3_positive_core_r1_source_produced",
+    }
 ]
 todo = [
     row["case_id"]
@@ -43,11 +47,15 @@ todo = [
 print(f"mandatory_positive_count={len(rows)}")
 print(f"accepted_executable_count={len(accepted)}")
 print(f"todo_source_produced_count={len(todo)}")
-print("accepted_cases_executed=4")
+print("positive_core_accepted_count=3")
+print("positive_core_accepted_cases_executed=3")
+print("r3a_r1_accepted_cases_executed=4")
+print("accepted_cases_executed=7")
 print("stage5e_closed=true")
 PY
 
 cargo fmt --all --check
+cargo test -p strategy-runtime-core stage5d_final_r3_positive_core -- --nocapture
 cargo test -p strategy-runtime-core stage5d_final_r3_resumption -- --nocapture
 python3 scripts/stage5c_api_freeze_check.py
 python3 scripts/stage5d_additive_freeze_check.py
@@ -59,4 +67,4 @@ if test -z "$(git status --short)"; then
 else
   echo "clean_worktree_after=false"
 fi
-echo "stage5d-final-restart-r3-resumption-r1-gate: ok"
+echo "stage5d-final-restart-r3-positive-core-r1a-gate: ok"

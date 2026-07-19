@@ -1,9 +1,9 @@
 # Stage 5D final restart closure
 
 Status: Stage 5D-final-restart-r2 retained foundation plus accepted
-Stage 5D-final-restart-r3a-r1 restore-ownership proof and
-Stage 5D-final-restart-r3 resumption inventory gate, no-I/O. The full r3
-closure remains incomplete; see
+Stage 5D-final-restart-r3a-r1 restore-ownership proof, accepted r3 resumption
+inventory gate, and positive-core-r1a clean/open package evidence, no-I/O. The
+full r3 closure remains incomplete; see
 [5d-final-restart-r3-discovery.md](5d-final-restart-r3-discovery.md) and
 [5d-final-restart-r3a-review-gate-summary.md](5d-final-restart-r3a-review-gate-summary.md)
 plus [5d-final-restart-r3a-r1-review-gate-summary.md](5d-final-restart-r3a-r1-review-gate-summary.md)
@@ -128,10 +128,11 @@ docs/stage-5/stage5d-final-restart-r3-scenario-inventory.json
 
 The additive freeze checker validates the r2 stage id, 51-row order, unique case
 ids, closed-surface contract, owning tests, package sections and marker-pinned
-negative cases. It also validates the r3 resumption inventory stage/status,
-closed surfaces, exact 21 mandatory positive case IDs, r3a-r1 executable reuse
-and the exact evidence partition: four accepted executable r3a-r1 rows, seventeen
-not-yet-closed `todo_source_produced` rows, and no owner on TODO rows.
+negative cases. It also validates the r3 inventory stage/status, closed
+surfaces, exact 21 mandatory positive case IDs, r3a-r1 executable reuse,
+positive-core-r1a clean/open executable ownership, and the exact evidence
+partition: seven accepted executable rows, fourteen not-yet-closed
+`todo_source_produced` rows, and no owner on TODO rows.
 
 ## Review gates
 
@@ -151,7 +152,8 @@ bash scripts/stage5d_b2bc_review_gate.sh
 
 ## Next step
 
-Do not move to Stage 5E from the r2/r3a/r3-resumption candidate. The next
-required work is the remaining Stage 5D-final-restart-r3 closure sequence: full
-executable positive matrix, real crash/checkpoint simulator, package-negative
-matrix and pinned golden vectors.
+Do not move to Stage 5E from the r2/r3a/r3-positive-core-r1a candidate. The
+next required work is the current-shadow materialized restore gap, then the
+remaining Stage 5D-final-restart-r3 closure sequence: full executable positive
+matrix, real crash/checkpoint simulator, package-negative matrix and pinned
+golden vectors.

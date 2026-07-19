@@ -1416,7 +1416,7 @@ def mutate_final_r3_resumption_accepted_r3a_downgraded(root: Path) -> None:
 
 
 def mutate_final_r3_resumption_stage5e_marker_removed(root: Path) -> None:
-    replace_once(
+    replace_all(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
         "stage5e_closed",
         "stage5e_reopened",
@@ -1580,8 +1580,8 @@ CASES = [
     ("final_r3_resumption_clean_flat_prematurely_promoted", mutate_final_r3_resumption_clean_flat_prematurely_promoted, "Stage 5D final r3 accepted executable set mismatch"),
     ("final_r3_resumption_current_shadow_prematurely_promoted", mutate_final_r3_resumption_current_shadow_prematurely_promoted, "Stage 5D final r3 accepted executable set mismatch"),
     ("final_r3_resumption_unapproved_retained_status", mutate_final_r3_resumption_unapproved_retained_status, "Stage 5D final r3 unapproved execution status"),
-    ("final_r3_resumption_nonexistent_owning_test", mutate_final_r3_resumption_nonexistent_owning_test, "Stage 5D final r3 TODO row must not claim owning test"),
-    ("final_r3_resumption_false_resumption_owner", mutate_final_r3_resumption_false_resumption_owner, "Stage 5D final r3 TODO row must not claim owning test"),
+    ("final_r3_resumption_nonexistent_owning_test", mutate_final_r3_resumption_nonexistent_owning_test, "Stage 5D final r3 positive-core owner/status proof missing"),
+    ("final_r3_resumption_false_resumption_owner", mutate_final_r3_resumption_false_resumption_owner, "Stage 5D final r3 positive-core owner/status proof missing"),
     ("final_r3_resumption_todo_set_reduced", mutate_final_r3_resumption_todo_set_reduced, "Stage 5D final r3 mandatory positive inventory mismatch"),
     ("final_r3_resumption_accepted_r3a_downgraded", mutate_final_r3_resumption_accepted_r3a_downgraded, "Stage 5D final r3 accepted executable set mismatch"),
     ("final_r3_resumption_stage5e_marker_removed", mutate_final_r3_resumption_stage5e_marker_removed, "Stage 5D final r3 Stage 5E closed marker missing"),

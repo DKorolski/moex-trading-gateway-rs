@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "5D-final-restart-r3",
-  "status": "resumption_inventory_not_closed",
+  "status": "positive_core_r1a_partial_not_closed",
   "closed_surfaces": {
     "redis": false,
     "finam": false,
@@ -15,44 +15,44 @@
     {
       "case_id": "positive_clean_flat",
       "category": "positive",
-      "owning_test": null,
-      "execution_status": "todo_source_produced",
-      "next_gate": "r3-positive-core-state-group"
+      "owning_test": "stage5d_final_r3_positive_core_source_produced_full_restart_matrix",
+      "execution_status": "accepted_r3_positive_core_r1_source_produced"
     },
     {
       "case_id": "positive_broker_consistent_open_long",
       "category": "positive",
-      "owning_test": null,
-      "execution_status": "todo_source_produced",
-      "next_gate": "r3-positive-core-state-group"
+      "owning_test": "stage5d_final_r3_positive_core_source_produced_full_restart_matrix",
+      "execution_status": "accepted_r3_positive_core_r1_source_produced"
     },
     {
       "case_id": "positive_broker_consistent_open_short",
       "category": "positive",
-      "owning_test": null,
-      "execution_status": "todo_source_produced",
-      "next_gate": "r3-positive-core-state-group"
+      "owning_test": "stage5d_final_r3_positive_core_source_produced_full_restart_matrix",
+      "execution_status": "accepted_r3_positive_core_r1_source_produced"
     },
     {
       "case_id": "positive_current_shadow_long",
       "category": "positive",
       "owning_test": null,
       "execution_status": "todo_source_produced",
-      "next_gate": "r3-positive-core-state-group"
+      "next_gate": "r3-positive-current-shadow-materialized-restore-group",
+      "missing_evidence_family": "fresh_runtime_materialized_current_shadow_restore"
     },
     {
       "case_id": "positive_current_shadow_short",
       "category": "positive",
       "owning_test": null,
       "execution_status": "todo_source_produced",
-      "next_gate": "r3-positive-core-state-group"
+      "next_gate": "r3-positive-current-shadow-materialized-restore-group",
+      "missing_evidence_family": "fresh_runtime_materialized_current_shadow_restore"
     },
     {
       "case_id": "positive_current_shadow_realized_pnl",
       "category": "positive",
       "owning_test": null,
       "execution_status": "todo_source_produced",
-      "next_gate": "r3-positive-core-state-group"
+      "next_gate": "r3-positive-current-shadow-materialized-restore-group",
+      "missing_evidence_family": "fresh_runtime_materialized_current_shadow_restore"
     },
     {
       "case_id": "positive_mr_long_bracket_pending_entry",

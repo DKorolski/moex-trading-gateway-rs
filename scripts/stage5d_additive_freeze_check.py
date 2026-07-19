@@ -99,7 +99,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "dda3e21a01b92c84618dfc925b4083b7cd5915967b1b307b22713469cdcbba23",
+        "stage5d_consumer_sha256": "601be3a22c33d43c2415ef844b8272d6bbe606d111195bcd8a26bf6fcd3f9726",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -113,7 +113,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "dda3e21a01b92c84618dfc925b4083b7cd5915967b1b307b22713469cdcbba23",
+        "stage5d_consumer_sha256": "601be3a22c33d43c2415ef844b8272d6bbe606d111195bcd8a26bf6fcd3f9726",
     },
 ]
 
@@ -282,7 +282,7 @@ EXPECTED_NEGATIVE_CASES = [
     "final_r3_resumption_accepted_null_owner",
 ]
 
-EXPECTED_STAGE = "5D-final-restart-r3-resumption"
+EXPECTED_STAGE = "5D-final-restart-r3-positive-core-r1a"
 EXPECTED_FINAL_RESTART_INVENTORY_STAGE = "5D-final-restart-r2"
 
 EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
@@ -368,6 +368,12 @@ EXPECTED_FINAL_RESTART_R3_ACCEPTED_IDS = [
     "positive_mr_short_bracket_pending_entry",
     "positive_bo_long_market_pending_entry",
     "positive_bo_short_market_pending_entry",
+]
+
+EXPECTED_FINAL_RESTART_R3_CORE_IDS = [
+    "positive_clean_flat",
+    "positive_broker_consistent_open_long",
+    "positive_broker_consistent_open_short",
 ]
 
 EXPECTED_RUNTIME_RESTORED_OWNERSHIP_IDS = [
@@ -1235,7 +1241,7 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         failures.append("Stage 5D final r3 resumption inventory schema mismatch")
     if inventory.get("stage") != "5D-final-restart-r3":
         failures.append("Stage 5D final r3 resumption inventory stage mismatch")
-    if inventory.get("status") != "resumption_inventory_not_closed":
+    if inventory.get("status") != "positive_core_r1a_partial_not_closed":
         failures.append("Stage 5D final r3 resumption inventory must not overclaim closure")
     if inventory.get("closed_surfaces") != EXPECTED_CLOSED_SURFACES:
         failures.append("Stage 5D final r3 resumption inventory closed-surface mismatch")
@@ -1253,6 +1259,8 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
     if len(set(positive_ids)) != len(positive_ids):
         failures.append("Stage 5D final r3 mandatory positive ids must be unique")
     r3a_ids = set(EXPECTED_FINAL_RESTART_R3_ACCEPTED_IDS)
+    core_ids = set(EXPECTED_FINAL_RESTART_R3_CORE_IDS)
+    accepted_expected_ids = r3a_ids | core_ids
     accepted_ids = []
     todo_ids = []
     for row in rows:
@@ -1270,6 +1278,12 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
                 failures.append("Stage 5D final r3 accepted executable set mismatch")
             if owning_test != "stage5d_final_r3a_source_pending_entry_full_restart_matrix":
                 failures.append("Stage 5D final r3 r3a-r1 reuse proof missing")
+        elif status == "accepted_r3_positive_core_r1_source_produced":
+            accepted_ids.append(case_id)
+            if case_id not in core_ids:
+                failures.append("Stage 5D final r3 accepted executable set mismatch")
+            if owning_test != "stage5d_final_r3_positive_core_source_produced_full_restart_matrix":
+                failures.append("Stage 5D final r3 positive-core owner/status proof missing")
         elif status == "todo_source_produced":
             todo_ids.append(case_id)
             if owning_test is not None:
@@ -1278,9 +1292,9 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
             failures.append("Stage 5D final r3 unapproved execution status")
         if status == "accepted_r3a_r1_source_produced" and owning_test is None:
             failures.append("Stage 5D final r3 accepted row must have owning test")
-    if set(accepted_ids) != r3a_ids or len(accepted_ids) != len(r3a_ids):
+    if set(accepted_ids) != accepted_expected_ids or len(accepted_ids) != len(accepted_expected_ids):
         failures.append("Stage 5D final r3 accepted executable set mismatch")
-    expected_todo_ids = set(EXPECTED_FINAL_RESTART_R3_POSITIVE_IDS) - r3a_ids
+    expected_todo_ids = set(EXPECTED_FINAL_RESTART_R3_POSITIVE_IDS) - accepted_expected_ids
     if set(todo_ids) != expected_todo_ids or len(todo_ids) != len(expected_todo_ids):
         failures.append("Stage 5D final r3 TODO source-produced set mismatch")
 
@@ -1517,11 +1531,23 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
         "Stage 5D final r3 schema-only overclaim guard missing":
             "no_schema_only_positive_overclaim",
         "Stage 5D final r3 accepted executable count proof missing":
-            "accepted_executable_count_4",
+            "accepted_executable_count_7",
         "Stage 5D final r3 TODO count proof missing":
-            "todo_source_produced_count_17",
+            "todo_source_produced_count_14",
         "Stage 5D final r3 accepted execution count proof missing":
             "accepted_cases_executed_4",
+        "Stage 5D final r3 positive-core source-produced proof missing":
+            "stage5d_final_r3_positive_core_source_produced_full_restart_matrix",
+        "Stage 5D final r3 positive-core accepted count proof missing":
+            "positive_core_accepted_count_3",
+        "Stage 5D final r3 positive-core clean flat package proof missing":
+            "positive_core_clean_flat_source_package",
+        "Stage 5D final r3 positive-core open position package proof missing":
+            "positive_core_broker_open_long_short_source_package",
+        "Stage 5D final r3 positive-core current-shadow package proof missing":
+            "positive_core_current_shadow_materialized_gap_discovered",
+        "Stage 5D final r3 positive-core execution count proof missing":
+            "positive_core_accepted_cases_executed_3",
         "Stage 5D final r3 TODO owner guard missing":
             "no_todo_owning_test",
         "Stage 5D final r3 Stage 5E closed marker missing":
