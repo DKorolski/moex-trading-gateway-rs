@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-final-restart-r3-recovery-index-r1",
+  "stage": "5D-final-restart-r3-recovery-index-r1-r1",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -61,7 +61,7 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "d7fbef319a8015b10c83b4e5ad0b4fdf9493e5f1f87b13faf672dca3245ddcb3",
+      "current_sha256": "24dc545ca5814383aaa8c8194a1a96e06a866fc4f17e40402bb8778c29b218f4",
       "stripped_without_additive_regions_sha256": "bcc2c4d6ff08d06c49f9716495ce177fc968a8dcd71f6b2c38bcb8d5b4cb0914",
       "additive_regions": [
         "type-state-transitions"
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "fb86050ff702c8302302f0dd556acad8c6ab4ef0219329dd51444919d00260cf"
+      "stage5d_consumer_sha256": "7f29d1816d553400110edf33e7d3f9f3a28b1fdd8565114b933cb046818bf38e"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "fb86050ff702c8302302f0dd556acad8c6ab4ef0219329dd51444919d00260cf"
+      "stage5d_consumer_sha256": "7f29d1816d553400110edf33e7d3f9f3a28b1fdd8565114b933cb046818bf38e"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "fb86050ff702c8302302f0dd556acad8c6ab4ef0219329dd51444919d00260cf"
+    "current_sha256": "7f29d1816d553400110edf33e7d3f9f3a28b1fdd8565114b933cb046818bf38e"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -384,7 +384,12 @@
     "final_r3_operational_safe_mode_entry_block_removed",
     "final_r3_operational_stage5c_continuation_removed",
     "final_r3_operational_premature_next_group_promotion",
-    "final_r3_operational_stage5e_or_surface_opened"
+    "final_r3_operational_stage5e_or_surface_opened",
+    "final_r3_recovery_index_production_boundary_removed",
+    "final_r3_recovery_index_stop_truth_removed",
+    "final_r3_recovery_index_negative_matrix_removed",
+    "final_r3_recovery_index_pending_field_proof_removed",
+    "final_r3_recovery_index_tp_sl_swap_proof_removed"
   ],
   "stage5d_public_api": {
     "public_reexports": [
@@ -549,7 +554,15 @@
           "BindingMismatch",
           "BrokerTruthPositionMismatch",
           "ExpectedWorkingOrderMissing",
+          "ExtraWorkingOrder",
+          "WorkingOrderIdentityMissing",
+          "WorkingOrderKindMismatch",
           "ExpectedWorkingStopUnsupported",
+          "ExpectedWorkingStopMissing",
+          "ExtraWorkingStop",
+          "WorkingStopKindMismatch",
+          "WorkingSetDuplicateId",
+          "SupplementalStopTruthBindingMismatch",
           "SemanticStateInvalid"
         ]
       },
@@ -2096,7 +2109,7 @@
       "Stage5dStructuredTimestampFormat",
       "Stage5dTimestampUnits"
     ],
-    "normalized_signature_hash": "74c30b13587a979c851bfe3cb79ec7ab5abf616e798a9f3d7e28ae5b294b0502",
+    "normalized_signature_hash": "7eea28036b0a3bc5b1c540911cbe6e0d0a5dfbcead61ae7830505dd66edb0ede",
     "public_surface_counts": {
       "public_reexports": 70,
       "public_constants": 5,

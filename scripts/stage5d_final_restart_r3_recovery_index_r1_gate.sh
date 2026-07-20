@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "stage5d-final-restart-r3-recovery-index-r1-gate: start"
+echo "stage5d-final-restart-r3-recovery-index-r1-r1-gate: start"
 echo "rustc_version=$(rustc --version)"
 echo "cargo_version=$(cargo --version)"
 echo "source_commit=$(git rev-parse HEAD)"
@@ -72,4 +72,4 @@ if test -z "$(git status --short)"; then
 else
   echo "clean_worktree_after=false"
 fi
-echo "stage5d-final-restart-r3-recovery-index-r1-gate: ok"
+echo "stage5d-final-restart-r3-recovery-index-r1-r1-gate: ok"

@@ -99,7 +99,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "fb86050ff702c8302302f0dd556acad8c6ab4ef0219329dd51444919d00260cf",
+        "stage5d_consumer_sha256": "7f29d1816d553400110edf33e7d3f9f3a28b1fdd8565114b933cb046818bf38e",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -113,7 +113,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "fb86050ff702c8302302f0dd556acad8c6ab4ef0219329dd51444919d00260cf",
+        "stage5d_consumer_sha256": "7f29d1816d553400110edf33e7d3f9f3a28b1fdd8565114b933cb046818bf38e",
     },
 ]
 
@@ -338,9 +338,14 @@ EXPECTED_NEGATIVE_CASES = [
     "final_r3_operational_stage5c_continuation_removed",
     "final_r3_operational_premature_next_group_promotion",
     "final_r3_operational_stage5e_or_surface_opened",
+    "final_r3_recovery_index_production_boundary_removed",
+    "final_r3_recovery_index_stop_truth_removed",
+    "final_r3_recovery_index_negative_matrix_removed",
+    "final_r3_recovery_index_pending_field_proof_removed",
+    "final_r3_recovery_index_tp_sl_swap_proof_removed",
 ]
 
-EXPECTED_STAGE = "5D-final-restart-r3-recovery-index-r1"
+EXPECTED_STAGE = "5D-final-restart-r3-recovery-index-r1-r1"
 EXPECTED_FINAL_RESTART_INVENTORY_STAGE = "5D-final-restart-r2"
 
 EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
@@ -1754,6 +1759,12 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         "recovery_index_known_order_source_order_event",
         "recovery_index_pending_request_source_callback",
         "recovery_index_working_protective_source_order_event",
+        "recovery_index_r1r1_production_working_set_bootstrap_used",
+        "recovery_index_r1r1_production_owned_id_normalization_used",
+        "recovery_index_r1r1_working_stop_truth_source_produced",
+        "recovery_index_r1r1_negative_matrix_executed",
+        "recovery_index_r1r1_pending_request_field_level_assertions",
+        "recovery_index_r1r1_tp_sl_swap_fails_closed",
         "recovery_index_canonical_strict_decode_used",
         "recovery_index_source_runtime_destroyed_before_restart_boundary",
         "recovery_index_fresh_runtime_used",
@@ -1773,13 +1784,15 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         "drop(source_strategy);",
         "restore_semantic_state(&mut fresh_strategy, &strict_envelope)",
         "stage5d_apply_runtime_private_extension(bound)",
-        "validate_stage5d_broker_truth_bootstrap(&loaded_with_truth, &envelope)",
+        "stage5d_notify_working_set_broker_truth_bootstrap_at(",
+        "stage5d_normalize_broker_owned_ids_for_closed_restore_bridge",
         "broker truth must contain the expected working order before Stage 5C closed-boundary working-order bootstrap",
+        "production broker-owned-ID normalization",
         "stage5d_test_assert_injected_restores_indexes_once(",
         "let (mut probe, receipt) = restored.into_parts();",
         "duplicate replay after restore must not emit intents",
         "terminal resolution must not leave orphan pending request in runtime state",
-        "missing extra expected working protective order must fail closed",
+        "stage5d_final_r3_recovery_index_r1r1_working_set_negatives_fail_closed",
         "protective terminal callback must not emit entry or flip intent",
         "stage5d_test_warmup_stage5c_history_at(",
     ]

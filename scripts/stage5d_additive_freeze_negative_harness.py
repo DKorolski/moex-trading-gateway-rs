@@ -1953,6 +1953,51 @@ def mutate_final_r3_operational_stage5e_or_surface_opened(root: Path) -> None:
     mutate_final_r3_current_shadow_stage5e_or_surface_opened(root)
 
 
+def mutate_final_r3_recovery_index_production_boundary_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "recovery_index_r1r1_production_working_set_bootstrap_used",
+        "recovery_index_r1r1_test_only_working_set_bootstrap_substituted",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_recovery_index_stop_truth_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "recovery_index_r1r1_working_stop_truth_source_produced",
+        "recovery_index_r1r1_working_stop_truth_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_recovery_index_negative_matrix_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "recovery_index_r1r1_negative_matrix_executed",
+        "recovery_index_r1r1_negative_matrix_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_recovery_index_pending_field_proof_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "recovery_index_r1r1_pending_request_field_level_assertions",
+        "recovery_index_r1r1_pending_field_proof_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_final_r3_recovery_index_tp_sl_swap_proof_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "recovery_index_r1r1_tp_sl_swap_fails_closed",
+        "recovery_index_r1r1_swapped_protective_identity_proof_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -2158,6 +2203,11 @@ CASES = [
     ("final_r3_operational_stage5c_continuation_removed", mutate_final_r3_operational_stage5c_continuation_removed, "Stage 5D final r3 operational-state post-restored probe ordering invalid"),
     ("final_r3_operational_premature_next_group_promotion", mutate_final_r3_operational_premature_next_group_promotion, "Stage 5D final r3 accepted executable set mismatch"),
     ("final_r3_operational_stage5e_or_surface_opened", mutate_final_r3_operational_stage5e_or_surface_opened, "Stage 5D final r3 resumption inventory closed-surface mismatch"),
+    ("final_r3_recovery_index_production_boundary_removed", mutate_final_r3_recovery_index_production_boundary_removed, "Stage 5D final r3 recovery-index r1 marker/code proof missing"),
+    ("final_r3_recovery_index_stop_truth_removed", mutate_final_r3_recovery_index_stop_truth_removed, "Stage 5D final r3 recovery-index r1 marker/code proof missing"),
+    ("final_r3_recovery_index_negative_matrix_removed", mutate_final_r3_recovery_index_negative_matrix_removed, "Stage 5D final r3 recovery-index r1 marker/code proof missing"),
+    ("final_r3_recovery_index_pending_field_proof_removed", mutate_final_r3_recovery_index_pending_field_proof_removed, "Stage 5D final r3 recovery-index r1 marker/code proof missing"),
+    ("final_r3_recovery_index_tp_sl_swap_proof_removed", mutate_final_r3_recovery_index_tp_sl_swap_proof_removed, "Stage 5D final r3 recovery-index r1 marker/code proof missing"),
 ]
 
 
