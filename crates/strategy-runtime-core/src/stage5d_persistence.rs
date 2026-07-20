@@ -662,6 +662,20 @@ pub(crate) struct Stage5dSupplementalWorkingStopOrderTruth {
     pub received_ts: DateTime<Utc>,
 }
 
+pub(crate) struct Stage5dValidatedSupplementalWorkingStopTruth {
+    snapshot_id: String,
+    account_id: BrokerAccountId,
+    instrument: InstrumentId,
+    working_stops: HashMap<BrokerStopOrderId, crate::runtime_compat::StopOrderEvent>,
+    fingerprint_sha256: String,
+}
+
+impl Stage5dValidatedSupplementalWorkingStopTruth {
+    pub(crate) fn fingerprint_sha256(&self) -> &str {
+        &self.fingerprint_sha256
+    }
+}
+
 type Stage5dValidatedWorkingSetBootstrapMaps = (
     HashMap<BrokerOrderId, crate::runtime_compat::OrderEvent>,
     HashMap<BrokerStopOrderId, crate::runtime_compat::StopOrderEvent>,
@@ -954,7 +968,11 @@ fn stage5d_notify_runtime_state_restored_at(
     let snapshot_id = injected.snapshot_id().to_string();
     let evidence_fingerprint = injected.evidence_fingerprint().to_string();
     let recovery_plan_fingerprint = injected.recovery_plan_fingerprint().to_string();
-    let Stage5dRiskGateInjectedPaperStrategy { bootstrapped, .. } = injected;
+    let Stage5dRiskGateInjectedPaperStrategy {
+        bootstrapped,
+        envelope,
+        recovery_plan,
+    } = injected;
     let bootstrapped =
         if expected_working_order_ids.is_empty() && expected_working_stop_order_ids.is_empty() {
             Ok(bootstrapped)
@@ -967,15 +985,26 @@ fn stage5d_notify_runtime_state_restored_at(
         };
     let bootstrapped = match bootstrapped {
         Ok(bootstrapped) => bootstrapped,
-        Err(reason) => {
-            return Err(Stage5dRuntimeStateRestoreOutcome::Terminal(
-                stage5d_runtime_restore_terminal(
-                    snapshot_id,
-                    evidence_fingerprint,
-                    recovery_plan_fingerprint,
+        Err(blocked) => {
+            let reason = match blocked.reason {
+                crate::stage5c_paper_host::Stage5dRuntimeStateRestoredBridgeError::Stage5c(
+                    crate::stage5c_paper_host::Stage5cRuntimeStateRestoreError::BrokerOwnedOrderIdMismatch,
+                ) => Stage5dRuntimeStateRestoreBlockedReason::BrokerOwnedProtectiveId,
+                crate::stage5c_paper_host::Stage5dRuntimeStateRestoredBridgeError::Stage5c(
+                    crate::stage5c_paper_host::Stage5cRuntimeStateRestoreError::WrongStrategyStateKind,
+                ) => Stage5dRuntimeStateRestoreBlockedReason::ClosedBoundaryOpened,
+                _ => Stage5dRuntimeStateRestoreBlockedReason::ClosedBoundaryOpened,
+            };
+            return Err(Stage5dRuntimeStateRestoreOutcome::Blocked(
+                stage5d_runtime_restore_blocked(
+                    Stage5dRiskGateInjectedPaperStrategy {
+                        bootstrapped: *blocked.bootstrapped,
+                        envelope,
+                        recovery_plan,
+                    },
                     reason,
                 ),
-            ))
+            ));
         }
     };
     match crate::stage5c_paper_host::stage5d_notify_runtime_state_restored_bridge_at(
@@ -2701,39 +2730,45 @@ fn stage5d_notify_broker_truth_bootstrap_at(
     applied: Stage5dPrivateStateAppliedPaperStrategy,
     notification_now: DateTime<Utc>,
 ) -> Result<Stage5dBootstrappedPaperStrategy, Stage5dBootstrapBlocked> {
-    let Stage5dPrivateStateAppliedPaperStrategy { loaded, envelope } = applied;
-    if let Err(reason) = validate_stage5d_broker_truth_bootstrap(&loaded, &envelope) {
-        return Err(stage5d_bootstrap_blocked(loaded, envelope, reason));
-    }
-
-    match crate::stage5c_paper_host::stage5d_bootstrap_preserving_loaded_at(
-        loaded,
-        notification_now,
-    ) {
-        Ok(bootstrapped) => Ok(Stage5dBootstrappedPaperStrategy {
-            bootstrapped,
+    if !applied
+        .envelope
+        .runtime_private_extension
+        .expected_working_sets
+        .expected_working_stop_order_ids
+        .is_empty()
+    {
+        let Stage5dPrivateStateAppliedPaperStrategy { loaded, envelope } = applied;
+        return Err(stage5d_bootstrap_blocked(
+            loaded,
             envelope,
-        }),
-        Err(blocked) => {
-            let (loaded, error) = *blocked;
-            Err(stage5d_bootstrap_blocked(
-                loaded,
-                envelope,
-                Stage5dBootstrapBlockReason::from(error),
-            ))
-        }
+            Stage5dBootstrapBlockReason::ExpectedWorkingStopUnsupported,
+        ));
     }
+    let raw_stop_truth =
+        stage5d_empty_supplemental_stop_truth_for_envelope(&applied.envelope, notification_now);
+    let validated_stop_truth =
+        match stage5d_validate_supplemental_working_stop_truth(&applied.envelope, raw_stop_truth) {
+            Ok(validated) => validated,
+            Err(reason) => {
+                let Stage5dPrivateStateAppliedPaperStrategy { loaded, envelope } = applied;
+                return Err(stage5d_bootstrap_blocked(loaded, envelope, reason));
+            }
+        };
+    stage5d_notify_working_set_broker_truth_bootstrap_at(
+        applied,
+        validated_stop_truth,
+        notification_now,
+    )
 }
 
-#[allow(dead_code)]
-fn stage5d_notify_working_set_broker_truth_bootstrap_at(
+pub(crate) fn stage5d_notify_working_set_broker_truth_bootstrap_at(
     applied: Stage5dPrivateStateAppliedPaperStrategy,
-    supplemental_stop_truth: Stage5dSupplementalWorkingStopTruth,
+    validated_stop_truth: Stage5dValidatedSupplementalWorkingStopTruth,
     notification_now: DateTime<Utc>,
 ) -> Result<Stage5dBootstrappedPaperStrategy, Stage5dBootstrapBlocked> {
     let Stage5dPrivateStateAppliedPaperStrategy { loaded, envelope } = applied;
     let (working_orders, working_stops) =
-        match stage5d_validate_working_set_truth(&loaded, &envelope, &supplemental_stop_truth) {
+        match stage5d_validate_working_set_truth(&loaded, &envelope, validated_stop_truth) {
             Ok(validated) => validated,
             Err(reason) => return Err(stage5d_bootstrap_blocked(loaded, envelope, reason)),
         };
@@ -2795,6 +2830,7 @@ fn stage5d_bootstrap_blocked(
     }
 }
 
+#[allow(dead_code)]
 fn validate_stage5d_broker_truth_bootstrap(
     loaded: &crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy,
     envelope: &Stage5dPersistenceEnvelope,
@@ -2850,9 +2886,16 @@ fn validate_stage5d_broker_truth_bootstrap(
 fn stage5d_validate_working_set_truth(
     loaded: &crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy,
     envelope: &Stage5dPersistenceEnvelope,
-    supplemental_stop_truth: &Stage5dSupplementalWorkingStopTruth,
+    validated_stop_truth: Stage5dValidatedSupplementalWorkingStopTruth,
 ) -> Result<Stage5dValidatedWorkingSetBootstrapMaps, Stage5dBootstrapBlockReason> {
     validate_stage5d_broker_truth_bootstrap_common(loaded, envelope)?;
+    if validated_stop_truth.snapshot_id != envelope.snapshot_id
+        || validated_stop_truth.account_id != envelope.binding.account_id
+        || validated_stop_truth.instrument != envelope.binding.instrument_id.to_instrument_id()
+    {
+        return Err(Stage5dBootstrapBlockReason::SupplementalStopTruthBindingMismatch);
+    }
+    let _validated_stop_truth_fingerprint = validated_stop_truth.fingerprint_sha256();
     let admission = loaded.stage5d_admission();
     let snapshot = admission.bootstrap_snapshot();
     let expected_orders = &envelope
@@ -2915,9 +2958,7 @@ fn stage5d_validate_working_set_truth(
         }
     }
 
-    let working_stops =
-        stage5d_validate_supplemental_working_stop_truth(envelope, supplemental_stop_truth)?;
-    Ok((working_orders, working_stops))
+    Ok((working_orders, validated_stop_truth.working_stops))
 }
 
 #[allow(dead_code)]
@@ -2977,22 +3018,20 @@ fn stage5d_order_event_from_active_order(
 }
 
 #[allow(dead_code)]
-fn stage5d_validate_supplemental_working_stop_truth(
+pub(crate) fn stage5d_validate_supplemental_working_stop_truth(
     envelope: &Stage5dPersistenceEnvelope,
-    truth: &Stage5dSupplementalWorkingStopTruth,
-) -> Result<
-    HashMap<BrokerStopOrderId, crate::runtime_compat::StopOrderEvent>,
-    Stage5dBootstrapBlockReason,
-> {
+    truth: Stage5dSupplementalWorkingStopTruth,
+) -> Result<Stage5dValidatedSupplementalWorkingStopTruth, Stage5dBootstrapBlockReason> {
     if truth.schema_version != STAGE5D_SUPPLEMENTAL_WORKING_STOP_TRUTH_SCHEMA_VERSION
         || truth.snapshot_id != envelope.snapshot_id
         || truth.account_id != envelope.binding.account_id
         || truth.instrument != envelope.binding.instrument_id.to_instrument_id()
         || truth.fingerprint_sha256
-            != stage5d_compute_supplemental_working_stop_truth_fingerprint(truth)?
+            != stage5d_compute_supplemental_working_stop_truth_fingerprint(&truth)?
     {
         return Err(Stage5dBootstrapBlockReason::SupplementalStopTruthBindingMismatch);
     }
+    let fingerprint_sha256 = truth.fingerprint_sha256.clone();
     let expected_stops = &envelope
         .runtime_private_extension
         .expected_working_sets
@@ -3005,6 +3044,12 @@ fn stage5d_validate_supplemental_working_stop_truth(
         .iter()
         .map(BrokerOrderId::as_str)
         .collect::<HashSet<_>>();
+    if expected_stops
+        .iter()
+        .any(|id| expected_orders_as_stop_set.contains(id.as_str()))
+    {
+        return Err(Stage5dBootstrapBlockReason::WorkingSetDuplicateId);
+    }
     let mut working_stops = HashMap::new();
     for stop in &truth.working_stops {
         if stop.account_id != truth.account_id || stop.instrument != truth.instrument {
@@ -3059,7 +3104,31 @@ fn stage5d_validate_supplemental_working_stop_truth(
             return Err(Stage5dBootstrapBlockReason::ExpectedWorkingStopMissing);
         }
     }
-    Ok(working_stops)
+    Ok(Stage5dValidatedSupplementalWorkingStopTruth {
+        snapshot_id: truth.snapshot_id,
+        account_id: truth.account_id,
+        instrument: truth.instrument,
+        working_stops,
+        fingerprint_sha256,
+    })
+}
+
+fn stage5d_empty_supplemental_stop_truth_for_envelope(
+    envelope: &Stage5dPersistenceEnvelope,
+    received_ts: DateTime<Utc>,
+) -> Stage5dSupplementalWorkingStopTruth {
+    let mut truth = Stage5dSupplementalWorkingStopTruth {
+        schema_version: STAGE5D_SUPPLEMENTAL_WORKING_STOP_TRUTH_SCHEMA_VERSION,
+        snapshot_id: envelope.snapshot_id.clone(),
+        account_id: envelope.binding.account_id.clone(),
+        instrument: envelope.binding.instrument_id.to_instrument_id(),
+        received_ts,
+        working_stops: Vec::new(),
+        fingerprint_sha256: String::new(),
+    };
+    truth.fingerprint_sha256 = stage5d_compute_supplemental_working_stop_truth_fingerprint(&truth)
+        .expect("empty supplemental stop truth fingerprint");
+    truth
 }
 
 #[allow(dead_code)]
@@ -7143,6 +7212,12 @@ mod tests {
         WorkingProtective,
     }
 
+    struct Stage5dR3PendingEntryExpectation<'a> {
+        entry: Option<&'a Stage5dPendingEntryExtension>,
+        cycle_id: Option<&'a str>,
+        created_ts_utc: Option<i64>,
+    }
+
     impl Stage5dR3RecoveryIndexCase {
         fn snapshot_id(self) -> &'static str {
             match self {
@@ -7275,44 +7350,25 @@ mod tests {
 
     fn stage5d_test_bootstrap_expected_working_order_exact_at(
         applied: Stage5dPrivateStateAppliedPaperStrategy,
-        envelope: Stage5dPersistenceEnvelope,
         active_order_id: BrokerOrderId,
         stop_truth: Stage5dSupplementalWorkingStopTruth,
         notification_now: DateTime<Utc>,
     ) -> Stage5dBootstrappedPaperStrategy {
         assert_eq!(
-            envelope
+            applied
+                .envelope
                 .runtime_private_extension
                 .expected_working_sets
                 .expected_working_order_ids,
             vec![active_order_id.clone()],
             "recovery-index protective path must be source-derived from exactly one working order"
         );
-        let Stage5dPrivateStateAppliedPaperStrategy { loaded, envelope } = applied;
-        let active_order = stage5d_active_order(
-            envelope.binding.account_id.clone(),
-            envelope.binding.instrument_id.to_instrument_id(),
-            active_order_id,
-            notification_now,
-        );
-        let active_admission = stage5d_test_admission_for_envelope(
-            &envelope,
-            stage5d_persisted_position_qty(&envelope).expect("position qty"),
-        )
-        .stage5d_test_with_target_active_orders(vec![active_order]);
-        let (strategy, _old_admission, restored, load_origin) = loaded.stage5d_into_parts();
-        let loaded_with_truth =
-            crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
-                strategy,
-                active_admission,
-                restored,
-                load_origin,
-            );
-        validate_stage5d_broker_truth_bootstrap_common(&loaded_with_truth, &envelope)
+        validate_stage5d_broker_truth_bootstrap_common(&applied.loaded, &applied.envelope)
             .expect("working-set broker truth binding must validate before exact working checks");
 
         assert_eq!(
-            loaded_with_truth
+            applied
+                .loaded
                 .stage5d_admission()
                 .bootstrap_snapshot()
                 .target_active_orders
@@ -7320,24 +7376,35 @@ mod tests {
             1,
             "broker truth must contain the expected working order before Stage 5C closed-boundary working-order bootstrap"
         );
-        let active_order_count = loaded_with_truth
+        let active_order_count = applied
+            .loaded
             .stage5d_admission()
             .bootstrap_snapshot()
             .target_active_orders
             .len();
-        let active_admission_checked_ts = loaded_with_truth.stage5d_admission().checked_ts();
+        let active_admission_checked_ts = applied.loaded.stage5d_admission().checked_ts();
         assert_eq!(
             active_order_count, 1,
             "exact working-order truth must remain visible to Stage 5D validation"
         );
         assert_eq!(active_admission_checked_ts, notification_now);
+        let stop_truth_json =
+            serde_json::to_string(&stop_truth).expect("supplemental stop truth serializes");
+        drop(stop_truth);
+        let stop_truth: Stage5dSupplementalWorkingStopTruth =
+            serde_json::from_str(&stop_truth_json)
+                .expect("supplemental stop truth decodes strictly");
+        let validated_stop_truth =
+            stage5d_validate_supplemental_working_stop_truth(&applied.envelope, stop_truth)
+                .expect("supplemental stop truth validates to opaque capability");
+        assert!(
+            !validated_stop_truth.fingerprint_sha256().is_empty(),
+            "validated stop-truth capability must retain a redacted fingerprint"
+        );
         expect_stage5d_bootstrap_ok(
             stage5d_notify_working_set_broker_truth_bootstrap_at(
-                Stage5dPrivateStateAppliedPaperStrategy {
-                    loaded: loaded_with_truth,
-                    envelope,
-                },
-                stop_truth,
+                applied,
+                validated_stop_truth,
                 notification_now,
             ),
             "paper-only Stage 5D working-set bootstrap must cross production closed boundary",
@@ -7531,7 +7598,22 @@ mod tests {
             pending_requests: strict_envelope.recovery_indexes.pending_requests.clone(),
         };
         let position_qty = stage5d_persisted_position_qty(&strict_envelope).expect("position qty");
-        let admission = stage5d_test_admission_for_envelope(&strict_envelope, position_qty);
+        let admission = match case {
+            Stage5dR3RecoveryIndexCase::KnownOrder
+            | Stage5dR3RecoveryIndexCase::WorkingProtective => {
+                let active_order = stage5d_active_order(
+                    strict_envelope.binding.account_id.clone(),
+                    strict_envelope.binding.instrument_id.to_instrument_id(),
+                    source_order_id.clone(),
+                    strict_envelope.persisted_at_ts_utc,
+                );
+                stage5d_test_admission_for_envelope(&strict_envelope, position_qty)
+                    .stage5d_test_with_target_active_orders(vec![active_order])
+            }
+            Stage5dR3RecoveryIndexCase::PendingRequest => {
+                stage5d_test_admission_for_envelope(&strict_envelope, position_qty)
+            }
+        };
         let loaded = crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
             fresh_strategy,
             admission,
@@ -7599,7 +7681,6 @@ mod tests {
                 };
                 stage5d_test_bootstrap_expected_working_order_exact_at(
                     applied,
-                    strict_envelope.clone(),
                     source_order_id.clone(),
                     stop_truth,
                     strict_envelope.persisted_at_ts_utc,
@@ -7682,9 +7763,12 @@ mod tests {
             restored,
             &strict_envelope,
             &source_order_id,
-            source_pending_entry.as_ref(),
-            source_pending_cycle_id.as_deref(),
-            source_pending_created_ts_utc,
+            &source_stop_order_id,
+            Stage5dR3PendingEntryExpectation {
+                entry: source_pending_entry.as_ref(),
+                cycle_id: source_pending_cycle_id.as_deref(),
+                created_ts_utc: source_pending_created_ts_utc,
+            },
         );
         let restored_receipt_summary = format!(
             "runtime_state_restored={};warmup_started={};pending_recovery_started={};semantic_bar_enabled={};known_orders={};pending_requests={}",
@@ -7744,9 +7828,8 @@ mod tests {
         restored: crate::stage5c_paper_host::Stage5cRuntimeStateRestoredPaperStrategy,
         strict_envelope: &Stage5dPersistenceEnvelope,
         source_order_id: &BrokerOrderId,
-        expected_pending_entry: Option<&Stage5dPendingEntryExtension>,
-        expected_pending_cycle_id: Option<&str>,
-        expected_pending_created_ts_utc: Option<i64>,
+        source_stop_order_id: &BrokerStopOrderId,
+        expected_pending: Stage5dR3PendingEntryExpectation<'_>,
     ) -> crate::stage5c_paper_host::Stage5cRuntimeStateRestoredPaperStrategy {
         let (mut probe, receipt) = restored.into_parts();
         match case {
@@ -7797,10 +7880,14 @@ mod tests {
                     "restored-before-terminal pending entry",
                     &state_before,
                     &extension_before,
-                    expected_pending_entry
+                    expected_pending
+                        .entry
                         .expect("pending request case must carry expected private entry"),
-                    expected_pending_cycle_id.expect("pending request case must carry cycle id"),
-                    expected_pending_created_ts_utc
+                    expected_pending
+                        .cycle_id
+                        .expect("pending request case must carry cycle id"),
+                    expected_pending
+                        .created_ts_utc
                         .expect("pending request case must carry created timestamp"),
                 );
                 let request_before =
@@ -7878,37 +7965,55 @@ mod tests {
                     duplicate.is_empty(),
                     "working protective duplicate callback must not emit protection twice"
                 );
-                let missing_truth = {
-                    let mut envelope = strict_envelope.clone();
-                    envelope
-                        .runtime_private_extension
-                        .expected_working_sets
-                        .expected_working_order_ids
-                        .push(BrokerOrderId::new("STAGE5D-R3-IDX-EXTRA-ORDER"));
-                    envelope.recovery_indexes.known_order_ids = envelope
-                        .runtime_private_extension
-                        .expected_working_sets
-                        .expected_working_order_ids
-                        .clone();
-                    envelope.payload_checksum_sha256 = envelope
-                        .compute_payload_checksum_sha256()
-                        .expect("missing truth checksum");
-                    envelope
-                };
-                let (applied, _) = applied_stage5d_fixture_with(
-                    |envelope| *envelope = missing_truth.clone(),
-                    |admission| admission.stage5d_test_with_target_position_qty(Decimal::ONE),
+                let duplicate_sl = probe.on_stop_order(
+                    &ctx,
+                    &crate::runtime_compat::StopOrderEvent {
+                        stop_order_id: source_stop_order_id.clone(),
+                        exchange_order_id: None,
+                        symbol: "IMOEXF".to_string(),
+                        status: "working".to_string(),
+                        side: "sell".to_string(),
+                        qty: 1.0,
+                        filled: 0.0,
+                        stop_price: 2180.0,
+                        price: 2179.5,
+                        existing: true,
+                        comment: Some(
+                            stage5d_test_hybrid_comment("5didxord01", "BO", "SL").replace(
+                                "HYB|sid=hyb-test|",
+                                &format!("HYB|sid={}|", ctx.strategy_id),
+                            ),
+                        ),
+                        end_time: None,
+                        ts_utc: strict_envelope.persisted_at_ts_utc.timestamp() + 1,
+                    },
                 );
-                let blocked = expect_stage5d_bootstrap_blocked(
-                    stage5d_notify_broker_truth_bootstrap_at(
-                        applied,
-                        missing_truth.persisted_at_ts_utc,
-                    ),
-                    "missing extra expected working protective order must fail closed",
+                assert!(
+                    duplicate_sl.is_empty(),
+                    "working protective duplicate SL callback must not emit protection twice"
+                );
+                let duplicate_extension = probe
+                    .stage5d_export_runtime_private_extension()
+                    .expect("working protective duplicate extension exports");
+                assert_eq!(
+                    duplicate_extension
+                        .expected_working_sets
+                        .expected_working_order_ids,
+                    strict_envelope
+                        .runtime_private_extension
+                        .expected_working_sets
+                        .expected_working_order_ids,
+                    "working protective duplicate TP callback must preserve exact expected TP set"
                 );
                 assert_eq!(
-                    blocked.reason(),
-                    Stage5dBootstrapBlockReason::ExpectedWorkingOrderMissing
+                    duplicate_extension
+                        .expected_working_sets
+                        .expected_working_stop_order_ids,
+                    strict_envelope
+                        .runtime_private_extension
+                        .expected_working_sets
+                        .expected_working_stop_order_ids,
+                    "working protective duplicate SL callback must preserve exact expected SL set"
                 );
                 let terminal = probe.on_order(
                     &ctx,
@@ -7937,6 +8042,37 @@ mod tests {
                     "protective terminal callback must not emit entry or flip intent"
                 );
                 stage5d_test_assert_no_entry_intents(&terminal, "protective terminal callback");
+                let terminal_sl = probe.on_stop_order(
+                    &ctx,
+                    &crate::runtime_compat::StopOrderEvent {
+                        stop_order_id: source_stop_order_id.clone(),
+                        exchange_order_id: None,
+                        symbol: "IMOEXF".to_string(),
+                        status: "canceled".to_string(),
+                        side: "sell".to_string(),
+                        qty: 1.0,
+                        filled: 0.0,
+                        stop_price: 2180.0,
+                        price: 2179.5,
+                        existing: true,
+                        comment: Some(
+                            stage5d_test_hybrid_comment("5didxord01", "BO", "SL").replace(
+                                "HYB|sid=hyb-test|",
+                                &format!("HYB|sid={}|", ctx.strategy_id),
+                            ),
+                        ),
+                        end_time: None,
+                        ts_utc: strict_envelope.persisted_at_ts_utc.timestamp() + 2,
+                    },
+                );
+                assert!(
+                    terminal_sl.is_empty(),
+                    "protective SL terminal callback must not emit entry or flip intent"
+                );
+                stage5d_test_assert_no_entry_intents(
+                    &terminal_sl,
+                    "protective SL terminal callback",
+                );
             }
         }
         crate::stage5c_paper_host::Stage5cRuntimeStateRestoredPaperStrategy::stage5d_test_restored_from_parts(
@@ -13102,6 +13238,13 @@ mod tests {
         // recovery_index_r1r1_production_owned_id_normalization_used
         // recovery_index_r1r1_working_stop_truth_source_produced
         // recovery_index_r1r1_negative_matrix_executed
+        // recovery_index_r1r1_pending_request_field_level_assertions
+        // recovery_index_r1r1_tp_sl_swap_fails_closed
+        // recovery_index_r1r2_unbroken_type_state_path
+        // recovery_index_r1r2_production_working_set_transition_executed
+        // recovery_index_r1r2_validated_stop_truth_roundtrip
+        // recovery_index_r1r2_sl_duplicate_suppressed
+        // recovery_index_r1r2_sl_terminal_no_entry_or_flip
         // recovery_index_canonical_strict_decode_used
         // recovery_index_source_runtime_destroyed_before_restart_boundary
         // recovery_index_fresh_runtime_used
@@ -13279,7 +13422,7 @@ mod tests {
                     stage5d_supplemental_stop_order_truth(&envelope, sl_id.clone()),
                 ],
             ),
-            Stage5dBootstrapBlockReason::ExpectedWorkingOrderMissing,
+            Stage5dBootstrapBlockReason::WorkingStopKindMismatch,
         ));
         cases.push((
             "SL represented as normal order wrong kind",
@@ -13293,7 +13436,7 @@ mod tests {
                 ),
             ],
             stage5d_supplemental_stop_truth_for_envelope(&envelope, Vec::new()),
-            Stage5dBootstrapBlockReason::WorkingOrderKindMismatch,
+            Stage5dBootstrapBlockReason::ExpectedWorkingStopMissing,
         ));
         cases.push((
             "TP/SL identities swapped",
@@ -13310,7 +13453,7 @@ mod tests {
                     BrokerStopOrderId::new(tp_id.as_str()),
                 )],
             ),
-            Stage5dBootstrapBlockReason::WorkingOrderKindMismatch,
+            Stage5dBootstrapBlockReason::WorkingStopKindMismatch,
         ));
         let mut duplicate_envelope = envelope.clone();
         duplicate_envelope
@@ -13358,10 +13501,25 @@ mod tests {
                     active_orders,
                 )
             };
+            let validation_envelope = if label == "duplicate ID across order and stop sets" {
+                &duplicate_envelope
+            } else {
+                &envelope
+            };
+            let validated_truth = match stage5d_validate_supplemental_working_stop_truth(
+                validation_envelope,
+                truth,
+            ) {
+                Ok(validated) => validated,
+                Err(reason) => {
+                    assert_eq!(reason, expected_reason, "{label}");
+                    continue;
+                }
+            };
             let blocked = expect_stage5d_bootstrap_blocked(
                 stage5d_notify_working_set_broker_truth_bootstrap_at(
                     applied,
-                    truth,
+                    validated_truth,
                     envelope.persisted_at_ts_utc,
                 ),
                 label,
@@ -15226,15 +15384,11 @@ mod tests {
             },
         );
 
-        let blocked = expect_stage5d_bootstrap_blocked(
+        let bootstrapped = expect_stage5d_bootstrap_ok(
             stage5d_notify_broker_truth_bootstrap_at(applied, envelope.persisted_at_ts_utc),
-            "active orders are matched but still closed until ownership mapping opens",
+            "active orders matched by expected working set now cross the r1-r2 working-set bootstrap boundary",
         );
-        assert_eq!(
-            blocked.reason(),
-            Stage5dBootstrapBlockReason::ActiveOrdersRequireOwnershipMapping
-        );
-        assert!(blocked.input_capability_preserved());
+        assert!(bootstrapped.bootstrap_notified());
     }
 
     #[test]
@@ -15340,16 +15494,11 @@ mod tests {
                     fresh_ts,
                 )]);
 
-        let blocked = expect_stage5d_bootstrap_blocked(
+        let bootstrapped = expect_stage5d_bootstrap_ok(
             stage5d_retry_broker_truth_bootstrap_at(blocked, fresh_admission, fresh_ts),
-            "confirmed active order must advance to ownership-mapping boundary",
+            "confirmed active order now advances through r1-r2 working-set bootstrap",
         );
-
-        assert_eq!(
-            blocked.reason(),
-            Stage5dBootstrapBlockReason::ActiveOrdersRequireOwnershipMapping
-        );
-        assert!(blocked.input_capability_preserved());
+        assert!(bootstrapped.bootstrap_notified());
     }
 
     #[test]
@@ -16899,7 +17048,7 @@ mod tests {
         assert_eq!(inventory["stage"], "5D-final-restart-r3");
         assert_eq!(
             inventory["status"],
-            "current_shadow_r1_materialized_restore_not_closed"
+            "recovery_index_r1_r2_candidate_unbroken_type_state_path"
         );
         for surface in [
             "redis",

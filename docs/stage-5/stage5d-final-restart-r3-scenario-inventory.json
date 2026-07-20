@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "5D-final-restart-r3",
-  "status": "current_shadow_r1_materialized_restore_not_closed",
+  "status": "recovery_index_r1_r2_candidate_unbroken_type_state_path",
   "closed_surfaces": {
     "redis": false,
     "finam": false,
@@ -123,11 +123,11 @@
     {
       "case_id": "positive_partial_entry",
       "category": "positive",
-    "owning_test": "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
-    "execution_status": "accepted_r3_operational_state_r1_source_produced",
-    "producer_kind": "runtime_callback",
-    "producer_entrypoint": "stage5d_test_source_operational_state_strategy",
-    "producer_callbacks": [
+      "owning_test": "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
+      "execution_status": "accepted_r3_operational_state_r1_source_produced",
+      "producer_kind": "runtime_callback",
+      "producer_entrypoint": "stage5d_test_source_operational_state_strategy",
+      "producer_callbacks": [
         "on_bar",
         "on_ack:accepted",
         "on_position:partial_fill"
@@ -145,11 +145,11 @@
     {
       "case_id": "positive_pending_exit",
       "category": "positive",
-    "owning_test": "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
-    "execution_status": "accepted_r3_operational_state_r1_source_produced",
-    "producer_kind": "runtime_callback",
-    "producer_entrypoint": "stage5d_test_source_operational_state_strategy",
-    "producer_callbacks": [
+      "owning_test": "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
+      "execution_status": "accepted_r3_operational_state_r1_source_produced",
+      "producer_kind": "runtime_callback",
+      "producer_entrypoint": "stage5d_test_source_operational_state_strategy",
+      "producer_callbacks": [
         "on_bar",
         "on_position:bo_market_fill",
         "on_bar:breakout_eod_exit"
@@ -167,11 +167,11 @@
     {
       "case_id": "positive_deferred_entry",
       "category": "positive",
-    "owning_test": "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
-    "execution_status": "accepted_r3_operational_state_r1_source_produced",
-    "producer_kind": "runtime_callback",
-    "producer_entrypoint": "stage5d_test_source_operational_state_strategy",
-    "producer_callbacks": [
+      "owning_test": "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
+      "execution_status": "accepted_r3_operational_state_r1_source_produced",
+      "producer_kind": "runtime_callback",
+      "producer_entrypoint": "stage5d_test_source_operational_state_strategy",
+      "producer_callbacks": [
         "on_bar",
         "on_ack:rejected_trading_window_closed",
         "on_bar:pre_model_window_reissue_gated"
@@ -189,11 +189,11 @@
     {
       "case_id": "positive_deferred_exit",
       "category": "positive",
-    "owning_test": "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
-    "execution_status": "accepted_r3_operational_state_r1_source_produced",
-    "producer_kind": "runtime_callback",
-    "producer_entrypoint": "stage5d_test_source_operational_state_strategy",
-    "producer_callbacks": [
+      "owning_test": "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
+      "execution_status": "accepted_r3_operational_state_r1_source_produced",
+      "producer_kind": "runtime_callback",
+      "producer_entrypoint": "stage5d_test_source_operational_state_strategy",
+      "producer_callbacks": [
         "on_bar",
         "on_position:bo_market_fill",
         "on_bar:breakout_eod_exit",
@@ -213,11 +213,11 @@
     {
       "case_id": "positive_safe_mode_close_only",
       "category": "positive",
-    "owning_test": "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
-    "execution_status": "accepted_r3_operational_state_r1_source_produced",
-    "producer_kind": "runtime_callback",
-    "producer_entrypoint": "stage5d_test_source_operational_state_strategy",
-    "producer_callbacks": [
+      "owning_test": "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
+      "execution_status": "accepted_r3_operational_state_r1_source_produced",
+      "producer_kind": "runtime_callback",
+      "producer_entrypoint": "stage5d_test_source_operational_state_strategy",
+      "producer_callbacks": [
         "on_bar",
         "on_ack:accepted",
         "on_position:partial_fill",
@@ -241,7 +241,9 @@
       "next_gate": "r3-positive-index-group",
       "producer_kind": "runtime_callback",
       "producer_entrypoint": "stage5d_test_source_known_order_strategy",
-      "producer_callbacks": ["on_order:working_tp"],
+      "producer_callbacks": [
+        "on_order:working_tp"
+      ],
       "canonical_package_path": true,
       "source_object_destroyed": true,
       "strict_decode_used": true,
@@ -259,7 +261,10 @@
       "next_gate": "r3-positive-index-group",
       "producer_kind": "runtime_callback",
       "producer_entrypoint": "stage5d_test_source_pending_entry_strategy",
-      "producer_callbacks": ["on_bar:pending_entry", "on_ack:terminal_resolution"],
+      "producer_callbacks": [
+        "on_bar:pending_entry",
+        "on_ack:terminal_resolution"
+      ],
       "canonical_package_path": true,
       "source_object_destroyed": true,
       "strict_decode_used": true,
@@ -278,7 +283,9 @@
       "next_gate": "r3-positive-index-group",
       "producer_kind": "runtime_callback",
       "producer_entrypoint": "stage5d_test_source_working_protective_strategy",
-      "producer_callbacks": ["on_order:working_tp"],
+      "producer_callbacks": [
+        "on_order:working_tp"
+      ],
       "canonical_package_path": true,
       "source_object_destroyed": true,
       "strict_decode_used": true,

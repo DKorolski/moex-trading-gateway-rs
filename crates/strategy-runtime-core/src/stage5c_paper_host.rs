@@ -305,6 +305,11 @@ pub(crate) enum Stage5dRuntimeStateRestoredBridgeError {
     CallbackEmittedIntent,
 }
 
+pub(crate) struct Stage5dBrokerOwnedIdNormalizationBlocked {
+    pub(crate) bootstrapped: Box<Stage5cBootstrappedPaperStrategy>,
+    pub(crate) reason: Stage5dRuntimeStateRestoredBridgeError,
+}
+
 pub(crate) fn stage5d_notify_runtime_state_restored_bridge_at(
     bootstrapped: Stage5cBootstrappedPaperStrategy,
     restored_ts: DateTime<Utc>,
@@ -320,7 +325,7 @@ pub(crate) fn stage5d_normalize_broker_owned_ids_for_closed_restore_bridge(
     bootstrapped: Stage5cBootstrappedPaperStrategy,
     expected_working_order_ids: &[BrokerOrderId],
     expected_working_stop_order_ids: &[BrokerStopOrderId],
-) -> Result<Stage5cBootstrappedPaperStrategy, Stage5dRuntimeStateRestoredBridgeError> {
+) -> Result<Stage5cBootstrappedPaperStrategy, Stage5dBrokerOwnedIdNormalizationBlocked> {
     let (mut strategy, receipt, restored) = bootstrapped.into_parts();
     let mut state = Strategy::state(&strategy).clone();
     let StrategyState::HybridIntradayRuntime {
@@ -330,9 +335,16 @@ pub(crate) fn stage5d_normalize_broker_owned_ids_for_closed_restore_bridge(
         ..
     } = &mut state
     else {
-        return Err(Stage5dRuntimeStateRestoredBridgeError::Stage5c(
-            Stage5cRuntimeStateRestoreError::WrongStrategyStateKind,
-        ));
+        return Err(Stage5dBrokerOwnedIdNormalizationBlocked {
+            bootstrapped: Box::new(Stage5cBootstrappedPaperStrategy {
+                strategy,
+                receipt,
+                restored,
+            }),
+            reason: Stage5dRuntimeStateRestoredBridgeError::Stage5c(
+                Stage5cRuntimeStateRestoreError::WrongStrategyStateKind,
+            ),
+        });
     };
     let tp_is_frozen = tp_order_id
         .as_ref()
@@ -344,9 +356,16 @@ pub(crate) fn stage5d_normalize_broker_owned_ids_for_closed_restore_bridge(
         .as_ref()
         .map_or(true, |id| expected_working_order_ids.contains(id));
     if !tp_is_frozen || !sl_stop_is_frozen || !sl_exchange_is_frozen {
-        return Err(Stage5dRuntimeStateRestoredBridgeError::Stage5c(
-            Stage5cRuntimeStateRestoreError::BrokerOwnedOrderIdMismatch,
-        ));
+        return Err(Stage5dBrokerOwnedIdNormalizationBlocked {
+            bootstrapped: Box::new(Stage5cBootstrappedPaperStrategy {
+                strategy,
+                receipt,
+                restored,
+            }),
+            reason: Stage5dRuntimeStateRestoredBridgeError::Stage5c(
+                Stage5cRuntimeStateRestoreError::BrokerOwnedOrderIdMismatch,
+            ),
+        });
     }
     *tp_order_id = None;
     *sl_stop_order_id = None;
@@ -514,6 +533,7 @@ fn stage5d_validate_post_runtime_restored_broker_truth_exact(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) fn stage5d_bootstrap_preserving_loaded_at(
     loaded: Stage5cRuntimeStateLoadedPaperStrategy,
     notification_now: DateTime<Utc>,

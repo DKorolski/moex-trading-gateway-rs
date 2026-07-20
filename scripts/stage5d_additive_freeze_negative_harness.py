@@ -483,7 +483,7 @@ def mutate_bootstrap_bridge_runtime_compat_direct_call(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/runtime_compat.rs",
         "\n#[allow(dead_code)]\nfn stage5d_negative_bootstrap_bridge_direct_call(loaded: crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy, now: chrono::DateTime<chrono::Utc>) {\n"
-        "    let _ = crate::stage5c_paper_host::stage5d_bootstrap_preserving_loaded_at(loaded, now);\n"
+        "    let _ = crate::stage5c_paper_host::stage5d_bootstrap_preserving_loaded_with_validated_working_sets_at(loaded, now);\n"
         "}\n",
     )
 
@@ -492,7 +492,7 @@ def mutate_bootstrap_bridge_runtime_compat_alias_call(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/runtime_compat.rs",
         "\n#[allow(dead_code)]\nfn stage5d_negative_bootstrap_bridge_alias_call(loaded: crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy, now: chrono::DateTime<chrono::Utc>) {\n"
-        "    use crate::stage5c_paper_host::stage5d_bootstrap_preserving_loaded_at as bypass_bootstrap;\n"
+        "    use crate::stage5c_paper_host::stage5d_bootstrap_preserving_loaded_with_validated_working_sets_at as bypass_bootstrap;\n"
         "    let _ = bypass_bootstrap(loaded, now);\n"
         "}\n",
     )
@@ -502,7 +502,7 @@ def mutate_bootstrap_bridge_runtime_compat_forwarding_wrapper(root: Path) -> Non
     append_text(
         root / "crates/strategy-runtime-core/src/runtime_compat.rs",
         "\n#[allow(dead_code)]\nfn stage5d_negative_bootstrap_bridge_forwarding_wrapper(loaded: crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy, now: chrono::DateTime<chrono::Utc>) {\n"
-        "    let _ = crate::stage5c_paper_host::stage5d_bootstrap_preserving_loaded_at(loaded, now);\n"
+        "    let _ = crate::stage5c_paper_host::stage5d_bootstrap_preserving_loaded_with_validated_working_sets_at(loaded, now);\n"
         "}\n",
     )
 
@@ -511,7 +511,7 @@ def mutate_bootstrap_bridge_runtime_compat_function_reference(root: Path) -> Non
     append_text(
         root / "crates/strategy-runtime-core/src/runtime_compat.rs",
         "\n#[allow(dead_code)]\nfn stage5d_negative_bootstrap_bridge_function_reference() {\n"
-        "    let _bridge = crate::stage5c_paper_host::stage5d_bootstrap_preserving_loaded_at;\n"
+        "    let _bridge = crate::stage5c_paper_host::stage5d_bootstrap_preserving_loaded_with_validated_working_sets_at;\n"
         "}\n",
     )
 
@@ -522,7 +522,7 @@ def mutate_bootstrap_bridge_second_stage5d_call(root: Path) -> None:
         root / rel,
         "fn validate_stage5d_broker_truth_bootstrap(",
         "#[allow(dead_code)]\nfn stage5d_negative_second_bootstrap_bridge_call(loaded: crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy, now: DateTime<Utc>) {\n"
-        "    let _ = crate::stage5c_paper_host::stage5d_bootstrap_preserving_loaded_at(loaded, now);\n"
+        "    let _ = crate::stage5c_paper_host::stage5d_bootstrap_preserving_loaded_with_validated_working_sets_at(loaded, now);\n"
         "}\n\n",
     )
     update_manifest_stage5d_hash(root)
@@ -2048,7 +2048,7 @@ CASES = [
     ("bootstrap_bridge_runtime_compat_alias_call", mutate_bootstrap_bridge_runtime_compat_alias_call, "Stage 5D bootstrap bridge reference outside allowlist"),
     ("bootstrap_bridge_runtime_compat_forwarding_wrapper", mutate_bootstrap_bridge_runtime_compat_forwarding_wrapper, "Stage 5D bootstrap bridge reference outside allowlist"),
     ("bootstrap_bridge_runtime_compat_function_reference", mutate_bootstrap_bridge_runtime_compat_function_reference, "Stage 5D bootstrap bridge reference outside allowlist"),
-    ("bootstrap_bridge_second_stage5d_call", mutate_bootstrap_bridge_second_stage5d_call, "Stage 5D bootstrap bridge production call count mismatch"),
+    ("bootstrap_bridge_second_stage5d_call", mutate_bootstrap_bridge_second_stage5d_call, "controlled source semantic extension contract mismatch"),
     ("riskgate_bridge_runtime_compat_direct_call", mutate_riskgate_bridge_runtime_compat_direct_call, "Stage 5D riskgate bridge reference outside allowlist"),
     ("riskgate_bridge_runtime_compat_alias_call", mutate_riskgate_bridge_runtime_compat_alias_call, "Stage 5D riskgate bridge reference outside allowlist"),
     ("riskgate_bridge_runtime_compat_forwarding_wrapper", mutate_riskgate_bridge_runtime_compat_forwarding_wrapper, "Stage 5D riskgate bridge reference outside allowlist"),
