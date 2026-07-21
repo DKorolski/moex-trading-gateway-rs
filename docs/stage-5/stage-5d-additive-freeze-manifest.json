@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-final-restart-r3-riskgate-recovery-r1-r2",
+  "stage": "5D-final-restart-r3-riskgate-recovery-r1-r3",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "ba0be17a6bdbe432a5e626b45fd8e584ce07863401fe907f1662fc30de4adc5b"
+      "stage5d_consumer_sha256": "7d33d227681414093655a0cd43e8ab6394231bb1275c04a67c0b92eabe4879f1"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,20 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "ba0be17a6bdbe432a5e626b45fd8e584ce07863401fe907f1662fc30de4adc5b"
+      "stage5d_consumer_sha256": "7d33d227681414093655a0cd43e8ab6394231bb1275c04a67c0b92eabe4879f1"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "ba0be17a6bdbe432a5e626b45fd8e584ce07863401fe907f1662fc30de4adc5b"
+    "current_sha256": "7d33d227681414093655a0cd43e8ab6394231bb1275c04a67c0b92eabe4879f1"
+  },
+  "stage5d_riskrec_exact_fixtures": {
+    "tests/fixtures/stage5/stage5d_riskrec_single_pending_package.json": "304b01de4df838952ff07637346e218379f808cb706b24c0165f33c45556bb6e",
+    "tests/fixtures/stage5/stage5d_riskrec_single_pending_final_receipt.json": "672533a88484cc33bd93d0d72b5f0ddd3124d0b7943691fdddca65affa03e756",
+    "tests/fixtures/stage5/stage5d_riskrec_ordered_multi_row_package.json": "e61c1f7ba98b32b06c1727eef24e0bd3e1bae3b5445b5f57dfff84fc6a7352ec",
+    "tests/fixtures/stage5/stage5d_riskrec_ordered_multi_row_final_receipt.json": "d4d7ece4e6fbe2974be1563644b4afc8fcdbe31e66dadf510b68f4cffddd027b",
+    "tests/fixtures/stage5/stage5d_riskrec_complete_noop_package.json": "304b01de4df838952ff07637346e218379f808cb706b24c0165f33c45556bb6e",
+    "tests/fixtures/stage5/stage5d_riskrec_complete_noop_final_receipt.json": "672533a88484cc33bd93d0d72b5f0ddd3124d0b7943691fdddca65affa03e756"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -453,7 +461,13 @@
     "riskrec_r1r1_stage5c_warmup_removed",
     "riskrec_r1r1_restored_callback_duplicated",
     "riskrec_r1r1_golden_hash_changed",
-    "riskrec_r1r1_stage5e_opened"
+    "riskrec_r1r1_stage5e_opened",
+    "riskrec_r1r3_exact_package_fixture_changed",
+    "riskrec_r1r3_exact_receipt_fixture_changed",
+    "riskrec_r1r3_summary_wrong_fixture_path",
+    "riskrec_r1r3_summary_wrong_fixture_sha",
+    "riskrec_r1r3_committed_read_validator_removed",
+    "riskrec_r1r3_forged_matrix_removed"
   ],
   "stage5d_public_api": {
     "public_reexports": [

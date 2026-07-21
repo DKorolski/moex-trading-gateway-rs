@@ -1,5 +1,9 @@
 {
   "case_id": "positive_single_pending_riskgate_finalization",
+  "package_fixture_path": "tests/fixtures/stage5/stage5d_riskrec_single_pending_package.json",
+  "package_fixture_sha256": "304b01de4df838952ff07637346e218379f808cb706b24c0165f33c45556bb6e",
+  "receipt_fixture_path": "tests/fixtures/stage5/stage5d_riskrec_single_pending_final_receipt.json",
+  "receipt_fixture_sha256": "672533a88484cc33bd93d0d72b5f0ddd3124d0b7943691fdddca65affa03e756",
   "envelope_sha256": "eb2a042fd5d56561d3f8b6e7997ef6bcde975e0052f08261c61a1bf70a0acccf",
   "evidence_fingerprint_sha256": "stage5d_riskgate_evidence_sha256:0604847e02f39ef30a26b472e893c0a79631c49920305235ff5a96a3fbef5e5c",
   "expected_checkpoint_progression": [
@@ -8,7 +12,7 @@
     "reack_runtime",
     "already_acknowledged"
   ],
-  "final_commit_receipt_fingerprint": "94e710a6f1a8eb85937ef59eaec1132cc906241d3cea51281f291e19c9d6cefb",
+  "final_commit_receipt_fingerprint": "65add0cc96619fdcdbe2e876358fbaf550d8a04c66d2945cad3d10ea4d92f3b3",
   "ordered_finalization_generations": [
     1
   ],
@@ -23,7 +27,7 @@
   ],
   "package_sha256": "304b01de4df838952ff07637346e218379f808cb706b24c0165f33c45556bb6e",
   "recovery_plan_fingerprint_sha256": "stage5d_riskgate_recovery_plan_sha256:17945e5082edce379e84e6612c971776ca41095dfaf7b3517c033ef7b022e504",
-  "stage": "5D-final-restart-r3-riskgate-recovery-r1-r2",
+  "stage": "5D-final-restart-r3-riskgate-recovery-r1-r3",
   "stage5c_warmup_completed": true,
   "stage5e_closed": true
 }

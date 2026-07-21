@@ -2046,7 +2046,7 @@ fn stage5d_validate_current_shadow_source_state(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Stage5dRiskGateRecoveryDecision {
+pub(crate) enum Stage5dRiskGateRecoveryDecision {
     AppendMissingLedgerRow,
     AdvanceToMaterialized,
     ReackRuntime,
@@ -5223,6 +5223,9 @@ pub(crate) enum Stage5dRiskGateRecoveryCheckpoint {
 pub(crate) struct Stage5dRiskGateRecoveryCommitReceipt {
     schema_version: u16,
     checkpoint: Stage5dRiskGateRecoveryCheckpoint,
+    checkpoint_finalization_identity_hash: Option<String>,
+    checkpoint_generation: Option<u64>,
+    checkpoint_action: Option<String>,
     package_sha256: String,
     envelope_sha256: String,
     evidence_fingerprint_sha256: String,
@@ -5242,6 +5245,28 @@ pub(crate) struct Stage5dRiskGateRecoveryStepApplied {
     action_fingerprint_sha256: String,
 }
 
+impl Stage5dRiskGateRecoveryStepApplied {
+    #[allow(dead_code)]
+    pub(crate) fn action(&self) -> Stage5dRiskGateRecoveryDecision {
+        self.action
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn checkpoint(&self) -> Stage5dRiskGateRecoveryCheckpoint {
+        self.checkpoint
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn action_fingerprint(&self) -> &str {
+        &self.action_fingerprint_sha256
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn into_ready(self) -> Stage5dRiskGateRecoveryReady {
+        self.ready
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Stage5dRiskGateRecoveryActionBlocked {
@@ -5249,6 +5274,44 @@ pub(crate) enum Stage5dRiskGateRecoveryActionBlocked {
     InvalidEvidence,
     InvalidPackage,
 }
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub(crate) struct Stage5dValidatedRiskGateRecoveryCommittedPackage {
+    package_json: String,
+    ready: Stage5dRiskGateRecoveryReady,
+    receipt: Stage5dRiskGateRecoveryCommitReceipt,
+}
+
+impl Stage5dValidatedRiskGateRecoveryCommittedPackage {
+    #[allow(dead_code)]
+    pub(crate) fn package_json(&self) -> &str {
+        &self.package_json
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn receipt(&self) -> &Stage5dRiskGateRecoveryCommitReceipt {
+        &self.receipt
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn into_ready(self) -> Stage5dRiskGateRecoveryReady {
+        self.ready
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5dRiskGateRecoveryCommittedReadBlocked {
+    InvalidPackage,
+    InvalidReceipt,
+    InvalidMarker,
+    ReceiptBindingMismatch,
+    CheckpointFrontierMismatch,
+}
+
+#[allow(dead_code)]
+type Stage5dRiskGateRecoveryCheckpointBinding = (Option<String>, Option<u64>, Option<String>);
 
 #[allow(dead_code)]
 pub(crate) fn stage5d_riskgate_recovery_ready_from_canonical_package(
@@ -5307,6 +5370,111 @@ pub(crate) fn stage5d_riskgate_recovery_ready_from_canonical_package(
 }
 
 #[allow(dead_code)]
+fn stage5d_riskgate_recovery_plan_for_ready(
+    ready: &Stage5dRiskGateRecoveryReady,
+) -> Result<Stage5dRiskGateRecoveryPlan, Stage5dEnvelopeValidationError> {
+    let validated_evidence = stage5d_validate_riskgate_ledger_evidence(ready.evidence.clone())
+        .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    let source_records =
+        stage5d_source_riskgate_records_from_evidence(&validated_evidence.evidence)
+            .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    let current_shadow_session_date = validated_evidence
+        .evidence
+        .current_shadow_session_date
+        .as_deref()
+        .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+        .transpose()
+        .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    let current_shadow_pnl_points =
+        parse_finite_decimal_string(&validated_evidence.evidence.current_shadow_pnl_points)
+            .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    let analysis = stage5d_analyze_riskgate_crash_frontiers(
+        &ready.envelope,
+        &validated_evidence.evidence,
+        &source_records,
+        &crate::hybrid_intraday::RiskGateProfileIdentity {
+            strategy_id: validated_evidence.evidence.identity.strategy_id.clone(),
+            profile_id: validated_evidence.evidence.identity.profile_id.clone(),
+            mr_variant: validated_evidence.evidence.identity.mr_variant.clone(),
+            timeframe: validated_evidence.evidence.identity.timeframe.clone(),
+            session_policy: validated_evidence.evidence.identity.session_policy.clone(),
+            model_version: validated_evidence.evidence.identity.model_version.clone(),
+        },
+        current_shadow_session_date,
+        current_shadow_pnl_points,
+    )
+    .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    stage5d_build_riskgate_recovery_plan(&ready.envelope, &validated_evidence, &analysis)
+        .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)
+}
+
+#[allow(dead_code)]
+fn stage5d_expected_riskgate_recovery_checkpoint_binding(
+    ready: &Stage5dRiskGateRecoveryReady,
+    checkpoint: Stage5dRiskGateRecoveryCheckpoint,
+) -> Result<Stage5dRiskGateRecoveryCheckpointBinding, Stage5dEnvelopeValidationError> {
+    let outbox = &ready.envelope.riskgate.durable_finalization_outbox;
+    let all_complete = stage5d_riskgate_recovery_plan_for_ready(ready)?
+        .decisions
+        .iter()
+        .all(|decision| decision.action == Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged);
+    let selected = match checkpoint {
+        Stage5dRiskGateRecoveryCheckpoint::InitialPackageCommitted => {
+            if outbox.iter().any(|row| {
+                row.state != Stage5dRiskGateFinalizationState::Prepared
+                    && row.state != Stage5dRiskGateFinalizationState::AcknowledgedInRuntime
+            }) {
+                return Err(Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent);
+            }
+            None
+        }
+        Stage5dRiskGateRecoveryCheckpoint::LedgerAppended => outbox
+            .iter()
+            .find(|row| row.state == Stage5dRiskGateFinalizationState::LedgerAppended)
+            .map(|row| (row, Stage5dRiskGateRecoveryDecision::AppendMissingLedgerRow)),
+        Stage5dRiskGateRecoveryCheckpoint::MaterializedUpdated => outbox
+            .iter()
+            .find(|row| row.state == Stage5dRiskGateFinalizationState::MaterializedUpdated)
+            .map(|row| (row, Stage5dRiskGateRecoveryDecision::AdvanceToMaterialized)),
+        Stage5dRiskGateRecoveryCheckpoint::AcknowledgedInRuntime => outbox
+            .iter()
+            .rev()
+            .find(|row| row.state == Stage5dRiskGateFinalizationState::AcknowledgedInRuntime)
+            .map(|row| (row, Stage5dRiskGateRecoveryDecision::ReackRuntime)),
+        Stage5dRiskGateRecoveryCheckpoint::FinalCheckpointCommitted => {
+            if !all_complete
+                || !ready
+                    .envelope
+                    .runtime_private_extension
+                    .runtime_pending_finalizations
+                    .is_empty()
+            {
+                return Err(Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent);
+            }
+            None
+        }
+    };
+    if matches!(
+        checkpoint,
+        Stage5dRiskGateRecoveryCheckpoint::LedgerAppended
+            | Stage5dRiskGateRecoveryCheckpoint::MaterializedUpdated
+            | Stage5dRiskGateRecoveryCheckpoint::AcknowledgedInRuntime
+    ) && selected.is_none()
+    {
+        return Err(Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent);
+    }
+    Ok(selected
+        .map(|(row, action)| {
+            (
+                Some(row.identity_hash.clone()),
+                Some(row.generation),
+                Some(action.as_str().to_string()),
+            )
+        })
+        .unwrap_or((None, None, None)))
+}
+
+#[allow(dead_code)]
 pub(crate) fn stage5d_compute_riskgate_recovery_commit_receipt_fingerprint(
     receipt: &Stage5dRiskGateRecoveryCommitReceipt,
 ) -> Result<String, Stage5dEnvelopeValidationError> {
@@ -5326,9 +5494,14 @@ pub(crate) fn stage5d_make_riskgate_recovery_commit_receipt(
     store_generation: u64,
     checkpoint: Stage5dRiskGateRecoveryCheckpoint,
 ) -> Result<Stage5dRiskGateRecoveryCommitReceipt, Stage5dEnvelopeValidationError> {
+    let (checkpoint_finalization_identity_hash, checkpoint_generation, checkpoint_action) =
+        stage5d_expected_riskgate_recovery_checkpoint_binding(ready, checkpoint)?;
     let mut receipt = Stage5dRiskGateRecoveryCommitReceipt {
         schema_version: 1,
         checkpoint,
+        checkpoint_finalization_identity_hash,
+        checkpoint_generation,
+        checkpoint_action,
         package_sha256: sha256_text(package_json),
         envelope_sha256: envelope_sha256.to_string(),
         evidence_fingerprint_sha256: evidence_fingerprint_sha256.to_string(),
@@ -5353,6 +5526,75 @@ pub(crate) fn stage5d_make_riskgate_recovery_commit_receipt(
     receipt.receipt_fingerprint_sha256 =
         stage5d_compute_riskgate_recovery_commit_receipt_fingerprint(&receipt)?;
     Ok(receipt)
+}
+
+#[allow(dead_code)]
+pub(crate) fn stage5d_validate_riskgate_recovery_committed_read(
+    package_json: &str,
+    receipt_json: &str,
+    commit_marker: &str,
+) -> Result<
+    Stage5dValidatedRiskGateRecoveryCommittedPackage,
+    Stage5dRiskGateRecoveryCommittedReadBlocked,
+> {
+    let ready = stage5d_riskgate_recovery_ready_from_canonical_package(package_json)
+        .map_err(|_| Stage5dRiskGateRecoveryCommittedReadBlocked::InvalidPackage)?;
+    let (canonical_package_json, envelope_sha256, evidence_fingerprint_sha256) =
+        stage5d_canonical_riskgate_recovery_package_from_parts(&ready.envelope, &ready.evidence)
+            .map_err(|_| Stage5dRiskGateRecoveryCommittedReadBlocked::InvalidPackage)?;
+    if sha256_text(package_json) != sha256_text(&canonical_package_json) {
+        return Err(Stage5dRiskGateRecoveryCommittedReadBlocked::InvalidPackage);
+    }
+    let receipt: Stage5dRiskGateRecoveryCommitReceipt = serde_json::from_str(receipt_json)
+        .map_err(|_| Stage5dRiskGateRecoveryCommittedReadBlocked::InvalidReceipt)?;
+    let receipt_fingerprint =
+        stage5d_compute_riskgate_recovery_commit_receipt_fingerprint(&receipt)
+            .map_err(|_| Stage5dRiskGateRecoveryCommittedReadBlocked::InvalidReceipt)?;
+    if receipt_fingerprint != receipt.receipt_fingerprint_sha256 {
+        return Err(Stage5dRiskGateRecoveryCommittedReadBlocked::InvalidReceipt);
+    }
+    let marker_generation = commit_marker
+        .trim()
+        .strip_prefix("generation=")
+        .ok_or(Stage5dRiskGateRecoveryCommittedReadBlocked::InvalidMarker)?
+        .parse::<u64>()
+        .map_err(|_| Stage5dRiskGateRecoveryCommittedReadBlocked::InvalidMarker)?;
+    let (checkpoint_identity, checkpoint_generation, checkpoint_action) =
+        stage5d_expected_riskgate_recovery_checkpoint_binding(&ready, receipt.checkpoint)
+            .map_err(|_| Stage5dRiskGateRecoveryCommittedReadBlocked::CheckpointFrontierMismatch)?;
+    let expected_identity_hashes = ready
+        .envelope
+        .riskgate
+        .durable_finalization_outbox
+        .iter()
+        .map(|row| row.identity_hash.clone())
+        .collect::<Vec<_>>();
+    let expected_generations = ready
+        .envelope
+        .riskgate
+        .durable_finalization_outbox
+        .iter()
+        .map(|row| row.generation)
+        .collect::<Vec<_>>();
+    if receipt.schema_version != 1
+        || receipt.package_sha256 != sha256_text(package_json)
+        || receipt.envelope_sha256 != envelope_sha256
+        || receipt.evidence_fingerprint_sha256 != evidence_fingerprint_sha256
+        || receipt.recovery_plan_fingerprint_sha256 != ready.recovery_plan_fingerprint_sha256
+        || receipt.finalization_identity_hashes != expected_identity_hashes
+        || receipt.finalization_generations != expected_generations
+        || receipt.committed_store_generation != marker_generation
+        || receipt.checkpoint_finalization_identity_hash != checkpoint_identity
+        || receipt.checkpoint_generation != checkpoint_generation
+        || receipt.checkpoint_action != checkpoint_action
+    {
+        return Err(Stage5dRiskGateRecoveryCommittedReadBlocked::ReceiptBindingMismatch);
+    }
+    Ok(Stage5dValidatedRiskGateRecoveryCommittedPackage {
+        package_json: package_json.to_string(),
+        ready,
+        receipt,
+    })
 }
 
 #[allow(dead_code)]
@@ -13645,22 +13887,15 @@ mod tests {
                 std::fs::read_to_string(self.package_path()).map_err(|_| "package_missing")?;
             let receipt_json =
                 std::fs::read_to_string(self.receipt_path()).map_err(|_| "receipt_missing")?;
-            Stage5dCanonicalRestartPackage::from_json_str_strict(&package_json)
-                .map_err(|_| "package_invalid")?;
-            let receipt: Stage5dRiskGateRecoveryCommitReceipt =
-                serde_json::from_str(&receipt_json).map_err(|_| "receipt_invalid")?;
-            let expected_receipt =
-                stage5d_compute_riskgate_recovery_commit_receipt_fingerprint(&receipt)
-                    .map_err(|_| "receipt_invalid")?;
-            if expected_receipt != receipt.receipt_fingerprint_sha256
-                || receipt.package_sha256 != sha256_text(&package_json)
-                || marker.trim() != format!("generation={}", receipt.committed_store_generation)
-            {
-                return Err("receipt_binding_mismatch");
-            }
+            let validated = stage5d_validate_riskgate_recovery_committed_read(
+                &package_json,
+                &receipt_json,
+                &marker,
+            )
+            .map_err(|_| "receipt_binding_mismatch")?;
             Ok(Stage5dRiskRecCommittedStoreRead {
                 package_json,
-                receipt,
+                receipt: validated.receipt,
             })
         }
     }
@@ -13727,6 +13962,8 @@ mod tests {
     struct Stage5dRiskRecRunOutcome {
         actions: Vec<&'static str>,
         action_fingerprints: Vec<String>,
+        final_package_json: String,
+        final_receipt_json: String,
         final_receipt_fingerprint: String,
         final_package_sha256: String,
         final_envelope_sha256: String,
@@ -13835,6 +14072,8 @@ mod tests {
             final_read.receipt.receipt_fingerprint_sha256,
             receipt.receipt_fingerprint_sha256
         );
+        let final_receipt_json =
+            serde_json::to_string(&final_read.receipt).expect("riskrec final receipt serializes");
         let final_ready =
             stage5d_riskrec_ready_from_package(&final_read.package_json).expect("final reload");
         let final_noop = stage5d_apply_next_riskgate_recovery_action(final_ready.clone())
@@ -13867,6 +14106,8 @@ mod tests {
         Stage5dRiskRecRunOutcome {
             actions,
             action_fingerprints,
+            final_package_json: final_read.package_json,
+            final_receipt_json,
             final_receipt_fingerprint: receipt.receipt_fingerprint_sha256,
             final_package_sha256,
             final_envelope_sha256,
@@ -13888,6 +14129,17 @@ mod tests {
                 .collect(),
             stage5c_warmup_completed: true,
         }
+    }
+
+    fn stage5d_riskrec_fixture_path(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/stage5")
+            .join(name)
+    }
+
+    fn stage5d_riskrec_fixture_bytes(name: &str) -> String {
+        std::fs::read_to_string(stage5d_riskrec_fixture_path(name))
+            .unwrap_or_else(|err| panic!("riskrec fixture {name} must be readable: {err}"))
     }
 
     fn stage5d_test_riskrec_source_package(
@@ -14172,9 +14424,57 @@ mod tests {
             golden_complete["case_id"],
             "positive_already_complete_recovery_plan"
         );
+        let single_package_fixture = "stage5d_riskrec_single_pending_package.json";
+        let single_receipt_fixture = "stage5d_riskrec_single_pending_final_receipt.json";
+        let multi_package_fixture = "stage5d_riskrec_ordered_multi_row_package.json";
+        let multi_receipt_fixture = "stage5d_riskrec_ordered_multi_row_final_receipt.json";
+        let complete_package_fixture = "stage5d_riskrec_complete_noop_package.json";
+        let complete_receipt_fixture = "stage5d_riskrec_complete_noop_final_receipt.json";
+        let single_package_fixture_bytes = stage5d_riskrec_fixture_bytes(single_package_fixture);
+        let single_receipt_fixture_bytes = stage5d_riskrec_fixture_bytes(single_receipt_fixture);
+        let multi_package_fixture_bytes = stage5d_riskrec_fixture_bytes(multi_package_fixture);
+        let multi_receipt_fixture_bytes = stage5d_riskrec_fixture_bytes(multi_receipt_fixture);
+        let complete_package_fixture_bytes =
+            stage5d_riskrec_fixture_bytes(complete_package_fixture);
+        let complete_receipt_fixture_bytes =
+            stage5d_riskrec_fixture_bytes(complete_receipt_fixture);
+        assert_eq!(
+            single_package_fixture_bytes, single_outcome.final_package_json,
+            "single exact package bytes must match fixture"
+        );
+        assert_eq!(
+            single_receipt_fixture_bytes, single_outcome.final_receipt_json,
+            "single exact receipt bytes must match fixture"
+        );
+        assert_eq!(
+            multi_package_fixture_bytes, multi_outcome.final_package_json,
+            "multi exact package bytes must match fixture"
+        );
+        assert_eq!(
+            multi_receipt_fixture_bytes, multi_outcome.final_receipt_json,
+            "multi exact receipt bytes must match fixture"
+        );
+        assert_eq!(
+            complete_package_fixture_bytes, single_outcome.final_package_json,
+            "complete/no-op exact package bytes intentionally alias single final package"
+        );
+        assert_eq!(
+            complete_receipt_fixture_bytes, single_outcome.final_receipt_json,
+            "complete/no-op exact receipt bytes intentionally alias single final receipt"
+        );
+        let single_package_fixture_sha256 = sha256_text(&single_package_fixture_bytes);
+        let single_receipt_fixture_sha256 = sha256_text(&single_receipt_fixture_bytes);
+        let multi_package_fixture_sha256 = sha256_text(&multi_package_fixture_bytes);
+        let multi_receipt_fixture_sha256 = sha256_text(&multi_receipt_fixture_bytes);
+        let complete_package_fixture_sha256 = sha256_text(&complete_package_fixture_bytes);
+        let complete_receipt_fixture_sha256 = sha256_text(&complete_receipt_fixture_bytes);
         let generated_single = serde_json::json!({
             "case_id": "positive_single_pending_riskgate_finalization",
-            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r2",
+            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r3",
+            "package_fixture_path": format!("tests/fixtures/stage5/{single_package_fixture}"),
+            "package_fixture_sha256": single_package_fixture_sha256,
+            "receipt_fixture_path": format!("tests/fixtures/stage5/{single_receipt_fixture}"),
+            "receipt_fixture_sha256": single_receipt_fixture_sha256,
             "package_sha256": single_outcome.final_package_sha256,
             "envelope_sha256": single_outcome.final_envelope_sha256,
             "evidence_fingerprint_sha256": single_outcome.final_evidence_fingerprint_sha256,
@@ -14189,7 +14489,11 @@ mod tests {
         });
         let generated_multi = serde_json::json!({
             "case_id": "positive_ordered_multi_row_pending_finalizations",
-            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r2",
+            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r3",
+            "package_fixture_path": format!("tests/fixtures/stage5/{multi_package_fixture}"),
+            "package_fixture_sha256": multi_package_fixture_sha256,
+            "receipt_fixture_path": format!("tests/fixtures/stage5/{multi_receipt_fixture}"),
+            "receipt_fixture_sha256": multi_receipt_fixture_sha256,
             "package_sha256": multi_outcome.final_package_sha256,
             "envelope_sha256": multi_outcome.final_envelope_sha256,
             "evidence_fingerprint_sha256": multi_outcome.final_evidence_fingerprint_sha256,
@@ -14205,7 +14509,13 @@ mod tests {
         });
         let generated_complete = serde_json::json!({
             "case_id": "positive_already_complete_recovery_plan",
-            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r2",
+            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r3",
+            "package_fixture_path": format!("tests/fixtures/stage5/{complete_package_fixture}"),
+            "package_fixture_sha256": complete_package_fixture_sha256,
+            "receipt_fixture_path": format!("tests/fixtures/stage5/{complete_receipt_fixture}"),
+            "receipt_fixture_sha256": complete_receipt_fixture_sha256,
+            "package_fixture_alias_of": format!("tests/fixtures/stage5/{single_package_fixture}"),
+            "receipt_fixture_alias_of": format!("tests/fixtures/stage5/{single_receipt_fixture}"),
             "package_sha256": single_outcome.final_package_sha256,
             "envelope_sha256": single_outcome.final_envelope_sha256,
             "evidence_fingerprint_sha256": single_outcome.final_evidence_fingerprint_sha256,
@@ -14237,10 +14547,169 @@ mod tests {
         println!("STAGE5D_RISKREC final_checkpoint_committed=true");
         println!("STAGE5D_RISKREC callback_exactly_once=true");
         println!("STAGE5D_RISKREC idempotent_replay=true");
+        println!("STAGE5D_RISKREC receipt_package_cross_binding=true");
+        println!("STAGE5D_RISKREC checkpoint_frontier_cross_binding=true");
+        println!("STAGE5D_RISKREC forged_receipts_fail_closed=true");
+        println!("STAGE5D_RISKREC exact_package_bytes_golden=true");
+        println!("STAGE5D_RISKREC exact_receipt_bytes_golden=true");
+        println!("STAGE5D_RISKREC checker_call_sites_pinned=true");
         println!("STAGE5D_RISKREC exact_package_receipt_goldens=true");
         println!("STAGE5D_RISKREC golden_values_exact=true");
         println!("STAGE5D_RISKREC stage5c_continuation=true");
         println!("STAGE5D_RISKREC stage5e_closed=true");
+    }
+
+    fn stage5d_riskrec_receipt_with_self_fingerprint(
+        mut receipt: Stage5dRiskGateRecoveryCommitReceipt,
+    ) -> String {
+        receipt.receipt_fingerprint_sha256.clear();
+        receipt.receipt_fingerprint_sha256 =
+            stage5d_compute_riskgate_recovery_commit_receipt_fingerprint(&receipt)
+                .expect("mutated receipt fingerprint");
+        serde_json::to_string(&receipt).expect("mutated receipt serializes")
+    }
+
+    #[test]
+    fn stage5d_final_r3_riskgate_recovery_r1r3_forged_receipts_fail_closed() {
+        let single_package =
+            stage5d_riskrec_fixture_bytes("stage5d_riskrec_single_pending_package.json");
+        let single_receipt_json =
+            stage5d_riskrec_fixture_bytes("stage5d_riskrec_single_pending_final_receipt.json");
+        let multi_package =
+            stage5d_riskrec_fixture_bytes("stage5d_riskrec_ordered_multi_row_package.json");
+        let multi_receipt_json =
+            stage5d_riskrec_fixture_bytes("stage5d_riskrec_ordered_multi_row_final_receipt.json");
+        let single_receipt: Stage5dRiskGateRecoveryCommitReceipt =
+            serde_json::from_str(&single_receipt_json).expect("single receipt fixture parses");
+        let multi_receipt: Stage5dRiskGateRecoveryCommitReceipt =
+            serde_json::from_str(&multi_receipt_json).expect("multi receipt fixture parses");
+        let single_marker = format!("generation={}\n", single_receipt.committed_store_generation);
+        let multi_marker = format!("generation={}\n", multi_receipt.committed_store_generation);
+        assert!(stage5d_validate_riskgate_recovery_committed_read(
+            &single_package,
+            &single_receipt_json,
+            &single_marker,
+        )
+        .is_ok());
+        assert!(stage5d_validate_riskgate_recovery_committed_read(
+            &multi_package,
+            &multi_receipt_json,
+            &multi_marker,
+        )
+        .is_ok());
+
+        let mut wrong_envelope = single_receipt.clone();
+        wrong_envelope.envelope_sha256 = "0".repeat(64);
+        assert_eq!(
+            stage5d_validate_riskgate_recovery_committed_read(
+                &single_package,
+                &stage5d_riskrec_receipt_with_self_fingerprint(wrong_envelope),
+                &single_marker,
+            )
+            .expect_err("wrong envelope sha must fail"),
+            Stage5dRiskGateRecoveryCommittedReadBlocked::ReceiptBindingMismatch
+        );
+
+        let mut wrong_evidence = single_receipt.clone();
+        wrong_evidence.evidence_fingerprint_sha256 =
+            "stage5d_riskgate_evidence_sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string();
+        assert_eq!(
+            stage5d_validate_riskgate_recovery_committed_read(
+                &single_package,
+                &stage5d_riskrec_receipt_with_self_fingerprint(wrong_evidence),
+                &single_marker,
+            )
+            .expect_err("wrong evidence fingerprint must fail"),
+            Stage5dRiskGateRecoveryCommittedReadBlocked::ReceiptBindingMismatch
+        );
+
+        let mut wrong_plan = single_receipt.clone();
+        wrong_plan.recovery_plan_fingerprint_sha256 =
+            "stage5d_riskgate_recovery_plan_sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string();
+        assert_eq!(
+            stage5d_validate_riskgate_recovery_committed_read(
+                &single_package,
+                &stage5d_riskrec_receipt_with_self_fingerprint(wrong_plan),
+                &single_marker,
+            )
+            .expect_err("wrong plan fingerprint must fail"),
+            Stage5dRiskGateRecoveryCommittedReadBlocked::ReceiptBindingMismatch
+        );
+
+        let mut wrong_identity = single_receipt.clone();
+        wrong_identity.finalization_identity_hashes[0] =
+            "stage5d_riskgate_outbox_sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string();
+        assert_eq!(
+            stage5d_validate_riskgate_recovery_committed_read(
+                &single_package,
+                &stage5d_riskrec_receipt_with_self_fingerprint(wrong_identity),
+                &single_marker,
+            )
+            .expect_err("wrong identity vector must fail"),
+            Stage5dRiskGateRecoveryCommittedReadBlocked::ReceiptBindingMismatch
+        );
+
+        let mut wrong_generation = single_receipt.clone();
+        wrong_generation.finalization_generations[0] += 1;
+        assert_eq!(
+            stage5d_validate_riskgate_recovery_committed_read(
+                &single_package,
+                &stage5d_riskrec_receipt_with_self_fingerprint(wrong_generation),
+                &single_marker,
+            )
+            .expect_err("wrong generation vector must fail"),
+            Stage5dRiskGateRecoveryCommittedReadBlocked::ReceiptBindingMismatch
+        );
+
+        let mut wrong_checkpoint = single_receipt.clone();
+        wrong_checkpoint.checkpoint = Stage5dRiskGateRecoveryCheckpoint::MaterializedUpdated;
+        wrong_checkpoint.checkpoint_finalization_identity_hash = None;
+        wrong_checkpoint.checkpoint_generation = None;
+        wrong_checkpoint.checkpoint_action = None;
+        assert_eq!(
+            stage5d_validate_riskgate_recovery_committed_read(
+                &single_package,
+                &stage5d_riskrec_receipt_with_self_fingerprint(wrong_checkpoint),
+                &single_marker,
+            )
+            .expect_err("wrong checkpoint must fail"),
+            Stage5dRiskGateRecoveryCommittedReadBlocked::CheckpointFrontierMismatch
+        );
+
+        let mut wrong_marker = single_receipt.clone();
+        wrong_marker.committed_store_generation += 1;
+        assert_eq!(
+            stage5d_validate_riskgate_recovery_committed_read(
+                &single_package,
+                &stage5d_riskrec_receipt_with_self_fingerprint(wrong_marker),
+                &single_marker,
+            )
+            .expect_err("wrong store generation must fail"),
+            Stage5dRiskGateRecoveryCommittedReadBlocked::ReceiptBindingMismatch
+        );
+
+        let mut final_for_incomplete = single_receipt.clone();
+        final_for_incomplete.package_sha256 = sha256_text(&multi_package);
+        assert!(
+            stage5d_validate_riskgate_recovery_committed_read(
+                &multi_package,
+                &stage5d_riskrec_receipt_with_self_fingerprint(final_for_incomplete),
+                &single_marker,
+            )
+            .is_err(),
+            "single final receipt paired with multi package must fail"
+        );
+        assert!(
+            stage5d_validate_riskgate_recovery_committed_read(
+                &single_package,
+                &multi_receipt_json,
+                &multi_marker,
+            )
+            .is_err(),
+            "multi receipt paired with single package must fail"
+        );
+
+        println!("STAGE5D_RISKREC forged_receipts_fail_closed=true");
     }
 
     #[test]
@@ -18586,7 +19055,7 @@ mod tests {
         assert_eq!(inventory["stage"], "5D-final-restart-r3");
         assert_eq!(
             inventory["status"],
-            "riskgate_recovery_r1_r2_evidence_closed"
+            "riskgate_recovery_r1_r3_evidence_closed"
         );
         for surface in [
             "redis",
@@ -18702,7 +19171,7 @@ mod tests {
                     || row["execution_status"] == "accepted_r3_operational_state_r1_source_produced"
                     || row["execution_status"] == "accepted_r3_recovery_index_r1_source_produced"
                     || row["execution_status"]
-                        == "accepted_r3_riskgate_recovery_r1_r2_source_produced"
+                        == "accepted_r3_riskgate_recovery_r1_r3_source_produced"
             })
             .map(|row| row["case_id"].as_str().expect("case_id"))
             .collect();
@@ -18863,7 +19332,7 @@ mod tests {
             );
             assert_eq!(
                 row["execution_status"],
-                "accepted_r3_riskgate_recovery_r1_r2_source_produced"
+                "accepted_r3_riskgate_recovery_r1_r3_source_produced"
             );
             assert_eq!(row["producer_kind"], "runtime_callback");
             assert_eq!(

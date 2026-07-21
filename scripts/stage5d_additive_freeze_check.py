@@ -101,7 +101,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "ba0be17a6bdbe432a5e626b45fd8e584ce07863401fe907f1662fc30de4adc5b",
+        "stage5d_consumer_sha256": "7d33d227681414093655a0cd43e8ab6394231bb1275c04a67c0b92eabe4879f1",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -115,7 +115,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "ba0be17a6bdbe432a5e626b45fd8e584ce07863401fe907f1662fc30de4adc5b",
+        "stage5d_consumer_sha256": "7d33d227681414093655a0cd43e8ab6394231bb1275c04a67c0b92eabe4879f1",
     },
 ]
 
@@ -408,10 +408,16 @@ EXPECTED_NEGATIVE_CASES = [
     "riskrec_r1r1_stage5c_warmup_removed",
     "riskrec_r1r1_restored_callback_duplicated",
     "riskrec_r1r1_golden_hash_changed",
-    "riskrec_r1r1_stage5e_opened"
+    "riskrec_r1r1_stage5e_opened",
+    "riskrec_r1r3_exact_package_fixture_changed",
+    "riskrec_r1r3_exact_receipt_fixture_changed",
+    "riskrec_r1r3_summary_wrong_fixture_path",
+    "riskrec_r1r3_summary_wrong_fixture_sha",
+    "riskrec_r1r3_committed_read_validator_removed",
+    "riskrec_r1r3_forged_matrix_removed"
 ]
 
-EXPECTED_STAGE = "5D-final-restart-r3-riskgate-recovery-r1-r2"
+EXPECTED_STAGE = "5D-final-restart-r3-riskgate-recovery-r1-r3"
 EXPECTED_FINAL_RESTART_INVENTORY_STAGE = "5D-final-restart-r2"
 
 EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
@@ -467,6 +473,15 @@ EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
     "golden_pending_entry",
     "golden_multi_row_recovery",
 ]
+
+EXPECTED_RISKREC_EXACT_FIXTURES = {
+    "tests/fixtures/stage5/stage5d_riskrec_single_pending_package.json": "304b01de4df838952ff07637346e218379f808cb706b24c0165f33c45556bb6e",
+    "tests/fixtures/stage5/stage5d_riskrec_single_pending_final_receipt.json": "672533a88484cc33bd93d0d72b5f0ddd3124d0b7943691fdddca65affa03e756",
+    "tests/fixtures/stage5/stage5d_riskrec_ordered_multi_row_package.json": "e61c1f7ba98b32b06c1727eef24e0bd3e1bae3b5445b5f57dfff84fc6a7352ec",
+    "tests/fixtures/stage5/stage5d_riskrec_ordered_multi_row_final_receipt.json": "d4d7ece4e6fbe2974be1563644b4afc8fcdbe31e66dadf510b68f4cffddd027b",
+    "tests/fixtures/stage5/stage5d_riskrec_complete_noop_package.json": "304b01de4df838952ff07637346e218379f808cb706b24c0165f33c45556bb6e",
+    "tests/fixtures/stage5/stage5d_riskrec_complete_noop_final_receipt.json": "672533a88484cc33bd93d0d72b5f0ddd3124d0b7943691fdddca65affa03e756",
+}
 
 EXPECTED_FINAL_RESTART_R3_POSITIVE_IDS = [
     "positive_clean_flat",
@@ -1415,7 +1430,7 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         failures.append("Stage 5D final r3 resumption inventory schema mismatch")
     if inventory.get("stage") != "5D-final-restart-r3":
         failures.append("Stage 5D final r3 resumption inventory stage mismatch")
-    if inventory.get("status") != "riskgate_recovery_r1_r2_evidence_closed":
+    if inventory.get("status") != "riskgate_recovery_r1_r3_evidence_closed":
         failures.append("Stage 5D final r3 riskgate recovery inventory must close 21/0 evidence")
     if inventory.get("closed_surfaces") != EXPECTED_CLOSED_SURFACES:
         failures.append("Stage 5D final r3 resumption inventory closed-surface mismatch")
@@ -1601,7 +1616,7 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
                 and row.get("terminal_resolution_no_orphan_index_checked") is not True
             ):
                 failures.append("Stage 5D final r3 recovery-index terminal resolution proof missing")
-        elif status == "accepted_r3_riskgate_recovery_r1_r2_source_produced":
+        elif status == "accepted_r3_riskgate_recovery_r1_r3_source_produced":
             accepted_ids.append(case_id)
             if case_id not in riskgate_recovery_ids:
                 failures.append("Stage 5D final r3 accepted executable set mismatch")
@@ -2437,6 +2452,12 @@ def validate_stage5d_final_r3_riskgate_recovery_r1(
         "stage5d_riskrec_single_pending_golden.json",
         "stage5d_riskrec_ordered_multi_row_golden.json",
         "stage5d_riskrec_complete_noop_golden.json",
+        "stage5d_validate_riskgate_recovery_committed_read(",
+        "Stage5dValidatedRiskGateRecoveryCommittedPackage",
+        "Stage5dRiskGateRecoveryCommittedReadBlocked",
+        "checkpoint_finalization_identity_hash",
+        "checkpoint_frontier_cross_binding=true",
+        "stage5d_final_r3_riskgate_recovery_r1r3_forged_receipts_fail_closed",
         "STAGE5D_RISKREC production_transition_outside_test=true",
         "STAGE5D_RISKREC source_rows_exact=true",
         "STAGE5D_RISKREC checkpoint_receipts_exact=true",
@@ -2453,6 +2474,12 @@ def validate_stage5d_final_r3_riskgate_recovery_r1(
         "STAGE5D_RISKREC final_checkpoint_committed=true",
         "STAGE5D_RISKREC callback_exactly_once=true",
         "STAGE5D_RISKREC idempotent_replay=true",
+        "STAGE5D_RISKREC receipt_package_cross_binding=true",
+        "STAGE5D_RISKREC checkpoint_frontier_cross_binding=true",
+        "STAGE5D_RISKREC forged_receipts_fail_closed=true",
+        "STAGE5D_RISKREC exact_package_bytes_golden=true",
+        "STAGE5D_RISKREC exact_receipt_bytes_golden=true",
+        "STAGE5D_RISKREC checker_call_sites_pinned=true",
         "STAGE5D_RISKREC exact_package_receipt_goldens=true",
         "STAGE5D_RISKREC golden_values_exact=true",
         "STAGE5D_RISKREC stage5c_continuation=true",
@@ -2477,7 +2504,7 @@ def validate_stage5d_final_r3_riskgate_recovery_r1(
         except json.JSONDecodeError:
             failures.append("Stage 5D final r3 riskgate-recovery golden evidence invalid")
             continue
-        if golden.get("stage") != "5D-final-restart-r3-riskgate-recovery-r1-r2":
+        if golden.get("stage") != "5D-final-restart-r3-riskgate-recovery-r1-r3":
             failures.append("Stage 5D final r3 riskgate-recovery golden stage mismatch")
         if golden.get("golden_kind") == "checked_in_summary":
             failures.append("Stage 5D final r3 riskgate-recovery golden can refresh silently")
@@ -2501,6 +2528,35 @@ def validate_stage5d_final_r3_riskgate_recovery_r1(
             failures.append("Stage 5D final r3 riskgate-recovery plan fingerprint missing")
         if not golden.get("expected_checkpoint_progression"):
             failures.append("Stage 5D final r3 riskgate-recovery checkpoint golden missing")
+        for path_key, hash_key in (
+            ("package_fixture_path", "package_fixture_sha256"),
+            ("receipt_fixture_path", "receipt_fixture_sha256"),
+        ):
+            fixture_rel = golden.get(path_key)
+            fixture_sha = golden.get(hash_key)
+            if fixture_rel not in EXPECTED_RISKREC_EXACT_FIXTURES:
+                failures.append("Stage 5D final r3 riskgate-recovery exact fixture path mismatch")
+                continue
+            expected_sha = EXPECTED_RISKREC_EXACT_FIXTURES[fixture_rel]
+            if fixture_sha != expected_sha:
+                failures.append("Stage 5D final r3 riskgate-recovery exact fixture sha mismatch")
+            fixture_path = root / fixture_rel
+            if not fixture_path.is_file():
+                failures.append("Stage 5D final r3 riskgate-recovery exact fixture missing")
+                continue
+            actual_sha = hashlib.sha256(fixture_path.read_bytes()).hexdigest()
+            if actual_sha != expected_sha:
+                failures.append("Stage 5D final r3 riskgate-recovery exact fixture drift")
+        if golden.get("package_fixture_alias_of"):
+            alias = root / golden["package_fixture_alias_of"]
+            fixture = root / golden["package_fixture_path"]
+            if alias.read_bytes() != fixture.read_bytes():
+                failures.append("Stage 5D final r3 riskgate-recovery package alias drift")
+        if golden.get("receipt_fixture_alias_of"):
+            alias = root / golden["receipt_fixture_alias_of"]
+            fixture = root / golden["receipt_fixture_path"]
+            if alias.read_bytes() != fixture.read_bytes():
+                failures.append("Stage 5D final r3 riskgate-recovery receipt alias drift")
     gate_path = root / "scripts/stage5d_final_restart_r3_riskgate_recovery_r1_gate.sh"
     if not gate_path.is_file():
         failures.append("Stage 5D final r3 riskgate-recovery focused gate missing")
@@ -2518,6 +2574,12 @@ def validate_stage5d_final_r3_riskgate_recovery_r1(
             "require_marker \"STAGE5D_RISKREC single_pending_finalization=true\"",
             "require_marker \"STAGE5D_RISKREC multi_row_ordered=true\"",
             "require_marker \"STAGE5D_RISKREC complete_plan_noop=true\"",
+            "require_marker \"STAGE5D_RISKREC receipt_package_cross_binding=true\"",
+            "require_marker \"STAGE5D_RISKREC checkpoint_frontier_cross_binding=true\"",
+            "require_marker \"STAGE5D_RISKREC forged_receipts_fail_closed=true\"",
+            "require_marker \"STAGE5D_RISKREC exact_package_bytes_golden=true\"",
+            "require_marker \"STAGE5D_RISKREC exact_receipt_bytes_golden=true\"",
+            "require_marker \"STAGE5D_RISKREC checker_call_sites_pinned=true\"",
             "require_marker \"STAGE5D_RISKREC exact_package_receipt_goldens=true\"",
             "require_marker \"STAGE5D_RISKREC final_checkpoint_committed=true\"",
             "require_marker \"STAGE5D_RISKREC golden_values_exact=true\"",
@@ -2546,6 +2608,8 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
         failures.append("manifest_checker mismatch")
     if manifest.get("negative_harness") != EXPECTED_NEGATIVE_HARNESS:
         failures.append("negative_harness mismatch")
+    if manifest.get("stage5d_riskrec_exact_fixtures") != EXPECTED_RISKREC_EXACT_FIXTURES:
+        failures.append("Stage 5D final r3 riskgate-recovery exact fixture manifest mismatch")
     forbidden_contract = manifest.get("forbidden_negative_harness_contract")
     if forbidden_contract != EXPECTED_FORBIDDEN_NEGATIVE_HARNESS_CONTRACT:
         failures.append("forbidden negative harness contract mismatch")

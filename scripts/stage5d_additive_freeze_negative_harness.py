@@ -2431,7 +2431,7 @@ def mutate_riskrec_r1r1_final_receipt_omitted(root: Path) -> None:
 def mutate_riskrec_r1r1_final_receipt_forged(root: Path) -> None:
     replace_once(
         root / 'tests/fixtures/stage5/stage5d_riskrec_single_pending_golden.json',
-        '"final_commit_receipt_fingerprint": "94e710a6f1a8eb85937ef59eaec1132cc906241d3cea51281f291e19c9d6cefb"',
+        '"final_commit_receipt_fingerprint": "65add0cc96619fdcdbe2e876358fbaf550d8a04c66d2945cad3d10ea4d92f3b3"',
         '"final_commit_receipt_fingerprint": "0"',
     )
 
@@ -2514,6 +2514,54 @@ def mutate_riskrec_r1r1_stage5e_opened(root: Path) -> None:
         "\"stage5e_closed\": true",
         "\"stage5e_closed\": false",
     )
+
+
+def mutate_riskrec_r1r3_exact_package_fixture_changed(root: Path) -> None:
+    append_text(
+        root / "tests/fixtures/stage5/stage5d_riskrec_single_pending_package.json",
+        "\n",
+    )
+
+
+def mutate_riskrec_r1r3_exact_receipt_fixture_changed(root: Path) -> None:
+    append_text(
+        root / "tests/fixtures/stage5/stage5d_riskrec_single_pending_final_receipt.json",
+        "\n",
+    )
+
+
+def mutate_riskrec_r1r3_summary_wrong_fixture_path(root: Path) -> None:
+    replace_once(
+        root / "tests/fixtures/stage5/stage5d_riskrec_single_pending_golden.json",
+        "tests/fixtures/stage5/stage5d_riskrec_single_pending_package.json",
+        "tests/fixtures/stage5/stage5d_riskrec_wrong_package.json",
+    )
+
+
+def mutate_riskrec_r1r3_summary_wrong_fixture_sha(root: Path) -> None:
+    replace_once(
+        root / "tests/fixtures/stage5/stage5d_riskrec_single_pending_golden.json",
+        '"package_fixture_sha256": "304b01de4df838952ff07637346e218379f808cb706b24c0165f33c45556bb6e"',
+        '"package_fixture_sha256": "0000000000000000000000000000000000000000000000000000000000000000"',
+    )
+
+
+def mutate_riskrec_r1r3_committed_read_validator_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_validate_riskgate_recovery_committed_read(",
+        "stage5d_validate_riskgate_recovery_committed_read_removed(",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r3_forged_matrix_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_final_r3_riskgate_recovery_r1r3_forged_receipts_fail_closed",
+        "stage5d_final_r3_riskgate_recovery_r1r3_forged_receipts_removed",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
 
 
 def mutate_riskrec_r1r1_source_rollover_removed(root: Path) -> None:
@@ -2802,6 +2850,12 @@ CASES = [
     ("riskrec_r1r1_restored_callback_duplicated", mutate_riskrec_r1r1_restored_callback_duplicated, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
     ("riskrec_r1r1_golden_hash_changed", mutate_riskrec_r1r1_golden_hash_changed, "Stage 5D final r3 riskgate-recovery golden fingerprint missing"),
     ("riskrec_r1r1_stage5e_opened", mutate_riskrec_r1r1_stage5e_opened, "Stage 5D final r3 riskgate-recovery golden Stage 5E closure missing"),
+    ("riskrec_r1r3_exact_package_fixture_changed", mutate_riskrec_r1r3_exact_package_fixture_changed, "Stage 5D final r3 riskgate-recovery exact fixture drift"),
+    ("riskrec_r1r3_exact_receipt_fixture_changed", mutate_riskrec_r1r3_exact_receipt_fixture_changed, "Stage 5D final r3 riskgate-recovery exact fixture drift"),
+    ("riskrec_r1r3_summary_wrong_fixture_path", mutate_riskrec_r1r3_summary_wrong_fixture_path, "Stage 5D final r3 riskgate-recovery exact fixture path mismatch"),
+    ("riskrec_r1r3_summary_wrong_fixture_sha", mutate_riskrec_r1r3_summary_wrong_fixture_sha, "Stage 5D final r3 riskgate-recovery exact fixture sha mismatch"),
+    ("riskrec_r1r3_committed_read_validator_removed", mutate_riskrec_r1r3_committed_read_validator_removed, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_r1r3_forged_matrix_removed", mutate_riskrec_r1r3_forged_matrix_removed, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
 ]
 
 

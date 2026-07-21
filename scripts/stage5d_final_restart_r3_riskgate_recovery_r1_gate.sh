@@ -12,7 +12,7 @@ negative_log="reports/stage-5/stage5d-final-restart-r3-riskgate-recovery-r1-nega
 : > "$focused_log"
 : > "$negative_log"
 
-cargo test -p strategy-runtime-core stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix -- --nocapture | tee "$focused_log"
+cargo test -p strategy-runtime-core stage5d_final_r3_riskgate_recovery_r1 -- --nocapture | tee "$focused_log"
 
 require_marker() {
   local marker="$1"
@@ -38,6 +38,12 @@ require_marker "STAGE5D_RISKREC multi_row_ordered=true"
 require_marker "STAGE5D_RISKREC complete_plan_noop=true"
 require_marker "STAGE5D_RISKREC callback_exactly_once=true"
 require_marker "STAGE5D_RISKREC idempotent_replay=true"
+require_marker "STAGE5D_RISKREC receipt_package_cross_binding=true"
+require_marker "STAGE5D_RISKREC checkpoint_frontier_cross_binding=true"
+require_marker "STAGE5D_RISKREC forged_receipts_fail_closed=true"
+require_marker "STAGE5D_RISKREC exact_package_bytes_golden=true"
+require_marker "STAGE5D_RISKREC exact_receipt_bytes_golden=true"
+require_marker "STAGE5D_RISKREC checker_call_sites_pinned=true"
 require_marker "STAGE5D_RISKREC exact_package_receipt_goldens=true"
 require_marker "STAGE5D_RISKREC golden_values_exact=true"
 require_marker "STAGE5D_RISKREC stage5c_continuation=true"
@@ -55,11 +61,11 @@ accepted_statuses = {
     "accepted_r3_current_shadow_r1_source_produced",
     "accepted_r3_operational_state_r1_source_produced",
     "accepted_r3_recovery_index_r1_source_produced",
-    "accepted_r3_riskgate_recovery_r1_r2_source_produced",
+    "accepted_r3_riskgate_recovery_r1_r3_source_produced",
 }
 accepted = [row for row in rows if row["execution_status"] in accepted_statuses]
 todo = [row for row in rows if row["execution_status"] == "todo_source_produced"]
-riskrec = [row for row in rows if row["execution_status"] == "accepted_r3_riskgate_recovery_r1_r2_source_produced"]
+riskrec = [row for row in rows if row["execution_status"] == "accepted_r3_riskgate_recovery_r1_r3_source_produced"]
 print(f"mandatory_positive_count={len(rows)}")
 print(f"accepted_executable_count={len(accepted)}")
 print(f"todo_source_produced_count={len(todo)}")
