@@ -1,24 +1,20 @@
 {
-  "schema_version": 1,
-  "stage": "5D-final-restart-r3-riskgate-recovery-r1",
   "case_id": "positive_already_complete_recovery_plan",
-  "golden_kind": "checked_in_summary",
-  "source_producer": "stage5d_test_source_runtime_with_real_pending_finalizations",
-  "expected_ordered_sessions": ["2026-01-06"],
-  "expected_checkpoint_progression": ["already_acknowledged"],
-  "expected_noop_properties": [
-    "no_recovery_action_executes",
-    "no_callback_duplicate",
-    "ledger_materialized_outbox_unchanged",
-    "stage5c_continuation_allowed"
+  "envelope_sha256": "eb2a042fd5d56561d3f8b6e7997ef6bcde975e0052f08261c61a1bf70a0acccf",
+  "evidence_fingerprint_sha256": "stage5d_riskgate_evidence_sha256:0604847e02f39ef30a26b472e893c0a79631c49920305235ff5a96a3fbef5e5c",
+  "expected_checkpoint_progression": [
+    "already_acknowledged"
   ],
-  "closed_surfaces": {
-    "stage5e": true,
-    "redis": true,
-    "finam": true,
-    "transport": true,
-    "dispatch": true,
-    "runtime_live": true,
-    "broker_execution": true
-  }
+  "final_commit_receipt_fingerprint": "5c80421cbbca195e96065f449ca67d4a98089b9cbf596212cf92bfde4ac7e318",
+  "ordered_finalization_generations": [
+    1
+  ],
+  "ordered_finalization_identity_hashes": [
+    "stage5d_riskgate_outbox_sha256:4935926863d2bab7fc4d9ce526e404e941402f732d75759135617afa1d375202"
+  ],
+  "package_sha256": "304b01de4df838952ff07637346e218379f808cb706b24c0165f33c45556bb6e",
+  "recovery_plan_fingerprint_sha256": "stage5d_riskgate_recovery_plan_sha256:17945e5082edce379e84e6612c971776ca41095dfaf7b3517c033ef7b022e504",
+  "stage": "5D-final-restart-r3-riskgate-recovery-r1-r1",
+  "stage5c_warmup_completed": true,
+  "stage5e_closed": true
 }

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "5D-final-restart-r3",
-  "status": "riskgate_recovery_r1_evidence_closed",
+  "status": "riskgate_recovery_r1_r1_evidence_closed",
   "closed_surfaces": {
     "redis": false,
     "finam": false,
@@ -313,7 +313,7 @@
       "case_id": "positive_single_pending_riskgate_finalization",
       "category": "positive",
       "owning_test": "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix",
-      "execution_status": "accepted_r3_riskgate_recovery_r1_source_produced",
+      "execution_status": "accepted_r3_riskgate_recovery_r1_r1_source_produced",
       "next_gate": "r3-positive-riskgate-group",
       "producer_kind": "runtime_callback",
       "producer_entrypoint": "stage5d_test_source_runtime_with_real_pending_finalizations",
@@ -332,13 +332,17 @@
       "idempotent_replay_verified": true,
       "callback_exactly_once_checked": true,
       "stage5c_continuation_executed": true,
-      "stage5e_closed": true
+      "stage5e_closed": true,
+      "review_stage": "5D-final-restart-r3-riskgate-recovery-r1-r1",
+      "production_recovery_actions_executed": true,
+      "final_checkpoint_committed": true,
+      "golden_values_exact": true
     },
     {
       "case_id": "positive_ordered_multi_row_pending_finalizations",
       "category": "positive",
       "owning_test": "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix",
-      "execution_status": "accepted_r3_riskgate_recovery_r1_source_produced",
+      "execution_status": "accepted_r3_riskgate_recovery_r1_r1_source_produced",
       "next_gate": "r3-positive-riskgate-group",
       "producer_kind": "runtime_callback",
       "producer_entrypoint": "stage5d_test_source_runtime_with_real_pending_finalizations",
@@ -358,13 +362,17 @@
       "idempotent_replay_verified": true,
       "callback_exactly_once_checked": true,
       "stage5c_continuation_executed": true,
-      "stage5e_closed": true
+      "stage5e_closed": true,
+      "review_stage": "5D-final-restart-r3-riskgate-recovery-r1-r1",
+      "production_recovery_actions_executed": true,
+      "final_checkpoint_committed": true,
+      "golden_values_exact": true
     },
     {
       "case_id": "positive_already_complete_recovery_plan",
       "category": "positive",
       "owning_test": "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix",
-      "execution_status": "accepted_r3_riskgate_recovery_r1_source_produced",
+      "execution_status": "accepted_r3_riskgate_recovery_r1_r1_source_produced",
       "next_gate": "r3-positive-riskgate-group",
       "producer_kind": "runtime_callback",
       "producer_entrypoint": "stage5d_test_source_runtime_with_real_pending_finalizations",
@@ -383,7 +391,11 @@
       "idempotent_replay_verified": true,
       "callback_exactly_once_checked": true,
       "stage5c_continuation_executed": true,
-      "stage5e_closed": true
+      "stage5e_closed": true,
+      "review_stage": "5D-final-restart-r3-riskgate-recovery-r1-r1",
+      "production_recovery_actions_executed": true,
+      "final_checkpoint_committed": true,
+      "golden_values_exact": true
     }
   ]
 }
