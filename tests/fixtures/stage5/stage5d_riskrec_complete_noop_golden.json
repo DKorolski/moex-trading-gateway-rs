@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "stage": "5D-final-restart-r3-riskgate-recovery-r1",
+  "case_id": "positive_already_complete_recovery_plan",
+  "golden_kind": "checked_in_summary",
+  "source_producer": "stage5d_test_source_runtime_with_real_pending_finalizations",
+  "expected_ordered_sessions": ["2026-01-06"],
+  "expected_checkpoint_progression": ["already_acknowledged"],
+  "expected_noop_properties": [
+    "no_recovery_action_executes",
+    "no_callback_duplicate",
+    "ledger_materialized_outbox_unchanged",
+    "stage5c_continuation_allowed"
+  ],
+  "closed_surfaces": {
+    "stage5e": true,
+    "redis": true,
+    "finam": true,
+    "transport": true,
+    "dispatch": true,
+    "runtime_live": true,
+    "broker_execution": true
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "stage": "5D-final-restart-r3-riskgate-recovery-r1",
+  "case_id": "positive_ordered_multi_row_pending_finalizations",
+  "golden_kind": "checked_in_summary",
+  "source_producer": "stage5d_test_source_runtime_with_real_pending_finalizations",
+  "expected_ordered_sessions": ["2026-01-06", "2026-01-07"],
+  "expected_order_properties": [
+    "session_date_strictly_increasing",
+    "generation_strictly_increasing",
+    "action_n_plus_one_waits_for_action_n_checkpoint",
+    "retry_idempotent_at_each_checkpoint"
+  ],
+  "required_fingerprints": [
+    "package_checksum_sha256",
+    "envelope_sha256",
+    "evidence_fingerprint_sha256",
+    "recovery_plan_fingerprint_sha256"
+  ],
+  "closed_surfaces": {
+    "stage5e": true,
+    "redis": true,
+    "finam": true,
+    "transport": true,
+    "dispatch": true,
+    "runtime_live": true,
+    "broker_execution": true
+  }
+}

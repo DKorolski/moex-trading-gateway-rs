@@ -2146,6 +2146,208 @@ def mutate_recovery_r1r3_final_group_or_stage5e_prematurely_opened(root: Path) -
     )
 
 
+def mutate_riskrec_stage5d_token(root: Path, old: str, new: str) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        old,
+        new,
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_single_source_producer_removed(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_source_finalization_producer_entrypoint",
+        "riskrec_source_finalization_producer_removed",
+    )
+
+
+def mutate_riskrec_runtime_pending_direct_inserted(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_runtime_pending_created_by_source_lifecycle",
+        "riskrec_runtime_pending_inserted_directly",
+    )
+
+
+def mutate_riskrec_durable_outbox_direct_inserted(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_durable_outbox_created_by_canonical_export_input",
+        "riskrec_durable_outbox_inserted_directly",
+    )
+
+
+def mutate_riskrec_identity_mismatch_accepted(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_single_row_equality_runtime_outbox_ledger_plan",
+        "riskrec_identity_mismatch_accepted",
+    )
+
+
+def mutate_riskrec_materialized_mismatch_accepted(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_strict_decode_fresh_runtime_used",
+        "materialized mismatch accepted",
+    )
+
+
+def mutate_riskrec_single_action_omitted(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_checkpoint_restart_matrix_executed",
+        "riskrec_single_recovery_action_omitted",
+    )
+
+
+def mutate_riskrec_single_action_duplicated(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_idempotent_replay_verified",
+        "riskrec_single_recovery_action_duplicated",
+    )
+
+
+def mutate_riskrec_multi_order_reversed(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_multi_row_stable_order_assertions",
+        "riskrec_multi_row_order_reversed",
+    )
+
+
+def mutate_riskrec_multi_set_comparison(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_multi_row_stable_order_assertions",
+        "ordered multi-row compared as set",
+    )
+
+
+def mutate_riskrec_second_action_before_checkpoint(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_checkpoint_restart_matrix_executed",
+        "riskrec_second_action_before_checkpoint_allowed",
+    )
+
+
+def mutate_riskrec_retry_duplicates_ledger_append(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "\"idempotent_replay_verified_for_each_checkpoint\"",
+        "\"retry duplicates ledger append\"",
+    )
+
+
+def mutate_riskrec_retry_duplicates_materialized(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_checkpoint_restart_matrix_executed",
+        "retry duplicates materialized update",
+    )
+
+
+def mutate_riskrec_retry_duplicates_runtime_ack(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "\"callback_exactly_once_pending_clears_only_at_runtime_ack\"",
+        "\"retry duplicates runtime acknowledgment\"",
+    )
+
+
+def mutate_riskrec_final_commit_checkpoint_omitted(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_complete_plan_noop_from_final_checkpoint",
+        "riskrec_final_commit_checkpoint_omitted",
+    )
+
+
+def mutate_riskrec_complete_plan_produces_action(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_complete_plan_noop_from_final_checkpoint",
+        "positive_complete_plan_produces_action",
+    )
+
+
+def mutate_riskrec_complete_plan_changes_state(root: Path) -> None:
+    replace_once(
+        root / "docs/stage-5/stage5d-final-restart-r3-scenario-inventory.json",
+        "\"complete_plan_noop_checked\": true",
+        "\"complete_plan_changes_state\": true",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_source_runtime_reused(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_source_runtime_destroyed_before_decode",
+        "// source runtime reused",
+    )
+
+
+def mutate_riskrec_strict_decode_removed(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_strict_decode_fresh_runtime_used",
+        "Stage5dCanonicalRestartPackage::from_json_str_lenient(&package_json)",
+    )
+
+
+def mutate_riskrec_committed_guard_removed(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "\"checkpoint_state\":\"full_written_uncommitted\"",
+        "\"checkpoint_state\":\"committed\"",
+    )
+
+
+def mutate_riskrec_partial_write_accepted(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "riskrec_store_state_matrix_executed",
+        "riskrec_partial_write_accepted",
+    )
+
+
+def mutate_riskrec_full_uncommitted_accepted(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "STAGE5D_RISKREC durable_store_matrix=true",
+        "durable_full_written_uncommitted_accepted",
+    )
+
+
+def mutate_riskrec_restored_callback_duplicated(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "STAGE5D_RISKREC callback_exactly_once=true",
+        "STAGE5D_RISKREC callback_exactly_once=false",
+    )
+
+
+def mutate_riskrec_stage5c_continuation_removed(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "STAGE5D_RISKREC stage5c_continuation=true",
+        "STAGE5D_RISKREC stage5c_continuation=false",
+    )
+
+
+def mutate_riskrec_stage5e_opened(root: Path) -> None:
+    mutate_riskrec_stage5d_token(
+        root,
+        "STAGE5D_RISKREC stage5e_closed=true",
+        "STAGE5D_RISKREC stage5e_closed=false",
+    )
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -2291,7 +2493,7 @@ CASES = [
     ("final_r3_resumption_todo_set_reduced", mutate_final_r3_resumption_todo_set_reduced, "Stage 5D final r3 mandatory positive inventory mismatch"),
     ("final_r3_resumption_accepted_r3a_downgraded", mutate_final_r3_resumption_accepted_r3a_downgraded, "Stage 5D final r3 accepted executable set mismatch"),
     ("final_r3_resumption_stage5e_marker_removed", mutate_final_r3_resumption_stage5e_marker_removed, "Stage 5D final r3 Stage 5E closed marker missing"),
-    ("final_r3_resumption_todo_non_null_owner", mutate_final_r3_resumption_todo_non_null_owner, "Stage 5D final r3 TODO row must not claim owning test"),
+    ("final_r3_resumption_todo_non_null_owner", mutate_final_r3_resumption_todo_non_null_owner, "Stage 5D final r3 riskgate-recovery owner/status proof missing"),
     ("final_r3_resumption_accepted_null_owner", mutate_final_r3_resumption_accepted_null_owner, "Stage 5D final r3 r3a-r1 reuse proof missing"),
     ("final_r3_positive_core_clean_fixture_substituted", mutate_final_r3_positive_core_clean_fixture_substituted, "Stage 5D final r3 positive-core fixture substitution guard missing"),
     ("final_r3_positive_core_long_direct_mutation_substituted", mutate_final_r3_positive_core_long_direct_mutation_substituted, "Stage 5D final r3 positive-core open position package proof missing"),
@@ -2372,6 +2574,30 @@ CASES = [
     ("recovery_r1r3_pending_terminal_orphan_accepted", mutate_recovery_r1r3_pending_terminal_orphan_accepted, "Stage 5D final r3 recovery-index r1 marker/code proof missing"),
     ("recovery_r1r3_stage5c_continuation_removed", mutate_recovery_r1r3_stage5c_continuation_removed, "Stage 5D final r3 recovery-index r1 marker/code proof missing"),
     ("recovery_r1r3_final_group_or_stage5e_prematurely_opened", mutate_recovery_r1r3_final_group_or_stage5e_prematurely_opened, "Stage 5D final r3 accepted executable set mismatch"),
+    ("riskrec_single_source_producer_removed", mutate_riskrec_single_source_producer_removed, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_runtime_pending_direct_inserted", mutate_riskrec_runtime_pending_direct_inserted, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_durable_outbox_direct_inserted", mutate_riskrec_durable_outbox_direct_inserted, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_identity_mismatch_accepted", mutate_riskrec_identity_mismatch_accepted, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_materialized_mismatch_accepted", mutate_riskrec_materialized_mismatch_accepted, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_single_action_omitted", mutate_riskrec_single_action_omitted, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_single_action_duplicated", mutate_riskrec_single_action_duplicated, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_multi_order_reversed", mutate_riskrec_multi_order_reversed, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_multi_set_comparison", mutate_riskrec_multi_set_comparison, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_second_action_before_checkpoint", mutate_riskrec_second_action_before_checkpoint, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_retry_duplicates_ledger_append", mutate_riskrec_retry_duplicates_ledger_append, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_retry_duplicates_materialized", mutate_riskrec_retry_duplicates_materialized, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_retry_duplicates_runtime_ack", mutate_riskrec_retry_duplicates_runtime_ack, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_final_commit_checkpoint_omitted", mutate_riskrec_final_commit_checkpoint_omitted, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_complete_plan_produces_action", mutate_riskrec_complete_plan_produces_action, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_complete_plan_changes_state", mutate_riskrec_complete_plan_changes_state, "Stage 5D final r3 riskgate-recovery case-specific proof missing"),
+    ("riskrec_source_runtime_reused", mutate_riskrec_source_runtime_reused, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_strict_decode_removed", mutate_riskrec_strict_decode_removed, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_committed_guard_removed", mutate_riskrec_committed_guard_removed, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_partial_write_accepted", mutate_riskrec_partial_write_accepted, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_full_uncommitted_accepted", mutate_riskrec_full_uncommitted_accepted, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_restored_callback_duplicated", mutate_riskrec_restored_callback_duplicated, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_stage5c_continuation_removed", mutate_riskrec_stage5c_continuation_removed, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_stage5e_opened", mutate_riskrec_stage5e_opened, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
 ]
 
 

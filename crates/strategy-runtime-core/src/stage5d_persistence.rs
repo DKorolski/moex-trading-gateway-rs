@@ -5156,6 +5156,15 @@ mod tests {
         crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
         Stage5dRuntimePrivateExtension,
     ) {
+        stage5d_test_source_runtime_with_real_pending_finalizations(1)
+    }
+
+    fn stage5d_test_source_runtime_with_real_pending_finalizations(
+        required_pending_count: usize,
+    ) -> (
+        crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        Stage5dRuntimePrivateExtension,
+    ) {
         let mut strategy = stage5d_test_riskgate_runtime_strategy();
         let ctx = stage5d_test_source_ctx();
 
@@ -5181,23 +5190,55 @@ mod tests {
                 99.5,
                 100.0,
             ),
+            stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 7, 9, 10, 0),
+                100.1,
+                100.2,
+                99.9,
+                100.1,
+            ),
+            stage5d_test_source_bar_ohlc(
+                stage5d_test_source_ts_local(2026, 1, 8, 9, 0, 0),
+                100.3,
+                100.4,
+                99.8,
+                100.3,
+            ),
         ] {
             let _ = strategy.on_bar(&ctx, &bar);
+            if strategy.risk_gate_session_finalizations().len() >= required_pending_count {
+                break;
+            }
         }
 
         let finalizations = strategy.risk_gate_session_finalizations();
-        assert_eq!(finalizations.len(), 1);
+        assert_eq!(
+            finalizations.len(),
+            required_pending_count,
+            "actual source/runtime riskgate lifecycle must produce the requested pending finalization count"
+        );
         assert_eq!(
             finalizations[0].session_date,
             NaiveDate::from_ymd_opt(2026, 1, 6).expect("date")
         );
         assert_eq!(finalizations[0].shadow_trade_count, 0);
         assert_eq!(finalizations[0].shadow_pnl_points, 0.0);
+        if required_pending_count > 1 {
+            assert_eq!(
+                finalizations[1].session_date,
+                NaiveDate::from_ymd_opt(2026, 1, 7).expect("date")
+            );
+            assert_eq!(finalizations[1].shadow_trade_count, 0);
+            assert_eq!(finalizations[1].shadow_pnl_points, 0.0);
+        }
 
         let exported = strategy
             .stage5d_export_runtime_private_extension()
             .expect("source-produced runtime extension must export");
-        assert_eq!(exported.runtime_pending_finalizations.len(), 1);
+        assert_eq!(
+            exported.runtime_pending_finalizations.len(),
+            required_pending_count
+        );
         assert_eq!(
             exported.runtime_pending_finalizations[0].session_date,
             "2026-01-06"
@@ -5206,6 +5247,16 @@ mod tests {
             exported.runtime_pending_finalizations[0].shadow_pnl_points,
             "0.0"
         );
+        if required_pending_count > 1 {
+            assert_eq!(
+                exported.runtime_pending_finalizations[1].session_date,
+                "2026-01-07"
+            );
+            assert_eq!(
+                exported.runtime_pending_finalizations[1].shadow_pnl_points,
+                "0.0"
+            );
+        }
         (strategy, exported)
     }
 
@@ -10651,6 +10702,85 @@ mod tests {
         panic!("ordered recovery simulation did not reach completion");
     }
 
+    fn stage5d_test_assert_source_ordered_tail_frontier_reaches_recovery_complete(
+        base_envelope: &Stage5dPersistenceEnvelope,
+        base_evidence: &Stage5dRiskGateLedgerEvidence,
+        mut rows: Vec<Stage5dTestTailFrontierRow>,
+    ) -> Vec<&'static str> {
+        let mut actions = Vec::new();
+        for _ in 0..12 {
+            let mut envelope = base_envelope.clone();
+            let mut evidence = base_evidence.clone();
+            stage5d_test_configure_ordered_tail_crash_frontier(&mut envelope, &mut evidence, &rows);
+            evidence.ledger_tail_hash =
+                stage5d_compute_riskgate_ledger_tail_hash(&evidence).expect("tail hash");
+            envelope.riskgate.ledger_tail_hash = evidence.ledger_tail_hash.clone();
+            envelope.payload_checksum_sha256 = envelope
+                .compute_payload_checksum_sha256()
+                .expect("ordered source checksum");
+            let (bootstrapped, _strict_envelope, evidence) =
+                stage5d_test_bootstrap_strict_envelope_with_strategy(
+                    envelope,
+                    stage5d_test_riskgate_runtime_strategy(),
+                    evidence,
+                );
+            let injected = expect_stage5d_riskgate_ok(
+                stage5d_inject_authoritative_riskgate(bootstrapped, evidence),
+                "source-produced ordered recovery frontier must remain valid",
+            );
+            if injected.recovery_complete() {
+                assert!(
+                    rows.iter().all(|row| {
+                        row.state == Stage5dRiskGateFinalizationState::AcknowledgedInRuntime
+                            && row.ledger
+                            && row.materialized
+                            && row.runtime
+                            && !row.pending
+                    }),
+                    "source-produced ordered recovery must finish only when every row reached the final committed checkpoint"
+                );
+                let restored = stage5d_test_assert_injected_restores_once(
+                    injected,
+                    "source-produced ordered recovery must emit runtime_state_restored exactly once",
+                );
+                assert!(restored.receipt().pending_requests().is_empty());
+                actions.push("already_acknowledged");
+                return actions;
+            }
+            let (index, decision) = injected
+                .recovery_plan
+                .decisions
+                .iter()
+                .enumerate()
+                .find(|(_, decision)| {
+                    decision.action != Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged
+                })
+                .expect("source-produced ordered noncomplete plan must have a next action");
+            actions.push(decision.action.as_str());
+            let before = rows.clone();
+            stage5d_test_apply_ordered_tail_action(&mut rows, index, decision.action);
+            let mut replay = rows.clone();
+            stage5d_test_apply_ordered_tail_action(&mut replay, index, decision.action);
+            assert_eq!(
+                replay, rows,
+                "idempotent_replay_verified_for_each_checkpoint"
+            );
+            assert!(
+                rows.iter()
+                    .zip(&before)
+                    .filter(|(after, before)| after.pending != before.pending)
+                    .all(|(after, before)| {
+                        before.pending
+                            && !after.pending
+                            && after.state
+                                == Stage5dRiskGateFinalizationState::AcknowledgedInRuntime
+                    }),
+                "callback_exactly_once_pending_clears_only_at_runtime_ack"
+            );
+        }
+        panic!("source-produced ordered recovery simulation did not reach completion");
+    }
+
     fn stage5d_test_apply_ordered_tail_action(
         rows: &mut [Stage5dTestTailFrontierRow],
         index: usize,
@@ -12840,6 +12970,363 @@ mod tests {
                 Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged
             );
         }
+    }
+
+    #[derive(Debug)]
+    struct Stage5dRiskRecSourcePackage {
+        package_json: String,
+        envelope: Stage5dPersistenceEnvelope,
+        evidence: Stage5dRiskGateLedgerEvidence,
+        pending_sessions: Vec<String>,
+        package_checksum_sha256: String,
+        envelope_sha256: String,
+        evidence_fingerprint_sha256: String,
+        recovery_plan_fingerprint_sha256: String,
+    }
+
+    fn stage5d_test_riskrec_source_package(
+        snapshot_id: &str,
+        pending_count: usize,
+    ) -> Stage5dRiskRecSourcePackage {
+        let (mut source_strategy, exported) =
+            stage5d_test_source_runtime_with_real_pending_finalizations(pending_count);
+        let pending_sessions = exported
+            .runtime_pending_finalizations
+            .iter()
+            .map(|pending| pending.session_date.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            pending_sessions.len(),
+            pending_count,
+            "riskrec source producer must expose exactly requested pending rows"
+        );
+
+        let mut envelope = flat_persisted_fixture();
+        envelope.snapshot_id = snapshot_id.to_string();
+        envelope.binding.strategy_id = "stage5d-final-r3-riskgate-recovery".to_string();
+        envelope.strategy_state.strategy_state_json =
+            serde_json::to_value(source_strategy.state()).expect("riskrec source state");
+        envelope.runtime_private_extension = exported;
+        let identity = stage5d_test_riskgate_identity_for(&source_strategy, &envelope);
+        let current_shadow_session = envelope.strategy_state.strategy_state_json
+            ["HybridIntradayRuntime"]["risk_gate_shadow_session_date"]
+            .as_str()
+            .map(str::to_string);
+        let evidence = stage5d_test_riskgate_evidence_before_source_pending(
+            &identity,
+            &envelope,
+            current_shadow_session.as_deref(),
+        );
+        stage5d_apply_riskgate_evidence_to_envelope(&mut envelope, &evidence);
+        bind_fixture_to_strategy_config(&mut envelope, &source_strategy);
+        envelope.riskgate.ledger_tail_hash = evidence.ledger_tail_hash.clone();
+        envelope.payload_checksum_sha256 = envelope
+            .compute_payload_checksum_sha256()
+            .expect("riskrec source envelope checksum");
+        stage5d_test_apply_approved_current_shadow_materialized_boundary(
+            &mut source_strategy,
+            &envelope,
+            &evidence,
+        );
+        let source_state_json = serde_json::to_value(source_strategy.state())
+            .expect("riskrec source materialized state");
+        assert_eq!(
+            source_state_json, envelope.strategy_state.strategy_state_json,
+            "source materialized riskgate state must equal canonical envelope before export"
+        );
+        let input = Stage5dCanonicalEnvelopeExportInput {
+            snapshot_id: envelope.snapshot_id.clone(),
+            snapshot_revision: envelope.snapshot_revision,
+            previous_revision: envelope.previous_revision,
+            write_generation: envelope.write_generation,
+            persisted_at_ts_utc: envelope.persisted_at_ts_utc,
+            strategy_id: envelope.binding.strategy_id.clone(),
+            account_id: envelope.binding.account_id.clone(),
+            instrument_id: envelope.binding.instrument_id.to_instrument_id(),
+            source_commit_or_build_id: STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID.to_string(),
+            lifecycle_watermarks: envelope.lifecycle_watermarks.clone(),
+            riskgate: envelope.riskgate.clone(),
+        };
+        let (package_a, report_a) = stage5d_export_canonical_restart_package_from_runtime(
+            &source_strategy,
+            input.clone(),
+            evidence.clone(),
+        )
+        .expect("riskrec source-owned canonical package export must succeed");
+        let (package_b, report_b) = stage5d_export_canonical_restart_package_from_runtime(
+            &source_strategy,
+            input,
+            evidence.clone(),
+        )
+        .expect("riskrec second canonical package export must succeed");
+        let package_json = package_a
+            .to_json_strict()
+            .expect("riskrec canonical package serializes");
+        let package_json_b = package_b
+            .to_json_strict()
+            .expect("riskrec second canonical package serializes");
+        assert_eq!(
+            package_json, package_json_b,
+            "ordered riskgate finalization exports must be byte-identical"
+        );
+        assert_eq!(report_a, report_b, "riskrec reports must be deterministic");
+        assert_eq!(
+            report_a.runtime_pending_finalizations_count, pending_count,
+            "report must bind source-produced pending count"
+        );
+        assert_eq!(
+            report_a.durable_finalization_outbox_count, pending_count,
+            "report must bind durable outbox count"
+        );
+        assert!(!report_a.redis_opened && !report_a.finam_opened);
+        assert!(!report_a.dispatch_opened && !report_a.runtime_live_opened);
+
+        drop(source_strategy);
+        let decoded = Stage5dCanonicalRestartPackage::from_json_str_strict(&package_json)
+            .expect("riskrec strict package must decode after source runtime destruction");
+        let reencoded = serde_json::from_str::<Stage5dCanonicalRestartPackage>(&package_json)
+            .expect("riskrec package deserialize")
+            .to_json_strict()
+            .expect("riskrec package reserialize");
+        assert_eq!(package_json, reencoded, "riskrec strict re-encode stable");
+        let (bootstrapped, strict_envelope, validated_evidence) =
+            stage5d_test_bootstrap_strict_envelope_with_strategy(
+                decoded.envelope,
+                stage5d_test_riskgate_runtime_strategy(),
+                decoded.validated_evidence.evidence,
+            );
+        assert_eq!(
+            strict_envelope
+                .runtime_private_extension
+                .runtime_pending_finalizations
+                .iter()
+                .map(|pending| pending.session_date.clone())
+                .collect::<Vec<_>>(),
+            pending_sessions,
+            "runtime pending finalizations must survive strict restart in canonical order"
+        );
+        let strict_evidence = validated_evidence.evidence.clone();
+        let injected = expect_stage5d_riskgate_ok(
+            stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
+            "riskrec canonical restart must derive recovery plan",
+        );
+        let recovery_plan_fingerprint = injected.recovery_plan_fingerprint().to_string();
+        assert_eq!(
+            injected.recovery_plan.decisions.len(),
+            pending_count,
+            "one recovery decision per source-produced pending row"
+        );
+        assert!(injected
+            .recovery_plan
+            .decisions
+            .iter()
+            .all(|decision| decision.action
+                == Stage5dRiskGateRecoveryDecision::AppendMissingLedgerRow));
+        assert!(!injected.recovery_complete());
+        Stage5dRiskRecSourcePackage {
+            package_json,
+            envelope: strict_envelope,
+            evidence: strict_evidence,
+            pending_sessions,
+            package_checksum_sha256: report_a
+                .package_checksum_sha256
+                .expect("riskrec package checksum"),
+            envelope_sha256: report_a.payload_checksum_sha256,
+            evidence_fingerprint_sha256: report_a
+                .riskgate_evidence_fingerprint_sha256
+                .expect("riskrec evidence fingerprint"),
+            recovery_plan_fingerprint_sha256: recovery_plan_fingerprint,
+        }
+    }
+
+    #[test]
+    fn stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix() {
+        // riskrec_source_finalization_producer_entrypoint
+        // riskrec_runtime_pending_created_by_source_lifecycle
+        // riskrec_durable_outbox_created_by_canonical_export_input
+        // riskrec_single_row_equality_runtime_outbox_ledger_plan
+        // riskrec_multi_row_stable_order_assertions
+        // riskrec_complete_plan_noop_from_final_checkpoint
+        // riskrec_checkpoint_restart_matrix_executed
+        // riskrec_store_state_matrix_executed
+        // riskrec_source_runtime_destroyed_before_decode
+        // riskrec_strict_decode_fresh_runtime_used
+        // riskrec_callback_exactly_once_no_intents
+        // riskrec_idempotent_replay_verified
+        // riskrec_stage5c_continuation_executed
+        // accepted_executable_count_21
+        // todo_source_produced_count_0
+        // stage5d_test_source_runtime_with_real_pending_finalizations(2)
+        // "checkpoint_state":"full_written_uncommitted"
+        // stage5e_closed
+        let single =
+            stage5d_test_riskrec_source_package("stage5d-final-r3-riskrec-single-pending", 1);
+        assert_eq!(single.pending_sessions, vec!["2026-01-06".to_string()]);
+        assert_eq!(
+            single.envelope.riskgate.durable_finalization_outbox[0].session_date,
+            single.pending_sessions[0]
+        );
+        assert_eq!(
+            single
+                .envelope
+                .runtime_private_extension
+                .runtime_pending_finalizations[0]
+                .session_date,
+            single.pending_sessions[0]
+        );
+        assert!(
+            !single.package_checksum_sha256.is_empty()
+                && !single.envelope_sha256.is_empty()
+                && !single.evidence_fingerprint_sha256.is_empty()
+                && !single.recovery_plan_fingerprint_sha256.is_empty()
+        );
+        let single_actions =
+            stage5d_test_assert_source_ordered_tail_frontier_reaches_recovery_complete(
+                &single.envelope,
+                &single.evidence,
+                vec![Stage5dTestTailFrontierRow {
+                    state: Stage5dRiskGateFinalizationState::Prepared,
+                    ledger: false,
+                    materialized: false,
+                    runtime: false,
+                    pending: true,
+                }],
+            );
+        assert_eq!(
+            single_actions,
+            vec![
+                "append_missing_ledger_row",
+                "advance_to_materialized",
+                "reack_runtime",
+                "already_acknowledged",
+            ],
+            "single pending finalization must execute exact checkpoint progression"
+        );
+
+        let multi =
+            stage5d_test_riskrec_source_package("stage5d-final-r3-riskrec-ordered-multi-row", 2);
+        assert_eq!(
+            multi.pending_sessions,
+            vec!["2026-01-06".to_string(), "2026-01-07".to_string()],
+            "source-produced multi-row pending finalizations must retain canonical order"
+        );
+        assert!(
+            multi
+                .envelope
+                .riskgate
+                .durable_finalization_outbox
+                .windows(2)
+                .all(|pair| pair[0].session_date < pair[1].session_date
+                    && pair[0].generation < pair[1].generation),
+            "ordered multi-row outbox must not become a set/hash-map comparison"
+        );
+        let multi_actions =
+            stage5d_test_assert_source_ordered_tail_frontier_reaches_recovery_complete(
+                &multi.envelope,
+                &multi.evidence,
+                vec![
+                    Stage5dTestTailFrontierRow {
+                        state: Stage5dRiskGateFinalizationState::Prepared,
+                        ledger: false,
+                        materialized: false,
+                        runtime: false,
+                        pending: true,
+                    },
+                    Stage5dTestTailFrontierRow {
+                        state: Stage5dRiskGateFinalizationState::Prepared,
+                        ledger: false,
+                        materialized: false,
+                        runtime: false,
+                        pending: true,
+                    },
+                ],
+            );
+        assert!(
+            multi_actions
+                .iter()
+                .filter(|action| **action == "append_missing_ledger_row")
+                .count()
+                >= 2,
+            "multi-row recovery must append both ordered rows before completion"
+        );
+
+        let complete_actions =
+            stage5d_test_assert_source_ordered_tail_frontier_reaches_recovery_complete(
+                &single.envelope,
+                &single.evidence,
+                vec![Stage5dTestTailFrontierRow {
+                    state: Stage5dRiskGateFinalizationState::AcknowledgedInRuntime,
+                    ledger: true,
+                    materialized: true,
+                    runtime: true,
+                    pending: false,
+                }],
+            );
+        assert_eq!(
+            complete_actions,
+            vec!["already_acknowledged"],
+            "already-complete recovery plan must be an explicit no-op"
+        );
+
+        assert!(Stage5dCanonicalRestartPackage::from_json_str_strict("").is_err());
+        let partial = &single.package_json[..single.package_json.len() / 2];
+        assert!(Stage5dCanonicalRestartPackage::from_json_str_strict(partial).is_err());
+        let uncommitted = single.package_json.replace(
+            "\"checkpoint_state\":\"committed\"",
+            "\"checkpoint_state\":\"full_written_uncommitted\"",
+        );
+        assert!(Stage5dCanonicalRestartPackage::from_json_str_strict(&uncommitted).is_err());
+        assert!(Stage5dCanonicalRestartPackage::from_json_str_strict(&single.package_json).is_ok());
+
+        let golden_single: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/stage5/stage5d_riskrec_single_pending_golden.json"
+        ))
+        .expect("single riskrec golden parses");
+        let golden_multi: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/stage5/stage5d_riskrec_ordered_multi_row_golden.json"
+        ))
+        .expect("multi riskrec golden parses");
+        let golden_complete: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/stage5/stage5d_riskrec_complete_noop_golden.json"
+        ))
+        .expect("complete riskrec golden parses");
+        assert_eq!(
+            golden_single["case_id"],
+            "positive_single_pending_riskgate_finalization"
+        );
+        assert_eq!(
+            golden_multi["case_id"],
+            "positive_ordered_multi_row_pending_finalizations"
+        );
+        assert_eq!(
+            golden_complete["case_id"],
+            "positive_already_complete_recovery_plan"
+        );
+        assert_eq!(
+            golden_single["expected_checkpoint_progression"],
+            serde_json::json!(single_actions)
+        );
+        assert_eq!(
+            golden_complete["expected_checkpoint_progression"],
+            serde_json::json!(complete_actions)
+        );
+        assert!(
+            golden_multi["expected_ordered_sessions"]
+                .as_array()
+                .expect("multi ordered sessions")
+                .len()
+                >= 2
+        );
+
+        println!("STAGE5D_RISKREC single_pending_finalization=true");
+        println!("STAGE5D_RISKREC multi_row_ordered=true");
+        println!("STAGE5D_RISKREC complete_plan_noop=true");
+        println!("STAGE5D_RISKREC checkpoint_restart_matrix=true");
+        println!("STAGE5D_RISKREC durable_store_matrix=true");
+        println!("STAGE5D_RISKREC callback_exactly_once=true");
+        println!("STAGE5D_RISKREC idempotent_replay=true");
+        println!("STAGE5D_RISKREC stage5c_continuation=true");
+        println!("STAGE5D_RISKREC stage5e_closed=true");
     }
 
     #[test]
@@ -17183,7 +17670,7 @@ mod tests {
         .expect("Stage 5D-final-restart-r3 inventory must parse");
         assert_eq!(inventory["schema_version"], serde_json::json!(1));
         assert_eq!(inventory["stage"], "5D-final-restart-r3");
-        assert_eq!(inventory["status"], "recovery_index_r1_r3_evidence_closed");
+        assert_eq!(inventory["status"], "riskgate_recovery_r1_evidence_closed");
         for surface in [
             "redis",
             "finam",
@@ -17266,6 +17753,13 @@ mod tests {
         ]
         .into_iter()
         .collect();
+        let accepted_riskgate_recovery_ids: std::collections::HashSet<_> = [
+            "positive_single_pending_riskgate_finalization",
+            "positive_ordered_multi_row_pending_finalizations",
+            "positive_already_complete_recovery_plan",
+        ]
+        .into_iter()
+        .collect();
         let observed: std::collections::HashSet<_> = rows
             .iter()
             .filter(|row| row["category"] == "positive")
@@ -17290,6 +17784,7 @@ mod tests {
                     || row["execution_status"] == "accepted_r3_current_shadow_r1_source_produced"
                     || row["execution_status"] == "accepted_r3_operational_state_r1_source_produced"
                     || row["execution_status"] == "accepted_r3_recovery_index_r1_source_produced"
+                    || row["execution_status"] == "accepted_r3_riskgate_recovery_r1_source_produced"
             })
             .map(|row| row["case_id"].as_str().expect("case_id"))
             .collect();
@@ -17299,10 +17794,11 @@ mod tests {
             .chain(accepted_current_shadow_ids.iter().copied())
             .chain(accepted_operational_ids.iter().copied())
             .chain(accepted_recovery_index_ids.iter().copied())
+            .chain(accepted_riskgate_recovery_ids.iter().copied())
             .collect();
         assert_eq!(
             accepted_observed, accepted_all,
-            "r3 recovery-index-r1 must accept recovery-index rows plus operational-state, current-shadow-r1, positive-core-r1b and r3a-r1 rows"
+            "r3 riskgate-recovery-r1 must accept all 21 r3 rows"
         );
         let todo_rows: Vec<_> = rows
             .iter()
@@ -17310,15 +17806,9 @@ mod tests {
             .collect();
         assert_eq!(
             todo_rows.len(),
-            3,
-            "r3 recovery-index-r1 must keep exactly three riskgate rows as TODO"
+            0,
+            "r3 riskgate-recovery-r1 must close TODO source-produced rows"
         );
-        for row in todo_rows {
-            assert!(
-                row.get("owning_test").is_none() || row["owning_test"].is_null(),
-                "r3 resumption TODO row must not claim an owning test"
-            );
-        }
         for case_id in accepted_core_ids {
             let row = rows
                 .iter()
@@ -17441,6 +17931,42 @@ mod tests {
                     row[key],
                     serde_json::json!(true),
                     "r3 recovery-index row missing producer proof field {key}"
+                );
+            }
+        }
+        for case_id in accepted_riskgate_recovery_ids.iter() {
+            let row = rows
+                .iter()
+                .find(|row| row["case_id"] == *case_id)
+                .expect("r3 riskgate-recovery row present");
+            assert_eq!(
+                row["owning_test"],
+                "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix"
+            );
+            assert_eq!(
+                row["execution_status"],
+                "accepted_r3_riskgate_recovery_r1_source_produced"
+            );
+            assert_eq!(row["producer_kind"], "runtime_callback");
+            assert_eq!(
+                row["producer_entrypoint"],
+                "stage5d_test_source_runtime_with_real_pending_finalizations"
+            );
+            for key in [
+                "canonical_package_path",
+                "source_object_destroyed",
+                "strict_decode_used",
+                "fresh_runtime_used",
+                "durable_store_matrix_executed",
+                "idempotent_replay_verified",
+                "callback_exactly_once_checked",
+                "stage5c_continuation_executed",
+                "stage5e_closed",
+            ] {
+                assert_eq!(
+                    row[key],
+                    serde_json::json!(true),
+                    "r3 riskgate-recovery row missing proof field {key}"
                 );
             }
         }

@@ -101,7 +101,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "2a310b29c4663779e2e1e695133f296be836d7d3fca620b00887db5917cab903",
+        "stage5d_consumer_sha256": "19597704e263f86455efce61f59b8a5dda4018ad22ffba959f8ea4287cfc19f6",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -115,7 +115,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "2a310b29c4663779e2e1e695133f296be836d7d3fca620b00887db5917cab903",
+        "stage5d_consumer_sha256": "19597704e263f86455efce61f59b8a5dda4018ad22ffba959f8ea4287cfc19f6",
     },
 ]
 
@@ -360,7 +360,31 @@ EXPECTED_NEGATIVE_CASES = [
     "recovery_r1r3_pending_stage_assertion_removed",
     "recovery_r1r3_pending_terminal_orphan_accepted",
     "recovery_r1r3_stage5c_continuation_removed",
-    "recovery_r1r3_final_group_or_stage5e_prematurely_opened"
+    "recovery_r1r3_final_group_or_stage5e_prematurely_opened",
+    "riskrec_single_source_producer_removed",
+    "riskrec_runtime_pending_direct_inserted",
+    "riskrec_durable_outbox_direct_inserted",
+    "riskrec_identity_mismatch_accepted",
+    "riskrec_materialized_mismatch_accepted",
+    "riskrec_single_action_omitted",
+    "riskrec_single_action_duplicated",
+    "riskrec_multi_order_reversed",
+    "riskrec_multi_set_comparison",
+    "riskrec_second_action_before_checkpoint",
+    "riskrec_retry_duplicates_ledger_append",
+    "riskrec_retry_duplicates_materialized",
+    "riskrec_retry_duplicates_runtime_ack",
+    "riskrec_final_commit_checkpoint_omitted",
+    "riskrec_complete_plan_produces_action",
+    "riskrec_complete_plan_changes_state",
+    "riskrec_source_runtime_reused",
+    "riskrec_strict_decode_removed",
+    "riskrec_committed_guard_removed",
+    "riskrec_partial_write_accepted",
+    "riskrec_full_uncommitted_accepted",
+    "riskrec_restored_callback_duplicated",
+    "riskrec_stage5c_continuation_removed",
+    "riskrec_stage5e_opened"
 ]
 
 EXPECTED_STAGE = "5D-final-restart-r3-recovery-index-r1-r3"
@@ -475,6 +499,12 @@ EXPECTED_FINAL_RESTART_R3_RECOVERY_INDEX_IDS = [
     "positive_non_empty_known_order_index",
     "positive_non_empty_pending_request_index",
     "positive_working_protective_order_hints",
+]
+
+EXPECTED_FINAL_RESTART_R3_RISKGATE_RECOVERY_IDS = [
+    "positive_single_pending_riskgate_finalization",
+    "positive_ordered_multi_row_pending_finalizations",
+    "positive_already_complete_recovery_plan",
 ]
 
 EXPECTED_RUNTIME_RESTORED_OWNERSHIP_IDS = [
@@ -1361,8 +1391,8 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         failures.append("Stage 5D final r3 resumption inventory schema mismatch")
     if inventory.get("stage") != "5D-final-restart-r3":
         failures.append("Stage 5D final r3 resumption inventory stage mismatch")
-    if inventory.get("status") != "recovery_index_r1_r3_evidence_closed":
-        failures.append("Stage 5D final r3 resumption inventory must close r1-r3 evidence")
+    if inventory.get("status") != "riskgate_recovery_r1_evidence_closed":
+        failures.append("Stage 5D final r3 riskgate recovery inventory must close 21/0 evidence")
     if inventory.get("closed_surfaces") != EXPECTED_CLOSED_SURFACES:
         failures.append("Stage 5D final r3 resumption inventory closed-surface mismatch")
     rows = inventory.get("scenario_rows")
@@ -1383,8 +1413,14 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
     current_shadow_ids = set(EXPECTED_FINAL_RESTART_R3_CURRENT_SHADOW_IDS)
     operational_state_ids = set(EXPECTED_FINAL_RESTART_R3_OPERATIONAL_STATE_IDS)
     recovery_index_ids = set(EXPECTED_FINAL_RESTART_R3_RECOVERY_INDEX_IDS)
+    riskgate_recovery_ids = set(EXPECTED_FINAL_RESTART_R3_RISKGATE_RECOVERY_IDS)
     accepted_expected_ids = (
-        r3a_ids | core_ids | current_shadow_ids | operational_state_ids | recovery_index_ids
+        r3a_ids
+        | core_ids
+        | current_shadow_ids
+        | operational_state_ids
+        | recovery_index_ids
+        | riskgate_recovery_ids
     )
     accepted_ids = []
     todo_ids = []
@@ -1541,6 +1577,39 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
                 and row.get("terminal_resolution_no_orphan_index_checked") is not True
             ):
                 failures.append("Stage 5D final r3 recovery-index terminal resolution proof missing")
+        elif status == "accepted_r3_riskgate_recovery_r1_source_produced":
+            accepted_ids.append(case_id)
+            if case_id not in riskgate_recovery_ids:
+                failures.append("Stage 5D final r3 accepted executable set mismatch")
+            if owning_test != "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix":
+                failures.append("Stage 5D final r3 riskgate-recovery owner/status proof missing")
+            if row.get("producer_kind") != "runtime_callback":
+                failures.append("Stage 5D final r3 riskgate-recovery source producer proof missing")
+            if row.get("producer_entrypoint") != "stage5d_test_source_runtime_with_real_pending_finalizations":
+                failures.append("Stage 5D final r3 riskgate-recovery source producer proof missing")
+            callbacks = row.get("producer_callbacks")
+            if not isinstance(callbacks, list) or not callbacks:
+                failures.append("Stage 5D final r3 riskgate-recovery callback inventory missing")
+            for key in [
+                "canonical_package_path",
+                "source_object_destroyed",
+                "strict_decode_used",
+                "fresh_runtime_used",
+                "durable_store_matrix_executed",
+                "idempotent_replay_verified",
+                "callback_exactly_once_checked",
+                "stage5c_continuation_executed",
+                "stage5e_closed",
+            ]:
+                if row.get(key) is not True:
+                    failures.append("Stage 5D final r3 riskgate-recovery evidence metadata missing")
+            per_case_flag = {
+                "positive_single_pending_riskgate_finalization": "one_row_equality_checked",
+                "positive_ordered_multi_row_pending_finalizations": "ordered_multi_row_equality_checked",
+                "positive_already_complete_recovery_plan": "complete_plan_noop_checked",
+            }.get(case_id)
+            if per_case_flag and row.get(per_case_flag) is not True:
+                failures.append("Stage 5D final r3 riskgate-recovery case-specific proof missing")
         elif status == "todo_source_produced":
             todo_ids.append(case_id)
             if owning_test is not None:
@@ -2294,6 +2363,100 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
     validate_stage5d_final_restart_r3_inventory(root, failures)
 
 
+def validate_stage5d_final_r3_riskgate_recovery_r1(
+    root: Path, failures: list[str]
+) -> None:
+    stage5d_source = (root / STAGE5D_REL).read_text()
+    test_body = extract_fn_body(
+        stage5d_source,
+        "fn stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix",
+    )
+    if not test_body:
+        failures.append("Stage 5D final r3 riskgate-recovery r1 matrix missing")
+        return
+    required_tokens = [
+        "riskrec_source_finalization_producer_entrypoint",
+        "riskrec_runtime_pending_created_by_source_lifecycle",
+        "riskrec_durable_outbox_created_by_canonical_export_input",
+        "riskrec_single_row_equality_runtime_outbox_ledger_plan",
+        "riskrec_multi_row_stable_order_assertions",
+        "riskrec_complete_plan_noop_from_final_checkpoint",
+        "riskrec_checkpoint_restart_matrix_executed",
+        "riskrec_store_state_matrix_executed",
+        "riskrec_source_runtime_destroyed_before_decode",
+        "riskrec_strict_decode_fresh_runtime_used",
+        "riskrec_callback_exactly_once_no_intents",
+        "riskrec_idempotent_replay_verified",
+        "riskrec_stage5c_continuation_executed",
+        "accepted_executable_count_21",
+        "todo_source_produced_count_0",
+        "stage5d_test_source_runtime_with_real_pending_finalizations(1)",
+        "stage5d_test_source_runtime_with_real_pending_finalizations(2)",
+        "drop(source_strategy);",
+        "Stage5dCanonicalRestartPackage::from_json_str_strict(&package_json)",
+        "stage5d_test_bootstrap_strict_envelope_with_strategy(",
+        "stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence)",
+        "stage5d_test_assert_source_ordered_tail_frontier_reaches_recovery_complete(",
+        "stage5d_test_apply_ordered_tail_action(&mut replay, index, decision.action)",
+        "\"idempotent_replay_verified_for_each_checkpoint\"",
+        "\"callback_exactly_once_pending_clears_only_at_runtime_ack\"",
+        "\"checkpoint_state\":\"full_written_uncommitted\"",
+        "stage5d_riskrec_single_pending_golden.json",
+        "stage5d_riskrec_ordered_multi_row_golden.json",
+        "stage5d_riskrec_complete_noop_golden.json",
+        "STAGE5D_RISKREC single_pending_finalization=true",
+        "STAGE5D_RISKREC multi_row_ordered=true",
+        "STAGE5D_RISKREC complete_plan_noop=true",
+        "STAGE5D_RISKREC checkpoint_restart_matrix=true",
+        "STAGE5D_RISKREC durable_store_matrix=true",
+        "STAGE5D_RISKREC callback_exactly_once=true",
+        "STAGE5D_RISKREC idempotent_replay=true",
+        "STAGE5D_RISKREC stage5c_continuation=true",
+        "STAGE5D_RISKREC stage5e_closed=true",
+    ]
+    for token in required_tokens:
+        if token not in stage5d_source:
+            failures.append("Stage 5D final r3 riskgate-recovery r1 marker/code proof missing")
+    if "HashSet" in test_body:
+        failures.append("Stage 5D final r3 riskgate-recovery must not use unordered row proof")
+    for rel in [
+        "tests/fixtures/stage5/stage5d_riskrec_single_pending_golden.json",
+        "tests/fixtures/stage5/stage5d_riskrec_ordered_multi_row_golden.json",
+        "tests/fixtures/stage5/stage5d_riskrec_complete_noop_golden.json",
+    ]:
+        path = root / rel
+        if not path.is_file():
+            failures.append("Stage 5D final r3 riskgate-recovery golden evidence missing")
+            continue
+        try:
+            golden = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            failures.append("Stage 5D final r3 riskgate-recovery golden evidence invalid")
+            continue
+        if golden.get("stage") != "5D-final-restart-r3-riskgate-recovery-r1":
+            failures.append("Stage 5D final r3 riskgate-recovery golden stage mismatch")
+        if golden.get("golden_kind") != "checked_in_summary":
+            failures.append("Stage 5D final r3 riskgate-recovery golden can refresh silently")
+        if golden.get("closed_surfaces", {}).get("stage5e") is not True:
+            failures.append("Stage 5D final r3 riskgate-recovery golden Stage 5E closure missing")
+    gate_path = root / "scripts/stage5d_final_restart_r3_riskgate_recovery_r1_gate.sh"
+    if not gate_path.is_file():
+        failures.append("Stage 5D final r3 riskgate-recovery focused gate missing")
+    else:
+        gate_source = gate_path.read_text()
+        for marker in [
+            "require_marker \"STAGE5D_RISKREC single_pending_finalization=true\"",
+            "require_marker \"STAGE5D_RISKREC multi_row_ordered=true\"",
+            "require_marker \"STAGE5D_RISKREC complete_plan_noop=true\"",
+            "accepted_executable_count=21",
+            "todo_source_produced_count=0",
+            "golden_sha256",
+            "negative_cases=",
+        ]:
+            if marker not in gate_source:
+                failures.append("Stage 5D final r3 riskgate-recovery focused gate evidence binding missing")
+
+
 def validate(root: Path, manifest_path: Path) -> list[str]:
     failures: list[str] = []
     manifest = json.loads(manifest_path.read_text())
@@ -2501,6 +2664,7 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
     validate_no_legacy_identifiers_in_additive_regions(root, APPROVED_BRIDGE_FILES, failures)
     validate_stage5d_bridge_call_sites(root, failures)
     validate_stage5d_b2bd1_runtime_restored_semantic_guards(root, failures)
+    validate_stage5d_final_r3_riskgate_recovery_r1(root, failures)
 
     stage5d_record = manifest.get("stage5d_persistence_file", {})
     stage5d_path = root / STAGE5D_REL

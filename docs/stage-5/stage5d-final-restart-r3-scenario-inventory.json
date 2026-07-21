@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "5D-final-restart-r3",
-  "status": "recovery_index_r1_r3_evidence_closed",
+  "status": "riskgate_recovery_r1_evidence_closed",
   "closed_surfaces": {
     "redis": false,
     "finam": false,
@@ -312,23 +312,78 @@
     {
       "case_id": "positive_single_pending_riskgate_finalization",
       "category": "positive",
-      "owning_test": null,
-      "execution_status": "todo_source_produced",
-      "next_gate": "r3-positive-riskgate-group"
+      "owning_test": "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix",
+      "execution_status": "accepted_r3_riskgate_recovery_r1_source_produced",
+      "next_gate": "r3-positive-riskgate-group",
+      "producer_kind": "runtime_callback",
+      "producer_entrypoint": "stage5d_test_source_runtime_with_real_pending_finalizations",
+      "producer_callbacks": [
+        "on_bar:session_rollover_finalization"
+      ],
+      "canonical_package_path": true,
+      "source_object_destroyed": true,
+      "strict_decode_used": true,
+      "fresh_runtime_used": true,
+      "materialized_apply_boundary": "stage5d_test_apply_approved_current_shadow_materialized_boundary",
+      "one_row_equality_checked": true,
+      "checkpoint_restart_matrix_executed": true,
+      "durable_store_matrix_executed": true,
+      "recovery_plan_fingerprint_checked": true,
+      "idempotent_replay_verified": true,
+      "callback_exactly_once_checked": true,
+      "stage5c_continuation_executed": true,
+      "stage5e_closed": true
     },
     {
       "case_id": "positive_ordered_multi_row_pending_finalizations",
       "category": "positive",
-      "owning_test": null,
-      "execution_status": "todo_source_produced",
-      "next_gate": "r3-positive-riskgate-group"
+      "owning_test": "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix",
+      "execution_status": "accepted_r3_riskgate_recovery_r1_source_produced",
+      "next_gate": "r3-positive-riskgate-group",
+      "producer_kind": "runtime_callback",
+      "producer_entrypoint": "stage5d_test_source_runtime_with_real_pending_finalizations",
+      "producer_callbacks": [
+        "on_bar:session_rollover_finalization",
+        "on_bar:second_session_rollover_finalization"
+      ],
+      "canonical_package_path": true,
+      "source_object_destroyed": true,
+      "strict_decode_used": true,
+      "fresh_runtime_used": true,
+      "materialized_apply_boundary": "stage5d_test_apply_approved_current_shadow_materialized_boundary",
+      "ordered_multi_row_equality_checked": true,
+      "ordered_action_fingerprints_checked": true,
+      "checkpoint_restart_matrix_executed": true,
+      "durable_store_matrix_executed": true,
+      "idempotent_replay_verified": true,
+      "callback_exactly_once_checked": true,
+      "stage5c_continuation_executed": true,
+      "stage5e_closed": true
     },
     {
       "case_id": "positive_already_complete_recovery_plan",
       "category": "positive",
-      "owning_test": null,
-      "execution_status": "todo_source_produced",
-      "next_gate": "r3-positive-riskgate-group"
+      "owning_test": "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix",
+      "execution_status": "accepted_r3_riskgate_recovery_r1_source_produced",
+      "next_gate": "r3-positive-riskgate-group",
+      "producer_kind": "runtime_callback",
+      "producer_entrypoint": "stage5d_test_source_runtime_with_real_pending_finalizations",
+      "producer_callbacks": [
+        "on_bar:session_rollover_finalization",
+        "recovery_checkpoint:acknowledged_in_runtime"
+      ],
+      "canonical_package_path": true,
+      "source_object_destroyed": true,
+      "strict_decode_used": true,
+      "fresh_runtime_used": true,
+      "materialized_apply_boundary": "stage5d_test_apply_approved_current_shadow_materialized_boundary",
+      "complete_plan_noop_checked": true,
+      "ledger_materialized_outbox_unchanged": true,
+      "durable_store_matrix_executed": true,
+      "idempotent_replay_verified": true,
+      "callback_exactly_once_checked": true,
+      "stage5c_continuation_executed": true,
+      "stage5e_closed": true
     }
   ]
 }

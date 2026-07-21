@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "2a310b29c4663779e2e1e695133f296be836d7d3fca620b00887db5917cab903"
+      "stage5d_consumer_sha256": "19597704e263f86455efce61f59b8a5dda4018ad22ffba959f8ea4287cfc19f6"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "2a310b29c4663779e2e1e695133f296be836d7d3fca620b00887db5917cab903"
+      "stage5d_consumer_sha256": "19597704e263f86455efce61f59b8a5dda4018ad22ffba959f8ea4287cfc19f6"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "2a310b29c4663779e2e1e695133f296be836d7d3fca620b00887db5917cab903"
+    "current_sha256": "19597704e263f86455efce61f59b8a5dda4018ad22ffba959f8ea4287cfc19f6"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -405,7 +405,31 @@
     "recovery_r1r3_pending_stage_assertion_removed",
     "recovery_r1r3_pending_terminal_orphan_accepted",
     "recovery_r1r3_stage5c_continuation_removed",
-    "recovery_r1r3_final_group_or_stage5e_prematurely_opened"
+    "recovery_r1r3_final_group_or_stage5e_prematurely_opened",
+    "riskrec_single_source_producer_removed",
+    "riskrec_runtime_pending_direct_inserted",
+    "riskrec_durable_outbox_direct_inserted",
+    "riskrec_identity_mismatch_accepted",
+    "riskrec_materialized_mismatch_accepted",
+    "riskrec_single_action_omitted",
+    "riskrec_single_action_duplicated",
+    "riskrec_multi_order_reversed",
+    "riskrec_multi_set_comparison",
+    "riskrec_second_action_before_checkpoint",
+    "riskrec_retry_duplicates_ledger_append",
+    "riskrec_retry_duplicates_materialized",
+    "riskrec_retry_duplicates_runtime_ack",
+    "riskrec_final_commit_checkpoint_omitted",
+    "riskrec_complete_plan_produces_action",
+    "riskrec_complete_plan_changes_state",
+    "riskrec_source_runtime_reused",
+    "riskrec_strict_decode_removed",
+    "riskrec_committed_guard_removed",
+    "riskrec_partial_write_accepted",
+    "riskrec_full_uncommitted_accepted",
+    "riskrec_restored_callback_duplicated",
+    "riskrec_stage5c_continuation_removed",
+    "riskrec_stage5e_opened"
   ],
   "stage5d_public_api": {
     "public_reexports": [
