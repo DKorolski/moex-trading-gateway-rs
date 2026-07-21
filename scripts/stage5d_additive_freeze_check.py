@@ -101,7 +101,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "42f7c9803a9b58d53e29a57c77aca3cd068cb040e4a537a46bd6da24bf3b9a72",
+        "stage5d_consumer_sha256": "2a310b29c4663779e2e1e695133f296be836d7d3fca620b00887db5917cab903",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -115,7 +115,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "42f7c9803a9b58d53e29a57c77aca3cd068cb040e4a537a46bd6da24bf3b9a72",
+        "stage5d_consumer_sha256": "2a310b29c4663779e2e1e695133f296be836d7d3fca620b00887db5917cab903",
     },
 ]
 
@@ -345,9 +345,25 @@ EXPECTED_NEGATIVE_CASES = [
     "final_r3_recovery_index_negative_matrix_removed",
     "final_r3_recovery_index_pending_field_proof_removed",
     "final_r3_recovery_index_tp_sl_swap_proof_removed",
+    "recovery_r1r3_unbroken_path_reconstruction_introduced",
+    "recovery_r1r3_authoritative_admission_moved_after_private_apply",
+    "recovery_r1r3_production_working_set_call_removed",
+    "recovery_r1r3_working_set_coordinator_not_crate_visible",
+    "recovery_r1r3_validated_stop_truth_roundtrip_removed",
+    "recovery_r1r3_raw_stop_truth_consumed",
+    "recovery_r1r3_normalization_call_removed",
+    "recovery_r1r3_normalization_block_capability_lost",
+    "recovery_r1r3_normalization_partial_mutation_accepted",
+    "recovery_r1r3_duplicate_sl_callback_removed",
+    "recovery_r1r3_terminal_sl_callback_removed",
+    "recovery_r1r3_exact_sl_set_assertion_removed",
+    "recovery_r1r3_pending_stage_assertion_removed",
+    "recovery_r1r3_pending_terminal_orphan_accepted",
+    "recovery_r1r3_stage5c_continuation_removed",
+    "recovery_r1r3_final_group_or_stage5e_prematurely_opened"
 ]
 
-EXPECTED_STAGE = "5D-final-restart-r3-recovery-index-r1-r2"
+EXPECTED_STAGE = "5D-final-restart-r3-recovery-index-r1-r3"
 EXPECTED_FINAL_RESTART_INVENTORY_STAGE = "5D-final-restart-r2"
 
 EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
@@ -1345,8 +1361,8 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         failures.append("Stage 5D final r3 resumption inventory schema mismatch")
     if inventory.get("stage") != "5D-final-restart-r3":
         failures.append("Stage 5D final r3 resumption inventory stage mismatch")
-    if inventory.get("status") != "recovery_index_r1_r2_candidate_unbroken_type_state_path":
-        failures.append("Stage 5D final r3 resumption inventory must not overclaim closure")
+    if inventory.get("status") != "recovery_index_r1_r3_evidence_closed":
+        failures.append("Stage 5D final r3 resumption inventory must close r1-r3 evidence")
     if inventory.get("closed_surfaces") != EXPECTED_CLOSED_SURFACES:
         failures.append("Stage 5D final r3 resumption inventory closed-surface mismatch")
     rows = inventory.get("scenario_rows")
@@ -1496,6 +1512,30 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
                 "positive_working_protective_order_hints",
             } and row.get("broker_truth_exact_working_order_checked") is not True:
                 failures.append("Stage 5D final r3 recovery-index broker-truth proof missing")
+            if case_id == "positive_working_protective_order_hints":
+                expected_callbacks = [
+                    "on_order:working_tp",
+                    "on_stop_order:working_sl",
+                    "on_order:duplicate_and_terminal_tp",
+                    "on_stop_order:duplicate_and_terminal_sl",
+                ]
+                if callbacks != expected_callbacks:
+                    failures.append("Stage 5D final r3 recovery-index protective callback inventory stale")
+                for key in [
+                    "supplemental_stop_truth_validated",
+                    "normalization_block_capability_preserved",
+                    "exact_tp_truth_checked",
+                    "exact_sl_truth_checked",
+                    "wrong_kind_swap_duplicate_fail_closed_matrix",
+                    "tp_duplicate_suppressed",
+                    "sl_duplicate_suppressed",
+                    "tp_terminal_no_entry_or_flip",
+                    "sl_terminal_no_entry_or_flip",
+                ]:
+                    if row.get(key) is not True:
+                        failures.append("Stage 5D final r3 recovery-index protective evidence metadata missing")
+                if "stop_truth_surface_remains_unsupported" in row:
+                    failures.append("Stage 5D final r3 recovery-index protective inventory retained obsolete stop-truth metadata")
             if (
                 case_id == "positive_non_empty_pending_request_index"
                 and row.get("terminal_resolution_no_orphan_index_checked") is not True
@@ -1791,6 +1831,9 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         "recovery_index_r1r2_validated_stop_truth_roundtrip",
         "recovery_index_r1r2_sl_duplicate_suppressed",
         "recovery_index_r1r2_sl_terminal_no_entry_or_flip",
+        "recovery_index_r1r3_executed_metric_markers",
+        "recovery_index_r1r3_normalization_block_capability_preserved",
+        "recovery_index_r1r3_normalization_retry_clears_broker_owned_ids",
         "recovery_index_canonical_strict_decode_used",
         "recovery_index_source_runtime_destroyed_before_restart_boundary",
         "recovery_index_fresh_runtime_used",
@@ -1819,6 +1862,7 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         "duplicate replay after restore must not emit intents",
         "terminal resolution must not leave orphan pending request in runtime state",
         "stage5d_final_r3_recovery_index_r1r1_working_set_negatives_fail_closed",
+        "stage5d_final_r3_recovery_index_r1r3_normalization_block_retains_capability",
         "protective terminal callback must not emit entry or flip intent",
         "stage5d_test_warmup_stage5c_history_at(",
     ]
@@ -1847,19 +1891,108 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         ]:
             if token not in bootstrap_helper:
                 failures.append("Stage 5D final r3 recovery-index validated working-set call path missing")
+    if "pub(crate) fn stage5d_notify_working_set_broker_truth_bootstrap_at(" not in stage5d_source:
+        failures.append("Stage 5D final r3 recovery-index working-set coordinator must remain crate-visible")
+    restored_path = extract_fn_body(stage5d_source, "fn stage5d_notify_runtime_state_restored_at")
+    if not restored_path:
+        failures.append("Stage 5D final r3 recovery-index restored path missing")
+    else:
+        for token in [
+            "stage5d_normalize_broker_owned_ids_for_closed_restore_bridge(",
+            "Err(blocked)",
+            "bootstrapped: *blocked.bootstrapped",
+            "Stage5dRuntimeStateRestoreBlockedReason::BrokerOwnedProtectiveId",
+        ]:
+            if token not in restored_path:
+                failures.append("Stage 5D final r3 recovery-index production normalization retention missing")
+    host_source = (root / STAGE5C_HOST_REL).read_text()
+    normalize_body = extract_fn_body(
+        host_source, "pub(crate) fn stage5d_normalize_broker_owned_ids_for_closed_restore_bridge"
+    )
+    if not normalize_body:
+        failures.append("Stage 5D final r3 recovery-index broker-owned normalization bridge missing")
+    else:
+        for token in [
+            "pub(crate) bootstrapped: Box<Stage5cBootstrappedPaperStrategy>",
+            "Stage5dBrokerOwnedIdNormalizationBlocked",
+            "bootstrapped: Box::new(Stage5cBootstrappedPaperStrategy",
+            "BrokerOwnedOrderIdMismatch",
+        ]:
+            if token not in host_source:
+                failures.append("Stage 5D final r3 recovery-index normalization retained capability missing")
+        guard_index = normalize_body.find("if !tp_is_frozen || !sl_stop_is_frozen || !sl_exchange_is_frozen")
+        clear_index = normalize_body.find("*tp_order_id = None;")
+        if guard_index < 0 or clear_index < 0 or guard_index > clear_index:
+            failures.append("Stage 5D final r3 recovery-index normalization partial mutation guard missing")
     behavior_helper = extract_fn_body(
         stage5d_source, "fn stage5d_test_assert_restored_recovery_index_behavior"
     )
     if not behavior_helper:
         failures.append("Stage 5D final r3 recovery-index restored behavior helper missing")
     else:
+        if "let duplicate_sl = duplicate.clone();" in behavior_helper or "let terminal_sl = terminal.clone();" in behavior_helper:
+            failures.append("Stage 5D final r3 recovery-index actual SL callbacks substituted")
         for token in [
             "duplicate SL callback must not emit protection twice",
             "protective SL terminal callback must not emit entry or flip intent",
             "expected_working_stop_order_ids",
+            "working protective duplicate SL callback must preserve exact expected SL set",
+            "restored-before-terminal pending entry",
+            "let duplicate = probe.on_order(",
+            "let duplicate_sl = probe.on_stop_order(",
+            "stop_order_id: source_stop_order_id.clone()",
+            "status: \"working\".to_string()",
+            "assert!(\n                    duplicate_sl.is_empty(),",
+            "let terminal = probe.on_order(",
+            "let terminal_sl = probe.on_stop_order(",
+            "status: \"canceled\".to_string()",
+            "stage5d_test_assert_no_entry_intents(\n                    &terminal_sl,",
         ]:
             if token not in behavior_helper:
                 failures.append("Stage 5D final r3 recovery-index SL restored behavior proof missing")
+    normalization_test = extract_fn_body(
+        stage5d_source,
+        "fn stage5d_final_r3_recovery_index_r1r3_normalization_block_retains_capability",
+    )
+    if not normalization_test:
+        failures.append("Stage 5D final r3 recovery-index normalization ownership proof missing")
+    else:
+        for token in [
+            "stage5d_normalize_broker_owned_ids_for_closed_restore_bridge(",
+            "panic!(\"mismatched SL set must block without consuming the retained capability\")",
+            "stage5d_test_strategy_state_fingerprint(blocked.bootstrapped.stage5d_strategy())",
+            "*blocked.bootstrapped",
+            "panic!(\"retained capability must retry successfully with exact TP/SL sets\")",
+            "successful retry must clear broker-owned TP id",
+            "successful retry must clear broker-owned SL id",
+            "STAGE5D_RECOVERY_R1R3 normalization_block_retained=true",
+        ]:
+            if token not in normalization_test:
+                failures.append("Stage 5D final r3 recovery-index normalization ownership proof missing")
+    gate_source = (root / "scripts/stage5d_final_restart_r3_recovery_index_r1_gate.sh").read_text()
+    for hardcoded in [
+        'print("unbroken_type_state_path=true")',
+        'print("production_working_set_transition_executed=true")',
+        'print("validated_stop_truth_roundtrip=true")',
+        'print("tp_duplicate_suppressed=true")',
+        'print("sl_duplicate_suppressed=true")',
+        'print("tp_terminal_no_entry_or_flip=true")',
+        'print("sl_terminal_no_entry_or_flip=true")',
+        'print("pending_terminal_no_orphan=true")',
+    ]:
+        if hardcoded in gate_source:
+            failures.append("Stage 5D final r3 recovery-index focused gate uses hard-coded behavioral boolean")
+    for token in [
+        "tee \"$focused_log\"",
+        "require_marker \"STAGE5D_RECOVERY_R1R3 unbroken_type_state_path=true\"",
+        "require_marker \"STAGE5D_RECOVERY_R1R3 production_working_set_transition=true\"",
+        "require_marker \"STAGE5D_RECOVERY_R1R3 validated_stop_truth_roundtrip=true\"",
+        "require_marker \"STAGE5D_RECOVERY_R1R3 normalization_block_retained=true\"",
+        "focused_log_sha256=",
+        "negative_cases=",
+    ]:
+        if token not in gate_source:
+            failures.append("Stage 5D final r3 recovery-index focused gate evidence binding missing")
     if "accepted_r3_recovery_index_r1_source_produced" not in stage5d_source:
         failures.append("Stage 5D final r3 recovery-index inventory acceptance proof missing")
 

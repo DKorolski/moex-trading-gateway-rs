@@ -161,7 +161,7 @@ bash scripts/stage5d_final_restart_r3_recovery_index_r1_gate.sh
 ## Next step
 
 Do not move to Stage 5E from the
-r2/r3a/r3-positive-core-r1b/current-shadow-r1-r1/operational-state-r1-r1/recovery-index-r1-r2 candidate.
+r2/r3a/r3-positive-core-r1b/current-shadow-r1-r1/operational-state-r1-r1/recovery-index-r1-r3 evidence closure.
 The current-shadow materialized restore gap is localized and closed for
 Long/Short/realized-PnL through the approved Stage 5D validated
 materialized-apply boundary. Operational lifecycle states are now covered for

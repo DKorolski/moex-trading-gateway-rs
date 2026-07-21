@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-final-restart-r3-recovery-index-r1-r2",
+  "stage": "5D-final-restart-r3-recovery-index-r1-r3",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "42f7c9803a9b58d53e29a57c77aca3cd068cb040e4a537a46bd6da24bf3b9a72"
+      "stage5d_consumer_sha256": "2a310b29c4663779e2e1e695133f296be836d7d3fca620b00887db5917cab903"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "42f7c9803a9b58d53e29a57c77aca3cd068cb040e4a537a46bd6da24bf3b9a72"
+      "stage5d_consumer_sha256": "2a310b29c4663779e2e1e695133f296be836d7d3fca620b00887db5917cab903"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "42f7c9803a9b58d53e29a57c77aca3cd068cb040e4a537a46bd6da24bf3b9a72"
+    "current_sha256": "2a310b29c4663779e2e1e695133f296be836d7d3fca620b00887db5917cab903"
   },
   "stage5d_public_symbols": [
     "STAGE5D_ADDITIVE_FREEZE_SCHEMA_VERSION",
@@ -389,7 +389,23 @@
     "final_r3_recovery_index_stop_truth_removed",
     "final_r3_recovery_index_negative_matrix_removed",
     "final_r3_recovery_index_pending_field_proof_removed",
-    "final_r3_recovery_index_tp_sl_swap_proof_removed"
+    "final_r3_recovery_index_tp_sl_swap_proof_removed",
+    "recovery_r1r3_unbroken_path_reconstruction_introduced",
+    "recovery_r1r3_authoritative_admission_moved_after_private_apply",
+    "recovery_r1r3_production_working_set_call_removed",
+    "recovery_r1r3_working_set_coordinator_not_crate_visible",
+    "recovery_r1r3_validated_stop_truth_roundtrip_removed",
+    "recovery_r1r3_raw_stop_truth_consumed",
+    "recovery_r1r3_normalization_call_removed",
+    "recovery_r1r3_normalization_block_capability_lost",
+    "recovery_r1r3_normalization_partial_mutation_accepted",
+    "recovery_r1r3_duplicate_sl_callback_removed",
+    "recovery_r1r3_terminal_sl_callback_removed",
+    "recovery_r1r3_exact_sl_set_assertion_removed",
+    "recovery_r1r3_pending_stage_assertion_removed",
+    "recovery_r1r3_pending_terminal_orphan_accepted",
+    "recovery_r1r3_stage5c_continuation_removed",
+    "recovery_r1r3_final_group_or_stage5e_prematurely_opened"
   ],
   "stage5d_public_api": {
     "public_reexports": [

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "5D-final-restart-r3",
-  "status": "recovery_index_r1_r2_candidate_unbroken_type_state_path",
+  "status": "recovery_index_r1_r3_evidence_closed",
   "closed_surfaces": {
     "redis": false,
     "finam": false,
@@ -284,7 +284,10 @@
       "producer_kind": "runtime_callback",
       "producer_entrypoint": "stage5d_test_source_working_protective_strategy",
       "producer_callbacks": [
-        "on_order:working_tp"
+        "on_order:working_tp",
+        "on_stop_order:working_sl",
+        "on_order:duplicate_and_terminal_tp",
+        "on_stop_order:duplicate_and_terminal_sl"
       ],
       "canonical_package_path": true,
       "source_object_destroyed": true,
@@ -292,8 +295,16 @@
       "fresh_runtime_used": true,
       "private_apply_before_bootstrap": true,
       "broker_truth_exact_working_order_checked": true,
+      "supplemental_stop_truth_validated": true,
+      "normalization_block_capability_preserved": true,
+      "exact_tp_truth_checked": true,
+      "exact_sl_truth_checked": true,
+      "wrong_kind_swap_duplicate_fail_closed_matrix": true,
+      "tp_duplicate_suppressed": true,
+      "sl_duplicate_suppressed": true,
+      "tp_terminal_no_entry_or_flip": true,
+      "sl_terminal_no_entry_or_flip": true,
       "missing_extra_wrong_truth_fails_closed": true,
-      "stop_truth_surface_remains_unsupported": true,
       "duplicate_suppression_after_restore": true,
       "terminal_repair_no_entry_or_flip_checked": true,
       "stage5c_continuation_executed": true

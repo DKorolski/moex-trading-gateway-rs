@@ -1998,6 +1998,154 @@ def mutate_final_r3_recovery_index_tp_sl_swap_proof_removed(root: Path) -> None:
     update_stage5d_semantic_mutation_hashes(root)
 
 
+def mutate_recovery_r1r3_unbroken_path_reconstruction_introduced(root: Path) -> None:
+    insert_before(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "        expect_stage5d_bootstrap_ok(\n            stage5d_notify_working_set_broker_truth_bootstrap_at(",
+        "        let _r1r3_forbidden_reconstruction = \"stage5d_into_parts(\";\n",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_recovery_r1r3_authoritative_admission_moved_after_private_apply(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "\"broker truth must contain the expected working order before Stage 5C closed-boundary working-order bootstrap\"",
+        "\"broker truth check moved after private apply\"",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_recovery_r1r3_production_working_set_call_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "            stage5d_notify_working_set_broker_truth_bootstrap_at(\n                applied,\n                validated_stop_truth,\n                notification_now,\n            ),",
+        "            stage5d_notify_working_set_broker_truth_bootstrap_removed(\n                applied,\n                validated_stop_truth,\n                notification_now,\n            ),",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_recovery_r1r3_working_set_coordinator_not_crate_visible(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "pub(crate) fn stage5d_notify_working_set_broker_truth_bootstrap_at(",
+        "fn stage5d_notify_working_set_broker_truth_bootstrap_at(",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_recovery_r1r3_validated_stop_truth_roundtrip_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "serde_json::to_string(&stop_truth)",
+        "serde_json::to_string_pretty(&stop_truth)",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_recovery_r1r3_raw_stop_truth_consumed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_validate_supplemental_working_stop_truth(&applied.envelope, stop_truth)",
+        "stage5d_validate_supplemental_working_stop_truth_raw_bypass(&applied.envelope, stop_truth)",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_recovery_r1r3_normalization_call_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "crate::stage5c_paper_host::stage5d_normalize_broker_owned_ids_for_closed_restore_bridge(",
+        "crate::stage5c_paper_host::stage5d_normalize_broker_owned_ids_removed(",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_recovery_r1r3_normalization_block_capability_lost(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+        "pub(crate) bootstrapped: Box<Stage5cBootstrappedPaperStrategy>,",
+        "pub(crate) bootstrapped_lost: (),",
+    )
+    update_manifest_bridge_current_and_stripped_hash(
+        root, "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    )
+
+
+def mutate_recovery_r1r3_normalization_partial_mutation_accepted(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+        "    if !tp_is_frozen || !sl_stop_is_frozen || !sl_exchange_is_frozen {\n",
+        "    *tp_order_id = None;\n    if !tp_is_frozen || !sl_stop_is_frozen || !sl_exchange_is_frozen {\n",
+    )
+    update_manifest_bridge_current_and_stripped_hash(
+        root, "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    )
+
+
+def mutate_recovery_r1r3_duplicate_sl_callback_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "let duplicate_sl = probe.on_stop_order(",
+        "let duplicate_sl = duplicate.clone();\n                let _removed_duplicate_sl = probe.on_stop_order_removed(",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_recovery_r1r3_terminal_sl_callback_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "let terminal_sl = probe.on_stop_order(",
+        "let terminal_sl = terminal.clone();\n                let _removed_terminal_sl = probe.on_stop_order_removed(",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_recovery_r1r3_exact_sl_set_assertion_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "\"working protective duplicate SL callback must preserve exact expected SL set\"",
+        "\"working protective duplicate SL set check removed\"",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_recovery_r1r3_pending_stage_assertion_removed(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "\"restored-before-terminal pending entry\"",
+        "\"restored pending entry stage proof removed\"",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_recovery_r1r3_pending_terminal_orphan_accepted(root: Path) -> None:
+    replace_once(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "\"terminal resolution must not leave orphan pending request in runtime state\"",
+        "\"terminal orphan accepted\"",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_recovery_r1r3_stage5c_continuation_removed(root: Path) -> None:
+    replace_all(
+        root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_test_warmup_stage5c_history_at(",
+        "stage5d_test_warmup_stage5c_history_removed(",
+    )
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_recovery_r1r3_final_group_or_stage5e_prematurely_opened(root: Path) -> None:
+    mutate_final_r3_inventory_row(
+        root,
+        "positive_single_pending_riskgate_finalization",
+        execution_status="accepted_r3_recovery_index_r1_source_produced",
+        owning_test="stage5d_final_r3_recovery_index_r1_source_produced_full_restart_matrix",
+    )
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -2208,6 +2356,22 @@ CASES = [
     ("final_r3_recovery_index_negative_matrix_removed", mutate_final_r3_recovery_index_negative_matrix_removed, "Stage 5D final r3 recovery-index r1 marker/code proof missing"),
     ("final_r3_recovery_index_pending_field_proof_removed", mutate_final_r3_recovery_index_pending_field_proof_removed, "Stage 5D final r3 recovery-index r1 marker/code proof missing"),
     ("final_r3_recovery_index_tp_sl_swap_proof_removed", mutate_final_r3_recovery_index_tp_sl_swap_proof_removed, "Stage 5D final r3 recovery-index r1 marker/code proof missing"),
+    ("recovery_r1r3_unbroken_path_reconstruction_introduced", mutate_recovery_r1r3_unbroken_path_reconstruction_introduced, "Stage 5D final r3 recovery-index unbroken type-state path violated"),
+    ("recovery_r1r3_authoritative_admission_moved_after_private_apply", mutate_recovery_r1r3_authoritative_admission_moved_after_private_apply, "Stage 5D final r3 recovery-index r1 marker/code proof missing"),
+    ("recovery_r1r3_production_working_set_call_removed", mutate_recovery_r1r3_production_working_set_call_removed, "Stage 5D final r3 recovery-index validated working-set call path missing"),
+    ("recovery_r1r3_working_set_coordinator_not_crate_visible", mutate_recovery_r1r3_working_set_coordinator_not_crate_visible, "Stage 5D final r3 recovery-index working-set coordinator must remain crate-visible"),
+    ("recovery_r1r3_validated_stop_truth_roundtrip_removed", mutate_recovery_r1r3_validated_stop_truth_roundtrip_removed, "Stage 5D final r3 recovery-index validated working-set call path missing"),
+    ("recovery_r1r3_raw_stop_truth_consumed", mutate_recovery_r1r3_raw_stop_truth_consumed, "Stage 5D final r3 recovery-index validated working-set call path missing"),
+    ("recovery_r1r3_normalization_call_removed", mutate_recovery_r1r3_normalization_call_removed, "Stage 5D final r3 recovery-index production normalization retention missing"),
+    ("recovery_r1r3_normalization_block_capability_lost", mutate_recovery_r1r3_normalization_block_capability_lost, "Stage 5D final r3 recovery-index normalization retained capability missing"),
+    ("recovery_r1r3_normalization_partial_mutation_accepted", mutate_recovery_r1r3_normalization_partial_mutation_accepted, "Stage 5D final r3 recovery-index normalization partial mutation guard missing"),
+    ("recovery_r1r3_duplicate_sl_callback_removed", mutate_recovery_r1r3_duplicate_sl_callback_removed, "Stage 5D final r3 recovery-index actual SL callbacks substituted"),
+    ("recovery_r1r3_terminal_sl_callback_removed", mutate_recovery_r1r3_terminal_sl_callback_removed, "Stage 5D final r3 recovery-index actual SL callbacks substituted"),
+    ("recovery_r1r3_exact_sl_set_assertion_removed", mutate_recovery_r1r3_exact_sl_set_assertion_removed, "Stage 5D final r3 recovery-index SL restored behavior proof missing"),
+    ("recovery_r1r3_pending_stage_assertion_removed", mutate_recovery_r1r3_pending_stage_assertion_removed, "Stage 5D final r3 recovery-index SL restored behavior proof missing"),
+    ("recovery_r1r3_pending_terminal_orphan_accepted", mutate_recovery_r1r3_pending_terminal_orphan_accepted, "Stage 5D final r3 recovery-index r1 marker/code proof missing"),
+    ("recovery_r1r3_stage5c_continuation_removed", mutate_recovery_r1r3_stage5c_continuation_removed, "Stage 5D final r3 recovery-index r1 marker/code proof missing"),
+    ("recovery_r1r3_final_group_or_stage5e_prematurely_opened", mutate_recovery_r1r3_final_group_or_stage5e_prematurely_opened, "Stage 5D final r3 accepted executable set mismatch"),
 ]
 
 

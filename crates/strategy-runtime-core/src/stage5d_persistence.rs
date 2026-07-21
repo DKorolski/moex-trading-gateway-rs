@@ -13245,6 +13245,8 @@ mod tests {
         // recovery_index_r1r2_validated_stop_truth_roundtrip
         // recovery_index_r1r2_sl_duplicate_suppressed
         // recovery_index_r1r2_sl_terminal_no_entry_or_flip
+        // recovery_index_r1r3_executed_metric_markers
+        // recovery_index_r1r3_normalization_block_capability_preserved
         // recovery_index_canonical_strict_decode_used
         // recovery_index_source_runtime_destroyed_before_restart_boundary
         // recovery_index_fresh_runtime_used
@@ -13303,6 +13305,16 @@ mod tests {
         assert!(known_order_index_non_empty);
         assert!(pending_request_index_non_empty);
         assert!(working_protective_hints_non_empty);
+        println!("STAGE5D_RECOVERY_R1R3 unbroken_type_state_path=true");
+        println!("STAGE5D_RECOVERY_R1R3 production_working_set_transition=true");
+        println!("STAGE5D_RECOVERY_R1R3 validated_stop_truth_roundtrip=true");
+        println!("STAGE5D_RECOVERY_R1R3 tp_duplicate_suppressed=true");
+        println!("STAGE5D_RECOVERY_R1R3 sl_duplicate_suppressed=true");
+        println!("STAGE5D_RECOVERY_R1R3 tp_terminal_no_entry_or_flip=true");
+        println!("STAGE5D_RECOVERY_R1R3 sl_terminal_no_entry_or_flip=true");
+        println!("STAGE5D_RECOVERY_R1R3 pending_terminal_no_orphan=true");
+        println!("STAGE5D_RECOVERY_R1R3 stage5c_continuation=true");
+        println!("STAGE5D_RECOVERY_R1R3 recovery_index_cases_executed=3");
     }
 
     #[test]
@@ -13953,6 +13965,131 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn stage5d_final_r3_recovery_index_r1r3_normalization_block_retains_capability() {
+        // recovery_index_r1r3_normalization_block_capability_preserved
+        // recovery_index_r1r3_normalization_retry_clears_broker_owned_ids
+        let tp_id = BrokerOrderId::new("STAGE5D-R3-IDX-TP-ORDER");
+        let sl_id = BrokerStopOrderId::new("STAGE5D-R3-IDX-SL-STOP");
+        let source = stage5d_test_source_working_protective_strategy(&tp_id, &sl_id);
+        let (input, evidence) = stage5d_test_r3_operational_input_and_evidence_for_source(
+            &source,
+            Stage5dR3RecoveryIndexCase::WorkingProtective.snapshot_id(),
+        );
+        let (package, _) =
+            stage5d_export_canonical_restart_package_from_runtime(&source, input, evidence)
+                .expect("protective package export must succeed");
+        drop(source);
+        let strict = Stage5dCanonicalRestartPackage::from_json_str_strict(
+            &package.to_json_strict().expect("protective package json"),
+        )
+        .expect("protective package strict decode");
+        let envelope = strict.envelope;
+        let active_order = stage5d_active_order(
+            envelope.binding.account_id.clone(),
+            envelope.binding.instrument_id.to_instrument_id(),
+            tp_id.clone(),
+            envelope.persisted_at_ts_utc,
+        );
+        let mut fresh_strategy = stage5d_test_riskgate_runtime_strategy();
+        restore_semantic_state(&mut fresh_strategy, &envelope);
+        let loaded = crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
+            fresh_strategy,
+            stage5d_test_admission_for_envelope(
+                &envelope,
+                stage5d_persisted_position_qty(&envelope).expect("position qty"),
+            )
+            .stage5d_test_with_target_active_orders(vec![active_order]),
+            crate::runtime_compat::RuntimeStateRestored {
+                known_order_ids: envelope.recovery_indexes.known_order_ids.clone(),
+                pending_requests: envelope.recovery_indexes.pending_requests.clone(),
+            },
+            load_origin_for_envelope(&envelope),
+        );
+        let validated = envelope
+            .clone()
+            .validate_restore_contract_schema_only()
+            .expect("normalization proof envelope validates");
+        let bound = expect_stage5d_ok(
+            stage5d_bind_runtime_state_loaded(loaded, validated),
+            "normalization proof bind",
+        );
+        let applied = expect_stage5d_ok(
+            stage5d_apply_runtime_private_extension(bound),
+            "normalization proof private apply",
+        );
+        let stop_truth = stage5d_supplemental_stop_truth_for_envelope(
+            &envelope,
+            vec![stage5d_supplemental_stop_order_truth(
+                &envelope,
+                sl_id.clone(),
+            )],
+        );
+        let bootstrapped = stage5d_test_bootstrap_expected_working_order_exact_at(
+            applied,
+            tp_id.clone(),
+            stop_truth,
+            envelope.persisted_at_ts_utc,
+        );
+        let Stage5dBootstrappedPaperStrategy {
+            bootstrapped,
+            envelope: _,
+        } = bootstrapped;
+        let before_fingerprint =
+            stage5d_test_strategy_state_fingerprint(bootstrapped.stage5d_strategy());
+        stage5d_test_reset_restored_callback_count();
+        let blocked = match
+            crate::stage5c_paper_host::stage5d_normalize_broker_owned_ids_for_closed_restore_bridge(
+                bootstrapped,
+                std::slice::from_ref(&tp_id),
+                &[],
+            ) {
+                Ok(_) => panic!("mismatched SL set must block without consuming the retained capability"),
+                Err(blocked) => blocked,
+            };
+        assert_eq!(
+            blocked.reason,
+            crate::stage5c_paper_host::Stage5dRuntimeStateRestoredBridgeError::Stage5c(
+                crate::stage5c_paper_host::Stage5cRuntimeStateRestoreError::BrokerOwnedOrderIdMismatch,
+            ),
+            "normalization mismatch must surface a controlled broker-owned-id block"
+        );
+        assert_eq!(
+            stage5d_test_restored_callback_count(),
+            0,
+            "normalization block must occur before the restored callback"
+        );
+        assert_eq!(
+            stage5d_test_strategy_state_fingerprint(blocked.bootstrapped.stage5d_strategy()),
+            before_fingerprint,
+            "normalization block must retain the bootstrapped capability unchanged"
+        );
+        let normalized = match
+            crate::stage5c_paper_host::stage5d_normalize_broker_owned_ids_for_closed_restore_bridge(
+                *blocked.bootstrapped,
+                std::slice::from_ref(&tp_id),
+                std::slice::from_ref(&sl_id),
+            ) {
+                Ok(normalized) => normalized,
+                Err(_) => panic!("retained capability must retry successfully with exact TP/SL sets"),
+            };
+        let normalized_state = serde_json::to_value(Strategy::state(normalized.stage5d_strategy()))
+            .expect("normalized state serializes");
+        assert!(
+            stage5d_runtime_object(&normalized_state, "normalization proof")
+                .get("tp_order_id")
+                .is_none_or(Value::is_null),
+            "successful retry must clear broker-owned TP id"
+        );
+        assert!(
+            stage5d_runtime_object(&normalized_state, "normalization proof")
+                .get("sl_stop_order_id")
+                .is_none_or(Value::is_null),
+            "successful retry must clear broker-owned SL id"
+        );
+        println!("STAGE5D_RECOVERY_R1R3 normalization_block_retained=true");
     }
 
     #[test]
@@ -17046,10 +17183,7 @@ mod tests {
         .expect("Stage 5D-final-restart-r3 inventory must parse");
         assert_eq!(inventory["schema_version"], serde_json::json!(1));
         assert_eq!(inventory["stage"], "5D-final-restart-r3");
-        assert_eq!(
-            inventory["status"],
-            "recovery_index_r1_r2_candidate_unbroken_type_state_path"
-        );
+        assert_eq!(inventory["status"], "recovery_index_r1_r3_evidence_closed");
         for surface in [
             "redis",
             "finam",
