@@ -8,7 +8,7 @@
     "reack_runtime",
     "already_acknowledged"
   ],
-  "final_commit_receipt_fingerprint": "5c80421cbbca195e96065f449ca67d4a98089b9cbf596212cf92bfde4ac7e318",
+  "final_commit_receipt_fingerprint": "94e710a6f1a8eb85937ef59eaec1132cc906241d3cea51281f291e19c9d6cefb",
   "ordered_finalization_generations": [
     1
   ],
@@ -19,11 +19,11 @@
     "f78fd7b8df1ef022f98842e297c3ad904d98f215cab3874dadbb9f56922c3a21",
     "d24f3ec9e517e094551748ecf24ffbe51fc39b4b09b2ae782c1eba1c88398827",
     "7dec6fbe7920b1ee1edc2fb49ee8ea9a74409d93d4bc2ab57d5cbfc56cee207c",
-    "5c80421cbbca195e96065f449ca67d4a98089b9cbf596212cf92bfde4ac7e318"
+    "6fd834f6084f2732cffb33ecc3c65e693b5eaa34bc1df2f4b334d3626048c9a4"
   ],
   "package_sha256": "304b01de4df838952ff07637346e218379f808cb706b24c0165f33c45556bb6e",
   "recovery_plan_fingerprint_sha256": "stage5d_riskgate_recovery_plan_sha256:17945e5082edce379e84e6612c971776ca41095dfaf7b3517c033ef7b022e504",
-  "stage": "5D-final-restart-r3-riskgate-recovery-r1-r1",
+  "stage": "5D-final-restart-r3-riskgate-recovery-r1-r2",
   "stage5c_warmup_completed": true,
   "stage5e_closed": true
 }

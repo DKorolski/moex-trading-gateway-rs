@@ -2431,7 +2431,7 @@ def mutate_riskrec_r1r1_final_receipt_omitted(root: Path) -> None:
 def mutate_riskrec_r1r1_final_receipt_forged(root: Path) -> None:
     replace_once(
         root / 'tests/fixtures/stage5/stage5d_riskrec_single_pending_golden.json',
-        '"final_commit_receipt_fingerprint": "5c80421cbbca195e96065f449ca67d4a98089b9cbf596212cf92bfde4ac7e318"',
+        '"final_commit_receipt_fingerprint": "94e710a6f1a8eb85937ef59eaec1132cc906241d3cea51281f291e19c9d6cefb"',
         '"final_commit_receipt_fingerprint": "0"',
     )
 

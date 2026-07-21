@@ -18,21 +18,13 @@ migrated from the frozen ALOR source. The BO/MR/high180/riskgate kernel and the
 integrated broker-neutral runtime wrapper are present. Stage 5C's deterministic
 paper/no-send host is accepted and frozen; Stage 5D is adding a versioned,
 source-exact persistence restore path. The Stage 5D-final-restart-r2 durable
-package is retained as foundation. Stage 5D-final-restart-r3 has resumed with a
-21-case mandatory positive inventory gate: the accepted r3a-r1 MR/BO
-pending-entry source-produced proof is reused and executed, positive-core-r1b
-adds clean flat plus broker-consistent open Long/Short actual-source lifecycle
-package restart evidence, and current-shadow-r1-r1 adds source-produced
-Long/Short/realized-PnL package restart evidence. Ten rows are accepted; eleven
-remain TODO without owning tests until they become source-produced executable
-evidence. The current-shadow mismatch was localized to materialized riskgate
-state in the canonical package path and is resolved by an approved Stage 5D
-validated materialized-apply boundary before canonical export/injection.
-Canonical package export now fails fast instead of committing strict bytes that
-would deterministically fail authoritative riskgate injection. No source
-`set_state()` correction is added.
-Redis, FINAM, broker transport, dispatch, runtime-live and real execution
-remain closed.
+package is retained as foundation. Stage 5D-final-restart-r3 now has a 21-case
+mandatory positive inventory with 21 accepted executable rows and 0 TODO rows.
+The latest riskgate-recovery r1-r2 closure moves the recovery executor to a
+crate-private production type-state path, uses typed checkpoint/final receipts,
+and proves pre/post-commit crash idempotency through a bounded file-backed
+store. Stage 5E, Redis, FINAM, transport, dispatch, runtime-live and real
+execution remain closed.
 
 This repository is not enabled for continuous live trading.
 

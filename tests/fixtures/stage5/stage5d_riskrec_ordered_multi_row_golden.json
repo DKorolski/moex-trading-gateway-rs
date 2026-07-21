@@ -15,7 +15,7 @@
     "2026-01-06",
     "2026-01-07"
   ],
-  "final_commit_receipt_fingerprint": "adc465db7188aea5364180404346ffc9dcc9dd9ee0fbbe483d82f36e07b06452",
+  "final_commit_receipt_fingerprint": "cd35a252ad771ef57b76140111d78036dc5af16e55135f654b8bf160d1ba50dc",
   "ordered_finalization_generations": [
     1,
     2
@@ -31,11 +31,11 @@
     "73cf54b2a48318ea75bcf575084d1a91d38b77612eff99a0062f63dd89826587",
     "a94d53599f30b3e1e101adfe8719ae18bcb6ef5c896f412493b0a0eb996fb89b",
     "e36ed463f91280a3fab779cbfc40e377fd3b4e01c7034e6626e0076c9baf7027",
-    "adc465db7188aea5364180404346ffc9dcc9dd9ee0fbbe483d82f36e07b06452"
+    "fafce54486f15eb70b5cfb198a6bf2482fd7d702978c8c17466907529e40029e"
   ],
   "package_sha256": "e61c1f7ba98b32b06c1727eef24e0bd3e1bae3b5445b5f57dfff84fc6a7352ec",
   "recovery_plan_fingerprint_sha256": "stage5d_riskgate_recovery_plan_sha256:4f9263070bd3cd4d566efb3c85daa453716d0c4f292e88a5097fbe8615a34c16",
-  "stage": "5D-final-restart-r3-riskgate-recovery-r1-r1",
+  "stage": "5D-final-restart-r3-riskgate-recovery-r1-r2",
   "stage5c_warmup_completed": true,
   "stage5e_closed": true
 }

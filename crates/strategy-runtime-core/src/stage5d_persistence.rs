@@ -1754,7 +1754,7 @@ fn stage5d_require_source_canonical_riskgate_decimal(
         .map_err(|_| Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid)
 }
 
-#[cfg(test)]
+#[allow(dead_code)]
 fn stage5d_source_format_riskgate_decimal(value: f64) -> String {
     crate::hybrid_intraday::format_riskgate_authority_decimal(value)
         .expect("test/source riskgate decimal must be finite and non-negative-zero")
@@ -5007,6 +5007,534 @@ pub enum Stage5dEnvelopeValidationError {
     RecoveryIndexInconsistent,
     RiskGateFinalizationInconsistent,
     SerializationFailed,
+}
+
+#[allow(dead_code)]
+fn stage5d_stage_record_from_source(
+    record: &crate::hybrid_intraday::RiskGateLedgerRecord,
+) -> Stage5dRiskGateLedgerRecord {
+    Stage5dRiskGateLedgerRecord {
+        session_date: record.row.session_date.format("%Y-%m-%d").to_string(),
+        shadow_pnl_points: stage5d_source_format_riskgate_decimal(record.row.shadow_pnl_points),
+        shadow_trade_count: record.row.shadow_trade_count,
+        rolling_sum_before_session: stage5d_source_format_riskgate_decimal(
+            record.row.rolling_sum_before_session,
+        ),
+        mr_enabled_for_session: record.row.mr_enabled_for_session,
+        source: match record.row.source {
+            crate::hybrid_intraday::RiskGateRowSource::Seed => Stage5dRiskGateRowSource::Seed,
+            crate::hybrid_intraday::RiskGateRowSource::Runtime => Stage5dRiskGateRowSource::Runtime,
+        },
+        status: match record.row.status {
+            crate::hybrid_intraday::RiskGateRowStatus::Complete => {
+                Stage5dRiskGateRowStatus::Complete
+            }
+            crate::hybrid_intraday::RiskGateRowStatus::Incomplete => {
+                Stage5dRiskGateRowStatus::Incomplete
+            }
+        },
+        rolling_sum_lb120: stage5d_source_format_riskgate_decimal(record.rolling_sum_lb120),
+        mr_enabled_next_session: record.mr_enabled_next_session,
+        finalized_at_utc: record.finalized_at_utc,
+    }
+}
+
+#[allow(dead_code)]
+fn stage5d_stage_materialized_from_source(
+    materialized: &crate::hybrid_intraday::RiskGateMaterializedState,
+) -> Stage5dRiskGateMaterializedState {
+    Stage5dRiskGateMaterializedState {
+        mr_enabled_current_session: materialized.mr_enabled_current_session,
+        mr_enabled_next_session: materialized.mr_enabled_next_session,
+        rolling_sum_lb120: materialized
+            .rolling_sum_lb120
+            .map(stage5d_source_format_riskgate_decimal),
+        last_finalized_session_date: materialized
+            .last_finalized_session_date
+            .map(|date| date.format("%Y-%m-%d").to_string()),
+        ledger_rows_count: materialized.ledger_rows_count as u64,
+        seed_loaded: materialized.seed_loaded,
+        current_shadow_session_date: materialized
+            .current_shadow_session_date
+            .map(|date| date.format("%Y-%m-%d").to_string()),
+        current_shadow_pnl_points: stage5d_source_format_riskgate_decimal(
+            materialized.current_shadow_pnl_points,
+        ),
+        current_generation: materialized.current_generation.clone(),
+    }
+}
+
+#[allow(dead_code)]
+fn stage5d_set_semantic_riskgate_projection(
+    envelope: &mut Stage5dPersistenceEnvelope,
+    projection: &crate::hybrid_intraday::RiskGateMaterializedState,
+) {
+    if let Value::Object(fields) =
+        &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+    {
+        fields.insert(
+            "risk_gate_mr_enabled_current_session".to_string(),
+            projection
+                .mr_enabled_current_session
+                .map(Value::Bool)
+                .unwrap_or(Value::Null),
+        );
+        fields.insert(
+            "risk_gate_rolling_sum_lb120".to_string(),
+            projection
+                .rolling_sum_lb120
+                .map(|value| serde_json::json!(value))
+                .unwrap_or(Value::Null),
+        );
+        fields.insert(
+            "risk_gate_last_finalized_session_date".to_string(),
+            projection
+                .last_finalized_session_date
+                .map(|date| Value::String(date.format("%Y-%m-%d").to_string()))
+                .unwrap_or(Value::Null),
+        );
+        fields.insert(
+            "risk_gate_ledger_rows_count".to_string(),
+            serde_json::json!(projection.ledger_rows_count),
+        );
+        fields.insert(
+            "risk_gate_shadow_session_date".to_string(),
+            projection
+                .current_shadow_session_date
+                .map(|date| Value::String(date.format("%Y-%m-%d").to_string()))
+                .unwrap_or(Value::Null),
+        );
+        fields.insert(
+            "risk_gate_shadow_pnl_points".to_string(),
+            serde_json::json!(projection.current_shadow_pnl_points),
+        );
+    }
+}
+
+#[allow(dead_code)]
+fn stage5d_sync_runtime_pending_cache(envelope: &mut Stage5dPersistenceEnvelope) {
+    let first = envelope
+        .runtime_private_extension
+        .runtime_pending_finalizations
+        .first();
+    if let Value::Object(fields) =
+        &mut envelope.strategy_state.strategy_state_json["HybridIntradayRuntime"]
+    {
+        fields.insert(
+            "risk_gate_pending_session_date".to_string(),
+            first
+                .map(|pending| Value::String(pending.session_date.clone()))
+                .unwrap_or(Value::Null),
+        );
+        fields.insert(
+            "risk_gate_pending_shadow_pnl_points".to_string(),
+            first
+                .map(|pending| {
+                    serde_json::json!(parse_finite_decimal_string(&pending.shadow_pnl_points)
+                        .expect("pending pnl"))
+                })
+                .unwrap_or_else(|| serde_json::json!(0.0)),
+        );
+        fields.insert(
+            "risk_gate_pending_shadow_trade_count".to_string(),
+            first
+                .map(|pending| serde_json::json!(pending.shadow_trade_count))
+                .unwrap_or_else(|| serde_json::json!(0)),
+        );
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) fn stage5d_canonical_riskgate_recovery_package_from_parts(
+    envelope: &Stage5dPersistenceEnvelope,
+    evidence: &Stage5dRiskGateLedgerEvidence,
+) -> Result<(String, String, String), Stage5dEnvelopeValidationError> {
+    let mut envelope = envelope.clone();
+    envelope.payload_checksum_sha256 = envelope.compute_payload_checksum_sha256()?;
+    let validated_evidence = stage5d_validate_riskgate_ledger_evidence(evidence.clone())
+        .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    stage5d_validate_package_cross_binding(&envelope, &validated_evidence.evidence)?;
+    let envelope_json = serde_json::to_string(&envelope)
+        .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+    let riskgate_evidence_json = serde_json::to_string(&validated_evidence.evidence)
+        .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+    let envelope_sha256 = sha256_text(&envelope_json);
+    let riskgate_evidence_sha256 = sha256_text(&riskgate_evidence_json);
+    let mut package = Stage5dCanonicalRestartPackage {
+        schema_version: STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION,
+        snapshot_id: envelope.snapshot_id.clone(),
+        snapshot_revision: envelope.snapshot_revision,
+        previous_revision: envelope.previous_revision,
+        write_generation: envelope.write_generation,
+        persisted_at_ts_utc: envelope.persisted_at_ts_utc,
+        checkpoint_state: Stage5dCanonicalRestartCheckpointState::Committed,
+        envelope_json,
+        envelope_sha256: envelope_sha256.clone(),
+        riskgate_evidence_json,
+        riskgate_evidence_sha256,
+        package_checksum_sha256: String::new(),
+    };
+    package.package_checksum_sha256 = package.compute_package_checksum_sha256()?;
+    let package_json = package.to_json_strict()?;
+    Ok((
+        package_json,
+        envelope_sha256,
+        validated_evidence.evidence_fingerprint_sha256,
+    ))
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Stage5dRiskGateRecoveryReady {
+    envelope: Stage5dPersistenceEnvelope,
+    evidence: Stage5dRiskGateLedgerEvidence,
+    recovery_plan_fingerprint_sha256: String,
+}
+
+impl Stage5dRiskGateRecoveryReady {
+    #[allow(dead_code)]
+    fn from_parts(
+        envelope: Stage5dPersistenceEnvelope,
+        evidence: Stage5dRiskGateLedgerEvidence,
+        recovery_plan_fingerprint_sha256: String,
+    ) -> Self {
+        Self {
+            envelope,
+            evidence,
+            recovery_plan_fingerprint_sha256,
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Stage5dRiskGateRecoveryCheckpoint {
+    InitialPackageCommitted,
+    LedgerAppended,
+    MaterializedUpdated,
+    AcknowledgedInRuntime,
+    FinalCheckpointCommitted,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Stage5dRiskGateRecoveryCommitReceipt {
+    schema_version: u16,
+    checkpoint: Stage5dRiskGateRecoveryCheckpoint,
+    package_sha256: String,
+    envelope_sha256: String,
+    evidence_fingerprint_sha256: String,
+    recovery_plan_fingerprint_sha256: String,
+    finalization_identity_hashes: Vec<String>,
+    finalization_generations: Vec<u64>,
+    committed_store_generation: u64,
+    receipt_fingerprint_sha256: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub(crate) struct Stage5dRiskGateRecoveryStepApplied {
+    ready: Stage5dRiskGateRecoveryReady,
+    action: Stage5dRiskGateRecoveryDecision,
+    checkpoint: Stage5dRiskGateRecoveryCheckpoint,
+    action_fingerprint_sha256: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5dRiskGateRecoveryActionBlocked {
+    NoLegalOrderedAction,
+    InvalidEvidence,
+    InvalidPackage,
+}
+
+#[allow(dead_code)]
+pub(crate) fn stage5d_riskgate_recovery_ready_from_canonical_package(
+    package_json: &str,
+) -> Result<Stage5dRiskGateRecoveryReady, Stage5dEnvelopeValidationError> {
+    let decoded = Stage5dCanonicalRestartPackage::from_json_str_strict(package_json)?;
+    let envelope = decoded.envelope;
+    let evidence = decoded.validated_evidence.evidence;
+    let validated_envelope = envelope.validate_restore_contract_schema_only()?;
+    let validated_evidence = stage5d_validate_riskgate_ledger_evidence(evidence.clone())
+        .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    stage5d_validate_package_cross_binding(
+        &validated_envelope.envelope,
+        &validated_evidence.evidence,
+    )?;
+    let source_records =
+        stage5d_source_riskgate_records_from_evidence(&validated_evidence.evidence)
+            .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    let current_shadow_session_date = validated_evidence
+        .evidence
+        .current_shadow_session_date
+        .as_deref()
+        .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+        .transpose()
+        .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    let current_shadow_pnl_points =
+        parse_finite_decimal_string(&validated_evidence.evidence.current_shadow_pnl_points)
+            .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    let analysis = stage5d_analyze_riskgate_crash_frontiers(
+        &validated_envelope.envelope,
+        &validated_evidence.evidence,
+        &source_records,
+        &crate::hybrid_intraday::RiskGateProfileIdentity {
+            strategy_id: validated_evidence.evidence.identity.strategy_id.clone(),
+            profile_id: validated_evidence.evidence.identity.profile_id.clone(),
+            mr_variant: validated_evidence.evidence.identity.mr_variant.clone(),
+            timeframe: validated_evidence.evidence.identity.timeframe.clone(),
+            session_policy: validated_evidence.evidence.identity.session_policy.clone(),
+            model_version: validated_evidence.evidence.identity.model_version.clone(),
+        },
+        current_shadow_session_date,
+        current_shadow_pnl_points,
+    )
+    .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    let plan = stage5d_build_riskgate_recovery_plan(
+        &validated_envelope.envelope,
+        &validated_evidence,
+        &analysis,
+    )
+    .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    Ok(Stage5dRiskGateRecoveryReady::from_parts(
+        validated_envelope.envelope,
+        validated_evidence.evidence,
+        plan.plan_fingerprint_sha256,
+    ))
+}
+
+#[allow(dead_code)]
+pub(crate) fn stage5d_compute_riskgate_recovery_commit_receipt_fingerprint(
+    receipt: &Stage5dRiskGateRecoveryCommitReceipt,
+) -> Result<String, Stage5dEnvelopeValidationError> {
+    let mut canonical = receipt.clone();
+    canonical.receipt_fingerprint_sha256.clear();
+    serde_json::to_vec(&canonical)
+        .map(|payload| format!("{:x}", Sha256::digest(payload)))
+        .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)
+}
+
+#[allow(dead_code)]
+pub(crate) fn stage5d_make_riskgate_recovery_commit_receipt(
+    ready: &Stage5dRiskGateRecoveryReady,
+    package_json: &str,
+    envelope_sha256: &str,
+    evidence_fingerprint_sha256: &str,
+    store_generation: u64,
+    checkpoint: Stage5dRiskGateRecoveryCheckpoint,
+) -> Result<Stage5dRiskGateRecoveryCommitReceipt, Stage5dEnvelopeValidationError> {
+    let mut receipt = Stage5dRiskGateRecoveryCommitReceipt {
+        schema_version: 1,
+        checkpoint,
+        package_sha256: sha256_text(package_json),
+        envelope_sha256: envelope_sha256.to_string(),
+        evidence_fingerprint_sha256: evidence_fingerprint_sha256.to_string(),
+        recovery_plan_fingerprint_sha256: ready.recovery_plan_fingerprint_sha256.clone(),
+        finalization_identity_hashes: ready
+            .envelope
+            .riskgate
+            .durable_finalization_outbox
+            .iter()
+            .map(|row| row.identity_hash.clone())
+            .collect(),
+        finalization_generations: ready
+            .envelope
+            .riskgate
+            .durable_finalization_outbox
+            .iter()
+            .map(|row| row.generation)
+            .collect(),
+        committed_store_generation: store_generation,
+        receipt_fingerprint_sha256: String::new(),
+    };
+    receipt.receipt_fingerprint_sha256 =
+        stage5d_compute_riskgate_recovery_commit_receipt_fingerprint(&receipt)?;
+    Ok(receipt)
+}
+
+#[allow(dead_code)]
+pub(crate) fn stage5d_apply_next_riskgate_recovery_action(
+    recovery_ready: Stage5dRiskGateRecoveryReady,
+) -> Result<Stage5dRiskGateRecoveryStepApplied, Stage5dRiskGateRecoveryActionBlocked> {
+    let validated_evidence =
+        stage5d_validate_riskgate_ledger_evidence(recovery_ready.evidence.clone())
+            .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
+    let source_records =
+        stage5d_source_riskgate_records_from_evidence(&validated_evidence.evidence)
+            .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
+    let current_shadow_session_date = validated_evidence
+        .evidence
+        .current_shadow_session_date
+        .as_deref()
+        .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+        .transpose()
+        .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
+    let current_shadow_pnl_points =
+        parse_finite_decimal_string(&validated_evidence.evidence.current_shadow_pnl_points)
+            .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
+    let source_identity = crate::hybrid_intraday::RiskGateProfileIdentity {
+        strategy_id: validated_evidence.evidence.identity.strategy_id.clone(),
+        profile_id: validated_evidence.evidence.identity.profile_id.clone(),
+        mr_variant: validated_evidence.evidence.identity.mr_variant.clone(),
+        timeframe: validated_evidence.evidence.identity.timeframe.clone(),
+        session_policy: validated_evidence.evidence.identity.session_policy.clone(),
+        model_version: validated_evidence.evidence.identity.model_version.clone(),
+    };
+    let analysis = stage5d_analyze_riskgate_crash_frontiers(
+        &recovery_ready.envelope,
+        &validated_evidence.evidence,
+        &source_records,
+        &source_identity,
+        current_shadow_session_date,
+        current_shadow_pnl_points,
+    )
+    .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
+    let plan = stage5d_build_riskgate_recovery_plan(
+        &recovery_ready.envelope,
+        &validated_evidence,
+        &analysis,
+    )
+    .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
+    if plan.plan_fingerprint_sha256 != recovery_ready.recovery_plan_fingerprint_sha256 {
+        return Err(Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence);
+    }
+    let Some((decision_index, decision)) =
+        plan.decisions.iter().enumerate().find(|(_, decision)| {
+            decision.action != Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged
+        })
+    else {
+        return Ok(Stage5dRiskGateRecoveryStepApplied {
+            ready: recovery_ready,
+            action: Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged,
+            checkpoint: Stage5dRiskGateRecoveryCheckpoint::FinalCheckpointCommitted,
+            action_fingerprint_sha256: sha256_text(&format!(
+                "already_acknowledged:{}",
+                plan.plan_fingerprint_sha256
+            )),
+        });
+    };
+    if plan.decisions[..decision_index]
+        .iter()
+        .any(|prior| prior.action != Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged)
+    {
+        return Err(Stage5dRiskGateRecoveryActionBlocked::NoLegalOrderedAction);
+    }
+
+    let mut envelope = recovery_ready.envelope;
+    let mut evidence = recovery_ready.evidence;
+    let target_index = analysis.local.outbox_tail_start + decision_index;
+    let target_record = analysis
+        .authoritative
+        .recovery_target_records
+        .get(target_index)
+        .ok_or(Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?
+        .clone();
+    let checkpoint =
+        match decision.action {
+            Stage5dRiskGateRecoveryDecision::AppendMissingLedgerRow => {
+                if evidence.ledger_records.iter().any(|row| {
+                    row.session_date == decision.session_date.format("%Y-%m-%d").to_string()
+                }) {
+                    return Err(Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence);
+                }
+                evidence
+                    .ledger_records
+                    .push(stage5d_stage_record_from_source(&target_record));
+                envelope.riskgate.durable_finalization_outbox[decision_index].state =
+                    Stage5dRiskGateFinalizationState::LedgerAppended;
+                Stage5dRiskGateRecoveryCheckpoint::LedgerAppended
+            }
+            Stage5dRiskGateRecoveryDecision::AdvanceToMaterialized => {
+                let materialized_count = target_index + 1;
+                let materialized = stage5d_rebuild_riskgate_projection_prefix(
+                    &analysis.authoritative.recovery_target_records,
+                    materialized_count,
+                    current_shadow_session_date,
+                    current_shadow_pnl_points,
+                )
+                .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
+                envelope.riskgate.materialized_state =
+                    stage5d_stage_materialized_from_source(&materialized);
+                envelope.riskgate.durable_finalization_outbox[decision_index].state =
+                    Stage5dRiskGateFinalizationState::MaterializedUpdated;
+                Stage5dRiskGateRecoveryCheckpoint::MaterializedUpdated
+            }
+            Stage5dRiskGateRecoveryDecision::ReackRuntime => {
+                let runtime_count = target_index + 1;
+                let runtime = stage5d_rebuild_riskgate_projection_prefix(
+                    &analysis.authoritative.recovery_target_records,
+                    runtime_count,
+                    current_shadow_session_date,
+                    current_shadow_pnl_points,
+                )
+                .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
+                stage5d_set_semantic_riskgate_projection(&mut envelope, &runtime);
+                let session = decision.session_date.format("%Y-%m-%d").to_string();
+                envelope
+                    .runtime_private_extension
+                    .runtime_pending_finalizations
+                    .retain(|pending| pending.session_date != session);
+                stage5d_sync_runtime_pending_cache(&mut envelope);
+                envelope.riskgate.durable_finalization_outbox[decision_index].state =
+                    Stage5dRiskGateFinalizationState::AcknowledgedInRuntime;
+                Stage5dRiskGateRecoveryCheckpoint::AcknowledgedInRuntime
+            }
+            Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged => unreachable!(),
+        };
+    evidence.ledger_tail_hash = stage5d_compute_riskgate_ledger_tail_hash(&evidence)
+        .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
+    envelope.riskgate.ledger_tail_hash = evidence.ledger_tail_hash.clone();
+    envelope.payload_checksum_sha256 = envelope
+        .compute_payload_checksum_sha256()
+        .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidPackage)?;
+    let validated_envelope = envelope
+        .validate_restore_contract_schema_only()
+        .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidPackage)?;
+    let validated_evidence = stage5d_validate_riskgate_ledger_evidence(evidence.clone())
+        .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
+    stage5d_validate_package_cross_binding(
+        &validated_envelope.envelope,
+        &validated_evidence.evidence,
+    )
+    .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidPackage)?;
+    let post_source_records =
+        stage5d_source_riskgate_records_from_evidence(&validated_evidence.evidence)
+            .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
+    let next_analysis = stage5d_analyze_riskgate_crash_frontiers(
+        &validated_envelope.envelope,
+        &validated_evidence.evidence,
+        &post_source_records,
+        &source_identity,
+        current_shadow_session_date,
+        current_shadow_pnl_points,
+    )
+    .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
+    let next_plan = stage5d_build_riskgate_recovery_plan(
+        &validated_envelope.envelope,
+        &validated_evidence,
+        &next_analysis,
+    )
+    .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
+    let action_fingerprint_sha256 = sha256_text(&format!(
+        "{}:{}:{}:{}",
+        decision.session_date,
+        decision.generation,
+        decision.action.as_str(),
+        next_plan.plan_fingerprint_sha256
+    ));
+    Ok(Stage5dRiskGateRecoveryStepApplied {
+        ready: Stage5dRiskGateRecoveryReady::from_parts(
+            validated_envelope.envelope,
+            validated_evidence.evidence,
+            next_plan.plan_fingerprint_sha256,
+        ),
+        action: decision.action,
+        checkpoint,
+        action_fingerprint_sha256,
+    })
 }
 
 #[cfg(test)]
@@ -12985,43 +13513,6 @@ mod tests {
         recovery_plan_fingerprint_sha256: String,
     }
 
-    #[derive(Debug, Clone, PartialEq)]
-    struct Stage5dRiskGateRecoveryReady {
-        envelope: Stage5dPersistenceEnvelope,
-        evidence: Stage5dRiskGateLedgerEvidence,
-        recovery_plan_fingerprint_sha256: String,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Stage5dRiskGateRecoveryFinalCommitReceipt {
-        schema_version: u16,
-        checkpoint_state: String,
-        package_sha256: String,
-        envelope_sha256: String,
-        evidence_fingerprint_sha256: String,
-        recovery_plan_fingerprint_sha256: String,
-        finalization_identity_hashes: Vec<String>,
-        finalization_generations: Vec<u64>,
-        committed_store_generation: u64,
-        receipt_fingerprint_sha256: String,
-    }
-
-    #[derive(Debug, Clone)]
-    struct Stage5dRiskGateRecoveryStepApplied {
-        ready: Stage5dRiskGateRecoveryReady,
-        action: Stage5dRiskGateRecoveryDecision,
-        action_fingerprint_sha256: String,
-        final_commit_receipt: Option<Stage5dRiskGateRecoveryFinalCommitReceipt>,
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum Stage5dRiskGateRecoveryActionBlocked {
-        NoLegalOrderedAction,
-        InvalidEvidence,
-        InvalidPackage,
-    }
-
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum Stage5dRiskRecStoreState {
         NotWritten,
@@ -13033,13 +13524,18 @@ mod tests {
     #[derive(Debug)]
     struct Stage5dRiskRecCommittedStoreRead {
         package_json: String,
-        receipt: Stage5dRiskGateRecoveryFinalCommitReceipt,
+        receipt: Stage5dRiskGateRecoveryCommitReceipt,
     }
 
     #[derive(Debug)]
     struct Stage5dRiskRecBoundedFileStore {
         root: std::path::PathBuf,
         generation: u64,
+    }
+
+    #[derive(Debug)]
+    struct Stage5dRiskRecBoundedFileStoreReader {
+        root: std::path::PathBuf,
     }
 
     impl Drop for Stage5dRiskRecBoundedFileStore {
@@ -13069,15 +13565,26 @@ mod tests {
             self.root.join("commit-receipt.json")
         }
 
+        fn commit_marker_path(&self) -> std::path::PathBuf {
+            self.root.join("commit-marker")
+        }
+
+        fn open_reader(&self) -> Stage5dRiskRecBoundedFileStoreReader {
+            Stage5dRiskRecBoundedFileStoreReader {
+                root: self.root.clone(),
+            }
+        }
+
         fn write_state(
             &mut self,
             state: Stage5dRiskRecStoreState,
             package_json: &str,
-            receipt: Option<&Stage5dRiskGateRecoveryFinalCommitReceipt>,
+            receipt: Option<&Stage5dRiskGateRecoveryCommitReceipt>,
         ) {
             self.generation += 1;
             let _ = std::fs::remove_file(self.package_path());
             let _ = std::fs::remove_file(self.receipt_path());
+            let _ = std::fs::remove_file(self.commit_marker_path());
             match state {
                 Stage5dRiskRecStoreState::NotWritten => {}
                 Stage5dRiskRecStoreState::PartialWrite => {
@@ -13088,31 +13595,66 @@ mod tests {
                     std::fs::write(self.package_path(), package_json).expect("full write");
                 }
                 Stage5dRiskRecStoreState::Committed => {
-                    std::fs::write(self.package_path(), package_json).expect("committed package");
+                    let package_tmp = self.root.join("package.json.tmp");
+                    let receipt_tmp = self.root.join("commit-receipt.json.tmp");
+                    let marker_tmp = self.root.join("commit-marker.tmp");
+                    let _ = std::fs::remove_file(&package_tmp);
+                    let _ = std::fs::remove_file(&receipt_tmp);
+                    let _ = std::fs::remove_file(&marker_tmp);
+                    std::fs::write(&package_tmp, package_json).expect("committed package tmp");
                     std::fs::write(
-                        self.receipt_path(),
+                        &receipt_tmp,
                         serde_json::to_string(receipt.expect("commit receipt required"))
                             .expect("receipt serializes"),
                     )
-                    .expect("committed receipt");
+                    .expect("committed receipt tmp");
+                    std::fs::write(&marker_tmp, format!("generation={}\n", self.generation))
+                        .expect("committed marker tmp");
+                    std::fs::rename(package_tmp, self.package_path())
+                        .expect("commit package rename");
+                    std::fs::rename(receipt_tmp, self.receipt_path())
+                        .expect("commit receipt rename");
+                    std::fs::rename(marker_tmp, self.commit_marker_path())
+                        .expect("commit marker rename");
                 }
             }
         }
 
         fn read_committed(&self) -> Result<Stage5dRiskRecCommittedStoreRead, &'static str> {
+            self.open_reader().read_committed()
+        }
+    }
+
+    impl Stage5dRiskRecBoundedFileStoreReader {
+        fn package_path(&self) -> std::path::PathBuf {
+            self.root.join("package.json")
+        }
+
+        fn receipt_path(&self) -> std::path::PathBuf {
+            self.root.join("commit-receipt.json")
+        }
+
+        fn commit_marker_path(&self) -> std::path::PathBuf {
+            self.root.join("commit-marker")
+        }
+
+        fn read_committed(&self) -> Result<Stage5dRiskRecCommittedStoreRead, &'static str> {
+            let marker = std::fs::read_to_string(self.commit_marker_path())
+                .map_err(|_| "commit_marker_missing")?;
             let package_json =
                 std::fs::read_to_string(self.package_path()).map_err(|_| "package_missing")?;
             let receipt_json =
                 std::fs::read_to_string(self.receipt_path()).map_err(|_| "receipt_missing")?;
             Stage5dCanonicalRestartPackage::from_json_str_strict(&package_json)
                 .map_err(|_| "package_invalid")?;
-            let receipt: Stage5dRiskGateRecoveryFinalCommitReceipt =
+            let receipt: Stage5dRiskGateRecoveryCommitReceipt =
                 serde_json::from_str(&receipt_json).map_err(|_| "receipt_invalid")?;
-            let expected_receipt = stage5d_compute_riskrec_commit_receipt_fingerprint(&receipt)
-                .map_err(|_| "receipt_invalid")?;
+            let expected_receipt =
+                stage5d_compute_riskgate_recovery_commit_receipt_fingerprint(&receipt)
+                    .map_err(|_| "receipt_invalid")?;
             if expected_receipt != receipt.receipt_fingerprint_sha256
                 || receipt.package_sha256 != sha256_text(&package_json)
-                || receipt.checkpoint_state != "final_checkpoint_committed"
+                || marker.trim() != format!("generation={}", receipt.committed_store_generation)
             {
                 return Err("receipt_binding_mismatch");
             }
@@ -13123,74 +13665,17 @@ mod tests {
         }
     }
 
-    fn stage5d_compute_riskrec_commit_receipt_fingerprint(
-        receipt: &Stage5dRiskGateRecoveryFinalCommitReceipt,
-    ) -> Result<String, Stage5dEnvelopeValidationError> {
-        let mut canonical = receipt.clone();
-        canonical.receipt_fingerprint_sha256.clear();
-        serde_json::to_vec(&canonical)
-            .map(|payload| format!("{:x}", Sha256::digest(payload)))
-            .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)
-    }
-
     fn stage5d_test_canonical_package_from_parts(
         envelope: &Stage5dPersistenceEnvelope,
         evidence: &Stage5dRiskGateLedgerEvidence,
     ) -> Result<(String, String, String), Stage5dEnvelopeValidationError> {
-        let mut envelope = envelope.clone();
-        envelope.payload_checksum_sha256 = envelope.compute_payload_checksum_sha256()?;
-        let validated_evidence = stage5d_validate_riskgate_ledger_evidence(evidence.clone())
-            .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
-        stage5d_validate_package_cross_binding(&envelope, &validated_evidence.evidence)?;
-        let envelope_json = serde_json::to_string(&envelope)
-            .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
-        let riskgate_evidence_json = serde_json::to_string(&validated_evidence.evidence)
-            .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
-        let envelope_sha256 = sha256_text(&envelope_json);
-        let riskgate_evidence_sha256 = sha256_text(&riskgate_evidence_json);
-        let mut package = Stage5dCanonicalRestartPackage {
-            schema_version: STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION,
-            snapshot_id: envelope.snapshot_id.clone(),
-            snapshot_revision: envelope.snapshot_revision,
-            previous_revision: envelope.previous_revision,
-            write_generation: envelope.write_generation,
-            persisted_at_ts_utc: envelope.persisted_at_ts_utc,
-            checkpoint_state: Stage5dCanonicalRestartCheckpointState::Committed,
-            envelope_json,
-            envelope_sha256: envelope_sha256.clone(),
-            riskgate_evidence_json,
-            riskgate_evidence_sha256,
-            package_checksum_sha256: String::new(),
-        };
-        package.package_checksum_sha256 = package.compute_package_checksum_sha256()?;
-        let package_json = package.to_json_strict()?;
-        Ok((
-            package_json,
-            envelope_sha256,
-            validated_evidence.evidence_fingerprint_sha256,
-        ))
+        stage5d_canonical_riskgate_recovery_package_from_parts(envelope, evidence)
     }
 
     fn stage5d_riskrec_ready_from_package(
         package_json: &str,
     ) -> Result<Stage5dRiskGateRecoveryReady, Stage5dEnvelopeValidationError> {
-        let decoded = Stage5dCanonicalRestartPackage::from_json_str_strict(package_json)?;
-        let (bootstrapped, strict_envelope, validated_evidence) =
-            stage5d_test_bootstrap_strict_envelope_with_strategy(
-                decoded.envelope,
-                stage5d_test_riskgate_runtime_strategy(),
-                decoded.validated_evidence.evidence,
-            );
-        let evidence = validated_evidence.evidence.clone();
-        let injected = expect_stage5d_riskgate_ok(
-            stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
-            "riskrec committed package must inject after strict read",
-        );
-        Ok(Stage5dRiskGateRecoveryReady {
-            envelope: strict_envelope,
-            evidence,
-            recovery_plan_fingerprint_sha256: injected.recovery_plan_fingerprint().to_string(),
-        })
+        stage5d_riskgate_recovery_ready_from_canonical_package(package_json)
     }
 
     fn stage5d_riskrec_make_commit_receipt(
@@ -13199,207 +13684,23 @@ mod tests {
         envelope_sha256: &str,
         evidence_fingerprint_sha256: &str,
         store_generation: u64,
-    ) -> Stage5dRiskGateRecoveryFinalCommitReceipt {
-        let mut receipt = Stage5dRiskGateRecoveryFinalCommitReceipt {
-            schema_version: 1,
-            checkpoint_state: "final_checkpoint_committed".to_string(),
-            package_sha256: sha256_text(package_json),
-            envelope_sha256: envelope_sha256.to_string(),
-            evidence_fingerprint_sha256: evidence_fingerprint_sha256.to_string(),
-            recovery_plan_fingerprint_sha256: ready.recovery_plan_fingerprint_sha256.clone(),
-            finalization_identity_hashes: ready
-                .envelope
-                .riskgate
-                .durable_finalization_outbox
-                .iter()
-                .map(|row| row.identity_hash.clone())
-                .collect(),
-            finalization_generations: ready
-                .envelope
-                .riskgate
-                .durable_finalization_outbox
-                .iter()
-                .map(|row| row.generation)
-                .collect(),
-            committed_store_generation: store_generation,
-            receipt_fingerprint_sha256: String::new(),
-        };
-        receipt.receipt_fingerprint_sha256 =
-            stage5d_compute_riskrec_commit_receipt_fingerprint(&receipt)
-                .expect("riskrec receipt fingerprint");
-        receipt
-    }
-
-    fn stage5d_apply_next_riskgate_recovery_action(
-        recovery_ready: Stage5dRiskGateRecoveryReady,
-    ) -> Result<Stage5dRiskGateRecoveryStepApplied, Stage5dRiskGateRecoveryActionBlocked> {
-        let validated_evidence =
-            stage5d_validate_riskgate_ledger_evidence(recovery_ready.evidence.clone())
-                .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
-        let source_records =
-            stage5d_source_riskgate_records_from_evidence(&validated_evidence.evidence)
-                .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
-        let current_shadow_session_date = validated_evidence
-            .evidence
-            .current_shadow_session_date
-            .as_deref()
-            .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").expect("shadow date"));
-        let current_shadow_pnl_points =
-            parse_finite_decimal_string(&validated_evidence.evidence.current_shadow_pnl_points)
-                .expect("shadow pnl");
-        let analysis = stage5d_analyze_riskgate_crash_frontiers(
-            &recovery_ready.envelope,
-            &validated_evidence.evidence,
-            &source_records,
-            &crate::hybrid_intraday::RiskGateProfileIdentity {
-                strategy_id: validated_evidence.evidence.identity.strategy_id.clone(),
-                profile_id: validated_evidence.evidence.identity.profile_id.clone(),
-                mr_variant: validated_evidence.evidence.identity.mr_variant.clone(),
-                timeframe: validated_evidence.evidence.identity.timeframe.clone(),
-                session_policy: validated_evidence.evidence.identity.session_policy.clone(),
-                model_version: validated_evidence.evidence.identity.model_version.clone(),
-            },
-            current_shadow_session_date,
-            current_shadow_pnl_points,
+        checkpoint: Stage5dRiskGateRecoveryCheckpoint,
+    ) -> Stage5dRiskGateRecoveryCommitReceipt {
+        stage5d_make_riskgate_recovery_commit_receipt(
+            ready,
+            package_json,
+            envelope_sha256,
+            evidence_fingerprint_sha256,
+            store_generation,
+            checkpoint,
         )
-        .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
-        let plan = stage5d_build_riskgate_recovery_plan(
-            &recovery_ready.envelope,
-            &validated_evidence,
-            &analysis,
-        )
-        .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
-        if plan.plan_fingerprint_sha256 != recovery_ready.recovery_plan_fingerprint_sha256 {
-            return Err(Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence);
-        }
-        let Some((decision_index, decision)) =
-            plan.decisions.iter().enumerate().find(|(_, decision)| {
-                decision.action != Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged
-            })
-        else {
-            let (package_json, envelope_sha256, evidence_fingerprint) =
-                stage5d_test_canonical_package_from_parts(
-                    &recovery_ready.envelope,
-                    &recovery_ready.evidence,
-                )
-                .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidPackage)?;
-            let receipt = stage5d_riskrec_make_commit_receipt(
-                &recovery_ready,
-                &package_json,
-                &envelope_sha256,
-                &evidence_fingerprint,
-                1,
-            );
-            return Ok(Stage5dRiskGateRecoveryStepApplied {
-                ready: recovery_ready,
-                action: Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged,
-                action_fingerprint_sha256: receipt.receipt_fingerprint_sha256.clone(),
-                final_commit_receipt: Some(receipt),
-            });
-        };
-        if plan.decisions[..decision_index]
-            .iter()
-            .any(|prior| prior.action != Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged)
-        {
-            return Err(Stage5dRiskGateRecoveryActionBlocked::NoLegalOrderedAction);
-        }
-
-        let mut envelope = recovery_ready.envelope;
-        let mut evidence = recovery_ready.evidence;
-        let target_index = analysis.local.outbox_tail_start + decision_index;
-        let target_record = analysis
-            .authoritative
-            .recovery_target_records
-            .get(target_index)
-            .ok_or(Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?
-            .clone();
-        match decision.action {
-            Stage5dRiskGateRecoveryDecision::AppendMissingLedgerRow => {
-                if evidence.ledger_records.iter().any(|row| {
-                    row.session_date == decision.session_date.format("%Y-%m-%d").to_string()
-                }) {
-                    return Err(Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence);
-                }
-                evidence
-                    .ledger_records
-                    .push(stage5d_test_stage_record_from_source(&target_record));
-                envelope.riskgate.durable_finalization_outbox[decision_index].state =
-                    Stage5dRiskGateFinalizationState::LedgerAppended;
-            }
-            Stage5dRiskGateRecoveryDecision::AdvanceToMaterialized => {
-                let materialized_count = target_index + 1;
-                let materialized = stage5d_rebuild_riskgate_projection_prefix(
-                    &analysis.authoritative.recovery_target_records,
-                    materialized_count,
-                    current_shadow_session_date,
-                    current_shadow_pnl_points,
-                )
-                .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
-                envelope.riskgate.materialized_state =
-                    stage5d_stage_materialized_from_source(&materialized);
-                envelope.riskgate.durable_finalization_outbox[decision_index].state =
-                    Stage5dRiskGateFinalizationState::MaterializedUpdated;
-            }
-            Stage5dRiskGateRecoveryDecision::ReackRuntime => {
-                let runtime_count = target_index + 1;
-                let runtime = stage5d_rebuild_riskgate_projection_prefix(
-                    &analysis.authoritative.recovery_target_records,
-                    runtime_count,
-                    current_shadow_session_date,
-                    current_shadow_pnl_points,
-                )
-                .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
-                stage5d_test_set_semantic_riskgate_projection(&mut envelope, &runtime);
-                let session = decision.session_date.format("%Y-%m-%d").to_string();
-                envelope
-                    .runtime_private_extension
-                    .runtime_pending_finalizations
-                    .retain(|pending| pending.session_date != session);
-                stage5d_test_sync_runtime_pending_cache(&mut envelope);
-                envelope.riskgate.durable_finalization_outbox[decision_index].state =
-                    Stage5dRiskGateFinalizationState::AcknowledgedInRuntime;
-            }
-            Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged => unreachable!(),
-        }
-        evidence.ledger_tail_hash = stage5d_compute_riskgate_ledger_tail_hash(&evidence)
-            .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidEvidence)?;
-        envelope.riskgate.ledger_tail_hash = evidence.ledger_tail_hash.clone();
-        envelope.payload_checksum_sha256 = envelope
-            .compute_payload_checksum_sha256()
-            .map_err(|_| Stage5dRiskGateRecoveryActionBlocked::InvalidPackage)?;
-        let (bootstrapped, strict_envelope, validated_evidence) =
-            stage5d_test_bootstrap_strict_envelope_with_strategy(
-                envelope,
-                stage5d_test_riskgate_runtime_strategy(),
-                evidence,
-            );
-        let strict_evidence = validated_evidence.evidence.clone();
-        let injected = expect_stage5d_riskgate_ok(
-            stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence),
-            "production recovery step result must re-inject",
-        );
-        let action_fingerprint_sha256 = sha256_text(&format!(
-            "{}:{}:{}:{}",
-            decision.session_date,
-            decision.generation,
-            decision.action.as_str(),
-            injected.recovery_plan_fingerprint()
-        ));
-        Ok(Stage5dRiskGateRecoveryStepApplied {
-            ready: Stage5dRiskGateRecoveryReady {
-                envelope: strict_envelope,
-                evidence: strict_evidence,
-                recovery_plan_fingerprint_sha256: injected.recovery_plan_fingerprint().to_string(),
-            },
-            action: decision.action,
-            action_fingerprint_sha256,
-            final_commit_receipt: None,
-        })
+        .expect("riskrec receipt fingerprint")
     }
 
     fn stage5d_riskrec_store_commit_and_reload(
         store: &mut Stage5dRiskRecBoundedFileStore,
         ready: Stage5dRiskGateRecoveryReady,
+        checkpoint: Stage5dRiskGateRecoveryCheckpoint,
     ) -> Stage5dRiskGateRecoveryReady {
         let (package_json, envelope_sha256, evidence_fingerprint) =
             stage5d_test_canonical_package_from_parts(&ready.envelope, &ready.evidence)
@@ -13410,6 +13711,7 @@ mod tests {
             &envelope_sha256,
             &evidence_fingerprint,
             store.generation + 1,
+            checkpoint,
         );
         store.write_state(
             Stage5dRiskRecStoreState::Committed,
@@ -13467,30 +13769,48 @@ mod tests {
         );
         let mut ready = stage5d_riskrec_ready_from_package(&source.package_json)
             .expect("initial riskrec package ready");
-        ready = stage5d_riskrec_store_commit_and_reload(&mut store, ready);
+        ready = stage5d_riskrec_store_commit_and_reload(
+            &mut store,
+            ready,
+            Stage5dRiskGateRecoveryCheckpoint::InitialPackageCommitted,
+        );
 
         let mut actions = Vec::new();
         let mut action_fingerprints = Vec::new();
-        let mut final_receipt = None;
         for _ in 0..16 {
+            let before_action_ready = ready.clone();
             let step = stage5d_apply_next_riskgate_recovery_action(ready)
                 .expect("riskrec production transition must apply");
             actions.push(step.action.as_str());
             action_fingerprints.push(step.action_fingerprint_sha256.clone());
-            if let Some(receipt) = step.final_commit_receipt.clone() {
-                final_receipt = Some(receipt);
+            if step.action == Stage5dRiskGateRecoveryDecision::AlreadyAcknowledged {
                 ready = step.ready;
                 break;
             }
-            let replay = stage5d_apply_next_riskgate_recovery_action(step.ready.clone())
-                .expect("riskrec next transition after step must be derivable");
+            let precommit_read = store
+                .read_committed()
+                .expect("precommit crash must restore previous committed checkpoint");
+            let precommit_ready = stage5d_riskrec_ready_from_package(&precommit_read.package_json)
+                .expect("precommit reload ready");
+            assert_eq!(
+                precommit_ready, before_action_ready,
+                "precommit crash must not observe the in-memory action result"
+            );
+            let precommit_replay = stage5d_apply_next_riskgate_recovery_action(precommit_ready)
+                .expect("precommit replay must reselect same action");
+            assert_eq!(
+                precommit_replay.action, step.action,
+                "precommit crash must replay the same not-yet-committed action"
+            );
+            ready =
+                stage5d_riskrec_store_commit_and_reload(&mut store, step.ready, step.checkpoint);
+            let replay = stage5d_apply_next_riskgate_recovery_action(ready.clone())
+                .expect("postcommit next transition after step must be derivable");
             assert_ne!(
                 replay.action, step.action,
-                "idempotent replay must not duplicate the already committed action"
+                "postcommit crash must not duplicate the already committed action"
             );
-            ready = stage5d_riskrec_store_commit_and_reload(&mut store, step.ready);
         }
-        let final_receipt = final_receipt.expect("riskrec final commit receipt");
         let (final_package_json, final_envelope_sha256, final_evidence_fingerprint) =
             stage5d_test_canonical_package_from_parts(&ready.envelope, &ready.evidence)
                 .expect("riskrec final package");
@@ -13501,6 +13821,7 @@ mod tests {
             &final_envelope_sha256,
             &final_evidence_fingerprint,
             store.generation + 1,
+            Stage5dRiskGateRecoveryCheckpoint::FinalCheckpointCommitted,
         );
         store.write_state(
             Stage5dRiskRecStoreState::Committed,
@@ -13546,7 +13867,7 @@ mod tests {
         Stage5dRiskRecRunOutcome {
             actions,
             action_fingerprints,
-            final_receipt_fingerprint: final_receipt.receipt_fingerprint_sha256,
+            final_receipt_fingerprint: receipt.receipt_fingerprint_sha256,
             final_package_sha256,
             final_envelope_sha256,
             final_evidence_fingerprint_sha256: final_evidence_fingerprint,
@@ -13853,7 +14174,7 @@ mod tests {
         );
         let generated_single = serde_json::json!({
             "case_id": "positive_single_pending_riskgate_finalization",
-            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r1",
+            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r2",
             "package_sha256": single_outcome.final_package_sha256,
             "envelope_sha256": single_outcome.final_envelope_sha256,
             "evidence_fingerprint_sha256": single_outcome.final_evidence_fingerprint_sha256,
@@ -13868,7 +14189,7 @@ mod tests {
         });
         let generated_multi = serde_json::json!({
             "case_id": "positive_ordered_multi_row_pending_finalizations",
-            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r1",
+            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r2",
             "package_sha256": multi_outcome.final_package_sha256,
             "envelope_sha256": multi_outcome.final_envelope_sha256,
             "evidence_fingerprint_sha256": multi_outcome.final_evidence_fingerprint_sha256,
@@ -13884,7 +14205,7 @@ mod tests {
         });
         let generated_complete = serde_json::json!({
             "case_id": "positive_already_complete_recovery_plan",
-            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r1",
+            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r2",
             "package_sha256": single_outcome.final_package_sha256,
             "envelope_sha256": single_outcome.final_envelope_sha256,
             "evidence_fingerprint_sha256": single_outcome.final_evidence_fingerprint_sha256,
@@ -13900,7 +14221,13 @@ mod tests {
         assert_eq!(golden_multi, generated_multi);
         assert_eq!(golden_complete, generated_complete);
 
+        println!("STAGE5D_RISKREC production_transition_outside_test=true");
         println!("STAGE5D_RISKREC source_rows_exact=true");
+        println!("STAGE5D_RISKREC checkpoint_receipts_exact=true");
+        println!("STAGE5D_RISKREC final_receipt_persisted_exactly=true");
+        println!("STAGE5D_RISKREC writer_reader_reopened_each_checkpoint=true");
+        println!("STAGE5D_RISKREC precommit_crash_idempotent=true");
+        println!("STAGE5D_RISKREC postcommit_crash_idempotent=true");
         println!("STAGE5D_RISKREC production_recovery_actions=true");
         println!("STAGE5D_RISKREC single_pending_finalization=true");
         println!("STAGE5D_RISKREC multi_row_ordered=true");
@@ -13910,6 +14237,7 @@ mod tests {
         println!("STAGE5D_RISKREC final_checkpoint_committed=true");
         println!("STAGE5D_RISKREC callback_exactly_once=true");
         println!("STAGE5D_RISKREC idempotent_replay=true");
+        println!("STAGE5D_RISKREC exact_package_receipt_goldens=true");
         println!("STAGE5D_RISKREC golden_values_exact=true");
         println!("STAGE5D_RISKREC stage5c_continuation=true");
         println!("STAGE5D_RISKREC stage5e_closed=true");
@@ -18258,7 +18586,7 @@ mod tests {
         assert_eq!(inventory["stage"], "5D-final-restart-r3");
         assert_eq!(
             inventory["status"],
-            "riskgate_recovery_r1_r1_evidence_closed"
+            "riskgate_recovery_r1_r2_evidence_closed"
         );
         for surface in [
             "redis",
@@ -18374,7 +18702,7 @@ mod tests {
                     || row["execution_status"] == "accepted_r3_operational_state_r1_source_produced"
                     || row["execution_status"] == "accepted_r3_recovery_index_r1_source_produced"
                     || row["execution_status"]
-                        == "accepted_r3_riskgate_recovery_r1_r1_source_produced"
+                        == "accepted_r3_riskgate_recovery_r1_r2_source_produced"
             })
             .map(|row| row["case_id"].as_str().expect("case_id"))
             .collect();
@@ -18535,7 +18863,7 @@ mod tests {
             );
             assert_eq!(
                 row["execution_status"],
-                "accepted_r3_riskgate_recovery_r1_r1_source_produced"
+                "accepted_r3_riskgate_recovery_r1_r2_source_produced"
             );
             assert_eq!(row["producer_kind"], "runtime_callback");
             assert_eq!(

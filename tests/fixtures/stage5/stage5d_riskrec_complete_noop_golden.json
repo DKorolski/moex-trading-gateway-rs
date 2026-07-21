@@ -5,7 +5,7 @@
   "expected_checkpoint_progression": [
     "already_acknowledged"
   ],
-  "final_commit_receipt_fingerprint": "5c80421cbbca195e96065f449ca67d4a98089b9cbf596212cf92bfde4ac7e318",
+  "final_commit_receipt_fingerprint": "94e710a6f1a8eb85937ef59eaec1132cc906241d3cea51281f291e19c9d6cefb",
   "ordered_finalization_generations": [
     1
   ],
@@ -14,7 +14,7 @@
   ],
   "package_sha256": "304b01de4df838952ff07637346e218379f808cb706b24c0165f33c45556bb6e",
   "recovery_plan_fingerprint_sha256": "stage5d_riskgate_recovery_plan_sha256:17945e5082edce379e84e6612c971776ca41095dfaf7b3517c033ef7b022e504",
-  "stage": "5D-final-restart-r3-riskgate-recovery-r1-r1",
+  "stage": "5D-final-restart-r3-riskgate-recovery-r1-r2",
   "stage5c_warmup_completed": true,
   "stage5e_closed": true
 }

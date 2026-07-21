@@ -242,30 +242,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   Redis bridge, FINAM execution, broker transport, runtime-live and autonomous
   loop remain closed.
 - Stage 5D final restart r2 is retained only as the canonical durable-package
-  foundation. Stage 5D-final-restart-r3 remains incomplete until the remaining
-  positive package matrix, crash/checkpoint simulator, negative matrix and
-  golden vectors are executable package-level evidence. Stage
-  5D-final-restart-r3a-r1 adds a focused source-produced MR/BO pending-entry
-  package restart matrix, proves exact actual fresh runtime
-  `Strategy::state(...)` lifecycle equality plus exact runtime-private DTO
-  equality after private apply and before broker bootstrap/callback, and
-  marker-pins Stage 5D negative cases. Stage 5D-final-restart-r3
-  current-shadow-r1-r1 localizes the first current-shadow restore mismatch to
-  materialized riskgate state
-  (`risk_gate_mr_enabled_current_session`, `risk_gate_rolling_sum_lb120`,
-  `risk_gate_last_finalized_session_date`,
-  `risk_gate_ledger_rows_count`) and closes the Long/Short/realized-PnL rows by
-  applying the approved validated materialized-riskgate boundary before
-  canonical package export/injection. Canonical restart export now rejects stale
-  source materialized state before committed strict package bytes can be
-  produced. The current r3 inventory gate now has exactly ten accepted
-  executable rows: four r3a-r1 pending-entry rows, three positive-core-r1b
-  clean/open rows, and three current-shadow-r1 rows. Eleven rows remain
-  `todo_source_produced` without `owning_test`; this deliberately avoids
-  claiming full r3 closure.
-  No `set_state()` source correction is currently required. The existing
-  restored-callback boot-stale cleanup for flat/no-working-order pending tails
-  remains documented for the later full r3 matrix.
+  foundation. Stage 5D-final-restart-r3 now has exactly 21 accepted executable
+  rows and 0 `todo_source_produced` rows in the mandatory positive inventory.
+  The latest riskgate-recovery r1-r2 evidence closes the final three riskgate
+  rows with a crate-private production recovery executor, typed checkpoint and
+  final receipts, fresh reader reopen checks, pre/post-commit crash idempotency,
+  persisted final-receipt equality, source-produced pending finalizations,
+  exact summary goldens and Stage 5C warmup continuation. Stage 5E, Redis,
+  FINAM, broker transport, dispatch, runtime-live and real execution remain
+  closed. Aggregate Stage 5D closure is still a separate follow-up gate.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

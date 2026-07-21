@@ -22,7 +22,13 @@ require_marker() {
   fi
 }
 
+require_marker "STAGE5D_RISKREC production_transition_outside_test=true"
 require_marker "STAGE5D_RISKREC source_rows_exact=true"
+require_marker "STAGE5D_RISKREC checkpoint_receipts_exact=true"
+require_marker "STAGE5D_RISKREC final_receipt_persisted_exactly=true"
+require_marker "STAGE5D_RISKREC writer_reader_reopened_each_checkpoint=true"
+require_marker "STAGE5D_RISKREC precommit_crash_idempotent=true"
+require_marker "STAGE5D_RISKREC postcommit_crash_idempotent=true"
 require_marker "STAGE5D_RISKREC production_recovery_actions=true"
 require_marker "STAGE5D_RISKREC durable_store_matrix=true"
 require_marker "STAGE5D_RISKREC checkpoint_restart_matrix=true"
@@ -32,6 +38,7 @@ require_marker "STAGE5D_RISKREC multi_row_ordered=true"
 require_marker "STAGE5D_RISKREC complete_plan_noop=true"
 require_marker "STAGE5D_RISKREC callback_exactly_once=true"
 require_marker "STAGE5D_RISKREC idempotent_replay=true"
+require_marker "STAGE5D_RISKREC exact_package_receipt_goldens=true"
 require_marker "STAGE5D_RISKREC golden_values_exact=true"
 require_marker "STAGE5D_RISKREC stage5c_continuation=true"
 require_marker "STAGE5D_RISKREC stage5e_closed=true"
@@ -48,11 +55,11 @@ accepted_statuses = {
     "accepted_r3_current_shadow_r1_source_produced",
     "accepted_r3_operational_state_r1_source_produced",
     "accepted_r3_recovery_index_r1_source_produced",
-    "accepted_r3_riskgate_recovery_r1_r1_source_produced",
+    "accepted_r3_riskgate_recovery_r1_r2_source_produced",
 }
 accepted = [row for row in rows if row["execution_status"] in accepted_statuses]
 todo = [row for row in rows if row["execution_status"] == "todo_source_produced"]
-riskrec = [row for row in rows if row["execution_status"] == "accepted_r3_riskgate_recovery_r1_r1_source_produced"]
+riskrec = [row for row in rows if row["execution_status"] == "accepted_r3_riskgate_recovery_r1_r2_source_produced"]
 print(f"mandatory_positive_count={len(rows)}")
 print(f"accepted_executable_count={len(accepted)}")
 print(f"todo_source_produced_count={len(todo)}")
