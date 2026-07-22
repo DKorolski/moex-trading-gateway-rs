@@ -35,6 +35,12 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def canonical_sha256(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
 def write_manifest(root: Path, mutate=None) -> None:
     freeze_manifest = json.loads(
         (root / "docs/stage-5/stage-5d-additive-freeze-manifest.json").read_text()
@@ -44,6 +50,27 @@ def write_manifest(root: Path, mutate=None) -> None:
             root / "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json"
         ).read_text()
     )
+    stage5c_checker_sha256 = sha256(root / "scripts/stage5c_api_freeze_check.py")
+    stage5d_checker_sha256 = sha256(root / "scripts/stage5d_additive_freeze_check.py")
+    stage5d_manifest_sha256 = sha256(root / "docs/stage-5/stage-5d-additive-freeze-manifest.json")
+    stage5e_checker_sha256 = sha256(root / "scripts/stage5e_lifecycle_event_time_freeze_check.py")
+    stage5e_inventory_sha256 = sha256(
+        root / "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json"
+    )
+    stage5e_plan_sha256 = sha256(root / "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md")
+    design_scope = {
+        "baseline_ref": stage5e_inventory["baseline_ref"],
+        "changed_paths": stage5e_inventory["allowed_changed_paths"],
+        "changed_paths_sha256": hashlib.sha256(
+            json.dumps(
+                stage5e_inventory["allowed_changed_paths"],
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode()
+        ).hexdigest(),
+        "head_tree": "2" * 40,
+        "source_ref": SOURCE_REF,
+    }
     gate_result_path = root / "handoff-stage5e-gate-result.json"
     gate_result_path.write_text(
         json.dumps(
@@ -59,6 +86,15 @@ def write_manifest(root: Path, mutate=None) -> None:
                 "stderr_sha256": "0" * 64,
                 "stdout_line_count": 1,
                 "stderr_line_count": 0,
+                "input_sha256": {
+                    "stage5c_checker": stage5c_checker_sha256,
+                    "stage5d_checker": stage5d_checker_sha256,
+                    "stage5d_manifest": stage5d_manifest_sha256,
+                    "stage5e_checker": stage5e_checker_sha256,
+                    "stage5e_inventory": stage5e_inventory_sha256,
+                    "stage5e_plan": stage5e_plan_sha256,
+                },
+                "design_scope": design_scope,
             },
             indent=2,
             sort_keys=True,
@@ -72,21 +108,14 @@ def write_manifest(root: Path, mutate=None) -> None:
         "source_commit": SOURCE_COMMIT,
         "source_ref": SOURCE_REF,
         "archive_name": ARCHIVE_NAME,
-        "stage5c_checker_sha256": sha256(root / "scripts/stage5c_api_freeze_check.py"),
-        "stage5d_checker_sha256": sha256(root / "scripts/stage5d_additive_freeze_check.py"),
-        "stage5d_manifest_sha256": sha256(
-            root / "docs/stage-5/stage-5d-additive-freeze-manifest.json"
-        ),
-        "stage5e_checker_sha256": sha256(
-            root / "scripts/stage5e_lifecycle_event_time_freeze_check.py"
-        ),
-        "stage5e_inventory_sha256": sha256(
-            root / "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json"
-        ),
-        "stage5e_plan_sha256": sha256(
-            root / "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md"
-        ),
+        "stage5c_checker_sha256": stage5c_checker_sha256,
+        "stage5d_checker_sha256": stage5d_checker_sha256,
+        "stage5d_manifest_sha256": stage5d_manifest_sha256,
+        "stage5e_checker_sha256": stage5e_checker_sha256,
+        "stage5e_inventory_sha256": stage5e_inventory_sha256,
+        "stage5e_plan_sha256": stage5e_plan_sha256,
         "stage5e_gate_result_sha256": sha256(gate_result_path),
+        "stage5e_design_scope_sha256": canonical_sha256(design_scope),
     }
     marker = {
         "source_commit": manifest["source_commit"],
@@ -140,26 +169,29 @@ def build_archive(root: Path, archive_path: Path) -> None:
 def run_case(base: Path, case: Case) -> tuple[bool, str]:
     root = base / case.name
     copy_review_baseline(ROOT, root)
-    write_manifest(root, case.mutator)
-    archive_path = base / ARCHIVE_NAME
-    archive_path.unlink(missing_ok=True)
-    build_archive(root, archive_path)
-    result = subprocess.run(
-        ["python3", str(ROOT / "scripts/handoff_safety_check.py"), "--archive", str(archive_path)],
-        cwd=ROOT,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    combined = result.stdout + result.stderr
-    if result.returncode == 0:
-        return False, "mutation unexpectedly passed"
-    if "Traceback" in combined or "KeyError" in combined:
-        return False, f"unexpected uncontrolled Python failure\n{combined}"
-    if case.expected not in combined:
-        return False, f"expected marker {case.expected!r} missing\n{combined}"
-    return True, ""
+    try:
+        write_manifest(root, case.mutator)
+        archive_path = base / ARCHIVE_NAME
+        archive_path.unlink(missing_ok=True)
+        build_archive(root, archive_path)
+        result = subprocess.run(
+            ["python3", str(ROOT / "scripts/handoff_safety_check.py"), "--archive", str(archive_path)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        combined = result.stdout + result.stderr
+        if result.returncode == 0:
+            return False, "mutation unexpectedly passed"
+        if "Traceback" in combined or "KeyError" in combined:
+            return False, f"unexpected uncontrolled Python failure\n{combined}"
+        if case.expected not in combined:
+            return False, f"expected marker {case.expected!r} missing\n{combined}"
+        return True, ""
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def main() -> int:
@@ -172,12 +204,41 @@ def main() -> int:
     def alter_member(path: str):
         return lambda root, _manifest, _marker: (root / path).write_text("altered\n")
 
+    def refresh_gate_result_hash(root: Path, manifest: dict[str, object]) -> None:
+        manifest["stage5e_gate_result_sha256"] = sha256(root / "handoff-stage5e-gate-result.json")
+
+    def refresh_gate_input_and_result_hashes(root: Path, manifest: dict[str, object]) -> None:
+        gate_path = root / "handoff-stage5e-gate-result.json"
+        gate = json.loads(gate_path.read_text())
+        gate["input_sha256"] = {
+            "stage5c_checker": sha256(root / "scripts/stage5c_api_freeze_check.py"),
+            "stage5d_checker": sha256(root / "scripts/stage5d_additive_freeze_check.py"),
+            "stage5d_manifest": sha256(root / "docs/stage-5/stage-5d-additive-freeze-manifest.json"),
+            "stage5e_checker": sha256(root / "scripts/stage5e_lifecycle_event_time_freeze_check.py"),
+            "stage5e_inventory": sha256(
+                root / "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json"
+            ),
+            "stage5e_plan": sha256(root / "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md"),
+        }
+        gate_path.write_text(json.dumps(gate, indent=2, sort_keys=True) + "\n")
+        refresh_gate_result_hash(root, manifest)
+
     def mutate_stage5e_inventory(mutator):
         def apply(root, _manifest, _marker):
             path = root / "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json"
             payload = json.loads(path.read_text())
             mutator(payload)
             path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+        return apply
+
+    def mutate_stage5e_inventory_rehash_manifest_only(mutator):
+        def apply(root, manifest, _marker):
+            path = root / "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json"
+            payload = json.loads(path.read_text())
+            mutator(payload)
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+            manifest["stage5e_inventory_sha256"] = sha256(path)
 
         return apply
 
@@ -188,6 +249,23 @@ def main() -> int:
             mutator(payload)
             path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
             manifest["stage5e_inventory_sha256"] = sha256(path)
+            refresh_gate_input_and_result_hashes(root, manifest)
+
+        return apply
+
+    def mutate_stage5e_plan_rehash_manifest_only(mutator):
+        def apply(root, manifest, _marker):
+            path = root / "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md"
+            path.write_text(mutator(path.read_text()))
+            manifest["stage5e_plan_sha256"] = sha256(path)
+
+        return apply
+
+    def mutate_stage5e_checker_rehash_manifest_only(mutator):
+        def apply(root, manifest, _marker):
+            path = root / "scripts/stage5e_lifecycle_event_time_freeze_check.py"
+            path.write_text(mutator(path.read_text()))
+            manifest["stage5e_checker_sha256"] = sha256(path)
 
         return apply
 
@@ -206,7 +284,17 @@ def main() -> int:
             payload = json.loads(path.read_text())
             mutator(payload)
             path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-            manifest["stage5e_gate_result_sha256"] = sha256(path)
+            refresh_gate_result_hash(root, manifest)
+
+        return apply
+
+    def mutate_design_scope_and_rehash_gate(mutator):
+        def apply(root, manifest, _marker):
+            path = root / "handoff-stage5e-gate-result.json"
+            payload = json.loads(path.read_text())
+            mutator(payload["design_scope"])
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+            refresh_gate_result_hash(root, manifest)
 
         return apply
 
@@ -322,6 +410,11 @@ def main() -> int:
             alter_member("scripts/stage5e_lifecycle_event_time_freeze_check.py"),
         ),
         Case(
+            "stage5e-checker-rehashed-stale-gate-input",
+            "Stage 5E gate input/manifest mismatch: stage5e_checker",
+            mutate_stage5e_checker_rehash_manifest_only(lambda text: text + "\n# mutated\n"),
+        ),
+        Case(
             "missing-stage5e-inventory-hash",
             "missing or invalid stage5e_inventory_sha256",
             pop_field("stage5e_inventory_sha256"),
@@ -330,6 +423,15 @@ def main() -> int:
             "altered-stage5e-inventory-hash",
             "stage5e_inventory_sha256 mismatch",
             mutate_stage5e_inventory(lambda payload: payload["closed_surfaces"].__setitem__("redis", True)),
+        ),
+        Case(
+            "stage5e-inventory-rehashed-stale-gate-input",
+            "Stage 5E gate input/manifest mismatch: stage5e_inventory",
+            mutate_stage5e_inventory_rehash_manifest_only(
+                lambda payload: payload["stage5e_a_claims"].__setitem__(
+                    "design_inventory_only", False
+                )
+            ),
         ),
         Case(
             "missing-stage5e-plan-hash",
@@ -342,6 +444,11 @@ def main() -> int:
             alter_member("docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md"),
         ),
         Case(
+            "stage5e-plan-rehashed-stale-gate-input",
+            "Stage 5E gate input/manifest mismatch: stage5e_plan",
+            mutate_stage5e_plan_rehash_manifest_only(lambda text: text + "\npost-gate mutation\n"),
+        ),
+        Case(
             "missing-stage5e-gate-result-hash",
             "missing or invalid stage5e_gate_result_sha256",
             pop_field("stage5e_gate_result_sha256"),
@@ -350,6 +457,77 @@ def main() -> int:
             "altered-stage5e-gate-result-hash",
             "stage5e_gate_result_sha256 mismatch",
             mutate_stage5e_gate_result(lambda payload: payload.__setitem__("exit_code", 1)),
+        ),
+        Case(
+            "missing-stage5e-gate-input-key",
+            "Stage 5E gate input hash key set drift",
+            mutate_stage5e_gate_result_and_rehash(
+                lambda payload: payload["input_sha256"].pop("stage5e_plan")
+            ),
+        ),
+        Case(
+            "extra-stage5e-gate-input-key",
+            "Stage 5E gate input hash key set drift",
+            mutate_stage5e_gate_result_and_rehash(
+                lambda payload: payload["input_sha256"].__setitem__("extra", "0" * 64)
+            ),
+        ),
+        Case(
+            "stage5e-gate-schema-drift",
+            "unsupported Stage 5E gate result schema_version",
+            mutate_stage5e_gate_result_and_rehash(
+                lambda payload: payload.__setitem__("schema_version", 999)
+            ),
+        ),
+        Case(
+            "stage5e-gate-command-drift",
+            "Stage 5E gate command mismatch",
+            mutate_stage5e_gate_result_and_rehash(
+                lambda payload: payload.__setitem__("command", ["false"])
+            ),
+        ),
+        Case(
+            "stage5e-gate-invalid-started-at",
+            "invalid Stage 5E gate timestamp: started_at_utc",
+            mutate_stage5e_gate_result_and_rehash(
+                lambda payload: payload.__setitem__("started_at_utc", "not-a-time")
+            ),
+        ),
+        Case(
+            "stage5e-gate-reversed-timestamps",
+            "Stage 5E gate timestamp order invalid",
+            mutate_stage5e_gate_result_and_rehash(
+                lambda payload: (
+                    payload.__setitem__("started_at_utc", "2026-01-01T00:00:02Z"),
+                    payload.__setitem__("finished_at_utc", "2026-01-01T00:00:01Z"),
+                )
+            ),
+        ),
+        Case(
+            "stage5e-gate-invalid-stdout-hash",
+            "missing or invalid Stage 5E gate stdout_sha256",
+            mutate_stage5e_gate_result_and_rehash(
+                lambda payload: payload.__setitem__("stdout_sha256", "not-a-sha")
+            ),
+        ),
+        Case(
+            "stage5e-gate-negative-line-count",
+            "invalid Stage 5E gate stdout_line_count",
+            mutate_stage5e_gate_result_and_rehash(
+                lambda payload: payload.__setitem__("stdout_line_count", -1)
+            ),
+        ),
+        Case(
+            "stage5e-design-scope-manifest-hash-mismatch",
+            "Stage 5E design scope hash mismatch",
+            mutate_design_scope_and_rehash_gate(
+                lambda scope: scope.__setitem__("changed_paths_sha256", "1" * 64)
+            ),
+        ),
+        Case(
+            "stage5e-design-scope-extra-key",
+            "Stage 5E design scope key set drift",
+            mutate_design_scope_and_rehash_gate(lambda scope: scope.__setitem__("extra", True)),
         ),
         Case(
             "stage5e-source-baseline-mismatch",

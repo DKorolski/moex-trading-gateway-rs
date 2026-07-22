@@ -64,9 +64,19 @@
       "comparison_domain": "broker_event_source_time",
       "id": "recovery_event_boundary",
       "ordered_fields": [
-        "broker_event_source_ts_utc",
-        "recovery_completed_at_utc"
+        "snapshot_max_broker_event_source_ts_utc",
+        "last_recovered_broker_event_source_ts_utc",
+        "first_fresh_broker_event_source_ts_utc"
       ]
+    },
+    {
+      "causal_receipt": "RecoveryAcceptedReceipt",
+      "id": "recovery_completion_causal_receipt",
+      "links": [
+        "accepted_source_watermark",
+        "lifecycle_recovery_completed_receipt"
+      ],
+      "not_a_numeric_timestamp_comparison": true
     },
     {
       "comparison_domain": "opaque_stream_position",

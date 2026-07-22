@@ -9,6 +9,7 @@ import json
 import re
 import stat
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 
@@ -23,6 +24,9 @@ FORBIDDEN_CONTENT = re.compile(
     rb"tapi_[sa]k_[A-Za-z0-9_-]+|"
     rb"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,})"
 )
+HEX64 = re.compile(r"[0-9a-f]{64}")
+HEX40 = re.compile(r"[0-9a-f]{40}")
+ISO_UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
 
 def path_is_excluded(path: PurePosixPath) -> bool:
@@ -37,6 +41,23 @@ def check_payload(name: str, payload: bytes) -> None:
     match = FORBIDDEN_CONTENT.search(payload)
     if match:
         raise SystemExit(f"handoff safety: forbidden live-like literal in {name}")
+
+
+def canonical_sha256(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def parse_utc_timestamp(value: object, field: str) -> datetime:
+    if not isinstance(value, str) or not ISO_UTC.fullmatch(value):
+        raise SystemExit(f"handoff safety: invalid Stage 5E gate timestamp: {field}")
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def require_hex64(value: object, field: str) -> None:
+    if not isinstance(value, str) or not HEX64.fullmatch(value):
+        raise SystemExit(f"handoff safety: missing or invalid {field}")
 
 
 def check_source_tree(root: Path) -> None:
@@ -109,6 +130,7 @@ def check_archive(path: Path) -> None:
                 "stage5e_inventory_sha256",
                 "stage5e_plan_sha256",
                 "stage5e_gate_result_sha256",
+                "stage5e_design_scope_sha256",
             ]
         )
         if stage5e_declared and (
@@ -138,7 +160,7 @@ def check_archive(path: Path) -> None:
                 ("stage5e_gate_result_sha256", stage5e_gate_result_name),
             ]:
                 expected = manifest.get(field)
-                if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+                if not isinstance(expected, str) or not HEX64.fullmatch(expected):
                     raise SystemExit(f"handoff safety: missing or invalid {field}")
                 actual = hashlib.sha256(archive.read(member)).hexdigest()
                 if actual != expected:
@@ -161,10 +183,101 @@ def check_archive(path: Path) -> None:
             gate_result = json.loads(archive.read(stage5e_gate_result_name))
             if not isinstance(gate_result, dict):
                 raise SystemExit("handoff safety: Stage 5E gate result must be a JSON object")
+            expected_gate_keys = {
+                "command",
+                "design_scope",
+                "exit_code",
+                "finished_at_utc",
+                "gate_id",
+                "input_sha256",
+                "schema_version",
+                "source_ref",
+                "started_at_utc",
+                "stderr_line_count",
+                "stderr_sha256",
+                "stdout_line_count",
+                "stdout_sha256",
+            }
+            if set(gate_result) != expected_gate_keys:
+                raise SystemExit("handoff safety: Stage 5E gate result key set drift")
+            if gate_result.get("schema_version") != 1:
+                raise SystemExit("handoff safety: unsupported Stage 5E gate result schema_version")
             if gate_result.get("gate_id") != "stage5e_lifecycle_event_time":
                 raise SystemExit("handoff safety: Stage 5E gate result id mismatch")
+            if gate_result.get("command") != ["bash", "scripts/stage5e_lifecycle_event_time_gate.sh"]:
+                raise SystemExit("handoff safety: Stage 5E gate command mismatch")
             if gate_result.get("exit_code") != 0:
                 raise SystemExit("handoff safety: Stage 5E gate did not pass")
+            started_at = parse_utc_timestamp(gate_result.get("started_at_utc"), "started_at_utc")
+            finished_at = parse_utc_timestamp(gate_result.get("finished_at_utc"), "finished_at_utc")
+            if finished_at < started_at:
+                raise SystemExit("handoff safety: Stage 5E gate timestamp order invalid")
+            require_hex64(gate_result.get("stdout_sha256"), "Stage 5E gate stdout_sha256")
+            require_hex64(gate_result.get("stderr_sha256"), "Stage 5E gate stderr_sha256")
+            for field in ["stdout_line_count", "stderr_line_count"]:
+                if not isinstance(gate_result.get(field), int) or gate_result[field] < 0:
+                    raise SystemExit(f"handoff safety: invalid Stage 5E gate {field}")
+            input_sha256 = gate_result.get("input_sha256")
+            if not isinstance(input_sha256, dict):
+                raise SystemExit("handoff safety: Stage 5E gate input hashes must be an object")
+            expected_input_keys = {
+                "stage5c_checker",
+                "stage5d_checker",
+                "stage5d_manifest",
+                "stage5e_checker",
+                "stage5e_inventory",
+                "stage5e_plan",
+            }
+            if set(input_sha256) != expected_input_keys:
+                raise SystemExit("handoff safety: Stage 5E gate input hash key set drift")
+            for key, manifest_field, member in [
+                ("stage5c_checker", "stage5c_checker_sha256", "scripts/stage5c_api_freeze_check.py"),
+                ("stage5d_checker", "stage5d_checker_sha256", "scripts/stage5d_additive_freeze_check.py"),
+                ("stage5d_manifest", "stage5d_manifest_sha256", stage5d_manifest_name),
+                ("stage5e_checker", "stage5e_checker_sha256", stage5e_checker_name),
+                ("stage5e_inventory", "stage5e_inventory_sha256", stage5e_inventory_name),
+                ("stage5e_plan", "stage5e_plan_sha256", stage5e_plan_name),
+            ]:
+                value = input_sha256.get(key)
+                require_hex64(value, f"Stage 5E gate input hash {key}")
+                if value != manifest.get(manifest_field):
+                    raise SystemExit(f"handoff safety: Stage 5E gate input/manifest mismatch: {key}")
+                actual = hashlib.sha256(archive.read(member)).hexdigest()
+                if value != actual:
+                    raise SystemExit(f"handoff safety: Stage 5E gate input/archive mismatch: {key}")
+            design_scope = gate_result.get("design_scope")
+            if not isinstance(design_scope, dict):
+                raise SystemExit("handoff safety: Stage 5E design scope must be an object")
+            expected_design_keys = {
+                "baseline_ref",
+                "changed_paths",
+                "changed_paths_sha256",
+                "head_tree",
+                "source_ref",
+            }
+            if set(design_scope) != expected_design_keys:
+                raise SystemExit("handoff safety: Stage 5E design scope key set drift")
+            require_hex64(manifest.get("stage5e_design_scope_sha256"), "stage5e_design_scope_sha256")
+            if canonical_sha256(design_scope) != manifest.get("stage5e_design_scope_sha256"):
+                raise SystemExit("handoff safety: Stage 5E design scope hash mismatch")
+            if design_scope.get("baseline_ref") != stage5e_inventory.get("baseline_ref"):
+                raise SystemExit("handoff safety: Stage 5E design scope baseline mismatch")
+            if not isinstance(design_scope.get("source_ref"), str) or not HEX40.fullmatch(design_scope["source_ref"]):
+                raise SystemExit("handoff safety: Stage 5E design scope source_ref invalid")
+            if not isinstance(design_scope.get("head_tree"), str) or not HEX40.fullmatch(design_scope["head_tree"]):
+                raise SystemExit("handoff safety: Stage 5E design scope head_tree invalid")
+            changed_paths = design_scope.get("changed_paths")
+            if not isinstance(changed_paths, list) or not all(isinstance(item, str) for item in changed_paths):
+                raise SystemExit("handoff safety: Stage 5E changed_paths must be a string list")
+            if len(changed_paths) != len(set(changed_paths)):
+                raise SystemExit("handoff safety: Stage 5E changed_paths contains duplicates")
+            if hashlib.sha256(
+                json.dumps(changed_paths, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest() != design_scope.get("changed_paths_sha256"):
+                raise SystemExit("handoff safety: Stage 5E changed_paths hash mismatch")
+            allowed = stage5e_inventory.get("allowed_changed_paths")
+            if not isinstance(allowed, list) or not set(changed_paths).issubset(set(allowed)):
+                raise SystemExit("handoff safety: Stage 5E design scope allowlist mismatch")
         source_commit = manifest.get("source_commit")
         source_ref = manifest.get("source_ref")
         if not isinstance(source_commit, str) or not re.fullmatch(
@@ -187,6 +300,8 @@ def check_archive(path: Path) -> None:
             gate_result = json.loads(archive.read("handoff-stage5e-gate-result.json"))
             if gate_result.get("source_ref") != source_ref:
                 raise SystemExit("handoff safety: Stage 5E gate source_ref mismatch")
+            if gate_result.get("design_scope", {}).get("source_ref") != source_ref:
+                raise SystemExit("handoff safety: Stage 5E design scope source_ref mismatch")
     print("handoff-archive-safety: ok")
 
 

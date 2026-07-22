@@ -109,9 +109,18 @@ EXPECTED_WATERMARK_DOMAINS = {
     "recovery_event_boundary": {
         "comparison_domain": "broker_event_source_time",
         "ordered_fields": [
-            "broker_event_source_ts_utc",
-            "recovery_completed_at_utc",
+            "snapshot_max_broker_event_source_ts_utc",
+            "last_recovered_broker_event_source_ts_utc",
+            "first_fresh_broker_event_source_ts_utc",
         ],
+    },
+    "recovery_completion_causal_receipt": {
+        "causal_receipt": "RecoveryAcceptedReceipt",
+        "links": [
+            "accepted_source_watermark",
+            "lifecycle_recovery_completed_receipt",
+        ],
+        "not_a_numeric_timestamp_comparison": True,
     },
     "stream_position_boundary": {
         "comparison_domain": "opaque_stream_position",
@@ -294,6 +303,13 @@ def main() -> int:
             fail("typed watermark domain row must be an object")
         if row.get("id") == "stream_position_boundary":
             expected_keys = {"comparison_domain", "id", "not_comparable_with", "ordered_fields"}
+        elif row.get("id") == "recovery_completion_causal_receipt":
+            expected_keys = {
+                "causal_receipt",
+                "id",
+                "links",
+                "not_a_numeric_timestamp_comparison",
+            }
         else:
             expected_keys = {"comparison_domain", "id", "ordered_fields"}
         if set(row) != expected_keys:

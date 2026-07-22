@@ -52,12 +52,38 @@ stage5e_checker_sha256=""
 stage5e_inventory_sha256=""
 stage5e_plan_sha256=""
 stage5e_gate_result_sha256=""
+stage5e_design_scope_sha256=""
 current_review_stage="$review_stage"
 if [[ -f "$repo_root/scripts/stage5e_lifecycle_event_time_freeze_check.py" ]] \
   && [[ -f "$repo_root/docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json" ]]; then
   stage5e_checker_sha256="$(shasum -a 256 "$repo_root/scripts/stage5e_lifecycle_event_time_freeze_check.py" | awk '{print $1}')"
   stage5e_inventory_sha256="$(shasum -a 256 "$repo_root/docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json" | awk '{print $1}')"
   stage5e_plan_sha256="$(shasum -a 256 "$repo_root/docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md" | awk '{print $1}')"
+  stage5e_baseline_ref="$(python3 - "$repo_root/docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json" <<'PY'
+import json
+import sys
+print(json.loads(open(sys.argv[1]).read())["baseline_ref"])
+PY
+)"
+  stage5e_head_tree="$(git -C "$repo_root" rev-parse HEAD^{tree})"
+  stage5e_changed_paths_json="$(git -C "$repo_root" diff --name-only "$stage5e_baseline_ref" -- | python3 -c 'import json,sys; print(json.dumps([line.strip() for line in sys.stdin if line.strip()], separators=(",", ":"), sort_keys=True))')"
+  stage5e_changed_paths_sha256="$(printf '%s' "$stage5e_changed_paths_json" | shasum -a 256 | awk '{print $1}')"
+  stage5e_design_scope_sha256="$(BASELINE_REF="$stage5e_baseline_ref" HEAD_TREE="$stage5e_head_tree" CHANGED_PATHS_JSON="$stage5e_changed_paths_json" CHANGED_PATHS_SHA256="$stage5e_changed_paths_sha256" SOURCE_REF="$source_ref" python3 - <<'PY'
+import hashlib
+import json
+import os
+
+payload = {
+    "baseline_ref": os.environ["BASELINE_REF"],
+    "changed_paths": json.loads(os.environ["CHANGED_PATHS_JSON"]),
+    "changed_paths_sha256": os.environ["CHANGED_PATHS_SHA256"],
+    "head_tree": os.environ["HEAD_TREE"],
+    "source_ref": os.environ["SOURCE_REF"],
+}
+canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+print(hashlib.sha256(canonical).hexdigest())
+PY
+)"
   current_review_stage="$(python3 - "$repo_root/docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json" <<'PY'
 import json
 import sys
@@ -90,6 +116,16 @@ PY
   STAGE5E_STDOUT_LINE_COUNT="$(wc -l <"$stage5e_stdout" | tr -d ' ')" \
   STAGE5E_STDERR_LINE_COUNT="$(wc -l <"$stage5e_stderr" | tr -d ' ')" \
   SOURCE_REF="$source_ref" \
+  STAGE5C_CHECKER_SHA256="$stage5c_checker_sha256" \
+  STAGE5D_CHECKER_SHA256="$stage5d_checker_sha256" \
+  STAGE5D_MANIFEST_SHA256="$stage5d_manifest_sha256" \
+  STAGE5E_CHECKER_SHA256="$stage5e_checker_sha256" \
+  STAGE5E_INVENTORY_SHA256="$stage5e_inventory_sha256" \
+  STAGE5E_PLAN_SHA256="$stage5e_plan_sha256" \
+  DESIGN_BASELINE_REF="$stage5e_baseline_ref" \
+  DESIGN_CHANGED_PATHS_JSON="$stage5e_changed_paths_json" \
+  DESIGN_CHANGED_PATHS_SHA256="$stage5e_changed_paths_sha256" \
+  DESIGN_HEAD_TREE="$stage5e_head_tree" \
   python3 - "$stage5e_gate_result" <<'PY'
 import json
 import os
@@ -108,6 +144,21 @@ result = {
     "stderr_sha256": os.environ["STAGE5E_STDERR_SHA256"],
     "stdout_line_count": int(os.environ["STAGE5E_STDOUT_LINE_COUNT"]),
     "stderr_line_count": int(os.environ["STAGE5E_STDERR_LINE_COUNT"]),
+    "input_sha256": {
+        "stage5c_checker": os.environ["STAGE5C_CHECKER_SHA256"],
+        "stage5d_checker": os.environ["STAGE5D_CHECKER_SHA256"],
+        "stage5d_manifest": os.environ["STAGE5D_MANIFEST_SHA256"],
+        "stage5e_checker": os.environ["STAGE5E_CHECKER_SHA256"],
+        "stage5e_inventory": os.environ["STAGE5E_INVENTORY_SHA256"],
+        "stage5e_plan": os.environ["STAGE5E_PLAN_SHA256"],
+    },
+    "design_scope": {
+        "baseline_ref": os.environ["DESIGN_BASELINE_REF"],
+        "changed_paths": json.loads(os.environ["DESIGN_CHANGED_PATHS_JSON"]),
+        "changed_paths_sha256": os.environ["DESIGN_CHANGED_PATHS_SHA256"],
+        "head_tree": os.environ["DESIGN_HEAD_TREE"],
+        "source_ref": os.environ["SOURCE_REF"],
+    },
 }
 Path(sys.argv[1]).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
 PY
@@ -127,6 +178,7 @@ STAGE5E_CHECKER_SHA256="$stage5e_checker_sha256" \
 STAGE5E_INVENTORY_SHA256="$stage5e_inventory_sha256" \
 STAGE5E_PLAN_SHA256="$stage5e_plan_sha256" \
 STAGE5E_GATE_RESULT_SHA256="$stage5e_gate_result_sha256" \
+STAGE5E_DESIGN_SCOPE_SHA256="$stage5e_design_scope_sha256" \
 REVIEW_STAGE="$review_stage" \
 CURRENT_REVIEW_STAGE="$current_review_stage" \
 HANDOFF_MANIFEST="$handoff_manifest" \
@@ -150,6 +202,7 @@ manifest = {
     "stage5e_inventory_sha256": os.environ["STAGE5E_INVENTORY_SHA256"],
     "stage5e_plan_sha256": os.environ["STAGE5E_PLAN_SHA256"],
     "stage5e_gate_result_sha256": os.environ["STAGE5E_GATE_RESULT_SHA256"],
+    "stage5e_design_scope_sha256": os.environ["STAGE5E_DESIGN_SCOPE_SHA256"],
     "required_gate_names": [
         "stage5e_lifecycle_event_time",
         "stage5c_api_freeze",
