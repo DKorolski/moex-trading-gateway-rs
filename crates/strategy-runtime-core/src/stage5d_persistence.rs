@@ -14470,7 +14470,7 @@ mod tests {
         let complete_receipt_fixture_sha256 = sha256_text(&complete_receipt_fixture_bytes);
         let generated_single = serde_json::json!({
             "case_id": "positive_single_pending_riskgate_finalization",
-            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r3",
+            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r4",
             "package_fixture_path": format!("tests/fixtures/stage5/{single_package_fixture}"),
             "package_fixture_sha256": single_package_fixture_sha256,
             "receipt_fixture_path": format!("tests/fixtures/stage5/{single_receipt_fixture}"),
@@ -14489,7 +14489,7 @@ mod tests {
         });
         let generated_multi = serde_json::json!({
             "case_id": "positive_ordered_multi_row_pending_finalizations",
-            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r3",
+            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r4",
             "package_fixture_path": format!("tests/fixtures/stage5/{multi_package_fixture}"),
             "package_fixture_sha256": multi_package_fixture_sha256,
             "receipt_fixture_path": format!("tests/fixtures/stage5/{multi_receipt_fixture}"),
@@ -14509,7 +14509,7 @@ mod tests {
         });
         let generated_complete = serde_json::json!({
             "case_id": "positive_already_complete_recovery_plan",
-            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r3",
+            "stage": "5D-final-restart-r3-riskgate-recovery-r1-r4",
             "package_fixture_path": format!("tests/fixtures/stage5/{complete_package_fixture}"),
             "package_fixture_sha256": complete_package_fixture_sha256,
             "receipt_fixture_path": format!("tests/fixtures/stage5/{complete_receipt_fixture}"),
@@ -14553,6 +14553,10 @@ mod tests {
         println!("STAGE5D_RISKREC exact_package_bytes_golden=true");
         println!("STAGE5D_RISKREC exact_receipt_bytes_golden=true");
         println!("STAGE5D_RISKREC checker_call_sites_pinned=true");
+        println!("STAGE5D_RISKREC recovery_call_graph_pinned=true");
+        println!("STAGE5D_RISKREC receipt_field_comparisons_pinned=true");
+        println!("STAGE5D_RISKREC checkpoint_field_comparisons_pinned=true");
+        println!("STAGE5D_RISKREC forged_field_matrix_pinned=true");
         println!("STAGE5D_RISKREC exact_package_receipt_goldens=true");
         println!("STAGE5D_RISKREC golden_values_exact=true");
         println!("STAGE5D_RISKREC stage5c_continuation=true");

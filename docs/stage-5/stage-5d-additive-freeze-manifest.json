@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-final-restart-r3-riskgate-recovery-r1-r3",
+  "stage": "5D-final-restart-r3-riskgate-recovery-r1-r4",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "7d33d227681414093655a0cd43e8ab6394231bb1275c04a67c0b92eabe4879f1"
+      "stage5d_consumer_sha256": "6379c0b2db10e8d4d77e1e5f2b6fd3e260413e163e9ee49523d6f3f60c615a2f"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "7d33d227681414093655a0cd43e8ab6394231bb1275c04a67c0b92eabe4879f1"
+      "stage5d_consumer_sha256": "6379c0b2db10e8d4d77e1e5f2b6fd3e260413e163e9ee49523d6f3f60c615a2f"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "7d33d227681414093655a0cd43e8ab6394231bb1275c04a67c0b92eabe4879f1"
+    "current_sha256": "6379c0b2db10e8d4d77e1e5f2b6fd3e260413e163e9ee49523d6f3f60c615a2f"
   },
   "stage5d_riskrec_exact_fixtures": {
     "tests/fixtures/stage5/stage5d_riskrec_single_pending_package.json": "304b01de4df838952ff07637346e218379f808cb706b24c0165f33c45556bb6e",
@@ -467,7 +467,29 @@
     "riskrec_r1r3_summary_wrong_fixture_path",
     "riskrec_r1r3_summary_wrong_fixture_sha",
     "riskrec_r1r3_committed_read_validator_removed",
-    "riskrec_r1r3_forged_matrix_removed"
+    "riskrec_r1r3_forged_matrix_removed",
+    "riskrec_r1r4_recovery_step_call_removed",
+    "riskrec_r1r4_recovery_step_call_substituted",
+    "riskrec_r1r4_checkpoint_commit_reload_removed",
+    "riskrec_r1r4_precommit_replay_removed",
+    "riskrec_r1r4_precommit_same_action_assertion_removed",
+    "riskrec_r1r4_postcommit_replay_removed",
+    "riskrec_r1r4_postcommit_next_action_assertion_removed",
+    "riskrec_r1r4_final_noop_transition_removed",
+    "riskrec_r1r4_stage5c_warmup_call_removed",
+    "riskrec_r1r4_receipt_envelope_comparison_removed",
+    "riskrec_r1r4_receipt_evidence_comparison_removed",
+    "riskrec_r1r4_receipt_plan_comparison_removed",
+    "riskrec_r1r4_receipt_identity_vector_comparison_removed",
+    "riskrec_r1r4_receipt_generation_vector_comparison_removed",
+    "riskrec_r1r4_receipt_checkpoint_identity_comparison_removed",
+    "riskrec_r1r4_receipt_checkpoint_generation_comparison_removed",
+    "riskrec_r1r4_receipt_checkpoint_action_comparison_removed",
+    "riskrec_r1r4_marker_generation_comparison_removed",
+    "riskrec_r1r4_receipt_self_fingerprint_comparison_removed",
+    "riskrec_r1r4_canonical_package_comparison_removed",
+    "riskrec_r1r4_final_checkpoint_complete_guard_removed",
+    "riskrec_r1r4_final_checkpoint_pending_guard_removed"
   ],
   "stage5d_public_api": {
     "public_reexports": [
@@ -2209,5 +2231,10 @@
       "opaque_capabilities": 14,
       "externally_constructible_enums": 20
     }
+  },
+  "stage5d_riskrec_summary_goldens": {
+    "tests/fixtures/stage5/stage5d_riskrec_single_pending_golden.json": "83f9a02be330105b219396d4c375ec799c5044ca937deca0107b10d00e6d9854",
+    "tests/fixtures/stage5/stage5d_riskrec_ordered_multi_row_golden.json": "f557dfbc0536015b55eea79dba9705b42a180f545ba3fc8e9415551b44dfbaf2",
+    "tests/fixtures/stage5/stage5d_riskrec_complete_noop_golden.json": "45b0c828f847b2660fefb434d8f5595b0ea562026a9abdc627ae9d58943fcccc"
   }
 }

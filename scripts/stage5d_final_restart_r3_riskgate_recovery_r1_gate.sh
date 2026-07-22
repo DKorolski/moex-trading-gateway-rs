@@ -12,6 +12,8 @@ negative_log="reports/stage-5/stage5d-final-restart-r3-riskgate-recovery-r1-nega
 : > "$focused_log"
 : > "$negative_log"
 
+python3 scripts/stage5d_riskrec_r1r4_checker_self_test.py | tee reports/stage-5/stage5d-riskrec-r1r4-checker-self-test.log
+
 cargo test -p strategy-runtime-core stage5d_final_r3_riskgate_recovery_r1 -- --nocapture | tee "$focused_log"
 
 require_marker() {
@@ -44,6 +46,10 @@ require_marker "STAGE5D_RISKREC forged_receipts_fail_closed=true"
 require_marker "STAGE5D_RISKREC exact_package_bytes_golden=true"
 require_marker "STAGE5D_RISKREC exact_receipt_bytes_golden=true"
 require_marker "STAGE5D_RISKREC checker_call_sites_pinned=true"
+require_marker "STAGE5D_RISKREC recovery_call_graph_pinned=true"
+require_marker "STAGE5D_RISKREC receipt_field_comparisons_pinned=true"
+require_marker "STAGE5D_RISKREC checkpoint_field_comparisons_pinned=true"
+require_marker "STAGE5D_RISKREC forged_field_matrix_pinned=true"
 require_marker "STAGE5D_RISKREC exact_package_receipt_goldens=true"
 require_marker "STAGE5D_RISKREC golden_values_exact=true"
 require_marker "STAGE5D_RISKREC stage5c_continuation=true"

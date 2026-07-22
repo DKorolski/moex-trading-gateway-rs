@@ -39,7 +39,7 @@
   ],
   "package_sha256": "e61c1f7ba98b32b06c1727eef24e0bd3e1bae3b5445b5f57dfff84fc6a7352ec",
   "recovery_plan_fingerprint_sha256": "stage5d_riskgate_recovery_plan_sha256:4f9263070bd3cd4d566efb3c85daa453716d0c4f292e88a5097fbe8615a34c16",
-  "stage": "5D-final-restart-r3-riskgate-recovery-r1-r3",
+  "stage": "5D-final-restart-r3-riskgate-recovery-r1-r4",
   "stage5c_warmup_completed": true,
   "stage5e_closed": true
 }

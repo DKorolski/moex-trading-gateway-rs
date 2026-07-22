@@ -244,7 +244,7 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 5D final restart r2 is retained only as the canonical durable-package
   foundation. Stage 5D-final-restart-r3 now has exactly 21 accepted executable
   rows and 0 `todo_source_produced` rows in the mandatory positive inventory.
-  The latest riskgate-recovery r1-r3 evidence closes the final three riskgate
+  The latest riskgate-recovery r1-r4 evidence closes the final three riskgate
   rows with a crate-private production recovery executor, typed checkpoint and
   final receipts, fresh reader reopen checks, pre/post-commit crash idempotency,
   persisted final-receipt equality, source-produced pending finalizations,

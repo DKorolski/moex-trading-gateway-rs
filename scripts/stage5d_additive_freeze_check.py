@@ -101,7 +101,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "7d33d227681414093655a0cd43e8ab6394231bb1275c04a67c0b92eabe4879f1",
+        "stage5d_consumer_sha256": "6379c0b2db10e8d4d77e1e5f2b6fd3e260413e163e9ee49523d6f3f60c615a2f",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -115,7 +115,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "7d33d227681414093655a0cd43e8ab6394231bb1275c04a67c0b92eabe4879f1",
+        "stage5d_consumer_sha256": "6379c0b2db10e8d4d77e1e5f2b6fd3e260413e163e9ee49523d6f3f60c615a2f",
     },
 ]
 
@@ -414,10 +414,32 @@ EXPECTED_NEGATIVE_CASES = [
     "riskrec_r1r3_summary_wrong_fixture_path",
     "riskrec_r1r3_summary_wrong_fixture_sha",
     "riskrec_r1r3_committed_read_validator_removed",
-    "riskrec_r1r3_forged_matrix_removed"
+    "riskrec_r1r3_forged_matrix_removed",
+    "riskrec_r1r4_recovery_step_call_removed",
+    "riskrec_r1r4_recovery_step_call_substituted",
+    "riskrec_r1r4_checkpoint_commit_reload_removed",
+    "riskrec_r1r4_precommit_replay_removed",
+    "riskrec_r1r4_precommit_same_action_assertion_removed",
+    "riskrec_r1r4_postcommit_replay_removed",
+    "riskrec_r1r4_postcommit_next_action_assertion_removed",
+    "riskrec_r1r4_final_noop_transition_removed",
+    "riskrec_r1r4_stage5c_warmup_call_removed",
+    "riskrec_r1r4_receipt_envelope_comparison_removed",
+    "riskrec_r1r4_receipt_evidence_comparison_removed",
+    "riskrec_r1r4_receipt_plan_comparison_removed",
+    "riskrec_r1r4_receipt_identity_vector_comparison_removed",
+    "riskrec_r1r4_receipt_generation_vector_comparison_removed",
+    "riskrec_r1r4_receipt_checkpoint_identity_comparison_removed",
+    "riskrec_r1r4_receipt_checkpoint_generation_comparison_removed",
+    "riskrec_r1r4_receipt_checkpoint_action_comparison_removed",
+    "riskrec_r1r4_marker_generation_comparison_removed",
+    "riskrec_r1r4_receipt_self_fingerprint_comparison_removed",
+    "riskrec_r1r4_canonical_package_comparison_removed",
+    "riskrec_r1r4_final_checkpoint_complete_guard_removed",
+    "riskrec_r1r4_final_checkpoint_pending_guard_removed",
 ]
 
-EXPECTED_STAGE = "5D-final-restart-r3-riskgate-recovery-r1-r3"
+EXPECTED_STAGE = "5D-final-restart-r3-riskgate-recovery-r1-r4"
 EXPECTED_FINAL_RESTART_INVENTORY_STAGE = "5D-final-restart-r2"
 
 EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
@@ -481,6 +503,12 @@ EXPECTED_RISKREC_EXACT_FIXTURES = {
     "tests/fixtures/stage5/stage5d_riskrec_ordered_multi_row_final_receipt.json": "d4d7ece4e6fbe2974be1563644b4afc8fcdbe31e66dadf510b68f4cffddd027b",
     "tests/fixtures/stage5/stage5d_riskrec_complete_noop_package.json": "304b01de4df838952ff07637346e218379f808cb706b24c0165f33c45556bb6e",
     "tests/fixtures/stage5/stage5d_riskrec_complete_noop_final_receipt.json": "672533a88484cc33bd93d0d72b5f0ddd3124d0b7943691fdddca65affa03e756",
+}
+
+EXPECTED_RISKREC_SUMMARY_GOLDENS = {
+    "tests/fixtures/stage5/stage5d_riskrec_single_pending_golden.json": "83f9a02be330105b219396d4c375ec799c5044ca937deca0107b10d00e6d9854",
+    "tests/fixtures/stage5/stage5d_riskrec_ordered_multi_row_golden.json": "f557dfbc0536015b55eea79dba9705b42a180f545ba3fc8e9415551b44dfbaf2",
+    "tests/fixtures/stage5/stage5d_riskrec_complete_noop_golden.json": "45b0c828f847b2660fefb434d8f5595b0ea562026a9abdc627ae9d58943fcccc",
 }
 
 EXPECTED_FINAL_RESTART_R3_POSITIVE_IDS = [
@@ -724,6 +752,82 @@ def extract_fn_body(source: str, signature: str) -> str:
             if depth == 0:
                 return source[start : idx + 1]
     return ""
+
+
+def extract_named_function_body(source: str, function_name: str) -> str:
+    match = re.search(
+        rf"(?m)^[ \t]*(?:#\[[^\n]*\]\n[ \t]*)*(?:pub\([^)]*\)\s+|pub\s+)?(?:async\s+)?fn\s+{re.escape(function_name)}\b",
+        source,
+    )
+    if not match:
+        return ""
+    brace = source.find("{", match.end())
+    if brace < 0:
+        return ""
+    depth = 0
+    in_string = False
+    in_char = False
+    escaped = False
+    line_comment = False
+    block_comment_depth = 0
+    for idx in range(brace, len(source)):
+        char = source[idx]
+        nxt = source[idx + 1] if idx + 1 < len(source) else ""
+        if line_comment:
+            if char == "\n":
+                line_comment = False
+            continue
+        if block_comment_depth:
+            if char == "/" and nxt == "*":
+                block_comment_depth += 1
+            elif char == "*" and nxt == "/":
+                block_comment_depth -= 1
+            continue
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if in_char:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == "'":
+                in_char = False
+            continue
+        if char == "/" and nxt == "/":
+            line_comment = True
+            continue
+        if char == "/" and nxt == "*":
+            block_comment_depth = 1
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char == "'":
+            in_char = True
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[match.start() : idx + 1]
+    return ""
+
+
+def require_body_tokens(
+    body: str,
+    requirements: list[tuple[str, str]],
+    failures: list[str],
+) -> None:
+    for diagnostic, token in requirements:
+        if token not in body:
+            failures.append(diagnostic)
 
 
 def load_stage5c_checker(root: Path):
@@ -2402,10 +2506,120 @@ def validate_stage5d_b2bd1_runtime_restored_semantic_guards(
     validate_stage5d_final_restart_r3_inventory(root, failures)
 
 
+def validate_stage5d_final_r3_riskgate_recovery_r1_r4_call_graph(
+    stage5d_source: str, failures: list[str]
+) -> None:
+    run_body = extract_named_function_body(stage5d_source, "stage5d_riskrec_run_production_recovery")
+    if not run_body:
+        failures.append("Stage 5D r1-r4 recovery call graph missing: production recovery body")
+        return
+    require_body_tokens(
+        run_body,
+        [
+            ("Stage 5D r1-r4 recovery call graph missing: initial committed reload", "stage5d_riskrec_store_commit_and_reload(\n            &mut store,\n            ready,\n            Stage5dRiskGateRecoveryCheckpoint::InitialPackageCommitted"),
+            ("Stage 5D r1-r4 recovery call graph missing: recovery-step call", "let step = stage5d_apply_next_riskgate_recovery_action(ready)"),
+            ("Stage 5D r1-r4 recovery call graph missing: precommit reload", "let precommit_read = store\n                .read_committed()"),
+            ("Stage 5D r1-r4 recovery call graph missing: precommit replay", "let precommit_replay = stage5d_apply_next_riskgate_recovery_action(precommit_ready)"),
+            ("Stage 5D r1-r4 recovery call graph missing: precommit same-action assertion", "precommit_replay.action, step.action"),
+            ("Stage 5D r1-r4 recovery call graph missing: checkpoint commit reload", "stage5d_riskrec_store_commit_and_reload(&mut store, step.ready, step.checkpoint)"),
+            ("Stage 5D r1-r4 recovery call graph missing: postcommit replay", "let replay = stage5d_apply_next_riskgate_recovery_action(ready.clone())"),
+            ("Stage 5D r1-r4 recovery call graph missing: postcommit next-action assertion", "assert_ne!(\n                replay.action, step.action"),
+            ("Stage 5D r1-r4 recovery call graph missing: final committed reload", "let final_read = store\n            .read_committed()"),
+            ("Stage 5D r1-r4 recovery call graph missing: final no-op transition", "let final_noop = stage5d_apply_next_riskgate_recovery_action(final_ready.clone())"),
+            ("Stage 5D r1-r4 recovery call graph missing: authoritative riskgate injection", "stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence)"),
+            ("Stage 5D r1-r4 recovery call graph missing: restored callback once", "stage5d_test_assert_injected_restores_once("),
+            ("Stage 5D r1-r4 recovery call graph missing: Stage 5C warmup", "crate::stage5c_paper_host::stage5d_test_warmup_stage5c_history_at("),
+        ],
+        failures,
+    )
+
+
+def validate_stage5d_final_r3_riskgate_recovery_r1_r4_receipt_fields(
+    stage5d_source: str, failures: list[str]
+) -> None:
+    validator_body = extract_named_function_body(stage5d_source, "stage5d_validate_riskgate_recovery_committed_read")
+    if not validator_body:
+        failures.append("Stage 5D r1-r4 receipt validation missing: committed-read validator body")
+        return
+    require_body_tokens(
+        validator_body,
+        [
+            ("Stage 5D r1-r4 receipt validation missing: schema comparison", "receipt.schema_version != 1"),
+            ("Stage 5D r1-r4 receipt validation missing: package sha comparison", "receipt.package_sha256 != sha256_text(package_json)"),
+            ("Stage 5D r1-r4 receipt validation missing: envelope sha comparison", "receipt.envelope_sha256 != envelope_sha256"),
+            ("Stage 5D r1-r4 receipt validation missing: evidence fingerprint comparison", "receipt.evidence_fingerprint_sha256 != evidence_fingerprint_sha256"),
+            ("Stage 5D r1-r4 receipt validation missing: recovery-plan fingerprint comparison", "receipt.recovery_plan_fingerprint_sha256 != ready.recovery_plan_fingerprint_sha256"),
+            ("Stage 5D r1-r4 receipt validation missing: identity-vector comparison", "receipt.finalization_identity_hashes != expected_identity_hashes"),
+            ("Stage 5D r1-r4 receipt validation missing: generation-vector comparison", "receipt.finalization_generations != expected_generations"),
+            ("Stage 5D r1-r4 receipt validation missing: marker/store-generation comparison", "receipt.committed_store_generation != marker_generation"),
+            ("Stage 5D r1-r4 receipt validation missing: checkpoint-identity comparison", "receipt.checkpoint_finalization_identity_hash != checkpoint_identity"),
+            ("Stage 5D r1-r4 receipt validation missing: checkpoint-generation comparison", "receipt.checkpoint_generation != checkpoint_generation"),
+            ("Stage 5D r1-r4 receipt validation missing: checkpoint-action comparison", "receipt.checkpoint_action != checkpoint_action"),
+            ("Stage 5D r1-r4 receipt validation missing: receipt self-fingerprint comparison", "receipt_fingerprint != receipt.receipt_fingerprint_sha256"),
+            ("Stage 5D r1-r4 receipt validation missing: canonical package bytes comparison", "sha256_text(package_json) != sha256_text(&canonical_package_json)"),
+            ("Stage 5D r1-r4 receipt validation missing: commit marker generation parse", '.strip_prefix("generation=")'),
+        ],
+        failures,
+    )
+
+
+def validate_stage5d_final_r3_riskgate_recovery_r1_r4_checkpoint_logic(
+    stage5d_source: str, failures: list[str]
+) -> None:
+    checkpoint_body = extract_named_function_body(stage5d_source, "stage5d_expected_riskgate_recovery_checkpoint_binding")
+    if not checkpoint_body:
+        failures.append("Stage 5D r1-r4 checkpoint validation missing: checkpoint binding body")
+        return
+    require_body_tokens(
+        checkpoint_body,
+        [
+            ("Stage 5D r1-r4 checkpoint validation missing: initial-package branch", "Stage5dRiskGateRecoveryCheckpoint::InitialPackageCommitted"),
+            ("Stage 5D r1-r4 checkpoint validation missing: ledger-appended branch", "Stage5dRiskGateRecoveryCheckpoint::LedgerAppended => outbox"),
+            ("Stage 5D r1-r4 checkpoint validation missing: materialized-updated branch", "Stage5dRiskGateRecoveryCheckpoint::MaterializedUpdated => outbox"),
+            ("Stage 5D r1-r4 checkpoint validation missing: acknowledged-in-runtime branch", "Stage5dRiskGateRecoveryCheckpoint::AcknowledgedInRuntime => outbox"),
+            ("Stage 5D r1-r4 checkpoint validation missing: final-checkpoint branch", "Stage5dRiskGateRecoveryCheckpoint::FinalCheckpointCommitted"),
+            ("Stage 5D r1-r4 checkpoint validation missing: selected identity", "Some(row.identity_hash.clone())"),
+            ("Stage 5D r1-r4 checkpoint validation missing: selected generation", "Some(row.generation)"),
+            ("Stage 5D r1-r4 checkpoint validation missing: selected action", "Some(action.as_str().to_string())"),
+            ("Stage 5D r1-r4 checkpoint validation missing: final complete-plan guard", "if !all_complete"),
+            ("Stage 5D r1-r4 checkpoint validation missing: final pending-cache guard", ".runtime_pending_finalizations\n                    .is_empty()"),
+        ],
+        failures,
+    )
+
+
+def validate_stage5d_final_r3_riskgate_recovery_r1_r4_forged_matrix(
+    stage5d_source: str, failures: list[str]
+) -> None:
+    forged_body = extract_named_function_body(stage5d_source, "stage5d_final_r3_riskgate_recovery_r1r3_forged_receipts_fail_closed")
+    if not forged_body:
+        failures.append("Stage 5D r1-r4 forged receipt matrix missing: test body")
+        return
+    require_body_tokens(
+        forged_body,
+        [
+            ("Stage 5D r1-r4 forged receipt matrix missing: wrong envelope SHA", "wrong envelope sha must fail"),
+            ("Stage 5D r1-r4 forged receipt matrix missing: wrong evidence fingerprint", "wrong evidence fingerprint must fail"),
+            ("Stage 5D r1-r4 forged receipt matrix missing: wrong recovery-plan fingerprint", "wrong plan fingerprint must fail"),
+            ("Stage 5D r1-r4 forged receipt matrix missing: wrong identity vector", "wrong identity vector must fail"),
+            ("Stage 5D r1-r4 forged receipt matrix missing: wrong generation vector", "wrong generation vector must fail"),
+            ("Stage 5D r1-r4 forged receipt matrix missing: wrong checkpoint/frontier", "wrong checkpoint must fail"),
+            ("Stage 5D r1-r4 forged receipt matrix missing: wrong store generation", "wrong store generation must fail"),
+            ("Stage 5D r1-r4 forged receipt matrix missing: single receipt/multi package", "single final receipt paired with multi package must fail"),
+            ("Stage 5D r1-r4 forged receipt matrix missing: multi receipt/single package", "multi receipt paired with single package must fail"),
+        ],
+        failures,
+    )
+
+
 def validate_stage5d_final_r3_riskgate_recovery_r1(
     root: Path, failures: list[str]
 ) -> None:
     stage5d_source = (root / STAGE5D_REL).read_text()
+    validate_stage5d_final_r3_riskgate_recovery_r1_r4_call_graph(stage5d_source, failures)
+    validate_stage5d_final_r3_riskgate_recovery_r1_r4_receipt_fields(stage5d_source, failures)
+    validate_stage5d_final_r3_riskgate_recovery_r1_r4_checkpoint_logic(stage5d_source, failures)
+    validate_stage5d_final_r3_riskgate_recovery_r1_r4_forged_matrix(stage5d_source, failures)
     test_body = extract_fn_body(
         stage5d_source,
         "fn stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix",
@@ -2480,6 +2694,10 @@ def validate_stage5d_final_r3_riskgate_recovery_r1(
         "STAGE5D_RISKREC exact_package_bytes_golden=true",
         "STAGE5D_RISKREC exact_receipt_bytes_golden=true",
         "STAGE5D_RISKREC checker_call_sites_pinned=true",
+        "STAGE5D_RISKREC recovery_call_graph_pinned=true",
+        "STAGE5D_RISKREC receipt_field_comparisons_pinned=true",
+        "STAGE5D_RISKREC checkpoint_field_comparisons_pinned=true",
+        "STAGE5D_RISKREC forged_field_matrix_pinned=true",
         "STAGE5D_RISKREC exact_package_receipt_goldens=true",
         "STAGE5D_RISKREC golden_values_exact=true",
         "STAGE5D_RISKREC stage5c_continuation=true",
@@ -2504,7 +2722,7 @@ def validate_stage5d_final_r3_riskgate_recovery_r1(
         except json.JSONDecodeError:
             failures.append("Stage 5D final r3 riskgate-recovery golden evidence invalid")
             continue
-        if golden.get("stage") != "5D-final-restart-r3-riskgate-recovery-r1-r3":
+        if golden.get("stage") != "5D-final-restart-r3-riskgate-recovery-r1-r4":
             failures.append("Stage 5D final r3 riskgate-recovery golden stage mismatch")
         if golden.get("golden_kind") == "checked_in_summary":
             failures.append("Stage 5D final r3 riskgate-recovery golden can refresh silently")
@@ -2580,6 +2798,10 @@ def validate_stage5d_final_r3_riskgate_recovery_r1(
             "require_marker \"STAGE5D_RISKREC exact_package_bytes_golden=true\"",
             "require_marker \"STAGE5D_RISKREC exact_receipt_bytes_golden=true\"",
             "require_marker \"STAGE5D_RISKREC checker_call_sites_pinned=true\"",
+            "require_marker \"STAGE5D_RISKREC recovery_call_graph_pinned=true\"",
+            "require_marker \"STAGE5D_RISKREC receipt_field_comparisons_pinned=true\"",
+            "require_marker \"STAGE5D_RISKREC checkpoint_field_comparisons_pinned=true\"",
+            "require_marker \"STAGE5D_RISKREC forged_field_matrix_pinned=true\"",
             "require_marker \"STAGE5D_RISKREC exact_package_receipt_goldens=true\"",
             "require_marker \"STAGE5D_RISKREC final_checkpoint_committed=true\"",
             "require_marker \"STAGE5D_RISKREC golden_values_exact=true\"",
@@ -2610,6 +2832,13 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
         failures.append("negative_harness mismatch")
     if manifest.get("stage5d_riskrec_exact_fixtures") != EXPECTED_RISKREC_EXACT_FIXTURES:
         failures.append("Stage 5D final r3 riskgate-recovery exact fixture manifest mismatch")
+    if manifest.get("stage5d_riskrec_summary_goldens") != EXPECTED_RISKREC_SUMMARY_GOLDENS:
+        failures.append("Stage 5D final r3 riskgate-recovery summary golden manifest mismatch")
+    else:
+        for rel_path, expected_sha in EXPECTED_RISKREC_SUMMARY_GOLDENS.items():
+            path = root / rel_path
+            if not path.is_file() or sha256_file(path) != expected_sha:
+                failures.append("Stage 5D final r3 riskgate-recovery summary golden drift")
     forbidden_contract = manifest.get("forbidden_negative_harness_contract")
     if forbidden_contract != EXPECTED_FORBIDDEN_NEGATIVE_HARNESS_CONTRACT:
         failures.append("forbidden negative harness contract mismatch")

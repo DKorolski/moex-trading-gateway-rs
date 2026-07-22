@@ -333,7 +333,7 @@
       "callback_exactly_once_checked": true,
       "stage5c_continuation_executed": true,
       "stage5e_closed": true,
-      "review_stage": "5D-final-restart-r3-riskgate-recovery-r1-r3",
+      "review_stage": "5D-final-restart-r3-riskgate-recovery-r1-r4",
       "production_recovery_actions_executed": true,
       "final_checkpoint_committed": true,
       "golden_values_exact": true
@@ -363,7 +363,7 @@
       "callback_exactly_once_checked": true,
       "stage5c_continuation_executed": true,
       "stage5e_closed": true,
-      "review_stage": "5D-final-restart-r3-riskgate-recovery-r1-r3",
+      "review_stage": "5D-final-restart-r3-riskgate-recovery-r1-r4",
       "production_recovery_actions_executed": true,
       "final_checkpoint_committed": true,
       "golden_values_exact": true
@@ -392,7 +392,7 @@
       "callback_exactly_once_checked": true,
       "stage5c_continuation_executed": true,
       "stage5e_closed": true,
-      "review_stage": "5D-final-restart-r3-riskgate-recovery-r1-r3",
+      "review_stage": "5D-final-restart-r3-riskgate-recovery-r1-r4",
       "production_recovery_actions_executed": true,
       "final_checkpoint_committed": true,
       "golden_values_exact": true

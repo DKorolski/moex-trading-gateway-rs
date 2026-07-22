@@ -2576,6 +2576,161 @@ def mutate_riskrec_r1r1_durable_outbox_direct(root: Path) -> None:
     mutate_riskrec_durable_outbox_direct_inserted(root)
 
 
+
+def mutate_riskrec_r1r4_recovery_step_call_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "let step = stage5d_apply_next_riskgate_recovery_action(ready)",
+        "let step = stage5d_riskrec_r1r4_noop_action(ready)")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_recovery_step_call_substituted(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_apply_next_riskgate_recovery_action(ready)",
+        "stage5d_test_apply_next_riskgate_recovery_action(ready)")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_checkpoint_commit_reload_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "stage5d_riskrec_store_commit_and_reload(&mut store, step.ready, step.checkpoint)",
+        "stage5d_riskrec_r1r4_skip_commit_and_reload(&mut store, step.ready, step.checkpoint)")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_precommit_replay_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "let precommit_replay = stage5d_apply_next_riskgate_recovery_action(precommit_ready)",
+        "let precommit_replay = stage5d_riskrec_r1r4_skip_precommit_replay(precommit_ready)")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_precommit_same_action_assertion_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "precommit_replay.action, step.action",
+        "precommit_replay.action, precommit_replay.action")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_postcommit_replay_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "let replay = stage5d_apply_next_riskgate_recovery_action(ready.clone())",
+        "let replay = stage5d_riskrec_r1r4_skip_postcommit_replay(ready.clone())")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_postcommit_next_action_assertion_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "assert_ne!(\n                replay.action, step.action",
+        "assert_ne!(\n                replay.action, replay.action")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_final_noop_transition_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "let final_noop = stage5d_apply_next_riskgate_recovery_action(final_ready.clone())",
+        "let final_noop = stage5d_riskrec_r1r4_skip_final_noop(final_ready.clone())")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_stage5c_warmup_call_removed(root: Path) -> None:
+    replace_all(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "crate::stage5c_paper_host::stage5d_test_warmup_stage5c_history_at(",
+        "crate::stage5c_paper_host::stage5d_test_warmup_stage5c_history_bypassed(")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_receipt_envelope_comparison_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "receipt.envelope_sha256 != envelope_sha256",
+        "receipt.envelope_sha256 != receipt.envelope_sha256")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_receipt_evidence_comparison_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "receipt.evidence_fingerprint_sha256 != evidence_fingerprint_sha256",
+        "receipt.evidence_fingerprint_sha256 != receipt.evidence_fingerprint_sha256")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_receipt_plan_comparison_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "receipt.recovery_plan_fingerprint_sha256 != ready.recovery_plan_fingerprint_sha256",
+        "receipt.recovery_plan_fingerprint_sha256 != receipt.recovery_plan_fingerprint_sha256")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_receipt_identity_vector_comparison_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "receipt.finalization_identity_hashes != expected_identity_hashes",
+        "receipt.finalization_identity_hashes != receipt.finalization_identity_hashes")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_receipt_generation_vector_comparison_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "receipt.finalization_generations != expected_generations",
+        "receipt.finalization_generations != receipt.finalization_generations")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_receipt_checkpoint_identity_comparison_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "receipt.checkpoint_finalization_identity_hash != checkpoint_identity",
+        "receipt.checkpoint_finalization_identity_hash != receipt.checkpoint_finalization_identity_hash")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_receipt_checkpoint_generation_comparison_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "receipt.checkpoint_generation != checkpoint_generation",
+        "receipt.checkpoint_generation != receipt.checkpoint_generation")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_receipt_checkpoint_action_comparison_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "receipt.checkpoint_action != checkpoint_action",
+        "receipt.checkpoint_action != receipt.checkpoint_action")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_marker_generation_comparison_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "receipt.committed_store_generation != marker_generation",
+        "receipt.committed_store_generation != receipt.committed_store_generation")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_receipt_self_fingerprint_comparison_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "receipt_fingerprint != receipt.receipt_fingerprint_sha256",
+        "receipt_fingerprint != receipt_fingerprint")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_canonical_package_comparison_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "sha256_text(package_json) != sha256_text(&canonical_package_json)",
+        "sha256_text(package_json) != sha256_text(package_json)")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_final_checkpoint_complete_guard_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        "if !all_complete",
+        "if false")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
+def mutate_riskrec_r1r4_final_checkpoint_pending_guard_removed(root: Path) -> None:
+    replace_once(root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+        ".runtime_pending_finalizations\n                    .is_empty()",
+        ".runtime_pending_finalizations\n                    .is_empty_bypassed()")
+    update_stage5d_semantic_mutation_hashes(root)
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -2856,6 +3011,28 @@ CASES = [
     ("riskrec_r1r3_summary_wrong_fixture_sha", mutate_riskrec_r1r3_summary_wrong_fixture_sha, "Stage 5D final r3 riskgate-recovery exact fixture sha mismatch"),
     ("riskrec_r1r3_committed_read_validator_removed", mutate_riskrec_r1r3_committed_read_validator_removed, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
     ("riskrec_r1r3_forged_matrix_removed", mutate_riskrec_r1r3_forged_matrix_removed, "Stage 5D final r3 riskgate-recovery r1 marker/code proof missing"),
+    ("riskrec_r1r4_recovery_step_call_removed", mutate_riskrec_r1r4_recovery_step_call_removed, "Stage 5D r1-r4 recovery call graph missing: recovery-step call"),
+    ("riskrec_r1r4_recovery_step_call_substituted", mutate_riskrec_r1r4_recovery_step_call_substituted, "Stage 5D r1-r4 recovery call graph missing: recovery-step call"),
+    ("riskrec_r1r4_checkpoint_commit_reload_removed", mutate_riskrec_r1r4_checkpoint_commit_reload_removed, "Stage 5D r1-r4 recovery call graph missing: checkpoint commit reload"),
+    ("riskrec_r1r4_precommit_replay_removed", mutate_riskrec_r1r4_precommit_replay_removed, "Stage 5D r1-r4 recovery call graph missing: precommit replay"),
+    ("riskrec_r1r4_precommit_same_action_assertion_removed", mutate_riskrec_r1r4_precommit_same_action_assertion_removed, "Stage 5D r1-r4 recovery call graph missing: precommit same-action assertion"),
+    ("riskrec_r1r4_postcommit_replay_removed", mutate_riskrec_r1r4_postcommit_replay_removed, "Stage 5D r1-r4 recovery call graph missing: postcommit replay"),
+    ("riskrec_r1r4_postcommit_next_action_assertion_removed", mutate_riskrec_r1r4_postcommit_next_action_assertion_removed, "Stage 5D r1-r4 recovery call graph missing: postcommit next-action assertion"),
+    ("riskrec_r1r4_final_noop_transition_removed", mutate_riskrec_r1r4_final_noop_transition_removed, "Stage 5D r1-r4 recovery call graph missing: final no-op transition"),
+    ("riskrec_r1r4_stage5c_warmup_call_removed", mutate_riskrec_r1r4_stage5c_warmup_call_removed, "Stage 5D r1-r4 recovery call graph missing: Stage 5C warmup"),
+    ("riskrec_r1r4_receipt_envelope_comparison_removed", mutate_riskrec_r1r4_receipt_envelope_comparison_removed, "Stage 5D r1-r4 receipt validation missing: envelope sha comparison"),
+    ("riskrec_r1r4_receipt_evidence_comparison_removed", mutate_riskrec_r1r4_receipt_evidence_comparison_removed, "Stage 5D r1-r4 receipt validation missing: evidence fingerprint comparison"),
+    ("riskrec_r1r4_receipt_plan_comparison_removed", mutate_riskrec_r1r4_receipt_plan_comparison_removed, "Stage 5D r1-r4 receipt validation missing: recovery-plan fingerprint comparison"),
+    ("riskrec_r1r4_receipt_identity_vector_comparison_removed", mutate_riskrec_r1r4_receipt_identity_vector_comparison_removed, "Stage 5D r1-r4 receipt validation missing: identity-vector comparison"),
+    ("riskrec_r1r4_receipt_generation_vector_comparison_removed", mutate_riskrec_r1r4_receipt_generation_vector_comparison_removed, "Stage 5D r1-r4 receipt validation missing: generation-vector comparison"),
+    ("riskrec_r1r4_receipt_checkpoint_identity_comparison_removed", mutate_riskrec_r1r4_receipt_checkpoint_identity_comparison_removed, "Stage 5D r1-r4 receipt validation missing: checkpoint-identity comparison"),
+    ("riskrec_r1r4_receipt_checkpoint_generation_comparison_removed", mutate_riskrec_r1r4_receipt_checkpoint_generation_comparison_removed, "Stage 5D r1-r4 receipt validation missing: checkpoint-generation comparison"),
+    ("riskrec_r1r4_receipt_checkpoint_action_comparison_removed", mutate_riskrec_r1r4_receipt_checkpoint_action_comparison_removed, "Stage 5D r1-r4 receipt validation missing: checkpoint-action comparison"),
+    ("riskrec_r1r4_marker_generation_comparison_removed", mutate_riskrec_r1r4_marker_generation_comparison_removed, "Stage 5D r1-r4 receipt validation missing: marker/store-generation comparison"),
+    ("riskrec_r1r4_receipt_self_fingerprint_comparison_removed", mutate_riskrec_r1r4_receipt_self_fingerprint_comparison_removed, "Stage 5D r1-r4 receipt validation missing: receipt self-fingerprint comparison"),
+    ("riskrec_r1r4_canonical_package_comparison_removed", mutate_riskrec_r1r4_canonical_package_comparison_removed, "Stage 5D r1-r4 receipt validation missing: canonical package bytes comparison"),
+    ("riskrec_r1r4_final_checkpoint_complete_guard_removed", mutate_riskrec_r1r4_final_checkpoint_complete_guard_removed, "Stage 5D r1-r4 checkpoint validation missing: final complete-plan guard"),
+    ("riskrec_r1r4_final_checkpoint_pending_guard_removed", mutate_riskrec_r1r4_final_checkpoint_pending_guard_removed, "Stage 5D r1-r4 checkpoint validation missing: final pending-cache guard"),
 ]
 
 
