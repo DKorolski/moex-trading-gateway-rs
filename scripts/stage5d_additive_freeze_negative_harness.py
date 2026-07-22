@@ -2731,6 +2731,106 @@ def mutate_riskrec_r1r4_final_checkpoint_pending_guard_removed(root: Path) -> No
     update_stage5d_semantic_mutation_hashes(root)
 
 
+
+def mutate_aggregate_positive_row_removed(root: Path) -> None:
+    path = root / "docs/stage-5/stage5d-final-restart-r3-scenario-inventory.json"
+    inventory = json.loads(path.read_text())
+    inventory["scenario_rows"] = inventory["scenario_rows"][:-1]
+    path.write_text(json.dumps(inventory, indent=2, ensure_ascii=False) + "\n")
+
+
+def mutate_aggregate_accepted_row_downgraded(root: Path) -> None:
+    path = root / "docs/stage-5/stage5d-final-restart-r3-scenario-inventory.json"
+    inventory = json.loads(path.read_text())
+    inventory["scenario_rows"][0]["execution_status"] = "todo_source_produced"
+    path.write_text(json.dumps(inventory, indent=2, ensure_ascii=False) + "\n")
+
+
+def mutate_aggregate_duplicate_scenario_id(root: Path) -> None:
+    path = root / "docs/stage-5/stage5d-final-restart-r3-scenario-inventory.json"
+    inventory = json.loads(path.read_text())
+    inventory["scenario_rows"][1]["case_id"] = inventory["scenario_rows"][0]["case_id"]
+    path.write_text(json.dumps(inventory, indent=2, ensure_ascii=False) + "\n")
+
+
+def mutate_aggregate_owning_test_removed(root: Path) -> None:
+    path = root / "docs/stage-5/stage5d-final-restart-r3-scenario-inventory.json"
+    inventory = json.loads(path.read_text())
+    inventory["scenario_rows"][0]["owning_test"] = ""
+    path.write_text(json.dumps(inventory, indent=2, ensure_ascii=False) + "\n")
+
+
+def mutate_aggregate_owning_test_not_executed(root: Path) -> None:
+    replace_once(
+        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r1_gate.sh",
+        'run_positive_group "positive_core" "stage5d_final_r3_positive_core_source_produced_full_restart_matrix"',
+        'run_positive_group "positive_core" "stage5d_final_r3_positive_core_source_produced_full_restart_matrix_removed"',
+    )
+
+
+def mutate_aggregate_positive_count_forged(root: Path) -> None:
+    replace_once(
+        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r1_gate.sh",
+        "positive_cases_executed={len(accepted)}",
+        "positive_cases_executed=21",
+    )
+
+
+def mutate_aggregate_marker_copied_without_test(root: Path) -> None:
+    replace_once(
+        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r1_gate.sh",
+        'run_positive_group "current_shadow" "stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix"',
+        'echo "AGGREGATE_POSITIVE_GROUP_OK current_shadow stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix"',
+    )
+
+
+def mutate_aggregate_required_group_omitted(root: Path) -> None:
+    replace_once(
+        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r1_gate.sh",
+        'run_positive_group "riskgate_recovery" "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix"\n',
+        '',
+    )
+
+
+def mutate_aggregate_evidence_index_missing_scenario(root: Path) -> None:
+    replace_once(
+        root / "scripts/stage5d_final_restart_r3_aggregate_evidence.py",
+        '"scenario_results": [scenario_result(row) for row in rows],',
+        '"scenario_results_removed": [scenario_result(row) for row in rows],',
+    )
+
+
+def mutate_aggregate_evidence_wrong_commit_binding(root: Path) -> None:
+    replace_once(
+        root / "scripts/stage5d_final_restart_r3_aggregate_evidence.py",
+        'source_ref = run_text(["git", "rev-parse", "HEAD"])',
+        'source_ref = "0000000000000000000000000000000000000000"',
+    )
+
+
+def mutate_aggregate_full_negative_log_omitted(root: Path) -> None:
+    replace_once(
+        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r1_gate.sh",
+        'python3 scripts/stage5d_additive_freeze_negative_harness.py | tee "$negative_log"',
+        'echo "negative harness omitted" | tee "$negative_log"',
+    )
+
+
+def mutate_aggregate_golden_drift_log_omitted(root: Path) -> None:
+    replace_once(
+        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r1_gate.sh",
+        'python3 scripts/stage5d_additive_freeze_check.py | tee "$golden_log"',
+        'echo "golden drift omitted" | tee "$golden_log"',
+    )
+
+
+def mutate_aggregate_stage5e_opened(root: Path) -> None:
+    path = root / "docs/stage-5/stage5d-final-restart-r3-scenario-inventory.json"
+    inventory = json.loads(path.read_text())
+    inventory["closed_surfaces"]["stage5e"] = True
+    path.write_text(json.dumps(inventory, indent=2, ensure_ascii=False) + "\n")
+
+
 def mutate_legacy_restore_bypass(root: Path) -> None:
     append_text(
         root / "crates/strategy-runtime-core/src/stage5d_persistence.rs",
@@ -3033,6 +3133,19 @@ CASES = [
     ("riskrec_r1r4_canonical_package_comparison_removed", mutate_riskrec_r1r4_canonical_package_comparison_removed, "Stage 5D r1-r4 receipt validation missing: canonical package bytes comparison"),
     ("riskrec_r1r4_final_checkpoint_complete_guard_removed", mutate_riskrec_r1r4_final_checkpoint_complete_guard_removed, "Stage 5D r1-r4 checkpoint validation missing: final complete-plan guard"),
     ("riskrec_r1r4_final_checkpoint_pending_guard_removed", mutate_riskrec_r1r4_final_checkpoint_pending_guard_removed, "Stage 5D r1-r4 checkpoint validation missing: final pending-cache guard"),
+    ("aggregate_positive_row_removed", mutate_aggregate_positive_row_removed, "Stage 5D aggregate closure scenario inventory count mismatch"),
+    ("aggregate_accepted_row_downgraded", mutate_aggregate_accepted_row_downgraded, "Stage 5D aggregate closure accepted/TODO partition mismatch"),
+    ("aggregate_duplicate_scenario_id", mutate_aggregate_duplicate_scenario_id, "Stage 5D aggregate closure duplicate scenario id"),
+    ("aggregate_owning_test_removed", mutate_aggregate_owning_test_removed, "Stage 5D aggregate closure owning test missing"),
+    ("aggregate_owning_test_not_executed", mutate_aggregate_owning_test_not_executed, "Stage 5D aggregate closure gate missing required positive group"),
+    ("aggregate_positive_count_forged", mutate_aggregate_positive_count_forged, "Stage 5D aggregate closure gate must derive positive count from inventory"),
+    ("aggregate_marker_copied_without_test", mutate_aggregate_marker_copied_without_test, "Stage 5D aggregate closure gate missing required positive group"),
+    ("aggregate_required_group_omitted", mutate_aggregate_required_group_omitted, "Stage 5D aggregate closure gate missing required positive group"),
+    ("aggregate_evidence_index_missing_scenario", mutate_aggregate_evidence_index_missing_scenario, "Stage 5D aggregate closure evidence generator binding missing"),
+    ("aggregate_evidence_wrong_commit_binding", mutate_aggregate_evidence_wrong_commit_binding, "Stage 5D aggregate closure evidence generator binding missing"),
+    ("aggregate_full_negative_log_omitted", mutate_aggregate_full_negative_log_omitted, "Stage 5D aggregate closure gate evidence binding missing"),
+    ("aggregate_golden_drift_log_omitted", mutate_aggregate_golden_drift_log_omitted, "Stage 5D aggregate closure gate evidence binding missing"),
+    ("aggregate_stage5e_opened", mutate_aggregate_stage5e_opened, "Stage 5D aggregate closure closed-surface mismatch"),
 ]
 
 

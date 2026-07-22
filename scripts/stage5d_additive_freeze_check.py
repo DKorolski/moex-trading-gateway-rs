@@ -101,7 +101,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "6379c0b2db10e8d4d77e1e5f2b6fd3e260413e163e9ee49523d6f3f60c615a2f",
+        "stage5d_consumer_sha256": "8c46e6e48a00c77f063b6c6cc262a46e58352230cdc919b489525511d1e3222b",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -115,7 +115,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "6379c0b2db10e8d4d77e1e5f2b6fd3e260413e163e9ee49523d6f3f60c615a2f",
+        "stage5d_consumer_sha256": "8c46e6e48a00c77f063b6c6cc262a46e58352230cdc919b489525511d1e3222b",
     },
 ]
 
@@ -437,9 +437,22 @@ EXPECTED_NEGATIVE_CASES = [
     "riskrec_r1r4_canonical_package_comparison_removed",
     "riskrec_r1r4_final_checkpoint_complete_guard_removed",
     "riskrec_r1r4_final_checkpoint_pending_guard_removed",
+    "aggregate_positive_row_removed",
+    "aggregate_accepted_row_downgraded",
+    "aggregate_duplicate_scenario_id",
+    "aggregate_owning_test_removed",
+    "aggregate_owning_test_not_executed",
+    "aggregate_positive_count_forged",
+    "aggregate_marker_copied_without_test",
+    "aggregate_required_group_omitted",
+    "aggregate_evidence_index_missing_scenario",
+    "aggregate_evidence_wrong_commit_binding",
+    "aggregate_full_negative_log_omitted",
+    "aggregate_golden_drift_log_omitted",
+    "aggregate_stage5e_opened",
 ]
 
-EXPECTED_STAGE = "5D-final-restart-r3-riskgate-recovery-r1-r4"
+EXPECTED_STAGE = "5D-final-restart-r3-aggregate-closure-r1"
 EXPECTED_FINAL_RESTART_INVENTORY_STAGE = "5D-final-restart-r2"
 
 EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
@@ -1534,9 +1547,14 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
         failures.append("Stage 5D final r3 resumption inventory schema mismatch")
     if inventory.get("stage") != "5D-final-restart-r3":
         failures.append("Stage 5D final r3 resumption inventory stage mismatch")
-    if inventory.get("status") != "riskgate_recovery_r1_r3_evidence_closed":
+    if inventory.get("status") not in {
+        "riskgate_recovery_r1_r3_evidence_closed",
+        "aggregate_closure_r1_candidate",
+    }:
         failures.append("Stage 5D final r3 riskgate recovery inventory must close 21/0 evidence")
-    if inventory.get("closed_surfaces") != EXPECTED_CLOSED_SURFACES:
+    expected_r3_closed = dict(EXPECTED_CLOSED_SURFACES)
+    expected_r3_closed["stage5e"] = False
+    if inventory.get("closed_surfaces") not in (EXPECTED_CLOSED_SURFACES, expected_r3_closed):
         failures.append("Stage 5D final r3 resumption inventory closed-surface mismatch")
     rows = inventory.get("scenario_rows")
     if not isinstance(rows, list):
@@ -2814,6 +2832,127 @@ def validate_stage5d_final_r3_riskgate_recovery_r1(
                 failures.append("Stage 5D final r3 riskgate-recovery focused gate evidence binding missing")
 
 
+
+
+def validate_stage5d_final_restart_r3_aggregate_closure(root: Path, failures: list[str]) -> None:
+    inventory_path = root / FINAL_RESTART_R3_INVENTORY_REL
+    manifest_path = root / MANIFEST_REL
+    gate_path = root / "scripts/stage5d_final_restart_r3_aggregate_closure_r1_gate.sh"
+    evidence_path = root / "scripts/stage5d_final_restart_r3_aggregate_evidence.py"
+    self_test_path = root / "scripts/stage5d_final_restart_r3_aggregate_self_test.py"
+    if not inventory_path.is_file():
+        failures.append("Stage 5D aggregate closure scenario inventory missing")
+        return
+    inventory = json.loads(inventory_path.read_text())
+    rows = inventory.get("scenario_rows", [])
+    if inventory.get("stage") != "5D-final-restart-r3":
+        failures.append("Stage 5D aggregate closure inventory stage mismatch")
+    if inventory.get("status") != "aggregate_closure_r1_candidate":
+        failures.append("Stage 5D aggregate closure inventory status mismatch")
+    if len(rows) != 21:
+        failures.append("Stage 5D aggregate closure scenario inventory count mismatch")
+    case_ids = [row.get("case_id") for row in rows]
+    if len(case_ids) != len(set(case_ids)):
+        failures.append("Stage 5D aggregate closure duplicate scenario id")
+    accepted = [row for row in rows if str(row.get("execution_status", "")).startswith("accepted_")]
+    todo = [row for row in rows if row.get("execution_status") == "todo_source_produced"]
+    if len(accepted) != 21 or todo:
+        failures.append("Stage 5D aggregate closure accepted/TODO partition mismatch")
+    required_groups = {
+        "stage5d_final_r3a_source_pending_entry_full_restart_matrix",
+        "stage5d_final_r3_positive_core_source_produced_full_restart_matrix",
+        "stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix",
+        "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix",
+        "stage5d_final_r3_recovery_index_r1_source_produced_full_restart_matrix",
+        "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix",
+    }
+    owning_tests = {row.get("owning_test") for row in rows}
+    if owning_tests != required_groups:
+        failures.append("Stage 5D aggregate closure owning-test group mismatch")
+    for row in rows:
+        if not row.get("owning_test"):
+            failures.append("Stage 5D aggregate closure owning test missing")
+        if row.get("stage5c_continuation_executed") is False:
+            failures.append("Stage 5D aggregate closure scenario Stage 5C continuation missing")
+    closed = inventory.get("closed_surfaces", {})
+    expected_closed = {
+        "stage5e": False,
+        "redis": False,
+        "finam": False,
+        "transport": False,
+        "dispatch": False,
+        "runtime_live": False,
+        "broker_execution": False,
+    }
+    for key, expected in expected_closed.items():
+        if closed.get(key) is not expected:
+            failures.append("Stage 5D aggregate closure closed-surface mismatch")
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get("stage") != EXPECTED_STAGE:
+        failures.append(f"stage must be {EXPECTED_STAGE}")
+    if manifest.get("closed_surfaces", {}).get("runtime_live") is not False:
+        failures.append("Stage 5D aggregate closure closed-surface mismatch")
+    if not gate_path.is_file():
+        failures.append("Stage 5D aggregate closure gate missing")
+        return
+    gate = gate_path.read_text()
+    required_gate_calls = {
+        'run_positive_group "r3a_pending_entry" "stage5d_final_r3a_source_pending_entry_full_restart_matrix"',
+        'run_positive_group "positive_core" "stage5d_final_r3_positive_core_source_produced_full_restart_matrix"',
+        'run_positive_group "current_shadow" "stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix"',
+        'run_positive_group "operational_state" "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix"',
+        'run_positive_group "recovery_index" "stage5d_final_r3_recovery_index_r1_source_produced_full_restart_matrix"',
+        'run_positive_group "riskgate_recovery" "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix"',
+    }
+    for call in required_gate_calls:
+        if call not in gate:
+            failures.append("Stage 5D aggregate closure gate missing required positive group")
+    for token in [
+        "positive_cases_executed={len(accepted)}",
+        "positive_cases_failed=0",
+        "python3 scripts/stage5d_additive_freeze_negative_harness.py",
+        "python3 scripts/stage5c_api_freeze_check.py",
+        "python3 scripts/stage5d_additive_freeze_check.py",
+        'python3 scripts/stage5d_additive_freeze_check.py | tee "$golden_log"',
+        'python3 scripts/stage5d_additive_freeze_negative_harness.py | tee "$negative_log"',
+        "bash scripts/forbidden_surface_scan.sh",
+        "bash scripts/test_m4_3x_evidence_no_redis.sh",
+        "stage5d_final_r2_package_negative_matrix_fails_closed",
+        "stage5d_final_restart_r3_aggregate_evidence.py",
+    ]:
+        if token not in gate:
+            failures.append("Stage 5D aggregate closure gate evidence binding missing")
+    if "positive_cases_executed=21" in gate:
+        failures.append("Stage 5D aggregate closure gate must derive positive count from inventory")
+    if not evidence_path.is_file():
+        failures.append("Stage 5D aggregate closure evidence generator missing")
+    else:
+        evidence = evidence_path.read_text()
+        for token in [
+            '"scenario_results"',
+            '"aggregate_fingerprints"',
+            '"freeze_oracle_sidecar"',
+            '"production_dependency": False',
+            'run_text(["git", "rev-parse", "HEAD"])',
+            '"negative_case_count"',
+            '"logs"',
+        ]:
+            if token not in evidence:
+                failures.append("Stage 5D aggregate closure evidence generator binding missing")
+    if not self_test_path.is_file():
+        failures.append("Stage 5D aggregate closure checker self-test missing")
+    else:
+        self_test = self_test_path.read_text()
+        for token in [
+            "missing_positive_group",
+            "missing_scenario",
+            "forged_executed_count",
+            "omitted_stage5c_continuation",
+            "stage5e_opened",
+        ]:
+            if token not in self_test:
+                failures.append("Stage 5D aggregate closure checker self-test coverage missing")
+
 def validate(root: Path, manifest_path: Path) -> list[str]:
     failures: list[str] = []
     manifest = json.loads(manifest_path.read_text())
@@ -2830,6 +2969,7 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
         failures.append("manifest_checker mismatch")
     if manifest.get("negative_harness") != EXPECTED_NEGATIVE_HARNESS:
         failures.append("negative_harness mismatch")
+    validate_stage5d_final_restart_r3_aggregate_closure(root, failures)
     if manifest.get("stage5d_riskrec_exact_fixtures") != EXPECTED_RISKREC_EXACT_FIXTURES:
         failures.append("Stage 5D final r3 riskgate-recovery exact fixture manifest mismatch")
     if manifest.get("stage5d_riskrec_summary_goldens") != EXPECTED_RISKREC_SUMMARY_GOLDENS:
