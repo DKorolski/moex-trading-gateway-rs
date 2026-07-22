@@ -54,6 +54,17 @@ The callback bar must be the first fresh semantic bar after the completed
 pre-callback lifecycle. Historical warmup bars and replay/recovery artifacts are
 not eligible to produce new trading intents.
 
+Stage 5E must keep four time/position domains separate:
+
+- lifecycle wall-clock timestamps: `checked <= issued <= bootstrap_notified <=
+  restored <= warmup_started <= recovery_completed <= callback_processed`;
+- market event time: `last_history_close < first_fresh_live_bar_close <=
+  callback_processed`;
+- broker recovery event time: broker event source timestamps must be accepted
+  before recovery is marked complete;
+- stream positions: Redis/stream IDs are opaque positions and must not be
+  compared to Unix timestamps or market bar close time.
+
 ## Mandatory gates for later implementation
 
 Stage 5E implementation is not allowed until these conditions are represented

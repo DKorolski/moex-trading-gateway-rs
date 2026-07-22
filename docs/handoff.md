@@ -37,8 +37,20 @@ handoff-manifest.json
   created_at_utc
   Stage 5C/Stage 5D checker and Stage 5D manifest SHA-256 values
   current_review_stage and optional Stage 5E checker/inventory SHA-256 values
+  optional Stage 5E plan and fresh gate-result SHA-256 values
   required_gate_names
 ```
+
+When `current_review_stage` is a Stage 5E stage, the archive also contains:
+
+```text
+handoff-stage5e-gate-result.json
+```
+
+The archive safety checker validates the Stage 5E checker, inventory, plan and
+fresh gate-result hashes, the `current_review_stage`/inventory stage binding,
+the Stage 5D baseline ref, closed-surface markers and the gate-result
+`source_ref`.
 
 The script also creates the external sibling
 `moex-trading-project-<short>.zip.sha256`. The archive hash is deliberately not

@@ -101,6 +101,70 @@ def check_archive(path: Path) -> None:
             actual = hashlib.sha256(archive.read(member)).hexdigest()
             if actual != expected:
                 raise SystemExit(f"handoff safety: {field} mismatch")
+        current_review_stage = manifest.get("current_review_stage")
+        stage5e_declared = any(
+            key in manifest
+            for key in [
+                "stage5e_checker_sha256",
+                "stage5e_inventory_sha256",
+                "stage5e_plan_sha256",
+                "stage5e_gate_result_sha256",
+            ]
+        )
+        if stage5e_declared and (
+            not isinstance(current_review_stage, str)
+            or not current_review_stage.startswith("5E-")
+        ):
+            raise SystemExit("handoff safety: current_review_stage/Stage 5E inventory mismatch")
+        if isinstance(current_review_stage, str) and current_review_stage.startswith("5E-"):
+            stage5e_inventory_name = (
+                "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json"
+            )
+            stage5e_plan_name = "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md"
+            stage5e_checker_name = "scripts/stage5e_lifecycle_event_time_freeze_check.py"
+            stage5e_gate_result_name = "handoff-stage5e-gate-result.json"
+            for member in [
+                stage5e_inventory_name,
+                stage5e_plan_name,
+                stage5e_checker_name,
+                stage5e_gate_result_name,
+            ]:
+                if member not in names:
+                    raise SystemExit(f"handoff safety: missing Stage 5E member: {member}")
+            for field, member in [
+                ("stage5e_checker_sha256", stage5e_checker_name),
+                ("stage5e_inventory_sha256", stage5e_inventory_name),
+                ("stage5e_plan_sha256", stage5e_plan_name),
+                ("stage5e_gate_result_sha256", stage5e_gate_result_name),
+            ]:
+                expected = manifest.get(field)
+                if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+                    raise SystemExit(f"handoff safety: missing or invalid {field}")
+                actual = hashlib.sha256(archive.read(member)).hexdigest()
+                if actual != expected:
+                    raise SystemExit(f"handoff safety: {field} mismatch")
+            stage5e_inventory = json.loads(archive.read(stage5e_inventory_name))
+            if not isinstance(stage5e_inventory, dict):
+                raise SystemExit("handoff safety: Stage 5E inventory must be a JSON object")
+            if current_review_stage != stage5e_inventory.get("stage"):
+                raise SystemExit("handoff safety: current_review_stage/Stage 5E inventory mismatch")
+            if (
+                stage5e_inventory.get("source_stage5d_aggregate_closure_r2_ref")
+                != "9ebbfd29d0346be5149dac746225866f0c8d0257"
+            ):
+                raise SystemExit("handoff safety: Stage 5E source baseline ref mismatch")
+            if stage5e_inventory.get("baseline_ref") != "9ebbfd29d0346be5149dac746225866f0c8d0257":
+                raise SystemExit("handoff safety: Stage 5E baseline_ref mismatch")
+            closed = stage5e_inventory.get("closed_surfaces")
+            if not isinstance(closed, dict) or any(value is not False for value in closed.values()):
+                raise SystemExit("handoff safety: Stage 5E closed-surface mismatch")
+            gate_result = json.loads(archive.read(stage5e_gate_result_name))
+            if not isinstance(gate_result, dict):
+                raise SystemExit("handoff safety: Stage 5E gate result must be a JSON object")
+            if gate_result.get("gate_id") != "stage5e_lifecycle_event_time":
+                raise SystemExit("handoff safety: Stage 5E gate result id mismatch")
+            if gate_result.get("exit_code") != 0:
+                raise SystemExit("handoff safety: Stage 5E gate did not pass")
         source_commit = manifest.get("source_commit")
         source_ref = manifest.get("source_ref")
         if not isinstance(source_commit, str) or not re.fullmatch(
@@ -119,6 +183,10 @@ def check_archive(path: Path) -> None:
         ]
         if marker != expected_marker or archive_name != path.name:
             raise SystemExit("handoff safety: provenance marker/manifest mismatch")
+        if isinstance(current_review_stage, str) and current_review_stage.startswith("5E-"):
+            gate_result = json.loads(archive.read("handoff-stage5e-gate-result.json"))
+            if gate_result.get("source_ref") != source_ref:
+                raise SystemExit("handoff safety: Stage 5E gate source_ref mismatch")
     print("handoff-archive-safety: ok")
 
 

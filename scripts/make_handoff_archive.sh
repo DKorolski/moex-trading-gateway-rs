@@ -18,11 +18,12 @@ archive_path="$archive_dir/$archive_name"
 sha_path="$archive_path.sha256"
 commit_marker="$repo_root/handoff-commit.txt"
 handoff_manifest="$repo_root/handoff-manifest.json"
+stage5e_gate_result="$repo_root/handoff-stage5e-gate-result.json"
 completed=0
 
 cleanup() {
   local status=$?
-  rm -f "$commit_marker" "$handoff_manifest"
+  rm -f "$commit_marker" "$handoff_manifest" "$stage5e_gate_result"
   if [[ "$completed" -ne 1 ]]; then
     rm -f "$archive_path" "$sha_path"
   fi
@@ -49,17 +50,69 @@ PY
 )"
 stage5e_checker_sha256=""
 stage5e_inventory_sha256=""
+stage5e_plan_sha256=""
+stage5e_gate_result_sha256=""
 current_review_stage="$review_stage"
 if [[ -f "$repo_root/scripts/stage5e_lifecycle_event_time_freeze_check.py" ]] \
   && [[ -f "$repo_root/docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json" ]]; then
   stage5e_checker_sha256="$(shasum -a 256 "$repo_root/scripts/stage5e_lifecycle_event_time_freeze_check.py" | awk '{print $1}')"
   stage5e_inventory_sha256="$(shasum -a 256 "$repo_root/docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json" | awk '{print $1}')"
+  stage5e_plan_sha256="$(shasum -a 256 "$repo_root/docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md" | awk '{print $1}')"
   current_review_stage="$(python3 - "$repo_root/docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json" <<'PY'
 import json
 import sys
 print(json.loads(open(sys.argv[1]).read())["stage"])
 PY
 )"
+  stage5e_stdout="$(mktemp "$archive_dir/stage5e-gate-stdout.XXXXXX")"
+  stage5e_stderr="$(mktemp "$archive_dir/stage5e-gate-stderr.XXXXXX")"
+  stage5e_started_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  set +e
+  (
+    cd "$repo_root"
+    bash scripts/stage5e_lifecycle_event_time_gate.sh
+  ) >"$stage5e_stdout" 2>"$stage5e_stderr"
+  stage5e_exit_code="$?"
+  set -e
+  stage5e_finished_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  if [[ "$stage5e_exit_code" -ne 0 ]]; then
+    cat "$stage5e_stdout"
+    cat "$stage5e_stderr" >&2
+    rm -f "$stage5e_stdout" "$stage5e_stderr"
+    echo "Stage 5E gate failed before handoff packaging." >&2
+    exit "$stage5e_exit_code"
+  fi
+  STAGE5E_STARTED_AT_UTC="$stage5e_started_at_utc" \
+  STAGE5E_FINISHED_AT_UTC="$stage5e_finished_at_utc" \
+  STAGE5E_EXIT_CODE="$stage5e_exit_code" \
+  STAGE5E_STDOUT_SHA256="$(shasum -a 256 "$stage5e_stdout" | awk '{print $1}')" \
+  STAGE5E_STDERR_SHA256="$(shasum -a 256 "$stage5e_stderr" | awk '{print $1}')" \
+  STAGE5E_STDOUT_LINE_COUNT="$(wc -l <"$stage5e_stdout" | tr -d ' ')" \
+  STAGE5E_STDERR_LINE_COUNT="$(wc -l <"$stage5e_stderr" | tr -d ' ')" \
+  SOURCE_REF="$source_ref" \
+  python3 - "$stage5e_gate_result" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+result = {
+    "schema_version": 1,
+    "gate_id": "stage5e_lifecycle_event_time",
+    "command": ["bash", "scripts/stage5e_lifecycle_event_time_gate.sh"],
+    "source_ref": os.environ["SOURCE_REF"],
+    "started_at_utc": os.environ["STAGE5E_STARTED_AT_UTC"],
+    "finished_at_utc": os.environ["STAGE5E_FINISHED_AT_UTC"],
+    "exit_code": int(os.environ["STAGE5E_EXIT_CODE"]),
+    "stdout_sha256": os.environ["STAGE5E_STDOUT_SHA256"],
+    "stderr_sha256": os.environ["STAGE5E_STDERR_SHA256"],
+    "stdout_line_count": int(os.environ["STAGE5E_STDOUT_LINE_COUNT"]),
+    "stderr_line_count": int(os.environ["STAGE5E_STDERR_LINE_COUNT"]),
+}
+Path(sys.argv[1]).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+PY
+  rm -f "$stage5e_stdout" "$stage5e_stderr"
+  stage5e_gate_result_sha256="$(shasum -a 256 "$stage5e_gate_result" | awk '{print $1}')"
 fi
 created_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
@@ -72,6 +125,8 @@ STAGE5D_CHECKER_SHA256="$stage5d_checker_sha256" \
 STAGE5D_MANIFEST_SHA256="$stage5d_manifest_sha256" \
 STAGE5E_CHECKER_SHA256="$stage5e_checker_sha256" \
 STAGE5E_INVENTORY_SHA256="$stage5e_inventory_sha256" \
+STAGE5E_PLAN_SHA256="$stage5e_plan_sha256" \
+STAGE5E_GATE_RESULT_SHA256="$stage5e_gate_result_sha256" \
 REVIEW_STAGE="$review_stage" \
 CURRENT_REVIEW_STAGE="$current_review_stage" \
 HANDOFF_MANIFEST="$handoff_manifest" \
@@ -93,6 +148,8 @@ manifest = {
     "stage5d_manifest_sha256": os.environ["STAGE5D_MANIFEST_SHA256"],
     "stage5e_checker_sha256": os.environ["STAGE5E_CHECKER_SHA256"],
     "stage5e_inventory_sha256": os.environ["STAGE5E_INVENTORY_SHA256"],
+    "stage5e_plan_sha256": os.environ["STAGE5E_PLAN_SHA256"],
+    "stage5e_gate_result_sha256": os.environ["STAGE5E_GATE_RESULT_SHA256"],
     "required_gate_names": [
         "stage5e_lifecycle_event_time",
         "stage5c_api_freeze",

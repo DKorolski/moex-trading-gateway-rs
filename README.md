@@ -20,8 +20,11 @@ paper/no-send host is accepted and frozen; Stage 5D is accepted as the
 source-exact persistence, restart and recovery-semantics foundation. Stage 5E-a
 is now a design/inventory-only review candidate for lifecycle/event-time
 attachment: it freezes the required chain from validated broker truth through
-restore, warmup, recovery and the first eligible callback. Redis, FINAM,
-transport, dispatch, runtime-live and real execution remain closed.
+restore, warmup, recovery and the first eligible callback. Stage 5E-a1 hardens
+the governance around that package: Stage 5E provenance hashes, fresh gate
+evidence, design-only allowlist and typed watermark domains are checked by
+handoff safety. Redis, FINAM, transport, dispatch, runtime-live and real
+execution remain closed.
 
 This repository is not enabled for continuous live trading.
 

@@ -251,8 +251,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   exact summary goldens and Stage 5C warmup continuation. Aggregate Stage 5D
   closure r2 is accepted as the no-I/O persistence/restart/recovery-semantics
   foundation. Stage 5E-a is a design/inventory-only review candidate for the
-  lifecycle/event-time attachment contract; Redis, FINAM, broker transport,
-  dispatch, runtime-live and real execution remain closed.
+  lifecycle/event-time attachment contract. Stage 5E-a1 hardens the governance
+  boundary by validating Stage 5E handoff hashes, fresh gate evidence,
+  design-only diff allowlist, exact inventory schema and typed watermark
+  domains. Redis, FINAM, broker transport, dispatch, runtime-live and real
+  execution remain closed.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

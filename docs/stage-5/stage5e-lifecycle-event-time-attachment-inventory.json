@@ -2,8 +2,22 @@
   "schema_version": 1,
   "stage": "5E-a-lifecycle-event-time-attachment-plan",
   "status": "review_candidate_design_inventory_only",
+  "baseline_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
   "source_stage5d_aggregate_closure_r2_short_ref": "9ebbfd2",
+  "allowed_changed_paths": [
+    ".github/workflows/ci.yml",
+    "README.md",
+    "docs/current-status.md",
+    "docs/handoff.md",
+    "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md",
+    "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json",
+    "scripts/handoff_provenance_negative_harness.py",
+    "scripts/handoff_safety_check.py",
+    "scripts/make_handoff_archive.sh",
+    "scripts/stage5e_lifecycle_event_time_freeze_check.py",
+    "scripts/stage5e_lifecycle_event_time_gate.sh"
+  ],
   "closed_surfaces": {
     "autonomous_event_loop": false,
     "broker_execution": false,
@@ -22,6 +36,51 @@
     "canonical_history_warmup",
     "pending_stream_recovery",
     "first_eligible_strategy_callback"
+  ],
+  "typed_watermark_domains": [
+    {
+      "comparison_domain": "utc_wall_clock",
+      "id": "lifecycle_wall_clock_boundary",
+      "ordered_fields": [
+        "checked_at_utc",
+        "issued_at_utc",
+        "bootstrap_notified_at_utc",
+        "runtime_state_restored_at_utc",
+        "warmup_started_at_utc",
+        "recovery_completed_at_utc",
+        "callback_processed_at_utc"
+      ]
+    },
+    {
+      "comparison_domain": "market_bar_close_time",
+      "id": "market_event_time_boundary",
+      "ordered_fields": [
+        "last_history_bar_close_ts_utc",
+        "first_fresh_live_bar_close_ts_utc",
+        "callback_bar_close_ts_utc"
+      ]
+    },
+    {
+      "comparison_domain": "broker_event_source_time",
+      "id": "recovery_event_boundary",
+      "ordered_fields": [
+        "broker_event_source_ts_utc",
+        "recovery_completed_at_utc"
+      ]
+    },
+    {
+      "comparison_domain": "opaque_stream_position",
+      "id": "stream_position_boundary",
+      "not_comparable_with": [
+        "utc_wall_clock",
+        "market_bar_close_time",
+        "broker_event_source_time"
+      ],
+      "ordered_fields": [
+        "snapshot_boundary_stream_id",
+        "replay_eligible_stream_id"
+      ]
+    }
   ],
   "binding_documents": [
     "docs/stage-5/5d-final-restart-r3-aggregate-closure-r2-review-summary.md",
@@ -65,6 +124,34 @@
     },
     {
       "id": "exact_numeric_and_semantic_adr_entry_enforcement",
+      "status": "planned_no_io_check"
+    },
+    {
+      "id": "broker_truth_fresh_through_first_callback",
+      "status": "planned_no_io_check"
+    },
+    {
+      "id": "replay_bar_observation_only_and_zero_executable_intents",
+      "status": "planned_no_io_check"
+    },
+    {
+      "id": "first_live_bar_callback_exactly_once",
+      "status": "planned_no_io_check"
+    },
+    {
+      "id": "duplicate_bar_identity_rejected",
+      "status": "planned_no_io_check"
+    },
+    {
+      "id": "invalid_bar_rejected_before_state_mutation",
+      "status": "planned_no_io_check"
+    },
+    {
+      "id": "pending_recovery_complete_before_semantic_bar",
+      "status": "planned_no_io_check"
+    },
+    {
+      "id": "unknown_session_or_clearing_state_blocks_callback",
       "status": "planned_no_io_check"
     }
   ],
