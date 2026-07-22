@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-07-18.
+Status date: 2026-07-22.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -248,9 +248,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   rows with a crate-private production recovery executor, typed checkpoint and
   final receipts, fresh reader reopen checks, pre/post-commit crash idempotency,
   persisted final-receipt equality, source-produced pending finalizations,
-  exact summary goldens and Stage 5C warmup continuation. Stage 5E, Redis,
-  FINAM, broker transport, dispatch, runtime-live and real execution remain
-  closed. Aggregate Stage 5D closure r2 is prepared as the current evidence/governance-only review gate; Stage 5E remains closed pending acceptance.
+  exact summary goldens and Stage 5C warmup continuation. Aggregate Stage 5D
+  closure r2 is accepted as the no-I/O persistence/restart/recovery-semantics
+  foundation. Stage 5E-a is a design/inventory-only review candidate for the
+  lifecycle/event-time attachment contract; Redis, FINAM, broker transport,
+  dispatch, runtime-live and real execution remain closed.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

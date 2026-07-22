@@ -16,16 +16,12 @@ runtime bootstrap are in place.
 Stage 5 is active: the real IMOEXF `HybridIntradayRuntime` semantics are being
 migrated from the frozen ALOR source. The BO/MR/high180/riskgate kernel and the
 integrated broker-neutral runtime wrapper are present. Stage 5C's deterministic
-paper/no-send host is accepted and frozen; Stage 5D is adding a versioned,
-source-exact persistence restore path. The Stage 5D-final-restart-r2 durable
-package is retained as foundation. Stage 5D-final-restart-r3 now has a 21-case
-mandatory positive inventory with 21 accepted executable rows and 0 TODO rows.
-Aggregate closure r2 is the current evidence/governance-only review candidate.
-The latest riskgate-recovery r1-r4 closure moves the recovery executor to a
-crate-private production type-state path, uses typed checkpoint/final receipts,
-and proves pre/post-commit crash idempotency through a bounded file-backed
-store. Stage 5E, Redis, FINAM, transport, dispatch, runtime-live and real
-execution remain closed.
+paper/no-send host is accepted and frozen; Stage 5D is accepted as the
+source-exact persistence, restart and recovery-semantics foundation. Stage 5E-a
+is now a design/inventory-only review candidate for lifecycle/event-time
+attachment: it freezes the required chain from validated broker truth through
+restore, warmup, recovery and the first eligible callback. Redis, FINAM,
+transport, dispatch, runtime-live and real execution remain closed.
 
 This repository is not enabled for continuous live trading.
 
@@ -85,6 +81,8 @@ bash scripts/forbidden_surface_negative_harness.sh
 python3 scripts/stage5d_additive_freeze_negative_harness.py
 # Full Stage 5D restart-closure gate:
 bash scripts/stage5d_b2bc_review_gate.sh
+# Stage 5E-a no-live/no-send lifecycle/event-time gate:
+bash scripts/stage5e_lifecycle_event_time_gate.sh
 # Focused final Stage 5D restart-closure check:
 cargo test -p strategy-runtime-core stage5d_final -- --nocapture
 ```

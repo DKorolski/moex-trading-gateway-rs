@@ -47,6 +47,20 @@ import sys
 print(json.loads(open(sys.argv[1]).read())["stage"])
 PY
 )"
+stage5e_checker_sha256=""
+stage5e_inventory_sha256=""
+current_review_stage="$review_stage"
+if [[ -f "$repo_root/scripts/stage5e_lifecycle_event_time_freeze_check.py" ]] \
+  && [[ -f "$repo_root/docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json" ]]; then
+  stage5e_checker_sha256="$(shasum -a 256 "$repo_root/scripts/stage5e_lifecycle_event_time_freeze_check.py" | awk '{print $1}')"
+  stage5e_inventory_sha256="$(shasum -a 256 "$repo_root/docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json" | awk '{print $1}')"
+  current_review_stage="$(python3 - "$repo_root/docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json" <<'PY'
+import json
+import sys
+print(json.loads(open(sys.argv[1]).read())["stage"])
+PY
+)"
+fi
 created_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 SOURCE_COMMIT="$source_commit" \
@@ -56,7 +70,10 @@ CREATED_AT_UTC="$created_at_utc" \
 STAGE5C_CHECKER_SHA256="$stage5c_checker_sha256" \
 STAGE5D_CHECKER_SHA256="$stage5d_checker_sha256" \
 STAGE5D_MANIFEST_SHA256="$stage5d_manifest_sha256" \
+STAGE5E_CHECKER_SHA256="$stage5e_checker_sha256" \
+STAGE5E_INVENTORY_SHA256="$stage5e_inventory_sha256" \
 REVIEW_STAGE="$review_stage" \
+CURRENT_REVIEW_STAGE="$current_review_stage" \
 HANDOFF_MANIFEST="$handoff_manifest" \
 python3 - <<'PY'
 import json
@@ -65,6 +82,7 @@ from pathlib import Path
 
 manifest = {
     "schema_version": 1,
+    "current_review_stage": os.environ["CURRENT_REVIEW_STAGE"],
     "review_stage": os.environ["REVIEW_STAGE"],
     "source_commit": os.environ["SOURCE_COMMIT"],
     "source_ref": os.environ["SOURCE_REF"],
@@ -73,7 +91,10 @@ manifest = {
     "stage5c_checker_sha256": os.environ["STAGE5C_CHECKER_SHA256"],
     "stage5d_checker_sha256": os.environ["STAGE5D_CHECKER_SHA256"],
     "stage5d_manifest_sha256": os.environ["STAGE5D_MANIFEST_SHA256"],
+    "stage5e_checker_sha256": os.environ["STAGE5E_CHECKER_SHA256"],
+    "stage5e_inventory_sha256": os.environ["STAGE5E_INVENTORY_SHA256"],
     "required_gate_names": [
+        "stage5e_lifecycle_event_time",
         "stage5c_api_freeze",
         "stage5d_additive_freeze",
         "forbidden_surface",

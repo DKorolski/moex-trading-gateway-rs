@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "stage": "5E-a-lifecycle-event-time-attachment-plan",
+  "status": "review_candidate_design_inventory_only",
+  "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
+  "source_stage5d_aggregate_closure_r2_short_ref": "9ebbfd2",
+  "closed_surfaces": {
+    "autonomous_event_loop": false,
+    "broker_execution": false,
+    "dispatch": false,
+    "finam": false,
+    "redis": false,
+    "runtime_live": false,
+    "strategy_intent_sink": false,
+    "transport": false
+  },
+  "lifecycle_chain": [
+    "validated_broker_truth",
+    "runtime_state_restore",
+    "bootstrap_notification",
+    "restored_state_notification",
+    "canonical_history_warmup",
+    "pending_stream_recovery",
+    "first_eligible_strategy_callback"
+  ],
+  "binding_documents": [
+    "docs/stage-5/5d-final-restart-r3-aggregate-closure-r2-review-summary.md",
+    "docs/adr/adr-stage5d-exact-numeric-persistence.md",
+    "docs/adr/adr-stage5d-semantic-compatibility-policy.md",
+    "docs/stage-5-real-strategy-semantics-plan.md",
+    "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md"
+  ],
+  "required_future_executable_checks": [
+    {
+      "id": "callback_after_validated_truth_and_stage5d_restore",
+      "status": "planned_no_io_check"
+    },
+    {
+      "id": "canonical_final_m10_only",
+      "status": "planned_no_io_check"
+    },
+    {
+      "id": "monotonic_event_time_watermarks",
+      "status": "planned_no_io_check"
+    },
+    {
+      "id": "warmup_sufficiency_source_compatible",
+      "status": "planned_no_io_check"
+    },
+    {
+      "id": "reconnect_gap_proof_before_first_fresh_bar",
+      "status": "planned_no_io_check"
+    },
+    {
+      "id": "session_day_rollover_and_weekend_policy",
+      "status": "planned_no_io_check"
+    },
+    {
+      "id": "blocked_report_zero_callbacks",
+      "status": "planned_no_io_check"
+    },
+    {
+      "id": "restart_replay_determinism",
+      "status": "planned_no_io_check"
+    },
+    {
+      "id": "exact_numeric_and_semantic_adr_entry_enforcement",
+      "status": "planned_no_io_check"
+    }
+  ],
+  "stage5e_a_claims": {
+    "design_inventory_only": true,
+    "callback_implementation_added": false,
+    "redis_opened": false,
+    "finam_opened": false,
+    "transport_opened": false,
+    "dispatch_opened": false,
+    "runtime_live_opened": false,
+    "broker_execution_opened": false
+  }
+}

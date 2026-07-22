@@ -36,6 +36,7 @@ handoff-manifest.json
   source_commit/source_ref/archive_name
   created_at_utc
   Stage 5C/Stage 5D checker and Stage 5D manifest SHA-256 values
+  current_review_stage and optional Stage 5E checker/inventory SHA-256 values
   required_gate_names
 ```
 
