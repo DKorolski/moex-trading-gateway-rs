@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CHECKER = Path("scripts/stage5d_additive_freeze_check.py")
 INVENTORY = Path("docs/stage-5/stage5d-final-restart-r3-scenario-inventory.json")
 MANIFEST = Path("docs/stage-5/stage-5d-additive-freeze-manifest.json")
-GATE = Path("scripts/stage5d_final_restart_r3_aggregate_closure_r1_gate.sh")
+GATE = Path("scripts/stage5d_final_restart_r3_aggregate_closure_r2.py")
 
 
 @dataclass(frozen=True)
@@ -93,7 +93,7 @@ def mutate(root: Path, kind: str) -> None:
         path = root / GATE
         source = path.read_text()
         source = source.replace(
-            'run_positive_group "riskgate_recovery" "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix"\n',
+            '    ("positive_riskgate_recovery", "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix"),\n',
             "",
         )
         path.write_text(source)
@@ -104,7 +104,9 @@ def mutate(root: Path, kind: str) -> None:
         path.write_text(json.dumps(inventory, indent=2, ensure_ascii=False) + "\n")
     elif kind == "forged_executed_count":
         path = root / GATE
-        source = path.read_text().replace("positive_cases_executed={len(accepted)}", "positive_cases_executed=21")
+        source = path.read_text().replace(
+            "mandatory_positive_count=21", "positive_cases_executed=21"
+        )
         path.write_text(source)
     elif kind == "omitted_stage5c_continuation":
         path = root / INVENTORY
@@ -138,7 +140,7 @@ def run_checker(root: Path) -> tuple[int, str]:
 
 
 def main() -> int:
-    print("stage5d-aggregate-closure-r1-checker-self-test: start")
+    print("stage5d-aggregate-closure-r2-checker-self-test: start")
     with tempfile.TemporaryDirectory(prefix="stage5d-aggregate-self-test-") as tmp:
         base = Path(tmp)
         for case in CASES:
@@ -156,7 +158,7 @@ def main() -> int:
                 print(diagnostics)
                 return 1
             print(f"PASS {case.name}: {case.expected}")
-    print("stage5d-aggregate-closure-r1-checker-self-test: ok")
+    print("stage5d-aggregate-closure-r2-checker-self-test: ok")
     return 0
 
 

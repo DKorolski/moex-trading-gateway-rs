@@ -20,7 +20,7 @@ paper/no-send host is accepted and frozen; Stage 5D is adding a versioned,
 source-exact persistence restore path. The Stage 5D-final-restart-r2 durable
 package is retained as foundation. Stage 5D-final-restart-r3 now has a 21-case
 mandatory positive inventory with 21 accepted executable rows and 0 TODO rows.
-Aggregate closure r1 is the current review candidate.
+Aggregate closure r2 is the current evidence/governance-only review candidate.
 The latest riskgate-recovery r1-r4 closure moves the recovery executor to a
 crate-private production type-state path, uses typed checkpoint/final receipts,
 and proves pre/post-commit crash idempotency through a bounded file-backed

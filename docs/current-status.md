@@ -250,7 +250,7 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   persisted final-receipt equality, source-produced pending finalizations,
   exact summary goldens and Stage 5C warmup continuation. Stage 5E, Redis,
   FINAM, broker transport, dispatch, runtime-live and real execution remain
-  closed. Aggregate Stage 5D closure r1 is prepared as the current review gate; Stage 5E remains closed pending acceptance.
+  closed. Aggregate Stage 5D closure r2 is prepared as the current evidence/governance-only review gate; Stage 5E remains closed pending acceptance.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

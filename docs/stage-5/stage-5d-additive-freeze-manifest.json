@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "5D-final-restart-r3-aggregate-closure-r1",
+  "stage": "5D-final-restart-r3-aggregate-closure-r2",
   "status": "additive_freeze_candidate",
   "manifest_checker": "scripts/stage5d_additive_freeze_check.py",
   "negative_harness": "scripts/stage5d_additive_freeze_negative_harness.py",
@@ -89,7 +89,7 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "8c46e6e48a00c77f063b6c6cc262a46e58352230cdc919b489525511d1e3222b"
+      "stage5d_consumer_sha256": "02bbfb225f33a8f60bab860817f01d340bdf91076d3cbcd59114386c8ac12f4d"
     },
     {
       "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -103,12 +103,12 @@
       "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
       "source_codec_owner": "hybrid_intraday/risk_gate.rs",
       "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-      "stage5d_consumer_sha256": "8c46e6e48a00c77f063b6c6cc262a46e58352230cdc919b489525511d1e3222b"
+      "stage5d_consumer_sha256": "02bbfb225f33a8f60bab860817f01d340bdf91076d3cbcd59114386c8ac12f4d"
     }
   ],
   "stage5d_persistence_file": {
     "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-    "current_sha256": "8c46e6e48a00c77f063b6c6cc262a46e58352230cdc919b489525511d1e3222b"
+    "current_sha256": "02bbfb225f33a8f60bab860817f01d340bdf91076d3cbcd59114386c8ac12f4d"
   },
   "stage5d_riskrec_exact_fixtures": {
     "tests/fixtures/stage5/stage5d_riskrec_single_pending_package.json": "304b01de4df838952ff07637346e218379f808cb706b24c0165f33c45556bb6e",

@@ -19057,7 +19057,7 @@ mod tests {
         .expect("Stage 5D-final-restart-r3 inventory must parse");
         assert_eq!(inventory["schema_version"], serde_json::json!(1));
         assert_eq!(inventory["stage"], "5D-final-restart-r3");
-        assert_eq!(inventory["status"], "aggregate_closure_r1_candidate");
+        assert_eq!(inventory["status"], "aggregate_closure_r2_candidate");
         for surface in [
             "stage5e",
             "redis",

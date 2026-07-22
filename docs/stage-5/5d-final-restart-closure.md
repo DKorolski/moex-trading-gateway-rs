@@ -1,5 +1,8 @@
 # Stage 5D final restart closure
 
+Status: historical/superseded. The authoritative current status is
+[Stage 5D-final-restart-r3 aggregate closure r2](5d-final-restart-r3-aggregate-closure-r2-review-summary.md).
+
 Status: Stage 5D-final-restart-r2 retained foundation plus accepted
 Stage 5D-final-restart-r3a-r1 restore-ownership proof, accepted r3 resumption
 inventory gate, positive-core-r1b actual-source clean/open package evidence,

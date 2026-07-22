@@ -1,5 +1,8 @@
 # Stage 5D-final-restart-r3 — resumption inventory gate
 
+Status: historical/superseded. The authoritative current status is
+[Stage 5D-final-restart-r3 aggregate closure r2](5d-final-restart-r3-aggregate-closure-r2-review-summary.md).
+
 Status: review candidate, no-I/O. This is a
 resumption/current-shadow-r1-r1 slice after accepted
 Stage 5D-final-restart-r3a-r1 and positive-core-r1b, not full r3 closure.

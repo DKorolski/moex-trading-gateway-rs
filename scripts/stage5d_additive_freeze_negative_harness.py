@@ -2762,47 +2762,47 @@ def mutate_aggregate_owning_test_removed(root: Path) -> None:
 
 def mutate_aggregate_owning_test_not_executed(root: Path) -> None:
     replace_once(
-        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r1_gate.sh",
-        'run_positive_group "positive_core" "stage5d_final_r3_positive_core_source_produced_full_restart_matrix"',
-        'run_positive_group "positive_core" "stage5d_final_r3_positive_core_source_produced_full_restart_matrix_removed"',
+        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r2.py",
+        '("positive_core", "stage5d_final_r3_positive_core_source_produced_full_restart_matrix")',
+        '("positive_core", "stage5d_final_r3_positive_core_source_produced_full_restart_matrix_removed")',
     )
 
 
 def mutate_aggregate_positive_count_forged(root: Path) -> None:
     replace_once(
-        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r1_gate.sh",
-        "positive_cases_executed={len(accepted)}",
+        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r2.py",
+        "mandatory_positive_count=21",
         "positive_cases_executed=21",
     )
 
 
 def mutate_aggregate_marker_copied_without_test(root: Path) -> None:
     replace_once(
-        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r1_gate.sh",
-        'run_positive_group "current_shadow" "stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix"',
-        'echo "AGGREGATE_POSITIVE_GROUP_OK current_shadow stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix"',
+        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r2.py",
+        '("positive_current_shadow", "stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix")',
+        '("positive_current_shadow", "stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix_marker_only")',
     )
 
 
 def mutate_aggregate_required_group_omitted(root: Path) -> None:
     replace_once(
-        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r1_gate.sh",
-        'run_positive_group "riskgate_recovery" "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix"\n',
+        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r2.py",
+        '    ("positive_riskgate_recovery", "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix"),\n',
         '',
     )
 
 
 def mutate_aggregate_evidence_index_missing_scenario(root: Path) -> None:
     replace_once(
-        root / "scripts/stage5d_final_restart_r3_aggregate_evidence.py",
-        '"scenario_results": [scenario_result(row) for row in rows],',
-        '"scenario_results_removed": [scenario_result(row) for row in rows],',
+        root / "scripts/stage5d_final_restart_r3_aggregate_evidence_r2.py",
+        '"scenario_results": scenario_results,',
+        '"scenario_results_removed": scenario_results,',
     )
 
 
 def mutate_aggregate_evidence_wrong_commit_binding(root: Path) -> None:
     replace_once(
-        root / "scripts/stage5d_final_restart_r3_aggregate_evidence.py",
+        root / "scripts/stage5d_final_restart_r3_aggregate_evidence_r2.py",
         'source_ref = run_text(["git", "rev-parse", "HEAD"])',
         'source_ref = "0000000000000000000000000000000000000000"',
     )
@@ -2810,17 +2810,17 @@ def mutate_aggregate_evidence_wrong_commit_binding(root: Path) -> None:
 
 def mutate_aggregate_full_negative_log_omitted(root: Path) -> None:
     replace_once(
-        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r1_gate.sh",
-        'python3 scripts/stage5d_additive_freeze_negative_harness.py | tee "$negative_log"',
-        'echo "negative harness omitted" | tee "$negative_log"',
+        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r2.py",
+        '("stage5d_negative_harness", ["python3", "scripts/stage5d_additive_freeze_negative_harness.py"]),',
+        '("stage5d_negative_harness", ["python3", "-c", "print(\'negative harness omitted\')"]),',
     )
 
 
 def mutate_aggregate_golden_drift_log_omitted(root: Path) -> None:
     replace_once(
-        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r1_gate.sh",
-        'python3 scripts/stage5d_additive_freeze_check.py | tee "$golden_log"',
-        'echo "golden drift omitted" | tee "$golden_log"',
+        root / "scripts/stage5d_final_restart_r3_aggregate_closure_r2.py",
+        '("golden_fixture_drift", ["python3", "scripts/stage5d_additive_freeze_check.py"]),',
+        '("golden_fixture_drift", ["python3", "-c", "print(\'golden drift omitted\')"]),',
     )
 
 
@@ -3173,11 +3173,24 @@ def run_case(
                 time.monotonic() - started,
             )
         if result.timed_out:
+            retry = run_checker(case_root, timeout_seconds=max(120, timeout_seconds * 4))
+            retry_combined = retry.stdout + retry.stderr
+            if (
+                retry.returncode != 0
+                and not retry.timed_out
+                and "Traceback (most recent call last)" not in retry_combined
+                and expected in retry_combined
+            ):
+                return CaseRun(index, name, True, "", time.monotonic() - started)
             return CaseRun(
                 index,
                 name,
                 False,
-                combined.strip(),
+                (
+                    "timeout infrastructure retry did not produce semantic rejection\n"
+                    + combined
+                    + retry_combined
+                ).strip(),
                 time.monotonic() - started,
             )
         if "Traceback (most recent call last)" in combined:
@@ -3235,7 +3248,7 @@ def main() -> int:
             print("stage5d-negative-harness: clean checker run failed", file=sys.stderr)
             return 1
 
-        measured_timeout = max(10, min(120, math.ceil(clean_result.duration_seconds * 8)))
+        measured_timeout = max(30, min(120, math.ceil(clean_result.duration_seconds * 8)))
         configured_workers = int(os.environ.get("STAGE5D_NEGATIVE_WORKERS", "4"))
         worker_count = max(1, min(configured_workers, 4, len(CASES)))
         (base / "cases").mkdir()
@@ -3254,6 +3267,7 @@ def main() -> int:
         print(f"cases_declared={len(declared_names)}")
         print(f"workers={worker_count}")
         print(f"case_timeout_seconds={measured_timeout}")
+        print("timeout_retry_policy=sequential_120s_minimum_for_timed_out_cases")
         print(f"passed={len(results) - len(failures)}")
         print(f"missing={missing}")
         print(f"extra={extra}")

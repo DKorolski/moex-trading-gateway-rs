@@ -101,7 +101,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "8c46e6e48a00c77f063b6c6cc262a46e58352230cdc919b489525511d1e3222b",
+        "stage5d_consumer_sha256": "02bbfb225f33a8f60bab860817f01d340bdf91076d3cbcd59114386c8ac12f4d",
     },
     {
         "path": "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs",
@@ -115,7 +115,7 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
         "source_correspondence_sha256": "18a5f7eef690f5886ad9077d0558a41899bbcb261519f59b8208ecd54c94c153",
         "source_codec_owner": "hybrid_intraday/risk_gate.rs",
         "stage5d_consumer_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
-        "stage5d_consumer_sha256": "8c46e6e48a00c77f063b6c6cc262a46e58352230cdc919b489525511d1e3222b",
+        "stage5d_consumer_sha256": "02bbfb225f33a8f60bab860817f01d340bdf91076d3cbcd59114386c8ac12f4d",
     },
 ]
 
@@ -452,7 +452,7 @@ EXPECTED_NEGATIVE_CASES = [
     "aggregate_stage5e_opened",
 ]
 
-EXPECTED_STAGE = "5D-final-restart-r3-aggregate-closure-r1"
+EXPECTED_STAGE = "5D-final-restart-r3-aggregate-closure-r2"
 EXPECTED_FINAL_RESTART_INVENTORY_STAGE = "5D-final-restart-r2"
 
 EXPECTED_FINAL_RESTART_SCENARIO_IDS = [
@@ -1550,6 +1550,7 @@ def validate_stage5d_final_restart_r3_inventory(root: Path, failures: list[str])
     if inventory.get("status") not in {
         "riskgate_recovery_r1_r3_evidence_closed",
         "aggregate_closure_r1_candidate",
+        "aggregate_closure_r2_candidate",
     }:
         failures.append("Stage 5D final r3 riskgate recovery inventory must close 21/0 evidence")
     expected_r3_closed = dict(EXPECTED_CLOSED_SURFACES)
@@ -2837,8 +2838,8 @@ def validate_stage5d_final_r3_riskgate_recovery_r1(
 def validate_stage5d_final_restart_r3_aggregate_closure(root: Path, failures: list[str]) -> None:
     inventory_path = root / FINAL_RESTART_R3_INVENTORY_REL
     manifest_path = root / MANIFEST_REL
-    gate_path = root / "scripts/stage5d_final_restart_r3_aggregate_closure_r1_gate.sh"
-    evidence_path = root / "scripts/stage5d_final_restart_r3_aggregate_evidence.py"
+    gate_path = root / "scripts/stage5d_final_restart_r3_aggregate_closure_r2.py"
+    evidence_path = root / "scripts/stage5d_final_restart_r3_aggregate_evidence_r2.py"
     self_test_path = root / "scripts/stage5d_final_restart_r3_aggregate_self_test.py"
     if not inventory_path.is_file():
         failures.append("Stage 5D aggregate closure scenario inventory missing")
@@ -2847,7 +2848,7 @@ def validate_stage5d_final_restart_r3_aggregate_closure(root: Path, failures: li
     rows = inventory.get("scenario_rows", [])
     if inventory.get("stage") != "5D-final-restart-r3":
         failures.append("Stage 5D aggregate closure inventory stage mismatch")
-    if inventory.get("status") != "aggregate_closure_r1_candidate":
+    if inventory.get("status") != "aggregate_closure_r2_candidate":
         failures.append("Stage 5D aggregate closure inventory status mismatch")
     if len(rows) != 21:
         failures.append("Stage 5D aggregate closure scenario inventory count mismatch")
@@ -2897,28 +2898,32 @@ def validate_stage5d_final_restart_r3_aggregate_closure(root: Path, failures: li
         return
     gate = gate_path.read_text()
     required_gate_calls = {
-        'run_positive_group "r3a_pending_entry" "stage5d_final_r3a_source_pending_entry_full_restart_matrix"',
-        'run_positive_group "positive_core" "stage5d_final_r3_positive_core_source_produced_full_restart_matrix"',
-        'run_positive_group "current_shadow" "stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix"',
-        'run_positive_group "operational_state" "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix"',
-        'run_positive_group "recovery_index" "stage5d_final_r3_recovery_index_r1_source_produced_full_restart_matrix"',
-        'run_positive_group "riskgate_recovery" "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix"',
+        '("positive_r3a_pending_entry", "stage5d_final_r3a_source_pending_entry_full_restart_matrix")',
+        '("positive_core", "stage5d_final_r3_positive_core_source_produced_full_restart_matrix")',
+        '("positive_current_shadow", "stage5d_final_r3_current_shadow_r1_source_produced_full_restart_matrix")',
+        '("positive_operational_state", "stage5d_final_r3_operational_state_r1_source_produced_full_restart_matrix")',
+        '("positive_recovery_index", "stage5d_final_r3_recovery_index_r1_source_produced_full_restart_matrix")',
+        '("positive_riskgate_recovery", "stage5d_final_r3_riskgate_recovery_r1_source_produced_matrix")',
     }
     for call in required_gate_calls:
         if call not in gate:
             failures.append("Stage 5D aggregate closure gate missing required positive group")
     for token in [
-        "positive_cases_executed={len(accepted)}",
-        "positive_cases_failed=0",
-        "python3 scripts/stage5d_additive_freeze_negative_harness.py",
-        "python3 scripts/stage5c_api_freeze_check.py",
-        "python3 scripts/stage5d_additive_freeze_check.py",
-        'python3 scripts/stage5d_additive_freeze_check.py | tee "$golden_log"',
-        'python3 scripts/stage5d_additive_freeze_negative_harness.py | tee "$negative_log"',
-        "bash scripts/forbidden_surface_scan.sh",
-        "bash scripts/test_m4_3x_evidence_no_redis.sh",
+        '"stage5d_negative_harness", ["python3", "scripts/stage5d_additive_freeze_negative_harness.py"]',
+        '"stage5c_api_freeze", ["python3", "scripts/stage5c_api_freeze_check.py"]',
+        '"stage5d_additive_freeze", ["python3", "scripts/stage5d_additive_freeze_check.py"]',
+        '"golden_fixture_drift", ["python3", "scripts/stage5d_additive_freeze_check.py"]',
+        '"forbidden_surface", ["bash", "scripts/forbidden_surface_scan.sh"]',
+        '"no_redis_smoke", ["bash", "scripts/test_m4_3x_evidence_no_redis.sh"]',
+        '"cargo_fmt", ["cargo", "fmt", "--all", "--check"]',
+        '"cargo_test_all_targets", ["cargo", "test", "--workspace", "--all-targets"]',
+        '"cargo_test_doc", ["cargo", "test", "--workspace", "--doc"]',
+        '"cargo_clippy", ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]',
+        '"handoff_source_archive_safety"',
         "stage5d_final_r2_package_negative_matrix_fails_closed",
-        "stage5d_final_restart_r3_aggregate_evidence.py",
+        "stage5d_final_restart_r3_aggregate_evidence_r2.py",
+        "closure-manifest.json",
+        "scenario-results.json",
     ]:
         if token not in gate:
             failures.append("Stage 5D aggregate closure gate evidence binding missing")
@@ -2935,7 +2940,9 @@ def validate_stage5d_final_restart_r3_aggregate_closure(root: Path, failures: li
             '"production_dependency": False',
             'run_text(["git", "rev-parse", "HEAD"])',
             '"negative_case_count"',
-            '"logs"',
+            '"command_results"',
+            'exit_code") != 0',
+            'scenario_results_sha256": sha256_bytes(canonical_json(scenario_results))',
         ]:
             if token not in evidence:
                 failures.append("Stage 5D aggregate closure evidence generator binding missing")
