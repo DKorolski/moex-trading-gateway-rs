@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import argparse
 import re
 import shutil
 import subprocess
@@ -312,6 +313,10 @@ def run_case(base: Path, case: Case) -> tuple[bool, str]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--case-start", type=int, default=0)
+    parser.add_argument("--case-end", type=int)
+    args = parser.parse_args()
     def pop_field(field: str):
         return lambda _root, manifest, _marker: manifest.pop(field)
 
@@ -930,10 +935,18 @@ def main() -> int:
             True,
         ),
     ]
+    if args.case_start < 0 or args.case_start > len(cases):
+        print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)
+        return 2
+    case_end = len(cases) if args.case_end is None else args.case_end
+    if case_end < args.case_start or case_end > len(cases):
+        print("handoff-provenance-negative-harness: invalid --case-end", file=sys.stderr)
+        return 2
+    selected_cases = cases[args.case_start:case_end]
     with tempfile.TemporaryDirectory(prefix="handoff-provenance-negative-") as tmp:
         base = Path(tmp)
         failures = []
-        for case in cases:
+        for case in selected_cases:
             ok, diagnostics = run_case(base, case)
             print(f"{'PASS' if ok else 'FAIL'} {case.name}")
             if not ok:
@@ -941,7 +954,7 @@ def main() -> int:
                 print(diagnostics, file=sys.stderr)
         if failures:
             return 1
-    print(f"handoff-provenance-negative-harness: ok cases={len(cases)}")
+    print(f"handoff-provenance-negative-harness: ok cases={len(selected_cases)}")
     return 0
 
 
