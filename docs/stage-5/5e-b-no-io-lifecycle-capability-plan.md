@@ -6,6 +6,12 @@ Stage 5E-b turns the accepted Stage 5E-a event-time contract into a narrow,
 in-process type-state boundary. It deliberately stops before a strategy bar
 callback, an intent sink, or any transport attachment.
 
+The current Stage 5D additive freeze also pins `strategy-runtime-core/lib.rs`.
+Therefore, before the Rust capability is attached, Stage 5E-b must introduce a
+reviewed additive extension point (with its own manifest/checker evidence).
+This preserves Stage 5D's accepted source boundary rather than silently
+changing it.
+
 ## Entry and output
 
 The only entry capability is the already completed Stage 5C pending-recovery
