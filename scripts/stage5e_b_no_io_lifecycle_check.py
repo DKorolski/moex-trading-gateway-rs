@@ -106,13 +106,12 @@ def main() -> int:
     module = runtime_root / "stage5e_no_io_lifecycle.rs"
     lib = runtime_root / "lib.rs"
     host = runtime_root / "stage5c_paper_host.rs"
+    handoff_builder = ROOT / "scripts/make_handoff_archive.sh"
     if not module.is_file() or not lib.is_file() or not host.is_file():
         fail("missing Stage 5E-b1 private runtime boundary")
     module_text = module.read_text()
     for marker in (
-        "Stage5eNoIoLiveBarAfterHistoryInputs",
         "Stage5eObservedLiveBarAfterHistory",
-        "admit_stage5e_observation_only_live_bar_after_history",
         "HybridRuntimeBarOrigin::Live",
         "validate_contextual_live_bar_after_history",
         "bar_close <= last_history_bar_close",
@@ -141,10 +140,16 @@ def main() -> int:
     if "pub use stage5e_no_io_lifecycle" in lib.read_text():
         fail("Stage 5E-b1 private module leaked into public API")
     host_text = host.read_text()
-    if "stage5e_extract_no_io_live_bar_after_history_inputs" not in host_text:
-        fail("missing Stage 5E-b1 crate-private extraction bridge")
     if "Stage5eNoIoBridgeSeal" not in host_text:
         fail("missing Stage 5E-b1 single-construction seal")
+    if "stage5e_try_observe_live_bar_after_history" not in host_text:
+        fail("missing Stage 5E-b1 retryable consuming bridge")
+    if "into_retry" not in host_text:
+        fail("missing Stage 5E-b1 blocked-state retry return")
+    if "#[cfg(test)]\npub(crate) fn stage5e_try_observe_live_bar_after_history_at" not in host_text:
+        fail("Stage 5E-b1 deterministic clock seam must be test-only")
+    if "(\n  set -euo pipefail\n  cd \"$repo_root\"\n  cargo fmt --check" not in handoff_builder.read_text():
+        fail("Stage 5E-b1 cargo runner must fail closed per command")
     print("stage5e-b-no-io-lifecycle-check: ok")
     return 0
 

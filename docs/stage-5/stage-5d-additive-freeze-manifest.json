@@ -61,7 +61,7 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "46c3bf2bb46bbed59233cea8ea7832dd90855cc7703125445edc3deb8b9ce392",
+      "current_sha256": "0abf22476b5e6859d0c24cb828e5d85205bf9b2d4a29a16a4e49bf4808643f84",
       "stripped_without_additive_regions_sha256": "bcc2c4d6ff08d06c49f9716495ce177fc968a8dcd71f6b2c38bcb8d5b4cb0914",
       "additive_regions": [
         "type-state-transitions"

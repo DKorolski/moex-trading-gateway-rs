@@ -833,20 +833,74 @@ mod stage5d_pair_binding_restore_tests {
 /// It is intentionally neither serializable nor publicly constructible.
 pub(crate) struct Stage5eNoIoBridgeSeal(());
 
-#[allow(dead_code)] // Stage 5E-b1 consumer remains deliberately closed.
-pub(crate) fn stage5e_extract_no_io_live_bar_after_history_inputs(
-    recovered: Stage5cPendingRecoveredPaperStrategy,
-    accepted: Stage5cAcceptedSemanticBar,
-) -> crate::stage5e_no_io_lifecycle::Stage5eNoIoLiveBarAfterHistoryInputs {
-    stage5e_extract_no_io_live_bar_after_history_inputs_at(recovered, accepted, Utc::now())
+#[allow(dead_code)] // The consumer remains closed outside the Stage 5E test-only proof.
+pub(crate) enum Stage5eNoIoLiveBarAfterHistoryBlocked {
+    Contextual {
+        reason: crate::stage5e_no_io_lifecycle::Stage5eContextualAdmissionError,
+        recovered: Box<Stage5cPendingRecoveredPaperStrategy>,
+        accepted: Box<Stage5cAcceptedSemanticBar>,
+    },
+}
+
+#[allow(dead_code)] // Retry API is retained for the next separately reviewed consumer slice.
+impl Stage5eNoIoLiveBarAfterHistoryBlocked {
+    pub(crate) fn reason(&self) -> crate::stage5e_no_io_lifecycle::Stage5eContextualAdmissionError {
+        match self {
+            Self::Contextual { reason, .. } => *reason,
+        }
+    }
+
+    pub(crate) fn into_retry(
+        self,
+    ) -> (
+        Stage5cPendingRecoveredPaperStrategy,
+        Stage5cAcceptedSemanticBar,
+    ) {
+        match self {
+            Self::Contextual {
+                recovered,
+                accepted,
+                ..
+            } => (*recovered, *accepted),
+        }
+    }
 }
 
 #[allow(dead_code)] // Stage 5E-b1 consumer remains deliberately closed.
-pub(crate) fn stage5e_extract_no_io_live_bar_after_history_inputs_at(
+pub(crate) fn stage5e_try_observe_live_bar_after_history(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+) -> Result<
+    crate::stage5e_no_io_lifecycle::Stage5eObservedLiveBarAfterHistory,
+    Stage5eNoIoLiveBarAfterHistoryBlocked,
+> {
+    stage5e_try_observe_live_bar_after_history_with_lifecycle_now(recovered, accepted, Utc::now())
+}
+
+#[cfg(test)]
+pub(crate) fn stage5e_try_observe_live_bar_after_history_at(
     recovered: Stage5cPendingRecoveredPaperStrategy,
     accepted: Stage5cAcceptedSemanticBar,
     lifecycle_now: DateTime<Utc>,
-) -> crate::stage5e_no_io_lifecycle::Stage5eNoIoLiveBarAfterHistoryInputs {
+) -> Result<
+    crate::stage5e_no_io_lifecycle::Stage5eObservedLiveBarAfterHistory,
+    Stage5eNoIoLiveBarAfterHistoryBlocked,
+> {
+    stage5e_try_observe_live_bar_after_history_with_lifecycle_now(
+        recovered,
+        accepted,
+        lifecycle_now,
+    )
+}
+
+fn stage5e_try_observe_live_bar_after_history_with_lifecycle_now(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    lifecycle_now: DateTime<Utc>,
+) -> Result<
+    crate::stage5e_no_io_lifecycle::Stage5eObservedLiveBarAfterHistory,
+    Stage5eNoIoLiveBarAfterHistoryBlocked,
+> {
     // Recovery receipt establishes causality/ownership only. Market-bar time is
     // compared solely to canonical-history time in the Stage 5E boundary.
     let (target_instrument, admission_tick_size, admission_expires_at) = {
@@ -862,18 +916,183 @@ pub(crate) fn stage5e_extract_no_io_live_bar_after_history_inputs_at(
             admission.expires_at(),
         )
     };
-    let (strategy, recovery_receipt) = recovered.into_parts();
-    crate::stage5e_no_io_lifecycle::Stage5eNoIoLiveBarAfterHistoryInputs::from_stage5c_context(
-        Stage5eNoIoBridgeSeal(()),
-        strategy,
-        recovery_receipt,
-        accepted.bar,
+    if let Err(reason) = crate::stage5e_no_io_lifecycle::validate_contextual_live_bar_after_history(
+        accepted.origin,
+        &accepted.bar.instrument,
+        &target_instrument,
         accepted.tick_size,
-        target_instrument,
         admission_tick_size,
+        recovered.receipt.warmup_receipt().last_history_ts(),
+        accepted.bar.close_time_utc,
         admission_expires_at,
         lifecycle_now,
+    ) {
+        return Err(Stage5eNoIoLiveBarAfterHistoryBlocked::Contextual {
+            reason,
+            recovered: Box::new(recovered),
+            accepted: Box::new(accepted),
+        });
+    }
+    let (strategy, recovery_receipt) = recovered.into_parts();
+    Ok(
+        crate::stage5e_no_io_lifecycle::Stage5eObservedLiveBarAfterHistory::from_stage5c_context(
+            Stage5eNoIoBridgeSeal(()),
+            strategy,
+            recovery_receipt,
+            accepted.bar,
+            accepted.tick_size,
+        ),
     )
+}
+
+#[cfg(test)]
+mod stage5e_retryable_bridge_tests {
+    use super::*;
+    use rust_decimal::Decimal;
+
+    fn target() -> InstrumentId {
+        InstrumentId {
+            symbol: "IMOEXF".to_string(),
+            venue_symbol: Some("IMOEXF@RTSX".to_string()),
+            exchange: broker_core::Exchange::Moex,
+            market: broker_core::Market::Futures,
+        }
+    }
+
+    fn strategy() -> HybridIntradayRuntimeStrategy {
+        HybridIntradayRuntimeStrategy::new(
+            crate::hybrid_intraday_runtime::HybridIntradayRuntimeConfig {
+                symbol: "IMOEXF".to_string(),
+                profile:
+                    crate::hybrid_intraday_runtime::HybridIntradayProfile::BaselineRuntimeHybrid,
+                mr_variant:
+                    crate::hybrid_intraday_runtime::MeanReversionVariant::ClassicPrevDayRange,
+                mr_gate_policy: crate::hybrid_intraday_runtime::MrGatePolicy::Disabled,
+                risk_gate_mode: crate::hybrid_intraday_runtime::RiskGateMode::Disabled,
+                risk_gate_seed_file: None,
+                risk_gate_ledger_key: None,
+                model_session_start_time: None,
+                model_session_end_time: None,
+                qty: 1.0,
+                live_order_style: crate::runtime_compat::MarketBuyAndCloseLiveOrderStyle::Market,
+                tick_size: 0.5,
+                marketable_limit_offset_ticks: 0,
+                timezone_offset_hours: 3,
+                session_close_hour: 23,
+                session_close_minute: 49,
+                weekends_off: true,
+                stop_end_buffer_sec: 60,
+                repair_deadline_sec: 180,
+                sl_escalate_timeout_sec: 30,
+                max_repair_retries: 3,
+                repair_backoff_base_sec: 5,
+                repair_backoff_max_sec: 60,
+                pending_timeout_sec: 30,
+                partial_entry_fill_timeout_ms: 3_000,
+                mr_config: crate::hybrid_intraday::MeanReversionConfig::default(),
+                breakout_config: crate::hybrid_intraday::IntradayBreakoutConfig::default(),
+                orchestrator_config: crate::hybrid_intraday::HybridOrchestratorConfig::default(),
+            },
+        )
+    }
+
+    fn recovered(now: DateTime<Utc>, last_history_ts: i64) -> Stage5cPendingRecoveredPaperStrategy {
+        let admission = Stage5cPaperHostAdmission::stage5d_test_new(
+            "stage5e_test".to_string(),
+            BrokerAccountId::new("ACC_TEST_0001"),
+            target(),
+            0.5,
+            Decimal::ZERO,
+            now,
+        );
+        let bootstrap = Stage5cBootstrapNotificationReceipt {
+            admission,
+            notified_ts: now,
+        };
+        let restore = Stage5cRuntimeStateRestoreReceipt {
+            bootstrap_receipt: bootstrap,
+            restored_ts: now,
+            known_order_ids: Vec::new(),
+            pending_requests: Vec::new(),
+        };
+        let warmup = Stage5cHistoryWarmupReceipt {
+            restore_receipt: restore,
+            started_ts: now,
+            processed_bars: 1,
+            input_bars: 1,
+            source_mode: broker_core::Stage3StrategyBarSourceMode::FinamDerivedM1ToM10,
+            last_history_ts,
+        };
+        Stage5cPendingRecoveredPaperStrategy {
+            strategy: strategy(),
+            receipt: Stage5cPendingRecoveryReceipt {
+                warmup_receipt: warmup,
+                recovered_ts: now,
+                replayed_events: 0,
+                duplicate_events: 0,
+            },
+        }
+    }
+
+    fn accepted(
+        origin: broker_core::HybridRuntimeBarOrigin,
+        close_time_utc: i64,
+    ) -> Stage5cAcceptedSemanticBar {
+        Stage5cAcceptedSemanticBar {
+            bar: broker_core::HybridRuntimeBarEvent {
+                instrument: target(),
+                close_time_utc,
+                open: 2200.0,
+                high: 2202.0,
+                low: 2199.0,
+                close: 2201.0,
+                volume: 1.0,
+                origin,
+                is_final: true,
+                timeframe_sec: 600,
+            },
+            tick_size: 0.5,
+            origin,
+        }
+    }
+
+    #[test]
+    fn stage5e_real_bridge_returns_retryable_recovered_state_then_accepts_next_live_bar() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 23, 10, 30, 0)
+            .single()
+            .unwrap();
+        let history_close = now.timestamp() - 1_200;
+        let blocked = match stage5e_try_observe_live_bar_after_history_at(
+            recovered(now, history_close),
+            accepted(
+                broker_core::HybridRuntimeBarOrigin::Replay,
+                now.timestamp() - 600,
+            ),
+            now,
+        ) {
+            Ok(_) => panic!("replay must remain observation-blocked"),
+            Err(blocked) => blocked,
+        };
+        assert_eq!(
+            blocked.reason(),
+            crate::stage5e_no_io_lifecycle::Stage5eContextualAdmissionError::NotLive
+        );
+        let (recovered, _rejected) = blocked.into_retry();
+        let observed = match stage5e_try_observe_live_bar_after_history_at(
+            recovered,
+            accepted(broker_core::HybridRuntimeBarOrigin::Live, now.timestamp()),
+            now,
+        ) {
+            Ok(observed) => observed,
+            Err(_) => panic!("next live candidate must be accepted once"),
+        };
+        assert_eq!(observed.bar_close_ts(), now.timestamp());
+        assert_eq!(observed.callback_count(), 0);
+        assert_eq!(observed.intent_count(), 0);
+        assert!(!observed.strategy_was_called());
+        assert!(!observed.executable_intent_created());
+    }
 }
 // STAGE5D-ADDITIVE-BRIDGE-END: type-state-transitions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

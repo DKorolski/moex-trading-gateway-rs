@@ -162,7 +162,7 @@ def check_archive(path: Path) -> None:
         if set(cargo_result) != {
             "cargo_version", "commands", "exit_code", "finished_at_utc", "schema_version",
             "source_ref", "started_at_utc", "stderr_member", "stderr_sha256", "stdout_member",
-            "stdout_sha256",
+            "stdout_sha256", "source_tree_manifest_sha256", "source_tree_member_count",
         }:
             raise SystemExit("handoff safety: cargo gate result key set drift")
         if cargo_result.get("schema_version") != 1 or cargo_result.get("exit_code") != 0:
@@ -481,6 +481,10 @@ def check_archive(path: Path) -> None:
                 source_member_map[member_path] = (git_mode, member_sha)
             if gate_result.get("source_tree_member_count") != len(source_member_map):
                 raise SystemExit("handoff safety: source-tree member count mismatch")
+            if cargo_result.get("source_tree_manifest_sha256") != manifest.get("source_tree_manifest_sha256"):
+                raise SystemExit("handoff safety: cargo gate/source-tree manifest mismatch")
+            if cargo_result.get("source_tree_member_count") != len(source_member_map):
+                raise SystemExit("handoff safety: cargo gate/source-tree member count mismatch")
             archive_files = {
                 info.filename
                 for info in archive.infolist()

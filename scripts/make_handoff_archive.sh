@@ -45,6 +45,7 @@ python3 "$repo_root/scripts/handoff_safety_check.py" --source-tree "$repo_root"
 cargo_gate_started_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 set +e
 (
+  set -euo pipefail
   cd "$repo_root"
   cargo fmt --check
   cargo test --workspace --all-targets
@@ -308,6 +309,25 @@ manifest = {
 out.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
 PY
 source_tree_manifest_sha256="$(shasum -a 256 "$source_tree_manifest" | awk '{print $1}')"
+SOURCE_TREE_MANIFEST_SHA256="$source_tree_manifest_sha256" \
+SOURCE_TREE_MEMBER_COUNT="$(python3 - "$source_tree_manifest" <<'PY'
+import json
+import sys
+print(len(json.loads(open(sys.argv[1]).read())["members"]))
+PY
+)" \
+python3 - "$cargo_gate_result" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["source_tree_manifest_sha256"] = os.environ["SOURCE_TREE_MANIFEST_SHA256"]
+payload["source_tree_member_count"] = int(os.environ["SOURCE_TREE_MEMBER_COUNT"])
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
 if [[ -f "$stage5e_gate_result" ]]; then
   SOURCE_TREE_MANIFEST_SHA256="$source_tree_manifest_sha256" \
   python3 - "$stage5e_gate_result" "$source_tree_manifest" <<'PY'

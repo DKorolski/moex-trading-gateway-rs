@@ -87,15 +87,16 @@ The first slice does not call the strategy and must not create an executable
 intent. It does not create an executable intent, attach an intent sink, or open
 Redis/FINAM/transport/runtime-live.
 
-## Stage 5E-b1 controlled implementation
+## Stage 5E-b1.2 controlled implementation
 
 The reviewed b1 extension is crate-private and linear:
 
 ```text
 Stage5cPendingRecoveredPaperStrategy + Stage5cAcceptedSemanticBar
-  -> crate-private extraction bridge
-  -> Stage5eNoIoLiveBarAfterHistoryInputs
+  -> crate-private consuming bridge
   -> observation-only Stage5eObservedLiveBarAfterHistory
+  | contextual rejection
+  -> original recovered state + candidate returned for retry
 ```
 
 It admits only `HybridRuntimeBarOrigin::Live` and requires
@@ -104,5 +105,9 @@ matching exact tick size, an unexpired admission, and a non-future market bar.
 The resulting capability records zero callbacks and zero intents; it deliberately
 exposes no public re-export and no continuation into strategy execution. The
 recovery receipt is causal ownership only; it is never compared to market-bar
-time. The Stage 5D additive freeze permits the module declaration and extraction
-bridge only in its already reviewed crate-private additive regions.
+time. Lifecycle time is read at the admission attempt, not retained in a
+capability; the deterministic clock seam exists only under `cfg(test)`. A
+rejected candidate returns the original recovered state and accepted candidate
+unchanged, so a caller may supply a later candidate without rebuilding
+recovery. The Stage 5D additive freeze permits the module declaration and
+consuming bridge only in its already reviewed crate-private additive regions.

@@ -194,6 +194,10 @@ def write_manifest(root: Path, mutate=None) -> None:
         json.dumps(source_tree_manifest, indent=2, sort_keys=True) + "\n"
     )
     source_tree_manifest_sha256 = sha256(source_tree_manifest_path)
+    cargo_result = json.loads(cargo_result_path.read_text())
+    cargo_result["source_tree_manifest_sha256"] = source_tree_manifest_sha256
+    cargo_result["source_tree_member_count"] = len(source_members)
+    cargo_result_path.write_text(json.dumps(cargo_result, indent=2, sort_keys=True) + "\n")
     gate_result_path = root / "handoff-stage5e-gate-result.json"
     gate_result_path.write_text(
         json.dumps(
@@ -444,6 +448,27 @@ def main() -> int:
             payload = json.loads(path.read_text())
             mutator(payload["contract_invariants"])
             path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+        return apply
+
+    def mutate_stage5e_b_module_for_checker(mutator):
+        def apply(root, _manifest, _marker):
+            path = root / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
+            path.write_text(mutator(path.read_text()))
+
+        return apply
+
+    def mutate_stage5e_b_host_for_checker(mutator):
+        def apply(root, _manifest, _marker):
+            path = root / "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+            path.write_text(mutator(path.read_text()))
+
+        return apply
+
+    def mutate_stage5e_b_builder_for_checker(mutator):
+        def apply(root, _manifest, _marker):
+            path = root / "scripts/make_handoff_archive.sh"
+            path.write_text(mutator(path.read_text()))
 
         return apply
 
@@ -932,9 +957,61 @@ def main() -> int:
             "market freshness inequality weakened",
             mutate_stage5e_b_plan_for_checker(
                 lambda text: text.replace(
-                    "last_history_bar_close < first_fresh_live_bar_close",
-                    "last_history_bar_close <= first_fresh_live_bar_close",
+                    "last_history_bar_close < observed_live_bar_close",
+                    "last_history_bar_close <= observed_live_bar_close",
                 )
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-instrument-check-removed",
+            "missing Stage 5E-b1 marker: InstrumentMismatch",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace("InstrumentMismatch", "InstrumentBindingRemoved")
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-tick-check-removed",
+            "missing Stage 5E-b1 marker: TickSizeMismatch",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace("TickSizeMismatch", "TickBindingRemoved")
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-future-check-removed",
+            "missing Stage 5E-b1 marker: FutureBar",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace("FutureBar", "FutureCheckRemoved")
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-test-clock-made-crate-wide",
+            "deterministic clock seam must be test-only",
+            mutate_stage5e_b_host_for_checker(
+                lambda text: text.replace("#[cfg(test)]\npub(crate) fn stage5e_try_observe_live_bar_after_history_at", "pub(crate) fn stage5e_try_observe_live_bar_after_history_at")
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-callback-surface-introduced",
+            "forbidden Stage 5E-b1 surface: on_broker_bar",
+            mutate_stage5e_b_module_for_checker(lambda text: text + "\n// on_broker_bar\n"),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-cargo-runner-fail-open",
+            "cargo runner must fail closed per command",
+            mutate_stage5e_b_builder_for_checker(
+                lambda text: text.replace("  set -euo pipefail\n  cd \"$repo_root\"", "  cd \"$repo_root\"")
             ),
             "5E-b-no-io-lifecycle-capability",
             True,
