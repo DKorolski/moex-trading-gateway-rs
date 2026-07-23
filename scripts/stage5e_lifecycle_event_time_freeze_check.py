@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Validate Stage 5E-a lifecycle/event-time attachment inventory.
+"""Validate the frozen Stage 5E-a lifecycle/event-time governance contract.
 
-Stage 5E-a is intentionally design/inventory-only. This checker makes the
-first Stage 5E boundary explicit while preserving all closed execution
-surfaces.
+Stage 5E-a is intentionally design/inventory-only. Later Stage 5E slices must
+not mutate its accepted contract; they are governed by their own checkers.
 """
 
 from __future__ import annotations
@@ -20,6 +19,7 @@ DOC = ROOT / "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md"
 INVENTORY = ROOT / "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json"
 EXPECTED_STAGE5D_REF = "9ebbfd29d0346be5149dac746225866f0c8d0257"
 EXPECTED_STAGE5D_SHORT_REF = "9ebbfd2"
+EXPECTED_STAGE5E_A_FREEZE_REF = "eb03695dc407b02bb8327de57fde6acea077d96b"
 EXPECTED_TOP_LEVEL_KEYS = {
     "allowed_changed_paths",
     "baseline_ref",
@@ -189,11 +189,16 @@ def require_unique(name: str, values: list[object]) -> None:
         fail(f"{name} contains duplicates")
 
 
-def check_design_only_diff(allowed_paths: set[str]) -> None:
+def check_governance_contract_freeze() -> None:
     if not (ROOT / ".git").exists():
         return
     result = subprocess.run(
-        ["git", "diff", "--name-only", EXPECTED_STAGE5D_REF, "--"],
+        [
+            "git", "diff", "--name-only", EXPECTED_STAGE5E_A_FREEZE_REF,
+            "--",
+            str(DOC.relative_to(ROOT)),
+            str(INVENTORY.relative_to(ROOT)),
+        ],
         cwd=ROOT,
         text=True,
         stdout=subprocess.PIPE,
@@ -202,10 +207,9 @@ def check_design_only_diff(allowed_paths: set[str]) -> None:
     )
     if result.returncode != 0:
         fail(f"could not compute baseline diff: {result.stderr.strip()}")
-    changed = {line.strip() for line in result.stdout.splitlines() if line.strip()}
-    unexpected = sorted(changed - allowed_paths)
-    if unexpected:
-        fail(f"design-only allowlist violation: {unexpected}")
+    changed = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if changed:
+        fail(f"accepted Stage 5E-a governance contract changed: {changed}")
 
 
 def main() -> int:
@@ -238,7 +242,7 @@ def main() -> int:
     require_unique("allowed_changed_paths", allowed_paths)
     if set(allowed_paths) != EXPECTED_ALLOWED_CHANGED_PATHS:
         fail("allowed_changed_paths drift")
-    check_design_only_diff(set(allowed_paths))
+    check_governance_contract_freeze()
 
     if inventory.get("lifecycle_chain") != EXPECTED_CHAIN:
         fail("lifecycle chain drift")
