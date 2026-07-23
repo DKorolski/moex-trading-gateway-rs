@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,13 @@ ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE_NAME = "moex-trading-project-0000000.zip"
 SOURCE_COMMIT = "0000000"
 SOURCE_REF = "0000000000000000000000000000000000000000"
+EXCLUDED_PARTS = {".git", "target", "tmp", "reports", "__pycache__", "__MACOSX"}
+FORBIDDEN_NAME_PATTERNS = (
+    re.compile(r"^\.env$"),
+    re.compile(r"^\.env\.(?!example$).+"),
+    re.compile(r".*\.log$"),
+    re.compile(r".*\.local\..*$"),
+)
 
 
 @dataclass(frozen=True)
@@ -41,6 +49,52 @@ def canonical_sha256(value: object) -> str:
     ).hexdigest()
 
 
+def git_blob_sha1(payload: bytes) -> bytes:
+    return hashlib.sha1(b"blob " + str(len(payload)).encode() + b"\0" + payload).digest()
+
+
+def git_tree_sha1(entries: dict[str, tuple[str, bytes]]) -> str:
+    tree: dict[str, object] = {}
+    for path, (mode, object_hash) in entries.items():
+        parts = path.split("/")
+        cursor = tree
+        for part in parts[:-1]:
+            cursor = cursor.setdefault(part, {})  # type: ignore[assignment]
+        cursor[parts[-1]] = (mode, object_hash)
+
+    def digest_node(node: dict[str, object]) -> bytes:
+        body = bytearray()
+        def sort_key(name: str) -> str:
+            return f"{name}/" if isinstance(node[name], dict) else name
+
+        for name in sorted(node, key=sort_key):
+            value = node[name]
+            if isinstance(value, dict):
+                mode = "40000"
+                digest = digest_node(value)
+            else:
+                mode, digest = value  # type: ignore[misc]
+            body.extend(mode.encode())
+            body.extend(b" ")
+            body.extend(name.encode())
+            body.extend(b"\0")
+            body.extend(digest)
+        payload = bytes(body)
+        return hashlib.sha1(b"tree " + str(len(payload)).encode() + b"\0" + payload).digest()
+
+    return digest_node(tree).hex()
+
+
+def path_is_excluded(path: str) -> bool:
+    parts = path.split("/")
+    name = parts[-1]
+    return (
+        any(part in EXCLUDED_PARTS for part in parts)
+        or any(pattern.fullmatch(name) for pattern in FORBIDDEN_NAME_PATTERNS)
+        or name == ".DS_Store"
+    )
+
+
 def write_manifest(root: Path, mutate=None) -> None:
     freeze_manifest = json.loads(
         (root / "docs/stage-5/stage-5d-additive-freeze-manifest.json").read_text()
@@ -58,6 +112,18 @@ def write_manifest(root: Path, mutate=None) -> None:
         root / "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json"
     )
     stage5e_plan_sha256 = sha256(root / "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md")
+    index_lines = subprocess.check_output(["git", "ls-files", "-s"], cwd=ROOT, text=True).splitlines()
+    source_members = []
+    git_entries = {}
+    for line in sorted(index_lines, key=lambda item: item.split("\t", 1)[1]):
+        meta, rel = line.split("\t", 1)
+        if path_is_excluded(rel):
+            continue
+        mode = meta.split()[0]
+        payload = (root / rel).read_bytes()
+        source_members.append({"git_mode": mode, "path": rel, "sha256": hashlib.sha256(payload).hexdigest()})
+        git_entries[rel] = (mode, git_blob_sha1(payload))
+    head_tree = git_tree_sha1(git_entries)
     design_scope = {
         "baseline_ref": stage5e_inventory["baseline_ref"],
         "changed_paths": stage5e_inventory["allowed_changed_paths"],
@@ -68,9 +134,32 @@ def write_manifest(root: Path, mutate=None) -> None:
                 sort_keys=True,
             ).encode()
         ).hexdigest(),
-        "head_tree": "2" * 40,
+        "head_tree": head_tree,
         "source_ref": SOURCE_REF,
     }
+    (root / "handoff-stage5e-gate-stdout.txt").write_text("stage5e-lifecycle-event-time-gate: ok\n")
+    (root / "handoff-stage5e-gate-stderr.txt").write_text("")
+    source_tree_manifest = {
+        "schema_version": 1,
+        "source_ref": SOURCE_REF,
+        "head_tree": design_scope["head_tree"],
+        "baseline_ref": design_scope["baseline_ref"],
+        "changed_paths": design_scope["changed_paths"],
+        "excluded_generated_members": [
+            "handoff-commit.txt",
+            "handoff-manifest.json",
+            "handoff-stage5e-gate-result.json",
+            "handoff-stage5e-gate-stderr.txt",
+            "handoff-stage5e-gate-stdout.txt",
+            "handoff-source-tree-manifest.json",
+        ],
+        "members": source_members,
+    }
+    source_tree_manifest_path = root / "handoff-source-tree-manifest.json"
+    source_tree_manifest_path.write_text(
+        json.dumps(source_tree_manifest, indent=2, sort_keys=True) + "\n"
+    )
+    source_tree_manifest_sha256 = sha256(source_tree_manifest_path)
     gate_result_path = root / "handoff-stage5e-gate-result.json"
     gate_result_path.write_text(
         json.dumps(
@@ -82,8 +171,10 @@ def write_manifest(root: Path, mutate=None) -> None:
                 "started_at_utc": "2026-01-01T00:00:00Z",
                 "finished_at_utc": "2026-01-01T00:00:01Z",
                 "exit_code": 0,
-                "stdout_sha256": "0" * 64,
-                "stderr_sha256": "0" * 64,
+                "stdout_sha256": sha256(root / "handoff-stage5e-gate-stdout.txt"),
+                "stderr_sha256": sha256(root / "handoff-stage5e-gate-stderr.txt"),
+                "stdout_member": "handoff-stage5e-gate-stdout.txt",
+                "stderr_member": "handoff-stage5e-gate-stderr.txt",
                 "stdout_line_count": 1,
                 "stderr_line_count": 0,
                 "input_sha256": {
@@ -95,6 +186,8 @@ def write_manifest(root: Path, mutate=None) -> None:
                     "stage5e_plan": stage5e_plan_sha256,
                 },
                 "design_scope": design_scope,
+                "source_tree_manifest_sha256": source_tree_manifest_sha256,
+                "source_tree_member_count": len(source_members),
             },
             indent=2,
             sort_keys=True,
@@ -116,6 +209,7 @@ def write_manifest(root: Path, mutate=None) -> None:
         "stage5e_plan_sha256": stage5e_plan_sha256,
         "stage5e_gate_result_sha256": sha256(gate_result_path),
         "stage5e_design_scope_sha256": canonical_sha256(design_scope),
+        "source_tree_manifest_sha256": source_tree_manifest_sha256,
     }
     marker = {
         "source_commit": manifest["source_commit"],
@@ -297,6 +391,35 @@ def main() -> int:
             refresh_gate_result_hash(root, manifest)
 
         return apply
+
+    def mutate_design_scope_and_rehash_all(mutator):
+        def apply(root, manifest, _marker):
+            path = root / "handoff-stage5e-gate-result.json"
+            payload = json.loads(path.read_text())
+            mutator(payload["design_scope"])
+            manifest["stage5e_design_scope_sha256"] = canonical_sha256(payload["design_scope"])
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+            refresh_gate_result_hash(root, manifest)
+
+        return apply
+
+    def mutate_source_tree_manifest_and_rehash(mutator):
+        def apply(root, manifest, _marker):
+            path = root / "handoff-source-tree-manifest.json"
+            payload = json.loads(path.read_text())
+            mutator(payload)
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+            manifest["source_tree_manifest_sha256"] = sha256(path)
+            gate_path = root / "handoff-stage5e-gate-result.json"
+            gate = json.loads(gate_path.read_text())
+            gate["source_tree_manifest_sha256"] = manifest["source_tree_manifest_sha256"]
+            gate_path.write_text(json.dumps(gate, indent=2, sort_keys=True) + "\n")
+            refresh_gate_result_hash(root, manifest)
+
+        return apply
+
+    def mutate_file_after_source_manifest(path: str, payload: str):
+        return lambda root, _manifest, _marker: (root / path).write_text(payload)
 
     def marker_set(field: str, value: str):
         return lambda _root, _manifest, marker: marker.__setitem__(field, value)
@@ -530,6 +653,50 @@ def main() -> int:
             mutate_design_scope_and_rehash_gate(lambda scope: scope.__setitem__("extra", True)),
         ),
         Case(
+            "source-tree-rust-member-changed-after-manifest",
+            "source-tree member hash mismatch: crates/broker-core/src/lib.rs",
+            mutate_file_after_source_manifest("crates/broker-core/src/lib.rs", "// post-gate mutation\n"),
+        ),
+        Case(
+            "source-tree-extra-archive-member",
+            "source-tree/archive member set mismatch",
+            mutate_file_after_source_manifest("unexpected-extra.txt", "extra\n"),
+        ),
+        Case(
+            "source-tree-member-removed-after-manifest",
+            "source-tree/archive member set mismatch",
+            lambda root, _manifest, _marker: (root / "README.md").unlink(),
+        ),
+        Case(
+            "source-tree-forged-head-tree",
+            "source-tree head_tree mismatch",
+            lambda root, manifest, _marker: (
+                mutate_design_scope_and_rehash_all(
+                    lambda scope: scope.__setitem__("head_tree", "0" * 40)
+                )(root, manifest, _marker),
+                mutate_source_tree_manifest_and_rehash(
+                    lambda payload: payload.__setitem__("head_tree", "0" * 40)
+                )(root, manifest, _marker),
+            ),
+        ),
+        Case(
+            "source-tree-stale-manifest-hash",
+            "source_tree_manifest_sha256 mismatch",
+            lambda root, _manifest, _marker: (
+                root / "handoff-source-tree-manifest.json"
+            ).write_text("{}\n"),
+        ),
+        Case(
+            "source-tree-omitted-changed-path",
+            "source-tree manifest changed_paths mismatch",
+            mutate_source_tree_manifest_and_rehash(
+                lambda payload: payload.__setitem__(
+                    "changed_paths",
+                    [path for path in payload["changed_paths"] if path != "README.md"],
+                )
+            ),
+        ),
+        Case(
             "stage5e-source-baseline-mismatch",
             "Stage 5E source baseline ref mismatch",
             mutate_stage5e_inventory_and_rehash(
@@ -555,7 +722,7 @@ def main() -> int:
         ),
         Case(
             "stage5e-gate-source-ref-mismatch",
-            "Stage 5E gate source_ref mismatch",
+            "source-tree manifest source_ref mismatch",
             mutate_stage5e_gate_result_and_rehash(
                 lambda payload: payload.__setitem__("source_ref", "1" * 40)
             ),

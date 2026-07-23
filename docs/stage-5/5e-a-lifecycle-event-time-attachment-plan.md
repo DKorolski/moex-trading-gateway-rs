@@ -47,12 +47,26 @@ missing.
 ## Event-time contract
 
 The first eligible callback must be driven by an accepted Stage 3 canonical
-final M10 bar whose event time is strictly later than all relevant restore,
-bootstrap, warmup and recovery watermarks.
+final M10 bar whose market-event close time is ordered only against other
+market-event close times.
 
 The callback bar must be the first fresh semantic bar after the completed
 pre-callback lifecycle. Historical warmup bars and replay/recovery artifacts are
 not eligible to produce new trading intents.
+
+The market-event rule is:
+
+```text
+last_history_bar_close < first_fresh_live_bar_close
+callback_bar_close == first_fresh_live_bar_close
+```
+
+The lifecycle/recovery rule is expressed through typed causal receipts:
+
+```text
+RecoveryAcceptedReceipt and LifecycleRecoveryCompletedReceipt
+must causally precede callback invocation
+```
 
 Stage 5E must keep four time/position domains separate:
 

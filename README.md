@@ -23,8 +23,9 @@ attachment: it freezes the required chain from validated broker truth through
 restore, warmup, recovery and the first eligible callback. Stage 5E-a1/a2 hardens
 the governance around that package: Stage 5E provenance hashes, fresh gate
 evidence, exact gate input hashes, design-only allowlist and typed watermark
-domains are checked by handoff safety. Redis, FINAM, transport, dispatch,
-runtime-live and real execution remain closed.
+domains are checked by handoff safety. Stage 5E-a3 additionally binds the full
+source archive through an archive-verifiable source-tree manifest. Redis,
+FINAM, transport, dispatch, runtime-live and real execution remain closed.
 
 This repository is not enabled for continuous live trading.
 

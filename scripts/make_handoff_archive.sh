@@ -19,11 +19,15 @@ sha_path="$archive_path.sha256"
 commit_marker="$repo_root/handoff-commit.txt"
 handoff_manifest="$repo_root/handoff-manifest.json"
 stage5e_gate_result="$repo_root/handoff-stage5e-gate-result.json"
+source_tree_manifest="$repo_root/handoff-source-tree-manifest.json"
+stage5e_gate_stdout_log="$repo_root/handoff-stage5e-gate-stdout.txt"
+stage5e_gate_stderr_log="$repo_root/handoff-stage5e-gate-stderr.txt"
 completed=0
 
 cleanup() {
   local status=$?
-  rm -f "$commit_marker" "$handoff_manifest" "$stage5e_gate_result"
+  rm -f "$commit_marker" "$handoff_manifest" "$stage5e_gate_result" "$source_tree_manifest" \
+    "$stage5e_gate_stdout_log" "$stage5e_gate_stderr_log"
   if [[ "$completed" -ne 1 ]]; then
     rm -f "$archive_path" "$sha_path"
   fi
@@ -53,6 +57,7 @@ stage5e_inventory_sha256=""
 stage5e_plan_sha256=""
 stage5e_gate_result_sha256=""
 stage5e_design_scope_sha256=""
+source_tree_manifest_sha256=""
 current_review_stage="$review_stage"
 if [[ -f "$repo_root/scripts/stage5e_lifecycle_event_time_freeze_check.py" ]] \
   && [[ -f "$repo_root/docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json" ]]; then
@@ -108,6 +113,8 @@ PY
     echo "Stage 5E gate failed before handoff packaging." >&2
     exit "$stage5e_exit_code"
   fi
+  cp "$stage5e_stdout" "$stage5e_gate_stdout_log"
+  cp "$stage5e_stderr" "$stage5e_gate_stderr_log"
   STAGE5E_STARTED_AT_UTC="$stage5e_started_at_utc" \
   STAGE5E_FINISHED_AT_UTC="$stage5e_finished_at_utc" \
   STAGE5E_EXIT_CODE="$stage5e_exit_code" \
@@ -142,6 +149,8 @@ result = {
     "exit_code": int(os.environ["STAGE5E_EXIT_CODE"]),
     "stdout_sha256": os.environ["STAGE5E_STDOUT_SHA256"],
     "stderr_sha256": os.environ["STAGE5E_STDERR_SHA256"],
+    "stdout_member": "handoff-stage5e-gate-stdout.txt",
+    "stderr_member": "handoff-stage5e-gate-stderr.txt",
     "stdout_line_count": int(os.environ["STAGE5E_STDOUT_LINE_COUNT"]),
     "stderr_line_count": int(os.environ["STAGE5E_STDERR_LINE_COUNT"]),
     "input_sha256": {
@@ -163,8 +172,93 @@ result = {
 Path(sys.argv[1]).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
 PY
   rm -f "$stage5e_stdout" "$stage5e_stderr"
+fi
+
+if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ]]; then
+  echo "Refusing to build review handoff: tracked source tree changed after gate." >&2
+  git -C "$repo_root" status --short --untracked-files=no >&2
+  exit 1
+fi
+
+SOURCE_REF="$source_ref" \
+HEAD_TREE="$(git -C "$repo_root" rev-parse HEAD^{tree})" \
+BASELINE_REF="${stage5e_baseline_ref:-}" \
+CHANGED_PATHS_JSON="${stage5e_changed_paths_json:-[]}" \
+python3 - "$repo_root" "$source_tree_manifest" <<'PY'
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+out = Path(sys.argv[2])
+excluded_parts = {".git", "target", "tmp", "reports", "__pycache__", "__MACOSX"}
+forbidden_name_patterns = [
+    re.compile(r"^\.env$"),
+    re.compile(r"^\.env\.(?!example$).+"),
+    re.compile(r".*\.log$"),
+    re.compile(r".*\.local\..*$"),
+]
+
+def path_is_excluded(path: str) -> bool:
+    parts = path.split("/")
+    name = parts[-1]
+    return (
+        any(part in excluded_parts for part in parts)
+        or any(pattern.fullmatch(name) for pattern in forbidden_name_patterns)
+        or name == ".DS_Store"
+    )
+
+index_lines = subprocess.check_output(["git", "ls-files", "-s"], cwd=root, text=True).splitlines()
+members = []
+for line in sorted(index_lines, key=lambda item: item.split("\t", 1)[1]):
+    meta, rel = line.split("\t", 1)
+    if path_is_excluded(rel):
+        continue
+    mode = meta.split()[0]
+    payload = (root / rel).read_bytes()
+    members.append({"git_mode": mode, "path": rel, "sha256": hashlib.sha256(payload).hexdigest()})
+manifest = {
+    "schema_version": 1,
+    "source_ref": os.environ["SOURCE_REF"],
+    "head_tree": os.environ["HEAD_TREE"],
+    "baseline_ref": os.environ["BASELINE_REF"],
+    "changed_paths": json.loads(os.environ["CHANGED_PATHS_JSON"]),
+    "excluded_generated_members": [
+        "handoff-commit.txt",
+        "handoff-manifest.json",
+        "handoff-stage5e-gate-stderr.txt",
+        "handoff-stage5e-gate-result.json",
+        "handoff-stage5e-gate-stdout.txt",
+        "handoff-source-tree-manifest.json",
+    ],
+    "members": members,
+}
+out.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+PY
+source_tree_manifest_sha256="$(shasum -a 256 "$source_tree_manifest" | awk '{print $1}')"
+if [[ -f "$stage5e_gate_result" ]]; then
+  SOURCE_TREE_MANIFEST_SHA256="$source_tree_manifest_sha256" \
+  python3 - "$stage5e_gate_result" "$source_tree_manifest" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+gate_path = Path(sys.argv[1])
+source_manifest_path = Path(sys.argv[2])
+gate = json.loads(gate_path.read_text())
+source_manifest = json.loads(source_manifest_path.read_text())
+gate["source_tree_manifest_sha256"] = os.environ["SOURCE_TREE_MANIFEST_SHA256"]
+gate["source_tree_member_count"] = len(source_manifest["members"])
+gate_path.write_text(json.dumps(gate, indent=2, sort_keys=True) + "\n")
+PY
   stage5e_gate_result_sha256="$(shasum -a 256 "$stage5e_gate_result" | awk '{print $1}')"
 fi
+
 created_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 SOURCE_COMMIT="$source_commit" \
@@ -179,6 +273,7 @@ STAGE5E_INVENTORY_SHA256="$stage5e_inventory_sha256" \
 STAGE5E_PLAN_SHA256="$stage5e_plan_sha256" \
 STAGE5E_GATE_RESULT_SHA256="$stage5e_gate_result_sha256" \
 STAGE5E_DESIGN_SCOPE_SHA256="$stage5e_design_scope_sha256" \
+SOURCE_TREE_MANIFEST_SHA256="$source_tree_manifest_sha256" \
 REVIEW_STAGE="$review_stage" \
 CURRENT_REVIEW_STAGE="$current_review_stage" \
 HANDOFF_MANIFEST="$handoff_manifest" \
@@ -203,6 +298,7 @@ manifest = {
     "stage5e_plan_sha256": os.environ["STAGE5E_PLAN_SHA256"],
     "stage5e_gate_result_sha256": os.environ["STAGE5E_GATE_RESULT_SHA256"],
     "stage5e_design_scope_sha256": os.environ["STAGE5E_DESIGN_SCOPE_SHA256"],
+    "source_tree_manifest_sha256": os.environ["SOURCE_TREE_MANIFEST_SHA256"],
     "required_gate_names": [
         "stage5e_lifecycle_event_time",
         "stage5c_api_freeze",
@@ -228,21 +324,22 @@ Path(os.environ["HANDOFF_MANIFEST"]).write_text(
 )
 PY
 
-(
-  cd "$repo_root"
-  zip -qr "$archive_path" . \
-    -x '.git/*' \
-    -x 'target/*' \
-    -x 'tmp/*' \
-    -x 'reports/*' \
-    -x '.env' \
-    -x '.env.*' \
-    -x '*.log' \
-    -x '*.local.*' \
-    -x '__pycache__/*' \
-    -x '__MACOSX/*' \
-    -x '.DS_Store'
-)
+python3 - "$repo_root" "$archive_path" "$source_tree_manifest" <<'PY'
+import json
+import sys
+import zipfile
+from pathlib import Path
+
+repo_root = Path(sys.argv[1])
+archive_path = Path(sys.argv[2])
+source_manifest = json.loads(Path(sys.argv[3]).read_text())
+members = [row["path"] for row in source_manifest["members"]]
+members.extend(source_manifest["excluded_generated_members"])
+
+with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    for rel in members:
+        archive.write(repo_root / rel, rel)
+PY
 
 python3 "$repo_root/scripts/handoff_safety_check.py" --archive "$archive_path"
 (

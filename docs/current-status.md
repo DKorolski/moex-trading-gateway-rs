@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-07-22.
+Status date: 2026-07-23.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -254,8 +254,9 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   lifecycle/event-time attachment contract. Stage 5E-a1/a2 hardens the
   governance boundary by validating Stage 5E handoff hashes, fresh gate
   evidence, exact gate input hashes, design-only diff allowlist, exact inventory
-  schema and typed watermark domains. Redis, FINAM, broker transport, dispatch,
-  runtime-live and real execution remain closed.
+  schema, typed watermark domains and an archive-verifiable full source-tree
+  manifest. Redis, FINAM, broker transport, dispatch, runtime-live and real
+  execution remain closed.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.

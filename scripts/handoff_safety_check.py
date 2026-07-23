@@ -15,7 +15,8 @@ from pathlib import Path, PurePosixPath
 
 EXCLUDED_PARTS = {".git", "target", "tmp", "reports", "__pycache__", "__MACOSX"}
 FORBIDDEN_NAME_PATTERNS = (
-    re.compile(r"^\.env(?:\..*)?$"),
+    re.compile(r"^\.env$"),
+    re.compile(r"^\.env\.(?!example$).+"),
     re.compile(r".*\.log$"),
     re.compile(r".*\.local\..*$"),
 )
@@ -60,6 +61,44 @@ def require_hex64(value: object, field: str) -> None:
         raise SystemExit(f"handoff safety: missing or invalid {field}")
 
 
+def git_blob_sha1(payload: bytes) -> bytes:
+    return hashlib.sha1(b"blob " + str(len(payload)).encode() + b"\0" + payload).digest()
+
+
+def git_tree_sha1(entries: dict[str, tuple[str, bytes]]) -> str:
+    tree: dict[str, object] = {}
+    for path, (mode, object_hash) in entries.items():
+        parts = path.split("/")
+        cursor = tree
+        for part in parts[:-1]:
+            cursor = cursor.setdefault(part, {})  # type: ignore[assignment]
+            if not isinstance(cursor, dict):
+                raise SystemExit("handoff safety: invalid source-tree path nesting")
+        cursor[parts[-1]] = (mode, object_hash)
+
+    def digest_node(node: dict[str, object]) -> bytes:
+        body = bytearray()
+        def sort_key(name: str) -> str:
+            return f"{name}/" if isinstance(node[name], dict) else name
+
+        for name in sorted(node, key=sort_key):
+            value = node[name]
+            if isinstance(value, dict):
+                mode = "40000"
+                digest = digest_node(value)
+            else:
+                mode, digest = value  # type: ignore[misc]
+            body.extend(mode.encode())
+            body.extend(b" ")
+            body.extend(name.encode())
+            body.extend(b"\0")
+            body.extend(digest)
+        payload = bytes(body)
+        return hashlib.sha1(b"tree " + str(len(payload)).encode() + b"\0" + payload).digest()
+
+    return digest_node(tree).hex()
+
+
 def check_source_tree(root: Path) -> None:
     for path in root.rglob("*"):
         relative = PurePosixPath(path.relative_to(root).as_posix())
@@ -89,7 +128,11 @@ def check_archive(path: Path) -> None:
             if not info.is_dir():
                 check_payload(info.filename, archive.read(info))
 
-        required = {"handoff-commit.txt", "handoff-manifest.json"}
+        required = {
+            "handoff-commit.txt",
+            "handoff-manifest.json",
+            "handoff-source-tree-manifest.json",
+        }
         missing = sorted(required - set(names))
         if missing:
             raise SystemExit(f"handoff safety: missing generated markers: {missing}")
@@ -145,11 +188,17 @@ def check_archive(path: Path) -> None:
             stage5e_plan_name = "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md"
             stage5e_checker_name = "scripts/stage5e_lifecycle_event_time_freeze_check.py"
             stage5e_gate_result_name = "handoff-stage5e-gate-result.json"
+            stage5e_stdout_name = "handoff-stage5e-gate-stdout.txt"
+            stage5e_stderr_name = "handoff-stage5e-gate-stderr.txt"
+            source_tree_manifest_name = "handoff-source-tree-manifest.json"
             for member in [
                 stage5e_inventory_name,
                 stage5e_plan_name,
                 stage5e_checker_name,
                 stage5e_gate_result_name,
+                stage5e_stdout_name,
+                stage5e_stderr_name,
+                source_tree_manifest_name,
             ]:
                 if member not in names:
                     raise SystemExit(f"handoff safety: missing Stage 5E member: {member}")
@@ -158,6 +207,7 @@ def check_archive(path: Path) -> None:
                 ("stage5e_inventory_sha256", stage5e_inventory_name),
                 ("stage5e_plan_sha256", stage5e_plan_name),
                 ("stage5e_gate_result_sha256", stage5e_gate_result_name),
+                ("source_tree_manifest_sha256", source_tree_manifest_name),
             ]:
                 expected = manifest.get(field)
                 if not isinstance(expected, str) or not HEX64.fullmatch(expected):
@@ -192,9 +242,13 @@ def check_archive(path: Path) -> None:
                 "input_sha256",
                 "schema_version",
                 "source_ref",
+                "source_tree_manifest_sha256",
+                "source_tree_member_count",
                 "started_at_utc",
+                "stderr_member",
                 "stderr_line_count",
                 "stderr_sha256",
+                "stdout_member",
                 "stdout_line_count",
                 "stdout_sha256",
             }
@@ -214,6 +268,18 @@ def check_archive(path: Path) -> None:
                 raise SystemExit("handoff safety: Stage 5E gate timestamp order invalid")
             require_hex64(gate_result.get("stdout_sha256"), "Stage 5E gate stdout_sha256")
             require_hex64(gate_result.get("stderr_sha256"), "Stage 5E gate stderr_sha256")
+            if gate_result.get("stdout_member") != stage5e_stdout_name:
+                raise SystemExit("handoff safety: Stage 5E gate stdout member mismatch")
+            if gate_result.get("stderr_member") != stage5e_stderr_name:
+                raise SystemExit("handoff safety: Stage 5E gate stderr member mismatch")
+            if hashlib.sha256(archive.read(stage5e_stdout_name)).hexdigest() != gate_result.get(
+                "stdout_sha256"
+            ):
+                raise SystemExit("handoff safety: Stage 5E gate stdout hash mismatch")
+            if hashlib.sha256(archive.read(stage5e_stderr_name)).hexdigest() != gate_result.get(
+                "stderr_sha256"
+            ):
+                raise SystemExit("handoff safety: Stage 5E gate stderr hash mismatch")
             for field in ["stdout_line_count", "stderr_line_count"]:
                 if not isinstance(gate_result.get(field), int) or gate_result[field] < 0:
                     raise SystemExit(f"handoff safety: invalid Stage 5E gate {field}")
@@ -278,6 +344,88 @@ def check_archive(path: Path) -> None:
             allowed = stage5e_inventory.get("allowed_changed_paths")
             if not isinstance(allowed, list) or not set(changed_paths).issubset(set(allowed)):
                 raise SystemExit("handoff safety: Stage 5E design scope allowlist mismatch")
+            if changed_paths != allowed:
+                raise SystemExit("handoff safety: Stage 5E design scope changed-path set mismatch")
+            source_tree_manifest = json.loads(archive.read(source_tree_manifest_name))
+            if not isinstance(source_tree_manifest, dict):
+                raise SystemExit("handoff safety: source-tree manifest must be a JSON object")
+            expected_source_tree_keys = {
+                "baseline_ref",
+                "changed_paths",
+                "excluded_generated_members",
+                "head_tree",
+                "members",
+                "schema_version",
+                "source_ref",
+            }
+            if set(source_tree_manifest) != expected_source_tree_keys:
+                raise SystemExit("handoff safety: source-tree manifest key set drift")
+            if source_tree_manifest.get("schema_version") != 1:
+                raise SystemExit("handoff safety: unsupported source-tree manifest schema_version")
+            if source_tree_manifest.get("source_ref") != gate_result.get("source_ref"):
+                raise SystemExit("handoff safety: source-tree manifest source_ref mismatch")
+            if source_tree_manifest.get("head_tree") != design_scope.get("head_tree"):
+                raise SystemExit("handoff safety: source-tree manifest head_tree mismatch")
+            if source_tree_manifest.get("baseline_ref") != design_scope.get("baseline_ref"):
+                raise SystemExit("handoff safety: source-tree manifest baseline_ref mismatch")
+            if source_tree_manifest.get("changed_paths") != changed_paths:
+                raise SystemExit("handoff safety: source-tree manifest changed_paths mismatch")
+            if gate_result.get("source_tree_manifest_sha256") != manifest.get(
+                "source_tree_manifest_sha256"
+            ):
+                raise SystemExit("handoff safety: gate/source-tree manifest hash mismatch")
+            if gate_result.get("source_tree_manifest_sha256") != hashlib.sha256(
+                archive.read(source_tree_manifest_name)
+            ).hexdigest():
+                raise SystemExit("handoff safety: source-tree manifest hash mismatch")
+            generated = source_tree_manifest.get("excluded_generated_members")
+            if not isinstance(generated, list) or not all(isinstance(item, str) for item in generated):
+                raise SystemExit("handoff safety: source-tree generated member list invalid")
+            if set(generated) != {
+                "handoff-commit.txt",
+                "handoff-manifest.json",
+                "handoff-stage5e-gate-result.json",
+                "handoff-stage5e-gate-stderr.txt",
+                "handoff-stage5e-gate-stdout.txt",
+                "handoff-source-tree-manifest.json",
+            }:
+                raise SystemExit("handoff safety: source-tree generated member set drift")
+            source_members = source_tree_manifest.get("members")
+            if not isinstance(source_members, list):
+                raise SystemExit("handoff safety: source-tree members must be a list")
+            source_member_map: dict[str, tuple[str, str]] = {}
+            for row in source_members:
+                if not isinstance(row, dict) or set(row) != {"git_mode", "path", "sha256"}:
+                    raise SystemExit("handoff safety: source-tree member row key set drift")
+                member_path = row["path"]
+                member_sha = row["sha256"]
+                git_mode = row["git_mode"]
+                if not isinstance(member_path, str) or not member_path:
+                    raise SystemExit("handoff safety: source-tree member path invalid")
+                if git_mode not in {"100644", "100755"}:
+                    raise SystemExit("handoff safety: source-tree member git_mode invalid")
+                require_hex64(member_sha, f"source-tree member sha256 {member_path}")
+                if member_path in source_member_map:
+                    raise SystemExit("handoff safety: duplicate source-tree member")
+                source_member_map[member_path] = (git_mode, member_sha)
+            if gate_result.get("source_tree_member_count") != len(source_member_map):
+                raise SystemExit("handoff safety: source-tree member count mismatch")
+            archive_files = {
+                info.filename
+                for info in archive.infolist()
+                if not info.is_dir()
+            }
+            expected_archive_files = set(source_member_map) | set(generated)
+            if archive_files != expected_archive_files:
+                raise SystemExit("handoff safety: source-tree/archive member set mismatch")
+            git_entries: dict[str, tuple[str, bytes]] = {}
+            for member_path, (git_mode, expected_sha) in source_member_map.items():
+                payload = archive.read(member_path)
+                if hashlib.sha256(payload).hexdigest() != expected_sha:
+                    raise SystemExit(f"handoff safety: source-tree member hash mismatch: {member_path}")
+                git_entries[member_path] = (git_mode, git_blob_sha1(payload))
+            if git_tree_sha1(git_entries) != design_scope.get("head_tree"):
+                raise SystemExit("handoff safety: source-tree head_tree mismatch")
         source_commit = manifest.get("source_commit")
         source_ref = manifest.get("source_ref")
         if not isinstance(source_commit, str) or not re.fullmatch(

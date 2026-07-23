@@ -17,7 +17,7 @@ def excluded_name(name: str, *, directory: bool) -> bool:
     return (
         name == ".DS_Store"
         or name == ".env"
-        or name.startswith(".env.")
+        or (name.startswith(".env.") and name != ".env.example")
         or name.endswith(".log")
         or ".local." in name
         or name.endswith((".pyc", ".pyo"))

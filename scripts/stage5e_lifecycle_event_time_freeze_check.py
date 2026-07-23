@@ -42,6 +42,7 @@ EXPECTED_ALLOWED_CHANGED_PATHS = {
     "docs/handoff.md",
     "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md",
     "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json",
+    "scripts/copy_review_baseline.py",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
     "scripts/make_handoff_archive.sh",

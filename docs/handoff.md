@@ -38,6 +38,7 @@ handoff-manifest.json
   Stage 5C/Stage 5D checker and Stage 5D manifest SHA-256 values
   current_review_stage and optional Stage 5E checker/inventory SHA-256 values
   optional Stage 5E plan and fresh gate-result SHA-256 values
+  source_tree_manifest_sha256
   required_gate_names
 ```
 
@@ -45,6 +46,9 @@ When `current_review_stage` is a Stage 5E stage, the archive also contains:
 
 ```text
 handoff-stage5e-gate-result.json
+handoff-stage5e-gate-stdout.txt
+handoff-stage5e-gate-stderr.txt
+handoff-source-tree-manifest.json
 ```
 
 The archive safety checker validates the Stage 5E checker, inventory, plan and
@@ -52,7 +56,10 @@ fresh gate-result hashes, the `current_review_stage`/inventory stage binding,
 the Stage 5D baseline ref, closed-surface markers and the gate-result
 `source_ref`. The gate-result also records the exact input hashes used by the
 successful gate run and a design-scope digest; archive safety binds those values
-back to the manifest and actual archive members.
+back to the manifest and actual archive members. The source-tree manifest binds
+the exact archive file set to tracked source members plus generated handoff
+artifacts, checks each tracked member SHA-256, and reconstructs the Git tree hash
+from archive bytes and tracked file modes.
 
 The script also creates the external sibling
 `moex-trading-project-<short>.zip.sha256`. The archive hash is deliberately not
