@@ -80,6 +80,8 @@ def main() -> int:
     if allowed != EXPECTED_ALLOWED_CHANGED_PATHS:
         fail("allowed_changed_paths drift")
     text = PLAN.read_text()
+    if "last_history_bar_close <= first_fresh_live_bar_close" in text:
+        fail("market freshness inequality weakened")
     for marker in (
         "Stage 5E-b", "no-I/O", "first-fresh-live",
         "last_history_bar_close < first_fresh_live_bar_close",
@@ -89,8 +91,6 @@ def main() -> int:
     ):
         if marker not in text:
             fail(f"plan marker missing: {marker}")
-    if "last_history_bar_close <= first_fresh_live_bar_close" in text:
-        fail("market freshness inequality weakened")
     for contradiction in (
         "callback count == 1",
         "intent count == 1",
