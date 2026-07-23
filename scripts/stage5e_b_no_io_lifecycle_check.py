@@ -18,12 +18,12 @@ EXPECTED_TOP_LEVEL_KEYS = {
     "source_stage5d_aggregate_closure_r2_ref", "stage", "stage5e_a_freeze_ref", "status",
 }
 EXPECTED_ALLOWED_CHANGED_PATHS = [
-    "docs/stage-5/stage5e-active-descriptor.json",
     "docs/handoff.md",
     "docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md",
+    "docs/stage-5/stage5e-active-descriptor.json",
     "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json",
-    "scripts/handoff_safety_check.py",
     "scripts/handoff_provenance_negative_harness.py",
+    "scripts/handoff_safety_check.py",
     "scripts/make_handoff_archive.sh",
     "scripts/stage5e_b_no_io_lifecycle_check.py",
     "scripts/stage5e_descriptor.py",
