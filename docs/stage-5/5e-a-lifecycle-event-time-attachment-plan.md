@@ -72,13 +72,15 @@ Stage 5E must keep four time/position domains separate:
 
 - lifecycle wall-clock timestamps: `checked <= issued <= bootstrap_notified <=
   restored <= warmup_started <= recovery_completed <= callback_processed`;
-- market event time: `last_history_close < first_fresh_live_bar_close <=
-  callback_processed`;
+- market event time: `last_history_bar_close < first_fresh_live_bar_close` and
+  `callback_bar_close == first_fresh_live_bar_close`; market event time is
+  never compared with lifecycle wall-clock time;
 - broker recovery event time: broker source-event watermarks are compared only
   against other broker source-event watermarks;
-- recovery completion: a `RecoveryAcceptedReceipt` causally links an accepted
-  source watermark to the later lifecycle recovery-completed receipt, without a
-  numeric timestamp comparison between broker source time and local wall clock;
+- recovery completion: `RecoveryAcceptedReceipt` and
+  `LifecycleRecoveryCompletedReceipt` causally precede callback invocation,
+  without a numeric timestamp comparison between broker source time and local
+  wall clock;
 - stream positions: Redis/stream IDs are opaque positions and must not be
   compared to Unix timestamps or market bar close time.
 
