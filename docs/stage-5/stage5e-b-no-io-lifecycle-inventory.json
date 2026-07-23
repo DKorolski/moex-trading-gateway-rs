@@ -16,9 +16,9 @@
     "autonomous_event_loop": false
   },
   "allowed_changed_paths": [
+    "docs/handoff.md",
     "docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md",
     "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json",
-    "docs/handoff.md",
     "scripts/handoff_safety_check.py",
     "scripts/make_handoff_archive.sh",
     "scripts/stage5e_b_no_io_lifecycle_check.py",
