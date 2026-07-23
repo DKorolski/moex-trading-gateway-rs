@@ -77,8 +77,7 @@ If a reviewer needs probe evidence, send a manually approved redacted fixture
 separately, not the whole `tmp/` directory.
 # Stage 5E descriptor selection
 
-For Stage 5E handoffs the builder selects exactly one descriptor: the accepted
-5E-a inventory while 5E-a is current, or the 5E-b no-I/O inventory once that
-stage exists. The selected inventory supplies the plan, checker, baseline ref
-and exact changed-path set recorded in the gate result. Mixing descriptors is
-rejected by archive safety.
+For Stage 5E handoffs the builder reads the explicit active-descriptor registry
+and selects exactly one registered descriptor. The selected inventory supplies
+the plan, checker, baseline ref and exact changed-path set recorded in the gate
+result. Unknown, missing or mixed descriptors are rejected by archive safety.

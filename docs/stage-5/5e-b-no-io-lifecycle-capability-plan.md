@@ -58,3 +58,15 @@ Stage 5E-b uses its own inventory, plan and checker in a handoff. The archive
 must bind those three selected files to the Stage 5E gate result and must use
 the 5E-b baseline, not the historical 5E-a baseline. Archive safety rejects a
 mixed 5E-a/5E-b descriptor set.
+
+The Stage 5E-b contract is immutable during this slice:
+
+```text
+last_history_bar_close < first_fresh_live_bar_close
+first slice only admits an observation-only first fresh live bar
+callback count == 0
+intent count == 0
+```
+
+The first slice does not call the strategy and must not create an executable
+intent, attach an intent sink, or open Redis/FINAM/transport/runtime-live.

@@ -12,6 +12,22 @@ ROOT = Path(__file__).resolve().parents[1]
 PLAN = ROOT / "docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md"
 INVENTORY = ROOT / "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json"
 FREEZE_REF = "eb03695dc407b02bb8327de57fde6acea077d96b"
+BASELINE_REF = "23362c291279d45189b108ab8e8fdc8e7f5958d3"
+EXPECTED_TOP_LEVEL_KEYS = {
+    "allowed_changed_paths", "baseline_ref", "closed_surfaces", "schema_version",
+    "source_stage5d_aggregate_closure_r2_ref", "stage", "stage5e_a_freeze_ref", "status",
+}
+EXPECTED_ALLOWED_CHANGED_PATHS = [
+    "docs/stage-5/stage5e-active-descriptor.json",
+    "docs/handoff.md",
+    "docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md",
+    "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json",
+    "scripts/handoff_safety_check.py",
+    "scripts/handoff_provenance_negative_harness.py",
+    "scripts/make_handoff_archive.sh",
+    "scripts/stage5e_b_no_io_lifecycle_check.py",
+    "scripts/stage5e_descriptor.py",
+]
 CLOSED = {
     "redis", "finam", "transport", "dispatch", "runtime_live",
     "broker_execution", "strategy_intent_sink", "autonomous_event_loop",
@@ -27,13 +43,15 @@ def main() -> int:
     if not PLAN.is_file() or not INVENTORY.is_file():
         fail("missing Stage 5E-b plan or inventory")
     inventory = json.loads(INVENTORY.read_text())
+    if set(inventory) != EXPECTED_TOP_LEVEL_KEYS:
+        fail("inventory key set drift")
     if inventory.get("schema_version") != 1:
         fail("schema_version must be 1")
     if inventory.get("stage") != "5E-b-no-io-lifecycle-capability":
         fail("unexpected stage")
     if inventory.get("status") != "implementation_foundation":
         fail("unexpected status")
-    if inventory.get("baseline_ref") != "40ec10372013a616d793623307293d5419f3a6d2":
+    if inventory.get("baseline_ref") != BASELINE_REF:
         fail("Stage 5E-b baseline reference mismatch")
     if inventory.get("stage5e_a_freeze_ref") != FREEZE_REF:
         fail("Stage 5E-a freeze reference mismatch")
@@ -44,10 +62,24 @@ def main() -> int:
         fail("closed surface set drift")
     if any(value is not False for value in closed.values()):
         fail("a closed surface was opened")
+    allowed = inventory.get("allowed_changed_paths")
+    if not isinstance(allowed, list) or not all(isinstance(path, str) for path in allowed):
+        fail("allowed_changed_paths must be a string list")
+    if len(allowed) != len(set(allowed)):
+        fail("allowed_changed_paths contains duplicates")
+    if allowed != EXPECTED_ALLOWED_CHANGED_PATHS:
+        fail("allowed_changed_paths drift")
     text = PLAN.read_text()
-    for marker in ("Stage 5E-b", "no-I/O", "first-fresh-live", "not call the strategy"):
+    for marker in (
+        "Stage 5E-b", "no-I/O", "first-fresh-live",
+        "last_history_bar_close < first_fresh_live_bar_close",
+        "observation-only first fresh live bar", "callback count == 0",
+        "intent count == 0", "does not call the strategy",
+    ):
         if marker not in text:
             fail(f"plan marker missing: {marker}")
+    if "last_history_bar_close <= first_fresh_live_bar_close" in text:
+        fail("market freshness inequality weakened")
     print("stage5e-b-no-io-lifecycle-check: ok")
     return 0
 

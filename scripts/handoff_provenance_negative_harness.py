@@ -17,6 +17,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 
 from copy_review_baseline import copy_review_baseline
+from stage5e_descriptor import select_stage5e_descriptor
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +38,7 @@ class Case:
     name: str
     expected: str
     mutator: object
+    stage: str = "5E-a-lifecycle-event-time-attachment-plan"
 
 
 def sha256(path: Path) -> str:
@@ -99,19 +101,14 @@ def write_manifest(root: Path, mutate=None) -> None:
     freeze_manifest = json.loads(
         (root / "docs/stage-5/stage-5d-additive-freeze-manifest.json").read_text()
     )
-    stage5e_inventory = json.loads(
-        (
-            root / "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json"
-        ).read_text()
-    )
+    descriptor = select_stage5e_descriptor(root)
+    stage5e_inventory = json.loads((root / descriptor["inventory"]).read_text())
     stage5c_checker_sha256 = sha256(root / "scripts/stage5c_api_freeze_check.py")
     stage5d_checker_sha256 = sha256(root / "scripts/stage5d_additive_freeze_check.py")
     stage5d_manifest_sha256 = sha256(root / "docs/stage-5/stage-5d-additive-freeze-manifest.json")
-    stage5e_checker_sha256 = sha256(root / "scripts/stage5e_lifecycle_event_time_freeze_check.py")
-    stage5e_inventory_sha256 = sha256(
-        root / "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json"
-    )
-    stage5e_plan_sha256 = sha256(root / "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md")
+    stage5e_checker_sha256 = sha256(root / descriptor["checker"])
+    stage5e_inventory_sha256 = sha256(root / descriptor["inventory"])
+    stage5e_plan_sha256 = sha256(root / descriptor["plan"])
     index_lines = subprocess.check_output(["git", "ls-files", "-s"], cwd=ROOT, text=True).splitlines()
     source_members = []
     git_entries = {}
@@ -264,6 +261,9 @@ def run_case(base: Path, case: Case) -> tuple[bool, str]:
     root = base / case.name
     copy_review_baseline(ROOT, root)
     try:
+        (root / "docs/stage-5/stage5e-active-descriptor.json").write_text(
+            json.dumps({"schema_version": 1, "stage": case.stage}) + "\n"
+        )
         write_manifest(root, case.mutator)
         archive_path = base / ARCHIVE_NAME
         archive_path.unlink(missing_ok=True)
@@ -302,17 +302,16 @@ def main() -> int:
         manifest["stage5e_gate_result_sha256"] = sha256(root / "handoff-stage5e-gate-result.json")
 
     def refresh_gate_input_and_result_hashes(root: Path, manifest: dict[str, object]) -> None:
+        descriptor = select_stage5e_descriptor(root)
         gate_path = root / "handoff-stage5e-gate-result.json"
         gate = json.loads(gate_path.read_text())
         gate["input_sha256"] = {
             "stage5c_checker": sha256(root / "scripts/stage5c_api_freeze_check.py"),
             "stage5d_checker": sha256(root / "scripts/stage5d_additive_freeze_check.py"),
             "stage5d_manifest": sha256(root / "docs/stage-5/stage-5d-additive-freeze-manifest.json"),
-            "stage5e_checker": sha256(root / "scripts/stage5e_lifecycle_event_time_freeze_check.py"),
-            "stage5e_inventory": sha256(
-                root / "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json"
-            ),
-            "stage5e_plan": sha256(root / "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md"),
+            "stage5e_checker": sha256(root / descriptor["checker"]),
+            "stage5e_inventory": sha256(root / descriptor["inventory"]),
+            "stage5e_plan": sha256(root / descriptor["plan"]),
         }
         gate_path.write_text(json.dumps(gate, indent=2, sort_keys=True) + "\n")
         refresh_gate_result_hash(root, manifest)
@@ -343,6 +342,26 @@ def main() -> int:
             mutator(payload)
             path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
             manifest["stage5e_inventory_sha256"] = sha256(path)
+            refresh_gate_input_and_result_hashes(root, manifest)
+
+        return apply
+
+    def mutate_stage5e_b_inventory_and_rehash(mutator):
+        def apply(root, manifest, _marker):
+            path = root / "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json"
+            payload = json.loads(path.read_text())
+            mutator(payload)
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+            manifest["stage5e_inventory_sha256"] = sha256(path)
+            refresh_gate_input_and_result_hashes(root, manifest)
+
+        return apply
+
+    def mutate_stage5e_b_plan_and_rehash(mutator):
+        def apply(root, manifest, _marker):
+            path = root / "docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md"
+            path.write_text(mutator(path.read_text()))
+            manifest["stage5e_plan_sha256"] = sha256(path)
             refresh_gate_input_and_result_hashes(root, manifest)
 
         return apply
@@ -798,6 +817,45 @@ def main() -> int:
             lambda _root, _manifest, _marker: {
                 "duplicate_member": "handoff-manifest.json"
             },
+        ),
+        Case(
+            "stage5e-b-extra-inventory-key",
+            "Stage 5E-b inventory key set drift",
+            mutate_stage5e_b_inventory_and_rehash(lambda payload: payload.__setitem__("extra", True)),
+            "5E-b-no-io-lifecycle-capability",
+        ),
+        Case(
+            "stage5e-b-production-path-self-authorized",
+            "Stage 5E-b allowed_changed_paths drift",
+            mutate_stage5e_b_inventory_and_rehash(
+                lambda payload: payload["allowed_changed_paths"].append("crates/broker-core/src/lib.rs")
+            ),
+            "5E-b-no-io-lifecycle-capability",
+        ),
+        Case(
+            "stage5e-b-duplicate-allowed-path",
+            "Stage 5E-b allowed_changed_paths drift",
+            mutate_stage5e_b_inventory_and_rehash(
+                lambda payload: payload["allowed_changed_paths"].append(payload["allowed_changed_paths"][0])
+            ),
+            "5E-b-no-io-lifecycle-capability",
+        ),
+        Case(
+            "stage5e-b-wrong-baseline",
+            "Stage 5E baseline_ref mismatch",
+            mutate_stage5e_b_inventory_and_rehash(lambda payload: payload.__setitem__("baseline_ref", "0" * 40)),
+            "5E-b-no-io-lifecycle-capability",
+        ),
+        Case(
+            "stage5e-b-freshness-weakened",
+            "market freshness inequality weakened",
+            mutate_stage5e_b_plan_and_rehash(
+                lambda text: text.replace(
+                    "last_history_bar_close < first_fresh_live_bar_close",
+                    "last_history_bar_close <= first_fresh_live_bar_close",
+                )
+            ),
+            "5E-b-no-io-lifecycle-capability",
         ),
     ]
     with tempfile.TemporaryDirectory(prefix="handoff-provenance-negative-") as tmp:
