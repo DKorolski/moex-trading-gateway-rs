@@ -770,6 +770,7 @@ allowed_wrapper_identifier_paths = {
     Path("crates/strategy-runtime-core/src/lib.rs"),
     Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs"),
     Path("crates/strategy-runtime-core/src/stage5d_persistence.rs"),
+    Path("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"),
     Path("crates/strategy-runtime-core/tests/stage5b2_boundary_manifest.rs"),
 }
 wrapper_oracle_filename = "hybrid_intraday_runtime.rs"
@@ -1258,6 +1259,7 @@ else:
         str(semantic_kernel_root / "src/runtime_compat.rs"),
         str(semantic_kernel_root / "src/stage5c_paper_host.rs"),
         str(semantic_kernel_root / "src/stage5d_persistence.rs"),
+        str(semantic_kernel_root / "src/stage5e_no_io_lifecycle.rs"),
     }
     actual_semantic_production_paths = {
         str(path) for path in (semantic_kernel_root / "src").glob("**/*.rs")
@@ -1541,7 +1543,7 @@ expected_stage5_profile_artifacts = {
         "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323"
     ),
     Path("docs/stage-5/stage-5d-additive-freeze-manifest.json"): (
-        "79be8e79ec3f59b212a461b283d0dbbec44d894b4de092524284235962bf5dec"
+        "e0ea6d5673b2faa189afc96443edc28a201172da671ec04af3313511ae4f163b"
     ),
     Path("docs/stage-5/5d-b2a-versioned-persistence-envelope-api-schema.md"): (
         "9f6cc0f7a07c08f5fc67e6ef7904ced2c20b7f6a995204e288d6952792e034a6"

@@ -25,6 +25,7 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md",
     "docs/stage-5/stage-5d-additive-freeze-manifest.json",
     "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json",
+    "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
     "scripts/stage5e_b_no_io_lifecycle_check.py",
