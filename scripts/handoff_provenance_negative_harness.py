@@ -274,7 +274,7 @@ def run_case(base: Path, case: Case) -> tuple[bool, str]:
         if case.checker_only:
             case.mutator(root, {}, {})
             result = subprocess.run(
-                ["python3", str(ROOT / "scripts/stage5e_b_no_io_lifecycle_check.py")],
+                ["python3", str(root / "scripts/stage5e_b_no_io_lifecycle_check.py")],
                 cwd=root,
                 text=True,
                 stdout=subprocess.PIPE,
