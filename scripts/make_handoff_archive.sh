@@ -55,6 +55,8 @@ PY
 stage5e_checker_sha256=""
 stage5e_inventory_sha256=""
 stage5e_plan_sha256=""
+stage5e_active_descriptor_sha256=""
+stage5e_descriptor_registry_sha256=""
 stage5e_gate_result_sha256=""
 stage5e_design_scope_sha256=""
 source_tree_manifest_sha256=""
@@ -67,6 +69,8 @@ if [[ -f "$repo_root/$stage5e_checker_rel" ]] && [[ -f "$repo_root/$stage5e_inve
   stage5e_checker_sha256="$(shasum -a 256 "$repo_root/$stage5e_checker_rel" | awk '{print $1}')"
   stage5e_inventory_sha256="$(shasum -a 256 "$repo_root/$stage5e_inventory_rel" | awk '{print $1}')"
   stage5e_plan_sha256="$(shasum -a 256 "$repo_root/$stage5e_plan_rel" | awk '{print $1}')"
+  stage5e_active_descriptor_sha256="$(shasum -a 256 "$repo_root/docs/stage-5/stage5e-active-descriptor.json" | awk '{print $1}')"
+  stage5e_descriptor_registry_sha256="$(shasum -a 256 "$repo_root/scripts/stage5e_descriptor.py" | awk '{print $1}')"
   stage5e_baseline_ref="$(python3 - "$repo_root/$stage5e_inventory_rel" <<'PY'
 import json
 import sys
@@ -132,6 +136,8 @@ PY
   STAGE5E_CHECKER_SHA256="$stage5e_checker_sha256" \
   STAGE5E_INVENTORY_SHA256="$stage5e_inventory_sha256" \
   STAGE5E_PLAN_SHA256="$stage5e_plan_sha256" \
+  STAGE5E_ACTIVE_DESCRIPTOR_SHA256="$stage5e_active_descriptor_sha256" \
+  STAGE5E_DESCRIPTOR_REGISTRY_SHA256="$stage5e_descriptor_registry_sha256" \
   DESIGN_BASELINE_REF="$stage5e_baseline_ref" \
   DESIGN_CHANGED_PATHS_JSON="$stage5e_changed_paths_json" \
   DESIGN_CHANGED_PATHS_SHA256="$stage5e_changed_paths_sha256" \
@@ -163,6 +169,8 @@ result = {
         "stage5e_checker": os.environ["STAGE5E_CHECKER_SHA256"],
         "stage5e_inventory": os.environ["STAGE5E_INVENTORY_SHA256"],
         "stage5e_plan": os.environ["STAGE5E_PLAN_SHA256"],
+        "stage5e_active_descriptor": os.environ["STAGE5E_ACTIVE_DESCRIPTOR_SHA256"],
+        "stage5e_descriptor_registry": os.environ["STAGE5E_DESCRIPTOR_REGISTRY_SHA256"],
     },
     "design_scope": {
         "baseline_ref": os.environ["DESIGN_BASELINE_REF"],

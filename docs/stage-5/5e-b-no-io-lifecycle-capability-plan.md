@@ -31,12 +31,21 @@ capability at the callback boundary.
 
 ## Invariants
 
+The machine-readable source of truth is
+`stage5e-b-no-io-lifecycle-inventory.json.contract_invariants`. This document
+is its human-readable projection; a contradictory statement does not extend or
+override the JSON contract.
+
 - lifecycle timestamps are checked only against lifecycle timestamps;
 - market bar close timestamps are checked only against market bar close
   timestamps;
 - `last_history_bar_close < first_fresh_live_bar_close` is strict;
 - recovery completion is represented by an opaque causal receipt, not by a
   comparison between recovery wall-clock time and market time;
+- callback count == 0, intent count == 0, and the first live bar is
+  observation-only;
+- the slice does not call the strategy and does not create an executable
+  intent;
 - the ready capability is linear: successful first-bar admission consumes it,
   so the same recovered state cannot be admitted twice;
 - replay, broker execution, intent dispatch, Redis, FINAM and runtime-live
@@ -69,4 +78,5 @@ intent count == 0
 ```
 
 The first slice does not call the strategy and must not create an executable
-intent, attach an intent sink, or open Redis/FINAM/transport/runtime-live.
+intent. It does not create an executable intent, attach an intent sink, or open
+Redis/FINAM/transport/runtime-live.

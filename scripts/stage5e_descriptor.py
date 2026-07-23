@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
 
 
-REGISTRY = {
+EXPECTED_REGISTRY = {
     "5E-a-lifecycle-event-time-attachment-plan": {
         "inventory": "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json",
         "plan": "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md",
@@ -21,9 +22,19 @@ REGISTRY = {
         "checker": "scripts/stage5e_b_no_io_lifecycle_check.py",
     },
 }
+REGISTRY = EXPECTED_REGISTRY
+EXPECTED_REGISTRY_SHA256 = "686d4f1607018f310bdef2a0c1ef064917da5244f5247d3d2421534bf279a22d"
+
+
+def registry_sha256(registry: object) -> str:
+    return hashlib.sha256(
+        json.dumps(registry, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 def descriptor_for_stage(stage: object) -> dict[str, str]:
+    if REGISTRY != EXPECTED_REGISTRY or registry_sha256(REGISTRY) != EXPECTED_REGISTRY_SHA256:
+        raise ValueError("Stage 5E descriptor registry drift")
     if stage not in REGISTRY:
         raise ValueError("unknown active Stage 5E descriptor")
     return {"stage": stage, **REGISTRY[stage]}

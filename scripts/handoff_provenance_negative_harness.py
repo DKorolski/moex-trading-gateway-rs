@@ -39,6 +39,7 @@ class Case:
     expected: str
     mutator: object
     stage: str = "5E-a-lifecycle-event-time-attachment-plan"
+    checker_only: bool = False
 
 
 def sha256(path: Path) -> str:
@@ -109,6 +110,10 @@ def write_manifest(root: Path, mutate=None) -> None:
     stage5e_checker_sha256 = sha256(root / descriptor["checker"])
     stage5e_inventory_sha256 = sha256(root / descriptor["inventory"])
     stage5e_plan_sha256 = sha256(root / descriptor["plan"])
+    stage5e_active_descriptor_sha256 = sha256(
+        root / "docs/stage-5/stage5e-active-descriptor.json"
+    )
+    stage5e_descriptor_registry_sha256 = sha256(root / "scripts/stage5e_descriptor.py")
     index_lines = subprocess.check_output(["git", "ls-files", "-s"], cwd=ROOT, text=True).splitlines()
     source_members = []
     git_entries = {}
@@ -181,6 +186,8 @@ def write_manifest(root: Path, mutate=None) -> None:
                     "stage5e_checker": stage5e_checker_sha256,
                     "stage5e_inventory": stage5e_inventory_sha256,
                     "stage5e_plan": stage5e_plan_sha256,
+                    "stage5e_active_descriptor": stage5e_active_descriptor_sha256,
+                    "stage5e_descriptor_registry": stage5e_descriptor_registry_sha256,
                 },
                 "design_scope": design_scope,
                 "source_tree_manifest_sha256": source_tree_manifest_sha256,
@@ -264,6 +271,22 @@ def run_case(base: Path, case: Case) -> tuple[bool, str]:
         (root / "docs/stage-5/stage5e-active-descriptor.json").write_text(
             json.dumps({"schema_version": 1, "stage": case.stage}) + "\n"
         )
+        if case.checker_only:
+            case.mutator(root, {}, {})
+            result = subprocess.run(
+                ["python3", str(ROOT / "scripts/stage5e_b_no_io_lifecycle_check.py")],
+                cwd=root,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            combined = result.stdout + result.stderr
+            if result.returncode == 0:
+                return False, "checker mutation unexpectedly passed"
+            if case.expected not in combined:
+                return False, f"expected marker {case.expected!r} missing\n{combined}"
+            return True, ""
         write_manifest(root, case.mutator)
         archive_path = base / ARCHIVE_NAME
         archive_path.unlink(missing_ok=True)
@@ -312,6 +335,10 @@ def main() -> int:
             "stage5e_checker": sha256(root / descriptor["checker"]),
             "stage5e_inventory": sha256(root / descriptor["inventory"]),
             "stage5e_plan": sha256(root / descriptor["plan"]),
+            "stage5e_active_descriptor": sha256(
+                root / "docs/stage-5/stage5e-active-descriptor.json"
+            ),
+            "stage5e_descriptor_registry": sha256(root / "scripts/stage5e_descriptor.py"),
         }
         gate_path.write_text(json.dumps(gate, indent=2, sort_keys=True) + "\n")
         refresh_gate_result_hash(root, manifest)
@@ -363,6 +390,22 @@ def main() -> int:
             path.write_text(mutator(path.read_text()))
             manifest["stage5e_plan_sha256"] = sha256(path)
             refresh_gate_input_and_result_hashes(root, manifest)
+
+        return apply
+
+    def mutate_stage5e_b_plan_for_checker(mutator):
+        def apply(root, _manifest, _marker):
+            path = root / "docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md"
+            path.write_text(mutator(path.read_text()))
+
+        return apply
+
+    def mutate_stage5e_b_contract_for_checker(mutator):
+        def apply(root, _manifest, _marker):
+            path = root / "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json"
+            payload = json.loads(path.read_text())
+            mutator(payload["contract_invariants"])
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
         return apply
 
@@ -849,13 +892,42 @@ def main() -> int:
         Case(
             "stage5e-b-freshness-weakened",
             "market freshness inequality weakened",
-            mutate_stage5e_b_plan_and_rehash(
+            mutate_stage5e_b_plan_for_checker(
                 lambda text: text.replace(
                     "last_history_bar_close < first_fresh_live_bar_close",
                     "last_history_bar_close <= first_fresh_live_bar_close",
                 )
             ),
             "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-contract-callback-count",
+            "contract invariants drift",
+            mutate_stage5e_b_contract_for_checker(lambda contract: contract.__setitem__("callback_count", 1)),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-contract-intent-count",
+            "contract invariants drift",
+            mutate_stage5e_b_contract_for_checker(lambda contract: contract.__setitem__("intent_count", 1)),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-contract-calls-strategy",
+            "contract invariants drift",
+            mutate_stage5e_b_contract_for_checker(lambda contract: contract.__setitem__("calls_strategy", True)),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-contract-executable-intent",
+            "contract invariants drift",
+            mutate_stage5e_b_contract_for_checker(lambda contract: contract.__setitem__("creates_executable_intent", True)),
+            "5E-b-no-io-lifecycle-capability",
+            True,
         ),
     ]
     with tempfile.TemporaryDirectory(prefix="handoff-provenance-negative-") as tmp:

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "stage": "5E-b-no-io-lifecycle-capability",
   "status": "implementation_foundation",
-  "baseline_ref": "23362c291279d45189b108ab8e8fdc8e7f5958d3",
+  "baseline_ref": "ce08d71f2ab763a4915e90385c7487bec1581c25",
   "stage5e_a_freeze_ref": "eb03695dc407b02bb8327de57fde6acea077d96b",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
   "closed_surfaces": {
@@ -15,14 +15,21 @@
     "strategy_intent_sink": false,
     "autonomous_event_loop": false
   },
+  "contract_invariants": {
+    "callback_count": 0,
+    "calls_strategy": false,
+    "creates_executable_intent": false,
+    "first_live_bar_mode": "observation_only",
+    "intent_count": 0,
+    "market_freshness_relation": "strict_lt"
+  },
   "allowed_changed_paths": [
-    "docs/handoff.md",
     "docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md",
-    "docs/stage-5/stage5e-active-descriptor.json",
     "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
     "scripts/make_handoff_archive.sh",
+    "scripts/stage5e_lifecycle_event_time_gate.sh",
     "scripts/stage5e_b_no_io_lifecycle_check.py",
     "scripts/stage5e_descriptor.py"
   ]

@@ -319,7 +319,9 @@ def check_archive(path: Path) -> None:
                 "stage5c_checker",
                 "stage5d_checker",
                 "stage5d_manifest",
+                "stage5e_active_descriptor",
                 "stage5e_checker",
+                "stage5e_descriptor_registry",
                 "stage5e_inventory",
                 "stage5e_plan",
             }
@@ -329,13 +331,15 @@ def check_archive(path: Path) -> None:
                 ("stage5c_checker", "stage5c_checker_sha256", "scripts/stage5c_api_freeze_check.py"),
                 ("stage5d_checker", "stage5d_checker_sha256", "scripts/stage5d_additive_freeze_check.py"),
                 ("stage5d_manifest", "stage5d_manifest_sha256", stage5d_manifest_name),
+                ("stage5e_active_descriptor", None, active_descriptor_name),
                 ("stage5e_checker", "stage5e_checker_sha256", stage5e_checker_name),
+                ("stage5e_descriptor_registry", None, "scripts/stage5e_descriptor.py"),
                 ("stage5e_inventory", "stage5e_inventory_sha256", stage5e_inventory_name),
                 ("stage5e_plan", "stage5e_plan_sha256", stage5e_plan_name),
             ]:
                 value = input_sha256.get(key)
                 require_hex64(value, f"Stage 5E gate input hash {key}")
-                if value != manifest.get(manifest_field):
+                if manifest_field is not None and value != manifest.get(manifest_field):
                     raise SystemExit(f"handoff safety: Stage 5E gate input/manifest mismatch: {key}")
                 actual = hashlib.sha256(archive.read(member)).hexdigest()
                 if value != actual:
