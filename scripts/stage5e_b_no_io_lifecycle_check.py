@@ -28,6 +28,7 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
+    "scripts/make_handoff_archive.sh",
     "scripts/stage5e_b_no_io_lifecycle_check.py",
 ]
 CLOSED = {
@@ -36,7 +37,7 @@ CLOSED = {
 }
 EXPECTED_CONTRACT_INVARIANTS = {
     "market_freshness_relation": "strict_lt",
-    "first_live_bar_mode": "observation_only",
+    "first_live_bar_mode": "observed_after_history_only",
     "callback_count": 0,
     "intent_count": 0,
     "calls_strategy": False,
@@ -59,7 +60,7 @@ def main() -> int:
         fail("schema_version must be 1")
     if inventory.get("stage") != "5E-b-no-io-lifecycle-capability":
         fail("unexpected stage")
-    if inventory.get("status") != "controlled_no_io_type_state":
+    if inventory.get("status") != "contextual_no_io_type_state":
         fail("unexpected status")
     if inventory.get("baseline_ref") != BASELINE_REF:
         fail("Stage 5E-b baseline reference mismatch")
@@ -85,9 +86,9 @@ def main() -> int:
     if "last_history_bar_close <= first_fresh_live_bar_close" in text:
         fail("market freshness inequality weakened")
     for marker in (
-        "Stage 5E-b", "no-I/O", "first-fresh-live",
-        "last_history_bar_close < first_fresh_live_bar_close",
-        "observation-only first fresh live bar", "callback count == 0",
+        "Stage 5E-b", "no-I/O", "observed-live-bar-after-history",
+        "last_history_bar_close < observed_live_bar_close",
+        "does not prove a market-data gap", "callback count == 0",
         "intent count == 0", "does not call the strategy",
         "does not create an executable intent",
     ):
@@ -109,11 +110,16 @@ def main() -> int:
         fail("missing Stage 5E-b1 private runtime boundary")
     module_text = module.read_text()
     for marker in (
-        "Stage5eNoIoFirstLiveInputs",
-        "Stage5eObservedFirstFreshLiveBar",
-        "admit_stage5e_observation_only_first_live_bar",
+        "Stage5eNoIoLiveBarAfterHistoryInputs",
+        "Stage5eObservedLiveBarAfterHistory",
+        "admit_stage5e_observation_only_live_bar_after_history",
         "HybridRuntimeBarOrigin::Live",
-        "first_fresh_live_bar_close <= last_history_bar_close",
+        "validate_contextual_live_bar_after_history",
+        "bar_close <= last_history_bar_close",
+        "InstrumentMismatch",
+        "TickSizeMismatch",
+        "AdmissionExpired",
+        "FutureBar",
         "callback_count",
         "intent_count",
     ):
@@ -127,12 +133,18 @@ def main() -> int:
         "reqwest",
         "tokio",
     ):
-        if forbidden in module_text.lower() if forbidden in {"redis", "finam", "reqwest", "tokio"} else forbidden in module_text:
+        haystack = module_text.lower() if forbidden in {"redis", "finam", "reqwest", "tokio"} else module_text
+        if forbidden in haystack:
             fail(f"forbidden Stage 5E-b1 surface: {forbidden}")
+    if "FirstFresh" in module_text or "first fresh" in module_text.lower():
+        fail("Stage 5E-b1 must not claim first-fresh or market-gap proof")
     if "pub use stage5e_no_io_lifecycle" in lib.read_text():
         fail("Stage 5E-b1 private module leaked into public API")
-    if "stage5e_extract_no_io_first_live_inputs" not in host.read_text():
+    host_text = host.read_text()
+    if "stage5e_extract_no_io_live_bar_after_history_inputs" not in host_text:
         fail("missing Stage 5E-b1 crate-private extraction bridge")
+    if "Stage5eNoIoBridgeSeal" not in host_text:
+        fail("missing Stage 5E-b1 single-construction seal")
     print("stage5e-b-no-io-lifecycle-check: ok")
     return 0
 

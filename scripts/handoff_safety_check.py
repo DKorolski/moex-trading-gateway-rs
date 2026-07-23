@@ -138,6 +138,9 @@ def check_archive(path: Path) -> None:
 
         required = {
             "handoff-commit.txt",
+            "handoff-cargo-gate-result.json",
+            "handoff-cargo-gate-stderr.txt",
+            "handoff-cargo-gate-stdout.txt",
             "handoff-manifest.json",
             "handoff-source-tree-manifest.json",
         }
@@ -152,6 +155,38 @@ def check_archive(path: Path) -> None:
             raise SystemExit("handoff safety: handoff manifest must be a JSON object")
         if manifest.get("schema_version") != 1:
             raise SystemExit("handoff safety: unsupported handoff manifest schema_version")
+        cargo_result_name = "handoff-cargo-gate-result.json"
+        cargo_stdout_name = "handoff-cargo-gate-stdout.txt"
+        cargo_stderr_name = "handoff-cargo-gate-stderr.txt"
+        cargo_result = json.loads(archive.read(cargo_result_name))
+        if set(cargo_result) != {
+            "cargo_version", "commands", "exit_code", "finished_at_utc", "schema_version",
+            "source_ref", "started_at_utc", "stderr_member", "stderr_sha256", "stdout_member",
+            "stdout_sha256",
+        }:
+            raise SystemExit("handoff safety: cargo gate result key set drift")
+        if cargo_result.get("schema_version") != 1 or cargo_result.get("exit_code") != 0:
+            raise SystemExit("handoff safety: cargo gate did not pass")
+        if cargo_result.get("commands") != [
+            ["cargo", "fmt", "--check"],
+            ["cargo", "test", "--workspace", "--all-targets"],
+            ["cargo", "test", "--workspace", "--doc"],
+            ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
+        ]:
+            raise SystemExit("handoff safety: cargo gate commands mismatch")
+        if not isinstance(cargo_result.get("cargo_version"), str) or not cargo_result["cargo_version"]:
+            raise SystemExit("handoff safety: cargo gate version missing")
+        parse_utc_timestamp(cargo_result.get("started_at_utc"), "cargo started_at_utc")
+        parse_utc_timestamp(cargo_result.get("finished_at_utc"), "cargo finished_at_utc")
+        if cargo_result.get("stdout_member") != cargo_stdout_name or cargo_result.get("stderr_member") != cargo_stderr_name:
+            raise SystemExit("handoff safety: cargo gate log member mismatch")
+        for field, member in [("stdout_sha256", cargo_stdout_name), ("stderr_sha256", cargo_stderr_name)]:
+            require_hex64(cargo_result.get(field), f"cargo gate {field}")
+            if hashlib.sha256(archive.read(member)).hexdigest() != cargo_result[field]:
+                raise SystemExit(f"handoff safety: cargo gate {field} mismatch")
+        require_hex64(manifest.get("cargo_gate_result_sha256"), "cargo_gate_result_sha256")
+        if hashlib.sha256(archive.read(cargo_result_name)).hexdigest() != manifest.get("cargo_gate_result_sha256"):
+            raise SystemExit("handoff safety: cargo gate result hash mismatch")
         review_stage = manifest.get("review_stage")
         if not isinstance(review_stage, str) or not review_stage:
             raise SystemExit("handoff safety: missing review_stage")
@@ -416,6 +451,9 @@ def check_archive(path: Path) -> None:
                 raise SystemExit("handoff safety: source-tree generated member list invalid")
             if set(generated) != {
                 "handoff-commit.txt",
+                "handoff-cargo-gate-result.json",
+                "handoff-cargo-gate-stderr.txt",
+                "handoff-cargo-gate-stdout.txt",
                 "handoff-manifest.json",
                 "handoff-stage5e-gate-result.json",
                 "handoff-stage5e-gate-stderr.txt",
@@ -467,6 +505,8 @@ def check_archive(path: Path) -> None:
             raise SystemExit("handoff safety: missing or invalid source_commit")
         if not isinstance(source_ref, str) or not re.fullmatch(r"[0-9a-f]{40}", source_ref):
             raise SystemExit("handoff safety: missing or invalid source_ref")
+        if cargo_result.get("source_ref") != source_ref:
+            raise SystemExit("handoff safety: cargo gate source_ref mismatch")
         if not source_ref.startswith(source_commit):
             raise SystemExit("handoff safety: source short/full commit mismatch")
         marker = archive.read("handoff-commit.txt").decode().splitlines()

@@ -1,6 +1,6 @@
 # Stage 5E-b — no-I/O lifecycle capability
 
-Status: implementation foundation.
+Status: Stage 5E-b1.1 contextual no-I/O type-state.
 
 Stage 5E-b turns the accepted Stage 5E-a event-time contract into a narrow,
 in-process type-state boundary. It deliberately stops before a strategy bar
@@ -22,12 +22,14 @@ the Stage 5C chain:
 Stage 5D accepted restore
  -> Stage 5C history warmup
  -> Stage 5C pending recovery
- -> Stage 5E-b first-fresh-live eligibility capability
+ -> Stage 5E-b observed-live-bar-after-history capability
 ```
 
-The first slice only admits an observation-only first fresh live bar.  It does
-not call the strategy. A later separately-reviewed slice may consume that
-capability at the callback boundary.
+The first slice only admits an observation-only live bar after canonical
+history. It does not prove a market-data gap and therefore is not named
+"first fresh" or callback-ready. It does not call the strategy. A later
+separately-reviewed slice may consume a stronger capability at the callback
+boundary.
 
 ## Invariants
 
@@ -39,7 +41,10 @@ override the JSON contract.
 - lifecycle timestamps are checked only against lifecycle timestamps;
 - market bar close timestamps are checked only against market bar close
   timestamps;
-- `last_history_bar_close < first_fresh_live_bar_close` is strict;
+- `last_history_bar_close < observed_live_bar_close` is strict;
+- the target instrument and exact tick-size bits bind the observed bar to the
+  recovered admission; admission expiry is checked in lifecycle time, while
+  future-bar rejection is checked against lifecycle time;
 - recovery completion is represented by an opaque causal receipt, not by a
   comparison between recovery wall-clock time and market time;
 - callback count == 0, intent count == 0, and the first live bar is
@@ -71,8 +76,9 @@ mixed 5E-a/5E-b descriptor set.
 The Stage 5E-b contract is immutable during this slice:
 
 ```text
-last_history_bar_close < first_fresh_live_bar_close
-first slice only admits an observation-only first fresh live bar
+last_history_bar_close < observed_live_bar_close
+first slice only admits an observation-only observed live bar after history
+and does not prove a market-data gap
 callback count == 0
 intent count == 0
 ```
@@ -88,13 +94,15 @@ The reviewed b1 extension is crate-private and linear:
 ```text
 Stage5cPendingRecoveredPaperStrategy + Stage5cAcceptedSemanticBar
   -> crate-private extraction bridge
-  -> Stage5eNoIoFirstLiveInputs
-  -> observation-only Stage5eObservedFirstFreshLiveBar
+  -> Stage5eNoIoLiveBarAfterHistoryInputs
+  -> observation-only Stage5eObservedLiveBarAfterHistory
 ```
 
 It admits only `HybridRuntimeBarOrigin::Live` and requires
-`last_history_bar_close < first_fresh_live_bar_close`. The resulting capability
-records zero callbacks and zero intents; it deliberately exposes no public
-re-export and no continuation into strategy execution. The Stage 5D additive
-freeze permits the module declaration and extraction bridge only in its already
-reviewed crate-private additive regions.
+`last_history_bar_close < observed_live_bar_close`, matching instrument,
+matching exact tick size, an unexpired admission, and a non-future market bar.
+The resulting capability records zero callbacks and zero intents; it deliberately
+exposes no public re-export and no continuation into strategy execution. The
+recovery receipt is causal ownership only; it is never compared to market-bar
+time. The Stage 5D additive freeze permits the module declaration and extraction
+bridge only in its already reviewed crate-private additive regions.

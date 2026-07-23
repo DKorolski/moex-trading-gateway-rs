@@ -22,12 +22,16 @@ stage5e_gate_result="$repo_root/handoff-stage5e-gate-result.json"
 source_tree_manifest="$repo_root/handoff-source-tree-manifest.json"
 stage5e_gate_stdout_log="$repo_root/handoff-stage5e-gate-stdout.txt"
 stage5e_gate_stderr_log="$repo_root/handoff-stage5e-gate-stderr.txt"
+cargo_gate_result="$repo_root/handoff-cargo-gate-result.json"
+cargo_gate_stdout_log="$repo_root/handoff-cargo-gate-stdout.txt"
+cargo_gate_stderr_log="$repo_root/handoff-cargo-gate-stderr.txt"
 completed=0
 
 cleanup() {
   local status=$?
   rm -f "$commit_marker" "$handoff_manifest" "$stage5e_gate_result" "$source_tree_manifest" \
-    "$stage5e_gate_stdout_log" "$stage5e_gate_stderr_log"
+    "$stage5e_gate_stdout_log" "$stage5e_gate_stderr_log" "$cargo_gate_result" \
+    "$cargo_gate_stdout_log" "$cargo_gate_stderr_log"
   if [[ "$completed" -ne 1 ]]; then
     rm -f "$archive_path" "$sha_path"
   fi
@@ -37,6 +41,56 @@ trap cleanup EXIT
 
 rm -f "$archive_path" "$sha_path"
 python3 "$repo_root/scripts/handoff_safety_check.py" --source-tree "$repo_root"
+
+cargo_gate_started_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+set +e
+(
+  cd "$repo_root"
+  cargo fmt --check
+  cargo test --workspace --all-targets
+  cargo test --workspace --doc
+  cargo clippy --workspace --all-targets -- -D warnings
+) >"$cargo_gate_stdout_log" 2>"$cargo_gate_stderr_log"
+cargo_gate_exit_code="$?"
+set -e
+cargo_gate_finished_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+if [[ "$cargo_gate_exit_code" -ne 0 ]]; then
+  cat "$cargo_gate_stdout_log"
+  cat "$cargo_gate_stderr_log" >&2
+  echo "Cargo gate failed before handoff packaging." >&2
+  exit "$cargo_gate_exit_code"
+fi
+SOURCE_REF="$source_ref" CARGO_VERSION="$(cargo --version)" \
+CARGO_GATE_STARTED_AT_UTC="$cargo_gate_started_at_utc" \
+CARGO_GATE_FINISHED_AT_UTC="$cargo_gate_finished_at_utc" \
+CARGO_GATE_EXIT_CODE="$cargo_gate_exit_code" \
+CARGO_GATE_STDOUT_SHA256="$(shasum -a 256 "$cargo_gate_stdout_log" | awk '{print $1}')" \
+CARGO_GATE_STDERR_SHA256="$(shasum -a 256 "$cargo_gate_stderr_log" | awk '{print $1}')" \
+python3 - "$cargo_gate_result" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+Path(sys.argv[1]).write_text(json.dumps({
+    "schema_version": 1,
+    "source_ref": os.environ["SOURCE_REF"],
+    "cargo_version": os.environ["CARGO_VERSION"],
+    "commands": [
+        ["cargo", "fmt", "--check"],
+        ["cargo", "test", "--workspace", "--all-targets"],
+        ["cargo", "test", "--workspace", "--doc"],
+        ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
+    ],
+    "exit_code": int(os.environ["CARGO_GATE_EXIT_CODE"]),
+    "started_at_utc": os.environ["CARGO_GATE_STARTED_AT_UTC"],
+    "finished_at_utc": os.environ["CARGO_GATE_FINISHED_AT_UTC"],
+    "stdout_member": "handoff-cargo-gate-stdout.txt",
+    "stderr_member": "handoff-cargo-gate-stderr.txt",
+    "stdout_sha256": os.environ["CARGO_GATE_STDOUT_SHA256"],
+    "stderr_sha256": os.environ["CARGO_GATE_STDERR_SHA256"],
+}, indent=2, sort_keys=True) + "\n")
+PY
 
 printf '%s\n' \
   "source_commit=$source_commit" \
@@ -240,6 +294,9 @@ manifest = {
     "changed_paths": json.loads(os.environ["CHANGED_PATHS_JSON"]),
     "excluded_generated_members": [
         "handoff-commit.txt",
+        "handoff-cargo-gate-result.json",
+        "handoff-cargo-gate-stderr.txt",
+        "handoff-cargo-gate-stdout.txt",
         "handoff-manifest.json",
         "handoff-stage5e-gate-stderr.txt",
         "handoff-stage5e-gate-result.json",
@@ -285,6 +342,7 @@ STAGE5E_PLAN_SHA256="$stage5e_plan_sha256" \
 STAGE5E_GATE_RESULT_SHA256="$stage5e_gate_result_sha256" \
 STAGE5E_DESIGN_SCOPE_SHA256="$stage5e_design_scope_sha256" \
 SOURCE_TREE_MANIFEST_SHA256="$source_tree_manifest_sha256" \
+CARGO_GATE_RESULT_SHA256="$(shasum -a 256 "$cargo_gate_result" | awk '{print $1}')" \
 REVIEW_STAGE="$review_stage" \
 CURRENT_REVIEW_STAGE="$current_review_stage" \
 HANDOFF_MANIFEST="$handoff_manifest" \
@@ -310,6 +368,7 @@ manifest = {
     "stage5e_gate_result_sha256": os.environ["STAGE5E_GATE_RESULT_SHA256"],
     "stage5e_design_scope_sha256": os.environ["STAGE5E_DESIGN_SCOPE_SHA256"],
     "source_tree_manifest_sha256": os.environ["SOURCE_TREE_MANIFEST_SHA256"],
+    "cargo_gate_result_sha256": os.environ["CARGO_GATE_RESULT_SHA256"],
     "required_gate_names": [
         "stage5e_lifecycle_event_time",
         "stage5c_api_freeze",

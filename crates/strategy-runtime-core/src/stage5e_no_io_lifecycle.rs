@@ -1,64 +1,102 @@
-//! Stage 5E-b1's private, observation-only first-live-bar boundary.
+//! Stage 5E-b1.1's private, observation-only live-bar-after-history boundary.
 //!
-//! This module intentionally has no public API. It owns a linear capability
-//! only after Stage 5C recovery and semantic-bar validation have completed.
-//! Admitting the first fresh live bar does not invoke a strategy callback or
-//! construct an intent batch.
+//! This module intentionally has no public API. Its linear capability proves a
+//! contextually valid `Live` bar after canonical history; it does not claim
+//! market-gap continuity or any callback-ready authorization.
+
+use chrono::{DateTime, Utc};
 
 use crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy;
-use crate::stage5c_paper_host::Stage5cPendingRecoveryReceipt;
+use crate::stage5c_paper_host::{Stage5cPendingRecoveryReceipt, Stage5eNoIoBridgeSeal};
 
-pub(crate) struct Stage5eNoIoFirstLiveInputs {
+pub(crate) struct Stage5eNoIoLiveBarAfterHistoryInputs {
     strategy: HybridIntradayRuntimeStrategy,
     recovery_receipt: Stage5cPendingRecoveryReceipt,
     bar: broker_core::HybridRuntimeBarEvent,
     tick_size: f64,
+    target_instrument: broker_core::InstrumentId,
+    admission_tick_size: f64,
+    admission_expires_at: DateTime<Utc>,
+    lifecycle_now: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Stage5eFirstLiveEvidenceError {
+pub(crate) enum Stage5eContextualAdmissionError {
     NotLive,
     NotStrictlyAfterHistory,
+    InstrumentMismatch,
+    TickSizeMismatch,
+    AdmissionExpired,
+    FutureBar,
 }
 
-fn validate_first_live_evidence(
+#[allow(clippy::too_many_arguments)] // Pure validation keeps the independent context bindings explicit.
+fn validate_contextual_live_bar_after_history(
     origin: broker_core::HybridRuntimeBarOrigin,
+    bar_instrument: &broker_core::InstrumentId,
+    target_instrument: &broker_core::InstrumentId,
+    bar_tick_size: f64,
+    admission_tick_size: f64,
     last_history_bar_close: i64,
-    first_fresh_live_bar_close: i64,
-) -> Result<(), Stage5eFirstLiveEvidenceError> {
+    bar_close: i64,
+    admission_expires_at: DateTime<Utc>,
+    lifecycle_now: DateTime<Utc>,
+) -> Result<(), Stage5eContextualAdmissionError> {
     if origin != broker_core::HybridRuntimeBarOrigin::Live {
-        return Err(Stage5eFirstLiveEvidenceError::NotLive);
+        return Err(Stage5eContextualAdmissionError::NotLive);
     }
-    if first_fresh_live_bar_close <= last_history_bar_close {
-        return Err(Stage5eFirstLiveEvidenceError::NotStrictlyAfterHistory);
+    if bar_instrument != target_instrument {
+        return Err(Stage5eContextualAdmissionError::InstrumentMismatch);
+    }
+    if bar_tick_size.to_bits() != admission_tick_size.to_bits() {
+        return Err(Stage5eContextualAdmissionError::TickSizeMismatch);
+    }
+    if lifecycle_now > admission_expires_at {
+        return Err(Stage5eContextualAdmissionError::AdmissionExpired);
+    }
+    if bar_close > lifecycle_now.timestamp() {
+        return Err(Stage5eContextualAdmissionError::FutureBar);
+    }
+    if bar_close <= last_history_bar_close {
+        return Err(Stage5eContextualAdmissionError::NotStrictlyAfterHistory);
     }
     Ok(())
 }
 
-impl Stage5eNoIoFirstLiveInputs {
-    pub(crate) fn from_stage5c_parts(
+impl Stage5eNoIoLiveBarAfterHistoryInputs {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_stage5c_context(
+        _seal: Stage5eNoIoBridgeSeal,
         strategy: HybridIntradayRuntimeStrategy,
         recovery_receipt: Stage5cPendingRecoveryReceipt,
         bar: broker_core::HybridRuntimeBarEvent,
         tick_size: f64,
+        target_instrument: broker_core::InstrumentId,
+        admission_tick_size: f64,
+        admission_expires_at: DateTime<Utc>,
+        lifecycle_now: DateTime<Utc>,
     ) -> Self {
         Self {
             strategy,
             recovery_receipt,
             bar,
             tick_size,
+            target_instrument,
+            admission_tick_size,
+            admission_expires_at,
+            lifecycle_now,
         }
     }
 }
 
-pub(crate) struct Stage5eObservedFirstFreshLiveBar {
+pub(crate) struct Stage5eObservedLiveBarAfterHistory {
     strategy: HybridIntradayRuntimeStrategy,
     recovery_receipt: Stage5cPendingRecoveryReceipt,
     bar: broker_core::HybridRuntimeBarEvent,
     tick_size: f64,
 }
 
-impl Stage5eObservedFirstFreshLiveBar {
+impl Stage5eObservedLiveBarAfterHistory {
     pub(crate) fn bar_close_ts(&self) -> i64 {
         self.bar.close_time_utc
     }
@@ -80,44 +118,41 @@ impl Stage5eObservedFirstFreshLiveBar {
     }
 }
 
-pub(crate) enum Stage5eNoIoFirstLiveBlocked {
-    NotLive {
-        inputs: Box<Stage5eNoIoFirstLiveInputs>,
-    },
-    NotStrictlyAfterHistory {
-        inputs: Box<Stage5eNoIoFirstLiveInputs>,
+pub(crate) enum Stage5eNoIoLiveBarAfterHistoryBlocked {
+    Contextual {
+        reason: Stage5eContextualAdmissionError,
+        inputs: Box<Stage5eNoIoLiveBarAfterHistoryInputs>,
     },
 }
 
-impl Stage5eNoIoFirstLiveBlocked {
-    pub(crate) fn into_inputs(self) -> Stage5eNoIoFirstLiveInputs {
+impl Stage5eNoIoLiveBarAfterHistoryBlocked {
+    pub(crate) fn into_inputs(self) -> Stage5eNoIoLiveBarAfterHistoryInputs {
         match self {
-            Self::NotLive { inputs } | Self::NotStrictlyAfterHistory { inputs } => *inputs,
+            Self::Contextual { inputs, .. } => *inputs,
         }
     }
 }
 
-pub(crate) fn admit_stage5e_observation_only_first_live_bar(
-    inputs: Stage5eNoIoFirstLiveInputs,
-) -> Result<Stage5eObservedFirstFreshLiveBar, Stage5eNoIoFirstLiveBlocked> {
-    match validate_first_live_evidence(
+pub(crate) fn admit_stage5e_observation_only_live_bar_after_history(
+    inputs: Stage5eNoIoLiveBarAfterHistoryInputs,
+) -> Result<Stage5eObservedLiveBarAfterHistory, Stage5eNoIoLiveBarAfterHistoryBlocked> {
+    if let Err(reason) = validate_contextual_live_bar_after_history(
         inputs.bar.origin,
+        &inputs.bar.instrument,
+        &inputs.target_instrument,
+        inputs.tick_size,
+        inputs.admission_tick_size,
         inputs.recovery_receipt.warmup_receipt().last_history_ts(),
         inputs.bar.close_time_utc,
+        inputs.admission_expires_at,
+        inputs.lifecycle_now,
     ) {
-        Err(Stage5eFirstLiveEvidenceError::NotLive) => {
-            return Err(Stage5eNoIoFirstLiveBlocked::NotLive {
-                inputs: Box::new(inputs),
-            });
-        }
-        Err(Stage5eFirstLiveEvidenceError::NotStrictlyAfterHistory) => {
-            return Err(Stage5eNoIoFirstLiveBlocked::NotStrictlyAfterHistory {
-                inputs: Box::new(inputs),
-            });
-        }
-        Ok(()) => {}
+        return Err(Stage5eNoIoLiveBarAfterHistoryBlocked::Contextual {
+            reason,
+            inputs: Box::new(inputs),
+        });
     }
-    Ok(Stage5eObservedFirstFreshLiveBar {
+    Ok(Stage5eObservedLiveBarAfterHistory {
         strategy: inputs.strategy,
         recovery_receipt: inputs.recovery_receipt,
         bar: inputs.bar,
@@ -127,19 +162,123 @@ pub(crate) fn admit_stage5e_observation_only_first_live_bar(
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_first_live_evidence, Stage5eFirstLiveEvidenceError};
-    use broker_core::HybridRuntimeBarOrigin;
+    use super::{validate_contextual_live_bar_after_history, Stage5eContextualAdmissionError};
+    use broker_core::{Exchange, InstrumentId, Market};
+    use chrono::{TimeZone, Utc};
+
+    fn instrument(symbol: &str) -> InstrumentId {
+        InstrumentId {
+            symbol: symbol.to_string(),
+            venue_symbol: Some(format!("{symbol}@RTSX")),
+            exchange: Exchange::Moex,
+            market: Market::Other("test".to_string()),
+        }
+    }
+
+    fn valid() -> Result<(), Stage5eContextualAdmissionError> {
+        validate_contextual_live_bar_after_history(
+            broker_core::HybridRuntimeBarOrigin::Live,
+            &instrument("IMOEXF"),
+            &instrument("IMOEXF"),
+            0.5,
+            0.5,
+            1_000,
+            1_600,
+            Utc.timestamp_opt(2_000, 0).single().unwrap(),
+            Utc.timestamp_opt(1_700, 0).single().unwrap(),
+        )
+    }
 
     #[test]
-    fn first_live_evidence_requires_live_origin_and_strict_market_freshness() {
+    fn contextual_admission_requires_live_exact_binding_and_same_domain_freshness() {
         assert_eq!(
-            validate_first_live_evidence(HybridRuntimeBarOrigin::Replay, 1_000, 1_600),
-            Err(Stage5eFirstLiveEvidenceError::NotLive)
+            validate_contextual_live_bar_after_history(
+                broker_core::HybridRuntimeBarOrigin::Replay,
+                &instrument("IMOEXF"),
+                &instrument("IMOEXF"),
+                0.5,
+                0.5,
+                1_000,
+                1_600,
+                Utc.timestamp_opt(2_000, 0).single().unwrap(),
+                Utc.timestamp_opt(1_700, 0).single().unwrap(),
+            ),
+            Err(Stage5eContextualAdmissionError::NotLive)
         );
         assert_eq!(
-            validate_first_live_evidence(HybridRuntimeBarOrigin::Live, 1_000, 1_000),
-            Err(Stage5eFirstLiveEvidenceError::NotStrictlyAfterHistory)
+            validate_contextual_live_bar_after_history(
+                broker_core::HybridRuntimeBarOrigin::Live,
+                &instrument("RI"),
+                &instrument("IMOEXF"),
+                0.5,
+                0.5,
+                1_000,
+                1_600,
+                Utc.timestamp_opt(2_000, 0).single().unwrap(),
+                Utc.timestamp_opt(1_700, 0).single().unwrap(),
+            ),
+            Err(Stage5eContextualAdmissionError::InstrumentMismatch)
         );
-        assert!(validate_first_live_evidence(HybridRuntimeBarOrigin::Live, 1_000, 1_600).is_ok());
+        assert_eq!(
+            validate_contextual_live_bar_after_history(
+                broker_core::HybridRuntimeBarOrigin::Live,
+                &instrument("IMOEXF"),
+                &instrument("IMOEXF"),
+                0.1,
+                0.5,
+                1_000,
+                1_600,
+                Utc.timestamp_opt(2_000, 0).single().unwrap(),
+                Utc.timestamp_opt(1_700, 0).single().unwrap(),
+            ),
+            Err(Stage5eContextualAdmissionError::TickSizeMismatch)
+        );
+        assert_eq!(
+            validate_contextual_live_bar_after_history(
+                broker_core::HybridRuntimeBarOrigin::Live,
+                &instrument("IMOEXF"),
+                &instrument("IMOEXF"),
+                0.5,
+                0.5,
+                1_000,
+                1_000,
+                Utc.timestamp_opt(2_000, 0).single().unwrap(),
+                Utc.timestamp_opt(1_700, 0).single().unwrap(),
+            ),
+            Err(Stage5eContextualAdmissionError::NotStrictlyAfterHistory)
+        );
+        assert!(valid().is_ok());
+    }
+
+    #[test]
+    fn contextual_admission_rejects_expired_admission_and_future_market_bar() {
+        assert_eq!(
+            validate_contextual_live_bar_after_history(
+                broker_core::HybridRuntimeBarOrigin::Live,
+                &instrument("IMOEXF"),
+                &instrument("IMOEXF"),
+                0.5,
+                0.5,
+                1_000,
+                1_600,
+                Utc.timestamp_opt(1_600, 0).single().unwrap(),
+                Utc.timestamp_opt(1_700, 0).single().unwrap(),
+            ),
+            Err(Stage5eContextualAdmissionError::AdmissionExpired)
+        );
+        assert_eq!(
+            validate_contextual_live_bar_after_history(
+                broker_core::HybridRuntimeBarOrigin::Live,
+                &instrument("IMOEXF"),
+                &instrument("IMOEXF"),
+                0.5,
+                0.5,
+                1_000,
+                1_800,
+                Utc.timestamp_opt(2_000, 0).single().unwrap(),
+                Utc.timestamp_opt(1_700, 0).single().unwrap(),
+            ),
+            Err(Stage5eContextualAdmissionError::FutureBar)
+        );
     }
 }

@@ -829,17 +829,50 @@ mod stage5d_pair_binding_restore_tests {
     }
 }
 
+/// Private construction seal: only this Stage 5C bridge can build Stage 5E inputs.
+/// It is intentionally neither serializable nor publicly constructible.
+pub(crate) struct Stage5eNoIoBridgeSeal(());
+
 #[allow(dead_code)] // Stage 5E-b1 consumer remains deliberately closed.
-pub(crate) fn stage5e_extract_no_io_first_live_inputs(
+pub(crate) fn stage5e_extract_no_io_live_bar_after_history_inputs(
     recovered: Stage5cPendingRecoveredPaperStrategy,
     accepted: Stage5cAcceptedSemanticBar,
-) -> crate::stage5e_no_io_lifecycle::Stage5eNoIoFirstLiveInputs {
+) -> crate::stage5e_no_io_lifecycle::Stage5eNoIoLiveBarAfterHistoryInputs {
+    stage5e_extract_no_io_live_bar_after_history_inputs_at(recovered, accepted, Utc::now())
+}
+
+#[allow(dead_code)] // Stage 5E-b1 consumer remains deliberately closed.
+pub(crate) fn stage5e_extract_no_io_live_bar_after_history_inputs_at(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    lifecycle_now: DateTime<Utc>,
+) -> crate::stage5e_no_io_lifecycle::Stage5eNoIoLiveBarAfterHistoryInputs {
+    // Recovery receipt establishes causality/ownership only. Market-bar time is
+    // compared solely to canonical-history time in the Stage 5E boundary.
+    let (target_instrument, admission_tick_size, admission_expires_at) = {
+        let admission = &recovered
+            .receipt
+            .warmup_receipt()
+            .restore_receipt()
+            .bootstrap_receipt()
+            .admission;
+        (
+            admission.target_instrument().clone(),
+            admission.tick_size(),
+            admission.expires_at(),
+        )
+    };
     let (strategy, recovery_receipt) = recovered.into_parts();
-    crate::stage5e_no_io_lifecycle::Stage5eNoIoFirstLiveInputs::from_stage5c_parts(
+    crate::stage5e_no_io_lifecycle::Stage5eNoIoLiveBarAfterHistoryInputs::from_stage5c_context(
+        Stage5eNoIoBridgeSeal(()),
         strategy,
         recovery_receipt,
         accepted.bar,
         accepted.tick_size,
+        target_instrument,
+        admission_tick_size,
+        admission_expires_at,
+        lifecycle_now,
     )
 }
 // STAGE5D-ADDITIVE-BRIDGE-END: type-state-transitions

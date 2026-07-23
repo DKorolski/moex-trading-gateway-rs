@@ -142,6 +142,34 @@ def write_manifest(root: Path, mutate=None) -> None:
     }
     (root / "handoff-stage5e-gate-stdout.txt").write_text("stage5e-lifecycle-event-time-gate: ok\n")
     (root / "handoff-stage5e-gate-stderr.txt").write_text("")
+    (root / "handoff-cargo-gate-stdout.txt").write_text("cargo gate: ok\n")
+    (root / "handoff-cargo-gate-stderr.txt").write_text("")
+    cargo_result_path = root / "handoff-cargo-gate-result.json"
+    cargo_result_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source_ref": SOURCE_REF,
+                "cargo_version": "cargo test-fixture",
+                "commands": [
+                    ["cargo", "fmt", "--check"],
+                    ["cargo", "test", "--workspace", "--all-targets"],
+                    ["cargo", "test", "--workspace", "--doc"],
+                    ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
+                ],
+                "exit_code": 0,
+                "started_at_utc": "2026-01-01T00:00:00Z",
+                "finished_at_utc": "2026-01-01T00:00:01Z",
+                "stdout_member": "handoff-cargo-gate-stdout.txt",
+                "stderr_member": "handoff-cargo-gate-stderr.txt",
+                "stdout_sha256": sha256(root / "handoff-cargo-gate-stdout.txt"),
+                "stderr_sha256": sha256(root / "handoff-cargo-gate-stderr.txt"),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
     source_tree_manifest = {
         "schema_version": 1,
         "source_ref": SOURCE_REF,
@@ -150,6 +178,9 @@ def write_manifest(root: Path, mutate=None) -> None:
         "changed_paths": design_scope["changed_paths"],
         "excluded_generated_members": [
             "handoff-commit.txt",
+            "handoff-cargo-gate-result.json",
+            "handoff-cargo-gate-stderr.txt",
+            "handoff-cargo-gate-stdout.txt",
             "handoff-manifest.json",
             "handoff-stage5e-gate-result.json",
             "handoff-stage5e-gate-stderr.txt",
@@ -215,6 +246,7 @@ def write_manifest(root: Path, mutate=None) -> None:
         "stage5e_gate_result_sha256": sha256(gate_result_path),
         "stage5e_design_scope_sha256": canonical_sha256(design_scope),
         "source_tree_manifest_sha256": source_tree_manifest_sha256,
+        "cargo_gate_result_sha256": sha256(cargo_result_path),
     }
     marker = {
         "source_commit": manifest["source_commit"],
