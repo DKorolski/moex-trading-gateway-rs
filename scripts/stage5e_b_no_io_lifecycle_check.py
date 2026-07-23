@@ -12,21 +12,22 @@ ROOT = Path(__file__).resolve().parents[1]
 PLAN = ROOT / "docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md"
 INVENTORY = ROOT / "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json"
 FREEZE_REF = "eb03695dc407b02bb8327de57fde6acea077d96b"
-BASELINE_REF = "ce08d71f2ab763a4915e90385c7487bec1581c25"
+BASELINE_REF = "0ffeb6aefe790efeaa6d99157104bd5aef8ff35e"
 EXPECTED_TOP_LEVEL_KEYS = {
     "allowed_changed_paths", "baseline_ref", "closed_surfaces", "schema_version",
     "contract_invariants", "source_stage5d_aggregate_closure_r2_ref", "stage",
     "stage5e_a_freeze_ref", "status",
 }
 EXPECTED_ALLOWED_CHANGED_PATHS = [
+    "crates/strategy-runtime-core/src/lib.rs",
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
     "docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md",
+    "docs/stage-5/stage-5d-additive-freeze-manifest.json",
     "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
-    "scripts/make_handoff_archive.sh",
     "scripts/stage5e_b_no_io_lifecycle_check.py",
-    "scripts/stage5e_descriptor.py",
-    "scripts/stage5e_lifecycle_event_time_gate.sh",
 ]
 CLOSED = {
     "redis", "finam", "transport", "dispatch", "runtime_live",
@@ -57,7 +58,7 @@ def main() -> int:
         fail("schema_version must be 1")
     if inventory.get("stage") != "5E-b-no-io-lifecycle-capability":
         fail("unexpected stage")
-    if inventory.get("status") != "implementation_foundation":
+    if inventory.get("status") != "controlled_no_io_type_state":
         fail("unexpected status")
     if inventory.get("baseline_ref") != BASELINE_REF:
         fail("Stage 5E-b baseline reference mismatch")
@@ -99,6 +100,38 @@ def main() -> int:
     ):
         if contradiction in text:
             fail("plan contradicts machine-readable contract")
+    runtime_root = ROOT / "crates/strategy-runtime-core/src"
+    module = runtime_root / "stage5e_no_io_lifecycle.rs"
+    lib = runtime_root / "lib.rs"
+    host = runtime_root / "stage5c_paper_host.rs"
+    if not module.is_file() or not lib.is_file() or not host.is_file():
+        fail("missing Stage 5E-b1 private runtime boundary")
+    module_text = module.read_text()
+    for marker in (
+        "Stage5eNoIoFirstLiveInputs",
+        "Stage5eObservedFirstFreshLiveBar",
+        "admit_stage5e_observation_only_first_live_bar",
+        "HybridRuntimeBarOrigin::Live",
+        "first_fresh_live_bar_close <= last_history_bar_close",
+        "callback_count",
+        "intent_count",
+    ):
+        if marker not in module_text:
+            fail(f"missing Stage 5E-b1 marker: {marker}")
+    for forbidden in (
+        "on_broker_bar",
+        "BrokerNeutralHybridIntent",
+        "redis",
+        "finam",
+        "reqwest",
+        "tokio",
+    ):
+        if forbidden in module_text.lower() if forbidden in {"redis", "finam", "reqwest", "tokio"} else forbidden in module_text:
+            fail(f"forbidden Stage 5E-b1 surface: {forbidden}")
+    if "pub use stage5e_no_io_lifecycle" in lib.read_text():
+        fail("Stage 5E-b1 private module leaked into public API")
+    if "stage5e_extract_no_io_first_live_inputs" not in host.read_text():
+        fail("missing Stage 5E-b1 crate-private extraction bridge")
     print("stage5e-b-no-io-lifecycle-check: ok")
     return 0
 

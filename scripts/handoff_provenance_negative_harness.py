@@ -274,8 +274,9 @@ def run_case(base: Path, case: Case) -> tuple[bool, str]:
         )
         if case.checker_only:
             case.mutator(root, {}, {})
+            descriptor = select_stage5e_descriptor(root)
             result = subprocess.run(
-                ["python3", str(root / "scripts/stage5e_b_no_io_lifecycle_check.py")],
+                ["python3", str(root / descriptor["checker"])],
                 cwd=root,
                 text=True,
                 stdout=subprocess.PIPE,

@@ -80,3 +80,21 @@ intent count == 0
 The first slice does not call the strategy and must not create an executable
 intent. It does not create an executable intent, attach an intent sink, or open
 Redis/FINAM/transport/runtime-live.
+
+## Stage 5E-b1 controlled implementation
+
+The reviewed b1 extension is crate-private and linear:
+
+```text
+Stage5cPendingRecoveredPaperStrategy + Stage5cAcceptedSemanticBar
+  -> crate-private extraction bridge
+  -> Stage5eNoIoFirstLiveInputs
+  -> observation-only Stage5eObservedFirstFreshLiveBar
+```
+
+It admits only `HybridRuntimeBarOrigin::Live` and requires
+`last_history_bar_close < first_fresh_live_bar_close`. The resulting capability
+records zero callbacks and zero intents; it deliberately exposes no public
+re-export and no continuation into strategy execution. The Stage 5D additive
+freeze permits the module declaration and extraction bridge only in its already
+reviewed crate-private additive regions.

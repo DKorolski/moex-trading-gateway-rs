@@ -828,6 +828,20 @@ mod stage5d_pair_binding_restore_tests {
         assert_eq!(bound.snapshot_id(), "SNAP_STAGE5D_B2A_0001");
     }
 }
+
+#[allow(dead_code)] // Stage 5E-b1 consumer remains deliberately closed.
+pub(crate) fn stage5e_extract_no_io_first_live_inputs(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+) -> crate::stage5e_no_io_lifecycle::Stage5eNoIoFirstLiveInputs {
+    let (strategy, recovery_receipt) = recovered.into_parts();
+    crate::stage5e_no_io_lifecycle::Stage5eNoIoFirstLiveInputs::from_stage5c_parts(
+        strategy,
+        recovery_receipt,
+        accepted.bar,
+        accepted.tick_size,
+    )
+}
 // STAGE5D-ADDITIVE-BRIDGE-END: type-state-transitions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

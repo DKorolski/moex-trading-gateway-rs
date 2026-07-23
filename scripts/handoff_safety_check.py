@@ -206,7 +206,7 @@ def check_archive(path: Path) -> None:
             stage5e_plan_name = selected["plan"]
             stage5e_checker_name = selected["checker"]
             if current_review_stage == "5E-b-no-io-lifecycle-capability":
-                expected_stage5e_baseline_ref = "ce08d71f2ab763a4915e90385c7487bec1581c25"
+                expected_stage5e_baseline_ref = "0ffeb6aefe790efeaa6d99157104bd5aef8ff35e"
                 expected_stage5e_a_freeze_ref = "eb03695dc407b02bb8327de57fde6acea077d96b"
             else:
                 expected_stage5e_baseline_ref = "9ebbfd29d0346be5149dac746225866f0c8d0257"

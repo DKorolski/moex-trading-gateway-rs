@@ -59,6 +59,8 @@ mod runtime_compat;
 mod stage5c_paper_host;
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5d-module
 mod stage5d_persistence;
+#[allow(dead_code)] // Stage 5E-b1 is deliberately private until a later reviewed consumer.
+mod stage5e_no_io_lifecycle;
 // STAGE5D-ADDITIVE-BRIDGE-END: lib-stage5d-module
 
 pub use hybrid_intraday_runtime::{
