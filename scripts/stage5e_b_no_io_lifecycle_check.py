@@ -24,9 +24,9 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
     "scripts/make_handoff_archive.sh",
-    "scripts/stage5e_lifecycle_event_time_gate.sh",
     "scripts/stage5e_b_no_io_lifecycle_check.py",
     "scripts/stage5e_descriptor.py",
+    "scripts/stage5e_lifecycle_event_time_gate.sh",
 ]
 CLOSED = {
     "redis", "finam", "transport", "dispatch", "runtime_live",
