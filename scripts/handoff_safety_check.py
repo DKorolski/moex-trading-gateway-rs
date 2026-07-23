@@ -182,11 +182,20 @@ def check_archive(path: Path) -> None:
         ):
             raise SystemExit("handoff safety: current_review_stage/Stage 5E inventory mismatch")
         if isinstance(current_review_stage, str) and current_review_stage.startswith("5E-"):
-            stage5e_inventory_name = (
-                "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json"
-            )
-            stage5e_plan_name = "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md"
-            stage5e_checker_name = "scripts/stage5e_lifecycle_event_time_freeze_check.py"
+            if current_review_stage == "5E-b-no-io-lifecycle-capability":
+                stage5e_inventory_name = "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json"
+                stage5e_plan_name = "docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md"
+                stage5e_checker_name = "scripts/stage5e_b_no_io_lifecycle_check.py"
+                expected_stage5e_baseline_ref = "40ec10372013a616d793623307293d5419f3a6d2"
+                expected_stage5e_a_freeze_ref = "eb03695dc407b02bb8327de57fde6acea077d96b"
+            else:
+                stage5e_inventory_name = (
+                    "docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json"
+                )
+                stage5e_plan_name = "docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md"
+                stage5e_checker_name = "scripts/stage5e_lifecycle_event_time_freeze_check.py"
+                expected_stage5e_baseline_ref = "9ebbfd29d0346be5149dac746225866f0c8d0257"
+                expected_stage5e_a_freeze_ref = None
             stage5e_gate_result_name = "handoff-stage5e-gate-result.json"
             stage5e_stdout_name = "handoff-stage5e-gate-stdout.txt"
             stage5e_stderr_name = "handoff-stage5e-gate-stderr.txt"
@@ -220,13 +229,12 @@ def check_archive(path: Path) -> None:
                 raise SystemExit("handoff safety: Stage 5E inventory must be a JSON object")
             if current_review_stage != stage5e_inventory.get("stage"):
                 raise SystemExit("handoff safety: current_review_stage/Stage 5E inventory mismatch")
-            if (
-                stage5e_inventory.get("source_stage5d_aggregate_closure_r2_ref")
-                != "9ebbfd29d0346be5149dac746225866f0c8d0257"
-            ):
+            if stage5e_inventory.get("source_stage5d_aggregate_closure_r2_ref") != "9ebbfd29d0346be5149dac746225866f0c8d0257":
                 raise SystemExit("handoff safety: Stage 5E source baseline ref mismatch")
-            if stage5e_inventory.get("baseline_ref") != "9ebbfd29d0346be5149dac746225866f0c8d0257":
+            if stage5e_inventory.get("baseline_ref") != expected_stage5e_baseline_ref:
                 raise SystemExit("handoff safety: Stage 5E baseline_ref mismatch")
+            if expected_stage5e_a_freeze_ref is not None and stage5e_inventory.get("stage5e_a_freeze_ref") != expected_stage5e_a_freeze_ref:
+                raise SystemExit("handoff safety: Stage 5E-a freeze ref mismatch")
             closed = stage5e_inventory.get("closed_surfaces")
             if not isinstance(closed, dict) or any(value is not False for value in closed.values()):
                 raise SystemExit("handoff safety: Stage 5E closed-surface mismatch")

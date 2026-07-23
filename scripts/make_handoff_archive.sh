@@ -59,12 +59,19 @@ stage5e_gate_result_sha256=""
 stage5e_design_scope_sha256=""
 source_tree_manifest_sha256=""
 current_review_stage="$review_stage"
-if [[ -f "$repo_root/scripts/stage5e_lifecycle_event_time_freeze_check.py" ]] \
-  && [[ -f "$repo_root/docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json" ]]; then
-  stage5e_checker_sha256="$(shasum -a 256 "$repo_root/scripts/stage5e_lifecycle_event_time_freeze_check.py" | awk '{print $1}')"
-  stage5e_inventory_sha256="$(shasum -a 256 "$repo_root/docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json" | awk '{print $1}')"
-  stage5e_plan_sha256="$(shasum -a 256 "$repo_root/docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md" | awk '{print $1}')"
-  stage5e_baseline_ref="$(python3 - "$repo_root/docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json" <<'PY'
+stage5e_inventory_rel="docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json"
+stage5e_plan_rel="docs/stage-5/5e-a-lifecycle-event-time-attachment-plan.md"
+stage5e_checker_rel="scripts/stage5e_lifecycle_event_time_freeze_check.py"
+if [[ -f "$repo_root/docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json" ]]; then
+  stage5e_inventory_rel="docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json"
+  stage5e_plan_rel="docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md"
+  stage5e_checker_rel="scripts/stage5e_b_no_io_lifecycle_check.py"
+fi
+if [[ -f "$repo_root/$stage5e_checker_rel" ]] && [[ -f "$repo_root/$stage5e_inventory_rel" ]]; then
+  stage5e_checker_sha256="$(shasum -a 256 "$repo_root/$stage5e_checker_rel" | awk '{print $1}')"
+  stage5e_inventory_sha256="$(shasum -a 256 "$repo_root/$stage5e_inventory_rel" | awk '{print $1}')"
+  stage5e_plan_sha256="$(shasum -a 256 "$repo_root/$stage5e_plan_rel" | awk '{print $1}')"
+  stage5e_baseline_ref="$(python3 - "$repo_root/$stage5e_inventory_rel" <<'PY'
 import json
 import sys
 print(json.loads(open(sys.argv[1]).read())["baseline_ref"])
@@ -89,7 +96,7 @@ canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
 print(hashlib.sha256(canonical).hexdigest())
 PY
 )"
-  current_review_stage="$(python3 - "$repo_root/docs/stage-5/stage5e-lifecycle-event-time-attachment-inventory.json" <<'PY'
+  current_review_stage="$(python3 - "$repo_root/$stage5e_inventory_rel" <<'PY'
 import json
 import sys
 print(json.loads(open(sys.argv[1]).read())["stage"])

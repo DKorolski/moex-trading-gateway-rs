@@ -33,8 +33,12 @@ def main() -> int:
         fail("unexpected stage")
     if inventory.get("status") != "implementation_foundation":
         fail("unexpected status")
+    if inventory.get("baseline_ref") != "40ec10372013a616d793623307293d5419f3a6d2":
+        fail("Stage 5E-b baseline reference mismatch")
     if inventory.get("stage5e_a_freeze_ref") != FREEZE_REF:
         fail("Stage 5E-a freeze reference mismatch")
+    if inventory.get("source_stage5d_aggregate_closure_r2_ref") != "9ebbfd29d0346be5149dac746225866f0c8d0257":
+        fail("Stage 5D source reference mismatch")
     closed = inventory.get("closed_surfaces")
     if not isinstance(closed, dict) or set(closed) != CLOSED:
         fail("closed surface set drift")
