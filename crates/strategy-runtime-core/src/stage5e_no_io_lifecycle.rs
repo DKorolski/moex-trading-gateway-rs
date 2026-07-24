@@ -239,7 +239,7 @@ mod schedule_window_evidence {
     }
 
     enum NormalizedScheduleAvailability {
-        Available(NormalizedInstrumentScheduleSnapshot),
+        Available(Box<NormalizedInstrumentScheduleSnapshot>),
         ScheduleSourceUnavailable,
     }
 
@@ -530,10 +530,10 @@ mod schedule_window_evidence {
             let current = Utc::now();
             let now = LifecycleInstant(current);
             assert!(validate_normalized_schedule_snapshot(
-                &NormalizedScheduleAvailability::Available(snapshot(
+                &NormalizedScheduleAvailability::Available(Box::new(snapshot(
                     vec![open.clone(), later.clone()],
                     current
-                )),
+                ))),
                 now
             )
             .is_ok());
@@ -550,21 +550,21 @@ mod schedule_window_evidence {
             ));
             assert!(matches!(
                 validate_normalized_schedule_snapshot(
-                    &NormalizedScheduleAvailability::Available(snapshot(vec![], current)),
+                    &NormalizedScheduleAvailability::Available(Box::new(snapshot(vec![], current))),
                     now
                 ),
                 Err(NormalizedScheduleValidationError::EmptySessions)
             ));
             assert!(matches!(
                 validate_normalized_schedule_snapshot(
-                    &NormalizedScheduleAvailability::Available(snapshot(
+                    &NormalizedScheduleAvailability::Available(Box::new(snapshot(
                         vec![NormalizedScheduleSession {
                             session_type: NormalizedSessionType::Unknown,
                             start: MarketBarCloseTime(100),
                             end: MarketBarCloseTime(200)
                         }],
                         current
-                    )),
+                    ))),
                     now
                 ),
                 Err(NormalizedScheduleValidationError::UnknownSessionType)
