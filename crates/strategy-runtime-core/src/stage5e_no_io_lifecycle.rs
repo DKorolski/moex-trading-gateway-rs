@@ -4,7 +4,8 @@
 //! contextually valid `Live` bar after canonical history; it does not claim
 //! market-gap continuity or any callback-ready authorization.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
+use sha2::{Digest, Sha256};
 
 use crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy;
 use crate::stage5c_paper_host::{Stage5cPendingRecoveryReceipt, Stage5eNoIoBridgeSeal};
@@ -183,6 +184,74 @@ mod session_eligibility {
     }
 }
 // STAGE5E-NO-IO-SESSION-ELIGIBILITY-END: observed-open-session-v1
+
+// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v1
+#[allow(dead_code)] // Stage 5E-b3a contract precedes its separately reviewed mapper bridge.
+mod schedule_window_evidence {
+    use super::{DateTime, Digest, NaiveDate, Sha256, Utc};
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct MarketBarCloseTime(i64);
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct LifecycleInstant(DateTime<Utc>);
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct TradingDay(NaiveDate);
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum ScheduleSourceIdentity {
+        BrokerReported,
+        ExchangeCalendar,
+        BrokerNeutralStaticRegistry,
+        ReconciledBrokerAndExchange,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct ScheduleFingerprint([u8; 32]);
+
+    /// Private mapper input. A later b3a bridge may construct it only from
+    /// accepted Stage 4 evidence and an approved broker-neutral definition.
+    struct TrustedScheduleDefinition {
+        instrument: broker_core::InstrumentId,
+        venue: String,
+        trading_day: TradingDay,
+        open_from: MarketBarCloseTime,
+        open_until: MarketBarCloseTime,
+        source: ScheduleSourceIdentity,
+        source_version: String,
+        schedule_epoch: u64,
+    }
+
+    struct Stage5eScheduleWindowEvidence {
+        definition: TrustedScheduleDefinition,
+        stage4_identity: String,
+        observed_at: LifecycleInstant,
+        expires_at: LifecycleInstant,
+        fingerprint: ScheduleFingerprint,
+    }
+
+    fn deterministic_fingerprint(
+        definition: &TrustedScheduleDefinition,
+        stage4_identity: &str,
+    ) -> ScheduleFingerprint {
+        let mut hasher = Sha256::new();
+        hasher.update(b"stage5e-schedule-window-evidence-v1\0");
+        hasher.update(definition.instrument.symbol.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(definition.venue.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(definition.trading_day.0.to_string().as_bytes());
+        hasher.update(definition.open_from.0.to_be_bytes());
+        hasher.update(definition.open_until.0.to_be_bytes());
+        hasher.update([definition.source as u8]);
+        hasher.update(definition.source_version.as_bytes());
+        hasher.update(definition.schedule_epoch.to_be_bytes());
+        hasher.update(stage4_identity.as_bytes());
+        ScheduleFingerprint(hasher.finalize().into())
+    }
+}
+// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v1
 
 #[cfg(test)]
 mod tests {
