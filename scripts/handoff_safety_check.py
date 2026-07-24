@@ -36,6 +36,7 @@ FORBIDDEN_CONTENT = re.compile(
 HEX64 = re.compile(r"[0-9a-f]{64}")
 HEX40 = re.compile(r"[0-9a-f]{40}")
 ISO_UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+JSON_SHA256_VALUE = re.compile(rb'("(?:sha256|[a-z_]+_sha256)"\s*:\s*)"[0-9a-f]{64}"')
 
 
 def path_is_excluded(path: PurePosixPath) -> bool:
@@ -47,6 +48,11 @@ def path_is_excluded(path: PurePosixPath) -> bool:
 def check_payload(name: str, payload: bytes) -> None:
     if b"\x00" in payload:
         return
+    # Generated provenance JSON contains many independently verified digest
+    # values. A random hexadecimal digest can accidentally contain an
+    # account-like substring; scan its structure, not its cryptographic noise.
+    if name.startswith("handoff-") and name.endswith(".json"):
+        payload = JSON_SHA256_VALUE.sub(rb'\1"<sha256>"', payload)
     match = FORBIDDEN_CONTENT.search(payload)
     if match:
         raise SystemExit(f"handoff safety: forbidden live-like literal in {name}")

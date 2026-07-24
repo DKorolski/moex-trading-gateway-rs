@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""Fail-closed governance gate for Stage 5E-b3a."""
+"""Fail-closed semantic gate for the Stage 5E-b3a-r1 no-I/O contract."""
+
+import hashlib
 import json
 import sys
 from pathlib import Path
 
+
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = ROOT / "docs/stage-5/stage5e-b3-schedule-window-evidence-inventory.json"
 PLAN = ROOT / "docs/stage-5/5e-b3-schedule-window-evidence-plan.md"
+MODULE = ROOT / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
 
 EXPECTED_BASELINE_REF = "04431096e269daaf9715e253b2354b1ac8fcc3e8"
 EXPECTED_LINEAGE_ROOT_REF = "9ebbfd29d0346be5149dac746225866f0c8d0257"
@@ -15,36 +19,119 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "docs/stage-5/5e-b3-schedule-window-evidence-plan.md",
     "docs/stage-5/stage5e-active-descriptor.json",
     "docs/stage-5/stage5e-b3-schedule-window-evidence-inventory.json",
+    "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
     "scripts/stage5e_b3_schedule_window_evidence_check.py",
+    "scripts/stage5e_b_no_io_lifecycle_check.py",
     "scripts/stage5e_descriptor.py",
+    "scripts/stage5e_lifecycle_event_time_gate.sh",
 ]
+EXPECTED_TOP_LEVEL_KEYS = {
+    "allowed_changed_paths",
+    "baseline_ref",
+    "closed_surfaces",
+    "contract_invariants",
+    "schema_version",
+    "source_stage5d_aggregate_closure_r2_ref",
+    "stage",
+    "status",
+}
+EXPECTED_CLOSED_SURFACES = {
+    "redis",
+    "finam",
+    "transport",
+    "dispatch",
+    "runtime_live",
+    "broker_execution",
+    "strategy_callback",
+    "strategy_intent_sink",
+    "strategy_state_mutation",
+    "autonomous_event_loop",
+}
+EXPECTED_CONTRACT_INVARIANTS = {
+    "session_window_bounds": "inclusive_closed",
+    "callback_count": 0,
+    "intent_count": 0,
+    "requires_stage4_schedule_evidence": True,
+    "requires_validated_normalized_snapshot": True,
+    "requires_accepted_registry_identity": True,
+    "revalidates_expiry_at_mapping": True,
+    "trusted_b3b_observed_bar_binding": False,
+}
+REGION_BEGIN = "// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v2"
+REGION_END = "// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v2"
+EXPECTED_REGION_SHA256 = "113bf5b0fea07246f78868e88fa83a84457814c62d71a00634f6166da0f4af97"
+
 
 def fail(message: str) -> None:
     print(f"stage5e-b3-schedule-window-evidence-check: FAIL: {message}", file=sys.stderr)
     raise SystemExit(1)
 
+
 def main() -> int:
     payload = json.loads(INVENTORY.read_text())
     if payload.get("schema_version") != 1 or payload.get("stage") != "5E-b3-schedule-window-evidence":
         fail("inventory identity drift")
+    if set(payload) != EXPECTED_TOP_LEVEL_KEYS:
+        fail("inventory key set drift")
     if payload.get("baseline_ref") != EXPECTED_BASELINE_REF:
         fail("baseline drift")
     if payload.get("source_stage5d_aggregate_closure_r2_ref") != EXPECTED_LINEAGE_ROOT_REF:
         fail("lineage root drift")
     if payload.get("allowed_changed_paths") != EXPECTED_ALLOWED_CHANGED_PATHS:
         fail("allowed changed paths drift")
-    if any(value is not False for value in payload.get("closed_surfaces", {}).values()):
+    closed = payload.get("closed_surfaces")
+    if not isinstance(closed, dict) or set(closed) != EXPECTED_CLOSED_SURFACES:
+        fail("closed surface key set drift")
+    if any(value is not False for value in closed.values()):
         fail("closed surface opened")
-    expected = {"session_window_bounds": "inclusive_closed", "callback_count": 0, "intent_count": 0, "requires_stage4_schedule_evidence": True, "requires_trusted_schedule_definition": True}
-    if payload.get("contract_invariants") != expected:
+    if payload.get("contract_invariants") != EXPECTED_CONTRACT_INVARIANTS:
         fail("contract invariant drift")
     text = PLAN.read_text()
-    for marker in ("Stage 5E-b3a", "accepted Stage 4 schedule evidence", "sealed trusted schedule definition", "inclusive", "b3b"):
+    for marker in (
+        "Stage 5E-b3a-r1",
+        "validated opaque snapshot",
+        "accepted Stage 4 schedule evidence",
+        "inclusive",
+        "b3b",
+    ):
         if marker not in text:
             fail(f"plan marker missing: {marker}")
+    module = MODULE.read_text()
+    if module.count(REGION_BEGIN) != 1 or module.count(REGION_END) != 1:
+        fail("b3 region marker cardinality drift")
+    region = module.split(REGION_BEGIN, 1)[1].split(REGION_END, 1)[0]
+    if hashlib.sha256(region.encode()).hexdigest() != EXPECTED_REGION_SHA256:
+        fail("b3 schedule evidence region hash mismatch")
+    for marker in (
+        "ValidatedNormalizedInstrumentScheduleSnapshot",
+        "AcceptedInstrumentRegistryIdentity",
+        "accept_instrument_registry_identity",
+        "project_accepted_stage4_schedule",
+        "map_trusted_schedule_window",
+        "normalized_snapshot_payload_fingerprint",
+        "lifecycle_now.0 > stage4.expires_at.0",
+        "lifecycle_now.0 > validated.snapshot.source_expires_at.0",
+        "NoTradableOpenForRequestedBar",
+    ):
+        if marker not in region:
+            fail(f"b3 semantic marker missing: {marker}")
+    for forbidden in (
+        "on_broker_bar",
+        "BrokerNeutralHybridIntent",
+        "intent sink",
+        "redis",
+        "reqwest",
+        "tokio",
+        "std::fs",
+        "std::net",
+    ):
+        haystack = region.lower() if forbidden in {"redis", "reqwest", "tokio"} else region
+        if forbidden in haystack:
+            fail(f"forbidden b3 no-I/O surface: {forbidden}")
     print("stage5e-b3-schedule-window-evidence-check: ok")
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

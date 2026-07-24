@@ -185,8 +185,10 @@ mod session_eligibility {
 }
 // STAGE5E-NO-IO-SESSION-ELIGIBILITY-END: observed-open-session-v1
 
-// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v1
-#[allow(dead_code)] // Stage 5E-b3a contract precedes its separately reviewed mapper bridge.
+// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v2
+// This is a private, no-I/O proof chain. A later reviewed broker adapter may
+// supply the raw normalized DTO, but cannot construct any accepted receipt.
+#[allow(dead_code)]
 mod schedule_window_evidence {
     use super::{DateTime, Digest, NaiveDate, Sha256, Utc};
 
@@ -202,12 +204,9 @@ mod schedule_window_evidence {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum ScheduleSourceIdentity {
         BrokerReported,
-        ExchangeCalendar,
-        BrokerNeutralStaticRegistry,
-        ReconciledBrokerAndExchange,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     enum NormalizedSessionType {
         TradableOpen,
         BreakOrClearing,
@@ -222,14 +221,14 @@ mod schedule_window_evidence {
         end: MarketBarCloseTime,
     }
 
-    /// Upstream read-only adapter DTO. This type is deliberately private to
-    /// Stage 5E until a separately reviewed FINAM normalizer produces it.
     struct NormalizedInstrumentScheduleSnapshot {
         instrument: broker_core::InstrumentId,
         broker_symbol: String,
         venue_mic: String,
         board: String,
+        trading_day: TradingDay,
         sessions: Vec<NormalizedScheduleSession>,
+        source: ScheduleSourceIdentity,
         source_contract_version: String,
         source_observed_at: LifecycleInstant,
         source_expires_at: LifecycleInstant,
@@ -243,25 +242,223 @@ mod schedule_window_evidence {
         ScheduleSourceUnavailable,
     }
 
+    #[derive(Debug)]
     enum NormalizedScheduleValidationError {
         SourceUnavailable,
+        MissingIdentityMetadata,
         EmptySessions,
+        NoTradableOpen,
         UnknownSessionType,
         InvalidInterval,
         OverlappingIntervals,
+        ObservedAfterExpiry,
+        ObservedInFuture,
+        Expired,
+        PayloadFingerprintMismatch,
+    }
+
+    /// Opaque linear receipt: it is issued only after all snapshot invariants
+    /// and its canonical payload fingerprint have been checked.
+    struct ValidatedNormalizedInstrumentScheduleSnapshot {
+        snapshot: NormalizedInstrumentScheduleSnapshot,
+        sessions_fingerprint: [u8; 32],
+        identity_fingerprint: [u8; 32],
+    }
+
+    struct CanonicalInstrumentRegistryIdentity {
+        instrument: broker_core::InstrumentId,
+        broker_symbol: String,
+        venue_mic: String,
+        board: String,
+        registry_version: String,
+    }
+
+    /// Opaque registry receipt, accepted only when it is exactly equal to the
+    /// identity embedded in a validated normalized snapshot.
+    struct AcceptedInstrumentRegistryIdentity {
+        identity: CanonicalInstrumentRegistryIdentity,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct ScheduleFingerprint([u8; 32]);
+
+    #[derive(Debug)]
+    enum Stage4ScheduleProjectionError {
+        NotAccepted,
+        SourceUnavailable,
+        FreshnessUnavailable,
         ObservedInFuture,
         Expired,
     }
 
+    #[derive(Debug)]
+    enum RegistryBindingError {
+        IdentityMismatch,
+    }
+
+    #[derive(Debug)]
+    enum ScheduleWindowMappingError {
+        InstrumentMismatch,
+        RegistryMismatch,
+        Stage4Expired,
+        SnapshotExpired,
+        NoTradableOpenForRequestedBar,
+    }
+
+    struct AcceptedStage4ScheduleEvidence {
+        instrument: broker_core::InstrumentId,
+        observed_at: LifecycleInstant,
+        expires_at: LifecycleInstant,
+        identity: ScheduleFingerprint,
+    }
+
+    struct Stage5eScheduleWindowEvidence {
+        instrument: broker_core::InstrumentId,
+        broker_symbol: String,
+        venue_mic: String,
+        board: String,
+        trading_day: TradingDay,
+        selected_session_type: NormalizedSessionType,
+        open_from: MarketBarCloseTime,
+        open_until: MarketBarCloseTime,
+        observed_at: LifecycleInstant,
+        expires_at: LifecycleInstant,
+        fingerprint: ScheduleFingerprint,
+    }
+
+    struct CanonicalEncoder {
+        hasher: Sha256,
+    }
+
+    impl CanonicalEncoder {
+        fn new(domain: &[u8]) -> Self {
+            let mut hasher = Sha256::new();
+            hasher.update(domain);
+            Self { hasher }
+        }
+
+        fn field(&mut self, tag: u8, bytes: &[u8]) {
+            self.hasher.update([tag]);
+            self.hasher.update((bytes.len() as u64).to_be_bytes());
+            self.hasher.update(bytes);
+        }
+
+        fn finish(self) -> [u8; 32] {
+            self.hasher.finalize().into()
+        }
+    }
+
+    fn string_field(encoder: &mut CanonicalEncoder, tag: u8, value: &str) {
+        encoder.field(tag, value.as_bytes());
+    }
+
+    fn encode_instrument(encoder: &mut CanonicalEncoder, instrument: &broker_core::InstrumentId) {
+        string_field(encoder, 1, &instrument.symbol);
+        string_field(encoder, 2, instrument.venue_symbol.as_deref().unwrap_or(""));
+        match &instrument.exchange {
+            broker_core::Exchange::Moex => encoder.field(3, b"moex"),
+            broker_core::Exchange::Other(value) => {
+                encoder.field(3, b"other");
+                string_field(encoder, 4, value);
+            }
+        }
+        match &instrument.market {
+            broker_core::Market::Futures => encoder.field(5, b"futures"),
+            broker_core::Market::Options => encoder.field(5, b"options"),
+            broker_core::Market::Stocks => encoder.field(5, b"stocks"),
+            broker_core::Market::Currency => encoder.field(5, b"currency"),
+            broker_core::Market::Funds => encoder.field(5, b"funds"),
+            broker_core::Market::Other(value) => {
+                encoder.field(5, b"other");
+                string_field(encoder, 6, value);
+            }
+        }
+    }
+
+    fn session_type_code(value: NormalizedSessionType) -> u8 {
+        match value {
+            NormalizedSessionType::TradableOpen => 1,
+            NormalizedSessionType::BreakOrClearing => 2,
+            NormalizedSessionType::Maintenance => 3,
+            NormalizedSessionType::Unknown => 255,
+        }
+    }
+
+    fn canonical_sessions_fingerprint(sessions: &[NormalizedScheduleSession]) -> [u8; 32] {
+        let mut ordered = sessions.to_vec();
+        ordered.sort_by_key(|session| {
+            (
+                session.start.0,
+                session.end.0,
+                session_type_code(session.session_type),
+            )
+        });
+        let mut encoder = CanonicalEncoder::new(b"stage5e-b3-sessions-v2");
+        for session in ordered {
+            encoder.field(1, &[session_type_code(session.session_type)]);
+            encoder.field(2, &session.start.0.to_be_bytes());
+            encoder.field(3, &session.end.0.to_be_bytes());
+        }
+        encoder.finish()
+    }
+
+    fn normalized_snapshot_payload_fingerprint(
+        snapshot: &NormalizedInstrumentScheduleSnapshot,
+    ) -> [u8; 32] {
+        let mut encoder = CanonicalEncoder::new(b"stage5e-b3-normalized-snapshot-v2");
+        encode_instrument(&mut encoder, &snapshot.instrument);
+        string_field(&mut encoder, 10, &snapshot.broker_symbol);
+        string_field(&mut encoder, 11, &snapshot.venue_mic);
+        string_field(&mut encoder, 12, &snapshot.board);
+        string_field(&mut encoder, 13, &snapshot.trading_day.0.to_string());
+        encoder.field(14, &[1]); // BrokerReported, explicitly versioned.
+        string_field(&mut encoder, 15, &snapshot.source_contract_version);
+        encoder.field(
+            16,
+            &snapshot
+                .source_observed_at
+                .0
+                .timestamp_millis()
+                .to_be_bytes(),
+        );
+        encoder.field(
+            17,
+            &snapshot
+                .source_expires_at
+                .0
+                .timestamp_millis()
+                .to_be_bytes(),
+        );
+        encoder.field(18, &snapshot.raw_response_sha256);
+        string_field(&mut encoder, 19, &snapshot.instrument_registry_version);
+        encoder.field(20, &canonical_sessions_fingerprint(&snapshot.sessions));
+        encoder.finish()
+    }
+
     fn validate_normalized_schedule_snapshot(
-        availability: &NormalizedScheduleAvailability,
+        availability: NormalizedScheduleAvailability,
         lifecycle_now: LifecycleInstant,
-    ) -> Result<&NormalizedInstrumentScheduleSnapshot, NormalizedScheduleValidationError> {
-        let NormalizedScheduleAvailability::Available(snapshot) = availability else {
+    ) -> Result<ValidatedNormalizedInstrumentScheduleSnapshot, NormalizedScheduleValidationError>
+    {
+        let NormalizedScheduleAvailability::Available(mut snapshot) = availability else {
             return Err(NormalizedScheduleValidationError::SourceUnavailable);
         };
+        if snapshot.broker_symbol.is_empty()
+            || snapshot.venue_mic.is_empty()
+            || snapshot.board.is_empty()
+            || snapshot.source_contract_version.is_empty()
+            || snapshot.instrument_registry_version.is_empty()
+            || snapshot.instrument.venue_symbol.as_deref() != Some(snapshot.broker_symbol.as_str())
+            || snapshot.raw_response_sha256 == [0; 32]
+            || snapshot.normalized_payload_sha256 == [0; 32]
+        {
+            return Err(NormalizedScheduleValidationError::MissingIdentityMetadata);
+        }
         if snapshot.sessions.is_empty() {
             return Err(NormalizedScheduleValidationError::EmptySessions);
+        }
+        if snapshot.source_observed_at.0 > snapshot.source_expires_at.0 {
+            return Err(NormalizedScheduleValidationError::ObservedAfterExpiry);
         }
         if snapshot.source_observed_at.0 > lifecycle_now.0 {
             return Err(NormalizedScheduleValidationError::ObservedInFuture);
@@ -269,7 +466,15 @@ mod schedule_window_evidence {
         if lifecycle_now.0 > snapshot.source_expires_at.0 {
             return Err(NormalizedScheduleValidationError::Expired);
         }
+        snapshot.sessions.sort_by_key(|session| {
+            (
+                session.start.0,
+                session.end.0,
+                session_type_code(session.session_type),
+            )
+        });
         let mut previous_end = None;
+        let mut has_tradable_open = false;
         for session in &snapshot.sessions {
             if session.session_type == NormalizedSessionType::Unknown {
                 return Err(NormalizedScheduleValidationError::UnknownSessionType);
@@ -280,65 +485,41 @@ mod schedule_window_evidence {
             if previous_end.is_some_and(|end| session.start.0 < end) {
                 return Err(NormalizedScheduleValidationError::OverlappingIntervals);
             }
+            has_tradable_open |= session.session_type == NormalizedSessionType::TradableOpen;
             previous_end = Some(session.end.0);
         }
-        Ok(snapshot)
-    }
-
-    fn canonical_sessions_fingerprint(sessions: &[NormalizedScheduleSession]) -> [u8; 32] {
-        let mut ordered = sessions.to_vec();
-        ordered.sort_by_key(|session| (session.start.0, session.end.0, session.session_type as u8));
-        let mut hasher = Sha256::new();
-        for session in ordered {
-            hasher.update([session.session_type as u8]);
-            hasher.update(session.start.0.to_be_bytes());
-            hasher.update(session.end.0.to_be_bytes());
+        if !has_tradable_open {
+            return Err(NormalizedScheduleValidationError::NoTradableOpen);
         }
-        hasher.finalize().into()
+        let payload_fingerprint = normalized_snapshot_payload_fingerprint(&snapshot);
+        if payload_fingerprint != snapshot.normalized_payload_sha256 {
+            return Err(NormalizedScheduleValidationError::PayloadFingerprintMismatch);
+        }
+        let sessions_fingerprint = canonical_sessions_fingerprint(&snapshot.sessions);
+        let identity_fingerprint = payload_fingerprint;
+        Ok(ValidatedNormalizedInstrumentScheduleSnapshot {
+            snapshot: *snapshot,
+            sessions_fingerprint,
+            identity_fingerprint,
+        })
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct ScheduleFingerprint([u8; 32]);
-
-    enum Stage4ScheduleProjectionError {
-        NotAccepted,
-        SourceUnavailable,
-        FreshnessUnavailable,
-        ObservedInFuture,
-        Expired,
-    }
-
-    enum ScheduleWindowMappingError {
-        InstrumentMismatch,
-        InvalidWindow,
-    }
-
-    struct AcceptedStage4ScheduleEvidence {
-        instrument: broker_core::InstrumentId,
-        observed_at: LifecycleInstant,
-        expires_at: LifecycleInstant,
-        identity: String,
-    }
-
-    /// Private mapper input. A later b3a bridge may construct it only from
-    /// accepted Stage 4 evidence and an approved broker-neutral definition.
-    struct TrustedScheduleDefinition {
-        instrument: broker_core::InstrumentId,
-        venue: String,
-        trading_day: TradingDay,
-        open_from: MarketBarCloseTime,
-        open_until: MarketBarCloseTime,
-        source: ScheduleSourceIdentity,
-        source_version: String,
-        schedule_epoch: u64,
-    }
-
-    struct Stage5eScheduleWindowEvidence {
-        definition: TrustedScheduleDefinition,
-        stage4_identity: String,
-        observed_at: LifecycleInstant,
-        expires_at: LifecycleInstant,
-        fingerprint: ScheduleFingerprint,
+    fn accept_instrument_registry_identity(
+        validated: &ValidatedNormalizedInstrumentScheduleSnapshot,
+        candidate: CanonicalInstrumentRegistryIdentity,
+    ) -> Result<AcceptedInstrumentRegistryIdentity, RegistryBindingError> {
+        let snapshot = &validated.snapshot;
+        if candidate.instrument != snapshot.instrument
+            || candidate.broker_symbol != snapshot.broker_symbol
+            || candidate.venue_mic != snapshot.venue_mic
+            || candidate.board != snapshot.board
+            || candidate.registry_version != snapshot.instrument_registry_version
+        {
+            return Err(RegistryBindingError::IdentityMismatch);
+        }
+        Ok(AcceptedInstrumentRegistryIdentity {
+            identity: candidate,
+        })
     }
 
     fn project_accepted_stage4_schedule(
@@ -372,58 +553,119 @@ mod schedule_window_evidence {
             return Err(Stage4ScheduleProjectionError::Expired);
         }
         let observed_at = report.checked_ts - chrono::Duration::milliseconds(age_ms);
-        let identity = format!(
-            "stage4-schedule-v1:{}:{}:{}",
-            report.schema_version,
-            report.checked_ts.timestamp_millis(),
-            report.target_instrument.symbol,
-        );
+        let expires_at = evidence.required_source_expires_at();
+        let mut encoder = CanonicalEncoder::new(b"stage5e-b3-stage4-schedule-v2");
+        encoder.field(1, &report.schema_version.to_be_bytes());
+        encode_instrument(&mut encoder, &report.target_instrument);
+        encoder.field(2, &report.checked_ts.timestamp_millis().to_be_bytes());
+        encoder.field(3, &observed_at.timestamp_millis().to_be_bytes());
+        encoder.field(4, &expires_at.timestamp_millis().to_be_bytes());
+        encoder.field(5, &age_ms.to_be_bytes());
         Ok(AcceptedStage4ScheduleEvidence {
             instrument: report.target_instrument.clone(),
             observed_at: LifecycleInstant(observed_at),
-            expires_at: LifecycleInstant(evidence.required_source_expires_at()),
-            identity,
+            expires_at: LifecycleInstant(expires_at),
+            identity: ScheduleFingerprint(encoder.finish()),
         })
     }
 
     fn map_trusted_schedule_window(
+        validated: ValidatedNormalizedInstrumentScheduleSnapshot,
+        registry: AcceptedInstrumentRegistryIdentity,
         stage4: AcceptedStage4ScheduleEvidence,
-        definition: TrustedScheduleDefinition,
+        requested_bar_close: MarketBarCloseTime,
+        lifecycle_now: LifecycleInstant,
     ) -> Result<Stage5eScheduleWindowEvidence, ScheduleWindowMappingError> {
-        if definition.instrument != stage4.instrument {
+        if lifecycle_now.0 > stage4.expires_at.0 {
+            return Err(ScheduleWindowMappingError::Stage4Expired);
+        }
+        if lifecycle_now.0 > validated.snapshot.source_expires_at.0 {
+            return Err(ScheduleWindowMappingError::SnapshotExpired);
+        }
+        if stage4.instrument != validated.snapshot.instrument {
             return Err(ScheduleWindowMappingError::InstrumentMismatch);
         }
-        if definition.open_from.0 >= definition.open_until.0 {
-            return Err(ScheduleWindowMappingError::InvalidWindow);
+        if registry.identity.instrument != validated.snapshot.instrument
+            || registry.identity.broker_symbol != validated.snapshot.broker_symbol
+            || registry.identity.venue_mic != validated.snapshot.venue_mic
+            || registry.identity.board != validated.snapshot.board
+            || registry.identity.registry_version != validated.snapshot.instrument_registry_version
+        {
+            return Err(ScheduleWindowMappingError::RegistryMismatch);
         }
-        let fingerprint = deterministic_fingerprint(&definition, &stage4.identity);
+        let selected = validated
+            .snapshot
+            .sessions
+            .iter()
+            .find(|session| {
+                session.session_type == NormalizedSessionType::TradableOpen
+                    && session.start.0 <= requested_bar_close.0
+                    && requested_bar_close.0 <= session.end.0
+            })
+            .ok_or(ScheduleWindowMappingError::NoTradableOpenForRequestedBar)?;
+        let fingerprint = deterministic_fingerprint(&validated, &registry, &stage4, selected);
         Ok(Stage5eScheduleWindowEvidence {
-            definition,
-            stage4_identity: stage4.identity,
-            observed_at: stage4.observed_at,
-            expires_at: stage4.expires_at,
+            instrument: validated.snapshot.instrument,
+            broker_symbol: validated.snapshot.broker_symbol,
+            venue_mic: validated.snapshot.venue_mic,
+            board: validated.snapshot.board,
+            trading_day: validated.snapshot.trading_day,
+            selected_session_type: selected.session_type,
+            open_from: selected.start,
+            open_until: selected.end,
+            observed_at: validated.snapshot.source_observed_at,
+            expires_at: if validated.snapshot.source_expires_at.0 < stage4.expires_at.0 {
+                validated.snapshot.source_expires_at
+            } else {
+                stage4.expires_at
+            },
             fingerprint,
         })
     }
 
     fn deterministic_fingerprint(
-        definition: &TrustedScheduleDefinition,
-        stage4_identity: &str,
+        validated: &ValidatedNormalizedInstrumentScheduleSnapshot,
+        registry: &AcceptedInstrumentRegistryIdentity,
+        stage4: &AcceptedStage4ScheduleEvidence,
+        selected: &NormalizedScheduleSession,
     ) -> ScheduleFingerprint {
-        let mut hasher = Sha256::new();
-        hasher.update(b"stage5e-schedule-window-evidence-v1\0");
-        hasher.update(definition.instrument.symbol.as_bytes());
-        hasher.update(b"\0");
-        hasher.update(definition.venue.as_bytes());
-        hasher.update(b"\0");
-        hasher.update(definition.trading_day.0.to_string().as_bytes());
-        hasher.update(definition.open_from.0.to_be_bytes());
-        hasher.update(definition.open_until.0.to_be_bytes());
-        hasher.update([definition.source as u8]);
-        hasher.update(definition.source_version.as_bytes());
-        hasher.update(definition.schedule_epoch.to_be_bytes());
-        hasher.update(stage4_identity.as_bytes());
-        ScheduleFingerprint(hasher.finalize().into())
+        let snapshot = &validated.snapshot;
+        let mut encoder = CanonicalEncoder::new(b"stage5e-schedule-window-evidence-v2");
+        encode_instrument(&mut encoder, &snapshot.instrument);
+        string_field(&mut encoder, 10, &registry.identity.broker_symbol);
+        string_field(&mut encoder, 11, &registry.identity.venue_mic);
+        string_field(&mut encoder, 12, &registry.identity.board);
+        string_field(&mut encoder, 13, &registry.identity.registry_version);
+        string_field(&mut encoder, 14, &snapshot.trading_day.0.to_string());
+        encoder.field(15, &[session_type_code(selected.session_type)]);
+        encoder.field(16, &selected.start.0.to_be_bytes());
+        encoder.field(17, &selected.end.0.to_be_bytes());
+        encoder.field(18, &[1]); // BrokerReported
+        string_field(&mut encoder, 19, &snapshot.source_contract_version);
+        encoder.field(20, &snapshot.raw_response_sha256);
+        encoder.field(21, &snapshot.normalized_payload_sha256);
+        encoder.field(
+            22,
+            &snapshot
+                .source_observed_at
+                .0
+                .timestamp_millis()
+                .to_be_bytes(),
+        );
+        encoder.field(
+            23,
+            &snapshot
+                .source_expires_at
+                .0
+                .timestamp_millis()
+                .to_be_bytes(),
+        );
+        encoder.field(24, &validated.sessions_fingerprint);
+        encoder.field(25, &validated.identity_fingerprint);
+        encoder.field(26, &stage4.identity.0);
+        encoder.field(27, &stage4.observed_at.0.timestamp_millis().to_be_bytes());
+        encoder.field(28, &stage4.expires_at.0.timestamp_millis().to_be_bytes());
+        ScheduleFingerprint(encoder.finish())
     }
 
     #[cfg(test)]
@@ -431,148 +673,197 @@ mod schedule_window_evidence {
         use super::*;
         use broker_core::{Exchange, InstrumentId, Market};
 
-        fn definition(symbol: &str, open_from: i64, open_until: i64) -> TrustedScheduleDefinition {
-            TrustedScheduleDefinition {
-                instrument: InstrumentId {
-                    symbol: symbol.to_string(),
-                    venue_symbol: Some(format!("{symbol}@RTSX")),
-                    exchange: Exchange::Moex,
-                    market: Market::Futures,
-                },
-                venue: "RTSX".to_string(),
-                trading_day: TradingDay(NaiveDate::from_ymd_opt(2026, 7, 24).unwrap()),
-                open_from: MarketBarCloseTime(open_from),
-                open_until: MarketBarCloseTime(open_until),
-                source: ScheduleSourceIdentity::BrokerNeutralStaticRegistry,
-                source_version: "fixture-v1".to_string(),
-                schedule_epoch: 1,
+        fn instrument() -> InstrumentId {
+            InstrumentId {
+                symbol: "IMOEXF".to_string(),
+                venue_symbol: Some("IMOEXF@RTSX".to_string()),
+                exchange: Exchange::Moex,
+                market: Market::Futures,
             }
         }
 
-        fn snapshot(
-            sessions: Vec<NormalizedScheduleSession>,
-            now: DateTime<Utc>,
-        ) -> NormalizedInstrumentScheduleSnapshot {
-            NormalizedInstrumentScheduleSnapshot {
-                instrument: definition("IMOEXF", 100, 200).instrument,
+        fn snapshot(now: DateTime<Utc>) -> NormalizedInstrumentScheduleSnapshot {
+            let mut snapshot = NormalizedInstrumentScheduleSnapshot {
+                instrument: instrument(),
                 broker_symbol: "IMOEXF@RTSX".to_string(),
                 venue_mic: "MOEX".to_string(),
                 board: "RTSX".to_string(),
-                sessions,
+                trading_day: TradingDay(NaiveDate::from_ymd_opt(2026, 7, 24).unwrap()),
+                sessions: vec![NormalizedScheduleSession {
+                    session_type: NormalizedSessionType::TradableOpen,
+                    start: MarketBarCloseTime(100),
+                    end: MarketBarCloseTime(200),
+                }],
+                source: ScheduleSourceIdentity::BrokerReported,
                 source_contract_version: "fixture-v1".to_string(),
                 source_observed_at: LifecycleInstant(now),
-                source_expires_at: LifecycleInstant(now + chrono::Duration::seconds(1)),
+                source_expires_at: LifecycleInstant(now + chrono::Duration::seconds(10)),
                 raw_response_sha256: [1; 32],
-                normalized_payload_sha256: [2; 32],
+                normalized_payload_sha256: [0; 32],
                 instrument_registry_version: "fixture-registry-v1".to_string(),
+            };
+            snapshot.normalized_payload_sha256 = normalized_snapshot_payload_fingerprint(&snapshot);
+            snapshot
+        }
+
+        fn validated(now: DateTime<Utc>) -> ValidatedNormalizedInstrumentScheduleSnapshot {
+            validate_normalized_schedule_snapshot(
+                NormalizedScheduleAvailability::Available(Box::new(snapshot(now))),
+                LifecycleInstant(now),
+            )
+            .unwrap()
+        }
+
+        fn registry(
+            validated: &ValidatedNormalizedInstrumentScheduleSnapshot,
+        ) -> CanonicalInstrumentRegistryIdentity {
+            CanonicalInstrumentRegistryIdentity {
+                instrument: validated.snapshot.instrument.clone(),
+                broker_symbol: validated.snapshot.broker_symbol.clone(),
+                venue_mic: validated.snapshot.venue_mic.clone(),
+                board: validated.snapshot.board.clone(),
+                registry_version: validated.snapshot.instrument_registry_version.clone(),
+            }
+        }
+
+        fn stage4(now: DateTime<Utc>, instrument: InstrumentId) -> AcceptedStage4ScheduleEvidence {
+            AcceptedStage4ScheduleEvidence {
+                instrument,
+                observed_at: LifecycleInstant(now),
+                expires_at: LifecycleInstant(now + chrono::Duration::seconds(10)),
+                identity: ScheduleFingerprint([7; 32]),
             }
         }
 
         #[test]
-        fn fingerprint_is_deterministic_and_covers_window_identity() {
-            let base = definition("IMOEXF", 100, 200);
-            assert_eq!(
-                deterministic_fingerprint(&base, "stage4-a"),
-                deterministic_fingerprint(&base, "stage4-a")
-            );
-            assert_ne!(
-                deterministic_fingerprint(&base, "stage4-a"),
-                deterministic_fingerprint(&definition("IMOEXF", 100, 201), "stage4-a")
-            );
-            let mut changed_version = definition("IMOEXF", 100, 200);
-            changed_version.source_version = "fixture-v2".to_string();
-            assert_ne!(
-                deterministic_fingerprint(&base, "stage4-a"),
-                deterministic_fingerprint(&changed_version, "stage4-a")
-            );
-            assert_ne!(
-                deterministic_fingerprint(&base, "stage4-a"),
-                deterministic_fingerprint(&base, "stage4-b")
-            );
-        }
-
-        #[test]
-        fn mapper_rejects_cross_instrument_and_invalid_window() {
-            let stage4 = AcceptedStage4ScheduleEvidence {
-                instrument: definition("IMOEXF", 100, 200).instrument,
-                observed_at: LifecycleInstant(Utc::now()),
-                expires_at: LifecycleInstant(Utc::now()),
-                identity: "stage4-a".to_string(),
-            };
-            assert!(matches!(
-                map_trusted_schedule_window(stage4, definition("RI", 100, 200)),
-                Err(ScheduleWindowMappingError::InstrumentMismatch)
-            ));
-            let stage4 = AcceptedStage4ScheduleEvidence {
-                instrument: definition("IMOEXF", 100, 200).instrument,
-                observed_at: LifecycleInstant(Utc::now()),
-                expires_at: LifecycleInstant(Utc::now()),
-                identity: "stage4-a".to_string(),
-            };
-            assert!(matches!(
-                map_trusted_schedule_window(stage4, definition("IMOEXF", 200, 200)),
-                Err(ScheduleWindowMappingError::InvalidWindow)
-            ));
-        }
-
-        #[test]
-        fn normalized_snapshot_validator_fails_closed_and_canonicalizes_session_order() {
-            let open = NormalizedScheduleSession {
-                session_type: NormalizedSessionType::TradableOpen,
-                start: MarketBarCloseTime(100),
-                end: MarketBarCloseTime(200),
-            };
-            let later = NormalizedScheduleSession {
-                session_type: NormalizedSessionType::BreakOrClearing,
-                start: MarketBarCloseTime(300),
-                end: MarketBarCloseTime(400),
-            };
-            let current = Utc::now();
-            let now = LifecycleInstant(current);
-            assert!(validate_normalized_schedule_snapshot(
-                &NormalizedScheduleAvailability::Available(Box::new(snapshot(
-                    vec![open.clone(), later.clone()],
-                    current
-                ))),
-                now
-            )
-            .is_ok());
-            assert_eq!(
-                canonical_sessions_fingerprint(&[open.clone(), later.clone()]),
-                canonical_sessions_fingerprint(&[later, open])
-            );
+        fn validation_is_fail_closed_and_canonicalizes_unsorted_sessions() {
+            let now = Utc::now();
             assert!(matches!(
                 validate_normalized_schedule_snapshot(
-                    &NormalizedScheduleAvailability::ScheduleSourceUnavailable,
-                    now
+                    NormalizedScheduleAvailability::ScheduleSourceUnavailable,
+                    LifecycleInstant(now),
                 ),
                 Err(NormalizedScheduleValidationError::SourceUnavailable)
             ));
+            let mut unsorted = snapshot(now);
+            unsorted.sessions.push(NormalizedScheduleSession {
+                session_type: NormalizedSessionType::Maintenance,
+                start: MarketBarCloseTime(300),
+                end: MarketBarCloseTime(400),
+            });
+            unsorted.sessions.reverse();
+            unsorted.normalized_payload_sha256 = normalized_snapshot_payload_fingerprint(&unsorted);
+            assert!(validate_normalized_schedule_snapshot(
+                NormalizedScheduleAvailability::Available(Box::new(unsorted)),
+                LifecycleInstant(now),
+            )
+            .is_ok());
+            let mut no_open = snapshot(now);
+            no_open.sessions[0].session_type = NormalizedSessionType::Maintenance;
+            no_open.normalized_payload_sha256 = normalized_snapshot_payload_fingerprint(&no_open);
             assert!(matches!(
                 validate_normalized_schedule_snapshot(
-                    &NormalizedScheduleAvailability::Available(Box::new(snapshot(vec![], current))),
-                    now
+                    NormalizedScheduleAvailability::Available(Box::new(no_open)),
+                    LifecycleInstant(now),
                 ),
-                Err(NormalizedScheduleValidationError::EmptySessions)
+                Err(NormalizedScheduleValidationError::NoTradableOpen)
             ));
+            let mut tampered = snapshot(now);
+            tampered.board = "OTHER".to_string();
             assert!(matches!(
                 validate_normalized_schedule_snapshot(
-                    &NormalizedScheduleAvailability::Available(Box::new(snapshot(
-                        vec![NormalizedScheduleSession {
-                            session_type: NormalizedSessionType::Unknown,
-                            start: MarketBarCloseTime(100),
-                            end: MarketBarCloseTime(200)
-                        }],
-                        current
-                    ))),
-                    now
+                    NormalizedScheduleAvailability::Available(Box::new(tampered)),
+                    LifecycleInstant(now),
                 ),
-                Err(NormalizedScheduleValidationError::UnknownSessionType)
+                Err(NormalizedScheduleValidationError::PayloadFingerprintMismatch)
+            ));
+        }
+
+        #[test]
+        fn mapper_consumes_validated_snapshot_registry_and_stage4_identity() {
+            let now = Utc::now();
+            let validated = validated(now);
+            let accepted_registry =
+                accept_instrument_registry_identity(&validated, registry(&validated)).unwrap();
+            let evidence = map_trusted_schedule_window(
+                validated,
+                accepted_registry,
+                stage4(now, instrument()),
+                MarketBarCloseTime(150),
+                LifecycleInstant(now),
+            )
+            .unwrap();
+            assert_eq!(
+                evidence.selected_session_type,
+                NormalizedSessionType::TradableOpen
+            );
+            assert_eq!(evidence.open_from, MarketBarCloseTime(100));
+            assert_eq!(evidence.open_until, MarketBarCloseTime(200));
+        }
+
+        #[test]
+        fn fingerprint_covers_full_identity_and_mapping_rechecks_expiry() {
+            let now = Utc::now();
+            let validated_a = validated(now);
+            let registry_a =
+                accept_instrument_registry_identity(&validated_a, registry(&validated_a)).unwrap();
+            let first = map_trusted_schedule_window(
+                validated_a,
+                registry_a,
+                stage4(now, instrument()),
+                MarketBarCloseTime(150),
+                LifecycleInstant(now),
+            )
+            .unwrap();
+            let mut changed = snapshot(now);
+            changed.instrument.exchange = Exchange::Other("other-exchange".to_string());
+            changed.normalized_payload_sha256 = normalized_snapshot_payload_fingerprint(&changed);
+            let validated_b = validate_normalized_schedule_snapshot(
+                NormalizedScheduleAvailability::Available(Box::new(changed)),
+                LifecycleInstant(now),
+            )
+            .unwrap();
+            let registry_b =
+                accept_instrument_registry_identity(&validated_b, registry(&validated_b)).unwrap();
+            let second = map_trusted_schedule_window(
+                validated_b,
+                registry_b,
+                stage4(
+                    now,
+                    InstrumentId {
+                        symbol: "IMOEXF".to_string(),
+                        venue_symbol: Some("IMOEXF@RTSX".to_string()),
+                        exchange: Exchange::Other("other-exchange".to_string()),
+                        market: Market::Futures,
+                    },
+                ),
+                MarketBarCloseTime(150),
+                LifecycleInstant(now),
+            )
+            .unwrap();
+            assert_ne!(first.fingerprint, second.fingerprint);
+            let validated = validated(now);
+            let accepted_registry =
+                accept_instrument_registry_identity(&validated, registry(&validated)).unwrap();
+            assert!(matches!(
+                map_trusted_schedule_window(
+                    validated,
+                    accepted_registry,
+                    AcceptedStage4ScheduleEvidence {
+                        instrument: instrument(),
+                        observed_at: LifecycleInstant(now),
+                        expires_at: LifecycleInstant(now - chrono::Duration::seconds(1)),
+                        identity: ScheduleFingerprint([8; 32]),
+                    },
+                    MarketBarCloseTime(150),
+                    LifecycleInstant(now),
+                ),
+                Err(ScheduleWindowMappingError::Stage4Expired)
             ));
         }
     }
 }
-// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v1
+// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v2
 
 #[cfg(test)]
 mod tests {

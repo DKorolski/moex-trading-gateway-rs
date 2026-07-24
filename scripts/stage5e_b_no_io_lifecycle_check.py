@@ -59,6 +59,8 @@ EXPECTED_PROOF_SHA256 = "3bdf21f4376a55c2b86c5c336956cf450a95a971e155896a4a20ffb
 SESSION_BEGIN = "// STAGE5E-NO-IO-SESSION-ELIGIBILITY-BEGIN: observed-open-session-v1"
 SESSION_END = "// STAGE5E-NO-IO-SESSION-ELIGIBILITY-END: observed-open-session-v1"
 EXPECTED_SESSION_SHA256 = "4546cdc8409465d3e6f7382a84ac558f11856b6f4591678f6fbe220044b1b3b5"
+B3_BEGIN = "// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v2"
+B3_END = "// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v2"
 
 
 def fail(message: str) -> None:
@@ -128,6 +130,11 @@ def main() -> int:
     if not module.is_file() or not lib.is_file() or not host.is_file():
         fail("missing Stage 5E-b1 private runtime boundary")
     module_text = module.read_text()
+    if module_text.count(B3_BEGIN) != 1 or module_text.count(B3_END) != 1:
+        fail("Stage 5E-b3 region markers must occur exactly once")
+    predecessor_module_text = (
+        module_text.split(B3_BEGIN, 1)[0] + module_text.split(B3_END, 1)[1]
+    )
     if module_text.count(VALIDATOR_BEGIN) != 1 or module_text.count(VALIDATOR_END) != 1:
         fail("Stage 5E-b1 validator region markers must occur exactly once")
     validator = module_text.split(VALIDATOR_BEGIN, 1)[1].split(VALIDATOR_END, 1)[0]
@@ -245,7 +252,7 @@ def main() -> int:
         fail("forbidden Stage 5E-b2 free receipt forge function")
     if "Stage5eObservedOpenSession" in outside_session:
         fail("Stage 5E-b2 receipt type leaked outside sealed session region")
-    if "unsafe" in module_text:
+    if "unsafe" in predecessor_module_text:
         fail("unsafe code is forbidden in the Stage 5E-b2 module")
     if hashlib.sha256(session.encode()).hexdigest() != EXPECTED_SESSION_SHA256:
         fail("Stage 5E-b2 session eligibility region hash mismatch")
@@ -257,7 +264,11 @@ def main() -> int:
         "reqwest",
         "tokio",
     ):
-        haystack = module_text.lower() if forbidden in {"redis", "finam", "reqwest", "tokio"} else module_text
+        haystack = (
+            predecessor_module_text.lower()
+            if forbidden in {"redis", "finam", "reqwest", "tokio"}
+            else predecessor_module_text
+        )
         if forbidden in haystack:
             fail(f"forbidden Stage 5E-b1 surface: {forbidden}")
     if "(\n  set -euo pipefail\n  cd \"$repo_root\"\n  cargo fmt --check" not in handoff_builder.read_text():

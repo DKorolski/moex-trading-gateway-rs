@@ -451,6 +451,22 @@ def main() -> int:
 
         return apply
 
+    def mutate_stage5e_b3_inventory_for_checker(mutator):
+        def apply(root, _manifest, _marker):
+            path = root / "docs/stage-5/stage5e-b3-schedule-window-evidence-inventory.json"
+            payload = json.loads(path.read_text())
+            mutator(payload)
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+        return apply
+
+    def mutate_stage5e_b3_module_for_checker(mutator):
+        def apply(root, _manifest, _marker):
+            path = root / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
+            path.write_text(mutator(path.read_text()))
+
+        return apply
+
     def mutate_stage5e_b_module_for_checker(mutator):
         def apply(root, _manifest, _marker):
             path = root / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
@@ -1230,6 +1246,63 @@ def main() -> int:
                 lambda text: text + "\nimpl core::marker::Copy for session_eligibility::Stage5eObservedOpenSession {}\n"
             ),
             "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b3-validator-early-success",
+            "b3 schedule evidence region hash mismatch",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "if snapshot.sessions.is_empty() {",
+                    "if false && snapshot.sessions.is_empty() {",
+                    1,
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3-mapping-expiry-removed",
+            "b3 schedule evidence region hash mismatch",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "if lifecycle_now.0 > stage4.expires_at.0 {",
+                    "if false && lifecycle_now.0 > stage4.expires_at.0 {",
+                    1,
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3-constant-fingerprint",
+            "b3 schedule evidence region hash mismatch",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "ScheduleFingerprint(encoder.finish())",
+                    "ScheduleFingerprint([0; 32])",
+                    1,
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3-closed-surface-key-removed",
+            "closed surface key set drift",
+            mutate_stage5e_b3_inventory_for_checker(
+                lambda payload: payload["closed_surfaces"].pop("strategy_callback")
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3-extra-inventory-key",
+            "inventory key set drift",
+            mutate_stage5e_b3_inventory_for_checker(
+                lambda payload: payload.__setitem__("unexpected", True)
+            ),
+            "5E-b3-schedule-window-evidence",
             True,
         ),
     ]
