@@ -1,6 +1,6 @@
 # Stage 5E-b — no-I/O lifecycle capability
 
-Status: Stage 5E-b2 contextual and session no-I/O type-state.
+Status: Stage 5E-b2.1 session classifier hardening, still no-I/O.
 
 Stage 5E-b turns the accepted Stage 5E-a event-time contract into a narrow,
 in-process type-state boundary. It deliberately stops before a strategy bar
@@ -126,7 +126,26 @@ or stale schedule evidence, and invalid or out-of-window intervals block. The
 receipt has callback count == 0 and intent count == 0, does not call the
 strategy, and does not create an executable intent.
 
+The observed interval is closed: `open_from_bar_close <= bar_close <=
+open_until_bar_close`. `open_until_bar_close` therefore denotes the final
+allowed bar close, not the instant at which clearing begins. The receipt is
+linear (it implements neither `Clone` nor `Copy`), and its definition,
+constructor and zero-side-effect methods form one hash-pinned construction
+surface.
+
 This is deliberately not a calendar engine and does not claim market-gap
 proof, first-fresh status, callback readiness, or a continuation into strategy
 execution. A future separately reviewed bridge must require both the live-bar
 and session receipts before it can discuss a callback boundary.
+
+## Stage 5E-b2.1 construction-surface hardening
+
+The b2 session classifier is now explicitly linear: its receipt has no
+`Clone`, `Copy`, `Default`, serialization or alternate-constructor surface.
+The receipt definition, only checked construction, and proof methods are in
+the single hash-pinned session region. The negative harness protects field
+visibility, copyability and a forged default receipt. The classifier remains
+only a local classification result; it is not yet trusted schedule evidence
+and cannot authorize a callback. The next binding slice must introduce the
+accepted schedule mapper and exact Stage 4/bar binding rather than widening
+this classifier's caller-supplied inputs.

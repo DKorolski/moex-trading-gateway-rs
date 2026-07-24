@@ -44,6 +44,7 @@ EXPECTED_CONTRACT_INVARIANTS = {
     "calls_strategy": False,
     "creates_executable_intent": False,
     "session_observation_mode": "fresh_explicit_open_window_only",
+    "session_window_bounds": "inclusive_closed",
 }
 BRIDGE_BEGIN = "// STAGE5E-NO-IO-BRIDGE-BEGIN: contextual-observation-v1"
 BRIDGE_END = "// STAGE5E-NO-IO-BRIDGE-END: contextual-observation-v1"
@@ -56,7 +57,7 @@ PROOF_END = "// STAGE5E-NO-IO-CAPABILITY-PROOF-END: zero-side-effects-v1"
 EXPECTED_PROOF_SHA256 = "3bdf21f4376a55c2b86c5c336956cf450a95a971e155896a4a20ffbef3ee304e"
 SESSION_BEGIN = "// STAGE5E-NO-IO-SESSION-ELIGIBILITY-BEGIN: observed-open-session-v1"
 SESSION_END = "// STAGE5E-NO-IO-SESSION-ELIGIBILITY-END: observed-open-session-v1"
-EXPECTED_SESSION_SHA256 = "7d296ec38b1de1d51afc3c9d66e4a1e16b48789e0300bbe9c68da93e42569b3a"
+EXPECTED_SESSION_SHA256 = "8cdf892397f16dcdc3832be4dc28fff5ff1db91d0c56d6d2d637fc36baa5b6e7"
 
 
 def fail(message: str) -> None:
@@ -74,7 +75,7 @@ def main() -> int:
         fail("schema_version must be 1")
     if inventory.get("stage") != "5E-b-no-io-lifecycle-capability":
         fail("unexpected stage")
-    if inventory.get("status") != "contextual_and_session_no_io_type_state":
+    if inventory.get("status") != "contextual_session_hardened_no_io_type_state":
         fail("unexpected status")
     if inventory.get("baseline_ref") != BASELINE_REF:
         fail("Stage 5E-b baseline reference mismatch")
@@ -157,17 +158,6 @@ def main() -> int:
     ):
         if marker not in module_text:
             fail(f"missing Stage 5E-b1 marker: {marker}")
-    for forbidden in (
-        "on_broker_bar",
-        "BrokerNeutralHybridIntent",
-        "redis",
-        "finam",
-        "reqwest",
-        "tokio",
-    ):
-        haystack = module_text.lower() if forbidden in {"redis", "finam", "reqwest", "tokio"} else module_text
-        if forbidden in haystack:
-            fail(f"forbidden Stage 5E-b1 surface: {forbidden}")
     if "FirstFresh" in module_text or "first fresh" in module_text.lower():
         fail("Stage 5E-b1 must not claim first-fresh or market-gap proof")
     if "pub use stage5e_no_io_lifecycle" in lib.read_text():
@@ -225,8 +215,34 @@ def main() -> int:
         haystack = session.lower() if forbidden in {"redis", "reqwest", "tokio"} else session
         if forbidden in haystack:
             fail(f"forbidden Stage 5E-b2 session surface: {forbidden}")
+    for forbidden in ("Clone", "Copy", "Default", "Serialize", "Deserialize"):
+        if forbidden in session:
+            fail(f"forbidden Stage 5E-b2 receipt derivation or constructor surface: {forbidden}")
+    if module_text.count("pub(crate) struct Stage5eObservedOpenSession {") != 1:
+        fail("Stage 5E-b2 receipt definition must occur exactly once")
+    if module_text.count("Ok(Stage5eObservedOpenSession {") != 1:
+        fail("Stage 5E-b2 receipt must have exactly one checked construction")
+    for forbidden in (
+        "impl Default for Stage5eObservedOpenSession",
+        "impl From<",
+        "impl serde::Serialize for Stage5eObservedOpenSession",
+        "impl serde::Deserialize for Stage5eObservedOpenSession",
+    ):
+        if forbidden in module_text:
+            fail(f"forbidden Stage 5E-b2 alternate receipt construction or export: {forbidden}")
     if hashlib.sha256(session.encode()).hexdigest() != EXPECTED_SESSION_SHA256:
         fail("Stage 5E-b2 session eligibility region hash mismatch")
+    for forbidden in (
+        "on_broker_bar",
+        "BrokerNeutralHybridIntent",
+        "redis",
+        "finam",
+        "reqwest",
+        "tokio",
+    ):
+        haystack = module_text.lower() if forbidden in {"redis", "finam", "reqwest", "tokio"} else module_text
+        if forbidden in haystack:
+            fail(f"forbidden Stage 5E-b1 surface: {forbidden}")
     if "(\n  set -euo pipefail\n  cd \"$repo_root\"\n  cargo fmt --check" not in handoff_builder.read_text():
         fail("Stage 5E-b1 cargo runner must fail closed per command")
     print("stage5e-b-no-io-lifecycle-check: ok")

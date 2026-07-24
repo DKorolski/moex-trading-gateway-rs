@@ -1175,6 +1175,36 @@ def main() -> int:
             "5E-b-no-io-lifecycle-capability",
             True,
         ),
+        Case(
+            "stage5e-b-session-receipt-made-copyable",
+            "forbidden Stage 5E-b2 receipt derivation or constructor surface: Clone",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace(
+                    "#[derive(Debug, PartialEq, Eq)]\npub(crate) struct Stage5eObservedOpenSession",
+                    "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub(crate) struct Stage5eObservedOpenSession",
+                )
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-session-receipt-field-made-crate-visible",
+            "Stage 5E-b2 session eligibility region hash mismatch",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace("    bar_close_ts: i64,", "    pub(crate) bar_close_ts: i64,")
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-session-receipt-default-forge",
+            "forbidden Stage 5E-b2 alternate receipt construction or export: impl Default for Stage5eObservedOpenSession",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text + "\nimpl Default for Stage5eObservedOpenSession {\n    fn default() -> Self { Self { bar_close_ts: 0 } }\n}\n"
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
     ]
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)
