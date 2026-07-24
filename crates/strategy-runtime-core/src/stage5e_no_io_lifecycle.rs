@@ -218,6 +218,11 @@ mod schedule_window_evidence {
         Expired,
     }
 
+    enum ScheduleWindowMappingError {
+        InstrumentMismatch,
+        InvalidWindow,
+    }
+
     struct AcceptedStage4ScheduleEvidence {
         instrument: broker_core::InstrumentId,
         observed_at: LifecycleInstant,
@@ -291,6 +296,26 @@ mod schedule_window_evidence {
         })
     }
 
+    fn map_trusted_schedule_window(
+        stage4: AcceptedStage4ScheduleEvidence,
+        definition: TrustedScheduleDefinition,
+    ) -> Result<Stage5eScheduleWindowEvidence, ScheduleWindowMappingError> {
+        if definition.instrument != stage4.instrument {
+            return Err(ScheduleWindowMappingError::InstrumentMismatch);
+        }
+        if definition.open_from.0 >= definition.open_until.0 {
+            return Err(ScheduleWindowMappingError::InvalidWindow);
+        }
+        let fingerprint = deterministic_fingerprint(&definition, &stage4.identity);
+        Ok(Stage5eScheduleWindowEvidence {
+            definition,
+            stage4_identity: stage4.identity,
+            observed_at: stage4.observed_at,
+            expires_at: stage4.expires_at,
+            fingerprint,
+        })
+    }
+
     fn deterministic_fingerprint(
         definition: &TrustedScheduleDefinition,
         stage4_identity: &str,
@@ -309,6 +334,67 @@ mod schedule_window_evidence {
         hasher.update(definition.schedule_epoch.to_be_bytes());
         hasher.update(stage4_identity.as_bytes());
         ScheduleFingerprint(hasher.finalize().into())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use broker_core::{Exchange, InstrumentId, Market};
+
+        fn definition(symbol: &str, open_from: i64, open_until: i64) -> TrustedScheduleDefinition {
+            TrustedScheduleDefinition {
+                instrument: InstrumentId {
+                    symbol: symbol.to_string(),
+                    venue_symbol: Some(format!("{symbol}@RTSX")),
+                    exchange: Exchange::Moex,
+                    market: Market::Futures,
+                },
+                venue: "RTSX".to_string(),
+                trading_day: TradingDay(NaiveDate::from_ymd_opt(2026, 7, 24).unwrap()),
+                open_from: MarketBarCloseTime(open_from),
+                open_until: MarketBarCloseTime(open_until),
+                source: ScheduleSourceIdentity::BrokerNeutralStaticRegistry,
+                source_version: "fixture-v1".to_string(),
+                schedule_epoch: 1,
+            }
+        }
+
+        #[test]
+        fn fingerprint_is_deterministic_and_covers_window_identity() {
+            let base = definition("IMOEXF", 100, 200);
+            assert_eq!(
+                deterministic_fingerprint(&base, "stage4-a"),
+                deterministic_fingerprint(&base, "stage4-a")
+            );
+            assert_ne!(
+                deterministic_fingerprint(&base, "stage4-a"),
+                deterministic_fingerprint(&definition("IMOEXF", 100, 201), "stage4-a")
+            );
+        }
+
+        #[test]
+        fn mapper_rejects_cross_instrument_and_invalid_window() {
+            let stage4 = AcceptedStage4ScheduleEvidence {
+                instrument: definition("IMOEXF", 100, 200).instrument,
+                observed_at: LifecycleInstant(Utc::now()),
+                expires_at: LifecycleInstant(Utc::now()),
+                identity: "stage4-a".to_string(),
+            };
+            assert!(matches!(
+                map_trusted_schedule_window(stage4, definition("RI", 100, 200)),
+                Err(ScheduleWindowMappingError::InstrumentMismatch)
+            ));
+            let stage4 = AcceptedStage4ScheduleEvidence {
+                instrument: definition("IMOEXF", 100, 200).instrument,
+                observed_at: LifecycleInstant(Utc::now()),
+                expires_at: LifecycleInstant(Utc::now()),
+                identity: "stage4-a".to_string(),
+            };
+            assert!(matches!(
+                map_trusted_schedule_window(stage4, definition("IMOEXF", 200, 200)),
+                Err(ScheduleWindowMappingError::InvalidWindow)
+            ));
+        }
     }
 }
 // STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v1
