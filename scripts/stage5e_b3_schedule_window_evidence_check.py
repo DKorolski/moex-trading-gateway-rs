@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed semantic gate for the Stage 5E-b3a-r2 no-I/O contract."""
+"""Fail-closed semantic gate for the Stage 5E-b3b no-I/O binding contract."""
 
 import hashlib
 import json
@@ -59,11 +59,15 @@ EXPECTED_CONTRACT_INVARIANTS = {
     "stage4_normalized_relation": "conjunctive_independent_evidence",
     "rejects_shared_inclusive_endpoint": True,
     "requires_stage4_report_not_future": True,
-    "trusted_b3b_observed_bar_binding": False,
+    "trusted_b3b_observed_bar_binding": True,
+    "requires_exact_observed_bar_instrument": True,
+    "revalidates_window_expiry_at_binding": True,
+    "returns_linear_inputs_on_binding_block": True,
+    "rejects_future_observed_bar_at_binding": True,
 }
-REGION_BEGIN = "// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v3"
-REGION_END = "// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v3"
-EXPECTED_REGION_SHA256 = "8d6a6ff3cead7de85e9de5d8a8400652178826c8dfaa86f008847ca1f3c91b17"
+REGION_BEGIN = "// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v4"
+REGION_END = "// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v4"
+EXPECTED_REGION_SHA256 = "243b6c89f937d326bf2b9543e13ccdeed23f8f45e459afae8f1ffdc485143793"
 
 
 def fail(message: str) -> None:
@@ -92,12 +96,15 @@ def main() -> int:
         fail("contract invariant drift")
     text = PLAN.read_text()
     for marker in (
-        "Stage 5E-b3a-r2",
+        "Stage 5E-b3b",
         "validated opaque snapshot",
         "accepted Stage 4 schedule evidence",
         "inclusive",
         "conjunctive independent evidence",
         "ticker@mic",
+        "Stage5eBoundScheduleWindowForObservedLiveBar",
+        "Stage5eObservedLiveBarAfterHistory",
+        "linear inputs",
         "b3b",
     ):
         if marker not in text:
@@ -123,6 +130,13 @@ def main() -> int:
         "lifecycle_now.0 > stage4.expires_at.0",
         "lifecycle_now.0 > validated.snapshot.source_expires_at.0",
         "NoTradableOpenForRequestedBar",
+        "ScheduleWindowObservedBarBindingError",
+        "bind_schedule_window_to_observed_live_bar",
+        "validate_schedule_window_for_observed_bar",
+        "Stage5eBoundScheduleWindowForObservedLiveBar",
+        "Stage5eScheduleWindowObservedBarBlocked",
+        "ObservedBarInFuture",
+        "WindowExpired",
     ):
         if marker not in region:
             fail(f"b3 semantic marker missing: {marker}")

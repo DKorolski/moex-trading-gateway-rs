@@ -1,4 +1,4 @@
-# Stage 5E-b3a-r2 — sealed ScheduleWindowEvidence
+# Stage 5E-b3b — sealed observed-bar ScheduleWindowEvidence binding
 
 Baseline: `04431096e269daaf9715e253b2354b1ac8fcc3e8`.
 
@@ -40,4 +40,28 @@ length-prefixed.
 
 Callback, strategy mutation, intents, Redis, FINAM I/O, transport, dispatch,
 runtime-live, autonomous loops and execution remain closed. Binding to an
-observed bar is b3b, not this slice.
+observed bar is now the only addition in this slice.
+
+## b3b private no-I/O binding
+
+The only binding path consumes exactly these already-issued linear receipts:
+
+```text
+Stage5eScheduleWindowEvidence
++ Stage5eObservedLiveBarAfterHistory
++ admission-time LifecycleNow
+→ Stage5eBoundScheduleWindowForObservedLiveBar
+```
+
+It never accepts raw instrument, venue, bar-close, window, fingerprint or
+expiry from a caller. The receipt checks the full `InstrumentId`, requires the
+observed bar close to remain inside the inclusive selected window, rejects a
+future observed bar, and revalidates the evidence expiry at bind time. It
+preserves the schedule fingerprint, full bar identity and the owned observed
+receipt, therefore retaining the strategy/recovery state without invoking it.
+
+Every binding blocker returns both linear inputs with its reason; a future
+reviewed owner may obtain fresh schedule evidence and retry without state loss.
+Callback count and intent count remain zero. This is still not b3b callback
+eligibility, a production provider attachment, or an authorization to call
+`on_broker_bar`.

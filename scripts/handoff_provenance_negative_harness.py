@@ -1355,6 +1355,69 @@ def main() -> int:
             "5E-b3-schedule-window-evidence",
             True,
         ),
+        Case(
+            "stage5e-b3b-instrument-binding-relaxed",
+            "b3 schedule evidence region hash mismatch",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "if schedule_window.instrument != *observed_bar_instrument {",
+                    "if false && schedule_window.instrument != *observed_bar_instrument {",
+                    1,
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3b-window-expiry-relaxed",
+            "b3 schedule evidence region hash mismatch",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "if lifecycle_now.0 > schedule_window.expires_at.0 {",
+                    "if false && lifecycle_now.0 > schedule_window.expires_at.0 {",
+                    1,
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3b-future-observed-bar-relaxed",
+            "b3 schedule evidence region hash mismatch",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "if observed_bar_close_ts.0 > lifecycle_now.0.timestamp() {",
+                    "if false && observed_bar_close_ts.0 > lifecycle_now.0.timestamp() {",
+                    1,
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3b-inclusive-upper-bound-relaxed",
+            "b3 schedule evidence region hash mismatch",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "observed_bar_close_ts.0 > schedule_window.open_until.0",
+                    "observed_bar_close_ts.0 >= schedule_window.open_until.0",
+                    1,
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3b-linear-retry-contract-drift",
+            "contract invariant drift",
+            mutate_stage5e_b3_inventory_for_checker(
+                lambda payload: payload["contract_invariants"].__setitem__(
+                    "returns_linear_inputs_on_binding_block", False
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
     ]
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)

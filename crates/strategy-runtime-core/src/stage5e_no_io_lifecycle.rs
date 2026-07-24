@@ -185,7 +185,7 @@ mod session_eligibility {
 }
 // STAGE5E-NO-IO-SESSION-ELIGIBILITY-END: observed-open-session-v1
 
-// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v3
+// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v4
 // This is a private, no-I/O proof chain. A later reviewed broker adapter may
 // supply the raw normalized DTO, but cannot construct any accepted receipt.
 #[allow(dead_code)]
@@ -309,6 +309,14 @@ mod schedule_window_evidence {
         NoTradableOpenForRequestedBar,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum ScheduleWindowObservedBarBindingError {
+        InstrumentMismatch,
+        BarOutsideInclusiveWindow,
+        WindowExpired,
+        ObservedBarInFuture,
+    }
+
     struct AcceptedStage4ScheduleEvidence {
         instrument: broker_core::InstrumentId,
         observed_at: LifecycleInstant,
@@ -333,6 +341,26 @@ mod schedule_window_evidence {
         effective_observed_at: LifecycleInstant,
         expires_at: LifecycleInstant,
         fingerprint: ScheduleFingerprint,
+    }
+
+    /// Linear b3b receipt. It deliberately owns both earlier receipts so a
+    /// later reviewed continuation cannot substitute a raw bar, window,
+    /// fingerprint, expiry, or instrument identity.
+    struct Stage5eBoundScheduleWindowForObservedLiveBar {
+        schedule_window: Stage5eScheduleWindowEvidence,
+        observed_live_bar: super::Stage5eObservedLiveBarAfterHistory,
+        bar_instrument: broker_core::InstrumentId,
+        bar_close_ts: MarketBarCloseTime,
+        schedule_fingerprint: ScheduleFingerprint,
+    }
+
+    /// Binding is fail-closed but linear: every blocker returns both consumed
+    /// inputs so a caller may obtain fresh evidence and retry without silently
+    /// dropping strategy/recovery state.
+    struct Stage5eScheduleWindowObservedBarBlocked {
+        reason: ScheduleWindowObservedBarBindingError,
+        schedule_window: Stage5eScheduleWindowEvidence,
+        observed_live_bar: super::Stage5eObservedLiveBarAfterHistory,
     }
 
     struct CanonicalEncoder {
@@ -668,6 +696,102 @@ mod schedule_window_evidence {
         })
     }
 
+    fn validate_schedule_window_for_observed_bar(
+        schedule_window: &Stage5eScheduleWindowEvidence,
+        observed_bar_instrument: &broker_core::InstrumentId,
+        observed_bar_close_ts: MarketBarCloseTime,
+        lifecycle_now: LifecycleInstant,
+    ) -> Result<(), ScheduleWindowObservedBarBindingError> {
+        if schedule_window.instrument != *observed_bar_instrument {
+            return Err(ScheduleWindowObservedBarBindingError::InstrumentMismatch);
+        }
+        if observed_bar_close_ts.0 > lifecycle_now.0.timestamp() {
+            return Err(ScheduleWindowObservedBarBindingError::ObservedBarInFuture);
+        }
+        if lifecycle_now.0 > schedule_window.expires_at.0 {
+            return Err(ScheduleWindowObservedBarBindingError::WindowExpired);
+        }
+        if observed_bar_close_ts.0 < schedule_window.open_from.0
+            || observed_bar_close_ts.0 > schedule_window.open_until.0
+        {
+            return Err(ScheduleWindowObservedBarBindingError::BarOutsideInclusiveWindow);
+        }
+        Ok(())
+    }
+
+    fn bind_schedule_window_to_observed_live_bar(
+        schedule_window: Stage5eScheduleWindowEvidence,
+        observed_live_bar: super::Stage5eObservedLiveBarAfterHistory,
+        lifecycle_now: LifecycleInstant,
+    ) -> Result<
+        Stage5eBoundScheduleWindowForObservedLiveBar,
+        Box<Stage5eScheduleWindowObservedBarBlocked>,
+    > {
+        let bar_instrument = observed_live_bar.bar.instrument.clone();
+        let bar_close_ts = MarketBarCloseTime(observed_live_bar.bar_close_ts());
+        if let Err(reason) = validate_schedule_window_for_observed_bar(
+            &schedule_window,
+            &bar_instrument,
+            bar_close_ts,
+            lifecycle_now,
+        ) {
+            return Err(Box::new(Stage5eScheduleWindowObservedBarBlocked {
+                reason,
+                schedule_window,
+                observed_live_bar,
+            }));
+        }
+        Ok(Stage5eBoundScheduleWindowForObservedLiveBar {
+            schedule_fingerprint: schedule_window.fingerprint,
+            schedule_window,
+            observed_live_bar,
+            bar_instrument,
+            bar_close_ts,
+        })
+    }
+
+    impl Stage5eBoundScheduleWindowForObservedLiveBar {
+        fn callback_count(&self) -> usize {
+            self.observed_live_bar.callback_count()
+        }
+
+        fn intent_count(&self) -> usize {
+            self.observed_live_bar.intent_count()
+        }
+
+        fn strategy_was_called(&self) -> bool {
+            self.observed_live_bar.strategy_was_called()
+        }
+
+        fn executable_intent_created(&self) -> bool {
+            self.observed_live_bar.executable_intent_created()
+        }
+
+        fn into_inputs(
+            self,
+        ) -> (
+            Stage5eScheduleWindowEvidence,
+            super::Stage5eObservedLiveBarAfterHistory,
+        ) {
+            (self.schedule_window, self.observed_live_bar)
+        }
+    }
+
+    impl Stage5eScheduleWindowObservedBarBlocked {
+        fn reason(&self) -> ScheduleWindowObservedBarBindingError {
+            self.reason
+        }
+
+        fn into_inputs(
+            self,
+        ) -> (
+            Stage5eScheduleWindowEvidence,
+            super::Stage5eObservedLiveBarAfterHistory,
+        ) {
+            (self.schedule_window, self.observed_live_bar)
+        }
+    }
+
     fn deterministic_fingerprint(
         validated: &ValidatedNormalizedInstrumentScheduleSnapshot,
         registry: &AcceptedInstrumentRegistryEvidence,
@@ -989,9 +1113,80 @@ mod schedule_window_evidence {
                 Err(Stage4ScheduleProjectionError::ObservedInFuture)
             ));
         }
+
+        #[test]
+        fn observed_bar_binding_is_exact_inclusive_and_revalidates_time() {
+            let now = Utc::now();
+            let validated = validated(now);
+            let accepted_registry =
+                accept_instrument_registry_evidence(&validated, registry(&validated)).unwrap();
+            let window = map_trusted_schedule_window(
+                validated,
+                accepted_registry,
+                stage4(now, instrument()),
+                MarketBarCloseTime(100),
+                LifecycleInstant(now),
+            )
+            .unwrap();
+            assert!(validate_schedule_window_for_observed_bar(
+                &window,
+                &instrument(),
+                MarketBarCloseTime(100),
+                LifecycleInstant(now),
+            )
+            .is_ok());
+            assert!(validate_schedule_window_for_observed_bar(
+                &window,
+                &instrument(),
+                MarketBarCloseTime(200),
+                LifecycleInstant(now),
+            )
+            .is_ok());
+            assert!(matches!(
+                validate_schedule_window_for_observed_bar(
+                    &window,
+                    &InstrumentId {
+                        symbol: "OTHER".to_string(),
+                        venue_symbol: Some("OTHER@RTSX".to_string()),
+                        exchange: Exchange::Moex,
+                        market: Market::Futures,
+                    },
+                    MarketBarCloseTime(150),
+                    LifecycleInstant(now),
+                ),
+                Err(ScheduleWindowObservedBarBindingError::InstrumentMismatch)
+            ));
+            assert!(matches!(
+                validate_schedule_window_for_observed_bar(
+                    &window,
+                    &instrument(),
+                    MarketBarCloseTime(201),
+                    LifecycleInstant(now),
+                ),
+                Err(ScheduleWindowObservedBarBindingError::BarOutsideInclusiveWindow)
+            ));
+            assert!(matches!(
+                validate_schedule_window_for_observed_bar(
+                    &window,
+                    &instrument(),
+                    MarketBarCloseTime(now.timestamp() + 1),
+                    LifecycleInstant(now),
+                ),
+                Err(ScheduleWindowObservedBarBindingError::ObservedBarInFuture)
+            ));
+            assert!(matches!(
+                validate_schedule_window_for_observed_bar(
+                    &window,
+                    &instrument(),
+                    MarketBarCloseTime(150),
+                    LifecycleInstant(now + chrono::Duration::seconds(11)),
+                ),
+                Err(ScheduleWindowObservedBarBindingError::WindowExpired)
+            ));
+        }
     }
 }
-// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v3
+// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v4
 
 #[cfg(test)]
 mod tests {
