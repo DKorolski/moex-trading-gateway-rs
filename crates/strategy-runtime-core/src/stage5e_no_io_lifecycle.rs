@@ -210,6 +210,21 @@ mod schedule_window_evidence {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct ScheduleFingerprint([u8; 32]);
 
+    enum Stage4ScheduleProjectionError {
+        NotAccepted,
+        SourceUnavailable,
+        FreshnessUnavailable,
+        ObservedInFuture,
+        Expired,
+    }
+
+    struct AcceptedStage4ScheduleEvidence {
+        instrument: broker_core::InstrumentId,
+        observed_at: LifecycleInstant,
+        expires_at: LifecycleInstant,
+        identity: String,
+    }
+
     /// Private mapper input. A later b3a bridge may construct it only from
     /// accepted Stage 4 evidence and an approved broker-neutral definition.
     struct TrustedScheduleDefinition {
@@ -229,6 +244,51 @@ mod schedule_window_evidence {
         observed_at: LifecycleInstant,
         expires_at: LifecycleInstant,
         fingerprint: ScheduleFingerprint,
+    }
+
+    fn project_accepted_stage4_schedule(
+        evidence: &broker_core::Stage4AcceptedPaperHostEvidence,
+        lifecycle_now: LifecycleInstant,
+    ) -> Result<AcceptedStage4ScheduleEvidence, Stage4ScheduleProjectionError> {
+        let report = evidence.report();
+        if report.status != broker_core::Stage4BootstrapEvidenceReportStatus::Accepted {
+            return Err(Stage4ScheduleProjectionError::NotAccepted);
+        }
+        let schedule = report
+            .source_sections
+            .iter()
+            .find(|section| {
+                section.section == broker_core::Stage4BrokerTruthFreshnessSection::Schedule
+            })
+            .ok_or(Stage4ScheduleProjectionError::SourceUnavailable)?;
+        if schedule.source_status != broker_core::Stage4BrokerTruthSourceStatus::Present {
+            return Err(Stage4ScheduleProjectionError::SourceUnavailable);
+        }
+        if schedule.freshness_status != broker_core::Stage4BrokerTruthFreshnessStatus::Fresh {
+            return Err(Stage4ScheduleProjectionError::FreshnessUnavailable);
+        }
+        let age_ms = schedule
+            .age_ms
+            .ok_or(Stage4ScheduleProjectionError::FreshnessUnavailable)?;
+        if age_ms < 0 {
+            return Err(Stage4ScheduleProjectionError::ObservedInFuture);
+        }
+        if lifecycle_now.0 > evidence.required_source_expires_at() {
+            return Err(Stage4ScheduleProjectionError::Expired);
+        }
+        let observed_at = report.checked_ts - chrono::Duration::milliseconds(age_ms);
+        let identity = format!(
+            "stage4-schedule-v1:{}:{}:{}",
+            report.schema_version,
+            report.checked_ts.timestamp_millis(),
+            report.target_instrument.symbol,
+        );
+        Ok(AcceptedStage4ScheduleEvidence {
+            instrument: report.target_instrument.clone(),
+            observed_at: LifecycleInstant(observed_at),
+            expires_at: LifecycleInstant(evidence.required_source_expires_at()),
+            identity,
+        })
     }
 
     fn deterministic_fingerprint(
