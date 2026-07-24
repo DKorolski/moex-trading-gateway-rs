@@ -21,9 +21,14 @@ EXPECTED_REGISTRY = {
         "plan": "docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md",
         "checker": "scripts/stage5e_b_no_io_lifecycle_check.py",
     },
+    "5E-b3-schedule-window-evidence": {
+        "inventory": "docs/stage-5/stage5e-b3-schedule-window-evidence-inventory.json",
+        "plan": "docs/stage-5/5e-b3-schedule-window-evidence-plan.md",
+        "checker": "scripts/stage5e_b3_schedule_window_evidence_check.py",
+    },
 }
 REGISTRY = EXPECTED_REGISTRY
-EXPECTED_REGISTRY_SHA256 = "686d4f1607018f310bdef2a0c1ef064917da5244f5247d3d2421534bf279a22d"
+EXPECTED_REGISTRY_SHA256 = "7b191cb1ac3646a8f81e2a22c46faf03dadd2beea7939949662782952f8925a8"
 
 
 def registry_sha256(registry: object) -> str:
