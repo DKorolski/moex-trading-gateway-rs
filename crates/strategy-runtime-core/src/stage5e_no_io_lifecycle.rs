@@ -19,6 +19,14 @@ pub(crate) enum Stage5eContextualAdmissionError {
     FutureBar,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5eSessionObservationError {
+    ScheduleNotOpen,
+    ScheduleNotFresh,
+    InvalidObservedWindow,
+    BarOutsideObservedOpenWindow,
+}
+
 // STAGE5E-NO-IO-VALIDATOR-BEGIN: contextual-admission-v1
 #[allow(clippy::too_many_arguments)] // Pure validation keeps the independent context bindings explicit.
 pub(crate) fn validate_contextual_live_bar_after_history(
@@ -104,10 +112,80 @@ impl Stage5eObservedLiveBarAfterHistory {
 }
 // STAGE5E-NO-IO-CAPABILITY-PROOF-END: zero-side-effects-v1
 
+/// A fresh, broker-neutral observation that the candidate bar belongs to an
+/// explicitly observed open session. This is not a calendar implementation:
+/// its interval is supplied by a later schedule mapper and is deliberately
+/// rejected when that evidence is stale, unknown, or not open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Stage5eObservedOpenSession {
+    bar_close_ts: i64,
+}
+
+// STAGE5E-NO-IO-SESSION-ELIGIBILITY-BEGIN: observed-open-session-v1
+pub(crate) fn observe_open_session_for_bar(
+    session_state: broker_core::BrokerMarketSessionState,
+    schedule_freshness: broker_core::Stage4BrokerTruthFreshnessProbe,
+    observed_open_from_bar_close: i64,
+    observed_open_until_bar_close: i64,
+    bar_close_ts: i64,
+    lifecycle_now: DateTime<Utc>,
+) -> Result<Stage5eObservedOpenSession, Stage5eSessionObservationError> {
+    if session_state != broker_core::BrokerMarketSessionState::Open {
+        return Err(Stage5eSessionObservationError::ScheduleNotOpen);
+    }
+    let Some(observed_ts) = schedule_freshness.observed_ts else {
+        return Err(Stage5eSessionObservationError::ScheduleNotFresh);
+    };
+    let schedule_age_ms = lifecycle_now
+        .signed_duration_since(observed_ts)
+        .num_milliseconds();
+    if !schedule_freshness.available
+        || schedule_age_ms < 0
+        || schedule_age_ms as u64 > schedule_freshness.max_age_ms
+    {
+        return Err(Stage5eSessionObservationError::ScheduleNotFresh);
+    }
+    if observed_open_from_bar_close >= observed_open_until_bar_close {
+        return Err(Stage5eSessionObservationError::InvalidObservedWindow);
+    }
+    if bar_close_ts < observed_open_from_bar_close || bar_close_ts > observed_open_until_bar_close {
+        return Err(Stage5eSessionObservationError::BarOutsideObservedOpenWindow);
+    }
+    Ok(Stage5eObservedOpenSession { bar_close_ts })
+}
+
+impl Stage5eObservedOpenSession {
+    pub(crate) fn bar_close_ts(&self) -> i64 {
+        self.bar_close_ts
+    }
+
+    pub(crate) fn callback_count(&self) -> usize {
+        0
+    }
+
+    pub(crate) fn intent_count(&self) -> usize {
+        0
+    }
+
+    pub(crate) fn strategy_was_called(&self) -> bool {
+        false
+    }
+
+    pub(crate) fn executable_intent_created(&self) -> bool {
+        false
+    }
+}
+// STAGE5E-NO-IO-SESSION-ELIGIBILITY-END: observed-open-session-v1
+
 #[cfg(test)]
 mod tests {
-    use super::{validate_contextual_live_bar_after_history, Stage5eContextualAdmissionError};
-    use broker_core::{Exchange, InstrumentId, Market};
+    use super::{
+        observe_open_session_for_bar, validate_contextual_live_bar_after_history,
+        Stage5eContextualAdmissionError, Stage5eSessionObservationError,
+    };
+    use broker_core::{
+        BrokerMarketSessionState, Exchange, InstrumentId, Market, Stage4BrokerTruthFreshnessProbe,
+    };
     use chrono::{TimeZone, Utc};
 
     fn instrument(symbol: &str) -> InstrumentId {
@@ -223,6 +301,96 @@ mod tests {
                 Utc.timestamp_opt(1_700, 0).single().unwrap(),
             ),
             Err(Stage5eContextualAdmissionError::FutureBar)
+        );
+    }
+
+    fn fresh_schedule() -> Stage4BrokerTruthFreshnessProbe {
+        Stage4BrokerTruthFreshnessProbe::fresh(
+            Utc.timestamp_opt(1_700, 0).single().unwrap(),
+            1_000_000,
+            true,
+        )
+    }
+
+    #[test]
+    fn open_session_observation_requires_fresh_explicit_open_window() {
+        let observed = observe_open_session_for_bar(
+            BrokerMarketSessionState::Open,
+            fresh_schedule(),
+            1_500,
+            1_800,
+            1_600,
+            Utc.timestamp_opt(1_900, 0).single().unwrap(),
+        )
+        .expect("fresh open session accepts contained bar");
+        assert_eq!(observed.bar_close_ts(), 1_600);
+        assert_eq!(observed.callback_count(), 0);
+        assert_eq!(observed.intent_count(), 0);
+        assert!(!observed.strategy_was_called());
+        assert!(!observed.executable_intent_created());
+    }
+
+    #[test]
+    fn session_observation_blocks_non_open_stale_and_out_of_window_evidence() {
+        let now = Utc.timestamp_opt(1_900, 0).single().unwrap();
+        assert_eq!(
+            observe_open_session_for_bar(
+                BrokerMarketSessionState::Break,
+                fresh_schedule(),
+                1_500,
+                1_800,
+                1_600,
+                now,
+            ),
+            Err(Stage5eSessionObservationError::ScheduleNotOpen)
+        );
+        assert_eq!(
+            observe_open_session_for_bar(
+                BrokerMarketSessionState::Unknown,
+                Stage4BrokerTruthFreshnessProbe::unknown(1_000, true),
+                1_500,
+                1_800,
+                1_600,
+                now,
+            ),
+            Err(Stage5eSessionObservationError::ScheduleNotOpen)
+        );
+        assert_eq!(
+            observe_open_session_for_bar(
+                BrokerMarketSessionState::Open,
+                Stage4BrokerTruthFreshnessProbe::fresh(
+                    Utc.timestamp_opt(1, 0).single().unwrap(),
+                    1_000,
+                    true,
+                ),
+                1_500,
+                1_800,
+                1_600,
+                now,
+            ),
+            Err(Stage5eSessionObservationError::ScheduleNotFresh)
+        );
+        assert_eq!(
+            observe_open_session_for_bar(
+                BrokerMarketSessionState::Open,
+                fresh_schedule(),
+                1_800,
+                1_500,
+                1_600,
+                now,
+            ),
+            Err(Stage5eSessionObservationError::InvalidObservedWindow)
+        );
+        assert_eq!(
+            observe_open_session_for_bar(
+                BrokerMarketSessionState::Open,
+                fresh_schedule(),
+                1_500,
+                1_800,
+                1_801,
+                now,
+            ),
+            Err(Stage5eSessionObservationError::BarOutsideObservedOpenWindow)
         );
     }
 }

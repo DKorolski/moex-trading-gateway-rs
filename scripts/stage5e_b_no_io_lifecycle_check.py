@@ -43,6 +43,7 @@ EXPECTED_CONTRACT_INVARIANTS = {
     "intent_count": 0,
     "calls_strategy": False,
     "creates_executable_intent": False,
+    "session_observation_mode": "fresh_explicit_open_window_only",
 }
 BRIDGE_BEGIN = "// STAGE5E-NO-IO-BRIDGE-BEGIN: contextual-observation-v1"
 BRIDGE_END = "// STAGE5E-NO-IO-BRIDGE-END: contextual-observation-v1"
@@ -53,6 +54,9 @@ EXPECTED_VALIDATOR_SHA256 = "8ebad6268be99e5c7995668ee08290cdd058ede6f38d424476d
 PROOF_BEGIN = "// STAGE5E-NO-IO-CAPABILITY-PROOF-BEGIN: zero-side-effects-v1"
 PROOF_END = "// STAGE5E-NO-IO-CAPABILITY-PROOF-END: zero-side-effects-v1"
 EXPECTED_PROOF_SHA256 = "3bdf21f4376a55c2b86c5c336956cf450a95a971e155896a4a20ffbef3ee304e"
+SESSION_BEGIN = "// STAGE5E-NO-IO-SESSION-ELIGIBILITY-BEGIN: observed-open-session-v1"
+SESSION_END = "// STAGE5E-NO-IO-SESSION-ELIGIBILITY-END: observed-open-session-v1"
+EXPECTED_SESSION_SHA256 = "7d296ec38b1de1d51afc3c9d66e4a1e16b48789e0300bbe9c68da93e42569b3a"
 
 
 def fail(message: str) -> None:
@@ -70,7 +74,7 @@ def main() -> int:
         fail("schema_version must be 1")
     if inventory.get("stage") != "5E-b-no-io-lifecycle-capability":
         fail("unexpected stage")
-    if inventory.get("status") != "contextual_no_io_type_state":
+    if inventory.get("status") != "contextual_and_session_no_io_type_state":
         fail("unexpected status")
     if inventory.get("baseline_ref") != BASELINE_REF:
         fail("Stage 5E-b baseline reference mismatch")
@@ -101,6 +105,8 @@ def main() -> int:
         "does not prove a market-data gap", "callback count == 0",
         "intent count == 0", "does not call the strategy",
         "does not create an executable intent",
+        "Stage 5E-b2 observed session eligibility",
+        "fresh `Open` state",
     ):
         if marker not in text:
             fail(f"plan marker missing: {marker}")
@@ -126,6 +132,9 @@ def main() -> int:
     if module_text.count(PROOF_BEGIN) != 1 or module_text.count(PROOF_END) != 1:
         fail("Stage 5E-b1 capability proof region markers must occur exactly once")
     proof = module_text.split(PROOF_BEGIN, 1)[1].split(PROOF_END, 1)[0]
+    if module_text.count(SESSION_BEGIN) != 1 or module_text.count(SESSION_END) != 1:
+        fail("Stage 5E-b2 session eligibility region markers must occur exactly once")
+    session = module_text.split(SESSION_BEGIN, 1)[1].split(SESSION_END, 1)[0]
     for condition in (
         "if bar_instrument != target_instrument {",
         "if bar_tick_size.to_bits() != admission_tick_size.to_bits() {",
@@ -188,6 +197,36 @@ def main() -> int:
         fail("Stage 5E-b1 validator region hash mismatch")
     if hashlib.sha256(proof.encode()).hexdigest() != EXPECTED_PROOF_SHA256:
         fail("Stage 5E-b1 capability proof region hash mismatch")
+    for marker in (
+        "Stage5eObservedOpenSession",
+        "BrokerMarketSessionState::Open",
+        "Stage4BrokerTruthFreshnessProbe",
+        "ScheduleNotOpen",
+        "ScheduleNotFresh",
+        "InvalidObservedWindow",
+        "BarOutsideObservedOpenWindow",
+        "callback_count",
+        "intent_count",
+    ):
+        if marker not in session:
+            fail(f"missing Stage 5E-b2 session marker: {marker}")
+    for condition in (
+        "if session_state != broker_core::BrokerMarketSessionState::Open {",
+        "if !schedule_freshness.available",
+        "if observed_open_from_bar_close >= observed_open_until_bar_close {",
+        "if bar_close_ts < observed_open_from_bar_close || bar_close_ts > observed_open_until_bar_close {",
+    ):
+        if condition not in session:
+            fail(f"Stage 5E-b2 session condition missing: {condition}")
+    for forbidden in (
+        "on_broker_bar", "BrokerNeutralHybridIntent", "intent sink", "dispatch",
+        "redis", "FinamRestClient", "reqwest", "tokio", "std::fs", "std::net",
+    ):
+        haystack = session.lower() if forbidden in {"redis", "reqwest", "tokio"} else session
+        if forbidden in haystack:
+            fail(f"forbidden Stage 5E-b2 session surface: {forbidden}")
+    if hashlib.sha256(session.encode()).hexdigest() != EXPECTED_SESSION_SHA256:
+        fail("Stage 5E-b2 session eligibility region hash mismatch")
     if "(\n  set -euo pipefail\n  cd \"$repo_root\"\n  cargo fmt --check" not in handoff_builder.read_text():
         fail("Stage 5E-b1 cargo runner must fail closed per command")
     print("stage5e-b-no-io-lifecycle-check: ok")

@@ -1,6 +1,6 @@
 # Stage 5E-b — no-I/O lifecycle capability
 
-Status: Stage 5E-b1.1 contextual no-I/O type-state.
+Status: Stage 5E-b2 contextual and session no-I/O type-state.
 
 Stage 5E-b turns the accepted Stage 5E-a event-time contract into a narrow,
 in-process type-state boundary. It deliberately stops before a strategy bar
@@ -60,7 +60,7 @@ override the JSON contract.
 
 - invoking `on_broker_bar`;
 - converting an eligible bar into an intent batch;
-- session, clearing and calendar policy wiring;
+- calendar policy wiring or inferred exchange timetable;
 - real stream reads, recovery workers and subscriptions.
 
 Those features need their own scope and review after this capability is
@@ -111,3 +111,22 @@ rejected candidate returns the original recovered state and accepted candidate
 unchanged, so a caller may supply a later candidate without rebuilding
 recovery. The Stage 5D additive freeze permits the module declaration and
 consuming bridge only in its already reviewed crate-private additive regions.
+
+## Stage 5E-b2 observed session eligibility
+
+Stage 5E-b2 adds a separate observation-only receipt for session eligibility.
+It consumes neither the recovered strategy nor the observed-bar capability,
+and cannot invoke a callback. It takes the existing broker-neutral
+`BrokerMarketSessionState` plus the existing Stage 4 schedule-freshness probe
+and an explicit broker-observed open interval for the candidate bar.
+
+Only a fresh `Open` state and a bar close inside a valid observed interval are
+accepted. `Break` (clearing), `Maintenance`, `Closed`, `Unknown`, unavailable
+or stale schedule evidence, and invalid or out-of-window intervals block. The
+receipt has callback count == 0 and intent count == 0, does not call the
+strategy, and does not create an executable intent.
+
+This is deliberately not a calendar engine and does not claim market-gap
+proof, first-fresh status, callback readiness, or a continuation into strategy
+execution. A future separately reviewed bridge must require both the live-bar
+and session receipts before it can discuss a callback boundary.

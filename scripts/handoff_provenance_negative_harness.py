@@ -1118,6 +1118,63 @@ def main() -> int:
             "5E-b-no-io-lifecycle-capability",
             True,
         ),
+        Case(
+            "stage5e-b-session-open-check-removed",
+            "Stage 5E-b2 session condition missing",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace(
+                    "if session_state != broker_core::BrokerMarketSessionState::Open {",
+                    "if false && session_state != broker_core::BrokerMarketSessionState::Open {",
+                )
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-session-freshness-check-removed",
+            "Stage 5E-b2 session condition missing",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace(
+                    "if !schedule_freshness.available",
+                    "if false && !schedule_freshness.available",
+                )
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-session-window-check-removed",
+            "Stage 5E-b2 session condition missing",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace(
+                    "if bar_close_ts < observed_open_from_bar_close || bar_close_ts > observed_open_until_bar_close {",
+                    "if false && (bar_close_ts < observed_open_from_bar_close || bar_close_ts > observed_open_until_bar_close) {",
+                )
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-session-callback-surface-introduced",
+            "forbidden Stage 5E-b2 session surface: on_broker_bar",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace(
+                    "// STAGE5E-NO-IO-SESSION-ELIGIBILITY-BEGIN: observed-open-session-v1",
+                    "// STAGE5E-NO-IO-SESSION-ELIGIBILITY-BEGIN: observed-open-session-v1\n// on_broker_bar",
+                )
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-contract-session-observation-mode",
+            "contract invariants drift",
+            mutate_stage5e_b_contract_for_checker(
+                lambda contract: contract.__setitem__("session_observation_mode", "inferred_calendar")
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
     ]
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)
