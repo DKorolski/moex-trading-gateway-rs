@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sys
 from pathlib import Path
 
@@ -43,6 +44,9 @@ EXPECTED_CONTRACT_INVARIANTS = {
     "calls_strategy": False,
     "creates_executable_intent": False,
 }
+BRIDGE_BEGIN = "// STAGE5E-NO-IO-BRIDGE-BEGIN: contextual-observation-v1"
+BRIDGE_END = "// STAGE5E-NO-IO-BRIDGE-END: contextual-observation-v1"
+EXPECTED_BRIDGE_SHA256 = "220f5ff64eb93b30c0de67872a9e8204f469933536d1c474a2ea11e26306701e"
 
 
 def fail(message: str) -> None:
@@ -83,7 +87,7 @@ def main() -> int:
     if allowed != EXPECTED_ALLOWED_CHANGED_PATHS:
         fail("allowed_changed_paths drift")
     text = PLAN.read_text()
-    if "last_history_bar_close <= first_fresh_live_bar_close" in text:
+    if "last_history_bar_close <= observed_live_bar_close" in text:
         fail("market freshness inequality weakened")
     for marker in (
         "Stage 5E-b", "no-I/O", "observed-live-bar-after-history",
@@ -110,6 +114,14 @@ def main() -> int:
     if not module.is_file() or not lib.is_file() or not host.is_file():
         fail("missing Stage 5E-b1 private runtime boundary")
     module_text = module.read_text()
+    for condition in (
+        "if bar_instrument != target_instrument {",
+        "if bar_tick_size.to_bits() != admission_tick_size.to_bits() {",
+        "if lifecycle_now > admission_expires_at {",
+        "if bar_close > lifecycle_now.timestamp() {",
+    ):
+        if condition not in module_text:
+            fail(f"Stage 5E-b1 contextual condition missing: {condition}")
     for marker in (
         "Stage5eObservedLiveBarAfterHistory",
         "HybridRuntimeBarOrigin::Live",
@@ -140,6 +152,18 @@ def main() -> int:
     if "pub use stage5e_no_io_lifecycle" in lib.read_text():
         fail("Stage 5E-b1 private module leaked into public API")
     host_text = host.read_text()
+    if host_text.count(BRIDGE_BEGIN) != 1 or host_text.count(BRIDGE_END) != 1:
+        fail("Stage 5E-b1 bridge region markers must occur exactly once")
+    bridge = host_text.split(BRIDGE_BEGIN, 1)[1].split(BRIDGE_END, 1)[0]
+    for forbidden in (
+        "on_broker_bar", "BrokerNeutralHybridIntent", "intent sink", "dispatch",
+        "redis", "FinamRestClient", "reqwest", "tokio", "std::fs", "std::net",
+    ):
+        haystack = bridge.lower() if forbidden in {"redis", "reqwest", "tokio"} else bridge
+        if forbidden in haystack:
+            fail(f"forbidden Stage 5E-b1 bridge surface: {forbidden}")
+    if hashlib.sha256(bridge.encode()).hexdigest() != EXPECTED_BRIDGE_SHA256:
+        fail("Stage 5E-b1 bridge region hash mismatch")
     if "Stage5eNoIoBridgeSeal" not in host_text:
         fail("missing Stage 5E-b1 single-construction seal")
     if "stage5e_try_observe_live_bar_after_history" not in host_text:

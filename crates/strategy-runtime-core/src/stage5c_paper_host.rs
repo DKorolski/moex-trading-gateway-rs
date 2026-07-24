@@ -829,6 +829,7 @@ mod stage5d_pair_binding_restore_tests {
     }
 }
 
+// STAGE5E-NO-IO-BRIDGE-BEGIN: contextual-observation-v1
 /// Private construction seal: only this Stage 5C bridge can build Stage 5E inputs.
 /// It is intentionally neither serializable nor publicly constructible.
 pub(crate) struct Stage5eNoIoBridgeSeal(());
@@ -1094,6 +1095,7 @@ mod stage5e_retryable_bridge_tests {
         assert!(!observed.executable_intent_created());
     }
 }
+// STAGE5E-NO-IO-BRIDGE-END: contextual-observation-v1
 // STAGE5D-ADDITIVE-BRIDGE-END: type-state-transitions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

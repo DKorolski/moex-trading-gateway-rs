@@ -794,7 +794,7 @@ def main() -> int:
         ),
         Case(
             "source-tree-forged-head-tree",
-            "source-tree head_tree mismatch",
+            "cargo gate/source-tree manifest mismatch",
             lambda root, manifest, _marker: (
                 mutate_design_scope_and_rehash_all(
                     lambda scope: scope.__setitem__("head_tree", "0" * 40)
@@ -966,27 +966,48 @@ def main() -> int:
         ),
         Case(
             "stage5e-b-instrument-check-removed",
-            "missing Stage 5E-b1 marker: InstrumentMismatch",
+            "Stage 5E-b1 contextual condition missing",
             mutate_stage5e_b_module_for_checker(
-                lambda text: text.replace("InstrumentMismatch", "InstrumentBindingRemoved")
+                lambda text: text.replace(
+                    "if bar_instrument != target_instrument {",
+                    "if false && bar_instrument != target_instrument {",
+                )
             ),
             "5E-b-no-io-lifecycle-capability",
             True,
         ),
         Case(
             "stage5e-b-tick-check-removed",
-            "missing Stage 5E-b1 marker: TickSizeMismatch",
+            "Stage 5E-b1 contextual condition missing",
             mutate_stage5e_b_module_for_checker(
-                lambda text: text.replace("TickSizeMismatch", "TickBindingRemoved")
+                lambda text: text.replace(
+                    "if bar_tick_size.to_bits() != admission_tick_size.to_bits() {",
+                    "if false && bar_tick_size.to_bits() != admission_tick_size.to_bits() {",
+                )
             ),
             "5E-b-no-io-lifecycle-capability",
             True,
         ),
         Case(
             "stage5e-b-future-check-removed",
-            "missing Stage 5E-b1 marker: FutureBar",
+            "Stage 5E-b1 contextual condition missing",
             mutate_stage5e_b_module_for_checker(
-                lambda text: text.replace("FutureBar", "FutureCheckRemoved")
+                lambda text: text.replace(
+                    "if bar_close > lifecycle_now.timestamp() {",
+                    "if false && bar_close > lifecycle_now.timestamp() {",
+                )
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-expiry-check-removed",
+            "Stage 5E-b1 contextual condition missing",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace(
+                    "if lifecycle_now > admission_expires_at {",
+                    "if false && lifecycle_now > admission_expires_at {",
+                )
             ),
             "5E-b-no-io-lifecycle-capability",
             True,
@@ -1002,8 +1023,13 @@ def main() -> int:
         ),
         Case(
             "stage5e-b-callback-surface-introduced",
-            "forbidden Stage 5E-b1 surface: on_broker_bar",
-            mutate_stage5e_b_module_for_checker(lambda text: text + "\n// on_broker_bar\n"),
+            "forbidden Stage 5E-b1 bridge surface: on_broker_bar",
+            mutate_stage5e_b_host_for_checker(
+                lambda text: text.replace(
+                    "// STAGE5E-NO-IO-BRIDGE-END: contextual-observation-v1",
+                    "// on_broker_bar\n// STAGE5E-NO-IO-BRIDGE-END: contextual-observation-v1",
+                )
+            ),
             "5E-b-no-io-lifecycle-capability",
             True,
         ),
