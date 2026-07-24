@@ -243,6 +243,11 @@ def check_archive(path: Path) -> None:
             if current_review_stage == "5E-b-no-io-lifecycle-capability":
                 expected_stage5e_baseline_ref = "0ffeb6aefe790efeaa6d99157104bd5aef8ff35e"
                 expected_stage5e_a_freeze_ref = "eb03695dc407b02bb8327de57fde6acea077d96b"
+            elif current_review_stage == "5E-b3-schedule-window-evidence":
+                # b3 retains the Stage 5D aggregate closure as its lineage root,
+                # but its scoped review diff begins at the accepted b2.1 seal.
+                expected_stage5e_baseline_ref = "04431096e269daaf9715e253b2354b1ac8fcc3e8"
+                expected_stage5e_a_freeze_ref = None
             else:
                 expected_stage5e_baseline_ref = "9ebbfd29d0346be5149dac746225866f0c8d0257"
                 expected_stage5e_a_freeze_ref = None
