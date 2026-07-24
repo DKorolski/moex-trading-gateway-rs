@@ -285,6 +285,18 @@ mod schedule_window_evidence {
         Ok(snapshot)
     }
 
+    fn canonical_sessions_fingerprint(sessions: &[NormalizedScheduleSession]) -> [u8; 32] {
+        let mut ordered = sessions.to_vec();
+        ordered.sort_by_key(|session| (session.start.0, session.end.0, session.session_type as u8));
+        let mut hasher = Sha256::new();
+        for session in ordered {
+            hasher.update([session.session_type as u8]);
+            hasher.update(session.start.0.to_be_bytes());
+            hasher.update(session.end.0.to_be_bytes());
+        }
+        hasher.finalize().into()
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct ScheduleFingerprint([u8; 32]);
 
@@ -437,6 +449,25 @@ mod schedule_window_evidence {
             }
         }
 
+        fn snapshot(
+            sessions: Vec<NormalizedScheduleSession>,
+            now: DateTime<Utc>,
+        ) -> NormalizedInstrumentScheduleSnapshot {
+            NormalizedInstrumentScheduleSnapshot {
+                instrument: definition("IMOEXF", 100, 200).instrument,
+                broker_symbol: "IMOEXF@RTSX".to_string(),
+                venue_mic: "MOEX".to_string(),
+                board: "RTSX".to_string(),
+                sessions,
+                source_contract_version: "fixture-v1".to_string(),
+                source_observed_at: LifecycleInstant(now),
+                source_expires_at: LifecycleInstant(now + chrono::Duration::seconds(1)),
+                raw_response_sha256: [1; 32],
+                normalized_payload_sha256: [2; 32],
+                instrument_registry_version: "fixture-registry-v1".to_string(),
+            }
+        }
+
         #[test]
         fn fingerprint_is_deterministic_and_covers_window_identity() {
             let base = definition("IMOEXF", 100, 200);
@@ -481,6 +512,62 @@ mod schedule_window_evidence {
             assert!(matches!(
                 map_trusted_schedule_window(stage4, definition("IMOEXF", 200, 200)),
                 Err(ScheduleWindowMappingError::InvalidWindow)
+            ));
+        }
+
+        #[test]
+        fn normalized_snapshot_validator_fails_closed_and_canonicalizes_session_order() {
+            let open = NormalizedScheduleSession {
+                session_type: NormalizedSessionType::TradableOpen,
+                start: MarketBarCloseTime(100),
+                end: MarketBarCloseTime(200),
+            };
+            let later = NormalizedScheduleSession {
+                session_type: NormalizedSessionType::BreakOrClearing,
+                start: MarketBarCloseTime(300),
+                end: MarketBarCloseTime(400),
+            };
+            let current = Utc::now();
+            let now = LifecycleInstant(current);
+            assert!(validate_normalized_schedule_snapshot(
+                &NormalizedScheduleAvailability::Available(snapshot(
+                    vec![open.clone(), later.clone()],
+                    current
+                )),
+                now
+            )
+            .is_ok());
+            assert_eq!(
+                canonical_sessions_fingerprint(&[open.clone(), later.clone()]),
+                canonical_sessions_fingerprint(&[later, open])
+            );
+            assert!(matches!(
+                validate_normalized_schedule_snapshot(
+                    &NormalizedScheduleAvailability::ScheduleSourceUnavailable,
+                    now
+                ),
+                Err(NormalizedScheduleValidationError::SourceUnavailable)
+            ));
+            assert!(matches!(
+                validate_normalized_schedule_snapshot(
+                    &NormalizedScheduleAvailability::Available(snapshot(vec![], current)),
+                    now
+                ),
+                Err(NormalizedScheduleValidationError::EmptySessions)
+            ));
+            assert!(matches!(
+                validate_normalized_schedule_snapshot(
+                    &NormalizedScheduleAvailability::Available(snapshot(
+                        vec![NormalizedScheduleSession {
+                            session_type: NormalizedSessionType::Unknown,
+                            start: MarketBarCloseTime(100),
+                            end: MarketBarCloseTime(200)
+                        }],
+                        current
+                    )),
+                    now
+                ),
+                Err(NormalizedScheduleValidationError::UnknownSessionType)
             ));
         }
     }
