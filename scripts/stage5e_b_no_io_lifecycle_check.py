@@ -137,6 +137,7 @@ def main() -> int:
     if module_text.count(SESSION_BEGIN) != 1 or module_text.count(SESSION_END) != 1:
         fail("Stage 5E-b2 session eligibility region markers must occur exactly once")
     session = module_text.split(SESSION_BEGIN, 1)[1].split(SESSION_END, 1)[0]
+    outside_session = module_text.split(SESSION_BEGIN, 1)[0] + module_text.split(SESSION_END, 1)[1]
     for condition in (
         "if bar_instrument != target_instrument {",
         "if bar_tick_size.to_bits() != admission_tick_size.to_bits() {",
@@ -240,8 +241,12 @@ def main() -> int:
             fail(f"forbidden Stage 5E-b2 manual receipt copying: {forbidden}")
     if module_text.count("impl Stage5eObservedOpenSession {") != 1:
         fail("Stage 5E-b2 receipt implementation surface must occur exactly once")
-    if len(re.findall(r"fn\\s+\\w+[^\\n]*->\\s*Stage5eObservedOpenSession", module_text)) != 0:
+    if len(re.findall(r"fn\s+\w+[^\n]*->\s*(?:session_eligibility::)?Stage5eObservedOpenSession", module_text)) != 0:
         fail("forbidden Stage 5E-b2 free receipt forge function")
+    if "Stage5eObservedOpenSession" in outside_session:
+        fail("Stage 5E-b2 receipt type leaked outside sealed session region")
+    if "unsafe" in module_text:
+        fail("unsafe code is forbidden in the Stage 5E-b2 module")
     if hashlib.sha256(session.encode()).hexdigest() != EXPECTED_SESSION_SHA256:
         fail("Stage 5E-b2 session eligibility region hash mismatch")
     for forbidden in (

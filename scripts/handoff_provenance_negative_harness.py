@@ -1205,6 +1205,33 @@ def main() -> int:
             "5E-b-no-io-lifecycle-capability",
             True,
         ),
+        Case(
+            "stage5e-b-qualified-second-receipt-impl",
+            "receipt type leaked outside sealed session region",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text + "\nimpl session_eligibility::Stage5eObservedOpenSession { fn forged(&self) {} }\n"
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-qualified-free-receipt-forge",
+            "forbidden Stage 5E-b2 free receipt forge function",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text + "\nfn forge_open_session() -> session_eligibility::Stage5eObservedOpenSession { unsafe { core::mem::zeroed() } }\n"
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-qualified-manual-copy",
+            "receipt type leaked outside sealed session region",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text + "\nimpl core::marker::Copy for session_eligibility::Stage5eObservedOpenSession {}\n"
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
     ]
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)
