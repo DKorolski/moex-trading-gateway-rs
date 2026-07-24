@@ -16,7 +16,7 @@ def main() -> int:
     payload = json.loads(INVENTORY.read_text())
     if payload.get("schema_version") != 1 or payload.get("stage") != "5E-b3-schedule-window-evidence":
         fail("inventory identity drift")
-    if payload.get("baseline_ref") != "04431096e269daaf9715e253b2354b1ac8fcc3e8":
+    if payload.get("baseline_ref") != "9ebbfd29d0346be5149dac746225866f0c8d0257":
         fail("baseline drift")
     if any(value is not False for value in payload.get("closed_surfaces", {}).values()):
         fail("closed surface opened")

@@ -2,7 +2,8 @@
   "schema_version": 1,
   "stage": "5E-b3-schedule-window-evidence",
   "status": "governance_contract_only",
-  "baseline_ref": "04431096e269daaf9715e253b2354b1ac8fcc3e8",
+  "baseline_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
+  "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
   "closed_surfaces": {
     "redis": false,
     "finam": false,
