@@ -370,6 +370,16 @@ mod schedule_window_evidence {
                 deterministic_fingerprint(&base, "stage4-a"),
                 deterministic_fingerprint(&definition("IMOEXF", 100, 201), "stage4-a")
             );
+            let mut changed_version = definition("IMOEXF", 100, 200);
+            changed_version.source_version = "fixture-v2".to_string();
+            assert_ne!(
+                deterministic_fingerprint(&base, "stage4-a"),
+                deterministic_fingerprint(&changed_version, "stage4-a")
+            );
+            assert_ne!(
+                deterministic_fingerprint(&base, "stage4-a"),
+                deterministic_fingerprint(&base, "stage4-b")
+            );
         }
 
         #[test]
