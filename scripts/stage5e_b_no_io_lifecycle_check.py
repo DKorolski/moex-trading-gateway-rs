@@ -50,6 +50,9 @@ EXPECTED_BRIDGE_SHA256 = "220f5ff64eb93b30c0de67872a9e8204f469933536d1c474a2ea11
 VALIDATOR_BEGIN = "// STAGE5E-NO-IO-VALIDATOR-BEGIN: contextual-admission-v1"
 VALIDATOR_END = "// STAGE5E-NO-IO-VALIDATOR-END: contextual-admission-v1"
 EXPECTED_VALIDATOR_SHA256 = "8ebad6268be99e5c7995668ee08290cdd058ede6f38d424476d5df0897f39f4c"
+PROOF_BEGIN = "// STAGE5E-NO-IO-CAPABILITY-PROOF-BEGIN: zero-side-effects-v1"
+PROOF_END = "// STAGE5E-NO-IO-CAPABILITY-PROOF-END: zero-side-effects-v1"
+EXPECTED_PROOF_SHA256 = "3bdf21f4376a55c2b86c5c336956cf450a95a971e155896a4a20ffbef3ee304e"
 
 
 def fail(message: str) -> None:
@@ -120,6 +123,9 @@ def main() -> int:
     if module_text.count(VALIDATOR_BEGIN) != 1 or module_text.count(VALIDATOR_END) != 1:
         fail("Stage 5E-b1 validator region markers must occur exactly once")
     validator = module_text.split(VALIDATOR_BEGIN, 1)[1].split(VALIDATOR_END, 1)[0]
+    if module_text.count(PROOF_BEGIN) != 1 or module_text.count(PROOF_END) != 1:
+        fail("Stage 5E-b1 capability proof region markers must occur exactly once")
+    proof = module_text.split(PROOF_BEGIN, 1)[1].split(PROOF_END, 1)[0]
     for condition in (
         "if bar_instrument != target_instrument {",
         "if bar_tick_size.to_bits() != admission_tick_size.to_bits() {",
@@ -168,6 +174,8 @@ def main() -> int:
         haystack = bridge.lower() if forbidden in {"redis", "reqwest", "tokio"} else bridge
         if forbidden in haystack:
             fail(f"forbidden Stage 5E-b1 bridge surface: {forbidden}")
+    if "#[cfg(test)]\npub(crate) fn stage5e_try_observe_live_bar_after_history_at" not in host_text:
+        fail("Stage 5E-b1 deterministic clock seam must be test-only")
     if hashlib.sha256(bridge.encode()).hexdigest() != EXPECTED_BRIDGE_SHA256:
         fail("Stage 5E-b1 bridge region hash mismatch")
     if "Stage5eNoIoBridgeSeal" not in host_text:
@@ -176,10 +184,10 @@ def main() -> int:
         fail("missing Stage 5E-b1 retryable consuming bridge")
     if "into_retry" not in host_text:
         fail("missing Stage 5E-b1 blocked-state retry return")
-    if "#[cfg(test)]\npub(crate) fn stage5e_try_observe_live_bar_after_history_at" not in host_text:
-        fail("Stage 5E-b1 deterministic clock seam must be test-only")
     if hashlib.sha256(validator.encode()).hexdigest() != EXPECTED_VALIDATOR_SHA256:
         fail("Stage 5E-b1 validator region hash mismatch")
+    if hashlib.sha256(proof.encode()).hexdigest() != EXPECTED_PROOF_SHA256:
+        fail("Stage 5E-b1 capability proof region hash mismatch")
     if "(\n  set -euo pipefail\n  cd \"$repo_root\"\n  cargo fmt --check" not in handoff_builder.read_text():
         fail("Stage 5E-b1 cargo runner must fail closed per command")
     print("stage5e-b-no-io-lifecycle-check: ok")

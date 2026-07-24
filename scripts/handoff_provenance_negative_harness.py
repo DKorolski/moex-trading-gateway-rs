@@ -1034,6 +1034,42 @@ def main() -> int:
             True,
         ),
         Case(
+            "stage5e-b-proof-callback-count-one",
+            "Stage 5E-b1 capability proof region hash mismatch",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace("pub(crate) fn callback_count(&self) -> usize {\n        0", "pub(crate) fn callback_count(&self) -> usize {\n        1")
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-proof-intent-count-one",
+            "Stage 5E-b1 capability proof region hash mismatch",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace("pub(crate) fn intent_count(&self) -> usize {\n        0", "pub(crate) fn intent_count(&self) -> usize {\n        1")
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-proof-strategy-called-true",
+            "Stage 5E-b1 capability proof region hash mismatch",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace("pub(crate) fn strategy_was_called(&self) -> bool {\n        false", "pub(crate) fn strategy_was_called(&self) -> bool {\n        true")
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b-proof-executable-intent-true",
+            "Stage 5E-b1 capability proof region hash mismatch",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace("pub(crate) fn executable_intent_created(&self) -> bool {\n        false", "pub(crate) fn executable_intent_created(&self) -> bool {\n        true")
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
             "stage5e-b-callback-surface-introduced",
             "forbidden Stage 5E-b1 bridge surface: on_broker_bar",
             mutate_stage5e_b_host_for_checker(

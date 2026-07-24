@@ -63,6 +63,7 @@ pub(crate) struct Stage5eObservedLiveBarAfterHistory {
     tick_size: f64,
 }
 
+// STAGE5E-NO-IO-CAPABILITY-PROOF-BEGIN: zero-side-effects-v1
 impl Stage5eObservedLiveBarAfterHistory {
     pub(crate) fn from_stage5c_context(
         _seal: Stage5eNoIoBridgeSeal,
@@ -101,6 +102,7 @@ impl Stage5eObservedLiveBarAfterHistory {
         false
     }
 }
+// STAGE5E-NO-IO-CAPABILITY-PROOF-END: zero-side-effects-v1
 
 #[cfg(test)]
 mod tests {
