@@ -208,6 +208,42 @@ mod schedule_window_evidence {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum NormalizedSessionType {
+        TradableOpen,
+        BreakOrClearing,
+        Maintenance,
+        Unknown,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct NormalizedScheduleSession {
+        session_type: NormalizedSessionType,
+        start: MarketBarCloseTime,
+        end: MarketBarCloseTime,
+    }
+
+    /// Upstream read-only adapter DTO. This type is deliberately private to
+    /// Stage 5E until a separately reviewed FINAM normalizer produces it.
+    struct NormalizedInstrumentScheduleSnapshot {
+        instrument: broker_core::InstrumentId,
+        broker_symbol: String,
+        venue_mic: String,
+        board: String,
+        sessions: Vec<NormalizedScheduleSession>,
+        source_contract_version: String,
+        source_observed_at: LifecycleInstant,
+        source_expires_at: LifecycleInstant,
+        raw_response_sha256: [u8; 32],
+        normalized_payload_sha256: [u8; 32],
+        instrument_registry_version: String,
+    }
+
+    enum NormalizedScheduleAvailability {
+        Available(NormalizedInstrumentScheduleSnapshot),
+        ScheduleSourceUnavailable,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct ScheduleFingerprint([u8; 32]);
 
     enum Stage4ScheduleProjectionError {
