@@ -47,6 +47,9 @@ EXPECTED_CONTRACT_INVARIANTS = {
 BRIDGE_BEGIN = "// STAGE5E-NO-IO-BRIDGE-BEGIN: contextual-observation-v1"
 BRIDGE_END = "// STAGE5E-NO-IO-BRIDGE-END: contextual-observation-v1"
 EXPECTED_BRIDGE_SHA256 = "220f5ff64eb93b30c0de67872a9e8204f469933536d1c474a2ea11e26306701e"
+VALIDATOR_BEGIN = "// STAGE5E-NO-IO-VALIDATOR-BEGIN: contextual-admission-v1"
+VALIDATOR_END = "// STAGE5E-NO-IO-VALIDATOR-END: contextual-admission-v1"
+EXPECTED_VALIDATOR_SHA256 = "8ebad6268be99e5c7995668ee08290cdd058ede6f38d424476d5df0897f39f4c"
 
 
 def fail(message: str) -> None:
@@ -114,13 +117,16 @@ def main() -> int:
     if not module.is_file() or not lib.is_file() or not host.is_file():
         fail("missing Stage 5E-b1 private runtime boundary")
     module_text = module.read_text()
+    if module_text.count(VALIDATOR_BEGIN) != 1 or module_text.count(VALIDATOR_END) != 1:
+        fail("Stage 5E-b1 validator region markers must occur exactly once")
+    validator = module_text.split(VALIDATOR_BEGIN, 1)[1].split(VALIDATOR_END, 1)[0]
     for condition in (
         "if bar_instrument != target_instrument {",
         "if bar_tick_size.to_bits() != admission_tick_size.to_bits() {",
         "if lifecycle_now > admission_expires_at {",
         "if bar_close > lifecycle_now.timestamp() {",
     ):
-        if condition not in module_text:
+        if condition not in validator:
             fail(f"Stage 5E-b1 contextual condition missing: {condition}")
     for marker in (
         "Stage5eObservedLiveBarAfterHistory",
@@ -172,6 +178,8 @@ def main() -> int:
         fail("missing Stage 5E-b1 blocked-state retry return")
     if "#[cfg(test)]\npub(crate) fn stage5e_try_observe_live_bar_after_history_at" not in host_text:
         fail("Stage 5E-b1 deterministic clock seam must be test-only")
+    if hashlib.sha256(validator.encode()).hexdigest() != EXPECTED_VALIDATOR_SHA256:
+        fail("Stage 5E-b1 validator region hash mismatch")
     if "(\n  set -euo pipefail\n  cd \"$repo_root\"\n  cargo fmt --check" not in handoff_builder.read_text():
         fail("Stage 5E-b1 cargo runner must fail closed per command")
     print("stage5e-b-no-io-lifecycle-check: ok")

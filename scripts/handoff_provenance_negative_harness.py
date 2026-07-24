@@ -1022,6 +1022,18 @@ def main() -> int:
             True,
         ),
         Case(
+            "stage5e-b-validator-early-success",
+            "Stage 5E-b1 validator region hash mismatch",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace(
+                    "    if origin != broker_core::HybridRuntimeBarOrigin::Live {",
+                    "    if true {\n        return Ok(());\n    }\n    if origin != broker_core::HybridRuntimeBarOrigin::Live {",
+                )
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
             "stage5e-b-callback-surface-introduced",
             "forbidden Stage 5E-b1 bridge surface: on_broker_bar",
             mutate_stage5e_b_host_for_checker(

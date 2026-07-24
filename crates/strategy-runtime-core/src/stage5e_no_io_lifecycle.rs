@@ -19,6 +19,7 @@ pub(crate) enum Stage5eContextualAdmissionError {
     FutureBar,
 }
 
+// STAGE5E-NO-IO-VALIDATOR-BEGIN: contextual-admission-v1
 #[allow(clippy::too_many_arguments)] // Pure validation keeps the independent context bindings explicit.
 pub(crate) fn validate_contextual_live_bar_after_history(
     origin: broker_core::HybridRuntimeBarOrigin,
@@ -53,6 +54,7 @@ pub(crate) fn validate_contextual_live_bar_after_history(
     }
     Ok(())
 }
+// STAGE5E-NO-IO-VALIDATOR-END: contextual-admission-v1
 
 pub(crate) struct Stage5eObservedLiveBarAfterHistory {
     strategy: HybridIntradayRuntimeStrategy,
