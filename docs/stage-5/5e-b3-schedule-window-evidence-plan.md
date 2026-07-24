@@ -1,4 +1,4 @@
-# Stage 5E-b3a-r1 — sealed ScheduleWindowEvidence
+# Stage 5E-b3a-r2 — sealed ScheduleWindowEvidence
 
 Baseline: `04431096e269daaf9715e253b2354b1ac8fcc3e8`.
 
@@ -8,22 +8,35 @@ instrument-scoped schedule window. The sole construction chain is:
 ```text
 normalized schedule snapshot
 → validated opaque snapshot
-→ exact accepted instrument-registry identity
+→ sealed exact instrument-registry evidence
 + accepted Stage 4 schedule evidence
 + lifecycle clock
 → selected TradableOpen schedule window evidence
 ```
 
-No independently constructed schedule definition may reach the mapper. Both
-Stage 4 and normalized-snapshot expiry are revalidated at the mapping boundary.
-Production mapping remains a later separately reviewed broker adapter slice.
+No independently constructed schedule definition may reach the mapper. The
+registry bridge accepts only the exact instrument, canonical broker symbol,
+venue MIC, board and registry-version tuple of the validated snapshot. A
+canonical broker symbol is exactly `ticker@mic`: its ticker equals
+`InstrumentId.symbol`, its MIC equals `venue_mic`, and the complete string
+equals `InstrumentId.venue_symbol`.
+
+Stage 4 and the normalized snapshot are **conjunctive independent evidence**:
+Stage 4 supplies lifecycle/freshness acceptance while the normalized snapshot
+supplies the exact tradable window. Both expiries are revalidated at the
+mapping boundary. Stage 4 `checked_ts` and its derived schedule `observed_at`
+must not be later than the lifecycle clock. Production mapping remains a later
+separately reviewed broker adapter slice.
 
 The window policy is inclusive: `open_from <= bar_close <= open_until`; mapper
-validation requires `open_from < open_until`. The output is non-copyable,
+validation requires `open_from < open_until`, and two intervals that share an
+endpoint are rejected (`next.start <= previous.end`). The output is non-copyable,
 private, carries lifecycle observation/expiry and a deterministic SHA-256
 fingerprint over full instrument identity, broker symbol, MIC, board,
 registry/source versions, raw and normalized payload hashes, canonical sessions,
-selected window and Stage 4 identity. Its encoding is tagged and length-prefixed.
+selected window and Stage 4 identity. It preserves both independent observation
+times plus their conservative effective maximum. Its encoding is tagged and
+length-prefixed.
 
 Callback, strategy mutation, intents, Redis, FINAM I/O, transport, dispatch,
 runtime-live, autonomous loops and execution remain closed. Binding to an

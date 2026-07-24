@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed semantic gate for the Stage 5E-b3a-r1 no-I/O contract."""
+"""Fail-closed semantic gate for the Stage 5E-b3a-r2 no-I/O contract."""
 
 import hashlib
 import json
@@ -56,11 +56,14 @@ EXPECTED_CONTRACT_INVARIANTS = {
     "requires_validated_normalized_snapshot": True,
     "requires_accepted_registry_identity": True,
     "revalidates_expiry_at_mapping": True,
+    "stage4_normalized_relation": "conjunctive_independent_evidence",
+    "rejects_shared_inclusive_endpoint": True,
+    "requires_stage4_report_not_future": True,
     "trusted_b3b_observed_bar_binding": False,
 }
-REGION_BEGIN = "// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v2"
-REGION_END = "// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v2"
-EXPECTED_REGION_SHA256 = "113bf5b0fea07246f78868e88fa83a84457814c62d71a00634f6166da0f4af97"
+REGION_BEGIN = "// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v3"
+REGION_END = "// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v3"
+EXPECTED_REGION_SHA256 = "8d6a6ff3cead7de85e9de5d8a8400652178826c8dfaa86f008847ca1f3c91b17"
 
 
 def fail(message: str) -> None:
@@ -89,10 +92,12 @@ def main() -> int:
         fail("contract invariant drift")
     text = PLAN.read_text()
     for marker in (
-        "Stage 5E-b3a-r1",
+        "Stage 5E-b3a-r2",
         "validated opaque snapshot",
         "accepted Stage 4 schedule evidence",
         "inclusive",
+        "conjunctive independent evidence",
+        "ticker@mic",
         "b3b",
     ):
         if marker not in text:
@@ -105,11 +110,16 @@ def main() -> int:
         fail("b3 schedule evidence region hash mismatch")
     for marker in (
         "ValidatedNormalizedInstrumentScheduleSnapshot",
-        "AcceptedInstrumentRegistryIdentity",
-        "accept_instrument_registry_identity",
+        "SealedInstrumentRegistryBridgeInput",
+        "AcceptedInstrumentRegistryEvidence",
+        "accept_instrument_registry_evidence",
         "project_accepted_stage4_schedule",
+        "validate_stage4_projection_times",
         "map_trusted_schedule_window",
+        "split_canonical_broker_symbol",
         "normalized_snapshot_payload_fingerprint",
+        "session.start.0 <= end",
+        "ReportCheckedInFuture",
         "lifecycle_now.0 > stage4.expires_at.0",
         "lifecycle_now.0 > validated.snapshot.source_expires_at.0",
         "NoTradableOpenForRequestedBar",

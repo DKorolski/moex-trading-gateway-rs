@@ -1305,6 +1305,56 @@ def main() -> int:
             "5E-b3-schedule-window-evidence",
             True,
         ),
+        Case(
+            "stage5e-b3-canonical-broker-symbol-relaxed",
+            "b3 schedule evidence region hash mismatch",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "if ticker != snapshot.instrument.symbol || mic != snapshot.venue_mic {",
+                    "if false && (ticker != snapshot.instrument.symbol || mic != snapshot.venue_mic) {",
+                    1,
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3-inclusive-endpoint-overlap-relaxed",
+            "b3 schedule evidence region hash mismatch",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "session.start.0 <= end",
+                    "session.start.0 < end",
+                    1,
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3-stage4-report-future-check-relaxed",
+            "b3 schedule evidence region hash mismatch",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "if report_checked_ts > lifecycle_now.0 {",
+                    "if false && report_checked_ts > lifecycle_now.0 {",
+                    1,
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3-independent-evidence-relation-drift",
+            "contract invariant drift",
+            mutate_stage5e_b3_inventory_for_checker(
+                lambda payload: payload["contract_invariants"].__setitem__(
+                    "stage4_normalized_relation", "stage4_only"
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
     ]
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)

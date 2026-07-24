@@ -24,6 +24,9 @@
     "requires_validated_normalized_snapshot": true,
     "requires_accepted_registry_identity": true,
     "revalidates_expiry_at_mapping": true,
+    "stage4_normalized_relation": "conjunctive_independent_evidence",
+    "rejects_shared_inclusive_endpoint": true,
+    "requires_stage4_report_not_future": true,
     "trusted_b3b_observed_bar_binding": false
   },
   "allowed_changed_paths": [
