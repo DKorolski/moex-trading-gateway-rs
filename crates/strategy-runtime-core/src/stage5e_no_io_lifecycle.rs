@@ -243,6 +243,48 @@ mod schedule_window_evidence {
         ScheduleSourceUnavailable,
     }
 
+    enum NormalizedScheduleValidationError {
+        SourceUnavailable,
+        EmptySessions,
+        UnknownSessionType,
+        InvalidInterval,
+        OverlappingIntervals,
+        ObservedInFuture,
+        Expired,
+    }
+
+    fn validate_normalized_schedule_snapshot(
+        availability: &NormalizedScheduleAvailability,
+        lifecycle_now: LifecycleInstant,
+    ) -> Result<&NormalizedInstrumentScheduleSnapshot, NormalizedScheduleValidationError> {
+        let NormalizedScheduleAvailability::Available(snapshot) = availability else {
+            return Err(NormalizedScheduleValidationError::SourceUnavailable);
+        };
+        if snapshot.sessions.is_empty() {
+            return Err(NormalizedScheduleValidationError::EmptySessions);
+        }
+        if snapshot.source_observed_at.0 > lifecycle_now.0 {
+            return Err(NormalizedScheduleValidationError::ObservedInFuture);
+        }
+        if lifecycle_now.0 > snapshot.source_expires_at.0 {
+            return Err(NormalizedScheduleValidationError::Expired);
+        }
+        let mut previous_end = None;
+        for session in &snapshot.sessions {
+            if session.session_type == NormalizedSessionType::Unknown {
+                return Err(NormalizedScheduleValidationError::UnknownSessionType);
+            }
+            if session.start.0 >= session.end.0 {
+                return Err(NormalizedScheduleValidationError::InvalidInterval);
+            }
+            if previous_end.is_some_and(|end| session.start.0 < end) {
+                return Err(NormalizedScheduleValidationError::OverlappingIntervals);
+            }
+            previous_end = Some(session.end.0);
+        }
+        Ok(snapshot)
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct ScheduleFingerprint([u8; 32]);
 
