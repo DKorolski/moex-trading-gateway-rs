@@ -113,67 +113,73 @@ impl Stage5eObservedLiveBarAfterHistory {
 // STAGE5E-NO-IO-CAPABILITY-PROOF-END: zero-side-effects-v1
 
 // STAGE5E-NO-IO-SESSION-ELIGIBILITY-BEGIN: observed-open-session-v1
-/// A linear, fresh observation that the candidate bar belongs to an explicitly
-/// observed open session. This is not a calendar implementation: its interval
-/// is supplied by a later schedule mapper and is rejected when stale, unknown,
-/// or not open. `until` is the last allowed bar-close, so both bounds are
-/// intentionally inclusive.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct Stage5eObservedOpenSession {
-    bar_close_ts: i64,
-}
+mod session_eligibility {
+    use super::{DateTime, Stage5eSessionObservationError, Utc};
 
-pub(crate) fn observe_open_session_for_bar(
-    session_state: broker_core::BrokerMarketSessionState,
-    schedule_freshness: broker_core::Stage4BrokerTruthFreshnessProbe,
-    observed_open_from_bar_close: i64,
-    observed_open_until_bar_close: i64,
-    bar_close_ts: i64,
-    lifecycle_now: DateTime<Utc>,
-) -> Result<Stage5eObservedOpenSession, Stage5eSessionObservationError> {
-    if session_state != broker_core::BrokerMarketSessionState::Open {
-        return Err(Stage5eSessionObservationError::ScheduleNotOpen);
-    }
-    let Some(observed_ts) = schedule_freshness.observed_ts else {
-        return Err(Stage5eSessionObservationError::ScheduleNotFresh);
-    };
-    let schedule_age_ms = lifecycle_now
-        .signed_duration_since(observed_ts)
-        .num_milliseconds();
-    if !schedule_freshness.available
-        || schedule_age_ms < 0
-        || schedule_age_ms as u64 > schedule_freshness.max_age_ms
-    {
-        return Err(Stage5eSessionObservationError::ScheduleNotFresh);
-    }
-    if observed_open_from_bar_close >= observed_open_until_bar_close {
-        return Err(Stage5eSessionObservationError::InvalidObservedWindow);
-    }
-    if bar_close_ts < observed_open_from_bar_close || bar_close_ts > observed_open_until_bar_close {
-        return Err(Stage5eSessionObservationError::BarOutsideObservedOpenWindow);
-    }
-    Ok(Stage5eObservedOpenSession { bar_close_ts })
-}
-
-impl Stage5eObservedOpenSession {
-    pub(crate) fn bar_close_ts(&self) -> i64 {
-        self.bar_close_ts
+    /// A linear, fresh observation that the candidate bar belongs to an explicitly
+    /// observed open session. This is not a calendar implementation: its interval
+    /// is supplied by a later schedule mapper and is rejected when stale, unknown,
+    /// or not open. `until` is the last allowed bar-close, so both bounds are
+    /// intentionally inclusive.
+    #[derive(Debug, PartialEq, Eq)]
+    pub(super) struct Stage5eObservedOpenSession {
+        bar_close_ts: i64,
     }
 
-    pub(crate) fn callback_count(&self) -> usize {
-        0
+    pub(super) fn observe_open_session_for_bar(
+        session_state: broker_core::BrokerMarketSessionState,
+        schedule_freshness: broker_core::Stage4BrokerTruthFreshnessProbe,
+        observed_open_from_bar_close: i64,
+        observed_open_until_bar_close: i64,
+        bar_close_ts: i64,
+        lifecycle_now: DateTime<Utc>,
+    ) -> Result<Stage5eObservedOpenSession, Stage5eSessionObservationError> {
+        if session_state != broker_core::BrokerMarketSessionState::Open {
+            return Err(Stage5eSessionObservationError::ScheduleNotOpen);
+        }
+        let Some(observed_ts) = schedule_freshness.observed_ts else {
+            return Err(Stage5eSessionObservationError::ScheduleNotFresh);
+        };
+        let schedule_age_ms = lifecycle_now
+            .signed_duration_since(observed_ts)
+            .num_milliseconds();
+        if !schedule_freshness.available
+            || schedule_age_ms < 0
+            || schedule_age_ms as u64 > schedule_freshness.max_age_ms
+        {
+            return Err(Stage5eSessionObservationError::ScheduleNotFresh);
+        }
+        if observed_open_from_bar_close >= observed_open_until_bar_close {
+            return Err(Stage5eSessionObservationError::InvalidObservedWindow);
+        }
+        if bar_close_ts < observed_open_from_bar_close
+            || bar_close_ts > observed_open_until_bar_close
+        {
+            return Err(Stage5eSessionObservationError::BarOutsideObservedOpenWindow);
+        }
+        Ok(Stage5eObservedOpenSession { bar_close_ts })
     }
 
-    pub(crate) fn intent_count(&self) -> usize {
-        0
-    }
+    impl Stage5eObservedOpenSession {
+        pub(super) fn bar_close_ts(&self) -> i64 {
+            self.bar_close_ts
+        }
 
-    pub(crate) fn strategy_was_called(&self) -> bool {
-        false
-    }
+        pub(super) fn callback_count(&self) -> usize {
+            0
+        }
 
-    pub(crate) fn executable_intent_created(&self) -> bool {
-        false
+        pub(super) fn intent_count(&self) -> usize {
+            0
+        }
+
+        pub(super) fn strategy_was_called(&self) -> bool {
+            false
+        }
+
+        pub(super) fn executable_intent_created(&self) -> bool {
+            false
+        }
     }
 }
 // STAGE5E-NO-IO-SESSION-ELIGIBILITY-END: observed-open-session-v1
@@ -181,8 +187,9 @@ impl Stage5eObservedOpenSession {
 #[cfg(test)]
 mod tests {
     use super::{
-        observe_open_session_for_bar, validate_contextual_live_bar_after_history,
-        Stage5eContextualAdmissionError, Stage5eSessionObservationError,
+        session_eligibility::observe_open_session_for_bar,
+        validate_contextual_live_bar_after_history, Stage5eContextualAdmissionError,
+        Stage5eSessionObservationError,
     };
     use broker_core::{
         BrokerMarketSessionState, Exchange, InstrumentId, Market, Stage4BrokerTruthFreshnessProbe,

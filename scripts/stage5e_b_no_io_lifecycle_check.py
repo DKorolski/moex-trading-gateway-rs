@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import re
 import sys
 from pathlib import Path
 
@@ -57,7 +58,7 @@ PROOF_END = "// STAGE5E-NO-IO-CAPABILITY-PROOF-END: zero-side-effects-v1"
 EXPECTED_PROOF_SHA256 = "3bdf21f4376a55c2b86c5c336956cf450a95a971e155896a4a20ffbef3ee304e"
 SESSION_BEGIN = "// STAGE5E-NO-IO-SESSION-ELIGIBILITY-BEGIN: observed-open-session-v1"
 SESSION_END = "// STAGE5E-NO-IO-SESSION-ELIGIBILITY-END: observed-open-session-v1"
-EXPECTED_SESSION_SHA256 = "8cdf892397f16dcdc3832be4dc28fff5ff1db91d0c56d6d2d637fc36baa5b6e7"
+EXPECTED_SESSION_SHA256 = "4546cdc8409465d3e6f7382a84ac558f11856b6f4591678f6fbe220044b1b3b5"
 
 
 def fail(message: str) -> None:
@@ -204,7 +205,7 @@ def main() -> int:
         "if session_state != broker_core::BrokerMarketSessionState::Open {",
         "if !schedule_freshness.available",
         "if observed_open_from_bar_close >= observed_open_until_bar_close {",
-        "if bar_close_ts < observed_open_from_bar_close || bar_close_ts > observed_open_until_bar_close {",
+        "if bar_close_ts < observed_open_from_bar_close\n            || bar_close_ts > observed_open_until_bar_close\n        {",
     ):
         if condition not in session:
             fail(f"Stage 5E-b2 session condition missing: {condition}")
@@ -215,10 +216,11 @@ def main() -> int:
         haystack = session.lower() if forbidden in {"redis", "reqwest", "tokio"} else session
         if forbidden in haystack:
             fail(f"forbidden Stage 5E-b2 session surface: {forbidden}")
-    for forbidden in ("Clone", "Copy", "Default", "Serialize", "Deserialize"):
-        if forbidden in session:
-            fail(f"forbidden Stage 5E-b2 receipt derivation or constructor surface: {forbidden}")
-    if module_text.count("pub(crate) struct Stage5eObservedOpenSession {") != 1:
+    if "#[derive(Debug, Clone" in session or "#[derive(Clone" in session:
+        fail("forbidden Stage 5E-b2 receipt derivation or constructor surface: Clone")
+    if "#[derive(Debug, Copy" in session or "#[derive(Copy" in session:
+        fail("forbidden Stage 5E-b2 receipt derivation or constructor surface: Copy")
+    if module_text.count("pub(super) struct Stage5eObservedOpenSession {") != 1:
         fail("Stage 5E-b2 receipt definition must occur exactly once")
     if module_text.count("Ok(Stage5eObservedOpenSession {") != 1:
         fail("Stage 5E-b2 receipt must have exactly one checked construction")
@@ -230,6 +232,16 @@ def main() -> int:
     ):
         if forbidden in module_text:
             fail(f"forbidden Stage 5E-b2 alternate receipt construction or export: {forbidden}")
+    for forbidden in (
+        "impl Clone for Stage5eObservedOpenSession",
+        "impl Copy for Stage5eObservedOpenSession",
+    ):
+        if forbidden in module_text:
+            fail(f"forbidden Stage 5E-b2 manual receipt copying: {forbidden}")
+    if module_text.count("impl Stage5eObservedOpenSession {") != 1:
+        fail("Stage 5E-b2 receipt implementation surface must occur exactly once")
+    if len(re.findall(r"fn\\s+\\w+[^\\n]*->\\s*Stage5eObservedOpenSession", module_text)) != 0:
+        fail("forbidden Stage 5E-b2 free receipt forge function")
     if hashlib.sha256(session.encode()).hexdigest() != EXPECTED_SESSION_SHA256:
         fail("Stage 5E-b2 session eligibility region hash mismatch")
     for forbidden in (

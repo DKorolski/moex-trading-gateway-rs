@@ -1147,8 +1147,8 @@ def main() -> int:
             "Stage 5E-b2 session condition missing",
             mutate_stage5e_b_module_for_checker(
                 lambda text: text.replace(
-                    "if bar_close_ts < observed_open_from_bar_close || bar_close_ts > observed_open_until_bar_close {",
-                    "if false && (bar_close_ts < observed_open_from_bar_close || bar_close_ts > observed_open_until_bar_close) {",
+                    "if bar_close_ts < observed_open_from_bar_close\n            || bar_close_ts > observed_open_until_bar_close\n        {",
+                    "if false && (bar_close_ts < observed_open_from_bar_close\n            || bar_close_ts > observed_open_until_bar_close)\n        {",
                 )
             ),
             "5E-b-no-io-lifecycle-capability",
@@ -1180,8 +1180,8 @@ def main() -> int:
             "forbidden Stage 5E-b2 receipt derivation or constructor surface: Clone",
             mutate_stage5e_b_module_for_checker(
                 lambda text: text.replace(
-                    "#[derive(Debug, PartialEq, Eq)]\npub(crate) struct Stage5eObservedOpenSession",
-                    "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub(crate) struct Stage5eObservedOpenSession",
+                    "#[derive(Debug, PartialEq, Eq)]\n    pub(super) struct Stage5eObservedOpenSession",
+                    "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n    pub(super) struct Stage5eObservedOpenSession",
                 )
             ),
             "5E-b-no-io-lifecycle-capability",
