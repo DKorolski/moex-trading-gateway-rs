@@ -31,7 +31,12 @@
     "requires_exact_observed_bar_instrument": true,
     "revalidates_window_expiry_at_binding": true,
     "returns_linear_inputs_on_binding_block": true,
-    "rejects_future_observed_bar_at_binding": true
+    "rejects_future_observed_bar_at_binding": true,
+    "captures_production_binding_clock": true,
+    "rejects_clock_before_effective_evidence_observation": true,
+    "successful_binding_is_monotonic": true,
+    "binding_fingerprint_present": true,
+    "actual_consuming_binding_tested": true
   },
   "allowed_changed_paths": [
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
@@ -40,6 +45,7 @@
     "docs/stage-5/stage5e-b3-schedule-window-evidence-inventory.json",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
+    "scripts/make_handoff_archive.sh",
     "scripts/stage5e_b3_schedule_window_evidence_check.py",
     "scripts/stage5e_b_no_io_lifecycle_check.py",
     "scripts/stage5e_descriptor.py",

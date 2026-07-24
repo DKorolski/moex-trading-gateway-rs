@@ -170,6 +170,34 @@ def write_manifest(root: Path, mutate=None) -> None:
         )
         + "\n"
     )
+    provenance_stdout_path = root / "handoff-provenance-negative-stdout.txt"
+    provenance_stderr_path = root / "handoff-provenance-negative-stderr.txt"
+    provenance_result_path = root / "handoff-provenance-negative-result.json"
+    provenance_stdout_path.write_text("PASS synthetic-fixture\n")
+    provenance_stderr_path.write_text("")
+    provenance_result_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "gate_id": "handoff_provenance_negative",
+                "command": ["python3", "scripts/handoff_provenance_negative_harness.py"],
+                "source_ref": SOURCE_REF,
+                "started_at_utc": "2026-01-01T00:00:00Z",
+                "finished_at_utc": "2026-01-01T00:00:01Z",
+                "exit_code": 0,
+                "passed_cases": 1,
+                "stdout_member": "handoff-provenance-negative-stdout.txt",
+                "stderr_member": "handoff-provenance-negative-stderr.txt",
+                "stdout_sha256": sha256(provenance_stdout_path),
+                "stderr_sha256": sha256(provenance_stderr_path),
+                "source_tree_manifest_sha256": "0" * 64,
+                "source_tree_member_count": 0,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
     source_tree_manifest = {
         "schema_version": 1,
         "source_ref": SOURCE_REF,
@@ -182,6 +210,9 @@ def write_manifest(root: Path, mutate=None) -> None:
             "handoff-cargo-gate-stderr.txt",
             "handoff-cargo-gate-stdout.txt",
             "handoff-manifest.json",
+            "handoff-provenance-negative-result.json",
+            "handoff-provenance-negative-stderr.txt",
+            "handoff-provenance-negative-stdout.txt",
             "handoff-stage5e-gate-result.json",
             "handoff-stage5e-gate-stderr.txt",
             "handoff-stage5e-gate-stdout.txt",
@@ -198,6 +229,12 @@ def write_manifest(root: Path, mutate=None) -> None:
     cargo_result["source_tree_manifest_sha256"] = source_tree_manifest_sha256
     cargo_result["source_tree_member_count"] = len(source_members)
     cargo_result_path.write_text(json.dumps(cargo_result, indent=2, sort_keys=True) + "\n")
+    provenance_result = json.loads(provenance_result_path.read_text())
+    provenance_result["source_tree_manifest_sha256"] = source_tree_manifest_sha256
+    provenance_result["source_tree_member_count"] = len(source_members)
+    provenance_result_path.write_text(
+        json.dumps(provenance_result, indent=2, sort_keys=True) + "\n"
+    )
     gate_result_path = root / "handoff-stage5e-gate-result.json"
     gate_result_path.write_text(
         json.dumps(
@@ -251,6 +288,7 @@ def write_manifest(root: Path, mutate=None) -> None:
         "stage5e_design_scope_sha256": canonical_sha256(design_scope),
         "source_tree_manifest_sha256": source_tree_manifest_sha256,
         "cargo_gate_result_sha256": sha256(cargo_result_path),
+        "provenance_negative_result_sha256": sha256(provenance_result_path),
     }
     marker = {
         "source_commit": manifest["source_commit"],
@@ -551,6 +589,14 @@ def main() -> int:
             mutator(payload)
             path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
             manifest["source_tree_manifest_sha256"] = sha256(path)
+            provenance_path = root / "handoff-provenance-negative-result.json"
+            provenance = json.loads(provenance_path.read_text())
+            provenance["source_tree_manifest_sha256"] = manifest["source_tree_manifest_sha256"]
+            provenance["source_tree_member_count"] = len(payload["members"])
+            provenance_path.write_text(
+                json.dumps(provenance, indent=2, sort_keys=True) + "\n"
+            )
+            manifest["provenance_negative_result_sha256"] = sha256(provenance_path)
             gate_path = root / "handoff-stage5e-gate-result.json"
             gate = json.loads(gate_path.read_text())
             gate["source_tree_manifest_sha256"] = manifest["source_tree_manifest_sha256"]
@@ -1413,6 +1459,69 @@ def main() -> int:
             mutate_stage5e_b3_inventory_for_checker(
                 lambda payload: payload["contract_invariants"].__setitem__(
                     "returns_linear_inputs_on_binding_block", False
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3b-production-clock-relaxed",
+            "b3 schedule evidence region hash mismatch",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "LifecycleInstant(Utc::now())",
+                    "LifecycleInstant(chrono::DateTime::<Utc>::UNIX_EPOCH)",
+                    1,
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3b-clock-rewind-check-relaxed",
+            "b3 schedule evidence region hash mismatch",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "if lifecycle_now.0 < schedule_window.effective_observed_at.0 {",
+                    "if false && lifecycle_now.0 < schedule_window.effective_observed_at.0 {",
+                    1,
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3b-successful-unbinding-reintroduced",
+            "b3 schedule evidence region hash mismatch",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "impl Stage5eBoundScheduleWindowForObservedLiveBar {\n        fn callback_count(&self) -> usize {",
+                    "impl Stage5eBoundScheduleWindowForObservedLiveBar {\n        fn into_inputs(self) {}\n\n        fn callback_count(&self) -> usize {",
+                    1,
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3b-binding-fingerprint-constant",
+            "b3 schedule evidence region hash mismatch",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "ScheduleObservedBarBindingFingerprint(encoder.finish())",
+                    "ScheduleObservedBarBindingFingerprint([0; 32])",
+                    1,
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3b-monotonic-contract-drift",
+            "contract invariant drift",
+            mutate_stage5e_b3_inventory_for_checker(
+                lambda payload: payload["contract_invariants"].__setitem__(
+                    "successful_binding_is_monotonic", False
                 )
             ),
             "5E-b3-schedule-window-evidence",

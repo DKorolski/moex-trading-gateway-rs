@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed semantic gate for the Stage 5E-b3b no-I/O binding contract."""
+"""Fail-closed semantic gate for the Stage 5E-b3b-r1 no-I/O binding contract."""
 
 import hashlib
 import json
@@ -21,6 +21,7 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "docs/stage-5/stage5e-b3-schedule-window-evidence-inventory.json",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
+    "scripts/make_handoff_archive.sh",
     "scripts/stage5e_b3_schedule_window_evidence_check.py",
     "scripts/stage5e_b_no_io_lifecycle_check.py",
     "scripts/stage5e_descriptor.py",
@@ -64,10 +65,15 @@ EXPECTED_CONTRACT_INVARIANTS = {
     "revalidates_window_expiry_at_binding": True,
     "returns_linear_inputs_on_binding_block": True,
     "rejects_future_observed_bar_at_binding": True,
+    "captures_production_binding_clock": True,
+    "rejects_clock_before_effective_evidence_observation": True,
+    "successful_binding_is_monotonic": True,
+    "binding_fingerprint_present": True,
+    "actual_consuming_binding_tested": True,
 }
-REGION_BEGIN = "// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v4"
-REGION_END = "// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v4"
-EXPECTED_REGION_SHA256 = "243b6c89f937d326bf2b9543e13ccdeed23f8f45e459afae8f1ffdc485143793"
+REGION_BEGIN = "// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v5"
+REGION_END = "// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v5"
+EXPECTED_REGION_SHA256 = "2535042eff2658ef3a3f4b98645d055dda4bdace4676d40c9557e61aef547972"
 
 
 def fail(message: str) -> None:
@@ -96,7 +102,7 @@ def main() -> int:
         fail("contract invariant drift")
     text = PLAN.read_text()
     for marker in (
-        "Stage 5E-b3b",
+        "Stage 5E-b3b-r1",
         "validated opaque snapshot",
         "accepted Stage 4 schedule evidence",
         "inclusive",
@@ -105,6 +111,8 @@ def main() -> int:
         "Stage5eBoundScheduleWindowForObservedLiveBar",
         "Stage5eObservedLiveBarAfterHistory",
         "linear inputs",
+        "monotonic",
+        "Utc::now()",
         "b3b",
     ):
         if marker not in text:
@@ -137,6 +145,11 @@ def main() -> int:
         "Stage5eScheduleWindowObservedBarBlocked",
         "ObservedBarInFuture",
         "WindowExpired",
+        "ClockBeforeEffectiveEvidenceObservation",
+        "bind_schedule_window_to_observed_live_bar_with_now",
+        "bind_schedule_window_to_observed_live_bar_at",
+        "ScheduleObservedBarBindingFingerprint",
+        "schedule_observed_bar_binding_fingerprint",
     ):
         if marker not in region:
             fail(f"b3 semantic marker missing: {marker}")

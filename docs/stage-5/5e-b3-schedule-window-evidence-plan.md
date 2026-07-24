@@ -1,4 +1,4 @@
-# Stage 5E-b3b — sealed observed-bar ScheduleWindowEvidence binding
+# Stage 5E-b3b-r1 — trusted monotonic observed-bar ScheduleWindowEvidence binding
 
 Baseline: `04431096e269daaf9715e253b2354b1ac8fcc3e8`.
 
@@ -65,3 +65,16 @@ reviewed owner may obtain fresh schedule evidence and retry without state loss.
 Callback count and intent count remain zero. This is still not b3b callback
 eligibility, a production provider attachment, or an authorization to call
 `on_broker_bar`.
+
+The production binding path captures its lifecycle clock internally with
+`Utc::now()`. The deterministic `_at` variant is test-only. Consumption also
+rejects a clock that precedes the schedule evidence's effective observation,
+so stale or rewound time cannot admit an expired window or future bar.
+
+The successful bound receipt is monotonic: it has no unbinding API. Only a
+blocked outcome may return the original receipts for a fresh-evidence retry.
+The successful receipt additionally carries a tagged deterministic binding
+fingerprint over the schedule fingerprint, full bar `InstrumentId`, bar close,
+and a versioned binding-domain tag. A `cfg(test)` private observed-bar fixture
+exists solely to exercise the consuming b3b transition; it is not a production
+attachment or callback path.

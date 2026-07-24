@@ -150,6 +150,9 @@ def check_archive(path: Path) -> None:
             "handoff-cargo-gate-stderr.txt",
             "handoff-cargo-gate-stdout.txt",
             "handoff-manifest.json",
+            "handoff-provenance-negative-result.json",
+            "handoff-provenance-negative-stderr.txt",
+            "handoff-provenance-negative-stdout.txt",
             "handoff-source-tree-manifest.json",
         }
         missing = sorted(required - set(names))
@@ -195,6 +198,36 @@ def check_archive(path: Path) -> None:
         require_hex64(manifest.get("cargo_gate_result_sha256"), "cargo_gate_result_sha256")
         if hashlib.sha256(archive.read(cargo_result_name)).hexdigest() != manifest.get("cargo_gate_result_sha256"):
             raise SystemExit("handoff safety: cargo gate result hash mismatch")
+        provenance_result_name = "handoff-provenance-negative-result.json"
+        provenance_stdout_name = "handoff-provenance-negative-stdout.txt"
+        provenance_stderr_name = "handoff-provenance-negative-stderr.txt"
+        provenance_result = json.loads(archive.read(provenance_result_name))
+        if set(provenance_result) != {
+            "command", "exit_code", "finished_at_utc", "gate_id", "passed_cases",
+            "schema_version", "source_ref", "source_tree_manifest_sha256",
+            "source_tree_member_count", "started_at_utc", "stderr_member", "stderr_sha256",
+            "stdout_member", "stdout_sha256",
+        }:
+            raise SystemExit("handoff safety: provenance-negative result key set drift")
+        if provenance_result.get("schema_version") != 1 or provenance_result.get("gate_id") != "handoff_provenance_negative":
+            raise SystemExit("handoff safety: provenance-negative result identity mismatch")
+        if provenance_result.get("command") != ["python3", "scripts/handoff_provenance_negative_harness.py"]:
+            raise SystemExit("handoff safety: provenance-negative command mismatch")
+        if provenance_result.get("exit_code") != 0 or not isinstance(provenance_result.get("passed_cases"), int) or provenance_result["passed_cases"] <= 0:
+            raise SystemExit("handoff safety: provenance-negative gate did not pass")
+        parse_utc_timestamp(provenance_result.get("started_at_utc"), "provenance-negative started_at_utc")
+        parse_utc_timestamp(provenance_result.get("finished_at_utc"), "provenance-negative finished_at_utc")
+        if provenance_result.get("stdout_member") != provenance_stdout_name or provenance_result.get("stderr_member") != provenance_stderr_name:
+            raise SystemExit("handoff safety: provenance-negative log member mismatch")
+        for field, member in [("stdout_sha256", provenance_stdout_name), ("stderr_sha256", provenance_stderr_name)]:
+            require_hex64(provenance_result.get(field), f"provenance-negative {field}")
+            if hashlib.sha256(archive.read(member)).hexdigest() != provenance_result[field]:
+                raise SystemExit(f"handoff safety: provenance-negative {field} mismatch")
+        if archive.read(provenance_stdout_name).count(b"PASS ") != provenance_result["passed_cases"]:
+            raise SystemExit("handoff safety: provenance-negative passed case count mismatch")
+        require_hex64(manifest.get("provenance_negative_result_sha256"), "provenance_negative_result_sha256")
+        if hashlib.sha256(archive.read(provenance_result_name)).hexdigest() != manifest.get("provenance_negative_result_sha256"):
+            raise SystemExit("handoff safety: provenance-negative result hash mismatch")
         review_stage = manifest.get("review_stage")
         if not isinstance(review_stage, str) or not review_stage:
             raise SystemExit("handoff safety: missing review_stage")
@@ -468,6 +501,9 @@ def check_archive(path: Path) -> None:
                 "handoff-cargo-gate-stderr.txt",
                 "handoff-cargo-gate-stdout.txt",
                 "handoff-manifest.json",
+                "handoff-provenance-negative-result.json",
+                "handoff-provenance-negative-stderr.txt",
+                "handoff-provenance-negative-stdout.txt",
                 "handoff-stage5e-gate-result.json",
                 "handoff-stage5e-gate-stderr.txt",
                 "handoff-stage5e-gate-stdout.txt",
@@ -498,6 +534,12 @@ def check_archive(path: Path) -> None:
                 raise SystemExit("handoff safety: cargo gate/source-tree manifest mismatch")
             if cargo_result.get("source_tree_member_count") != len(source_member_map):
                 raise SystemExit("handoff safety: cargo gate/source-tree member count mismatch")
+            if provenance_result.get("source_ref") != gate_result.get("source_ref"):
+                raise SystemExit("handoff safety: provenance-negative source_ref mismatch")
+            if provenance_result.get("source_tree_manifest_sha256") != manifest.get("source_tree_manifest_sha256"):
+                raise SystemExit("handoff safety: provenance-negative/source-tree manifest mismatch")
+            if provenance_result.get("source_tree_member_count") != len(source_member_map):
+                raise SystemExit("handoff safety: provenance-negative source-tree member count mismatch")
             archive_files = {
                 info.filename
                 for info in archive.infolist()
