@@ -1672,6 +1672,34 @@ def main() -> int:
             "5E-b3c-private-eligibility-seam",
             True,
         ),
+        Case(
+            "stage5e-b3c-evidence-field-schema-drift",
+            "exact evidence_contracts contract drift",
+            mutate_stage5e_b3c_inventory_for_checker(
+                lambda payload: payload["evidence_contracts"]["fresh_open_session"].__setitem__("required_fields", ["full_instrument_id"])
+            ), "5E-b3c-private-eligibility-seam", True,
+        ),
+        Case(
+            "stage5e-b3c-source-authority-drift",
+            "exact source_authorities contract drift",
+            mutate_stage5e_b3c_inventory_for_checker(
+                lambda payload: payload["source_authorities"].__setitem__("calendar", "caller bool")
+            ), "5E-b3c-private-eligibility-seam", True,
+        ),
+        Case(
+            "stage5e-b3c-transition-check-drift",
+            "exact transition_contract contract drift",
+            mutate_stage5e_b3c_inventory_for_checker(
+                lambda payload: payload["transition_contract"].__setitem__("checks", ["always_true"])
+            ), "5E-b3c-private-eligibility-seam", True,
+        ),
+        Case(
+            "stage5e-b3c-blocker-taxonomy-drift",
+            "exact block_reasons contract drift",
+            mutate_stage5e_b3c_inventory_for_checker(
+                lambda payload: payload["block_reasons"].__setitem__("retryable", [f"X{i}" for i in range(25)])
+            ), "5E-b3c-private-eligibility-seam", True,
+        ),
     ]
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)

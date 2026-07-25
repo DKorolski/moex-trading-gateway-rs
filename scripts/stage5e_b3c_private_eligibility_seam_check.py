@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fail-closed design gate for the Stage 5E-b3c eligibility extension seam."""
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -56,6 +57,14 @@ EXPECTED_INVARIANTS = {
     "callback_count": 0,
     "intent_count": 0,
 }
+EXPECTED_SOURCE_AUTHORITIES_SHA256 = "a04be22c90c4fe839315a3d242285a2812ad5319db41116e88a70b278a26efe4"
+EXPECTED_EVIDENCE_CONTRACTS_SHA256 = "65e87b9e4b9c25046da651047cd1ddd2b10592eb2d1559b00f6653ec4f08bb76"
+EXPECTED_TRANSITION_CONTRACT_SHA256 = "60d12d3ec0f62063f34e02933c5cbe231835f6b10f6c3593562e72bc7bb40d3c"
+EXPECTED_BLOCK_REASONS_SHA256 = "534b7c1ac82d3fd3d86206d42e140e46763503c8d9aa1d6c1011052affedb265"
+EXPECTED_PLAN_SHA256 = "200e7ef6aa4abef06a036494886a27ad2ba78549c027792ea073456aa26e348e"
+
+def canonical_sha256(value: object) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def fail(message: str) -> None:
@@ -85,7 +94,15 @@ def main() -> int:
         fail("closed surface drift")
     if payload.get("contract_invariants") != EXPECTED_INVARIANTS:
         fail("contract invariant drift")
-    if payload.get("expected_provenance_case_count") != 123:
+    for key, expected in (
+        ("source_authorities", EXPECTED_SOURCE_AUTHORITIES_SHA256),
+        ("evidence_contracts", EXPECTED_EVIDENCE_CONTRACTS_SHA256),
+        ("transition_contract", EXPECTED_TRANSITION_CONTRACT_SHA256),
+        ("block_reasons", EXPECTED_BLOCK_REASONS_SHA256),
+    ):
+        if canonical_sha256(payload.get(key)) != expected:
+            fail(f"exact {key} contract drift")
+    if payload.get("expected_provenance_case_count") != 127:
         fail("expected provenance case count drift")
     contracts = payload.get("evidence_contracts")
     expected_types = {
@@ -134,6 +151,8 @@ def main() -> int:
     ):
         if contradiction in plan:
             fail(f"forbidden plan contradiction: {contradiction}")
+    if hashlib.sha256(PLAN.read_bytes()).hexdigest() != EXPECTED_PLAN_SHA256:
+        fail("plan projection hash drift")
     predecessor = subprocess.run(
         [sys.executable, "scripts/stage5e_b3_schedule_window_evidence_check.py"],
         cwd=ROOT,
