@@ -129,3 +129,97 @@ This design and its future implementation remain no-I/O and no-send. In
 particular, `on_broker_bar`, strategy state mutation, intent construction,
 intent sink, Redis, FINAM I/O, transport, dispatch, runtime-live, autonomous
 event loops and broker execution are not authorized.
+
+## R1 exact governance contract
+
+This R1 revision is the implementation contract; the JSON inventory is
+normative and its complete canonical object and this complete plan are
+hash-pinned by the active checker. No prose, owner, schema or algorithm may be
+silently substituted.
+
+### Exact owner paths and issuing transitions
+
+Stage 4 authority is limited to:
+
+```text
+crates/broker-core/src/stage4_bootstrap.rs
+crates/broker-core/src/operational_config.rs
+crates/broker-core/src/lib.rs
+```
+
+`Stage4AcceptedPaperHostEvidence` is the only public opaque input. The
+additive Stage 4 owner methods are exactly:
+
+```text
+Stage4AcceptedPaperHostEvidence::issue_stage4_open_session_evidence
+Stage4AcceptedPaperHostEvidence::issue_stage4_schedule_discontinuity_evidence
+```
+
+They retain the dynamic broker state and schedule facts privately while
+requiring an accepted report, an applied application, exact full instrument
+identity, fresh present Schedule source section and non-expired source. The
+first method requires exact `BrokerMarketSessionState::Open`. The second method
+may issue evidence only for one exact interval with no expected tradable close
+between the stated timestamps.
+
+Stage 5C authority is limited to:
+
+```text
+crates/strategy-runtime-core/src/stage5c_paper_host.rs
+```
+
+Its sole issuer is the crate-private function:
+
+```text
+issue_stage5c_accepted_market_sequence_evidence(
+    Stage5cPendingRecoveredPaperStrategy,
+    Stage5cAcceptedSemanticBar,
+    Option<Stage4AcceptedScheduleDiscontinuityEvidence>,
+)
+```
+
+It may issue only after accepted recovery, a final semantic bar, an exact
+canonical predecessor and a non-expired recovery boundary. It does not invoke
+a callback or construct an intent.
+
+### Exact continuity semantics
+
+The only accepted sequence classifications are:
+
+```text
+Contiguous: current_close == previous_close + timeframe
+ApprovedNonTradableBoundary: an exact matching Stage 4 boundary evidence proves
+                             there was no expected tradable close between them
+```
+
+Every other difference, including weekends, clearing, maintenance, holidays or
+an unknown schedule, blocks unless it has the exact Stage 4 owner evidence.
+Neither a raw timestamp delta nor a caller-supplied `gap_free` boolean is an
+authority.
+
+### Construction seal
+
+All three future owner receipts have private fields and forbid `Clone`, `Copy`,
+`Serialize`, `Deserialize`, `Default`, `From` and `Into`. They have no raw or
+free constructor, no second issuing path and no struct literal outside their
+pinned owner region. A recoverable block returns every consumed linear source
+unchanged for a refreshed retry.
+
+### Exact continuation binding
+
+`Stage5eContinuationBindingId` is exactly a 32-byte SHA-256 digest with domain
+`stage5e-continuation-binding-v1`. It encodes tagged, length-prefixed canonical
+bytes in this order:
+
+```text
+B3B event-key fingerprint
+Stage 4 Open schedule-source fingerprint
+Stage 4 Open schedule-source generation
+normalized schedule identity fingerprint
+Stage 5C sequence-source fingerprint
+Stage 5C sequence-source generation
+```
+
+A constant, free-form epoch or omitted authority field is invalid. This ID is
+computed only by the private Stage 5E conjunction; it neither calls strategy
+code nor authorizes an execution.

@@ -521,6 +521,22 @@ def main() -> int:
 
         return apply
 
+    def mutate_stage5e_authority_inventory_for_checker(mutator):
+        def apply(root, _manifest, _marker):
+            path = root / "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json"
+            payload = json.loads(path.read_text())
+            mutator(payload)
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+        return apply
+
+    def mutate_stage5e_authority_plan_for_checker(mutator):
+        def apply(root, _manifest, _marker):
+            path = root / "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md"
+            path.write_text(mutator(path.read_text()))
+
+        return apply
+
     def mutate_stage5e_b3_module_for_checker(mutator):
         def apply(root, _manifest, _marker):
             path = root / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
@@ -1822,6 +1838,88 @@ def main() -> int:
                 )
             ),
             "5E-b3c-private-eligibility-seam",
+            True,
+        ),
+        Case(
+            "stage5e-authority-stage4-open-field-removed",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["owner_receipt_contracts"]["stage4_open_session"]["fields"].pop()
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-stage4-owner-replaced",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["owner_receipt_contracts"]["stage4_open_session"].__setitem__(
+                    "owner", "caller_supplied_schedule"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-continuation-constant",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["continuation_binding_contract"].__setitem__(
+                    "constant_epoch_allowed", True
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-gap-boundary-relaxed",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["gap_free_sequence_contract"].__setitem__(
+                    "otherwise", "accept"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-required-test-removed",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["required_implementation_tests"].pop()
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-production-path-widened",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["implementation_allowed_paths"].append(
+                    "crates/broker-finam/src/lib.rs"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-stage4-baseline-removed",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["production_source_baselines"].pop(
+                    "crates/broker-core/src/stage4_bootstrap.rs"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-plan-contradicts-no-io",
+            "authority freeze plan drift",
+            mutate_stage5e_authority_plan_for_checker(
+                lambda text: text + "\nThis package authorizes a callback.\n"
+            ),
+            "5E-b3c-source-authority-freeze-extension",
             True,
         ),
     ]

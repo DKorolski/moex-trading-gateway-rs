@@ -1,11 +1,14 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "stage": "5E-b3c-source-authority-freeze-extension",
-  "status": "design_only_pending_review",
-  "baseline_ref": "936250e675ac15b61a7a4e319b59e508cd834f30",
+  "status": "exact_governance_r1_pending_review",
+  "baseline_ref": "54c70da3de1181fa6969bdeb2cc1e61b99c8cc14",
   "predecessor_stage": "5E-b3c-private-eligibility-seam",
+  "expected_provenance_case_count": 144,
   "production_source_baselines": {
     "crates/broker-core/src/lib.rs": "5d8758624f53a6b46d8903dd3f2339d5bd04f64c9c6490448167f08ac68ec8a2",
+    "crates/broker-core/src/operational_config.rs": "492905c6e404ee67f62ad456128ff659cd4a32c8e638936b94b5ea14ff3ba2f8",
+    "crates/broker-core/src/stage4_bootstrap.rs": "cb4362acce9624ec62c0007731b779fe96d2222c0ec8c0b1a921ed30a0aecf07",
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "14a723bd2adf98f50c2443166b7fb838edd8df6c5cf46968d13eb9e8d901b4c9",
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "76bade52f3ebb309475812b617823825a3b7e4838bf89f9eb297ca2bbffbf821"
   },
@@ -15,34 +18,84 @@
     "trusted_combined_eligibility": false,
     "unverified_sequence_production_authoritative": false
   },
-  "proposed_owner_receipts": {
+  "owner_source_paths": {
+    "stage4_dynamic_open": ["crates/broker-core/src/stage4_bootstrap.rs", "crates/broker-core/src/operational_config.rs", "crates/broker-core/src/lib.rs"],
+    "stage5c_canonical_sequence": ["crates/strategy-runtime-core/src/stage5c_paper_host.rs"],
+    "stage5e_private_conjunction": ["crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"]
+  },
+  "owner_receipt_contracts": {
     "stage4_open_session": {
-      "owner": "stage4_broker_truth",
+      "owner": "broker_core::stage4_bootstrap",
       "rust_type": "Stage4AcceptedOpenSessionEvidence",
-      "requires_exact_state": "BrokerMarketSessionState::Open",
-      "required_fields": ["full_instrument_id", "state", "observed_at", "expires_at", "source_fingerprint", "source_generation", "accepted_report_identity"]
+      "fields": ["full_instrument_id", "exact_state_open", "schedule_observed_at", "expires_at", "stage4_report_fingerprint", "schedule_source_fingerprint", "schedule_source_generation"],
+      "construction": "only_Stage4AcceptedPaperHostEvidence_owner_method_after_private_Open_validation",
+      "traits_forbidden": ["Clone", "Copy", "Serialize", "Deserialize", "Default", "From", "Into"],
+      "raw_constructor_visibility": "none",
+      "retry": "block_returns_original_Stage4AcceptedPaperHostEvidence"
+    },
+    "stage4_schedule_boundary": {
+      "owner": "broker_core::stage4_bootstrap",
+      "rust_type": "Stage4AcceptedScheduleDiscontinuityEvidence",
+      "fields": ["full_instrument_id", "timeframe_sec", "previous_close_ts", "next_close_ts", "no_tradable_close_between", "schedule_source_fingerprint", "schedule_source_generation", "observed_at", "expires_at"],
+      "construction": "only_Stage4AcceptedPaperHostEvidence_owner_method_for_exact_non_tradable_interval",
+      "traits_forbidden": ["Clone", "Copy", "Serialize", "Deserialize", "Default", "From", "Into"],
+      "raw_constructor_visibility": "none",
+      "retry": "block_returns_original_Stage4AcceptedPaperHostEvidence"
     },
     "stage5c_market_sequence": {
-      "owner": "stage5c_canonical_history_and_semantic_bar",
+      "owner": "strategy_runtime_core::stage5c_paper_host",
       "rust_type": "Stage5cAcceptedMarketSequenceEvidence",
-      "required_fields": ["full_instrument_id", "event_key", "timeframe", "finality", "canonical_previous_close", "gap_free", "source_fingerprint", "source_generation", "observed_at", "expires_at"]
-    },
-    "stage5e_continuation_binding": {
-      "owner": "stage5e_private_conjunction",
-      "rust_type": "Stage5eContinuationBindingId",
-      "model": "deterministic_digest_of_b3b_event_key_and_all_owner_fingerprints_and_generations",
-      "constant_epoch_allowed": false
+      "fields": ["full_instrument_id", "event_key_fingerprint", "timeframe_sec", "is_final", "previous_canonical_close_ts", "current_canonical_close_ts", "continuity_classification", "stage4_boundary_fingerprint", "sequence_source_fingerprint", "sequence_generation", "observed_at", "expires_at"],
+      "construction": "only_crate_private_issue_from_Stage5cPendingRecoveredPaperStrategy_plus_Stage5cAcceptedSemanticBar_plus_optional_Stage4AcceptedScheduleDiscontinuityEvidence",
+      "traits_forbidden": ["Clone", "Copy", "Serialize", "Deserialize", "Default", "From", "Into"],
+      "raw_constructor_visibility": "none",
+      "retry": "block_returns_all_consumed_linear_inputs"
     }
   },
-  "fail_closed_rules": [
-    "static_tradable_open_window_does_not_prove_dynamic_open_state",
-    "unverified_market_sequence_is_test_only",
-    "raw_dto_or_boolean_cannot_construct_owner_receipt",
-    "missing_or_expired_owner_receipt_blocks",
-    "no_trusted_combined_eligibility_before_extension_acceptance"
-  ],
+  "owner_transition_contracts": {
+    "stage4_open_session": {
+      "input": "Stage4AcceptedPaperHostEvidence",
+      "issuer": "Stage4AcceptedPaperHostEvidence::issue_stage4_open_session_evidence",
+      "preconditions": ["accepted_report_status", "applied_application_status", "exact_BrokerMarketSessionState_Open_retained_privately", "same_full_instrument_id", "fresh_present_Schedule_source_section", "source_observed_not_future", "source_not_expired"],
+      "output": "Stage4AcceptedOpenSessionEvidence",
+      "block": "Stage4OpenSessionEvidenceBlocked"
+    },
+    "stage4_schedule_boundary": {
+      "input": "Stage4AcceptedPaperHostEvidence",
+      "issuer": "Stage4AcceptedPaperHostEvidence::issue_stage4_schedule_discontinuity_evidence",
+      "preconditions": ["accepted_report_status", "same_full_instrument_id", "positive_timeframe", "previous_before_next", "exact_non_tradable_schedule_interval", "no_expected_tradable_close_between", "source_not_expired"],
+      "output": "Stage4AcceptedScheduleDiscontinuityEvidence",
+      "block": "Stage4ScheduleDiscontinuityEvidenceBlocked"
+    },
+    "stage5c_market_sequence": {
+      "input": ["Stage5cPendingRecoveredPaperStrategy", "Stage5cAcceptedSemanticBar", "Option<Stage4AcceptedScheduleDiscontinuityEvidence>"],
+      "issuer": "issue_stage5c_accepted_market_sequence_evidence",
+      "preconditions": ["same_full_instrument_id", "accepted_final_semantic_bar", "canonical_history_predecessor_present", "contiguous_or_exact_stage4_boundary", "recovery_not_expired", "no_callback_or_intent"],
+      "output": "Stage5cAcceptedMarketSequenceEvidence",
+      "block": "Stage5cMarketSequenceEvidenceBlocked"
+    }
+  },
+  "gap_free_sequence_contract": {
+    "model": "strict_contiguous_or_stage4_accepted_non_tradable_boundary",
+    "contiguous_rule": "current_canonical_close_ts == previous_canonical_close_ts + timeframe_sec",
+    "legitimate_gap_rule": "only_a_matching_Stage4AcceptedScheduleDiscontinuityEvidence_with_no_expected_tradable_close_between",
+    "otherwise": "block",
+    "raw_timestamp_delta_is_authority": false,
+    "caller_supplied_gap_free_boolean_allowed": false
+  },
+  "continuation_binding_contract": {
+    "rust_type": "Stage5eContinuationBindingId",
+    "domain": "stage5e-continuation-binding-v1",
+    "encoding": "tagged_length_prefixed_canonical_bytes",
+    "fields_in_order": ["b3b_event_key_fingerprint", "stage4_open_session_schedule_source_fingerprint", "stage4_open_session_schedule_source_generation", "normalized_schedule_identity_fingerprint", "stage5c_sequence_source_fingerprint", "stage5c_sequence_generation"],
+    "output": "sha256_32_bytes",
+    "constant_epoch_allowed": false,
+    "owner": "stage5e_private_conjunction"
+  },
+  "block_reasons": ["stage4_not_open", "stage4_schedule_stale", "stage4_boundary_not_exact", "sequence_not_final", "sequence_missing_predecessor", "sequence_unclassified_gap", "sequence_expired", "instrument_mismatch", "continuation_binding_mismatch"],
+  "required_implementation_tests": ["stage4_closed_break_maintenance_unknown_block", "stage4_open_owner_receipt_accepts", "stage4_boundary_only_exact_non_tradable_interval", "stage5c_contiguous_sequence_accepts", "stage5c_unclassified_gap_blocks", "stage5c_matching_stage4_boundary_accepts", "producer_retry_returns_source", "continuation_binding_changes_for_each_authority_field", "production_clock_not_caller_supplied"],
+  "required_negative_mutations": ["stage4_open_field_removed", "stage4_owner_or_type_replaced", "stage4_raw_constructor_exposed", "stage5c_sequence_field_removed", "stage5c_unverified_source_authoritative", "continuation_binding_constant", "gap_boundary_check_removed", "producer_source_return_removed", "plan_or_inventory_authority_contradiction"],
   "closed_surfaces": ["strategy_callback", "strategy_state_mutation", "executable_intents", "strategy_intent_sink", "redis", "finam_io", "transport", "dispatch", "runtime_live", "broker_execution", "autonomous_event_loop"],
-  "required_implementation_tests": ["non_open_stage4_states_block", "open_stage4_state_accepts", "unverified_sequence_blocks_in_production", "owner_sequence_preserves_continuity", "producer_source_retry", "continuation_binding_changes_with_source", "production_clock_not_caller_supplied"],
-  "required_negative_mutations": ["open_state_stripped", "unverified_sequence_authoritative", "owner_constructor_bypass", "continuation_binding_constant", "producer_source_lost", "test_clock_exposed", "authority_plan_inventory_contradiction"],
-  "allowed_changed_paths": ["docs/stage-5/5e-b3c-private-eligibility-seam-plan.md", "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage5e-active-descriptor.json", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/handoff_safety_check.py", "scripts/stage5e_b3c_private_eligibility_seam_check.py", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py", "scripts/stage5e_descriptor.py", "scripts/stage5e_lifecycle_event_time_gate.sh"]
+  "implementation_allowed_paths": ["crates/broker-core/src/stage4_bootstrap.rs", "crates/broker-core/src/operational_config.rs", "crates/broker-core/src/lib.rs", "crates/strategy-runtime-core/src/stage5c_paper_host.rs", "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"],
+  "allowed_changed_paths": ["docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/handoff_provenance_negative_harness.py", "scripts/handoff_safety_check.py", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py"]
 }

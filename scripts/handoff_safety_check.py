@@ -293,7 +293,7 @@ def check_archive(path: Path) -> None:
                 expected_stage5e_baseline_ref = "95861577ce3acc11963104bb5a313a82f6f82bdb"
                 expected_stage5e_a_freeze_ref = None
             elif current_review_stage == "5E-b3c-source-authority-freeze-extension":
-                expected_stage5e_baseline_ref = "936250e675ac15b61a7a4e319b59e508cd834f30"
+                expected_stage5e_baseline_ref = "54c70da3de1181fa6969bdeb2cc1e61b99c8cc14"
                 expected_stage5e_a_freeze_ref = None
             else:
                 expected_stage5e_baseline_ref = "9ebbfd29d0346be5149dac746225866f0c8d0257"
@@ -345,6 +345,17 @@ def check_archive(path: Path) -> None:
                 raise SystemExit("handoff safety: Stage 5E source baseline ref mismatch")
             if stage5e_inventory.get("baseline_ref") != expected_stage5e_baseline_ref:
                 raise SystemExit("handoff safety: Stage 5E baseline_ref mismatch")
+            expected_provenance_case_count = stage5e_inventory.get(
+                "expected_provenance_case_count"
+            )
+            if (
+                expected_provenance_case_count is not None
+                and provenance_result.get("passed_cases")
+                != expected_provenance_case_count
+            ):
+                raise SystemExit(
+                    "handoff safety: Stage 5E provenance-negative case count mismatch"
+                )
             if expected_stage5e_a_freeze_ref is not None and stage5e_inventory.get("stage5e_a_freeze_ref") != expected_stage5e_a_freeze_ref:
                 raise SystemExit("handoff safety: Stage 5E-a freeze ref mismatch")
             closed = stage5e_inventory.get("closed_surfaces")
