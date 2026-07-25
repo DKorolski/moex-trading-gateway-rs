@@ -1844,7 +1844,7 @@ def main() -> int:
             "stage5e-authority-stage4-open-field-removed",
             "authority freeze contract drift",
             mutate_stage5e_authority_inventory_for_checker(
-                lambda payload: payload["owner_receipt_contracts"]["stage4_open_session"]["fields"].pop()
+                lambda payload: payload["boundary_authority_contract"]["projection_fields"].pop()
             ),
             "5E-b3c-source-authority-freeze-extension",
             True,
@@ -1853,7 +1853,7 @@ def main() -> int:
             "stage5e-authority-stage4-owner-replaced",
             "authority freeze contract drift",
             mutate_stage5e_authority_inventory_for_checker(
-                lambda payload: payload["owner_receipt_contracts"]["stage4_open_session"].__setitem__(
+                lambda payload: payload["boundary_authority_contract"].__setitem__(
                     "owner", "caller_supplied_schedule"
                 )
             ),
@@ -1864,7 +1864,7 @@ def main() -> int:
             "stage5e-authority-continuation-constant",
             "authority freeze contract drift",
             mutate_stage5e_authority_inventory_for_checker(
-                lambda payload: payload["continuation_binding_contract"].__setitem__(
+                lambda payload: payload["identity_derivation_contract"]["continuation_binding"].__setitem__(
                     "constant_epoch_allowed", True
                 )
             ),
@@ -1875,8 +1875,8 @@ def main() -> int:
             "stage5e-authority-gap-boundary-relaxed",
             "authority freeze contract drift",
             mutate_stage5e_authority_inventory_for_checker(
-                lambda payload: payload["gap_free_sequence_contract"].__setitem__(
-                    "otherwise", "accept"
+                lambda payload: payload["linear_transition_contract"].__setitem__(
+                    "boundary_rule", "caller_supplied_boolean"
                 )
             ),
             "5E-b3c-source-authority-freeze-extension",
@@ -1895,7 +1895,7 @@ def main() -> int:
             "stage5e-authority-production-path-widened",
             "authority freeze contract drift",
             mutate_stage5e_authority_inventory_for_checker(
-                lambda payload: payload["implementation_allowed_paths"].append(
+                lambda payload: payload["future_production_implementation_paths"].append(
                     "crates/broker-finam/src/lib.rs"
                 )
             ),
@@ -1918,6 +1918,114 @@ def main() -> int:
             "authority freeze plan drift",
             mutate_stage5e_authority_plan_for_checker(
                 lambda text: text + "\nThis package authorizes a callback.\n"
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r2-boundary-owner-replaced",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["boundary_authority_contract"].__setitem__(
+                    "owner", "caller_supplied_schedule"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r2-boundary-boolean-opened",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["boundary_authority_contract"].__setitem__(
+                    "caller_supplied_boundary_boolean_allowed", True
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r2-stage4-open-retention-removed",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["boundary_authority_contract"].pop(
+                    "stage4_dynamic_open_source"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r2-parallel-issuer-reintroduced",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["linear_transition_contract"]["replaced_parallel_issuers"].pop()
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r2-combined-output-drops-recovery",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["linear_transition_contract"]["output_owns"].remove(
+                    "recovery_receipt"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r2-sequence-identity-constant",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["identity_derivation_contract"]["sequence_identity"].__setitem__(
+                    "algorithm", "constant"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r2-schedule-identity-field-removed",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["identity_derivation_contract"]["schedule_snapshot_identity"][
+                    "fields_in_order"
+                ].pop()
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r2-restart-reuses-receipt",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["identity_derivation_contract"].__setitem__(
+                    "restart_model", "persist_and_reuse_receipts"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r2-required-freeze-path-omitted",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["required_governance_update_paths"].remove(
+                    "docs/stage-5/stage-5c-api-freeze-manifest.json"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r2-production-path-widened",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["future_production_implementation_paths"].append(
+                    "crates/broker-finam/src/lib.rs"
+                )
             ),
             "5E-b3c-source-authority-freeze-extension",
             True,

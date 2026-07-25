@@ -1,10 +1,10 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "stage": "5E-b3c-source-authority-freeze-extension",
-  "status": "exact_governance_r1_pending_review",
-  "baseline_ref": "54c70da3de1181fa6969bdeb2cc1e61b99c8cc14",
+  "status": "authority_freeze_r2_pending_review",
+  "baseline_ref": "b232437aa09a516541d35a7379fb2ac5521faa0c",
   "predecessor_stage": "5E-b3c-private-eligibility-seam",
-  "expected_provenance_case_count": 144,
+  "expected_provenance_case_count": 154,
   "production_source_baselines": {
     "crates/broker-core/src/lib.rs": "5d8758624f53a6b46d8903dd3f2339d5bd04f64c9c6490448167f08ac68ec8a2",
     "crates/broker-core/src/operational_config.rs": "492905c6e404ee67f62ad456128ff659cd4a32c8e638936b94b5ea14ff3ba2f8",
@@ -13,89 +13,68 @@
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "76bade52f3ebb309475812b617823825a3b7e4838bf89f9eb297ca2bbffbf821"
   },
   "implementation_authorization": {
-    "stage4_stage5c_freeze_extension_reviewed": false,
+    "authority_freeze_r2_reviewed": false,
     "production_source_changes_allowed": false,
     "trusted_combined_eligibility": false,
     "unverified_sequence_production_authoritative": false
   },
-  "owner_source_paths": {
-    "stage4_dynamic_open": ["crates/broker-core/src/stage4_bootstrap.rs", "crates/broker-core/src/operational_config.rs", "crates/broker-core/src/lib.rs"],
-    "stage5c_canonical_sequence": ["crates/strategy-runtime-core/src/stage5c_paper_host.rs"],
-    "stage5e_private_conjunction": ["crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"]
+  "boundary_authority_contract": {
+    "owner": "strategy_runtime_core::stage5e_no_io_lifecycle::schedule_window_evidence",
+    "owner_source_types": ["ValidatedNormalizedInstrumentScheduleSnapshot", "AcceptedInstrumentRegistryEvidence", "AcceptedStage4ScheduleEvidence"],
+    "source_paths": ["crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", "crates/broker-core/src/stage4_bootstrap.rs"],
+    "replacement_transition": "map_trusted_schedule_projection",
+    "output": "Stage5eAcceptedScheduleProjectionEvidence",
+    "projection_fields": ["full_instrument_id", "venue_mic", "board", "trading_day", "source_contract_version", "source_observed_at", "source_expires_at", "normalized_snapshot_identity_fingerprint", "normalized_sessions_fingerprint", "stage4_dynamic_session_fingerprint", "selected_open_window", "optional_exact_non_tradable_boundary"],
+    "exact_non_tradable_boundary_proof": "normalized_sessions_contain_only_non_tradable_interval_between_previous_and_current_close_and_no_expected_tradable_close",
+    "caller_supplied_boundary_boolean_allowed": false,
+    "stage4_dynamic_open_source": "Stage4AcceptedPaperHostEvidence_private_retained_BrokerMarketSessionState_projected_only_into_AcceptedStage4ScheduleEvidence",
+    "stage4_dynamic_open_required": "BrokerMarketSessionState::Open",
+    "stage4_receipt_issue_point": "build_stage4_accepted_paper_host_evidence_after_accepted_report_and_before_Stage5C_admission_consumes_evidence"
   },
-  "owner_receipt_contracts": {
-    "stage4_open_session": {
-      "owner": "broker_core::stage4_bootstrap",
-      "rust_type": "Stage4AcceptedOpenSessionEvidence",
-      "fields": ["full_instrument_id", "exact_state_open", "schedule_observed_at", "expires_at", "stage4_report_fingerprint", "schedule_source_fingerprint", "schedule_source_generation"],
-      "construction": "only_Stage4AcceptedPaperHostEvidence_owner_method_after_private_Open_validation",
-      "traits_forbidden": ["Clone", "Copy", "Serialize", "Deserialize", "Default", "From", "Into"],
-      "raw_constructor_visibility": "none",
-      "retry": "block_returns_original_Stage4AcceptedPaperHostEvidence"
-    },
-    "stage4_schedule_boundary": {
-      "owner": "broker_core::stage4_bootstrap",
-      "rust_type": "Stage4AcceptedScheduleDiscontinuityEvidence",
-      "fields": ["full_instrument_id", "timeframe_sec", "previous_close_ts", "next_close_ts", "no_tradable_close_between", "schedule_source_fingerprint", "schedule_source_generation", "observed_at", "expires_at"],
-      "construction": "only_Stage4AcceptedPaperHostEvidence_owner_method_for_exact_non_tradable_interval",
-      "traits_forbidden": ["Clone", "Copy", "Serialize", "Deserialize", "Default", "From", "Into"],
-      "raw_constructor_visibility": "none",
-      "retry": "block_returns_original_Stage4AcceptedPaperHostEvidence"
-    },
-    "stage5c_market_sequence": {
-      "owner": "strategy_runtime_core::stage5c_paper_host",
-      "rust_type": "Stage5cAcceptedMarketSequenceEvidence",
-      "fields": ["full_instrument_id", "event_key_fingerprint", "timeframe_sec", "is_final", "previous_canonical_close_ts", "current_canonical_close_ts", "continuity_classification", "stage4_boundary_fingerprint", "sequence_source_fingerprint", "sequence_generation", "observed_at", "expires_at"],
-      "construction": "only_crate_private_issue_from_Stage5cPendingRecoveredPaperStrategy_plus_Stage5cAcceptedSemanticBar_plus_optional_Stage4AcceptedScheduleDiscontinuityEvidence",
-      "traits_forbidden": ["Clone", "Copy", "Serialize", "Deserialize", "Default", "From", "Into"],
-      "raw_constructor_visibility": "none",
-      "retry": "block_returns_all_consumed_linear_inputs"
-    }
-  },
-  "owner_transition_contracts": {
-    "stage4_open_session": {
-      "input": "Stage4AcceptedPaperHostEvidence",
-      "issuer": "Stage4AcceptedPaperHostEvidence::issue_stage4_open_session_evidence",
-      "preconditions": ["accepted_report_status", "applied_application_status", "exact_BrokerMarketSessionState_Open_retained_privately", "same_full_instrument_id", "fresh_present_Schedule_source_section", "source_observed_not_future", "source_not_expired"],
-      "output": "Stage4AcceptedOpenSessionEvidence",
-      "block": "Stage4OpenSessionEvidenceBlocked"
-    },
-    "stage4_schedule_boundary": {
-      "input": "Stage4AcceptedPaperHostEvidence",
-      "issuer": "Stage4AcceptedPaperHostEvidence::issue_stage4_schedule_discontinuity_evidence",
-      "preconditions": ["accepted_report_status", "same_full_instrument_id", "positive_timeframe", "previous_before_next", "exact_non_tradable_schedule_interval", "no_expected_tradable_close_between", "source_not_expired"],
-      "output": "Stage4AcceptedScheduleDiscontinuityEvidence",
-      "block": "Stage4ScheduleDiscontinuityEvidenceBlocked"
-    },
-    "stage5c_market_sequence": {
-      "input": ["Stage5cPendingRecoveredPaperStrategy", "Stage5cAcceptedSemanticBar", "Option<Stage4AcceptedScheduleDiscontinuityEvidence>"],
-      "issuer": "issue_stage5c_accepted_market_sequence_evidence",
-      "preconditions": ["same_full_instrument_id", "accepted_final_semantic_bar", "canonical_history_predecessor_present", "contiguous_or_exact_stage4_boundary", "recovery_not_expired", "no_callback_or_intent"],
-      "output": "Stage5cAcceptedMarketSequenceEvidence",
-      "block": "Stage5cMarketSequenceEvidenceBlocked"
-    }
-  },
-  "gap_free_sequence_contract": {
-    "model": "strict_contiguous_or_stage4_accepted_non_tradable_boundary",
+  "linear_transition_contract": {
+    "replaced_parallel_issuers": ["issue_stage5c_accepted_market_sequence_evidence", "stage5e_try_observe_live_bar_after_history"],
+    "single_issuer": "stage5e_try_observe_live_bar_after_history_with_sequence_evidence",
+    "owner_path": "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+    "inputs_in_order": ["Stage5cPendingRecoveredPaperStrategy", "Stage5cAcceptedSemanticBar", "Stage5eAcceptedScheduleProjectionEvidence"],
+    "output": "Stage5eObservedLiveBarWithSequenceEvidence",
+    "output_owns": ["strategy", "recovery_receipt", "accepted_semantic_bar", "canonical_predecessor_close", "sequence_classification", "schedule_projection", "sequence_source_fingerprint"],
+    "sequence_classes": ["Contiguous", "ApprovedNonTradableBoundary"],
     "contiguous_rule": "current_canonical_close_ts == previous_canonical_close_ts + timeframe_sec",
-    "legitimate_gap_rule": "only_a_matching_Stage4AcceptedScheduleDiscontinuityEvidence_with_no_expected_tradable_close_between",
-    "otherwise": "block",
-    "raw_timestamp_delta_is_authority": false,
-    "caller_supplied_gap_free_boolean_allowed": false
+    "boundary_rule": "only_optional_exact_non_tradable_boundary_from_same_Stage5eAcceptedScheduleProjectionEvidence",
+    "blocked_transition": "Stage5eObservedLiveBarWithSequenceEvidenceBlocked",
+    "blocked_returns": ["Stage5cPendingRecoveredPaperStrategy", "Stage5cAcceptedSemanticBar", "Stage5eAcceptedScheduleProjectionEvidence"],
+    "callback_or_intent_allowed": false
   },
-  "continuation_binding_contract": {
-    "rust_type": "Stage5eContinuationBindingId",
-    "domain": "stage5e-continuation-binding-v1",
-    "encoding": "tagged_length_prefixed_canonical_bytes",
-    "fields_in_order": ["b3b_event_key_fingerprint", "stage4_open_session_schedule_source_fingerprint", "stage4_open_session_schedule_source_generation", "normalized_schedule_identity_fingerprint", "stage5c_sequence_source_fingerprint", "stage5c_sequence_generation"],
-    "output": "sha256_32_bytes",
-    "constant_epoch_allowed": false,
-    "owner": "stage5e_private_conjunction"
+  "identity_derivation_contract": {
+    "mutable_generation_allowed": false,
+    "restart_model": "receipts_are_not_persisted_or_reconstructed; restart_repeats_Stage4_acceptance_schedule_validation_history_warmup_pending_recovery_and_single_issuer",
+    "schedule_snapshot_identity": {
+      "domain": "stage5e-b3-normalized-snapshot-v2",
+      "algorithm": "existing_normalized_snapshot_payload_fingerprint",
+      "fields_in_order": ["full_instrument_id", "broker_symbol", "venue_mic", "board", "trading_day", "schedule_source_kind_BrokerReported", "source_contract_version", "source_observed_at", "source_expires_at", "raw_response_sha256", "instrument_registry_version", "canonical_sessions_fingerprint"]
+    },
+    "schedule_window_identity": {
+      "domain": "stage5e-schedule-window-evidence-v2",
+      "algorithm": "existing_deterministic_fingerprint",
+      "fields_in_order": ["schedule_snapshot_identity", "selected_session_type", "selected_interval", "stage4_dynamic_session_fingerprint"]
+    },
+    "sequence_identity": {
+      "domain": "stage5e-b3c-market-sequence-v1",
+      "algorithm": "sha256_tagged_length_prefixed_canonical_bytes",
+      "fields_in_order": ["full_instrument_id", "accepted_stage3_provenance_fingerprint", "semantic_bar_origin", "semantic_bar_close_ts", "semantic_bar_ohlcv_exact_bits", "timeframe_sec", "canonical_predecessor_close_ts", "recovery_receipt_identity", "sequence_classification", "optional_boundary_fingerprint"]
+    },
+    "continuation_binding": {
+      "rust_type": "Stage5eContinuationBindingId",
+      "domain": "stage5e-continuation-binding-v2",
+      "algorithm": "sha256_tagged_length_prefixed_canonical_bytes",
+      "fields_in_order": ["b3b_event_key_fingerprint", "schedule_snapshot_identity_fingerprint", "schedule_window_identity_fingerprint", "sequence_identity_fingerprint"],
+      "constant_epoch_allowed": false
+    }
   },
-  "block_reasons": ["stage4_not_open", "stage4_schedule_stale", "stage4_boundary_not_exact", "sequence_not_final", "sequence_missing_predecessor", "sequence_unclassified_gap", "sequence_expired", "instrument_mismatch", "continuation_binding_mismatch"],
-  "required_implementation_tests": ["stage4_closed_break_maintenance_unknown_block", "stage4_open_owner_receipt_accepts", "stage4_boundary_only_exact_non_tradable_interval", "stage5c_contiguous_sequence_accepts", "stage5c_unclassified_gap_blocks", "stage5c_matching_stage4_boundary_accepts", "producer_retry_returns_source", "continuation_binding_changes_for_each_authority_field", "production_clock_not_caller_supplied"],
-  "required_negative_mutations": ["stage4_open_field_removed", "stage4_owner_or_type_replaced", "stage4_raw_constructor_exposed", "stage5c_sequence_field_removed", "stage5c_unverified_source_authoritative", "continuation_binding_constant", "gap_boundary_check_removed", "producer_source_return_removed", "plan_or_inventory_authority_contradiction"],
+  "future_production_implementation_paths": ["crates/broker-core/src/stage4_bootstrap.rs", "crates/broker-core/src/lib.rs", "crates/strategy-runtime-core/src/stage5c_paper_host.rs", "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"],
+  "required_governance_update_paths": ["docs/stage-5/stage-5c-api-freeze-manifest.json", "docs/stage-5/stage-5d-additive-freeze-manifest.json", "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md", "docs/stage-5/stage5e-b3c-private-eligibility-seam-inventory.json", "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/forbidden_surface_negative_harness.py", "scripts/handoff_provenance_negative_harness.py", "scripts/handoff_safety_check.py", "scripts/stage5c_api_freeze_check.py", "scripts/stage5d_additive_freeze_check.py", "scripts/stage5d_additive_freeze_negative_harness.py", "scripts/stage5e_b3c_private_eligibility_seam_check.py", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py"],
+  "required_implementation_tests": ["stage4_dynamic_open_is_retained_from_accepted_input", "stage4_non_open_blocks_schedule_projection", "schedule_projection_proves_exact_non_tradable_boundary", "schedule_projection_rejects_caller_boundary_boolean", "single_linear_issuer_preserves_strategy_recovery_and_bar", "parallel_sequence_issuer_is_absent", "contiguous_sequence_accepts", "exact_boundary_sequence_accepts", "unclassified_gap_blocks_and_returns_all_inputs", "every_identity_field_changes_its_fingerprint", "restart_reissues_fresh_authority_without_generation_counter", "freeze_manifest_and_checker_updates_present"],
+  "required_negative_mutations": ["dynamic_open_state_not_retained", "boundary_uses_caller_boolean", "boundary_interval_source_removed", "parallel_stage5c_issuer_reintroduced", "combined_output_drops_strategy_or_recovery", "combined_output_drops_semantic_bar", "sequence_fingerprint_constant", "schedule_identity_field_removed", "restart_uses_persisted_receipt", "required_freeze_update_path_omitted"],
   "closed_surfaces": ["strategy_callback", "strategy_state_mutation", "executable_intents", "strategy_intent_sink", "redis", "finam_io", "transport", "dispatch", "runtime_live", "broker_execution", "autonomous_event_loop"],
-  "implementation_allowed_paths": ["crates/broker-core/src/stage4_bootstrap.rs", "crates/broker-core/src/operational_config.rs", "crates/broker-core/src/lib.rs", "crates/strategy-runtime-core/src/stage5c_paper_host.rs", "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"],
   "allowed_changed_paths": ["docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/handoff_provenance_negative_harness.py", "scripts/handoff_safety_check.py", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py"]
 }

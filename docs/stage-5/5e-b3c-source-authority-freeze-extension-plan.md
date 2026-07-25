@@ -223,3 +223,112 @@ Stage 5C sequence-source generation
 A constant, free-form epoch or omitted authority field is invalid. This ID is
 computed only by the private Stage 5E conjunction; it neither calls strategy
 code nor authorizes an execution.
+
+## R2 authority and linear-ownership correction
+
+R1 is accepted as a governance foundation, but its proposed implementation
+cannot honestly issue the two receipts: Stage 4 does not retain normalized
+intervals, and a second Stage 5C issuer would consume the same linear pair as
+the existing observed-bar bridge. R2 replaces that infeasible shape. This is
+still design-only; no production Rust, callback, intent, Redis, FINAM,
+transport, dispatch or runtime-live path is changed by this package.
+
+### Boundary owner: normalized schedule, not Stage 4
+
+Exact interval proof belongs to the existing private normalized-schedule owner
+in `stage5e_no_io_lifecycle.rs`. The future owner transition is exactly:
+
+```text
+ValidatedNormalizedInstrumentScheduleSnapshot
++ AcceptedInstrumentRegistryEvidence
++ AcceptedStage4ScheduleEvidence
+→ Stage5eAcceptedScheduleProjectionEvidence
+```
+
+The projection retains the exact instrument, venue, board, trading day,
+validated normalized sessions, source observations/expiry and the accepted
+Stage 4 dynamic-session projection. It is the sole producer of both a selected
+tradable-open window and an optional discontinuity proof. A discontinuity is
+valid only when the normalized interval set proves that no expected tradable
+close exists between the stated canonical closes. A caller timestamp pair or
+boolean can never stand in for that proof.
+
+Stage 4 remains the authority for *current* broker session state and freshness.
+The later implementation must retain `BrokerMarketSessionState` privately in
+`Stage4AcceptedPaperHostEvidence` while it is built from
+`ValidatedStage4BrokerTruthBootstrap`; `project_accepted_stage4_schedule` may
+project it only after accepted-report and freshness checks. The exact issue
+point is `build_stage4_accepted_paper_host_evidence`, before Stage 5C admission
+consumes its opaque evidence. Only exact `BrokerMarketSessionState::Open` is
+eligible for the schedule projection.
+
+### One linear observed-bar transition
+
+There will be no independent `Stage5cAcceptedMarketSequenceEvidence` issuer.
+The existing bridge is replaced additively by exactly one crate-private
+transition in `stage5c_paper_host.rs`:
+
+```text
+Stage5cPendingRecoveredPaperStrategy
++ Stage5cAcceptedSemanticBar
++ Stage5eAcceptedScheduleProjectionEvidence
+→ Stage5eObservedLiveBarWithSequenceEvidence
+```
+
+The output owns the strategy, recovery receipt, accepted semantic bar,
+canonical predecessor, classification, schedule projection and sequence
+fingerprint. It therefore replaces—not parallels—the old observed-bar bridge.
+On every recoverable block it returns all three original linear inputs.
+
+The only classifications are:
+
+```text
+Contiguous
+  current_close == previous_close + timeframe
+
+ApprovedNonTradableBoundary
+  exact optional boundary from the same accepted schedule projection proves
+  no expected tradable close exists between the two canonical closes
+```
+
+No callback is invoked and no intent is created in this transition.
+
+### Identity, generation and restart semantics
+
+R2 removes the invented mutable generation counters. The sources use immutable
+snapshot identities instead.
+
+- Schedule snapshot identity is the existing
+  `stage5e-b3-normalized-snapshot-v2` canonical payload fingerprint.
+- Schedule-window identity is the existing
+  `stage5e-schedule-window-evidence-v2` deterministic fingerprint.
+- Sequence identity is a new private
+  `stage5e-b3c-market-sequence-v1` digest over accepted Stage 3 provenance,
+  exact semantic bar, canonical predecessor, recovery receipt, classification
+  and optional boundary identity.
+- `Stage5eContinuationBindingId` becomes
+  `stage5e-continuation-binding-v2`, binding the B3B event key, schedule
+  snapshot identity, schedule-window identity and sequence identity.
+
+Receipts and authority identities are not persisted or reconstructed. A
+restart repeats Stage 4 acceptance, normalized schedule validation, canonical
+history warmup, pending recovery and the single issuer. This makes the source
+identity deterministic without a synthetic generation counter.
+
+### Future implementation scope
+
+Only a separately accepted implementation package may modify these production
+paths:
+
+```text
+crates/broker-core/src/stage4_bootstrap.rs
+crates/broker-core/src/lib.rs
+crates/strategy-runtime-core/src/stage5c_paper_host.rs
+crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs
+```
+
+It must also update the exact Stage 5C/5D/B3C freeze manifests, checkers and
+negative harnesses listed in the normative inventory. Omitting a required
+freeze update is a hard failure. This R2 package does not grant that
+implementation permission; acceptance of R2 is a prerequisite for asking for
+it.
