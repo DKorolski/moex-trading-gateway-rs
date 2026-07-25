@@ -514,6 +514,13 @@ def main() -> int:
 
         return apply
 
+    def mutate_stage5e_b3c_module_for_checker(mutator):
+        def apply(root, _manifest, _marker):
+            path = root / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
+            path.write_text(mutator(path.read_text()))
+
+        return apply
+
     def mutate_stage5e_b3_module_for_checker(mutator):
         def apply(root, _manifest, _marker):
             path = root / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
@@ -1699,6 +1706,119 @@ def main() -> int:
             mutate_stage5e_b3c_inventory_for_checker(
                 lambda payload: payload["block_reasons"].__setitem__("retryable", [f"X{i}" for i in range(25)])
             ), "5E-b3c-private-eligibility-seam", True,
+        ),
+        Case(
+            "stage5e-b3c-evidence-receipt-made-parent-visible",
+            "b3c evidence region hash mismatch",
+            mutate_stage5e_b3c_module_for_checker(
+                lambda text: text.replace(
+                    "struct Stage5eFreshOpenSessionEvidence(",
+                    "pub(super) struct Stage5eFreshOpenSessionEvidence(",
+                    1,
+                )
+            ),
+            "5E-b3c-private-eligibility-seam",
+            True,
+        ),
+        Case(
+            "stage5e-b3c-evidence-gap-check-relaxed",
+            "b3c evidence region hash mismatch",
+            mutate_stage5e_b3c_module_for_checker(
+                lambda text: text.replace("|| !source.gap_free", "|| false && !source.gap_free", 1)
+            ),
+            "5E-b3c-private-eligibility-seam",
+            True,
+        ),
+        Case(
+            "stage5e-b3c-evidence-freshness-check-relaxed",
+            "b3c evidence region hash mismatch",
+            mutate_stage5e_b3c_module_for_checker(
+                lambda text: text.replace(
+                    "fresh(source.observed_at, source.expires_at, now)?;",
+                    "if false { fresh(source.observed_at, source.expires_at, now)?; }",
+                    1,
+                )
+            ),
+            "5E-b3c-private-eligibility-seam",
+            True,
+        ),
+        Case(
+            "stage5e-b3c-evidence-intent-surface-injected",
+            "b3c evidence region hash mismatch",
+            mutate_stage5e_b3c_module_for_checker(
+                lambda text: text.replace(
+                    "mod b3c_evidence {",
+                    "mod b3c_evidence {\n    fn on_broker_bar() {}",
+                    1,
+                )
+            ),
+            "5E-b3c-private-eligibility-seam",
+            True,
+        ),
+        Case(
+            "stage5e-b3c-b3b-core-mutated-through-nested-enclave",
+            "b3b predecessor freeze failed",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "if lifecycle_now.0 > schedule_window.expires_at.0 {",
+                    "if false && lifecycle_now.0 > schedule_window.expires_at.0 {",
+                    1,
+                )
+            ),
+            "5E-b3c-private-eligibility-seam",
+            True,
+        ),
+        Case(
+            "stage5e-b3c-combined-receipt-made-parent-visible",
+            "b3c evidence region hash mismatch",
+            mutate_stage5e_b3c_module_for_checker(
+                lambda text: text.replace(
+                    "struct Stage5eBoundSessionCalendarSequenceForObservedLiveBar {",
+                    "pub(super) struct Stage5eBoundSessionCalendarSequenceForObservedLiveBar {",
+                    1,
+                )
+            ),
+            "5E-b3c-private-eligibility-seam",
+            True,
+        ),
+        Case(
+            "stage5e-b3c-event-key-conjunction-relaxed",
+            "b3c evidence region hash mismatch",
+            mutate_stage5e_b3c_module_for_checker(
+                lambda text: text.replace(
+                    "if session.0.event_key_fingerprint != b3b.binding_fingerprint.0",
+                    "if false && session.0.event_key_fingerprint != b3b.binding_fingerprint.0",
+                    1,
+                )
+            ),
+            "5E-b3c-private-eligibility-seam",
+            True,
+        ),
+        Case(
+            "stage5e-b3c-continuation-epoch-conjunction-relaxed",
+            "b3c evidence region hash mismatch",
+            mutate_stage5e_b3c_module_for_checker(
+                lambda text: text.replace(
+                    "if session.0.continuation_epoch != calendar.0.continuation_epoch",
+                    "if false && session.0.continuation_epoch != calendar.0.continuation_epoch",
+                    1,
+                )
+            ),
+            "5E-b3c-private-eligibility-seam",
+            True,
+        ),
+        Case(
+            "stage5e-b3c-blocked-transition-drops-sequence",
+            "b3c evidence region hash mismatch",
+            mutate_stage5e_b3c_module_for_checker(
+                lambda text: text.replace(
+                    "(self.b3b, self.session, self.calendar, self.sequence)",
+                    "(self.b3b, self.session, self.calendar, unreachable!())",
+                    1,
+                )
+            ),
+            "5E-b3c-private-eligibility-seam",
+            True,
         ),
     ]
     if args.case_start < 0 or args.case_start > len(cases):

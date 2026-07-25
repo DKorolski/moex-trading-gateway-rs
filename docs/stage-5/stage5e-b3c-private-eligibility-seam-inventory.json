@@ -1,19 +1,121 @@
 {
   "schema_version": 1,
   "stage": "5E-b3c-private-eligibility-seam",
-  "status": "machine_contract_frozen_no_runtime_code",
+  "status": "private_no_io_conjunctive_eligibility_binding_implemented",
   "baseline_ref": "95861577ce3acc11963104bb5a313a82f6f82bdb",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
-  "closed_surfaces": {"redis":false,"finam":false,"transport":false,"dispatch":false,"runtime_live":false,"broker_execution":false,"strategy_callback":false,"strategy_intent_sink":false,"strategy_state_mutation":false,"autonomous_event_loop":false,"executable_intents":false,"calendar_inference":false,"market_gap_inference":false},
-  "contract_invariants": {"b3b_core_remains_hash_pinned":true,"future_eligibility_consumes_b3b_receipt_linearly":true,"requires_separate_session_calendar_sequence_receipts":true,"requires_new_instrument_scoped_session_evidence":true,"b2_session_receipt_not_repurposed_as_continuation_authority":true,"requires_expiry_revalidation_at_continuation":true,"requires_same_full_instrument_id":true,"requires_same_bar_identity":true,"requires_same_schedule_fingerprint":true,"revalidates_session_freshness_at_continuation":true,"revalidates_calendar_freshness_at_continuation":true,"revalidates_sequence_freshness_at_continuation":true,"blocks_clock_before_any_evidence_observation":true,"blocked_transition_returns_all_inputs":true,"successful_transition_is_monotonic":true,"calendar_inference_allowed":false,"market_gap_inference_allowed":false,"requires_explicit_calendar_and_market_sequence_receipts":true,"binding_fingerprint_model":"event_key_identity","full_accepted_bar_digest_deferred_to_audit_or_replay_scope":true,"callback_ready":false,"execution_ready":false,"calls_strategy":false,"creates_executable_intent":false,"callback_count":0,"intent_count":0},
-  "source_authorities": {"fresh_open_session":"accepted broker session snapshot with source epoch","calendar":"accepted broker calendar snapshot with source version","market_sequence":"accepted Stage5C recovery/aggregation market-data receipt"},
-  "evidence_contracts": {
-    "fresh_open_session":{"rust_type":"Stage5eFreshOpenSessionEvidence","linear":true,"clone":false,"copy":false,"serialization":false,"constructors":["sealed_checked_transition_only"],"required_fields":["full_instrument_id","venue_mic","state_open","source_epoch","source_fingerprint","observed_at","expires_at"],"fingerprint_fields":["full_instrument_id","venue_mic","state_open","source_epoch","source_fingerprint"]},
-    "calendar":{"rust_type":"Stage5eCalendarEligibilityEvidence","linear":true,"clone":false,"copy":false,"serialization":false,"constructors":["sealed_checked_transition_only"],"required_fields":["full_instrument_id","venue_mic","trading_day","calendar_source","calendar_version","calendar_fingerprint","day_classification","early_close_policy","observed_at","expires_at"],"fingerprint_fields":["full_instrument_id","venue_mic","trading_day","calendar_source","calendar_version","calendar_fingerprint","day_classification","early_close_policy"]},
-    "market_sequence":{"rust_type":"Stage5eMarketSequenceEvidence","linear":true,"clone":false,"copy":false,"serialization":false,"constructors":["sealed_checked_transition_only"],"required_fields":["full_instrument_id","bar_identity","timeframe","finality","provenance","source_epoch","source_fingerprint","previous_canonical_close","gap_classification","observed_at","expires_at"],"fingerprint_fields":["full_instrument_id","bar_identity","timeframe","finality","provenance","source_epoch","source_fingerprint","previous_canonical_close","gap_classification"]}
+  "closed_surfaces": {
+    "redis": false,
+    "finam": false,
+    "transport": false,
+    "dispatch": false,
+    "runtime_live": false,
+    "broker_execution": false,
+    "strategy_callback": false,
+    "strategy_intent_sink": false,
+    "strategy_state_mutation": false,
+    "autonomous_event_loop": false,
+    "executable_intents": false,
+    "calendar_inference": false,
+    "market_gap_inference": false
   },
-  "transition_contract":{"inputs":["Stage5eBoundScheduleWindowForObservedLiveBar","Stage5eFreshOpenSessionEvidence","Stage5eCalendarEligibilityEvidence","Stage5eMarketSequenceEvidence","continuation_time"],"output":"Stage5eBoundSessionCalendarSequenceForObservedLiveBar","checks":["same_full_instrument_id","same_bar_identity","same_venue_and_trading_day","same_schedule_fingerprint","all_evidence_fresh","clock_not_before_any_observed_at","b3b_schedule_not_expired","bar_not_future","calendar_is_trading","sequence_no_gap_and_epoch_matches"],"output_authority":{"callback_ready":false,"execution_ready":false,"calls_strategy":false,"creates_executable_intent":false}},
-  "block_reasons":{"retryable":["SessionMissing","SessionUnavailable","SessionUnknown","SessionNotOpen","SessionObservedInFuture","SessionExpired","CalendarMissing","CalendarUnavailable","CalendarUnknown","CalendarNonTrading","CalendarTradingDayMismatch","CalendarObservedInFuture","CalendarExpired","SequenceMissing","SequenceUnavailable","SequenceBarIdentityMismatch","SequenceGap","SequenceEpochMismatch","SequenceObservedInFuture","SequenceExpired","InstrumentMismatch","BarIdentityMismatch","ScheduleFingerprintMismatch","B3bScheduleExpired","ClockBeforeEvidenceObservation"],"terminal":[]},
-  "expected_provenance_case_count":127,
-  "allowed_changed_paths":["docs/stage-5/5e-b3c-private-eligibility-seam-plan.md","docs/stage-5/stage5e-active-descriptor.json","docs/stage-5/stage5e-b3c-private-eligibility-seam-inventory.json","scripts/handoff_provenance_negative_harness.py","scripts/handoff_safety_check.py","scripts/stage5e_b3c_private_eligibility_seam_check.py","scripts/stage5e_descriptor.py","scripts/stage5e_lifecycle_event_time_gate.sh"]
+  "contract_invariants": {
+    "b3b_core_remains_hash_pinned": true,
+    "b3b_core_hash_reconstructed_after_b3c_region_removal": true,
+    "b3c_is_nested_inside_schedule_window_private_module": true,
+    "eligibility_consumes_b3b_receipt_linearly": true,
+    "requires_separate_session_calendar_sequence_receipts": true,
+    "requires_new_instrument_scoped_session_evidence": true,
+    "b2_session_receipt_not_repurposed_as_continuation_authority": true,
+    "requires_expiry_revalidation_at_continuation": true,
+    "requires_same_full_instrument_id": true,
+    "requires_same_event_key_fingerprint": true,
+    "requires_same_venue_and_trading_day": true,
+    "requires_same_schedule_fingerprint": true,
+    "requires_same_continuation_epoch": true,
+    "revalidates_session_freshness_at_continuation": true,
+    "revalidates_calendar_freshness_at_continuation": true,
+    "revalidates_sequence_freshness_at_continuation": true,
+    "revalidates_b3b_schedule_expiry_at_continuation": true,
+    "blocks_clock_before_any_evidence_observation": true,
+    "blocks_future_b3b_observed_bar": true,
+    "blocked_transition_returns_all_inputs": true,
+    "successful_transition_is_monotonic": true,
+    "calendar_inference_allowed": false,
+    "market_gap_inference_allowed": false,
+    "requires_explicit_calendar_and_market_sequence_receipts": true,
+    "binding_fingerprint_model": "event_key_identity",
+    "full_accepted_bar_digest_deferred_to_audit_or_replay_scope": true,
+    "callback_ready": false,
+    "execution_ready": false,
+    "calls_strategy": false,
+    "creates_executable_intent": false,
+    "callback_count": 0,
+    "intent_count": 0
+  },
+  "source_authorities": {
+    "fresh_open_session": "accepted broker session snapshot with source and continuation epoch",
+    "calendar": "accepted broker calendar snapshot with source version and continuation epoch",
+    "market_sequence": "accepted Stage5C recovery/aggregation market-data receipt with continuation epoch"
+  },
+  "evidence_contracts": {
+    "fresh_open_session": {
+      "rust_type": "Stage5eFreshOpenSessionEvidence",
+      "linear": true,
+      "clone": false,
+      "copy": false,
+      "serialization": false,
+      "constructors": ["sealed_checked_transition_only"],
+      "required_fields": ["full_instrument_id", "venue_mic", "trading_day", "schedule_fingerprint", "event_key_fingerprint", "state_open", "continuation_epoch", "source_fingerprint", "observed_at", "expires_at"],
+      "fingerprint_fields": ["full_instrument_id", "venue_mic", "trading_day", "schedule_fingerprint", "event_key_fingerprint", "continuation_epoch", "source_fingerprint"]
+    },
+    "calendar": {
+      "rust_type": "Stage5eCalendarEligibilityEvidence",
+      "linear": true,
+      "clone": false,
+      "copy": false,
+      "serialization": false,
+      "constructors": ["sealed_checked_transition_only"],
+      "required_fields": ["full_instrument_id", "venue_mic", "trading_day", "schedule_fingerprint", "event_key_fingerprint", "calendar_source", "calendar_version", "continuation_epoch", "calendar_fingerprint", "day_classification", "early_close_policy", "observed_at", "expires_at"],
+      "fingerprint_fields": ["full_instrument_id", "venue_mic", "trading_day", "schedule_fingerprint", "event_key_fingerprint", "calendar_source", "calendar_version", "continuation_epoch", "calendar_fingerprint", "day_classification", "early_close_policy"]
+    },
+    "market_sequence": {
+      "rust_type": "Stage5eMarketSequenceEvidence",
+      "linear": true,
+      "clone": false,
+      "copy": false,
+      "serialization": false,
+      "constructors": ["sealed_checked_transition_only"],
+      "required_fields": ["full_instrument_id", "venue_mic", "trading_day", "schedule_fingerprint", "event_key_fingerprint", "timeframe", "finality", "provenance", "continuation_epoch", "source_fingerprint", "previous_canonical_close", "gap_classification", "observed_at", "expires_at"],
+      "fingerprint_fields": ["full_instrument_id", "venue_mic", "trading_day", "schedule_fingerprint", "event_key_fingerprint", "provenance", "continuation_epoch", "source_fingerprint", "previous_canonical_close", "gap_classification"]
+    }
+  },
+  "transition_contract": {
+    "inputs": ["Stage5eBoundScheduleWindowForObservedLiveBar", "Stage5eFreshOpenSessionEvidence", "Stage5eCalendarEligibilityEvidence", "Stage5eMarketSequenceEvidence", "continuation_time"],
+    "output": "Stage5eBoundSessionCalendarSequenceForObservedLiveBar",
+    "checks": ["same_full_instrument_id", "same_event_key_fingerprint", "same_venue_and_trading_day", "same_schedule_fingerprint", "same_continuation_epoch", "all_evidence_fresh", "clock_not_before_any_evidence_observation", "b3b_schedule_not_expired", "b3b_observed_bar_not_future", "calendar_is_trading", "sequence_final_and_gap_free"],
+    "output_authority": {"callback_ready": false, "execution_ready": false, "calls_strategy": false, "creates_executable_intent": false}
+  },
+  "block_reasons": {
+    "producer_rejections": ["Unavailable", "Unknown", "NotOpen", "NonTrading", "ObservedInFuture", "Expired"],
+    "retryable": ["ClockBeforeEvidenceObservation", "B3bScheduleExpired", "B3bObservedBarInFuture", "SessionExpired", "CalendarExpired", "SequenceExpired", "SessionNotOpen", "CalendarNonTrading", "SequenceUnavailable", "SequenceGap", "InstrumentMismatch", "CalendarTradingDayMismatch", "ScheduleFingerprintMismatch", "BarIdentityMismatch", "ContinuationEpochMismatch"],
+    "terminal": []
+  },
+  "implementation_seal": {
+    "source_file": "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
+    "module": "schedule_window_evidence::b3c_evidence",
+    "region_marker": "private-no-io-v1",
+    "region_sha256": "a298695c1fa1e4a4164402d3625750bdcd908de58724e36ba9bd637c210e5b3c",
+    "b3b_core_region_sha256": "982d7cc67b295ef633ddffa5f767067a7d5c05da1ed5b8b77b31a581d9b7be94",
+    "source_input_types": ["AcceptedBrokerSessionSnapshotEvidence", "AcceptedBrokerCalendarSnapshotEvidence", "Stage5cAcceptedMarketSequenceReceipt"],
+    "receipt_types": ["Stage5eFreshOpenSessionEvidence", "Stage5eCalendarEligibilityEvidence", "Stage5eMarketSequenceEvidence"],
+    "output_type": "Stage5eBoundSessionCalendarSequenceForObservedLiveBar",
+    "blocked_transition_type": "Stage5eSessionCalendarSequenceBlocked",
+    "acceptance_functions": ["accept_open_session", "accept_calendar", "accept_sequence", "bind_session_calendar_sequence"],
+    "visibility": "nested_module_private",
+    "forbidden_region_tokens": ["pub(crate)", "pub(super)", "on_broker_bar", "BrokerNeutralHybridIntent", "redis", "finam", "reqwest", "tokio", "std::fs", "std::net"],
+    "required_transition_markers": ["validate_continuation", "ClockBeforeEvidenceObservation", "B3bScheduleExpired", "B3bObservedBarInFuture", "ScheduleFingerprintMismatch", "BarIdentityMismatch", "ContinuationEpochMismatch", "into_inputs"]
+  },
+  "expected_provenance_case_count": 136,
+  "allowed_changed_paths": ["crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md", "docs/stage-5/stage5e-active-descriptor.json", "docs/stage-5/stage5e-b3c-private-eligibility-seam-inventory.json", "scripts/handoff_provenance_negative_harness.py", "scripts/handoff_safety_check.py", "scripts/stage5e_b3_schedule_window_evidence_check.py", "scripts/stage5e_b3c_private_eligibility_seam_check.py", "scripts/stage5e_descriptor.py", "scripts/stage5e_lifecycle_event_time_gate.sh"]
 }

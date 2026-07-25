@@ -1,16 +1,59 @@
-# Stage 5E-b3c-r2 — machine-readable private eligibility evidence contract
+# Stage 5E-b3c-r3 — private no-I/O conjunctive eligibility binding
 
 Baseline: `95861577ce3acc11963104bb5a313a82f6f82bdb`.
 
 Stage 5E-b3b-r2 is immutable: `Stage5eBoundScheduleWindowForObservedLiveBar`
-remains an opaque, linear receipt, and its sealed construction boundary remains
-hash-pinned. This slice adds no Rust runtime code. It freezes the sole safe
-extension shape before any eligibility implementation is attempted.
+remains an opaque, linear receipt. The original b3b core is still hash-pinned
+byte-for-byte: the predecessor checker reconstructs its historical region only
+after removing one exact, separately pinned b3c nested region.
+
+`private-no-io-v1` is nested inside the existing private
+`schedule_window_evidence` module. That gives it the only safe way to consume
+the opaque b3b receipt without widening b3b visibility, re-exporting its
+strategy/recovery ownership, or making an external construction route.
 
 The JSON inventory is the normative contract. It freezes exact field schemas,
 source authorities, construction seals, transition input/output, blocker
 taxonomy and expected provenance case count. This Markdown file is its human
 projection; any contradiction with the inventory is invalid.
+
+## Implemented: private producers and conjunctive bridge
+
+`b3c_evidence` owns three module-private source snapshots and produces exactly
+three non-`Clone`, non-`Copy`, non-serializable receipts:
+
+- `Stage5eFreshOpenSessionEvidence` only after a fresh broker session snapshot
+  is explicitly `Open`, has a non-empty source epoch and a non-zero source
+  fingerprint;
+- `Stage5eCalendarEligibilityEvidence` only after a fresh broker calendar
+  snapshot explicitly classifies the day as trading and supplies a source,
+  version and fingerprint;
+- `Stage5eMarketSequenceEvidence` only after a fresh Stage 5C sequence receipt
+  is final, gap-free, has a bar identity, non-zero timeframe and source
+  fingerprint.
+
+The producer code has no visibility beyond its nested private module and no
+path to Redis, FINAM, transport, dispatch, runtime-live, strategy callbacks or
+intent construction. Its exact source region is pinned by the inventory and
+checked together with negative mutations.
+
+The bridge now consumes all four linear inputs:
+
+```text
+opaque b3b bound schedule/window receipt
++ fresh Open session receipt
++ trading calendar receipt
++ final, gap-free market-sequence receipt
++ continuation-time clock
+-> opaque combined no-I/O eligibility receipt
+```
+
+It must revalidate every evidence expiry; rejects a clock before any
+observation, an expired b3b schedule, a future b3b bar,
+non-Open/non-trading/non-final/gapped evidence, and mismatches in full
+instrument identity, venue/day, schedule fingerprint, event-key fingerprint
+or continuation epoch. A block returns every consumed input unchanged; success
+owns all inputs and exposes only zero callback/intent diagnostics.
 
 ## Three sealed evidence contracts
 
@@ -33,9 +76,9 @@ fingerprint, previous canonical close boundary, gap classification,
 market-data recovery/aggregation contour, never from a caller boolean or a
 simple timestamp-delta rule.
 
-## Required next construction
+## Binding contract
 
-The future private no-I/O eligibility receipt must consume, rather than copy:
+The private no-I/O eligibility receipt consumes, rather than copies:
 
 ```text
 Stage5eBoundScheduleWindowForObservedLiveBar
@@ -46,10 +89,10 @@ Stage5eBoundScheduleWindowForObservedLiveBar
 -> opaque Stage5eBoundSessionCalendarSequenceForObservedLiveBar
 ```
 
-All receipts must bind the same full `InstrumentId`, bar identity, venue and
-trading-day context; b3b schedule fingerprint is preserved. Continuation must
-revalidate every evidence expiry and reject a clock earlier than any
-`observed_at`. It must also reject a future bar, a sequence gap/epoch mismatch,
+All receipts bind the same full `InstrumentId`, event-key fingerprint, venue
+and trading-day context; b3b schedule fingerprint is preserved. Continuation
+revalidates every evidence expiry and rejects a clock earlier than any
+`observed_at`. It also rejects a future b3b bar, a sequence gap/epoch mismatch,
 calendar non-trading day and schedule expiry.
 
 The result must retain the mandatory Stage 5C strategy and recovery ownership
@@ -64,10 +107,11 @@ instrument-bound identity or revalidation lifetime. The implementation must
 therefore introduce a new sealed, instrument-bound session evidence receipt;
 it must not weaken or repurpose the frozen b2 receipt.
 
-The eligibility continuation must revalidate b3b schedule expiry at its own
-clock. It must also prove the session evidence is fresh at that clock. Calendar
-and market-sequence inputs must be explicit receipts; inferred exchange
-calendar policy, raw timestamps, and a free-form boolean are forbidden.
+The eligibility continuation revalidates b3b schedule expiry at its own clock.
+It also proves session, calendar and market-sequence evidence fresh at that
+clock. Calendar and market-sequence inputs are explicit receipts; inferred
+exchange calendar policy, raw timestamps, and a free-form boolean are
+forbidden.
 
 The existing binding fingerprint remains an event-key identity
 (`InstrumentId + bar close + schedule fingerprint`). It is not upgraded to a
@@ -84,6 +128,6 @@ It is not callback eligibility. It must not add:
 - Redis, FINAM, transport, dispatch, runtime-live or broker execution;
 - calendar inference, market-gap inference or autonomous loops.
 
-The first implementation after this design must add a new additive region,
-keep the b3b core hash unchanged, and prove `callback_count == 0` and
-`intent_count == 0` for success, block and retry paths.
+The implemented additive region keeps the b3b core hash unchanged after exact
+region removal and proves `callback_count == 0` and `intent_count == 0` for
+success and blocked-retry paths. It remains a no-I/O facade only.

@@ -78,7 +78,12 @@ EXPECTED_CONTRACT_INVARIANTS = {
 }
 REGION_BEGIN = "// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v5"
 REGION_END = "// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v5"
+# b3c may live only as a marked, separately pinned nested region.  Removing
+# that exact region must reconstruct the original b3b-r2 bytes verbatim.
 EXPECTED_REGION_SHA256 = "982d7cc67b295ef633ddffa5f767067a7d5c05da1ed5b8b77b31a581d9b7be94"
+B3C_BRIDGE_BEGIN = "// STAGE5E-B3C-EVIDENCE-BEGIN: private-no-io-v1"
+B3C_BRIDGE_END = "// STAGE5E-B3C-EVIDENCE-END: private-no-io-v1"
+EXPECTED_B3C_BRIDGE_SHA256 = "66653d33d2ccce22f475977c6dabbe4a887d91d5322e0897a36db129c22045a5"
 
 
 def fail(message: str) -> None:
@@ -132,8 +137,21 @@ def main() -> int:
     if module.count(REGION_BEGIN) != 1 or module.count(REGION_END) != 1:
         fail("b3 region marker cardinality drift")
     region = module.split(REGION_BEGIN, 1)[1].split(REGION_END, 1)[0]
-    if hashlib.sha256(region.encode()).hexdigest() != EXPECTED_REGION_SHA256:
+    if region.count(B3C_BRIDGE_BEGIN) != 1 or region.count(B3C_BRIDGE_END) != 1:
+        fail("b3c bridge region marker cardinality drift")
+    bridge_marker_start = region.index(B3C_BRIDGE_BEGIN)
+    bridge_start = region.rfind("\n", 0, bridge_marker_start) + 1
+    if bridge_start > 0 and region[bridge_start - 1] == "\n":
+        bridge_start -= 1
+    bridge_end = region.index(B3C_BRIDGE_END) + len(B3C_BRIDGE_END)
+    if region[bridge_end:bridge_end + 1] == "\n":
+        bridge_end += 1
+    bridge = region[bridge_marker_start:bridge_end]
+    core_region = region[:bridge_start] + region[bridge_end:]
+    if hashlib.sha256(core_region.encode()).hexdigest() != EXPECTED_REGION_SHA256:
         fail("b3 schedule evidence region hash mismatch")
+    if hashlib.sha256(bridge.encode()).hexdigest() != EXPECTED_B3C_BRIDGE_SHA256:
+        fail("b3c bridge region hash mismatch")
     for marker in (
         "ValidatedNormalizedInstrumentScheduleSnapshot",
         "SealedInstrumentRegistryBridgeInput",
@@ -164,7 +182,7 @@ def main() -> int:
         "ownership_fingerprint",
         "stage5e_test_observed_live_bar_after_history_at",
     ):
-        if marker not in region:
+        if marker not in core_region:
             fail(f"b3 semantic marker missing: {marker}")
     for forbidden in (
         "on_broker_bar",
@@ -176,7 +194,7 @@ def main() -> int:
         "std::fs",
         "std::net",
     ):
-        haystack = region.lower() if forbidden in {"redis", "reqwest", "tokio"} else region
+        haystack = core_region.lower() if forbidden in {"redis", "reqwest", "tokio"} else core_region
         if forbidden in haystack:
             fail(f"forbidden b3 no-I/O surface: {forbidden}")
     print("stage5e-b3-schedule-window-evidence-check: ok")
