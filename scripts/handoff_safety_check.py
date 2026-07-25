@@ -292,6 +292,9 @@ def check_archive(path: Path) -> None:
             elif current_review_stage == "5E-b3c-private-eligibility-seam":
                 expected_stage5e_baseline_ref = "95861577ce3acc11963104bb5a313a82f6f82bdb"
                 expected_stage5e_a_freeze_ref = None
+            elif current_review_stage == "5E-b3c-source-authority-freeze-extension":
+                expected_stage5e_baseline_ref = "936250e675ac15b61a7a4e319b59e508cd834f30"
+                expected_stage5e_a_freeze_ref = None
             else:
                 expected_stage5e_baseline_ref = "9ebbfd29d0346be5149dac746225866f0c8d0257"
                 expected_stage5e_a_freeze_ref = None
@@ -334,14 +337,26 @@ def check_archive(path: Path) -> None:
                     raise SystemExit("handoff safety: Stage 5E-b inventory key set drift")
                 if stage5e_inventory.get("allowed_changed_paths") != STAGE5E_B_ALLOWED_CHANGED_PATHS:
                     raise SystemExit("handoff safety: Stage 5E-b allowed_changed_paths drift")
-            if stage5e_inventory.get("source_stage5d_aggregate_closure_r2_ref") != "9ebbfd29d0346be5149dac746225866f0c8d0257":
+            if (
+                current_review_stage != "5E-b3c-source-authority-freeze-extension"
+                and stage5e_inventory.get("source_stage5d_aggregate_closure_r2_ref")
+                != "9ebbfd29d0346be5149dac746225866f0c8d0257"
+            ):
                 raise SystemExit("handoff safety: Stage 5E source baseline ref mismatch")
             if stage5e_inventory.get("baseline_ref") != expected_stage5e_baseline_ref:
                 raise SystemExit("handoff safety: Stage 5E baseline_ref mismatch")
             if expected_stage5e_a_freeze_ref is not None and stage5e_inventory.get("stage5e_a_freeze_ref") != expected_stage5e_a_freeze_ref:
                 raise SystemExit("handoff safety: Stage 5E-a freeze ref mismatch")
             closed = stage5e_inventory.get("closed_surfaces")
-            if not isinstance(closed, dict) or any(value is not False for value in closed.values()):
+            if current_review_stage == "5E-b3c-source-authority-freeze-extension":
+                expected_closed = [
+                    "strategy_callback", "strategy_state_mutation", "executable_intents",
+                    "strategy_intent_sink", "redis", "finam_io", "transport", "dispatch",
+                    "runtime_live", "broker_execution", "autonomous_event_loop",
+                ]
+                if closed != expected_closed:
+                    raise SystemExit("handoff safety: Stage 5E extension closed-surface mismatch")
+            elif not isinstance(closed, dict) or any(value is not False for value in closed.values()):
                 raise SystemExit("handoff safety: Stage 5E closed-surface mismatch")
             gate_result = json.loads(archive.read(stage5e_gate_result_name))
             if not isinstance(gate_result, dict):

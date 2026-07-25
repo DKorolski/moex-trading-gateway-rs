@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "stage": "5E-b3c-source-authority-freeze-extension",
+  "status": "design_only_pending_review",
+  "baseline_ref": "936250e675ac15b61a7a4e319b59e508cd834f30",
+  "predecessor_stage": "5E-b3c-private-eligibility-seam",
+  "production_source_baselines": {
+    "crates/broker-core/src/lib.rs": "5d8758624f53a6b46d8903dd3f2339d5bd04f64c9c6490448167f08ac68ec8a2",
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "14a723bd2adf98f50c2443166b7fb838edd8df6c5cf46968d13eb9e8d901b4c9",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "76bade52f3ebb309475812b617823825a3b7e4838bf89f9eb297ca2bbffbf821"
+  },
+  "implementation_authorization": {
+    "stage4_stage5c_freeze_extension_reviewed": false,
+    "production_source_changes_allowed": false,
+    "trusted_combined_eligibility": false,
+    "unverified_sequence_production_authoritative": false
+  },
+  "proposed_owner_receipts": {
+    "stage4_open_session": {
+      "owner": "stage4_broker_truth",
+      "rust_type": "Stage4AcceptedOpenSessionEvidence",
+      "requires_exact_state": "BrokerMarketSessionState::Open",
+      "required_fields": ["full_instrument_id", "state", "observed_at", "expires_at", "source_fingerprint", "source_generation", "accepted_report_identity"]
+    },
+    "stage5c_market_sequence": {
+      "owner": "stage5c_canonical_history_and_semantic_bar",
+      "rust_type": "Stage5cAcceptedMarketSequenceEvidence",
+      "required_fields": ["full_instrument_id", "event_key", "timeframe", "finality", "canonical_previous_close", "gap_free", "source_fingerprint", "source_generation", "observed_at", "expires_at"]
+    },
+    "stage5e_continuation_binding": {
+      "owner": "stage5e_private_conjunction",
+      "rust_type": "Stage5eContinuationBindingId",
+      "model": "deterministic_digest_of_b3b_event_key_and_all_owner_fingerprints_and_generations",
+      "constant_epoch_allowed": false
+    }
+  },
+  "fail_closed_rules": [
+    "static_tradable_open_window_does_not_prove_dynamic_open_state",
+    "unverified_market_sequence_is_test_only",
+    "raw_dto_or_boolean_cannot_construct_owner_receipt",
+    "missing_or_expired_owner_receipt_blocks",
+    "no_trusted_combined_eligibility_before_extension_acceptance"
+  ],
+  "closed_surfaces": ["strategy_callback", "strategy_state_mutation", "executable_intents", "strategy_intent_sink", "redis", "finam_io", "transport", "dispatch", "runtime_live", "broker_execution", "autonomous_event_loop"],
+  "required_implementation_tests": ["non_open_stage4_states_block", "open_stage4_state_accepts", "unverified_sequence_blocks_in_production", "owner_sequence_preserves_continuity", "producer_source_retry", "continuation_binding_changes_with_source", "production_clock_not_caller_supplied"],
+  "required_negative_mutations": ["open_state_stripped", "unverified_sequence_authoritative", "owner_constructor_bypass", "continuation_binding_constant", "producer_source_lost", "test_clock_exposed", "authority_plan_inventory_contradiction"],
+  "allowed_changed_paths": ["docs/stage-5/5e-b3c-private-eligibility-seam-plan.md", "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage5e-active-descriptor.json", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/handoff_safety_check.py", "scripts/stage5e_b3c_private_eligibility_seam_check.py", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py", "scripts/stage5e_descriptor.py", "scripts/stage5e_lifecycle_event_time_gate.sh"]
+}

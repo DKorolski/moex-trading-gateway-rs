@@ -74,7 +74,7 @@ EXPECTED_SOURCE_AUTHORITIES_SHA256 = "deb83be4f567cb868c863dbf7f859b0c6405fa54b9
 EXPECTED_EVIDENCE_CONTRACTS_SHA256 = "9c72623683ecfb2a0a11a2a5e028176c92da21602b877b22ad241e553c564de6"
 EXPECTED_TRANSITION_CONTRACT_SHA256 = "6bd4b036e5e29d0119cbd048d83c91d7353a7d56bf5f304037ea471152acfeb6"
 EXPECTED_BLOCK_REASONS_SHA256 = "a21aa880aa5721c6be7c98766387efedc0e0dba58962f98a7cbf72244dc59581"
-EXPECTED_PLAN_SHA256 = "ebfcb3e9af4ed6e35a7bdab29f9ec897f0961a6dcf0e021ce15c098421b16528"
+EXPECTED_PLAN_SHA256 = "00ed171f204924120ac0ffcc422d93e6e3813cd713cecd71470591084355a642"
 
 
 def marked_region(text: str, begin: str, end: str) -> str:
@@ -215,7 +215,10 @@ def main() -> int:
     reasons = payload.get("block_reasons")
     if not isinstance(reasons, dict) or set(reasons) != {"producer_rejections", "retryable", "terminal"} or reasons.get("terminal") != [] or len(reasons.get("producer_rejections", [])) != 6 or len(reasons.get("retryable", [])) != 15:
         fail("blocker taxonomy drift")
-    if json.loads(ACTIVE.read_text()) != {"schema_version": 1, "stage": "5E-b3c-private-eligibility-seam"}:
+    if json.loads(ACTIVE.read_text()) not in (
+        {"schema_version": 1, "stage": "5E-b3c-private-eligibility-seam"},
+        {"schema_version": 1, "stage": "5E-b3c-source-authority-freeze-extension"},
+    ):
         fail("active descriptor drift")
     plan = PLAN.read_text()
     for marker in (

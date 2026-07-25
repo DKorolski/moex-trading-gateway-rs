@@ -31,9 +31,14 @@ EXPECTED_REGISTRY = {
         "plan": "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md",
         "checker": "scripts/stage5e_b3c_private_eligibility_seam_check.py",
     },
+    "5E-b3c-source-authority-freeze-extension": {
+        "inventory": "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json",
+        "plan": "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md",
+        "checker": "scripts/stage5e_b3c_source_authority_freeze_extension_check.py",
+    },
 }
 REGISTRY = EXPECTED_REGISTRY
-EXPECTED_REGISTRY_SHA256 = "334e3c1a244beab12eacd33d258d1e1c1b4bc21096510116a36c06483e7ce962"
+EXPECTED_REGISTRY_SHA256 = "490476e1763d53385449d68b6acda1da9510f0de8779dae135f63ed6fffd16cd"
 
 
 def registry_sha256(registry: object) -> str:
