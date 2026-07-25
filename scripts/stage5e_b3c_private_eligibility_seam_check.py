@@ -66,14 +66,14 @@ def fail(message: str) -> None:
 def main() -> int:
     payload = json.loads(INVENTORY.read_text())
     if set(payload) != {
-        "schema_version", "stage", "status", "baseline_ref",
-        "source_stage5d_aggregate_closure_r2_ref", "closed_surfaces",
-        "contract_invariants", "allowed_changed_paths",
+        "schema_version", "stage", "status", "baseline_ref", "source_stage5d_aggregate_closure_r2_ref",
+        "closed_surfaces", "contract_invariants", "source_authorities", "evidence_contracts",
+        "transition_contract", "block_reasons", "expected_provenance_case_count", "allowed_changed_paths",
     }:
         fail("inventory key set drift")
     if payload.get("schema_version") != 1 or payload.get("stage") != "5E-b3c-private-eligibility-seam":
         fail("inventory identity drift")
-    if payload.get("status") != "exact_contract_frozen_no_runtime_code":
+    if payload.get("status") != "machine_contract_frozen_no_runtime_code":
         fail("inventory status drift")
     if payload.get("baseline_ref") != "95861577ce3acc11963104bb5a313a82f6f82bdb":
         fail("baseline drift")
@@ -85,11 +85,41 @@ def main() -> int:
         fail("closed surface drift")
     if payload.get("contract_invariants") != EXPECTED_INVARIANTS:
         fail("contract invariant drift")
+    if payload.get("expected_provenance_case_count") != 123:
+        fail("expected provenance case count drift")
+    contracts = payload.get("evidence_contracts")
+    expected_types = {
+        "fresh_open_session": "Stage5eFreshOpenSessionEvidence",
+        "calendar": "Stage5eCalendarEligibilityEvidence",
+        "market_sequence": "Stage5eMarketSequenceEvidence",
+    }
+    if not isinstance(contracts, dict) or set(contracts) != set(expected_types):
+        fail("evidence contract set drift")
+    for name, rust_type in expected_types.items():
+        contract = contracts[name]
+        if contract.get("rust_type") != rust_type or contract.get("linear") is not True:
+            fail("evidence type or linearity drift")
+        if any(contract.get(flag) is not False for flag in ("clone", "copy", "serialization")):
+            fail("evidence construction seal drift")
+        if contract.get("constructors") != ["sealed_checked_transition_only"]:
+            fail("evidence constructor authority drift")
+        if not isinstance(contract.get("required_fields"), list) or not isinstance(contract.get("fingerprint_fields"), list):
+            fail("evidence field schema drift")
+    transition = payload.get("transition_contract")
+    if not isinstance(transition, dict) or transition.get("output") != "Stage5eBoundSessionCalendarSequenceForObservedLiveBar":
+        fail("transition schema drift")
+    if transition.get("inputs") != ["Stage5eBoundScheduleWindowForObservedLiveBar", "Stage5eFreshOpenSessionEvidence", "Stage5eCalendarEligibilityEvidence", "Stage5eMarketSequenceEvidence", "continuation_time"]:
+        fail("transition input schema drift")
+    if set(transition.get("output_authority", {})) != {"callback_ready", "execution_ready", "calls_strategy", "creates_executable_intent"} or any(transition["output_authority"].values()):
+        fail("transition authority drift")
+    reasons = payload.get("block_reasons")
+    if not isinstance(reasons, dict) or set(reasons) != {"retryable", "terminal"} or reasons.get("terminal") != [] or len(reasons.get("retryable", [])) != 25:
+        fail("blocker taxonomy drift")
     if json.loads(ACTIVE.read_text()) != {"schema_version": 1, "stage": "5E-b3c-private-eligibility-seam"}:
         fail("active descriptor drift")
     plan = PLAN.read_text()
     for marker in (
-        "Stage 5E-b3c-r1", "Stage5eFreshOpenSessionEvidence",
+        "Stage 5E-b3c-r2", "Stage5eFreshOpenSessionEvidence",
         "Stage5eCalendarEligibilityEvidence", "Stage5eMarketSequenceEvidence",
         "Stage5eBoundSessionCalendarSequenceForObservedLiveBar", "same full `InstrumentId`",
         "revalidate every evidence expiry", "callback_ready=false", "execution_ready=false",

@@ -1,4 +1,4 @@
-# Stage 5E-b3c-r1 — exact private eligibility evidence contract
+# Stage 5E-b3c-r2 — machine-readable private eligibility evidence contract
 
 Baseline: `95861577ce3acc11963104bb5a313a82f6f82bdb`.
 
@@ -7,7 +7,9 @@ remains an opaque, linear receipt, and its sealed construction boundary remains
 hash-pinned. This slice adds no Rust runtime code. It freezes the sole safe
 extension shape before any eligibility implementation is attempted.
 
-The JSON inventory is the normative contract. This Markdown file is its human
+The JSON inventory is the normative contract. It freezes exact field schemas,
+source authorities, construction seals, transition input/output, blocker
+taxonomy and expected provenance case count. This Markdown file is its human
 projection; any contradiction with the inventory is invalid.
 
 ## Three sealed evidence contracts
