@@ -289,6 +289,9 @@ def check_archive(path: Path) -> None:
                 # but its scoped review diff begins at the accepted b2.1 seal.
                 expected_stage5e_baseline_ref = "04431096e269daaf9715e253b2354b1ac8fcc3e8"
                 expected_stage5e_a_freeze_ref = None
+            elif current_review_stage == "5E-b3c-private-eligibility-seam":
+                expected_stage5e_baseline_ref = "95861577ce3acc11963104bb5a313a82f6f82bdb"
+                expected_stage5e_a_freeze_ref = None
             else:
                 expected_stage5e_baseline_ref = "9ebbfd29d0346be5149dac746225866f0c8d0257"
                 expected_stage5e_a_freeze_ref = None

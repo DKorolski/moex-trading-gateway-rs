@@ -26,9 +26,14 @@ EXPECTED_REGISTRY = {
         "plan": "docs/stage-5/5e-b3-schedule-window-evidence-plan.md",
         "checker": "scripts/stage5e_b3_schedule_window_evidence_check.py",
     },
+    "5E-b3c-private-eligibility-seam": {
+        "inventory": "docs/stage-5/stage5e-b3c-private-eligibility-seam-inventory.json",
+        "plan": "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md",
+        "checker": "scripts/stage5e_b3c_private_eligibility_seam_check.py",
+    },
 }
 REGISTRY = EXPECTED_REGISTRY
-EXPECTED_REGISTRY_SHA256 = "7b191cb1ac3646a8f81e2a22c46faf03dadd2beea7939949662782952f8925a8"
+EXPECTED_REGISTRY_SHA256 = "334e3c1a244beab12eacd33d258d1e1c1b4bc21096510116a36c06483e7ce962"
 
 
 def registry_sha256(registry: object) -> str:

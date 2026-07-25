@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "stage": "5E-b3c-private-eligibility-seam",
+  "status": "design_frozen_no_runtime_code",
+  "baseline_ref": "95861577ce3acc11963104bb5a313a82f6f82bdb",
+  "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
+  "closed_surfaces": {
+    "redis": false,
+    "finam": false,
+    "transport": false,
+    "dispatch": false,
+    "runtime_live": false,
+    "broker_execution": false,
+    "strategy_callback": false,
+    "strategy_intent_sink": false,
+    "strategy_state_mutation": false,
+    "autonomous_event_loop": false
+  },
+  "contract_invariants": {
+    "b3b_core_remains_hash_pinned": true,
+    "future_eligibility_consumes_b3b_receipt_linearly": true,
+    "requires_new_instrument_scoped_session_evidence": true,
+    "b2_session_receipt_not_repurposed_as_continuation_authority": true,
+    "requires_expiry_revalidation_at_continuation": true,
+    "requires_explicit_calendar_and_market_sequence_receipts": true,
+    "binding_fingerprint_model": "event_key_identity",
+    "full_accepted_bar_digest_deferred_to_audit_or_replay_scope": true,
+    "callback_count": 0,
+    "intent_count": 0
+  },
+  "allowed_changed_paths": [
+    "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md",
+    "docs/stage-5/stage5e-active-descriptor.json",
+    "docs/stage-5/stage5e-b3c-private-eligibility-seam-inventory.json",
+    "scripts/handoff_safety_check.py",
+    "scripts/stage5e_b3c_private_eligibility_seam_check.py",
+    "scripts/stage5e_descriptor.py",
+    "scripts/stage5e_lifecycle_event_time_gate.sh"
+  ]
+}
