@@ -498,6 +498,22 @@ def main() -> int:
 
         return apply
 
+    def mutate_stage5e_b3c_inventory_for_checker(mutator):
+        def apply(root, _manifest, _marker):
+            path = root / "docs/stage-5/stage5e-b3c-private-eligibility-seam-inventory.json"
+            payload = json.loads(path.read_text())
+            mutator(payload)
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+        return apply
+
+    def mutate_stage5e_b3c_plan_for_checker(mutator):
+        def apply(root, _manifest, _marker):
+            path = root / "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md"
+            path.write_text(mutator(path.read_text()))
+
+        return apply
+
     def mutate_stage5e_b3_module_for_checker(mutator):
         def apply(root, _manifest, _marker):
             path = root / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
@@ -1616,6 +1632,44 @@ def main() -> int:
                 )
             ),
             "5E-b3-schedule-window-evidence",
+            True,
+        ),
+        Case(
+            "stage5e-b3c-session-contract-removed",
+            "contract invariant drift",
+            mutate_stage5e_b3c_inventory_for_checker(
+                lambda payload: payload["contract_invariants"].__setitem__(
+                    "requires_separate_session_calendar_sequence_receipts", False
+                )
+            ),
+            "5E-b3c-private-eligibility-seam",
+            True,
+        ),
+        Case(
+            "stage5e-b3c-callback-authority-opened",
+            "contract invariant drift",
+            mutate_stage5e_b3c_inventory_for_checker(
+                lambda payload: payload["contract_invariants"].__setitem__("callback_ready", True)
+            ),
+            "5E-b3c-private-eligibility-seam",
+            True,
+        ),
+        Case(
+            "stage5e-b3c-calendar-inference-opened",
+            "contract invariant drift",
+            mutate_stage5e_b3c_inventory_for_checker(
+                lambda payload: payload["contract_invariants"].__setitem__("calendar_inference_allowed", True)
+            ),
+            "5E-b3c-private-eligibility-seam",
+            True,
+        ),
+        Case(
+            "stage5e-b3c-b2-repurpose-contradiction",
+            "forbidden plan contradiction",
+            mutate_stage5e_b3c_plan_for_checker(
+                lambda text: text + "\nb2 session receipt may be repurposed\n"
+            ),
+            "5E-b3c-private-eligibility-seam",
             True,
         ),
     ]
