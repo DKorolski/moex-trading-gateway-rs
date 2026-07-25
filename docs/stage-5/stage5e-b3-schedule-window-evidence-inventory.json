@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "5E-b3-schedule-window-evidence",
-  "status": "governance_contract_only",
+  "status": "mandatory_stage5c_ownership_bound_no_io",
   "baseline_ref": "04431096e269daaf9715e253b2354b1ac8fcc3e8",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
   "closed_surfaces": {
@@ -36,13 +36,18 @@
     "rejects_clock_before_effective_evidence_observation": true,
     "successful_binding_is_monotonic": true,
     "binding_fingerprint_present": true,
-    "actual_consuming_binding_tested": true
+    "actual_consuming_binding_tested": true,
+    "requires_mandatory_stage5c_ownership": true,
+    "actual_stage5c_ownership_retention_tested": true
   },
   "allowed_changed_paths": [
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
     "docs/stage-5/5e-b3-schedule-window-evidence-plan.md",
+    "docs/stage-5/stage-5d-additive-freeze-manifest.json",
     "docs/stage-5/stage5e-active-descriptor.json",
     "docs/stage-5/stage5e-b3-schedule-window-evidence-inventory.json",
+    "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
     "scripts/make_handoff_archive.sh",

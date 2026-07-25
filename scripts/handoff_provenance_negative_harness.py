@@ -1527,6 +1527,97 @@ def main() -> int:
             "5E-b3-schedule-window-evidence",
             True,
         ),
+        Case(
+            "stage5e-b3b-strategy-ownership-made-optional",
+            "Stage 5E-b3b observed receipt must retain mandatory Stage 5C ownership",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace(
+                    "strategy: HybridIntradayRuntimeStrategy,",
+                    "strategy: Option<HybridIntradayRuntimeStrategy>,",
+                    1,
+                )
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b3b-recovery-ownership-made-optional",
+            "Stage 5E-b3b observed receipt must retain mandatory Stage 5C ownership",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace(
+                    "recovery_receipt: Stage5cPendingRecoveryReceipt,",
+                    "recovery_receipt: Option<Stage5cPendingRecoveryReceipt>,",
+                    1,
+                )
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b3b-empty-state-test-constructor",
+            "forbidden Stage 5E-b3b empty-state or forge surface: test_only_for_schedule_binding",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace(
+                    "impl Stage5eObservedLiveBarAfterHistory {\n    pub(crate) fn bar_close_ts",
+                    "impl Stage5eObservedLiveBarAfterHistory {\n    #[cfg(test)]\n    fn test_only_for_schedule_binding() {}\n\n    pub(crate) fn bar_close_ts",
+                    1,
+                )
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b3b-free-forged-observed-bar",
+            "forbidden Stage 5E-b3b empty-state or forge surface: forge_observed_live_bar_without_stage5c",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace(
+                    "// STAGE5E-NO-IO-SESSION-ELIGIBILITY-BEGIN",
+                    "fn forge_observed_live_bar_without_stage5c() -> Stage5eObservedLiveBarAfterHistory { unreachable!() }\n\n// STAGE5E-NO-IO-SESSION-ELIGIBILITY-BEGIN",
+                    1,
+                )
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b3b-second-associated-constructor",
+            "Stage 5E-b3b alternate receipt constructor detected",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace(
+                    "impl Stage5eObservedLiveBarAfterHistory {\n    pub(crate) fn bar_close_ts",
+                    "impl Stage5eObservedLiveBarAfterHistory {\n    fn forged() -> Self { unreachable!() }\n\n    pub(crate) fn bar_close_ts",
+                    1,
+                )
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b3b-direct-observed-bar-literal",
+            "Stage 5E-b3b receipt struct literal escaped its sealed constructor",
+            mutate_stage5e_b_module_for_checker(
+                lambda text: text.replace(
+                    "// STAGE5E-NO-IO-SESSION-ELIGIBILITY-BEGIN",
+                    "fn direct_observed_bar_literal() { let _ = Stage5eObservedLiveBarAfterHistory { strategy: unreachable!(), recovery_receipt: unreachable!(), bar: unreachable!(), tick_size: 0.5 }; }\n\n// STAGE5E-NO-IO-SESSION-ELIGIBILITY-BEGIN",
+                    1,
+                )
+            ),
+            "5E-b-no-io-lifecycle-capability",
+            True,
+        ),
+        Case(
+            "stage5e-b3b-actual-ownership-retention-test-removed",
+            "b3 schedule evidence region hash mismatch",
+            mutate_stage5e_b3_module_for_checker(
+                lambda text: text.replace(
+                    "bound.observed_live_bar.ownership_fingerprint(),\n                expected_ownership",
+                    "bound.observed_live_bar.callback_count(),\n                0",
+                    1,
+                )
+            ),
+            "5E-b3-schedule-window-evidence",
+            True,
+        ),
     ]
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)

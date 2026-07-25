@@ -1,4 +1,4 @@
-# Stage 5E-b3b-r1 — trusted monotonic observed-bar ScheduleWindowEvidence binding
+# Stage 5E-b3b-r2 — mandatory Stage 5C ownership in monotonic observed-bar binding
 
 Baseline: `04431096e269daaf9715e253b2354b1ac8fcc3e8`.
 
@@ -75,6 +75,27 @@ The successful bound receipt is monotonic: it has no unbinding API. Only a
 blocked outcome may return the original receipts for a fresh-evidence retry.
 The successful receipt additionally carries a tagged deterministic binding
 fingerprint over the schedule fingerprint, full bar `InstrumentId`, bar close,
-and a versioned binding-domain tag. A `cfg(test)` private observed-bar fixture
-exists solely to exercise the consuming b3b transition; it is not a production
-attachment or callback path.
+and a versioned binding-domain tag. This is an event-identity fingerprint, not
+a replacement for a future full accepted-bar payload digest.
+
+## b3b-r2 mandatory Stage 5C ownership repair
+
+`Stage5eObservedLiveBarAfterHistory` owns non-optional
+`HybridIntradayRuntimeStrategy` and `Stage5cPendingRecoveryReceipt`. It has
+exactly one constructor, `from_stage5c_context`, which requires the private
+`Stage5eNoIoBridgeSeal`; no empty-state, free, or alternate constructor exists.
+
+The b3b consuming tests obtain their observed bar only through the canonical
+test-only Stage 5C recovery path:
+
+```text
+Stage 5C admission → bootstrap → restore → history warmup
+→ pending recovery → accepted live semantic bar
+→ sealed Stage5eObservedLiveBarAfterHistory → b3b bind/retry
+```
+
+They compare the Stage 5C-owned strategy-state fingerprint and recovery-receipt
+identity before binding, after a blocked retry, and after a successful bind.
+Callback count and intent count remain zero throughout. The test helper is not
+an observed-bar constructor: it invokes the sealed Stage 5C bridge and exists
+only under `cfg(test)`.

@@ -1057,6 +1057,20 @@ mod stage5e_retryable_bridge_tests {
         }
     }
 
+    pub(super) fn canonical_observed_live_bar_after_history(
+        now: DateTime<Utc>,
+        bar_close_ts: i64,
+    ) -> crate::stage5e_no_io_lifecycle::Stage5eObservedLiveBarAfterHistory {
+        match stage5e_try_observe_live_bar_after_history_at(
+            recovered(now, bar_close_ts - 600),
+            accepted(broker_core::HybridRuntimeBarOrigin::Live, bar_close_ts),
+            now,
+        ) {
+            Ok(observed) => observed,
+            Err(_) => panic!("canonical Stage 5C recovery chain must admit its first live bar"),
+        }
+    }
+
     #[test]
     fn stage5e_real_bridge_returns_retryable_recovered_state_then_accepts_next_live_bar() {
         let now = Utc
@@ -1094,6 +1108,17 @@ mod stage5e_retryable_bridge_tests {
         assert!(!observed.strategy_was_called());
         assert!(!observed.executable_intent_created());
     }
+}
+
+/// Test-only fixture for a real, fully-owned Stage 5C recovery chain.  It is
+/// deliberately not an observed-bar constructor: it must pass through the
+/// sealed Stage 5C bridge and therefore retains strategy and recovery state.
+#[cfg(test)]
+pub(crate) fn stage5e_test_observed_live_bar_after_history_at(
+    now: DateTime<Utc>,
+    bar_close_ts: i64,
+) -> crate::stage5e_no_io_lifecycle::Stage5eObservedLiveBarAfterHistory {
+    stage5e_retryable_bridge_tests::canonical_observed_live_bar_after_history(now, bar_close_ts)
 }
 // STAGE5E-NO-IO-BRIDGE-END: contextual-observation-v1
 // STAGE5D-ADDITIVE-BRIDGE-END: type-state-transitions

@@ -66,14 +66,29 @@ pub(crate) fn validate_contextual_live_bar_after_history(
 // STAGE5E-NO-IO-VALIDATOR-END: contextual-admission-v1
 
 pub(crate) struct Stage5eObservedLiveBarAfterHistory {
-    // Production construction always retains the linear Stage 5C inputs.  The
-    // `None` representation is reachable only from the private cfg(test)
-    // schedule-binding fixture below; it cannot be constructed by a runtime
-    // caller because these fields and the fixture are crate-private.
-    strategy: Option<HybridIntradayRuntimeStrategy>,
-    recovery_receipt: Option<Stage5cPendingRecoveryReceipt>,
+    // These are mandatory linear Stage 5C-owned inputs.  There is no
+    // empty-state/testing constructor: every observed live bar is produced by
+    // the sealed Stage 5C recovery bridge below.
+    strategy: HybridIntradayRuntimeStrategy,
+    recovery_receipt: Stage5cPendingRecoveryReceipt,
     bar: broker_core::HybridRuntimeBarEvent,
     tick_size: f64,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Stage5eObservedLiveBarOwnershipFingerprint {
+    strategy_state: String,
+    recovery_receipt: Stage5eRecoveryReceiptIdentity,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Stage5eRecoveryReceiptIdentity {
+    recovered_ts: DateTime<Utc>,
+    last_history_ts: i64,
+    replayed_events: usize,
+    duplicate_events: usize,
 }
 
 // STAGE5E-NO-IO-CAPABILITY-PROOF-BEGIN: zero-side-effects-v1
@@ -86,20 +101,10 @@ impl Stage5eObservedLiveBarAfterHistory {
         tick_size: f64,
     ) -> Self {
         Self {
-            strategy: Some(strategy),
-            recovery_receipt: Some(recovery_receipt),
+            strategy,
+            recovery_receipt,
             bar,
             tick_size,
-        }
-    }
-
-    #[cfg(test)]
-    fn test_only_for_schedule_binding(bar: broker_core::HybridRuntimeBarEvent) -> Self {
-        Self {
-            strategy: None,
-            recovery_receipt: None,
-            bar,
-            tick_size: 0.5,
         }
     }
 }
@@ -123,6 +128,24 @@ impl Stage5eObservedLiveBarAfterHistory {
 
     pub(crate) fn executable_intent_created(&self) -> bool {
         false
+    }
+
+    #[cfg(test)]
+    pub(crate) fn ownership_fingerprint(&self) -> Stage5eObservedLiveBarOwnershipFingerprint {
+        use crate::runtime_compat::Strategy;
+
+        Stage5eObservedLiveBarOwnershipFingerprint {
+            strategy_state: crate::stage5c_paper_host::stage5c_semantic_payload_fingerprint(
+                Strategy::state(&self.strategy),
+            )
+            .expect("Stage 5C-owned strategy state must remain serializable"),
+            recovery_receipt: Stage5eRecoveryReceiptIdentity {
+                recovered_ts: self.recovery_receipt.recovered_ts(),
+                last_history_ts: self.recovery_receipt.warmup_receipt().last_history_ts(),
+                replayed_events: self.recovery_receipt.replayed_events(),
+                duplicate_events: self.recovery_receipt.duplicate_events(),
+            },
+        }
     }
 }
 // STAGE5E-NO-IO-CAPABILITY-PROOF-END: zero-side-effects-v1
@@ -1007,20 +1030,9 @@ mod schedule_window_evidence {
             lifecycle_now: DateTime<Utc>,
             bar_close_ts: i64,
         ) -> super::super::Stage5eObservedLiveBarAfterHistory {
-            let _ = lifecycle_now;
-            super::super::Stage5eObservedLiveBarAfterHistory::test_only_for_schedule_binding(
-                broker_core::HybridRuntimeBarEvent {
-                    instrument: instrument(),
-                    close_time_utc: bar_close_ts,
-                    open: 2200.0,
-                    high: 2202.0,
-                    low: 2199.0,
-                    close: 2201.0,
-                    volume: 1.0,
-                    origin: broker_core::HybridRuntimeBarOrigin::Live,
-                    is_final: true,
-                    timeframe_sec: 600,
-                },
+            crate::stage5c_paper_host::stage5e_test_observed_live_bar_after_history_at(
+                lifecycle_now,
+                bar_close_ts,
             )
         }
 
@@ -1320,9 +1332,11 @@ mod schedule_window_evidence {
             let close = now.timestamp();
             let window = window_for_bar(now, instrument(), close, close + 1);
             let expected_schedule_fingerprint = window.fingerprint;
+            let observed = observed_live_bar(now, close);
+            let expected_ownership = observed.ownership_fingerprint();
             let bound = match bind_schedule_window_to_observed_live_bar_at(
                 window,
-                observed_live_bar(now, close),
+                observed,
                 LifecycleInstant(now),
             ) {
                 Ok(bound) => bound,
@@ -1344,6 +1358,10 @@ mod schedule_window_evidence {
             assert!(!bound.strategy_was_called());
             assert!(!bound.executable_intent_created());
             assert_eq!(bound.observed_live_bar.bar_close_ts(), close);
+            assert_eq!(
+                bound.observed_live_bar.ownership_fingerprint(),
+                expected_ownership
+            );
         }
 
         #[test]
@@ -1356,9 +1374,11 @@ mod schedule_window_evidence {
                 exchange: Exchange::Moex,
                 market: Market::Futures,
             };
+            let observed = observed_live_bar(now, close);
+            let expected_ownership = observed.ownership_fingerprint();
             let blocked = match bind_schedule_window_to_observed_live_bar_at(
                 window_for_bar(now, other, close, close + 1),
-                observed_live_bar(now, close),
+                observed,
                 LifecycleInstant(now),
             ) {
                 Ok(_) => panic!("wrong instrument must block"),
@@ -1369,6 +1389,7 @@ mod schedule_window_evidence {
                 ScheduleWindowObservedBarBindingError::InstrumentMismatch
             );
             let (_rejected_window, observed) = blocked.into_inputs();
+            assert_eq!(observed.ownership_fingerprint(), expected_ownership);
             let bound = match bind_schedule_window_to_observed_live_bar_at(
                 window_for_bar(now, instrument(), close, close + 1),
                 observed,
@@ -1379,6 +1400,10 @@ mod schedule_window_evidence {
             };
             assert_eq!(bound.callback_count(), 0);
             assert_eq!(bound.intent_count(), 0);
+            assert_eq!(
+                bound.observed_live_bar.ownership_fingerprint(),
+                expected_ownership
+            );
 
             let later = now + chrono::Duration::seconds(11);
             let expired = match bind_schedule_window_to_observed_live_bar_at(

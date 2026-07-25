@@ -49,13 +49,13 @@ EXPECTED_CONTRACT_INVARIANTS = {
 }
 BRIDGE_BEGIN = "// STAGE5E-NO-IO-BRIDGE-BEGIN: contextual-observation-v1"
 BRIDGE_END = "// STAGE5E-NO-IO-BRIDGE-END: contextual-observation-v1"
-EXPECTED_BRIDGE_SHA256 = "220f5ff64eb93b30c0de67872a9e8204f469933536d1c474a2ea11e26306701e"
+EXPECTED_BRIDGE_SHA256 = "7686409253c0467fdd0b8b728df47ed93493729972e6e468d7670ce5d12b930b"
 VALIDATOR_BEGIN = "// STAGE5E-NO-IO-VALIDATOR-BEGIN: contextual-admission-v1"
 VALIDATOR_END = "// STAGE5E-NO-IO-VALIDATOR-END: contextual-admission-v1"
 EXPECTED_VALIDATOR_SHA256 = "8ebad6268be99e5c7995668ee08290cdd058ede6f38d424476d5df0897f39f4c"
 PROOF_BEGIN = "// STAGE5E-NO-IO-CAPABILITY-PROOF-BEGIN: zero-side-effects-v1"
 PROOF_END = "// STAGE5E-NO-IO-CAPABILITY-PROOF-END: zero-side-effects-v1"
-EXPECTED_PROOF_SHA256 = "3944c0fbb335a54da3fb0c75d719f7389b9ec9fb639cd0222c3a4ebd62815740"
+EXPECTED_PROOF_SHA256 = "fa9726f4301ab2af224b5c70c279469d160573fbe7201d8fc0039d0856e930ee"
 SESSION_BEGIN = "// STAGE5E-NO-IO-SESSION-ELIGIBILITY-BEGIN: observed-open-session-v1"
 SESSION_END = "// STAGE5E-NO-IO-SESSION-ELIGIBILITY-END: observed-open-session-v1"
 EXPECTED_SESSION_SHA256 = "4546cdc8409465d3e6f7382a84ac558f11856b6f4591678f6fbe220044b1b3b5"
@@ -171,6 +171,38 @@ def main() -> int:
         fail("Stage 5E-b1 must not claim first-fresh or market-gap proof")
     if "pub use stage5e_no_io_lifecycle" in lib.read_text():
         fail("Stage 5E-b1 private module leaked into public API")
+    if "impl Default for Stage5eObservedOpenSession" in module_text:
+        # Preserve the established b2 diagnostic before applying the later
+        # b3b constructor-count guard to the whole predecessor module.
+        fail(
+            "forbidden Stage 5E-b2 alternate receipt construction or export: "
+            "impl Default for Stage5eObservedOpenSession"
+        )
+    observed_receipt_definition = module_text.split(
+        "pub(crate) struct Stage5eObservedLiveBarAfterHistory {", 1
+    )[1].split("// STAGE5E-NO-IO-CAPABILITY-PROOF-BEGIN", 1)[0]
+    for required in (
+        "strategy: HybridIntradayRuntimeStrategy,",
+        "recovery_receipt: Stage5cPendingRecoveryReceipt,",
+    ):
+        if required not in observed_receipt_definition:
+            fail("Stage 5E-b3b observed receipt must retain mandatory Stage 5C ownership")
+    for forbidden in (
+        "Option<HybridIntradayRuntimeStrategy>",
+        "Option<Stage5cPendingRecoveryReceipt>",
+        "test_only_for_schedule_binding",
+        "forge_observed_live_bar_without_stage5c",
+    ):
+        if forbidden in module_text:
+            fail(f"forbidden Stage 5E-b3b empty-state or forge surface: {forbidden}")
+    if module_text.count("pub(crate) fn from_stage5c_context(") != 1:
+        fail("Stage 5E-b3b receipt must have exactly one sealed constructor")
+    if predecessor_module_text.count("Stage5eObservedLiveBarAfterHistory {") != 3:
+        fail("Stage 5E-b3b receipt struct literal escaped its sealed constructor")
+    if module_text.count("impl Stage5eObservedLiveBarAfterHistory {") != 2:
+        fail("Stage 5E-b3b receipt implementation surface drift")
+    if predecessor_module_text.count(") -> Self {") != 1:
+        fail("Stage 5E-b3b alternate receipt constructor detected")
     host_text = host.read_text()
     if host_text.count(BRIDGE_BEGIN) != 1 or host_text.count(BRIDGE_END) != 1:
         fail("Stage 5E-b1 bridge region markers must occur exactly once")
@@ -192,6 +224,10 @@ def main() -> int:
         fail("missing Stage 5E-b1 retryable consuming bridge")
     if "into_retry" not in host_text:
         fail("missing Stage 5E-b1 blocked-state retry return")
+    if "#[cfg(test)]\npub(crate) fn stage5e_test_observed_live_bar_after_history_at" not in host_text:
+        fail("missing Stage 5E-b3b canonical Stage 5C test fixture")
+    if host_text.count("Stage5eObservedLiveBarAfterHistory::from_stage5c_context(") != 1:
+        fail("Stage 5E-b3b observed receipt must be constructed only by the sealed bridge")
     if hashlib.sha256(validator.encode()).hexdigest() != EXPECTED_VALIDATOR_SHA256:
         fail("Stage 5E-b1 validator region hash mismatch")
     if hashlib.sha256(proof.encode()).hexdigest() != EXPECTED_PROOF_SHA256:
