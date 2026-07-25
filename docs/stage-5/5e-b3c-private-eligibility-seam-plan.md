@@ -1,4 +1,4 @@
-# Stage 5E-b3c-r3 — private no-I/O conjunctive eligibility binding
+# Stage 5E-b3c-impl-r1 — trusted-source and clock repair
 
 Baseline: `95861577ce3acc11963104bb5a313a82f6f82bdb`.
 
@@ -7,7 +7,7 @@ remains an opaque, linear receipt. The original b3b core is still hash-pinned
 byte-for-byte: the predecessor checker reconstructs its historical region only
 after removing one exact, separately pinned b3c nested region.
 
-`private-no-io-v1` is nested inside the existing private
+`private-no-io-v1` remains nested inside the existing private
 `schedule_window_evidence` module. That gives it the only safe way to consume
 the opaque b3b receipt without widening b3b visibility, re-exporting its
 strategy/recovery ownership, or making an external construction route.
@@ -19,18 +19,15 @@ projection; any contradiction with the inventory is invalid.
 
 ## Implemented: private producers and conjunctive bridge
 
-`b3c_evidence` owns three module-private source snapshots and produces exactly
+`b3c_evidence` consumes three opaque upstream capabilities and produces exactly
 three non-`Clone`, non-`Copy`, non-serializable receipts:
 
-- `Stage5eFreshOpenSessionEvidence` only after a fresh broker session snapshot
-  is explicitly `Open`, has a non-empty source epoch and a non-zero source
-  fingerprint;
-- `Stage5eCalendarEligibilityEvidence` only after a fresh broker calendar
-  snapshot explicitly classifies the day as trading and supplies a source,
-  version and fingerprint;
-- `Stage5eMarketSequenceEvidence` only after a fresh Stage 5C sequence receipt
-  is final, gap-free, has a bar identity, non-zero timeframe and source
-  fingerprint.
+- `Stage5eFreshOpenSessionEvidence` only from accepted Stage 4 schedule
+  evidence and the explicitly broker-normalized b3b TradableOpen window;
+- `Stage5eCalendarEligibilityEvidence` only from the validated broker-normalized
+  instrument schedule that contains that exact TradableOpen window;
+- `Stage5eMarketSequenceEvidence` only from a Stage 5C accepted canonical-history
+  to final-live semantic-bar sequence.
 
 The producer code has no visibility beyond its nested private module and no
 path to Redis, FINAM, transport, dispatch, runtime-live, strategy callbacks or
@@ -44,7 +41,7 @@ opaque b3b bound schedule/window receipt
 + fresh Open session receipt
 + trading calendar receipt
 + final, gap-free market-sequence receipt
-+ continuation-time clock
++ production clock captured inside the transition
 -> opaque combined no-I/O eligibility receipt
 ```
 
@@ -85,7 +82,7 @@ Stage5eBoundScheduleWindowForObservedLiveBar
 + Stage5eFreshOpenSessionEvidence
 + Stage5eCalendarEligibilityEvidence
 + Stage5eMarketSequenceEvidence
-+ continuation-time clock
++ production clock captured inside the transition
 -> opaque Stage5eBoundSessionCalendarSequenceForObservedLiveBar
 ```
 

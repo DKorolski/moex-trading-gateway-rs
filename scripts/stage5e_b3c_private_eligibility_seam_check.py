@@ -16,7 +16,7 @@ RUNTIME_SOURCE = ROOT / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycl
 
 B3C_EVIDENCE_BEGIN = "// STAGE5E-B3C-EVIDENCE-BEGIN: private-no-io-v1"
 B3C_EVIDENCE_END = "// STAGE5E-B3C-EVIDENCE-END: private-no-io-v1"
-EXPECTED_B3C_EVIDENCE_SHA256 = "a298695c1fa1e4a4164402d3625750bdcd908de58724e36ba9bd637c210e5b3c"
+EXPECTED_B3C_EVIDENCE_SHA256 = "12616c06ee3824fb1917a805813e2f22b9660b529daec598acf7246b9d3a51dc"
 
 EXPECTED_ALLOWED_CHANGED_PATHS = [
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
@@ -70,11 +70,11 @@ EXPECTED_INVARIANTS = {
     "callback_count": 0,
     "intent_count": 0,
 }
-EXPECTED_SOURCE_AUTHORITIES_SHA256 = "9f631f3989c797d6a12477eea37536082c68b264c2bce9d5b81d7700d3171b8a"
+EXPECTED_SOURCE_AUTHORITIES_SHA256 = "deb83be4f567cb868c863dbf7f859b0c6405fa54b9e56f603a27332f4a0b5085"
 EXPECTED_EVIDENCE_CONTRACTS_SHA256 = "9c72623683ecfb2a0a11a2a5e028176c92da21602b877b22ad241e553c564de6"
-EXPECTED_TRANSITION_CONTRACT_SHA256 = "090a227c62c82602b5ad1d8902be34134080a06d795f41c979eb05fb39c356e2"
+EXPECTED_TRANSITION_CONTRACT_SHA256 = "6bd4b036e5e29d0119cbd048d83c91d7353a7d56bf5f304037ea471152acfeb6"
 EXPECTED_BLOCK_REASONS_SHA256 = "a21aa880aa5721c6be7c98766387efedc0e0dba58962f98a7cbf72244dc59581"
-EXPECTED_PLAN_SHA256 = "45cbaaf0f1f8f522022666ad02045ad009413ae7f600e74f4d5e60d9da2cb960"
+EXPECTED_PLAN_SHA256 = "ebfcb3e9af4ed6e35a7bdab29f9ec897f0961a6dcf0e021ce15c098421b16528"
 
 
 def marked_region(text: str, begin: str, end: str) -> str:
@@ -105,7 +105,7 @@ def main() -> int:
         fail("inventory key set drift")
     if payload.get("schema_version") != 1 or payload.get("stage") != "5E-b3c-private-eligibility-seam":
         fail("inventory identity drift")
-    if payload.get("status") != "private_no_io_conjunctive_eligibility_binding_implemented":
+    if payload.get("status") != "trusted_source_and_clock_repair_implemented":
         fail("inventory status drift")
     if payload.get("baseline_ref") != "95861577ce3acc11963104bb5a313a82f6f82bdb":
         fail("baseline drift")
@@ -135,9 +135,9 @@ def main() -> int:
         "region_sha256": EXPECTED_B3C_EVIDENCE_SHA256,
         "b3b_core_region_sha256": "982d7cc67b295ef633ddffa5f767067a7d5c05da1ed5b8b77b31a581d9b7be94",
         "source_input_types": [
-            "AcceptedBrokerSessionSnapshotEvidence",
-            "AcceptedBrokerCalendarSnapshotEvidence",
-            "Stage5cAcceptedMarketSequenceReceipt",
+            "AcceptedStage4ScheduleEvidence",
+            "ValidatedNormalizedInstrumentScheduleSnapshot",
+            "UnverifiedMarketSequenceSource",
         ],
         "receipt_types": [
             "Stage5eFreshOpenSessionEvidence",
@@ -171,7 +171,7 @@ def main() -> int:
         if token in region:
             fail(f"forbidden b3c evidence region token: {token}")
     for type_name in implementation["source_input_types"]:
-        if f"struct {type_name}" not in region:
+        if type_name not in region:
             fail(f"b3c source input missing: {type_name}")
     for type_name in implementation["receipt_types"]:
         if f"struct {type_name}" not in region:
@@ -208,7 +208,7 @@ def main() -> int:
     transition = payload.get("transition_contract")
     if not isinstance(transition, dict) or transition.get("output") != "Stage5eBoundSessionCalendarSequenceForObservedLiveBar":
         fail("transition schema drift")
-    if transition.get("inputs") != ["Stage5eBoundScheduleWindowForObservedLiveBar", "Stage5eFreshOpenSessionEvidence", "Stage5eCalendarEligibilityEvidence", "Stage5eMarketSequenceEvidence", "continuation_time"]:
+    if transition.get("inputs") != ["Stage5eBoundScheduleWindowForObservedLiveBar", "Stage5eFreshOpenSessionEvidence", "Stage5eCalendarEligibilityEvidence", "Stage5eMarketSequenceEvidence"]:
         fail("transition input schema drift")
     if set(transition.get("output_authority", {})) != {"callback_ready", "execution_ready", "calls_strategy", "creates_executable_intent"} or any(transition["output_authority"].values()):
         fail("transition authority drift")
@@ -219,7 +219,7 @@ def main() -> int:
         fail("active descriptor drift")
     plan = PLAN.read_text()
     for marker in (
-        "Stage 5E-b3c-r3", "Stage5eFreshOpenSessionEvidence",
+        "Stage 5E-b3c-impl-r1", "Stage5eFreshOpenSessionEvidence",
         "Stage5eCalendarEligibilityEvidence", "Stage5eMarketSequenceEvidence",
         "Stage5eBoundSessionCalendarSequenceForObservedLiveBar", "same full `InstrumentId`",
         "revalidate every evidence expiry", "callback_ready=false", "execution_ready=false",

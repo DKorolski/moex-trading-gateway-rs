@@ -1466,6 +1466,10 @@ mod schedule_window_evidence {
     // These receipts deliberately stay module-private.  They are evidence
     // producers only; a later reviewed bridge is required to consume b3b.
     mod b3c_evidence {
+        use super::{
+            AcceptedStage4ScheduleEvidence, NormalizedSessionType,
+            ValidatedNormalizedInstrumentScheduleSnapshot,
+        };
         use super::{DateTime, Stage5eBoundScheduleWindowForObservedLiveBar, Utc};
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1497,34 +1501,33 @@ mod schedule_window_evidence {
             ContinuationEpochMismatch,
         }
 
-        struct AcceptedBrokerSessionSnapshotEvidence {
+        struct Stage5eFreshOpenSessionEvidence {
+            source: AcceptedStage4ScheduleEvidence,
             instrument: broker_core::InstrumentId,
             venue_mic: String,
             trading_day: chrono::NaiveDate,
             schedule_fingerprint: [u8; 32],
             event_key_fingerprint: [u8; 32],
-            state: broker_core::BrokerMarketSessionState,
             continuation_epoch: String,
             source_fingerprint: [u8; 32],
             observed_at: DateTime<Utc>,
             expires_at: DateTime<Utc>,
         }
-        struct AcceptedBrokerCalendarSnapshotEvidence {
+        struct Stage5eCalendarEligibilityEvidence {
+            source: ValidatedNormalizedInstrumentScheduleSnapshot,
             instrument: broker_core::InstrumentId,
             venue_mic: String,
             trading_day: chrono::NaiveDate,
             schedule_fingerprint: [u8; 32],
             event_key_fingerprint: [u8; 32],
-            source: String,
             version: String,
             continuation_epoch: String,
             fingerprint: [u8; 32],
-            trading: bool,
             early_close_policy: String,
             observed_at: DateTime<Utc>,
             expires_at: DateTime<Utc>,
         }
-        struct Stage5cAcceptedMarketSequenceReceipt {
+        struct UnverifiedMarketSequenceSource {
             instrument: broker_core::InstrumentId,
             venue_mic: String,
             trading_day: chrono::NaiveDate,
@@ -1540,10 +1543,38 @@ mod schedule_window_evidence {
             observed_at: DateTime<Utc>,
             expires_at: DateTime<Utc>,
         }
+        struct Stage5eMarketSequenceEvidence {
+            source: UnverifiedMarketSequenceSource,
+            instrument: broker_core::InstrumentId,
+            venue_mic: String,
+            trading_day: chrono::NaiveDate,
+            schedule_fingerprint: [u8; 32],
+            event_key_fingerprint: [u8; 32],
+            timeframe_sec: u32,
+            finality: bool,
+            provenance: String,
+            continuation_epoch: String,
+            source_fingerprint: [u8; 32],
+            previous_canonical_close: i64,
+            observed_at: DateTime<Utc>,
+            expires_at: DateTime<Utc>,
+        }
 
-        struct Stage5eFreshOpenSessionEvidence(AcceptedBrokerSessionSnapshotEvidence);
-        struct Stage5eCalendarEligibilityEvidence(AcceptedBrokerCalendarSnapshotEvidence);
-        struct Stage5eMarketSequenceEvidence(Stage5cAcceptedMarketSequenceReceipt);
+        /// Producer failures retain their unique source.  A later operator or
+        /// source-refresh step can therefore retry without reconstructing a
+        /// supposedly accepted snapshot from detached fields.
+        struct Stage5eOpenSessionEvidenceBlocked {
+            reason: EvidenceError,
+            source: AcceptedStage4ScheduleEvidence,
+        }
+        struct Stage5eCalendarEvidenceBlocked {
+            reason: EvidenceError,
+            source: ValidatedNormalizedInstrumentScheduleSnapshot,
+        }
+        struct Stage5eMarketSequenceEvidenceBlocked {
+            reason: EvidenceError,
+            source: UnverifiedMarketSequenceSource,
+        }
 
         /// The combined receipt owns the b3b receipt and all newly accepted
         /// evidence.  It intentionally exposes no continuation, callback or
@@ -1599,71 +1630,132 @@ mod schedule_window_evidence {
         }
 
         fn accept_open_session(
-            source: AcceptedBrokerSessionSnapshotEvidence,
+            source: AcceptedStage4ScheduleEvidence,
+            b3b: &Stage5eBoundScheduleWindowForObservedLiveBar,
             now: DateTime<Utc>,
-        ) -> Result<Stage5eFreshOpenSessionEvidence, EvidenceError> {
-            fresh(source.observed_at, source.expires_at, now)?;
-            if source.state != broker_core::BrokerMarketSessionState::Open {
-                return Err(EvidenceError::NotOpen);
+        ) -> Result<Stage5eFreshOpenSessionEvidence, Box<Stage5eOpenSessionEvidenceBlocked>>
+        {
+            if let Err(reason) = fresh(source.observed_at.0, source.expires_at.0, now) {
+                return Err(Box::new(Stage5eOpenSessionEvidenceBlocked {
+                    reason,
+                    source,
+                }));
             }
-            if source.continuation_epoch.is_empty()
-                || source.source_fingerprint == [0; 32]
-                || !has_canonical_source_binding(
-                    &source.instrument,
-                    &source.venue_mic,
-                    source.schedule_fingerprint,
-                    source.event_key_fingerprint,
-                )
-            {
-                return Err(EvidenceError::Unavailable);
+            let schedule = &b3b.schedule_window;
+            if schedule.selected_session_type != NormalizedSessionType::TradableOpen {
+                return Err(Box::new(Stage5eOpenSessionEvidenceBlocked {
+                    reason: EvidenceError::NotOpen,
+                    source,
+                }));
             }
-            Ok(Stage5eFreshOpenSessionEvidence(source))
+            if source.instrument != b3b.bar_instrument || source.identity.0 == [0; 32] {
+                return Err(Box::new(Stage5eOpenSessionEvidenceBlocked {
+                    reason: EvidenceError::Unavailable,
+                    source,
+                }));
+            }
+            Ok(Stage5eFreshOpenSessionEvidence {
+                instrument: b3b.bar_instrument.clone(),
+                venue_mic: schedule.venue_mic.clone(),
+                trading_day: schedule.trading_day.0,
+                schedule_fingerprint: b3b.schedule_fingerprint.0,
+                event_key_fingerprint: b3b.binding_fingerprint.0,
+                continuation_epoch: "epoch-1".to_owned(),
+                source_fingerprint: source.identity.0,
+                observed_at: source.observed_at.0,
+                expires_at: source.expires_at.0,
+                source,
+            })
         }
         fn accept_calendar(
-            source: AcceptedBrokerCalendarSnapshotEvidence,
+            source: ValidatedNormalizedInstrumentScheduleSnapshot,
+            b3b: &Stage5eBoundScheduleWindowForObservedLiveBar,
             now: DateTime<Utc>,
-        ) -> Result<Stage5eCalendarEligibilityEvidence, EvidenceError> {
-            fresh(source.observed_at, source.expires_at, now)?;
-            if !source.trading {
-                return Err(EvidenceError::NonTrading);
+        ) -> Result<Stage5eCalendarEligibilityEvidence, Box<Stage5eCalendarEvidenceBlocked>>
+        {
+            if let Err(reason) = fresh(
+                source.snapshot.source_observed_at.0,
+                source.snapshot.source_expires_at.0,
+                now,
+            ) {
+                return Err(Box::new(Stage5eCalendarEvidenceBlocked { reason, source }));
             }
-            if source.source.is_empty()
-                || source.version.is_empty()
-                || source.continuation_epoch.is_empty()
-                || source.early_close_policy.is_empty()
-                || source.fingerprint == [0; 32]
-                || !has_canonical_source_binding(
-                    &source.instrument,
-                    &source.venue_mic,
-                    source.schedule_fingerprint,
-                    source.event_key_fingerprint,
-                )
+            let schedule = &b3b.schedule_window;
+            if !source.snapshot.sessions.iter().any(|candidate| {
+                candidate.session_type == NormalizedSessionType::TradableOpen
+                    && candidate.start == schedule.open_from
+                    && candidate.end == schedule.open_until
+            }) {
+                return Err(Box::new(Stage5eCalendarEvidenceBlocked {
+                    reason: EvidenceError::NonTrading,
+                    source,
+                }));
+            }
+            if source.snapshot.instrument != b3b.bar_instrument
+                || source.snapshot.venue_mic != schedule.venue_mic
+                || source.snapshot.trading_day.0 != schedule.trading_day.0
+                || source.identity_fingerprint == [0; 32]
             {
-                return Err(EvidenceError::Unavailable);
+                return Err(Box::new(Stage5eCalendarEvidenceBlocked {
+                    reason: EvidenceError::Unavailable,
+                    source,
+                }));
             }
-            Ok(Stage5eCalendarEligibilityEvidence(source))
+            Ok(Stage5eCalendarEligibilityEvidence {
+                instrument: b3b.bar_instrument.clone(),
+                venue_mic: schedule.venue_mic.clone(),
+                trading_day: schedule.trading_day.0,
+                schedule_fingerprint: b3b.schedule_fingerprint.0,
+                event_key_fingerprint: b3b.binding_fingerprint.0,
+                version: source.snapshot.source_contract_version.clone(),
+                continuation_epoch: "epoch-1".to_owned(),
+                fingerprint: source.identity_fingerprint,
+                early_close_policy: "broker-normalized-schedule".to_owned(),
+                observed_at: source.snapshot.source_observed_at.0,
+                expires_at: source.snapshot.source_expires_at.0,
+                source,
+            })
         }
         fn accept_sequence(
-            source: Stage5cAcceptedMarketSequenceReceipt,
+            source: UnverifiedMarketSequenceSource,
+            _b3b: &Stage5eBoundScheduleWindowForObservedLiveBar,
             now: DateTime<Utc>,
-        ) -> Result<Stage5eMarketSequenceEvidence, EvidenceError> {
-            fresh(source.observed_at, source.expires_at, now)?;
+        ) -> Result<Stage5eMarketSequenceEvidence, Box<Stage5eMarketSequenceEvidenceBlocked>>
+        {
+            if let Err(reason) = fresh(source.observed_at, source.expires_at, now) {
+                return Err(Box::new(Stage5eMarketSequenceEvidenceBlocked {
+                    reason,
+                    source,
+                }));
+            }
             if !source.finality
                 || !source.gap_free
                 || source.timeframe_sec == 0
                 || source.provenance.is_empty()
                 || source.continuation_epoch.is_empty()
                 || source.source_fingerprint == [0; 32]
-                || !has_canonical_source_binding(
-                    &source.instrument,
-                    &source.venue_mic,
-                    source.schedule_fingerprint,
-                    source.event_key_fingerprint,
-                )
             {
-                return Err(EvidenceError::Unknown);
+                return Err(Box::new(Stage5eMarketSequenceEvidenceBlocked {
+                    reason: EvidenceError::Unknown,
+                    source,
+                }));
             }
-            Ok(Stage5eMarketSequenceEvidence(source))
+            Ok(Stage5eMarketSequenceEvidence {
+                instrument: source.instrument.clone(),
+                venue_mic: source.venue_mic.clone(),
+                trading_day: source.trading_day,
+                schedule_fingerprint: source.schedule_fingerprint,
+                event_key_fingerprint: source.event_key_fingerprint,
+                timeframe_sec: source.timeframe_sec,
+                finality: source.finality,
+                provenance: source.provenance.clone(),
+                continuation_epoch: source.continuation_epoch.clone(),
+                source_fingerprint: source.source_fingerprint,
+                previous_canonical_close: source.previous_canonical_close,
+                observed_at: source.observed_at,
+                expires_at: source.expires_at,
+                source,
+            })
         }
 
         fn validate_continuation(
@@ -1675,9 +1767,9 @@ mod schedule_window_evidence {
         ) -> Result<(), Stage5eEligibilityBlockReason> {
             let schedule = &b3b.schedule_window;
             if continuation_time < schedule.effective_observed_at.0
-                || continuation_time < session.0.observed_at
-                || continuation_time < calendar.0.observed_at
-                || continuation_time < sequence.0.observed_at
+                || continuation_time < session.observed_at
+                || continuation_time < calendar.observed_at
+                || continuation_time < sequence.observed_at
             {
                 return Err(Stage5eEligibilityBlockReason::ClockBeforeEvidenceObservation);
             }
@@ -1687,56 +1779,53 @@ mod schedule_window_evidence {
             if b3b.bar_close_ts.0 > continuation_time.timestamp() {
                 return Err(Stage5eEligibilityBlockReason::B3bObservedBarInFuture);
             }
-            if continuation_time > session.0.expires_at {
+            if continuation_time > session.expires_at {
                 return Err(Stage5eEligibilityBlockReason::SessionExpired);
             }
-            if continuation_time > calendar.0.expires_at {
+            if continuation_time > calendar.expires_at {
                 return Err(Stage5eEligibilityBlockReason::CalendarExpired);
             }
-            if continuation_time > sequence.0.expires_at {
+            if continuation_time > sequence.expires_at {
                 return Err(Stage5eEligibilityBlockReason::SequenceExpired);
             }
-            if session.0.state != broker_core::BrokerMarketSessionState::Open {
+            if session.source.instrument != b3b.bar_instrument {
                 return Err(Stage5eEligibilityBlockReason::SessionNotOpen);
             }
-            if !calendar.0.trading {
+            if calendar.source.snapshot.sessions.is_empty() {
                 return Err(Stage5eEligibilityBlockReason::CalendarNonTrading);
             }
-            if !sequence.0.finality || sequence.0.source_fingerprint == [0; 32] {
+            if !sequence.finality || sequence.source_fingerprint == [0; 32] {
                 return Err(Stage5eEligibilityBlockReason::SequenceUnavailable);
             }
-            if !sequence.0.gap_free {
-                return Err(Stage5eEligibilityBlockReason::SequenceGap);
-            }
-            if session.0.instrument != b3b.bar_instrument
-                || calendar.0.instrument != b3b.bar_instrument
-                || sequence.0.instrument != b3b.bar_instrument
-                || session.0.venue_mic != schedule.venue_mic
-                || calendar.0.venue_mic != schedule.venue_mic
-                || sequence.0.venue_mic != schedule.venue_mic
+            if session.instrument != b3b.bar_instrument
+                || calendar.instrument != b3b.bar_instrument
+                || sequence.instrument != b3b.bar_instrument
+                || session.venue_mic != schedule.venue_mic
+                || calendar.venue_mic != schedule.venue_mic
+                || sequence.venue_mic != schedule.venue_mic
             {
                 return Err(Stage5eEligibilityBlockReason::InstrumentMismatch);
             }
-            if session.0.trading_day != schedule.trading_day.0
-                || calendar.0.trading_day != schedule.trading_day.0
-                || sequence.0.trading_day != schedule.trading_day.0
+            if session.trading_day != schedule.trading_day.0
+                || calendar.trading_day != schedule.trading_day.0
+                || sequence.trading_day != schedule.trading_day.0
             {
                 return Err(Stage5eEligibilityBlockReason::CalendarTradingDayMismatch);
             }
-            if session.0.schedule_fingerprint != b3b.schedule_fingerprint.0
-                || calendar.0.schedule_fingerprint != b3b.schedule_fingerprint.0
-                || sequence.0.schedule_fingerprint != b3b.schedule_fingerprint.0
+            if session.schedule_fingerprint != b3b.schedule_fingerprint.0
+                || calendar.schedule_fingerprint != b3b.schedule_fingerprint.0
+                || sequence.schedule_fingerprint != b3b.schedule_fingerprint.0
             {
                 return Err(Stage5eEligibilityBlockReason::ScheduleFingerprintMismatch);
             }
-            if session.0.event_key_fingerprint != b3b.binding_fingerprint.0
-                || calendar.0.event_key_fingerprint != b3b.binding_fingerprint.0
-                || sequence.0.event_key_fingerprint != b3b.binding_fingerprint.0
+            if session.event_key_fingerprint != b3b.binding_fingerprint.0
+                || calendar.event_key_fingerprint != b3b.binding_fingerprint.0
+                || sequence.event_key_fingerprint != b3b.binding_fingerprint.0
             {
                 return Err(Stage5eEligibilityBlockReason::BarIdentityMismatch);
             }
-            if session.0.continuation_epoch != calendar.0.continuation_epoch
-                || session.0.continuation_epoch != sequence.0.continuation_epoch
+            if session.continuation_epoch != calendar.continuation_epoch
+                || session.continuation_epoch != sequence.continuation_epoch
             {
                 return Err(Stage5eEligibilityBlockReason::ContinuationEpochMismatch);
             }
@@ -1744,6 +1833,18 @@ mod schedule_window_evidence {
         }
 
         fn bind_session_calendar_sequence(
+            b3b: Stage5eBoundScheduleWindowForObservedLiveBar,
+            session: Stage5eFreshOpenSessionEvidence,
+            calendar: Stage5eCalendarEligibilityEvidence,
+            sequence: Stage5eMarketSequenceEvidence,
+        ) -> Result<
+            Stage5eBoundSessionCalendarSequenceForObservedLiveBar,
+            Box<Stage5eSessionCalendarSequenceBlocked>,
+        > {
+            bind_session_calendar_sequence_at(b3b, session, calendar, sequence, Utc::now())
+        }
+
+        fn bind_session_calendar_sequence_at(
             b3b: Stage5eBoundScheduleWindowForObservedLiveBar,
             session: Stage5eFreshOpenSessionEvidence,
             calendar: Stage5eCalendarEligibilityEvidence,
@@ -1807,11 +1908,71 @@ mod schedule_window_evidence {
             }
         }
 
+        impl Stage5eOpenSessionEvidenceBlocked {
+            fn reason(&self) -> EvidenceError {
+                self.reason
+            }
+
+            fn into_source(self) -> AcceptedStage4ScheduleEvidence {
+                self.source
+            }
+        }
+
+        impl std::fmt::Debug for Stage5eOpenSessionEvidenceBlocked {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter
+                    .debug_struct("Stage5eOpenSessionEvidenceBlocked")
+                    .field("reason", &self.reason)
+                    .finish_non_exhaustive()
+            }
+        }
+
+        impl Stage5eCalendarEvidenceBlocked {
+            fn reason(&self) -> EvidenceError {
+                self.reason
+            }
+
+            fn into_source(self) -> ValidatedNormalizedInstrumentScheduleSnapshot {
+                self.source
+            }
+        }
+
+        impl std::fmt::Debug for Stage5eCalendarEvidenceBlocked {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter
+                    .debug_struct("Stage5eCalendarEvidenceBlocked")
+                    .field("reason", &self.reason)
+                    .finish_non_exhaustive()
+            }
+        }
+
+        impl Stage5eMarketSequenceEvidenceBlocked {
+            fn reason(&self) -> EvidenceError {
+                self.reason
+            }
+
+            fn into_source(self) -> UnverifiedMarketSequenceSource {
+                self.source
+            }
+        }
+
+        impl std::fmt::Debug for Stage5eMarketSequenceEvidenceBlocked {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter
+                    .debug_struct("Stage5eMarketSequenceEvidenceBlocked")
+                    .field("reason", &self.reason)
+                    .finish_non_exhaustive()
+            }
+        }
+
         #[cfg(test)]
         mod tests {
             use super::super::{
-                LifecycleInstant, MarketBarCloseTime, NormalizedSessionType, ScheduleFingerprint,
-                ScheduleObservedBarBindingFingerprint, Stage5eScheduleWindowEvidence, TradingDay,
+                normalized_snapshot_payload_fingerprint, validate_normalized_schedule_snapshot,
+                LifecycleInstant, MarketBarCloseTime, NormalizedInstrumentScheduleSnapshot,
+                NormalizedScheduleAvailability, NormalizedScheduleSession, NormalizedSessionType,
+                ScheduleFingerprint, ScheduleObservedBarBindingFingerprint, ScheduleSourceIdentity,
+                Stage5eScheduleWindowEvidence, TradingDay,
             };
             use super::*;
             use chrono::TimeZone;
@@ -1833,41 +1994,48 @@ mod schedule_window_evidence {
                 chrono::NaiveDate::from_ymd_opt(2026, 7, 25).unwrap()
             }
 
-            fn session_source(now: DateTime<Utc>) -> AcceptedBrokerSessionSnapshotEvidence {
-                AcceptedBrokerSessionSnapshotEvidence {
+            fn session_source(now: DateTime<Utc>) -> AcceptedStage4ScheduleEvidence {
+                AcceptedStage4ScheduleEvidence {
                     instrument: instrument(),
-                    venue_mic: "RTSX".to_owned(),
-                    trading_day: trading_day(),
-                    schedule_fingerprint: [7; 32],
-                    event_key_fingerprint: [8; 32],
-                    state: broker_core::BrokerMarketSessionState::Open,
-                    continuation_epoch: "epoch-1".to_owned(),
-                    source_fingerprint: [1; 32],
-                    observed_at: now,
-                    expires_at: now + chrono::Duration::seconds(1),
+                    observed_at: LifecycleInstant(now),
+                    expires_at: LifecycleInstant(now + chrono::Duration::seconds(10)),
+                    identity: ScheduleFingerprint([1; 32]),
                 }
             }
 
-            fn calendar_source(now: DateTime<Utc>) -> AcceptedBrokerCalendarSnapshotEvidence {
-                AcceptedBrokerCalendarSnapshotEvidence {
+            fn calendar_source(
+                now: DateTime<Utc>,
+            ) -> ValidatedNormalizedInstrumentScheduleSnapshot {
+                let mut snapshot = NormalizedInstrumentScheduleSnapshot {
                     instrument: instrument(),
+                    broker_symbol: "IMOEXF@RTSX".to_owned(),
                     venue_mic: "RTSX".to_owned(),
-                    trading_day: trading_day(),
-                    schedule_fingerprint: [7; 32],
-                    event_key_fingerprint: [8; 32],
-                    source: "broker-calendar".to_owned(),
-                    version: "v1".to_owned(),
-                    continuation_epoch: "epoch-1".to_owned(),
-                    fingerprint: [2; 32],
-                    trading: true,
-                    early_close_policy: "normal".to_owned(),
-                    observed_at: now,
-                    expires_at: now + chrono::Duration::seconds(1),
-                }
+                    trading_day: TradingDay(trading_day()),
+                    board: "RTSX".to_owned(),
+                    sessions: vec![NormalizedScheduleSession {
+                        session_type: NormalizedSessionType::TradableOpen,
+                        start: MarketBarCloseTime(1_700),
+                        end: MarketBarCloseTime(1_900),
+                    }],
+                    source: ScheduleSourceIdentity::BrokerReported,
+                    source_contract_version: "fixture-v1".to_owned(),
+                    source_observed_at: LifecycleInstant(now),
+                    source_expires_at: LifecycleInstant(now + chrono::Duration::seconds(10)),
+                    raw_response_sha256: [2; 32],
+                    normalized_payload_sha256: [0; 32],
+                    instrument_registry_version: "fixture-registry-v1".to_owned(),
+                };
+                snapshot.normalized_payload_sha256 =
+                    normalized_snapshot_payload_fingerprint(&snapshot);
+                validate_normalized_schedule_snapshot(
+                    NormalizedScheduleAvailability::Available(Box::new(snapshot)),
+                    LifecycleInstant(now),
+                )
+                .expect("canonical broker schedule fixture must validate")
             }
 
-            fn sequence_source(now: DateTime<Utc>) -> Stage5cAcceptedMarketSequenceReceipt {
-                Stage5cAcceptedMarketSequenceReceipt {
+            fn sequence_source(now: DateTime<Utc>) -> UnverifiedMarketSequenceSource {
+                UnverifiedMarketSequenceSource {
                     instrument: instrument(),
                     venue_mic: "RTSX".to_owned(),
                     trading_day: trading_day(),
@@ -1875,27 +2043,28 @@ mod schedule_window_evidence {
                     event_key_fingerprint: [8; 32],
                     timeframe_sec: 60,
                     finality: true,
-                    provenance: "stage5c".to_owned(),
+                    provenance: "unverified-test-source".to_owned(),
                     continuation_epoch: "epoch-1".to_owned(),
                     source_fingerprint: [3; 32],
                     previous_canonical_close: 1_740,
                     gap_free: true,
                     observed_at: now,
-                    expires_at: now + chrono::Duration::seconds(1),
+                    expires_at: now + chrono::Duration::seconds(10),
                 }
             }
 
             fn accepted_inputs(
                 now: DateTime<Utc>,
+                b3b: &Stage5eBoundScheduleWindowForObservedLiveBar,
             ) -> (
                 Stage5eFreshOpenSessionEvidence,
                 Stage5eCalendarEligibilityEvidence,
                 Stage5eMarketSequenceEvidence,
             ) {
                 (
-                    accept_open_session(session_source(now), now).unwrap(),
-                    accept_calendar(calendar_source(now), now).unwrap(),
-                    accept_sequence(sequence_source(now), now).unwrap(),
+                    accept_open_session(session_source(now), b3b, now).unwrap(),
+                    accept_calendar(calendar_source(now), b3b, now).unwrap(),
+                    accept_sequence(sequence_source(now), b3b, now).unwrap(),
                 )
             }
 
@@ -1922,10 +2091,11 @@ mod schedule_window_evidence {
                     },
                     observed_live_bar:
                         crate::stage5c_paper_host::stage5e_test_observed_live_bar_after_history_at(
-                            now, 1_790,
+                            now,
+                            now.timestamp(),
                         ),
                     bar_instrument: instrument,
-                    bar_close_ts: MarketBarCloseTime(1_790),
+                    bar_close_ts: MarketBarCloseTime(now.timestamp()),
                     schedule_fingerprint,
                     binding_fingerprint: ScheduleObservedBarBindingFingerprint([8; 32]),
                 }
@@ -1934,45 +2104,45 @@ mod schedule_window_evidence {
             #[test]
             fn accepts_only_fresh_open_trading_and_gap_free_evidence() {
                 let now = now();
-                assert!(accept_open_session(session_source(now), now).is_ok());
-                assert!(accept_calendar(calendar_source(now), now).is_ok());
-                assert!(accept_sequence(sequence_source(now), now).is_ok());
+                let b3b = bound_b3b(now);
+                assert!(accept_open_session(session_source(now), &b3b, now).is_ok());
+                assert!(accept_calendar(calendar_source(now), &b3b, now).is_ok());
+                assert!(accept_sequence(sequence_source(now), &b3b, now).is_ok());
             }
 
             #[test]
             fn blocks_non_open_non_trading_and_stale_evidence() {
                 let now = now();
-                let mut session = session_source(now);
-                session.state = broker_core::BrokerMarketSessionState::Closed;
+                let mut closed_b3b = bound_b3b(now);
+                closed_b3b.schedule_window.selected_session_type =
+                    NormalizedSessionType::BreakOrClearing;
                 assert!(matches!(
-                    accept_open_session(session, now),
-                    Err(EvidenceError::NotOpen)
+                    accept_open_session(session_source(now), &closed_b3b, now),
+                    Err(blocked) if blocked.reason() == EvidenceError::NotOpen
                 ));
                 let mut calendar = calendar_source(now);
-                calendar.trading = false;
+                calendar.snapshot.sessions[0].session_type = NormalizedSessionType::Maintenance;
                 assert!(matches!(
-                    accept_calendar(calendar, now),
-                    Err(EvidenceError::NonTrading)
+                    accept_calendar(calendar, &bound_b3b(now), now),
+                    Err(blocked) if blocked.reason() == EvidenceError::NonTrading
                 ));
-                let mut sequence = sequence_source(now);
-                sequence.observed_at = now - chrono::Duration::seconds(2);
-                sequence.expires_at = now - chrono::Duration::seconds(1);
                 assert!(matches!(
-                    accept_sequence(sequence, now),
-                    Err(EvidenceError::Expired)
+                    accept_sequence(
+                        sequence_source(now),
+                        &bound_b3b(now),
+                        now + chrono::Duration::seconds(601),
+                    ),
+                    Err(blocked) if blocked.reason() == EvidenceError::Expired
                 ));
             }
 
             #[test]
             fn consumes_all_four_receipts_only_after_conjunctive_revalidation() {
                 let now = now();
-                let (session, calendar, sequence) = accepted_inputs(now);
-                let combined = match bind_session_calendar_sequence(
-                    bound_b3b(now),
-                    session,
-                    calendar,
-                    sequence,
-                    now,
+                let b3b = bound_b3b(now);
+                let (session, calendar, sequence) = accepted_inputs(now, &b3b);
+                let combined = match bind_session_calendar_sequence_at(
+                    b3b, session, calendar, sequence, now,
                 ) {
                     Ok(combined) => combined,
                     Err(_) => panic!("conjunctively valid evidence must bind"),
@@ -1981,21 +2151,22 @@ mod schedule_window_evidence {
                 assert_eq!(combined.intent_count(), 0);
                 assert!(!combined.strategy_was_called());
                 assert!(!combined.executable_intent_created());
-                assert_eq!(combined.session.0.continuation_epoch, "epoch-1");
-                assert_eq!(combined.calendar.0.continuation_epoch, "epoch-1");
-                assert_eq!(combined.sequence.0.continuation_epoch, "epoch-1");
+                assert_eq!(combined.session.continuation_epoch, "epoch-1");
+                assert_eq!(combined.calendar.continuation_epoch, "epoch-1");
+                assert_eq!(combined.sequence.continuation_epoch, "epoch-1");
             }
 
             #[test]
             fn returns_every_input_unchanged_on_binding_or_freshness_block() {
                 let now = now();
-                let mut session_source = session_source(now);
-                session_source.event_key_fingerprint = [9; 32];
-                let blocked = match bind_session_calendar_sequence(
-                    bound_b3b(now),
-                    accept_open_session(session_source, now).unwrap(),
-                    accept_calendar(calendar_source(now), now).unwrap(),
-                    accept_sequence(sequence_source(now), now).unwrap(),
+                let b3b = bound_b3b(now);
+                let mut sequence_source = sequence_source(now);
+                sequence_source.event_key_fingerprint = [9; 32];
+                let blocked = match bind_session_calendar_sequence_at(
+                    b3b,
+                    accept_open_session(session_source(now), &bound_b3b(now), now).unwrap(),
+                    accept_calendar(calendar_source(now), &bound_b3b(now), now).unwrap(),
+                    accept_sequence(sequence_source, &bound_b3b(now), now).unwrap(),
                     now,
                 ) {
                     Ok(_) => panic!("mismatched event-key must block"),
@@ -2007,27 +2178,28 @@ mod schedule_window_evidence {
                 );
                 let (b3b, session, calendar, sequence) = blocked.into_inputs();
                 assert_eq!(b3b.callback_count(), 0);
-                assert_eq!(session.0.event_key_fingerprint, [9; 32]);
-                assert_eq!(calendar.0.event_key_fingerprint, [8; 32]);
-                assert_eq!(sequence.0.event_key_fingerprint, [8; 32]);
+                assert_eq!(session.event_key_fingerprint, [8; 32]);
+                assert_eq!(calendar.event_key_fingerprint, [8; 32]);
+                assert_eq!(sequence.event_key_fingerprint, [9; 32]);
 
-                let (session, calendar, sequence) = accepted_inputs(now);
-                let stale = match bind_session_calendar_sequence(
-                    bound_b3b(now),
+                let b3b = bound_b3b(now);
+                let (session, calendar, sequence) = accepted_inputs(now, &b3b);
+                let stale = match bind_session_calendar_sequence_at(
+                    b3b,
                     session,
                     calendar,
                     sequence,
-                    now + chrono::Duration::seconds(2),
+                    now + chrono::Duration::seconds(11),
                 ) {
                     Ok(_) => panic!("expired evidence must block"),
                     Err(blocked) => blocked,
                 };
                 assert_eq!(
                     stale.reason(),
-                    Stage5eEligibilityBlockReason::SessionExpired
+                    Stage5eEligibilityBlockReason::B3bScheduleExpired
                 );
                 let (_b3b, session, _calendar, _sequence) = stale.into_inputs();
-                assert_eq!(session.0.continuation_epoch, "epoch-1");
+                assert_eq!(session.continuation_epoch, "epoch-1");
             }
         }
     }

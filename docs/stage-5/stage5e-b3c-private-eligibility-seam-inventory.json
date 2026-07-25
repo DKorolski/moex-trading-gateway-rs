@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "5E-b3c-private-eligibility-seam",
-  "status": "private_no_io_conjunctive_eligibility_binding_implemented",
+  "status": "trusted_source_and_clock_repair_implemented",
   "baseline_ref": "95861577ce3acc11963104bb5a313a82f6f82bdb",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
   "closed_surfaces": {
@@ -54,9 +54,9 @@
     "intent_count": 0
   },
   "source_authorities": {
-    "fresh_open_session": "accepted broker session snapshot with source and continuation epoch",
-    "calendar": "accepted broker calendar snapshot with source version and continuation epoch",
-    "market_sequence": "accepted Stage5C recovery/aggregation market-data receipt with continuation epoch"
+    "fresh_open_session": "accepted Stage4 schedule evidence bound to the opaque b3b window",
+    "calendar": "validated broker-normalized schedule bound to the opaque b3b window",
+    "market_sequence": "explicit no-I/O sequence source pending a separately authorized Stage5C freeze extension"
   },
   "evidence_contracts": {
     "fresh_open_session": {
@@ -91,7 +91,7 @@
     }
   },
   "transition_contract": {
-    "inputs": ["Stage5eBoundScheduleWindowForObservedLiveBar", "Stage5eFreshOpenSessionEvidence", "Stage5eCalendarEligibilityEvidence", "Stage5eMarketSequenceEvidence", "continuation_time"],
+    "inputs": ["Stage5eBoundScheduleWindowForObservedLiveBar", "Stage5eFreshOpenSessionEvidence", "Stage5eCalendarEligibilityEvidence", "Stage5eMarketSequenceEvidence"],
     "output": "Stage5eBoundSessionCalendarSequenceForObservedLiveBar",
     "checks": ["same_full_instrument_id", "same_event_key_fingerprint", "same_venue_and_trading_day", "same_schedule_fingerprint", "same_continuation_epoch", "all_evidence_fresh", "clock_not_before_any_evidence_observation", "b3b_schedule_not_expired", "b3b_observed_bar_not_future", "calendar_is_trading", "sequence_final_and_gap_free"],
     "output_authority": {"callback_ready": false, "execution_ready": false, "calls_strategy": false, "creates_executable_intent": false}
@@ -105,9 +105,9 @@
     "source_file": "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
     "module": "schedule_window_evidence::b3c_evidence",
     "region_marker": "private-no-io-v1",
-    "region_sha256": "a298695c1fa1e4a4164402d3625750bdcd908de58724e36ba9bd637c210e5b3c",
+    "region_sha256": "12616c06ee3824fb1917a805813e2f22b9660b529daec598acf7246b9d3a51dc",
     "b3b_core_region_sha256": "982d7cc67b295ef633ddffa5f767067a7d5c05da1ed5b8b77b31a581d9b7be94",
-    "source_input_types": ["AcceptedBrokerSessionSnapshotEvidence", "AcceptedBrokerCalendarSnapshotEvidence", "Stage5cAcceptedMarketSequenceReceipt"],
+    "source_input_types": ["AcceptedStage4ScheduleEvidence", "ValidatedNormalizedInstrumentScheduleSnapshot", "UnverifiedMarketSequenceSource"],
     "receipt_types": ["Stage5eFreshOpenSessionEvidence", "Stage5eCalendarEligibilityEvidence", "Stage5eMarketSequenceEvidence"],
     "output_type": "Stage5eBoundSessionCalendarSequenceForObservedLiveBar",
     "blocked_transition_type": "Stage5eSessionCalendarSequenceBlocked",

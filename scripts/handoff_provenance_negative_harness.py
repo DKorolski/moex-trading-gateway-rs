@@ -1712,8 +1712,8 @@ def main() -> int:
             "b3c evidence region hash mismatch",
             mutate_stage5e_b3c_module_for_checker(
                 lambda text: text.replace(
-                    "struct Stage5eFreshOpenSessionEvidence(",
-                    "pub(super) struct Stage5eFreshOpenSessionEvidence(",
+                    "struct Stage5eFreshOpenSessionEvidence {",
+                    "pub(super) struct Stage5eFreshOpenSessionEvidence {",
                     1,
                 )
             ),
@@ -1724,7 +1724,11 @@ def main() -> int:
             "stage5e-b3c-evidence-gap-check-relaxed",
             "b3c evidence region hash mismatch",
             mutate_stage5e_b3c_module_for_checker(
-                lambda text: text.replace("|| !source.gap_free", "|| false && !source.gap_free", 1)
+                lambda text: text.replace(
+                    "|| !source.gap_free",
+                    "|| false && !source.gap_free",
+                    1,
+                )
             ),
             "5E-b3c-private-eligibility-seam",
             True,
@@ -1734,8 +1738,8 @@ def main() -> int:
             "b3c evidence region hash mismatch",
             mutate_stage5e_b3c_module_for_checker(
                 lambda text: text.replace(
-                    "fresh(source.observed_at, source.expires_at, now)?;",
-                    "if false { fresh(source.observed_at, source.expires_at, now)?; }",
+                    "fresh(source.observed_at.0, source.expires_at.0, now)",
+                    "Ok(())",
                     1,
                 )
             ),
@@ -1786,8 +1790,8 @@ def main() -> int:
             "b3c evidence region hash mismatch",
             mutate_stage5e_b3c_module_for_checker(
                 lambda text: text.replace(
-                    "if session.0.event_key_fingerprint != b3b.binding_fingerprint.0",
-                    "if false && session.0.event_key_fingerprint != b3b.binding_fingerprint.0",
+                    "if session.event_key_fingerprint != b3b.binding_fingerprint.0",
+                    "if false && session.event_key_fingerprint != b3b.binding_fingerprint.0",
                     1,
                 )
             ),
@@ -1799,8 +1803,8 @@ def main() -> int:
             "b3c evidence region hash mismatch",
             mutate_stage5e_b3c_module_for_checker(
                 lambda text: text.replace(
-                    "if session.0.continuation_epoch != calendar.0.continuation_epoch",
-                    "if false && session.0.continuation_epoch != calendar.0.continuation_epoch",
+                    "if session.continuation_epoch != calendar.continuation_epoch",
+                    "if false && session.continuation_epoch != calendar.continuation_epoch",
                     1,
                 )
             ),
