@@ -1,10 +1,10 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "stage": "5E-b3c-source-authority-freeze-extension",
-  "status": "authority_freeze_r5_pending_review",
-  "baseline_ref": "aac17b6e75605d26768b8de2d0aa053767f628e7",
+  "status": "authority_freeze_r6_pending_review",
+  "baseline_ref": "d2f89a2223b2424e10c63f062f7b24b181466cfc",
   "predecessor_stage": "5E-b3c-private-eligibility-seam",
-  "expected_provenance_case_count": 184,
+  "expected_provenance_case_count": 194,
   "production_source_baselines": {
     "crates/broker-core/src/lib.rs": "5d8758624f53a6b46d8903dd3f2339d5bd04f64c9c6490448167f08ac68ec8a2",
     "crates/broker-core/src/operational_config.rs": "492905c6e404ee67f62ad456128ff659cd4a32c8e638936b94b5ea14ff3ba2f8",
@@ -13,7 +13,7 @@
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "76bade52f3ebb309475812b617823825a3b7e4838bf89f9eb297ca2bbffbf821"
   },
   "implementation_authorization": {
-    "authority_freeze_r5_reviewed": false,
+    "authority_freeze_r6_reviewed": false,
     "production_source_changes_allowed": false,
     "trusted_combined_eligibility": false,
     "unverified_sequence_production_authoritative": false
@@ -51,7 +51,8 @@
     "candidate_visibility": "pub(crate)_opaque_type_with_private_fields",
     "candidate_sole_constructor": "stage5c_paper_host::build_stage5c_sequence_candidate_seal_inside_stage5e_try_observe_live_bar_after_history_with_sequence_evidence",
     "candidate_constructor_borrows": ["Stage5cPendingRecoveredPaperStrategy", "Stage5cAcceptedSemanticBar"],
-    "candidate_owned_fields": ["full_instrument_id", "canonical_predecessor_close_ts", "accepted_final_current_close_ts", "admitted_timeframe_sec_nonzero", "semantic_bar_identity", "recovery_receipt_identity", "sequence_observed_at", "sequence_expires_at", "sequence_identity"],
+    "candidate_owned_preclassification_fields": ["full_instrument_id", "canonical_predecessor_close_ts", "accepted_final_current_close_ts", "admitted_timeframe_sec_nonzero", "stage3_provenance_identity", "semantic_bar_identity", "recovery_receipt_identity", "sequence_observed_at", "sequence_expires_at"],
+    "candidate_final_sequence_identity_allowed": false,
     "candidate_raw_timestamp_constructor_allowed": false,
     "candidate_getters_or_raw_scalar_escape_allowed": false,
     "candidate_derive_forbidden": ["Debug", "Clone", "Copy", "Serialize", "Deserialize", "Default", "From", "Into"],
@@ -64,7 +65,15 @@
     "classifier_sole_call_site": "stage5c_paper_host::Stage5cSequenceCandidateSeal::classify_with_owned_projection",
     "classifier_output": ["Approved_classification_and_returned_projection", "Blocked_reason_and_returned_projection"],
     "classifier_exposes_raw_sessions_to_stage5c": false,
-    "classifier_consumption": "classifier_consumes_projection_and_seal;_original_borrowed_linear_inputs_remain_with_single_Stage5C_issuer;_block_returns_original_inputs_plus_returned_projection"
+    "classifier_consumption": "classifier_consumes_projection_and_preclassification_seal;_private_success_branch_creates_Stage5cClassifiedSequenceSeal;_original_borrowed_linear_inputs_remain_with_single_Stage5C_issuer;_block_returns_original_inputs_plus_returned_projection",
+    "classified_type": "Stage5cClassifiedSequenceSeal",
+    "classified_defined_in": "strategy_runtime_core::stage5c_paper_host",
+    "classified_visibility": "pub(crate)_opaque_type_with_private_fields",
+    "classified_sole_constructor": "successful_branch_of_Stage5cSequenceCandidateSeal::classify_with_owned_projection",
+    "classified_sole_consumer": "stage5e_try_observe_live_bar_after_history_with_sequence_evidence",
+    "classified_owned_fields": ["sequence_classification", "optional_boundary_fingerprint", "sequence_identity_fingerprint", "returned_projection", "sequence_observed_at", "sequence_expires_at"],
+    "final_sequence_identity_compute_point": "private_success_branch_after_concrete_classifier_result_before_Stage5eObservedLiveBarWithSequenceEvidence",
+    "final_sequence_identity_preclassification_allowed": false
   },
   "observed_live_bar_with_sequence_construction_seal": {
     "type": "Stage5eObservedLiveBarWithSequenceEvidence",
@@ -74,7 +83,25 @@
     "sole_consumer": "schedule_window_evidence::bind_schedule_window_sequence_to_observed_live_bar",
     "alternate_or_raw_constructor_allowed": false,
     "derive_forbidden": ["Debug", "Clone", "Copy", "Serialize", "Deserialize", "Default", "From", "Into"],
-    "into_inputs_or_callback_or_intent_api_allowed": false
+    "into_inputs_or_callback_or_intent_api_allowed": false,
+    "b3b_consume_method": "Stage5eObservedLiveBarWithSequenceEvidence::consume_for_b3b(self, Stage5eB3bConsumeSeal)->Stage5eB3bObservedLiveBarBridgePayload",
+    "b3b_consume_method_visibility": "pub(crate)_callable_only_with_unconstructible_Stage5eB3bConsumeSeal",
+    "b3b_consume_sole_call_site": "schedule_window_evidence::bind_schedule_window_sequence_to_observed_live_bar",
+    "b3b_consume_payload_fields": ["strategy", "recovery_receipt", "accepted_semantic_bar", "schedule_projection", "sequence_classification", "optional_boundary_fingerprint", "sequence_identity_fingerprint", "sequence_observed_at", "sequence_expires_at"],
+    "generic_into_parts_or_getters_allowed": false
+  },
+  "b3b_consume_seal_contract": {
+    "seal_type": "Stage5eB3bConsumeSeal",
+    "defined_in": "strategy_runtime_core::stage5e_no_io_lifecycle::schedule_window_evidence",
+    "visibility": "pub(crate)_opaque_type_with_private_fields",
+    "sole_constructor": "issue_stage5e_b3b_consume_seal_inside_bind_schedule_window_sequence_to_observed_live_bar",
+    "sole_consumer": "Stage5eObservedLiveBarWithSequenceEvidence::consume_for_b3b",
+    "stage5c_construction_allowed": false,
+    "derive_forbidden": ["Debug", "Clone", "Copy", "Serialize", "Deserialize", "Default", "From", "Into"],
+    "payload_type": "Stage5eB3bObservedLiveBarBridgePayload",
+    "payload_defined_in": "strategy_runtime_core::stage5e_no_io_lifecycle::schedule_window_evidence",
+    "payload_constructor": "consume_for_b3b_with_valid_Stage5eB3bConsumeSeal_only",
+    "payload_generic_into_parts_or_getters_allowed": false
   },
   "linear_transition_contract": {
     "replaced_parallel_issuers": ["issue_stage5c_accepted_market_sequence_evidence", "stage5e_try_observe_live_bar_after_history"],
@@ -82,7 +109,7 @@
     "owner_path": "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
     "inputs_in_order": ["Stage5cPendingRecoveredPaperStrategy", "Stage5cAcceptedSemanticBar", "Stage5eScheduleProjectionBridgeInput"],
     "output": "Stage5eObservedLiveBarWithSequenceEvidence",
-    "output_owns": ["strategy", "recovery_receipt", "accepted_semantic_bar", "canonical_predecessor_close", "sequence_classification", "schedule_projection", "sequence_source_fingerprint", "sequence_observed_at", "sequence_expires_at"],
+    "output_owns": ["strategy", "recovery_receipt", "accepted_semantic_bar", "canonical_predecessor_close", "sequence_classification", "optional_boundary_fingerprint", "schedule_projection", "sequence_identity_fingerprint", "sequence_observed_at", "sequence_expires_at"],
     "sequence_classes": ["Contiguous", "ApprovedNonTradableBoundary"],
     "contiguous_rule": "current_canonical_close_ts == previous_canonical_close_ts + timeframe_sec",
     "boundary_rule": "only_ApprovedNonTradableBoundary_from_Stage5cSequenceCandidateSeal::classify_with_owned_projection_over_same_consumed_projection",
@@ -96,10 +123,10 @@
       "owner_path": "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
       "input": "Stage5eObservedLiveBarWithSequenceEvidence",
       "output": "Stage5eBoundScheduleWindowSequenceForObservedLiveBar",
-      "output_owns": ["strategy", "recovery_receipt", "accepted_semantic_bar", "schedule_projection", "sequence_classification", "sequence_source_fingerprint", "sequence_observed_at", "sequence_expires_at", "b3b_event_key_fingerprint"],
+      "output_owns": ["strategy", "recovery_receipt", "accepted_semantic_bar", "schedule_projection", "sequence_classification", "optional_boundary_fingerprint", "sequence_identity_fingerprint", "sequence_observed_at", "sequence_expires_at", "b3b_event_key_fingerprint"],
       "binding_checks": ["exact_instrument", "selected_open_window_inclusive_closed", "projection_freshness", "observed_bar_not_future", "sequence_identity_nonzero", "sequence_observed_at_not_future", "sequence_not_expired"],
       "event_key_domain": "stage5e-b3b-schedule-observed-sequence-binding-v2",
-      "event_key_fields_in_order": ["schedule_window_identity_fingerprint", "full_instrument_id", "semantic_bar_close_ts", "sequence_source_fingerprint"],
+      "event_key_fields_in_order": ["schedule_window_identity_fingerprint", "full_instrument_id", "semantic_bar_close_ts", "sequence_identity_fingerprint"],
       "blocked": "Stage5eScheduleWindowSequenceObservedBarBlocked",
       "blocked_returns": ["Stage5eObservedLiveBarWithSequenceEvidence"]
     },
@@ -108,7 +135,7 @@
       "owner_path": "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs::schedule_window_evidence::b3c_evidence",
       "input": "Stage5eBoundScheduleWindowSequenceForObservedLiveBar",
       "output": "Stage5eBoundSessionCalendarSequenceForObservedLiveBar",
-      "output_owns": ["b3b_receipt", "dynamic_open_identity", "normalized_schedule_identity", "sequence_source_fingerprint", "continuation_binding_id", "bound_at", "effective_observed_at", "effective_expires_at"],
+      "output_owns": ["b3b_receipt", "dynamic_open_identity", "normalized_schedule_identity", "sequence_identity_fingerprint", "continuation_binding_id", "bound_at", "effective_observed_at", "effective_expires_at"],
       "raw_unverified_sequence_source_allowed": false,
       "production_clock": "Utc::now_captured_inside_bind_session_calendar_sequence_from_b3b",
       "test_clock_seam": "cfg_test_only_bind_session_calendar_sequence_from_b3b_at",
@@ -118,6 +145,7 @@
       "projection_effective_observed_at_formula": "max(stage4_dynamic_observed_at, normalized_schedule_observed_at)",
       "projection_expires_at_formula": "min(stage4_dynamic_expires_at, normalized_schedule_expires_at)",
       "sequence_expiry_policy": "sequence_expires_at=min(recovered_bootstrap_broker_truth_expires_at, sequence_observed_at + Duration::seconds(admitted_timeframe_sec)); admitted_timeframe_sec is NonZeroU32",
+      "sequence_creation_freshness_requirement": "sequence_observed_at <= sequence_expires_at; otherwise the sole Stage5C issuer blocks before creating Stage5cClassifiedSequenceSeal or Stage5eObservedLiveBarWithSequenceEvidence",
       "successful_receipt_is_monotonic": true,
       "blocked": "Stage5eSessionCalendarSequenceBlocked",
       "blocked_returns": ["Stage5eBoundScheduleWindowSequenceForObservedLiveBar"]
@@ -192,7 +220,7 @@
     "sequence_identity": {
       "domain": "stage5e-b3c-market-sequence-v2",
       "algorithm": "sha256_tagged_length_prefixed_canonical_bytes",
-      "fields_in_order": ["stage3_provenance_identity", "semantic_bar_identity", "recovery_receipt_identity", "canonical_predecessor_close_ts_i64_be", "admitted_timeframe_sec_u32_be", "sequence_observed_at_millis_i64_be", "sequence_expires_at_millis_i64_be", "sequence_class_code_u8", "optional_boundary_option_tag_and_fingerprint"]
+      "fields_in_order": ["stage3_provenance_identity_from_accepted_input", "semantic_bar_identity", "recovery_receipt_identity", "canonical_predecessor_close_ts_i64_be", "admitted_timeframe_sec_u32_be", "sequence_observed_at_millis_i64_be", "sequence_expires_at_millis_i64_be", "sequence_class_code_u8_post_classification", "optional_boundary_option_tag_and_fingerprint_post_classification"]
     },
     "continuation_binding": {
       "rust_type": "Stage5eContinuationBindingId",
@@ -206,8 +234,8 @@
   "required_predecessor_governance_update_paths": ["docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md", "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json", "docs/stage-5/5e-b3-schedule-window-evidence-plan.md", "docs/stage-5/stage5e-b3-schedule-window-evidence-inventory.json", "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md", "docs/stage-5/stage5e-b3c-private-eligibility-seam-inventory.json", "scripts/stage5e_b_no_io_lifecycle_check.py", "scripts/stage5e_b3_schedule_window_evidence_check.py", "scripts/stage5e_b3c_private_eligibility_seam_check.py"],
   "required_governance_update_paths": ["docs/stage-5/stage-5c-api-freeze-manifest.json", "docs/stage-5/stage-5d-additive-freeze-manifest.json", "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/forbidden_surface_negative_harness.py", "scripts/handoff_provenance_negative_harness.py", "scripts/handoff_safety_check.py", "scripts/stage5c_api_freeze_check.py", "scripts/stage5d_additive_freeze_check.py", "scripts/stage5d_additive_freeze_negative_harness.py", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py"],
   "required_unchanged_active_stage_paths": ["docs/stage-5/stage5e-active-descriptor.json", "scripts/stage5e_descriptor.py", "scripts/stage5e_lifecycle_event_time_gate.sh"],
-  "required_implementation_tests": ["stage4_dynamic_open_is_retained_from_accepted_input", "stage4_non_open_blocks_schedule_projection", "schedule_projection_bridge_cannot_be_raw_constructed_or_reused", "Stage5cSequenceCandidateSeal_has_one_constructor_and_no_getters", "Stage5eScheduleCandidateClassifier_has_one_constructor_and_one_call_site", "sealed_classifier_never_exposes_raw_sessions_to_stage5c", "single_linear_issuer_preserves_strategy_recovery_and_bar", "observed_live_bar_with_sequence_has_one_constructor_and_B3B_consumer", "B3B_consumes_new_output_and_revalidates_sequence_freshness", "B3C_revalidates_production_clock_expiry_observation_bar_and_sequence_time", "B3C_effective_expiry_is_exact_min_of_projection_and_sequence", "B3C_test_clock_seam_is_cfg_test_only", "expected_close_grid_uses_discrete_endpoint_and_candidate_classification", "stage4_schedule_section_identity_changes_for_every_frozen_field", "sequence_identity_changes_for_each_freshness_field", "every_nested_identity_field_changes_its_fingerprint", "restart_reissues_full_receipt_chain_without_identity_mixing", "all_required_predecessor_and_freeze_updates_present"],
-  "required_negative_mutations": ["boundary_precomputed_without_candidate_context", "caller_timestamps_enter_owner_constructor", "sealed_classifier_bypassed", "candidate_type_owner_changed", "second_candidate_constructor_or_getter", "classifier_alternate_constructor_or_call_site", "observed_live_bar_with_sequence_raw_constructible", "sequence_freshness_removed", "sequence_receipt_storage_opened_beyond_expiry", "effective_expiry_min_replaced_by_max", "B3C_clock_removed", "B3C_expiry_check_removed", "B3C_test_clock_seam_production_visible", "stage4_schedule_source_identity_constant", "stage4_schedule_source_identity_field_removed", "continuous_range_inference_replaces_grid_coverage"],
+  "required_implementation_tests": ["stage4_dynamic_open_is_retained_from_accepted_input", "stage4_non_open_blocks_schedule_projection", "schedule_projection_bridge_cannot_be_raw_constructed_or_reused", "Stage5cSequenceCandidateSeal_has_one_constructor_and_no_getters", "preclassification_candidate_has_no_final_sequence_identity", "Stage5cClassifiedSequenceSeal_is_created_only_after_concrete_classification", "final_sequence_identity_uses_accepted_stage3_digest_and_classification_boundary", "Stage5eScheduleCandidateClassifier_has_one_constructor_and_one_call_site", "sealed_classifier_never_exposes_raw_sessions_to_stage5c", "single_linear_issuer_preserves_strategy_recovery_and_bar", "observed_live_bar_with_sequence_has_one_constructor_and_sealed_B3B_consumer", "B3B_consume_seal_has_one_constructor_and_one_consumer", "B3B_consumes_new_output_and_revalidates_sequence_freshness", "sequence_created_expired_blocks_before_receipt", "B3C_revalidates_production_clock_expiry_observation_bar_and_sequence_time", "B3C_effective_expiry_is_exact_min_of_projection_and_sequence", "B3C_test_clock_seam_is_cfg_test_only", "expected_close_grid_uses_discrete_endpoint_and_candidate_classification", "stage4_schedule_section_identity_changes_for_every_frozen_field", "sequence_identity_changes_for_each_freshness_classification_and_boundary_field", "every_nested_identity_field_changes_its_fingerprint", "restart_reissues_full_receipt_chain_without_identity_mixing", "all_required_predecessor_and_freeze_updates_present"],
+  "required_negative_mutations": ["boundary_precomputed_without_candidate_context", "caller_timestamps_enter_owner_constructor", "sealed_classifier_bypassed", "candidate_type_owner_changed", "second_candidate_constructor_or_getter", "candidate_owns_final_sequence_identity", "classified_result_drops_boundary_fingerprint", "final_sequence_identity_computed_without_classification", "classifier_alternate_constructor_or_call_site", "observed_live_bar_with_sequence_raw_constructible", "observed_live_bar_generic_into_parts_or_getter", "B3B_consume_seal_second_constructor_or_consumer", "sequence_source_fingerprint_substituted_for_final_identity", "sequence_created_already_expired", "sequence_freshness_removed", "sequence_receipt_storage_opened_beyond_expiry", "effective_expiry_min_replaced_by_max", "B3C_clock_removed", "B3C_expiry_check_removed", "B3C_test_clock_seam_production_visible", "stage4_schedule_source_identity_constant", "stage4_schedule_source_identity_field_removed", "continuous_range_inference_replaces_grid_coverage"],
   "closed_surfaces": ["strategy_callback", "strategy_state_mutation", "executable_intents", "strategy_intent_sink", "redis", "finam_io", "transport", "dispatch", "runtime_live", "broker_execution", "autonomous_event_loop"],
   "allowed_changed_paths": ["docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/handoff_provenance_negative_harness.py", "scripts/handoff_safety_check.py", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py"]
 }

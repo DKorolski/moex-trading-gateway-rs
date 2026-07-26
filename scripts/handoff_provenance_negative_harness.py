@@ -2045,7 +2045,7 @@ def main() -> int:
             mutate_stage5e_authority_inventory_for_checker(
                 lambda payload: payload["b3b_b3c_topology_contract"]["b3b_transition"][
                     "output_owns"
-                ].remove("sequence_source_fingerprint")
+                ].remove("sequence_identity_fingerprint")
             ),
             "5E-b3c-source-authority-freeze-extension",
             True,
@@ -2360,6 +2360,16 @@ def main() -> int:
             "5E-b3c-source-authority-freeze-extension",
             True,
         ),
+        Case("stage5e-authority-r6-candidate-final-identity", "authority freeze contract drift", mutate_stage5e_authority_inventory_for_checker(lambda p: p["sealed_candidate_classifier_contract"].__setitem__("candidate_final_sequence_identity_allowed", True)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r6-classified-drops-boundary", "authority freeze contract drift", mutate_stage5e_authority_inventory_for_checker(lambda p: p["sealed_candidate_classifier_contract"]["classified_owned_fields"].remove("optional_boundary_fingerprint")), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r6-final-identity-preclassification", "authority freeze contract drift", mutate_stage5e_authority_inventory_for_checker(lambda p: p["sealed_candidate_classifier_contract"].__setitem__("final_sequence_identity_compute_point", "before_classifier")), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r6-observed-generic-parts", "authority freeze contract drift", mutate_stage5e_authority_inventory_for_checker(lambda p: p["observed_live_bar_with_sequence_construction_seal"].__setitem__("generic_into_parts_or_getters_allowed", True)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r6-b3b-seal-second-constructor", "authority freeze contract drift", mutate_stage5e_authority_inventory_for_checker(lambda p: p["b3b_consume_seal_contract"].__setitem__("sole_constructor", "alternate_b3b_consume_seal_constructor")), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r6-b3b-second-consumer", "authority freeze contract drift", mutate_stage5e_authority_inventory_for_checker(lambda p: p["observed_live_bar_with_sequence_construction_seal"].__setitem__("b3b_consume_sole_call_site", "two_b3b_consumers")), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r6-source-for-final-identity", "authority freeze contract drift", mutate_stage5e_authority_inventory_for_checker(lambda p: p["b3b_b3c_topology_contract"]["b3b_transition"]["event_key_fields_in_order"].__setitem__(3, "sequence_source_fingerprint")), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r6-sequence-created-expired", "authority freeze contract drift", mutate_stage5e_authority_inventory_for_checker(lambda p: p["b3b_b3c_topology_contract"]["b3c_transition"].pop("sequence_creation_freshness_requirement")), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r6-accepted-stage3-digest-dropped", "authority freeze contract drift", mutate_stage5e_authority_inventory_for_checker(lambda p: p["sealed_candidate_classifier_contract"]["candidate_owned_preclassification_fields"].remove("stage3_provenance_identity")), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r6-plan-consume-bridge-removed", "authority freeze plan drift", mutate_stage5e_authority_plan_for_checker(lambda t: t.replace("consume_for_b3b(self, Stage5eB3bConsumeSeal)", "into_parts(self)", 1)), "5E-b3c-source-authority-freeze-extension", True),
     ]
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)

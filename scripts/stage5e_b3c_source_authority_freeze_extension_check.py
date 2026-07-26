@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed governance gate for the Stage 5E-b3c authority freeze r5."""
+"""Fail-closed governance gate for the Stage 5E-b3c authority freeze r6."""
 
 import hashlib
 import json
@@ -12,10 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = ROOT / "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json"
 PLAN = ROOT / "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md"
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
-BASELINE_REF = "aac17b6e75605d26768b8de2d0aa053767f628e7"
+BASELINE_REF = "d2f89a2223b2424e10c63f062f7b24b181466cfc"
 
-EXPECTED_INVENTORY_SHA256 = "f119a03f217807188ef73ba533cbae60c3a2d7291115964719c9cd42c3e25c6e"
-EXPECTED_PLAN_SHA256 = "9c7651d5422726b4be998fcc133b7cee531802ad1d8da73f952f31f037672e65"
+EXPECTED_INVENTORY_SHA256 = "8d9a359fc4ba8fb99fa06991561b4d6ebe38cb508a5acc5eaafa4c5f1cb48b4e"
+EXPECTED_PLAN_SHA256 = "74a74a59c2c1ae11f6dfc818c72aeeeaf60bbd30bbd71ac9151f961b1a6b3485"
 EXPECTED_SOURCE_BASELINES = {
     "crates/broker-core/src/lib.rs": "5d8758624f53a6b46d8903dd3f2339d5bd04f64c9c6490448167f08ac68ec8a2",
     "crates/broker-core/src/operational_config.rs": "492905c6e404ee67f62ad456128ff659cd4a32c8e638936b94b5ea14ff3ba2f8",
@@ -56,22 +56,22 @@ def main() -> int:
         fail("authority freeze contract drift")
     if sha256(PLAN) != EXPECTED_PLAN_SHA256:
         fail("authority freeze plan drift")
-    if payload.get("schema_version") != 6:
+    if payload.get("schema_version") != 7:
         fail("authority freeze schema drift")
     if payload.get("stage") != "5E-b3c-source-authority-freeze-extension":
         fail("authority freeze identity drift")
-    if payload.get("status") != "authority_freeze_r5_pending_review":
+    if payload.get("status") != "authority_freeze_r6_pending_review":
         fail("authority freeze status drift")
     if payload.get("baseline_ref") != BASELINE_REF:
         fail("authority freeze baseline drift")
-    if payload.get("expected_provenance_case_count") != 184:
+    if payload.get("expected_provenance_case_count") != 194:
         fail("authority freeze negative-matrix count drift")
     if payload.get("production_source_baselines") != EXPECTED_SOURCE_BASELINES:
         fail("authority freeze source baseline drift")
     if payload.get("allowed_changed_paths") != EXPECTED_ALLOWED_CHANGED_PATHS:
         fail("authority freeze changed-path contract drift")
     if payload.get("implementation_authorization") != {
-        "authority_freeze_r5_reviewed": False,
+        "authority_freeze_r6_reviewed": False,
         "production_source_changes_allowed": False,
         "trusted_combined_eligibility": False,
         "unverified_sequence_production_authoritative": False,

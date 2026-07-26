@@ -6,7 +6,8 @@ reviewed contract before any such source change is permitted. R5 below is the
 sole operative implementation contract; R1--R4 record the decisions that led
 to it and are superseded wherever they differ.
 
-Baseline: `936250e675ac15b61a7a4e319b59e508cd834f30`.
+Lineage root / initial design baseline: `936250e675ac15b61a7a4e319b59e508cd834f30`.
+Scoped R6 review baseline: `d2f89a2223b2424e10c63f062f7b24b181466cfc`.
 
 The preceding B3C package is accepted only as private no-I/O plumbing. Its
 calendar binding is useful, but it does not establish trusted eligibility:
@@ -604,3 +605,107 @@ the exact `min(...)` effective expiry, and no raw observed-bar-with-sequence
 construction. Negative mutations listed in the inventory are mandatory. This
 remains no-I/O/no-callback/no-intent work until a later separately reviewed
 stage authorizes anything else.
+
+## R6 final identity lifecycle and B3B consuming bridge
+
+R6 closes the two remaining data-flow seams without changing production source.
+It supersedes R5 wherever R5 says that a pre-classification candidate owns a
+final sequence identity or leaves the Stage 5C-to-B3B consumer mechanism
+implicit.
+
+### Post-classification identity lifecycle
+
+`Stage5cSequenceCandidateSeal` is strictly pre-classification material. It
+owns only:
+
+```text
+full instrument identity
+canonical predecessor close
+accepted final current close
+non-zero admitted timeframe
+accepted Stage 3 provenance identity
+accepted semantic-bar identity
+recovery identity
+sequence_observed_at
+sequence_expires_at
+```
+
+It does **not** own, expose or precompute `sequence_identity_fingerprint`, a
+classification code or a boundary fingerprint. Its creator rejects a receipt
+before it exists when `sequence_expires_at < sequence_observed_at`.
+
+The candidate's only successful terminal method remains
+`classify_with_owned_projection`. It consumes the candidate and the Stage 5E
+classifier. After the classifier returns a concrete `Contiguous` or
+`ApprovedNonTradableBoundary(boundary_fingerprint)` result and its projection,
+that same private Stage 5C method creates the opaque
+`Stage5cClassifiedSequenceSeal`. This is the only point that computes the final
+`sequence_identity_fingerprint` with the inventory's canonical
+`stage5e-b3c-market-sequence-v2` encoding.
+
+`Stage5cClassifiedSequenceSeal` is a `pub(crate)` opaque, private-field,
+non-Clone/non-Copy/non-Serialize linear type owned by `stage5c_paper_host`. Its
+only constructor is the successful branch of
+`Stage5cSequenceCandidateSeal::classify_with_owned_projection`; its only
+consumer is the sole Stage 5C observed-bar issuer. It owns classification,
+optional boundary fingerprint, final `sequence_identity_fingerprint`, returned
+projection and the copied freshness/identity material. A blocked classifier
+branch creates no classified seal and returns only the original recovered
+strategy, accepted semantic bar and returned projection.
+
+The old name `sequence_source_fingerprint` is forbidden in the new B3B/B3C
+topology. Every final downstream field and event-key input is named
+`sequence_identity_fingerprint` and means exactly the final canonical sequence
+identity. If an implementation needs an upstream provenance identity, it must
+use the independently defined `stage3_provenance_identity`; it may never be
+substituted for the final sequence identity.
+
+### Exact Stage 5C receipt → Stage 5E B3B consuming bridge
+
+`Stage5eB3bConsumeSeal` is defined by
+`stage5e_no_io_lifecycle::schedule_window_evidence` as a `pub(crate)` opaque
+type with private fields. Its only constructor is the private B3B issuer
+`issue_stage5e_b3b_consume_seal` immediately before it consumes an observed
+receipt. It is non-Clone, non-Copy, non-serializable and cannot be created by
+Stage 5C or any other module.
+
+`Stage5eObservedLiveBarWithSequenceEvidence` has exactly one crate-private
+consuming method:
+
+```text
+consume_for_b3b(self, Stage5eB3bConsumeSeal)
+  -> Stage5eB3bObservedLiveBarBridgePayload
+```
+
+The method is defined in `stage5c_paper_host`, consumes both the receipt and
+the seal, and is callable only at
+`bind_schedule_window_sequence_to_observed_live_bar`. It transfers only these
+private owned parts to the Stage 5E-owned opaque bridge payload:
+
+```text
+strategy
+recovery receipt
+accepted semantic bar
+schedule projection
+sequence classification
+optional boundary fingerprint
+sequence_identity_fingerprint
+sequence_observed_at
+sequence_expires_at
+```
+
+`Stage5eB3bObservedLiveBarBridgePayload` is defined in the Stage 5E B3B owner
+with private fields. It has no constructor other than the consume-seal method,
+no getters, no generic `into_parts`, no reverse conversion, no callback and no
+intent API. B3B consumes this payload immediately to produce its own receipt.
+There is no second B3B consumer, no Stage 5C-created consume seal and no
+alternate cross-module extraction surface.
+
+### R6 required evidence
+
+The implementation package must prove that final sequence identity is absent
+before classification and changes for classification/boundary changes; that a
+sequence cannot be created already expired; that only the B3B issuer creates a
+consume seal and calls `consume_for_b3b`; and that no source fingerprint can be
+used where the final sequence identity is required. The existing no-I/O,
+no-callback and no-intent restrictions remain unchanged.
