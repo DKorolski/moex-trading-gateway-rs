@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed checker for the Stage 5E-b3d callback-authority design."""
+"""Fail-closed checker for Stage 5E-b3d-r1 governance hardening."""
 
 from __future__ import annotations
 
@@ -16,14 +16,15 @@ INVENTORY = (
     ROOT / "docs/stage-5/stage5e-b3d-callback-authority-design-inventory.json"
 )
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
-BASELINE_REF = "ff1344f170b8457df91a6038d670087eef3cc1dc"
+STAGE_BASELINE_REF = "ff1344f170b8457df91a6038d670087eef3cc1dc"
+R1_REVIEW_PREDECESSOR_REF = "95096b7d28ecd3fafddbbfd3ec91b0611019e0eb"
 STAGE = "5E-b3d-callback-authority-design"
 
 EXPECTED_INVENTORY_SHA256 = (
-    "730b208b4a90de62557d1713726a32c01ec2cd2196fd25ef0bc5c98b583ec3f8"
+    "e965664ce35449c982b4f7ce306e2479ecfaa728e3ac881f5596e3cc9ea13a88"
 )
 EXPECTED_PLAN_SHA256 = (
-    "e37ca8fe9377690935f4513c2e339bde0f6fa25c6060a376f98ac71df98a7c42"
+    "1420ef4f69e57cd0f7b5877fcef154091c6a982400ef6a0c23e004e6e7f79d01"
 )
 EXPECTED_PREDECESSOR_CHECKER_SHA256 = (
     "cd1453de67401d28ce9c320fc76a2fe4051c57dd41fd9c306fe1bf7e12ece2f5"
@@ -42,6 +43,12 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "scripts/stage5e_b3d_callback_authority_design_check.py",
     "scripts/stage5e_descriptor.py",
     "scripts/stage5e_lifecycle_event_time_gate.sh",
+]
+EXPECTED_R1_CHANGED_PATHS = [
+    "docs/stage-5/5e-b3d-callback-authority-design.md",
+    "docs/stage-5/stage5e-b3d-callback-authority-design-inventory.json",
+    "scripts/handoff_provenance_negative_harness.py",
+    "scripts/stage5e_b3d_callback_authority_design_check.py",
 ]
 EXPECTED_PROTECTED_SOURCE_SHA256 = {
     "crates/broker-core/src/stage4_bootstrap.rs": (
@@ -98,152 +105,264 @@ def run_predecessor() -> None:
         fail("accepted predecessor implementation gate failed")
 
 
+def require_exact(value: object, expected: object, message: str) -> None:
+    if value != expected:
+        fail(message)
+
+
 def main() -> int:
     try:
         inventory = json.loads(INVENTORY.read_text())
         active = json.loads(ACTIVE.read_text())
     except (FileNotFoundError, json.JSONDecodeError) as exc:
-        fail(f"missing or invalid design governance: {exc}")
+        fail(f"missing or invalid R1 governance: {exc}")
 
     if canonical_sha256(inventory) != EXPECTED_INVENTORY_SHA256:
-        fail("design inventory drift")
+        fail("R1 inventory drift")
     if sha256(PLAN) != EXPECTED_PLAN_SHA256:
-        fail("design plan drift")
-    if active != {"schema_version": 1, "stage": STAGE}:
-        fail("active descriptor drift")
-    if inventory.get("schema_version") != 1 or inventory.get("stage") != STAGE:
-        fail("design identity drift")
-    if inventory.get("status") != "design_only_pending_review":
-        fail("design status drift")
-    if inventory.get("baseline_ref") != BASELINE_REF:
-        fail("design baseline drift")
-    if inventory.get("predecessor_ref") != BASELINE_REF:
-        fail("accepted predecessor reference drift")
-    if inventory.get("expected_provenance_case_count") != 214:
-        fail("design negative-matrix count drift")
-    if inventory.get("allowed_changed_paths") != EXPECTED_ALLOWED_CHANGED_PATHS:
-        fail("design changed-path contract drift")
-    if inventory.get("protected_source_sha256") != EXPECTED_PROTECTED_SOURCE_SHA256:
-        fail("protected source contract drift")
-
+        fail("R1 plan drift")
+    require_exact(active, {"schema_version": 1, "stage": STAGE}, "active descriptor drift")
+    if inventory.get("schema_version") != 2 or inventory.get("stage") != STAGE:
+        fail("R1 identity drift")
+    if inventory.get("status") != "r1_governance_hardening_pending_review":
+        fail("R1 status drift")
+    if inventory.get("baseline_ref") != STAGE_BASELINE_REF:
+        fail("R1 baseline drift")
+    if inventory.get("predecessor_ref") != R1_REVIEW_PREDECESSOR_REF:
+        fail("R1 predecessor drift")
+    if inventory.get("expected_provenance_case_count") != 225:
+        fail("R1 negative-matrix count drift")
+    require_exact(
+        inventory.get("allowed_changed_paths"),
+        EXPECTED_ALLOWED_CHANGED_PATHS,
+        "R1 changed-path contract drift",
+    )
+    require_exact(
+        inventory.get("protected_source_sha256"),
+        EXPECTED_PROTECTED_SOURCE_SHA256,
+        "protected source contract drift",
+    )
     for rel, expected in EXPECTED_PROTECTED_SOURCE_SHA256.items():
         if sha256(ROOT / rel) != expected:
-            fail(f"design-only stage changed protected source: {rel}")
+            fail(f"governance-only R1 changed protected source: {rel}")
 
     if (ROOT / ".git").exists():
-        changed = set(
-            subprocess.check_output(
-                ["git", "diff", "--name-only", BASELINE_REF, "--"],
-                cwd=ROOT,
-                text=True,
-            ).splitlines()
-        )
-        if sorted(changed) != sorted(EXPECTED_ALLOWED_CHANGED_PATHS):
-            fail("design review diff drift")
+        changed = subprocess.check_output(
+            ["git", "diff", "--name-only", R1_REVIEW_PREDECESSOR_REF, "--"],
+            cwd=ROOT,
+            text=True,
+        ).splitlines()
+        if sorted(changed) != sorted(EXPECTED_R1_CHANGED_PATHS):
+            fail("R1 review diff drift")
 
-    expected_output = {
-        "type": "Stage5eCallbackAuthorityReadyPaperStrategy",
-        "callback_ready": True,
-        "callback_invoked": False,
-        "execution_ready": False,
-        "calls_strategy": False,
-        "mutates_strategy": False,
-        "creates_executable_intent": False,
-        "intent_count": 0,
-        "successful_unbinding_allowed": False,
-    }
-    if inventory.get("future_output") != expected_output:
-        fail("callback authority vector drift")
+    require_exact(
+        inventory.get("route_exclusivity_contract"),
+        {
+            "decision": "explicit_isolated_scope",
+            "sole_new_stage5e_callback_input": (
+                "Stage5eCallbackAuthorityReadyPaperStrategy"
+            ),
+            "sole_new_stage5e_callback_transition": (
+                "invoke_stage5e_authorized_paper_callback"
+            ),
+            "legacy_stage5c_routes": [
+                "apply_stage5c_semantic_bar",
+                "advance_stage5c_paper_loop_once",
+            ],
+            "legacy_route_scope": "paper_oracle_compatibility_only",
+            "legacy_route_stage5e_runtime_attachment_allowed": False,
+            "stage5c_api_freeze_extension_required_now": False,
+            "future_runtime_call_graph_negative_evidence_required": True,
+        },
+        "callback route exclusivity drift",
+    )
 
-    transition = inventory.get("future_transition")
-    if not isinstance(transition, dict):
-        fail("future transition contract missing")
-    if transition.get("visibility") != "crate_private":
-        fail("future transition visibility widened")
-    if transition.get("production_clock") != "captured_inside_transition":
-        fail("production clock ownership drift")
-    if transition.get("caller_supplied_production_clock_allowed") is not False:
-        fail("caller-supplied production clock opened")
-    if transition.get("test_clock_seam") != "cfg_test_only":
-        fail("test clock seam escaped production boundary")
+    receipt = inventory.get("callback_authority_receipt_contract")
+    if not isinstance(receipt, dict):
+        fail("authority receipt contract missing")
+    require_exact(
+        receipt.get("fields"),
+        [
+            "b3c_receipt",
+            "callback_authority_id",
+            "issued_at",
+            "effective_observed_at",
+            "authority_expires_at",
+            "accepted_bar_close_ts",
+            "full_instrument_id",
+            "accepted_semantic_bar_identity",
+            "event_key_fingerprint",
+            "continuation_binding_id",
+            "sequence_identity_fingerprint",
+        ],
+        "authority receipt field schema drift",
+    )
     if (
-        transition.get("consume_order")
-        != "borrowed_non_decomposable_preflight_then_single_linear_consume"
+        receipt.get("owner_module")
+        != "strategy_runtime_core::stage5e_no_io_lifecycle::callback_authority"
+        or receipt.get("visibility") != "crate_private_opaque"
+        or receipt.get("owns_complete_b3c_receipt") is not True
+        or receipt.get("successful_unbinding_allowed") is not False
+        or receipt.get("persistence_allowed") is not False
+        or receipt.get("restart_reconstruction_allowed") is not False
     ):
-        fail("linear consume order drift")
+        fail("authority receipt ownership or lifetime drift")
+    require_exact(
+        receipt.get("authority_vector"),
+        {
+            "callback_ready": True,
+            "callback_invoked": False,
+            "execution_ready": False,
+            "calls_strategy": False,
+            "mutates_strategy": False,
+            "creates_in_memory_intents": False,
+            "creates_executable_intent": False,
+            "intent_count": 0,
+        },
+        "authority issue vector drift",
+    )
 
-    block = inventory.get("block_contract")
+    authority_id = inventory.get("callback_authority_id_contract")
+    if not isinstance(authority_id, dict):
+        fail("authority identity contract missing")
+    if (
+        authority_id.get("domain") != "stage5e-callback-authority-v1"
+        or authority_id.get("algorithm")
+        != "sha256_tagged_length_prefixed_canonical_bytes"
+        or authority_id.get("issuance_ledger_required") is not False
+        or authority_id.get("duplicate_runtime_blocker_present") is not False
+        or authority_id.get("crash_policy")
+        != "capability_lost_rebuild_full_chain_from_fresh_evidence"
+    ):
+        fail("authority identity or exactly-once contract drift")
+    if len(authority_id.get("fields_in_order", [])) != 7:
+        fail("authority identity field coverage drift")
+
+    ownership = inventory.get("ownership_contract")
+    require_exact(
+        ownership,
+        {
+            "proof": "linear_type_ownership_of_complete_b3c_receipt",
+            "production_ownership_binding_id_present": False,
+            "runtime_ownership_mismatch_blocker_present": False,
+            "test_only_state_fingerprint_allowed": True,
+            "test_fingerprint_production_authority_allowed": False,
+        },
+        "ownership proof contract drift",
+    )
+
+    issue = inventory.get("callback_authority_issue_transition")
+    if not isinstance(issue, dict):
+        fail("authority issue transition missing")
+    if (
+        issue.get("input")
+        != "Stage5eBoundSessionCalendarSequenceForObservedLiveBar"
+        or issue.get("success") != "Stage5eCallbackAuthorityReadyPaperStrategy"
+        or issue.get("issue_seal") != "Stage5eCallbackAuthorityIssueSeal"
+        or issue.get("preflight_view") != "Stage5eCallbackAuthorityPreflight<'a>"
+        or issue.get("consume_order") != "preflight_then_single_linear_consume"
+        or issue.get("production_clock") != "captured_inside_transition"
+        or issue.get("caller_supplied_production_clock_allowed") is not False
+        or issue.get("authority_expires_at_formula")
+        != "b3c_effective_expires_at"
+        or issue.get("grace_period_allowed") is not False
+        or issue.get("expiry_extension_allowed") is not False
+    ):
+        fail("authority issue transition drift")
+
+    block = inventory.get("issue_block_contract")
     if not isinstance(block, dict):
-        fail("block type-state contract missing")
-    if block.get("retryable_type") != "Stage5eCallbackAuthorityRetryableBlock":
-        fail("retryable blocker type drift")
-    if block.get("retryable_conversion") != "into_retry_same_receipt":
-        fail("retry conversion drift")
-    if block.get("refresh_type") != "Stage5eCallbackAuthorityRefreshEvidenceBlock":
-        fail("refresh blocker type drift")
-    if block.get("refresh_conversion") != "into_refresh_input":
-        fail("refresh conversion drift")
-    if block.get("terminal_type") != "Stage5eCallbackAuthorityTerminalBlock":
-        fail("terminal blocker type drift")
-    if block.get("terminal_retry_or_refresh_conversion_allowed") is not False:
-        fail("terminal retry or refresh conversion opened")
-    if block.get("autonomous_retry_authorized") is not False:
-        fail("autonomous retry opened")
+        fail("authority issue blocker contract missing")
+    if (
+        block.get("retryable_type") != "Stage5eCallbackAuthorityRetryableBlock"
+        or block.get("retryable_conversion") != "into_retry_same_receipt"
+        or block.get("terminal_type") != "Stage5eCallbackAuthorityTerminalBlock"
+        or block.get("terminal_retry_refresh_or_unbinding_allowed") is not False
+        or block.get("refresh_type_present") is not False
+        or block.get("refresh_conversion_present") is not False
+        or block.get("expired_evidence_policy")
+        != "terminal_drop_and_rebuild_from_fresh_accepted_chain"
+        or block.get("autonomous_retry_authorized") is not False
+    ):
+        fail("authority blocker type-state drift")
+    terminal_reasons = block.get("terminal_reasons", [])
+    if (
+        "EvidenceExpired" not in terminal_reasons
+        or "DuplicateAuthorityIssue" in terminal_reasons
+        or "OwnershipBindingMismatch" in terminal_reasons
+    ):
+        fail("unimplementable blocker reintroduced")
+
+    invocation = inventory.get("callback_authority_invocation_contract")
+    if not isinstance(invocation, dict):
+        fail("callback invocation contract missing")
+    if (
+        invocation.get("implementation_status") != "hold_future_separate_review"
+        or invocation.get("only_input")
+        != "Stage5eCallbackAuthorityReadyPaperStrategy"
+        or invocation.get("production_clock") != "captured_inside_transition"
+        or invocation.get("callback_invocation_after_all_checks_only") is not True
+        or invocation.get("output") != "Stage5ePaperCallbackResultEscrow"
+        or invocation.get("callback_invocation_implies_in_memory_intent_construction")
+        is not True
+        or invocation.get("intent_sink_allowed") is not False
+        or invocation.get("send_allowed") is not False
+        or invocation.get("execution_allowed") is not False
+    ):
+        fail("callback-time authority contract drift")
+    callback_checks = invocation.get("callback_time_checks", [])
+    for required in (
+        "now_not_after_authority_expires_at",
+        "callback_authority_id_recomputed_and_equal",
+        "immutable_identity_fields_match_owned_b3c_receipt",
+    ):
+        if required not in callback_checks:
+            fail(f"callback-time revalidation missing: {required}")
 
     closed = inventory.get("closed_surfaces")
-    if (
-        not isinstance(closed, dict)
-        or set(closed)
-        != {
-            "strategy_callback",
-            "strategy_state_mutation",
-            "executable_intents",
-            "strategy_intent_sink",
-            "redis",
-            "finam_io",
-            "transport",
-            "dispatch",
-            "runtime_live",
-            "broker_execution",
-            "autonomous_event_loop",
-            "schedule_provider_attachment",
-            "venue_calendar_inference",
-        }
-        or any(value is not False for value in closed.values())
-    ):
+    if not isinstance(closed, dict) or any(value is not False for value in closed.values()):
         fail("closed surface opened")
-
-    providers = inventory.get("deferred_provider_gates")
+    providers = inventory.get("provider_and_calendar_contract")
     if not isinstance(providers, dict) or any(
         value is not False for value in providers.values()
     ):
         fail("provider or venue-calendar gate opened")
 
+    stage5c = (
+        ROOT / "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    ).read_text()
+    lib = (ROOT / "crates/strategy-runtime-core/src/lib.rs").read_text()
+    for legacy in (
+        "pub fn apply_stage5c_semantic_bar(",
+        "pub fn advance_stage5c_paper_loop_once(",
+    ):
+        if legacy not in stage5c:
+            fail(f"legacy paper/oracle route unexpectedly changed: {legacy}")
+    if "apply_stage5c_semantic_bar," not in lib:
+        fail("legacy Stage 5C API export unexpectedly changed")
+    protected_stage5e = (
+        ROOT / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
+    ).read_text()
+    if "Stage5eCallbackAuthorityReadyPaperStrategy" in protected_stage5e:
+        fail("governance-only authority type entered production source")
+
     plan = PLAN.read_text()
     for marker in (
-        "design-only, pending review",
-        "Stage5eBoundSessionCalendarSequenceForObservedLiveBar",
-        "Stage5eCallbackAuthorityReadyPaperStrategy",
-        "callback_ready = true",
-        "callback_invoked = false",
-        "calls_strategy = false",
-        "Stage5eCallbackAuthorityRetryableBlock",
-        "Stage5eCallbackAuthorityRefreshEvidenceBlock",
-        "Stage5eCallbackAuthorityTerminalBlock",
-        "No autonomous retry loop is authorized",
-        "on_broker_bar",
-        "Actual callback invocation requires a separate implementation review",
+        "governance/design-only, pending review",
+        "explicit isolated scope",
+        "paper/oracle compatibility APIs",
+        "stage5e-callback-authority-v1",
+        "authority_expires_at = effective_expires_at",
+        "There is no issuance ledger",
+        "There is no production `ownership_binding_id`",
+        "R1 deliberately has no refresh output",
+        "invoke_stage5e_authorized_paper_callback",
+        "now <= authority_expires_at",
+        "in-memory paper intent construction",
+        "Actual callback invocation and escrow implementation remain HOLD",
     ):
         if marker not in plan:
-            fail(f"required design marker missing: {marker}")
-
-    protected_source = "\n".join(
-        (ROOT / rel).read_text(errors="replace")
-        for rel in EXPECTED_PROTECTED_SOURCE_SHA256
-        if rel.endswith(".rs")
-    )
-    if "Stage5eCallbackAuthorityReadyPaperStrategy" in protected_source:
-        fail("design-only callback authority type entered production source")
+            fail(f"required R1 plan marker missing: {marker}")
 
     run_predecessor()
     print("stage5e-b3d-callback-authority-design-check: ok")

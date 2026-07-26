@@ -1,106 +1,215 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "stage": "5E-b3d-callback-authority-design",
-  "status": "design_only_pending_review",
+  "status": "r1_governance_hardening_pending_review",
   "baseline_ref": "ff1344f170b8457df91a6038d670087eef3cc1dc",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
-  "predecessor_stage": "5E-b3c-source-authority-freeze-extension",
-  "predecessor_ref": "ff1344f170b8457df91a6038d670087eef3cc1dc",
-  "expected_provenance_case_count": 214,
-  "input_receipt": {
-    "type": "Stage5eBoundSessionCalendarSequenceForObservedLiveBar",
-    "owner": "strategy_runtime_core::stage5e_no_io_lifecycle::schedule_window_evidence::b3c_evidence",
-    "consumption": "one_future_crate_private_linear_consumer_after_borrowed_preflight",
-    "owned_state_preserved": [
-      "strategy",
-      "recovery_receipt",
-      "accepted_semantic_bar",
-      "schedule_projection",
-      "sequence_identity",
-      "continuation_binding_identity",
-      "effective_observation_and_expiry"
-    ]
+  "predecessor_stage": "5E-b3d-callback-authority-design",
+  "predecessor_ref": "95096b7d28ecd3fafddbbfd3ec91b0611019e0eb",
+  "accepted_b3c_implementation_ref": "ff1344f170b8457df91a6038d670087eef3cc1dc",
+  "expected_provenance_case_count": 225,
+  "route_exclusivity_contract": {
+    "decision": "explicit_isolated_scope",
+    "sole_new_stage5e_callback_input": "Stage5eCallbackAuthorityReadyPaperStrategy",
+    "sole_new_stage5e_callback_transition": "invoke_stage5e_authorized_paper_callback",
+    "legacy_stage5c_routes": [
+      "apply_stage5c_semantic_bar",
+      "advance_stage5c_paper_loop_once"
+    ],
+    "legacy_route_scope": "paper_oracle_compatibility_only",
+    "legacy_route_stage5e_runtime_attachment_allowed": false,
+    "stage5c_api_freeze_extension_required_now": false,
+    "future_runtime_call_graph_negative_evidence_required": true
   },
-  "future_output": {
+  "callback_authority_receipt_contract": {
     "type": "Stage5eCallbackAuthorityReadyPaperStrategy",
-    "callback_ready": true,
-    "callback_invoked": false,
-    "execution_ready": false,
-    "calls_strategy": false,
-    "mutates_strategy": false,
-    "creates_executable_intent": false,
-    "intent_count": 0,
-    "successful_unbinding_allowed": false
+    "owner_module": "strategy_runtime_core::stage5e_no_io_lifecycle::callback_authority",
+    "visibility": "crate_private_opaque",
+    "fields": [
+      "b3c_receipt",
+      "callback_authority_id",
+      "issued_at",
+      "effective_observed_at",
+      "authority_expires_at",
+      "accepted_bar_close_ts",
+      "full_instrument_id",
+      "accepted_semantic_bar_identity",
+      "event_key_fingerprint",
+      "continuation_binding_id",
+      "sequence_identity_fingerprint"
+    ],
+    "owns_complete_b3c_receipt": true,
+    "sole_constructor": "successful_issue_stage5e_callback_authority_branch",
+    "sole_future_consumer": "invoke_stage5e_authorized_paper_callback",
+    "successful_unbinding_allowed": false,
+    "persistence_allowed": false,
+    "restart_reconstruction_allowed": false,
+    "forbidden_traits_and_surfaces": [
+      "Debug",
+      "Clone",
+      "Copy",
+      "Serialize",
+      "Deserialize",
+      "Default",
+      "From",
+      "Into",
+      "generic_into_parts",
+      "raw_strategy_getter",
+      "raw_semantic_bar_getter"
+    ],
+    "authority_vector": {
+      "callback_ready": true,
+      "callback_invoked": false,
+      "execution_ready": false,
+      "calls_strategy": false,
+      "mutates_strategy": false,
+      "creates_in_memory_intents": false,
+      "creates_executable_intent": false,
+      "intent_count": 0
+    }
   },
-  "future_transition": {
+  "callback_authority_id_contract": {
+    "type": "Stage5eCallbackAuthorityId",
+    "representation": "[u8;32]",
+    "domain": "stage5e-callback-authority-v1",
+    "algorithm": "sha256_tagged_length_prefixed_canonical_bytes",
+    "fields_in_order": [
+      "full_instrument_id_canonical_bytes",
+      "accepted_semantic_bar_identity",
+      "event_key_fingerprint",
+      "continuation_binding_id_bytes",
+      "sequence_identity_fingerprint",
+      "issued_at_unix_millis_i64_be",
+      "authority_expires_at_unix_millis_i64_be"
+    ],
+    "all_identity_inputs_nonzero_or_nonempty": true,
+    "issuance_ledger_required": false,
+    "duplicate_runtime_blocker_present": false,
+    "exactly_once_proof": "linear_b3c_ownership_plus_single_issue_seal_issuer_and_constructor",
+    "crash_policy": "capability_lost_rebuild_full_chain_from_fresh_evidence"
+  },
+  "ownership_contract": {
+    "proof": "linear_type_ownership_of_complete_b3c_receipt",
+    "production_ownership_binding_id_present": false,
+    "runtime_ownership_mismatch_blocker_present": false,
+    "test_only_state_fingerprint_allowed": true,
+    "test_fingerprint_production_authority_allowed": false
+  },
+  "callback_authority_issue_transition": {
+    "function": "issue_stage5e_callback_authority",
+    "owner_module": "strategy_runtime_core::stage5e_no_io_lifecycle::callback_authority",
     "visibility": "crate_private",
+    "input": "Stage5eBoundSessionCalendarSequenceForObservedLiveBar",
+    "success": "Stage5eCallbackAuthorityReadyPaperStrategy",
+    "blocked": "Stage5eCallbackAuthorityIssueBlocked",
+    "issue_seal": "Stage5eCallbackAuthorityIssueSeal",
+    "preflight_view": "Stage5eCallbackAuthorityPreflight<'a>",
+    "preflight_ownership": "borrowed_non_decomposable",
+    "consume_order": "preflight_then_single_linear_consume",
     "production_clock": "captured_inside_transition",
     "caller_supplied_production_clock_allowed": false,
     "test_clock_seam": "cfg_test_only",
-    "consume_order": "borrowed_non_decomposable_preflight_then_single_linear_consume",
-    "revalidations": [
-      "clock_not_before_effective_observation",
-      "clock_not_after_effective_expiry",
-      "accepted_bar_not_future",
-      "continuation_binding_nonzero",
-      "event_key_nonzero",
-      "schedule_identities_nonzero_and_unchanged",
-      "sequence_identity_nonzero_and_unchanged",
-      "ownership_binding_unchanged",
-      "authority_not_previously_issued"
+    "issued_at_formula": "now",
+    "authority_expires_at_formula": "b3c_effective_expires_at",
+    "maximum_issue_to_callback_delay_formula": "authority_expires_at-issued_at",
+    "grace_period_allowed": false,
+    "expiry_extension_allowed": false,
+    "preflight_checks": [
+      "now_not_before_effective_observed_at",
+      "now_not_after_effective_expires_at",
+      "accepted_bar_close_not_future",
+      "all_identity_inputs_present_and_nonzero",
+      "issued_at_not_after_authority_expires_at"
     ]
   },
-  "block_contract": {
+  "issue_block_contract": {
     "retryable_type": "Stage5eCallbackAuthorityRetryableBlock",
     "retryable_reasons": [
       "ClockBeforeEffectiveObservation",
       "AcceptedBarObservedInFuture"
     ],
     "retryable_conversion": "into_retry_same_receipt",
-    "refresh_type": "Stage5eCallbackAuthorityRefreshEvidenceBlock",
-    "refresh_reasons": [
-      "EvidenceExpired"
-    ],
-    "refresh_conversion": "into_refresh_input",
     "terminal_type": "Stage5eCallbackAuthorityTerminalBlock",
     "terminal_reasons": [
-      "ContinuationBindingMissing",
+      "EvidenceExpired",
+      "InvalidAuthorityChronology",
+      "AcceptedSemanticBarIdentityMissing",
       "EventKeyMissing",
+      "ContinuationBindingMissing",
       "ScheduleIdentityMissing",
       "SequenceIdentityMissing",
-      "OwnershipBindingMismatch",
-      "DuplicateAuthorityIssue"
+      "InstrumentIdentityMissing"
     ],
-    "terminal_retry_or_refresh_conversion_allowed": false,
+    "terminal_retry_refresh_or_unbinding_allowed": false,
+    "refresh_type_present": false,
+    "refresh_conversion_present": false,
+    "expired_evidence_policy": "terminal_drop_and_rebuild_from_fresh_accepted_chain",
     "autonomous_retry_authorized": false
   },
-  "deferred_provider_gates": {
+  "callback_authority_consume_seal": {
+    "type": "Stage5eCallbackInvocationSeal",
+    "visibility": "private_owner_only",
+    "sole_issuer": "invoke_stage5e_authorized_paper_callback",
+    "sole_consumer": "Stage5eCallbackAuthorityReadyPaperStrategy_private_consume",
+    "alternate_constructor_allowed": false
+  },
+  "callback_authority_invocation_contract": {
+    "function": "invoke_stage5e_authorized_paper_callback",
+    "implementation_status": "hold_future_separate_review",
+    "only_input": "Stage5eCallbackAuthorityReadyPaperStrategy",
+    "production_clock": "captured_inside_transition",
+    "callback_time_checks": [
+      "now_not_before_issued_at",
+      "now_not_after_authority_expires_at",
+      "accepted_bar_close_not_future",
+      "callback_authority_id_recomputed_and_equal",
+      "immutable_identity_fields_match_owned_b3c_receipt"
+    ],
+    "callback_invocation_after_all_checks_only": true,
+    "output": "Stage5ePaperCallbackResultEscrow",
+    "callback_invocation_implies_in_memory_intent_construction": true,
+    "intent_sink_allowed": false,
+    "send_allowed": false,
+    "execution_allowed": false
+  },
+  "callback_result_escrow_contract": {
+    "type": "Stage5ePaperCallbackResultEscrow",
+    "implementation_status": "hold_future_separate_review",
+    "owns": [
+      "mutated_paper_strategy",
+      "callback_result",
+      "in_memory_intents"
+    ],
+    "intent_visibility": "private_paper_escrow",
+    "send_capable_consumer_authorized": false,
+    "validation_and_settlement_review_required": true
+  },
+  "provider_and_calendar_contract": {
     "finam_schedule_provider_attached": false,
     "instrument_registry_provider_attached": false,
     "venue_timezone_mapping_attached": false,
     "overnight_trading_day_mapping_attached": false,
     "utc_civil_date_inference_allowed": false
   },
-  "predecessor_followups_before_runtime_refresh": [
-    "rename_B3B_RefreshScheduleRequired_to_RefreshEvidenceRequired_or_split_expiry_reasons",
-    "type_enforce_B3B_retry_refresh_terminal_before_autonomous_loop",
-    "replace_non_open_test_if_let_with_explicit_Stage4_expect"
-  ],
-  "implementation_review_requirements": [
-    "one_private_issuer_and_consumer",
+  "future_implementation_requirements": [
+    "exact_field_schema_and_owner",
+    "one_issue_seal_issuer_constructor_transition",
     "borrowed_preflight_before_consume",
-    "exact_receipt_preserved_on_retry_and_refresh_blocks",
-    "no_callback_on_any_block",
-    "no_successful_unbinding",
-    "production_clock_revalidation_at_issue_boundary",
-    "callback_authority_distinct_from_callback_invocation",
-    "canonical_Stage4_to_B3C_to_callback_authority_test",
-    "strategy_recovery_fingerprint_unchanged",
-    "compile_fail_construction_clone_extraction_and_direct_callback"
+    "exact_retry_receipt_preservation",
+    "no_terminal_unbinding",
+    "authority_id_field_sensitivity",
+    "exact_issue_time_expiry",
+    "no_persistence_or_reconstruction",
+    "canonical_Stage4_to_B3C_to_authority_test",
+    "strategy_recovery_test_fingerprint_unchanged",
+    "compile_fail_construction_clone_extraction_direct_callback",
+    "legacy_Stage5C_routes_unreachable_from_new_Stage5E_runtime",
+    "no_actual_callback_or_intents_in_authority_issuer"
   ],
   "closed_surfaces": {
-    "strategy_callback": false,
+    "new_stage5e_callback_invocation": false,
     "strategy_state_mutation": false,
+    "in_memory_intent_construction_in_authority_issuer": false,
     "executable_intents": false,
     "strategy_intent_sink": false,
     "redis": false,

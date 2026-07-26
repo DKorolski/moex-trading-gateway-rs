@@ -1,172 +1,313 @@
-# Stage 5E-b3d — callback-authority design
+# Stage 5E-b3d-r1 — callback-authority governance hardening
 
-Status: design-only, pending review.
+Status: governance/design-only, pending review.
 
-Baseline:
+Accepted Stage 5E-b3d implementation baseline:
 
 ```text
 ff1344f170b8457df91a6038d670087eef3cc1dc
 ```
 
-The accepted predecessor is the private no-I/O chain ending in:
+R1 scoped-review predecessor:
 
 ```text
-Stage5eBoundSessionCalendarSequenceForObservedLiveBar
+95096b7d28ecd3fafddbbfd3ec91b0611019e0eb
 ```
 
-This stage defines the next type-state boundary. It does not implement that
-boundary and does not invoke a strategy callback.
+This R1 contract replaces the initial B3D proposal. No Rust authority type,
+strategy callback, state mutation, intent construction, provider attachment,
+or I/O is implemented in this stage.
 
-## Goal
+## Route decision
 
-Design one linear transition:
+The project selects **explicit isolated scope**.
+
+The existing public Stage 5C routes:
+
+```text
+apply_stage5c_semantic_bar
+advance_stage5c_paper_loop_once
+```
+
+remain frozen paper/oracle compatibility APIs. They are not callback authority
+for a new Stage 5E runtime and must never be attached to a Stage 5E production
+or live event loop.
+
+The sole future Stage 5E callback route is:
 
 ```text
 Stage5eBoundSessionCalendarSequenceForObservedLiveBar
+→ issue_stage5e_callback_authority
 → Stage5eCallbackAuthorityReadyPaperStrategy
+→ invoke_stage5e_authorized_paper_callback
+→ Stage5ePaperCallbackResultEscrow
 ```
 
-The future output means only that the exact accepted bar and retained
-strategy/recovery state are eligible to cross a separately reviewed callback
-boundary. It is not an execution capability.
+`invoke_stage5e_authorized_paper_callback` may accept only the B3D authority
+receipt. It may not accept recovered strategy plus semantic bar as parallel
+arguments. The Stage 5E runtime attachment review must include call-graph and
+negative-scan evidence proving that neither legacy Stage 5C function is
+reachable from the new runtime.
 
-The authority vector remains:
+A Stage 5C API freeze extension is not required while the legacy route remains
+unchanged and isolated. Any attempt to remove, narrow, or repurpose that public
+API is a separate Stage 5C freeze review.
+
+## Exact authority receipt
+
+Future owner module:
 
 ```text
-callback_ready = true
-callback_invoked = false
-execution_ready = false
-calls_strategy = false
-mutates_strategy = false
-creates_executable_intent = false
-intent_count = 0
+strategy_runtime_core::stage5e_no_io_lifecycle::callback_authority
 ```
 
-## Linear ownership
+Future receipt:
 
-The future transition has exactly one crate-private consumer of the B3C
-receipt. It consumes the receipt only after a borrowed, non-decomposable
-preflight succeeds.
+```text
+Stage5eCallbackAuthorityReadyPaperStrategy
+```
 
-The future callback-authority receipt owns the complete B3C receipt. This
-preserves:
+Exact private fields:
 
-- the strategy instance;
-- pending recovery state;
-- accepted semantic bar;
-- normalized schedule and Stage 4 dynamic-open identities;
-- sequence identity;
-- continuation binding identity;
-- effective observation and expiry bounds.
+```text
+b3c_receipt: Stage5eBoundSessionCalendarSequenceForObservedLiveBar
+callback_authority_id: Stage5eCallbackAuthorityId([u8; 32])
+issued_at: DateTime<Utc>
+effective_observed_at: DateTime<Utc>
+authority_expires_at: DateTime<Utc>
+accepted_bar_close_ts: i64
+full_instrument_id: InstrumentId
+accepted_semantic_bar_identity: [u8; 32]
+event_key_fingerprint: [u8; 32]
+continuation_binding_id: Stage5eContinuationBindingId
+sequence_identity_fingerprint: [u8; 32]
+```
 
-No raw strategy getter, generic `into_parts`, `Clone`, `Copy`, serialization,
-deserialization, default construction, conversion trait, or successful
-unbinding is permitted.
+The receipt owns the complete B3C receipt and therefore retains strategy,
+recovery, semantic-bar, schedule, and sequence state. The duplicated scalar
+identity fields are immutable callback-boundary proof material; they are not
+raw strategy or bar extractors.
 
-## Revalidation at the authority boundary
+Forbidden:
 
-The future production transition captures its own UTC clock internally and
-must revalidate, immediately before issuing callback authority:
+```text
+Debug
+Clone
+Copy
+Serialize
+Deserialize
+Default
+From
+Into
+generic into_parts
+raw strategy getter
+raw semantic-bar getter
+successful unbinding
+persistence or reconstruction
+```
 
-- `now >= effective_observed_at`;
-- `now <= effective_expires_at`;
-- accepted semantic bar close is not in the future;
-- continuation binding identity is non-zero;
-- B3B event key, schedule identities, sequence identity, and ownership
-  binding are present and unchanged;
-- callback authority has not already been issued for the same consumed
-  receipt.
+The receipt is in-memory and process-local. Restart never restores it; restart
+must rebuild the accepted Stage 4 → Stage 5C → B3B → B3C chain with fresh
+evidence.
 
-The test clock seam is `cfg(test)` only. A caller-supplied production clock is
-forbidden.
+## Authority identity
 
-The callback seam does not infer a venue trading day from UTC civil date.
-Venue timezone, overnight-session mapping, FINAM schedule provider, and
-InstrumentRegistry attachment remain separate future gates.
+`Stage5eCallbackAuthorityId` is derived once, after successful preflight, by:
 
-## Block taxonomy and type enforcement
+```text
+domain = "stage5e-callback-authority-v1"
+algorithm = SHA-256 tagged length-prefixed canonical bytes
+fields in order:
+  full InstrumentId canonical bytes
+  accepted_semantic_bar_identity
+  event_key_fingerprint
+  continuation_binding_id bytes
+  sequence_identity_fingerprint
+  issued_at unix milliseconds as signed i64 big-endian
+  authority_expires_at unix milliseconds as signed i64 big-endian
+```
 
-The future result must use distinct, non-interchangeable blocked types:
+All identity inputs must be non-zero/non-empty where applicable.
+
+There is no issuance ledger and no `DuplicateAuthorityIssue` runtime blocker.
+Exactly-once issuance follows from linear B3C receipt ownership, one issue
+seal, one issuer, and one private constructor. A process crash loses the
+in-memory capability and requires a fresh chain.
+
+There is no production `ownership_binding_id` and no
+`OwnershipBindingMismatch` runtime blocker. Strategy/recovery ownership is
+proved by linear type ownership of the complete B3C receipt. Test-only state
+fingerprints may prove preservation but cannot become production authority.
+
+## Exact issuing transition
+
+Future types:
+
+```text
+Stage5eCallbackAuthorityIssueSeal
+Stage5eCallbackAuthorityPreflight<'a>
+Stage5eCallbackAuthorityIssueBlocked
+```
+
+The issue seal is private, non-constructible outside the owner, and has one
+issuer/consumer pair. The preflight is borrowed and non-decomposable.
+
+Future transition:
+
+```text
+issue_stage5e_callback_authority(
+    Stage5eBoundSessionCalendarSequenceForObservedLiveBar
+) -> Result<
+    Stage5eCallbackAuthorityReadyPaperStrategy,
+    Stage5eCallbackAuthorityIssueBlocked
+>
+```
+
+Production time is captured inside the transition. A deterministic clock seam
+is `cfg(test)` only.
+
+Before consuming B3C ownership, preflight must check:
+
+```text
+now >= effective_observed_at
+now <= effective_expires_at
+accepted_bar_close_ts <= now.timestamp()
+all identity inputs are present and non-zero
+issued_at = now
+authority_expires_at = effective_expires_at
+issued_at <= authority_expires_at
+```
+
+The authority lifetime is exact:
+
+```text
+maximum_issue_to_callback_delay =
+    authority_expires_at - issued_at
+```
+
+No grace period or expiry extension is allowed.
+
+## Exact issue blockers
+
+R1 deliberately has no refresh output. Expired evidence is terminal for this
+receipt; a future provider-refresh design must start from newly accepted
+evidence rather than unbinding this receipt.
+
+Two distinct blocker types are required:
 
 ```text
 Stage5eCallbackAuthorityRetryableBlock
-Stage5eCallbackAuthorityRefreshEvidenceBlock
 Stage5eCallbackAuthorityTerminalBlock
 ```
 
-Only `Stage5eCallbackAuthorityRetryableBlock` may expose
-`into_retry_same_receipt()`.
-
-`Stage5eCallbackAuthorityRefreshEvidenceBlock` may return the retained receipt
-only through `into_refresh_input()`. It cannot feed the same authority
-transition again until a separately reviewed refresh transition has replaced
-the expired evidence.
-
-`Stage5eCallbackAuthorityTerminalBlock` exposes no retry or refresh
-conversion.
-
-Required reason classes:
+Retryable reasons:
 
 ```text
-RetrySameReceipt:
-  ClockBeforeEffectiveObservation
-  AcceptedBarObservedInFuture
-
-RefreshEvidenceRequired:
-  EvidenceExpired
-
-TerminalIntegrity:
-  ContinuationBindingMissing
-  EventKeyMissing
-  ScheduleIdentityMissing
-  SequenceIdentityMissing
-  OwnershipBindingMismatch
-  DuplicateAuthorityIssue
+ClockBeforeEffectiveObservation
+AcceptedBarObservedInFuture
 ```
 
-No autonomous retry loop is authorized by this design.
+Only the retryable blocker exposes:
 
-Before provider/runtime refresh orchestration, the predecessor B3B
-`EvidenceExpired` wording must either become `RefreshEvidenceRequired` or be
-split into schedule-projection and sequence-evidence expiry. The current
-fail-closed predecessor behavior is accepted and unchanged in this stage.
+```text
+into_retry_same_receipt()
+    -> Stage5eBoundSessionCalendarSequenceForObservedLiveBar
+```
 
-## Future implementation shape
+Terminal reasons:
 
-The future implementation review must prove:
+```text
+EvidenceExpired
+InvalidAuthorityChronology
+AcceptedSemanticBarIdentityMissing
+EventKeyMissing
+ContinuationBindingMissing
+ScheduleIdentityMissing
+SequenceIdentityMissing
+InstrumentIdentityMissing
+```
 
-1. one private issuer and one consumer;
-2. borrowed preflight before linear consume;
-3. exact source receipt returned by retryable and refresh blockers;
-4. no callback invocation on any blocker;
-5. no successful unbinding;
-6. production-clock revalidation immediately before authority issuance;
-7. callback authority remains distinct from callback invocation;
-8. canonical Stage 4 → B3C → callback-authority no-I/O test;
-9. strategy/recovery fingerprint equality before and after authority issue;
-10. compile-fail evidence for construction, cloning, raw extraction, and
-    direct callback use.
+The terminal blocker owns the B3C receipt and exposes no retry, refresh, or
+unbinding conversion. There is no autonomous retry loop.
 
-The predecessor canonical non-Open test should use an explicit `expect` for
-Stage 4 acceptance before asserting that Stage 5E projection blocks. That
-test hardening is deferred to the separately reviewed implementation commit.
+## Exact future callback consumer
+
+Future consume seal:
+
+```text
+Stage5eCallbackInvocationSeal
+```
+
+It is issued only inside:
+
+```text
+invoke_stage5e_authorized_paper_callback
+```
+
+That future transition must:
+
+1. accept only `Stage5eCallbackAuthorityReadyPaperStrategy`;
+2. capture a fresh production clock internally;
+3. require `now >= issued_at`;
+4. require `now <= authority_expires_at`;
+5. require `accepted_bar_close_ts <= now.timestamp()`;
+6. recompute and compare `callback_authority_id`;
+7. recheck all immutable identity fields against the owned B3C receipt;
+8. consume authority exactly once;
+9. invoke the callback only after every check succeeds.
+
+Because the current strategy trait returns intents, actual callback invocation
+necessarily allows **in-memory paper intent construction**. It does not allow
+an intent sink, Redis publication, FINAM send, dispatch, runtime-live, or
+broker execution.
+
+The future output is:
+
+```text
+Stage5ePaperCallbackResultEscrow
+```
+
+It owns the mutated paper strategy, callback result, and in-memory intents.
+Those intents remain private paper escrow and require separate validation and
+settlement review. No send-capable consumer is authorized by this design.
+
+Actual callback invocation and escrow implementation remain HOLD after B3D-r1;
+they require a separate review after the private authority receipt itself is
+implemented and accepted.
+
+## Required implementation evidence
+
+The future private authority implementation must prove:
+
+- exact field schema and owner module;
+- one issue seal, issuer, constructor, and issue transition;
+- borrowed preflight before linear consume;
+- exact retry receipt preservation;
+- no terminal unbinding;
+- authority ID field-by-field sensitivity;
+- exact issue-time expiry;
+- no persistence/reconstruction;
+- canonical Stage 4 → B3C → authority test;
+- strategy/recovery test fingerprint unchanged;
+- compile-fail construction, clone, extraction, and direct callback tests;
+- Stage 5E call graph cannot reach legacy Stage 5C callback routes;
+- no actual callback or intent construction in the authority implementation.
 
 ## Closed surfaces
 
-This design does not add or authorize:
+B3D-r1 does not add or authorize:
 
-- `on_broker_bar`;
+- a new `on_broker_bar` call;
 - strategy mutation;
-- executable intent construction;
-- intent sink or dispatch;
+- in-memory intent construction in the authority issuer;
+- intent validation or settlement;
+- intent sink;
 - Redis;
 - FINAM I/O;
 - transport;
+- dispatch;
 - runtime-live;
 - broker execution;
 - autonomous event loop;
 - schedule/provider attachment;
 - venue-calendar inference.
-
-Actual callback invocation requires a separate implementation review after
-this design is accepted.
