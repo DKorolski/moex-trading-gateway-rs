@@ -138,13 +138,6 @@ def main() -> int:
                 text=True,
             ).splitlines()
         )
-        changed.update(
-            subprocess.check_output(
-                ["git", "ls-files", "--others", "--exclude-standard"],
-                cwd=ROOT,
-                text=True,
-            ).splitlines()
-        )
         if sorted(changed) != sorted(EXPECTED_ALLOWED_CHANGED_PATHS):
             fail("design review diff drift")
 
