@@ -15,6 +15,7 @@ MODULE = ROOT / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
 EXPECTED_BASELINE_REF = "04431096e269daaf9715e253b2354b1ac8fcc3e8"
 EXPECTED_LINEAGE_ROOT_REF = "9ebbfd29d0346be5149dac746225866f0c8d0257"
 EXPECTED_ALLOWED_CHANGED_PATHS = [
+    "crates/broker-core/src/stage4_bootstrap.rs",
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
     "docs/stage-5/5e-b3-schedule-window-evidence-plan.md",
@@ -29,6 +30,10 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "scripts/stage5e_b_no_io_lifecycle_check.py",
     "scripts/stage5e_descriptor.py",
     "scripts/stage5e_lifecycle_event_time_gate.sh",
+    "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md",
+    "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json",
+    "scripts/stage5e_b3c_source_authority_freeze_extension_check.py",
+    "scripts/stage5d_additive_freeze_check.py",
 ]
 EXPECTED_TOP_LEVEL_KEYS = {
     "allowed_changed_paths",
@@ -80,10 +85,10 @@ REGION_BEGIN = "// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v5"
 REGION_END = "// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v5"
 # b3c may live only as a marked, separately pinned nested region.  Removing
 # that exact region must reconstruct the original b3b-r2 bytes verbatim.
-EXPECTED_REGION_SHA256 = "982d7cc67b295ef633ddffa5f767067a7d5c05da1ed5b8b77b31a581d9b7be94"
+EXPECTED_REGION_SHA256 = "5615eefda64c694c3a7aa3a35cc22e90b1a9a497f7fa4bc539ebd2d8ea0dba63"
 B3C_BRIDGE_BEGIN = "// STAGE5E-B3C-EVIDENCE-BEGIN: private-no-io-v1"
 B3C_BRIDGE_END = "// STAGE5E-B3C-EVIDENCE-END: private-no-io-v1"
-EXPECTED_B3C_BRIDGE_SHA256 = "fae5699fb1a32dc19a7a5f811a1860ea27cb1a3c6468f98659a9bc595e1efb0a"
+EXPECTED_B3C_BRIDGE_SHA256 = "e36e98fbcf9e9825a1af549994da7099c804c48a6774a7298795a7f1495a5b0f"
 
 
 def fail(message: str) -> None:

@@ -26,6 +26,7 @@
     "session_window_bounds": "inclusive_closed"
   },
   "allowed_changed_paths": [
+    "crates/broker-core/src/stage4_bootstrap.rs",
     "crates/strategy-runtime-core/src/lib.rs",
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
@@ -36,6 +37,10 @@
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
     "scripts/make_handoff_archive.sh",
-    "scripts/stage5e_b_no_io_lifecycle_check.py"
+    "scripts/stage5e_b_no_io_lifecycle_check.py",
+    "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md",
+    "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json",
+    "scripts/stage5e_b3c_source_authority_freeze_extension_check.py",
+    "scripts/stage5d_additive_freeze_check.py"
   ]
 }

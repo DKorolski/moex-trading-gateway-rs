@@ -121,7 +121,12 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
 
 APPROVED_BRIDGE_FILES = {
     str(LIB_REL): ["lib-stage5d-module", "lib-stage5d-exports"],
-    str(STAGE5C_HOST_REL): ["type-state-transitions"],
+    str(STAGE5C_HOST_REL): [
+        "type-state-transitions",
+        "stage5e-b3c-semantic-identity-fields",
+        "stage5e-b3c-semantic-identity-admission",
+        "stage5e-b3c-semantic-identity-construction",
+    ],
     str(WRAPPER_REL): ["runtime-private-snapshot"],
 }
 
@@ -877,6 +882,13 @@ def strip_additive_regions(path: Path, regions: list[str]) -> tuple[bytes, list[
             continue
         begin_index = stripped.find(begin)
         end_index = stripped.find(end)
+        line_start = stripped.rfind(b"\n", 0, begin_index) + 1
+        if stripped[line_start:begin_index].strip():
+            failures.append(
+                f"{path}: additive region {region} begin marker has non-whitespace prefix"
+            )
+            continue
+        begin_index = line_start
         if begin_index <= previous_start:
             failures.append(f"{path}: additive region {region} marker order drifted")
         if end_index <= begin_index:

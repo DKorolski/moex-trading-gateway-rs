@@ -16,9 +16,11 @@ RUNTIME_SOURCE = ROOT / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycl
 
 B3C_EVIDENCE_BEGIN = "// STAGE5E-B3C-EVIDENCE-BEGIN: private-no-io-v1"
 B3C_EVIDENCE_END = "// STAGE5E-B3C-EVIDENCE-END: private-no-io-v1"
-EXPECTED_B3C_EVIDENCE_SHA256 = "12616c06ee3824fb1917a805813e2f22b9660b529daec598acf7246b9d3a51dc"
+EXPECTED_B3C_EVIDENCE_SHA256 = "ec9770097efbb41194442245ef3953b7741c2ed6d930d33d02dd76f127d524d9"
 
 EXPECTED_ALLOWED_CHANGED_PATHS = [
+    "crates/broker-core/src/stage4_bootstrap.rs",
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
     "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md",
     "docs/stage-5/stage5e-active-descriptor.json",
@@ -29,6 +31,10 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "scripts/stage5e_b3c_private_eligibility_seam_check.py",
     "scripts/stage5e_descriptor.py",
     "scripts/stage5e_lifecycle_event_time_gate.sh",
+    "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md",
+    "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json",
+    "scripts/stage5e_b3c_source_authority_freeze_extension_check.py",
+    "scripts/stage5d_additive_freeze_check.py",
 ]
 EXPECTED_CLOSED_SURFACES = {
     "redis", "finam", "transport", "dispatch", "runtime_live",
@@ -74,7 +80,7 @@ EXPECTED_SOURCE_AUTHORITIES_SHA256 = "deb83be4f567cb868c863dbf7f859b0c6405fa54b9
 EXPECTED_EVIDENCE_CONTRACTS_SHA256 = "9c72623683ecfb2a0a11a2a5e028176c92da21602b877b22ad241e553c564de6"
 EXPECTED_TRANSITION_CONTRACT_SHA256 = "6bd4b036e5e29d0119cbd048d83c91d7353a7d56bf5f304037ea471152acfeb6"
 EXPECTED_BLOCK_REASONS_SHA256 = "a21aa880aa5721c6be7c98766387efedc0e0dba58962f98a7cbf72244dc59581"
-EXPECTED_PLAN_SHA256 = "00ed171f204924120ac0ffcc422d93e6e3813cd713cecd71470591084355a642"
+EXPECTED_PLAN_SHA256 = "ee0a3e8c5d5cd4daf7ab422d69e65328f377422402266d3842f8d93e94e9dc1b"
 
 
 def marked_region(text: str, begin: str, end: str) -> str:
@@ -133,7 +139,7 @@ def main() -> int:
         "module": "schedule_window_evidence::b3c_evidence",
         "region_marker": "private-no-io-v1",
         "region_sha256": EXPECTED_B3C_EVIDENCE_SHA256,
-        "b3b_core_region_sha256": "982d7cc67b295ef633ddffa5f767067a7d5c05da1ed5b8b77b31a581d9b7be94",
+        "b3b_core_region_sha256": "5615eefda64c694c3a7aa3a35cc22e90b1a9a497f7fa4bc539ebd2d8ea0dba63",
         "source_input_types": [
             "AcceptedStage4ScheduleEvidence",
             "ValidatedNormalizedInstrumentScheduleSnapshot",

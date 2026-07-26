@@ -835,75 +835,503 @@ mod stage5d_pair_binding_restore_tests {
 pub(crate) struct Stage5eNoIoBridgeSeal(());
 
 // STAGE5E-B3C-R6-SEALS-BEGIN: additive-no-io-v1
-// These seals are deliberately inert until the separately pinned Stage 5E
-// schedule owner is wired in.  They carry no callback, intent, transport or
-// broker capability.
-#[allow(dead_code)]
+// These seals carry no callback, intent, transport or broker capability.
+// Candidate construction happens before schedule classification; the final
+// identity and returned projection exist only in the classified seal.
+#[allow(dead_code)] // Runtime orchestration remains closed in this stage.
 pub(crate) struct Stage5cSequenceCandidateSeal {
     instrument: InstrumentId,
     predecessor_close_ts: i64,
     current_close_ts: i64,
     timeframe_sec: std::num::NonZeroU32,
+    stage3_provenance_identity: [u8; 32],
+    semantic_bar_identity: [u8; 32],
+    recovery_receipt_identity: [u8; 32],
     sequence_observed_at: DateTime<Utc>,
     sequence_expires_at: DateTime<Utc>,
 }
 
-#[allow(dead_code)]
 pub(crate) struct Stage5cClassifiedSequenceSeal {
     candidate: Stage5cSequenceCandidateSeal,
-    classification_code: u8,
+    classification:
+        crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleSequenceClassification,
     boundary_fingerprint: Option<[u8; 32]>,
     sequence_identity_fingerprint: [u8; 32],
+    returned_projection:
+        crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleProjectionBridgeInput,
+}
+
+#[allow(dead_code)] // Exercised by the sealed no-I/O implementation tests.
+impl Stage5cSequenceCandidateSeal {
+    fn classify_with_owned_projection(
+        self,
+        classifier: crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleCandidateClassifier,
+    ) -> Result<
+        Stage5cClassifiedSequenceSeal,
+        Box<
+            crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleClassificationBlocked,
+        >,
+    >{
+        let approved = classifier.classify_from_stage5c_seal_fields(
+            self.predecessor_close_ts,
+            self.current_close_ts,
+            self.timeframe_sec,
+        )?;
+        let (classification, returned_projection) = approved.into_classified_parts();
+        let (classification_code, boundary_fingerprint) = match classification {
+            crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleSequenceClassification::Contiguous => {
+                (1, None)
+            }
+            crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleSequenceClassification::ApprovedNonTradableBoundary(value) => {
+                (2, Some(value))
+            }
+        };
+        let sequence_identity_fingerprint = stage5e_b3c_final_sequence_identity(
+            self.stage3_provenance_identity,
+            self.semantic_bar_identity,
+            self.recovery_receipt_identity,
+            self.predecessor_close_ts,
+            self.timeframe_sec,
+            self.sequence_observed_at,
+            self.sequence_expires_at,
+            classification_code,
+            boundary_fingerprint,
+        );
+        Ok(Stage5cClassifiedSequenceSeal {
+            candidate: self,
+            classification,
+            boundary_fingerprint,
+            sequence_identity_fingerprint,
+            returned_projection,
+        })
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage5e_b3c_final_sequence_identity(
+    stage3_provenance_identity: [u8; 32],
+    semantic_bar_identity: [u8; 32],
+    recovery_receipt_identity: [u8; 32],
+    predecessor_close_ts: i64,
+    timeframe_sec: std::num::NonZeroU32,
+    sequence_observed_at: DateTime<Utc>,
+    sequence_expires_at: DateTime<Utc>,
+    classification_code: u8,
+    boundary_fingerprint: Option<[u8; 32]>,
+) -> [u8; 32] {
+    let mut encoder = Stage5eB3cCanonicalEncoder::new(b"stage5e-b3c-market-sequence-v2");
+    encoder.field(1, &stage3_provenance_identity);
+    encoder.field(2, &semantic_bar_identity);
+    encoder.field(3, &recovery_receipt_identity);
+    encoder.field(4, &predecessor_close_ts.to_be_bytes());
+    encoder.field(5, &timeframe_sec.get().to_be_bytes());
+    encoder.field(6, &sequence_observed_at.timestamp_millis().to_be_bytes());
+    encoder.field(7, &sequence_expires_at.timestamp_millis().to_be_bytes());
+    encoder.field(8, &[classification_code]);
+    match boundary_fingerprint {
+        Some(value) => {
+            encoder.field(9, &[1]);
+            encoder.field(10, &value);
+        }
+        None => encoder.field(9, &[0]),
+    }
+    encoder.finish()
+}
+
+#[allow(dead_code, clippy::too_many_arguments)]
+fn build_stage5c_sequence_candidate_seal_inside_stage5e_try_observe_live_bar_after_history_with_sequence_evidence(
+    instrument: InstrumentId,
+    predecessor_close_ts: i64,
+    current_close_ts: i64,
+    timeframe_sec: std::num::NonZeroU32,
+    stage3_provenance_identity: [u8; 32],
+    semantic_bar_identity: [u8; 32],
+    recovery_receipt_identity: [u8; 32],
+    sequence_observed_at: DateTime<Utc>,
+    sequence_expires_at: DateTime<Utc>,
+) -> Option<Stage5cSequenceCandidateSeal> {
+    (sequence_observed_at <= sequence_expires_at).then_some(Stage5cSequenceCandidateSeal {
+        instrument,
+        predecessor_close_ts,
+        current_close_ts,
+        timeframe_sec,
+        stage3_provenance_identity,
+        semantic_bar_identity,
+        recovery_receipt_identity,
+        sequence_observed_at,
+        sequence_expires_at,
+    })
+}
+
+struct Stage5eB3cCanonicalEncoder {
+    hasher: Sha256,
+}
+
+impl Stage5eB3cCanonicalEncoder {
+    fn new(domain: &[u8]) -> Self {
+        let mut hasher = Sha256::new();
+        hasher.update(domain);
+        Self { hasher }
+    }
+
+    fn field(&mut self, tag: u8, bytes: &[u8]) {
+        self.hasher.update([tag]);
+        self.hasher.update((bytes.len() as u64).to_be_bytes());
+        self.hasher.update(bytes);
+    }
+
+    fn finish(self) -> [u8; 32] {
+        self.hasher.finalize().into()
+    }
+}
+
+fn stage5e_b3c_string_field(encoder: &mut Stage5eB3cCanonicalEncoder, tag: u8, value: &str) {
+    encoder.field(tag, value.as_bytes());
+}
+
+fn stage5e_b3c_encode_instrument(
+    encoder: &mut Stage5eB3cCanonicalEncoder,
+    instrument: &InstrumentId,
+) {
+    stage5e_b3c_string_field(encoder, 1, &instrument.symbol);
+    match instrument.venue_symbol.as_deref() {
+        Some(value) => {
+            encoder.field(2, &[1]);
+            stage5e_b3c_string_field(encoder, 3, value);
+        }
+        None => encoder.field(2, &[0]),
+    }
+    match &instrument.exchange {
+        broker_core::Exchange::Moex => encoder.field(4, &[1]),
+        broker_core::Exchange::Other(value) => {
+            encoder.field(4, &[255]);
+            stage5e_b3c_string_field(encoder, 5, value);
+        }
+    }
+    match &instrument.market {
+        broker_core::Market::Futures => encoder.field(6, &[1]),
+        broker_core::Market::Options => encoder.field(6, &[2]),
+        broker_core::Market::Stocks => encoder.field(6, &[3]),
+        broker_core::Market::Currency => encoder.field(6, &[4]),
+        broker_core::Market::Funds => encoder.field(6, &[5]),
+        broker_core::Market::Other(value) => {
+            encoder.field(6, &[255]);
+            stage5e_b3c_string_field(encoder, 7, value);
+        }
+    }
+}
+
+fn stage5e_b3c_stage3_source_mode_code(
+    source_mode: broker_core::Stage3StrategyBarSourceMode,
+) -> u8 {
+    match source_mode {
+        broker_core::Stage3StrategyBarSourceMode::AlorNativeBarsGetAndSubscribeTf600 => 1,
+        broker_core::Stage3StrategyBarSourceMode::AlorStandDerivedM1ToM10 => 2,
+        broker_core::Stage3StrategyBarSourceMode::FinamDerivedM1ToM10 => 3,
+        broker_core::Stage3StrategyBarSourceMode::FinamNativeM10 => 4,
+        broker_core::Stage3StrategyBarSourceMode::RawFinamM1 => 5,
+    }
+}
+
+fn stage5e_b3c_stage3_provenance_identity(
+    provenance: &broker_core::Stage3StrategyBarProvenance,
+) -> [u8; 32] {
+    let mut encoder = Stage5eB3cCanonicalEncoder::new(b"stage5e-b3c-stage3-provenance-v1");
+    encoder.field(
+        1,
+        &[stage5e_b3c_stage3_source_mode_code(provenance.source_mode)],
+    );
+    match provenance.source_timeframe_sec {
+        Some(value) => {
+            encoder.field(2, &[1]);
+            encoder.field(3, &value.to_be_bytes());
+        }
+        None => encoder.field(2, &[0]),
+    }
+    encoder.field(4, &provenance.target_timeframe_sec.to_be_bytes());
+    encoder.field(5, &[u8::from(provenance.aggregation_complete)]);
+    encoder.field(6, &[u8::from(provenance.gap_absence_proven)]);
+    encoder.finish()
+}
+
+fn stage5e_b3c_semantic_bar_identity(
+    bar: &broker_core::HybridRuntimeBarEvent,
+    stage3_provenance_identity: [u8; 32],
+) -> [u8; 32] {
+    let mut encoder = Stage5eB3cCanonicalEncoder::new(b"stage5e-b3c-semantic-bar-v1");
+    stage5e_b3c_encode_instrument(&mut encoder, &bar.instrument);
+    encoder.field(10, &bar.close_time_utc.to_be_bytes());
+    encoder.field(11, &bar.open.to_bits().to_be_bytes());
+    encoder.field(12, &bar.high.to_bits().to_be_bytes());
+    encoder.field(13, &bar.low.to_bits().to_be_bytes());
+    encoder.field(14, &bar.close.to_bits().to_be_bytes());
+    encoder.field(15, &bar.volume.to_bits().to_be_bytes());
+    let origin_code = match bar.origin {
+        broker_core::HybridRuntimeBarOrigin::History => 1,
+        broker_core::HybridRuntimeBarOrigin::HistoryGap => 2,
+        broker_core::HybridRuntimeBarOrigin::Live => 3,
+        broker_core::HybridRuntimeBarOrigin::Replay => 4,
+    };
+    encoder.field(16, &[origin_code]);
+    encoder.field(17, &[u8::from(bar.is_final)]);
+    encoder.field(18, &bar.timeframe_sec.to_be_bytes());
+    encoder.field(19, &stage3_provenance_identity);
+    encoder.finish()
+}
+
+#[allow(dead_code)] // Used only by the currently closed sequence issuer.
+fn stage5e_b3c_recovery_receipt_identity(receipt: &Stage5cPendingRecoveryReceipt) -> [u8; 32] {
+    let warmup = receipt.warmup_receipt();
+    let restore = warmup.restore_receipt();
+    let mut encoder = Stage5eB3cCanonicalEncoder::new(b"stage5e-b3c-recovery-receipt-v1");
+    encoder.field(1, &restore.restored_ts().timestamp_millis().to_be_bytes());
+    encoder.field(2, &warmup.started_ts().timestamp_millis().to_be_bytes());
+    encoder.field(3, &(warmup.processed_bars() as u64).to_be_bytes());
+    encoder.field(4, &(warmup.input_bars() as u64).to_be_bytes());
+    encoder.field(
+        5,
+        &[stage5e_b3c_stage3_source_mode_code(warmup.source_mode())],
+    );
+    encoder.field(6, &warmup.last_history_ts().to_be_bytes());
+    encoder.field(7, &receipt.recovered_ts().timestamp_millis().to_be_bytes());
+    encoder.field(8, &(receipt.replayed_events() as u64).to_be_bytes());
+    encoder.field(9, &(receipt.duplicate_events() as u64).to_be_bytes());
+    encoder.finish()
+}
+
+pub(crate) struct Stage5eObservedLiveBarWithSequenceEvidence {
+    strategy: HybridIntradayRuntimeStrategy,
+    recovery_receipt: Stage5cPendingRecoveryReceipt,
+    accepted_semantic_bar: Stage5cAcceptedSemanticBar,
+    classified_sequence: Stage5cClassifiedSequenceSeal,
+}
+
+impl Stage5eObservedLiveBarWithSequenceEvidence {
+    pub(crate) fn consume_for_b3b(
+        self,
+        seal: crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eB3bConsumeSeal,
+    ) -> crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eB3bObservedLiveBarBridgePayload
+    {
+        let Stage5cClassifiedSequenceSeal {
+            candidate,
+            classification,
+            boundary_fingerprint,
+            sequence_identity_fingerprint,
+            returned_projection,
+        } = self.classified_sequence;
+        let instrument = candidate.instrument;
+        let predecessor_close_ts = candidate.predecessor_close_ts;
+        let current_close_ts = candidate.current_close_ts;
+        let sequence_observed_at = candidate.sequence_observed_at;
+        let sequence_expires_at = candidate.sequence_expires_at;
+        crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eB3bObservedLiveBarBridgePayload::from_stage5c_observed(
+            seal,
+            self.strategy,
+            self.recovery_receipt,
+            self.accepted_semantic_bar,
+            instrument,
+            current_close_ts,
+            predecessor_close_ts,
+            returned_projection,
+            classification,
+            boundary_fingerprint,
+            sequence_identity_fingerprint,
+            sequence_observed_at,
+            sequence_expires_at,
+        )
+    }
 }
 
 #[allow(dead_code)]
-impl Stage5cSequenceCandidateSeal {
-    fn new(
-        instrument: InstrumentId,
-        predecessor_close_ts: i64,
-        current_close_ts: i64,
-        timeframe_sec: std::num::NonZeroU32,
-        sequence_observed_at: DateTime<Utc>,
-        sequence_expires_at: DateTime<Utc>,
-    ) -> Option<Self> {
-        (sequence_observed_at <= sequence_expires_at).then_some(Self {
-            instrument,
-            predecessor_close_ts,
-            current_close_ts,
-            timeframe_sec,
-            sequence_observed_at,
-            sequence_expires_at,
-        })
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5eSequenceObservationBlockReason {
+    Contextual(crate::stage5e_no_io_lifecycle::Stage5eContextualAdmissionError),
+    InvalidTimeframe,
+    RecoveryObservedInFuture,
+    SequenceObservationTooLate,
+    SequenceAlreadyExpired,
+    Schedule(
+        crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleClassificationBlockReason,
+    ),
+}
+
+#[allow(dead_code)]
+pub(crate) struct Stage5eObservedLiveBarWithSequenceEvidenceBlocked {
+    reason: Stage5eSequenceObservationBlockReason,
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    returned_projection:
+        crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleProjectionBridgeInput,
+}
+
+#[allow(dead_code)]
+impl Stage5eObservedLiveBarWithSequenceEvidenceBlocked {
+    pub(crate) fn reason(&self) -> Stage5eSequenceObservationBlockReason {
+        self.reason
     }
 
-    fn classify(
+    pub(crate) fn into_retry(
         self,
-        classification_code: u8,
-        boundary_fingerprint: Option<[u8; 32]>,
-    ) -> Stage5cClassifiedSequenceSeal {
-        let mut hasher = Sha256::new();
-        hasher.update(b"stage5e-b3c-market-sequence-v2");
-        hasher.update(self.instrument.symbol.as_bytes());
-        hasher.update(self.predecessor_close_ts.to_be_bytes());
-        hasher.update(self.current_close_ts.to_be_bytes());
-        hasher.update(self.timeframe_sec.get().to_be_bytes());
-        hasher.update(self.sequence_observed_at.timestamp_millis().to_be_bytes());
-        hasher.update(self.sequence_expires_at.timestamp_millis().to_be_bytes());
-        hasher.update([classification_code]);
-        match boundary_fingerprint {
-            Some(value) => {
-                hasher.update([1]);
-                hasher.update(value);
-            }
-            None => hasher.update([0]),
-        }
-        Stage5cClassifiedSequenceSeal {
-            candidate: self,
-            classification_code,
-            boundary_fingerprint,
-            sequence_identity_fingerprint: hasher.finalize().into(),
-        }
+    ) -> (
+        Stage5cPendingRecoveredPaperStrategy,
+        Stage5cAcceptedSemanticBar,
+        crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleProjectionBridgeInput,
+    ){
+        (self.recovered, self.accepted, self.returned_projection)
     }
+}
+
+#[allow(dead_code)] // No runtime/live caller is authorized in this stage.
+pub(crate) fn stage5e_try_observe_live_bar_after_history_with_sequence_evidence(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    projection: crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleProjectionBridgeInput,
+) -> Result<
+    Stage5eObservedLiveBarWithSequenceEvidence,
+    Box<Stage5eObservedLiveBarWithSequenceEvidenceBlocked>,
+> {
+    stage5e_try_observe_live_bar_after_history_with_sequence_evidence_with_clock(
+        recovered,
+        accepted,
+        projection,
+        Utc::now(),
+    )
+}
+
+#[cfg(test)]
+fn stage5e_try_observe_live_bar_after_history_with_sequence_evidence_at(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    projection: crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleProjectionBridgeInput,
+    sequence_observed_at: DateTime<Utc>,
+) -> Result<
+    Stage5eObservedLiveBarWithSequenceEvidence,
+    Box<Stage5eObservedLiveBarWithSequenceEvidenceBlocked>,
+> {
+    stage5e_try_observe_live_bar_after_history_with_sequence_evidence_with_clock(
+        recovered,
+        accepted,
+        projection,
+        sequence_observed_at,
+    )
+}
+
+#[allow(dead_code)] // Production issuer plus cfg(test)-only deterministic clock seam.
+fn stage5e_try_observe_live_bar_after_history_with_sequence_evidence_with_clock(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    projection: crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleProjectionBridgeInput,
+    sequence_observed_at: DateTime<Utc>,
+) -> Result<
+    Stage5eObservedLiveBarWithSequenceEvidence,
+    Box<Stage5eObservedLiveBarWithSequenceEvidenceBlocked>,
+> {
+    let admission = &recovered
+        .receipt
+        .warmup_receipt()
+        .restore_receipt()
+        .bootstrap_receipt()
+        .admission;
+    if let Err(reason) = crate::stage5e_no_io_lifecycle::validate_contextual_live_bar_after_history(
+        accepted.origin,
+        &accepted.bar.instrument,
+        admission.target_instrument(),
+        accepted.tick_size,
+        admission.tick_size(),
+        recovered.receipt.warmup_receipt().last_history_ts(),
+        accepted.bar.close_time_utc,
+        admission.expires_at(),
+        sequence_observed_at,
+    ) {
+        return Err(Box::new(
+            Stage5eObservedLiveBarWithSequenceEvidenceBlocked {
+                reason: Stage5eSequenceObservationBlockReason::Contextual(reason),
+                recovered,
+                accepted,
+                returned_projection: projection,
+            },
+        ));
+    }
+    let Some(timeframe_sec) = std::num::NonZeroU32::new(accepted.bar.timeframe_sec) else {
+        return Err(Box::new(
+            Stage5eObservedLiveBarWithSequenceEvidenceBlocked {
+                reason: Stage5eSequenceObservationBlockReason::InvalidTimeframe,
+                recovered,
+                accepted,
+                returned_projection: projection,
+            },
+        ));
+    };
+    if recovered.receipt.recovered_ts() > sequence_observed_at {
+        return Err(Box::new(
+            Stage5eObservedLiveBarWithSequenceEvidenceBlocked {
+                reason: Stage5eSequenceObservationBlockReason::RecoveryObservedInFuture,
+                recovered,
+                accepted,
+                returned_projection: projection,
+            },
+        ));
+    }
+    let sequence_age_sec = sequence_observed_at
+        .timestamp()
+        .checked_sub(accepted.bar.close_time_utc)
+        .unwrap_or(i64::MAX);
+    if sequence_age_sec < 0 || sequence_age_sec > i64::from(timeframe_sec.get()) {
+        return Err(Box::new(
+            Stage5eObservedLiveBarWithSequenceEvidenceBlocked {
+                reason: Stage5eSequenceObservationBlockReason::SequenceObservationTooLate,
+                recovered,
+                accepted,
+                returned_projection: projection,
+            },
+        ));
+    }
+    let ttl_expiry = sequence_observed_at
+        .checked_add_signed(chrono::Duration::seconds(i64::from(timeframe_sec.get())))
+        .unwrap_or(DateTime::<Utc>::MAX_UTC);
+    let sequence_expires_at = admission.expires_at().min(ttl_expiry);
+    let Some(candidate) =
+        build_stage5c_sequence_candidate_seal_inside_stage5e_try_observe_live_bar_after_history_with_sequence_evidence(
+        accepted.bar.instrument.clone(),
+        recovered.receipt.warmup_receipt().last_history_ts(),
+        accepted.bar.close_time_utc,
+        timeframe_sec,
+        accepted.stage3_provenance_identity,
+        accepted.semantic_bar_identity,
+        stage5e_b3c_recovery_receipt_identity(&recovered.receipt),
+        sequence_observed_at,
+        sequence_expires_at,
+    )
+    else {
+        return Err(Box::new(Stage5eObservedLiveBarWithSequenceEvidenceBlocked {
+            reason: Stage5eSequenceObservationBlockReason::SequenceAlreadyExpired,
+            recovered,
+            accepted,
+            returned_projection: projection,
+        }));
+    };
+    let classifier = crate::stage5e_no_io_lifecycle::schedule_window_evidence::into_stage5e_schedule_candidate_classifier(projection);
+    let classified_sequence = match candidate.classify_with_owned_projection(classifier) {
+        Ok(classified) => classified,
+        Err(blocked) => {
+            let reason = blocked.reason();
+            return Err(Box::new(
+                Stage5eObservedLiveBarWithSequenceEvidenceBlocked {
+                    reason: Stage5eSequenceObservationBlockReason::Schedule(reason),
+                    recovered,
+                    accepted,
+                    returned_projection: blocked.into_retry(),
+                },
+            ));
+        }
+    };
+    let (strategy, recovery_receipt) = recovered.into_parts();
+    Ok(Stage5eObservedLiveBarWithSequenceEvidence {
+        strategy,
+        recovery_receipt,
+        accepted_semantic_bar: accepted,
+        classified_sequence,
+    })
 }
 
 #[allow(dead_code)] // The consumer remains closed outside the Stage 5E test-only proof.
@@ -1111,21 +1539,29 @@ mod stage5e_retryable_bridge_tests {
         origin: broker_core::HybridRuntimeBarOrigin,
         close_time_utc: i64,
     ) -> Stage5cAcceptedSemanticBar {
+        let bar = broker_core::HybridRuntimeBarEvent {
+            instrument: target(),
+            close_time_utc,
+            open: 2200.0,
+            high: 2202.0,
+            low: 2199.0,
+            close: 2201.0,
+            volume: 1.0,
+            origin,
+            is_final: true,
+            timeframe_sec: 600,
+        };
+        let provenance =
+            broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete();
+        let stage3_provenance_identity = stage5e_b3c_stage3_provenance_identity(&provenance);
+        let semantic_bar_identity =
+            stage5e_b3c_semantic_bar_identity(&bar, stage3_provenance_identity);
         Stage5cAcceptedSemanticBar {
-            bar: broker_core::HybridRuntimeBarEvent {
-                instrument: target(),
-                close_time_utc,
-                open: 2200.0,
-                high: 2202.0,
-                low: 2199.0,
-                close: 2201.0,
-                volume: 1.0,
-                origin,
-                is_final: true,
-                timeframe_sec: 600,
-            },
+            bar,
             tick_size: 0.5,
             origin,
+            stage3_provenance_identity,
+            semantic_bar_identity,
         }
     }
 
@@ -1141,6 +1577,20 @@ mod stage5e_retryable_bridge_tests {
             Ok(observed) => observed,
             Err(_) => panic!("canonical Stage 5C recovery chain must admit its first live bar"),
         }
+    }
+
+    pub(super) fn canonical_sequence_inputs(
+        now: DateTime<Utc>,
+        predecessor_close_ts: i64,
+        current_close_ts: i64,
+    ) -> (
+        Stage5cPendingRecoveredPaperStrategy,
+        Stage5cAcceptedSemanticBar,
+    ) {
+        (
+            recovered(now, predecessor_close_ts),
+            accepted(broker_core::HybridRuntimeBarOrigin::Live, current_close_ts),
+        )
     }
 
     #[test]
@@ -1192,6 +1642,298 @@ pub(crate) fn stage5e_test_observed_live_bar_after_history_at(
 ) -> crate::stage5e_no_io_lifecycle::Stage5eObservedLiveBarAfterHistory {
     stage5e_retryable_bridge_tests::canonical_observed_live_bar_after_history(now, bar_close_ts)
 }
+
+#[cfg(test)]
+pub(crate) fn stage5e_test_sequence_inputs(
+    now: DateTime<Utc>,
+    predecessor_close_ts: i64,
+    current_close_ts: i64,
+) -> (
+    Stage5cPendingRecoveredPaperStrategy,
+    Stage5cAcceptedSemanticBar,
+) {
+    stage5e_retryable_bridge_tests::canonical_sequence_inputs(
+        now,
+        predecessor_close_ts,
+        current_close_ts,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn stage5e_test_observe_live_bar_with_sequence_evidence_at(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    projection: crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleProjectionBridgeInput,
+    now: DateTime<Utc>,
+) -> Result<
+    Stage5eObservedLiveBarWithSequenceEvidence,
+    Box<Stage5eObservedLiveBarWithSequenceEvidenceBlocked>,
+> {
+    stage5e_try_observe_live_bar_after_history_with_sequence_evidence_at(
+        recovered, accepted, projection, now,
+    )
+}
+
+#[cfg(test)]
+mod stage5e_b3c_identity_tests {
+    use super::*;
+
+    fn now() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+            .single()
+            .unwrap()
+    }
+
+    fn bar() -> broker_core::HybridRuntimeBarEvent {
+        broker_core::HybridRuntimeBarEvent {
+            instrument: InstrumentId {
+                symbol: "IMOEXF".to_owned(),
+                venue_symbol: Some("IMOEXF@RTSX".to_owned()),
+                exchange: broker_core::Exchange::Moex,
+                market: broker_core::Market::Futures,
+            },
+            close_time_utc: now().timestamp(),
+            open: 2200.0,
+            high: 2202.0,
+            low: 2199.0,
+            close: 2201.0,
+            volume: 42.0,
+            origin: broker_core::HybridRuntimeBarOrigin::Live,
+            is_final: true,
+            timeframe_sec: 600,
+        }
+    }
+
+    #[test]
+    fn stage3_identity_changes_for_every_frozen_field() {
+        let base = broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete();
+        let expected = stage5e_b3c_stage3_provenance_identity(&base);
+        let mutations = [
+            broker_core::Stage3StrategyBarProvenance {
+                source_mode:
+                    broker_core::Stage3StrategyBarSourceMode::AlorNativeBarsGetAndSubscribeTf600,
+                ..base.clone()
+            },
+            broker_core::Stage3StrategyBarProvenance {
+                source_timeframe_sec: None,
+                ..base.clone()
+            },
+            broker_core::Stage3StrategyBarProvenance {
+                target_timeframe_sec: 1_200,
+                ..base.clone()
+            },
+            broker_core::Stage3StrategyBarProvenance {
+                aggregation_complete: false,
+                ..base.clone()
+            },
+            broker_core::Stage3StrategyBarProvenance {
+                gap_absence_proven: false,
+                ..base
+            },
+        ];
+        for mutation in mutations {
+            assert_ne!(stage5e_b3c_stage3_provenance_identity(&mutation), expected);
+        }
+    }
+
+    #[test]
+    fn semantic_bar_identity_changes_for_every_frozen_field() {
+        let provenance =
+            broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete();
+        let stage3 = stage5e_b3c_stage3_provenance_identity(&provenance);
+        let base = bar();
+        let expected = stage5e_b3c_semantic_bar_identity(&base, stage3);
+        let mut mutations = Vec::new();
+        let mut value = base.clone();
+        value.instrument.symbol = "OTHER".to_owned();
+        mutations.push((value, stage3));
+        let mut value = base.clone();
+        value.instrument.venue_symbol = Some("IMOEXF@OTHER".to_owned());
+        mutations.push((value, stage3));
+        let mut value = base.clone();
+        value.instrument.exchange = broker_core::Exchange::Other("other".to_owned());
+        mutations.push((value, stage3));
+        let mut value = base.clone();
+        value.instrument.market = broker_core::Market::Other("other".to_owned());
+        mutations.push((value, stage3));
+        let mut value = base.clone();
+        value.close_time_utc += 600;
+        mutations.push((value, stage3));
+        for field in 0..5 {
+            let mut value = base.clone();
+            match field {
+                0 => value.open += 0.5,
+                1 => value.high += 0.5,
+                2 => value.low -= 0.5,
+                3 => value.close += 0.5,
+                _ => value.volume += 1.0,
+            }
+            mutations.push((value, stage3));
+        }
+        let mut value = base.clone();
+        value.origin = broker_core::HybridRuntimeBarOrigin::Replay;
+        mutations.push((value, stage3));
+        let mut value = base.clone();
+        value.is_final = false;
+        mutations.push((value, stage3));
+        let mut value = base.clone();
+        value.timeframe_sec = 1_200;
+        mutations.push((value, stage3));
+        mutations.push((base.clone(), [99; 32]));
+        for (mutation, provenance_identity) in mutations {
+            assert_ne!(
+                stage5e_b3c_semantic_bar_identity(&mutation, provenance_identity),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn recovery_identity_changes_for_every_frozen_field() {
+        let build = || {
+            stage5e_retryable_bridge_tests::canonical_sequence_inputs(
+                now(),
+                now().timestamp() - 600,
+                now().timestamp(),
+            )
+            .0
+        };
+        let expected = stage5e_b3c_recovery_receipt_identity(&build().receipt);
+
+        let mut changed = build();
+        changed.receipt.warmup_receipt.restore_receipt.restored_ts +=
+            chrono::Duration::milliseconds(1);
+        assert_ne!(
+            stage5e_b3c_recovery_receipt_identity(&changed.receipt),
+            expected
+        );
+        let mut changed = build();
+        changed.receipt.warmup_receipt.started_ts += chrono::Duration::milliseconds(1);
+        assert_ne!(
+            stage5e_b3c_recovery_receipt_identity(&changed.receipt),
+            expected
+        );
+        let mut changed = build();
+        changed.receipt.warmup_receipt.processed_bars += 1;
+        assert_ne!(
+            stage5e_b3c_recovery_receipt_identity(&changed.receipt),
+            expected
+        );
+        let mut changed = build();
+        changed.receipt.warmup_receipt.input_bars += 1;
+        assert_ne!(
+            stage5e_b3c_recovery_receipt_identity(&changed.receipt),
+            expected
+        );
+        let mut changed = build();
+        changed.receipt.warmup_receipt.source_mode =
+            broker_core::Stage3StrategyBarSourceMode::AlorStandDerivedM1ToM10;
+        assert_ne!(
+            stage5e_b3c_recovery_receipt_identity(&changed.receipt),
+            expected
+        );
+        let mut changed = build();
+        changed.receipt.warmup_receipt.last_history_ts -= 600;
+        assert_ne!(
+            stage5e_b3c_recovery_receipt_identity(&changed.receipt),
+            expected
+        );
+        let mut changed = build();
+        changed.receipt.recovered_ts += chrono::Duration::milliseconds(1);
+        assert_ne!(
+            stage5e_b3c_recovery_receipt_identity(&changed.receipt),
+            expected
+        );
+        let mut changed = build();
+        changed.receipt.replayed_events += 1;
+        assert_ne!(
+            stage5e_b3c_recovery_receipt_identity(&changed.receipt),
+            expected
+        );
+        let mut changed = build();
+        changed.receipt.duplicate_events += 1;
+        assert_ne!(
+            stage5e_b3c_recovery_receipt_identity(&changed.receipt),
+            expected
+        );
+    }
+
+    #[test]
+    fn final_sequence_identity_changes_for_every_frozen_field() {
+        #[derive(Clone)]
+        struct Material {
+            stage3: [u8; 32],
+            semantic: [u8; 32],
+            recovery: [u8; 32],
+            predecessor: i64,
+            timeframe: std::num::NonZeroU32,
+            observed: DateTime<Utc>,
+            expires: DateTime<Utc>,
+            class: u8,
+            boundary: Option<[u8; 32]>,
+        }
+        impl Material {
+            fn identity(&self) -> [u8; 32] {
+                stage5e_b3c_final_sequence_identity(
+                    self.stage3,
+                    self.semantic,
+                    self.recovery,
+                    self.predecessor,
+                    self.timeframe,
+                    self.observed,
+                    self.expires,
+                    self.class,
+                    self.boundary,
+                )
+            }
+        }
+        let base = Material {
+            stage3: [1; 32],
+            semantic: [2; 32],
+            recovery: [3; 32],
+            predecessor: now().timestamp() - 600,
+            timeframe: std::num::NonZeroU32::new(600).unwrap(),
+            observed: now(),
+            expires: now() + chrono::Duration::seconds(600),
+            class: 1,
+            boundary: None,
+        };
+        let expected = base.identity();
+        let mut mutations = Vec::new();
+        let mut value = base.clone();
+        value.stage3 = [11; 32];
+        mutations.push(value);
+        let mut value = base.clone();
+        value.semantic = [12; 32];
+        mutations.push(value);
+        let mut value = base.clone();
+        value.recovery = [13; 32];
+        mutations.push(value);
+        let mut value = base.clone();
+        value.predecessor -= 600;
+        mutations.push(value);
+        let mut value = base.clone();
+        value.timeframe = std::num::NonZeroU32::new(1_200).unwrap();
+        mutations.push(value);
+        let mut value = base.clone();
+        value.observed += chrono::Duration::milliseconds(1);
+        mutations.push(value);
+        let mut value = base.clone();
+        value.expires += chrono::Duration::milliseconds(1);
+        mutations.push(value);
+        let mut value = base.clone();
+        value.class = 2;
+        mutations.push(value);
+        let mut value = base;
+        value.class = 2;
+        value.boundary = Some([14; 32]);
+        mutations.push(value);
+        for mutation in mutations {
+            assert_ne!(mutation.identity(), expected);
+        }
+    }
+}
+// STAGE5E-B3C-R6-SEALS-END: additive-no-io-v1
 // STAGE5E-NO-IO-BRIDGE-END: contextual-observation-v1
 // STAGE5D-ADDITIVE-BRIDGE-END: type-state-transitions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1776,6 +2518,12 @@ pub struct Stage5cAcceptedSemanticBar {
     bar: broker_core::HybridRuntimeBarEvent,
     tick_size: f64,
     origin: broker_core::HybridRuntimeBarOrigin,
+    // STAGE5D-ADDITIVE-BRIDGE-BEGIN: stage5e-b3c-semantic-identity-fields
+    #[allow(dead_code)] // Consumed by the closed Stage 5E sequence issuer.
+    stage3_provenance_identity: [u8; 32],
+    #[allow(dead_code)] // Consumed by the closed Stage 5E sequence issuer.
+    semantic_bar_identity: [u8; 32],
+    // STAGE5D-ADDITIVE-BRIDGE-END: stage5e-b3c-semantic-identity-fields
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -4805,10 +5553,19 @@ pub fn accept_stage5c_semantic_bar(
     if !broker_core::evaluate_stage3_strategy_input_gate(&gate_bar, &input.provenance).accepted {
         return Err(Stage5cSemanticBarError::Stage3Rejected);
     }
+    // STAGE5D-ADDITIVE-BRIDGE-BEGIN: stage5e-b3c-semantic-identity-admission
+    let stage3_provenance_identity = stage5e_b3c_stage3_provenance_identity(&input.provenance);
+    let semantic_bar_identity =
+        stage5e_b3c_semantic_bar_identity(&input.bar, stage3_provenance_identity);
+    // STAGE5D-ADDITIVE-BRIDGE-END: stage5e-b3c-semantic-identity-admission
     Ok(Stage5cAcceptedSemanticBar {
         origin: input.bar.origin,
         bar: input.bar,
         tick_size: input.tick_size,
+        // STAGE5D-ADDITIVE-BRIDGE-BEGIN: stage5e-b3c-semantic-identity-construction
+        stage3_provenance_identity,
+        semantic_bar_identity,
+        // STAGE5D-ADDITIVE-BRIDGE-END: stage5e-b3c-semantic-identity-construction
     })
 }
 

@@ -1,22 +1,23 @@
 {
-  "schema_version": 7,
+  "schema_version": 8,
   "stage": "5E-b3c-source-authority-freeze-extension",
-  "status": "authority_freeze_r6_pending_review",
-  "baseline_ref": "d2f89a2223b2424e10c63f062f7b24b181466cfc",
+  "status": "r6_additive_production_bridge_pending_review",
+  "baseline_ref": "2b2c57d7bacb8e3f1de572b7c35790be906b82a9",
   "predecessor_stage": "5E-b3c-private-eligibility-seam",
-  "expected_provenance_case_count": 194,
+  "expected_provenance_case_count": 200,
   "production_source_baselines": {
     "crates/broker-core/src/lib.rs": "5d8758624f53a6b46d8903dd3f2339d5bd04f64c9c6490448167f08ac68ec8a2",
     "crates/broker-core/src/operational_config.rs": "492905c6e404ee67f62ad456128ff659cd4a32c8e638936b94b5ea14ff3ba2f8",
-    "crates/broker-core/src/stage4_bootstrap.rs": "cb4362acce9624ec62c0007731b779fe96d2222c0ec8c0b1a921ed30a0aecf07",
-    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "14a723bd2adf98f50c2443166b7fb838edd8df6c5cf46968d13eb9e8d901b4c9",
-    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "76bade52f3ebb309475812b617823825a3b7e4838bf89f9eb297ca2bbffbf821"
+    "crates/broker-core/src/stage4_bootstrap.rs": "33455bd4447193f723aa5a749707739d89e2d2ca58b083d416c268a24613bdd7",
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "41f6f9da0e0beedf4e292c852b6dafb6fd00bb2215368c7b366a78000170e399",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "cd49213ba507f924f390e839013b13222bc78a6ab9b75bcd355bd5ba8f766d9f"
   },
   "implementation_authorization": {
-    "authority_freeze_r6_reviewed": false,
-    "production_source_changes_allowed": false,
-    "trusted_combined_eligibility": false,
-    "unverified_sequence_production_authoritative": false
+    "authority_freeze_r6_reviewed": true,
+    "production_source_changes_allowed": true,
+    "trusted_combined_eligibility": true,
+    "unverified_sequence_production_authoritative": false,
+    "callback_intent_live_authorized": false
   },
   "boundary_authority_contract": {
     "owner": "strategy_runtime_core::stage5e_no_io_lifecycle::schedule_window_evidence",
@@ -237,5 +238,5 @@
   "required_implementation_tests": ["stage4_dynamic_open_is_retained_from_accepted_input", "stage4_non_open_blocks_schedule_projection", "schedule_projection_bridge_cannot_be_raw_constructed_or_reused", "Stage5cSequenceCandidateSeal_has_one_constructor_and_no_getters", "preclassification_candidate_has_no_final_sequence_identity", "Stage5cClassifiedSequenceSeal_is_created_only_after_concrete_classification", "final_sequence_identity_uses_accepted_stage3_digest_and_classification_boundary", "Stage5eScheduleCandidateClassifier_has_one_constructor_and_one_call_site", "sealed_classifier_never_exposes_raw_sessions_to_stage5c", "single_linear_issuer_preserves_strategy_recovery_and_bar", "observed_live_bar_with_sequence_has_one_constructor_and_sealed_B3B_consumer", "B3B_consume_seal_has_one_constructor_and_one_consumer", "B3B_consumes_new_output_and_revalidates_sequence_freshness", "sequence_created_expired_blocks_before_receipt", "B3C_revalidates_production_clock_expiry_observation_bar_and_sequence_time", "B3C_effective_expiry_is_exact_min_of_projection_and_sequence", "B3C_test_clock_seam_is_cfg_test_only", "expected_close_grid_uses_discrete_endpoint_and_candidate_classification", "stage4_schedule_section_identity_changes_for_every_frozen_field", "sequence_identity_changes_for_each_freshness_classification_and_boundary_field", "every_nested_identity_field_changes_its_fingerprint", "restart_reissues_full_receipt_chain_without_identity_mixing", "all_required_predecessor_and_freeze_updates_present"],
   "required_negative_mutations": ["boundary_precomputed_without_candidate_context", "caller_timestamps_enter_owner_constructor", "sealed_classifier_bypassed", "candidate_type_owner_changed", "second_candidate_constructor_or_getter", "candidate_owns_final_sequence_identity", "classified_result_drops_boundary_fingerprint", "final_sequence_identity_computed_without_classification", "classifier_alternate_constructor_or_call_site", "observed_live_bar_with_sequence_raw_constructible", "observed_live_bar_generic_into_parts_or_getter", "B3B_consume_seal_second_constructor_or_consumer", "sequence_source_fingerprint_substituted_for_final_identity", "sequence_created_already_expired", "sequence_freshness_removed", "sequence_receipt_storage_opened_beyond_expiry", "effective_expiry_min_replaced_by_max", "B3C_clock_removed", "B3C_expiry_check_removed", "B3C_test_clock_seam_production_visible", "stage4_schedule_source_identity_constant", "stage4_schedule_source_identity_field_removed", "continuous_range_inference_replaces_grid_coverage"],
   "closed_surfaces": ["strategy_callback", "strategy_state_mutation", "executable_intents", "strategy_intent_sink", "redis", "finam_io", "transport", "dispatch", "runtime_live", "broker_execution", "autonomous_event_loop"],
-  "allowed_changed_paths": ["docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/handoff_provenance_negative_harness.py", "scripts/handoff_safety_check.py", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py"]
+  "allowed_changed_paths": ["crates/broker-core/src/stage4_bootstrap.rs", "crates/strategy-runtime-core/src/stage5c_paper_host.rs", "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", "docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md", "docs/stage-5/5e-b3-schedule-window-evidence-plan.md", "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md", "docs/stage-5/stage-5d-additive-freeze-manifest.json", "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json", "docs/stage-5/stage5e-b3-schedule-window-evidence-inventory.json", "docs/stage-5/stage5e-b3c-private-eligibility-seam-inventory.json", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/forbidden_surface_scan.sh", "scripts/handoff_provenance_negative_harness.py", "scripts/stage5d_additive_freeze_check.py", "scripts/stage5e_b_no_io_lifecycle_check.py", "scripts/stage5e_b3_schedule_window_evidence_check.py", "scripts/stage5e_b3c_private_eligibility_seam_check.py", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py"]
 }

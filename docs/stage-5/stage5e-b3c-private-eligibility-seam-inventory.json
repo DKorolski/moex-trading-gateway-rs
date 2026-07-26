@@ -105,8 +105,8 @@
     "source_file": "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
     "module": "schedule_window_evidence::b3c_evidence",
     "region_marker": "private-no-io-v1",
-    "region_sha256": "12616c06ee3824fb1917a805813e2f22b9660b529daec598acf7246b9d3a51dc",
-    "b3b_core_region_sha256": "982d7cc67b295ef633ddffa5f767067a7d5c05da1ed5b8b77b31a581d9b7be94",
+    "region_sha256": "ec9770097efbb41194442245ef3953b7741c2ed6d930d33d02dd76f127d524d9",
+    "b3b_core_region_sha256": "5615eefda64c694c3a7aa3a35cc22e90b1a9a497f7fa4bc539ebd2d8ea0dba63",
     "source_input_types": ["AcceptedStage4ScheduleEvidence", "ValidatedNormalizedInstrumentScheduleSnapshot", "UnverifiedMarketSequenceSource"],
     "receipt_types": ["Stage5eFreshOpenSessionEvidence", "Stage5eCalendarEligibilityEvidence", "Stage5eMarketSequenceEvidence"],
     "output_type": "Stage5eBoundSessionCalendarSequenceForObservedLiveBar",
@@ -117,5 +117,5 @@
     "required_transition_markers": ["validate_continuation", "ClockBeforeEvidenceObservation", "B3bScheduleExpired", "B3bObservedBarInFuture", "ScheduleFingerprintMismatch", "BarIdentityMismatch", "ContinuationEpochMismatch", "into_inputs"]
   },
   "expected_provenance_case_count": 136,
-  "allowed_changed_paths": ["crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md", "docs/stage-5/stage5e-active-descriptor.json", "docs/stage-5/stage5e-b3c-private-eligibility-seam-inventory.json", "scripts/handoff_provenance_negative_harness.py", "scripts/handoff_safety_check.py", "scripts/stage5e_b3_schedule_window_evidence_check.py", "scripts/stage5e_b3c_private_eligibility_seam_check.py", "scripts/stage5e_descriptor.py", "scripts/stage5e_lifecycle_event_time_gate.sh"]
+  "allowed_changed_paths": ["crates/broker-core/src/stage4_bootstrap.rs", "crates/strategy-runtime-core/src/stage5c_paper_host.rs", "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md", "docs/stage-5/stage5e-active-descriptor.json", "docs/stage-5/stage5e-b3c-private-eligibility-seam-inventory.json", "scripts/handoff_provenance_negative_harness.py", "scripts/handoff_safety_check.py", "scripts/stage5e_b3_schedule_window_evidence_check.py", "scripts/stage5e_b3c_private_eligibility_seam_check.py", "scripts/stage5e_descriptor.py", "scripts/stage5e_lifecycle_event_time_gate.sh", "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py", "scripts/stage5d_additive_freeze_check.py"]
 }

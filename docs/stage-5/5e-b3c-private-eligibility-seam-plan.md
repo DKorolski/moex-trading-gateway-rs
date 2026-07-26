@@ -149,3 +149,11 @@ That extension may not alter B3C, Stage 5C or Stage 4 production source until
 its own freeze contract is reviewed. It does not open callbacks, strategy state
 mutation, intent construction, Redis, FINAM, transport, dispatch, runtime-live
 or broker execution.
+
+## Superseded test enclave after Stage 5E-b3c R6
+
+The original `private-no-io-v1` enclave remains hash-pinned as legacy,
+test-only evidence. It is not production-authoritative. The accepted R6
+production route is the separately sealed
+`schedule_window_evidence::b3c_evidence` transition and consumes only the
+owner-issued Stage 5C/B3B receipt chain.

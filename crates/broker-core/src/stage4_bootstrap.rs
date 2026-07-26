@@ -876,6 +876,7 @@ pub struct Stage4AcceptedPaperHostEvidence {
     application: Stage4RuntimeBootstrapApplicationDecision,
     applied_snapshot: RuntimeHostBootstrapSnapshot,
     required_source_expires_at: DateTime<Utc>,
+    schedule_state: BrokerMarketSessionState,
 }
 
 impl Stage4AcceptedPaperHostEvidence {
@@ -893,6 +894,10 @@ impl Stage4AcceptedPaperHostEvidence {
 
     pub fn required_source_expires_at(&self) -> DateTime<Utc> {
         self.required_source_expires_at
+    }
+
+    pub fn schedule_state(&self) -> BrokerMarketSessionState {
+        self.schedule_state
     }
 }
 
@@ -1535,6 +1540,7 @@ pub fn build_stage4_accepted_paper_host_evidence(
         application,
         applied_snapshot,
         required_source_expires_at,
+        schedule_state: validated.schedule_state,
     })
 }
 
@@ -4957,6 +4963,11 @@ mod tests {
         assert_eq!(
             evidence.applied_snapshot(),
             &validated.runtime_bootstrap_snapshot
+        );
+        assert_eq!(
+            evidence.schedule_state(),
+            BrokerMarketSessionState::Open,
+            "accepted Stage 4 evidence must retain the exact dynamic session state"
         );
     }
 

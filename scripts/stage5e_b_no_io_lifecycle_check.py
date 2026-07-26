@@ -21,6 +21,7 @@ EXPECTED_TOP_LEVEL_KEYS = {
     "stage5e_a_freeze_ref", "status",
 }
 EXPECTED_ALLOWED_CHANGED_PATHS = [
+    "crates/broker-core/src/stage4_bootstrap.rs",
     "crates/strategy-runtime-core/src/lib.rs",
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
@@ -32,6 +33,10 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "scripts/handoff_safety_check.py",
     "scripts/make_handoff_archive.sh",
     "scripts/stage5e_b_no_io_lifecycle_check.py",
+    "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md",
+    "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json",
+    "scripts/stage5e_b3c_source_authority_freeze_extension_check.py",
+    "scripts/stage5d_additive_freeze_check.py",
 ]
 CLOSED = {
     "redis", "finam", "transport", "dispatch", "runtime_live",
@@ -49,7 +54,7 @@ EXPECTED_CONTRACT_INVARIANTS = {
 }
 BRIDGE_BEGIN = "// STAGE5E-NO-IO-BRIDGE-BEGIN: contextual-observation-v1"
 BRIDGE_END = "// STAGE5E-NO-IO-BRIDGE-END: contextual-observation-v1"
-EXPECTED_BRIDGE_SHA256 = "7686409253c0467fdd0b8b728df47ed93493729972e6e468d7670ce5d12b930b"
+EXPECTED_BRIDGE_SHA256 = "1355736f6186c4143a08bdebbc9e7a39d4d647c6a392123f8f41873df0e6cc2b"
 VALIDATOR_BEGIN = "// STAGE5E-NO-IO-VALIDATOR-BEGIN: contextual-admission-v1"
 VALIDATOR_END = "// STAGE5E-NO-IO-VALIDATOR-END: contextual-admission-v1"
 EXPECTED_VALIDATOR_SHA256 = "8ebad6268be99e5c7995668ee08290cdd058ede6f38d424476d5df0897f39f4c"

@@ -149,3 +149,11 @@ only a local classification result; it is not yet trusted schedule evidence
 and cannot authorize a callback. The next binding slice must introduce the
 accepted schedule mapper and exact Stage 4/bar binding rather than widening
 this classifier's caller-supplied inputs.
+
+## Stage 5E-b3c R6 additive implementation compatibility
+
+The accepted R6 authority contract extends the same private no-I/O chain with
+canonical sequence identities and sealed schedule classification. It does not
+change this stage's zero-callback, zero-intent contract. The updated checker
+pins the enlarged private bridge while Redis, FINAM, transport, dispatch,
+runtime-live and broker execution remain closed.

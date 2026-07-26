@@ -1,13 +1,18 @@
-# Stage 5E-b3c source-authority freeze extension — design only
+# Stage 5E-b3c source-authority production bridge — implementation candidate
 
-Status: R5 proposed additive freeze extension. This package changes no Stage 4,
-Stage 5C, broker, transport, runtime or strategy source. It exists to obtain a
-reviewed contract before any such source change is permitted. R5 below is the
-sole operative implementation contract; R1--R4 record the decisions that led
-to it and are superseded wherever they differ.
+Status: the R6 authority freeze was accepted at source ref
+`2b2c57d7bacb8e3f1de572b7c35790be906b82a9`. This package implements that
+accepted additive bridge and is pending implementation review. R6 below is the
+sole operative contract; R1--R5 record the decisions that led to it and are
+superseded wherever they differ.
 
 Lineage root / initial design baseline: `936250e675ac15b61a7a4e319b59e508cd834f30`.
-Scoped R6 review baseline: `d2f89a2223b2424e10c63f062f7b24b181466cfc`.
+Accepted R6 implementation baseline: `2b2c57d7bacb8e3f1de572b7c35790be906b82a9`.
+
+The earlier user-mentioned implementation ref
+`e084411f0b8be75e03aec1e0fc177b707febf833` was superseded by the actual
+reviewed R6 handoff at `2b2c57d`; all implementation scope and provenance in
+this package are therefore measured from `2b2c57d`.
 
 The preceding B3C package is accepted only as private no-I/O plumbing. Its
 calendar binding is useful, but it does not establish trusted eligibility:
@@ -709,3 +714,33 @@ sequence cannot be created already expired; that only the B3B issuer creates a
 consume seal and calls `consume_for_b3b`; and that no source fingerprint can be
 used where the final sequence identity is required. The existing no-I/O,
 no-callback and no-intent restrictions remain unchanged.
+
+## R6 additive implementation outcome
+
+The implementation adds only the accepted private authority chain:
+
+```text
+accepted Stage 4 dynamic Open state
+→ validated normalized schedule projection
+→ Stage 5C pre-classification candidate
+→ sealed discrete-grid classifier
+→ post-classification canonical sequence identity
+→ consuming B3B seal
+→ fresh B3C continuation binding
+```
+
+The production bridge is marked by
+`STAGE5E-B3C-R6-SEALS: additive-no-io-v1` in the Stage 5C owner and
+`STAGE5E-B3C-PRODUCTION-BRIDGE: trusted-no-io-v1` in the Stage 5E owner.
+Stage 4 retains the exact accepted `BrokerMarketSessionState` privately and
+projects only `Open`.
+
+The old `private-no-io-v1` B3C enclave is retained only as a hash-pinned legacy
+test oracle. Its `UnverifiedMarketSequenceSource` cannot enter the production
+R6 path.
+
+No strategy callback is invoked; no strategy state is mutated; no executable
+intent is created. Redis, FINAM I/O, transport, dispatch, runtime-live,
+autonomous loops and broker execution remain closed. The next stage must be
+separately designed and reviewed before any callback-capable continuation is
+allowed.

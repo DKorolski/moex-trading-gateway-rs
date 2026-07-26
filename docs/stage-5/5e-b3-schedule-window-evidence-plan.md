@@ -99,3 +99,10 @@ identity before binding, after a blocked retry, and after a successful bind.
 Callback count and intent count remain zero throughout. The test helper is not
 an observed-bar constructor: it invokes the sealed Stage 5C bridge and exists
 only under `cfg(test)`.
+
+## Stage 5E-b3c R6 additive implementation compatibility
+
+The accepted R6 implementation keeps normalized sessions inside the schedule
+owner and adds the sealed discrete expected-close-grid classifier. The
+predecessor receipt remains no-I/O and non-executable; the updated region pin
+recognizes only the reviewed additive source-authority bridge.

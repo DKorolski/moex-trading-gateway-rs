@@ -537,6 +537,14 @@ def main() -> int:
 
         return apply
 
+    def mutate_stage5e_authority_source_for_checker(path_value, mutator):
+        def apply(root, _manifest, _marker):
+            path = root / path_value
+            mutated = mutator(path.read_text())
+            path.write_text(mutated)
+
+        return apply
+
     def mutate_stage5e_b3_module_for_checker(mutator):
         def apply(root, _manifest, _marker):
             path = root / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
@@ -1767,8 +1775,8 @@ def main() -> int:
             "b3c evidence region hash mismatch",
             mutate_stage5e_b3c_module_for_checker(
                 lambda text: text.replace(
-                    "mod b3c_evidence {",
-                    "mod b3c_evidence {\n    fn on_broker_bar() {}",
+                    "mod legacy_b3c_evidence {",
+                    "mod legacy_b3c_evidence {\n    fn on_broker_bar() {}",
                     1,
                 )
             ),
@@ -1793,8 +1801,8 @@ def main() -> int:
             "b3c evidence region hash mismatch",
             mutate_stage5e_b3c_module_for_checker(
                 lambda text: text.replace(
-                    "struct Stage5eBoundSessionCalendarSequenceForObservedLiveBar {",
-                    "pub(super) struct Stage5eBoundSessionCalendarSequenceForObservedLiveBar {",
+                    "\n        struct Stage5eBoundSessionCalendarSequenceForObservedLiveBar {",
+                    "\n        pub(super) struct Stage5eBoundSessionCalendarSequenceForObservedLiveBar {",
                     1,
                 )
             ),
@@ -2370,6 +2378,12 @@ def main() -> int:
         Case("stage5e-authority-r6-sequence-created-expired", "authority freeze contract drift", mutate_stage5e_authority_inventory_for_checker(lambda p: p["b3b_b3c_topology_contract"]["b3c_transition"].pop("sequence_creation_freshness_requirement")), "5E-b3c-source-authority-freeze-extension", True),
         Case("stage5e-authority-r6-accepted-stage3-digest-dropped", "authority freeze contract drift", mutate_stage5e_authority_inventory_for_checker(lambda p: p["sealed_candidate_classifier_contract"]["candidate_owned_preclassification_fields"].remove("stage3_provenance_identity")), "5E-b3c-source-authority-freeze-extension", True),
         Case("stage5e-authority-r6-plan-consume-bridge-removed", "authority freeze plan drift", mutate_stage5e_authority_plan_for_checker(lambda t: t.replace("consume_for_b3b(self, Stage5eB3bConsumeSeal)", "into_parts(self)", 1)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r6-implementation-stage4-open-stripped", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/broker-core/src/stage4_bootstrap.rs", lambda t: t.replace("schedule_state: validated.schedule_state,", "schedule_state: BrokerMarketSessionState::Unknown,", 1)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r6-implementation-candidate-final-id-injected", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5c_paper_host.rs", lambda t: t.replace("pub(crate) struct Stage5cSequenceCandidateSeal {\n", "pub(crate) struct Stage5cSequenceCandidateSeal {\n    sequence_identity_fingerprint: [u8; 32],\n", 1)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r6-implementation-sequence-domain-drift", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5c_paper_host.rs", lambda t: t.replace("stage5e-b3c-market-sequence-v2", "stage5e-b3c-market-sequence-v1", 1)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r6-implementation-effective-expiry-max", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("schedule.expires_at.0.min(b3b.payload.sequence_expires_at)", "schedule.expires_at.0.max(b3b.payload.sequence_expires_at)", 1)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r6-implementation-consume-seal-drift", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("Stage5eB3bConsumeSeal(())", "Stage5eB3bConsumeSeal(()) /* alternate issuer */", 1)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r6-implementation-unverified-source-injected", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("// STAGE5E-B3C-PRODUCTION-BRIDGE-BEGIN: trusted-no-io-v1", "// STAGE5E-B3C-PRODUCTION-BRIDGE-BEGIN: trusted-no-io-v1\\n    struct UnverifiedMarketSequenceSource;", 1)), "5E-b3c-source-authority-freeze-extension", True),
     ]
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)
