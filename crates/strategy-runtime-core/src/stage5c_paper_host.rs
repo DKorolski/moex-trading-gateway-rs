@@ -1118,6 +1118,7 @@ impl Stage5eObservedLiveBarWithSequenceEvidence {
             &self.strategy,
             &self.recovery_receipt,
             &self.accepted_semantic_bar,
+            self.accepted_semantic_bar.semantic_bar_identity,
             &candidate.instrument,
             candidate.current_close_ts,
             candidate.predecessor_close_ts,
@@ -1147,11 +1148,13 @@ impl Stage5eObservedLiveBarWithSequenceEvidence {
         let current_close_ts = candidate.current_close_ts;
         let sequence_observed_at = candidate.sequence_observed_at;
         let sequence_expires_at = candidate.sequence_expires_at;
+        let accepted_semantic_bar_identity = self.accepted_semantic_bar.semantic_bar_identity;
         crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eB3bObservedLiveBarBridgePayload::from_stage5c_observed(
             seal,
             self.strategy,
             self.recovery_receipt,
             self.accepted_semantic_bar,
+            accepted_semantic_bar_identity,
             instrument,
             current_close_ts,
             predecessor_close_ts,

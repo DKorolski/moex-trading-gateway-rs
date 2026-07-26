@@ -54,7 +54,7 @@ EXPECTED_CONTRACT_INVARIANTS = {
 }
 BRIDGE_BEGIN = "// STAGE5E-NO-IO-BRIDGE-BEGIN: contextual-observation-v1"
 BRIDGE_END = "// STAGE5E-NO-IO-BRIDGE-END: contextual-observation-v1"
-EXPECTED_BRIDGE_SHA256 = "fdd02d609b001d119358533ae8e738fa660eade88aec4e97d550bbcb1d255386"
+EXPECTED_BRIDGE_SHA256 = "9f15f3df39ae07449597eb1817a4648015ff3531bbb9d01e045ac90953a9ef01"
 VALIDATOR_BEGIN = "// STAGE5E-NO-IO-VALIDATOR-BEGIN: contextual-admission-v1"
 VALIDATOR_END = "// STAGE5E-NO-IO-VALIDATOR-END: contextual-admission-v1"
 EXPECTED_VALIDATOR_SHA256 = "8ebad6268be99e5c7995668ee08290cdd058ede6f38d424476d5df0897f39f4c"
@@ -66,6 +66,8 @@ SESSION_END = "// STAGE5E-NO-IO-SESSION-ELIGIBILITY-END: observed-open-session-v
 EXPECTED_SESSION_SHA256 = "4546cdc8409465d3e6f7382a84ac558f11856b6f4591678f6fbe220044b1b3b5"
 B3_BEGIN = "// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v5"
 B3_END = "// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v5"
+B3D_BEGIN = "// STAGE5E-B3D-CALLBACK-AUTHORITY-BEGIN: private-no-io-issue-v1"
+B3D_END = "// STAGE5E-B3D-CALLBACK-AUTHORITY-END: private-no-io-issue-v1"
 
 
 def fail(message: str) -> None:
@@ -139,6 +141,12 @@ def main() -> int:
         fail("Stage 5E-b3 region markers must occur exactly once")
     predecessor_module_text = (
         module_text.split(B3_BEGIN, 1)[0] + module_text.split(B3_END, 1)[1]
+    )
+    if module_text.count(B3D_BEGIN) != 1 or module_text.count(B3D_END) != 1:
+        fail("Stage 5E-b3d private authority region markers must occur exactly once")
+    predecessor_module_text = (
+        predecessor_module_text.split(B3D_BEGIN, 1)[0]
+        + predecessor_module_text.split(B3D_END, 1)[1]
     )
     if module_text.count(VALIDATOR_BEGIN) != 1 or module_text.count(VALIDATOR_END) != 1:
         fail("Stage 5E-b1 validator region markers must occur exactly once")

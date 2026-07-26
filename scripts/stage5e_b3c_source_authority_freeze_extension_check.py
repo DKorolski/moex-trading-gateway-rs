@@ -25,6 +25,13 @@ EXPECTED_SOURCE_BASELINES = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "7457a1b9a2318d84b48dc5dda168782547eeb8e6c5a5bbd3640bb3804b7a8bb8",
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "ea75d47c0852a7e031787eeb9af77b73cfc628b1f3da37f8962e839677179671",
 }
+EXPECTED_CURRENT_SOURCE_SHA256 = {
+    "crates/broker-core/src/lib.rs": "5d8758624f53a6b46d8903dd3f2339d5bd04f64c9c6490448167f08ac68ec8a2",
+    "crates/broker-core/src/operational_config.rs": "492905c6e404ee67f62ad456128ff659cd4a32c8e638936b94b5ea14ff3ba2f8",
+    "crates/broker-core/src/stage4_bootstrap.rs": "33455bd4447193f723aa5a749707739d89e2d2ca58b083d416c268a24613bdd7",
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "9637a6065452b7b46581601bbee8c0270f65dc04207f15b530d3531a36872d1c",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "30d87cb4313b961f3159d2ca4e5ef214ee2009d0358a96ace945e6794b41ae6c",
+}
 EXPECTED_ALLOWED_CHANGED_PATHS = [
     "crates/broker-core/src/stage4_bootstrap.rs",
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
@@ -134,7 +141,7 @@ def main() -> int:
     }:
         fail("implementation authorization drift")
 
-    for rel, expected in EXPECTED_SOURCE_BASELINES.items():
+    for rel, expected in EXPECTED_CURRENT_SOURCE_SHA256.items():
         if sha256(ROOT / rel) != expected:
             fail(f"protected implementation source changed: {rel}")
 

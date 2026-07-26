@@ -1,6 +1,6 @@
-# Stage 5E-b3d-r1 — callback-authority governance hardening
+# Stage 5E-b3d — private callback-authority issue implementation
 
-Status: governance/design-only, pending review.
+Status: additive private no-I/O issue implementation, pending review.
 
 Accepted Stage 5E-b3d implementation baseline:
 
@@ -8,15 +8,49 @@ Accepted Stage 5E-b3d implementation baseline:
 ff1344f170b8457df91a6038d670087eef3cc1dc
 ```
 
-R1 scoped-review predecessor:
+Accepted governance predecessor:
 
 ```text
-95096b7d28ecd3fafddbbfd3ec91b0611019e0eb
+583241d441d94688d86e462ca9d066bf88dec2b9
 ```
 
-This R1 contract replaces the initial B3D proposal. No Rust authority type,
-strategy callback, state mutation, intent construction, provider attachment,
-or I/O is implemented in this stage.
+The accepted R1 contract is now implemented only through authority issuance.
+The private receipt, canonical ID, issue seal, borrowed B3C preflight, exact
+retry/terminal blockers, and issue transition exist in Rust. Strategy callback,
+state mutation, intent construction, provider attachment, and every I/O surface
+remain closed.
+
+## Implemented boundary
+
+The implementation adds one owner module:
+
+```text
+strategy_runtime_core::stage5e_no_io_lifecycle::callback_authority
+```
+
+and exactly this transition:
+
+```text
+Stage5eBoundSessionCalendarSequenceForObservedLiveBar
+→ issue_stage5e_callback_authority
+→ Stage5eCallbackAuthorityReadyPaperStrategy
+```
+
+The B3C owner exposes one seal-gated borrowed preflight bridge. The authority
+owner captures `Utc::now()` internally, validates the complete immutable proof
+vector before consuming ownership, and either issues one process-local receipt,
+returns the same B3C receipt in a retryable blocker, or drops terminal evidence.
+
+This stage does not implement:
+
+```text
+invoke_stage5e_authorized_paper_callback
+Stage5ePaperCallbackResultEscrow
+on_broker_bar
+strategy mutation
+in-memory intent construction
+intent sink or execution
+```
 
 ## Route decision
 
@@ -55,13 +89,13 @@ API is a separate Stage 5C freeze review.
 
 ## Exact authority receipt
 
-Future owner module:
+Implemented owner module:
 
 ```text
 strategy_runtime_core::stage5e_no_io_lifecycle::callback_authority
 ```
 
-Future receipt:
+Implemented receipt:
 
 ```text
 Stage5eCallbackAuthorityReadyPaperStrategy
@@ -141,7 +175,7 @@ fingerprints may prove preservation but cannot become production authority.
 
 ## Exact issuing transition
 
-Future types:
+Implemented issue types:
 
 ```text
 Stage5eCallbackAuthorityIssueSeal
@@ -152,7 +186,7 @@ Stage5eCallbackAuthorityIssueBlocked
 The issue seal is private, non-constructible outside the owner, and has one
 issuer/consumer pair. The preflight is borrowed and non-decomposable.
 
-Future transition:
+Implemented transition:
 
 ```text
 issue_stage5e_callback_authority(
@@ -271,13 +305,12 @@ It owns the mutated paper strategy, callback result, and in-memory intents.
 Those intents remain private paper escrow and require separate validation and
 settlement review. No send-capable consumer is authorized by this design.
 
-Actual callback invocation and escrow implementation remain HOLD after B3D-r1;
-they require a separate review after the private authority receipt itself is
-implemented and accepted.
+Actual callback invocation and escrow implementation remain HOLD after this
+issue-only implementation and require a separate review.
 
-## Required implementation evidence
+## Implementation evidence
 
-The future private authority implementation must prove:
+The private authority implementation proves:
 
 - exact field schema and owner module;
 - one issue seal, issuer, constructor, and issue transition;
@@ -295,7 +328,7 @@ The future private authority implementation must prove:
 
 ## Closed surfaces
 
-B3D-r1 does not add or authorize:
+B3D issue implementation does not add or authorize:
 
 - a new `on_broker_bar` call;
 - strategy mutation;

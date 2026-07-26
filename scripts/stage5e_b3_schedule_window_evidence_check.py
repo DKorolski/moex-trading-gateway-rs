@@ -85,7 +85,7 @@ REGION_BEGIN = "// STAGE5E-B3-SCHEDULE-WINDOW-BEGIN: sealed-contract-v5"
 REGION_END = "// STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v5"
 # b3c may live only as a marked, separately pinned nested region.  Removing
 # that exact region must reconstruct the original b3b-r2 bytes verbatim.
-EXPECTED_REGION_SHA256 = "7746ade21576f5b4bb633cac10f5e48db81e04a407deaaf1eec03efbd4129743"
+EXPECTED_REGION_SHA256 = "34c81088d047757cee2fae72bff5c0f69d8b9e705fb23704036b802c73418727"
 B3C_BRIDGE_BEGIN = "// STAGE5E-B3C-EVIDENCE-BEGIN: private-no-io-v1"
 B3C_BRIDGE_END = "// STAGE5E-B3C-EVIDENCE-END: private-no-io-v1"
 EXPECTED_B3C_BRIDGE_SHA256 = "e36e98fbcf9e9825a1af549994da7099c804c48a6774a7298795a7f1495a5b0f"

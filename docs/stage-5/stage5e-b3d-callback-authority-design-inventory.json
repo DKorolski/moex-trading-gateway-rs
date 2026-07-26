@@ -1,13 +1,13 @@
 {
   "schema_version": 2,
   "stage": "5E-b3d-callback-authority-design",
-  "status": "r1_governance_hardening_pending_review",
+  "status": "private_no_io_authority_issue_implementation_pending_review",
   "baseline_ref": "ff1344f170b8457df91a6038d670087eef3cc1dc",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
   "predecessor_stage": "5E-b3d-callback-authority-design",
-  "predecessor_ref": "95096b7d28ecd3fafddbbfd3ec91b0611019e0eb",
+  "predecessor_ref": "583241d441d94688d86e462ca9d066bf88dec2b9",
   "accepted_b3c_implementation_ref": "ff1344f170b8457df91a6038d670087eef3cc1dc",
-  "expected_provenance_case_count": 225,
+  "expected_provenance_case_count": 239,
   "route_exclusivity_contract": {
     "decision": "explicit_isolated_scope",
     "sole_new_stage5e_callback_input": "Stage5eCallbackAuthorityReadyPaperStrategy",
@@ -23,6 +23,7 @@
   },
   "callback_authority_receipt_contract": {
     "type": "Stage5eCallbackAuthorityReadyPaperStrategy",
+    "implementation_status": "implemented_private_no_io_issue_only",
     "owner_module": "strategy_runtime_core::stage5e_no_io_lifecycle::callback_authority",
     "visibility": "crate_private_opaque",
     "fields": [
@@ -97,6 +98,7 @@
   },
   "callback_authority_issue_transition": {
     "function": "issue_stage5e_callback_authority",
+    "implementation_status": "implemented_private_no_io",
     "owner_module": "strategy_runtime_core::stage5e_no_io_lifecycle::callback_authority",
     "visibility": "crate_private",
     "input": "Stage5eBoundSessionCalendarSequenceForObservedLiveBar",
@@ -191,7 +193,7 @@
     "overnight_trading_day_mapping_attached": false,
     "utc_civil_date_inference_allowed": false
   },
-  "future_implementation_requirements": [
+  "implementation_evidence": [
     "exact_field_schema_and_owner",
     "one_issue_seal_issuer_constructor_transition",
     "borrowed_preflight_before_consume",
@@ -225,20 +227,26 @@
   "protected_source_sha256": {
     "crates/broker-core/src/stage4_bootstrap.rs": "33455bd4447193f723aa5a749707739d89e2d2ca58b083d416c268a24613bdd7",
     "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": "7f5e3ad070c1bbc3ddca1e642d59b3f4cf75b9bb0d1651068df363323f1cd427",
-    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "7457a1b9a2318d84b48dc5dda168782547eeb8e6c5a5bbd3640bb3804b7a8bb8",
-    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "ea75d47c0852a7e031787eeb9af77b73cfc628b1f3da37f8962e839677179671",
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "9637a6065452b7b46581601bbee8c0270f65dc04207f15b530d3531a36872d1c",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "30d87cb4313b961f3159d2ca4e5ef214ee2009d0358a96ace945e6794b41ae6c",
     "Cargo.toml": "1c3e7dd1b83a6a8942e02cb520d49f33ed3ef77f2970854b9fdcddc7f261bc3e",
     "Cargo.lock": "ff535d0490a848e43631906ee8abd8633630d162714299f7628c0e5fe8a0b36b"
   },
   "allowed_changed_paths": [
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
     "docs/stage-5/5e-b3d-callback-authority-design.md",
+    "docs/stage-5/stage-5d-additive-freeze-manifest.json",
     "docs/stage-5/stage5e-active-descriptor.json",
     "docs/stage-5/stage5e-b3d-callback-authority-design-inventory.json",
+    "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
+    "scripts/stage5e_b3_schedule_window_evidence_check.py",
     "scripts/stage5e_b3c_private_eligibility_seam_check.py",
     "scripts/stage5e_b3c_source_authority_freeze_extension_check.py",
     "scripts/stage5e_b3d_callback_authority_design_check.py",
+    "scripts/stage5e_b_no_io_lifecycle_check.py",
     "scripts/stage5e_descriptor.py",
     "scripts/stage5e_lifecycle_event_time_gate.sh"
   ]

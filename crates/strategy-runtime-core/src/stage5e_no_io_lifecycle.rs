@@ -243,6 +243,7 @@ pub(crate) mod schedule_window_evidence {
         strategy: &'a crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
         recovery_receipt: &'a crate::stage5c_paper_host::Stage5cPendingRecoveryReceipt,
         accepted_semantic_bar: &'a crate::stage5c_paper_host::Stage5cAcceptedSemanticBar,
+        accepted_semantic_bar_identity: [u8; 32],
         bar_instrument: &'a broker_core::InstrumentId,
         bar_close_ts: i64,
         canonical_predecessor_close_ts: i64,
@@ -261,6 +262,7 @@ pub(crate) mod schedule_window_evidence {
             strategy: &'a crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
             recovery_receipt: &'a crate::stage5c_paper_host::Stage5cPendingRecoveryReceipt,
             accepted_semantic_bar: &'a crate::stage5c_paper_host::Stage5cAcceptedSemanticBar,
+            accepted_semantic_bar_identity: [u8; 32],
             bar_instrument: &'a broker_core::InstrumentId,
             bar_close_ts: i64,
             canonical_predecessor_close_ts: i64,
@@ -275,6 +277,7 @@ pub(crate) mod schedule_window_evidence {
                 strategy,
                 recovery_receipt,
                 accepted_semantic_bar,
+                accepted_semantic_bar_identity,
                 bar_instrument,
                 bar_close_ts,
                 canonical_predecessor_close_ts,
@@ -294,6 +297,7 @@ pub(crate) mod schedule_window_evidence {
         strategy: crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
         recovery_receipt: crate::stage5c_paper_host::Stage5cPendingRecoveryReceipt,
         accepted_semantic_bar: crate::stage5c_paper_host::Stage5cAcceptedSemanticBar,
+        accepted_semantic_bar_identity: [u8; 32],
         bar_instrument: broker_core::InstrumentId,
         bar_close_ts: i64,
         canonical_predecessor_close_ts: i64,
@@ -312,6 +316,7 @@ pub(crate) mod schedule_window_evidence {
             strategy: crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
             recovery_receipt: crate::stage5c_paper_host::Stage5cPendingRecoveryReceipt,
             accepted_semantic_bar: crate::stage5c_paper_host::Stage5cAcceptedSemanticBar,
+            accepted_semantic_bar_identity: [u8; 32],
             bar_instrument: broker_core::InstrumentId,
             bar_close_ts: i64,
             canonical_predecessor_close_ts: i64,
@@ -326,6 +331,7 @@ pub(crate) mod schedule_window_evidence {
                 strategy,
                 recovery_receipt,
                 accepted_semantic_bar,
+                accepted_semantic_bar_identity,
                 bar_instrument,
                 bar_close_ts,
                 canonical_predecessor_close_ts,
@@ -814,6 +820,48 @@ pub(crate) mod schedule_window_evidence {
             pub(super) bound_at: DateTime<Utc>,
             pub(super) effective_observed_at: DateTime<Utc>,
             pub(super) effective_expires_at: DateTime<Utc>,
+        }
+
+        impl Stage5eBoundSessionCalendarSequenceForObservedLiveBar {
+            pub(crate) fn borrow_callback_authority_preflight(
+                &self,
+                seal: crate::stage5e_no_io_lifecycle::callback_authority::Stage5eCallbackAuthorityIssueSeal,
+            ) -> crate::stage5e_no_io_lifecycle::callback_authority::Stage5eCallbackAuthorityPreflight<'_>
+            {
+                let schedule = &self.b3b.payload.schedule_projection.schedule_window;
+                crate::stage5e_no_io_lifecycle::callback_authority::Stage5eCallbackAuthorityPreflight::from_b3c_receipt(
+                    seal,
+                    self,
+                    &self.b3b.payload.bar_instrument,
+                    self.b3b.payload.accepted_semantic_bar_identity,
+                    self.b3b.event_key_fingerprint,
+                    self.continuation_binding_id,
+                    self.b3b.payload.sequence_identity_fingerprint,
+                    schedule.fingerprint.0,
+                    self.b3b.payload.bar_close_ts,
+                    self.effective_observed_at,
+                    self.effective_expires_at,
+                )
+            }
+
+            #[cfg(test)]
+            pub(crate) fn test_ownership_fingerprint(
+                &self,
+            ) -> (String, DateTime<Utc>, i64, usize, usize) {
+                (
+                    crate::stage5c_paper_host::stage5e_test_owned_strategy_state_fingerprint(
+                        &self.b3b.payload.strategy,
+                    ),
+                    self.b3b.payload.recovery_receipt.recovered_ts(),
+                    self.b3b
+                        .payload
+                        .recovery_receipt
+                        .warmup_receipt()
+                        .last_history_ts(),
+                    self.b3b.payload.recovery_receipt.replayed_events(),
+                    self.b3b.payload.recovery_receipt.duplicate_events(),
+                )
+            }
         }
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1920,6 +1968,33 @@ pub(crate) mod schedule_window_evidence {
             )
         }
 
+        fn canonical_b3c_receipt(
+            now: DateTime<Utc>,
+        ) -> b3c_evidence::Stage5eBoundSessionCalendarSequenceForObservedLiveBar {
+            let current = now.timestamp();
+            let predecessor = current - 600;
+            let projection = issue_schedule_projection_bridge(window_for_sessions(
+                now,
+                vec![NormalizedScheduleSession {
+                    session_type: NormalizedSessionType::TradableOpen,
+                    start: MarketBarCloseTime(current - 3_600),
+                    end: MarketBarCloseTime(current + 3_600),
+                }],
+                current,
+            ));
+            let (recovered, accepted) =
+                crate::stage5c_paper_host::stage5e_test_sequence_inputs(now, predecessor, current);
+            let observed =
+                crate::stage5c_paper_host::stage5e_test_observe_live_bar_with_sequence_evidence_at(
+                    recovered, accepted, projection, now,
+                )
+                .unwrap_or_else(|_| panic!("canonical sequence must be accepted"));
+            let b3b = bind_schedule_window_sequence_to_observed_live_bar_at(observed, now)
+                .unwrap_or_else(|_| panic!("canonical sequence must bind to B3B"));
+            b3c_evidence::bind_session_calendar_sequence_from_b3b_at(b3b, now)
+                .unwrap_or_else(|_| panic!("canonical B3B receipt must bind to B3C"))
+        }
+
         #[test]
         fn validation_is_fail_closed_and_canonicalizes_unsorted_sessions() {
             let now = Utc::now();
@@ -2397,6 +2472,123 @@ pub(crate) mod schedule_window_evidence {
                 now + chrono::Duration::seconds(10)
             );
             assert_ne!(b3c.continuation_binding_id, [0; 32]);
+        }
+
+        #[test]
+        fn b3d_authority_issue_is_linear_exact_and_callback_free() {
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            let b3c = canonical_b3c_receipt(now);
+            let expected_ownership = b3c.test_ownership_fingerprint();
+            let authority =
+                crate::stage5e_no_io_lifecycle::callback_authority::issue_stage5e_callback_authority_at(
+                    b3c, now,
+                )
+                .unwrap_or_else(|_| panic!("fresh canonical B3C receipt must issue authority"));
+            assert_ne!(authority.test_authority_id(), [0; 32]);
+            assert_eq!(authority.test_issued_at(), now);
+            assert_eq!(authority.test_effective_observed_at(), now);
+            assert_eq!(
+                authority.test_authority_expires_at(),
+                now + chrono::Duration::seconds(10)
+            );
+            assert_eq!(authority.test_ownership_fingerprint(), expected_ownership);
+            assert_eq!(authority.test_callback_count(), 0);
+            assert_eq!(authority.test_intent_count(), 0);
+        }
+
+        #[test]
+        fn b3d_retryable_issue_returns_the_exact_b3c_receipt() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::{
+                issue_stage5e_callback_authority_at, Stage5eCallbackAuthorityIssueBlocked,
+                Stage5eCallbackAuthorityRetryableReason,
+            };
+
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            let b3c = canonical_b3c_receipt(now);
+            let expected_ownership = b3c.test_ownership_fingerprint();
+            let blocked = match issue_stage5e_callback_authority_at(
+                b3c,
+                now - chrono::Duration::milliseconds(1),
+            ) {
+                Ok(_) => panic!("clock before effective observation must block"),
+                Err(Stage5eCallbackAuthorityIssueBlocked::Retryable(blocked)) => blocked,
+                Err(Stage5eCallbackAuthorityIssueBlocked::Terminal(_)) => {
+                    panic!("clock-before-observation must remain retryable")
+                }
+            };
+            assert_eq!(
+                blocked.reason(),
+                Stage5eCallbackAuthorityRetryableReason::ClockBeforeEffectiveObservation
+            );
+            let returned = blocked.into_retry_same_receipt();
+            assert_eq!(returned.test_ownership_fingerprint(), expected_ownership);
+            let authority = issue_stage5e_callback_authority_at(returned, now)
+                .unwrap_or_else(|_| panic!("the exact returned B3C receipt must retry"));
+            assert_eq!(authority.test_ownership_fingerprint(), expected_ownership);
+        }
+
+        #[test]
+        fn b3d_future_bar_is_retryable_but_expiry_and_missing_identity_are_terminal() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::{
+                issue_stage5e_callback_authority_at, Stage5eCallbackAuthorityIssueBlocked,
+                Stage5eCallbackAuthorityRetryableReason, Stage5eCallbackAuthorityTerminalReason,
+            };
+
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            let mut future_bar = canonical_b3c_receipt(now);
+            future_bar.effective_observed_at = now - chrono::Duration::seconds(2);
+            let blocked = match issue_stage5e_callback_authority_at(
+                future_bar,
+                now - chrono::Duration::seconds(1),
+            ) {
+                Ok(_) => panic!("future accepted bar must block"),
+                Err(Stage5eCallbackAuthorityIssueBlocked::Retryable(blocked)) => blocked,
+                Err(Stage5eCallbackAuthorityIssueBlocked::Terminal(_)) => {
+                    panic!("future accepted bar must remain retryable")
+                }
+            };
+            assert_eq!(
+                blocked.reason(),
+                Stage5eCallbackAuthorityRetryableReason::AcceptedBarObservedInFuture
+            );
+
+            let expired = match issue_stage5e_callback_authority_at(
+                canonical_b3c_receipt(now),
+                now + chrono::Duration::seconds(11),
+            ) {
+                Ok(_) => panic!("expired evidence must block"),
+                Err(Stage5eCallbackAuthorityIssueBlocked::Terminal(blocked)) => blocked,
+                Err(Stage5eCallbackAuthorityIssueBlocked::Retryable(_)) => {
+                    panic!("expired evidence must be terminal")
+                }
+            };
+            assert_eq!(
+                expired.reason(),
+                Stage5eCallbackAuthorityTerminalReason::EvidenceExpired
+            );
+
+            let mut missing_identity = canonical_b3c_receipt(now);
+            missing_identity.b3b.payload.accepted_semantic_bar_identity = [0; 32];
+            let missing = match issue_stage5e_callback_authority_at(missing_identity, now) {
+                Ok(_) => panic!("missing semantic identity must block"),
+                Err(Stage5eCallbackAuthorityIssueBlocked::Terminal(blocked)) => blocked,
+                Err(Stage5eCallbackAuthorityIssueBlocked::Retryable(_)) => {
+                    panic!("missing semantic identity must be terminal")
+                }
+            };
+            assert_eq!(
+                missing.reason(),
+                Stage5eCallbackAuthorityTerminalReason::AcceptedSemanticBarIdentityMissing
+            );
         }
 
         #[test]
@@ -3517,6 +3709,560 @@ pub(crate) mod schedule_window_evidence {
     // STAGE5E-B3C-EVIDENCE-END: private-no-io-v1
 }
 // STAGE5E-B3-SCHEDULE-WINDOW-END: sealed-contract-v5
+
+// STAGE5E-B3D-CALLBACK-AUTHORITY-BEGIN: private-no-io-issue-v1
+#[allow(dead_code)]
+pub(crate) mod callback_authority {
+    use super::{DateTime, Digest, Sha256, Utc};
+    use crate::stage5e_no_io_lifecycle::schedule_window_evidence::b3c_evidence::Stage5eBoundSessionCalendarSequenceForObservedLiveBar;
+
+    const AUTHORITY_DOMAIN: &[u8] = b"stage5e-callback-authority-v1";
+
+    pub(crate) struct Stage5eCallbackAuthorityId([u8; 32]);
+
+    pub(crate) struct Stage5eCallbackAuthorityIssueSeal(());
+
+    pub(crate) struct Stage5eCallbackAuthorityPreflight<'a> {
+        _b3c_receipt: &'a Stage5eBoundSessionCalendarSequenceForObservedLiveBar,
+        full_instrument_id: &'a broker_core::InstrumentId,
+        accepted_semantic_bar_identity: [u8; 32],
+        event_key_fingerprint: [u8; 32],
+        continuation_binding_id: [u8; 32],
+        sequence_identity_fingerprint: [u8; 32],
+        schedule_identity_fingerprint: [u8; 32],
+        accepted_bar_close_ts: i64,
+        effective_observed_at: DateTime<Utc>,
+        effective_expires_at: DateTime<Utc>,
+    }
+
+    impl<'a> Stage5eCallbackAuthorityPreflight<'a> {
+        #[allow(clippy::too_many_arguments)]
+        pub(crate) fn from_b3c_receipt(
+            _seal: Stage5eCallbackAuthorityIssueSeal,
+            b3c_receipt: &'a Stage5eBoundSessionCalendarSequenceForObservedLiveBar,
+            full_instrument_id: &'a broker_core::InstrumentId,
+            accepted_semantic_bar_identity: [u8; 32],
+            event_key_fingerprint: [u8; 32],
+            continuation_binding_id: [u8; 32],
+            sequence_identity_fingerprint: [u8; 32],
+            schedule_identity_fingerprint: [u8; 32],
+            accepted_bar_close_ts: i64,
+            effective_observed_at: DateTime<Utc>,
+            effective_expires_at: DateTime<Utc>,
+        ) -> Self {
+            Self {
+                _b3c_receipt: b3c_receipt,
+                full_instrument_id,
+                accepted_semantic_bar_identity,
+                event_key_fingerprint,
+                continuation_binding_id,
+                sequence_identity_fingerprint,
+                schedule_identity_fingerprint,
+                accepted_bar_close_ts,
+                effective_observed_at,
+                effective_expires_at,
+            }
+        }
+    }
+
+    pub(crate) struct Stage5eCallbackAuthorityReadyPaperStrategy {
+        b3c_receipt: Stage5eBoundSessionCalendarSequenceForObservedLiveBar,
+        callback_authority_id: Stage5eCallbackAuthorityId,
+        issued_at: DateTime<Utc>,
+        effective_observed_at: DateTime<Utc>,
+        authority_expires_at: DateTime<Utc>,
+        accepted_bar_close_ts: i64,
+        full_instrument_id: broker_core::InstrumentId,
+        accepted_semantic_bar_identity: [u8; 32],
+        event_key_fingerprint: [u8; 32],
+        continuation_binding_id: [u8; 32],
+        sequence_identity_fingerprint: [u8; 32],
+    }
+
+    impl Stage5eCallbackAuthorityReadyPaperStrategy {
+        fn from_approved(
+            b3c_receipt: Stage5eBoundSessionCalendarSequenceForObservedLiveBar,
+            approved: Stage5eCallbackAuthorityApproved,
+        ) -> Self {
+            Self {
+                b3c_receipt,
+                callback_authority_id: approved.callback_authority_id,
+                issued_at: approved.issued_at,
+                effective_observed_at: approved.effective_observed_at,
+                authority_expires_at: approved.authority_expires_at,
+                accepted_bar_close_ts: approved.accepted_bar_close_ts,
+                full_instrument_id: approved.full_instrument_id,
+                accepted_semantic_bar_identity: approved.accepted_semantic_bar_identity,
+                event_key_fingerprint: approved.event_key_fingerprint,
+                continuation_binding_id: approved.continuation_binding_id,
+                sequence_identity_fingerprint: approved.sequence_identity_fingerprint,
+            }
+        }
+
+        #[cfg(test)]
+        pub(crate) fn test_authority_id(&self) -> [u8; 32] {
+            self.callback_authority_id.0
+        }
+
+        #[cfg(test)]
+        pub(crate) fn test_issued_at(&self) -> DateTime<Utc> {
+            self.issued_at
+        }
+
+        #[cfg(test)]
+        pub(crate) fn test_authority_expires_at(&self) -> DateTime<Utc> {
+            self.authority_expires_at
+        }
+
+        #[cfg(test)]
+        pub(crate) fn test_effective_observed_at(&self) -> DateTime<Utc> {
+            self.effective_observed_at
+        }
+
+        #[cfg(test)]
+        pub(crate) fn test_ownership_fingerprint(
+            &self,
+        ) -> (String, DateTime<Utc>, i64, usize, usize) {
+            self.b3c_receipt.test_ownership_fingerprint()
+        }
+
+        #[cfg(test)]
+        pub(crate) fn test_callback_count(&self) -> usize {
+            0
+        }
+
+        #[cfg(test)]
+        pub(crate) fn test_intent_count(&self) -> usize {
+            0
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum Stage5eCallbackAuthorityRetryableReason {
+        ClockBeforeEffectiveObservation,
+        AcceptedBarObservedInFuture,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum Stage5eCallbackAuthorityTerminalReason {
+        EvidenceExpired,
+        InvalidAuthorityChronology,
+        AcceptedSemanticBarIdentityMissing,
+        EventKeyMissing,
+        ContinuationBindingMissing,
+        ScheduleIdentityMissing,
+        SequenceIdentityMissing,
+        InstrumentIdentityMissing,
+    }
+
+    pub(crate) struct Stage5eCallbackAuthorityRetryableBlock {
+        reason: Stage5eCallbackAuthorityRetryableReason,
+        b3c_receipt: Stage5eBoundSessionCalendarSequenceForObservedLiveBar,
+    }
+
+    impl Stage5eCallbackAuthorityRetryableBlock {
+        pub(crate) fn reason(&self) -> Stage5eCallbackAuthorityRetryableReason {
+            self.reason
+        }
+
+        pub(crate) fn into_retry_same_receipt(
+            self,
+        ) -> Stage5eBoundSessionCalendarSequenceForObservedLiveBar {
+            self.b3c_receipt
+        }
+    }
+
+    pub(crate) struct Stage5eCallbackAuthorityTerminalBlock {
+        reason: Stage5eCallbackAuthorityTerminalReason,
+    }
+
+    impl Stage5eCallbackAuthorityTerminalBlock {
+        pub(crate) fn reason(&self) -> Stage5eCallbackAuthorityTerminalReason {
+            self.reason
+        }
+    }
+
+    pub(crate) enum Stage5eCallbackAuthorityIssueBlocked {
+        Retryable(Box<Stage5eCallbackAuthorityRetryableBlock>),
+        Terminal(Stage5eCallbackAuthorityTerminalBlock),
+    }
+
+    struct Stage5eCallbackAuthorityApproved {
+        callback_authority_id: Stage5eCallbackAuthorityId,
+        issued_at: DateTime<Utc>,
+        effective_observed_at: DateTime<Utc>,
+        authority_expires_at: DateTime<Utc>,
+        accepted_bar_close_ts: i64,
+        full_instrument_id: broker_core::InstrumentId,
+        accepted_semantic_bar_identity: [u8; 32],
+        event_key_fingerprint: [u8; 32],
+        continuation_binding_id: [u8; 32],
+        sequence_identity_fingerprint: [u8; 32],
+    }
+
+    fn issue_callback_authority_seal_inside_issue_transition() -> Stage5eCallbackAuthorityIssueSeal
+    {
+        Stage5eCallbackAuthorityIssueSeal(())
+    }
+
+    pub(crate) fn issue_stage5e_callback_authority(
+        b3c_receipt: Stage5eBoundSessionCalendarSequenceForObservedLiveBar,
+    ) -> Result<Stage5eCallbackAuthorityReadyPaperStrategy, Stage5eCallbackAuthorityIssueBlocked>
+    {
+        issue_stage5e_callback_authority_with_now(b3c_receipt, Utc::now())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn issue_stage5e_callback_authority_at(
+        b3c_receipt: Stage5eBoundSessionCalendarSequenceForObservedLiveBar,
+        now: DateTime<Utc>,
+    ) -> Result<Stage5eCallbackAuthorityReadyPaperStrategy, Stage5eCallbackAuthorityIssueBlocked>
+    {
+        issue_stage5e_callback_authority_with_now(b3c_receipt, now)
+    }
+
+    fn issue_stage5e_callback_authority_with_now(
+        b3c_receipt: Stage5eBoundSessionCalendarSequenceForObservedLiveBar,
+        now: DateTime<Utc>,
+    ) -> Result<Stage5eCallbackAuthorityReadyPaperStrategy, Stage5eCallbackAuthorityIssueBlocked>
+    {
+        let validation = {
+            let preflight = b3c_receipt.borrow_callback_authority_preflight(
+                issue_callback_authority_seal_inside_issue_transition(),
+            );
+            validate_callback_authority_preflight(preflight, now)
+        };
+        match validation {
+            Ok(approved) => Ok(Stage5eCallbackAuthorityReadyPaperStrategy::from_approved(
+                b3c_receipt,
+                approved,
+            )),
+            Err(Stage5eCallbackAuthorityValidationError::Retryable(reason)) => {
+                Err(Stage5eCallbackAuthorityIssueBlocked::Retryable(Box::new(
+                    Stage5eCallbackAuthorityRetryableBlock {
+                        reason,
+                        b3c_receipt,
+                    },
+                )))
+            }
+            Err(Stage5eCallbackAuthorityValidationError::Terminal(reason)) => {
+                drop(b3c_receipt);
+                Err(Stage5eCallbackAuthorityIssueBlocked::Terminal(
+                    Stage5eCallbackAuthorityTerminalBlock { reason },
+                ))
+            }
+        }
+    }
+
+    enum Stage5eCallbackAuthorityValidationError {
+        Retryable(Stage5eCallbackAuthorityRetryableReason),
+        Terminal(Stage5eCallbackAuthorityTerminalReason),
+    }
+
+    fn validate_callback_authority_preflight(
+        preflight: Stage5eCallbackAuthorityPreflight<'_>,
+        now: DateTime<Utc>,
+    ) -> Result<Stage5eCallbackAuthorityApproved, Stage5eCallbackAuthorityValidationError> {
+        if now < preflight.effective_observed_at {
+            return Err(Stage5eCallbackAuthorityValidationError::Retryable(
+                Stage5eCallbackAuthorityRetryableReason::ClockBeforeEffectiveObservation,
+            ));
+        }
+        if preflight.accepted_bar_close_ts > now.timestamp() {
+            return Err(Stage5eCallbackAuthorityValidationError::Retryable(
+                Stage5eCallbackAuthorityRetryableReason::AcceptedBarObservedInFuture,
+            ));
+        }
+        if now > preflight.effective_expires_at {
+            return Err(Stage5eCallbackAuthorityValidationError::Terminal(
+                Stage5eCallbackAuthorityTerminalReason::EvidenceExpired,
+            ));
+        }
+        if preflight.effective_observed_at > preflight.effective_expires_at {
+            return Err(Stage5eCallbackAuthorityValidationError::Terminal(
+                Stage5eCallbackAuthorityTerminalReason::InvalidAuthorityChronology,
+            ));
+        }
+        if !instrument_identity_is_complete(preflight.full_instrument_id) {
+            return Err(Stage5eCallbackAuthorityValidationError::Terminal(
+                Stage5eCallbackAuthorityTerminalReason::InstrumentIdentityMissing,
+            ));
+        }
+        for (identity, reason) in [
+            (
+                preflight.accepted_semantic_bar_identity,
+                Stage5eCallbackAuthorityTerminalReason::AcceptedSemanticBarIdentityMissing,
+            ),
+            (
+                preflight.event_key_fingerprint,
+                Stage5eCallbackAuthorityTerminalReason::EventKeyMissing,
+            ),
+            (
+                preflight.continuation_binding_id,
+                Stage5eCallbackAuthorityTerminalReason::ContinuationBindingMissing,
+            ),
+            (
+                preflight.schedule_identity_fingerprint,
+                Stage5eCallbackAuthorityTerminalReason::ScheduleIdentityMissing,
+            ),
+            (
+                preflight.sequence_identity_fingerprint,
+                Stage5eCallbackAuthorityTerminalReason::SequenceIdentityMissing,
+            ),
+        ] {
+            if identity == [0; 32] {
+                return Err(Stage5eCallbackAuthorityValidationError::Terminal(reason));
+            }
+        }
+        let issued_at = now;
+        let authority_expires_at = preflight.effective_expires_at;
+        if issued_at > authority_expires_at {
+            return Err(Stage5eCallbackAuthorityValidationError::Terminal(
+                Stage5eCallbackAuthorityTerminalReason::InvalidAuthorityChronology,
+            ));
+        }
+        let callback_authority_id = callback_authority_id(
+            preflight.full_instrument_id,
+            preflight.accepted_semantic_bar_identity,
+            preflight.event_key_fingerprint,
+            preflight.continuation_binding_id,
+            preflight.sequence_identity_fingerprint,
+            issued_at,
+            authority_expires_at,
+        );
+        Ok(Stage5eCallbackAuthorityApproved {
+            callback_authority_id,
+            issued_at,
+            effective_observed_at: preflight.effective_observed_at,
+            authority_expires_at,
+            accepted_bar_close_ts: preflight.accepted_bar_close_ts,
+            full_instrument_id: preflight.full_instrument_id.clone(),
+            accepted_semantic_bar_identity: preflight.accepted_semantic_bar_identity,
+            event_key_fingerprint: preflight.event_key_fingerprint,
+            continuation_binding_id: preflight.continuation_binding_id,
+            sequence_identity_fingerprint: preflight.sequence_identity_fingerprint,
+        })
+    }
+
+    fn instrument_identity_is_complete(instrument: &broker_core::InstrumentId) -> bool {
+        if instrument.symbol.trim().is_empty()
+            || instrument
+                .venue_symbol
+                .as_deref()
+                .is_some_and(|value| value.trim().is_empty())
+        {
+            return false;
+        }
+        if matches!(&instrument.exchange, broker_core::Exchange::Other(value) if value.trim().is_empty())
+            || matches!(&instrument.market, broker_core::Market::Other(value) if value.trim().is_empty())
+        {
+            return false;
+        }
+        true
+    }
+
+    fn callback_authority_id(
+        instrument: &broker_core::InstrumentId,
+        accepted_semantic_bar_identity: [u8; 32],
+        event_key_fingerprint: [u8; 32],
+        continuation_binding_id: [u8; 32],
+        sequence_identity_fingerprint: [u8; 32],
+        issued_at: DateTime<Utc>,
+        authority_expires_at: DateTime<Utc>,
+    ) -> Stage5eCallbackAuthorityId {
+        let mut encoder = CanonicalEncoder::new(AUTHORITY_DOMAIN);
+        encoder.field(1, &canonical_instrument_bytes(instrument));
+        encoder.field(2, &accepted_semantic_bar_identity);
+        encoder.field(3, &event_key_fingerprint);
+        encoder.field(4, &continuation_binding_id);
+        encoder.field(5, &sequence_identity_fingerprint);
+        encoder.field(6, &issued_at.timestamp_millis().to_be_bytes());
+        encoder.field(7, &authority_expires_at.timestamp_millis().to_be_bytes());
+        Stage5eCallbackAuthorityId(encoder.finish())
+    }
+
+    fn canonical_instrument_bytes(instrument: &broker_core::InstrumentId) -> Vec<u8> {
+        let mut encoder = CanonicalEncoder::new(b"broker-neutral-instrument-id-v1");
+        encoder.field(1, instrument.symbol.as_bytes());
+        match instrument.venue_symbol.as_deref() {
+            Some(value) => {
+                encoder.field(2, &[1]);
+                encoder.field(3, value.as_bytes());
+            }
+            None => encoder.field(2, &[0]),
+        }
+        match &instrument.exchange {
+            broker_core::Exchange::Moex => encoder.field(4, b"moex"),
+            broker_core::Exchange::Other(value) => {
+                encoder.field(4, b"other");
+                encoder.field(5, value.as_bytes());
+            }
+        }
+        match &instrument.market {
+            broker_core::Market::Futures => encoder.field(6, b"futures"),
+            broker_core::Market::Options => encoder.field(6, b"options"),
+            broker_core::Market::Stocks => encoder.field(6, b"stocks"),
+            broker_core::Market::Currency => encoder.field(6, b"currency"),
+            broker_core::Market::Funds => encoder.field(6, b"funds"),
+            broker_core::Market::Other(value) => {
+                encoder.field(6, b"other");
+                encoder.field(7, value.as_bytes());
+            }
+        }
+        encoder.finish().to_vec()
+    }
+
+    struct CanonicalEncoder {
+        hasher: Sha256,
+    }
+
+    impl CanonicalEncoder {
+        fn new(domain: &[u8]) -> Self {
+            let mut hasher = Sha256::new();
+            hasher.update(domain);
+            Self { hasher }
+        }
+
+        fn field(&mut self, tag: u8, bytes: &[u8]) {
+            self.hasher.update([tag]);
+            self.hasher.update((bytes.len() as u64).to_be_bytes());
+            self.hasher.update(bytes);
+        }
+
+        fn finish(self) -> [u8; 32] {
+            self.hasher.finalize().into()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use chrono::TimeZone;
+
+        fn instrument() -> broker_core::InstrumentId {
+            broker_core::InstrumentId {
+                symbol: "IMOEXF".to_string(),
+                venue_symbol: Some("IMOEXF@RTSX".to_string()),
+                exchange: broker_core::Exchange::Moex,
+                market: broker_core::Market::Futures,
+            }
+        }
+
+        #[test]
+        fn callback_authority_id_is_sensitive_to_every_frozen_field() {
+            let issued_at = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            let expires_at = issued_at + chrono::Duration::seconds(10);
+            let base = callback_authority_id(
+                &instrument(),
+                [1; 32],
+                [2; 32],
+                [3; 32],
+                [4; 32],
+                issued_at,
+                expires_at,
+            )
+            .0;
+            let mut changed_instrument = instrument();
+            changed_instrument.venue_symbol = Some("IMOEXF@OTHER".to_string());
+            let variants = [
+                callback_authority_id(
+                    &changed_instrument,
+                    [1; 32],
+                    [2; 32],
+                    [3; 32],
+                    [4; 32],
+                    issued_at,
+                    expires_at,
+                )
+                .0,
+                callback_authority_id(
+                    &instrument(),
+                    [9; 32],
+                    [2; 32],
+                    [3; 32],
+                    [4; 32],
+                    issued_at,
+                    expires_at,
+                )
+                .0,
+                callback_authority_id(
+                    &instrument(),
+                    [1; 32],
+                    [9; 32],
+                    [3; 32],
+                    [4; 32],
+                    issued_at,
+                    expires_at,
+                )
+                .0,
+                callback_authority_id(
+                    &instrument(),
+                    [1; 32],
+                    [2; 32],
+                    [9; 32],
+                    [4; 32],
+                    issued_at,
+                    expires_at,
+                )
+                .0,
+                callback_authority_id(
+                    &instrument(),
+                    [1; 32],
+                    [2; 32],
+                    [3; 32],
+                    [9; 32],
+                    issued_at,
+                    expires_at,
+                )
+                .0,
+                callback_authority_id(
+                    &instrument(),
+                    [1; 32],
+                    [2; 32],
+                    [3; 32],
+                    [4; 32],
+                    issued_at + chrono::Duration::milliseconds(1),
+                    expires_at,
+                )
+                .0,
+                callback_authority_id(
+                    &instrument(),
+                    [1; 32],
+                    [2; 32],
+                    [3; 32],
+                    [4; 32],
+                    issued_at,
+                    expires_at + chrono::Duration::milliseconds(1),
+                )
+                .0,
+            ];
+            for variant in variants {
+                assert_ne!(variant, base);
+            }
+        }
+
+        #[test]
+        fn callback_authority_instrument_identity_is_fail_closed() {
+            assert!(instrument_identity_is_complete(&instrument()));
+            let mut empty_symbol = instrument();
+            empty_symbol.symbol.clear();
+            assert!(!instrument_identity_is_complete(&empty_symbol));
+            let mut empty_venue = instrument();
+            empty_venue.venue_symbol = Some(String::new());
+            assert!(!instrument_identity_is_complete(&empty_venue));
+            let mut empty_exchange = instrument();
+            empty_exchange.exchange = broker_core::Exchange::Other(String::new());
+            assert!(!instrument_identity_is_complete(&empty_exchange));
+            let mut empty_market = instrument();
+            empty_market.market = broker_core::Market::Other(String::new());
+            assert!(!instrument_identity_is_complete(&empty_market));
+        }
+    }
+}
+// STAGE5E-B3D-CALLBACK-AUTHORITY-END: private-no-io-issue-v1
 
 #[cfg(test)]
 mod tests {
