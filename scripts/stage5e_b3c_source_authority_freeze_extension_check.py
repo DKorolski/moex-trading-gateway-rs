@@ -16,14 +16,14 @@ PLAN = ROOT / "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md"
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 BASELINE_REF = "2b2c57d7bacb8e3f1de572b7c35790be906b82a9"
 
-EXPECTED_INVENTORY_SHA256 = "d7e7e696bbb8eebb786a16c0191406ea1bc85b9468aad7ec7e3e5c3e0aaa48c0"
-EXPECTED_PLAN_SHA256 = "2d41f04901c6b72b9031d63eb3219d80100bcb758a701bf77ff495175b67b15f"
+EXPECTED_INVENTORY_SHA256 = "775259b1102a857b7f070596a3a52e4cf6fe80b5de4cfeb0f39770ac722b6072"
+EXPECTED_PLAN_SHA256 = "4bd87066b977c7b53c5c8cc11468469058500c0ecbe018d1216b6c3b126258dc"
 EXPECTED_SOURCE_BASELINES = {
     "crates/broker-core/src/lib.rs": "5d8758624f53a6b46d8903dd3f2339d5bd04f64c9c6490448167f08ac68ec8a2",
     "crates/broker-core/src/operational_config.rs": "492905c6e404ee67f62ad456128ff659cd4a32c8e638936b94b5ea14ff3ba2f8",
     "crates/broker-core/src/stage4_bootstrap.rs": "33455bd4447193f723aa5a749707739d89e2d2ca58b083d416c268a24613bdd7",
-    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "41f6f9da0e0beedf4e292c852b6dafb6fd00bb2215368c7b366a78000170e399",
-    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "cd49213ba507f924f390e839013b13222bc78a6ab9b75bcd355bd5ba8f766d9f",
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "7457a1b9a2318d84b48dc5dda168782547eeb8e6c5a5bbd3640bb3804b7a8bb8",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "ea75d47c0852a7e031787eeb9af77b73cfc628b1f3da37f8962e839677179671",
 }
 EXPECTED_ALLOWED_CHANGED_PATHS = [
     "crates/broker-core/src/stage4_bootstrap.rs",
@@ -41,6 +41,7 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
+    "scripts/make_handoff_archive.sh",
     "scripts/stage5d_additive_freeze_check.py",
     "scripts/stage5e_b3_schedule_window_evidence_check.py",
     "scripts/stage5e_b3c_private_eligibility_seam_check.py",
@@ -107,15 +108,18 @@ def main() -> int:
         fail("authority freeze contract drift")
     if sha256(PLAN) != EXPECTED_PLAN_SHA256:
         fail("authority freeze plan drift")
-    if payload.get("schema_version") != 8:
+    if payload.get("schema_version") != 9:
         fail("implementation schema drift")
     if payload.get("stage") != "5E-b3c-source-authority-freeze-extension":
         fail("implementation identity drift")
-    if payload.get("status") != "r6_additive_production_bridge_pending_review":
+    if (
+        payload.get("status")
+        != "implementation_r1_block_retry_and_canonical_chain_pending_review"
+    ):
         fail("implementation status drift")
     if payload.get("baseline_ref") != BASELINE_REF:
         fail("implementation baseline drift")
-    if payload.get("expected_provenance_case_count") != 200:
+    if payload.get("expected_provenance_case_count") != 207:
         fail("implementation negative-matrix count drift")
     if payload.get("production_source_baselines") != EXPECTED_SOURCE_BASELINES:
         fail("implementation source baseline drift")
@@ -227,7 +231,52 @@ def main() -> int:
         2,
         "B3B consume seal type plus sole issuer",
     )
+    require_count(
+        stage5e_region,
+        "Stage5eB3bPreflightSeal(())",
+        2,
+        "B3B preflight seal type plus sole issuer",
+    )
     require_count(stage5e_region, ".consume_for_b3b(", 1, "B3B sealed consumer")
+    require_count(stage5c_region, "pub(crate) fn preflight_for_b3b(", 1, "B3B preflight")
+    blocked_start = stage5e_region.index(
+        "pub(crate) struct Stage5eScheduleWindowSequenceObservedBarBlocked"
+    )
+    blocked_end = stage5e_region.index(
+        "impl Stage5eScheduleWindowSequenceObservedBarBlocked", blocked_start
+    )
+    require_count(
+        stage5e_region[blocked_start:blocked_end],
+        "observed: crate::stage5c_paper_host::Stage5eObservedLiveBarWithSequenceEvidence,",
+        1,
+        "B3B blocked original receipt",
+    )
+    for marker in (
+        "pub(crate) enum Stage5eB3bBlockDisposition",
+        "Self::ClockBeforeEffectiveObservation | Self::BarObservedInFuture => {",
+        "Self::EvidenceExpired | Self::BarOutsideSelectedOpenWindow => {",
+        "Self::InstrumentMismatch",
+        "| Self::SequenceIdentityMissing",
+        "| Self::SequenceClassificationMismatch => {",
+        "pub(crate) fn into_retry(",
+        "self.observed",
+        "PredecessorCloseNotTradableOpen",
+        "fn canonical_stage4_to_b3c_chain_uses_real_accepted_evidence_without_io()",
+        "project_accepted_stage4_schedule(&stage4_evidence, LifecycleInstant(now))",
+    ):
+        if marker not in stage5e_region:
+            fail(f"Stage 5E implementation-r1 marker missing: {marker}")
+    bind_start = stage5e_region.index(
+        "fn bind_schedule_window_sequence_to_observed_live_bar_with_now("
+    )
+    bind_end = stage5e_region.index(
+        "struct Stage5eB3bPreflightApproved", bind_start
+    )
+    bind_region = stage5e_region[bind_start:bind_end]
+    preflight_index = bind_region.index("validate_b3b_preflight(preflight, now)")
+    consume_index = bind_region.index(".consume_for_b3b(")
+    if preflight_index >= consume_index:
+        fail("B3B ownership consumed before borrowed preflight succeeded")
     require_count(
         stage5e_region,
         "pub(crate) fn into_stage5e_schedule_candidate_classifier(",
@@ -265,13 +314,17 @@ def main() -> int:
                 "sealed_classifier_never_exposes_raw_sessions_to_stage5c",
                 "single_linear_issuer_preserves_strategy_recovery_and_bar",
                 "observed_live_bar_with_sequence_has_one_constructor_and_sealed_B3B_consumer",
+                "B3B_preflight_borrows_without_consuming_original_receipt",
+                "B3B_block_returns_original_receipt_and_retry_preserves_strategy_state",
+                "B3B_block_reason_has_exact_retry_refresh_or_terminal_disposition",
                 "B3B_consume_seal_has_one_constructor_and_one_consumer",
-                "B3B_consumes_new_output_and_revalidates_sequence_freshness",
+                "B3B_consumes_new_output_only_after_preflight_success",
                 "sequence_created_expired_blocks_before_receipt",
                 "B3C_revalidates_production_clock_expiry_observation_bar_and_sequence_time",
                 "B3C_effective_expiry_is_exact_min_of_projection_and_sequence",
                 "B3C_test_clock_seam_is_cfg_test_only",
-                "expected_close_grid_uses_discrete_endpoint_and_candidate_classification",
+                "expected_close_grid_requires_tradable_predecessor_and_current_endpoints",
+                "canonical_real_Stage4AcceptedPaperHostEvidence_to_B3C_chain_without_callback_or_io",
                 "stage4_schedule_section_identity_changes_for_every_frozen_field",
                 "sequence_identity_changes_for_each_freshness_classification_and_boundary_field",
                 "every_nested_identity_field_changes_its_fingerprint",

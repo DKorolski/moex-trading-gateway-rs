@@ -149,10 +149,16 @@ def check_archive(path: Path) -> None:
             "handoff-cargo-gate-result.json",
             "handoff-cargo-gate-stderr.txt",
             "handoff-cargo-gate-stdout.txt",
+            "handoff-forbidden-negative-result.json",
+            "handoff-forbidden-negative-stderr.txt",
+            "handoff-forbidden-negative-stdout.txt",
             "handoff-manifest.json",
             "handoff-provenance-negative-result.json",
             "handoff-provenance-negative-stderr.txt",
             "handoff-provenance-negative-stdout.txt",
+            "handoff-stage5d-negative-result.json",
+            "handoff-stage5d-negative-stderr.txt",
+            "handoff-stage5d-negative-stdout.txt",
             "handoff-source-tree-manifest.json",
         }
         missing = sorted(required - set(names))
@@ -228,6 +234,62 @@ def check_archive(path: Path) -> None:
         require_hex64(manifest.get("provenance_negative_result_sha256"), "provenance_negative_result_sha256")
         if hashlib.sha256(archive.read(provenance_result_name)).hexdigest() != manifest.get("provenance_negative_result_sha256"):
             raise SystemExit("handoff safety: provenance-negative result hash mismatch")
+        heavy_negative_results = {}
+        for prefix, gate_id, command, expected_cases, manifest_field in [
+            (
+                "stage5d",
+                "stage5d_additive_freeze_negative",
+                ["python3", "scripts/stage5d_additive_freeze_negative_harness.py"],
+                303,
+                "stage5d_negative_result_sha256",
+            ),
+            (
+                "forbidden",
+                "forbidden_surface_negative",
+                ["bash", "scripts/forbidden_surface_negative_harness.sh"],
+                87,
+                "forbidden_negative_result_sha256",
+            ),
+        ]:
+            result_name = f"handoff-{prefix}-negative-result.json"
+            stdout_name = f"handoff-{prefix}-negative-stdout.txt"
+            stderr_name = f"handoff-{prefix}-negative-stderr.txt"
+            result = json.loads(archive.read(result_name))
+            if set(result) != {
+                "command", "exit_code", "finished_at_utc", "gate_id", "passed_cases",
+                "schema_version", "source_ref", "source_tree_manifest_sha256",
+                "source_tree_member_count", "started_at_utc", "stderr_member", "stderr_sha256",
+                "stdout_member", "stdout_sha256",
+            }:
+                raise SystemExit(f"handoff safety: {prefix}-negative result key set drift")
+            if (
+                result.get("schema_version") != 1
+                or result.get("gate_id") != gate_id
+                or result.get("command") != command
+                or result.get("exit_code") != 0
+                or result.get("passed_cases") != expected_cases
+            ):
+                raise SystemExit(f"handoff safety: {prefix}-negative gate did not pass")
+            parse_utc_timestamp(result.get("started_at_utc"), f"{prefix}-negative started_at_utc")
+            parse_utc_timestamp(result.get("finished_at_utc"), f"{prefix}-negative finished_at_utc")
+            if (
+                result.get("stdout_member") != stdout_name
+                or result.get("stderr_member") != stderr_name
+            ):
+                raise SystemExit(f"handoff safety: {prefix}-negative log member mismatch")
+            for field, member in [
+                ("stdout_sha256", stdout_name),
+                ("stderr_sha256", stderr_name),
+            ]:
+                require_hex64(result.get(field), f"{prefix}-negative {field}")
+                if hashlib.sha256(archive.read(member)).hexdigest() != result[field]:
+                    raise SystemExit(f"handoff safety: {prefix}-negative {field} mismatch")
+            if archive.read(stdout_name).count(b"PASS ") != expected_cases:
+                raise SystemExit(f"handoff safety: {prefix}-negative passed case count mismatch")
+            require_hex64(manifest.get(manifest_field), manifest_field)
+            if hashlib.sha256(archive.read(result_name)).hexdigest() != manifest[manifest_field]:
+                raise SystemExit(f"handoff safety: {prefix}-negative result hash mismatch")
+            heavy_negative_results[prefix] = result
         review_stage = manifest.get("review_stage")
         if not isinstance(review_stage, str) or not review_stage:
             raise SystemExit("handoff safety: missing review_stage")
@@ -530,10 +592,16 @@ def check_archive(path: Path) -> None:
                 "handoff-cargo-gate-result.json",
                 "handoff-cargo-gate-stderr.txt",
                 "handoff-cargo-gate-stdout.txt",
+                "handoff-forbidden-negative-result.json",
+                "handoff-forbidden-negative-stderr.txt",
+                "handoff-forbidden-negative-stdout.txt",
                 "handoff-manifest.json",
                 "handoff-provenance-negative-result.json",
                 "handoff-provenance-negative-stderr.txt",
                 "handoff-provenance-negative-stdout.txt",
+                "handoff-stage5d-negative-result.json",
+                "handoff-stage5d-negative-stderr.txt",
+                "handoff-stage5d-negative-stdout.txt",
                 "handoff-stage5e-gate-result.json",
                 "handoff-stage5e-gate-stderr.txt",
                 "handoff-stage5e-gate-stdout.txt",
@@ -570,6 +638,20 @@ def check_archive(path: Path) -> None:
                 raise SystemExit("handoff safety: provenance-negative/source-tree manifest mismatch")
             if provenance_result.get("source_tree_member_count") != len(source_member_map):
                 raise SystemExit("handoff safety: provenance-negative source-tree member count mismatch")
+            for prefix, result in heavy_negative_results.items():
+                if result.get("source_ref") != gate_result.get("source_ref"):
+                    raise SystemExit(f"handoff safety: {prefix}-negative source_ref mismatch")
+                if (
+                    result.get("source_tree_manifest_sha256")
+                    != manifest.get("source_tree_manifest_sha256")
+                ):
+                    raise SystemExit(
+                        f"handoff safety: {prefix}-negative/source-tree manifest mismatch"
+                    )
+                if result.get("source_tree_member_count") != len(source_member_map):
+                    raise SystemExit(
+                        f"handoff safety: {prefix}-negative source-tree member count mismatch"
+                    )
             archive_files = {
                 info.filename
                 for info in archive.infolist()

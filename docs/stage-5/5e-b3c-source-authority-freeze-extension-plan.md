@@ -744,3 +744,60 @@ intent is created. Redis, FINAM I/O, transport, dispatch, runtime-live,
 autonomous loops and broker execution remain closed. The next stage must be
 separately designed and reviewed before any callback-capable continuation is
 allowed.
+
+## Implementation-r1 review closure
+
+The conditional review of `25fea30` found that the original B3B implementation
+consumed the Stage 5C receipt before validation and returned an internal
+payload on block. Implementation-r1 repairs that mismatch without opening any
+new execution surface.
+
+B3B now issues a private one-use `Stage5eB3bPreflightSeal` and obtains only a
+borrowed, non-decomposable view of the exact Stage 5C receipt. Every binding
+check is completed against that view. `consume_for_b3b` is called only after
+preflight succeeds. A blocked transition owns and returns the original
+`Stage5eObservedLiveBarWithSequenceEvidence`, so the existing B3B entry is the
+single retry transition and strategy/recovery ownership cannot become a
+payload dead end.
+
+Block reasons are classified exactly:
+
+```text
+RetrySameReceipt:
+  ClockBeforeEffectiveObservation
+  BarObservedInFuture
+
+RefreshScheduleRequired:
+  EvidenceExpired
+  BarOutsideSelectedOpenWindow
+
+TerminalIntegrityBlock:
+  InstrumentMismatch
+  SequenceIdentityMissing
+  SequenceClassificationMismatch
+```
+
+`RefreshScheduleRequired` preserves the complete receipt but does not authorize
+reuse of expired evidence. A future provider/registry attachment must define a
+separately reviewed refresh transition. Production normalized-schedule input,
+Redis, FINAM and runtime-live therefore remain closed.
+
+The canonical no-I/O behavioral proof now starts from a real validated Stage 4
+bootstrap and `Stage4AcceptedPaperHostEvidence`, calls
+`project_accepted_stage4_schedule`, validates normalized schedule and registry
+evidence, and follows the sealed Stage 5C -> B3B -> B3C path. Closed, Break and
+Maintenance Stage 4 states cannot enter the projection. The test also proves
+exact minimum expiry and unchanged strategy state.
+
+Both expected-close endpoints must be `TradableOpen`; only strict-interior grid
+points may be Break/Clearing or Maintenance. Trading-day comparison remains
+deliberately limited to the current UTC civil-day fixture contract. Overnight
+or venue-defined trading-day mapping is blocked until a future separately
+reviewed broker-neutral calendar provider exists.
+
+The handoff package must include source-tree-bound result and stdout/stderr
+artifacts for the Stage 5D 303-case and forbidden-surface 87-case negative
+suites in addition to Cargo and provenance evidence. The official provenance
+matrix contains 207 cases, including seven implementation-r1 mutations for
+blocked output, retry ownership, disposition taxonomy and canonical Stage 4
+test bypass/removal.

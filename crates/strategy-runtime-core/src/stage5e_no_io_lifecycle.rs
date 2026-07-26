@@ -230,8 +230,63 @@ pub(crate) mod schedule_window_evidence {
     use super::{DateTime, Digest, NaiveDate, Sha256, Utc};
 
     // STAGE5E-B3C-PRODUCTION-BRIDGE-BEGIN: trusted-no-io-v1
+    /// Opaque one-use capability issued only for the borrowed B3B preflight.
+    /// Ownership stays in the Stage 5C receipt until every B3B check succeeds.
+    pub(crate) struct Stage5eB3bPreflightSeal(());
+
     /// Opaque one-use capability issued only inside the B3B transition.
     pub(crate) struct Stage5eB3bConsumeSeal(());
+
+    /// Borrowed validation-only view. It has no decomposition API and cannot
+    /// outlive the exact Stage 5C-owned receipt from which it was issued.
+    pub(crate) struct Stage5eB3bObservedLiveBarPreflight<'a> {
+        strategy: &'a crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        recovery_receipt: &'a crate::stage5c_paper_host::Stage5cPendingRecoveryReceipt,
+        accepted_semantic_bar: &'a crate::stage5c_paper_host::Stage5cAcceptedSemanticBar,
+        bar_instrument: &'a broker_core::InstrumentId,
+        bar_close_ts: i64,
+        canonical_predecessor_close_ts: i64,
+        schedule_projection: &'a Stage5eScheduleProjectionBridgeInput,
+        sequence_classification: Stage5eScheduleSequenceClassification,
+        optional_boundary_fingerprint: Option<[u8; 32]>,
+        sequence_identity_fingerprint: [u8; 32],
+        sequence_observed_at: DateTime<Utc>,
+        sequence_expires_at: DateTime<Utc>,
+    }
+
+    impl<'a> Stage5eB3bObservedLiveBarPreflight<'a> {
+        #[allow(clippy::too_many_arguments)]
+        pub(crate) fn from_stage5c_observed(
+            _seal: Stage5eB3bPreflightSeal,
+            strategy: &'a crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+            recovery_receipt: &'a crate::stage5c_paper_host::Stage5cPendingRecoveryReceipt,
+            accepted_semantic_bar: &'a crate::stage5c_paper_host::Stage5cAcceptedSemanticBar,
+            bar_instrument: &'a broker_core::InstrumentId,
+            bar_close_ts: i64,
+            canonical_predecessor_close_ts: i64,
+            schedule_projection: &'a Stage5eScheduleProjectionBridgeInput,
+            sequence_classification: Stage5eScheduleSequenceClassification,
+            optional_boundary_fingerprint: Option<[u8; 32]>,
+            sequence_identity_fingerprint: [u8; 32],
+            sequence_observed_at: DateTime<Utc>,
+            sequence_expires_at: DateTime<Utc>,
+        ) -> Self {
+            Self {
+                strategy,
+                recovery_receipt,
+                accepted_semantic_bar,
+                bar_instrument,
+                bar_close_ts,
+                canonical_predecessor_close_ts,
+                schedule_projection,
+                sequence_classification,
+                optional_boundary_fingerprint,
+                sequence_identity_fingerprint,
+                sequence_observed_at,
+                sequence_expires_at,
+            }
+        }
+    }
 
     /// Exact linear payload accepted by B3B. It has one crate-private
     /// constructor requiring the consume seal and no decomposition API.
@@ -474,6 +529,7 @@ pub(crate) mod schedule_window_evidence {
         CandidateCountOverflow,
         EndpointOrCandidateUncovered,
         EndpointOrCandidateAmbiguous,
+        PredecessorCloseNotTradableOpen,
         CurrentCloseNotTradableOpen,
         InteriorTradableOpen,
         InteriorUnknown,
@@ -554,9 +610,34 @@ pub(crate) mod schedule_window_evidence {
         SequenceClassificationMismatch,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum Stage5eB3bBlockDisposition {
+        RetrySameReceipt,
+        RefreshScheduleRequired,
+        TerminalIntegrityBlock,
+    }
+
+    impl Stage5eB3bBindingBlockReason {
+        pub(crate) fn disposition(self) -> Stage5eB3bBlockDisposition {
+            match self {
+                Self::ClockBeforeEffectiveObservation | Self::BarObservedInFuture => {
+                    Stage5eB3bBlockDisposition::RetrySameReceipt
+                }
+                Self::EvidenceExpired | Self::BarOutsideSelectedOpenWindow => {
+                    Stage5eB3bBlockDisposition::RefreshScheduleRequired
+                }
+                Self::InstrumentMismatch
+                | Self::SequenceIdentityMissing
+                | Self::SequenceClassificationMismatch => {
+                    Stage5eB3bBlockDisposition::TerminalIntegrityBlock
+                }
+            }
+        }
+    }
+
     pub(crate) struct Stage5eScheduleWindowSequenceObservedBarBlocked {
         reason: Stage5eB3bBindingBlockReason,
-        payload: Stage5eB3bObservedLiveBarBridgePayload,
+        observed: crate::stage5c_paper_host::Stage5eObservedLiveBarWithSequenceEvidence,
     }
 
     impl Stage5eScheduleWindowSequenceObservedBarBlocked {
@@ -564,9 +645,20 @@ pub(crate) mod schedule_window_evidence {
             self.reason
         }
 
-        pub(crate) fn into_retry(self) -> Stage5eB3bObservedLiveBarBridgePayload {
-            self.payload
+        pub(crate) fn disposition(&self) -> Stage5eB3bBlockDisposition {
+            self.reason.disposition()
         }
+
+        pub(crate) fn into_retry(
+            self,
+        ) -> crate::stage5c_paper_host::Stage5eObservedLiveBarWithSequenceEvidence {
+            self.observed
+        }
+    }
+
+    fn issue_stage5e_b3b_preflight_seal_inside_bind_schedule_window_sequence_to_observed_live_bar(
+    ) -> Stage5eB3bPreflightSeal {
+        Stage5eB3bPreflightSeal(())
     }
 
     fn issue_stage5e_b3b_consume_seal_inside_bind_schedule_window_sequence_to_observed_live_bar(
@@ -601,81 +693,79 @@ pub(crate) mod schedule_window_evidence {
         Stage5eBoundScheduleWindowSequenceForObservedLiveBar,
         Box<Stage5eScheduleWindowSequenceObservedBarBlocked>,
     > {
+        let approved = {
+            let preflight = observed.preflight_for_b3b(
+                issue_stage5e_b3b_preflight_seal_inside_bind_schedule_window_sequence_to_observed_live_bar(),
+            );
+            match validate_b3b_preflight(preflight, now) {
+                Ok(approved) => approved,
+                Err(reason) => {
+                    return Err(Box::new(Stage5eScheduleWindowSequenceObservedBarBlocked {
+                        reason,
+                        observed,
+                    }));
+                }
+            }
+        };
         let payload = observed.consume_for_b3b(
             issue_stage5e_b3b_consume_seal_inside_bind_schedule_window_sequence_to_observed_live_bar(
             ),
         );
-        validate_b3b_payload(payload, now)
+        Ok(Stage5eBoundScheduleWindowSequenceForObservedLiveBar {
+            payload,
+            event_key_fingerprint: approved.event_key_fingerprint,
+            effective_observed_at: approved.effective_observed_at,
+            effective_expires_at: approved.effective_expires_at,
+        })
     }
 
-    fn validate_b3b_payload(
-        payload: Stage5eB3bObservedLiveBarBridgePayload,
+    struct Stage5eB3bPreflightApproved {
+        event_key_fingerprint: [u8; 32],
+        effective_observed_at: DateTime<Utc>,
+        effective_expires_at: DateTime<Utc>,
+    }
+
+    fn validate_b3b_preflight(
+        preflight: Stage5eB3bObservedLiveBarPreflight<'_>,
         now: DateTime<Utc>,
-    ) -> Result<
-        Stage5eBoundScheduleWindowSequenceForObservedLiveBar,
-        Box<Stage5eScheduleWindowSequenceObservedBarBlocked>,
-    > {
-        let schedule = &payload.schedule_projection.schedule_window;
+    ) -> Result<Stage5eB3bPreflightApproved, Stage5eB3bBindingBlockReason> {
+        let schedule = &preflight.schedule_projection.schedule_window;
         let _linear_ownership = (
-            &payload.strategy,
-            &payload.recovery_receipt,
-            &payload.accepted_semantic_bar,
+            preflight.strategy,
+            preflight.recovery_receipt,
+            preflight.accepted_semantic_bar,
         );
         let effective_observed_at = schedule
             .effective_observed_at
             .0
-            .max(payload.sequence_observed_at);
-        let effective_expires_at = schedule.expires_at.0.min(payload.sequence_expires_at);
-        let block = |reason, payload| {
-            Box::new(Stage5eScheduleWindowSequenceObservedBarBlocked { reason, payload })
-        };
-        if payload.bar_instrument != schedule.instrument {
-            return Err(block(
-                Stage5eB3bBindingBlockReason::InstrumentMismatch,
-                payload,
-            ));
+            .max(preflight.sequence_observed_at);
+        let effective_expires_at = schedule.expires_at.0.min(preflight.sequence_expires_at);
+        if preflight.bar_instrument != &schedule.instrument {
+            return Err(Stage5eB3bBindingBlockReason::InstrumentMismatch);
         }
-        if payload.canonical_predecessor_close_ts >= payload.bar_close_ts {
-            return Err(block(
-                Stage5eB3bBindingBlockReason::SequenceClassificationMismatch,
-                payload,
-            ));
+        if preflight.canonical_predecessor_close_ts >= preflight.bar_close_ts {
+            return Err(Stage5eB3bBindingBlockReason::SequenceClassificationMismatch);
         }
-        if payload.bar_close_ts < schedule.open_from.0
-            || payload.bar_close_ts > schedule.open_until.0
+        if preflight.bar_close_ts < schedule.open_from.0
+            || preflight.bar_close_ts > schedule.open_until.0
         {
-            return Err(block(
-                Stage5eB3bBindingBlockReason::BarOutsideSelectedOpenWindow,
-                payload,
-            ));
+            return Err(Stage5eB3bBindingBlockReason::BarOutsideSelectedOpenWindow);
         }
         if now < effective_observed_at {
-            return Err(block(
-                Stage5eB3bBindingBlockReason::ClockBeforeEffectiveObservation,
-                payload,
-            ));
+            return Err(Stage5eB3bBindingBlockReason::ClockBeforeEffectiveObservation);
         }
         if now > effective_expires_at {
-            return Err(block(
-                Stage5eB3bBindingBlockReason::EvidenceExpired,
-                payload,
-            ));
+            return Err(Stage5eB3bBindingBlockReason::EvidenceExpired);
         }
-        if payload.bar_close_ts > now.timestamp() {
-            return Err(block(
-                Stage5eB3bBindingBlockReason::BarObservedInFuture,
-                payload,
-            ));
+        if preflight.bar_close_ts > now.timestamp() {
+            return Err(Stage5eB3bBindingBlockReason::BarObservedInFuture);
         }
-        if payload.sequence_identity_fingerprint == [0; 32] {
-            return Err(block(
-                Stage5eB3bBindingBlockReason::SequenceIdentityMissing,
-                payload,
-            ));
+        if preflight.sequence_identity_fingerprint == [0; 32] {
+            return Err(Stage5eB3bBindingBlockReason::SequenceIdentityMissing);
         }
         let classification_consistent = match (
-            payload.sequence_classification,
-            payload.optional_boundary_fingerprint,
+            preflight.sequence_classification,
+            preflight.optional_boundary_fingerprint,
         ) {
             (Stage5eScheduleSequenceClassification::Contiguous, None) => true,
             (
@@ -685,19 +775,15 @@ pub(crate) mod schedule_window_evidence {
             _ => false,
         };
         if !classification_consistent {
-            return Err(block(
-                Stage5eB3bBindingBlockReason::SequenceClassificationMismatch,
-                payload,
-            ));
+            return Err(Stage5eB3bBindingBlockReason::SequenceClassificationMismatch);
         }
         let event_key_fingerprint = b3b_event_key_fingerprint(
             schedule.fingerprint.0,
-            &payload.bar_instrument,
-            payload.bar_close_ts,
-            payload.sequence_identity_fingerprint,
+            preflight.bar_instrument,
+            preflight.bar_close_ts,
+            preflight.sequence_identity_fingerprint,
         );
-        Ok(Stage5eBoundScheduleWindowSequenceForObservedLiveBar {
-            payload,
+        Ok(Stage5eB3bPreflightApproved {
             event_key_fingerprint,
             effective_observed_at,
             effective_expires_at,
@@ -1356,6 +1442,12 @@ pub(crate) mod schedule_window_evidence {
             classified.push((close_ts, session));
         }
 
+        let Some((_, predecessor_session)) = classified.first() else {
+            return Err(Stage5eScheduleClassificationBlockReason::NonMonotonicSequence);
+        };
+        if predecessor_session.session_type != NormalizedSessionType::TradableOpen {
+            return Err(Stage5eScheduleClassificationBlockReason::PredecessorCloseNotTradableOpen);
+        }
         let Some((_, current_session)) = classified.last() else {
             return Err(Stage5eScheduleClassificationBlockReason::NonMonotonicSequence);
         };
@@ -1612,8 +1704,16 @@ pub(crate) mod schedule_window_evidence {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use broker_core::{Exchange, InstrumentId, Market};
+        use broker_core::{
+            BrokerAccountId, BrokerInstrumentSpec, BrokerKind, BrokerMarketSessionState,
+            BrokerSymbol, BrokerTruthSnapshot, Exchange, InstrumentId, InstrumentMapEntry,
+            InternalSymbol, Market, Money, Stage4AdoptionDisposition,
+            Stage4BootstrapEvidenceSourceStatusSection, Stage4BrokerTruthBootstrapInput,
+            Stage4BrokerTruthFreshnessInput, Stage4BrokerTruthSafetyBoundary,
+            Stage4BrokerTruthSourceStatus,
+        };
         use chrono::TimeZone;
+        use rust_decimal::Decimal;
 
         fn instrument() -> InstrumentId {
             InstrumentId {
@@ -1676,6 +1776,77 @@ pub(crate) mod schedule_window_evidence {
                 expires_at: LifecycleInstant(now + chrono::Duration::seconds(10)),
                 identity: ScheduleFingerprint([7; 32]),
             }
+        }
+
+        fn canonical_stage4_paper_host_evidence(
+            now: DateTime<Utc>,
+            schedule_state: BrokerMarketSessionState,
+        ) -> Result<
+            broker_core::Stage4AcceptedPaperHostEvidence,
+            broker_core::Stage4AcceptedPaperHostEvidenceError,
+        > {
+            let target = instrument();
+            let truth = BrokerTruthSnapshot {
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                orders: Vec::new(),
+                positions: Vec::new(),
+                cash: None,
+                trades: Vec::new(),
+                instruments: vec![BrokerInstrumentSpec {
+                    instrument: InstrumentMapEntry {
+                        internal_symbol: InternalSymbol("IMOEXF".to_string()),
+                        broker: BrokerKind::Finam,
+                        broker_symbol: BrokerSymbol("IMOEXF@RTSX".to_string()),
+                        exchange: Exchange::Moex,
+                        market: Market::Futures,
+                        price_step: Decimal::new(5, 1),
+                        qty_step: Decimal::ONE,
+                        lot_size: Decimal::ONE,
+                        min_qty: Decimal::ONE,
+                        step_value: Decimal::new(5, 0),
+                        currency: "RUB".to_string(),
+                        schedule_id: "RTSX".to_string(),
+                        expiration_date: None,
+                        is_tradable: true,
+                    },
+                    broker_asset_id: Some("ASSET_TEST_1".to_string()),
+                    board: Some("RTSX".to_string()),
+                    long_initial_margin: Some(Money::new(5000, 0)),
+                    short_initial_margin: Some(Money::new(5000, 0)),
+                }],
+                received_ts: now,
+            };
+            let validated = broker_core::stage4_bootstrap::validate_stage4_broker_truth_bootstrap(
+                Stage4BrokerTruthBootstrapInput {
+                    broker_truth: &truth,
+                    broker_truth_source_status: Stage4BrokerTruthSourceStatus::Present,
+                    target_instrument: target,
+                    restored_runtime_state: None,
+                    freshness:
+                        Stage4BrokerTruthFreshnessInput::synthetic_all_sections_fresh_for_tests(
+                            now, 60_000,
+                        ),
+                    schedule_state,
+                    adoption: Stage4AdoptionDisposition::default(),
+                    external_issues: Vec::new(),
+                    safety_boundary: Stage4BrokerTruthSafetyBoundary::closed(),
+                    checked_ts: now,
+                },
+            );
+            let source_sections = validated
+                .freshness
+                .sections
+                .iter()
+                .map(|section| Stage4BootstrapEvidenceSourceStatusSection {
+                    section: section.section,
+                    source_status: Stage4BrokerTruthSourceStatus::Present,
+                    required_for_bootstrap: section.required_for_bootstrap,
+                })
+                .collect::<Vec<_>>();
+            broker_core::stage4_bootstrap::build_stage4_accepted_paper_host_evidence(
+                &validated,
+                &source_sections,
+            )
         }
 
         fn window_for_bar(
@@ -1964,6 +2135,31 @@ pub(crate) mod schedule_window_evidence {
                 ),
                 Err(Stage5eScheduleClassificationBlockReason::EndpointOrCandidateUncovered)
             );
+            let non_open_predecessor = window_for_sessions(
+                now,
+                vec![
+                    NormalizedScheduleSession {
+                        session_type: NormalizedSessionType::Maintenance,
+                        start: MarketBarCloseTime(current - 1_800),
+                        end: MarketBarCloseTime(current - 600),
+                    },
+                    NormalizedScheduleSession {
+                        session_type: NormalizedSessionType::TradableOpen,
+                        start: MarketBarCloseTime(current),
+                        end: MarketBarCloseTime(current + 3_600),
+                    },
+                ],
+                current,
+            );
+            assert_eq!(
+                classify_expected_close_grid(
+                    &non_open_predecessor,
+                    current - 1_800,
+                    current,
+                    timeframe,
+                ),
+                Err(Stage5eScheduleClassificationBlockReason::PredecessorCloseNotTradableOpen)
+            );
             assert_eq!(
                 classify_expected_close_grid(
                     &contiguous_window,
@@ -2035,6 +2231,172 @@ pub(crate) mod schedule_window_evidence {
             assert_eq!(b3c.bound_at, now);
             assert_ne!(b3c.continuation_binding_id, [0; 32]);
             assert_eq!(b3c.b3b.payload.bar_close_ts, current);
+        }
+
+        #[test]
+        fn b3b_preflight_block_returns_original_receipt_and_retry_preserves_state() {
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            let current = now.timestamp();
+            let projection = issue_schedule_projection_bridge(window_for_sessions(
+                now,
+                vec![NormalizedScheduleSession {
+                    session_type: NormalizedSessionType::TradableOpen,
+                    start: MarketBarCloseTime(current - 3_600),
+                    end: MarketBarCloseTime(current + 3_600),
+                }],
+                current,
+            ));
+            let (recovered, accepted) = crate::stage5c_paper_host::stage5e_test_sequence_inputs(
+                now,
+                current - 600,
+                current,
+            );
+            let expected_state =
+                crate::stage5c_paper_host::stage5e_test_pending_recovered_state_fingerprint(
+                    &recovered,
+                );
+            let observed = match crate::stage5c_paper_host::
+                stage5e_test_observe_live_bar_with_sequence_evidence_at(
+                    recovered, accepted, projection, now,
+                ) {
+                Ok(observed) => observed,
+                Err(_) => panic!("contiguous sequence must be accepted"),
+            };
+            let blocked = match bind_schedule_window_sequence_to_observed_live_bar_at(
+                observed,
+                now - chrono::Duration::milliseconds(1),
+            ) {
+                Ok(_) => panic!("pre-observation B3B clock must block before ownership transfer"),
+                Err(blocked) => blocked,
+            };
+            assert_eq!(
+                blocked.reason(),
+                Stage5eB3bBindingBlockReason::ClockBeforeEffectiveObservation
+            );
+            assert_eq!(
+                blocked.disposition(),
+                Stage5eB3bBlockDisposition::RetrySameReceipt
+            );
+            let observed = blocked.into_retry();
+            let bound = match bind_schedule_window_sequence_to_observed_live_bar_at(observed, now) {
+                Ok(bound) => bound,
+                Err(_) => panic!("the exact returned Stage 5C receipt must retry successfully"),
+            };
+            assert_eq!(
+                crate::stage5c_paper_host::stage5e_test_owned_strategy_state_fingerprint(
+                    &bound.payload.strategy,
+                ),
+                expected_state,
+                "B3B block/retry must not mutate or replace strategy state"
+            );
+            assert_eq!(
+                Stage5eB3bBindingBlockReason::EvidenceExpired.disposition(),
+                Stage5eB3bBlockDisposition::RefreshScheduleRequired
+            );
+            assert_eq!(
+                Stage5eB3bBindingBlockReason::SequenceIdentityMissing.disposition(),
+                Stage5eB3bBlockDisposition::TerminalIntegrityBlock
+            );
+        }
+
+        #[test]
+        fn canonical_stage4_to_b3c_chain_uses_real_accepted_evidence_without_io() {
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            let current = now.timestamp();
+            let predecessor = current - 600;
+
+            for non_open in [
+                BrokerMarketSessionState::Closed,
+                BrokerMarketSessionState::Break,
+                BrokerMarketSessionState::Maintenance,
+            ] {
+                if let Ok(evidence) = canonical_stage4_paper_host_evidence(now, non_open) {
+                    assert!(matches!(
+                        project_accepted_stage4_schedule(&evidence, LifecycleInstant(now)),
+                        Err(Stage4ScheduleProjectionError::SessionNotOpen)
+                    ));
+                }
+            }
+
+            let stage4_evidence =
+                canonical_stage4_paper_host_evidence(now, BrokerMarketSessionState::Open)
+                    .expect("the canonical no-live Stage 4 chain must issue accepted evidence");
+            let accepted_stage4 =
+                project_accepted_stage4_schedule(&stage4_evidence, LifecycleInstant(now))
+                    .expect("accepted dynamic Open evidence must project");
+
+            let mut normalized = snapshot(now);
+            normalized.sessions = vec![NormalizedScheduleSession {
+                session_type: NormalizedSessionType::TradableOpen,
+                start: MarketBarCloseTime(current - 3_600),
+                end: MarketBarCloseTime(current + 3_600),
+            }];
+            normalized.normalized_payload_sha256 =
+                normalized_snapshot_payload_fingerprint(&normalized);
+            let validated = validate_normalized_schedule_snapshot(
+                NormalizedScheduleAvailability::Available(Box::new(normalized)),
+                LifecycleInstant(now),
+            )
+            .expect("broker-reported normalized schedule must validate");
+            let accepted_registry =
+                accept_instrument_registry_evidence(&validated, registry(&validated))
+                    .expect("instrument registry identity must bind exactly");
+            let projection = map_trusted_schedule_projection(
+                validated,
+                accepted_registry,
+                accepted_stage4,
+                MarketBarCloseTime(current),
+                LifecycleInstant(now),
+            )
+            .expect("real Stage 4 and normalized schedule evidence must map");
+
+            let (recovered, accepted_bar) =
+                crate::stage5c_paper_host::stage5e_test_sequence_inputs(now, predecessor, current);
+            let expected_state =
+                crate::stage5c_paper_host::stage5e_test_pending_recovered_state_fingerprint(
+                    &recovered,
+                );
+            let observed = match crate::stage5c_paper_host::
+                stage5e_test_observe_live_bar_with_sequence_evidence_at(
+                    recovered,
+                    accepted_bar,
+                    projection,
+                    now,
+                ) {
+                Ok(observed) => observed,
+                Err(_) => panic!("real trusted inputs must issue one sealed sequence receipt"),
+            };
+            let b3b = match bind_schedule_window_sequence_to_observed_live_bar_at(observed, now) {
+                Ok(b3b) => b3b,
+                Err(_) => panic!("borrowed preflight must pass before B3B ownership transfer"),
+            };
+            assert_eq!(
+                b3b.effective_expires_at,
+                now + chrono::Duration::seconds(10),
+                "B3B expiry must be the exact minimum of the independent evidence"
+            );
+            let b3c = match b3c_evidence::bind_session_calendar_sequence_from_b3b_at(b3b, now) {
+                Ok(b3c) => b3c,
+                Err(_) => panic!("the canonical trusted chain must reach B3C"),
+            };
+            assert_eq!(
+                crate::stage5c_paper_host::stage5e_test_owned_strategy_state_fingerprint(
+                    &b3c.b3b.payload.strategy,
+                ),
+                expected_state,
+                "the no-callback chain must leave strategy state unchanged"
+            );
+            assert_eq!(
+                b3c.effective_expires_at,
+                now + chrono::Duration::seconds(10)
+            );
+            assert_ne!(b3c.continuation_binding_id, [0; 32]);
         }
 
         #[test]

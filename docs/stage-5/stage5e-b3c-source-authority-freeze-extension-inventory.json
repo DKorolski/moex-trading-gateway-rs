@@ -1,16 +1,16 @@
 {
-  "schema_version": 8,
+  "schema_version": 9,
   "stage": "5E-b3c-source-authority-freeze-extension",
-  "status": "r6_additive_production_bridge_pending_review",
+  "status": "implementation_r1_block_retry_and_canonical_chain_pending_review",
   "baseline_ref": "2b2c57d7bacb8e3f1de572b7c35790be906b82a9",
   "predecessor_stage": "5E-b3c-private-eligibility-seam",
-  "expected_provenance_case_count": 200,
+  "expected_provenance_case_count": 207,
   "production_source_baselines": {
     "crates/broker-core/src/lib.rs": "5d8758624f53a6b46d8903dd3f2339d5bd04f64c9c6490448167f08ac68ec8a2",
     "crates/broker-core/src/operational_config.rs": "492905c6e404ee67f62ad456128ff659cd4a32c8e638936b94b5ea14ff3ba2f8",
     "crates/broker-core/src/stage4_bootstrap.rs": "33455bd4447193f723aa5a749707739d89e2d2ca58b083d416c268a24613bdd7",
-    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "41f6f9da0e0beedf4e292c852b6dafb6fd00bb2215368c7b366a78000170e399",
-    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "cd49213ba507f924f390e839013b13222bc78a6ab9b75bcd355bd5ba8f766d9f"
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "7457a1b9a2318d84b48dc5dda168782547eeb8e6c5a5bbd3640bb3804b7a8bb8",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "ea75d47c0852a7e031787eeb9af77b73cfc628b1f3da37f8962e839677179671"
   },
   "implementation_authorization": {
     "authority_freeze_r6_reviewed": true,
@@ -85,11 +85,23 @@
     "alternate_or_raw_constructor_allowed": false,
     "derive_forbidden": ["Debug", "Clone", "Copy", "Serialize", "Deserialize", "Default", "From", "Into"],
     "into_inputs_or_callback_or_intent_api_allowed": false,
+    "b3b_preflight_method": "Stage5eObservedLiveBarWithSequenceEvidence::preflight_for_b3b(&self, Stage5eB3bPreflightSeal)->Stage5eB3bObservedLiveBarPreflight",
+    "b3b_preflight_ownership": "borrowed_only_original_receipt_retains_all_owned_state_until_success",
     "b3b_consume_method": "Stage5eObservedLiveBarWithSequenceEvidence::consume_for_b3b(self, Stage5eB3bConsumeSeal)->Stage5eB3bObservedLiveBarBridgePayload",
     "b3b_consume_method_visibility": "pub(crate)_callable_only_with_unconstructible_Stage5eB3bConsumeSeal",
     "b3b_consume_sole_call_site": "schedule_window_evidence::bind_schedule_window_sequence_to_observed_live_bar",
     "b3b_consume_payload_fields": ["strategy", "recovery_receipt", "accepted_semantic_bar", "schedule_projection", "sequence_classification", "optional_boundary_fingerprint", "sequence_identity_fingerprint", "sequence_observed_at", "sequence_expires_at"],
     "generic_into_parts_or_getters_allowed": false
+  },
+  "b3b_preflight_seal_contract": {
+    "seal_type": "Stage5eB3bPreflightSeal",
+    "defined_in": "strategy_runtime_core::stage5e_no_io_lifecycle::schedule_window_evidence",
+    "visibility": "pub(crate)_opaque_type_with_private_fields",
+    "sole_constructor": "issue_stage5e_b3b_preflight_seal_inside_bind_schedule_window_sequence_to_observed_live_bar",
+    "sole_consumer": "Stage5eObservedLiveBarWithSequenceEvidence::preflight_for_b3b",
+    "view_type": "Stage5eB3bObservedLiveBarPreflight",
+    "view_ownership": "borrowed_non_decomposable",
+    "consume_before_success_allowed": false
   },
   "b3b_consume_seal_contract": {
     "seal_type": "Stage5eB3bConsumeSeal",
@@ -126,10 +138,17 @@
       "output": "Stage5eBoundScheduleWindowSequenceForObservedLiveBar",
       "output_owns": ["strategy", "recovery_receipt", "accepted_semantic_bar", "schedule_projection", "sequence_classification", "optional_boundary_fingerprint", "sequence_identity_fingerprint", "sequence_observed_at", "sequence_expires_at", "b3b_event_key_fingerprint"],
       "binding_checks": ["exact_instrument", "selected_open_window_inclusive_closed", "projection_freshness", "observed_bar_not_future", "sequence_identity_nonzero", "sequence_observed_at_not_future", "sequence_not_expired"],
+      "ownership_order": "borrowed_preflight_then_consume_for_b3b_only_after_all_checks_succeed",
       "event_key_domain": "stage5e-b3b-schedule-observed-sequence-binding-v2",
       "event_key_fields_in_order": ["schedule_window_identity_fingerprint", "full_instrument_id", "semantic_bar_close_ts", "sequence_identity_fingerprint"],
       "blocked": "Stage5eScheduleWindowSequenceObservedBarBlocked",
-      "blocked_returns": ["Stage5eObservedLiveBarWithSequenceEvidence"]
+      "blocked_returns": ["Stage5eObservedLiveBarWithSequenceEvidence"],
+      "blocked_retry_entry": "bind_schedule_window_sequence_to_observed_live_bar_accepts_exact_returned_receipt",
+      "block_dispositions": {
+        "retry_same_receipt": ["ClockBeforeEffectiveObservation", "BarObservedInFuture"],
+        "refresh_schedule_required": ["EvidenceExpired", "BarOutsideSelectedOpenWindow"],
+        "terminal_integrity": ["InstrumentMismatch", "SequenceIdentityMissing", "SequenceClassificationMismatch"]
+      }
     },
     "b3c_transition": {
       "issuer": "bind_session_calendar_sequence_from_b3b",
@@ -159,8 +178,9 @@
     "endpoint_alignment": "previous_close_ts % timeframe_sec == 0 and current_close_ts % timeframe_sec == 0",
     "candidate_set": "all_t = previous_close_ts + n*timeframe_sec where n >= 1 and t < current_close_ts",
     "selected_current_bar_requirement": "current_close_ts must be inside a TradableOpen interval with inclusive_closed endpoints",
+    "predecessor_bar_requirement": "predecessor_close_ts must be inside a TradableOpen interval with inclusive_closed endpoints",
     "coverage_requirement": "the previous endpoint, current endpoint and every expected-close grid candidate must each have exactly one interval classification in one same-trading-day ValidatedNormalizedInstrumentScheduleSnapshot; continuous wall-clock coverage is not required or inferred",
-    "candidate_membership": "previous and current endpoints plus every candidate must be classified exactly once; current must be TradableOpen, every strict-interior candidate must be BreakOrClearing or Maintenance, and any strict-interior TradableOpen blocks boundary acceptance",
+    "candidate_membership": "previous and current endpoints plus every candidate must be classified exactly once; predecessor and current must be TradableOpen, every strict-interior candidate must be BreakOrClearing or Maintenance, and any strict-interior TradableOpen blocks boundary acceptance",
     "unknown_or_uncovered": "block",
     "multiple_non_tradable_intervals": "allowed only when complete coverage and candidate_membership hold",
     "cross_trading_day": "block; one snapshot is one trading_day and no cross-day or overnight inference is authorized",
@@ -235,8 +255,8 @@
   "required_predecessor_governance_update_paths": ["docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md", "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json", "docs/stage-5/5e-b3-schedule-window-evidence-plan.md", "docs/stage-5/stage5e-b3-schedule-window-evidence-inventory.json", "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md", "docs/stage-5/stage5e-b3c-private-eligibility-seam-inventory.json", "scripts/stage5e_b_no_io_lifecycle_check.py", "scripts/stage5e_b3_schedule_window_evidence_check.py", "scripts/stage5e_b3c_private_eligibility_seam_check.py"],
   "required_governance_update_paths": ["docs/stage-5/stage-5c-api-freeze-manifest.json", "docs/stage-5/stage-5d-additive-freeze-manifest.json", "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/forbidden_surface_negative_harness.py", "scripts/handoff_provenance_negative_harness.py", "scripts/handoff_safety_check.py", "scripts/stage5c_api_freeze_check.py", "scripts/stage5d_additive_freeze_check.py", "scripts/stage5d_additive_freeze_negative_harness.py", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py"],
   "required_unchanged_active_stage_paths": ["docs/stage-5/stage5e-active-descriptor.json", "scripts/stage5e_descriptor.py", "scripts/stage5e_lifecycle_event_time_gate.sh"],
-  "required_implementation_tests": ["stage4_dynamic_open_is_retained_from_accepted_input", "stage4_non_open_blocks_schedule_projection", "schedule_projection_bridge_cannot_be_raw_constructed_or_reused", "Stage5cSequenceCandidateSeal_has_one_constructor_and_no_getters", "preclassification_candidate_has_no_final_sequence_identity", "Stage5cClassifiedSequenceSeal_is_created_only_after_concrete_classification", "final_sequence_identity_uses_accepted_stage3_digest_and_classification_boundary", "Stage5eScheduleCandidateClassifier_has_one_constructor_and_one_call_site", "sealed_classifier_never_exposes_raw_sessions_to_stage5c", "single_linear_issuer_preserves_strategy_recovery_and_bar", "observed_live_bar_with_sequence_has_one_constructor_and_sealed_B3B_consumer", "B3B_consume_seal_has_one_constructor_and_one_consumer", "B3B_consumes_new_output_and_revalidates_sequence_freshness", "sequence_created_expired_blocks_before_receipt", "B3C_revalidates_production_clock_expiry_observation_bar_and_sequence_time", "B3C_effective_expiry_is_exact_min_of_projection_and_sequence", "B3C_test_clock_seam_is_cfg_test_only", "expected_close_grid_uses_discrete_endpoint_and_candidate_classification", "stage4_schedule_section_identity_changes_for_every_frozen_field", "sequence_identity_changes_for_each_freshness_classification_and_boundary_field", "every_nested_identity_field_changes_its_fingerprint", "restart_reissues_full_receipt_chain_without_identity_mixing", "all_required_predecessor_and_freeze_updates_present"],
-  "required_negative_mutations": ["boundary_precomputed_without_candidate_context", "caller_timestamps_enter_owner_constructor", "sealed_classifier_bypassed", "candidate_type_owner_changed", "second_candidate_constructor_or_getter", "candidate_owns_final_sequence_identity", "classified_result_drops_boundary_fingerprint", "final_sequence_identity_computed_without_classification", "classifier_alternate_constructor_or_call_site", "observed_live_bar_with_sequence_raw_constructible", "observed_live_bar_generic_into_parts_or_getter", "B3B_consume_seal_second_constructor_or_consumer", "sequence_source_fingerprint_substituted_for_final_identity", "sequence_created_already_expired", "sequence_freshness_removed", "sequence_receipt_storage_opened_beyond_expiry", "effective_expiry_min_replaced_by_max", "B3C_clock_removed", "B3C_expiry_check_removed", "B3C_test_clock_seam_production_visible", "stage4_schedule_source_identity_constant", "stage4_schedule_source_identity_field_removed", "continuous_range_inference_replaces_grid_coverage"],
+  "required_implementation_tests": ["stage4_dynamic_open_is_retained_from_accepted_input", "stage4_non_open_blocks_schedule_projection", "schedule_projection_bridge_cannot_be_raw_constructed_or_reused", "Stage5cSequenceCandidateSeal_has_one_constructor_and_no_getters", "preclassification_candidate_has_no_final_sequence_identity", "Stage5cClassifiedSequenceSeal_is_created_only_after_concrete_classification", "final_sequence_identity_uses_accepted_stage3_digest_and_classification_boundary", "Stage5eScheduleCandidateClassifier_has_one_constructor_and_one_call_site", "sealed_classifier_never_exposes_raw_sessions_to_stage5c", "single_linear_issuer_preserves_strategy_recovery_and_bar", "observed_live_bar_with_sequence_has_one_constructor_and_sealed_B3B_consumer", "B3B_preflight_borrows_without_consuming_original_receipt", "B3B_block_returns_original_receipt_and_retry_preserves_strategy_state", "B3B_block_reason_has_exact_retry_refresh_or_terminal_disposition", "B3B_consume_seal_has_one_constructor_and_one_consumer", "B3B_consumes_new_output_only_after_preflight_success", "sequence_created_expired_blocks_before_receipt", "B3C_revalidates_production_clock_expiry_observation_bar_and_sequence_time", "B3C_effective_expiry_is_exact_min_of_projection_and_sequence", "B3C_test_clock_seam_is_cfg_test_only", "expected_close_grid_requires_tradable_predecessor_and_current_endpoints", "canonical_real_Stage4AcceptedPaperHostEvidence_to_B3C_chain_without_callback_or_io", "stage4_schedule_section_identity_changes_for_every_frozen_field", "sequence_identity_changes_for_each_freshness_classification_and_boundary_field", "every_nested_identity_field_changes_its_fingerprint", "restart_reissues_full_receipt_chain_without_identity_mixing", "all_required_predecessor_and_freeze_updates_present"],
+  "required_negative_mutations": ["boundary_precomputed_without_candidate_context", "caller_timestamps_enter_owner_constructor", "sealed_classifier_bypassed", "candidate_type_owner_changed", "second_candidate_constructor_or_getter", "candidate_owns_final_sequence_identity", "classified_result_drops_boundary_fingerprint", "final_sequence_identity_computed_without_classification", "classifier_alternate_constructor_or_call_site", "observed_live_bar_with_sequence_raw_constructible", "observed_live_bar_generic_into_parts_or_getter", "B3B_consume_seal_second_constructor_or_consumer", "sequence_source_fingerprint_substituted_for_final_identity", "sequence_created_already_expired", "sequence_freshness_removed", "sequence_receipt_storage_opened_beyond_expiry", "effective_expiry_min_replaced_by_max", "B3C_clock_removed", "B3C_expiry_check_removed", "B3C_test_clock_seam_production_visible", "stage4_schedule_source_identity_constant", "stage4_schedule_source_identity_field_removed", "continuous_range_inference_replaces_grid_coverage", "B3B_blocked_output_type_drift", "B3B_payload_returned_without_retry_entry", "B3B_retry_loses_strategy_or_recovery_state", "expired_projection_marked_retryable_without_refresh", "integrity_blocker_marked_retryable", "full_Stage4_to_B3C_integration_test_removed", "Stage4_projection_bypassed_by_test_only_constructor"],
   "closed_surfaces": ["strategy_callback", "strategy_state_mutation", "executable_intents", "strategy_intent_sink", "redis", "finam_io", "transport", "dispatch", "runtime_live", "broker_execution", "autonomous_event_loop"],
-  "allowed_changed_paths": ["crates/broker-core/src/stage4_bootstrap.rs", "crates/strategy-runtime-core/src/stage5c_paper_host.rs", "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", "docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md", "docs/stage-5/5e-b3-schedule-window-evidence-plan.md", "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md", "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage-5d-additive-freeze-manifest.json", "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json", "docs/stage-5/stage5e-b3-schedule-window-evidence-inventory.json", "docs/stage-5/stage5e-b3c-private-eligibility-seam-inventory.json", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/forbidden_surface_scan.sh", "scripts/handoff_provenance_negative_harness.py", "scripts/handoff_safety_check.py", "scripts/stage5d_additive_freeze_check.py", "scripts/stage5e_b3_schedule_window_evidence_check.py", "scripts/stage5e_b3c_private_eligibility_seam_check.py", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py", "scripts/stage5e_b_no_io_lifecycle_check.py"]
+  "allowed_changed_paths": ["crates/broker-core/src/stage4_bootstrap.rs", "crates/strategy-runtime-core/src/stage5c_paper_host.rs", "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", "docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md", "docs/stage-5/5e-b3-schedule-window-evidence-plan.md", "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md", "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage-5d-additive-freeze-manifest.json", "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json", "docs/stage-5/stage5e-b3-schedule-window-evidence-inventory.json", "docs/stage-5/stage5e-b3c-private-eligibility-seam-inventory.json", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/forbidden_surface_scan.sh", "scripts/handoff_provenance_negative_harness.py", "scripts/handoff_safety_check.py", "scripts/make_handoff_archive.sh", "scripts/stage5d_additive_freeze_check.py", "scripts/stage5e_b3_schedule_window_evidence_check.py", "scripts/stage5e_b3c_private_eligibility_seam_check.py", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py", "scripts/stage5e_b_no_io_lifecycle_check.py"]
 }

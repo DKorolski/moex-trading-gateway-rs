@@ -198,6 +198,52 @@ def write_manifest(root: Path, mutate=None) -> None:
         )
         + "\n"
     )
+    heavy_negative_results = []
+    for prefix, gate_id, command, passed_cases in [
+        (
+            "stage5d",
+            "stage5d_additive_freeze_negative",
+            ["python3", "scripts/stage5d_additive_freeze_negative_harness.py"],
+            303,
+        ),
+        (
+            "forbidden",
+            "forbidden_surface_negative",
+            ["bash", "scripts/forbidden_surface_negative_harness.sh"],
+            87,
+        ),
+    ]:
+        stdout_path = root / f"handoff-{prefix}-negative-stdout.txt"
+        stderr_path = root / f"handoff-{prefix}-negative-stderr.txt"
+        result_path = root / f"handoff-{prefix}-negative-result.json"
+        stdout_path.write_text(
+            "".join(f"PASS synthetic-{prefix}-{index}\n" for index in range(passed_cases))
+        )
+        stderr_path.write_text("")
+        result_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "gate_id": gate_id,
+                    "command": command,
+                    "source_ref": SOURCE_REF,
+                    "started_at_utc": "2026-01-01T00:00:00Z",
+                    "finished_at_utc": "2026-01-01T00:00:01Z",
+                    "exit_code": 0,
+                    "passed_cases": passed_cases,
+                    "stdout_member": stdout_path.name,
+                    "stderr_member": stderr_path.name,
+                    "stdout_sha256": sha256(stdout_path),
+                    "stderr_sha256": sha256(stderr_path),
+                    "source_tree_manifest_sha256": "0" * 64,
+                    "source_tree_member_count": 0,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        heavy_negative_results.append((prefix, result_path))
     source_tree_manifest = {
         "schema_version": 1,
         "source_ref": SOURCE_REF,
@@ -209,10 +255,16 @@ def write_manifest(root: Path, mutate=None) -> None:
             "handoff-cargo-gate-result.json",
             "handoff-cargo-gate-stderr.txt",
             "handoff-cargo-gate-stdout.txt",
+            "handoff-forbidden-negative-result.json",
+            "handoff-forbidden-negative-stderr.txt",
+            "handoff-forbidden-negative-stdout.txt",
             "handoff-manifest.json",
             "handoff-provenance-negative-result.json",
             "handoff-provenance-negative-stderr.txt",
             "handoff-provenance-negative-stdout.txt",
+            "handoff-stage5d-negative-result.json",
+            "handoff-stage5d-negative-stderr.txt",
+            "handoff-stage5d-negative-stdout.txt",
             "handoff-stage5e-gate-result.json",
             "handoff-stage5e-gate-stderr.txt",
             "handoff-stage5e-gate-stdout.txt",
@@ -235,6 +287,11 @@ def write_manifest(root: Path, mutate=None) -> None:
     provenance_result_path.write_text(
         json.dumps(provenance_result, indent=2, sort_keys=True) + "\n"
     )
+    for _prefix, result_path in heavy_negative_results:
+        result = json.loads(result_path.read_text())
+        result["source_tree_manifest_sha256"] = source_tree_manifest_sha256
+        result["source_tree_member_count"] = len(source_members)
+        result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     gate_result_path = root / "handoff-stage5e-gate-result.json"
     gate_result_path.write_text(
         json.dumps(
@@ -289,6 +346,12 @@ def write_manifest(root: Path, mutate=None) -> None:
         "source_tree_manifest_sha256": source_tree_manifest_sha256,
         "cargo_gate_result_sha256": sha256(cargo_result_path),
         "provenance_negative_result_sha256": sha256(provenance_result_path),
+        "stage5d_negative_result_sha256": sha256(
+            root / "handoff-stage5d-negative-result.json"
+        ),
+        "forbidden_negative_result_sha256": sha256(
+            root / "handoff-forbidden-negative-result.json"
+        ),
     }
     marker = {
         "source_commit": manifest["source_commit"],
@@ -2384,6 +2447,13 @@ def main() -> int:
         Case("stage5e-authority-r6-implementation-effective-expiry-max", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("schedule.expires_at.0.min(b3b.payload.sequence_expires_at)", "schedule.expires_at.0.max(b3b.payload.sequence_expires_at)", 1)), "5E-b3c-source-authority-freeze-extension", True),
         Case("stage5e-authority-r6-implementation-consume-seal-drift", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("Stage5eB3bConsumeSeal(())", "Stage5eB3bConsumeSeal(()) /* alternate issuer */", 1)), "5E-b3c-source-authority-freeze-extension", True),
         Case("stage5e-authority-r6-implementation-unverified-source-injected", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("// STAGE5E-B3C-PRODUCTION-BRIDGE-BEGIN: trusted-no-io-v1", "// STAGE5E-B3C-PRODUCTION-BRIDGE-BEGIN: trusted-no-io-v1\\n    struct UnverifiedMarketSequenceSource;", 1)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r1-b3b-blocked-output-type-drift", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("observed: crate::stage5c_paper_host::Stage5eObservedLiveBarWithSequenceEvidence,", "payload: Stage5eB3bObservedLiveBarBridgePayload,", 1)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r1-b3b-retry-entry-removed", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("pub(crate) fn into_retry(", "fn removed_into_retry(", 1)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r1-b3b-retry-loses-owned-state", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("self.observed\n        }", "panic!(\"drop owned state\")\n        }", 1)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r1-expired-projection-marked-retryable", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("Self::EvidenceExpired | Self::BarOutsideSelectedOpenWindow => {", "Self::BarOutsideSelectedOpenWindow => {", 1)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r1-integrity-blocker-marked-retryable", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("Self::ClockBeforeEffectiveObservation | Self::BarObservedInFuture => {", "Self::ClockBeforeEffectiveObservation | Self::BarObservedInFuture | Self::SequenceIdentityMissing => {", 1)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r1-full-stage4-integration-test-removed", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("fn canonical_stage4_to_b3c_chain_uses_real_accepted_evidence_without_io()", "fn removed_canonical_stage4_to_b3c_chain()", 1)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-authority-r1-stage4-projection-bypassed-in-test", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("project_accepted_stage4_schedule(&stage4_evidence, LifecycleInstant(now))", "stage4(now, instrument())", 1)), "5E-b3c-source-authority-freeze-extension", True),
     ]
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)

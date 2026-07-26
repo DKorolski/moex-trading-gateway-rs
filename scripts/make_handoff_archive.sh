@@ -28,6 +28,12 @@ cargo_gate_stderr_log="$repo_root/handoff-cargo-gate-stderr.txt"
 provenance_negative_result="$repo_root/handoff-provenance-negative-result.json"
 provenance_negative_stdout_log="$repo_root/handoff-provenance-negative-stdout.txt"
 provenance_negative_stderr_log="$repo_root/handoff-provenance-negative-stderr.txt"
+stage5d_negative_result="$repo_root/handoff-stage5d-negative-result.json"
+stage5d_negative_stdout_log="$repo_root/handoff-stage5d-negative-stdout.txt"
+stage5d_negative_stderr_log="$repo_root/handoff-stage5d-negative-stderr.txt"
+forbidden_negative_result="$repo_root/handoff-forbidden-negative-result.json"
+forbidden_negative_stdout_log="$repo_root/handoff-forbidden-negative-stdout.txt"
+forbidden_negative_stderr_log="$repo_root/handoff-forbidden-negative-stderr.txt"
 completed=0
 
 cleanup() {
@@ -35,7 +41,10 @@ cleanup() {
   rm -f "$commit_marker" "$handoff_manifest" "$stage5e_gate_result" "$source_tree_manifest" \
     "$stage5e_gate_stdout_log" "$stage5e_gate_stderr_log" "$cargo_gate_result" \
     "$cargo_gate_stdout_log" "$cargo_gate_stderr_log" "$provenance_negative_result" \
-    "$provenance_negative_stdout_log" "$provenance_negative_stderr_log"
+    "$provenance_negative_stdout_log" "$provenance_negative_stderr_log" \
+    "$stage5d_negative_result" "$stage5d_negative_stdout_log" \
+    "$stage5d_negative_stderr_log" "$forbidden_negative_result" \
+    "$forbidden_negative_stdout_log" "$forbidden_negative_stderr_log"
   if [[ "$completed" -ne 1 ]]; then
     rm -f "$archive_path" "$sha_path"
   fi
@@ -295,6 +304,106 @@ Path(sys.argv[1]).write_text(json.dumps({
 }, indent=2, sort_keys=True) + "\n")
 PY
 
+stage5d_negative_started_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+set +e
+(
+  set -euo pipefail
+  cd "$repo_root"
+  python3 scripts/stage5d_additive_freeze_negative_harness.py
+) >"$stage5d_negative_stdout_log" 2>"$stage5d_negative_stderr_log"
+stage5d_negative_exit_code="$?"
+set -e
+stage5d_negative_finished_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+if [[ "$stage5d_negative_exit_code" -ne 0 ]]; then
+  cat "$stage5d_negative_stdout_log"
+  cat "$stage5d_negative_stderr_log" >&2
+  echo "Stage 5D negative gate failed before packaging." >&2
+  exit "$stage5d_negative_exit_code"
+fi
+stage5d_negative_passed_cases="$(grep -c '^PASS ' "$stage5d_negative_stdout_log" || true)"
+if [[ "$stage5d_negative_passed_cases" -ne 303 ]]; then
+  echo "Stage 5D negative gate case-count mismatch: $stage5d_negative_passed_cases" >&2
+  exit 1
+fi
+SOURCE_REF="$source_ref" \
+NEGATIVE_STARTED_AT_UTC="$stage5d_negative_started_at_utc" \
+NEGATIVE_FINISHED_AT_UTC="$stage5d_negative_finished_at_utc" \
+NEGATIVE_EXIT_CODE="$stage5d_negative_exit_code" \
+NEGATIVE_PASSED_CASES="$stage5d_negative_passed_cases" \
+NEGATIVE_STDOUT_SHA256="$(shasum -a 256 "$stage5d_negative_stdout_log" | awk '{print $1}')" \
+NEGATIVE_STDERR_SHA256="$(shasum -a 256 "$stage5d_negative_stderr_log" | awk '{print $1}')" \
+python3 - "$stage5d_negative_result" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+Path(sys.argv[1]).write_text(json.dumps({
+    "schema_version": 1,
+    "gate_id": "stage5d_additive_freeze_negative",
+    "command": ["python3", "scripts/stage5d_additive_freeze_negative_harness.py"],
+    "source_ref": os.environ["SOURCE_REF"],
+    "started_at_utc": os.environ["NEGATIVE_STARTED_AT_UTC"],
+    "finished_at_utc": os.environ["NEGATIVE_FINISHED_AT_UTC"],
+    "exit_code": int(os.environ["NEGATIVE_EXIT_CODE"]),
+    "passed_cases": int(os.environ["NEGATIVE_PASSED_CASES"]),
+    "stdout_member": "handoff-stage5d-negative-stdout.txt",
+    "stderr_member": "handoff-stage5d-negative-stderr.txt",
+    "stdout_sha256": os.environ["NEGATIVE_STDOUT_SHA256"],
+    "stderr_sha256": os.environ["NEGATIVE_STDERR_SHA256"],
+}, indent=2, sort_keys=True) + "\n")
+PY
+
+forbidden_negative_started_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+set +e
+(
+  set -euo pipefail
+  cd "$repo_root"
+  bash scripts/forbidden_surface_negative_harness.sh
+) >"$forbidden_negative_stdout_log" 2>"$forbidden_negative_stderr_log"
+forbidden_negative_exit_code="$?"
+set -e
+forbidden_negative_finished_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+if [[ "$forbidden_negative_exit_code" -ne 0 ]]; then
+  cat "$forbidden_negative_stdout_log"
+  cat "$forbidden_negative_stderr_log" >&2
+  echo "Forbidden-surface negative gate failed before packaging." >&2
+  exit "$forbidden_negative_exit_code"
+fi
+forbidden_negative_passed_cases="$(grep -c '^PASS ' "$forbidden_negative_stdout_log" || true)"
+if [[ "$forbidden_negative_passed_cases" -ne 87 ]]; then
+  echo "Forbidden-surface negative gate case-count mismatch: $forbidden_negative_passed_cases" >&2
+  exit 1
+fi
+SOURCE_REF="$source_ref" \
+NEGATIVE_STARTED_AT_UTC="$forbidden_negative_started_at_utc" \
+NEGATIVE_FINISHED_AT_UTC="$forbidden_negative_finished_at_utc" \
+NEGATIVE_EXIT_CODE="$forbidden_negative_exit_code" \
+NEGATIVE_PASSED_CASES="$forbidden_negative_passed_cases" \
+NEGATIVE_STDOUT_SHA256="$(shasum -a 256 "$forbidden_negative_stdout_log" | awk '{print $1}')" \
+NEGATIVE_STDERR_SHA256="$(shasum -a 256 "$forbidden_negative_stderr_log" | awk '{print $1}')" \
+python3 - "$forbidden_negative_result" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+Path(sys.argv[1]).write_text(json.dumps({
+    "schema_version": 1,
+    "gate_id": "forbidden_surface_negative",
+    "command": ["bash", "scripts/forbidden_surface_negative_harness.sh"],
+    "source_ref": os.environ["SOURCE_REF"],
+    "started_at_utc": os.environ["NEGATIVE_STARTED_AT_UTC"],
+    "finished_at_utc": os.environ["NEGATIVE_FINISHED_AT_UTC"],
+    "exit_code": int(os.environ["NEGATIVE_EXIT_CODE"]),
+    "passed_cases": int(os.environ["NEGATIVE_PASSED_CASES"]),
+    "stdout_member": "handoff-forbidden-negative-stdout.txt",
+    "stderr_member": "handoff-forbidden-negative-stderr.txt",
+    "stdout_sha256": os.environ["NEGATIVE_STDOUT_SHA256"],
+    "stderr_sha256": os.environ["NEGATIVE_STDERR_SHA256"],
+}, indent=2, sort_keys=True) + "\n")
+PY
+
 SOURCE_REF="$source_ref" \
 HEAD_TREE="$(git -C "$repo_root" rev-parse HEAD^{tree})" \
 BASELINE_REF="${stage5e_baseline_ref:-}" \
@@ -347,10 +456,16 @@ manifest = {
         "handoff-cargo-gate-result.json",
         "handoff-cargo-gate-stderr.txt",
         "handoff-cargo-gate-stdout.txt",
+        "handoff-forbidden-negative-result.json",
+        "handoff-forbidden-negative-stderr.txt",
+        "handoff-forbidden-negative-stdout.txt",
         "handoff-manifest.json",
         "handoff-provenance-negative-result.json",
         "handoff-provenance-negative-stderr.txt",
         "handoff-provenance-negative-stdout.txt",
+        "handoff-stage5d-negative-result.json",
+        "handoff-stage5d-negative-stderr.txt",
+        "handoff-stage5d-negative-stdout.txt",
         "handoff-stage5e-gate-stderr.txt",
         "handoff-stage5e-gate-result.json",
         "handoff-stage5e-gate-stdout.txt",
@@ -417,7 +532,29 @@ payload["source_tree_manifest_sha256"] = os.environ["SOURCE_TREE_MANIFEST_SHA256
 payload["source_tree_member_count"] = int(os.environ["SOURCE_TREE_MEMBER_COUNT"])
 path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 PY
+SOURCE_TREE_MANIFEST_SHA256="$source_tree_manifest_sha256" \
+SOURCE_TREE_MEMBER_COUNT="$(python3 - "$source_tree_manifest" <<'PY'
+import json
+import sys
+print(len(json.loads(open(sys.argv[1]).read())["members"]))
+PY
+)" \
+python3 - "$stage5d_negative_result" "$forbidden_negative_result" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+for raw_path in sys.argv[1:]:
+    path = Path(raw_path)
+    payload = json.loads(path.read_text())
+    payload["source_tree_manifest_sha256"] = os.environ["SOURCE_TREE_MANIFEST_SHA256"]
+    payload["source_tree_member_count"] = int(os.environ["SOURCE_TREE_MEMBER_COUNT"])
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
 provenance_negative_result_sha256="$(shasum -a 256 "$provenance_negative_result" | awk '{print $1}')"
+stage5d_negative_result_sha256="$(shasum -a 256 "$stage5d_negative_result" | awk '{print $1}')"
+forbidden_negative_result_sha256="$(shasum -a 256 "$forbidden_negative_result" | awk '{print $1}')"
 
 created_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
@@ -436,6 +573,8 @@ STAGE5E_DESIGN_SCOPE_SHA256="$stage5e_design_scope_sha256" \
 SOURCE_TREE_MANIFEST_SHA256="$source_tree_manifest_sha256" \
 CARGO_GATE_RESULT_SHA256="$(shasum -a 256 "$cargo_gate_result" | awk '{print $1}')" \
 PROVENANCE_NEGATIVE_RESULT_SHA256="$provenance_negative_result_sha256" \
+STAGE5D_NEGATIVE_RESULT_SHA256="$stage5d_negative_result_sha256" \
+FORBIDDEN_NEGATIVE_RESULT_SHA256="$forbidden_negative_result_sha256" \
 REVIEW_STAGE="$review_stage" \
 CURRENT_REVIEW_STAGE="$current_review_stage" \
 HANDOFF_MANIFEST="$handoff_manifest" \
@@ -463,6 +602,8 @@ manifest = {
     "source_tree_manifest_sha256": os.environ["SOURCE_TREE_MANIFEST_SHA256"],
     "cargo_gate_result_sha256": os.environ["CARGO_GATE_RESULT_SHA256"],
     "provenance_negative_result_sha256": os.environ["PROVENANCE_NEGATIVE_RESULT_SHA256"],
+    "stage5d_negative_result_sha256": os.environ["STAGE5D_NEGATIVE_RESULT_SHA256"],
+    "forbidden_negative_result_sha256": os.environ["FORBIDDEN_NEGATIVE_RESULT_SHA256"],
     "required_gate_names": [
         "stage5e_lifecycle_event_time",
         "stage5c_api_freeze",

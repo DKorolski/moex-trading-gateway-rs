@@ -1107,6 +1107,29 @@ pub(crate) struct Stage5eObservedLiveBarWithSequenceEvidence {
 }
 
 impl Stage5eObservedLiveBarWithSequenceEvidence {
+    pub(crate) fn preflight_for_b3b(
+        &self,
+        seal: crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eB3bPreflightSeal,
+    ) -> crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eB3bObservedLiveBarPreflight<'_>
+    {
+        let candidate = &self.classified_sequence.candidate;
+        crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eB3bObservedLiveBarPreflight::from_stage5c_observed(
+            seal,
+            &self.strategy,
+            &self.recovery_receipt,
+            &self.accepted_semantic_bar,
+            &candidate.instrument,
+            candidate.current_close_ts,
+            candidate.predecessor_close_ts,
+            &self.classified_sequence.returned_projection,
+            self.classified_sequence.classification,
+            self.classified_sequence.boundary_fingerprint,
+            self.classified_sequence.sequence_identity_fingerprint,
+            candidate.sequence_observed_at,
+            candidate.sequence_expires_at,
+        )
+    }
+
     pub(crate) fn consume_for_b3b(
         self,
         seal: crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eB3bConsumeSeal,
@@ -1657,6 +1680,20 @@ pub(crate) fn stage5e_test_sequence_inputs(
         predecessor_close_ts,
         current_close_ts,
     )
+}
+
+#[cfg(test)]
+pub(crate) fn stage5e_test_pending_recovered_state_fingerprint(
+    recovered: &Stage5cPendingRecoveredPaperStrategy,
+) -> String {
+    stage5c_state_fingerprint(Strategy::state(recovered.strategy()))
+}
+
+#[cfg(test)]
+pub(crate) fn stage5e_test_owned_strategy_state_fingerprint(
+    strategy: &HybridIntradayRuntimeStrategy,
+) -> String {
+    stage5c_state_fingerprint(Strategy::state(strategy))
 }
 
 #[cfg(test)]
