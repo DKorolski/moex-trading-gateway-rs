@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "stage": "5E-b3d-callback-authority-design",
+  "status": "design_only_pending_review",
+  "baseline_ref": "ff1344f170b8457df91a6038d670087eef3cc1dc",
+  "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
+  "predecessor_stage": "5E-b3c-source-authority-freeze-extension",
+  "predecessor_ref": "ff1344f170b8457df91a6038d670087eef3cc1dc",
+  "expected_provenance_case_count": 214,
+  "input_receipt": {
+    "type": "Stage5eBoundSessionCalendarSequenceForObservedLiveBar",
+    "owner": "strategy_runtime_core::stage5e_no_io_lifecycle::schedule_window_evidence::b3c_evidence",
+    "consumption": "one_future_crate_private_linear_consumer_after_borrowed_preflight",
+    "owned_state_preserved": [
+      "strategy",
+      "recovery_receipt",
+      "accepted_semantic_bar",
+      "schedule_projection",
+      "sequence_identity",
+      "continuation_binding_identity",
+      "effective_observation_and_expiry"
+    ]
+  },
+  "future_output": {
+    "type": "Stage5eCallbackAuthorityReadyPaperStrategy",
+    "callback_ready": true,
+    "callback_invoked": false,
+    "execution_ready": false,
+    "calls_strategy": false,
+    "mutates_strategy": false,
+    "creates_executable_intent": false,
+    "intent_count": 0,
+    "successful_unbinding_allowed": false
+  },
+  "future_transition": {
+    "visibility": "crate_private",
+    "production_clock": "captured_inside_transition",
+    "caller_supplied_production_clock_allowed": false,
+    "test_clock_seam": "cfg_test_only",
+    "consume_order": "borrowed_non_decomposable_preflight_then_single_linear_consume",
+    "revalidations": [
+      "clock_not_before_effective_observation",
+      "clock_not_after_effective_expiry",
+      "accepted_bar_not_future",
+      "continuation_binding_nonzero",
+      "event_key_nonzero",
+      "schedule_identities_nonzero_and_unchanged",
+      "sequence_identity_nonzero_and_unchanged",
+      "ownership_binding_unchanged",
+      "authority_not_previously_issued"
+    ]
+  },
+  "block_contract": {
+    "retryable_type": "Stage5eCallbackAuthorityRetryableBlock",
+    "retryable_reasons": [
+      "ClockBeforeEffectiveObservation",
+      "AcceptedBarObservedInFuture"
+    ],
+    "retryable_conversion": "into_retry_same_receipt",
+    "refresh_type": "Stage5eCallbackAuthorityRefreshEvidenceBlock",
+    "refresh_reasons": [
+      "EvidenceExpired"
+    ],
+    "refresh_conversion": "into_refresh_input",
+    "terminal_type": "Stage5eCallbackAuthorityTerminalBlock",
+    "terminal_reasons": [
+      "ContinuationBindingMissing",
+      "EventKeyMissing",
+      "ScheduleIdentityMissing",
+      "SequenceIdentityMissing",
+      "OwnershipBindingMismatch",
+      "DuplicateAuthorityIssue"
+    ],
+    "terminal_retry_or_refresh_conversion_allowed": false,
+    "autonomous_retry_authorized": false
+  },
+  "deferred_provider_gates": {
+    "finam_schedule_provider_attached": false,
+    "instrument_registry_provider_attached": false,
+    "venue_timezone_mapping_attached": false,
+    "overnight_trading_day_mapping_attached": false,
+    "utc_civil_date_inference_allowed": false
+  },
+  "predecessor_followups_before_runtime_refresh": [
+    "rename_B3B_RefreshScheduleRequired_to_RefreshEvidenceRequired_or_split_expiry_reasons",
+    "type_enforce_B3B_retry_refresh_terminal_before_autonomous_loop",
+    "replace_non_open_test_if_let_with_explicit_Stage4_expect"
+  ],
+  "implementation_review_requirements": [
+    "one_private_issuer_and_consumer",
+    "borrowed_preflight_before_consume",
+    "exact_receipt_preserved_on_retry_and_refresh_blocks",
+    "no_callback_on_any_block",
+    "no_successful_unbinding",
+    "production_clock_revalidation_at_issue_boundary",
+    "callback_authority_distinct_from_callback_invocation",
+    "canonical_Stage4_to_B3C_to_callback_authority_test",
+    "strategy_recovery_fingerprint_unchanged",
+    "compile_fail_construction_clone_extraction_and_direct_callback"
+  ],
+  "closed_surfaces": {
+    "strategy_callback": false,
+    "strategy_state_mutation": false,
+    "executable_intents": false,
+    "strategy_intent_sink": false,
+    "redis": false,
+    "finam_io": false,
+    "transport": false,
+    "dispatch": false,
+    "runtime_live": false,
+    "broker_execution": false,
+    "autonomous_event_loop": false,
+    "schedule_provider_attachment": false,
+    "venue_calendar_inference": false
+  },
+  "protected_source_sha256": {
+    "crates/broker-core/src/stage4_bootstrap.rs": "33455bd4447193f723aa5a749707739d89e2d2ca58b083d416c268a24613bdd7",
+    "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": "7f5e3ad070c1bbc3ddca1e642d59b3f4cf75b9bb0d1651068df363323f1cd427",
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "7457a1b9a2318d84b48dc5dda168782547eeb8e6c5a5bbd3640bb3804b7a8bb8",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "ea75d47c0852a7e031787eeb9af77b73cfc628b1f3da37f8962e839677179671",
+    "Cargo.toml": "1c3e7dd1b83a6a8942e02cb520d49f33ed3ef77f2970854b9fdcddc7f261bc3e",
+    "Cargo.lock": "ff535d0490a848e43631906ee8abd8633630d162714299f7628c0e5fe8a0b36b"
+  },
+  "allowed_changed_paths": [
+    "docs/stage-5/5e-b3d-callback-authority-design.md",
+    "docs/stage-5/stage5e-active-descriptor.json",
+    "docs/stage-5/stage5e-b3d-callback-authority-design-inventory.json",
+    "scripts/handoff_provenance_negative_harness.py",
+    "scripts/handoff_safety_check.py",
+    "scripts/stage5e_b3c_private_eligibility_seam_check.py",
+    "scripts/stage5e_b3c_source_authority_freeze_extension_check.py",
+    "scripts/stage5e_b3d_callback_authority_design_check.py",
+    "scripts/stage5e_descriptor.py",
+    "scripts/stage5e_lifecycle_event_time_gate.sh"
+  ]
+}

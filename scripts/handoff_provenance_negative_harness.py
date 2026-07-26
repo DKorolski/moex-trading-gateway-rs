@@ -608,6 +608,25 @@ def main() -> int:
 
         return apply
 
+    def mutate_stage5e_b3d_inventory_for_checker(mutator):
+        def apply(root, _manifest, _marker):
+            path = (
+                root
+                / "docs/stage-5/stage5e-b3d-callback-authority-design-inventory.json"
+            )
+            payload = json.loads(path.read_text())
+            mutator(payload)
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+        return apply
+
+    def mutate_stage5e_b3d_source_for_checker(path_value, mutator):
+        def apply(root, _manifest, _marker):
+            path = root / path_value
+            path.write_text(mutator(path.read_text()))
+
+        return apply
+
     def mutate_stage5e_b3_module_for_checker(mutator):
         def apply(root, _manifest, _marker):
             path = root / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
@@ -2454,6 +2473,13 @@ def main() -> int:
         Case("stage5e-authority-r1-integrity-blocker-marked-retryable", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("Self::ClockBeforeEffectiveObservation | Self::BarObservedInFuture => {", "Self::ClockBeforeEffectiveObservation | Self::BarObservedInFuture | Self::SequenceIdentityMissing => {", 1)), "5E-b3c-source-authority-freeze-extension", True),
         Case("stage5e-authority-r1-full-stage4-integration-test-removed", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("fn canonical_stage4_to_b3c_chain_uses_real_accepted_evidence_without_io()", "fn removed_canonical_stage4_to_b3c_chain()", 1)), "5E-b3c-source-authority-freeze-extension", True),
         Case("stage5e-authority-r1-stage4-projection-bypassed-in-test", "protected implementation source changed", mutate_stage5e_authority_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("project_accepted_stage4_schedule(&stage4_evidence, LifecycleInstant(now))", "stage4(now, instrument())", 1)), "5E-b3c-source-authority-freeze-extension", True),
+        Case("stage5e-b3d-callback-invocation-opened", "design inventory drift", mutate_stage5e_b3d_inventory_for_checker(lambda p: p["future_output"].__setitem__("callback_invoked", True)), "5E-b3d-callback-authority-design", True),
+        Case("stage5e-b3d-executable-intent-opened", "design inventory drift", mutate_stage5e_b3d_inventory_for_checker(lambda p: p["future_output"].__setitem__("creates_executable_intent", True)), "5E-b3d-callback-authority-design", True),
+        Case("stage5e-b3d-successful-unbinding-opened", "design inventory drift", mutate_stage5e_b3d_inventory_for_checker(lambda p: p["future_output"].__setitem__("successful_unbinding_allowed", True)), "5E-b3d-callback-authority-design", True),
+        Case("stage5e-b3d-terminal-retry-opened", "design inventory drift", mutate_stage5e_b3d_inventory_for_checker(lambda p: p["block_contract"].__setitem__("terminal_retry_or_refresh_conversion_allowed", True)), "5E-b3d-callback-authority-design", True),
+        Case("stage5e-b3d-autonomous-retry-opened", "design inventory drift", mutate_stage5e_b3d_inventory_for_checker(lambda p: p["block_contract"].__setitem__("autonomous_retry_authorized", True)), "5E-b3d-callback-authority-design", True),
+        Case("stage5e-b3d-provider-calendar-inference-opened", "design inventory drift", mutate_stage5e_b3d_inventory_for_checker(lambda p: p["deferred_provider_gates"].__setitem__("utc_civil_date_inference_allowed", True)), "5E-b3d-callback-authority-design", True),
+        Case("stage5e-b3d-production-authority-type-injected", "design-only stage changed protected source", mutate_stage5e_b3d_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("// STAGE5E-B3C-PRODUCTION-BRIDGE-END: trusted-no-io-v1", "// Stage5eCallbackAuthorityReadyPaperStrategy\\n// STAGE5E-B3C-PRODUCTION-BRIDGE-END: trusted-no-io-v1", 1)), "5E-b3d-callback-authority-design", True),
     ]
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)

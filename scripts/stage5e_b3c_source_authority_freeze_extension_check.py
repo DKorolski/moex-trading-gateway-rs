@@ -138,7 +138,27 @@ def main() -> int:
         if sha256(ROOT / rel) != expected:
             fail(f"protected implementation source changed: {rel}")
 
-    if (ROOT / ".git").exists():
+    active_descriptor = json.loads(ACTIVE.read_text())
+    accepted_active_descriptors = {
+        "5E-b3c-source-authority-freeze-extension",
+        "5E-b3d-callback-authority-design",
+    }
+    if (
+        not isinstance(active_descriptor, dict)
+        or set(active_descriptor) != {"schema_version", "stage"}
+        or active_descriptor.get("schema_version") != 1
+        or active_descriptor.get("stage") not in accepted_active_descriptors
+    ):
+        fail("active descriptor drift")
+
+    # This predecessor owns the exact R6 implementation diff only while it is
+    # active. A reviewed descendant owns its own exact diff from the accepted
+    # ff1344f baseline while this checker continues to pin every production
+    # source and authority contract above.
+    if (
+        (ROOT / ".git").exists()
+        and active_descriptor["stage"] == "5E-b3c-source-authority-freeze-extension"
+    ):
         changed = subprocess.check_output(
             ["git", "diff", "--name-only", BASELINE_REF, "--"],
             cwd=ROOT,
@@ -146,11 +166,6 @@ def main() -> int:
         ).splitlines()
         if sorted(changed) != sorted(EXPECTED_ALLOWED_CHANGED_PATHS):
             fail("implementation review diff drift")
-    if json.loads(ACTIVE.read_text()) != {
-        "schema_version": 1,
-        "stage": "5E-b3c-source-authority-freeze-extension",
-    }:
-        fail("active descriptor drift")
 
     plan = PLAN.read_text()
     for marker in (

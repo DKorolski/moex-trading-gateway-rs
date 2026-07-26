@@ -358,6 +358,11 @@ def check_archive(path: Path) -> None:
                 # R6 was reviewed from this exact authority-freeze baseline.
                 expected_stage5e_baseline_ref = "2b2c57d7bacb8e3f1de572b7c35790be906b82a9"
                 expected_stage5e_a_freeze_ref = None
+            elif current_review_stage == "5E-b3d-callback-authority-design":
+                expected_stage5e_baseline_ref = (
+                    "ff1344f170b8457df91a6038d670087eef3cc1dc"
+                )
+                expected_stage5e_a_freeze_ref = None
             else:
                 expected_stage5e_baseline_ref = "9ebbfd29d0346be5149dac746225866f0c8d0257"
                 expected_stage5e_a_freeze_ref = None

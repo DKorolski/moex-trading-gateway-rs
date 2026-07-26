@@ -224,6 +224,7 @@ def main() -> int:
     if json.loads(ACTIVE.read_text()) not in (
         {"schema_version": 1, "stage": "5E-b3c-private-eligibility-seam"},
         {"schema_version": 1, "stage": "5E-b3c-source-authority-freeze-extension"},
+        {"schema_version": 1, "stage": "5E-b3d-callback-authority-design"},
     ):
         fail("active descriptor drift")
     plan = PLAN.read_text()
