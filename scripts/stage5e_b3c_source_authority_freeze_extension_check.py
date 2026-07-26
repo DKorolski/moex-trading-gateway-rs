@@ -16,7 +16,7 @@ PLAN = ROOT / "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md"
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 BASELINE_REF = "2b2c57d7bacb8e3f1de572b7c35790be906b82a9"
 
-EXPECTED_INVENTORY_SHA256 = "d063921a4813b700b43d4b21a84ef88eb84ad335338fd6a0a87a8f8804419d1a"
+EXPECTED_INVENTORY_SHA256 = "0934688589c123a8b42dd9138b0abeb2b91f77236a7f349adad137f1668fb830"
 EXPECTED_PLAN_SHA256 = "2d41f04901c6b72b9031d63eb3219d80100bcb758a701bf77ff495175b67b15f"
 EXPECTED_SOURCE_BASELINES = {
     "crates/broker-core/src/lib.rs": "5d8758624f53a6b46d8903dd3f2339d5bd04f64c9c6490448167f08ac68ec8a2",
@@ -40,6 +40,7 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json",
     "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_provenance_negative_harness.py",
+    "scripts/handoff_safety_check.py",
     "scripts/stage5d_additive_freeze_check.py",
     "scripts/stage5e_b_no_io_lifecycle_check.py",
     "scripts/stage5e_b3_schedule_window_evidence_check.py",
