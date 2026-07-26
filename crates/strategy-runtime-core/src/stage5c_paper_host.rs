@@ -834,6 +834,78 @@ mod stage5d_pair_binding_restore_tests {
 /// It is intentionally neither serializable nor publicly constructible.
 pub(crate) struct Stage5eNoIoBridgeSeal(());
 
+// STAGE5E-B3C-R6-SEALS-BEGIN: additive-no-io-v1
+// These seals are deliberately inert until the separately pinned Stage 5E
+// schedule owner is wired in.  They carry no callback, intent, transport or
+// broker capability.
+#[allow(dead_code)]
+pub(crate) struct Stage5cSequenceCandidateSeal {
+    instrument: InstrumentId,
+    predecessor_close_ts: i64,
+    current_close_ts: i64,
+    timeframe_sec: std::num::NonZeroU32,
+    sequence_observed_at: DateTime<Utc>,
+    sequence_expires_at: DateTime<Utc>,
+}
+
+#[allow(dead_code)]
+pub(crate) struct Stage5cClassifiedSequenceSeal {
+    candidate: Stage5cSequenceCandidateSeal,
+    classification_code: u8,
+    boundary_fingerprint: Option<[u8; 32]>,
+    sequence_identity_fingerprint: [u8; 32],
+}
+
+#[allow(dead_code)]
+impl Stage5cSequenceCandidateSeal {
+    fn new(
+        instrument: InstrumentId,
+        predecessor_close_ts: i64,
+        current_close_ts: i64,
+        timeframe_sec: std::num::NonZeroU32,
+        sequence_observed_at: DateTime<Utc>,
+        sequence_expires_at: DateTime<Utc>,
+    ) -> Option<Self> {
+        (sequence_observed_at <= sequence_expires_at).then_some(Self {
+            instrument,
+            predecessor_close_ts,
+            current_close_ts,
+            timeframe_sec,
+            sequence_observed_at,
+            sequence_expires_at,
+        })
+    }
+
+    fn classify(
+        self,
+        classification_code: u8,
+        boundary_fingerprint: Option<[u8; 32]>,
+    ) -> Stage5cClassifiedSequenceSeal {
+        let mut hasher = Sha256::new();
+        hasher.update(b"stage5e-b3c-market-sequence-v2");
+        hasher.update(self.instrument.symbol.as_bytes());
+        hasher.update(self.predecessor_close_ts.to_be_bytes());
+        hasher.update(self.current_close_ts.to_be_bytes());
+        hasher.update(self.timeframe_sec.get().to_be_bytes());
+        hasher.update(self.sequence_observed_at.timestamp_millis().to_be_bytes());
+        hasher.update(self.sequence_expires_at.timestamp_millis().to_be_bytes());
+        hasher.update([classification_code]);
+        match boundary_fingerprint {
+            Some(value) => {
+                hasher.update([1]);
+                hasher.update(value);
+            }
+            None => hasher.update([0]),
+        }
+        Stage5cClassifiedSequenceSeal {
+            candidate: self,
+            classification_code,
+            boundary_fingerprint,
+            sequence_identity_fingerprint: hasher.finalize().into(),
+        }
+    }
+}
+
 #[allow(dead_code)] // The consumer remains closed outside the Stage 5E test-only proof.
 pub(crate) enum Stage5eNoIoLiveBarAfterHistoryBlocked {
     Contextual {

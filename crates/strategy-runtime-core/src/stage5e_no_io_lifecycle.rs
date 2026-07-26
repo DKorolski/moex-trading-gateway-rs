@@ -379,6 +379,11 @@ mod schedule_window_evidence {
         effective_observed_at: LifecycleInstant,
         expires_at: LifecycleInstant,
         fingerprint: ScheduleFingerprint,
+        /// Retained only inside the schedule owner.  A later sealed classifier
+        /// consumes this projection; Stage 5C never receives these intervals.
+        normalized_sessions: Vec<NormalizedScheduleSession>,
+        normalized_sessions_fingerprint: [u8; 32],
+        normalized_snapshot_identity_fingerprint: [u8; 32],
     }
 
     /// Linear b3b receipt. It deliberately owns both earlier receipts so a
@@ -710,8 +715,9 @@ mod schedule_window_evidence {
                     && session.start.0 <= requested_bar_close.0
                     && requested_bar_close.0 <= session.end.0
             })
-            .ok_or(ScheduleWindowMappingError::NoTradableOpenForRequestedBar)?;
-        let fingerprint = deterministic_fingerprint(&validated, &registry, &stage4, selected);
+            .ok_or(ScheduleWindowMappingError::NoTradableOpenForRequestedBar)?
+            .clone();
+        let fingerprint = deterministic_fingerprint(&validated, &registry, &stage4, &selected);
         Ok(Stage5eScheduleWindowEvidence {
             instrument: validated.snapshot.instrument,
             broker_symbol: validated.snapshot.broker_symbol,
@@ -735,6 +741,9 @@ mod schedule_window_evidence {
                 stage4.expires_at
             },
             fingerprint,
+            normalized_sessions: validated.snapshot.sessions,
+            normalized_sessions_fingerprint: validated.sessions_fingerprint,
+            normalized_snapshot_identity_fingerprint: validated.identity_fingerprint,
         })
     }
 
@@ -2088,6 +2097,13 @@ mod schedule_window_evidence {
                         effective_observed_at: LifecycleInstant(now - chrono::Duration::seconds(1)),
                         expires_at: LifecycleInstant(now + chrono::Duration::seconds(10)),
                         fingerprint: schedule_fingerprint,
+                        normalized_sessions: vec![NormalizedScheduleSession {
+                            session_type: NormalizedSessionType::TradableOpen,
+                            start: MarketBarCloseTime(1_700),
+                            end: MarketBarCloseTime(1_900),
+                        }],
+                        normalized_sessions_fingerprint: [9; 32],
+                        normalized_snapshot_identity_fingerprint: [10; 32],
                     },
                     observed_live_bar:
                         crate::stage5c_paper_host::stage5e_test_observed_live_bar_after_history_at(
