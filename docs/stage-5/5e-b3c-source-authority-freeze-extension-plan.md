@@ -332,3 +332,99 @@ negative harnesses listed in the normative inventory. Omitting a required
 freeze update is a hard failure. This R2 package does not grant that
 implementation permission; acceptance of R2 is a prerequisite for asking for
 it.
+
+## R3 complete topology and canonical-authority correction
+
+R3 is the final governance-only correction before a separately reviewed
+additive implementation package. It resolves the remaining R2 ambiguity: the
+new observed-bar receipt must pass through B3B and B3C without duplicate
+schedule ownership, raw construction or a second linear consumer.
+
+### Complete linear topology
+
+The only future successful path is:
+
+```text
+Stage4 accepted evidence with privately retained dynamic session state
+→ Stage5E normalized schedule owner issues Stage5eScheduleProjectionBridgeInput
+→ Stage5C single issuer consumes recovery + semantic bar + bridge input
+→ Stage5eObservedLiveBarWithSequenceEvidence
+→ B3B bind_schedule_window_sequence_to_observed_live_bar
+→ Stage5eBoundScheduleWindowSequenceForObservedLiveBar
+→ B3C bind_session_calendar_sequence_from_b3b
+→ Stage5eBoundSessionCalendarSequenceForObservedLiveBar
+```
+
+There is no side channel around B3B. The Stage 5C output owns the schedule
+bridge; B3B consumes that one output and retains the schedule, bar, strategy,
+recovery and sequence identity in one monotonic receipt. B3C consumes only
+that B3B receipt and does not accept a raw or separately supplied market
+sequence source.
+
+On a recoverable Stage 5C block all three original inputs are returned. On a
+B3B block the whole observed-bar-with-sequence receipt is returned. On a B3C
+block the whole B3B receipt is returned. No successful receipt provides an
+`into_inputs` or other reverse-construction API.
+
+### Sealed cross-module bridge
+
+`Stage5eScheduleProjectionBridgeInput` is the only value crossing from the
+private Stage 5E schedule owner into `stage5c_paper_host`. It is declared at
+the parent `stage5e_no_io_lifecycle` module as a `pub(crate)` opaque type with
+private fields. Its only constructor is the private nested owner method:
+
+```text
+schedule_window_evidence::issue_schedule_projection_bridge
+```
+
+Stage 5C can consume it but cannot construct, clone, serialize, deserialize,
+default, convert or unwrap it. This is the explicit construction seal that
+keeps normalized interval facts owned by Stage 5E while allowing the one
+linear Stage 5C transition.
+
+### Exact discontinuity algorithm
+
+The bar-close grid has Unix epoch zero as origin. Both endpoint closes must be
+aligned to a positive `timeframe_sec`. For a candidate gap, enumerate exactly:
+
+```text
+t = previous_close + n * timeframe_sec, n >= 1, t < current_close
+```
+
+The current close must be inside a `TradableOpen` interval with inclusive
+closed endpoints. The complete closed range `[previous_close,current_close]`
+must be covered by one same-trading-day normalized snapshot without holes or
+overlaps. Every expected `t` must be covered by exactly one normalized
+interval and none may be `TradableOpen`; only `BreakOrClearing` and
+`Maintenance` qualify. Unknown, uncovered or cross-day ranges block. Overnight,
+weekend and holiday inference are not authorized until a separately reviewed
+multi-day coverage receipt exists.
+
+### Canonical nested identities
+
+All identities use SHA-256 over tagged, length-prefixed canonical bytes; no
+`Debug`, JSON/serde representation, platform integer width or free-form string
+is permitted. The normative inventory pins domain/version, field order, enum
+codes, integer timestamp units and IEEE-754 `to_bits` encoding for:
+
+- Stage 3 provenance;
+- accepted semantic bar;
+- pending recovery receipt;
+- retained Stage 4 dynamic session;
+- non-tradable boundary;
+- sequence identity; and
+- continuation binding.
+
+The new semantic receipt retains only its canonical Stage 3 provenance digest,
+not a raw mutable DTO. Receipts are never persisted or reconstructed: a
+restart repeats the complete accepted chain through B3C, and a later test must
+prove pre-restart and post-restart identities cannot be mixed.
+
+### Required predecessor governance update set
+
+The implementation package must update both B and B3 predecessor plans,
+inventories and checkers, in addition to Stage 5C/5D freeze artifacts and the
+existing evidence harnesses. The exact required and unchanged path sets are in
+the inventory. Omission of any listed predecessor checker/manifest update is a
+hard failure; the active descriptor registry and lifecycle gate remain
+unchanged for this implementation.

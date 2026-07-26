@@ -2030,6 +2030,125 @@ def main() -> int:
             "5E-b3c-source-authority-freeze-extension",
             True,
         ),
+        Case(
+            "stage5e-authority-r3-output-bypasses-b3b",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["b3b_b3c_topology_contract"].pop("b3b_transition")
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r3-sequence-dropped-before-b3c",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["b3b_b3c_topology_contract"]["b3b_transition"][
+                    "output_owns"
+                ].remove("sequence_source_fingerprint")
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r3-projection-reused-twice",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["cross_module_bridge_contract"].__setitem__(
+                    "sole_consumer", "multiple_consumers_allowed"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r3-projection-raw-visible",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["cross_module_bridge_contract"].__setitem__(
+                    "visibility", "pub(crate)_fields_visible"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r3-cross-module-alternate-constructor",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["cross_module_bridge_contract"].__setitem__(
+                    "sole_constructor", "stage5c_paper_host::new_projection"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r3-expected-close-grid-relaxed",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["expected_close_boundary_algorithm"].__setitem__(
+                    "candidate_membership", "any_non_open_candidate"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r3-cross-day-gap-accepted",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["expected_close_boundary_algorithm"].__setitem__(
+                    "cross_trading_day", "accept"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r3-stage3-fingerprint-constant",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["identity_derivation_contract"]["stage3_provenance_identity"].__setitem__(
+                    "algorithm", "constant"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r3-recovery-identity-field-removed",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["identity_derivation_contract"]["recovery_receipt_identity"][
+                    "fields_in_order"
+                ].pop()
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r3-b3-checker-update-omitted",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["required_predecessor_governance_update_paths"].remove(
+                    "scripts/stage5e_b3_schedule_window_evidence_check.py"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r3-b-checker-update-omitted",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["required_predecessor_governance_update_paths"].remove(
+                    "scripts/stage5e_b_no_io_lifecycle_check.py"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
     ]
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)

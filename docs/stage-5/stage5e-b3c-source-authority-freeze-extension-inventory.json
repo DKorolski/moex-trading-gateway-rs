@@ -1,10 +1,10 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "stage": "5E-b3c-source-authority-freeze-extension",
-  "status": "authority_freeze_r2_pending_review",
-  "baseline_ref": "b232437aa09a516541d35a7379fb2ac5521faa0c",
+  "status": "authority_freeze_r3_pending_review",
+  "baseline_ref": "80331a45cd2f6f4fe308a0a396ca6b1b74d01237",
   "predecessor_stage": "5E-b3c-private-eligibility-seam",
-  "expected_provenance_case_count": 154,
+  "expected_provenance_case_count": 165,
   "production_source_baselines": {
     "crates/broker-core/src/lib.rs": "5d8758624f53a6b46d8903dd3f2339d5bd04f64c9c6490448167f08ac68ec8a2",
     "crates/broker-core/src/operational_config.rs": "492905c6e404ee67f62ad456128ff659cd4a32c8e638936b94b5ea14ff3ba2f8",
@@ -13,7 +13,7 @@
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "76bade52f3ebb309475812b617823825a3b7e4838bf89f9eb297ca2bbffbf821"
   },
   "implementation_authorization": {
-    "authority_freeze_r2_reviewed": false,
+    "authority_freeze_r3_reviewed": false,
     "production_source_changes_allowed": false,
     "trusted_combined_eligibility": false,
     "unverified_sequence_production_authoritative": false
@@ -23,31 +23,88 @@
     "owner_source_types": ["ValidatedNormalizedInstrumentScheduleSnapshot", "AcceptedInstrumentRegistryEvidence", "AcceptedStage4ScheduleEvidence"],
     "source_paths": ["crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", "crates/broker-core/src/stage4_bootstrap.rs"],
     "replacement_transition": "map_trusted_schedule_projection",
-    "output": "Stage5eAcceptedScheduleProjectionEvidence",
+    "output": "Stage5eScheduleProjectionBridgeInput",
     "projection_fields": ["full_instrument_id", "venue_mic", "board", "trading_day", "source_contract_version", "source_observed_at", "source_expires_at", "normalized_snapshot_identity_fingerprint", "normalized_sessions_fingerprint", "stage4_dynamic_session_fingerprint", "selected_open_window", "optional_exact_non_tradable_boundary"],
-    "exact_non_tradable_boundary_proof": "normalized_sessions_contain_only_non_tradable_interval_between_previous_and_current_close_and_no_expected_tradable_close",
+    "exact_non_tradable_boundary_proof": "expected_close_grid_is_completely_covered_by_same_trading_day_normalized_sessions_and_every_expected_close_is_non_tradable",
     "caller_supplied_boundary_boolean_allowed": false,
     "stage4_dynamic_open_source": "Stage4AcceptedPaperHostEvidence_private_retained_BrokerMarketSessionState_projected_only_into_AcceptedStage4ScheduleEvidence",
     "stage4_dynamic_open_required": "BrokerMarketSessionState::Open",
     "stage4_receipt_issue_point": "build_stage4_accepted_paper_host_evidence_after_accepted_report_and_before_Stage5C_admission_consumes_evidence"
   },
+  "cross_module_bridge_contract": {
+    "type": "Stage5eScheduleProjectionBridgeInput",
+    "defined_in": "strategy_runtime_core::stage5e_no_io_lifecycle",
+    "visibility": "pub(crate)_opaque_type_with_private_fields",
+    "sole_constructor": "schedule_window_evidence::issue_schedule_projection_bridge",
+    "constructor_visibility": "private_nested_owner_only",
+    "sole_consumer": "stage5e_try_observe_live_bar_after_history_with_sequence_evidence",
+    "consumer_module": "strategy_runtime_core::stage5c_paper_host",
+    "raw_constructor_in_stage5c_allowed": false,
+    "derive_forbidden": ["Clone", "Copy", "Serialize", "Deserialize", "Default", "From", "Into"],
+    "success_unwrap_allowed": false,
+    "blocked_retry_return": "Stage5eScheduleProjectionBridgeInput_returned_unmodified_with_other_linear_inputs"
+  },
   "linear_transition_contract": {
     "replaced_parallel_issuers": ["issue_stage5c_accepted_market_sequence_evidence", "stage5e_try_observe_live_bar_after_history"],
     "single_issuer": "stage5e_try_observe_live_bar_after_history_with_sequence_evidence",
     "owner_path": "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
-    "inputs_in_order": ["Stage5cPendingRecoveredPaperStrategy", "Stage5cAcceptedSemanticBar", "Stage5eAcceptedScheduleProjectionEvidence"],
+    "inputs_in_order": ["Stage5cPendingRecoveredPaperStrategy", "Stage5cAcceptedSemanticBar", "Stage5eScheduleProjectionBridgeInput"],
     "output": "Stage5eObservedLiveBarWithSequenceEvidence",
     "output_owns": ["strategy", "recovery_receipt", "accepted_semantic_bar", "canonical_predecessor_close", "sequence_classification", "schedule_projection", "sequence_source_fingerprint"],
     "sequence_classes": ["Contiguous", "ApprovedNonTradableBoundary"],
     "contiguous_rule": "current_canonical_close_ts == previous_canonical_close_ts + timeframe_sec",
-    "boundary_rule": "only_optional_exact_non_tradable_boundary_from_same_Stage5eAcceptedScheduleProjectionEvidence",
+    "boundary_rule": "only_optional_exact_non_tradable_boundary_inside_same_consumed_Stage5eScheduleProjectionBridgeInput",
     "blocked_transition": "Stage5eObservedLiveBarWithSequenceEvidenceBlocked",
-    "blocked_returns": ["Stage5cPendingRecoveredPaperStrategy", "Stage5cAcceptedSemanticBar", "Stage5eAcceptedScheduleProjectionEvidence"],
+    "blocked_returns": ["Stage5cPendingRecoveredPaperStrategy", "Stage5cAcceptedSemanticBar", "Stage5eScheduleProjectionBridgeInput"],
     "callback_or_intent_allowed": false
+  },
+  "b3b_b3c_topology_contract": {
+    "b3b_transition": {
+      "issuer": "bind_schedule_window_sequence_to_observed_live_bar",
+      "owner_path": "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
+      "input": "Stage5eObservedLiveBarWithSequenceEvidence",
+      "output": "Stage5eBoundScheduleWindowSequenceForObservedLiveBar",
+      "output_owns": ["strategy", "recovery_receipt", "accepted_semantic_bar", "schedule_projection", "sequence_classification", "sequence_source_fingerprint", "b3b_event_key_fingerprint"],
+      "binding_checks": ["exact_instrument", "selected_open_window_inclusive_closed", "projection_freshness", "observed_bar_not_future", "sequence_identity_nonzero"],
+      "event_key_domain": "stage5e-b3b-schedule-observed-sequence-binding-v2",
+      "event_key_fields_in_order": ["schedule_window_identity_fingerprint", "full_instrument_id", "semantic_bar_close_ts", "sequence_source_fingerprint"],
+      "blocked": "Stage5eScheduleWindowSequenceObservedBarBlocked",
+      "blocked_returns": ["Stage5eObservedLiveBarWithSequenceEvidence"]
+    },
+    "b3c_transition": {
+      "issuer": "bind_session_calendar_sequence_from_b3b",
+      "owner_path": "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs::schedule_window_evidence::b3c_evidence",
+      "input": "Stage5eBoundScheduleWindowSequenceForObservedLiveBar",
+      "output": "Stage5eBoundSessionCalendarSequenceForObservedLiveBar",
+      "output_owns": ["b3b_receipt", "dynamic_open_identity", "normalized_schedule_identity", "sequence_source_fingerprint", "continuation_binding_id"],
+      "raw_unverified_sequence_source_allowed": false,
+      "successful_receipt_is_monotonic": true,
+      "blocked": "Stage5eSessionCalendarSequenceBlocked",
+      "blocked_returns": ["Stage5eBoundScheduleWindowSequenceForObservedLiveBar"]
+    },
+    "no_successful_receipt_into_inputs": true
+  },
+  "expected_close_boundary_algorithm": {
+    "timeframe_requirement": "timeframe_sec > 0",
+    "grid_origin": "unix_epoch_seconds_zero",
+    "endpoint_alignment": "previous_close_ts % timeframe_sec == 0 and current_close_ts % timeframe_sec == 0",
+    "candidate_set": "all_t = previous_close_ts + n*timeframe_sec where n >= 1 and t < current_close_ts",
+    "selected_current_bar_requirement": "current_close_ts must be inside a TradableOpen interval with inclusive_closed endpoints",
+    "coverage_requirement": "one ValidatedNormalizedInstrumentScheduleSnapshot for its exact trading_day must cover the closed range [previous_close_ts,current_close_ts] without a hole or overlapping interval",
+    "candidate_membership": "each candidate must be covered by exactly one normalized interval; any candidate in TradableOpen blocks boundary acceptance; every candidate must be BreakOrClearing or Maintenance",
+    "unknown_or_uncovered": "block",
+    "multiple_non_tradable_intervals": "allowed only when complete coverage and candidate_membership hold",
+    "cross_trading_day": "block; one snapshot is one trading_day and no cross-day or overnight inference is authorized",
+    "weekend_holiday": "block unless a future separately reviewed multi-day normalized coverage receipt exists",
+    "boundary_fingerprint": {
+      "domain": "stage5e-b3c-non-tradable-boundary-v1",
+      "algorithm": "sha256_tagged_length_prefixed_canonical_bytes",
+      "fields_in_order": ["normalized_snapshot_identity_fingerprint", "normalized_sessions_fingerprint", "trading_day_iso8601", "timeframe_sec_u32_be", "previous_close_ts_i64_be", "current_close_ts_i64_be", "candidate_set", "covering_interval_type_start_end_tuples"]
+    }
   },
   "identity_derivation_contract": {
     "mutable_generation_allowed": false,
-    "restart_model": "receipts_are_not_persisted_or_reconstructed; restart_repeats_Stage4_acceptance_schedule_validation_history_warmup_pending_recovery_and_single_issuer",
+    "restart_model": "receipts_are_not_persisted_or_reconstructed; restart_repeats_Stage4_acceptance_schedule_validation_history_warmup_pending_recovery_single_issuer_B3B_and_B3C",
     "schedule_snapshot_identity": {
       "domain": "stage5e-b3-normalized-snapshot-v2",
       "algorithm": "existing_normalized_snapshot_payload_fingerprint",
@@ -58,23 +115,49 @@
       "algorithm": "existing_deterministic_fingerprint",
       "fields_in_order": ["schedule_snapshot_identity", "selected_session_type", "selected_interval", "stage4_dynamic_session_fingerprint"]
     },
-    "sequence_identity": {
-      "domain": "stage5e-b3c-market-sequence-v1",
+    "stage3_provenance_identity": {
+      "domain": "stage5e-b3c-stage3-provenance-v1",
       "algorithm": "sha256_tagged_length_prefixed_canonical_bytes",
-      "fields_in_order": ["full_instrument_id", "accepted_stage3_provenance_fingerprint", "semantic_bar_origin", "semantic_bar_close_ts", "semantic_bar_ohlcv_exact_bits", "timeframe_sec", "canonical_predecessor_close_ts", "recovery_receipt_identity", "sequence_classification", "optional_boundary_fingerprint"]
+      "source_mode_codes": {"AlorNativeBarsGetAndSubscribeTf600": 1, "AlorStandDerivedM1ToM10": 2, "FinamDerivedM1ToM10": 3, "FinamNativeM10": 4, "RawFinamM1": 5},
+      "fields_in_order": ["source_mode_code_u8", "source_timeframe_option_tag_u8_and_u32_be", "target_timeframe_sec_u32_be", "aggregation_complete_bool_u8", "gap_absence_proven_bool_u8"]
+    },
+    "semantic_bar_identity": {
+      "domain": "stage5e-b3c-semantic-bar-v1",
+      "algorithm": "sha256_tagged_length_prefixed_canonical_bytes",
+      "origin_codes": {"History": 1, "HistoryGap": 2, "Live": 3, "Replay": 4},
+      "fields_in_order": ["full_instrument_id", "close_time_utc_i64_be", "open_high_low_close_volume_f64_to_bits_u64_be", "origin_code_u8", "is_final_bool_u8", "timeframe_sec_u32_be", "stage3_provenance_identity"]
+    },
+    "recovery_receipt_identity": {
+      "domain": "stage5e-b3c-recovery-receipt-v1",
+      "algorithm": "sha256_tagged_length_prefixed_canonical_bytes",
+      "source_mode_codes": {"AlorNativeBarsGetAndSubscribeTf600": 1, "AlorStandDerivedM1ToM10": 2, "FinamDerivedM1ToM10": 3, "FinamNativeM10": 4, "RawFinamM1": 5},
+      "fields_in_order": ["restore_receipt_restored_ts_millis_i64_be", "history_warmup_started_ts_millis_i64_be", "history_processed_bars_u64_be", "history_input_bars_u64_be", "history_source_mode_code_u8", "last_history_ts_i64_be", "recovered_ts_millis_i64_be", "replayed_events_u64_be", "duplicate_events_u64_be"]
+    },
+    "stage4_dynamic_session_identity": {
+      "domain": "stage5e-b3c-stage4-dynamic-session-v1",
+      "algorithm": "sha256_tagged_length_prefixed_canonical_bytes",
+      "session_state_codes": {"Open": 1, "Closed": 2, "Break": 3, "Maintenance": 4, "Unknown": 255},
+      "fields_in_order": ["full_instrument_id", "session_state_code_u8", "stage4_report_schema_version_u16_be", "stage4_report_checked_ts_millis_i64_be", "schedule_observed_ts_millis_i64_be", "schedule_expires_ts_millis_i64_be", "stage4_schedule_source_identity"]
+    },
+    "sequence_identity": {
+      "domain": "stage5e-b3c-market-sequence-v2",
+      "algorithm": "sha256_tagged_length_prefixed_canonical_bytes",
+      "fields_in_order": ["stage3_provenance_identity", "semantic_bar_identity", "recovery_receipt_identity", "canonical_predecessor_close_ts_i64_be", "sequence_class_code_u8", "optional_boundary_option_tag_and_fingerprint"]
     },
     "continuation_binding": {
       "rust_type": "Stage5eContinuationBindingId",
-      "domain": "stage5e-continuation-binding-v2",
+      "domain": "stage5e-continuation-binding-v3",
       "algorithm": "sha256_tagged_length_prefixed_canonical_bytes",
-      "fields_in_order": ["b3b_event_key_fingerprint", "schedule_snapshot_identity_fingerprint", "schedule_window_identity_fingerprint", "sequence_identity_fingerprint"],
+      "fields_in_order": ["b3b_event_key_fingerprint", "schedule_snapshot_identity_fingerprint", "schedule_window_identity_fingerprint", "stage4_dynamic_session_fingerprint", "sequence_identity_fingerprint"],
       "constant_epoch_allowed": false
     }
   },
   "future_production_implementation_paths": ["crates/broker-core/src/stage4_bootstrap.rs", "crates/broker-core/src/lib.rs", "crates/strategy-runtime-core/src/stage5c_paper_host.rs", "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"],
-  "required_governance_update_paths": ["docs/stage-5/stage-5c-api-freeze-manifest.json", "docs/stage-5/stage-5d-additive-freeze-manifest.json", "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md", "docs/stage-5/stage5e-b3c-private-eligibility-seam-inventory.json", "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/forbidden_surface_negative_harness.py", "scripts/handoff_provenance_negative_harness.py", "scripts/handoff_safety_check.py", "scripts/stage5c_api_freeze_check.py", "scripts/stage5d_additive_freeze_check.py", "scripts/stage5d_additive_freeze_negative_harness.py", "scripts/stage5e_b3c_private_eligibility_seam_check.py", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py"],
-  "required_implementation_tests": ["stage4_dynamic_open_is_retained_from_accepted_input", "stage4_non_open_blocks_schedule_projection", "schedule_projection_proves_exact_non_tradable_boundary", "schedule_projection_rejects_caller_boundary_boolean", "single_linear_issuer_preserves_strategy_recovery_and_bar", "parallel_sequence_issuer_is_absent", "contiguous_sequence_accepts", "exact_boundary_sequence_accepts", "unclassified_gap_blocks_and_returns_all_inputs", "every_identity_field_changes_its_fingerprint", "restart_reissues_fresh_authority_without_generation_counter", "freeze_manifest_and_checker_updates_present"],
-  "required_negative_mutations": ["dynamic_open_state_not_retained", "boundary_uses_caller_boolean", "boundary_interval_source_removed", "parallel_stage5c_issuer_reintroduced", "combined_output_drops_strategy_or_recovery", "combined_output_drops_semantic_bar", "sequence_fingerprint_constant", "schedule_identity_field_removed", "restart_uses_persisted_receipt", "required_freeze_update_path_omitted"],
+  "required_predecessor_governance_update_paths": ["docs/stage-5/5e-b-no-io-lifecycle-capability-plan.md", "docs/stage-5/stage5e-b-no-io-lifecycle-inventory.json", "docs/stage-5/5e-b3-schedule-window-evidence-plan.md", "docs/stage-5/stage5e-b3-schedule-window-evidence-inventory.json", "docs/stage-5/5e-b3c-private-eligibility-seam-plan.md", "docs/stage-5/stage5e-b3c-private-eligibility-seam-inventory.json", "scripts/stage5e_b_no_io_lifecycle_check.py", "scripts/stage5e_b3_schedule_window_evidence_check.py", "scripts/stage5e_b3c_private_eligibility_seam_check.py"],
+  "required_governance_update_paths": ["docs/stage-5/stage-5c-api-freeze-manifest.json", "docs/stage-5/stage-5d-additive-freeze-manifest.json", "docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/forbidden_surface_negative_harness.py", "scripts/handoff_provenance_negative_harness.py", "scripts/handoff_safety_check.py", "scripts/stage5c_api_freeze_check.py", "scripts/stage5d_additive_freeze_check.py", "scripts/stage5d_additive_freeze_negative_harness.py", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py"],
+  "required_unchanged_active_stage_paths": ["docs/stage-5/stage5e-active-descriptor.json", "scripts/stage5e_descriptor.py", "scripts/stage5e_lifecycle_event_time_gate.sh"],
+  "required_implementation_tests": ["stage4_dynamic_open_is_retained_from_accepted_input", "stage4_non_open_blocks_schedule_projection", "schedule_projection_bridge_cannot_be_raw_constructed_or_reused", "single_linear_issuer_preserves_strategy_recovery_and_bar", "B3B_consumes_new_output_and_retains_sequence_identity", "B3C_consumes_B3B_without_unverified_sequence", "expected_close_grid_accepts_exact_break_boundary", "expected_close_grid_rejects_tradable_candidate_hole_cross_day_and_uncovered_range", "every_nested_identity_field_changes_its_fingerprint", "restart_reissues_full_receipt_chain_without_identity_mixing", "all_required_predecessor_and_freeze_updates_present"],
+  "required_negative_mutations": ["new_output_bypasses_B3B", "sequence_evidence_dropped_before_B3C", "schedule_projection_reused_twice", "projection_made_raw_crate_visible", "cross_module_alternate_constructor", "expected_close_grid_relaxed", "cross_day_gap_accepted_without_coverage", "stage3_fingerprint_constant", "recovery_identity_field_removed", "B3_checker_update_omitted", "B_predecessor_checker_update_omitted"],
   "closed_surfaces": ["strategy_callback", "strategy_state_mutation", "executable_intents", "strategy_intent_sink", "redis", "finam_io", "transport", "dispatch", "runtime_live", "broker_execution", "autonomous_event_loop"],
   "allowed_changed_paths": ["docs/stage-5/5e-b3c-source-authority-freeze-extension-plan.md", "docs/stage-5/stage5e-b3c-source-authority-freeze-extension-inventory.json", "scripts/handoff_provenance_negative_harness.py", "scripts/handoff_safety_check.py", "scripts/stage5e_b3c_source_authority_freeze_extension_check.py"]
 }
