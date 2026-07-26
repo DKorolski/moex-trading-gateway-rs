@@ -428,3 +428,53 @@ existing evidence harnesses. The exact required and unchanged path sets are in
 the inventory. Omission of any listed predecessor checker/manifest update is a
 hard failure; the active descriptor registry and lifecycle gate remain
 unchanged for this implementation.
+
+## R4 candidate flow, continuation freshness and Stage 4 source identity
+
+R4 closes the final authority gaps without changing production source. It
+chooses the sealed-classifier route: schedule projection does not precompute a
+candidate-specific boundary before it has the candidate facts.
+
+### Sealed candidate classification
+
+`Stage5eScheduleProjectionBridgeInput` retains trusted normalized sessions,
+the selected Open window and immutable identities, but never an optional
+boundary derived without a predecessor/current bar pair. The only candidate
+object is opaque `Stage5eSequenceCandidateContext`, built by
+`stage5c_paper_host` from the recovered canonical predecessor, accepted final
+semantic bar and admitted timeframe. It has no raw timestamp constructor.
+
+Inside the sole Stage 5C issuer, the private schedule-owner method
+`classify_sequence_against_projection` receives only the projection and this
+sealed context. It returns exactly `Contiguous`,
+`ApprovedNonTradableBoundary(fingerprint)` or `Blocked(reason)`. Stage 5C never
+receives raw normalized sessions and cannot perform calendar inference itself.
+
+### Grid-only boundary proof
+
+The authority object is the discrete bar-close grid, not continuous wall-clock
+coverage. Previous/current endpoints and every strict-interior expected close
+must each have exactly one classification in the same trading-day snapshot.
+The current endpoint must be `TradableOpen`; every strict-interior candidate
+must be `BreakOrClearing` or `Maintenance`. An interior `TradableOpen`,
+unknown, uncovered or cross-day point blocks. No continuous-range inference is
+permitted.
+
+### B3C continuation freshness
+
+`bind_session_calendar_sequence_from_b3b` captures production `Utc::now()` at
+entry. Before success it verifies that the clock is not before effective
+observations, not after effective expiry, and not before the observed bar
+close. It revalidates Stage 4 dynamic-session and normalized-schedule
+freshness. The deterministic `_at` variant is `cfg(test)` only. A block returns
+the full B3B receipt; success stores `bound_at` and `effective_expires_at` and
+remains monotonic.
+
+### Stage 4 schedule-section identity
+
+`stage4_schedule_source_identity` means only a canonical fingerprint of the
+accepted Stage 4 report's Schedule source section; it does not claim a raw
+broker snapshot identity. Its domain, section/status/freshness enum codes,
+option encoding, age, max-age, bootstrap flags, report schema/timestamp and
+target instrument are pinned in the inventory. Debug/serde formatting and a
+constant source identifier are prohibited.

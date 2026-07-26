@@ -2149,6 +2149,105 @@ def main() -> int:
             "5E-b3c-source-authority-freeze-extension",
             True,
         ),
+        Case(
+            "stage5e-authority-r4-boundary-precomputed-without-candidate",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["boundary_authority_contract"].__setitem__(
+                    "candidate_specific_boundary_precomputed", True
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r4-caller-timestamps-enter-owner",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["boundary_authority_contract"]["owner_source_types"].append(
+                    "caller_previous_current_timeframe"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r4-sealed-classifier-bypassed",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["sealed_candidate_classifier_contract"].__setitem__(
+                    "classifier", "stage5c_caller_boolean"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r4-b3c-clock-removed",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["b3b_b3c_topology_contract"]["b3c_transition"].pop(
+                    "production_clock"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r4-b3c-expiry-check-removed",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["b3b_b3c_topology_contract"]["b3c_transition"][
+                    "continuation_checks"
+                ].remove("clock_not_after_effective_expires_at")
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r4-b3c-test-clock-production-visible",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["b3b_b3c_topology_contract"]["b3c_transition"].__setitem__(
+                    "test_clock_seam", "pub(crate)_production_visible"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r4-stage4-schedule-identity-constant",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["identity_derivation_contract"]["stage4_schedule_source_identity"].__setitem__(
+                    "algorithm", "constant"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r4-stage4-schedule-identity-field-removed",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["identity_derivation_contract"]["stage4_schedule_source_identity"][
+                    "fields_in_order"
+                ].pop()
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r4-continuous-coverage-reintroduced",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["expected_close_boundary_algorithm"].__setitem__(
+                    "coverage_requirement", "continuous_closed_range"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
     ]
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)
