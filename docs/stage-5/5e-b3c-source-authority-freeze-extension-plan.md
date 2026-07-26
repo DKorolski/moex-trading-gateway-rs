@@ -1,8 +1,10 @@
 # Stage 5E-b3c source-authority freeze extension — design only
 
-Status: proposed additive freeze extension. This package changes no Stage 4,
+Status: R5 proposed additive freeze extension. This package changes no Stage 4,
 Stage 5C, broker, transport, runtime or strategy source. It exists to obtain a
-reviewed contract before any such source change is permitted.
+reviewed contract before any such source change is permitted. R5 below is the
+sole operative implementation contract; R1--R4 record the decisions that led
+to it and are superseded wherever they differ.
 
 Baseline: `936250e675ac15b61a7a4e319b59e508cd834f30`.
 
@@ -130,12 +132,12 @@ particular, `on_broker_bar`, strategy state mutation, intent construction,
 intent sink, Redis, FINAM I/O, transport, dispatch, runtime-live, autonomous
 event loops and broker execution are not authorized.
 
-## R1 exact governance contract
+## R1 historical governance contract
 
-This R1 revision is the implementation contract; the JSON inventory is
-normative and its complete canonical object and this complete plan are
-hash-pinned by the active checker. No prose, owner, schema or algorithm may be
-silently substituted.
+R1 established the governance baseline. Its implementation topology was
+superseded by R2--R5; it is retained only to explain the lineage. The complete
+R5 contract below, together with the JSON inventory, is normative and
+hash-pinned by the active checker.
 
 ### Exact owner paths and issuing transitions
 
@@ -247,11 +249,11 @@ ValidatedNormalizedInstrumentScheduleSnapshot
 
 The projection retains the exact instrument, venue, board, trading day,
 validated normalized sessions, source observations/expiry and the accepted
-Stage 4 dynamic-session projection. It is the sole producer of both a selected
-tradable-open window and an optional discontinuity proof. A discontinuity is
-valid only when the normalized interval set proves that no expected tradable
-close exists between the stated canonical closes. A caller timestamp pair or
-boolean can never stand in for that proof.
+Stage 4 dynamic-session projection. It produces a selected tradable-open
+window, but never an optional discontinuity proof. Candidate-specific boundary
+classification is deferred until the canonical predecessor, accepted final bar
+and admitted timeframe are sealed by the Stage 5C owner. A caller timestamp
+pair or boolean can never stand in for that proof.
 
 Stage 4 remains the authority for *current* broker session state and freshness.
 The later implementation must retain `BrokerMarketSessionState` privately in
@@ -287,8 +289,9 @@ Contiguous
   current_close == previous_close + timeframe
 
 ApprovedNonTradableBoundary
-  exact optional boundary from the same accepted schedule projection proves
-  no expected tradable close exists between the two canonical closes
+  the sealed Stage 5C candidate is classified against the same consumed
+  schedule projection; its discrete expected-close grid proves no interior
+  tradable close exists between the two canonical closes
 ```
 
 No callback is invoked and no intent is created in this transition.
@@ -391,14 +394,13 @@ aligned to a positive `timeframe_sec`. For a candidate gap, enumerate exactly:
 t = previous_close + n * timeframe_sec, n >= 1, t < current_close
 ```
 
-The current close must be inside a `TradableOpen` interval with inclusive
-closed endpoints. The complete closed range `[previous_close,current_close]`
-must be covered by one same-trading-day normalized snapshot without holes or
-overlaps. Every expected `t` must be covered by exactly one normalized
-interval and none may be `TradableOpen`; only `BreakOrClearing` and
-`Maintenance` qualify. Unknown, uncovered or cross-day ranges block. Overnight,
-weekend and holiday inference are not authorized until a separately reviewed
-multi-day coverage receipt exists.
+The previous endpoint, current endpoint and every strict-interior expected
+`t` must each have exactly one classification in one same-trading-day
+normalized snapshot. The current endpoint must be `TradableOpen`; interior
+points may be only `BreakOrClearing` or `Maintenance`. Unknown, uncovered,
+interior `TradableOpen` or cross-day points block. Continuous wall-clock range
+coverage, overnight, weekend and holiday inference are not authorized until a
+separately reviewed multi-day receipt exists.
 
 ### Canonical nested identities
 
@@ -429,26 +431,21 @@ the inventory. Omission of any listed predecessor checker/manifest update is a
 hard failure; the active descriptor registry and lifecycle gate remain
 unchanged for this implementation.
 
-## R4 candidate flow, continuation freshness and Stage 4 source identity
+## R4 historical candidate-flow correction
 
-R4 closes the final authority gaps without changing production source. It
-chooses the sealed-classifier route: schedule projection does not precompute a
-candidate-specific boundary before it has the candidate facts.
+R4 established the required direction without changing production source:
+schedule projection must not precompute a candidate-specific boundary before it
+has candidate facts. Its initial candidate/classifier visibility sketch is
+superseded by the implementable R5 construction seal below.
 
 ### Sealed candidate classification
 
 `Stage5eScheduleProjectionBridgeInput` retains trusted normalized sessions,
 the selected Open window and immutable identities, but never an optional
-boundary derived without a predecessor/current bar pair. The only candidate
-object is opaque `Stage5eSequenceCandidateContext`, built by
-`stage5c_paper_host` from the recovered canonical predecessor, accepted final
-semantic bar and admitted timeframe. It has no raw timestamp constructor.
-
-Inside the sole Stage 5C issuer, the private schedule-owner method
-`classify_sequence_against_projection` receives only the projection and this
-sealed context. It returns exactly `Contiguous`,
-`ApprovedNonTradableBoundary(fingerprint)` or `Blocked(reason)`. Stage 5C never
-receives raw normalized sessions and cannot perform calendar inference itself.
+boundary derived without a predecessor/current bar pair. R5 defines the sole
+candidate seal, classifier bridge, ownership and blocked-return mechanics.
+Stage 5C never receives raw normalized sessions and cannot perform calendar
+inference itself.
 
 ### Grid-only boundary proof
 
@@ -478,3 +475,132 @@ broker snapshot identity. Its domain, section/status/freshness enum codes,
 option encoding, age, max-age, bootstrap flags, report schema/timestamp and
 target instrument are pinned in the inventory. Debug/serde formatting and a
 constant source identifier are prohibited.
+
+## R5 consolidated implementable authority contract
+
+R5 resolves the remaining R4 implementation ambiguity without changing
+production source. This section replaces every earlier topology statement that
+conflicts with it. There is exactly one authority flow:
+
+```text
+Stage 4 accepted Open evidence
+→ Stage 5E schedule owner issues Stage5eScheduleProjectionBridgeInput
+→ sole Stage 5C issuer borrows recovered strategy + accepted final bar
+→ Stage 5C builds one opaque Stage5cSequenceCandidateSeal
+→ consumed projection becomes one opaque Stage5eScheduleCandidateClassifier
+→ the seal invokes its sole classifier method with that classifier
+→ classification plus the original linear inputs form
+  Stage5eObservedLiveBarWithSequenceEvidence
+→ B3B → B3C
+```
+
+There is no optional precomputed boundary, no raw schedule-session export and
+no second classifier or candidate constructor.
+
+### Exact cross-module construction seal
+
+`Stage5cSequenceCandidateSeal` is defined in
+`strategy_runtime_core::stage5c_paper_host` as a `pub(crate)` opaque,
+non-`Clone`, non-`Copy` type with private fields. Its only constructor is the
+private `build_stage5c_sequence_candidate_seal` inside
+`stage5e_try_observe_live_bar_after_history_with_sequence_evidence`. It
+**borrows** `Stage5cPendingRecoveredPaperStrategy` and
+`Stage5cAcceptedSemanticBar`; it owns only canonical scalar copies and private
+identity/freshness fields. Consequently a block retains the original linear
+inputs unchanged and the ephemeral seal is dropped.
+
+The seal owns exactly: full instrument identity, canonical predecessor close,
+accepted final current close, non-zero admitted timeframe, semantic-bar and
+recovery identities, `sequence_observed_at`, `sequence_expires_at` and the
+sequence identity. It has no getter, serializer, raw constructor, conversion,
+`Default`, `Debug`, `Clone` or `Copy` implementation.
+
+`Stage5eScheduleCandidateClassifier` is defined in
+`strategy_runtime_core::stage5e_no_io_lifecycle::schedule_window_evidence` as
+a `pub(crate)` opaque, non-serializable linear type with private fields. Its
+only constructor consumes `Stage5eScheduleProjectionBridgeInput` in
+`into_stage5e_schedule_candidate_classifier`. Its only callable classification
+entry is the crate-private
+`Stage5eScheduleCandidateClassifier::classify_from_stage5c_seal_fields`; the
+only allowed call site is the private `Stage5cSequenceCandidateSeal` method
+`classify_with_owned_projection`. That method is itself callable only from the
+sole Stage 5C issuer. It transfers predecessor/current/timeframe directly from
+the seal's private fields; no caller can construct a classifier or supply a
+free candidate tuple. The classifier consumes both values and returns either:
+
+```text
+Approved(classification, returned_projection)
+Blocked(reason, returned_projection)
+```
+
+The caller keeps the borrowed recovered strategy and accepted bar in both
+branches. It emits the observed-bar-with-sequence receipt only on `Approved`;
+on `Blocked` it returns exactly the original recovered strategy, accepted bar
+and returned projection. No raw normalized session is visible outside the
+Stage 5E owner.
+
+`Stage5eObservedLiveBarWithSequenceEvidence` is defined in
+`stage5c_paper_host` as a `pub(crate)` opaque, private-field, non-Clone/non-
+Copy/non-Serialize receipt. Its only constructor is the same sole Stage 5C
+issuer and its only consumer is
+`bind_schedule_window_sequence_to_observed_live_bar` in the Stage 5E B3B
+owner. It has no free/raw constructor, `into_inputs`, callback or intent API.
+
+### Sequence freshness and exact receipt lifetime
+
+The Stage 5C issuer captures production `Utc::now()` once, after canonical
+predecessor/finality admission and before candidate construction. This value is
+`sequence_observed_at`; the `_at` test seam is `cfg(test)` only. The candidate
+is accepted only when:
+
+```text
+recovery_recovered_at <= sequence_observed_at
+current_final_bar_close <= sequence_observed_at
+sequence_observed_at - current_final_bar_close <= admitted_timeframe_sec
+```
+
+The explicit max-age policy is exactly one admitted timeframe. Its lifetime is:
+
+```text
+sequence_expires_at = min(
+  recovered_bootstrap_broker_truth_expires_at,
+  sequence_observed_at + Duration::seconds(admitted_timeframe_sec)
+)
+```
+
+Both B3B and B3C revalidate `sequence_observed_at <= clock <=
+sequence_expires_at`; a stale or future sequence blocks and returns the whole
+linear predecessor receipt. `sequence_observed_at`, `sequence_expires_at` and
+the admitted timeframe are included in the canonical sequence identity in the
+inventory. The schedule projection already defines:
+
+```text
+projection_effective_observed_at = max(stage4_dynamic_observed_at,
+                                      normalized_schedule_observed_at)
+projection_expires_at = min(stage4_dynamic_expires_at,
+                             normalized_schedule_expires_at)
+```
+
+B3C captures `bound_at = Utc::now()` exactly once and succeeds only when it is
+not before both effective observations, not after either expiry and not before
+the accepted bar close. The exact successful-receipt formula is:
+
+```text
+effective_expires_at = min(projection_expires_at, sequence_expires_at)
+effective_observed_at = max(projection_effective_observed_at,
+                            sequence_observed_at)
+```
+
+No maximum, copied source expiry, omitted sequence expiry or independently
+chosen TTL is permitted. Stage 4 Schedule-section `age_ms` is intentionally
+part of its identity: it records the accepted report's admission-time freshness
+evaluation, not an immutable raw broker-snapshot identity.
+
+### R5 implementation gates
+
+The implementation package must prove the single constructor and call-site
+seals, sealed candidate blocked ownership, sequence freshness at B3B and B3C,
+the exact `min(...)` effective expiry, and no raw observed-bar-with-sequence
+construction. Negative mutations listed in the inventory are mandatory. This
+remains no-I/O/no-callback/no-intent work until a later separately reviewed
+stage authorizes anything else.

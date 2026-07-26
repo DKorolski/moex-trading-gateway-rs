@@ -293,7 +293,7 @@ def check_archive(path: Path) -> None:
                 expected_stage5e_baseline_ref = "95861577ce3acc11963104bb5a313a82f6f82bdb"
                 expected_stage5e_a_freeze_ref = None
             elif current_review_stage == "5E-b3c-source-authority-freeze-extension":
-                expected_stage5e_baseline_ref = "15430c661732695da5cb0767b716fe72774f3f2d"
+                expected_stage5e_baseline_ref = "aac17b6e75605d26768b8de2d0aa053767f628e7"
                 expected_stage5e_a_freeze_ref = None
             else:
                 expected_stage5e_baseline_ref = "9ebbfd29d0346be5149dac746225866f0c8d0257"

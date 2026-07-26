@@ -2248,6 +2248,118 @@ def main() -> int:
             "5E-b3c-source-authority-freeze-extension",
             True,
         ),
+        Case(
+            "stage5e-authority-r5-candidate-owner-changed",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["sealed_candidate_classifier_contract"].__setitem__(
+                    "candidate_defined_in", "strategy_runtime_core::stage5e_no_io_lifecycle"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r5-second-candidate-constructor",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["sealed_candidate_classifier_contract"].__setitem__(
+                    "candidate_sole_constructor", "alternate_free_candidate_constructor"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r5-candidate-raw-scalar-escape",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["sealed_candidate_classifier_contract"].__setitem__(
+                    "candidate_getters_or_raw_scalar_escape_allowed", True
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r5-classifier-alternate-constructor",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["sealed_candidate_classifier_contract"].__setitem__(
+                    "classifier_sole_constructor", "alternate_projection_classifier_constructor"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r5-classifier-call-site-duplicated",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["sealed_candidate_classifier_contract"].__setitem__(
+                    "classifier_sole_call_site", "two_or_more_stage5c_call_sites"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r5-precomputed-boundary-prose-restored",
+            "authority freeze plan drift",
+            mutate_stage5e_authority_plan_for_checker(
+                lambda text: text.replace(
+                    "There is no optional precomputed boundary, no raw schedule-session export and",
+                    "The projection is the sole producer of an optional precomputed boundary and",
+                    1,
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r5-sequence-freshness-removed",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["b3b_b3c_topology_contract"]["b3c_transition"][
+                    "continuation_checks"
+                ].remove("sequence_fresh")
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r5-sequence-expiry-policy-removed",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["b3b_b3c_topology_contract"]["b3c_transition"].pop(
+                    "sequence_expiry_policy"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r5-effective-expiry-max",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["b3b_b3c_topology_contract"]["b3c_transition"].__setitem__(
+                    "effective_expires_at_formula", "max(projection_expires_at, sequence_expires_at)"
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
+        Case(
+            "stage5e-authority-r5-observed-bar-raw-constructible",
+            "authority freeze contract drift",
+            mutate_stage5e_authority_inventory_for_checker(
+                lambda payload: payload["observed_live_bar_with_sequence_construction_seal"].__setitem__(
+                    "alternate_or_raw_constructor_allowed", True
+                )
+            ),
+            "5E-b3c-source-authority-freeze-extension",
+            True,
+        ),
     ]
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)
