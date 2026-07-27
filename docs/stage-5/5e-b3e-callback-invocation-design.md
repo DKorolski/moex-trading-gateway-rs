@@ -2,10 +2,10 @@
 
 ## Status and baseline
 
-This is the governance-only B3E-r6 closure. Its accepted design predecessor is:
+This is the governance-only B3E-r7 closure. Its accepted design predecessor is:
 
 ```text
-4378f576a7da6389b219de18340f69949fb76625
+175b172b61e580d4db81aad8182020fabd38e482
 ```
 
 The immutable Rust implementation predecessor remains:
@@ -274,7 +274,10 @@ The only linear authority consume method is:
 Stage5eCallbackAuthorityReadyPaperStrategy::consume_for_callback(
     Stage5eCallbackInvocationSeal,
     Stage5eB3eInvocationConsumeContext
-) -> Stage5eAuthorizedPaperCallbackPayload
+) -> Result<
+    Stage5eAuthorizedPaperCallbackPayload,
+    Stage5eCallbackInvocationTerminalBlock
+>
 ```
 
 The authority consume method has one call site, inside
@@ -286,7 +289,10 @@ Stage5eBoundSessionCalendarSequenceForObservedLiveBar::
     consume_for_authorized_callback(
         Stage5eB3eNestedConsumeSeal,
         Stage5eB3eInvocationConsumeContext
-    ) -> Stage5eAuthorizedPaperCallbackPayload
+    ) -> Result<
+        Stage5eAuthorizedPaperCallbackPayload,
+        Stage5eCallbackInvocationTerminalBlock
+    >
 ```
 
 `Stage5eB3eNestedConsumeSeal` has one constructor in the authority consume
@@ -558,6 +564,7 @@ InvalidAuthorityChronology
 InstrumentIdentityMissing
 OwnedIdentityMismatch
 CallbackAuthorityIdMismatch
+MaterializationIntegrityMismatch
 ```
 
 The terminal block owns no reusable authority receipt and provides no retry,
@@ -621,6 +628,55 @@ post-consume, fail-closed result: it returns no strategy, recovery receipt,
 authority, or alternate success material. It cannot panic, retry, refresh, or
 reconstruct the consumed authority chain. The callback count on this path is
 zero.
+
+The Stage 5C terminal type is frozen as:
+
+```text
+pub(crate) opaque Stage5eStage5cMaterializationTerminalBlock
+owner = strategy_runtime_core::stage5c_paper_host
+private zero-sized fields
+sole constructor =
+    construct_stage5e_stage5c_materialization_terminal_block
+sole reason = MaterializationIntegrityMismatch
+```
+
+It has no raw reason getter and forbids `Debug`, `Clone`, `Copy`, `Default`,
+`From`, `Into`, `Serialize`, and `Deserialize`. It owns and returns no
+strategy, recovery receipt, authority, or callback material.
+
+The exact propagation path is:
+
+```text
+consume_stage5c_for_authorized_callback
+  -> Err(Stage5eStage5cMaterializationTerminalBlock)
+B3C consume branch
+  -> map_stage5c_materialization_terminal_to_callback_terminal(
+         block,
+         &Stage5eB3eNestedConsumeSeal
+     )
+  -> Err(Stage5eCallbackInvocationTerminalBlock {
+         reason: MaterializationIntegrityMismatch
+     })
+nested consume
+  -> same Err
+authority consume
+  -> same Err
+invoke_stage5e_authorized_paper_callback
+  -> same Err to caller
+```
+
+`map_stage5c_materialization_terminal_to_callback_terminal` is owned by
+`callback_authority`, is `pub(crate)` only for the B3C sibling, consumes the
+opaque zero-sized Stage 5C block, requires a borrow of the still-owned nested
+consume seal, and has one definition and one B3C call site. Because the source
+block represents exactly one reason, the mapper does not inspect private Stage
+5C fields. Generic `From`/`Into`, alternate mapping, success mapping,
+retryable mapping, panic, swallowing, or a second conversion are forbidden.
+
+On this path callback count and intent count are both zero. The consumed
+strategy, recovery receipt, and authority are never returned. The caller sees
+only the redacted top-level reason and must rebuild the full chain from fresh
+accepted evidence.
 
 The payload must be the accepted final `Live` M10 bar already carried by the
 authority chain. It cannot be cloned from scalar fields, reconstructed,

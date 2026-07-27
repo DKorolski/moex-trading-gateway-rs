@@ -17,12 +17,12 @@ INVENTORY = (
 )
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3e-callback-invocation-design"
-BASELINE_REF = "4378f576a7da6389b219de18340f69949fb76625"
+BASELINE_REF = "175b172b61e580d4db81aad8182020fabd38e482"
 EXPECTED_PLAN_SHA256 = (
-    "182fdd3970550bca0b354677f5e0fa3cdf288e8d94812e4aa91fd927bc718f94"
+    "55e2f080cc6fe7aa0fb91c53fa524cf8b385d49d7716afeff82df6af4ee8a849"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "7ae6563168b51ca661b7997b9cc4eb774967d876e057954ae461a298ae5aae1c"
+    "87e7ef104787c4632279f80e76fefd75fefd1064ab02fc1a376d0f9c34b15b03"
 )
 EXPECTED_B3D_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -89,7 +89,7 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(inventory.get("stage"), STAGE, "stage identity drift")
     require_exact(
         inventory.get("status"),
-        "design_only_r6_pending_review",
+        "design_only_r7_pending_review",
         "design-only status drift",
     )
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
@@ -120,8 +120,13 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
     require_exact(
         inventory.get("accepted_b3e_r5_ref"),
-        BASELINE_REF,
+        "4378f576a7da6389b219de18340f69949fb76625",
         "accepted B3E-r5 ref drift",
+    )
+    require_exact(
+        inventory.get("accepted_b3e_r6_ref"),
+        BASELINE_REF,
+        "accepted B3E-r6 ref drift",
     )
     require_exact(
         inventory.get("accepted_b3d_implementation_ref"),
@@ -130,7 +135,7 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        309,
+        318,
         "negative-matrix count drift",
     )
     require_exact(
@@ -314,11 +319,21 @@ def check_inventory(inventory: dict[str, object]) -> None:
         "Stage5eCallbackInvocationSeal_and_Stage5eB3eInvocationConsumeContext",
         "authority consume context transport drift",
     )
+    require_exact(
+        topology["authority_consume_output"],
+        "Result<Stage5eAuthorizedPaperCallbackPayload,Stage5eCallbackInvocationTerminalBlock>",
+        "authority consume fallibility drift",
+    )
     require_exact(topology["authority_consume_call_site_count"], 1, "second authority consumer opened")
     require_exact(
         topology["nested_consume_method"],
         "Stage5eBoundSessionCalendarSequenceForObservedLiveBar::consume_for_authorized_callback_with_nested_seal_and_invocation_context",
         "nested consume method drift",
+    )
+    require_exact(
+        topology["nested_consume_output"],
+        "Result<Stage5eAuthorizedPaperCallbackPayload,Stage5eCallbackInvocationTerminalBlock>",
+        "nested consume fallibility drift",
     )
     require_exact(
         topology["nested_consume_seal"],
@@ -505,6 +520,31 @@ def check_inventory(inventory: dict[str, object]) -> None:
             "alternate_success_material_allowed": False,
         },
         "Stage5C materialization failure policy drift",
+    )
+    require_exact(
+        material["terminal_type_contract"],
+        {
+            "type": "Stage5eStage5cMaterializationTerminalBlock",
+            "owner": "strategy_runtime_core::stage5c_paper_host",
+            "visibility": "pub_crate_opaque_private_zero_sized_fields",
+            "constructor": "construct_stage5e_stage5c_materialization_terminal_block",
+            "constructor_count": 1,
+            "constructor_call_site_count": 1,
+            "sole_reason": "MaterializationIntegrityMismatch",
+            "raw_reason_accessor_allowed": False,
+            "returns_consumed_material": False,
+            "forbidden_traits": [
+                "Debug",
+                "Clone",
+                "Copy",
+                "Default",
+                "From",
+                "Into",
+                "Serialize",
+                "Deserialize",
+            ],
+        },
+        "Stage5C materialization terminal type drift",
     )
     require_exact(
         material["material_visibility"],
@@ -832,9 +872,52 @@ def check_inventory(inventory: dict[str, object]) -> None:
             "InstrumentIdentityMissing",
             "OwnedIdentityMismatch",
             "CallbackAuthorityIdMismatch",
+            "MaterializationIntegrityMismatch",
         ],
         "terminal reason taxonomy drift",
     )
+    require_exact(terminal["reason_visibility"], "redacted_caller_visible_enum", "terminal reason visibility drift")
+    require_exact(
+        terminal["materialization_mapping"],
+        {
+            "model": "unified_top_level_terminal_reason",
+            "source": "Stage5eStage5cMaterializationTerminalBlock",
+            "destination": "Stage5eCallbackInvocationTerminalBlock(MaterializationIntegrityMismatch)",
+            "mapper": "map_stage5c_materialization_terminal_to_callback_terminal",
+            "mapper_owner": "callback_authority",
+            "mapper_visibility": "pub_crate_nested_capability_gated",
+            "mapper_capability": "&Stage5eB3eNestedConsumeSeal",
+            "mapper_definition_count": 1,
+            "mapper_call_site_count": 1,
+            "mapper_call_site_owner": "b3c_evidence",
+            "generic_from_allowed": False,
+            "alternate_mapping_allowed": False,
+            "retryable_mapping_allowed": False,
+        },
+        "materialization terminal mapping drift",
+    )
+    require_exact(
+        terminal["propagation_chain"],
+        [
+            "stage5c_materialization_Result_Err",
+            "b3c_maps_once_to_top_level_terminal",
+            "nested_consume_returns_Err_top_level_terminal",
+            "authority_consume_propagates_same_Err",
+            "top_level_invocation_returns_same_Err",
+        ],
+        "materialization terminal propagation drift",
+    )
+    for field in (
+        "materialization_terminal_callback_count",
+        "materialization_terminal_intent_count",
+    ):
+        require_exact(terminal[field], 0, f"materialization terminal side effect opened: {field}")
+    for field in (
+        "materialization_terminal_returns_strategy",
+        "materialization_terminal_returns_recovery_receipt",
+        "materialization_terminal_returns_authority",
+    ):
+        require_exact(terminal[field], False, f"materialization terminal ownership returned: {field}")
     for field in (
         "returns_authority_receipt",
         "retry_allowed",
@@ -1088,8 +1171,8 @@ def check_accepted_source_is_unchanged() -> None:
 def check_plan_markers() -> None:
     text = PLAN.read_text()
     for marker in (
-        "This is the governance-only B3E-r6 closure",
-        "4378f576a7da6389b219de18340f69949fb76625",
+        "This is the governance-only B3E-r7 closure",
+        "175b172b61e580d4db81aad8182020fabd38e482",
         "93d365ae51f2f6ad94954782a27bc49857fe21ff",
         "invoke_stage5e_authorized_paper_callback",
         "Stage5eCallbackInvocationSeal",
@@ -1112,6 +1195,7 @@ def check_plan_markers() -> None:
         "construct_audit_lineage_from_consumed_nested_material",
         "Stage5eStage5cMaterializationTerminalBlock",
         "MaterializationIntegrityMismatch",
+        "map_stage5c_materialization_terminal_to_callback_terminal",
         "issue_stage5c_b3e_callback_material_seal",
         "Stage5cB3eCallbackExecutionSeal",
         "Stage5eStage5cPostCallbackMaterial",
