@@ -2,10 +2,10 @@
 
 ## Status and baseline
 
-This is the governance-only B3E-r4 closure. Its accepted design predecessor is:
+This is the governance-only B3E-r5 closure. Its accepted design predecessor is:
 
 ```text
-a41ec4420736c66b92425f0f977fc9957d611df3
+135c3d1ed923d80c0c3de03e9d9e9d4a279985d3
 ```
 
 The immutable Rust implementation predecessor remains:
@@ -110,6 +110,43 @@ The Stage 5C callback input `strategy_now_ts_utc` and escrow
 `callback_invoked_at` must derive from the same context value and compare
 exactly equal. Context fields have no getters, partial extraction, default,
 refresh, alternate constructor, or second consumer.
+
+The exact sibling-access seam is:
+
+```text
+Stage5eB3eInvocationConsumeContext::consume_for_nested_b3c(
+    self,
+    nested_consume_capability: &Stage5eB3eNestedConsumeSeal
+) -> Stage5eB3eNestedInvocationMaterial
+```
+
+The method is owned by `callback_authority`, has one call site in the B3C
+consume bridge, destructures the private context internally, and calls exactly
+one B3C-owned constructor:
+
+```text
+pub(crate) b3c_evidence::construct_nested_invocation_material(
+    callback_now,
+    callback_authority_id,
+    issued_at,
+    effective_observed_at,
+    authority_expires_at,
+    full_instrument_id,
+    accepted_semantic_bar_identity,
+    b3b_event_key_fingerprint,
+    b3c_continuation_binding_id,
+    sequence_identity_fingerprint,
+    nested_consume_capability: &Stage5eB3eNestedConsumeSeal
+) -> Stage5eB3eNestedInvocationMaterial
+```
+
+`Stage5eB3eNestedInvocationMaterial` is owned by `b3c_evidence`, is
+`pub(crate)` opaque with private fields, has one capability-gated constructor
+and one consumer inside `consume_for_authorized_callback`. B3C can therefore
+read its own private material and pass the exact `callback_now` scalar to Stage
+5C without exposing context fields or getters. The context and nested material
+forbid `Clone`, `Copy`, `From`, `Into`, serialization, raw getters, generic
+parts, alternate construction, and second consumption.
 
 ## Invocation seal and borrowed preflight
 
@@ -405,6 +442,27 @@ callback authority ID, issued_at, and exact authority expiry
 accepted semantic-bar identity and full InstrumentId
 ```
 
+The lineage owner is `callback_authority`; the type is `pub(crate)` opaque
+with private fields. B3C creates it through one exact owner constructor:
+
+```text
+pub(crate) fn construct_stage5e_authorized_callback_audit_lineage(
+    owned_schedule_projection_and_window_identity,
+    owned_sequence_classification_boundary_identity_and_chronology,
+    owned_b3b_event_key_and_effective_chronology,
+    owned_b3c_continuation_binding_and_chronology,
+    nested_invocation_material: &Stage5eB3eNestedInvocationMaterial,
+    nested_consume_capability: &Stage5eB3eNestedConsumeSeal
+) -> Stage5eAuthorizedCallbackAuditLineage
+```
+
+The constructor has one definition and one B3C call site. It reads outer
+authority metadata only from the B3C-owned nested invocation material, binds
+all exact fields above, and moves the lineage only into
+`Stage5eAuthorizedPaperCallbackPayload`. There is no second constructor,
+owner change, reconstruction, default, raw getter, generic parts, or alternate
+destination.
+
 The nested bridge moves the existing Stage 5C material and audit lineage. It
 must not clone/reconstruct them, widen field visibility, add generic
 `into_parts`, or add raw getters. The blocked path never calls either consume
@@ -588,18 +646,23 @@ authority. The design does not introduce `catch_unwind`.
 The callback result has one ownership representation only:
 
 ```text
-enum Stage5ePaperCallbackOutcome {
+pub(crate) struct Stage5ePaperCallbackOutcome {
+    inner: PrivateStage5ePaperCallbackOutcome,
+}
+
+private enum PrivateStage5ePaperCallbackOutcome {
     Ok(Vec<BrokerNeutralHybridIntent>),
     ValidationError(HybridRuntimeCallbackValidationError),
 }
 ```
 
-The enum is produced by moving, not cloning, the exact
+The wrapper and private enum are owned by `callback_authority`. The inner
+variants are not crate-visible. The wrapper is produced by moving, not
+cloning, the exact
 `BrokerNeutralHybridCallbackResult`. There is no second result field and no
 second intent vector.
 
-The outcome owner is `callback_authority`. Its variants are not exposed for
-general inspection. The Stage 5C callback consumer may create it only through:
+The Stage 5C callback consumer may create it only through:
 
 ```text
 pub(crate) fn move_stage5e_paper_callback_outcome(
@@ -611,7 +674,21 @@ pub(crate) fn move_stage5e_paper_callback_outcome(
 This is the sole move constructor and sole call site. It requires a borrow of
 the still-owned callback-execution capability. There is no alternate
 constructor, result clone, second representation, raw intent getter, or
-variant inspection outside the future separately reviewed settlement owner.
+crate-wide variant inspection.
+
+Future inspection is reserved to one separately reviewed settlement seam:
+
+```text
+Stage5ePaperCallbackOutcome::consume_for_settlement(
+    self,
+    Stage5ePaperCallbackOutcomeInspectionSeal
+) -> Stage5eSettlementOwnedCallbackOutcome
+```
+
+`Stage5ePaperCallbackOutcomeInspectionSeal` is owned by the future settlement
+module, has private fields and no constructor in B3E. The settlement-owned
+output is opaque outside that owner. Neither the seal, consume method, nor
+settlement output is implemented or constructible in this stage.
 
 ## Exact payload-to-callback-to-escrow transfer
 
@@ -663,6 +740,14 @@ That Stage 5C bridge remains the only call site of the escrow owner's sole
 constructor:
 
 ```text
+Stage5eStage5cPostCallbackMaterial::construct_result_escrow(
+    self,
+    audit_lineage: Stage5eAuthorizedCallbackAuditLineage,
+    callback_invoked_at,
+    callback_authority_id,
+    seal: Stage5eEscrowConstructionSeal
+) -> Stage5ePaperCallbackResultEscrow
+
 construct_stage5e_paper_callback_result_escrow(
     mutated_strategy,
     recovery_receipt,
@@ -751,6 +836,14 @@ The implementation stage is not authorized until a separate review accepts:
 - authorized payload owner-private constructor and sole pre/post-callback
   consumption proof, including nested-capability construction enforcement;
 - callback outcome sole move-constructor and settlement-only inspection proof;
+- context-to-B3C nested material capability, private-field, and linearity
+  compile-fail proof including `Copy`, `From`, and `Into`;
+- opaque outcome wrapper/private-inner-enum proof and no external variant
+  construction or inspection;
+- audit-lineage owner, exact field vector, sole capability constructor, one
+  destination, and no reconstruction proof;
+- exact Stage 5C post-callback sibling bridge method/signature and one-call
+  proof;
 - exact nested consume payload, single seal issuer, and single call-site proof;
 - single callback-outcome ownership/no intent clone proof;
 - blocked paths proving callback count `0` and intent count `0`;

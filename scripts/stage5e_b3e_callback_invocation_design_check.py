@@ -17,12 +17,12 @@ INVENTORY = (
 )
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3e-callback-invocation-design"
-BASELINE_REF = "a41ec4420736c66b92425f0f977fc9957d611df3"
+BASELINE_REF = "135c3d1ed923d80c0c3de03e9d9e9d4a279985d3"
 EXPECTED_PLAN_SHA256 = (
-    "0534a24530e47d3c02f1aeee7f41298554fc9c3d3f95552ecbf34246ed794aa9"
+    "7e2572dd6cac068dc4a66045f20a8fceac00d1c929f5f36fc6d3c46b4dd87cfd"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "143aaa8b98053c809220bfd96267064069dad9c044d2904bc3679eb8a200c56a"
+    "e81a4cf7e01efbcce10b7267ddc15040e85ce3da27c52c53d2afcfa9ac360607"
 )
 EXPECTED_B3D_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -89,7 +89,7 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(inventory.get("stage"), STAGE, "stage identity drift")
     require_exact(
         inventory.get("status"),
-        "design_only_r4_pending_review",
+        "design_only_r5_pending_review",
         "design-only status drift",
     )
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
@@ -110,8 +110,13 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
     require_exact(
         inventory.get("accepted_b3e_r3_ref"),
-        BASELINE_REF,
+        "a41ec4420736c66b92425f0f977fc9957d611df3",
         "accepted B3E-r3 ref drift",
+    )
+    require_exact(
+        inventory.get("accepted_b3e_r4_ref"),
+        BASELINE_REF,
+        "accepted B3E-r4 ref drift",
     )
     require_exact(
         inventory.get("accepted_b3d_implementation_ref"),
@@ -120,7 +125,7 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        290,
+        300,
         "negative-matrix count drift",
     )
     require_exact(
@@ -165,6 +170,42 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(consume_context["constructor_count"], 1, "invocation context constructor count drift")
     require_exact(consume_context["consumer_count"], 1, "invocation context consumer count drift")
     require_exact(
+        consume_context["access_method"],
+        "Stage5eB3eInvocationConsumeContext::consume_for_nested_b3c",
+        "invocation context nested access seam drift",
+    )
+    require_exact(consume_context["access_method_call_site_count"], 1, "context access call-site drift")
+    require_exact(
+        consume_context["access_capability"],
+        "&Stage5eB3eNestedConsumeSeal",
+        "context access capability drift",
+    )
+    require_exact(
+        consume_context["nested_output_owner"],
+        "b3c_evidence",
+        "nested invocation material owner drift",
+    )
+    require_exact(
+        consume_context["nested_output_visibility"],
+        "pub_crate_opaque_private_fields",
+        "nested invocation material fields widened",
+    )
+    require_exact(
+        consume_context["nested_output_constructor"],
+        "b3c_evidence::construct_nested_invocation_material",
+        "nested invocation material constructor drift",
+    )
+    require_exact(
+        consume_context["nested_output_constructor_count"],
+        1,
+        "nested invocation material constructor count drift",
+    )
+    require_exact(
+        consume_context["nested_output_consumer_count"],
+        1,
+        "nested invocation material consumer count drift",
+    )
+    require_exact(
         consume_context["fields"],
         [
             "callback_now",
@@ -202,6 +243,9 @@ def check_inventory(inventory: dict[str, object]) -> None:
     for forbidden in (
         "raw_getters",
         "partial_extraction",
+        "Copy",
+        "From",
+        "Into",
         "alternate_constructor",
         "second_consumer",
         "caller_clock",
@@ -540,8 +584,50 @@ def check_inventory(inventory: dict[str, object]) -> None:
         "post-callback bar metadata reconstruction opened",
     )
 
+    audit = inventory["audit_lineage_contract"]
+    require_exact(audit["owner"], "callback_authority", "audit lineage owner drift")
     require_exact(
-        inventory["audit_lineage_contract"]["outer_authority_sources"],
+        audit["visibility"],
+        "pub_crate_opaque_private_fields",
+        "audit lineage fields widened",
+    )
+    require_exact(
+        audit["fields"],
+        [
+            "schedule_projection_and_selected_window_identity",
+            "sequence_classification_and_optional_boundary_fingerprint",
+            "sequence_identity_observed_at_and_expires_at",
+            "b3b_event_key_and_effective_chronology",
+            "b3c_continuation_binding_bound_at_and_effective_chronology",
+            "callback_authority_id_issued_at_and_exact_expiry",
+            "accepted_semantic_bar_identity_and_full_instrument_id",
+        ],
+        "audit lineage field vector drift",
+    )
+    require_exact(
+        audit["constructor"],
+        "construct_stage5e_authorized_callback_audit_lineage",
+        "audit lineage constructor drift",
+    )
+    require_exact(audit["constructor_definition_count"], 1, "audit lineage constructor count drift")
+    require_exact(audit["constructor_call_site_count"], 1, "audit lineage constructor call-site drift")
+    require_exact(
+        audit["constructor_capability"],
+        "&Stage5eB3eNestedConsumeSeal",
+        "audit lineage constructor capability drift",
+    )
+    require_exact(
+        audit["source_authority_material"],
+        "&Stage5eB3eNestedInvocationMaterial",
+        "audit lineage authority source drift",
+    )
+    require_exact(
+        audit["sole_destination"],
+        "Stage5eAuthorizedPaperCallbackPayload",
+        "audit lineage destination drift",
+    )
+    require_exact(
+        audit["outer_authority_sources"],
         {
             "callback_authority_id": "invocation_consume_context_callback_authority_id",
             "issued_at": "invocation_consume_context_issued_at",
@@ -550,6 +636,8 @@ def check_inventory(inventory: dict[str, object]) -> None:
         },
         "outer authority metadata lineage transport drift",
     )
+    require_exact(audit["second_constructor_allowed"], False, "second audit lineage constructor opened")
+    require_exact(audit["alternate_destination_allowed"], False, "alternate audit lineage destination opened")
 
     context = inventory["canonical_callback_input_contract"]
     require_exact(
@@ -692,10 +780,13 @@ def check_inventory(inventory: dict[str, object]) -> None:
     outcome = inventory["callback_outcome_contract"]
     require_exact(outcome["owner"], "callback_authority", "callback outcome owner drift")
     require_exact(
-        outcome["visibility"],
-        "pub_crate_opaque_settlement_inspection_only",
-        "callback outcome visibility drift",
+        outcome["representation"],
+        "pub_crate_opaque_struct_with_private_inner_enum",
+        "callback outcome representation drift",
     )
+    require_exact(outcome["wrapper_visibility"], "pub_crate_private_fields", "outcome wrapper fields widened")
+    require_exact(outcome["inner_type"], "PrivateStage5ePaperCallbackOutcome", "private outcome type drift")
+    require_exact(outcome["inner_visibility"], "private_owner_only", "outcome variants exposed")
     require_exact(
         outcome["variants"],
         [
@@ -721,6 +812,23 @@ def check_inventory(inventory: dict[str, object]) -> None:
         "&Stage5cB3eCallbackExecutionSeal",
         "callback outcome execution capability drift",
     )
+    require_exact(
+        outcome["future_inspection_method"],
+        "Stage5ePaperCallbackOutcome::consume_for_settlement",
+        "future outcome inspection seam drift",
+    )
+    require_exact(
+        outcome["future_inspection_seal"],
+        "Stage5ePaperCallbackOutcomeInspectionSeal",
+        "future outcome inspection seal drift",
+    )
+    require_exact(
+        outcome["future_inspection_seal_constructible_in_b3e"],
+        False,
+        "outcome inspection opened in B3E",
+    )
+    require_exact(outcome["external_variant_construction_allowed"], False, "external outcome construction opened")
+    require_exact(outcome["external_variant_inspection_allowed"], False, "external outcome inspection opened")
     require_exact(outcome["intent_vector_owner_count"], 1, "intent ownership duplicated")
     require_exact(outcome["intent_clone_allowed"], False, "intent clone opened")
     require_exact(
@@ -777,6 +885,32 @@ def check_inventory(inventory: dict[str, object]) -> None:
         construction["post_callback_consume_call_site_count"],
         1,
         "post-callback escrow bridge call-site count drift",
+    )
+    require_exact(
+        construction["stage5c_sibling_bridge"],
+        "Stage5eStage5cPostCallbackMaterial::construct_result_escrow",
+        "Stage5C post-callback sibling bridge drift",
+    )
+    require_exact(
+        construction["stage5c_sibling_bridge_visibility"],
+        "pub_crate_seal_gated",
+        "Stage5C sibling bridge visibility drift",
+    )
+    require_exact(
+        construction["stage5c_sibling_bridge_call_site_count"],
+        1,
+        "Stage5C sibling bridge call-site count drift",
+    )
+    require_exact(
+        construction["stage5c_sibling_bridge_inputs"],
+        [
+            "self",
+            "Stage5eAuthorizedCallbackAuditLineage",
+            "callback_invoked_at",
+            "callback_authority_id",
+            "Stage5eEscrowConstructionSeal",
+        ],
+        "Stage5C sibling bridge signature drift",
     )
     require_exact(
         construction["constructor"],
@@ -865,8 +999,8 @@ def check_accepted_source_is_unchanged() -> None:
 def check_plan_markers() -> None:
     text = PLAN.read_text()
     for marker in (
-        "This is the governance-only B3E-r4 closure",
-        "a41ec4420736c66b92425f0f977fc9957d611df3",
+        "This is the governance-only B3E-r5 closure",
+        "135c3d1ed923d80c0c3de03e9d9e9d4a279985d3",
         "93d365ae51f2f6ad94954782a27bc49857fe21ff",
         "invoke_stage5e_authorized_paper_callback",
         "Stage5eCallbackInvocationSeal",
@@ -876,10 +1010,16 @@ def check_plan_markers() -> None:
         "consume_stage5c_for_authorized_callback",
         "Stage5eStage5cAuthorizedCallbackMaterial",
         "Stage5eB3eInvocationConsumeContext",
+        "consume_for_nested_b3c",
+        "Stage5eB3eNestedInvocationMaterial",
+        "construct_nested_invocation_material",
         "construct_stage5e_authorized_paper_callback_payload",
         "Stage5eAuthorizedPostCallbackPayload",
         "invoke_callback_once_in_authority",
         "move_stage5e_paper_callback_outcome",
+        "PrivateStage5ePaperCallbackOutcome",
+        "Stage5ePaperCallbackOutcomeInspectionSeal",
+        "construct_stage5e_authorized_callback_audit_lineage",
         "issue_stage5c_b3e_callback_material_seal",
         "Stage5cB3eCallbackExecutionSeal",
         "Stage5eStage5cPostCallbackMaterial",
@@ -893,7 +1033,7 @@ def check_plan_markers() -> None:
         "Stage5eAuthorizedPaperCallbackPayload",
         "Stage5ePreCallbackAttributionSnapshot",
         "stage5cj_cleanup_attribution_ledger",
-        "enum Stage5ePaperCallbackOutcome",
+        "pub(crate) struct Stage5ePaperCallbackOutcome",
         "authority.effective_observed_at == owned B3C effective_observed_at",
         "A callback validation error remains inside the escrow",
         "Stage4AcceptedPaperHostEvidence → B3C → callback authority",
