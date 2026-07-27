@@ -2,10 +2,10 @@
 
 ## Status and baseline
 
-This is the governance-only B3E-r2 closure. Its accepted design predecessor is:
+This is the governance-only B3E-r3 closure. Its accepted design predecessor is:
 
 ```text
-06107da3bf5809e34504f740e5c260b29a315b9c
+c134da8da519dd09473699e1c23c2bc9d96a5a2f
 ```
 
 The immutable Rust implementation predecessor remains:
@@ -142,6 +142,20 @@ Stage 5C callback material owner:
   strategy_runtime_core::stage5c_paper_host
 ```
 
+The cross-module seal topology is exact:
+
+| Seal | Owner | Visibility | Constructor | Authorized use |
+| --- | --- | --- | --- | --- |
+| `Stage5eB3eNestedPreflightSeal` | callback-authority | `pub(crate)` opaque, private fields | one private owner constructor | borrow B3C callback preflight once |
+| `Stage5eB3eNestedConsumeSeal` | callback-authority | `pub(crate)` opaque, private fields | one private owner constructor | authorize B3C consume and Stage 5C material-seal issuance |
+| `Stage5cB3eCallbackMaterialSeal` | Stage 5C paper host | `pub(crate)` opaque, private fields | one private Stage 5C constructor | authorize Stage 5C materialization once |
+| `Stage5cB3eCallbackExecutionSeal` | callback-authority | `pub(crate)` opaque, private fields | one private owner constructor | authorize one material callback |
+| `Stage5eEscrowConstructionSeal` | callback-authority | `pub(crate)` opaque, private fields | one private owner constructor | authorize one post-callback escrow construction |
+
+No seal implements `Clone`, `Copy`, `Default`, serialization, conversion from
+another seal, or a public constructor. Each constructor and authorized call
+site count is exactly one.
+
 The only linear authority consume method is:
 
 ```text
@@ -185,11 +199,22 @@ consume_stage5c_for_authorized_callback(
 ) -> Stage5eStage5cAuthorizedCallbackMaterial
 ```
 
-`Stage5cB3eCallbackMaterialSeal` is defined and constructed only in
-`stage5c_paper_host`. Its sole issuer is a private Stage 5C issuer function;
-that issuer has one source call site, the nested B3C consume bridge. The seal
-cannot be forged from `Stage5eCallbackInvocationSeal`, either B3E nested seal,
-or `Stage5eCallbackAuthorityIssueSeal`.
+`Stage5cB3eCallbackMaterialSeal` is defined in `stage5c_paper_host` as a
+`pub(crate)` opaque type with private fields and one private constructor. Its
+only issuance surface is:
+
+```text
+pub(crate) fn issue_stage5c_b3e_callback_material_seal(
+    nested_consume_capability: &Stage5eB3eNestedConsumeSeal
+) -> Stage5cB3eCallbackMaterialSeal
+```
+
+The issuer is callable across the sibling boundary but cannot issue without a
+borrow of the still-owned nested consume capability. It has one call site,
+inside the B3C `consume_for_authorized_callback` implementation, immediately
+before that same nested capability is consumed. The Stage 5C seal cannot be
+forged from `Stage5eCallbackInvocationSeal`, either B3E preflight seal, or
+`Stage5eCallbackAuthorityIssueSeal`.
 
 `consume_stage5c_for_authorized_callback` is the sole Stage 5C materialization
 entry. It has no raw-admission or raw-bar overload. It consumes all three
@@ -228,6 +253,54 @@ accepted_semantic_bar_identity
 The material type has one constructor in the Stage 5C bridge and one consumer
 in the authority orchestrator. It has no `Clone`, serialization, generic
 `into_parts`, raw strategy/admission/bar/ledger getter, or alternate builder.
+
+## Exact material callback execution seam
+
+The Stage 5C-owned opaque material is consumed only by:
+
+```text
+pub(crate) Stage5eStage5cAuthorizedCallbackMaterial::
+    invoke_authorized_callback_once(
+        self,
+        Stage5cB3eCallbackExecutionSeal
+    ) -> Stage5eStage5cPostCallbackMaterial
+```
+
+`Stage5cB3eCallbackExecutionSeal` is a `pub(crate)` opaque type owned by the
+callback-authority module, with private fields, one private constructor, and
+one construction/call site inside
+`invoke_stage5e_authorized_paper_callback` after all preflight and linear
+consume steps succeed. No conversion exists from any issue, preflight,
+material, or escrow seal.
+
+The method is implemented in `stage5c_paper_host`, where the private material
+fields are visible. It:
+
+1. moves `callback_input` into
+   `BrokerNeutralHybridStrategy::on_broker_bar(&mut strategy, callback_input)`
+   exactly once;
+2. converts the exact result by move into one `Stage5ePaperCallbackOutcome`;
+3. returns one opaque post-callback material even for callback validation
+   error;
+4. never invokes a legacy Stage 5C apply/loop route.
+
+The output is a `pub(crate)` opaque Stage 5C-owned type with private fields and
+one constructor in that callback method:
+
+```text
+Stage5eStage5cPostCallbackMaterial {
+    mutated_strategy: HybridIntradayRuntimeStrategy,
+    recovery_receipt: Stage5cPendingRecoveryReceipt,
+    attribution_snapshot: Stage5ePreCallbackAttributionSnapshot,
+    retained_bar_metadata: Stage5eAcceptedBarSettlementMetadata,
+    callback_outcome: Stage5ePaperCallbackOutcome,
+}
+```
+
+It has one consumer, no `Clone`, serialization, raw getters, `into_parts`,
+alternate constructor, callback retry, second callback consumer, or legacy
+route conversion. A panic returns neither post-callback material nor reusable
+input.
 
 `Stage5eAuthorizedCallbackAuditLineage` owns, without raw getters:
 
@@ -395,8 +468,11 @@ borrow authority invocation preflight
 → consume B3C ownership once
 → invoke the sole Stage 5C materialization bridge
 → create the sealed pre-callback attribution snapshot and exact callback input
-→ call BrokerNeutralHybridStrategy::on_broker_bar exactly once
-→ move every post-callback object into private escrow
+→ issue one callback-execution seal
+→ consume opaque material and call BrokerNeutralHybridStrategy::on_broker_bar exactly once inside Stage 5C
+→ receive one opaque post-callback material
+→ issue one escrow-construction seal
+→ consume post-callback material into the sole private escrow constructor
 ```
 
 The future implementation must use the broker-neutral callback directly. The
@@ -448,6 +524,53 @@ The recovery receipt may not be dropped, replaced by its fields, or consumed
 by the callback. The accepted bar payload may be consumed by the callback only
 after its settlement metadata has been retained. No row may disappear, gain a
 second owner, or be reconstructed after callback.
+
+## Exact post-callback escrow construction seam
+
+The escrow owner is:
+
+```text
+strategy_runtime_core::stage5e_no_io_lifecycle::callback_authority
+```
+
+It defines a `pub(crate)` opaque `Stage5eEscrowConstructionSeal` with private
+fields and one private constructor. The seal is constructed exactly once in
+`invoke_stage5e_authorized_paper_callback`, only after one
+`Stage5eStage5cPostCallbackMaterial` has returned.
+
+The post-callback material has exactly one crate-private consuming method:
+
+```text
+Stage5eStage5cPostCallbackMaterial::construct_result_escrow(
+    self,
+    audit_lineage: Stage5eAuthorizedCallbackAuditLineage,
+    callback_invoked_at,
+    callback_authority_id,
+    seal: Stage5eEscrowConstructionSeal
+) -> Stage5ePaperCallbackResultEscrow
+```
+
+That Stage 5C-owned method has one call site in the callback orchestrator and
+is the only call site of the escrow owner's sole constructor:
+
+```text
+construct_stage5e_paper_callback_result_escrow(
+    mutated_strategy,
+    recovery_receipt,
+    audit_lineage,
+    attribution_snapshot,
+    retained_bar_metadata,
+    callback_invoked_at,
+    callback_authority_id,
+    callback_outcome,
+    Stage5eEscrowConstructionSeal
+) -> Stage5ePaperCallbackResultEscrow
+```
+
+The constructor is `pub(crate)` solely for the Stage 5C sibling bridge, but is
+unusable without the opaque seal. There is one constructor definition and one
+source call site. No escrow can be constructed from pre-callback material,
+without post-callback material, before callback, or without the seal.
 
 The future:
 
@@ -506,6 +629,12 @@ The implementation stage is not authorized until a separate review accepts:
 - payload-to-callback-to-escrow transfer proof retaining the recovery receipt,
   callback authority ID, accepted-bar close/origin/eligibility/identity, and
   pre-callback attribution snapshot;
+- exact cross-module visibility, owner, private constructor, and one-call-site
+  proof for all five seals;
+- material callback consumer exactly-once proof, callback-error ownership
+  proof, and compile-fail raw-field/`into_parts` access;
+- post-callback material and escrow-construction seal proof, including
+  before-callback and no-seal construction failures;
 - exact nested consume payload, single seal issuer, and single call-site proof;
 - single callback-outcome ownership/no intent clone proof;
 - blocked paths proving callback count `0` and intent count `0`;

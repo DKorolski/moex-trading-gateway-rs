@@ -17,12 +17,12 @@ INVENTORY = (
 )
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3e-callback-invocation-design"
-BASELINE_REF = "06107da3bf5809e34504f740e5c260b29a315b9c"
+BASELINE_REF = "c134da8da519dd09473699e1c23c2bc9d96a5a2f"
 EXPECTED_PLAN_SHA256 = (
-    "70a1ccc1c5d0d3d3681a6a1293ccc00d8d745ca4a14162b646bf8862fb3d9d40"
+    "dafab9ff317979fe208fa715809830a3e302a7f53375e45d341c5a432ecce5e3"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "f32b3792cb3047e02d081895f9aaf2db36b8417fe09284bb4f8373018dc669c2"
+    "6d758d4a8d0dec235d653e0c1dcc0eb4087437fda3b9cb4a21f8845ccb14c7d4"
 )
 EXPECTED_B3D_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -89,7 +89,7 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(inventory.get("stage"), STAGE, "stage identity drift")
     require_exact(
         inventory.get("status"),
-        "design_only_r2_pending_review",
+        "design_only_r3_pending_review",
         "design-only status drift",
     )
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
@@ -100,8 +100,13 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
     require_exact(
         inventory.get("accepted_b3e_r1_ref"),
-        BASELINE_REF,
+        "06107da3bf5809e34504f740e5c260b29a315b9c",
         "accepted B3E-r1 ref drift",
+    )
+    require_exact(
+        inventory.get("accepted_b3e_r2_ref"),
+        BASELINE_REF,
+        "accepted B3E-r2 ref drift",
     )
     require_exact(
         inventory.get("accepted_b3d_implementation_ref"),
@@ -110,7 +115,7 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        269,
+        280,
         "negative-matrix count drift",
     )
     require_exact(
@@ -226,6 +231,34 @@ def check_inventory(inventory: dict[str, object]) -> None:
         if forbidden not in topology["payload_forbidden_surfaces"]:
             fail(f"consume payload forbidden surface weakened: {forbidden}")
 
+    require_exact(
+        inventory["cross_module_seal_topology"],
+        [
+            {"seal": "Stage5eB3eNestedPreflightSeal", "owner": "callback_authority", "visibility": "pub_crate_opaque_private_fields", "constructor": "one_private_owner_constructor", "authorized_use": "borrow_b3c_callback_preflight_once"},
+            {"seal": "Stage5eB3eNestedConsumeSeal", "owner": "callback_authority", "visibility": "pub_crate_opaque_private_fields", "constructor": "one_private_owner_constructor", "authorized_use": "authorize_b3c_consume_and_stage5c_material_seal_issuance"},
+            {"seal": "Stage5cB3eCallbackMaterialSeal", "owner": "stage5c_paper_host", "visibility": "pub_crate_opaque_private_fields", "constructor": "one_private_stage5c_constructor", "authorized_use": "authorize_stage5c_materialization_once"},
+            {"seal": "Stage5cB3eCallbackExecutionSeal", "owner": "callback_authority", "visibility": "pub_crate_opaque_private_fields", "constructor": "one_private_owner_constructor", "authorized_use": "authorize_one_material_callback"},
+            {"seal": "Stage5eEscrowConstructionSeal", "owner": "callback_authority", "visibility": "pub_crate_opaque_private_fields", "constructor": "one_private_owner_constructor", "authorized_use": "authorize_one_post_callback_escrow_construction"},
+        ],
+        "cross-module seal topology drift",
+    )
+    required_seal_forbidden = {
+        "Clone",
+        "Copy",
+        "Default",
+        "Serialize",
+        "Deserialize",
+        "From",
+        "Into",
+        "public_constructor",
+        "second_constructor",
+        "second_authorized_call_site",
+    }
+    if not required_seal_forbidden.issubset(
+        set(inventory["cross_module_seal_forbidden_traits_and_surfaces"])
+    ):
+        fail("cross-module seal forbidden surfaces weakened")
+
     nested_preflight = inventory["nested_b3c_invocation_preflight_contract"]
     require_exact(
         nested_preflight["seal"],
@@ -256,8 +289,34 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(material["seal"], "Stage5cB3eCallbackMaterialSeal", "Stage5C material seal drift")
     require_exact(material["function"], "consume_stage5c_for_authorized_callback", "Stage5C bridge drift")
     require_exact(material["seal_constructor_count"], 1, "Stage5C seal constructor count drift")
+    require_exact(
+        material["seal_visibility"],
+        "pub_crate_opaque_private_fields",
+        "Stage5C material seal visibility drift",
+    )
+    require_exact(
+        material["seal_issuer"],
+        "issue_stage5c_b3e_callback_material_seal",
+        "Stage5C material seal issuer drift",
+    )
+    require_exact(material["seal_issuer_visibility"], "pub_crate", "Stage5C issuer unreachable")
+    require_exact(
+        material["seal_issuer_signature"],
+        "(&Stage5eB3eNestedConsumeSeal)->Stage5cB3eCallbackMaterialSeal",
+        "Stage5C issuer capability signature drift",
+    )
+    require_exact(
+        material["seal_issuer_requires_borrowed_nested_consume_capability"],
+        True,
+        "Stage5C material seal issuer capability removed",
+    )
     require_exact(material["issuer_call_site_count"], 1, "Stage5C seal issuer count drift")
     require_exact(material["function_call_site_count"], 1, "Stage5C bridge call-site count drift")
+    require_exact(
+        material["material_visibility"],
+        "pub_crate_opaque_private_fields",
+        "Stage5C material fields widened",
+    )
     require_exact(material["material_constructor_count"], 1, "Stage5C material constructor count drift")
     require_exact(material["material_consumer_count"], 1, "Stage5C material consumer count drift")
     require_exact(
@@ -281,6 +340,62 @@ def check_inventory(inventory: dict[str, object]) -> None:
     ):
         if forbidden not in material["forbidden_surfaces"]:
             fail(f"Stage5C callback material surface weakened: {forbidden}")
+
+    execution = inventory["stage5c_material_callback_execution_contract"]
+    require_exact(
+        execution["method"],
+        "Stage5eStage5cAuthorizedCallbackMaterial::invoke_authorized_callback_once",
+        "material callback consumer drift",
+    )
+    require_exact(execution["seal_constructor_count"], 1, "callback execution seal constructor drift")
+    require_exact(execution["method_call_site_count"], 1, "material callback consumer count drift")
+    require_exact(execution["callback_count"], 1, "material callback cardinality drift")
+    require_exact(
+        execution["callback_location"],
+        "inside_stage5c_paper_host_material_consumer",
+        "callback privacy owner drift",
+    )
+    require_exact(
+        execution["output"],
+        "Stage5eStage5cPostCallbackMaterial",
+        "post-callback material type drift",
+    )
+    require_exact(
+        execution["callback_error_returns_post_callback_material"],
+        True,
+        "callback error ownership lost",
+    )
+    require_exact(execution["panic_returns_reusable_input"], False, "callback panic reuse opened")
+    require_exact(
+        execution["legacy_stage5c_apply_or_loop_allowed"],
+        False,
+        "legacy Stage5C callback route opened",
+    )
+
+    post_material = inventory["stage5c_post_callback_material_contract"]
+    require_exact(
+        post_material["fields"],
+        [
+            "mutated_strategy",
+            "recovery_receipt",
+            "attribution_snapshot",
+            "retained_bar_metadata",
+            "callback_outcome",
+        ],
+        "post-callback material schema drift",
+    )
+    require_exact(post_material["constructor_count"], 1, "post-callback constructor count drift")
+    require_exact(post_material["consumer_count"], 1, "post-callback consumer count drift")
+    for forbidden in (
+        "raw_getters",
+        "generic_into_parts",
+        "alternate_constructor",
+        "callback_retry",
+        "second_callback_consumer",
+        "legacy_route_conversion",
+    ):
+        if forbidden not in post_material["forbidden_surfaces"]:
+            fail(f"post-callback material surface weakened: {forbidden}")
 
     retained = inventory["retained_bar_metadata_contract"]
     require_exact(
@@ -482,6 +597,43 @@ def check_inventory(inventory: dict[str, object]) -> None:
         "payload-to-escrow transfer matrix drift",
     )
 
+    construction = inventory["escrow_construction_contract"]
+    require_exact(
+        construction["escrow_owner"],
+        "strategy_runtime_core::stage5e_no_io_lifecycle::callback_authority",
+        "escrow owner drift",
+    )
+    require_exact(construction["seal"], "Stage5eEscrowConstructionSeal", "escrow seal drift")
+    require_exact(construction["seal_constructor_count"], 1, "escrow seal constructor count drift")
+    require_exact(
+        construction["seal_construction_time"],
+        "after_post_callback_material_returned",
+        "escrow seal constructed before callback",
+    )
+    require_exact(
+        construction["post_callback_consume_method"],
+        "Stage5eStage5cPostCallbackMaterial::construct_result_escrow",
+        "post-callback escrow bridge drift",
+    )
+    require_exact(
+        construction["post_callback_consume_call_site_count"],
+        1,
+        "post-callback escrow bridge call-site count drift",
+    )
+    require_exact(
+        construction["constructor"],
+        "construct_stage5e_paper_callback_result_escrow",
+        "escrow constructor drift",
+    )
+    require_exact(construction["constructor_definition_count"], 1, "escrow constructor count drift")
+    require_exact(construction["constructor_call_site_count"], 1, "escrow constructor call-site drift")
+    for field in (
+        "pre_callback_construction_allowed",
+        "construction_without_post_callback_material_allowed",
+        "construction_without_seal_allowed",
+    ):
+        require_exact(construction[field], False, f"escrow construction guard opened: {field}")
+
     escrow = inventory["result_escrow_contract"]
     require_exact(
         escrow["implementation_status"],
@@ -555,8 +707,8 @@ def check_accepted_source_is_unchanged() -> None:
 def check_plan_markers() -> None:
     text = PLAN.read_text()
     for marker in (
-        "This is the governance-only B3E-r2 closure",
-        "06107da3bf5809e34504f740e5c260b29a315b9c",
+        "This is the governance-only B3E-r3 closure",
+        "c134da8da519dd09473699e1c23c2bc9d96a5a2f",
         "93d365ae51f2f6ad94954782a27bc49857fe21ff",
         "invoke_stage5e_authorized_paper_callback",
         "Stage5eCallbackInvocationSeal",
@@ -565,6 +717,12 @@ def check_plan_markers() -> None:
         "Stage5cB3eCallbackMaterialSeal",
         "consume_stage5c_for_authorized_callback",
         "Stage5eStage5cAuthorizedCallbackMaterial",
+        "issue_stage5c_b3e_callback_material_seal",
+        "Stage5cB3eCallbackExecutionSeal",
+        "Stage5eStage5cPostCallbackMaterial",
+        "invoke_authorized_callback_once",
+        "Stage5eEscrowConstructionSeal",
+        "construct_stage5e_paper_callback_result_escrow",
         "Exact payload-to-callback-to-escrow transfer",
         "Stage5ePaperCallbackResultEscrow",
         "BrokerNeutralHybridStrategy::on_broker_bar exactly once",
