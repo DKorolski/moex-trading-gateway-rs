@@ -18,12 +18,12 @@ INVENTORY = (
 )
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3f-callback-settlement-escrow-design"
-BASELINE_REF = "d04e02903a0a1984f66eecfcc0f412501b97d37c"
+BASELINE_REF = "56f0b9c3b4b31e27ce7d85eac7e3981aae9f7837"
 EXPECTED_PLAN_SHA256 = (
-    "cce3d5b2fc8978376f1859a1649f9f4f3dfe2dccd9740f6ca6deb14a65d0ee2b"
+    "0000309e2f5fe405fbec7c31c0b9016384112a1857ff2a5a724d6218581b6efa"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "cdcc1326a5ce6cdef1384aaa29742ed3575a2ff40265925e0cea55b638a00e7c"
+    "decf2af9b8f8101d342f740287570c812f903ad184007aeae7139a03c44435db"
 )
 EXPECTED_PROTECTED_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -35,14 +35,25 @@ EXPECTED_PROTECTED_SOURCE_SHA256 = {
 }
 EXPECTED_ALLOWED_CHANGED_PATHS = [
     "docs/stage-5/5e-b3f-callback-settlement-escrow-design.md",
-    "docs/stage-5/stage5e-active-descriptor.json",
     "docs/stage-5/stage5e-b3f-callback-settlement-escrow-design-inventory.json",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
     "scripts/stage5e_b3f_callback_settlement_escrow_design_check.py",
-    "scripts/stage5e_descriptor.py",
-    "scripts/stage5e_lifecycle_event_time_gate.sh",
 ]
+EXPECTED_STAGE5C_ERROR_MAPPING = {
+    "TooManyIntents": "IntentCapacityExceeded",
+    "MissingIntentClass": "Stage5cIntentValidationFailed",
+    "InstrumentNamespaceMismatch": "Stage5cIntentValidationFailed",
+    "InvalidQuantity": "Stage5cIntentValidationFailed",
+    "InvalidPrice": "Stage5cIntentValidationFailed",
+    "PriceNotTickAligned": "Stage5cIntentValidationFailed",
+    "InvalidStopEnd": "Stage5cIntentValidationFailed",
+    "ReplayIntentNotExecutable": "PaperModeMismatch",
+    "MissingPendingRequest": "Stage5cPendingRequestMismatch",
+    "RequestIdMismatch": "Stage5cPendingRequestMismatch",
+    "DuplicateRequestId": "Stage5cIntentValidationFailed",
+    "UnsupportedIntentAction": "Stage5cIntentValidationFailed",
+}
 
 
 def fail(message: str) -> None:
@@ -104,13 +115,13 @@ def main() -> int:
     require_exact(inventory.get("stage"), STAGE, "stage identity drift")
     require_exact(
         inventory.get("status"),
-        "design_only_pending_review",
+        "design_r1_governance_closure_pending_review",
         "design status drift",
     )
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        346,
+        370,
         "provenance case count drift",
     )
     require_exact(
@@ -153,6 +164,16 @@ def main() -> int:
         "borrowed preflight ordering drift",
     )
     require_exact(transition["consume_count"], 1, "escrow consume-count drift")
+    require_exact(
+        transition["preflight_decisions"],
+        ["ProceedOk", "Terminal"],
+        "preflight decision taxonomy drift",
+    )
+    require_exact(
+        transition["consume_after_every_decision"],
+        True,
+        "terminal preflight ownership conflict reintroduced",
+    )
 
     preflight = inventory["preflight_contract"]
     require_exact(
@@ -164,6 +185,11 @@ def main() -> int:
         preflight["raw_intent_export_allowed"],
         False,
         "raw intent export opened",
+    )
+    require_exact(
+        preflight["terminal_decision_still_consumes_escrow"],
+        True,
+        "terminal preflight consume drift",
     )
     require_exact(
         set(preflight["checks"]),
@@ -191,19 +217,50 @@ def main() -> int:
         "Stage 5C intent limit drift",
     )
     require_exact(
-        inventory["stage5c_oracle_contract"]["canonical_builder"],
+        inventory["stage5c_bridge_contract"]["canonical_batch_builder"],
         "stage5c_build_paper_intent_batch",
         "canonical Stage 5C builder drift",
     )
     require_exact(
-        inventory["stage5c_oracle_contract"]["stage5e_reimplementation_allowed"],
+        inventory["stage5c_bridge_contract"]["canonical_attribution_builder"],
+        "stage5cj_expected_generated_attribution_by_request_from_ledger",
+        "canonical Stage 5C attribution builder drift",
+    )
+    require_exact(
+        inventory["stage5c_bridge_contract"]["stage5e_reimplementation_allowed"],
         False,
         "parallel Stage 5E intent oracle opened",
     )
     require_exact(
+        inventory["escrow_bridge_contract"]["payload_consumer_count"],
+        1,
+        "escrow payload consumer-count drift",
+    )
+    require_exact(
+        inventory["escrow_bridge_contract"]["raw_getters_allowed"],
+        False,
+        "escrow raw getter opened",
+    )
+    require_exact(
+        inventory["stage5c_error_mapping"],
+        EXPECTED_STAGE5C_ERROR_MAPPING,
+        "Stage 5C error mapping drift",
+    )
+    require_exact(
+        inventory["stage5c_error_mapping_policy"]["mapping_count"],
+        12,
+        "Stage 5C mapping cardinality drift",
+    )
+    require_exact(
+        inventory["stage5c_error_mapping_policy"]["wildcard_mapping_allowed"],
+        False,
+        "Stage 5C wildcard mapping opened",
+    )
+    require_exact(
         inventory["callback_validation_error_policy"],
         {
-            "disposition": "terminal_receipt",
+            "preflight_decision": "Terminal",
+            "disposition": "consume_then_terminal_receipt",
             "reason": "CallbackValidationError",
             "empty_success_batch_allowed": False,
             "callback_retry_allowed": False,
@@ -214,6 +271,50 @@ def main() -> int:
         },
         "callback ValidationError policy drift",
     )
+    require_exact(
+        inventory["settlement_identity_contract"]["ordered_fields"],
+        [
+            "callback_authority_id",
+            "callback_invocation_timestamp",
+            "accepted_semantic_bar_identity",
+            "strategy_id",
+            "account_id",
+            "full_instrument_id",
+            "accepted_bar_close_timestamp",
+            "stage5c_batch_state_fingerprint",
+            "ordered_strategy_request_ids",
+            "intent_count_u8",
+            "audit_commitment",
+        ],
+        "settlement identity field vector drift",
+    )
+    require_exact(
+        inventory["canonical_encoding_contract"]["hash"],
+        "SHA-256",
+        "canonical identity hash drift",
+    )
+    for contract_name in ("success_receipt_contract", "terminal_receipt_contract"):
+        contract = inventory[contract_name]
+        require_exact(contract["constructor_count"], 1, f"{contract_name} constructor drift")
+        require_exact(
+            contract["constructor_call_site_count"],
+            1,
+            f"{contract_name} call-site drift",
+        )
+        forbidden = set(contract["forbidden_surfaces"])
+        if not {"Debug", "Clone", "From", "Into", "Serialize", "Deserialize"}.issubset(
+            forbidden
+        ):
+            fail(f"{contract_name} forbidden-surface drift")
+    if not {
+        "settled",
+        "into_settled",
+        "batch",
+        "intent",
+        "request_ids",
+        "generic_parts",
+    }.issubset(set(inventory["success_receipt_contract"]["forbidden_surfaces"])):
+        fail("public Stage5c settled inspection escaped success receipt")
     require_exact(
         inventory["exactly_once_contract"]["scope"],
         "process_local_only",

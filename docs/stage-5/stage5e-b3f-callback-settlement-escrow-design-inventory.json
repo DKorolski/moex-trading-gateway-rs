@@ -1,26 +1,35 @@
 {
   "schema_version": 1,
   "stage": "5E-b3f-callback-settlement-escrow-design",
-  "status": "design_only_pending_review",
-  "baseline_ref": "d04e02903a0a1984f66eecfcc0f412501b97d37c",
+  "status": "design_r1_governance_closure_pending_review",
+  "baseline_ref": "56f0b9c3b4b31e27ce7d85eac7e3981aae9f7837",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
   "accepted_b3e_implementation_ref": "d04e02903a0a1984f66eecfcc0f412501b97d37c",
-  "expected_provenance_case_count": 346,
+  "conditionally_accepted_b3f_design_ref": "56f0b9c3b4b31e27ce7d85eac7e3981aae9f7837",
+  "expected_provenance_case_count": 370,
   "transition_contract": {
     "function": "validate_and_settle_stage5e_paper_callback_escrow",
+    "owner": "strategy_runtime_core::stage5e_no_io_lifecycle::callback_authority::callback_settlement",
     "implementation_status": "design_only_not_implemented",
     "only_input": "Stage5ePaperCallbackResultEscrow",
     "success": "Stage5eValidatedPaperSettlementReceipt",
     "blocked": "Stage5ePaperSettlementTerminalReceipt",
     "overload_count": 0,
     "borrowed_preflight_before_consume": true,
+    "preflight_decisions": [
+      "ProceedOk",
+      "Terminal"
+    ],
+    "consume_after_every_decision": true,
     "consume_count": 1,
     "settlement_implementation_allowed_in_this_stage": false
   },
   "seal_contract": {
     "preflight_seal": "Stage5ePaperSettlementPreflightSeal",
     "consume_seal": "Stage5ePaperSettlementConsumeSeal",
-    "owner": "stage5e_callback_settlement",
+    "success_seal": "Stage5ePaperSettlementSuccessSeal",
+    "terminal_seal": "Stage5ePaperSettlementTerminalSeal",
+    "owner": "callback_authority::callback_settlement",
     "constructor_count_each": 1,
     "sole_issuer": "validate_and_settle_stage5e_paper_callback_escrow",
     "seals_are_distinct": true,
@@ -35,9 +44,40 @@
       "Into"
     ]
   },
+  "escrow_bridge_contract": {
+    "escrow_owner": "callback_authority",
+    "settlement_owner": "callback_authority::callback_settlement",
+    "borrow_method": "Stage5ePaperCallbackResultEscrow::borrow_for_settlement_preflight",
+    "borrow_signature": "&self,&Stage5ePaperSettlementPreflightSeal->Stage5ePaperSettlementPreflight<'_>",
+    "borrow_definition_count": 1,
+    "borrow_call_site_count": 1,
+    "consume_method": "Stage5ePaperCallbackResultEscrow::consume_for_settlement",
+    "consume_signature": "self,Stage5ePaperSettlementConsumeSeal->Stage5ePaperSettlementPayload",
+    "consume_definition_count": 1,
+    "consume_call_site_count": 1,
+    "payload_visibility": "private_opaque",
+    "payload_consumer_count": 1,
+    "payload_fields": [
+      "mutated_strategy",
+      "recovery_receipt",
+      "audit_lineage",
+      "pre_callback_attribution_snapshot",
+      "retained_bar_metadata",
+      "callback_invoked_at",
+      "callback_authority_id",
+      "callback_outcome"
+    ],
+    "outcome_preflight_access": "seal_gated_discriminant_and_count_only",
+    "outcome_consume_count": 1,
+    "raw_getters_allowed": false,
+    "generic_parts_allowed": false,
+    "field_reconstruction_allowed": false
+  },
   "preflight_contract": {
     "type": "Stage5ePaperSettlementPreflight",
+    "decision_type": "Stage5ePaperSettlementPreflightDecision",
     "ownership": "borrowed_non_decomposable",
+    "terminal_decision_still_consumes_escrow": true,
     "raw_intent_export_allowed": false,
     "raw_strategy_export_allowed": false,
     "generic_parts_allowed": false,
@@ -55,10 +95,13 @@
       "callback_chronology",
       "authority_and_fingerprint_nonzero_equality",
       "no_prior_intent_extraction"
-    ]
+    ],
+    "invented_snapshot_identity_allowed": false,
+    "invented_recovery_identity_allowed": false
   },
   "callback_validation_error_policy": {
-    "disposition": "terminal_receipt",
+    "preflight_decision": "Terminal",
+    "disposition": "consume_then_terminal_receipt",
     "reason": "CallbackValidationError",
     "empty_success_batch_allowed": false,
     "callback_retry_allowed": false,
@@ -71,7 +114,8 @@
     "maximum_intents": 255,
     "source": "accepted_stage5c_u8_max",
     "duplicate_limit_implementation_allowed": false,
-    "over_limit_disposition": "terminal_IntentCapacityExceeded"
+    "over_limit_preflight_decision": "Terminal",
+    "over_limit_disposition": "consume_then_terminal_IntentCapacityExceeded"
   },
   "identity_contract": {
     "exact_equal_fields": [
@@ -91,40 +135,179 @@
     "account_wide_substitution_allowed": false,
     "symbol_only_substitution_allowed": false
   },
-  "stage5c_oracle_contract": {
-    "reuse_required": true,
-    "bridge_visibility": "crate_private_seal_gated",
-    "canonical_builder": "stage5c_build_paper_intent_batch",
-    "canonical_checks": [
-      "validate_stage5cg_intent",
-      "stage5cg_source_request_id",
-      "stage5cg_verify_pending_request_id",
-      "duplicate_request_id_rejection",
-      "stage5cj_expected_attribution_for_intent",
-      "stage5c_state_fingerprint"
-    ],
+  "stage5c_bridge_contract": {
+    "function": "settle_stage5e_callback_escrow_material",
+    "owner": "strategy_runtime_core::stage5c_paper_host",
+    "seal": "Stage5cB3fSettlementSeal",
+    "seal_issuer_requires": "&Stage5ePaperSettlementConsumeSeal",
+    "seal_constructor_count": 1,
+    "bridge_call_site_count": 1,
+    "input": "Stage5eStage5cSettlementMaterial",
+    "success": "Stage5eStage5cSettlementSuccess",
+    "failure": "Stage5eStage5cSettlementTerminalMaterial",
+    "canonical_attribution_builder": "stage5cj_expected_generated_attribution_by_request_from_ledger",
+    "canonical_batch_builder": "stage5c_build_paper_intent_batch",
+    "stage5e_fallback_map_allowed": false,
     "stage5e_reimplementation_allowed": false,
     "client_order_id_may_replace_strategy_request_id": false,
-    "pre_callback_attribution_required": true
+    "terminal_survives": [
+      "mutated_strategy",
+      "recovery_receipt",
+      "pre_callback_attribution_snapshot",
+      "retained_bar_metadata",
+      "exact_stage5c_error",
+      "original_intent_count"
+    ],
+    "intent_vector_after_builder_error": "intentionally_consumed_not_recoverable"
+  },
+  "stage5c_error_mapping": {
+    "TooManyIntents": "IntentCapacityExceeded",
+    "MissingIntentClass": "Stage5cIntentValidationFailed",
+    "InstrumentNamespaceMismatch": "Stage5cIntentValidationFailed",
+    "InvalidQuantity": "Stage5cIntentValidationFailed",
+    "InvalidPrice": "Stage5cIntentValidationFailed",
+    "PriceNotTickAligned": "Stage5cIntentValidationFailed",
+    "InvalidStopEnd": "Stage5cIntentValidationFailed",
+    "ReplayIntentNotExecutable": "PaperModeMismatch",
+    "MissingPendingRequest": "Stage5cPendingRequestMismatch",
+    "RequestIdMismatch": "Stage5cPendingRequestMismatch",
+    "DuplicateRequestId": "Stage5cIntentValidationFailed",
+    "UnsupportedIntentAction": "Stage5cIntentValidationFailed"
+  },
+  "stage5c_error_mapping_policy": {
+    "mapping_count": 12,
+    "wildcard_mapping_allowed": false,
+    "generic_from_allowed": false,
+    "impossible_after_preflight": [
+      "TooManyIntents",
+      "ReplayIntentNotExecutable"
+    ],
+    "impossible_errors_still_terminal": true
+  },
+  "canonical_encoding_contract": {
+    "hash": "SHA-256",
+    "u8_bool": "one_byte",
+    "i64_bar_timestamp": "signed_big_endian_8",
+    "datetime_utc": "signed_big_endian_unix_seconds_plus_big_endian_u32_nanoseconds",
+    "digest": "exact_32_bytes",
+    "strategy_request_id": "uuid_16_network_order_bytes",
+    "string": "u32_big_endian_length_plus_utf8",
+    "option": "one_byte_tag_plus_value",
+    "exchange": {
+      "Moex": "0x01",
+      "Other": "0x7f_plus_encoded_string"
+    },
+    "market": {
+      "Futures": "0x01",
+      "Options": "0x02",
+      "Stocks": "0x03",
+      "Currency": "0x04",
+      "Funds": "0x05",
+      "Other": "0x7f_plus_encoded_string"
+    },
+    "schedule_sequence_classification": {
+      "Contiguous": "0x01",
+      "ApprovedNonTradableBoundary": "0x02_plus_exact_32_byte_digest"
+    },
+    "instrument_id": "symbol_then_optional_venue_symbol_then_exchange_then_market",
+    "vector": "u32_big_endian_count_plus_ordered_elements",
+    "debug_hash_allowed": false,
+    "serde_hash_allowed": false,
+    "native_endian_allowed": false
+  },
+  "audit_commitment_contract": {
+    "domain": "stage5e-b3f-audit-commitment-v1\\0",
+    "ordered_fields": [
+      "schedule_identity_fingerprint",
+      "sequence_classification",
+      "optional_boundary_fingerprint",
+      "sequence_identity",
+      "sequence_observed_at",
+      "sequence_expires_at",
+      "b3b_event_key",
+      "b3b_observed_at",
+      "b3b_expires_at",
+      "b3c_continuation_binding",
+      "b3c_bound_at",
+      "b3c_observed_at",
+      "b3c_expires_at",
+      "callback_authority_id",
+      "issued_at",
+      "effective_observed_at",
+      "authority_expires_at",
+      "full_instrument_id",
+      "accepted_semantic_bar_identity",
+      "b3b_event_key_fingerprint",
+      "b3c_continuation_binding_id",
+      "sequence_identity_fingerprint",
+      "owned_instrument",
+      "owned_bar_identity"
+    ],
+    "constant_allowed": false
+  },
+  "settlement_identity_contract": {
+    "domain": "stage5e-b3f-settlement-identity-v1\\0",
+    "ordered_fields": [
+      "callback_authority_id",
+      "callback_invocation_timestamp",
+      "accepted_semantic_bar_identity",
+      "strategy_id",
+      "account_id",
+      "full_instrument_id",
+      "accepted_bar_close_timestamp",
+      "stage5c_batch_state_fingerprint",
+      "ordered_strategy_request_ids",
+      "intent_count_u8",
+      "audit_commitment"
+    ],
+    "sorted_request_ids_allowed": false,
+    "callback_authority_alias_allowed": false,
+    "constant_allowed": false
   },
   "success_receipt_contract": {
     "type": "Stage5eValidatedPaperSettlementReceipt",
-    "visibility": "crate_private_opaque",
+    "owner": "callback_authority::callback_settlement",
+    "visibility": "crate_private_opaque_private_fields",
+    "constructor": "construct_stage5e_validated_paper_settlement_receipt",
+    "constructor_seal": "Stage5ePaperSettlementSuccessSeal",
+    "constructor_count": 1,
+    "constructor_call_site_count": 1,
     "owns": [
-      "canonical_Stage5cSettledPaperStrategy",
+      "private_canonical_Stage5cSettledPaperStrategy",
       "exact_B3E_audit_lineage",
       "callback_invocation_timestamp",
       "callback_authority_id",
-      "settlement_identity_fingerprint"
+      "settlement_identity"
     ],
-    "executable": false,
-    "sink_ready": false,
-    "intent_getter_allowed": false,
-    "command_batch_conversion_allowed": false
+    "forbidden_surfaces": [
+      "Debug",
+      "Clone",
+      "Copy",
+      "Default",
+      "From",
+      "Into",
+      "Serialize",
+      "Deserialize",
+      "settled",
+      "into_settled",
+      "batch",
+      "intent",
+      "request_ids",
+      "iterator",
+      "generic_parts",
+      "Deref",
+      "Borrow"
+    ],
+    "future_consumer": "deferred_separate_review"
   },
   "terminal_receipt_contract": {
     "type": "Stage5ePaperSettlementTerminalReceipt",
-    "visibility": "crate_private_opaque",
+    "owner": "callback_authority::callback_settlement",
+    "visibility": "crate_private_opaque_private_fields",
+    "constructor": "construct_stage5e_paper_settlement_terminal_receipt",
+    "constructor_seal": "Stage5ePaperSettlementTerminalSeal",
+    "constructor_count": 1,
+    "constructor_call_site_count": 1,
     "reasons": [
       "CallbackValidationError",
       "IntentCapacityExceeded",
@@ -136,9 +319,29 @@
       "Stage5cAttributionMismatch"
     ],
     "owns_surviving_post_callback_material": true,
+    "records_optional_exact_stage5c_error": true,
+    "records_original_intent_count": true,
     "returns_original_escrow": false,
     "retryable": false,
-    "raw_extractors_allowed": false
+    "forbidden_surfaces": [
+      "Debug",
+      "Clone",
+      "Copy",
+      "Default",
+      "From",
+      "Into",
+      "Serialize",
+      "Deserialize",
+      "raw_error_formatter",
+      "strategy_getter",
+      "recovery_getter",
+      "intent_getter",
+      "escrow_getter",
+      "generic_parts",
+      "retry_capability",
+      "sink_conversion"
+    ],
+    "future_consumer": "deferred_separate_review"
   },
   "exactly_once_contract": {
     "scope": "process_local_only",
@@ -146,6 +349,7 @@
     "escrow_consumer_count": 1,
     "settlement_attempt_count": 1,
     "success_or_terminal_receipt_count": 1,
+    "terminal_preflight_path_consumes_once": true,
     "crash_restart_policy_deferred": true,
     "durable_idempotency_implemented": false
   },
@@ -155,13 +359,10 @@
   },
   "allowed_changed_paths": [
     "docs/stage-5/5e-b3f-callback-settlement-escrow-design.md",
-    "docs/stage-5/stage5e-active-descriptor.json",
     "docs/stage-5/stage5e-b3f-callback-settlement-escrow-design-inventory.json",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
-    "scripts/stage5e_b3f_callback_settlement_escrow_design_check.py",
-    "scripts/stage5e_descriptor.py",
-    "scripts/stage5e_lifecycle_event_time_gate.sh"
+    "scripts/stage5e_b3f_callback_settlement_escrow_design_check.py"
   ],
   "closed_surfaces": {
     "actual_callback_invocation": true,

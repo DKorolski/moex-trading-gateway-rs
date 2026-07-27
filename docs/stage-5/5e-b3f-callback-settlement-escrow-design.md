@@ -2,15 +2,17 @@
 
 ## Status and baseline
 
-This is a design-only stage based on the accepted Stage 5E-b3e
-implementation-r1:
+This is the B3F-r1 governance-only closure based on the conditionally accepted
+B3F design:
 
 ```text
-d04e02903a0a1984f66eecfcc0f412501b97d37c
+56f0b9c3b4b31e27ce7d85eac7e3981aae9f7837
 ```
 
-No Rust settlement implementation is added here. The accepted B3E callback
-boundary remains the only producer of `Stage5ePaperCallbackResultEscrow`.
+The accepted B3E implementation baseline remains
+`d04e02903a0a1984f66eecfcc0f412501b97d37c`. No Rust settlement
+implementation is added here. The accepted B3E callback boundary remains the
+only producer of `Stage5ePaperCallbackResultEscrow`.
 
 ## Purpose
 
@@ -45,7 +47,17 @@ Stage5ePaperSettlementConsumeSeal
 
 The top-level transition is the only issuer of both seals. It first borrows a
 non-decomposable `Stage5ePaperSettlementPreflight<'_>` from the still-owned
-escrow. No ownership is consumed until all preflight checks pass.
+escrow. Borrowed preflight does not consume ownership and returns exactly one
+private decision:
+
+```text
+ProceedOk
+Terminal(Stage5ePaperSettlementTerminalReason)
+```
+
+After either decision, the transition issues exactly one consume seal and
+consumes the escrow. `ProceedOk` continues to the Stage 5C oracle;
+`Terminal(reason)` immediately constructs the owning terminal receipt.
 
 The borrowed preflight carries only immutable proof material:
 
@@ -61,9 +73,9 @@ accepted bar origin
 execution eligibility
 callback invocation timestamp
 callback authority ID
-pre-callback attribution snapshot identity
-recovery/admission identity
-audit-lineage identity
+exact pre-callback attribution snapshot fields
+exact recovery/admission fields
+exact audit-lineage fields
 ```
 
 It exposes no mutable strategy, recovery receipt, raw intent vector, intent
@@ -115,9 +127,9 @@ strategy, or return a reusable escrow.
 
 ## One settlement consume
 
-After successful borrowed preflight, the top-level transition issues exactly
-one `Stage5ePaperSettlementConsumeSeal` and consumes the escrow once. The
-consume path privately moves:
+After borrowed preflight returns either decision, the top-level transition
+issues exactly one `Stage5ePaperSettlementConsumeSeal` and consumes the escrow
+once. The consume path privately moves:
 
 ```text
 mutated strategy
@@ -203,6 +215,238 @@ The terminal receipt owns all surviving post-callback material. It is
 non-retryable, non-cloneable, non-serializable, and has no strategy, intent,
 escrow, or generic-parts extractor. A failure never returns the original
 escrow and never permits a second callback or settlement attempt.
+
+## Exact owner and escrow topology
+
+The future implementation owner is exactly:
+
+```text
+strategy_runtime_core::stage5e_no_io_lifecycle::
+    callback_authority::callback_settlement
+```
+
+`callback_settlement` is a private child module of the B3E escrow owner. It
+owns both settlement seals, both receipt types, the preflight decision, and
+the top-level transition. The B3E parent remains owner of the escrow and
+callback outcome.
+
+The only permitted escrow bridges are:
+
+```text
+Stage5ePaperCallbackResultEscrow::borrow_for_settlement_preflight(
+    &self,
+    seal: &Stage5ePaperSettlementPreflightSeal
+) -> Stage5ePaperSettlementPreflight<'_>
+
+Stage5ePaperCallbackResultEscrow::consume_for_settlement(
+    self,
+    seal: Stage5ePaperSettlementConsumeSeal
+) -> Stage5ePaperSettlementPayload
+```
+
+Each method has one definition and one call site. The preflight view is
+private to the child module, non-cloneable, non-serializable, and cannot
+outlive the escrow borrow.
+
+The consumed payload is private, opaque, non-cloneable, and owns exactly:
+
+```text
+mutated_strategy
+recovery_receipt
+audit_lineage
+pre_callback_attribution_snapshot
+retained_bar_metadata
+callback_invoked_at
+callback_authority_id
+exactly one callback_outcome
+```
+
+The payload has one private consumer in the top-level transition. There are no
+raw getters, public fields, generic parts, tuple conversion, alternate
+constructor, or second consumer. The transfer is field-for-field; no field is
+reconstructed or cloned.
+
+The callback outcome is inspected during borrowed preflight only through the
+parent-owned discriminant/count bridge requiring the preflight seal. It is
+consumed only through the payload and consume seal. `Ok` moves one exact
+intent vector; `ValidationError` moves one exact error value. Neither variant
+is exposed outside `callback_authority::callback_settlement`.
+
+## Exact Stage 5C settlement bridge
+
+Stage 5C owns:
+
+```text
+Stage5cB3fSettlementSeal
+Stage5eStage5cSettlementMaterial
+Stage5eStage5cSettlementSuccess
+Stage5eStage5cSettlementTerminalMaterial
+```
+
+The only bridge is:
+
+```text
+settle_stage5e_callback_escrow_material(
+    material: Stage5eStage5cSettlementMaterial,
+    seal: Stage5cB3fSettlementSeal
+) -> Result<
+    Stage5eStage5cSettlementSuccess,
+    Stage5eStage5cSettlementTerminalMaterial
+>
+```
+
+The seal is opaque, non-cloneable and non-convertible. Its sole issuer
+requires a borrow of the still-owned `Stage5ePaperSettlementConsumeSeal`; its
+only call site is immediately before the Stage 5C bridge.
+
+The Stage 5C material owns the mutated strategy, recovery receipt, exact
+intent vector, attribution snapshot and retained bar metadata. Inside the
+bridge:
+
+1. admission is resolved from the owned recovery receipt;
+2. the cleanup ledger from the pre-callback snapshot is passed to
+   `stage5cj_expected_generated_attribution_by_request_from_ledger`;
+3. that exact map is passed to the accepted
+   `stage5c_build_paper_intent_batch`;
+4. no fallback map is constructed in Stage 5E;
+5. success constructs the canonical `Stage5cSettledPaperStrategy`;
+6. failure constructs one Stage 5C terminal material.
+
+The terminal material retains mutated strategy, recovery receipt,
+pre-callback attribution snapshot, retained bar metadata, the exact
+`Stage5cIntentSettlementError`, and original intent count. The intent vector
+is intentionally consumed by the canonical builder and is not recoverable,
+logged, formatted, or copied into the terminal receipt.
+
+The exact error mapping is:
+
+| Stage 5C error | Stage 5E terminal reason |
+| --- | --- |
+| `TooManyIntents` | `IntentCapacityExceeded` |
+| `MissingIntentClass` | `Stage5cIntentValidationFailed` |
+| `InstrumentNamespaceMismatch` | `Stage5cIntentValidationFailed` |
+| `InvalidQuantity` | `Stage5cIntentValidationFailed` |
+| `InvalidPrice` | `Stage5cIntentValidationFailed` |
+| `PriceNotTickAligned` | `Stage5cIntentValidationFailed` |
+| `InvalidStopEnd` | `Stage5cIntentValidationFailed` |
+| `ReplayIntentNotExecutable` | `PaperModeMismatch` |
+| `MissingPendingRequest` | `Stage5cPendingRequestMismatch` |
+| `RequestIdMismatch` | `Stage5cPendingRequestMismatch` |
+| `DuplicateRequestId` | `Stage5cIntentValidationFailed` |
+| `UnsupportedIntentAction` | `Stage5cIntentValidationFailed` |
+
+`TooManyIntents` and `ReplayIntentNotExecutable` are impossible after a valid
+preflight but remain fail-closed terminal mappings. No generic `From`
+implementation or wildcard mapping is allowed.
+
+## Canonical proof and settlement identities
+
+B3F-r1 removes invented aggregate recovery/snapshot identity values from the
+preflight. It exact-compares the owned source fields named in the preflight
+contract. The audit commitment and final settlement identity use SHA-256 with
+domain-separated, versioned canonical encoding.
+
+Canonical scalar encoding is:
+
+```text
+u8/bool: one byte
+i64 bar timestamp: signed big-endian eight bytes
+DateTime<Utc>: signed big-endian Unix seconds + big-endian u32 nanoseconds
+fixed digest: exact 32 bytes
+UUID StrategyRequestId: exact 16 network-order bytes
+string: u32 big-endian byte length + UTF-8 bytes
+optional value: 0x00 or 0x01 + encoded value
+Exchange: 0x01 Moex; 0x7f Other + encoded string
+Market: 0x01 Futures, 0x02 Options, 0x03 Stocks, 0x04 Currency,
+        0x05 Funds, 0x7f Other + encoded string
+schedule classification: 0x01 Contiguous;
+                         0x02 ApprovedNonTradableBoundary + exact digest
+InstrumentId: symbol, optional venue_symbol, Exchange, Market in that order
+vector: u32 big-endian element count + ordered encoded elements
+```
+
+Audit commitment domain:
+
+```text
+stage5e-b3f-audit-commitment-v1\0
+```
+
+It binds, in order, schedule identity, sequence classification, optional
+boundary fingerprint, sequence identity and chronology, B3B event key and
+chronology, B3C continuation binding and chronology, callback authority ID
+and chronology, full instrument ID, accepted semantic-bar identity, B3B/B3C
+and sequence fingerprints, owned instrument, and owned bar identity.
+
+Settlement identity domain:
+
+```text
+stage5e-b3f-settlement-identity-v1\0
+```
+
+It binds, in order:
+
+```text
+callback authority ID
+callback invocation timestamp
+accepted semantic-bar identity
+strategy ID
+account ID
+full InstrumentId
+accepted bar close timestamp
+Stage 5C batch state fingerprint
+ordered StrategyRequestIds
+intent count as u8
+audit commitment
+```
+
+Constant fingerprints, debug/serde hashes, callback-authority aliases, sorted
+request IDs, lossy symbol-only identity, native-endian integers, and omitted
+optional tags are forbidden.
+
+## Exact receipt topology
+
+Both receipts are owned by
+`callback_authority::callback_settlement`, are crate-private opaque types with
+private fields, and forbid `Debug`, `Clone`, `Copy`, `Default`, `From`, `Into`,
+`Serialize`, and `Deserialize`.
+
+The success receipt is constructed only by:
+
+```text
+construct_stage5e_validated_paper_settlement_receipt(
+    Stage5eStage5cSettlementSuccess,
+    audit_lineage,
+    callback_invoked_at,
+    callback_authority_id,
+    settlement_identity,
+    Stage5ePaperSettlementSuccessSeal
+) -> Stage5eValidatedPaperSettlementReceipt
+```
+
+The success seal has one private constructor and one call site. The canonical
+`Stage5cSettledPaperStrategy` is a private field. The receipt exposes no
+`settled()`, `into_settled()`, batch, intent, request-ID, iterator, generic
+parts, deref, borrow, or conversion surface despite the public inspection
+methods on the wrapped Stage 5C type.
+
+The terminal receipt is constructed only by:
+
+```text
+construct_stage5e_paper_settlement_terminal_receipt(
+    exact surviving post-callback ownership,
+    reason,
+    optional exact Stage5cIntentSettlementError,
+    original intent count,
+    audit commitment,
+    Stage5ePaperSettlementTerminalSeal
+) -> Stage5ePaperSettlementTerminalReceipt
+```
+
+The terminal seal has one private constructor and one call site. The receipt
+has no raw error formatter, strategy/recovery/intent getter, reusable escrow,
+generic parts, retry capability, sink conversion, or second constructor.
+Sole future consumers of both receipts remain deferred to a separate reviewed
+stage.
 
 ## Exactly-once boundary
 
