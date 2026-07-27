@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
   "stage": "5E-b3e-callback-invocation-design",
-  "status": "design_only_r1_pending_review",
-  "baseline_ref": "5520ed1ef546bb9801dfa064311dbd0dac256ae4",
+  "status": "design_only_r2_pending_review",
+  "baseline_ref": "06107da3bf5809e34504f740e5c260b29a315b9c",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
-  "accepted_b3e_design_ref": "5520ed1ef546bb9801dfa064311dbd0dac256ae4",
+  "accepted_b3e_design_ref": "06107da3bf5809e34504f740e5c260b29a315b9c",
+  "accepted_b3e_r1_ref": "06107da3bf5809e34504f740e5c260b29a315b9c",
   "accepted_b3d_implementation_ref": "93d365ae51f2f6ad94954782a27bc49857fe21ff",
-  "expected_provenance_case_count": 259,
+  "expected_provenance_case_count": 269,
   "invocation_transition_contract": {
     "function": "invoke_stage5e_authorized_paper_callback",
     "implementation_status": "design_only_not_implemented",
@@ -34,7 +35,7 @@
   "module_and_consume_topology": {
     "orchestrator_owner": "strategy_runtime_core::stage5e_no_io_lifecycle::callback_authority",
     "nested_b3c_owner": "strategy_runtime_core::stage5e_no_io_lifecycle::schedule_window_evidence::b3c_evidence",
-    "attribution_snapshot_owner": "strategy_runtime_core::stage5c_paper_host",
+    "stage5c_callback_material_owner": "strategy_runtime_core::stage5c_paper_host",
     "authority_consume_method": "Stage5eCallbackAuthorityReadyPaperStrategy::consume_for_callback",
     "authority_consume_input": "Stage5eCallbackInvocationSeal",
     "authority_consume_output": "Stage5eAuthorizedPaperCallbackPayload",
@@ -44,10 +45,7 @@
     "nested_consume_seal_constructor_count": 1,
     "payload_constructor_count": 1,
     "payload_fields": [
-      "hybrid_intraday_runtime_strategy",
-      "stage5c_pending_recovery_receipt",
-      "stage5c_accepted_semantic_bar",
-      "stage5e_pre_callback_attribution_snapshot",
+      "stage5e_stage5c_authorized_callback_material",
       "stage5e_authorized_callback_audit_lineage"
     ],
     "payload_forbidden_surfaces": [
@@ -60,6 +58,93 @@
       "alternate_constructor",
       "second_consumer"
     ]
+  },
+  "nested_b3c_invocation_preflight_contract": {
+    "owner": "strategy_runtime_core::stage5e_no_io_lifecycle::schedule_window_evidence::b3c_evidence",
+    "seal": "Stage5eB3eNestedPreflightSeal",
+    "view": "Stage5eB3eNestedPreflight<'a>",
+    "borrow_method": "Stage5eBoundSessionCalendarSequenceForObservedLiveBar::borrow_for_authorized_callback_preflight",
+    "distinct_from_issue_seal": true,
+    "conversion_from_issue_seal_allowed": false,
+    "seal_constructor_count": 1,
+    "borrow_call_site_count": 1,
+    "issuer": "invoke_stage5e_authorized_paper_callback",
+    "ownership": "borrowed_non_decomposable",
+    "proof_vector": [
+      "full_instrument_id",
+      "accepted_semantic_bar_identity",
+      "accepted_bar_close_timestamp",
+      "b3b_event_key_fingerprint",
+      "b3c_continuation_binding_id",
+      "schedule_window_identity_fingerprint",
+      "sequence_identity_fingerprint",
+      "b3c_bound_at",
+      "b3c_effective_observed_at",
+      "b3c_effective_expires_at"
+    ],
+    "consume_before_validation_allowed": false,
+    "raw_objects_allowed": false
+  },
+  "stage5c_callback_materialization_contract": {
+    "owner": "strategy_runtime_core::stage5c_paper_host",
+    "seal": "Stage5cB3eCallbackMaterialSeal",
+    "seal_issuer": "private_stage5c_b3e_callback_material_seal_issuer",
+    "seal_constructor_count": 1,
+    "issuer_call_site_count": 1,
+    "function": "consume_stage5c_for_authorized_callback",
+    "function_call_site_count": 1,
+    "inputs": [
+      "HybridIntradayRuntimeStrategy",
+      "Stage5cPendingRecoveryReceipt",
+      "Stage5cAcceptedSemanticBar",
+      "Stage5cB3eCallbackMaterialSeal",
+      "callback_now"
+    ],
+    "output": "Stage5eStage5cAuthorizedCallbackMaterial",
+    "material_constructor_count": 1,
+    "material_consumer_count": 1,
+    "material_fields": [
+      "strategy",
+      "recovery_receipt",
+      "callback_input",
+      "attribution_snapshot",
+      "retained_bar_metadata"
+    ],
+    "construction_steps": [
+      "resolve_accepted_admission_only_through_owned_recovery_receipt",
+      "validate_admission_instrument_and_tick_against_owned_accepted_bar",
+      "record_pre_callback_position",
+      "create_cleanup_attribution_snapshot_from_pre_callback_strategy",
+      "retain_exact_bar_metadata_before_payload_move",
+      "build_exact_callback_context_using_callback_now",
+      "move_original_accepted_bar_into_callback_input"
+    ],
+    "forbidden_surfaces": [
+      "Clone",
+      "Serialize",
+      "Deserialize",
+      "generic_into_parts",
+      "raw_strategy_getter",
+      "raw_admission_getter",
+      "raw_semantic_bar_getter",
+      "raw_cleanup_ledger_getter",
+      "alternate_builder",
+      "duplicated_stage5c_context_algorithm",
+      "duplicated_stage5c_attribution_algorithm"
+    ]
+  },
+  "retained_bar_metadata_contract": {
+    "type": "Stage5eAcceptedBarSettlementMetadata",
+    "fields": [
+      "accepted_bar_close_ts",
+      "accepted_bar_origin",
+      "execution_eligible",
+      "accepted_semantic_bar_identity"
+    ],
+    "accepted_bar_origin": "Live",
+    "execution_eligible": true,
+    "constructed_before_callback_payload_move": true,
+    "reconstruction_after_callback_allowed": false
   },
   "audit_lineage_contract": {
     "type": "Stage5eAuthorizedCallbackAuditLineage",
@@ -101,7 +186,7 @@
   },
   "canonical_callback_input_contract": {
     "type": "HybridRuntimeCallbackInput<HybridRuntimeBarEvent>",
-    "builder": "single_private_sealed_authority_owner_builder",
+    "builder": "sole_stage5c_consume_stage5c_for_authorized_callback_bridge",
     "context_fields": [
       {
         "field": "strategy_id",
@@ -162,7 +247,7 @@
   },
   "pre_callback_attribution_snapshot_contract": {
     "type": "Stage5ePreCallbackAttributionSnapshot",
-    "construction_time": "after_linear_consume_before_callback",
+    "construction_time": "inside_stage5c_materialization_bridge_before_callback",
     "source_state": "exact_pre_callback_strategy_state",
     "algorithm": "accepted_stage5cj_cleanup_attribution_ledger",
     "bindings": [
@@ -224,15 +309,68 @@
     "intent_capacity_policy": "defer_exact_u8_MAX_check_to_separately_reviewed_settlement",
     "pre_settlement_queue_or_persistence_allowed": false
   },
+  "payload_to_escrow_transfer_matrix": [
+    {
+      "input": "material.strategy",
+      "callback_use": "mutable_callback_receiver",
+      "escrow_destination": "mutated_strategy"
+    },
+    {
+      "input": "material.recovery_receipt",
+      "callback_use": "untouched",
+      "escrow_destination": "recovery_receipt"
+    },
+    {
+      "input": "material.callback_input.payload",
+      "callback_use": "moved_once_into_callback",
+      "escrow_destination": "facts_retained_in_retained_bar_metadata"
+    },
+    {
+      "input": "material.attribution_snapshot",
+      "callback_use": "untouched",
+      "escrow_destination": "attribution_snapshot"
+    },
+    {
+      "input": "material.retained_bar_metadata",
+      "callback_use": "untouched",
+      "escrow_destination": "exact_accepted_bar_settlement_fields"
+    },
+    {
+      "input": "audit_lineage",
+      "callback_use": "untouched",
+      "escrow_destination": "audit_lineage"
+    },
+    {
+      "input": "callback_now",
+      "callback_use": "callback_production_clock",
+      "escrow_destination": "callback_invoked_at"
+    },
+    {
+      "input": "owned_callback_authority_id",
+      "callback_use": "callback_time_equality_proof",
+      "escrow_destination": "callback_authority_id"
+    },
+    {
+      "input": "exact_callback_result",
+      "callback_use": "converted_by_move_once",
+      "escrow_destination": "exactly_one_stage5e_paper_callback_outcome"
+    }
+  ],
   "result_escrow_contract": {
     "type": "Stage5ePaperCallbackResultEscrow",
     "implementation_status": "design_only_not_implemented",
     "visibility": "crate_private_opaque",
     "owns": [
-      "mutated_paper_strategy",
-      "complete_recovery_and_b3c_authority_audit_lineage",
-      "accepted_bar_and_callback_metadata",
-      "stage5e_pre_callback_attribution_snapshot",
+      "mutated_strategy",
+      "recovery_receipt",
+      "audit_lineage",
+      "attribution_snapshot",
+      "accepted_bar_close_ts",
+      "accepted_bar_origin_Live",
+      "execution_eligible_true",
+      "accepted_semantic_bar_identity",
+      "callback_invoked_at",
+      "callback_authority_id",
       "exactly_one_stage5e_paper_callback_outcome"
     ],
     "callback_error_retains_post_callback_strategy": true,
@@ -266,6 +404,9 @@
     "exact_callback_context_field_source_mutation_tests",
     "owned_accepted_bar_move_without_reconstruction_test",
     "pre_callback_attribution_snapshot_parity_and_post_callback_substitution_test",
+    "exact_stage5c_material_seal_sole_issuer_bridge_and_no_raw_getter_test",
+    "distinct_b3c_callback_preflight_seal_and_issue_seal_reuse_compile_fail_test",
+    "payload_to_escrow_recovery_receipt_and_bar_metadata_retention_test",
     "exact_nested_consume_payload_single_seal_issuer_and_call_site_test",
     "single_callback_outcome_ownership_without_intent_clone_test",
     "blocked_callback_zero_and_intent_zero_proof",

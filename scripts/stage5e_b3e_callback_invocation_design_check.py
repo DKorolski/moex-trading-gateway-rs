@@ -17,12 +17,12 @@ INVENTORY = (
 )
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3e-callback-invocation-design"
-BASELINE_REF = "5520ed1ef546bb9801dfa064311dbd0dac256ae4"
+BASELINE_REF = "06107da3bf5809e34504f740e5c260b29a315b9c"
 EXPECTED_PLAN_SHA256 = (
-    "4577ea674a209f0614bf0c3db7016d17e365c282ff08fb72339ae6e0857619ad"
+    "70a1ccc1c5d0d3d3681a6a1293ccc00d8d745ca4a14162b646bf8862fb3d9d40"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "f18fd3d94aa9f0b55a3190314098905ca8a9d72c6fae3428a94bd18fffc3514e"
+    "f32b3792cb3047e02d081895f9aaf2db36b8417fe09284bb4f8373018dc669c2"
 )
 EXPECTED_B3D_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -89,7 +89,7 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(inventory.get("stage"), STAGE, "stage identity drift")
     require_exact(
         inventory.get("status"),
-        "design_only_r1_pending_review",
+        "design_only_r2_pending_review",
         "design-only status drift",
     )
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
@@ -99,13 +99,18 @@ def check_inventory(inventory: dict[str, object]) -> None:
         "accepted B3E design ref drift",
     )
     require_exact(
+        inventory.get("accepted_b3e_r1_ref"),
+        BASELINE_REF,
+        "accepted B3E-r1 ref drift",
+    )
+    require_exact(
         inventory.get("accepted_b3d_implementation_ref"),
         "93d365ae51f2f6ad94954782a27bc49857fe21ff",
         "accepted B3D implementation ref drift",
     )
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        259,
+        269,
         "negative-matrix count drift",
     )
     require_exact(
@@ -181,9 +186,9 @@ def check_inventory(inventory: dict[str, object]) -> None:
         "nested B3C owner drift",
     )
     require_exact(
-        topology["attribution_snapshot_owner"],
+        topology["stage5c_callback_material_owner"],
         "strategy_runtime_core::stage5c_paper_host",
-        "attribution snapshot owner drift",
+        "Stage5C callback material owner drift",
     )
     require_exact(
         topology["authority_consume_method"],
@@ -206,10 +211,7 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(
         topology["payload_fields"],
         [
-            "hybrid_intraday_runtime_strategy",
-            "stage5c_pending_recovery_receipt",
-            "stage5c_accepted_semantic_bar",
-            "stage5e_pre_callback_attribution_snapshot",
+            "stage5e_stage5c_authorized_callback_material",
             "stage5e_authorized_callback_audit_lineage",
         ],
         "linear consume payload schema drift",
@@ -224,11 +226,91 @@ def check_inventory(inventory: dict[str, object]) -> None:
         if forbidden not in topology["payload_forbidden_surfaces"]:
             fail(f"consume payload forbidden surface weakened: {forbidden}")
 
+    nested_preflight = inventory["nested_b3c_invocation_preflight_contract"]
+    require_exact(
+        nested_preflight["seal"],
+        "Stage5eB3eNestedPreflightSeal",
+        "nested B3C preflight seal drift",
+    )
+    require_exact(
+        nested_preflight["view"],
+        "Stage5eB3eNestedPreflight<'a>",
+        "nested B3C preflight view drift",
+    )
+    require_exact(nested_preflight["distinct_from_issue_seal"], True, "B3D issue seal reused")
+    require_exact(
+        nested_preflight["conversion_from_issue_seal_allowed"],
+        False,
+        "B3D issue-seal conversion opened",
+    )
+    require_exact(nested_preflight["seal_constructor_count"], 1, "nested preflight issuer count drift")
+    require_exact(nested_preflight["borrow_call_site_count"], 1, "nested preflight call-site drift")
+    require_exact(
+        nested_preflight["consume_before_validation_allowed"],
+        False,
+        "B3C consume-before-validation opened",
+    )
+    require_exact(nested_preflight["raw_objects_allowed"], False, "raw B3C preflight object opened")
+
+    material = inventory["stage5c_callback_materialization_contract"]
+    require_exact(material["seal"], "Stage5cB3eCallbackMaterialSeal", "Stage5C material seal drift")
+    require_exact(material["function"], "consume_stage5c_for_authorized_callback", "Stage5C bridge drift")
+    require_exact(material["seal_constructor_count"], 1, "Stage5C seal constructor count drift")
+    require_exact(material["issuer_call_site_count"], 1, "Stage5C seal issuer count drift")
+    require_exact(material["function_call_site_count"], 1, "Stage5C bridge call-site count drift")
+    require_exact(material["material_constructor_count"], 1, "Stage5C material constructor count drift")
+    require_exact(material["material_consumer_count"], 1, "Stage5C material consumer count drift")
+    require_exact(
+        material["material_fields"],
+        [
+            "strategy",
+            "recovery_receipt",
+            "callback_input",
+            "attribution_snapshot",
+            "retained_bar_metadata",
+        ],
+        "Stage5C callback material schema drift",
+    )
+    for forbidden in (
+        "raw_admission_getter",
+        "raw_semantic_bar_getter",
+        "raw_cleanup_ledger_getter",
+        "alternate_builder",
+        "duplicated_stage5c_context_algorithm",
+        "duplicated_stage5c_attribution_algorithm",
+    ):
+        if forbidden not in material["forbidden_surfaces"]:
+            fail(f"Stage5C callback material surface weakened: {forbidden}")
+
+    retained = inventory["retained_bar_metadata_contract"]
+    require_exact(
+        retained["fields"],
+        [
+            "accepted_bar_close_ts",
+            "accepted_bar_origin",
+            "execution_eligible",
+            "accepted_semantic_bar_identity",
+        ],
+        "retained accepted-bar metadata drift",
+    )
+    require_exact(retained["accepted_bar_origin"], "Live", "retained bar origin drift")
+    require_exact(retained["execution_eligible"], True, "retained execution eligibility drift")
+    require_exact(
+        retained["reconstruction_after_callback_allowed"],
+        False,
+        "post-callback bar metadata reconstruction opened",
+    )
+
     context = inventory["canonical_callback_input_contract"]
     require_exact(
         context["type"],
         "HybridRuntimeCallbackInput<HybridRuntimeBarEvent>",
         "canonical callback input type drift",
+    )
+    require_exact(
+        context["builder"],
+        "sole_stage5c_consume_stage5c_for_authorized_callback_bridge",
+        "callback-input builder ownership drift",
     )
     require_exact(
         context["context_fields"],
@@ -384,6 +466,22 @@ def check_inventory(inventory: dict[str, object]) -> None:
         "pre-settlement queue/persistence opened",
     )
 
+    require_exact(
+        inventory["payload_to_escrow_transfer_matrix"],
+        [
+            {"input": "material.strategy", "callback_use": "mutable_callback_receiver", "escrow_destination": "mutated_strategy"},
+            {"input": "material.recovery_receipt", "callback_use": "untouched", "escrow_destination": "recovery_receipt"},
+            {"input": "material.callback_input.payload", "callback_use": "moved_once_into_callback", "escrow_destination": "facts_retained_in_retained_bar_metadata"},
+            {"input": "material.attribution_snapshot", "callback_use": "untouched", "escrow_destination": "attribution_snapshot"},
+            {"input": "material.retained_bar_metadata", "callback_use": "untouched", "escrow_destination": "exact_accepted_bar_settlement_fields"},
+            {"input": "audit_lineage", "callback_use": "untouched", "escrow_destination": "audit_lineage"},
+            {"input": "callback_now", "callback_use": "callback_production_clock", "escrow_destination": "callback_invoked_at"},
+            {"input": "owned_callback_authority_id", "callback_use": "callback_time_equality_proof", "escrow_destination": "callback_authority_id"},
+            {"input": "exact_callback_result", "callback_use": "converted_by_move_once", "escrow_destination": "exactly_one_stage5e_paper_callback_outcome"},
+        ],
+        "payload-to-escrow transfer matrix drift",
+    )
+
     escrow = inventory["result_escrow_contract"]
     require_exact(
         escrow["implementation_status"],
@@ -399,6 +497,23 @@ def check_inventory(inventory: dict[str, object]) -> None:
         escrow["callback_error_retry_allowed"],
         False,
         "callback-error retry opened",
+    )
+    require_exact(
+        escrow["owns"],
+        [
+            "mutated_strategy",
+            "recovery_receipt",
+            "audit_lineage",
+            "attribution_snapshot",
+            "accepted_bar_close_ts",
+            "accepted_bar_origin_Live",
+            "execution_eligible_true",
+            "accepted_semantic_bar_identity",
+            "callback_invoked_at",
+            "callback_authority_id",
+            "exactly_one_stage5e_paper_callback_outcome",
+        ],
+        "result escrow exact ownership drift",
     )
     required_forbidden = {
         "Clone",
@@ -440,12 +555,17 @@ def check_accepted_source_is_unchanged() -> None:
 def check_plan_markers() -> None:
     text = PLAN.read_text()
     for marker in (
-        "This is the governance-only B3E-r1 closure",
-        "5520ed1ef546bb9801dfa064311dbd0dac256ae4",
+        "This is the governance-only B3E-r2 closure",
+        "06107da3bf5809e34504f740e5c260b29a315b9c",
         "93d365ae51f2f6ad94954782a27bc49857fe21ff",
         "invoke_stage5e_authorized_paper_callback",
         "Stage5eCallbackInvocationSeal",
         "Stage5eCallbackInvocationPreflight<'a>",
+        "Stage5eB3eNestedPreflightSeal",
+        "Stage5cB3eCallbackMaterialSeal",
+        "consume_stage5c_for_authorized_callback",
+        "Stage5eStage5cAuthorizedCallbackMaterial",
+        "Exact payload-to-callback-to-escrow transfer",
         "Stage5ePaperCallbackResultEscrow",
         "BrokerNeutralHybridStrategy::on_broker_bar exactly once",
         "HybridRuntimeCallbackInput<HybridRuntimeBarEvent>",

@@ -2,10 +2,10 @@
 
 ## Status and baseline
 
-This is the governance-only B3E-r1 closure. Its accepted design predecessor is:
+This is the governance-only B3E-r2 closure. Its accepted design predecessor is:
 
 ```text
-5520ed1ef546bb9801dfa064311dbd0dac256ae4
+06107da3bf5809e34504f740e5c260b29a315b9c
 ```
 
 The immutable Rust implementation predecessor remains:
@@ -86,6 +86,46 @@ The preflight view is borrowed from the still-owned authority receipt. It may
 expose immutable proof material only to the owner module and may not expose the
 strategy, semantic bar, intents, or generic parts.
 
+The B3D issue preflight is not reusable at callback time. The invocation owner
+must issue a distinct:
+
+```text
+Stage5eB3eNestedPreflightSeal
+```
+
+and borrow exactly once:
+
+```text
+Stage5eBoundSessionCalendarSequenceForObservedLiveBar::
+    borrow_for_authorized_callback_preflight(
+        Stage5eB3eNestedPreflightSeal
+    ) -> Stage5eB3eNestedPreflight<'_>
+```
+
+The nested preflight seal has one constructor and one call site, both inside
+`invoke_stage5e_authorized_paper_callback`. It is a different Rust type from
+`Stage5eCallbackAuthorityIssueSeal` and cannot be converted from it.
+
+The borrowed, non-decomposable view carries only this immutable proof vector:
+
+```text
+full InstrumentId
+accepted semantic-bar identity
+accepted bar close timestamp
+B3B event-key fingerprint
+B3C continuation binding ID
+schedule-window identity fingerprint
+sequence identity fingerprint
+B3C bound_at
+B3C effective_observed_at
+B3C effective_expires_at
+```
+
+It exposes no strategy, recovery receipt, accepted bar, schedule object, raw
+field getter, or consume method. The view remains borrowed until every
+callback-time authority comparison has passed; B3C consumption happens only
+afterward.
+
 ## Exact module and consume topology
 
 The future implementation is owned by:
@@ -98,7 +138,7 @@ nested B3C ownership bridge:
   strategy_runtime_core::stage5e_no_io_lifecycle::
     schedule_window_evidence::b3c_evidence
 
-pre-callback attribution snapshot owner:
+Stage 5C callback material owner:
   strategy_runtime_core::stage5c_paper_host
 ```
 
@@ -128,12 +168,66 @@ The payload is crate-private, opaque, non-serializable, non-cloneable, and has
 one constructor in the nested B3C consume bridge. It linearly owns:
 
 ```text
-HybridIntradayRuntimeStrategy
-Stage5cPendingRecoveryReceipt
-Stage5cAcceptedSemanticBar
-Stage5ePreCallbackAttributionSnapshot
+Stage5eStage5cAuthorizedCallbackMaterial
 Stage5eAuthorizedCallbackAuditLineage
 ```
+
+The nested B3C consume bridge cannot access Stage 5C private fields directly.
+It invokes exactly one Stage 5C-owned bridge:
+
+```text
+consume_stage5c_for_authorized_callback(
+    HybridIntradayRuntimeStrategy,
+    Stage5cPendingRecoveryReceipt,
+    Stage5cAcceptedSemanticBar,
+    Stage5cB3eCallbackMaterialSeal,
+    callback_now
+) -> Stage5eStage5cAuthorizedCallbackMaterial
+```
+
+`Stage5cB3eCallbackMaterialSeal` is defined and constructed only in
+`stage5c_paper_host`. Its sole issuer is a private Stage 5C issuer function;
+that issuer has one source call site, the nested B3C consume bridge. The seal
+cannot be forged from `Stage5eCallbackInvocationSeal`, either B3E nested seal,
+or `Stage5eCallbackAuthorityIssueSeal`.
+
+`consume_stage5c_for_authorized_callback` is the sole Stage 5C materialization
+entry. It has no raw-admission or raw-bar overload. It consumes all three
+linear inputs and returns one opaque:
+
+```text
+Stage5eStage5cAuthorizedCallbackMaterial {
+    strategy: HybridIntradayRuntimeStrategy,
+    recovery_receipt: Stage5cPendingRecoveryReceipt,
+    callback_input: HybridRuntimeCallbackInput<HybridRuntimeBarEvent>,
+    attribution_snapshot: Stage5ePreCallbackAttributionSnapshot,
+    retained_bar_metadata: Stage5eAcceptedBarSettlementMetadata,
+}
+```
+
+The bridge itself:
+
+1. resolves the accepted admission only through the owned recovery receipt;
+2. validates admission instrument/tick against the owned accepted bar;
+3. records pre-callback position;
+4. creates the cleanup-attribution snapshot from pre-callback strategy state;
+5. retains exact bar metadata before moving the accepted bar into callback
+   input;
+6. builds the exact context vector using `callback_now`;
+7. moves the original accepted bar into the callback input.
+
+`Stage5eAcceptedBarSettlementMetadata` contains exactly:
+
+```text
+accepted_bar_close_ts
+accepted_bar_origin = Live
+execution_eligible = true
+accepted_semantic_bar_identity
+```
+
+The material type has one constructor in the Stage 5C bridge and one consumer
+in the authority orchestrator. It has no `Clone`, serialization, generic
+`into_parts`, raw strategy/admission/bar/ledger getter, or alternate builder.
 
 `Stage5eAuthorizedCallbackAuditLineage` owns, without raw getters:
 
@@ -147,10 +241,10 @@ callback authority ID, issued_at, and exact authority expiry
 accepted semantic-bar identity and full InstrumentId
 ```
 
-The nested bridge moves the existing strategy, recovery receipt, and accepted
-semantic bar. It must not clone/reconstruct them, widen field visibility, add
-generic `into_parts`, or add raw getters. The blocked path never calls this
-consume bridge.
+The nested bridge moves the existing Stage 5C material and audit lineage. It
+must not clone/reconstruct them, widen field visibility, add generic
+`into_parts`, or add raw getters. The blocked path never calls either consume
+bridge.
 
 ## Callback-time checks
 
@@ -205,8 +299,10 @@ The future transition constructs exactly:
 HybridRuntimeCallbackInput<HybridRuntimeBarEvent>
 ```
 
-through one private sealed builder in the authority owner module. The context
-field vector and authority sources are frozen as:
+through the sole Stage 5C-owned
+`consume_stage5c_for_authorized_callback` materialization bridge. The
+authority owner has no sibling builder. The context field vector and authority
+sources are frozen as:
 
 ```text
 strategy_id
@@ -245,7 +341,8 @@ not substitute for the callback production clock.
 
 ## Pre-callback attribution maturity snapshot
 
-Before invoking the callback, the sealed nested consume bridge creates:
+Before invoking the callback, the sole Stage 5C materialization bridge
+creates:
 
 ```text
 Stage5ePreCallbackAttributionSnapshot
@@ -290,12 +387,14 @@ accepted Stage 5C expected-attribution algorithm.
 After successful preflight only:
 
 ```text
-borrow preflight
+borrow authority invocation preflight
+→ borrow the distinct B3C nested callback preflight
 → validate all callback-time checks
 → issue one private invocation seal
 → consume authority once
-→ create the sealed pre-callback attribution snapshot
-→ build the exact canonical paper callback input from owned state
+→ consume B3C ownership once
+→ invoke the sole Stage 5C materialization bridge
+→ create the sealed pre-callback attribution snapshot and exact callback input
 → call BrokerNeutralHybridStrategy::on_broker_bar exactly once
 → move every post-callback object into private escrow
 ```
@@ -329,6 +428,27 @@ The enum is produced by moving, not cloning, the exact
 `BrokerNeutralHybridCallbackResult`. There is no second result field and no
 second intent vector.
 
+## Exact payload-to-callback-to-escrow transfer
+
+Every linear input has one named destination:
+
+| Authorized payload input | Callback use | Escrow destination |
+| --- | --- | --- |
+| `material.strategy` | mutable callback receiver | `mutated_strategy` |
+| `material.recovery_receipt` | untouched | `recovery_receipt` |
+| `material.callback_input.payload` | moved once into callback | facts retained in `retained_bar_metadata` |
+| `material.attribution_snapshot` | untouched | `attribution_snapshot` |
+| `material.retained_bar_metadata` | untouched | exact accepted-bar settlement fields |
+| `audit_lineage` | untouched | `audit_lineage` |
+| `callback_now` | callback production clock | `callback_invoked_at` |
+| owned callback authority ID | callback-time equality proof | `callback_authority_id` |
+| exact callback result | converted by move once | exactly one `Stage5ePaperCallbackOutcome` |
+
+The recovery receipt may not be dropped, replaced by its fields, or consumed
+by the callback. The accepted bar payload may be consumed by the callback only
+after its settlement metadata has been retained. No row may disappear, gain a
+second owner, or be reconstructed after callback.
+
 The future:
 
 ```text
@@ -339,10 +459,16 @@ must be crate-private, opaque, non-serializable, non-cloneable, and
 non-persistable. It owns:
 
 ```text
-mutated HybridIntradayRuntimeStrategy
-complete recovery/B3C authority audit lineage
-accepted bar and callback metadata
-Stage5ePreCallbackAttributionSnapshot
+mutated_strategy: HybridIntradayRuntimeStrategy
+recovery_receipt: Stage5cPendingRecoveryReceipt
+audit_lineage: Stage5eAuthorizedCallbackAuditLineage
+attribution_snapshot: Stage5ePreCallbackAttributionSnapshot
+accepted_bar_close_ts
+accepted_bar_origin = Live
+execution_eligible = true
+accepted_semantic_bar_identity
+callback_invoked_at
+callback_authority_id
 exactly one Stage5ePaperCallbackOutcome
 ```
 
@@ -373,6 +499,13 @@ The implementation stage is not authorized until a separate review accepts:
 - exact callback-context field-source tests and mutations;
 - owned accepted-bar move/no-reconstruction proof;
 - pre-callback attribution snapshot parity and post-callback substitution test;
+- exact Stage 5C material seal, sole issuer, sole bridge, and no raw getter
+  proof;
+- distinct B3C callback-preflight seal proof, including compile-fail reuse of
+  the B3D issue seal;
+- payload-to-callback-to-escrow transfer proof retaining the recovery receipt,
+  callback authority ID, accepted-bar close/origin/eligibility/identity, and
+  pre-callback attribution snapshot;
 - exact nested consume payload, single seal issuer, and single call-site proof;
 - single callback-outcome ownership/no intent clone proof;
 - blocked paths proving callback count `0` and intent count `0`;
