@@ -1,11 +1,12 @@
 {
   "schema_version": 1,
   "stage": "5E-b3e-callback-invocation-design",
-  "status": "design_only_pending_review",
-  "baseline_ref": "93d365ae51f2f6ad94954782a27bc49857fe21ff",
+  "status": "design_only_r1_pending_review",
+  "baseline_ref": "5520ed1ef546bb9801dfa064311dbd0dac256ae4",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
+  "accepted_b3e_design_ref": "5520ed1ef546bb9801dfa064311dbd0dac256ae4",
   "accepted_b3d_implementation_ref": "93d365ae51f2f6ad94954782a27bc49857fe21ff",
-  "expected_provenance_case_count": 249,
+  "expected_provenance_case_count": 259,
   "invocation_transition_contract": {
     "function": "invoke_stage5e_authorized_paper_callback",
     "implementation_status": "design_only_not_implemented",
@@ -30,15 +31,62 @@
     "sole_consumer": "Stage5eCallbackAuthorityReadyPaperStrategy_private_preflight_and_consume",
     "alternate_constructor_allowed": false
   },
+  "module_and_consume_topology": {
+    "orchestrator_owner": "strategy_runtime_core::stage5e_no_io_lifecycle::callback_authority",
+    "nested_b3c_owner": "strategy_runtime_core::stage5e_no_io_lifecycle::schedule_window_evidence::b3c_evidence",
+    "attribution_snapshot_owner": "strategy_runtime_core::stage5c_paper_host",
+    "authority_consume_method": "Stage5eCallbackAuthorityReadyPaperStrategy::consume_for_callback",
+    "authority_consume_input": "Stage5eCallbackInvocationSeal",
+    "authority_consume_output": "Stage5eAuthorizedPaperCallbackPayload",
+    "authority_consume_call_site_count": 1,
+    "nested_consume_method": "Stage5eBoundSessionCalendarSequenceForObservedLiveBar::consume_for_authorized_callback",
+    "nested_consume_seal": "Stage5eB3eNestedConsumeSeal",
+    "nested_consume_seal_constructor_count": 1,
+    "payload_constructor_count": 1,
+    "payload_fields": [
+      "hybrid_intraday_runtime_strategy",
+      "stage5c_pending_recovery_receipt",
+      "stage5c_accepted_semantic_bar",
+      "stage5e_pre_callback_attribution_snapshot",
+      "stage5e_authorized_callback_audit_lineage"
+    ],
+    "payload_forbidden_surfaces": [
+      "Clone",
+      "Serialize",
+      "Deserialize",
+      "generic_into_parts",
+      "raw_strategy_getter",
+      "raw_semantic_bar_getter",
+      "alternate_constructor",
+      "second_consumer"
+    ]
+  },
+  "audit_lineage_contract": {
+    "type": "Stage5eAuthorizedCallbackAuditLineage",
+    "owns": [
+      "schedule_projection_and_selected_window_identity",
+      "sequence_classification_and_optional_boundary_fingerprint",
+      "sequence_identity_observed_at_and_expires_at",
+      "b3b_event_key_and_effective_chronology",
+      "b3c_continuation_bound_at_and_effective_chronology",
+      "callback_authority_id_issued_at_and_exact_expiry",
+      "accepted_semantic_bar_identity_and_full_instrument_id"
+    ],
+    "raw_getters_allowed": false,
+    "reconstruction_allowed": false
+  },
   "callback_time_preflight_contract": {
     "type": "Stage5eCallbackInvocationPreflight<'a>",
     "ownership": "borrowed_non_decomposable",
     "checks_in_order": [
+      "authority_effective_observed_at_equals_owned_b3c_effective_observed_at",
+      "owned_b3c_effective_observed_at_not_after_issued_at",
       "issued_at_not_after_now",
       "now_not_after_authority_expires_at",
-      "accepted_bar_close_not_future",
       "issued_at_not_after_authority_expires_at",
       "authority_expiry_equals_owned_b3c_effective_expiry",
+      "accepted_bar_close_not_after_issued_at",
+      "accepted_bar_close_not_future",
       "full_instrument_identity_complete",
       "all_frozen_identity_fields_present_and_nonzero",
       "owned_identity_fields_match_b3c",
@@ -50,6 +98,90 @@
     "ledger_lookup_allowed": false,
     "persisted_capability_allowed": false,
     "surrogate_ownership_id_allowed": false
+  },
+  "canonical_callback_input_contract": {
+    "type": "HybridRuntimeCallbackInput<HybridRuntimeBarEvent>",
+    "builder": "single_private_sealed_authority_owner_builder",
+    "context_fields": [
+      {
+        "field": "strategy_id",
+        "source": "accepted_stage5c_admission_strategy_id"
+      },
+      {
+        "field": "request_namespace_account",
+        "source": "accepted_stage5c_admission_account_id"
+      },
+      {
+        "field": "instrument",
+        "source": "accepted_stage5c_admission_target_instrument"
+      },
+      {
+        "field": "tick_size",
+        "source": "accepted_stage5c_admission_tick_size"
+      },
+      {
+        "field": "trade_mode",
+        "source": "constant_HybridRuntimeTradeMode_Paper"
+      },
+      {
+        "field": "paper_execution_mode",
+        "source": "constant_HybridRuntimePaperExecutionMode_LiveOnly"
+      },
+      {
+        "field": "allow_live_orders",
+        "source": "constant_false"
+      },
+      {
+        "field": "gateway_phase",
+        "source": "constant_HybridRuntimeGatewayPhase_LiveReady"
+      },
+      {
+        "field": "position_qty",
+        "source": "Some_pre_callback_strategy_stage5c_current_position_qty"
+      },
+      {
+        "field": "event_ts_utc",
+        "source": "exact_accepted_semantic_bar_close_time_utc"
+      },
+      {
+        "field": "strategy_now_ts_utc",
+        "source": "callback_production_clock_timestamp"
+      },
+      {
+        "field": "last_bar_ts_utc",
+        "source": "Some_exact_accepted_semantic_bar_close_time_utc"
+      }
+    ],
+    "payload_source": "exact_owned_stage5c_accepted_semantic_bar_moved_once",
+    "payload_origin": "Live",
+    "payload_timeframe_sec": 600,
+    "payload_final": true,
+    "caller_context_allowed": false,
+    "payload_clone_or_reconstruction_allowed": false,
+    "position_read_after_callback_allowed": false
+  },
+  "pre_callback_attribution_snapshot_contract": {
+    "type": "Stage5ePreCallbackAttributionSnapshot",
+    "construction_time": "after_linear_consume_before_callback",
+    "source_state": "exact_pre_callback_strategy_state",
+    "algorithm": "accepted_stage5cj_cleanup_attribution_ledger",
+    "bindings": [
+      "accepted_strategy_id",
+      "accepted_account_id",
+      "accepted_target_instrument",
+      "accepted_semantic_bar_identity",
+      "accepted_bar_close_timestamp"
+    ],
+    "owns": [
+      "broker_order_id_to_hybrid_runtime_attribution",
+      "stop_order_id_to_hybrid_runtime_attribution",
+      "pending_entry_hybrid_runtime_attribution"
+    ],
+    "post_callback_state_substitution_allowed": false,
+    "serialization_allowed": false,
+    "clone_allowed": false,
+    "raw_getters_allowed": false,
+    "sole_future_consumer": "separately_reviewed_paper_validation_and_settlement_transition"
   },
   "terminal_block_contract": {
     "type": "Stage5eCallbackInvocationTerminalBlock",
@@ -79,6 +211,19 @@
     "panic_retry_allowed": false,
     "actual_callback_status": "hold_until_separate_implementation_review"
   },
+  "callback_outcome_contract": {
+    "type": "Stage5ePaperCallbackOutcome",
+    "variants": [
+      "Ok(Vec<BrokerNeutralHybridIntent>)",
+      "ValidationError(HybridRuntimeCallbackValidationError)"
+    ],
+    "source": "move_exact_BrokerNeutralHybridCallbackResult",
+    "intent_vector_owner_count": 1,
+    "intent_clone_allowed": false,
+    "second_result_representation_allowed": false,
+    "intent_capacity_policy": "defer_exact_u8_MAX_check_to_separately_reviewed_settlement",
+    "pre_settlement_queue_or_persistence_allowed": false
+  },
   "result_escrow_contract": {
     "type": "Stage5ePaperCallbackResultEscrow",
     "implementation_status": "design_only_not_implemented",
@@ -87,8 +232,8 @@
       "mutated_paper_strategy",
       "complete_recovery_and_b3c_authority_audit_lineage",
       "accepted_bar_and_callback_metadata",
-      "broker_neutral_hybrid_callback_result",
-      "in_memory_intents_when_callback_returns_ok"
+      "stage5e_pre_callback_attribution_snapshot",
+      "exactly_one_stage5e_paper_callback_outcome"
     ],
     "callback_error_retains_post_callback_strategy": true,
     "callback_error_retry_allowed": false,
@@ -116,7 +261,13 @@
     "canonical_Stage4AcceptedPaperHostEvidence_to_B3C_to_callback_authority_test",
     "compile_fail_construction_clone_extraction_direct_callback",
     "callback_time_expiry_and_authority_id_mismatch_tests",
+    "full_effective_observation_issuance_invocation_expiry_chronology_tests",
     "every_frozen_identity_mismatch_test",
+    "exact_callback_context_field_source_mutation_tests",
+    "owned_accepted_bar_move_without_reconstruction_test",
+    "pre_callback_attribution_snapshot_parity_and_post_callback_substitution_test",
+    "exact_nested_consume_payload_single_seal_issuer_and_call_site_test",
+    "single_callback_outcome_ownership_without_intent_clone_test",
     "blocked_callback_zero_and_intent_zero_proof",
     "success_exactly_one_callback_proof",
     "callback_error_escrow_ownership_proof",
@@ -133,13 +284,10 @@
   },
   "allowed_changed_paths": [
     "docs/stage-5/5e-b3e-callback-invocation-design.md",
-    "docs/stage-5/stage5e-active-descriptor.json",
     "docs/stage-5/stage5e-b3e-callback-invocation-design-inventory.json",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
-    "scripts/stage5e_b3e_callback_invocation_design_check.py",
-    "scripts/stage5e_descriptor.py",
-    "scripts/stage5e_lifecycle_event_time_gate.sh"
+    "scripts/stage5e_b3e_callback_invocation_design_check.py"
   ],
   "closed_surfaces": {
     "actual_callback_invocation": false,
