@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "stage": "5E-b3e-callback-invocation-design",
+  "status": "design_only_pending_review",
+  "baseline_ref": "93d365ae51f2f6ad94954782a27bc49857fe21ff",
+  "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
+  "accepted_b3d_implementation_ref": "93d365ae51f2f6ad94954782a27bc49857fe21ff",
+  "expected_provenance_case_count": 249,
+  "invocation_transition_contract": {
+    "function": "invoke_stage5e_authorized_paper_callback",
+    "implementation_status": "design_only_not_implemented",
+    "only_input": "Stage5eCallbackAuthorityReadyPaperStrategy",
+    "success": "Stage5ePaperCallbackResultEscrow",
+    "blocked": "Stage5eCallbackInvocationTerminalBlock",
+    "production_clock": "captured_inside_transition",
+    "caller_supplied_production_clock_allowed": false,
+    "test_clock_seam": "cfg_test_only",
+    "preflight_before_consume": true,
+    "callback_after_all_checks_only": true,
+    "callback_count_on_blocked_path": 0,
+    "callback_count_on_success_path": 1,
+    "callback_invocation_implies_in_memory_intent_construction": true,
+    "legacy_stage5c_route_allowed": false
+  },
+  "invocation_seal_contract": {
+    "type": "Stage5eCallbackInvocationSeal",
+    "visibility": "private_owner_only",
+    "constructor_count": 1,
+    "sole_issuer": "invoke_stage5e_authorized_paper_callback",
+    "sole_consumer": "Stage5eCallbackAuthorityReadyPaperStrategy_private_preflight_and_consume",
+    "alternate_constructor_allowed": false
+  },
+  "callback_time_preflight_contract": {
+    "type": "Stage5eCallbackInvocationPreflight<'a>",
+    "ownership": "borrowed_non_decomposable",
+    "checks_in_order": [
+      "issued_at_not_after_now",
+      "now_not_after_authority_expires_at",
+      "accepted_bar_close_not_future",
+      "issued_at_not_after_authority_expires_at",
+      "authority_expiry_equals_owned_b3c_effective_expiry",
+      "full_instrument_identity_complete",
+      "all_frozen_identity_fields_present_and_nonzero",
+      "owned_identity_fields_match_b3c",
+      "callback_authority_id_recomputed_and_equal"
+    ],
+    "grace_period_allowed": false,
+    "expiry_extension_allowed": false,
+    "refresh_allowed": false,
+    "ledger_lookup_allowed": false,
+    "persisted_capability_allowed": false,
+    "surrogate_ownership_id_allowed": false
+  },
+  "terminal_block_contract": {
+    "type": "Stage5eCallbackInvocationTerminalBlock",
+    "reasons": [
+      "ClockBeforeAuthorityIssue",
+      "AuthorityExpired",
+      "AcceptedBarObservedInFuture",
+      "InvalidAuthorityChronology",
+      "InstrumentIdentityMissing",
+      "OwnedIdentityMismatch",
+      "CallbackAuthorityIdMismatch"
+    ],
+    "returns_authority_receipt": false,
+    "retry_allowed": false,
+    "refresh_allowed": false,
+    "reconstruction_allowed": false,
+    "unbinding_allowed": false,
+    "recovery": "rebuild_full_chain_from_fresh_accepted_evidence"
+  },
+  "callback_execution_contract": {
+    "callback": "BrokerNeutralHybridStrategy::on_broker_bar",
+    "callback_result": "BrokerNeutralHybridCallbackResult",
+    "exactly_once_after_preflight": true,
+    "uses_legacy_stage5c_apply": false,
+    "uses_legacy_stage5c_loop": false,
+    "catch_unwind_allowed": false,
+    "panic_retry_allowed": false,
+    "actual_callback_status": "hold_until_separate_implementation_review"
+  },
+  "result_escrow_contract": {
+    "type": "Stage5ePaperCallbackResultEscrow",
+    "implementation_status": "design_only_not_implemented",
+    "visibility": "crate_private_opaque",
+    "owns": [
+      "mutated_paper_strategy",
+      "complete_recovery_and_b3c_authority_audit_lineage",
+      "accepted_bar_and_callback_metadata",
+      "broker_neutral_hybrid_callback_result",
+      "in_memory_intents_when_callback_returns_ok"
+    ],
+    "callback_error_retains_post_callback_strategy": true,
+    "callback_error_retry_allowed": false,
+    "sole_future_consumer": "separately_reviewed_paper_validation_and_settlement_transition",
+    "forbidden_traits_and_surfaces": [
+      "Debug",
+      "Clone",
+      "Copy",
+      "Serialize",
+      "Deserialize",
+      "Default",
+      "From",
+      "Into",
+      "into_parts",
+      "raw_strategy_getter",
+      "intent_getter",
+      "intent_iterator",
+      "intent_sink_conversion",
+      "command_conversion",
+      "send_capable_consumer",
+      "execution_ready_marker"
+    ]
+  },
+  "implementation_prerequisites": [
+    "canonical_Stage4AcceptedPaperHostEvidence_to_B3C_to_callback_authority_test",
+    "compile_fail_construction_clone_extraction_direct_callback",
+    "callback_time_expiry_and_authority_id_mismatch_tests",
+    "every_frozen_identity_mismatch_test",
+    "blocked_callback_zero_and_intent_zero_proof",
+    "success_exactly_one_callback_proof",
+    "callback_error_escrow_ownership_proof",
+    "legacy_Stage5C_route_non_reachability",
+    "no_escrow_getter_sink_send_transport_surface",
+    "source_bound_negative_and_heavy_freeze_evidence"
+  ],
+  "accepted_b3d_source_sha256": {
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "9637a6065452b7b46581601bbee8c0270f65dc04207f15b530d3531a36872d1c",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "30d87cb4313b961f3159d2ca4e5ef214ee2009d0358a96ace945e6794b41ae6c",
+    "docs/stage-5/5e-b3d-callback-authority-design.md": "ae58b3b839782fa4f899079bb19edcac84840246f415d753314a1ad19e5476b6",
+    "docs/stage-5/stage5e-b3d-callback-authority-design-inventory.json": "97800a8d0de98266cdc26ebc85bdee224c7ab4ff6705636a9136eda8a6a54037",
+    "scripts/stage5e_b3d_callback_authority_design_check.py": "143a719d916ca2f539fa1faf0849f69d1780a9ba86cd78120b9808cdf9747ff0"
+  },
+  "allowed_changed_paths": [
+    "docs/stage-5/5e-b3e-callback-invocation-design.md",
+    "docs/stage-5/stage5e-active-descriptor.json",
+    "docs/stage-5/stage5e-b3e-callback-invocation-design-inventory.json",
+    "scripts/handoff_provenance_negative_harness.py",
+    "scripts/handoff_safety_check.py",
+    "scripts/stage5e_b3e_callback_invocation_design_check.py",
+    "scripts/stage5e_descriptor.py",
+    "scripts/stage5e_lifecycle_event_time_gate.sh"
+  ],
+  "closed_surfaces": {
+    "actual_callback_invocation": false,
+    "strategy_state_mutation": false,
+    "in_memory_intent_construction": false,
+    "escrow_validation_or_settlement": false,
+    "intent_extraction_or_sink": false,
+    "executable_intents": false,
+    "redis": false,
+    "finam_io": false,
+    "transport": false,
+    "dispatch": false,
+    "runtime_live": false,
+    "broker_execution": false,
+    "autonomous_event_loop": false,
+    "schedule_provider_attachment": false,
+    "venue_calendar_inference": false
+  }
+}

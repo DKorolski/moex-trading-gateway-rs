@@ -41,9 +41,14 @@ EXPECTED_REGISTRY = {
         "plan": "docs/stage-5/5e-b3d-callback-authority-design.md",
         "checker": "scripts/stage5e_b3d_callback_authority_design_check.py",
     },
+    "5E-b3e-callback-invocation-design": {
+        "inventory": "docs/stage-5/stage5e-b3e-callback-invocation-design-inventory.json",
+        "plan": "docs/stage-5/5e-b3e-callback-invocation-design.md",
+        "checker": "scripts/stage5e_b3e_callback_invocation_design_check.py",
+    },
 }
 REGISTRY = EXPECTED_REGISTRY
-EXPECTED_REGISTRY_SHA256 = "5ea9323770d997db1afdc4af7bc3b7a7f535149c1dd32daf7aed85ddfdaaf3cd"
+EXPECTED_REGISTRY_SHA256 = "6881ed75f7774a3b3c1cd70e8cd1ee11478c1c2298df80ff51759633d814359e"
 
 
 def registry_sha256(registry: object) -> str:

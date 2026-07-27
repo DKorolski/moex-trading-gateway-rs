@@ -627,6 +627,32 @@ def main() -> int:
 
         return apply
 
+    def mutate_stage5e_b3e_inventory_for_checker(mutator):
+        def apply(root, _manifest, _marker):
+            path = (
+                root
+                / "docs/stage-5/stage5e-b3e-callback-invocation-design-inventory.json"
+            )
+            payload = json.loads(path.read_text())
+            mutator(payload)
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+        return apply
+
+    def mutate_stage5e_b3e_plan_for_checker(mutator):
+        def apply(root, _manifest, _marker):
+            path = root / "docs/stage-5/5e-b3e-callback-invocation-design.md"
+            path.write_text(mutator(path.read_text()))
+
+        return apply
+
+    def mutate_stage5e_b3e_source_for_checker(path_value, mutator):
+        def apply(root, _manifest, _marker):
+            path = root / path_value
+            path.write_text(mutator(path.read_text()))
+
+        return apply
+
     def mutate_stage5e_b3_module_for_checker(mutator):
         def apply(root, _manifest, _marker):
             path = root / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
@@ -2505,6 +2531,16 @@ def main() -> int:
         Case("stage5e-b3d-impl-legacy-stage5c-route-called", "B3D implementation source drift", mutate_stage5e_b3d_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("// STAGE5E-B3D-CALLBACK-AUTHORITY-END: private-no-io-issue-v1", "fn bypass_authority() { apply_stage5c_semantic_bar(); }\\n// STAGE5E-B3D-CALLBACK-AUTHORITY-END: private-no-io-issue-v1", 1)), "5E-b3d-callback-authority-design", True),
         Case("stage5e-b3d-impl-test-clock-cfg-removed", "B3D implementation source drift", mutate_stage5e_b3d_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("    #[cfg(test)]\n    pub(crate) fn issue_stage5e_callback_authority_at(", "    pub(crate) fn issue_stage5e_callback_authority_at(", 1)), "5E-b3d-callback-authority-design", True),
         Case("stage5e-b3d-impl-second-borrowed-bridge-opened", "B3D implementation source drift", mutate_stage5e_b3d_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("            pub(crate) fn borrow_callback_authority_preflight(", "            pub(crate) fn duplicate_borrow_callback_authority_preflight() {}\\n\\n            pub(crate) fn borrow_callback_authority_preflight(", 1)), "5E-b3d-callback-authority-design", True),
+        Case("stage5e-b3e-sole-authority-input-bypassed", "design inventory drift", mutate_stage5e_b3e_inventory_for_checker(lambda p: p["invocation_transition_contract"].__setitem__("only_input", "Stage5eBoundSessionCalendarSequenceForObservedLiveBar")), "5E-b3e-callback-invocation-design", True),
+        Case("stage5e-b3e-production-clock-externalized", "design inventory drift", mutate_stage5e_b3e_inventory_for_checker(lambda p: p["invocation_transition_contract"].__setitem__("caller_supplied_production_clock_allowed", True)), "5E-b3e-callback-invocation-design", True),
+        Case("stage5e-b3e-callback-expiry-check-removed", "design inventory drift", mutate_stage5e_b3e_inventory_for_checker(lambda p: p["callback_time_preflight_contract"]["checks_in_order"].remove("now_not_after_authority_expires_at")), "5E-b3e-callback-invocation-design", True),
+        Case("stage5e-b3e-terminal-retry-opened", "design inventory drift", mutate_stage5e_b3e_inventory_for_checker(lambda p: p["terminal_block_contract"].__setitem__("retry_allowed", True)), "5E-b3e-callback-invocation-design", True),
+        Case("stage5e-b3e-escrow-intent-getter-opened", "design inventory drift", mutate_stage5e_b3e_inventory_for_checker(lambda p: p["result_escrow_contract"]["forbidden_traits_and_surfaces"].remove("intent_getter")), "5E-b3e-callback-invocation-design", True),
+        Case("stage5e-b3e-actual-callback-source-opened", "accepted B3D source drift", mutate_stage5e_b3e_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("// STAGE5E-B3D-CALLBACK-AUTHORITY-END: private-no-io-issue-v1", "fn invoke_stage5e_authorized_paper_callback() {}\\n// STAGE5E-B3D-CALLBACK-AUTHORITY-END: private-no-io-issue-v1", 1)), "5E-b3e-callback-invocation-design", True),
+        Case("stage5e-b3e-legacy-stage5c-route-opened", "design inventory drift", mutate_stage5e_b3e_inventory_for_checker(lambda p: p["invocation_transition_contract"].__setitem__("legacy_stage5c_route_allowed", True)), "5E-b3e-callback-invocation-design", True),
+        Case("stage5e-b3e-callback-cardinality-expanded", "design inventory drift", mutate_stage5e_b3e_inventory_for_checker(lambda p: p["invocation_transition_contract"].__setitem__("callback_count_on_success_path", 2)), "5E-b3e-callback-invocation-design", True),
+        Case("stage5e-b3e-runtime-live-opened", "design inventory drift", mutate_stage5e_b3e_inventory_for_checker(lambda p: p["closed_surfaces"].__setitem__("runtime_live", True)), "5E-b3e-callback-invocation-design", True),
+        Case("stage5e-b3e-separate-review-marker-removed", "design plan drift", mutate_stage5e_b3e_plan_for_checker(lambda t: t.replace("Any implementation requires a separate accepted assignment and review.", "Implementation may proceed immediately.", 1)), "5E-b3e-callback-invocation-design", True),
     ]
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)
