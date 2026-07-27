@@ -17,12 +17,12 @@ INVENTORY = (
 )
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3e-callback-invocation-design"
-BASELINE_REF = "c134da8da519dd09473699e1c23c2bc9d96a5a2f"
+BASELINE_REF = "a41ec4420736c66b92425f0f977fc9957d611df3"
 EXPECTED_PLAN_SHA256 = (
-    "dafab9ff317979fe208fa715809830a3e302a7f53375e45d341c5a432ecce5e3"
+    "0534a24530e47d3c02f1aeee7f41298554fc9c3d3f95552ecbf34246ed794aa9"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "6d758d4a8d0dec235d653e0c1dcc0eb4087437fda3b9cb4a21f8845ccb14c7d4"
+    "143aaa8b98053c809220bfd96267064069dad9c044d2904bc3679eb8a200c56a"
 )
 EXPECTED_B3D_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -89,7 +89,7 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(inventory.get("stage"), STAGE, "stage identity drift")
     require_exact(
         inventory.get("status"),
-        "design_only_r3_pending_review",
+        "design_only_r4_pending_review",
         "design-only status drift",
     )
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
@@ -105,8 +105,13 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
     require_exact(
         inventory.get("accepted_b3e_r2_ref"),
-        BASELINE_REF,
+        "c134da8da519dd09473699e1c23c2bc9d96a5a2f",
         "accepted B3E-r2 ref drift",
+    )
+    require_exact(
+        inventory.get("accepted_b3e_r3_ref"),
+        BASELINE_REF,
+        "accepted B3E-r3 ref drift",
     )
     require_exact(
         inventory.get("accepted_b3d_implementation_ref"),
@@ -115,7 +120,7 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        280,
+        290,
         "negative-matrix count drift",
     )
     require_exact(
@@ -150,6 +155,61 @@ def check_inventory(inventory: dict[str, object]) -> None:
         },
         "invocation transition contract drift",
     )
+    consume_context = inventory["invocation_consume_context_contract"]
+    require_exact(consume_context["owner"], "callback_authority", "invocation context owner drift")
+    require_exact(
+        consume_context["visibility"],
+        "pub_crate_opaque_private_fields",
+        "invocation context visibility drift",
+    )
+    require_exact(consume_context["constructor_count"], 1, "invocation context constructor count drift")
+    require_exact(consume_context["consumer_count"], 1, "invocation context consumer count drift")
+    require_exact(
+        consume_context["fields"],
+        [
+            "callback_now",
+            "callback_authority_id",
+            "issued_at",
+            "effective_observed_at",
+            "authority_expires_at",
+            "full_instrument_id",
+            "accepted_semantic_bar_identity",
+            "b3b_event_key_fingerprint",
+            "b3c_continuation_binding_id",
+            "sequence_identity_fingerprint",
+        ],
+        "invocation context field vector drift",
+    )
+    require_exact(
+        consume_context["clock_flow"],
+        [
+            "callback_now_to_stage5c_materialization",
+            "same_callback_now_to_payload_callback_invoked_at",
+            "stage5c_strategy_now_equals_escrow_callback_invoked_at",
+        ],
+        "callback clock flow drift",
+    )
+    require_exact(
+        consume_context["authority_audit_flow"],
+        [
+            "callback_authority_id_to_audit_lineage",
+            "issued_at_to_audit_lineage",
+            "effective_observed_at_to_audit_lineage",
+            "authority_expires_at_to_audit_lineage",
+        ],
+        "outer authority audit flow drift",
+    )
+    for forbidden in (
+        "raw_getters",
+        "partial_extraction",
+        "alternate_constructor",
+        "second_consumer",
+        "caller_clock",
+        "issued_at_as_callback_now",
+    ):
+        if forbidden not in consume_context["forbidden_surfaces"]:
+            fail(f"invocation context surface weakened: {forbidden}")
+
     preflight = inventory["callback_time_preflight_contract"]
     require_exact(
         preflight["checks_in_order"],
@@ -200,10 +260,15 @@ def check_inventory(inventory: dict[str, object]) -> None:
         "Stage5eCallbackAuthorityReadyPaperStrategy::consume_for_callback",
         "authority consume method drift",
     )
+    require_exact(
+        topology["authority_consume_input"],
+        "Stage5eCallbackInvocationSeal_and_Stage5eB3eInvocationConsumeContext",
+        "authority consume context transport drift",
+    )
     require_exact(topology["authority_consume_call_site_count"], 1, "second authority consumer opened")
     require_exact(
         topology["nested_consume_method"],
-        "Stage5eBoundSessionCalendarSequenceForObservedLiveBar::consume_for_authorized_callback",
+        "Stage5eBoundSessionCalendarSequenceForObservedLiveBar::consume_for_authorized_callback_with_nested_seal_and_invocation_context",
         "nested consume method drift",
     )
     require_exact(
@@ -218,6 +283,8 @@ def check_inventory(inventory: dict[str, object]) -> None:
         [
             "stage5e_stage5c_authorized_callback_material",
             "stage5e_authorized_callback_audit_lineage",
+            "callback_invoked_at",
+            "callback_authority_id",
         ],
         "linear consume payload schema drift",
     )
@@ -230,6 +297,63 @@ def check_inventory(inventory: dict[str, object]) -> None:
     ):
         if forbidden not in topology["payload_forbidden_surfaces"]:
             fail(f"consume payload forbidden surface weakened: {forbidden}")
+
+    payload = inventory["authorized_payload_contract"]
+    require_exact(payload["owner"], "callback_authority", "authorized payload owner drift")
+    require_exact(
+        payload["visibility"],
+        "pub_crate_opaque_private_fields",
+        "authorized payload fields widened",
+    )
+    require_exact(
+        payload["constructor"],
+        "construct_stage5e_authorized_paper_callback_payload",
+        "authorized payload constructor drift",
+    )
+    require_exact(payload["constructor_definition_count"], 1, "authorized payload constructor count drift")
+    require_exact(payload["constructor_call_site_count"], 1, "authorized payload constructor call-site drift")
+    require_exact(
+        payload["constructor_capability"],
+        "&Stage5eB3eNestedConsumeSeal",
+        "authorized payload nested capability drift",
+    )
+    require_exact(
+        payload["fields"],
+        [
+            "stage5c_authorized_callback_material",
+            "authorized_callback_audit_lineage",
+            "callback_invoked_at",
+            "callback_authority_id",
+        ],
+        "authorized payload schema drift",
+    )
+    require_exact(
+        payload["sole_consumer"],
+        "Stage5eAuthorizedPaperCallbackPayload::invoke_callback_once_in_authority",
+        "authorized payload consumer drift",
+    )
+    require_exact(payload["consumer_call_site_count"], 1, "authorized payload consumer count drift")
+    require_exact(
+        payload["post_callback_fields"],
+        [
+            "post_callback_material",
+            "audit_lineage",
+            "callback_invoked_at",
+            "callback_authority_id",
+        ],
+        "authorized post-callback payload schema drift",
+    )
+    require_exact(payload["post_callback_consumer_count"], 1, "authorized post-callback consumer count drift")
+    for forbidden in (
+        "public_fields",
+        "raw_getters",
+        "generic_into_parts",
+        "alternate_constructor",
+        "constructor_without_nested_capability",
+        "second_consumer",
+    ):
+        if forbidden not in payload["forbidden_surfaces"]:
+            fail(f"authorized payload surface weakened: {forbidden}")
 
     require_exact(
         inventory["cross_module_seal_topology"],
@@ -416,6 +540,17 @@ def check_inventory(inventory: dict[str, object]) -> None:
         "post-callback bar metadata reconstruction opened",
     )
 
+    require_exact(
+        inventory["audit_lineage_contract"]["outer_authority_sources"],
+        {
+            "callback_authority_id": "invocation_consume_context_callback_authority_id",
+            "issued_at": "invocation_consume_context_issued_at",
+            "effective_observed_at": "invocation_consume_context_effective_observed_at",
+            "authority_expires_at": "invocation_consume_context_authority_expires_at",
+        },
+        "outer authority metadata lineage transport drift",
+    )
+
     context = inventory["canonical_callback_input_contract"]
     require_exact(
         context["type"],
@@ -555,6 +690,12 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
 
     outcome = inventory["callback_outcome_contract"]
+    require_exact(outcome["owner"], "callback_authority", "callback outcome owner drift")
+    require_exact(
+        outcome["visibility"],
+        "pub_crate_opaque_settlement_inspection_only",
+        "callback outcome visibility drift",
+    )
     require_exact(
         outcome["variants"],
         [
@@ -567,6 +708,18 @@ def check_inventory(inventory: dict[str, object]) -> None:
         outcome["source"],
         "move_exact_BrokerNeutralHybridCallbackResult",
         "callback outcome source drift",
+    )
+    require_exact(
+        outcome["move_constructor"],
+        "move_stage5e_paper_callback_outcome",
+        "callback outcome move constructor drift",
+    )
+    require_exact(outcome["move_constructor_count"], 1, "callback outcome constructor count drift")
+    require_exact(outcome["move_constructor_call_site_count"], 1, "callback outcome call-site count drift")
+    require_exact(
+        outcome["move_constructor_capability"],
+        "&Stage5cB3eCallbackExecutionSeal",
+        "callback outcome execution capability drift",
     )
     require_exact(outcome["intent_vector_owner_count"], 1, "intent ownership duplicated")
     require_exact(outcome["intent_clone_allowed"], False, "intent clone opened")
@@ -607,13 +760,18 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(construction["seal_constructor_count"], 1, "escrow seal constructor count drift")
     require_exact(
         construction["seal_construction_time"],
-        "after_post_callback_material_returned",
+        "after_authorized_post_callback_payload_returned",
         "escrow seal constructed before callback",
     )
     require_exact(
         construction["post_callback_consume_method"],
-        "Stage5eStage5cPostCallbackMaterial::construct_result_escrow",
+        "Stage5eAuthorizedPostCallbackPayload::construct_result_escrow",
         "post-callback escrow bridge drift",
+    )
+    require_exact(
+        construction["post_callback_consume_method_visibility"],
+        "private_owner_only",
+        "post-callback payload consumer visibility drift",
     )
     require_exact(
         construction["post_callback_consume_call_site_count"],
@@ -629,7 +787,7 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(construction["constructor_call_site_count"], 1, "escrow constructor call-site drift")
     for field in (
         "pre_callback_construction_allowed",
-        "construction_without_post_callback_material_allowed",
+        "construction_without_authorized_post_callback_payload_allowed",
         "construction_without_seal_allowed",
     ):
         require_exact(construction[field], False, f"escrow construction guard opened: {field}")
@@ -707,8 +865,8 @@ def check_accepted_source_is_unchanged() -> None:
 def check_plan_markers() -> None:
     text = PLAN.read_text()
     for marker in (
-        "This is the governance-only B3E-r3 closure",
-        "c134da8da519dd09473699e1c23c2bc9d96a5a2f",
+        "This is the governance-only B3E-r4 closure",
+        "a41ec4420736c66b92425f0f977fc9957d611df3",
         "93d365ae51f2f6ad94954782a27bc49857fe21ff",
         "invoke_stage5e_authorized_paper_callback",
         "Stage5eCallbackInvocationSeal",
@@ -717,6 +875,11 @@ def check_plan_markers() -> None:
         "Stage5cB3eCallbackMaterialSeal",
         "consume_stage5c_for_authorized_callback",
         "Stage5eStage5cAuthorizedCallbackMaterial",
+        "Stage5eB3eInvocationConsumeContext",
+        "construct_stage5e_authorized_paper_callback_payload",
+        "Stage5eAuthorizedPostCallbackPayload",
+        "invoke_callback_once_in_authority",
+        "move_stage5e_paper_callback_outcome",
         "issue_stage5c_b3e_callback_material_seal",
         "Stage5cB3eCallbackExecutionSeal",
         "Stage5eStage5cPostCallbackMaterial",
