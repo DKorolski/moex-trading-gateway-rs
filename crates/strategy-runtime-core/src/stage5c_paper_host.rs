@@ -5647,6 +5647,11 @@ fn construct_stage5e_stage5c_materialization_terminal_block(
 #[allow(dead_code)] // Opaque ownership is inspected only by a later settlement stage.
 pub(crate) struct Stage5ePreCallbackAttributionSnapshot {
     cleanup_ledger: Stage5cCleanupAttributionLedger,
+    strategy_id: String,
+    account_id: BrokerAccountId,
+    target_instrument: InstrumentId,
+    accepted_semantic_bar_identity: [u8; 32],
+    accepted_bar_close_ts: i64,
 }
 
 #[allow(dead_code)] // Opaque ownership is inspected only by a later settlement stage.
@@ -5664,6 +5669,18 @@ impl Stage5ePreCallbackAttributionSnapshot {
             self.cleanup_ledger.broker_orders.len(),
             self.cleanup_ledger.stop_orders.len(),
             self.cleanup_ledger.pending_entry_attribution.is_some(),
+        )
+    }
+
+    pub(crate) fn test_binding_vector(
+        &self,
+    ) -> (String, BrokerAccountId, InstrumentId, [u8; 32], i64) {
+        (
+            self.strategy_id.clone(),
+            self.account_id.clone(),
+            self.target_instrument.clone(),
+            self.accepted_semantic_bar_identity,
+            self.accepted_bar_close_ts,
         )
     }
 }
@@ -5714,6 +5731,150 @@ pub(crate) fn stage5e_test_b3e_callback_count() -> usize {
     STAGE5E_B3E_CALLBACK_COUNT.with(std::cell::Cell::get)
 }
 
+#[cfg(test)]
+pub(crate) fn stage5e_test_nonempty_intent_sequence_inputs(
+    now: DateTime<Utc>,
+    predecessor_close_ts: i64,
+    current_close_ts: i64,
+) -> (
+    Stage5cPendingRecoveredPaperStrategy,
+    Stage5cAcceptedSemanticBar,
+) {
+    let target = InstrumentId {
+        symbol: "IMOEXF".to_string(),
+        venue_symbol: Some("IMOEXF@RTSX".to_string()),
+        exchange: broker_core::Exchange::Moex,
+        market: broker_core::Market::Futures,
+    };
+    let mut strategy = HybridIntradayRuntimeStrategy::new(
+        crate::hybrid_intraday_runtime::HybridIntradayRuntimeConfig {
+            symbol: "IMOEXF".to_string(),
+            profile: crate::hybrid_intraday_runtime::HybridIntradayProfile::BaselineRuntimeHybrid,
+            mr_variant: crate::hybrid_intraday_runtime::MeanReversionVariant::Author41BoundaryShort,
+            mr_gate_policy: crate::hybrid_intraday_runtime::MrGatePolicy::Disabled,
+            risk_gate_mode: crate::hybrid_intraday_runtime::RiskGateMode::Disabled,
+            risk_gate_seed_file: None,
+            risk_gate_ledger_key: None,
+            model_session_start_time: None,
+            model_session_end_time: None,
+            qty: 1.0,
+            live_order_style: crate::runtime_compat::MarketBuyAndCloseLiveOrderStyle::Market,
+            tick_size: 0.5,
+            marketable_limit_offset_ticks: 0,
+            timezone_offset_hours: 3,
+            session_close_hour: 23,
+            session_close_minute: 49,
+            weekends_off: true,
+            stop_end_buffer_sec: 60,
+            repair_deadline_sec: 180,
+            sl_escalate_timeout_sec: 30,
+            max_repair_retries: 3,
+            repair_backoff_base_sec: 5,
+            repair_backoff_max_sec: 60,
+            pending_timeout_sec: 30,
+            partial_entry_fill_timeout_ms: 3_000,
+            mr_config: crate::hybrid_intraday::MeanReversionConfig::default(),
+            breakout_config: crate::hybrid_intraday::IntradayBreakoutConfig::default(),
+            orchestrator_config: crate::hybrid_intraday::HybridOrchestratorConfig::default(),
+        },
+    );
+    for (close_time_utc, high, low) in [
+        (current_close_ts - 86_400 - 600, 2630.0, 2570.0),
+        (current_close_ts - 86_400, 2620.0, 2580.0),
+    ] {
+        let history_result = Strategy::on_bar(
+            &mut strategy,
+            &StrategyCtx {
+                strategy_id: "stage5e_test".to_string(),
+                portfolio: "ACC_TEST_0001".to_string(),
+                exchange: "MOEX".to_string(),
+                symbol: "IMOEXF".to_string(),
+                tick_size: 0.5,
+                trade_mode: TradeMode::Paper,
+                paper_execution_mode: PaperExecutionMode::LiveOnly,
+                allow_live_orders: false,
+                gateway_phase: GatewayPhase::LiveReady,
+                position_qty: Some(0.0),
+                event_ts_utc: close_time_utc,
+                now_ts_utc: close_time_utc,
+                last_bar_ts: Some(close_time_utc),
+            },
+            &crate::runtime_compat::BarEvent {
+                symbol: "IMOEXF".to_string(),
+                close_time_utc,
+                o: 2600.0,
+                h: high,
+                l: low,
+                close: 2600.0,
+                v: 1.0,
+                origin: crate::runtime_compat::DataOrigin::Replay,
+            },
+        );
+        assert!(
+            history_result.is_empty(),
+            "replay warmup must not emit executable intents"
+        );
+    }
+
+    let admission = Stage5cPaperHostAdmission::stage5d_test_new(
+        "stage5e_test".to_string(),
+        BrokerAccountId::new("ACC_TEST_0001"),
+        target.clone(),
+        0.5,
+        rust_decimal::Decimal::ZERO,
+        now,
+    );
+    let recovery_receipt = Stage5cPendingRecoveryReceipt {
+        warmup_receipt: Stage5cHistoryWarmupReceipt {
+            restore_receipt: Stage5cRuntimeStateRestoreReceipt {
+                bootstrap_receipt: Stage5cBootstrapNotificationReceipt {
+                    admission,
+                    notified_ts: now,
+                },
+                restored_ts: now,
+                known_order_ids: Vec::new(),
+                pending_requests: Vec::new(),
+            },
+            started_ts: now,
+            processed_bars: 2,
+            input_bars: 2,
+            source_mode: broker_core::Stage3StrategyBarSourceMode::FinamDerivedM1ToM10,
+            last_history_ts: predecessor_close_ts,
+        },
+        recovered_ts: now,
+        replayed_events: 0,
+        duplicate_events: 0,
+    };
+    let bar = broker_core::HybridRuntimeBarEvent {
+        instrument: target,
+        close_time_utc: current_close_ts,
+        open: 2601.0,
+        high: 2602.0,
+        low: 2599.0,
+        close: 2601.0,
+        volume: 1.0,
+        origin: broker_core::HybridRuntimeBarOrigin::Live,
+        is_final: true,
+        timeframe_sec: 600,
+    };
+    let provenance = broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete();
+    let stage3_provenance_identity = stage5e_b3c_stage3_provenance_identity(&provenance);
+    let semantic_bar_identity = stage5e_b3c_semantic_bar_identity(&bar, stage3_provenance_identity);
+    (
+        Stage5cPendingRecoveredPaperStrategy {
+            strategy,
+            receipt: recovery_receipt,
+        },
+        Stage5cAcceptedSemanticBar {
+            bar,
+            tick_size: 0.5,
+            origin: broker_core::HybridRuntimeBarOrigin::Live,
+            stage3_provenance_identity,
+            semantic_bar_identity,
+        },
+    )
+}
+
 pub(crate) fn consume_stage5c_for_authorized_callback(
     strategy: HybridIntradayRuntimeStrategy,
     recovery_receipt: Stage5cPendingRecoveryReceipt,
@@ -5737,6 +5898,11 @@ pub(crate) fn consume_stage5c_for_authorized_callback(
             Strategy::state(&strategy),
             admission.strategy_id(),
         ),
+        strategy_id: admission.strategy_id().to_string(),
+        account_id: admission.account_id().clone(),
+        target_instrument: admission.target_instrument().clone(),
+        accepted_semantic_bar_identity: accepted.semantic_bar_identity,
+        accepted_bar_close_ts: accepted.bar.close_time_utc,
     };
     let retained_bar_metadata = Stage5eAcceptedBarSettlementMetadata {
         accepted_bar_close_ts: accepted.bar.close_time_utc,

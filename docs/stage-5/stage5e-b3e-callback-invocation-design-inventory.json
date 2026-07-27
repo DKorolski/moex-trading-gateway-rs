@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "stage": "5E-b3e-callback-invocation-design",
-  "status": "implementation_r1_pending_review",
-  "baseline_ref": "fe4c3f51e64e14ac5ef383b070ead81eb71586b5",
+  "status": "implementation_r1_repair_pending_review",
+  "baseline_ref": "529d8e42946bb8bebad3cbf5e8fca2727dd95a07",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
   "accepted_b3e_design_ref": "135c3d1ed923d80c0c3de03e9d9e9d4a279985d3",
   "accepted_b3e_r1_ref": "06107da3bf5809e34504f740e5c260b29a315b9c",
@@ -12,8 +12,9 @@
   "accepted_b3e_r5_ref": "4378f576a7da6389b219de18340f69949fb76625",
   "accepted_b3e_r6_ref": "175b172b61e580d4db81aad8182020fabd38e482",
   "accepted_b3e_r7_ref": "fe4c3f51e64e14ac5ef383b070ead81eb71586b5",
+  "accepted_b3e_implementation_ref": "529d8e42946bb8bebad3cbf5e8fca2727dd95a07",
   "accepted_b3d_implementation_ref": "93d365ae51f2f6ad94954782a27bc49857fe21ff",
-  "expected_provenance_case_count": 319,
+  "expected_provenance_case_count": 328,
   "invocation_transition_contract": {
     "function": "invoke_stage5e_authorized_paper_callback",
     "implementation_status": "implemented_private_no_io_pending_review",
@@ -866,8 +867,8 @@
     "scripts/stage5e_b3d_callback_authority_design_check.py": "143a719d916ca2f539fa1faf0849f69d1780a9ba86cd78120b9808cdf9747ff0"
   },
   "implementation_source_sha256": {
-    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "d6422b93de6bed57d7eaee4e60068d265549dc22d02ea671dde172bbda618327",
-    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "260ea6e8b8b165f32c16e9d0482f50d322e6190ebffa632a8a1f25229fb81b70"
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "d7458cc5acb0004c9a82eb42675ca7a3672f7c584cd686a1ddaa0b72d8035e41",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "75e3e30deff70fd58f740361395bb82c32981bd6107831dfb21ff037591c6b7d"
   },
   "allowed_changed_paths": [
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
@@ -878,7 +879,6 @@
     "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
-    "scripts/stage5d_additive_freeze_check.py",
     "scripts/stage5e_b3e_callback_invocation_design_check.py"
   ],
   "closed_surfaces": {

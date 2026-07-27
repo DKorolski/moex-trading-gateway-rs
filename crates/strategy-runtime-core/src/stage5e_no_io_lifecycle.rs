@@ -796,7 +796,7 @@ pub(crate) mod schedule_window_evidence {
         })
     }
 
-    fn b3b_event_key_fingerprint(
+    pub(super) fn b3b_event_key_fingerprint(
         schedule_window_identity_fingerprint: [u8; 32],
         instrument: &broker_core::InstrumentId,
         semantic_bar_close_ts: i64,
@@ -890,14 +890,17 @@ pub(crate) mod schedule_window_evidence {
                 seal: crate::stage5e_no_io_lifecycle::callback_authority::Stage5eB3eNestedPreflightSeal,
             ) -> crate::stage5e_no_io_lifecycle::callback_authority::Stage5eB3eNestedPreflight<'_>
             {
+                let schedule = &self.b3b.payload.schedule_projection.schedule_window;
                 crate::stage5e_no_io_lifecycle::callback_authority::Stage5eB3eNestedPreflight::from_b3c_receipt(
                     seal,
                     &self.b3b.payload.bar_instrument,
                     self.b3b.payload.accepted_semantic_bar_identity,
                     self.b3b.event_key_fingerprint,
                     self.continuation_binding_id,
+                    schedule.fingerprint.0,
                     self.b3b.payload.sequence_identity_fingerprint,
                     self.b3b.payload.bar_close_ts,
+                    self.bound_at,
                     self.effective_observed_at,
                     self.effective_expires_at,
                 )
@@ -1024,6 +1027,21 @@ pub(crate) mod schedule_window_evidence {
                     self.b3b.payload.recovery_receipt.replayed_events(),
                     self.b3b.payload.recovery_receipt.duplicate_events(),
                 )
+            }
+
+            #[cfg(test)]
+            pub(crate) fn test_zero_owned_schedule_identity(&mut self) {
+                self.b3b
+                    .payload
+                    .schedule_projection
+                    .schedule_window
+                    .fingerprint
+                    .0 = [0; 32];
+            }
+
+            #[cfg(test)]
+            pub(crate) fn test_force_bound_at(&mut self, bound_at: DateTime<Utc>) {
+                self.bound_at = bound_at;
             }
         }
 
@@ -2216,6 +2234,37 @@ pub(crate) mod schedule_window_evidence {
                 .unwrap_or_else(|_| panic!("canonical B3B receipt must bind to B3C"))
         }
 
+        fn canonical_nonempty_intent_b3c_receipt(
+            now: DateTime<Utc>,
+        ) -> b3c_evidence::Stage5eBoundSessionCalendarSequenceForObservedLiveBar {
+            let current = now.timestamp();
+            let predecessor = current - 600;
+            let projection = issue_schedule_projection_bridge(window_for_sessions(
+                now,
+                vec![NormalizedScheduleSession {
+                    session_type: NormalizedSessionType::TradableOpen,
+                    start: MarketBarCloseTime(current - 3_600),
+                    end: MarketBarCloseTime(current + 3_600),
+                }],
+                current,
+            ));
+            let (recovered, accepted) =
+                crate::stage5c_paper_host::stage5e_test_nonempty_intent_sequence_inputs(
+                    now,
+                    predecessor,
+                    current,
+                );
+            let observed =
+                crate::stage5c_paper_host::stage5e_test_observe_live_bar_with_sequence_evidence_at(
+                    recovered, accepted, projection, now,
+                )
+                .unwrap_or_else(|_| panic!("source-produced signal sequence must be accepted"));
+            let b3b = bind_schedule_window_sequence_to_observed_live_bar_at(observed, now)
+                .unwrap_or_else(|_| panic!("source-produced signal sequence must bind to B3B"));
+            b3c_evidence::bind_session_calendar_sequence_from_b3b_at(b3b, now)
+                .unwrap_or_else(|_| panic!("source-produced signal B3B must bind to B3C"))
+        }
+
         #[test]
         fn validation_is_fail_closed_and_canonicalizes_unsorted_sessions() {
             let now = Utc::now();
@@ -2612,12 +2661,12 @@ pub(crate) mod schedule_window_evidence {
                 BrokerMarketSessionState::Break,
                 BrokerMarketSessionState::Maintenance,
             ] {
-                if let Ok(evidence) = canonical_stage4_paper_host_evidence(now, non_open) {
-                    assert!(matches!(
-                        project_accepted_stage4_schedule(&evidence, LifecycleInstant(now)),
-                        Err(Stage4ScheduleProjectionError::SessionNotOpen)
-                    ));
-                }
+                let evidence = canonical_stage4_paper_host_evidence(now, non_open)
+                    .expect("canonical non-open Stage 4 evidence must still be constructible");
+                assert!(matches!(
+                    project_accepted_stage4_schedule(&evidence, LifecycleInstant(now)),
+                    Err(Stage4ScheduleProjectionError::SessionNotOpen)
+                ));
             }
 
             let stage4_evidence =
@@ -2693,6 +2742,39 @@ pub(crate) mod schedule_window_evidence {
                 now + chrono::Duration::seconds(10)
             );
             assert_ne!(b3c.continuation_binding_id, [0; 32]);
+
+            crate::stage5c_paper_host::stage5e_test_reset_b3e_callback_count();
+            let authority =
+                crate::stage5e_no_io_lifecycle::callback_authority::issue_stage5e_callback_authority_at(
+                    b3c, now,
+                )
+                .unwrap_or_else(|_| panic!("canonical Stage 4 chain must issue callback authority"));
+            let escrow =
+                crate::stage5e_no_io_lifecycle::callback_authority::invoke_stage5e_authorized_paper_callback_at(
+                    authority, now,
+                )
+                .unwrap_or_else(|_| panic!("canonical Stage 4 chain must reach opaque escrow"));
+            assert_eq!(escrow.test_callback_count(), 1);
+            assert_eq!(
+                crate::stage5c_paper_host::stage5e_test_b3e_callback_count(),
+                1
+            );
+            let (schedule_id, event_key, continuation_id, sequence_id, bound_at) =
+                escrow.test_audit_proof_vector();
+            for identity in [schedule_id, event_key, continuation_id, sequence_id] {
+                assert_ne!(identity, [0; 32]);
+            }
+            assert!(bound_at <= now);
+            let (strategy_id, account_id, target_instrument, bar_identity, close_ts) =
+                escrow.test_attribution_binding_vector();
+            assert_eq!(strategy_id, "stage5e_test");
+            assert_eq!(
+                account_id,
+                broker_core::BrokerAccountId::new("ACC_TEST_0001")
+            );
+            assert_eq!(target_instrument, instrument());
+            assert_ne!(bar_identity, [0; 32]);
+            assert_eq!(close_ts, current);
         }
 
         #[test]
@@ -2754,6 +2836,34 @@ pub(crate) mod schedule_window_evidence {
             assert_eq!(origin, broker_core::HybridRuntimeBarOrigin::Live);
             assert!(execution_eligible);
             assert_eq!(retained_bar_identity, bar_identity);
+        }
+
+        #[test]
+        fn b3e_actual_authorized_callback_retains_nonempty_intents_only_in_opaque_escrow() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::{
+                invoke_stage5e_authorized_paper_callback_at, issue_stage5e_callback_authority_at,
+            };
+
+            let now = Utc.with_ymd_and_hms(2026, 7, 24, 7, 0, 0).single().unwrap();
+            crate::stage5c_paper_host::stage5e_test_reset_b3e_callback_count();
+            let authority = issue_stage5e_callback_authority_at(
+                canonical_nonempty_intent_b3c_receipt(now),
+                now,
+            )
+            .unwrap_or_else(|_| panic!("source-produced signal must issue authority"));
+            let escrow = invoke_stage5e_authorized_paper_callback_at(authority, now)
+                .unwrap_or_else(|_| panic!("source-produced signal callback must reach escrow"));
+            assert_eq!(
+                crate::stage5c_paper_host::stage5e_test_b3e_callback_count(),
+                1
+            );
+            assert_eq!(escrow.test_callback_count(), 1);
+            assert_eq!(
+                escrow.test_intent_count(),
+                1,
+                "the actual strategy callback must produce and retain its intent in opaque escrow"
+            );
+            assert!(!escrow.test_has_validation_error());
         }
 
         #[test]
@@ -2825,6 +2935,29 @@ pub(crate) mod schedule_window_evidence {
                 Stage5eCallbackInvocationTerminalReason::OwnedIdentityMismatch
             );
 
+            let mut schedule = issue_stage5e_callback_authority_at(canonical_b3c_receipt(now), now)
+                .unwrap_or_else(|_| panic!("authority issue must succeed"));
+            schedule.test_zero_nested_schedule_identity();
+            let schedule = invoke_stage5e_authorized_paper_callback_at(schedule, now)
+                .err()
+                .unwrap_or_else(|| panic!("missing nested schedule identity must block"));
+            assert_eq!(
+                schedule.reason(),
+                Stage5eCallbackInvocationTerminalReason::OwnedIdentityMismatch
+            );
+
+            let mut chronology =
+                issue_stage5e_callback_authority_at(canonical_b3c_receipt(now), now)
+                    .unwrap_or_else(|_| panic!("authority issue must succeed"));
+            chronology.test_force_nested_bound_after_issue();
+            let chronology = invoke_stage5e_authorized_paper_callback_at(chronology, now)
+                .err()
+                .unwrap_or_else(|| panic!("B3C bound after authority issue must block"));
+            assert_eq!(
+                chronology.reason(),
+                Stage5eCallbackInvocationTerminalReason::InvalidAuthorityChronology
+            );
+
             let mut authority_id =
                 issue_stage5e_callback_authority_at(canonical_b3c_receipt(now), now)
                     .unwrap_or_else(|_| panic!("authority issue must succeed"));
@@ -2835,6 +2968,10 @@ pub(crate) mod schedule_window_evidence {
             assert_eq!(
                 authority_id.reason(),
                 Stage5eCallbackInvocationTerminalReason::CallbackAuthorityIdMismatch
+            );
+            assert_eq!(
+                crate::stage5c_paper_host::stage5e_test_b3e_callback_count(),
+                0
             );
         }
 
@@ -4216,6 +4353,17 @@ pub(crate) mod callback_authority {
         pub(crate) fn test_corrupt_owned_sequence_identity(&mut self) {
             self.sequence_identity_fingerprint[0] ^= 1;
         }
+
+        #[cfg(test)]
+        pub(crate) fn test_zero_nested_schedule_identity(&mut self) {
+            self.b3c_receipt.test_zero_owned_schedule_identity();
+        }
+
+        #[cfg(test)]
+        pub(crate) fn test_force_nested_bound_after_issue(&mut self) {
+            self.b3c_receipt
+                .test_force_bound_at(self.issued_at + chrono::Duration::milliseconds(1));
+        }
     }
 
     // STAGE5E-B3E-CALLBACK-IMPLEMENTATION-BEGIN: private-authority-v1
@@ -4277,8 +4425,10 @@ pub(crate) mod callback_authority {
         accepted_semantic_bar_identity: [u8; 32],
         b3b_event_key_fingerprint: [u8; 32],
         b3c_continuation_binding_id: [u8; 32],
+        schedule_window_identity_fingerprint: [u8; 32],
         sequence_identity_fingerprint: [u8; 32],
         accepted_bar_close_ts: i64,
+        b3c_bound_at: DateTime<Utc>,
         effective_observed_at: DateTime<Utc>,
         effective_expires_at: DateTime<Utc>,
     }
@@ -4291,8 +4441,10 @@ pub(crate) mod callback_authority {
             accepted_semantic_bar_identity: [u8; 32],
             b3b_event_key_fingerprint: [u8; 32],
             b3c_continuation_binding_id: [u8; 32],
+            schedule_window_identity_fingerprint: [u8; 32],
             sequence_identity_fingerprint: [u8; 32],
             accepted_bar_close_ts: i64,
+            b3c_bound_at: DateTime<Utc>,
             effective_observed_at: DateTime<Utc>,
             effective_expires_at: DateTime<Utc>,
         ) -> Self {
@@ -4301,8 +4453,10 @@ pub(crate) mod callback_authority {
                 accepted_semantic_bar_identity,
                 b3b_event_key_fingerprint,
                 b3c_continuation_binding_id,
+                schedule_window_identity_fingerprint,
                 sequence_identity_fingerprint,
                 accepted_bar_close_ts,
+                b3c_bound_at,
                 effective_observed_at,
                 effective_expires_at,
             }
@@ -4623,6 +4777,7 @@ pub(crate) mod callback_authority {
             ));
         }
         if authority.effective_observed_at > authority.issued_at
+            || nested.b3c_bound_at > authority.issued_at
             || authority.issued_at > callback_now
             || authority.effective_observed_at > authority.authority_expires_at
             || nested.effective_observed_at > nested.effective_expires_at
@@ -4635,6 +4790,30 @@ pub(crate) mod callback_authority {
         if !instrument_identity_is_complete(&authority.full_instrument_id) {
             return Err(block(
                 Stage5eCallbackInvocationTerminalReason::InstrumentIdentityMissing,
+            ));
+        }
+        if [
+            nested.accepted_semantic_bar_identity,
+            nested.b3b_event_key_fingerprint,
+            nested.b3c_continuation_binding_id,
+            nested.schedule_window_identity_fingerprint,
+            nested.sequence_identity_fingerprint,
+        ]
+        .contains(&[0; 32])
+        {
+            return Err(block(
+                Stage5eCallbackInvocationTerminalReason::OwnedIdentityMismatch,
+            ));
+        }
+        let recomputed_event_key = super::schedule_window_evidence::b3b_event_key_fingerprint(
+            nested.schedule_window_identity_fingerprint,
+            nested.full_instrument_id,
+            nested.accepted_bar_close_ts,
+            nested.sequence_identity_fingerprint,
+        );
+        if recomputed_event_key != nested.b3b_event_key_fingerprint {
+            return Err(block(
+                Stage5eCallbackInvocationTerminalReason::OwnedIdentityMismatch,
             ));
         }
         if authority.full_instrument_id != *nested.full_instrument_id
@@ -4666,6 +4845,9 @@ pub(crate) mod callback_authority {
         }
         Ok(())
     }
+
+    #[cfg(test)]
+    type Stage5eTestAuditProofVector = ([u8; 32], [u8; 32], [u8; 32], [u8; 32], DateTime<Utc>);
 
     #[cfg(test)]
     impl Stage5ePaperCallbackResultEscrow {
@@ -4707,6 +4889,28 @@ pub(crate) mod callback_authority {
 
         pub(crate) fn test_attribution_ownership_shape(&self) -> (usize, usize, bool) {
             self.attribution_snapshot.test_ownership_shape()
+        }
+
+        pub(crate) fn test_attribution_binding_vector(
+            &self,
+        ) -> (
+            String,
+            broker_core::BrokerAccountId,
+            broker_core::InstrumentId,
+            [u8; 32],
+            i64,
+        ) {
+            self.attribution_snapshot.test_binding_vector()
+        }
+
+        pub(crate) fn test_audit_proof_vector(&self) -> Stage5eTestAuditProofVector {
+            (
+                self.audit_lineage._schedule_identity_fingerprint,
+                self.audit_lineage._event_key_fingerprint,
+                self.audit_lineage._continuation_binding_id,
+                self.audit_lineage._owned_sequence_identity,
+                self.audit_lineage._bound_at,
+            )
         }
 
         pub(crate) fn test_retained_bar_metadata(

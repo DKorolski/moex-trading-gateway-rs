@@ -1543,7 +1543,7 @@ expected_stage5_profile_artifacts = {
         "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323"
     ),
     Path("docs/stage-5/stage-5d-additive-freeze-manifest.json"): (
-        "88a0d164ace36c57bcc385a935abdc80c9db577cdd295401b9580b959e697a50"
+        "6c1e253ea675e58c0f3e238913878c2eb2f399c3030cabb9d2e1b19afa418bb8"
     ),
     Path("docs/stage-5/5d-b2a-versioned-persistence-envelope-api-schema.md"): (
         "9f6cc0f7a07c08f5fc67e6ef7904ced2c20b7f6a995204e288d6952792e034a6"

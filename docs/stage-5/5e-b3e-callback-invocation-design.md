@@ -2,12 +2,15 @@
 
 ## Status and baseline
 
-This is the B3E implementation-r1 review candidate built from the accepted
-B3E-r7 governance closure:
+This is the B3E implementation-r1 repair review candidate built from the
+conditionally accepted implementation:
 
 ```text
-fe4c3f51e64e14ac5ef383b070ead81eb71586b5
+529d8e42946bb8bebad3cbf5e8fca2727dd95a07
 ```
+
+The accepted B3E-r7 governance closure remains
+`fe4c3f51e64e14ac5ef383b070ead81eb71586b5`.
 
 The immutable Rust implementation predecessor remains:
 

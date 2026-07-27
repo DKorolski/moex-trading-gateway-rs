@@ -17,12 +17,13 @@ INVENTORY = (
 )
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3e-callback-invocation-design"
-BASELINE_REF = "fe4c3f51e64e14ac5ef383b070ead81eb71586b5"
+BASELINE_REF = "529d8e42946bb8bebad3cbf5e8fca2727dd95a07"
+ACCEPTED_B3E_R7_REF = "fe4c3f51e64e14ac5ef383b070ead81eb71586b5"
 EXPECTED_PLAN_SHA256 = (
-    "a57e1cebd06acde3f206235956071d9e6efaba27ff3a51fc487103e18234a2d4"
+    "34f7b7fd18dc8c2780047ffe55dd539a38d57f240b996c849f06c1f3d4b484ec"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "44655a34fa3a7797600fc756f236b03a50232b465a013dde318f4e7a1f800e3f"
+    "eb7382013fc36b4a8375186f9e8caa306aac68cd96692c2aa1263d043031ec0e"
 )
 EXPECTED_B3D_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -50,15 +51,14 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
-    "scripts/stage5d_additive_freeze_check.py",
     "scripts/stage5e_b3e_callback_invocation_design_check.py",
 ]
 EXPECTED_IMPLEMENTATION_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
-        "d6422b93de6bed57d7eaee4e60068d265549dc22d02ea671dde172bbda618327"
+        "d7458cc5acb0004c9a82eb42675ca7a3672f7c584cd686a1ddaa0b72d8035e41"
     ),
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": (
-        "260ea6e8b8b165f32c16e9d0482f50d322e6190ebffa632a8a1f25229fb81b70"
+        "75e3e30deff70fd58f740361395bb82c32981bd6107831dfb21ff037591c6b7d"
     ),
 }
 
@@ -102,7 +102,7 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(inventory.get("stage"), STAGE, "stage identity drift")
     require_exact(
         inventory.get("status"),
-        "implementation_r1_pending_review",
+        "implementation_r1_repair_pending_review",
         "implementation status drift",
     )
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
@@ -143,8 +143,13 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
     require_exact(
         inventory.get("accepted_b3e_r7_ref"),
-        BASELINE_REF,
+        ACCEPTED_B3E_R7_REF,
         "accepted B3E-r7 ref drift",
+    )
+    require_exact(
+        inventory.get("accepted_b3e_implementation_ref"),
+        BASELINE_REF,
+        "accepted B3E implementation ref drift",
     )
     require_exact(
         inventory.get("accepted_b3d_implementation_ref"),
@@ -153,7 +158,7 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        319,
+        328,
         "negative-matrix count drift",
     )
     require_exact(
@@ -1216,7 +1221,11 @@ def check_implementation_source() -> None:
     for rel, expected in EXPECTED_B3D_SOURCE_SHA256.items():
         if rel.startswith("crates/") and not (ROOT / ".git").exists():
             continue
-        actual = git_blob_sha256(BASELINE_REF, rel) if rel.startswith("crates/") else sha256(ROOT / rel)
+        actual = (
+            git_blob_sha256(ACCEPTED_B3E_R7_REF, rel)
+            if rel.startswith("crates/")
+            else sha256(ROOT / rel)
+        )
         if actual != expected:
             fail(f"accepted B3D predecessor source drift: {rel}")
     for rel, expected in EXPECTED_IMPLEMENTATION_SOURCE_SHA256.items():
@@ -1273,20 +1282,35 @@ def check_implementation_source() -> None:
         if forbidden_conversion in stage5c_source or forbidden_conversion in runtime_source:
             fail(f"generic terminal conversion opened: {forbidden_conversion}")
     for test_name in (
+        "canonical_stage4_to_b3c_chain_uses_real_accepted_evidence_without_io",
         "b3e_private_callback_invokes_exactly_once_and_retains_opaque_escrow",
+        "b3e_actual_authorized_callback_retains_nonempty_intents_only_in_opaque_escrow",
         "b3e_callback_validation_error_is_retained_inside_escrow",
         "b3e_expiry_and_identity_mismatch_block_before_callback",
         "b3e_materialization_mismatch_reaches_exact_top_level_terminal_without_callback",
     ):
         if runtime_source.count(f"fn {test_name}(") != 1:
             fail(f"required implementation test missing: {test_name}")
+    for required in (
+        "schedule_window_identity_fingerprint: [u8; 32]",
+        "b3c_bound_at: DateTime<Utc>",
+        "nested.b3c_bound_at > authority.issued_at",
+        "recomputed_event_key",
+        "test_zero_owned_schedule_identity",
+        "stage5e_test_nonempty_intent_sequence_inputs",
+        "accepted_semantic_bar_identity: [u8; 32]",
+        "accepted_bar_close_ts: i64",
+    ):
+        if required not in runtime_source and required not in stage5c_source:
+            fail(f"required implementation repair marker missing: {required}")
 
 
 def check_plan_markers() -> None:
     text = PLAN.read_text()
     for marker in (
-        "This is the B3E implementation-r1 review candidate",
-        "fe4c3f51e64e14ac5ef383b070ead81eb71586b5",
+        "This is the B3E implementation-r1 repair review candidate",
+        "529d8e42946bb8bebad3cbf5e8fca2727dd95a07",
+        ACCEPTED_B3E_R7_REF,
         "93d365ae51f2f6ad94954782a27bc49857fe21ff",
         "invoke_stage5e_authorized_paper_callback",
         "Stage5eCallbackInvocationSeal",
