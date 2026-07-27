@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "stage": "5E-b3e-callback-invocation-design",
-  "status": "design_only_r7_pending_review",
-  "baseline_ref": "175b172b61e580d4db81aad8182020fabd38e482",
+  "status": "implementation_r1_pending_review",
+  "baseline_ref": "fe4c3f51e64e14ac5ef383b070ead81eb71586b5",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
   "accepted_b3e_design_ref": "135c3d1ed923d80c0c3de03e9d9e9d4a279985d3",
   "accepted_b3e_r1_ref": "06107da3bf5809e34504f740e5c260b29a315b9c",
@@ -11,11 +11,12 @@
   "accepted_b3e_r4_ref": "135c3d1ed923d80c0c3de03e9d9e9d4a279985d3",
   "accepted_b3e_r5_ref": "4378f576a7da6389b219de18340f69949fb76625",
   "accepted_b3e_r6_ref": "175b172b61e580d4db81aad8182020fabd38e482",
+  "accepted_b3e_r7_ref": "fe4c3f51e64e14ac5ef383b070ead81eb71586b5",
   "accepted_b3d_implementation_ref": "93d365ae51f2f6ad94954782a27bc49857fe21ff",
-  "expected_provenance_case_count": 318,
+  "expected_provenance_case_count": 319,
   "invocation_transition_contract": {
     "function": "invoke_stage5e_authorized_paper_callback",
-    "implementation_status": "design_only_not_implemented",
+    "implementation_status": "implemented_private_no_io_pending_review",
     "only_input": "Stage5eCallbackAuthorityReadyPaperStrategy",
     "success": "Stage5ePaperCallbackResultEscrow",
     "blocked": "Stage5eCallbackInvocationTerminalBlock",
@@ -657,7 +658,7 @@
     "uses_legacy_stage5c_loop": false,
     "catch_unwind_allowed": false,
     "panic_retry_allowed": false,
-    "actual_callback_status": "hold_until_separate_implementation_review"
+    "actual_callback_status": "implemented_private_no_io_pending_review"
   },
   "callback_outcome_contract": {
     "type": "Stage5ePaperCallbackOutcome",
@@ -787,7 +788,7 @@
   },
   "result_escrow_contract": {
     "type": "Stage5ePaperCallbackResultEscrow",
-    "implementation_status": "design_only_not_implemented",
+    "implementation_status": "implemented_private_no_io_pending_review",
     "visibility": "crate_private_opaque",
     "owns": [
       "mutated_strategy",
@@ -864,17 +865,26 @@
     "docs/stage-5/stage5e-b3d-callback-authority-design-inventory.json": "97800a8d0de98266cdc26ebc85bdee224c7ab4ff6705636a9136eda8a6a54037",
     "scripts/stage5e_b3d_callback_authority_design_check.py": "143a719d916ca2f539fa1faf0849f69d1780a9ba86cd78120b9808cdf9747ff0"
   },
+  "implementation_source_sha256": {
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "d6422b93de6bed57d7eaee4e60068d265549dc22d02ea671dde172bbda618327",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "260ea6e8b8b165f32c16e9d0482f50d322e6190ebffa632a8a1f25229fb81b70"
+  },
   "allowed_changed_paths": [
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
     "docs/stage-5/5e-b3e-callback-invocation-design.md",
+    "docs/stage-5/stage-5d-additive-freeze-manifest.json",
     "docs/stage-5/stage5e-b3e-callback-invocation-design-inventory.json",
+    "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
+    "scripts/stage5d_additive_freeze_check.py",
     "scripts/stage5e_b3e_callback_invocation_design_check.py"
   ],
   "closed_surfaces": {
-    "actual_callback_invocation": false,
-    "strategy_state_mutation": false,
-    "in_memory_intent_construction": false,
+    "actual_callback_invocation": true,
+    "strategy_state_mutation": true,
+    "in_memory_intent_construction": true,
     "escrow_validation_or_settlement": false,
     "intent_extraction_or_sink": false,
     "executable_intents": false,

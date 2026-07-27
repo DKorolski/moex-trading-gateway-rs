@@ -2565,6 +2565,18 @@ pub struct Stage5cAcceptedSemanticBar {
     semantic_bar_identity: [u8; 32],
     // STAGE5D-ADDITIVE-BRIDGE-END: stage5e-b3c-semantic-identity-fields
 }
+// STAGE5D-ADDITIVE-BRIDGE-BEGIN: stage5e-b3e-test-corruption-seams
+#[cfg(test)]
+impl Stage5cAcceptedSemanticBar {
+    pub(crate) fn stage5e_test_force_instrument_mismatch(&mut self) {
+        self.bar.instrument.symbol.push_str("_MISMATCH");
+    }
+
+    pub(crate) fn stage5e_test_force_callback_validation_error(&mut self) {
+        self.bar.timeframe_sec = 60;
+    }
+}
+// STAGE5D-ADDITIVE-BRIDGE-END: stage5e-b3e-test-corruption-seams
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -5615,6 +5627,202 @@ pub fn apply_stage5c_semantic_bar(
 ) -> Result<Stage5cSemanticBarResult, Stage5cSemanticBarError> {
     apply_stage5c_semantic_bar_at(recovered, accepted, Utc::now())
 }
+// STAGE5D-ADDITIVE-BRIDGE-BEGIN: stage5e-b3e-callback-materialization
+// STAGE5E-B3E-CALLBACK-IMPLEMENTATION-BEGIN: private-materialization-v1
+pub(crate) struct Stage5cB3eCallbackMaterialSeal(());
+
+pub(crate) fn issue_stage5c_b3e_callback_material_seal(
+    _nested_consume_capability: &crate::stage5e_no_io_lifecycle::callback_authority::Stage5eB3eNestedConsumeSeal,
+) -> Stage5cB3eCallbackMaterialSeal {
+    Stage5cB3eCallbackMaterialSeal(())
+}
+
+pub(crate) struct Stage5eStage5cMaterializationTerminalBlock(());
+
+fn construct_stage5e_stage5c_materialization_terminal_block(
+) -> Stage5eStage5cMaterializationTerminalBlock {
+    Stage5eStage5cMaterializationTerminalBlock(())
+}
+
+#[allow(dead_code)] // Opaque ownership is inspected only by a later settlement stage.
+pub(crate) struct Stage5ePreCallbackAttributionSnapshot {
+    cleanup_ledger: Stage5cCleanupAttributionLedger,
+}
+
+#[allow(dead_code)] // Opaque ownership is inspected only by a later settlement stage.
+pub(crate) struct Stage5eAcceptedBarSettlementMetadata {
+    accepted_bar_close_ts: i64,
+    accepted_bar_origin: broker_core::HybridRuntimeBarOrigin,
+    execution_eligible: bool,
+    accepted_semantic_bar_identity: [u8; 32],
+}
+
+#[cfg(test)]
+impl Stage5ePreCallbackAttributionSnapshot {
+    pub(crate) fn test_ownership_shape(&self) -> (usize, usize, bool) {
+        (
+            self.cleanup_ledger.broker_orders.len(),
+            self.cleanup_ledger.stop_orders.len(),
+            self.cleanup_ledger.pending_entry_attribution.is_some(),
+        )
+    }
+}
+
+#[cfg(test)]
+impl Stage5eAcceptedBarSettlementMetadata {
+    pub(crate) fn test_retained_bar_metadata(
+        &self,
+    ) -> (i64, broker_core::HybridRuntimeBarOrigin, bool, [u8; 32]) {
+        (
+            self.accepted_bar_close_ts,
+            self.accepted_bar_origin,
+            self.execution_eligible,
+            self.accepted_semantic_bar_identity,
+        )
+    }
+}
+
+pub(crate) struct Stage5eStage5cAuthorizedCallbackMaterial {
+    strategy: HybridIntradayRuntimeStrategy,
+    recovery_receipt: Stage5cPendingRecoveryReceipt,
+    callback_input: broker_core::HybridRuntimeCallbackInput<broker_core::HybridRuntimeBarEvent>,
+    attribution_snapshot: Stage5ePreCallbackAttributionSnapshot,
+    retained_bar_metadata: Stage5eAcceptedBarSettlementMetadata,
+}
+
+pub(crate) struct Stage5eStage5cPostCallbackMaterial {
+    mutated_strategy: HybridIntradayRuntimeStrategy,
+    recovery_receipt: Stage5cPendingRecoveryReceipt,
+    attribution_snapshot: Stage5ePreCallbackAttributionSnapshot,
+    retained_bar_metadata: Stage5eAcceptedBarSettlementMetadata,
+    callback_outcome:
+        crate::stage5e_no_io_lifecycle::callback_authority::Stage5ePaperCallbackOutcome,
+}
+
+#[cfg(test)]
+thread_local! {
+    static STAGE5E_B3E_CALLBACK_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn stage5e_test_reset_b3e_callback_count() {
+    STAGE5E_B3E_CALLBACK_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn stage5e_test_b3e_callback_count() -> usize {
+    STAGE5E_B3E_CALLBACK_COUNT.with(std::cell::Cell::get)
+}
+
+pub(crate) fn consume_stage5c_for_authorized_callback(
+    strategy: HybridIntradayRuntimeStrategy,
+    recovery_receipt: Stage5cPendingRecoveryReceipt,
+    accepted: Stage5cAcceptedSemanticBar,
+    _seal: Stage5cB3eCallbackMaterialSeal,
+    callback_now: DateTime<Utc>,
+) -> Result<Stage5eStage5cAuthorizedCallbackMaterial, Stage5eStage5cMaterializationTerminalBlock> {
+    let admission = &recovery_receipt
+        .warmup_receipt()
+        .restore_receipt()
+        .bootstrap_receipt()
+        .admission;
+    if accepted.bar.instrument != *admission.target_instrument()
+        || !same_tick_size(accepted.tick_size, admission.tick_size())
+    {
+        return Err(construct_stage5e_stage5c_materialization_terminal_block());
+    }
+
+    let attribution_snapshot = Stage5ePreCallbackAttributionSnapshot {
+        cleanup_ledger: stage5cj_cleanup_attribution_ledger(
+            Strategy::state(&strategy),
+            admission.strategy_id(),
+        ),
+    };
+    let retained_bar_metadata = Stage5eAcceptedBarSettlementMetadata {
+        accepted_bar_close_ts: accepted.bar.close_time_utc,
+        accepted_bar_origin: accepted.origin,
+        execution_eligible: accepted.origin == broker_core::HybridRuntimeBarOrigin::Live,
+        accepted_semantic_bar_identity: accepted.semantic_bar_identity,
+    };
+    let context = stage5cf_semantic_context(
+        &strategy,
+        admission,
+        accepted.bar.close_time_utc,
+        callback_now,
+    );
+    Ok(Stage5eStage5cAuthorizedCallbackMaterial {
+        strategy,
+        recovery_receipt,
+        callback_input: broker_core::HybridRuntimeCallbackInput {
+            context,
+            payload: accepted.bar,
+        },
+        attribution_snapshot,
+        retained_bar_metadata,
+    })
+}
+
+impl Stage5eStage5cAuthorizedCallbackMaterial {
+    pub(crate) fn invoke_authorized_callback_once(
+        self,
+        execution_capability: crate::stage5e_no_io_lifecycle::callback_authority::Stage5cB3eCallbackExecutionSeal,
+    ) -> Stage5eStage5cPostCallbackMaterial {
+        let Self {
+            mut strategy,
+            recovery_receipt,
+            callback_input,
+            attribution_snapshot,
+            retained_bar_metadata,
+        } = self;
+        #[cfg(test)]
+        STAGE5E_B3E_CALLBACK_COUNT.with(|count| count.set(count.get() + 1));
+        let exact_result =
+            crate::BrokerNeutralHybridStrategy::on_broker_bar(&mut strategy, callback_input);
+        let callback_outcome =
+            crate::stage5e_no_io_lifecycle::callback_authority::move_stage5e_paper_callback_outcome(
+                exact_result,
+                &execution_capability,
+            );
+        Stage5eStage5cPostCallbackMaterial {
+            mutated_strategy: strategy,
+            recovery_receipt,
+            attribution_snapshot,
+            retained_bar_metadata,
+            callback_outcome,
+        }
+    }
+}
+
+impl Stage5eStage5cPostCallbackMaterial {
+    pub(crate) fn construct_result_escrow(
+        self,
+        audit_lineage: crate::stage5e_no_io_lifecycle::callback_authority::Stage5eAuthorizedCallbackAuditLineage,
+        callback_invoked_at: DateTime<Utc>,
+        callback_authority_id: [u8; 32],
+        seal: crate::stage5e_no_io_lifecycle::callback_authority::Stage5eEscrowConstructionSeal,
+    ) -> crate::stage5e_no_io_lifecycle::callback_authority::Stage5ePaperCallbackResultEscrow {
+        let Self {
+            mutated_strategy,
+            recovery_receipt,
+            attribution_snapshot,
+            retained_bar_metadata,
+            callback_outcome,
+        } = self;
+        crate::stage5e_no_io_lifecycle::callback_authority::construct_stage5e_paper_callback_result_escrow(
+            mutated_strategy,
+            recovery_receipt,
+            audit_lineage,
+            attribution_snapshot,
+            retained_bar_metadata,
+            callback_invoked_at,
+            callback_authority_id,
+            callback_outcome,
+            seal,
+        )
+    }
+}
+// STAGE5E-B3E-CALLBACK-IMPLEMENTATION-END: private-materialization-v1
+// STAGE5D-ADDITIVE-BRIDGE-END: stage5e-b3e-callback-materialization
 
 fn apply_stage5c_semantic_bar_at(
     recovered: Stage5cPendingRecoveredPaperStrategy,

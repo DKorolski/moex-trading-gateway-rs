@@ -814,6 +814,47 @@ pub(crate) mod schedule_window_evidence {
     pub(crate) mod b3c_evidence {
         use super::*;
 
+        pub(crate) struct Stage5eB3eNestedInvocationMaterial {
+            callback_now: DateTime<Utc>,
+            callback_authority_id: [u8; 32],
+            issued_at: DateTime<Utc>,
+            effective_observed_at: DateTime<Utc>,
+            authority_expires_at: DateTime<Utc>,
+            full_instrument_id: broker_core::InstrumentId,
+            accepted_semantic_bar_identity: [u8; 32],
+            b3b_event_key_fingerprint: [u8; 32],
+            b3c_continuation_binding_id: [u8; 32],
+            sequence_identity_fingerprint: [u8; 32],
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        pub(crate) fn construct_nested_invocation_material(
+            callback_now: DateTime<Utc>,
+            callback_authority_id: [u8; 32],
+            issued_at: DateTime<Utc>,
+            effective_observed_at: DateTime<Utc>,
+            authority_expires_at: DateTime<Utc>,
+            full_instrument_id: broker_core::InstrumentId,
+            accepted_semantic_bar_identity: [u8; 32],
+            b3b_event_key_fingerprint: [u8; 32],
+            b3c_continuation_binding_id: [u8; 32],
+            sequence_identity_fingerprint: [u8; 32],
+            _nested_consume_capability: &crate::stage5e_no_io_lifecycle::callback_authority::Stage5eB3eNestedConsumeSeal,
+        ) -> Stage5eB3eNestedInvocationMaterial {
+            Stage5eB3eNestedInvocationMaterial {
+                callback_now,
+                callback_authority_id,
+                issued_at,
+                effective_observed_at,
+                authority_expires_at,
+                full_instrument_id,
+                accepted_semantic_bar_identity,
+                b3b_event_key_fingerprint,
+                b3c_continuation_binding_id,
+                sequence_identity_fingerprint,
+            }
+        }
+
         pub(crate) struct Stage5eBoundSessionCalendarSequenceForObservedLiveBar {
             pub(super) b3b: Stage5eBoundScheduleWindowSequenceForObservedLiveBar,
             pub(super) continuation_binding_id: [u8; 32],
@@ -844,6 +885,128 @@ pub(crate) mod schedule_window_evidence {
                 )
             }
 
+            pub(crate) fn borrow_for_authorized_callback_preflight(
+                &self,
+                seal: crate::stage5e_no_io_lifecycle::callback_authority::Stage5eB3eNestedPreflightSeal,
+            ) -> crate::stage5e_no_io_lifecycle::callback_authority::Stage5eB3eNestedPreflight<'_>
+            {
+                crate::stage5e_no_io_lifecycle::callback_authority::Stage5eB3eNestedPreflight::from_b3c_receipt(
+                    seal,
+                    &self.b3b.payload.bar_instrument,
+                    self.b3b.payload.accepted_semantic_bar_identity,
+                    self.b3b.event_key_fingerprint,
+                    self.continuation_binding_id,
+                    self.b3b.payload.sequence_identity_fingerprint,
+                    self.b3b.payload.bar_close_ts,
+                    self.effective_observed_at,
+                    self.effective_expires_at,
+                )
+            }
+
+            pub(crate) fn consume_for_authorized_callback_with_nested_seal_and_invocation_context(
+                self,
+                nested_consume_seal: crate::stage5e_no_io_lifecycle::callback_authority::Stage5eB3eNestedConsumeSeal,
+                invocation_context: crate::stage5e_no_io_lifecycle::callback_authority::Stage5eB3eInvocationConsumeContext,
+            ) -> Result<
+                crate::stage5e_no_io_lifecycle::callback_authority::Stage5eAuthorizedPaperCallbackPayload,
+                crate::stage5e_no_io_lifecycle::callback_authority::Stage5eCallbackInvocationTerminalBlock,
+            >{
+                let nested = invocation_context.consume_for_nested_b3c(&nested_consume_seal);
+                let Stage5eB3eNestedInvocationMaterial {
+                    callback_now,
+                    callback_authority_id,
+                    issued_at,
+                    effective_observed_at,
+                    authority_expires_at,
+                    full_instrument_id,
+                    accepted_semantic_bar_identity,
+                    b3b_event_key_fingerprint,
+                    b3c_continuation_binding_id,
+                    sequence_identity_fingerprint,
+                } = nested;
+                let Self {
+                    b3b,
+                    continuation_binding_id,
+                    bound_at,
+                    effective_observed_at: b3c_effective_observed_at,
+                    effective_expires_at: b3c_effective_expires_at,
+                } = self;
+                let Stage5eBoundScheduleWindowSequenceForObservedLiveBar {
+                    payload,
+                    event_key_fingerprint,
+                    effective_observed_at: b3b_effective_observed_at,
+                    effective_expires_at: b3b_effective_expires_at,
+                } = b3b;
+                let Stage5eB3bObservedLiveBarBridgePayload {
+                    strategy,
+                    recovery_receipt,
+                    accepted_semantic_bar,
+                    accepted_semantic_bar_identity: owned_bar_identity,
+                    bar_instrument,
+                    bar_close_ts: _,
+                    canonical_predecessor_close_ts: _,
+                    schedule_projection,
+                    sequence_classification,
+                    optional_boundary_fingerprint,
+                    sequence_identity_fingerprint: owned_sequence_identity,
+                    sequence_observed_at,
+                    sequence_expires_at,
+                } = payload;
+                let schedule = schedule_projection.schedule_window;
+                let stage5c_material =
+                    match crate::stage5c_paper_host::consume_stage5c_for_authorized_callback(
+                        strategy,
+                        recovery_receipt,
+                        accepted_semantic_bar,
+                        crate::stage5c_paper_host::issue_stage5c_b3e_callback_material_seal(
+                            &nested_consume_seal,
+                        ),
+                        callback_now,
+                    ) {
+                        Ok(material) => material,
+                        Err(block) => {
+                            return Err(crate::stage5e_no_io_lifecycle::callback_authority::map_stage5c_materialization_terminal_to_callback_terminal(
+                            block,
+                            &nested_consume_seal,
+                        ));
+                        }
+                    };
+                let audit_lineage = construct_audit_lineage_from_consumed_nested_material(
+                    schedule.fingerprint.0,
+                    sequence_classification,
+                    optional_boundary_fingerprint,
+                    owned_sequence_identity,
+                    sequence_observed_at,
+                    sequence_expires_at,
+                    event_key_fingerprint,
+                    b3b_effective_observed_at,
+                    b3b_effective_expires_at,
+                    continuation_binding_id,
+                    bound_at,
+                    b3c_effective_observed_at,
+                    b3c_effective_expires_at,
+                    callback_authority_id,
+                    issued_at,
+                    effective_observed_at,
+                    authority_expires_at,
+                    full_instrument_id,
+                    accepted_semantic_bar_identity,
+                    b3b_event_key_fingerprint,
+                    b3c_continuation_binding_id,
+                    sequence_identity_fingerprint,
+                    bar_instrument,
+                    owned_bar_identity,
+                    &nested_consume_seal,
+                );
+                Ok(crate::stage5e_no_io_lifecycle::callback_authority::construct_stage5e_authorized_paper_callback_payload(
+                    stage5c_material,
+                    audit_lineage,
+                    callback_now,
+                    callback_authority_id,
+                    &nested_consume_seal,
+                ))
+            }
+
             #[cfg(test)]
             pub(crate) fn test_ownership_fingerprint(
                 &self,
@@ -862,6 +1025,64 @@ pub(crate) mod schedule_window_evidence {
                     self.b3b.payload.recovery_receipt.duplicate_events(),
                 )
             }
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        fn construct_audit_lineage_from_consumed_nested_material(
+            schedule_identity_fingerprint: [u8; 32],
+            sequence_classification: Stage5eScheduleSequenceClassification,
+            optional_boundary_fingerprint: Option<[u8; 32]>,
+            owned_sequence_identity: [u8; 32],
+            sequence_observed_at: DateTime<Utc>,
+            sequence_expires_at: DateTime<Utc>,
+            event_key_fingerprint: [u8; 32],
+            b3b_effective_observed_at: DateTime<Utc>,
+            b3b_effective_expires_at: DateTime<Utc>,
+            continuation_binding_id: [u8; 32],
+            bound_at: DateTime<Utc>,
+            b3c_effective_observed_at: DateTime<Utc>,
+            b3c_effective_expires_at: DateTime<Utc>,
+            callback_authority_id: [u8; 32],
+            issued_at: DateTime<Utc>,
+            effective_observed_at: DateTime<Utc>,
+            authority_expires_at: DateTime<Utc>,
+            full_instrument_id: broker_core::InstrumentId,
+            accepted_semantic_bar_identity: [u8; 32],
+            b3b_event_key_fingerprint: [u8; 32],
+            b3c_continuation_binding_id: [u8; 32],
+            sequence_identity_fingerprint: [u8; 32],
+            owned_instrument: broker_core::InstrumentId,
+            owned_bar_identity: [u8; 32],
+            nested_consume_capability: &crate::stage5e_no_io_lifecycle::callback_authority::Stage5eB3eNestedConsumeSeal,
+        ) -> crate::stage5e_no_io_lifecycle::callback_authority::Stage5eAuthorizedCallbackAuditLineage
+        {
+            crate::stage5e_no_io_lifecycle::callback_authority::construct_stage5e_authorized_callback_audit_lineage(
+                schedule_identity_fingerprint,
+                sequence_classification,
+                optional_boundary_fingerprint,
+                owned_sequence_identity,
+                sequence_observed_at,
+                sequence_expires_at,
+                event_key_fingerprint,
+                b3b_effective_observed_at,
+                b3b_effective_expires_at,
+                continuation_binding_id,
+                bound_at,
+                b3c_effective_observed_at,
+                b3c_effective_expires_at,
+                callback_authority_id,
+                issued_at,
+                effective_observed_at,
+                authority_expires_at,
+                full_instrument_id,
+                accepted_semantic_bar_identity,
+                b3b_event_key_fingerprint,
+                b3c_continuation_binding_id,
+                sequence_identity_fingerprint,
+                owned_instrument,
+                owned_bar_identity,
+                nested_consume_capability,
+            )
         }
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2500,6 +2721,156 @@ pub(crate) mod schedule_window_evidence {
         }
 
         #[test]
+        fn b3e_private_callback_invokes_exactly_once_and_retains_opaque_escrow() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::{
+                invoke_stage5e_authorized_paper_callback_at, issue_stage5e_callback_authority_at,
+            };
+
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            crate::stage5c_paper_host::stage5e_test_reset_b3e_callback_count();
+            let authority = issue_stage5e_callback_authority_at(canonical_b3c_receipt(now), now)
+                .unwrap_or_else(|_| panic!("canonical B3C receipt must issue authority"));
+            let escrow = invoke_stage5e_authorized_paper_callback_at(authority, now)
+                .unwrap_or_else(|_| panic!("canonical callback chain must reach escrow"));
+            assert_eq!(escrow.test_callback_count(), 1);
+            assert_eq!(
+                crate::stage5c_paper_host::stage5e_test_b3e_callback_count(),
+                1
+            );
+            assert_eq!(escrow.test_callback_invoked_at(), now);
+            assert!(!escrow.test_has_validation_error());
+            assert!(!escrow.test_strategy_state_fingerprint().is_empty());
+            let (recovered_ts, authority_id, bar_identity) = escrow.test_retained_ownership();
+            assert!(recovered_ts <= now);
+            assert_ne!(authority_id, [0; 32]);
+            assert_ne!(bar_identity, [0; 32]);
+            assert_eq!(escrow.test_attribution_ownership_shape(), (0, 0, false));
+            let (close_ts, origin, execution_eligible, retained_bar_identity) =
+                escrow.test_retained_bar_metadata();
+            assert_eq!(close_ts, now.timestamp());
+            assert_eq!(origin, broker_core::HybridRuntimeBarOrigin::Live);
+            assert!(execution_eligible);
+            assert_eq!(retained_bar_identity, bar_identity);
+        }
+
+        #[test]
+        fn b3e_callback_validation_error_is_retained_inside_escrow() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::{
+                invoke_stage5e_authorized_paper_callback_at, issue_stage5e_callback_authority_at,
+            };
+
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            crate::stage5c_paper_host::stage5e_test_reset_b3e_callback_count();
+            let mut b3c = canonical_b3c_receipt(now);
+            b3c.b3b
+                .payload
+                .accepted_semantic_bar
+                .stage5e_test_force_callback_validation_error();
+            let authority = issue_stage5e_callback_authority_at(b3c, now)
+                .unwrap_or_else(|_| panic!("outer authority evidence remains valid"));
+            let escrow = invoke_stage5e_authorized_paper_callback_at(authority, now)
+                .unwrap_or_else(|_| panic!("callback validation error must remain in escrow"));
+            assert_eq!(escrow.test_callback_count(), 1);
+            assert_eq!(
+                crate::stage5c_paper_host::stage5e_test_b3e_callback_count(),
+                1
+            );
+            assert_eq!(escrow.test_intent_count(), 0);
+            assert!(escrow.test_has_validation_error());
+        }
+
+        #[test]
+        fn b3e_expiry_and_identity_mismatch_block_before_callback() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::{
+                invoke_stage5e_authorized_paper_callback_at, issue_stage5e_callback_authority_at,
+                Stage5eCallbackInvocationTerminalReason,
+            };
+
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            crate::stage5c_paper_host::stage5e_test_reset_b3e_callback_count();
+            let expired = issue_stage5e_callback_authority_at(canonical_b3c_receipt(now), now)
+                .unwrap_or_else(|_| panic!("authority issue must succeed"));
+            let expired = invoke_stage5e_authorized_paper_callback_at(
+                expired,
+                now + chrono::Duration::seconds(11),
+            )
+            .err()
+            .unwrap_or_else(|| panic!("expired callback authority must block"));
+            assert_eq!(
+                expired.reason(),
+                Stage5eCallbackInvocationTerminalReason::AuthorityExpired
+            );
+            assert_eq!(
+                crate::stage5c_paper_host::stage5e_test_b3e_callback_count(),
+                0
+            );
+
+            let mut identity = issue_stage5e_callback_authority_at(canonical_b3c_receipt(now), now)
+                .unwrap_or_else(|_| panic!("authority issue must succeed"));
+            identity.test_corrupt_owned_sequence_identity();
+            let identity = invoke_stage5e_authorized_paper_callback_at(identity, now)
+                .err()
+                .unwrap_or_else(|| panic!("owned identity mismatch must block"));
+            assert_eq!(
+                identity.reason(),
+                Stage5eCallbackInvocationTerminalReason::OwnedIdentityMismatch
+            );
+
+            let mut authority_id =
+                issue_stage5e_callback_authority_at(canonical_b3c_receipt(now), now)
+                    .unwrap_or_else(|_| panic!("authority issue must succeed"));
+            authority_id.test_corrupt_callback_authority_id();
+            let authority_id = invoke_stage5e_authorized_paper_callback_at(authority_id, now)
+                .err()
+                .unwrap_or_else(|| panic!("authority ID mismatch must block"));
+            assert_eq!(
+                authority_id.reason(),
+                Stage5eCallbackInvocationTerminalReason::CallbackAuthorityIdMismatch
+            );
+        }
+
+        #[test]
+        fn b3e_materialization_mismatch_reaches_exact_top_level_terminal_without_callback() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::{
+                invoke_stage5e_authorized_paper_callback_at, issue_stage5e_callback_authority_at,
+                Stage5eCallbackInvocationTerminalReason,
+            };
+
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            crate::stage5c_paper_host::stage5e_test_reset_b3e_callback_count();
+            let mut b3c = canonical_b3c_receipt(now);
+            b3c.b3b
+                .payload
+                .accepted_semantic_bar
+                .stage5e_test_force_instrument_mismatch();
+            let authority = issue_stage5e_callback_authority_at(b3c, now)
+                .unwrap_or_else(|_| panic!("outer authority evidence remains valid"));
+            let blocked = invoke_stage5e_authorized_paper_callback_at(authority, now)
+                .err()
+                .unwrap_or_else(|| panic!("materialization mismatch must block"));
+            assert_eq!(
+                blocked.reason(),
+                Stage5eCallbackInvocationTerminalReason::MaterializationIntegrityMismatch
+            );
+            assert_eq!(
+                crate::stage5c_paper_host::stage5e_test_b3e_callback_count(),
+                0
+            );
+        }
+
+        #[test]
         fn b3d_retryable_issue_returns_the_exact_b3c_receipt() {
             use crate::stage5e_no_io_lifecycle::callback_authority::{
                 issue_stage5e_callback_authority_at, Stage5eCallbackAuthorityIssueBlocked,
@@ -3835,7 +4206,516 @@ pub(crate) mod callback_authority {
         pub(crate) fn test_intent_count(&self) -> usize {
             0
         }
+
+        #[cfg(test)]
+        pub(crate) fn test_corrupt_callback_authority_id(&mut self) {
+            self.callback_authority_id.0[0] ^= 1;
+        }
+
+        #[cfg(test)]
+        pub(crate) fn test_corrupt_owned_sequence_identity(&mut self) {
+            self.sequence_identity_fingerprint[0] ^= 1;
+        }
     }
+
+    // STAGE5E-B3E-CALLBACK-IMPLEMENTATION-BEGIN: private-authority-v1
+    pub(crate) struct Stage5eCallbackInvocationSeal(());
+    pub(crate) struct Stage5eB3eNestedPreflightSeal(());
+    pub(crate) struct Stage5eB3eNestedConsumeSeal(());
+    pub(crate) struct Stage5cB3eCallbackExecutionSeal(());
+    pub(crate) struct Stage5eEscrowConstructionSeal(());
+
+    pub(crate) struct Stage5eB3eInvocationConsumeContext {
+        callback_now: DateTime<Utc>,
+        callback_authority_id: [u8; 32],
+        issued_at: DateTime<Utc>,
+        effective_observed_at: DateTime<Utc>,
+        authority_expires_at: DateTime<Utc>,
+        full_instrument_id: broker_core::InstrumentId,
+        accepted_semantic_bar_identity: [u8; 32],
+        b3b_event_key_fingerprint: [u8; 32],
+        b3c_continuation_binding_id: [u8; 32],
+        sequence_identity_fingerprint: [u8; 32],
+    }
+
+    impl Stage5eB3eInvocationConsumeContext {
+        pub(crate) fn consume_for_nested_b3c(
+            self,
+            nested_consume_capability: &Stage5eB3eNestedConsumeSeal,
+        ) -> crate::stage5e_no_io_lifecycle::schedule_window_evidence::b3c_evidence::Stage5eB3eNestedInvocationMaterial
+        {
+            let Self {
+                callback_now,
+                callback_authority_id,
+                issued_at,
+                effective_observed_at,
+                authority_expires_at,
+                full_instrument_id,
+                accepted_semantic_bar_identity,
+                b3b_event_key_fingerprint,
+                b3c_continuation_binding_id,
+                sequence_identity_fingerprint,
+            } = self;
+            crate::stage5e_no_io_lifecycle::schedule_window_evidence::b3c_evidence::construct_nested_invocation_material(
+                callback_now,
+                callback_authority_id,
+                issued_at,
+                effective_observed_at,
+                authority_expires_at,
+                full_instrument_id,
+                accepted_semantic_bar_identity,
+                b3b_event_key_fingerprint,
+                b3c_continuation_binding_id,
+                sequence_identity_fingerprint,
+                nested_consume_capability,
+            )
+        }
+    }
+
+    pub(crate) struct Stage5eB3eNestedPreflight<'a> {
+        full_instrument_id: &'a broker_core::InstrumentId,
+        accepted_semantic_bar_identity: [u8; 32],
+        b3b_event_key_fingerprint: [u8; 32],
+        b3c_continuation_binding_id: [u8; 32],
+        sequence_identity_fingerprint: [u8; 32],
+        accepted_bar_close_ts: i64,
+        effective_observed_at: DateTime<Utc>,
+        effective_expires_at: DateTime<Utc>,
+    }
+
+    impl<'a> Stage5eB3eNestedPreflight<'a> {
+        #[allow(clippy::too_many_arguments)]
+        pub(crate) fn from_b3c_receipt(
+            _seal: Stage5eB3eNestedPreflightSeal,
+            full_instrument_id: &'a broker_core::InstrumentId,
+            accepted_semantic_bar_identity: [u8; 32],
+            b3b_event_key_fingerprint: [u8; 32],
+            b3c_continuation_binding_id: [u8; 32],
+            sequence_identity_fingerprint: [u8; 32],
+            accepted_bar_close_ts: i64,
+            effective_observed_at: DateTime<Utc>,
+            effective_expires_at: DateTime<Utc>,
+        ) -> Self {
+            Self {
+                full_instrument_id,
+                accepted_semantic_bar_identity,
+                b3b_event_key_fingerprint,
+                b3c_continuation_binding_id,
+                sequence_identity_fingerprint,
+                accepted_bar_close_ts,
+                effective_observed_at,
+                effective_expires_at,
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum Stage5eCallbackInvocationTerminalReason {
+        ClockBeforeAuthorityIssue,
+        AuthorityExpired,
+        AcceptedBarObservedInFuture,
+        InvalidAuthorityChronology,
+        InstrumentIdentityMissing,
+        OwnedIdentityMismatch,
+        CallbackAuthorityIdMismatch,
+        MaterializationIntegrityMismatch,
+    }
+
+    pub(crate) struct Stage5eCallbackInvocationTerminalBlock {
+        reason: Stage5eCallbackInvocationTerminalReason,
+    }
+
+    impl Stage5eCallbackInvocationTerminalBlock {
+        pub(crate) fn reason(&self) -> Stage5eCallbackInvocationTerminalReason {
+            self.reason
+        }
+    }
+
+    pub(crate) struct Stage5eAuthorizedCallbackAuditLineage {
+        _schedule_identity_fingerprint: [u8; 32],
+        _sequence_classification:
+            crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleSequenceClassification,
+        _optional_boundary_fingerprint: Option<[u8; 32]>,
+        _owned_sequence_identity: [u8; 32],
+        _sequence_observed_at: DateTime<Utc>,
+        _sequence_expires_at: DateTime<Utc>,
+        _event_key_fingerprint: [u8; 32],
+        _b3b_effective_observed_at: DateTime<Utc>,
+        _b3b_effective_expires_at: DateTime<Utc>,
+        _continuation_binding_id: [u8; 32],
+        _bound_at: DateTime<Utc>,
+        _b3c_effective_observed_at: DateTime<Utc>,
+        _b3c_effective_expires_at: DateTime<Utc>,
+        _callback_authority_id: [u8; 32],
+        _issued_at: DateTime<Utc>,
+        _effective_observed_at: DateTime<Utc>,
+        _authority_expires_at: DateTime<Utc>,
+        _full_instrument_id: broker_core::InstrumentId,
+        _accepted_semantic_bar_identity: [u8; 32],
+        _b3b_event_key_fingerprint: [u8; 32],
+        _b3c_continuation_binding_id: [u8; 32],
+        _sequence_identity_fingerprint: [u8; 32],
+        _owned_instrument: broker_core::InstrumentId,
+        _owned_bar_identity: [u8; 32],
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn construct_stage5e_authorized_callback_audit_lineage(
+        schedule_identity_fingerprint: [u8; 32],
+        sequence_classification: crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleSequenceClassification,
+        optional_boundary_fingerprint: Option<[u8; 32]>,
+        owned_sequence_identity: [u8; 32],
+        sequence_observed_at: DateTime<Utc>,
+        sequence_expires_at: DateTime<Utc>,
+        event_key_fingerprint: [u8; 32],
+        b3b_effective_observed_at: DateTime<Utc>,
+        b3b_effective_expires_at: DateTime<Utc>,
+        continuation_binding_id: [u8; 32],
+        bound_at: DateTime<Utc>,
+        b3c_effective_observed_at: DateTime<Utc>,
+        b3c_effective_expires_at: DateTime<Utc>,
+        callback_authority_id: [u8; 32],
+        issued_at: DateTime<Utc>,
+        effective_observed_at: DateTime<Utc>,
+        authority_expires_at: DateTime<Utc>,
+        full_instrument_id: broker_core::InstrumentId,
+        accepted_semantic_bar_identity: [u8; 32],
+        b3b_event_key_fingerprint: [u8; 32],
+        b3c_continuation_binding_id: [u8; 32],
+        sequence_identity_fingerprint: [u8; 32],
+        owned_instrument: broker_core::InstrumentId,
+        owned_bar_identity: [u8; 32],
+        _nested_consume_capability: &Stage5eB3eNestedConsumeSeal,
+    ) -> Stage5eAuthorizedCallbackAuditLineage {
+        Stage5eAuthorizedCallbackAuditLineage {
+            _schedule_identity_fingerprint: schedule_identity_fingerprint,
+            _sequence_classification: sequence_classification,
+            _optional_boundary_fingerprint: optional_boundary_fingerprint,
+            _owned_sequence_identity: owned_sequence_identity,
+            _sequence_observed_at: sequence_observed_at,
+            _sequence_expires_at: sequence_expires_at,
+            _event_key_fingerprint: event_key_fingerprint,
+            _b3b_effective_observed_at: b3b_effective_observed_at,
+            _b3b_effective_expires_at: b3b_effective_expires_at,
+            _continuation_binding_id: continuation_binding_id,
+            _bound_at: bound_at,
+            _b3c_effective_observed_at: b3c_effective_observed_at,
+            _b3c_effective_expires_at: b3c_effective_expires_at,
+            _callback_authority_id: callback_authority_id,
+            _issued_at: issued_at,
+            _effective_observed_at: effective_observed_at,
+            _authority_expires_at: authority_expires_at,
+            _full_instrument_id: full_instrument_id,
+            _accepted_semantic_bar_identity: accepted_semantic_bar_identity,
+            _b3b_event_key_fingerprint: b3b_event_key_fingerprint,
+            _b3c_continuation_binding_id: b3c_continuation_binding_id,
+            _sequence_identity_fingerprint: sequence_identity_fingerprint,
+            _owned_instrument: owned_instrument,
+            _owned_bar_identity: owned_bar_identity,
+        }
+    }
+
+    pub(crate) struct Stage5eAuthorizedPaperCallbackPayload {
+        stage5c_authorized_callback_material:
+            crate::stage5c_paper_host::Stage5eStage5cAuthorizedCallbackMaterial,
+        authorized_callback_audit_lineage: Stage5eAuthorizedCallbackAuditLineage,
+        callback_invoked_at: DateTime<Utc>,
+        callback_authority_id: [u8; 32],
+    }
+
+    pub(crate) fn construct_stage5e_authorized_paper_callback_payload(
+        material: crate::stage5c_paper_host::Stage5eStage5cAuthorizedCallbackMaterial,
+        audit_lineage: Stage5eAuthorizedCallbackAuditLineage,
+        callback_invoked_at: DateTime<Utc>,
+        callback_authority_id: [u8; 32],
+        _nested_consume_capability: &Stage5eB3eNestedConsumeSeal,
+    ) -> Stage5eAuthorizedPaperCallbackPayload {
+        Stage5eAuthorizedPaperCallbackPayload {
+            stage5c_authorized_callback_material: material,
+            authorized_callback_audit_lineage: audit_lineage,
+            callback_invoked_at,
+            callback_authority_id,
+        }
+    }
+
+    struct Stage5eAuthorizedPostCallbackPayload {
+        post_callback_material: crate::stage5c_paper_host::Stage5eStage5cPostCallbackMaterial,
+        audit_lineage: Stage5eAuthorizedCallbackAuditLineage,
+        callback_invoked_at: DateTime<Utc>,
+        callback_authority_id: [u8; 32],
+    }
+
+    impl Stage5eAuthorizedPaperCallbackPayload {
+        fn invoke_callback_once_in_authority(
+            self,
+            execution_seal: Stage5cB3eCallbackExecutionSeal,
+        ) -> Stage5eAuthorizedPostCallbackPayload {
+            let Self {
+                stage5c_authorized_callback_material,
+                authorized_callback_audit_lineage,
+                callback_invoked_at,
+                callback_authority_id,
+            } = self;
+            Stage5eAuthorizedPostCallbackPayload {
+                post_callback_material: stage5c_authorized_callback_material
+                    .invoke_authorized_callback_once(execution_seal),
+                audit_lineage: authorized_callback_audit_lineage,
+                callback_invoked_at,
+                callback_authority_id,
+            }
+        }
+    }
+
+    enum PrivateStage5ePaperCallbackOutcome {
+        Ok(Vec<crate::BrokerNeutralHybridIntent>),
+        ValidationError(crate::HybridRuntimeCallbackValidationError),
+    }
+
+    pub(crate) struct Stage5ePaperCallbackOutcome {
+        inner: PrivateStage5ePaperCallbackOutcome,
+    }
+
+    pub(crate) fn move_stage5e_paper_callback_outcome(
+        exact_result: crate::BrokerNeutralHybridCallbackResult,
+        _execution_capability: &Stage5cB3eCallbackExecutionSeal,
+    ) -> Stage5ePaperCallbackOutcome {
+        Stage5ePaperCallbackOutcome {
+            inner: match exact_result {
+                Ok(intents) => PrivateStage5ePaperCallbackOutcome::Ok(intents),
+                Err(error) => PrivateStage5ePaperCallbackOutcome::ValidationError(error),
+            },
+        }
+    }
+
+    pub(crate) struct Stage5ePaperCallbackResultEscrow {
+        mutated_strategy: crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        recovery_receipt: crate::stage5c_paper_host::Stage5cPendingRecoveryReceipt,
+        audit_lineage: Stage5eAuthorizedCallbackAuditLineage,
+        attribution_snapshot: crate::stage5c_paper_host::Stage5ePreCallbackAttributionSnapshot,
+        retained_bar_metadata: crate::stage5c_paper_host::Stage5eAcceptedBarSettlementMetadata,
+        callback_invoked_at: DateTime<Utc>,
+        callback_authority_id: [u8; 32],
+        callback_outcome: Stage5ePaperCallbackOutcome,
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn construct_stage5e_paper_callback_result_escrow(
+        mutated_strategy: crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        recovery_receipt: crate::stage5c_paper_host::Stage5cPendingRecoveryReceipt,
+        audit_lineage: Stage5eAuthorizedCallbackAuditLineage,
+        attribution_snapshot: crate::stage5c_paper_host::Stage5ePreCallbackAttributionSnapshot,
+        retained_bar_metadata: crate::stage5c_paper_host::Stage5eAcceptedBarSettlementMetadata,
+        callback_invoked_at: DateTime<Utc>,
+        callback_authority_id: [u8; 32],
+        callback_outcome: Stage5ePaperCallbackOutcome,
+        _seal: Stage5eEscrowConstructionSeal,
+    ) -> Stage5ePaperCallbackResultEscrow {
+        Stage5ePaperCallbackResultEscrow {
+            mutated_strategy,
+            recovery_receipt,
+            audit_lineage,
+            attribution_snapshot,
+            retained_bar_metadata,
+            callback_invoked_at,
+            callback_authority_id,
+            callback_outcome,
+        }
+    }
+
+    pub(crate) fn map_stage5c_materialization_terminal_to_callback_terminal(
+        _block: crate::stage5c_paper_host::Stage5eStage5cMaterializationTerminalBlock,
+        _nested_consume_capability: &Stage5eB3eNestedConsumeSeal,
+    ) -> Stage5eCallbackInvocationTerminalBlock {
+        Stage5eCallbackInvocationTerminalBlock {
+            reason: Stage5eCallbackInvocationTerminalReason::MaterializationIntegrityMismatch,
+        }
+    }
+
+    impl Stage5eCallbackAuthorityReadyPaperStrategy {
+        fn consume_for_callback(
+            self,
+            _invocation_seal: Stage5eCallbackInvocationSeal,
+            invocation_context: Stage5eB3eInvocationConsumeContext,
+        ) -> Result<Stage5eAuthorizedPaperCallbackPayload, Stage5eCallbackInvocationTerminalBlock>
+        {
+            self.b3c_receipt
+                .consume_for_authorized_callback_with_nested_seal_and_invocation_context(
+                    Stage5eB3eNestedConsumeSeal(()),
+                    invocation_context,
+                )
+        }
+    }
+
+    pub(crate) fn invoke_stage5e_authorized_paper_callback(
+        authority: Stage5eCallbackAuthorityReadyPaperStrategy,
+    ) -> Result<Stage5ePaperCallbackResultEscrow, Stage5eCallbackInvocationTerminalBlock> {
+        invoke_stage5e_authorized_paper_callback_with_now(authority, Utc::now())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn invoke_stage5e_authorized_paper_callback_at(
+        authority: Stage5eCallbackAuthorityReadyPaperStrategy,
+        callback_now: DateTime<Utc>,
+    ) -> Result<Stage5ePaperCallbackResultEscrow, Stage5eCallbackInvocationTerminalBlock> {
+        invoke_stage5e_authorized_paper_callback_with_now(authority, callback_now)
+    }
+
+    fn invoke_stage5e_authorized_paper_callback_with_now(
+        authority: Stage5eCallbackAuthorityReadyPaperStrategy,
+        callback_now: DateTime<Utc>,
+    ) -> Result<Stage5ePaperCallbackResultEscrow, Stage5eCallbackInvocationTerminalBlock> {
+        {
+            let nested_preflight = authority
+                .b3c_receipt
+                .borrow_for_authorized_callback_preflight(Stage5eB3eNestedPreflightSeal(()));
+            validate_callback_invocation_preflight(&authority, nested_preflight, callback_now)?;
+        }
+        let callback_authority_id = authority.callback_authority_id.0;
+        let invocation_context = Stage5eB3eInvocationConsumeContext {
+            callback_now,
+            callback_authority_id,
+            issued_at: authority.issued_at,
+            effective_observed_at: authority.effective_observed_at,
+            authority_expires_at: authority.authority_expires_at,
+            full_instrument_id: authority.full_instrument_id.clone(),
+            accepted_semantic_bar_identity: authority.accepted_semantic_bar_identity,
+            b3b_event_key_fingerprint: authority.event_key_fingerprint,
+            b3c_continuation_binding_id: authority.continuation_binding_id,
+            sequence_identity_fingerprint: authority.sequence_identity_fingerprint,
+        };
+        let payload = authority
+            .consume_for_callback(Stage5eCallbackInvocationSeal(()), invocation_context)?;
+        let post_callback =
+            payload.invoke_callback_once_in_authority(Stage5cB3eCallbackExecutionSeal(()));
+        let Stage5eAuthorizedPostCallbackPayload {
+            post_callback_material,
+            audit_lineage,
+            callback_invoked_at,
+            callback_authority_id,
+        } = post_callback;
+        Ok(post_callback_material.construct_result_escrow(
+            audit_lineage,
+            callback_invoked_at,
+            callback_authority_id,
+            Stage5eEscrowConstructionSeal(()),
+        ))
+    }
+
+    fn validate_callback_invocation_preflight(
+        authority: &Stage5eCallbackAuthorityReadyPaperStrategy,
+        nested: Stage5eB3eNestedPreflight<'_>,
+        callback_now: DateTime<Utc>,
+    ) -> Result<(), Stage5eCallbackInvocationTerminalBlock> {
+        let block = |reason| Stage5eCallbackInvocationTerminalBlock { reason };
+        if callback_now < authority.issued_at {
+            return Err(block(
+                Stage5eCallbackInvocationTerminalReason::ClockBeforeAuthorityIssue,
+            ));
+        }
+        if callback_now > authority.authority_expires_at {
+            return Err(block(
+                Stage5eCallbackInvocationTerminalReason::AuthorityExpired,
+            ));
+        }
+        if authority.accepted_bar_close_ts > callback_now.timestamp() {
+            return Err(block(
+                Stage5eCallbackInvocationTerminalReason::AcceptedBarObservedInFuture,
+            ));
+        }
+        if authority.effective_observed_at > authority.issued_at
+            || authority.issued_at > callback_now
+            || authority.effective_observed_at > authority.authority_expires_at
+            || nested.effective_observed_at > nested.effective_expires_at
+            || authority.accepted_bar_close_ts > authority.issued_at.timestamp()
+        {
+            return Err(block(
+                Stage5eCallbackInvocationTerminalReason::InvalidAuthorityChronology,
+            ));
+        }
+        if !instrument_identity_is_complete(&authority.full_instrument_id) {
+            return Err(block(
+                Stage5eCallbackInvocationTerminalReason::InstrumentIdentityMissing,
+            ));
+        }
+        if authority.full_instrument_id != *nested.full_instrument_id
+            || authority.accepted_semantic_bar_identity != nested.accepted_semantic_bar_identity
+            || authority.event_key_fingerprint != nested.b3b_event_key_fingerprint
+            || authority.continuation_binding_id != nested.b3c_continuation_binding_id
+            || authority.sequence_identity_fingerprint != nested.sequence_identity_fingerprint
+            || authority.accepted_bar_close_ts != nested.accepted_bar_close_ts
+            || authority.effective_observed_at != nested.effective_observed_at
+            || authority.authority_expires_at != nested.effective_expires_at
+        {
+            return Err(block(
+                Stage5eCallbackInvocationTerminalReason::OwnedIdentityMismatch,
+            ));
+        }
+        let recomputed = callback_authority_id(
+            nested.full_instrument_id,
+            nested.accepted_semantic_bar_identity,
+            nested.b3b_event_key_fingerprint,
+            nested.b3c_continuation_binding_id,
+            nested.sequence_identity_fingerprint,
+            authority.issued_at,
+            authority.authority_expires_at,
+        );
+        if recomputed.0 != authority.callback_authority_id.0 {
+            return Err(block(
+                Stage5eCallbackInvocationTerminalReason::CallbackAuthorityIdMismatch,
+            ));
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    impl Stage5ePaperCallbackResultEscrow {
+        pub(crate) fn test_callback_count(&self) -> usize {
+            1
+        }
+
+        pub(crate) fn test_intent_count(&self) -> usize {
+            match &self.callback_outcome.inner {
+                PrivateStage5ePaperCallbackOutcome::Ok(intents) => intents.len(),
+                PrivateStage5ePaperCallbackOutcome::ValidationError(_) => 0,
+            }
+        }
+
+        pub(crate) fn test_has_validation_error(&self) -> bool {
+            matches!(
+                self.callback_outcome.inner,
+                PrivateStage5ePaperCallbackOutcome::ValidationError(_)
+            )
+        }
+
+        pub(crate) fn test_callback_invoked_at(&self) -> DateTime<Utc> {
+            self.callback_invoked_at
+        }
+
+        pub(crate) fn test_strategy_state_fingerprint(&self) -> String {
+            crate::stage5c_paper_host::stage5e_test_owned_strategy_state_fingerprint(
+                &self.mutated_strategy,
+            )
+        }
+
+        pub(crate) fn test_retained_ownership(&self) -> (DateTime<Utc>, [u8; 32], [u8; 32]) {
+            (
+                self.recovery_receipt.recovered_ts(),
+                self.callback_authority_id,
+                self.audit_lineage._accepted_semantic_bar_identity,
+            )
+        }
+
+        pub(crate) fn test_attribution_ownership_shape(&self) -> (usize, usize, bool) {
+            self.attribution_snapshot.test_ownership_shape()
+        }
+
+        pub(crate) fn test_retained_bar_metadata(
+            &self,
+        ) -> (i64, broker_core::HybridRuntimeBarOrigin, bool, [u8; 32]) {
+            self.retained_bar_metadata.test_retained_bar_metadata()
+        }
+    }
+    // STAGE5E-B3E-CALLBACK-IMPLEMENTATION-END: private-authority-v1
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(crate) enum Stage5eCallbackAuthorityRetryableReason {

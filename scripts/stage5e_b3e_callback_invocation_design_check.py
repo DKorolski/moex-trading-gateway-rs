@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed checker for the Stage 5E-b3e callback invocation design."""
+"""Fail-closed checker for the Stage 5E-b3e private callback implementation."""
 
 from __future__ import annotations
 
@@ -17,12 +17,12 @@ INVENTORY = (
 )
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3e-callback-invocation-design"
-BASELINE_REF = "175b172b61e580d4db81aad8182020fabd38e482"
+BASELINE_REF = "fe4c3f51e64e14ac5ef383b070ead81eb71586b5"
 EXPECTED_PLAN_SHA256 = (
-    "55e2f080cc6fe7aa0fb91c53fa524cf8b385d49d7716afeff82df6af4ee8a849"
+    "a57e1cebd06acde3f206235956071d9e6efaba27ff3a51fc487103e18234a2d4"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "87e7ef104787c4632279f80e76fefd75fefd1064ab02fc1a376d0f9c34b15b03"
+    "44655a34fa3a7797600fc756f236b03a50232b465a013dde318f4e7a1f800e3f"
 )
 EXPECTED_B3D_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -42,12 +42,25 @@ EXPECTED_B3D_SOURCE_SHA256 = {
     ),
 }
 EXPECTED_ALLOWED_CHANGED_PATHS = [
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
     "docs/stage-5/5e-b3e-callback-invocation-design.md",
+    "docs/stage-5/stage-5d-additive-freeze-manifest.json",
     "docs/stage-5/stage5e-b3e-callback-invocation-design-inventory.json",
+    "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
+    "scripts/stage5d_additive_freeze_check.py",
     "scripts/stage5e_b3e_callback_invocation_design_check.py",
 ]
+EXPECTED_IMPLEMENTATION_SOURCE_SHA256 = {
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
+        "d6422b93de6bed57d7eaee4e60068d265549dc22d02ea671dde172bbda618327"
+    ),
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": (
+        "260ea6e8b8b165f32c16e9d0482f50d322e6190ebffa632a8a1f25229fb81b70"
+    ),
+}
 
 
 def fail(message: str) -> None:
@@ -89,8 +102,8 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(inventory.get("stage"), STAGE, "stage identity drift")
     require_exact(
         inventory.get("status"),
-        "design_only_r7_pending_review",
-        "design-only status drift",
+        "implementation_r1_pending_review",
+        "implementation status drift",
     )
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
     require_exact(
@@ -125,8 +138,13 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
     require_exact(
         inventory.get("accepted_b3e_r6_ref"),
-        BASELINE_REF,
+        "175b172b61e580d4db81aad8182020fabd38e482",
         "accepted B3E-r6 ref drift",
+    )
+    require_exact(
+        inventory.get("accepted_b3e_r7_ref"),
+        BASELINE_REF,
+        "accepted B3E-r7 ref drift",
     )
     require_exact(
         inventory.get("accepted_b3d_implementation_ref"),
@@ -135,7 +153,7 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        318,
+        319,
         "negative-matrix count drift",
     )
     require_exact(
@@ -148,13 +166,18 @@ def check_inventory(inventory: dict[str, object]) -> None:
         EXPECTED_B3D_SOURCE_SHA256,
         "accepted B3D source hash contract drift",
     )
+    require_exact(
+        inventory.get("implementation_source_sha256"),
+        EXPECTED_IMPLEMENTATION_SOURCE_SHA256,
+        "implementation source hash contract drift",
+    )
 
     transition = inventory["invocation_transition_contract"]
     require_exact(
         transition,
         {
             "function": "invoke_stage5e_authorized_paper_callback",
-            "implementation_status": "design_only_not_implemented",
+            "implementation_status": "implemented_private_no_io_pending_review",
             "only_input": "Stage5eCallbackAuthorityReadyPaperStrategy",
             "success": "Stage5ePaperCallbackResultEscrow",
             "blocked": "Stage5eCallbackInvocationTerminalBlock",
@@ -940,8 +963,8 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(callback["panic_retry_allowed"], False, "callback panic retry opened")
     require_exact(
         callback["actual_callback_status"],
-        "hold_until_separate_implementation_review",
-        "actual callback implementation opened",
+        "implemented_private_no_io_pending_review",
+        "actual callback implementation status drift",
     )
 
     outcome = inventory["callback_outcome_contract"]
@@ -1101,8 +1124,8 @@ def check_inventory(inventory: dict[str, object]) -> None:
     escrow = inventory["result_escrow_contract"]
     require_exact(
         escrow["implementation_status"],
-        "design_only_not_implemented",
-        "escrow implementation opened",
+        "implemented_private_no_io_pending_review",
+        "escrow implementation status drift",
     )
     require_exact(
         escrow["callback_error_retains_post_callback_strategy"],
@@ -1146,33 +1169,124 @@ def check_inventory(inventory: dict[str, object]) -> None:
     }
     if not required_forbidden.issubset(set(escrow["forbidden_traits_and_surfaces"])):
         fail("private escrow forbidden-surface set weakened")
-    if any(value is not False for value in inventory["closed_surfaces"].values()):
-        fail("a design-only closed surface was opened")
+    require_exact(
+        inventory["closed_surfaces"],
+        {
+            "actual_callback_invocation": True,
+            "strategy_state_mutation": True,
+            "in_memory_intent_construction": True,
+            "escrow_validation_or_settlement": False,
+            "intent_extraction_or_sink": False,
+            "executable_intents": False,
+            "redis": False,
+            "finam_io": False,
+            "transport": False,
+            "dispatch": False,
+            "runtime_live": False,
+            "broker_execution": False,
+            "autonomous_event_loop": False,
+            "schedule_provider_attachment": False,
+            "venue_calendar_inference": False,
+        },
+        "implementation closed-surface contract drift",
+    )
 
 
-def check_accepted_source_is_unchanged() -> None:
+def git_blob_sha256(ref: str, rel: str) -> str:
+    try:
+        payload = subprocess.check_output(
+            ["git", "show", f"{ref}:{rel}"],
+            cwd=ROOT,
+        )
+    except subprocess.CalledProcessError:
+        fail(f"cannot read accepted baseline source: {rel}")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def marker_region(source: str, begin: str, end: str) -> str:
+    if source.count(begin) != 1 or source.count(end) != 1:
+        fail(f"implementation marker cardinality drift: {begin}")
+    region = source.split(begin, 1)[1].split(end, 1)[0]
+    if not region.strip():
+        fail(f"empty implementation marker region: {begin}")
+    return region
+
+
+def check_implementation_source() -> None:
     for rel, expected in EXPECTED_B3D_SOURCE_SHA256.items():
+        if rel.startswith("crates/") and not (ROOT / ".git").exists():
+            continue
+        actual = git_blob_sha256(BASELINE_REF, rel) if rel.startswith("crates/") else sha256(ROOT / rel)
+        if actual != expected:
+            fail(f"accepted B3D predecessor source drift: {rel}")
+    for rel, expected in EXPECTED_IMPLEMENTATION_SOURCE_SHA256.items():
         if sha256(ROOT / rel) != expected:
-            fail(f"accepted B3D source drift: {rel}")
+            fail(f"protected implementation source changed: {rel}")
+
+    stage5c_source = (
+        ROOT / "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    ).read_text()
     runtime_source = (
         ROOT / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
     ).read_text()
+    stage5c_region = marker_region(
+        stage5c_source,
+        "STAGE5E-B3E-CALLBACK-IMPLEMENTATION-BEGIN: private-materialization-v1",
+        "STAGE5E-B3E-CALLBACK-IMPLEMENTATION-END: private-materialization-v1",
+    )
+    runtime_region = marker_region(
+        runtime_source,
+        "STAGE5E-B3E-CALLBACK-IMPLEMENTATION-BEGIN: private-authority-v1",
+        "STAGE5E-B3E-CALLBACK-IMPLEMENTATION-END: private-authority-v1",
+    )
+    exact_counts = {
+        "pub(crate) fn invoke_stage5e_authorized_paper_callback(": 1,
+        "fn invoke_stage5e_authorized_paper_callback_with_now(": 1,
+        "struct Stage5ePaperCallbackResultEscrow": 1,
+        "fn map_stage5c_materialization_terminal_to_callback_terminal(": 1,
+        "fn construct_stage5e_paper_callback_result_escrow(": 1,
+        "fn move_stage5e_paper_callback_outcome(": 1,
+    }
+    for symbol, expected in exact_counts.items():
+        if runtime_region.count(symbol) != expected:
+            fail(f"implementation symbol cardinality drift: {symbol}")
+    if stage5c_region.count("BrokerNeutralHybridStrategy::on_broker_bar") != 1:
+        fail("authorized callback cardinality drift")
+    if stage5c_region.count("fn consume_stage5c_for_authorized_callback(") != 1:
+        fail("Stage5C callback materialization cardinality drift")
+    if "allow_live_orders: false" not in stage5c_source:
+        fail("paper callback live-order guard missing")
     for forbidden in (
-        "fn invoke_stage5e_authorized_paper_callback(",
-        "struct Stage5eCallbackInvocationSeal",
-        "struct Stage5eCallbackInvocationPreflight",
-        "struct Stage5ePaperCallbackResultEscrow",
-        "struct Stage5eCallbackInvocationTerminalBlock",
+        "redis::",
+        "FINAM",
+        "reqwest",
+        ".send(",
+        "XADD",
+        "publish(",
     ):
-        if forbidden in runtime_source:
-            fail(f"design-only stage contains implementation symbol: {forbidden}")
+        if forbidden in stage5c_region or forbidden in runtime_region:
+            fail(f"forbidden callback implementation surface opened: {forbidden}")
+    for forbidden_conversion in (
+        "impl From<Stage5eStage5cMaterializationTerminalBlock",
+        "impl Into<Stage5eCallbackInvocationTerminalBlock",
+    ):
+        if forbidden_conversion in stage5c_source or forbidden_conversion in runtime_source:
+            fail(f"generic terminal conversion opened: {forbidden_conversion}")
+    for test_name in (
+        "b3e_private_callback_invokes_exactly_once_and_retains_opaque_escrow",
+        "b3e_callback_validation_error_is_retained_inside_escrow",
+        "b3e_expiry_and_identity_mismatch_block_before_callback",
+        "b3e_materialization_mismatch_reaches_exact_top_level_terminal_without_callback",
+    ):
+        if runtime_source.count(f"fn {test_name}(") != 1:
+            fail(f"required implementation test missing: {test_name}")
 
 
 def check_plan_markers() -> None:
     text = PLAN.read_text()
     for marker in (
-        "This is the governance-only B3E-r7 closure",
-        "175b172b61e580d4db81aad8182020fabd38e482",
+        "This is the B3E implementation-r1 review candidate",
+        "fe4c3f51e64e14ac5ef383b070ead81eb71586b5",
         "93d365ae51f2f6ad94954782a27bc49857fe21ff",
         "invoke_stage5e_authorized_paper_callback",
         "Stage5eCallbackInvocationSeal",
@@ -1213,7 +1327,7 @@ def check_plan_markers() -> None:
         "authority.effective_observed_at == owned B3C effective_observed_at",
         "A callback validation error remains inside the escrow",
         "Stage4AcceptedPaperHostEvidence → B3C → callback authority",
-        "Any implementation requires a separate accepted assignment and review.",
+        "Any settlement or external side effect requires a separate accepted assignment",
     ):
         if marker not in text:
             fail(f"required design marker missing: {marker}")
@@ -1225,7 +1339,7 @@ def main() -> int:
     except (FileNotFoundError, json.JSONDecodeError) as exc:
         fail(f"missing or invalid B3E design contract: {exc}")
     check_inventory(inventory)
-    check_accepted_source_is_unchanged()
+    check_implementation_source()
     check_plan_markers()
     if (ROOT / ".git").exists():
         changed = subprocess.check_output(

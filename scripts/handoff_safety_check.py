@@ -365,7 +365,7 @@ def check_archive(path: Path) -> None:
                 expected_stage5e_a_freeze_ref = None
             elif current_review_stage == "5E-b3e-callback-invocation-design":
                 expected_stage5e_baseline_ref = (
-                    "175b172b61e580d4db81aad8182020fabd38e482"
+                    "fe4c3f51e64e14ac5ef383b070ead81eb71586b5"
                 )
                 expected_stage5e_a_freeze_ref = None
             else:
@@ -440,6 +440,39 @@ def check_archive(path: Path) -> None:
                 ]
                 if closed != expected_closed:
                     raise SystemExit("handoff safety: Stage 5E extension closed-surface mismatch")
+            elif current_review_stage == "5E-b3e-callback-invocation-design":
+                opened_private_surfaces = {
+                    "actual_callback_invocation",
+                    "strategy_state_mutation",
+                    "in_memory_intent_construction",
+                }
+                if (
+                    not isinstance(closed, dict)
+                    or set(closed) != {
+                        "actual_callback_invocation",
+                        "strategy_state_mutation",
+                        "in_memory_intent_construction",
+                        "escrow_validation_or_settlement",
+                        "intent_extraction_or_sink",
+                        "executable_intents",
+                        "redis",
+                        "finam_io",
+                        "transport",
+                        "dispatch",
+                        "runtime_live",
+                        "broker_execution",
+                        "autonomous_event_loop",
+                        "schedule_provider_attachment",
+                        "venue_calendar_inference",
+                    }
+                    or any(closed[key] is not True for key in opened_private_surfaces)
+                    or any(
+                        value is not False
+                        for key, value in closed.items()
+                        if key not in opened_private_surfaces
+                    )
+                ):
+                    raise SystemExit("handoff safety: Stage 5E B3E surface mismatch")
             elif not isinstance(closed, dict) or any(value is not False for value in closed.values()):
                 raise SystemExit("handoff safety: Stage 5E closed-surface mismatch")
             gate_result = json.loads(archive.read(stage5e_gate_result_name))

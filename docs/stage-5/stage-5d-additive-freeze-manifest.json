@@ -61,13 +61,15 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "9637a6065452b7b46581601bbee8c0270f65dc04207f15b530d3531a36872d1c",
+      "current_sha256": "d6422b93de6bed57d7eaee4e60068d265549dc22d02ea671dde172bbda618327",
       "stripped_without_additive_regions_sha256": "bcc2c4d6ff08d06c49f9716495ce177fc968a8dcd71f6b2c38bcb8d5b4cb0914",
       "additive_regions": [
         "type-state-transitions",
         "stage5e-b3c-semantic-identity-fields",
+        "stage5e-b3e-test-corruption-seams",
         "stage5e-b3c-semantic-identity-admission",
-        "stage5e-b3c-semantic-identity-construction"
+        "stage5e-b3c-semantic-identity-construction",
+        "stage5e-b3e-callback-materialization"
       ]
     }
   },

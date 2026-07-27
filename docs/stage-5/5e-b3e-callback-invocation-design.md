@@ -2,10 +2,11 @@
 
 ## Status and baseline
 
-This is the governance-only B3E-r7 closure. Its accepted design predecessor is:
+This is the B3E implementation-r1 review candidate built from the accepted
+B3E-r7 governance closure:
 
 ```text
-175b172b61e580d4db81aad8182020fabd38e482
+fe4c3f51e64e14ac5ef383b070ead81eb71586b5
 ```
 
 The immutable Rust implementation predecessor remains:
@@ -20,9 +21,10 @@ That implementation provides the accepted private, process-local:
 Stage5eCallbackAuthorityReadyPaperStrategy
 ```
 
-No Rust callback invocation, strategy mutation, intent construction, sink,
-transport, Redis, FINAM, dispatch, runtime-live, or broker execution is added
-by this stage.
+This implementation adds only the private process-local callback boundary:
+successful invocation mutates the paper strategy once and moves its in-memory
+callback result into an opaque escrow. It does not add settlement, extraction,
+sink, transport, Redis, FINAM, dispatch, runtime-live, or broker execution.
 
 ## Purpose
 
@@ -933,9 +935,10 @@ serialization, debug dump, sink conversion, command conversion, send-capable
 consumer, or execution-ready marker. Its only future consumer must be a
 separate, reviewed paper validation/settlement transition.
 
-## Required implementation evidence before opening the callback
+## Implementation evidence in this review candidate
 
-The implementation stage is not authorized until a separate review accepts:
+The callback remains usable only through the private type-state route. This
+candidate supplies source-bound checks and Rust tests for:
 
 - one canonical
   `Stage4AcceptedPaperHostEvidence → B3C → callback authority` test;
@@ -982,14 +985,20 @@ The implementation stage is not authorized until a separate review accepts:
 - no escrow getter/sink/send/transport surface;
 - source-bound negative provenance and heavy freeze gates.
 
-## Closed surfaces
+## Closed surfaces after implementation
 
-This design does not authorize:
+This implementation opens only:
 
 ```text
 actual on_broker_bar invocation through the new path
 strategy state mutation through the new path
 in-memory intent construction through the new path
+```
+
+The result remains sealed in process-local escrow. This stage does not
+authorize:
+
+```text
 escrow validation or settlement
 intent extraction or sink
 executable intents
@@ -1004,4 +1013,5 @@ schedule provider attachment
 venue-calendar inference
 ```
 
-Any implementation requires a separate accepted assignment and review.
+Any settlement or external side effect requires a separate accepted assignment
+and review.

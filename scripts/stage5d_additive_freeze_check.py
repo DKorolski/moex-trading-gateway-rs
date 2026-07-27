@@ -124,8 +124,10 @@ APPROVED_BRIDGE_FILES = {
     str(STAGE5C_HOST_REL): [
         "type-state-transitions",
         "stage5e-b3c-semantic-identity-fields",
+        "stage5e-b3e-test-corruption-seams",
         "stage5e-b3c-semantic-identity-admission",
         "stage5e-b3c-semantic-identity-construction",
+        "stage5e-b3e-callback-materialization",
     ],
     str(WRAPPER_REL): ["runtime-private-snapshot"],
 }
