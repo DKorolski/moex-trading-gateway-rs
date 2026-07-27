@@ -17,12 +17,12 @@ INVENTORY = (
 )
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3e-callback-invocation-design"
-BASELINE_REF = "135c3d1ed923d80c0c3de03e9d9e9d4a279985d3"
+BASELINE_REF = "4378f576a7da6389b219de18340f69949fb76625"
 EXPECTED_PLAN_SHA256 = (
-    "7e2572dd6cac068dc4a66045f20a8fceac00d1c929f5f36fc6d3c46b4dd87cfd"
+    "182fdd3970550bca0b354677f5e0fa3cdf288e8d94812e4aa91fd927bc718f94"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "e81a4cf7e01efbcce10b7267ddc15040e85ce3da27c52c53d2afcfa9ac360607"
+    "7ae6563168b51ca661b7997b9cc4eb774967d876e057954ae461a298ae5aae1c"
 )
 EXPECTED_B3D_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -89,13 +89,13 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(inventory.get("stage"), STAGE, "stage identity drift")
     require_exact(
         inventory.get("status"),
-        "design_only_r5_pending_review",
+        "design_only_r6_pending_review",
         "design-only status drift",
     )
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
     require_exact(
         inventory.get("accepted_b3e_design_ref"),
-        BASELINE_REF,
+        "135c3d1ed923d80c0c3de03e9d9e9d4a279985d3",
         "accepted B3E design ref drift",
     )
     require_exact(
@@ -115,8 +115,13 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
     require_exact(
         inventory.get("accepted_b3e_r4_ref"),
-        BASELINE_REF,
+        "135c3d1ed923d80c0c3de03e9d9e9d4a279985d3",
         "accepted B3E-r4 ref drift",
+    )
+    require_exact(
+        inventory.get("accepted_b3e_r5_ref"),
+        BASELINE_REF,
+        "accepted B3E-r5 ref drift",
     )
     require_exact(
         inventory.get("accepted_b3d_implementation_ref"),
@@ -125,7 +130,7 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        300,
+        309,
         "negative-matrix count drift",
     )
     require_exact(
@@ -481,6 +486,27 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(material["issuer_call_site_count"], 1, "Stage5C seal issuer count drift")
     require_exact(material["function_call_site_count"], 1, "Stage5C bridge call-site count drift")
     require_exact(
+        material["output"],
+        "Result<Stage5eStage5cAuthorizedCallbackMaterial,Stage5eStage5cMaterializationTerminalBlock>",
+        "Stage5C materialization result drift",
+    )
+    require_exact(
+        material["integrity_failure_policy"],
+        {
+            "failure": "admission_instrument_or_tick_mismatch_against_owned_accepted_bar",
+            "result": "Stage5eStage5cMaterializationTerminalBlock",
+            "reason": "MaterializationIntegrityMismatch",
+            "failure_is_post_consume_terminal": True,
+            "returns_strategy": False,
+            "returns_recovery_receipt": False,
+            "returns_authority": False,
+            "panic_allowed": False,
+            "retry_allowed": False,
+            "alternate_success_material_allowed": False,
+        },
+        "Stage5C materialization failure policy drift",
+    )
+    require_exact(
         material["material_visibility"],
         "pub_crate_opaque_private_fields",
         "Stage5C material fields widened",
@@ -555,6 +581,14 @@ def check_inventory(inventory: dict[str, object]) -> None:
     require_exact(post_material["constructor_count"], 1, "post-callback constructor count drift")
     require_exact(post_material["consumer_count"], 1, "post-callback consumer count drift")
     for forbidden in (
+        "Debug",
+        "Clone",
+        "Copy",
+        "Default",
+        "From",
+        "Into",
+        "Serialize",
+        "Deserialize",
         "raw_getters",
         "generic_into_parts",
         "alternate_constructor",
@@ -618,8 +652,58 @@ def check_inventory(inventory: dict[str, object]) -> None:
     )
     require_exact(
         audit["source_authority_material"],
-        "&Stage5eB3eNestedInvocationMaterial",
+        "exact_B3C_destructured_scalar_vector",
         "audit lineage authority source drift",
+    )
+    require_exact(audit["nested_material_destructure_owner"], "b3c_evidence", "nested material owner drift")
+    require_exact(audit["nested_material_destructure_count"], 1, "nested material destructure count drift")
+    require_exact(
+        audit["constructor_scalar_arguments"],
+        [
+            "callback_authority_id",
+            "issued_at",
+            "effective_observed_at",
+            "authority_expires_at",
+            "full_instrument_id",
+            "accepted_semantic_bar_identity",
+            "b3b_event_key_fingerprint",
+            "b3c_continuation_binding_id",
+            "sequence_identity_fingerprint",
+        ],
+        "audit lineage scalar vector drift",
+    )
+    require_exact(
+        audit["nested_to_audit_bridge"],
+        "b3c_evidence::construct_audit_lineage_from_consumed_nested_material",
+        "nested-to-audit bridge drift",
+    )
+    require_exact(audit["nested_to_audit_bridge_count"], 1, "nested-to-audit bridge count drift")
+    require_exact(
+        audit["nested_to_audit_bridge_output"],
+        "Stage5eAuthorizedCallbackAuditLineage",
+        "nested-to-audit bridge output drift",
+    )
+    require_exact(audit["nested_to_audit_bridge_raw_getters_allowed"], False, "audit raw getter opened")
+    require_exact(
+        audit["nested_to_audit_bridge_second_consumer_allowed"],
+        False,
+        "second nested-to-audit consumer opened",
+    )
+    require_exact(
+        audit["field_transfer_matrix"],
+        [
+            {"source": "callback_now", "destination": "stage5c_materialization_and_payload_callback_invoked_at"},
+            {"source": "callback_authority_id", "destination": "audit_lineage_callback_authority_id_and_payload_equality_proof"},
+            {"source": "issued_at", "destination": "audit_lineage_issued_at"},
+            {"source": "effective_observed_at", "destination": "audit_lineage_effective_observed_at"},
+            {"source": "authority_expires_at", "destination": "audit_lineage_exact_authority_expiry"},
+            {"source": "full_instrument_id", "destination": "audit_lineage_full_instrument_id"},
+            {"source": "accepted_semantic_bar_identity", "destination": "audit_lineage_accepted_semantic_bar_identity"},
+            {"source": "b3b_event_key_fingerprint", "destination": "audit_lineage_b3b_event_key_equality_binding"},
+            {"source": "b3c_continuation_binding_id", "destination": "audit_lineage_b3c_continuation_equality_binding"},
+            {"source": "sequence_identity_fingerprint", "destination": "audit_lineage_sequence_identity_equality_binding"},
+        ],
+        "nested field transfer matrix drift",
     )
     require_exact(
         audit["sole_destination"],
@@ -841,6 +925,11 @@ def check_inventory(inventory: dict[str, object]) -> None:
         False,
         "pre-settlement queue/persistence opened",
     )
+    require_exact(
+        outcome["forbidden_traits"],
+        ["Debug", "Clone", "Copy", "Default", "From", "Into", "Serialize", "Deserialize"],
+        "callback outcome trait freeze drift",
+    )
 
     require_exact(
         inventory["payload_to_escrow_transfer_matrix"],
@@ -999,8 +1088,8 @@ def check_accepted_source_is_unchanged() -> None:
 def check_plan_markers() -> None:
     text = PLAN.read_text()
     for marker in (
-        "This is the governance-only B3E-r5 closure",
-        "135c3d1ed923d80c0c3de03e9d9e9d4a279985d3",
+        "This is the governance-only B3E-r6 closure",
+        "4378f576a7da6389b219de18340f69949fb76625",
         "93d365ae51f2f6ad94954782a27bc49857fe21ff",
         "invoke_stage5e_authorized_paper_callback",
         "Stage5eCallbackInvocationSeal",
@@ -1020,6 +1109,9 @@ def check_plan_markers() -> None:
         "PrivateStage5ePaperCallbackOutcome",
         "Stage5ePaperCallbackOutcomeInspectionSeal",
         "construct_stage5e_authorized_callback_audit_lineage",
+        "construct_audit_lineage_from_consumed_nested_material",
+        "Stage5eStage5cMaterializationTerminalBlock",
+        "MaterializationIntegrityMismatch",
         "issue_stage5c_b3e_callback_material_seal",
         "Stage5cB3eCallbackExecutionSeal",
         "Stage5eStage5cPostCallbackMaterial",

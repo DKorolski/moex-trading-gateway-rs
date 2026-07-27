@@ -1,16 +1,17 @@
 {
   "schema_version": 1,
   "stage": "5E-b3e-callback-invocation-design",
-  "status": "design_only_r5_pending_review",
-  "baseline_ref": "135c3d1ed923d80c0c3de03e9d9e9d4a279985d3",
+  "status": "design_only_r6_pending_review",
+  "baseline_ref": "4378f576a7da6389b219de18340f69949fb76625",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
   "accepted_b3e_design_ref": "135c3d1ed923d80c0c3de03e9d9e9d4a279985d3",
   "accepted_b3e_r1_ref": "06107da3bf5809e34504f740e5c260b29a315b9c",
   "accepted_b3e_r2_ref": "c134da8da519dd09473699e1c23c2bc9d96a5a2f",
   "accepted_b3e_r3_ref": "a41ec4420736c66b92425f0f977fc9957d611df3",
   "accepted_b3e_r4_ref": "135c3d1ed923d80c0c3de03e9d9e9d4a279985d3",
+  "accepted_b3e_r5_ref": "4378f576a7da6389b219de18340f69949fb76625",
   "accepted_b3d_implementation_ref": "93d365ae51f2f6ad94954782a27bc49857fe21ff",
-  "expected_provenance_case_count": 300,
+  "expected_provenance_case_count": 309,
   "invocation_transition_contract": {
     "function": "invoke_stage5e_authorized_paper_callback",
     "implementation_status": "design_only_not_implemented",
@@ -150,6 +151,11 @@
     "post_callback_consumer_count": 1,
     "forbidden_surfaces": [
       "Clone",
+      "Copy",
+      "Debug",
+      "Default",
+      "From",
+      "Into",
       "Serialize",
       "Deserialize",
       "public_fields",
@@ -254,7 +260,7 @@
       "Stage5cB3eCallbackMaterialSeal",
       "callback_now"
     ],
-    "output": "Stage5eStage5cAuthorizedCallbackMaterial",
+    "output": "Result<Stage5eStage5cAuthorizedCallbackMaterial,Stage5eStage5cMaterializationTerminalBlock>",
     "material_visibility": "pub_crate_opaque_private_fields",
     "material_constructor_count": 1,
     "material_consumer_count": 1,
@@ -274,8 +280,25 @@
       "build_exact_callback_context_using_callback_now",
       "move_original_accepted_bar_into_callback_input"
     ],
+    "integrity_failure_policy": {
+      "failure": "admission_instrument_or_tick_mismatch_against_owned_accepted_bar",
+      "result": "Stage5eStage5cMaterializationTerminalBlock",
+      "reason": "MaterializationIntegrityMismatch",
+      "failure_is_post_consume_terminal": true,
+      "returns_strategy": false,
+      "returns_recovery_receipt": false,
+      "returns_authority": false,
+      "panic_allowed": false,
+      "retry_allowed": false,
+      "alternate_success_material_allowed": false
+    },
     "forbidden_surfaces": [
       "Clone",
+      "Copy",
+      "Debug",
+      "Default",
+      "From",
+      "Into",
       "Serialize",
       "Deserialize",
       "generic_into_parts",
@@ -320,6 +343,11 @@
     ],
     "forbidden_surfaces": [
       "Clone",
+      "Copy",
+      "Debug",
+      "Default",
+      "From",
+      "Into",
       "Serialize",
       "Deserialize",
       "raw_getters",
@@ -361,7 +389,67 @@
     "constructor_capability": "&Stage5eB3eNestedConsumeSeal",
     "constructor_definition_count": 1,
     "constructor_call_site_count": 1,
-    "source_authority_material": "&Stage5eB3eNestedInvocationMaterial",
+    "source_authority_material": "exact_B3C_destructured_scalar_vector",
+    "nested_material_destructure_owner": "b3c_evidence",
+    "nested_material_destructure_count": 1,
+    "constructor_scalar_arguments": [
+      "callback_authority_id",
+      "issued_at",
+      "effective_observed_at",
+      "authority_expires_at",
+      "full_instrument_id",
+      "accepted_semantic_bar_identity",
+      "b3b_event_key_fingerprint",
+      "b3c_continuation_binding_id",
+      "sequence_identity_fingerprint"
+    ],
+    "nested_to_audit_bridge": "b3c_evidence::construct_audit_lineage_from_consumed_nested_material",
+    "nested_to_audit_bridge_count": 1,
+    "nested_to_audit_bridge_output": "Stage5eAuthorizedCallbackAuditLineage",
+    "nested_to_audit_bridge_raw_getters_allowed": false,
+    "nested_to_audit_bridge_second_consumer_allowed": false,
+    "field_transfer_matrix": [
+      {
+        "source": "callback_now",
+        "destination": "stage5c_materialization_and_payload_callback_invoked_at"
+      },
+      {
+        "source": "callback_authority_id",
+        "destination": "audit_lineage_callback_authority_id_and_payload_equality_proof"
+      },
+      {
+        "source": "issued_at",
+        "destination": "audit_lineage_issued_at"
+      },
+      {
+        "source": "effective_observed_at",
+        "destination": "audit_lineage_effective_observed_at"
+      },
+      {
+        "source": "authority_expires_at",
+        "destination": "audit_lineage_exact_authority_expiry"
+      },
+      {
+        "source": "full_instrument_id",
+        "destination": "audit_lineage_full_instrument_id"
+      },
+      {
+        "source": "accepted_semantic_bar_identity",
+        "destination": "audit_lineage_accepted_semantic_bar_identity"
+      },
+      {
+        "source": "b3b_event_key_fingerprint",
+        "destination": "audit_lineage_b3b_event_key_equality_binding"
+      },
+      {
+        "source": "b3c_continuation_binding_id",
+        "destination": "audit_lineage_b3c_continuation_equality_binding"
+      },
+      {
+        "source": "sequence_identity_fingerprint",
+        "destination": "audit_lineage_sequence_identity_equality_binding"
+      }
+    ],
     "sole_destination": "Stage5eAuthorizedPaperCallbackPayload",
     "owns": [
       "schedule_projection_and_selected_window_identity",
@@ -547,7 +635,17 @@
     "intent_clone_allowed": false,
     "second_result_representation_allowed": false,
     "intent_capacity_policy": "defer_exact_u8_MAX_check_to_separately_reviewed_settlement",
-    "pre_settlement_queue_or_persistence_allowed": false
+    "pre_settlement_queue_or_persistence_allowed": false,
+    "forbidden_traits": [
+      "Debug",
+      "Clone",
+      "Copy",
+      "Default",
+      "From",
+      "Into",
+      "Serialize",
+      "Deserialize"
+    ]
   },
   "payload_to_escrow_transfer_matrix": [
     {

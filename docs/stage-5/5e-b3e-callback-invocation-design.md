@@ -2,10 +2,10 @@
 
 ## Status and baseline
 
-This is the governance-only B3E-r5 closure. Its accepted design predecessor is:
+This is the governance-only B3E-r6 closure. Its accepted design predecessor is:
 
 ```text
-135c3d1ed923d80c0c3de03e9d9e9d4a279985d3
+4378f576a7da6389b219de18340f69949fb76625
 ```
 
 The immutable Rust implementation predecessor remains:
@@ -147,6 +147,34 @@ read its own private material and pass the exact `callback_now` scalar to Stage
 5C without exposing context fields or getters. The context and nested material
 forbid `Clone`, `Copy`, `From`, `Into`, serialization, raw getters, generic
 parts, alternate construction, and second consumption.
+
+B3C destructures this private material exactly once. It sends `callback_now`
+to the Stage 5C materialization and payload clock paths, then calls exactly
+one B3C-owned bridge:
+
+```text
+b3c_evidence::construct_audit_lineage_from_consumed_nested_material(
+    owned schedule/window identity,
+    owned sequence classification/boundary identity/chronology,
+    owned B3B evidence,
+    owned B3C evidence,
+    callback_authority_id,
+    issued_at,
+    effective_observed_at,
+    authority_expires_at,
+    full_instrument_id,
+    accepted_semantic_bar_identity,
+    b3b_event_key_fingerprint,
+    b3c_continuation_binding_id,
+    sequence_identity_fingerprint,
+    nested_consume_capability: &Stage5eB3eNestedConsumeSeal
+) -> Stage5eAuthorizedCallbackAuditLineage
+```
+
+The bridge is the only call site of the callback-authority-owned lineage
+constructor. It transfers exact scalars by move; it does not pass the opaque
+material across a sibling privacy boundary and exposes no seed, getter, tuple,
+parts object, or second consumer.
 
 ## Invocation seal and borrowed preflight
 
@@ -451,17 +479,40 @@ pub(crate) fn construct_stage5e_authorized_callback_audit_lineage(
     owned_sequence_classification_boundary_identity_and_chronology,
     owned_b3b_event_key_and_effective_chronology,
     owned_b3c_continuation_binding_and_chronology,
-    nested_invocation_material: &Stage5eB3eNestedInvocationMaterial,
+    callback_authority_id,
+    issued_at,
+    effective_observed_at,
+    authority_expires_at,
+    full_instrument_id,
+    accepted_semantic_bar_identity,
+    b3b_event_key_fingerprint,
+    b3c_continuation_binding_id,
+    sequence_identity_fingerprint,
     nested_consume_capability: &Stage5eB3eNestedConsumeSeal
 ) -> Stage5eAuthorizedCallbackAuditLineage
 ```
 
-The constructor has one definition and one B3C call site. It reads outer
-authority metadata only from the B3C-owned nested invocation material, binds
-all exact fields above, and moves the lineage only into
+The constructor has one definition and one B3C bridge call site. B3C owns and
+destructures the nested invocation material and passes this exact scalar
+vector. The constructor binds all exact fields above and moves the lineage only into
 `Stage5eAuthorizedPaperCallbackPayload`. There is no second constructor,
 owner change, reconstruction, default, raw getter, generic parts, or alternate
 destination.
+
+Every nested-material field has exactly one frozen destination:
+
+| Nested field | Destination |
+| --- | --- |
+| `callback_now` | Stage 5C materialization and payload `callback_invoked_at` |
+| `callback_authority_id` | audit lineage and payload equality proof |
+| `issued_at` | audit lineage issuance chronology |
+| `effective_observed_at` | audit lineage effective observation chronology |
+| `authority_expires_at` | audit lineage exact expiry |
+| `full_instrument_id` | audit lineage full instrument identity |
+| `accepted_semantic_bar_identity` | audit lineage accepted-bar identity |
+| `b3b_event_key_fingerprint` | audit-lineage B3B equality binding |
+| `b3c_continuation_binding_id` | audit-lineage B3C equality binding |
+| `sequence_identity_fingerprint` | audit-lineage sequence equality binding |
 
 The nested bridge moves the existing Stage 5C material and audit lineage. It
 must not clone/reconstruct them, widen field visibility, add generic
@@ -554,6 +605,22 @@ last_bar_ts_utc
 payload
   = exact owned Stage5cAcceptedSemanticBar.bar moved once
 ```
+
+The materialization bridge returns:
+
+```text
+Result<
+    Stage5eStage5cAuthorizedCallbackMaterial,
+    Stage5eStage5cMaterializationTerminalBlock
+>
+```
+
+An admission instrument/tick mismatch against the owned accepted bar yields
+the opaque terminal reason `MaterializationIntegrityMismatch`. This is a
+post-consume, fail-closed result: it returns no strategy, recovery receipt,
+authority, or alternate success material. It cannot panic, retry, refresh, or
+reconstruct the consumed authority chain. The callback count on this path is
+zero.
 
 The payload must be the accepted final `Live` M10 bar already carried by the
 authority chain. It cannot be cloned from scalar fields, reconstructed,
@@ -661,6 +728,12 @@ variants are not crate-visible. The wrapper is produced by moving, not
 cloning, the exact
 `BrokerNeutralHybridCallbackResult`. There is no second result field and no
 second intent vector.
+
+Both `Stage5ePaperCallbackOutcome` and
+`Stage5eStage5cPostCallbackMaterial` explicitly forbid `Debug`, `Clone`,
+`Copy`, `Default`, `From`, `Into`, `Serialize`, and `Deserialize`. Intent
+contents therefore cannot escape through formatting, conversion, cloning, or
+serialization before the separately reviewed settlement capability exists.
 
 The Stage 5C callback consumer may create it only through:
 
