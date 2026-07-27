@@ -368,6 +368,11 @@ def check_archive(path: Path) -> None:
                     "529d8e42946bb8bebad3cbf5e8fca2727dd95a07"
                 )
                 expected_stage5e_a_freeze_ref = None
+            elif current_review_stage == "5E-b3f-callback-settlement-escrow-design":
+                expected_stage5e_baseline_ref = (
+                    "d04e02903a0a1984f66eecfcc0f412501b97d37c"
+                )
+                expected_stage5e_a_freeze_ref = None
             else:
                 expected_stage5e_baseline_ref = "9ebbfd29d0346be5149dac746225866f0c8d0257"
                 expected_stage5e_a_freeze_ref = None
@@ -440,15 +445,16 @@ def check_archive(path: Path) -> None:
                 ]
                 if closed != expected_closed:
                     raise SystemExit("handoff safety: Stage 5E extension closed-surface mismatch")
-            elif current_review_stage == "5E-b3e-callback-invocation-design":
+            elif current_review_stage in {
+                "5E-b3e-callback-invocation-design",
+                "5E-b3f-callback-settlement-escrow-design",
+            }:
                 opened_private_surfaces = {
                     "actual_callback_invocation",
                     "strategy_state_mutation",
                     "in_memory_intent_construction",
                 }
-                if (
-                    not isinstance(closed, dict)
-                    or set(closed) != {
+                expected_surface_names = {
                         "actual_callback_invocation",
                         "strategy_state_mutation",
                         "in_memory_intent_construction",
@@ -465,6 +471,13 @@ def check_archive(path: Path) -> None:
                         "schedule_provider_attachment",
                         "venue_calendar_inference",
                     }
+                if current_review_stage == "5E-b3f-callback-settlement-escrow-design":
+                    expected_surface_names.update(
+                        {"durable_persistence", "crash_restart_recovery"}
+                    )
+                if (
+                    not isinstance(closed, dict)
+                    or set(closed) != expected_surface_names
                     or any(closed[key] is not True for key in opened_private_surfaces)
                     or any(
                         value is not False

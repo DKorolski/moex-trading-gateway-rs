@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "stage": "5E-b3f-callback-settlement-escrow-design",
+  "status": "design_only_pending_review",
+  "baseline_ref": "d04e02903a0a1984f66eecfcc0f412501b97d37c",
+  "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
+  "accepted_b3e_implementation_ref": "d04e02903a0a1984f66eecfcc0f412501b97d37c",
+  "expected_provenance_case_count": 346,
+  "transition_contract": {
+    "function": "validate_and_settle_stage5e_paper_callback_escrow",
+    "implementation_status": "design_only_not_implemented",
+    "only_input": "Stage5ePaperCallbackResultEscrow",
+    "success": "Stage5eValidatedPaperSettlementReceipt",
+    "blocked": "Stage5ePaperSettlementTerminalReceipt",
+    "overload_count": 0,
+    "borrowed_preflight_before_consume": true,
+    "consume_count": 1,
+    "settlement_implementation_allowed_in_this_stage": false
+  },
+  "seal_contract": {
+    "preflight_seal": "Stage5ePaperSettlementPreflightSeal",
+    "consume_seal": "Stage5ePaperSettlementConsumeSeal",
+    "owner": "stage5e_callback_settlement",
+    "constructor_count_each": 1,
+    "sole_issuer": "validate_and_settle_stage5e_paper_callback_escrow",
+    "seals_are_distinct": true,
+    "conversion_between_seals_allowed": false,
+    "forbidden_traits": [
+      "Clone",
+      "Copy",
+      "Default",
+      "Serialize",
+      "Deserialize",
+      "From",
+      "Into"
+    ]
+  },
+  "preflight_contract": {
+    "type": "Stage5ePaperSettlementPreflight",
+    "ownership": "borrowed_non_decomposable",
+    "raw_intent_export_allowed": false,
+    "raw_strategy_export_allowed": false,
+    "generic_parts_allowed": false,
+    "checks": [
+      "callback_outcome_discriminant",
+      "intent_count_lte_u8_max",
+      "accepted_bar_origin_live",
+      "execution_eligible_true",
+      "paper_mode_and_live_orders_disabled",
+      "strategy_id_exact_equality",
+      "account_id_exact_equality",
+      "full_instrument_id_exact_equality",
+      "semantic_bar_identity_exact_equality",
+      "bar_close_ts_exact_equality",
+      "callback_chronology",
+      "authority_and_fingerprint_nonzero_equality",
+      "no_prior_intent_extraction"
+    ]
+  },
+  "callback_validation_error_policy": {
+    "disposition": "terminal_receipt",
+    "reason": "CallbackValidationError",
+    "empty_success_batch_allowed": false,
+    "callback_retry_allowed": false,
+    "escrow_retry_allowed": false,
+    "mutated_strategy_retained": true,
+    "recovery_ownership_retained": true,
+    "audit_lineage_retained": true
+  },
+  "capacity_contract": {
+    "maximum_intents": 255,
+    "source": "accepted_stage5c_u8_max",
+    "duplicate_limit_implementation_allowed": false,
+    "over_limit_disposition": "terminal_IntentCapacityExceeded"
+  },
+  "identity_contract": {
+    "exact_equal_fields": [
+      "strategy_id",
+      "account_id",
+      "full_instrument_id",
+      "accepted_semantic_bar_identity",
+      "accepted_bar_close_ts",
+      "callback_authority_id"
+    ],
+    "sources": [
+      "recovery_admission",
+      "retained_bar_metadata",
+      "pre_callback_attribution_snapshot",
+      "authorized_callback_audit_lineage"
+    ],
+    "account_wide_substitution_allowed": false,
+    "symbol_only_substitution_allowed": false
+  },
+  "stage5c_oracle_contract": {
+    "reuse_required": true,
+    "bridge_visibility": "crate_private_seal_gated",
+    "canonical_builder": "stage5c_build_paper_intent_batch",
+    "canonical_checks": [
+      "validate_stage5cg_intent",
+      "stage5cg_source_request_id",
+      "stage5cg_verify_pending_request_id",
+      "duplicate_request_id_rejection",
+      "stage5cj_expected_attribution_for_intent",
+      "stage5c_state_fingerprint"
+    ],
+    "stage5e_reimplementation_allowed": false,
+    "client_order_id_may_replace_strategy_request_id": false,
+    "pre_callback_attribution_required": true
+  },
+  "success_receipt_contract": {
+    "type": "Stage5eValidatedPaperSettlementReceipt",
+    "visibility": "crate_private_opaque",
+    "owns": [
+      "canonical_Stage5cSettledPaperStrategy",
+      "exact_B3E_audit_lineage",
+      "callback_invocation_timestamp",
+      "callback_authority_id",
+      "settlement_identity_fingerprint"
+    ],
+    "executable": false,
+    "sink_ready": false,
+    "intent_getter_allowed": false,
+    "command_batch_conversion_allowed": false
+  },
+  "terminal_receipt_contract": {
+    "type": "Stage5ePaperSettlementTerminalReceipt",
+    "visibility": "crate_private_opaque",
+    "reasons": [
+      "CallbackValidationError",
+      "IntentCapacityExceeded",
+      "IdentityMismatch",
+      "ChronologyMismatch",
+      "PaperModeMismatch",
+      "Stage5cIntentValidationFailed",
+      "Stage5cPendingRequestMismatch",
+      "Stage5cAttributionMismatch"
+    ],
+    "owns_surviving_post_callback_material": true,
+    "returns_original_escrow": false,
+    "retryable": false,
+    "raw_extractors_allowed": false
+  },
+  "exactly_once_contract": {
+    "scope": "process_local_only",
+    "callback_count": 1,
+    "escrow_consumer_count": 1,
+    "settlement_attempt_count": 1,
+    "success_or_terminal_receipt_count": 1,
+    "crash_restart_policy_deferred": true,
+    "durable_idempotency_implemented": false
+  },
+  "protected_b3e_source_sha256": {
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "d7458cc5acb0004c9a82eb42675ca7a3672f7c584cd686a1ddaa0b72d8035e41",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "75e3e30deff70fd58f740361395bb82c32981bd6107831dfb21ff037591c6b7d"
+  },
+  "allowed_changed_paths": [
+    "docs/stage-5/5e-b3f-callback-settlement-escrow-design.md",
+    "docs/stage-5/stage5e-active-descriptor.json",
+    "docs/stage-5/stage5e-b3f-callback-settlement-escrow-design-inventory.json",
+    "scripts/handoff_provenance_negative_harness.py",
+    "scripts/handoff_safety_check.py",
+    "scripts/stage5e_b3f_callback_settlement_escrow_design_check.py",
+    "scripts/stage5e_descriptor.py",
+    "scripts/stage5e_lifecycle_event_time_gate.sh"
+  ],
+  "closed_surfaces": {
+    "actual_callback_invocation": true,
+    "strategy_state_mutation": true,
+    "in_memory_intent_construction": true,
+    "escrow_validation_or_settlement": false,
+    "intent_extraction_or_sink": false,
+    "executable_intents": false,
+    "redis": false,
+    "finam_io": false,
+    "transport": false,
+    "dispatch": false,
+    "runtime_live": false,
+    "broker_execution": false,
+    "durable_persistence": false,
+    "crash_restart_recovery": false,
+    "autonomous_event_loop": false,
+    "schedule_provider_attachment": false,
+    "venue_calendar_inference": false
+  }
+}
