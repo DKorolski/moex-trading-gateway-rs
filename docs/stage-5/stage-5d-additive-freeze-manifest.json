@@ -44,10 +44,12 @@
   "approved_bridge_files": {
     "crates/strategy-runtime-core/src/lib.rs": {
       "closure_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
-      "current_sha256": "3b30e4c5535674e62a4173260534e159e3ded0608ef42be19de15be443c3453e",
+      "current_sha256": "4a248db1a97799604bcfcb094abd1b22abebc98aec67882c829e1fa5a884e7ae",
       "stripped_without_additive_regions_sha256": "dc6625f571f07954c85e397e0e9835ed64cc73b843c9ad3f6b89565d10295e25",
       "additive_regions": [
+        "lib-stage5e-b3f-doctest-docs",
         "lib-stage5d-module",
+        "lib-stage5e-b3f-doctest-facade",
         "lib-stage5d-exports"
       ]
     },
@@ -61,7 +63,7 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "48a64d438bfc31e3afb2596846a60fa6609f03f138058a6450e81e27cbabcc1b",
+      "current_sha256": "0fce95557b2e7673d7e7e74a5b4d65dd3ec28360fab3674c20e3e6de6be02ff3",
       "stripped_without_additive_regions_sha256": "ba1d1504016cd77884b47b294c0c4d7ab3504401f7bf46c2c731c6c5cb0d1761",
       "additive_regions": [
         "type-state-transitions",

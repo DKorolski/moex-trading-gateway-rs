@@ -120,7 +120,12 @@ EXPECTED_CONTROLLED_SOURCE_SEMANTIC_EXTENSIONS = [
 ]
 
 APPROVED_BRIDGE_FILES = {
-    str(LIB_REL): ["lib-stage5d-module", "lib-stage5d-exports"],
+    str(LIB_REL): [
+        "lib-stage5e-b3f-doctest-docs",
+        "lib-stage5d-module",
+        "lib-stage5e-b3f-doctest-facade",
+        "lib-stage5d-exports",
+    ],
     str(STAGE5C_HOST_REL): [
         "type-state-transitions",
         "stage5e-b3c-semantic-identity-fields",

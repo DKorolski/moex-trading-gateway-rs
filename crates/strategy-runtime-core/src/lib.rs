@@ -46,6 +46,55 @@
 //! let settled = settlement.into_settled();
 //! let _ = advance_stage5c_controlled_next_bar(settled, accepted);
 //! ```
+// STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5e-b3f-doctest-docs
+//!
+//! The following B3F witnesses use a doctest-only facade whose wrappers contain
+//! the actual production escrow, seals, preflight borrow, and payload.
+//!
+//! ```compile_fail,E0599
+//! // b3f_compile_fail_consume_seal_clone_or_copy
+//! use strategy_runtime_core::stage5e_b3f_compile_fail_facade::consume_seal;
+//! let seal = consume_seal();
+//! let _clone = seal.clone();
+//! let _copy = seal;
+//! let _reuse = seal;
+//! ```
+//!
+//! ```compile_fail,E0423
+//! // b3f_compile_fail_consume_seal_reconstruction
+//! use strategy_runtime_core::stage5e_b3f_compile_fail_facade::ConsumeSeal;
+//! let _forged = ConsumeSeal(());
+//! ```
+//!
+//! ```compile_fail,E0599
+//! // b3f_compile_fail_capability_escape
+//! use strategy_runtime_core::stage5e_b3f_compile_fail_facade::{consume_seal, escrow};
+//! let payload = escrow().consume(&consume_seal());
+//! let _escaped = payload.consume_seal();
+//! ```
+//!
+//! ```compile_fail,E0382
+//! // b3f_compile_fail_second_escrow_consume
+//! use strategy_runtime_core::stage5e_b3f_compile_fail_facade::{consume_seal, escrow};
+//! let escrow = escrow();
+//! let seal = consume_seal();
+//! let _first = escrow.consume(&seal);
+//! let _second = escrow.consume(&seal);
+//! ```
+//!
+//! ```compile_fail,E0505
+//! // b3f_compile_fail_borrow_survives_consume
+//! use strategy_runtime_core::stage5e_b3f_compile_fail_facade::{
+//!     consume_seal, escrow, preflight_seal,
+//! };
+//! let escrow = escrow();
+//! let preflight_seal = preflight_seal();
+//! let consume_seal = consume_seal();
+//! let borrowed = escrow.preflight(&preflight_seal);
+//! let _payload = escrow.consume(&consume_seal);
+//! drop(borrowed);
+//! ```
+// STAGE5D-ADDITIVE-BRIDGE-END: lib-stage5e-b3f-doctest-docs
 
 pub mod hybrid_intraday;
 // The accepted source wrapper intentionally retains Stage 5C/5D callbacks
@@ -77,6 +126,52 @@ pub use runtime_compat::{
     MarketBuyAndCloseLiveOrderStyle as BrokerNeutralMarketOrderStyle,
     OrderSide as BrokerNeutralOrderSide, StopLimitCondition as BrokerNeutralStopLimitCondition,
 };
+// STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5e-b3f-doctest-facade
+#[cfg(doctest)]
+#[doc(hidden)]
+pub mod stage5e_b3f_compile_fail_facade {
+    use crate::stage5e_no_io_lifecycle::callback_authority;
+    use std::marker::PhantomData;
+
+    type ProductionEscrow = callback_authority::Stage5ePaperCallbackResultEscrow;
+    type ProductionPreflightSeal =
+        callback_authority::callback_settlement::Stage5ePaperSettlementPreflightSeal;
+    type ProductionConsumeSeal =
+        callback_authority::callback_settlement::Stage5ePaperSettlementConsumeSeal;
+
+    pub struct Escrow(pub(crate) ProductionEscrow);
+    pub struct PreflightSeal(pub(crate) ProductionPreflightSeal);
+    pub struct ConsumeSeal(pub(crate) ProductionConsumeSeal);
+    pub struct Preflight<'a>(PhantomData<&'a Escrow>);
+    pub struct Payload(());
+
+    pub fn escrow() -> Escrow {
+        unreachable!("compile-fail facade is type-checked but never executed")
+    }
+
+    pub fn preflight_seal() -> PreflightSeal {
+        unreachable!("compile-fail facade is type-checked but never executed")
+    }
+
+    pub fn consume_seal() -> ConsumeSeal {
+        unreachable!("compile-fail facade is type-checked but never executed")
+    }
+
+    impl Escrow {
+        pub fn preflight<'a>(&'a self, seal: &'a PreflightSeal) -> Preflight<'a> {
+            crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::
+                b3f_doctest_borrow_preflight(&self.0, &seal.0);
+            Preflight(PhantomData)
+        }
+
+        pub fn consume(self, seal: &ConsumeSeal) -> Payload {
+            crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::
+                b3f_doctest_consume_escrow(self.0, &seal.0);
+            Payload(())
+        }
+    }
+}
+// STAGE5D-ADDITIVE-BRIDGE-END: lib-stage5e-b3f-doctest-facade
 pub use stage5c_paper_host::{
     accept_stage5c_history_batch, accept_stage5c_pending_recovery_evidence,
     accept_stage5c_semantic_bar, admit_stage5c_paper_host, advance_stage5c_controlled_next_bar,

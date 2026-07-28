@@ -21,10 +21,10 @@ ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3f-callback-settlement-escrow-design"
 BASELINE_REF = "a5ccea08bc64a66e768340f7121e9b94a09ff884"
 EXPECTED_PLAN_SHA256 = (
-    "e0be7e4d4832af7d63ef2e6527367e35dc823f134e4353511ed53288739c863a"
+    "a2433e5fd18eeae5a58e51fb1c54697e4ac4a282251ea2509a11149acca29a8b"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "9730596347571c00ef19c147cf72c6c9f116313b3c1962504532286a653af755"
+    "f16333f076cfdd15cc2be29227c3752886fd2e1221c00350e779d1540847ad72"
 )
 EXPECTED_PROTECTED_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -35,14 +35,18 @@ EXPECTED_PROTECTED_SOURCE_SHA256 = {
     ),
 }
 EXPECTED_IMPLEMENTATION_SOURCE_SHA256 = {
+    "crates/strategy-runtime-core/src/lib.rs": (
+        "4a248db1a97799604bcfcb094abd1b22abebc98aec67882c829e1fa5a884e7ae"
+    ),
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
-        "48a64d438bfc31e3afb2596846a60fa6609f03f138058a6450e81e27cbabcc1b"
+        "0fce95557b2e7673d7e7e74a5b4d65dd3ec28360fab3674c20e3e6de6be02ff3"
     ),
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": (
-        "471f6b249cc3df8df10f319155bc44174bdf7c8a742606ca7c9715c54ede1948"
+        "34ed25d3ee188d3f0c52d4b655c6105349e9761b7bd3a5af934e52cab14fb2d6"
     ),
 }
 EXPECTED_ALLOWED_CHANGED_PATHS = [
+    "crates/strategy-runtime-core/src/lib.rs",
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
     "docs/stage-5/5e-b3f-callback-settlement-escrow-design.md",
@@ -137,6 +141,7 @@ def marked_region(source: str, label: str, marker_id: str) -> str:
 
 
 def validate_implementation_source() -> None:
+    lib = (ROOT / "crates/strategy-runtime-core/src/lib.rs").read_text()
     stage5c = (
         ROOT / "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
     ).read_text()
@@ -205,14 +210,29 @@ def validate_implementation_source() -> None:
             fail(f"Stage 5C mismatch gained forbidden trait: {forbidden_trait}")
     if "drop(exact_intent_vector);" not in stage5c_region:
         fail("early-attribution intent vector is no longer irreversibly disposed")
-    require_source_fragment(
-        stage5e_region,
-        "DateTime::from_timestamp(accepted_bar_close_ts, 0)",
-        "settlement chronology no longer reconstructs retained bar close",
+    if "fn accepted_bar_close_ts(" in stage5c:
+        fail("production raw retained-close getter opened")
+    if ".accepted_bar_close_ts()" in stage5e:
+        fail("settlement chronology regressed to raw scalar extraction")
+    for retained_close_fragment in (
+        "pub(crate) fn validate_stage5e_b3f_retained_close_chronology(",
+        "DateTime::from_timestamp(retained_bar_metadata.accepted_bar_close_ts, 0)",
+        "accepted_bar_close > authority_issued_at",
+        "accepted_bar_close > callback_invoked_at",
+        "Stage5eStage5cRetainedCloseChronologyProof(())",
+        "Stage5eStage5cRetainedCloseChronologyMismatch(())",
+    ):
+        require_source_fragment(
+            stage5c_region,
+            retained_close_fragment,
+            f"Stage 5C retained-close authority missing: {retained_close_fragment}",
+        )
+    require_exact(
+        (stage5c + stage5e).count("validate_stage5e_b3f_retained_close_chronology("),
+        2,
+        "retained-close chronology authority must have one definition and one call site",
     )
     for chronology_fragment in (
-        "accepted_bar_close <= audit._issued_at",
-        "accepted_bar_close <= callback_invoked_at",
         "audit._b3c_effective_observed_at == audit._effective_observed_at",
         "audit._b3c_effective_expires_at == audit._authority_expires_at",
     ):
@@ -233,15 +253,53 @@ def validate_implementation_source() -> None:
         )
     if combined.count("super::callback_authority_id(") != 1:
         fail("callback-authority encoder must have exactly one B3F call site")
-    for compile_fail_fixture in (
+    compile_fail_fixtures = (
         "b3f_compile_fail_consume_seal_clone_or_copy",
         "b3f_compile_fail_consume_seal_reconstruction",
         "b3f_compile_fail_capability_escape",
         "b3f_compile_fail_second_escrow_consume",
         "b3f_compile_fail_borrow_survives_consume",
-    ):
-        if compile_fail_fixture not in stage5e:
+    )
+    for compile_fail_fixture in compile_fail_fixtures:
+        if lib.count(compile_fail_fixture) != 1:
             fail(f"required B3F compile-fail fixture missing: {compile_fail_fixture}")
+    for diagnostic_fence in (
+        "```compile_fail,E0599\n//! // b3f_compile_fail_consume_seal_clone_or_copy",
+        "```compile_fail,E0423\n//! // b3f_compile_fail_consume_seal_reconstruction",
+        "```compile_fail,E0599\n//! // b3f_compile_fail_capability_escape",
+        "```compile_fail,E0382\n//! // b3f_compile_fail_second_escrow_consume",
+        "```compile_fail,E0505\n//! // b3f_compile_fail_borrow_survives_consume",
+    ):
+        require_source_fragment(
+            lib,
+            diagnostic_fence,
+            f"compile-fail diagnostic class drift: {diagnostic_fence}",
+        )
+    if "compile_error!" in lib:
+        fail("B3F compile-fail evidence may not use unconditional compile_error")
+    for facade_fragment in (
+        "#[cfg(doctest)]\n#[doc(hidden)]\npub mod stage5e_b3f_compile_fail_facade",
+        "type ProductionEscrow = callback_authority::Stage5ePaperCallbackResultEscrow;",
+        "Stage5ePaperSettlementPreflightSeal;",
+        "Stage5ePaperSettlementConsumeSeal;",
+        "b3f_doctest_borrow_preflight(&self.0, &seal.0);",
+        "b3f_doctest_consume_escrow(self.0, &seal.0);",
+        "let _first = escrow.consume(&seal);",
+        "let _second = escrow.consume(&seal);",
+        "let borrowed = escrow.preflight(&preflight_seal);",
+        "let _payload = escrow.consume(&consume_seal);",
+    ):
+        require_source_fragment(
+            lib,
+            facade_fragment,
+            f"production-backed compile-fail facade drift: {facade_fragment}",
+        )
+    for helper in (
+        "b3f_doctest_borrow_preflight",
+        "b3f_doctest_consume_escrow",
+    ):
+        if not re.search(rf"#\[cfg\(doctest\)\]\s+pub\(crate\) fn {helper}", stage5e_region):
+            fail(f"compile-fail production delegate is not doctest-only: {helper}")
     for test_name in (
         "b3f_owning_core_matches_legacy_public_zero_intent_settlement",
         "b3f_canonical_zero_intent_escrow_settles_once_with_one_entry_history",
@@ -293,7 +351,7 @@ def main() -> int:
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        515,
+        518,
         "provenance case count drift",
     )
     require_exact(
@@ -431,6 +489,56 @@ def main() -> int:
             "Stage5ePaperSettlementConsumeSeal": "pub_crate_opaque_private_fields",
         },
         "cross-module seal visibility drift",
+    )
+    require_exact(
+        inventory["retained_close_chronology_authority_contract"],
+        {
+            "function": "validate_stage5e_b3f_retained_close_chronology",
+            "owner": "strategy_runtime_core::stage5c_paper_host",
+            "definition_count": 1,
+            "call_site_count": 1,
+            "ownership": "immutable_borrows_only",
+            "inputs": [
+                "&Stage5eAcceptedBarSettlementMetadata",
+                "authority_issued_at",
+                "callback_invoked_at",
+                "&Stage5ePaperSettlementPreflightSeal",
+            ],
+            "success": "Stage5eStage5cRetainedCloseChronologyProof",
+            "failure": "Stage5eStage5cRetainedCloseChronologyMismatch",
+            "success_and_failure": "pub_crate_opaque_payload_free",
+            "raw_timestamp_return_allowed": False,
+            "production_raw_getters_allowed": False,
+            "proof_reusable_authority": False,
+            "mismatch_maps_to": "ChronologyMismatch",
+            "borrows_end_before_escrow_consume": True,
+        },
+        "retained-close chronology authority contract drift",
+    )
+    require_exact(
+        inventory["compile_fail_evidence_contract"],
+        {
+            "configuration": "cfg_doctest_only",
+            "normal_runtime_public_surface_added": False,
+            "facade_wraps_actual_production_escrow_and_seals": True,
+            "facade_operations_delegate_to_actual_production_borrow_and_consume": True,
+            "unconditional_compile_error_allowed": False,
+            "expected_diagnostic_codes": {
+                "consume_seal_clone_or_copy": "E0599",
+                "consume_seal_reconstruction": "E0423",
+                "capability_escape": "E0599",
+                "second_escrow_consume": "E0382",
+                "preflight_borrow_survives_escrow_consume": "E0505",
+            },
+            "cases": [
+                "consume_seal_clone_or_copy",
+                "consume_seal_reconstruction",
+                "capability_escape",
+                "second_escrow_consume",
+                "preflight_borrow_survives_escrow_consume",
+            ],
+        },
+        "production-backed compile-fail evidence contract drift",
     )
 
     preflight = inventory["preflight_contract"]

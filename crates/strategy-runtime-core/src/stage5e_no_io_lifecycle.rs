@@ -5344,9 +5344,11 @@ pub(crate) mod callback_authority {
         }
 
         pub(crate) fn test_set_callback_before_retained_close(&mut self) {
-            self.callback_invoked_at =
-                DateTime::from_timestamp(self.retained_bar_metadata.accepted_bar_close_ts() - 1, 0)
-                    .expect("canonical test close timestamp is representable");
+            self.callback_invoked_at = DateTime::from_timestamp(
+                self.retained_bar_metadata.test_retained_bar_metadata().0 - 1,
+                0,
+            )
+            .expect("canonical test close timestamp is representable");
         }
 
         pub(crate) fn test_force_retained_close_after_issue(&mut self) {
@@ -5402,7 +5404,7 @@ pub(crate) mod callback_authority {
                 }
                 Stage5eB3fPreflightTestMutation::AcceptedBarClose => {
                     self.attribution_snapshot.test_set_accepted_bar_close_ts(
-                        self.retained_bar_metadata.accepted_bar_close_ts() - 1,
+                        self.retained_bar_metadata.test_retained_bar_metadata().0 - 1,
                     );
                 }
                 Stage5eB3fPreflightTestMutation::AuditEventKey => {
@@ -5440,88 +5442,6 @@ pub(crate) mod callback_authority {
         }
     }
 
-    /// B3F compile-fail ownership witnesses. These are deliberately small
-    /// Rust type-state fixtures: the production seals remain crate-private,
-    /// while rustdoc executes the same linearity/borrow failures as an
-    /// independent compile-fail gate.
-    ///
-    /// ```compile_fail
-    /// // b3f_compile_fail_consume_seal_clone_or_copy
-    /// struct Stage5ePaperSettlementConsumeSeal(());
-    /// fn issue() -> Stage5ePaperSettlementConsumeSeal {
-    ///     Stage5ePaperSettlementConsumeSeal(())
-    /// }
-    /// fn main() {
-    ///     let seal = issue();
-    ///     let _clone = seal.clone();
-    ///     let _copy = seal;
-    ///     let _reuse = seal;
-    /// }
-    /// ```
-    ///
-    /// ```compile_fail
-    /// // b3f_compile_fail_consume_seal_reconstruction
-    /// mod callback_settlement {
-    ///     pub struct Stage5ePaperSettlementConsumeSeal(());
-    ///     pub fn issue() -> Stage5ePaperSettlementConsumeSeal {
-    ///         Stage5ePaperSettlementConsumeSeal(())
-    ///     }
-    /// }
-    /// fn main() {
-    ///     let _issued = callback_settlement::issue();
-    ///     let _forged = callback_settlement::Stage5ePaperSettlementConsumeSeal(());
-    /// }
-    /// ```
-    ///
-    /// ```compile_fail
-    /// // b3f_compile_fail_capability_escape
-    /// mod callback_settlement {
-    ///     pub struct Stage5ePaperSettlementConsumeSeal(());
-    ///     pub struct Stage5ePaperSettlementPayload {
-    ///         consume_seal: Stage5ePaperSettlementConsumeSeal,
-    ///     }
-    ///     pub fn issue() -> Stage5ePaperSettlementConsumeSeal {
-    ///         Stage5ePaperSettlementConsumeSeal(())
-    ///     }
-    ///     pub fn payload(seal: Stage5ePaperSettlementConsumeSeal)
-    ///         -> Stage5ePaperSettlementPayload {
-    ///         Stage5ePaperSettlementPayload { consume_seal: seal }
-    ///     }
-    /// }
-    /// fn main() {
-    ///     let payload = callback_settlement::payload(callback_settlement::issue());
-    ///     let _escaped = payload.consume_seal;
-    /// }
-    /// ```
-    ///
-    /// ```compile_fail
-    /// // b3f_compile_fail_second_escrow_consume
-    /// struct Stage5ePaperSettlementConsumeSeal(());
-    /// fn issue() -> Stage5ePaperSettlementConsumeSeal {
-    ///     Stage5ePaperSettlementConsumeSeal(())
-    /// }
-    /// fn consume(_: Stage5ePaperSettlementConsumeSeal) {}
-    /// fn main() {
-    ///     let seal = issue();
-    ///     consume(seal);
-    ///     consume(seal);
-    /// }
-    /// ```
-    ///
-    /// ```compile_fail
-    /// // b3f_compile_fail_borrow_survives_consume
-    /// struct Stage5ePaperSettlementConsumeSeal(());
-    /// fn issue() -> Stage5ePaperSettlementConsumeSeal {
-    ///     Stage5ePaperSettlementConsumeSeal(())
-    /// }
-    /// fn consume(_: Stage5ePaperSettlementConsumeSeal) {}
-    /// fn main() {
-    ///     let seal = issue();
-    ///     let borrowed = &seal;
-    ///     consume(seal);
-    ///     let _after_consume = borrowed;
-    /// }
-    /// ```
     pub(crate) mod callback_settlement {
         use super::{
             DateTime, Digest, PrivateStage5ePaperCallbackOutcome,
@@ -5547,6 +5467,22 @@ pub(crate) mod callback_authority {
             ) -> Self {
                 Self { escrow }
             }
+        }
+
+        #[cfg(doctest)]
+        pub(crate) fn b3f_doctest_borrow_preflight(
+            escrow: &Stage5ePaperCallbackResultEscrow,
+            seal: &Stage5ePaperSettlementPreflightSeal,
+        ) {
+            let _actual_preflight = escrow.borrow_for_settlement_preflight(seal);
+        }
+
+        #[cfg(doctest)]
+        pub(crate) fn b3f_doctest_consume_escrow(
+            escrow: Stage5ePaperCallbackResultEscrow,
+            seal: &Stage5ePaperSettlementConsumeSeal,
+        ) {
+            let _actual_payload = escrow.consume_for_settlement(seal);
         }
 
         pub(super) struct Stage5ePaperSettlementPayload {
@@ -5773,11 +5709,20 @@ pub(crate) mod callback_authority {
                     map_stage5c_preflight_mismatch_exact(mismatch, seal),
                 );
             }
-            if !stage5e_chronology_matches(
-                &escrow.audit_lineage,
-                escrow.retained_bar_metadata.accepted_bar_close_ts(),
+            if crate::stage5c_paper_host::validate_stage5e_b3f_retained_close_chronology(
+                &escrow.retained_bar_metadata,
+                escrow.audit_lineage._issued_at,
                 escrow.callback_invoked_at,
-            ) {
+                seal,
+            )
+            .is_err()
+            {
+                return Stage5ePaperSettlementPreflightDecision::Terminal(
+                    Stage5ePaperSettlementTerminalReason::ChronologyMismatch,
+                );
+            }
+            if !stage5e_audit_chronology_matches(&escrow.audit_lineage, escrow.callback_invoked_at)
+            {
                 return Stage5ePaperSettlementPreflightDecision::Terminal(
                     Stage5ePaperSettlementTerminalReason::ChronologyMismatch,
                 );
@@ -5875,15 +5820,10 @@ pub(crate) mod callback_authority {
                 && audit._accepted_semantic_bar_identity == audit._owned_bar_identity
         }
 
-        fn stage5e_chronology_matches(
+        fn stage5e_audit_chronology_matches(
             audit: &Stage5eAuthorizedCallbackAuditLineage,
-            accepted_bar_close_ts: i64,
             callback_invoked_at: DateTime<Utc>,
         ) -> bool {
-            let Some(accepted_bar_close) = DateTime::from_timestamp(accepted_bar_close_ts, 0)
-            else {
-                return false;
-            };
             audit._sequence_observed_at <= audit._sequence_expires_at
                 && audit._b3b_effective_observed_at <= audit._b3b_effective_expires_at
                 && audit._b3c_effective_observed_at <= audit._bound_at
@@ -5891,8 +5831,6 @@ pub(crate) mod callback_authority {
                 && audit._bound_at <= audit._issued_at
                 && audit._b3c_effective_observed_at == audit._effective_observed_at
                 && audit._b3c_effective_expires_at == audit._authority_expires_at
-                && accepted_bar_close <= audit._issued_at
-                && accepted_bar_close <= callback_invoked_at
                 && audit._effective_observed_at <= audit._issued_at
                 && audit._issued_at <= callback_invoked_at
                 && callback_invoked_at <= audit._authority_expires_at

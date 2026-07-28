@@ -10,7 +10,7 @@
   "rejected_b3f_r2_ref": "ee23d6b4231c3c1483bcfacdb9189392183e2963",
   "rejected_b3f_r3_ref": "a5ccea08bc64a66e768340f7121e9b94a09ff884",
   "accepted_b3f_r4_ref": "148377f71b4afe6ce20f4e42433f58c812fb4917",
-  "expected_provenance_case_count": 515,
+  "expected_provenance_case_count": 518,
   "module_visibility_contract": {
     "callback_settlement_module": "pub_crate_child_module_named_opaque_surface_only",
     "schedule_window_evidence_module": "pub_crate_existing_module",
@@ -266,6 +266,48 @@
     "production_tuple_exports_allowed": false,
     "test_helper_reuse_allowed": false,
     "forbidden_traits": ["Clone", "Copy", "Serialize", "Deserialize", "From", "Into"]
+  },
+  "retained_close_chronology_authority_contract": {
+    "function": "validate_stage5e_b3f_retained_close_chronology",
+    "owner": "strategy_runtime_core::stage5c_paper_host",
+    "definition_count": 1,
+    "call_site_count": 1,
+    "ownership": "immutable_borrows_only",
+    "inputs": [
+      "&Stage5eAcceptedBarSettlementMetadata",
+      "authority_issued_at",
+      "callback_invoked_at",
+      "&Stage5ePaperSettlementPreflightSeal"
+    ],
+    "success": "Stage5eStage5cRetainedCloseChronologyProof",
+    "failure": "Stage5eStage5cRetainedCloseChronologyMismatch",
+    "success_and_failure": "pub_crate_opaque_payload_free",
+    "raw_timestamp_return_allowed": false,
+    "production_raw_getters_allowed": false,
+    "proof_reusable_authority": false,
+    "mismatch_maps_to": "ChronologyMismatch",
+    "borrows_end_before_escrow_consume": true
+  },
+  "compile_fail_evidence_contract": {
+    "configuration": "cfg_doctest_only",
+    "normal_runtime_public_surface_added": false,
+    "facade_wraps_actual_production_escrow_and_seals": true,
+    "facade_operations_delegate_to_actual_production_borrow_and_consume": true,
+    "unconditional_compile_error_allowed": false,
+    "expected_diagnostic_codes": {
+      "consume_seal_clone_or_copy": "E0599",
+      "consume_seal_reconstruction": "E0423",
+      "capability_escape": "E0599",
+      "second_escrow_consume": "E0382",
+      "preflight_borrow_survives_escrow_consume": "E0505"
+    },
+    "cases": [
+      "consume_seal_clone_or_copy",
+      "consume_seal_reconstruction",
+      "capability_escape",
+      "second_escrow_consume",
+      "preflight_borrow_survives_escrow_consume"
+    ]
   },
   "b3b_event_key_validation_authority_contract": {
     "function": "validate_stage5e_b3f_b3b_event_key_binding",
@@ -798,10 +840,12 @@
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "75e3e30deff70fd58f740361395bb82c32981bd6107831dfb21ff037591c6b7d"
   },
   "implementation_source_sha256": {
-    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "48a64d438bfc31e3afb2596846a60fa6609f03f138058a6450e81e27cbabcc1b",
-    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "471f6b249cc3df8df10f319155bc44174bdf7c8a742606ca7c9715c54ede1948"
+    "crates/strategy-runtime-core/src/lib.rs": "4a248db1a97799604bcfcb094abd1b22abebc98aec67882c829e1fa5a884e7ae",
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "0fce95557b2e7673d7e7e74a5b4d65dd3ec28360fab3674c20e3e6de6be02ff3",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "34ed25d3ee188d3f0c52d4b655c6105349e9761b7bd3a5af934e52cab14fb2d6"
   },
   "allowed_changed_paths": [
+    "crates/strategy-runtime-core/src/lib.rs",
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
     "docs/stage-5/5e-b3f-callback-settlement-escrow-design.md",

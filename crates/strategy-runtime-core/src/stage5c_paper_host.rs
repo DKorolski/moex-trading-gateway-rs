@@ -5662,12 +5662,6 @@ pub(crate) struct Stage5eAcceptedBarSettlementMetadata {
     accepted_semantic_bar_identity: [u8; 32],
 }
 
-impl Stage5eAcceptedBarSettlementMetadata {
-    pub(crate) fn accepted_bar_close_ts(&self) -> i64 {
-        self.accepted_bar_close_ts
-    }
-}
-
 #[cfg(test)]
 impl Stage5ePreCallbackAttributionSnapshot {
     pub(crate) fn test_corrupt_strategy_id(&mut self) {
@@ -6086,6 +6080,27 @@ pub(crate) enum Stage5eStage5cPreflightMismatch {
 }
 
 pub(crate) struct Stage5eStage5cPreflightValidatedProof(());
+
+pub(crate) struct Stage5eStage5cRetainedCloseChronologyProof(());
+pub(crate) struct Stage5eStage5cRetainedCloseChronologyMismatch(());
+
+pub(crate) fn validate_stage5e_b3f_retained_close_chronology(
+    retained_bar_metadata: &Stage5eAcceptedBarSettlementMetadata,
+    authority_issued_at: DateTime<Utc>,
+    callback_invoked_at: DateTime<Utc>,
+    _seal: &crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::Stage5ePaperSettlementPreflightSeal,
+) -> Result<Stage5eStage5cRetainedCloseChronologyProof, Stage5eStage5cRetainedCloseChronologyMismatch>
+{
+    let Some(accepted_bar_close) =
+        DateTime::from_timestamp(retained_bar_metadata.accepted_bar_close_ts, 0)
+    else {
+        return Err(Stage5eStage5cRetainedCloseChronologyMismatch(()));
+    };
+    if accepted_bar_close > authority_issued_at || accepted_bar_close > callback_invoked_at {
+        return Err(Stage5eStage5cRetainedCloseChronologyMismatch(()));
+    }
+    Ok(Stage5eStage5cRetainedCloseChronologyProof(()))
+}
 
 pub(crate) fn validate_stage5e_b3f_stage5c_preflight_binding(
     recovery_receipt: &Stage5cPendingRecoveryReceipt,

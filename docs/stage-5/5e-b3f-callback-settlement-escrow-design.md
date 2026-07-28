@@ -967,6 +967,24 @@ The implementation is bounded by:
 
 ```text
 STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-BEGIN/END
+
+## B3F-r5 privacy and compile-fail closure
+
+The accepted-bar close remains owned by Stage 5C. Settlement code must not
+obtain it through a raw scalar getter. The sole chronology authority is
+`validate_stage5e_b3f_retained_close_chronology`: it accepts immutable
+references plus `Stage5ePaperSettlementPreflightSeal`, compares the retained
+close with authority issue and callback times, and returns only opaque,
+payload-free proof or mismatch values. The mismatch maps exactly to
+`ChronologyMismatch`; all borrows end before escrow consumption.
+
+The five ownership witnesses are production-backed through a
+`cfg(doctest)`-only facade. Its wrappers contain the actual production escrow
+and settlement seals, and its borrow/consume operations delegate to the actual
+production methods. The facade is absent from normal builds and cannot add a
+runtime public surface. Acceptance rejects toy-only witnesses, unconditional
+`compile_error!()`, raw retained-close getters, and Stage 5E scalar extraction,
+including after source-hash rebinding.
 ```
 
 in both Stage 5C and Stage 5E owners. The executable acceptance matrix covers:
