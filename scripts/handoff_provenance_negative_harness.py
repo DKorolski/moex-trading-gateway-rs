@@ -712,6 +712,47 @@ def main() -> int:
 
         return apply
 
+    def mutate_stage5e_b3f_source_and_rehash_checker(path_value, mutator):
+        def apply(root, _manifest, _marker):
+            inventory_path = (
+                root
+                / "docs/stage-5/stage5e-b3f-callback-settlement-escrow-design-inventory.json"
+            )
+            payload = json.loads(inventory_path.read_text())
+            source_path = root / path_value
+            old_digest = payload["implementation_source_sha256"][path_value]
+            source_path.write_text(mutator(source_path.read_text()))
+            new_digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+            payload["implementation_source_sha256"][path_value] = new_digest
+            inventory_path.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n"
+            )
+
+            checker_path = (
+                root
+                / "scripts/stage5e_b3f_callback_settlement_escrow_design_check.py"
+            )
+            checker = checker_path.read_text()
+            if checker.count(old_digest) != 1:
+                raise AssertionError("B3F implementation source hash pin not found")
+            checker = checker.replace(old_digest, new_digest, 1)
+            replacement = (
+                'EXPECTED_INVENTORY_SHA256 = (\n'
+                f'    "{canonical_sha256(payload)}"\n'
+                ")"
+            )
+            checker, count = re.subn(
+                r'EXPECTED_INVENTORY_SHA256 = \(\n    "[0-9a-f]+"\n\)',
+                replacement,
+                checker,
+                count=1,
+            )
+            if count != 1:
+                raise AssertionError("B3F checker inventory hash pin not found")
+            checker_path.write_text(checker)
+
+        return apply
+
     def mutate_stage5e_b3_module_for_checker(mutator):
         def apply(root, _manifest, _marker):
             path = root / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
@@ -2815,6 +2856,14 @@ def main() -> int:
         Case("stage5e-b3f-implementation-event-key-test-removed", "protected B3F implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("b3f_event_key_validator_rejects_every_frozen_source_drift", "removed_event_key_drift_test", 1)), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-implementation-parity-test-removed", "protected B3F implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5c_paper_host.rs", lambda s: s.replace("b3f_owning_core_matches_legacy_public_zero_intent_settlement", "removed_owning_core_parity_test", 1)), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-implementation-forbidden-redis-surface", "protected B3F implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("// STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-END: private-process-local-v1", "const _FORBIDDEN_REDIS: &str = \\\"redis::Client\\\";\\n    // STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-END: private-process-local-v1", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-rehash-retained-close-issued-check-removed", "settlement chronology relation missing", mutate_stage5e_b3f_source_and_rehash_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("&& accepted_bar_close <= audit._issued_at", "&& true", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-rehash-retained-close-callback-check-removed", "settlement chronology relation missing", mutate_stage5e_b3f_source_and_rehash_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("&& accepted_bar_close <= callback_invoked_at", "&& true", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-rehash-b3c-outer-chronology-equality-removed", "settlement chronology relation missing", mutate_stage5e_b3f_source_and_rehash_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("&& audit._b3c_effective_observed_at == audit._effective_observed_at", "&& true", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-rehash-canonical-authority-recompute-removed", "canonical callback-authority recomputation missing", mutate_stage5e_b3f_source_and_rehash_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("let recomputed = super::callback_authority_id(", "let recomputed = [0u8; 32]; // stored-id comparison only\n            let _unused = super::callback_authority_id(", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-rehash-second-authority-encoder-opened", "callback-authority encoder must have exactly one B3F call site", mutate_stage5e_b3f_source_and_rehash_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("let recomputed = super::callback_authority_id(", "let _second = super::callback_authority_id(\n                &audit._full_instrument_id,\n                audit._accepted_semantic_bar_identity,\n                audit._b3b_event_key_fingerprint,\n                audit._b3c_continuation_binding_id,\n                audit._sequence_identity_fingerprint,\n                audit._issued_at,\n                audit._authority_expires_at,\n            );\n            let recomputed = super::callback_authority_id(", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-rehash-chronology-corruption-test-removed", "required B3F acceptance test missing", mutate_stage5e_b3f_source_and_rehash_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("b3f_b3c_outer_chronology_drift_is_terminal_chronology_mismatch", "removed_b3f_b3c_outer_chronology_test", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-rehash-authority-corruption-test-removed", "required B3F acceptance test missing", mutate_stage5e_b3f_source_and_rehash_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("b3f_same_wrong_stored_authority_ids_fail_canonical_recomputation", "removed_b3f_authority_corruption_test", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-rehash-compile-fail-fixture-removed", "required B3F compile-fail fixture missing", mutate_stage5e_b3f_source_and_rehash_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("b3f_compile_fail_borrow_survives_consume", "removed_b3f_compile_fail_fixture", 1)), "5E-b3f-callback-settlement-escrow-design", True),
     ]
     relation_matrix = json.loads(
         (

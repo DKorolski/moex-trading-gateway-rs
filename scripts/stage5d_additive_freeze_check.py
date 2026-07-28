@@ -148,7 +148,7 @@ EXPECTED_STAGE5C_PRIVATE_LAYOUT_EXTENSIONS = [
         "reason_id": "stage5e-b3f-canonical-owning-core-private-extension-v1",
         "public_api_unchanged": True,
         "stripped_without_additive_regions_sha256": (
-            "ed2408a39fcf06b1adef702b08ffeb6d62744ff65454c501a8c1134751e09a93"
+            "ba1d1504016cd77884b47b294c0c4d7ab3504401f7bf46c2c731c6c5cb0d1761"
         ),
         "pre_b3f_reason_id": "stage5d-b2b-a-persisted-load-provenance-v1",
         "pre_b3f_stripped_without_additive_regions_sha256": (

@@ -5662,8 +5662,34 @@ pub(crate) struct Stage5eAcceptedBarSettlementMetadata {
     accepted_semantic_bar_identity: [u8; 32],
 }
 
+impl Stage5eAcceptedBarSettlementMetadata {
+    pub(crate) fn accepted_bar_close_ts(&self) -> i64 {
+        self.accepted_bar_close_ts
+    }
+}
+
 #[cfg(test)]
 impl Stage5ePreCallbackAttributionSnapshot {
+    pub(crate) fn test_corrupt_strategy_id(&mut self) {
+        self.strategy_id.push_str("_MISMATCH");
+    }
+
+    pub(crate) fn test_corrupt_account_id(&mut self) {
+        self.account_id = BrokerAccountId::new("ACC_TEST_MISMATCH");
+    }
+
+    pub(crate) fn test_corrupt_target_instrument(&mut self) {
+        self.target_instrument.symbol.push_str("_MISMATCH");
+    }
+
+    pub(crate) fn test_corrupt_semantic_bar_identity(&mut self) {
+        self.accepted_semantic_bar_identity[0] ^= 1;
+    }
+
+    pub(crate) fn test_set_accepted_bar_close_ts(&mut self, accepted_bar_close_ts: i64) {
+        self.accepted_bar_close_ts = accepted_bar_close_ts;
+    }
+
     pub(crate) fn test_ownership_shape(&self) -> (usize, usize, bool) {
         (
             self.cleanup_ledger.broker_orders.len(),
@@ -5687,6 +5713,18 @@ impl Stage5ePreCallbackAttributionSnapshot {
 
 #[cfg(test)]
 impl Stage5eAcceptedBarSettlementMetadata {
+    pub(crate) fn test_corrupt_accepted_bar_origin(&mut self) {
+        self.accepted_bar_origin = broker_core::HybridRuntimeBarOrigin::Replay;
+    }
+
+    pub(crate) fn test_disable_execution_eligibility(&mut self) {
+        self.execution_eligible = false;
+    }
+
+    pub(crate) fn test_set_accepted_bar_close_ts(&mut self, accepted_bar_close_ts: i64) {
+        self.accepted_bar_close_ts = accepted_bar_close_ts;
+    }
+
     pub(crate) fn test_retained_bar_metadata(
         &self,
     ) -> (i64, broker_core::HybridRuntimeBarOrigin, bool, [u8; 32]) {
@@ -5696,6 +5734,17 @@ impl Stage5eAcceptedBarSettlementMetadata {
             self.execution_eligible,
             self.accepted_semantic_bar_identity,
         )
+    }
+}
+
+#[cfg(test)]
+impl Stage5cPendingRecoveryReceipt {
+    pub(crate) fn test_disable_paper_mode(&mut self) {
+        self.warmup_receipt
+            .restore_receipt
+            .bootstrap_receipt
+            .admission
+            .paper_only = false;
     }
 }
 
@@ -6246,13 +6295,16 @@ impl Stage5eStage5cSettlementSuccess {
     }
 
     #[cfg(test)]
-    pub(crate) fn test_identity_proof_shape(&self) -> (Vec<StrategyRequestId>, usize, usize, bool) {
+    pub(crate) fn test_identity_proof_shape(
+        &self,
+    ) -> (Vec<StrategyRequestId>, usize, usize, bool, String) {
         let proof = self.borrow_identity_proof(&Stage5cB3fSuccessProofSeal(()));
         (
             proof.ordered_strategy_request_ids.to_vec(),
             usize::from(proof.intent_count_u8),
             proof.settled_batch_history_length,
             proof.canonical_first_batch_summary == &stage5ch_batch_summary(&self.settled.batch),
+            proof.batch_state_fingerprint.to_string(),
         )
     }
 }
@@ -6546,6 +6598,32 @@ fn settle_stage5c_semantic_result_owning_core(
 mod stage5e_b3f_stage5c_settlement_tests {
     use super::*;
 
+    fn set_pending_entry_for_b3f_test(
+        strategy: &mut HybridIntradayRuntimeStrategy,
+        request_id: StrategyRequestId,
+    ) {
+        let mut state = Strategy::state(strategy).clone();
+        match &mut state {
+            StrategyState::HybridIntradayRuntime {
+                pending_entry_request_id,
+                ..
+            } => *pending_entry_request_id = Some(request_id),
+            StrategyState::Idle => panic!("expected hybrid runtime state"),
+        }
+        Strategy::set_state(strategy, state);
+    }
+
+    fn valid_entry_market_for_b3f_test() -> crate::BrokerNeutralHybridIntent {
+        crate::BrokerNeutralHybridIntent::Market {
+            qty: 1.0,
+            side: crate::BrokerNeutralOrderSide::Buy,
+            fill_price: Some(2227.5),
+            comment: None,
+        }
+        .with_class(crate::BrokerNeutralHybridIntentClass::Entry)
+        .with_symbol("IMOEXF")
+    }
+
     #[test]
     fn b3f_owning_core_matches_legacy_public_zero_intent_settlement() {
         let now = Utc::now();
@@ -6584,6 +6662,107 @@ mod stage5e_b3f_stage5c_settlement_tests {
         );
         assert_eq!(legacy.settled_batch_history(), core.settled_batch_history());
         assert_eq!(legacy.settled_batch_history().len(), 1);
+    }
+
+    #[test]
+    fn b3f_owning_core_matches_legacy_public_nonempty_settlement() {
+        let now = Utc::now();
+        let bar_close_ts = now.timestamp() + 600;
+        let (legacy_recovered, _) =
+            stage5e_test_nonempty_intent_sequence_inputs(now, now.timestamp() - 600, bar_close_ts);
+        let (core_recovered, _) =
+            stage5e_test_nonempty_intent_sequence_inputs(now, now.timestamp() - 600, bar_close_ts);
+        let (mut legacy_strategy, legacy_receipt) = legacy_recovered.into_parts();
+        let (mut core_strategy, core_receipt) = core_recovered.into_parts();
+        let request_id = crate::deterministic_request_id(
+            "stage5e_test",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "market",
+            bar_close_ts,
+            3,
+        );
+        set_pending_entry_for_b3f_test(&mut legacy_strategy, request_id);
+        set_pending_entry_for_b3f_test(&mut core_strategy, request_id);
+        let intent = valid_entry_market_for_b3f_test();
+        let legacy = settle_stage5c_semantic_result(Stage5cSemanticBarResult {
+            strategy: legacy_strategy,
+            recovery_receipt: legacy_receipt,
+            bar_close_ts,
+            origin: broker_core::HybridRuntimeBarOrigin::Live,
+            execution_eligible: true,
+            intents: vec![intent.clone()],
+            expected_attribution_by_request: HashMap::new(),
+        })
+        .expect("legacy non-empty settlement must pass");
+        let core = settle_stage5c_semantic_result_owning_core(
+            core_strategy,
+            core_receipt,
+            bar_close_ts,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            true,
+            vec![intent],
+            HashMap::new(),
+        )
+        .unwrap_or_else(|_| panic!("B3F owning core non-empty settlement must pass"));
+
+        assert_eq!(
+            stage5ch_batch_summary(legacy.intent_batch()),
+            stage5ch_batch_summary(core.intent_batch())
+        );
+        assert_eq!(legacy.settled_batch_history(), core.settled_batch_history());
+    }
+
+    #[test]
+    fn b3f_owning_core_matches_legacy_public_representative_error() {
+        let now = Utc::now();
+        let bar_close_ts = now.timestamp() + 600;
+        let (legacy_recovered, _) =
+            stage5e_test_nonempty_intent_sequence_inputs(now, now.timestamp() - 600, bar_close_ts);
+        let (core_recovered, _) =
+            stage5e_test_nonempty_intent_sequence_inputs(now, now.timestamp() - 600, bar_close_ts);
+        let (mut legacy_strategy, legacy_receipt) = legacy_recovered.into_parts();
+        let (mut core_strategy, core_receipt) = core_recovered.into_parts();
+        let invalid_intent = crate::BrokerNeutralHybridIntent::Market {
+            qty: -1.0,
+            side: crate::BrokerNeutralOrderSide::Buy,
+            fill_price: None,
+            comment: None,
+        }
+        .with_class(crate::BrokerNeutralHybridIntentClass::Entry)
+        .with_symbol("IMOEXF");
+        let request_id = crate::deterministic_request_id(
+            "stage5e_test",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "market",
+            bar_close_ts,
+            3,
+        );
+        set_pending_entry_for_b3f_test(&mut legacy_strategy, request_id);
+        set_pending_entry_for_b3f_test(&mut core_strategy, request_id);
+        let legacy_error = settle_stage5c_semantic_result(Stage5cSemanticBarResult {
+            strategy: legacy_strategy,
+            recovery_receipt: legacy_receipt,
+            bar_close_ts,
+            origin: broker_core::HybridRuntimeBarOrigin::Live,
+            execution_eligible: true,
+            intents: vec![invalid_intent.clone()],
+            expected_attribution_by_request: HashMap::new(),
+        })
+        .expect_err("invalid quantity must fail legacy settlement");
+        let core_error = settle_stage5c_semantic_result_owning_core(
+            core_strategy,
+            core_receipt,
+            bar_close_ts,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            true,
+            vec![invalid_intent],
+            HashMap::new(),
+        )
+        .expect_err("invalid quantity must fail owning core")
+        .error;
+        assert_eq!(legacy_error, core_error);
     }
 }
 
@@ -8068,16 +8247,20 @@ fn stage5cj_expected_generated_attribution_by_request_from_ledger(
     Stage5cIntentSettlementError,
 > {
     let mut expected = HashMap::new();
+    let mut seen_request_ids = HashSet::new();
     for intent in intents {
+        let request_id = stage5cg_source_request_id(
+            admission.strategy_id(),
+            admission.account_id().as_str(),
+            &admission.target_instrument().symbol,
+            source_ts,
+            intent,
+        )?;
+        if !seen_request_ids.insert(request_id) {
+            return Err(Stage5cIntentSettlementError::DuplicateRequestId);
+        }
         if let Some(attribution) = stage5cj_expected_cleanup_attribution_from_ledger(ledger, intent)
         {
-            let request_id = stage5cg_source_request_id(
-                admission.strategy_id(),
-                admission.account_id().as_str(),
-                &admission.target_instrument().symbol,
-                source_ts,
-                intent,
-            )?;
             expected.insert(request_id, attribution);
         }
     }

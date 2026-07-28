@@ -2292,6 +2292,20 @@ pub(crate) mod schedule_window_evidence {
                 .unwrap_or_else(|_| panic!("source-produced signal B3B must bind to B3C"))
         }
 
+        fn canonical_zero_intent_escrow(
+            now: DateTime<Utc>,
+        ) -> crate::stage5e_no_io_lifecycle::callback_authority::Stage5ePaperCallbackResultEscrow
+        {
+            use crate::stage5e_no_io_lifecycle::callback_authority::{
+                invoke_stage5e_authorized_paper_callback_at, issue_stage5e_callback_authority_at,
+            };
+
+            let authority = issue_stage5e_callback_authority_at(canonical_b3c_receipt(now), now)
+                .unwrap_or_else(|_| panic!("canonical B3C receipt must issue authority"));
+            invoke_stage5e_authorized_paper_callback_at(authority, now)
+                .unwrap_or_else(|_| panic!("canonical callback must reach escrow"))
+        }
+
         #[test]
         fn validation_is_fail_closed_and_canonicalizes_unsorted_sessions() {
             let now = Utc::now();
@@ -2937,15 +2951,199 @@ pub(crate) mod schedule_window_evidence {
                 .unwrap_or_else(|_| panic!("canonical B3C receipt must issue authority"));
             let escrow = invoke_stage5e_authorized_paper_callback_at(authority, now)
                 .unwrap_or_else(|_| panic!("canonical callback must reach escrow"));
+            let expected_state_fingerprint = escrow.test_strategy_state_fingerprint();
             let receipt = validate_and_settle_stage5e_paper_callback_escrow(escrow)
                 .unwrap_or_else(|_| panic!("canonical zero-intent escrow must settle"));
-            let (request_ids, intent_count, history_len, canonical_history) =
+            let (request_ids, intent_count, history_len, canonical_history, state_fingerprint) =
                 receipt.test_identity_proof_shape();
             assert!(request_ids.is_empty());
             assert_eq!(intent_count, 0);
             assert_eq!(history_len, 1);
             assert!(canonical_history);
+            assert_eq!(state_fingerprint, expected_state_fingerprint);
             assert_ne!(receipt.test_settlement_identity(), [0; 32]);
+        }
+
+        #[test]
+        fn b3f_positive_settlement_preflight_accepts_canonical_escrow() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::validate_and_settle_stage5e_paper_callback_escrow;
+
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            let receipt = validate_and_settle_stage5e_paper_callback_escrow(
+                canonical_zero_intent_escrow(now),
+            )
+            .unwrap_or_else(|_| panic!("canonical settlement preflight must pass"));
+            assert_ne!(receipt.test_settlement_identity(), [0; 32]);
+        }
+
+        #[test]
+        fn b3f_stage5c_preflight_validator_produces_all_nine_exact_mismatches() {
+            use crate::stage5c_paper_host::Stage5eStage5cPreflightMismatch as Mismatch;
+            use crate::stage5e_no_io_lifecycle::callback_authority::{
+                callback_settlement::test_validate_stage5c_preflight_binding,
+                Stage5eB3fPreflightTestMutation as Mutation,
+            };
+
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            assert!(
+                test_validate_stage5c_preflight_binding(&canonical_zero_intent_escrow(now)).is_ok()
+            );
+            let cases = [
+                (Mutation::StrategyId, Mismatch::StrategyId),
+                (Mutation::AccountId, Mismatch::AccountId),
+                (Mutation::FullInstrumentId, Mismatch::FullInstrumentId),
+                (Mutation::SemanticBarIdentity, Mismatch::SemanticBarIdentity),
+                (Mutation::AcceptedBarClose, Mismatch::AcceptedBarClose),
+                (Mutation::AuditEventKey, Mismatch::AuditEventKey),
+                (Mutation::PaperMode, Mismatch::PaperMode),
+                (Mutation::AcceptedBarOrigin, Mismatch::AcceptedBarOrigin),
+                (
+                    Mutation::ExecutionEligibility,
+                    Mismatch::ExecutionEligibility,
+                ),
+            ];
+            fn mismatch_tag(mismatch: Mismatch) -> &'static str {
+                match mismatch {
+                    Mismatch::StrategyId => "strategy_id",
+                    Mismatch::AccountId => "account_id",
+                    Mismatch::FullInstrumentId => "full_instrument_id",
+                    Mismatch::SemanticBarIdentity => "semantic_bar_identity",
+                    Mismatch::AcceptedBarClose => "accepted_bar_close",
+                    Mismatch::AuditEventKey => "audit_event_key",
+                    Mismatch::PaperMode => "paper_mode",
+                    Mismatch::AcceptedBarOrigin => "accepted_bar_origin",
+                    Mismatch::ExecutionEligibility => "execution_eligibility",
+                }
+            }
+            for (mutation, expected) in cases {
+                let mut escrow = canonical_zero_intent_escrow(now);
+                escrow.test_corrupt_stage5c_preflight_binding(mutation);
+                let actual = test_validate_stage5c_preflight_binding(&escrow)
+                    .err()
+                    .unwrap_or_else(|| panic!("validator must reject {mutation:?}"));
+                assert_eq!(mismatch_tag(actual), mismatch_tag(expected));
+            }
+        }
+
+        #[test]
+        fn b3f_callback_before_retained_close_is_terminal_chronology_mismatch() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::{
+                validate_and_settle_stage5e_paper_callback_escrow,
+                Stage5ePaperSettlementTerminalReason,
+            };
+
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            let mut escrow = canonical_zero_intent_escrow(now);
+            escrow.test_set_callback_before_retained_close();
+            let terminal = validate_and_settle_stage5e_paper_callback_escrow(escrow)
+                .err()
+                .unwrap_or_else(|| panic!("callback before retained close must be terminal"));
+            assert_eq!(
+                terminal.test_reason(),
+                Stage5ePaperSettlementTerminalReason::ChronologyMismatch
+            );
+            assert_eq!(terminal.test_ownership_variant(), "preflight_ok");
+        }
+
+        #[test]
+        fn b3f_retained_close_after_authority_issue_is_terminal_chronology_mismatch() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::{
+                validate_and_settle_stage5e_paper_callback_escrow,
+                Stage5ePaperSettlementTerminalReason,
+            };
+
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            let mut escrow = canonical_zero_intent_escrow(now);
+            escrow.test_force_retained_close_after_issue();
+            let terminal = validate_and_settle_stage5e_paper_callback_escrow(escrow)
+                .err()
+                .unwrap_or_else(|| panic!("retained close after issue must be terminal"));
+            assert_eq!(
+                terminal.test_reason(),
+                Stage5ePaperSettlementTerminalReason::ChronologyMismatch
+            );
+            assert_eq!(terminal.test_ownership_variant(), "preflight_ok");
+        }
+
+        #[test]
+        fn b3f_b3c_outer_chronology_drift_is_terminal_chronology_mismatch() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::{
+                validate_and_settle_stage5e_paper_callback_escrow,
+                Stage5ePaperSettlementTerminalReason,
+            };
+
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            let mut escrow = canonical_zero_intent_escrow(now);
+            escrow.test_corrupt_b3c_outer_chronology_equality();
+            let terminal = validate_and_settle_stage5e_paper_callback_escrow(escrow)
+                .err()
+                .unwrap_or_else(|| panic!("B3C/outer chronology drift must be terminal"));
+            assert_eq!(
+                terminal.test_reason(),
+                Stage5ePaperSettlementTerminalReason::ChronologyMismatch
+            );
+            assert_eq!(terminal.test_ownership_variant(), "preflight_ok");
+        }
+
+        #[test]
+        fn b3f_same_wrong_stored_authority_ids_fail_canonical_recomputation() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::{
+                validate_and_settle_stage5e_paper_callback_escrow,
+                Stage5ePaperSettlementTerminalReason,
+            };
+
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            let mut escrow = canonical_zero_intent_escrow(now);
+            escrow.test_set_both_authority_ids_same_wrong_nonzero();
+            let terminal = validate_and_settle_stage5e_paper_callback_escrow(escrow)
+                .err()
+                .unwrap_or_else(|| panic!("same wrong stored authority IDs must be terminal"));
+            assert_eq!(
+                terminal.test_reason(),
+                Stage5ePaperSettlementTerminalReason::IdentityMismatch
+            );
+            assert_eq!(terminal.test_ownership_variant(), "preflight_ok");
+        }
+
+        #[test]
+        fn b3f_canonical_authority_input_drift_without_new_id_is_identity_mismatch() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::{
+                validate_and_settle_stage5e_paper_callback_escrow,
+                Stage5ePaperSettlementTerminalReason,
+            };
+
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            let mut escrow = canonical_zero_intent_escrow(now);
+            escrow.test_corrupt_canonical_authority_input_without_recomputing_id();
+            let terminal = validate_and_settle_stage5e_paper_callback_escrow(escrow)
+                .err()
+                .unwrap_or_else(|| panic!("canonical authority input drift must be terminal"));
+            assert_eq!(
+                terminal.test_reason(),
+                Stage5ePaperSettlementTerminalReason::IdentityMismatch
+            );
+            assert_eq!(terminal.test_ownership_variant(), "preflight_ok");
         }
 
         #[test]
@@ -2963,14 +3161,16 @@ pub(crate) mod schedule_window_evidence {
             .unwrap_or_else(|_| panic!("source-produced signal must issue authority"));
             let escrow = invoke_stage5e_authorized_paper_callback_at(authority, now)
                 .unwrap_or_else(|_| panic!("source-produced callback must reach escrow"));
+            let expected_state_fingerprint = escrow.test_strategy_state_fingerprint();
             let receipt = validate_and_settle_stage5e_paper_callback_escrow(escrow)
                 .unwrap_or_else(|_| panic!("source-produced intent must pass Stage 5C settlement"));
-            let (request_ids, intent_count, history_len, canonical_history) =
+            let (request_ids, intent_count, history_len, canonical_history, state_fingerprint) =
                 receipt.test_identity_proof_shape();
             assert_eq!(request_ids.len(), 1);
             assert_eq!(intent_count, 1);
             assert_eq!(history_len, 1);
             assert!(canonical_history);
+            assert_eq!(state_fingerprint, expected_state_fingerprint);
         }
 
         #[test]
@@ -3060,6 +3260,36 @@ pub(crate) mod schedule_window_evidence {
                 u8::MAX as usize + 1
             );
             assert_eq!(over_limit_terminal.test_ownership_variant(), "preflight_ok");
+        }
+
+        #[test]
+        fn b3f_early_attribution_error_disposes_exact_intent_vector() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::{
+                callback_settlement::{
+                    validate_and_settle_stage5e_paper_callback_escrow,
+                    Stage5ePaperSettlementTerminalReason,
+                },
+                invoke_stage5e_authorized_paper_callback_at, issue_stage5e_callback_authority_at,
+            };
+
+            let now = Utc.with_ymd_and_hms(2026, 7, 24, 7, 0, 0).single().unwrap();
+            let authority = issue_stage5e_callback_authority_at(
+                canonical_nonempty_intent_b3c_receipt(now),
+                now,
+            )
+            .unwrap_or_else(|_| panic!("source-produced signal must issue authority"));
+            let mut escrow = invoke_stage5e_authorized_paper_callback_at(authority, now)
+                .unwrap_or_else(|_| panic!("source-produced callback must reach escrow"));
+            escrow.test_repeat_first_ok_intent(2);
+            let terminal = validate_and_settle_stage5e_paper_callback_escrow(escrow)
+                .err()
+                .unwrap_or_else(|| panic!("duplicate request IDs must be terminal"));
+            assert_eq!(
+                terminal.test_reason(),
+                Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed
+            );
+            assert_eq!(terminal.test_original_intent_count(), 2);
+            assert_eq!(terminal.test_ownership_variant(), "stage5c");
         }
 
         #[test]
@@ -5017,6 +5247,20 @@ pub(crate) mod callback_authority {
     type Stage5eTestAuditProofVector = ([u8; 32], [u8; 32], [u8; 32], [u8; 32], DateTime<Utc>);
 
     #[cfg(test)]
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) enum Stage5eB3fPreflightTestMutation {
+        StrategyId,
+        AccountId,
+        FullInstrumentId,
+        SemanticBarIdentity,
+        AcceptedBarClose,
+        AuditEventKey,
+        PaperMode,
+        AcceptedBarOrigin,
+        ExecutionEligibility,
+    }
+
+    #[cfg(test)]
     impl Stage5ePaperCallbackResultEscrow {
         pub(crate) fn test_callback_count(&self) -> usize {
             1
@@ -5098,6 +5342,85 @@ pub(crate) mod callback_authority {
             intents.clear();
             intents.resize(count, template);
         }
+
+        pub(crate) fn test_set_callback_before_retained_close(&mut self) {
+            self.callback_invoked_at =
+                DateTime::from_timestamp(self.retained_bar_metadata.accepted_bar_close_ts() - 1, 0)
+                    .expect("canonical test close timestamp is representable");
+        }
+
+        pub(crate) fn test_force_retained_close_after_issue(&mut self) {
+            let accepted_bar_close_ts = self.audit_lineage._issued_at.timestamp() + 1;
+            self.attribution_snapshot
+                .test_set_accepted_bar_close_ts(accepted_bar_close_ts);
+            self.retained_bar_metadata
+                .test_set_accepted_bar_close_ts(accepted_bar_close_ts);
+            let event_key = super::schedule_window_evidence::b3b_event_key_fingerprint(
+                self.audit_lineage._schedule_identity_fingerprint,
+                &self.audit_lineage._full_instrument_id,
+                accepted_bar_close_ts,
+                self.audit_lineage._sequence_identity_fingerprint,
+            );
+            self.audit_lineage._event_key_fingerprint = event_key;
+            self.audit_lineage._b3b_event_key_fingerprint = event_key;
+        }
+
+        pub(crate) fn test_corrupt_b3c_outer_chronology_equality(&mut self) {
+            self.audit_lineage._b3c_effective_observed_at += chrono::Duration::nanoseconds(1);
+        }
+
+        pub(crate) fn test_set_both_authority_ids_same_wrong_nonzero(&mut self) {
+            self.callback_authority_id[0] ^= 1;
+            self.audit_lineage._callback_authority_id = self.callback_authority_id;
+            assert_ne!(self.callback_authority_id, [0; 32]);
+        }
+
+        pub(crate) fn test_corrupt_canonical_authority_input_without_recomputing_id(&mut self) {
+            self.audit_lineage._continuation_binding_id[0] ^= 1;
+            self.audit_lineage._b3c_continuation_binding_id =
+                self.audit_lineage._continuation_binding_id;
+            assert_ne!(self.audit_lineage._continuation_binding_id, [0; 32]);
+        }
+
+        pub(crate) fn test_corrupt_stage5c_preflight_binding(
+            &mut self,
+            mutation: Stage5eB3fPreflightTestMutation,
+        ) {
+            match mutation {
+                Stage5eB3fPreflightTestMutation::StrategyId => {
+                    self.attribution_snapshot.test_corrupt_strategy_id();
+                }
+                Stage5eB3fPreflightTestMutation::AccountId => {
+                    self.attribution_snapshot.test_corrupt_account_id();
+                }
+                Stage5eB3fPreflightTestMutation::FullInstrumentId => {
+                    self.attribution_snapshot.test_corrupt_target_instrument();
+                }
+                Stage5eB3fPreflightTestMutation::SemanticBarIdentity => {
+                    self.attribution_snapshot
+                        .test_corrupt_semantic_bar_identity();
+                }
+                Stage5eB3fPreflightTestMutation::AcceptedBarClose => {
+                    self.attribution_snapshot.test_set_accepted_bar_close_ts(
+                        self.retained_bar_metadata.accepted_bar_close_ts() - 1,
+                    );
+                }
+                Stage5eB3fPreflightTestMutation::AuditEventKey => {
+                    self.audit_lineage._event_key_fingerprint[0] ^= 1;
+                }
+                Stage5eB3fPreflightTestMutation::PaperMode => {
+                    self.recovery_receipt.test_disable_paper_mode();
+                }
+                Stage5eB3fPreflightTestMutation::AcceptedBarOrigin => {
+                    self.retained_bar_metadata
+                        .test_corrupt_accepted_bar_origin();
+                }
+                Stage5eB3fPreflightTestMutation::ExecutionEligibility => {
+                    self.retained_bar_metadata
+                        .test_disable_execution_eligibility();
+                }
+            }
+        }
     }
 
     // STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-BEGIN: private-process-local-v1
@@ -5117,6 +5440,88 @@ pub(crate) mod callback_authority {
         }
     }
 
+    /// B3F compile-fail ownership witnesses. These are deliberately small
+    /// Rust type-state fixtures: the production seals remain crate-private,
+    /// while rustdoc executes the same linearity/borrow failures as an
+    /// independent compile-fail gate.
+    ///
+    /// ```compile_fail
+    /// // b3f_compile_fail_consume_seal_clone_or_copy
+    /// struct Stage5ePaperSettlementConsumeSeal(());
+    /// fn issue() -> Stage5ePaperSettlementConsumeSeal {
+    ///     Stage5ePaperSettlementConsumeSeal(())
+    /// }
+    /// fn main() {
+    ///     let seal = issue();
+    ///     let _clone = seal.clone();
+    ///     let _copy = seal;
+    ///     let _reuse = seal;
+    /// }
+    /// ```
+    ///
+    /// ```compile_fail
+    /// // b3f_compile_fail_consume_seal_reconstruction
+    /// mod callback_settlement {
+    ///     pub struct Stage5ePaperSettlementConsumeSeal(());
+    ///     pub fn issue() -> Stage5ePaperSettlementConsumeSeal {
+    ///         Stage5ePaperSettlementConsumeSeal(())
+    ///     }
+    /// }
+    /// fn main() {
+    ///     let _issued = callback_settlement::issue();
+    ///     let _forged = callback_settlement::Stage5ePaperSettlementConsumeSeal(());
+    /// }
+    /// ```
+    ///
+    /// ```compile_fail
+    /// // b3f_compile_fail_capability_escape
+    /// mod callback_settlement {
+    ///     pub struct Stage5ePaperSettlementConsumeSeal(());
+    ///     pub struct Stage5ePaperSettlementPayload {
+    ///         consume_seal: Stage5ePaperSettlementConsumeSeal,
+    ///     }
+    ///     pub fn issue() -> Stage5ePaperSettlementConsumeSeal {
+    ///         Stage5ePaperSettlementConsumeSeal(())
+    ///     }
+    ///     pub fn payload(seal: Stage5ePaperSettlementConsumeSeal)
+    ///         -> Stage5ePaperSettlementPayload {
+    ///         Stage5ePaperSettlementPayload { consume_seal: seal }
+    ///     }
+    /// }
+    /// fn main() {
+    ///     let payload = callback_settlement::payload(callback_settlement::issue());
+    ///     let _escaped = payload.consume_seal;
+    /// }
+    /// ```
+    ///
+    /// ```compile_fail
+    /// // b3f_compile_fail_second_escrow_consume
+    /// struct Stage5ePaperSettlementConsumeSeal(());
+    /// fn issue() -> Stage5ePaperSettlementConsumeSeal {
+    ///     Stage5ePaperSettlementConsumeSeal(())
+    /// }
+    /// fn consume(_: Stage5ePaperSettlementConsumeSeal) {}
+    /// fn main() {
+    ///     let seal = issue();
+    ///     consume(seal);
+    ///     consume(seal);
+    /// }
+    /// ```
+    ///
+    /// ```compile_fail
+    /// // b3f_compile_fail_borrow_survives_consume
+    /// struct Stage5ePaperSettlementConsumeSeal(());
+    /// fn issue() -> Stage5ePaperSettlementConsumeSeal {
+    ///     Stage5ePaperSettlementConsumeSeal(())
+    /// }
+    /// fn consume(_: Stage5ePaperSettlementConsumeSeal) {}
+    /// fn main() {
+    ///     let seal = issue();
+    ///     let borrowed = &seal;
+    ///     consume(seal);
+    ///     let _after_consume = borrowed;
+    /// }
+    /// ```
     pub(crate) mod callback_settlement {
         use super::{
             DateTime, Digest, PrivateStage5ePaperCallbackOutcome,
@@ -5354,18 +5759,7 @@ pub(crate) mod callback_authority {
             seal: &Stage5ePaperSettlementPreflightSeal,
         ) -> Stage5ePaperSettlementPreflightDecision {
             let escrow = preflight.escrow;
-            let expected =
-                crate::stage5c_paper_host::construct_stage5e_b3f_stage5c_expected_preflight_binding(
-                    &escrow.audit_lineage._schedule_identity_fingerprint,
-                    &escrow.audit_lineage._sequence_identity_fingerprint,
-                    &escrow.audit_lineage._event_key_fingerprint,
-                    &escrow.audit_lineage._b3b_event_key_fingerprint,
-                    &escrow.audit_lineage._full_instrument_id,
-                    &escrow.audit_lineage._owned_instrument,
-                    &escrow.audit_lineage._accepted_semantic_bar_identity,
-                    &escrow.audit_lineage._owned_bar_identity,
-                    seal,
-                );
+            let expected = construct_stage5c_expected_preflight_binding(escrow, seal);
             if let Err(mismatch) =
                 crate::stage5c_paper_host::validate_stage5e_b3f_stage5c_preflight_binding(
                     &escrow.recovery_receipt,
@@ -5379,7 +5773,11 @@ pub(crate) mod callback_authority {
                     map_stage5c_preflight_mismatch_exact(mismatch, seal),
                 );
             }
-            if !stage5e_chronology_matches(&escrow.audit_lineage, escrow.callback_invoked_at) {
+            if !stage5e_chronology_matches(
+                &escrow.audit_lineage,
+                escrow.retained_bar_metadata.accepted_bar_close_ts(),
+                escrow.callback_invoked_at,
+            ) {
                 return Stage5ePaperSettlementPreflightDecision::Terminal(
                     Stage5ePaperSettlementTerminalReason::ChronologyMismatch,
                 );
@@ -5408,6 +5806,39 @@ pub(crate) mod callback_authority {
             }
         }
 
+        fn construct_stage5c_expected_preflight_binding<'a>(
+            escrow: &'a Stage5ePaperCallbackResultEscrow,
+            seal: &Stage5ePaperSettlementPreflightSeal,
+        ) -> crate::stage5c_paper_host::Stage5eB3fStage5cExpectedPreflightBinding<'a> {
+            crate::stage5c_paper_host::construct_stage5e_b3f_stage5c_expected_preflight_binding(
+                &escrow.audit_lineage._schedule_identity_fingerprint,
+                &escrow.audit_lineage._sequence_identity_fingerprint,
+                &escrow.audit_lineage._event_key_fingerprint,
+                &escrow.audit_lineage._b3b_event_key_fingerprint,
+                &escrow.audit_lineage._full_instrument_id,
+                &escrow.audit_lineage._owned_instrument,
+                &escrow.audit_lineage._accepted_semantic_bar_identity,
+                &escrow.audit_lineage._owned_bar_identity,
+                seal,
+            )
+        }
+
+        #[cfg(test)]
+        pub(crate) fn test_validate_stage5c_preflight_binding(
+            escrow: &Stage5ePaperCallbackResultEscrow,
+        ) -> Result<(), crate::stage5c_paper_host::Stage5eStage5cPreflightMismatch> {
+            let seal = Stage5ePaperSettlementPreflightSeal(());
+            let expected = construct_stage5c_expected_preflight_binding(escrow, &seal);
+            crate::stage5c_paper_host::validate_stage5e_b3f_stage5c_preflight_binding(
+                &escrow.recovery_receipt,
+                &escrow.attribution_snapshot,
+                &escrow.retained_bar_metadata,
+                &expected,
+                &seal,
+            )
+            .map(|_| ())
+        }
+
         fn stage5e_authority_identity_matches(escrow: &Stage5ePaperCallbackResultEscrow) -> bool {
             let audit = &escrow.audit_lineage;
             let nonzero = [
@@ -5424,8 +5855,19 @@ pub(crate) mod callback_authority {
             ]
             .iter()
             .all(|value| *value != [0; 32]);
+            let recomputed = super::callback_authority_id(
+                &audit._full_instrument_id,
+                audit._accepted_semantic_bar_identity,
+                audit._b3b_event_key_fingerprint,
+                audit._b3c_continuation_binding_id,
+                audit._sequence_identity_fingerprint,
+                audit._issued_at,
+                audit._authority_expires_at,
+            );
             nonzero
                 && escrow.callback_authority_id == audit._callback_authority_id
+                && recomputed.0 == escrow.callback_authority_id
+                && recomputed.0 == audit._callback_authority_id
                 && audit._event_key_fingerprint == audit._b3b_event_key_fingerprint
                 && audit._continuation_binding_id == audit._b3c_continuation_binding_id
                 && audit._owned_sequence_identity == audit._sequence_identity_fingerprint
@@ -5435,12 +5877,22 @@ pub(crate) mod callback_authority {
 
         fn stage5e_chronology_matches(
             audit: &Stage5eAuthorizedCallbackAuditLineage,
+            accepted_bar_close_ts: i64,
             callback_invoked_at: DateTime<Utc>,
         ) -> bool {
+            let Some(accepted_bar_close) = DateTime::from_timestamp(accepted_bar_close_ts, 0)
+            else {
+                return false;
+            };
             audit._sequence_observed_at <= audit._sequence_expires_at
                 && audit._b3b_effective_observed_at <= audit._b3b_effective_expires_at
                 && audit._b3c_effective_observed_at <= audit._bound_at
                 && audit._bound_at <= audit._b3c_effective_expires_at
+                && audit._bound_at <= audit._issued_at
+                && audit._b3c_effective_observed_at == audit._effective_observed_at
+                && audit._b3c_effective_expires_at == audit._authority_expires_at
+                && accepted_bar_close <= audit._issued_at
+                && accepted_bar_close <= callback_invoked_at
                 && audit._effective_observed_at <= audit._issued_at
                 && audit._issued_at <= callback_invoked_at
                 && callback_invoked_at <= audit._authority_expires_at
@@ -5841,7 +6293,13 @@ pub(crate) mod callback_authority {
 
             pub(crate) fn test_identity_proof_shape(
                 &self,
-            ) -> (Vec<broker_core::StrategyRequestId>, usize, usize, bool) {
+            ) -> (
+                Vec<broker_core::StrategyRequestId>,
+                usize,
+                usize,
+                bool,
+                String,
+            ) {
                 self._settlement_success.test_identity_proof_shape()
             }
         }
@@ -6057,13 +6515,15 @@ pub(crate) mod callback_authority {
                     .unwrap();
                 let first = broker_core::StrategyRequestId::new(uuid::Uuid::from_u128(1));
                 let second = broker_core::StrategyRequestId::new(uuid::Uuid::from_u128(2));
+                let account = broker_core::BrokerAccountId::new("ACC_TEST_0001");
+                let canonical_instrument = instrument();
                 let base = construct_stage5e_b3f_settlement_identity(
                     [1; 32],
                     now,
                     [2; 32],
                     "hybrid_imoexf",
-                    &broker_core::BrokerAccountId::new("ACC_TEST_0001"),
-                    &instrument(),
+                    &account,
+                    &canonical_instrument,
                     now.timestamp(),
                     "state",
                     &[first, second],
@@ -6076,8 +6536,8 @@ pub(crate) mod callback_authority {
                     now,
                     [2; 32],
                     "hybrid_imoexf",
-                    &broker_core::BrokerAccountId::new("ACC_TEST_0001"),
-                    &instrument(),
+                    &account,
+                    &canonical_instrument,
                     now.timestamp(),
                     "state",
                     &[second, first],
@@ -6087,6 +6547,155 @@ pub(crate) mod callback_authority {
                 );
                 assert_ne!(base, reordered);
                 assert_ne!(base, [0; 32]);
+
+                let mut changed_instrument = canonical_instrument.clone();
+                changed_instrument.venue_symbol = Some("IMOEXF@OTHER".to_string());
+                let changed = [
+                    construct_stage5e_b3f_settlement_identity(
+                        [9; 32],
+                        now,
+                        [2; 32],
+                        "hybrid_imoexf",
+                        &account,
+                        &canonical_instrument,
+                        now.timestamp(),
+                        "state",
+                        &[first, second],
+                        2,
+                        [3; 32],
+                        &seal,
+                    ),
+                    construct_stage5e_b3f_settlement_identity(
+                        [1; 32],
+                        now + chrono::Duration::nanoseconds(1),
+                        [2; 32],
+                        "hybrid_imoexf",
+                        &account,
+                        &canonical_instrument,
+                        now.timestamp(),
+                        "state",
+                        &[first, second],
+                        2,
+                        [3; 32],
+                        &seal,
+                    ),
+                    construct_stage5e_b3f_settlement_identity(
+                        [1; 32],
+                        now,
+                        [9; 32],
+                        "hybrid_imoexf",
+                        &account,
+                        &canonical_instrument,
+                        now.timestamp(),
+                        "state",
+                        &[first, second],
+                        2,
+                        [3; 32],
+                        &seal,
+                    ),
+                    construct_stage5e_b3f_settlement_identity(
+                        [1; 32],
+                        now,
+                        [2; 32],
+                        "hybrid_other",
+                        &account,
+                        &canonical_instrument,
+                        now.timestamp(),
+                        "state",
+                        &[first, second],
+                        2,
+                        [3; 32],
+                        &seal,
+                    ),
+                    construct_stage5e_b3f_settlement_identity(
+                        [1; 32],
+                        now,
+                        [2; 32],
+                        "hybrid_imoexf",
+                        &broker_core::BrokerAccountId::new("ACC_TEST_0002"),
+                        &canonical_instrument,
+                        now.timestamp(),
+                        "state",
+                        &[first, second],
+                        2,
+                        [3; 32],
+                        &seal,
+                    ),
+                    construct_stage5e_b3f_settlement_identity(
+                        [1; 32],
+                        now,
+                        [2; 32],
+                        "hybrid_imoexf",
+                        &account,
+                        &changed_instrument,
+                        now.timestamp(),
+                        "state",
+                        &[first, second],
+                        2,
+                        [3; 32],
+                        &seal,
+                    ),
+                    construct_stage5e_b3f_settlement_identity(
+                        [1; 32],
+                        now,
+                        [2; 32],
+                        "hybrid_imoexf",
+                        &account,
+                        &canonical_instrument,
+                        now.timestamp() - 1,
+                        "state",
+                        &[first, second],
+                        2,
+                        [3; 32],
+                        &seal,
+                    ),
+                    construct_stage5e_b3f_settlement_identity(
+                        [1; 32],
+                        now,
+                        [2; 32],
+                        "hybrid_imoexf",
+                        &account,
+                        &canonical_instrument,
+                        now.timestamp(),
+                        "other-state",
+                        &[first, second],
+                        2,
+                        [3; 32],
+                        &seal,
+                    ),
+                    reordered,
+                    construct_stage5e_b3f_settlement_identity(
+                        [1; 32],
+                        now,
+                        [2; 32],
+                        "hybrid_imoexf",
+                        &account,
+                        &canonical_instrument,
+                        now.timestamp(),
+                        "state",
+                        &[first, second],
+                        1,
+                        [3; 32],
+                        &seal,
+                    ),
+                    construct_stage5e_b3f_settlement_identity(
+                        [1; 32],
+                        now,
+                        [2; 32],
+                        "hybrid_imoexf",
+                        &account,
+                        &canonical_instrument,
+                        now.timestamp(),
+                        "state",
+                        &[first, second],
+                        2,
+                        [9; 32],
+                        &seal,
+                    ),
+                ];
+                for changed_identity in changed {
+                    assert_ne!(base, changed_identity);
+                }
             }
         }
     }

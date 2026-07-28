@@ -981,13 +981,21 @@ in both Stage 5C and Stage 5E owners. The executable acceptance matrix covers:
 - all three terminal ownership variants;
 - ordered request IDs, exact count, one-entry canonical history, state
   fingerprint and non-zero settlement identity;
+- retained accepted-bar close against authority issue and callback times;
+- complete retained B3E/B3C chronology equality and ordering;
+- canonical callback-authority recomputation from its frozen source fields;
+- five executable rustdoc compile-fail ownership witnesses covering seal
+  clone/copy, reconstruction, capability escape, second consume and a borrow
+  surviving consume;
 - parity between the legacy public Stage 5C entrypoint and the shared owning
   core.
 
 The enforcement checker pins both implementation source hashes, exact symbol
 cardinality, sealed signatures, exhaustive mappings, tests, canonical domains
-and closed-surface scans. Rehash-aware negative cases exercise the semantic
-r4 fields independently of the top-level inventory digest.
+and closed-surface scans. Rehash-aware negative cases independently remove or
+weaken chronology, authority recomputation, corruption tests and compile-fail
+fixtures, proving that the semantic gate fails even after source and inventory
+hashes are rebound.
 
 ## Closed surfaces
 

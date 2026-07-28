@@ -10,7 +10,7 @@
   "rejected_b3f_r2_ref": "ee23d6b4231c3c1483bcfacdb9189392183e2963",
   "rejected_b3f_r3_ref": "a5ccea08bc64a66e768340f7121e9b94a09ff884",
   "accepted_b3f_r4_ref": "148377f71b4afe6ce20f4e42433f58c812fb4917",
-  "expected_provenance_case_count": 507,
+  "expected_provenance_case_count": 515,
   "module_visibility_contract": {
     "callback_settlement_module": "pub_crate_child_module_named_opaque_surface_only",
     "schedule_window_evidence_module": "pub_crate_existing_module",
@@ -798,8 +798,8 @@
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "75e3e30deff70fd58f740361395bb82c32981bd6107831dfb21ff037591c6b7d"
   },
   "implementation_source_sha256": {
-    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "43010956489191f1b32209addf7eb263d85af58ae61fd562d4214d8380111b06",
-    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "4d99e21c1fe0048aa6029f143f5056b52cc2e669ec01f95f6cd26e53d4791688"
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "48a64d438bfc31e3afb2596846a60fa6609f03f138058a6450e81e27cbabcc1b",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "471f6b249cc3df8df10f319155bc44174bdf7c8a742606ca7c9715c54ede1948"
   },
   "allowed_changed_paths": [
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs",

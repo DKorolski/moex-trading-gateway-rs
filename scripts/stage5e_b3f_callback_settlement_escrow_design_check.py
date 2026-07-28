@@ -21,10 +21,10 @@ ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3f-callback-settlement-escrow-design"
 BASELINE_REF = "a5ccea08bc64a66e768340f7121e9b94a09ff884"
 EXPECTED_PLAN_SHA256 = (
-    "5d8ba933345c6ce38922ed737355cfbbffe2c054ac50d988728faa31d437b36a"
+    "e0be7e4d4832af7d63ef2e6527367e35dc823f134e4353511ed53288739c863a"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "39808070e04fc80162fa284b837497831d11ad905e2bb3509f891821e66c30d8"
+    "9730596347571c00ef19c147cf72c6c9f116313b3c1962504532286a653af755"
 )
 EXPECTED_PROTECTED_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -36,10 +36,10 @@ EXPECTED_PROTECTED_SOURCE_SHA256 = {
 }
 EXPECTED_IMPLEMENTATION_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
-        "43010956489191f1b32209addf7eb263d85af58ae61fd562d4214d8380111b06"
+        "48a64d438bfc31e3afb2596846a60fa6609f03f138058a6450e81e27cbabcc1b"
     ),
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": (
-        "4d99e21c1fe0048aa6029f143f5056b52cc2e669ec01f95f6cd26e53d4791688"
+        "471f6b249cc3df8df10f319155bc44174bdf7c8a742606ca7c9715c54ede1948"
     ),
 }
 EXPECTED_ALLOWED_CHANGED_PATHS = [
@@ -90,6 +90,11 @@ def canonical_sha256(value: object) -> str:
 
 def require_exact(actual: object, expected: object, message: str) -> None:
     if actual != expected:
+        fail(message)
+
+
+def require_source_fragment(source: str, fragment: str, message: str) -> None:
+    if fragment not in source:
         fail(message)
 
 
@@ -200,6 +205,43 @@ def validate_implementation_source() -> None:
             fail(f"Stage 5C mismatch gained forbidden trait: {forbidden_trait}")
     if "drop(exact_intent_vector);" not in stage5c_region:
         fail("early-attribution intent vector is no longer irreversibly disposed")
+    require_source_fragment(
+        stage5e_region,
+        "DateTime::from_timestamp(accepted_bar_close_ts, 0)",
+        "settlement chronology no longer reconstructs retained bar close",
+    )
+    for chronology_fragment in (
+        "accepted_bar_close <= audit._issued_at",
+        "accepted_bar_close <= callback_invoked_at",
+        "audit._b3c_effective_observed_at == audit._effective_observed_at",
+        "audit._b3c_effective_expires_at == audit._authority_expires_at",
+    ):
+        require_source_fragment(
+            stage5e_region,
+            chronology_fragment,
+            f"settlement chronology relation missing: {chronology_fragment}",
+        )
+    for authority_fragment in (
+        "let recomputed = super::callback_authority_id(",
+        "recomputed.0 == escrow.callback_authority_id",
+        "recomputed.0 == audit._callback_authority_id",
+    ):
+        require_source_fragment(
+            stage5e_region,
+            authority_fragment,
+            f"canonical callback-authority recomputation missing: {authority_fragment}",
+        )
+    if combined.count("super::callback_authority_id(") != 1:
+        fail("callback-authority encoder must have exactly one B3F call site")
+    for compile_fail_fixture in (
+        "b3f_compile_fail_consume_seal_clone_or_copy",
+        "b3f_compile_fail_consume_seal_reconstruction",
+        "b3f_compile_fail_capability_escape",
+        "b3f_compile_fail_second_escrow_consume",
+        "b3f_compile_fail_borrow_survives_consume",
+    ):
+        if compile_fail_fixture not in stage5e:
+            fail(f"required B3F compile-fail fixture missing: {compile_fail_fixture}")
     for test_name in (
         "b3f_owning_core_matches_legacy_public_zero_intent_settlement",
         "b3f_canonical_zero_intent_escrow_settles_once_with_one_entry_history",
@@ -210,6 +252,15 @@ def validate_implementation_source() -> None:
         "b3f_stage5c_error_mapper_is_exact_for_all_twelve_variants",
         "b3f_event_key_validator_rejects_every_frozen_source_drift",
         "b3f_settlement_identity_preserves_request_order_and_chronology",
+        "b3f_stage5c_preflight_validator_produces_all_nine_exact_mismatches",
+        "b3f_callback_before_retained_close_is_terminal_chronology_mismatch",
+        "b3f_retained_close_after_authority_issue_is_terminal_chronology_mismatch",
+        "b3f_b3c_outer_chronology_drift_is_terminal_chronology_mismatch",
+        "b3f_same_wrong_stored_authority_ids_fail_canonical_recomputation",
+        "b3f_canonical_authority_input_drift_without_new_id_is_identity_mismatch",
+        "b3f_early_attribution_error_disposes_exact_intent_vector",
+        "b3f_owning_core_matches_legacy_public_nonempty_settlement",
+        "b3f_owning_core_matches_legacy_public_representative_error",
     ):
         if test_name not in stage5c + stage5e:
             fail(f"required B3F acceptance test missing: {test_name}")
@@ -242,7 +293,7 @@ def main() -> int:
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        507,
+        515,
         "provenance case count drift",
     )
     require_exact(
