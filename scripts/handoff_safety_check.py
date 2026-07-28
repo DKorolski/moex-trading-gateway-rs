@@ -475,6 +475,22 @@ def check_archive(path: Path) -> None:
                     expected_surface_names.update(
                         {"durable_persistence", "crash_restart_recovery"}
                     )
+                    transition = stage5e_inventory.get("transition_contract")
+                    if (
+                        stage5e_inventory.get("accepted_b3f_r4_ref")
+                        != "148377f71b4afe6ce20f4e42433f58c812fb4917"
+                        or not isinstance(transition, dict)
+                        or transition.get("implementation_status")
+                        != "implemented_private_process_local_pending_review"
+                        or transition.get(
+                            "settlement_implementation_allowed_in_this_stage"
+                        )
+                        is not True
+                    ):
+                        raise SystemExit(
+                            "handoff safety: Stage 5E B3F implementation authority mismatch"
+                        )
+                    opened_private_surfaces.add("escrow_validation_or_settlement")
                 if (
                     not isinstance(closed, dict)
                     or set(closed) != expected_surface_names
