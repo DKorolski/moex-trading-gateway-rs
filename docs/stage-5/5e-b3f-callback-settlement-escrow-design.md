@@ -1038,3 +1038,22 @@ venue-calendar inference
 The private process-local settlement seam itself remains non-dispatchable and
 non-persistent. Any future consumer of either receipt requires a separate
 review.
+
+## B3F-r6 production-sensitive privacy enforcement
+
+The compile-fail evidence now includes a temporary-source-tree UI harness
+against the actual private production types. A clean baseline must compile
+before each probe is injected. The six probes verify the exact rustc failure
+classes for consume-seal Clone and Copy, sibling reconstruction, payload
+capability escape, second escrow consumption, and a live preflight borrow
+across escrow movement. No probe uses unconditional `compile_error!`.
+
+Retained-close opacity is enforced structurally. The checker freezes the exact
+Stage 5C B3F function set, the complete function set accepting
+`Stage5eAcceptedBarSettlementMetadata`, and the sole test-only inherent impl.
+Any differently named getter, free scalar/tuple bridge, trait bridge, second
+seal constructor, Clone/Copy implementation, or payload capability
+storage/access fails even when source and inventory hashes are rebound.
+
+This is enforcement-only hardening. It does not add Redis, FINAM, transport,
+dispatch, broker execution, persistence, runtime-live, or any external I/O.

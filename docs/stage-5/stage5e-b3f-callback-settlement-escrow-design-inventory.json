@@ -10,7 +10,48 @@
   "rejected_b3f_r2_ref": "ee23d6b4231c3c1483bcfacdb9189392183e2963",
   "rejected_b3f_r3_ref": "a5ccea08bc64a66e768340f7121e9b94a09ff884",
   "accepted_b3f_r4_ref": "148377f71b4afe6ce20f4e42433f58c812fb4917",
-  "expected_provenance_case_count": 518,
+  "expected_provenance_case_count": 527,
+  "production_ui_harness_contract": {
+    "path": "scripts/stage5e_b3f_production_ui_harness.py",
+    "sha256": "45c4b3bfb144c0ee88b735bb3cc916225d73d83cbf191cd954334a29b052c701",
+    "normal_runtime_surface": false,
+    "baseline_must_compile": true,
+    "temporary_source_tree": true,
+    "unconditional_compile_error_allowed": false,
+    "cases": {
+      "actual_consume_seal_clone": "E0599",
+      "actual_consume_seal_copy": "E0382",
+      "actual_sibling_seal_reconstruction": "E0603",
+      "actual_payload_capability_escape": "E0609",
+      "actual_escrow_second_consume": "E0382",
+      "actual_preflight_borrow_across_escrow_move": "E0505"
+    }
+  },
+  "opaque_metadata_structural_allowlist_contract": {
+    "stage5c_b3f_functions": [
+      "borrow_identity_proof",
+      "construct_stage5e_stage5c_settlement_material",
+      "construct_stage5e_success_receipt",
+      "construct_stage5e_terminal_receipt",
+      "issue_stage5c_b3f_settlement_material_seal",
+      "issue_stage5c_b3f_settlement_seal",
+      "settle_stage5e_callback_escrow_material",
+      "test_identity_proof_shape",
+      "validate_stage5e_b3f_retained_close_chronology",
+      "validate_stage5e_b3f_stage5c_preflight_binding"
+    ],
+    "metadata_functions": [
+      "construct_stage5e_stage5c_settlement_material",
+      "validate_stage5e_b3f_retained_close_chronology",
+      "validate_stage5e_b3f_stage5c_preflight_binding"
+    ],
+    "production_inherent_impl_count": 0,
+    "production_trait_impl_count": 0,
+    "test_only_inherent_impl_count": 1,
+    "raw_scalar_getters_allowed": false,
+    "free_scalar_or_tuple_bridges_allowed": false,
+    "payload_capability_storage_or_access_allowed": false
+  },
   "module_visibility_contract": {
     "callback_settlement_module": "pub_crate_child_module_named_opaque_surface_only",
     "schedule_window_evidence_module": "pub_crate_existing_module",
@@ -855,7 +896,9 @@
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
     "scripts/stage5d_additive_freeze_check.py",
-    "scripts/stage5e_b3f_callback_settlement_escrow_design_check.py"
+    "scripts/stage5e_b3f_callback_settlement_escrow_design_check.py",
+    "scripts/stage5e_b3f_production_ui_harness.py",
+    "scripts/stage5e_lifecycle_event_time_gate.sh"
   ],
   "closed_surfaces": {
     "actual_callback_invocation": true,

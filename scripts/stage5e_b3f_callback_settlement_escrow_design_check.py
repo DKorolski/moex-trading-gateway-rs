@@ -21,10 +21,10 @@ ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3f-callback-settlement-escrow-design"
 BASELINE_REF = "a5ccea08bc64a66e768340f7121e9b94a09ff884"
 EXPECTED_PLAN_SHA256 = (
-    "a2433e5fd18eeae5a58e51fb1c54697e4ac4a282251ea2509a11149acca29a8b"
+    "a726bc85e11ec95543a88ba40dc93a81afbbbd313d86b951c61c0f760a54e959"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "f16333f076cfdd15cc2be29227c3752886fd2e1221c00350e779d1540847ad72"
+    "70fa865c130c79faeebd60963908be40ee940506af58de7443a46276c11c3e8d"
 )
 EXPECTED_PROTECTED_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -57,6 +57,8 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "scripts/handoff_safety_check.py",
     "scripts/stage5d_additive_freeze_check.py",
     "scripts/stage5e_b3f_callback_settlement_escrow_design_check.py",
+    "scripts/stage5e_b3f_production_ui_harness.py",
+    "scripts/stage5e_lifecycle_event_time_gate.sh",
 ]
 EXPECTED_STAGE5C_ERROR_MAPPING = {
     "TooManyIntents": "IntentCapacityExceeded",
@@ -71,6 +73,23 @@ EXPECTED_STAGE5C_ERROR_MAPPING = {
     "RequestIdMismatch": "Stage5cPendingRequestMismatch",
     "DuplicateRequestId": "Stage5cIntentValidationFailed",
     "UnsupportedIntentAction": "Stage5cIntentValidationFailed",
+}
+EXPECTED_STAGE5C_B3F_FUNCTIONS = {
+    "validate_stage5e_b3f_retained_close_chronology",
+    "validate_stage5e_b3f_stage5c_preflight_binding",
+    "issue_stage5c_b3f_settlement_material_seal",
+    "issue_stage5c_b3f_settlement_seal",
+    "construct_stage5e_stage5c_settlement_material",
+    "borrow_identity_proof",
+    "construct_stage5e_success_receipt",
+    "test_identity_proof_shape",
+    "construct_stage5e_terminal_receipt",
+    "settle_stage5e_callback_escrow_material",
+}
+EXPECTED_METADATA_FUNCTIONS = {
+    "validate_stage5e_b3f_retained_close_chronology",
+    "validate_stage5e_b3f_stage5c_preflight_binding",
+    "construct_stage5e_stage5c_settlement_material",
 }
 
 
@@ -210,10 +229,96 @@ def validate_implementation_source() -> None:
             fail(f"Stage 5C mismatch gained forbidden trait: {forbidden_trait}")
     if "drop(exact_intent_vector);" not in stage5c_region:
         fail("early-attribution intent vector is no longer irreversibly disposed")
+    stage5c_region_functions = set(
+        re.findall(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", stage5c_region)
+    )
+    require_exact(
+        stage5c_region_functions,
+        EXPECTED_STAGE5C_B3F_FUNCTIONS,
+        "Stage 5C B3F structural function allowlist drift",
+    )
+    metadata_functions = set(
+        re.findall(
+            r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*"
+            r"\([^{};]*Stage5eAcceptedBarSettlementMetadata[^{};]*\)",
+            stage5c,
+            re.S,
+        )
+    )
+    require_exact(
+        metadata_functions,
+        EXPECTED_METADATA_FUNCTIONS,
+        "opaque retained-close metadata function allowlist drift",
+    )
+    metadata_impls = re.findall(
+        r"(?m)^[ \t]*(?:impl(?:<[^{}\n]+>)?[^{}\n]*"
+        r"Stage5eAcceptedBarSettlementMetadata[^{}\n]*\{)",
+        stage5c,
+    )
+    require_exact(
+        metadata_impls,
+        ["impl Stage5eAcceptedBarSettlementMetadata {"],
+        "opaque retained-close metadata impl allowlist drift",
+    )
+    require_exact(
+        stage5c.count(
+            "#[cfg(test)]\nimpl Stage5eAcceptedBarSettlementMetadata {"
+        ),
+        1,
+        "opaque retained-close metadata test-only impl drift",
+    )
     if "fn accepted_bar_close_ts(" in stage5c:
         fail("production raw retained-close getter opened")
     if ".accepted_bar_close_ts()" in stage5e:
         fail("settlement chronology regressed to raw scalar extraction")
+    seal_definition = "pub(crate) struct Stage5ePaperSettlementConsumeSeal(());"
+    require_exact(
+        stage5e.count("Stage5ePaperSettlementConsumeSeal(())"),
+        2,
+        "settlement consume seal constructor count drift",
+    )
+    seal_offset = stage5e.index(seal_definition)
+    if "derive(Clone" in stage5e[max(0, seal_offset - 80) : seal_offset] or re.search(
+        r"derive\([^)]*\bCopy\b[^)]*\)\s*"
+        r"pub\(crate\) struct Stage5ePaperSettlementConsumeSeal",
+        stage5e[max(0, seal_offset - 160) : seal_offset + len(seal_definition)],
+    ):
+        fail("settlement consume seal gained Clone/Copy")
+    if re.search(
+        r"impl(?:<[^>]+>)?\s+(?:Clone|Copy)\s+for\s+"
+        r"Stage5ePaperSettlementConsumeSeal",
+        stage5e,
+    ):
+        fail("settlement consume seal gained Clone/Copy impl")
+    if re.search(r"impl\s+Stage5ePaperSettlementConsumeSeal\s*\{", stage5e):
+        fail("settlement consume seal gained a second construction surface")
+    payload_match = re.search(
+        r"pub\(super\) struct Stage5ePaperSettlementPayload\s*\{"
+        r"(?P<body>.*?)\n        \}",
+        stage5e_region,
+        re.S,
+    )
+    if payload_match is None:
+        fail("settlement payload structural definition missing")
+    if "Stage5ePaperSettlementConsumeSeal" in payload_match.group("body"):
+        fail("settlement payload stores consume capability")
+    payload_impl_start = stage5e_region.index(
+        "impl Stage5ePaperSettlementPayload {"
+    )
+    payload_impl_end = stage5e_region.index(
+        "enum Stage5ePaperSettlementPreflightDecision", payload_impl_start
+    )
+    payload_impl_functions = set(
+        re.findall(
+            r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+            stage5e_region[payload_impl_start:payload_impl_end],
+        )
+    )
+    require_exact(
+        payload_impl_functions,
+        {"from_escrow"},
+        "settlement payload method allowlist drift",
+    )
     for retained_close_fragment in (
         "pub(crate) fn validate_stage5e_b3f_retained_close_chronology(",
         "DateTime::from_timestamp(retained_bar_metadata.accepted_bar_close_ts, 0)",
@@ -351,8 +456,45 @@ def main() -> int:
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        518,
+        527,
         "provenance case count drift",
+    )
+    ui_contract = inventory.get("production_ui_harness_contract")
+    require_exact(
+        ui_contract,
+        {
+            "path": "scripts/stage5e_b3f_production_ui_harness.py",
+            "sha256": sha256(
+                ROOT / "scripts/stage5e_b3f_production_ui_harness.py"
+            ),
+            "normal_runtime_surface": False,
+            "baseline_must_compile": True,
+            "temporary_source_tree": True,
+            "unconditional_compile_error_allowed": False,
+            "cases": {
+                "actual_consume_seal_clone": "E0599",
+                "actual_consume_seal_copy": "E0382",
+                "actual_sibling_seal_reconstruction": "E0603",
+                "actual_payload_capability_escape": "E0609",
+                "actual_escrow_second_consume": "E0382",
+                "actual_preflight_borrow_across_escrow_move": "E0505",
+            },
+        },
+        "production UI harness contract drift",
+    )
+    require_exact(
+        inventory.get("opaque_metadata_structural_allowlist_contract"),
+        {
+            "stage5c_b3f_functions": sorted(EXPECTED_STAGE5C_B3F_FUNCTIONS),
+            "metadata_functions": sorted(EXPECTED_METADATA_FUNCTIONS),
+            "production_inherent_impl_count": 0,
+            "production_trait_impl_count": 0,
+            "test_only_inherent_impl_count": 1,
+            "raw_scalar_getters_allowed": False,
+            "free_scalar_or_tuple_bridges_allowed": False,
+            "payload_capability_storage_or_access_allowed": False,
+        },
+        "opaque metadata structural allowlist contract drift",
     )
     require_exact(
         inventory.get("allowed_changed_paths"),
