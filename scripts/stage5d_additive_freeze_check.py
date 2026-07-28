@@ -145,9 +145,13 @@ EXPECTED_CLOSED_SURFACES = {
 EXPECTED_STAGE5C_PRIVATE_LAYOUT_EXTENSIONS = [
     {
         "path": "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
-        "reason_id": "stage5d-b2b-a-persisted-load-provenance-v1",
+        "reason_id": "stage5e-b3f-canonical-owning-core-private-extension-v1",
         "public_api_unchanged": True,
         "stripped_without_additive_regions_sha256": (
+            "ed2408a39fcf06b1adef702b08ffeb6d62744ff65454c501a8c1134751e09a93"
+        ),
+        "pre_b3f_reason_id": "stage5d-b2b-a-persisted-load-provenance-v1",
+        "pre_b3f_stripped_without_additive_regions_sha256": (
             "bcc2c4d6ff08d06c49f9716495ce177fc968a8dcd71f6b2c38bcb8d5b4cb0914"
         ),
     }
@@ -3184,7 +3188,13 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
                 or extension.get("stripped_without_additive_regions_sha256") != stripped_hash
                 or extension.get("public_api_unchanged") is not True
                 or extension.get("reason_id")
+                != "stage5e-b3f-canonical-owning-core-private-extension-v1"
+                or extension.get("pre_b3f_reason_id")
                 != "stage5d-b2b-a-persisted-load-provenance-v1"
+                or extension.get(
+                    "pre_b3f_stripped_without_additive_regions_sha256"
+                )
+                != "bcc2c4d6ff08d06c49f9716495ce177fc968a8dcd71f6b2c38bcb8d5b4cb0914"
             ):
                 failures.append(f"{rel}: frozen region does not match Stage 5C closure source")
 

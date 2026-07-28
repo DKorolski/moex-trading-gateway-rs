@@ -5987,6 +5987,375 @@ impl Stage5eStage5cPostCallbackMaterial {
         )
     }
 }
+
+// STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-BEGIN: stage5c-private-bridge-v1
+pub(crate) struct Stage5eB3fStage5cExpectedPreflightBinding<'a> {
+    audit_schedule_identity_fingerprint: &'a [u8; 32],
+    audit_sequence_identity_fingerprint: &'a [u8; 32],
+    audit_event_key_fingerprint: &'a [u8; 32],
+    audit_b3b_event_key_fingerprint: &'a [u8; 32],
+    audit_full_instrument_id: &'a InstrumentId,
+    audit_owned_instrument: &'a InstrumentId,
+    audit_accepted_semantic_bar_identity: &'a [u8; 32],
+    audit_owned_bar_identity: &'a [u8; 32],
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn construct_stage5e_b3f_stage5c_expected_preflight_binding<'a>(
+    audit_schedule_identity_fingerprint: &'a [u8; 32],
+    audit_sequence_identity_fingerprint: &'a [u8; 32],
+    audit_event_key_fingerprint: &'a [u8; 32],
+    audit_b3b_event_key_fingerprint: &'a [u8; 32],
+    audit_full_instrument_id: &'a InstrumentId,
+    audit_owned_instrument: &'a InstrumentId,
+    audit_accepted_semantic_bar_identity: &'a [u8; 32],
+    audit_owned_bar_identity: &'a [u8; 32],
+    _seal: &crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::Stage5ePaperSettlementPreflightSeal,
+) -> Stage5eB3fStage5cExpectedPreflightBinding<'a> {
+    Stage5eB3fStage5cExpectedPreflightBinding {
+        audit_schedule_identity_fingerprint,
+        audit_sequence_identity_fingerprint,
+        audit_event_key_fingerprint,
+        audit_b3b_event_key_fingerprint,
+        audit_full_instrument_id,
+        audit_owned_instrument,
+        audit_accepted_semantic_bar_identity,
+        audit_owned_bar_identity,
+    }
+}
+
+pub(crate) enum Stage5eStage5cPreflightMismatch {
+    StrategyId,
+    AccountId,
+    FullInstrumentId,
+    SemanticBarIdentity,
+    AcceptedBarClose,
+    AuditEventKey,
+    PaperMode,
+    AcceptedBarOrigin,
+    ExecutionEligibility,
+}
+
+pub(crate) struct Stage5eStage5cPreflightValidatedProof(());
+
+pub(crate) fn validate_stage5e_b3f_stage5c_preflight_binding(
+    recovery_receipt: &Stage5cPendingRecoveryReceipt,
+    attribution_snapshot: &Stage5ePreCallbackAttributionSnapshot,
+    retained_bar_metadata: &Stage5eAcceptedBarSettlementMetadata,
+    expected: &Stage5eB3fStage5cExpectedPreflightBinding<'_>,
+    seal: &crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::Stage5ePaperSettlementPreflightSeal,
+) -> Result<Stage5eStage5cPreflightValidatedProof, Stage5eStage5cPreflightMismatch> {
+    let admission = &recovery_receipt
+        .warmup_receipt()
+        .restore_receipt()
+        .bootstrap_receipt()
+        .admission;
+    if admission.strategy_id() != attribution_snapshot.strategy_id {
+        return Err(Stage5eStage5cPreflightMismatch::StrategyId);
+    }
+    if admission.account_id() != &attribution_snapshot.account_id {
+        return Err(Stage5eStage5cPreflightMismatch::AccountId);
+    }
+    if admission.target_instrument() != &attribution_snapshot.target_instrument
+        || admission.target_instrument() != expected.audit_full_instrument_id
+        || admission.target_instrument() != expected.audit_owned_instrument
+    {
+        return Err(Stage5eStage5cPreflightMismatch::FullInstrumentId);
+    }
+    if attribution_snapshot.accepted_semantic_bar_identity
+        != retained_bar_metadata.accepted_semantic_bar_identity
+        || &attribution_snapshot.accepted_semantic_bar_identity
+            != expected.audit_accepted_semantic_bar_identity
+        || &attribution_snapshot.accepted_semantic_bar_identity != expected.audit_owned_bar_identity
+    {
+        return Err(Stage5eStage5cPreflightMismatch::SemanticBarIdentity);
+    }
+    if attribution_snapshot.accepted_bar_close_ts != retained_bar_metadata.accepted_bar_close_ts {
+        return Err(Stage5eStage5cPreflightMismatch::AcceptedBarClose);
+    }
+    if crate::stage5e_no_io_lifecycle::schedule_window_evidence::
+        validate_stage5e_b3f_b3b_event_key_binding(
+            expected.audit_schedule_identity_fingerprint,
+            expected.audit_full_instrument_id,
+            retained_bar_metadata.accepted_bar_close_ts,
+            expected.audit_sequence_identity_fingerprint,
+            expected.audit_event_key_fingerprint,
+            expected.audit_b3b_event_key_fingerprint,
+            seal,
+        )
+        .is_err()
+    {
+        return Err(Stage5eStage5cPreflightMismatch::AuditEventKey);
+    }
+    if !admission.is_paper_only()
+        || admission.runtime_host_attached()
+        || admission.intent_sink_attached()
+    {
+        return Err(Stage5eStage5cPreflightMismatch::PaperMode);
+    }
+    if retained_bar_metadata.accepted_bar_origin != broker_core::HybridRuntimeBarOrigin::Live {
+        return Err(Stage5eStage5cPreflightMismatch::AcceptedBarOrigin);
+    }
+    if !retained_bar_metadata.execution_eligible {
+        return Err(Stage5eStage5cPreflightMismatch::ExecutionEligibility);
+    }
+    Ok(Stage5eStage5cPreflightValidatedProof(()))
+}
+
+pub(crate) struct Stage5cB3fSettlementMaterialSeal(());
+pub(crate) struct Stage5cB3fSettlementSeal(());
+struct Stage5cB3fSuccessProofSeal(());
+
+pub(crate) fn issue_stage5c_b3f_settlement_material_seal(
+    _consume_capability: &crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::Stage5ePaperSettlementConsumeSeal,
+) -> Stage5cB3fSettlementMaterialSeal {
+    Stage5cB3fSettlementMaterialSeal(())
+}
+
+pub(crate) fn issue_stage5c_b3f_settlement_seal(
+    _consume_capability: &crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::Stage5ePaperSettlementConsumeSeal,
+) -> Stage5cB3fSettlementSeal {
+    Stage5cB3fSettlementSeal(())
+}
+
+pub(crate) struct Stage5eStage5cSettlementMaterial {
+    mutated_strategy: HybridIntradayRuntimeStrategy,
+    recovery_receipt: Stage5cPendingRecoveryReceipt,
+    pre_callback_attribution_snapshot: Stage5ePreCallbackAttributionSnapshot,
+    retained_bar_metadata: Stage5eAcceptedBarSettlementMetadata,
+    exact_intent_vector: Vec<crate::BrokerNeutralHybridIntent>,
+    derived_original_intent_count: usize,
+}
+
+pub(crate) fn construct_stage5e_stage5c_settlement_material(
+    mutated_strategy: HybridIntradayRuntimeStrategy,
+    recovery_receipt: Stage5cPendingRecoveryReceipt,
+    pre_callback_attribution_snapshot: Stage5ePreCallbackAttributionSnapshot,
+    retained_bar_metadata: Stage5eAcceptedBarSettlementMetadata,
+    exact_intent_vector: Vec<crate::BrokerNeutralHybridIntent>,
+    _seal: Stage5cB3fSettlementMaterialSeal,
+) -> Stage5eStage5cSettlementMaterial {
+    let derived_original_intent_count = exact_intent_vector.len();
+    Stage5eStage5cSettlementMaterial {
+        mutated_strategy,
+        recovery_receipt,
+        pre_callback_attribution_snapshot,
+        retained_bar_metadata,
+        exact_intent_vector,
+        derived_original_intent_count,
+    }
+}
+
+pub(crate) struct Stage5eStage5cSettlementSuccess {
+    settled: Stage5cSettledPaperStrategy,
+}
+
+pub(crate) struct Stage5eStage5cSettlementSuccessProof<'a> {
+    strategy_id: &'a str,
+    account_id: &'a BrokerAccountId,
+    full_instrument_id: &'a InstrumentId,
+    accepted_bar_close_timestamp: i64,
+    batch_state_fingerprint: &'a str,
+    ordered_strategy_request_ids: &'a [StrategyRequestId],
+    intent_count_u8: u8,
+    settled_batch_history_length: usize,
+    canonical_first_batch_summary: &'a Stage5cPaperIntentBatchSummary,
+}
+
+pub(crate) struct Stage5eStage5cSettlementTerminalMaterial {
+    mutated_strategy: HybridIntradayRuntimeStrategy,
+    recovery_receipt: Stage5cPendingRecoveryReceipt,
+    pre_callback_attribution_snapshot: Stage5ePreCallbackAttributionSnapshot,
+    retained_bar_metadata: Stage5eAcceptedBarSettlementMetadata,
+    exact_stage5c_intent_settlement_error: Stage5cIntentSettlementError,
+    derived_original_intent_count: usize,
+}
+
+impl Stage5eStage5cSettlementSuccess {
+    fn borrow_identity_proof(
+        &self,
+        _seal: &Stage5cB3fSuccessProofSeal,
+    ) -> Stage5eStage5cSettlementSuccessProof<'_> {
+        let batch = &self.settled.batch;
+        let canonical_first_batch_summary = self
+            .settled
+            .settled_batch_history
+            .first()
+            .expect("canonical B3F settlement history is never empty");
+        debug_assert_eq!(self.settled.settled_batch_history.len(), 1);
+        debug_assert_eq!(
+            canonical_first_batch_summary,
+            &stage5ch_batch_summary(batch)
+        );
+        Stage5eStage5cSettlementSuccessProof {
+            strategy_id: &batch.strategy_id,
+            account_id: &batch.account_id,
+            full_instrument_id: &batch.instrument,
+            accepted_bar_close_timestamp: batch.bar_close_ts,
+            batch_state_fingerprint: &batch.state_fingerprint,
+            ordered_strategy_request_ids: &batch.request_ids,
+            intent_count_u8: u8::try_from(batch.records.len())
+                .expect("canonical Stage 5C batch capacity is u8-bounded"),
+            settled_batch_history_length: self.settled.settled_batch_history.len(),
+            canonical_first_batch_summary,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn construct_stage5e_success_receipt(
+        self,
+        audit_lineage: crate::stage5e_no_io_lifecycle::callback_authority::Stage5eAuthorizedCallbackAuditLineage,
+        callback_invoked_at: DateTime<Utc>,
+        callback_authority_id: [u8; 32],
+        accepted_semantic_bar_identity: [u8; 32],
+        audit_commitment: [u8; 32],
+        success_seal: crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::Stage5ePaperSettlementSuccessSeal,
+    ) -> crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::Stage5eValidatedPaperSettlementReceipt{
+        let settlement_identity = {
+            let proof = self.borrow_identity_proof(&Stage5cB3fSuccessProofSeal(()));
+            debug_assert_eq!(proof.settled_batch_history_length, 1);
+            debug_assert_eq!(
+                proof.canonical_first_batch_summary,
+                &stage5ch_batch_summary(&self.settled.batch)
+            );
+            crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::
+                construct_stage5e_b3f_settlement_identity(
+                    callback_authority_id,
+                    callback_invoked_at,
+                    accepted_semantic_bar_identity,
+                    proof.strategy_id,
+                    proof.account_id,
+                    proof.full_instrument_id,
+                    proof.accepted_bar_close_timestamp,
+                    proof.batch_state_fingerprint,
+                    proof.ordered_strategy_request_ids,
+                    proof.intent_count_u8,
+                    audit_commitment,
+                    &success_seal,
+                )
+        };
+        crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::
+            construct_stage5e_validated_paper_settlement_receipt(
+                self,
+                audit_lineage,
+                callback_invoked_at,
+                callback_authority_id,
+                settlement_identity,
+                success_seal,
+            )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_identity_proof_shape(&self) -> (Vec<StrategyRequestId>, usize, usize, bool) {
+        let proof = self.borrow_identity_proof(&Stage5cB3fSuccessProofSeal(()));
+        (
+            proof.ordered_strategy_request_ids.to_vec(),
+            usize::from(proof.intent_count_u8),
+            proof.settled_batch_history_length,
+            proof.canonical_first_batch_summary == &stage5ch_batch_summary(&self.settled.batch),
+        )
+    }
+}
+
+impl Stage5eStage5cSettlementTerminalMaterial {
+    pub(crate) fn construct_stage5e_terminal_receipt(
+        self,
+        audit_lineage: crate::stage5e_no_io_lifecycle::callback_authority::Stage5eAuthorizedCallbackAuditLineage,
+        callback_invoked_at: DateTime<Utc>,
+        callback_authority_id: [u8; 32],
+        audit_commitment: [u8; 32],
+        terminal_seal: crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::Stage5ePaperSettlementTerminalSeal,
+    ) -> crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::Stage5ePaperSettlementTerminalReceipt{
+        let Self {
+            mutated_strategy,
+            recovery_receipt,
+            pre_callback_attribution_snapshot,
+            retained_bar_metadata,
+            exact_stage5c_intent_settlement_error,
+            derived_original_intent_count,
+        } = self;
+        let reason = crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::
+            map_stage5c_settlement_error_exact(
+                exact_stage5c_intent_settlement_error,
+                &terminal_seal,
+            );
+        crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::
+            construct_stage5e_paper_settlement_terminal_receipt(
+                mutated_strategy,
+                recovery_receipt,
+                pre_callback_attribution_snapshot,
+                retained_bar_metadata,
+                audit_lineage,
+                callback_invoked_at,
+                callback_authority_id,
+                reason,
+                exact_stage5c_intent_settlement_error,
+                derived_original_intent_count,
+                audit_commitment,
+                terminal_seal,
+            )
+    }
+}
+
+#[allow(clippy::result_large_err)]
+pub(crate) fn settle_stage5e_callback_escrow_material(
+    material: Stage5eStage5cSettlementMaterial,
+    _seal: Stage5cB3fSettlementSeal,
+) -> Result<Stage5eStage5cSettlementSuccess, Stage5eStage5cSettlementTerminalMaterial> {
+    let Stage5eStage5cSettlementMaterial {
+        mutated_strategy,
+        recovery_receipt,
+        pre_callback_attribution_snapshot,
+        retained_bar_metadata,
+        exact_intent_vector,
+        derived_original_intent_count,
+    } = material;
+    let admission = &recovery_receipt
+        .warmup_receipt()
+        .restore_receipt()
+        .bootstrap_receipt()
+        .admission;
+    let expected_attribution_by_request =
+        match stage5cj_expected_generated_attribution_by_request_from_ledger(
+            admission,
+            retained_bar_metadata.accepted_bar_close_ts,
+            &exact_intent_vector,
+            &pre_callback_attribution_snapshot.cleanup_ledger,
+        ) {
+            Ok(expected) => expected,
+            Err(exact_stage5c_intent_settlement_error) => {
+                drop(exact_intent_vector);
+                return Err(Stage5eStage5cSettlementTerminalMaterial {
+                    mutated_strategy,
+                    recovery_receipt,
+                    pre_callback_attribution_snapshot,
+                    retained_bar_metadata,
+                    exact_stage5c_intent_settlement_error,
+                    derived_original_intent_count,
+                });
+            }
+        };
+    match settle_stage5c_semantic_result_owning_core(
+        mutated_strategy,
+        recovery_receipt,
+        retained_bar_metadata.accepted_bar_close_ts,
+        retained_bar_metadata.accepted_bar_origin,
+        retained_bar_metadata.execution_eligible,
+        exact_intent_vector,
+        expected_attribution_by_request,
+    ) {
+        Ok(settled) => Ok(Stage5eStage5cSettlementSuccess { settled }),
+        Err(failure) => Err(Stage5eStage5cSettlementTerminalMaterial {
+            mutated_strategy: failure.strategy,
+            recovery_receipt: failure.recovery_receipt,
+            pre_callback_attribution_snapshot,
+            retained_bar_metadata,
+            exact_stage5c_intent_settlement_error: failure.error,
+            derived_original_intent_count,
+        }),
+    }
+}
+// STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-END: stage5c-private-bridge-v1
 // STAGE5E-B3E-CALLBACK-IMPLEMENTATION-END: private-materialization-v1
 // STAGE5D-ADDITIVE-BRIDGE-END: stage5e-b3e-callback-materialization
 
@@ -6082,12 +6451,12 @@ fn stage5cf_semantic_context(
 pub fn settle_stage5c_semantic_result(
     result: Stage5cSemanticBarResult,
 ) -> Result<Stage5cSettledPaperStrategy, Stage5cIntentSettlementError> {
-    settle_stage5c_semantic_result_with_expected_attribution(result, &HashMap::new())
+    settle_stage5c_semantic_result_with_expected_attribution(result, HashMap::new())
 }
 
 fn settle_stage5c_semantic_result_with_expected_attribution(
     result: Stage5cSemanticBarResult,
-    expected_attribution_by_request: &HashMap<
+    expected_attribution_by_request: HashMap<
         StrategyRequestId,
         broker_core::HybridRuntimeAttribution,
     >,
@@ -6101,23 +6470,69 @@ fn settle_stage5c_semantic_result_with_expected_attribution(
         intents,
         mut result_expected_attribution_by_request,
     ) = result.into_parts();
-    result_expected_attribution_by_request.extend(expected_attribution_by_request.clone());
+    result_expected_attribution_by_request.extend(expected_attribution_by_request);
+    settle_stage5c_semantic_result_owning_core(
+        strategy,
+        recovery_receipt,
+        bar_close_ts,
+        origin,
+        execution_eligible,
+        intents,
+        result_expected_attribution_by_request,
+    )
+    .map_err(|failure| failure.error)
+}
+
+struct Stage5cOwningSettlementFailure {
+    strategy: HybridIntradayRuntimeStrategy,
+    recovery_receipt: Stage5cPendingRecoveryReceipt,
+    error: Stage5cIntentSettlementError,
+}
+
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::result_large_err)]
+fn settle_stage5c_semantic_result_owning_core(
+    strategy: HybridIntradayRuntimeStrategy,
+    recovery_receipt: Stage5cPendingRecoveryReceipt,
+    bar_close_ts: i64,
+    origin: broker_core::HybridRuntimeBarOrigin,
+    execution_eligible: bool,
+    intents: Vec<crate::BrokerNeutralHybridIntent>,
+    expected_attribution_by_request: HashMap<
+        StrategyRequestId,
+        broker_core::HybridRuntimeAttribution,
+    >,
+) -> Result<Stage5cSettledPaperStrategy, Stage5cOwningSettlementFailure> {
     let admission = &recovery_receipt
         .warmup_receipt()
         .restore_receipt()
         .bootstrap_receipt()
         .admission;
     if !execution_eligible && !intents.is_empty() {
-        return Err(Stage5cIntentSettlementError::ReplayIntentNotExecutable);
+        drop(intents);
+        return Err(Stage5cOwningSettlementFailure {
+            strategy,
+            recovery_receipt,
+            error: Stage5cIntentSettlementError::ReplayIntentNotExecutable,
+        });
     }
-    let batch = stage5c_build_paper_intent_batch(
+    let batch = match stage5c_build_paper_intent_batch(
         &strategy,
         admission,
         bar_close_ts,
         origin,
         intents,
-        &result_expected_attribution_by_request,
-    )?;
+        &expected_attribution_by_request,
+    ) {
+        Ok(batch) => batch,
+        Err(error) => {
+            return Err(Stage5cOwningSettlementFailure {
+                strategy,
+                recovery_receipt,
+                error,
+            });
+        }
+    };
     let settled_batch_history = vec![stage5ch_batch_summary(&batch)];
     Ok(Stage5cSettledPaperStrategy {
         strategy,
@@ -6125,6 +6540,51 @@ fn settle_stage5c_semantic_result_with_expected_attribution(
         batch,
         settled_batch_history,
     })
+}
+
+#[cfg(test)]
+mod stage5e_b3f_stage5c_settlement_tests {
+    use super::*;
+
+    #[test]
+    fn b3f_owning_core_matches_legacy_public_zero_intent_settlement() {
+        let now = Utc::now();
+        let predecessor = now.timestamp() - 600;
+        let (legacy_recovered, _) =
+            stage5e_test_nonempty_intent_sequence_inputs(now, predecessor, now.timestamp());
+        let (core_recovered, _) =
+            stage5e_test_nonempty_intent_sequence_inputs(now, predecessor, now.timestamp());
+        let (legacy_strategy, legacy_receipt) = legacy_recovered.into_parts();
+        let (core_strategy, core_receipt) = core_recovered.into_parts();
+
+        let legacy = settle_stage5c_semantic_result(Stage5cSemanticBarResult {
+            strategy: legacy_strategy,
+            recovery_receipt: legacy_receipt,
+            bar_close_ts: now.timestamp(),
+            origin: broker_core::HybridRuntimeBarOrigin::Live,
+            execution_eligible: true,
+            intents: Vec::new(),
+            expected_attribution_by_request: HashMap::new(),
+        })
+        .expect("legacy zero-intent settlement must pass");
+        let core = settle_stage5c_semantic_result_owning_core(
+            core_strategy,
+            core_receipt,
+            now.timestamp(),
+            broker_core::HybridRuntimeBarOrigin::Live,
+            true,
+            Vec::new(),
+            HashMap::new(),
+        )
+        .unwrap_or_else(|_| panic!("B3F owning core zero-intent settlement must pass"));
+
+        assert_eq!(
+            stage5ch_batch_summary(legacy.intent_batch()),
+            stage5ch_batch_summary(core.intent_batch())
+        );
+        assert_eq!(legacy.settled_batch_history(), core.settled_batch_history());
+        assert_eq!(legacy.settled_batch_history().len(), 1);
+    }
 }
 
 fn stage5c_build_paper_intent_batch(

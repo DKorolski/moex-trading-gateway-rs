@@ -811,6 +811,33 @@ pub(crate) mod schedule_window_evidence {
         encoder.finish()
     }
 
+    pub(crate) struct Stage5eB3fEventKeyValidatedProof(());
+    pub(crate) struct Stage5eB3fEventKeyMismatch(());
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn validate_stage5e_b3f_b3b_event_key_binding(
+        audit_schedule_identity_fingerprint: &[u8; 32],
+        audit_full_instrument_id: &broker_core::InstrumentId,
+        retained_bar_close_i64: i64,
+        audit_sequence_identity_fingerprint: &[u8; 32],
+        audit_event_key_fingerprint: &[u8; 32],
+        audit_b3b_event_key_fingerprint: &[u8; 32],
+        _seal: &crate::stage5e_no_io_lifecycle::callback_authority::callback_settlement::Stage5ePaperSettlementPreflightSeal,
+    ) -> Result<Stage5eB3fEventKeyValidatedProof, Stage5eB3fEventKeyMismatch> {
+        let recomputed = b3b_event_key_fingerprint(
+            *audit_schedule_identity_fingerprint,
+            audit_full_instrument_id,
+            retained_bar_close_i64,
+            *audit_sequence_identity_fingerprint,
+        );
+        if recomputed != *audit_event_key_fingerprint
+            || recomputed != *audit_b3b_event_key_fingerprint
+        {
+            return Err(Stage5eB3fEventKeyMismatch(()));
+        }
+        Ok(Stage5eB3fEventKeyValidatedProof(()))
+    }
+
     pub(crate) mod b3c_evidence {
         use super::*;
 
@@ -2896,6 +2923,146 @@ pub(crate) mod schedule_window_evidence {
         }
 
         #[test]
+        fn b3f_canonical_zero_intent_escrow_settles_once_with_one_entry_history() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::{
+                callback_settlement::validate_and_settle_stage5e_paper_callback_escrow,
+                invoke_stage5e_authorized_paper_callback_at, issue_stage5e_callback_authority_at,
+            };
+
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            let authority = issue_stage5e_callback_authority_at(canonical_b3c_receipt(now), now)
+                .unwrap_or_else(|_| panic!("canonical B3C receipt must issue authority"));
+            let escrow = invoke_stage5e_authorized_paper_callback_at(authority, now)
+                .unwrap_or_else(|_| panic!("canonical callback must reach escrow"));
+            let receipt = validate_and_settle_stage5e_paper_callback_escrow(escrow)
+                .unwrap_or_else(|_| panic!("canonical zero-intent escrow must settle"));
+            let (request_ids, intent_count, history_len, canonical_history) =
+                receipt.test_identity_proof_shape();
+            assert!(request_ids.is_empty());
+            assert_eq!(intent_count, 0);
+            assert_eq!(history_len, 1);
+            assert!(canonical_history);
+            assert_ne!(receipt.test_settlement_identity(), [0; 32]);
+        }
+
+        #[test]
+        fn b3f_source_produced_intent_preserves_ordered_request_ids_and_exact_count() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::{
+                callback_settlement::validate_and_settle_stage5e_paper_callback_escrow,
+                invoke_stage5e_authorized_paper_callback_at, issue_stage5e_callback_authority_at,
+            };
+
+            let now = Utc.with_ymd_and_hms(2026, 7, 24, 7, 0, 0).single().unwrap();
+            let authority = issue_stage5e_callback_authority_at(
+                canonical_nonempty_intent_b3c_receipt(now),
+                now,
+            )
+            .unwrap_or_else(|_| panic!("source-produced signal must issue authority"));
+            let escrow = invoke_stage5e_authorized_paper_callback_at(authority, now)
+                .unwrap_or_else(|_| panic!("source-produced callback must reach escrow"));
+            let receipt = validate_and_settle_stage5e_paper_callback_escrow(escrow)
+                .unwrap_or_else(|_| panic!("source-produced intent must pass Stage 5C settlement"));
+            let (request_ids, intent_count, history_len, canonical_history) =
+                receipt.test_identity_proof_shape();
+            assert_eq!(request_ids.len(), 1);
+            assert_eq!(intent_count, 1);
+            assert_eq!(history_len, 1);
+            assert!(canonical_history);
+        }
+
+        #[test]
+        fn b3f_callback_validation_error_consumes_escrow_into_terminal_receipt() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::{
+                callback_settlement::{
+                    validate_and_settle_stage5e_paper_callback_escrow,
+                    Stage5ePaperSettlementTerminalReason,
+                },
+                invoke_stage5e_authorized_paper_callback_at, issue_stage5e_callback_authority_at,
+            };
+
+            let now = Utc
+                .with_ymd_and_hms(2026, 7, 24, 10, 20, 0)
+                .single()
+                .unwrap();
+            let mut b3c = canonical_b3c_receipt(now);
+            b3c.b3b
+                .payload
+                .accepted_semantic_bar
+                .stage5e_test_force_callback_validation_error();
+            let authority = issue_stage5e_callback_authority_at(b3c, now)
+                .unwrap_or_else(|_| panic!("outer authority remains valid"));
+            let escrow = invoke_stage5e_authorized_paper_callback_at(authority, now)
+                .unwrap_or_else(|_| panic!("callback error must reach escrow"));
+            let terminal = validate_and_settle_stage5e_paper_callback_escrow(escrow)
+                .err()
+                .unwrap_or_else(|| panic!("callback validation error must be terminal"));
+            assert_eq!(
+                terminal.test_reason(),
+                Stage5ePaperSettlementTerminalReason::CallbackValidationError
+            );
+            assert_eq!(terminal.test_original_intent_count(), 0);
+            assert_eq!(
+                terminal.test_ownership_variant(),
+                "callback_validation_error"
+            );
+        }
+
+        #[test]
+        fn b3f_intent_capacity_boundary_is_exact_at_255_and_256() {
+            use crate::stage5e_no_io_lifecycle::callback_authority::{
+                callback_settlement::{
+                    validate_and_settle_stage5e_paper_callback_escrow,
+                    Stage5ePaperSettlementTerminalReason,
+                },
+                invoke_stage5e_authorized_paper_callback_at, issue_stage5e_callback_authority_at,
+            };
+
+            let now = Utc.with_ymd_and_hms(2026, 7, 24, 7, 0, 0).single().unwrap();
+            let make_escrow = || {
+                let authority = issue_stage5e_callback_authority_at(
+                    canonical_nonempty_intent_b3c_receipt(now),
+                    now,
+                )
+                .unwrap_or_else(|_| panic!("source-produced signal must issue authority"));
+                invoke_stage5e_authorized_paper_callback_at(authority, now)
+                    .unwrap_or_else(|_| panic!("source-produced callback must reach escrow"))
+            };
+
+            let mut at_limit = make_escrow();
+            at_limit.test_repeat_first_ok_intent(u8::MAX as usize);
+            let at_limit_terminal = validate_and_settle_stage5e_paper_callback_escrow(at_limit)
+                .err()
+                .unwrap_or_else(|| panic!("duplicate source request IDs must fail in Stage 5C"));
+            assert_ne!(
+                at_limit_terminal.test_reason(),
+                Stage5ePaperSettlementTerminalReason::IntentCapacityExceeded
+            );
+            assert_eq!(
+                at_limit_terminal.test_original_intent_count(),
+                u8::MAX as usize
+            );
+            assert_eq!(at_limit_terminal.test_ownership_variant(), "stage5c");
+
+            let mut over_limit = make_escrow();
+            over_limit.test_repeat_first_ok_intent(u8::MAX as usize + 1);
+            let over_limit_terminal = validate_and_settle_stage5e_paper_callback_escrow(over_limit)
+                .err()
+                .unwrap_or_else(|| panic!("256 intents must be terminal before Stage 5C"));
+            assert_eq!(
+                over_limit_terminal.test_reason(),
+                Stage5ePaperSettlementTerminalReason::IntentCapacityExceeded
+            );
+            assert_eq!(
+                over_limit_terminal.test_original_intent_count(),
+                u8::MAX as usize + 1
+            );
+            assert_eq!(over_limit_terminal.test_ownership_variant(), "preflight_ok");
+        }
+
+        #[test]
         fn b3e_expiry_and_identity_mismatch_block_before_callback() {
             use crate::stage5e_no_io_lifecycle::callback_authority::{
                 invoke_stage5e_authorized_paper_callback_at, issue_stage5e_callback_authority_at,
@@ -4918,7 +5085,1012 @@ pub(crate) mod callback_authority {
         ) -> (i64, broker_core::HybridRuntimeBarOrigin, bool, [u8; 32]) {
             self.retained_bar_metadata.test_retained_bar_metadata()
         }
+
+        pub(crate) fn test_repeat_first_ok_intent(&mut self, count: usize) {
+            let PrivateStage5ePaperCallbackOutcome::Ok(intents) = &mut self.callback_outcome.inner
+            else {
+                panic!("test requires an Ok callback outcome");
+            };
+            let template = intents
+                .first()
+                .cloned()
+                .expect("test requires a non-empty callback outcome");
+            intents.clear();
+            intents.resize(count, template);
+        }
     }
+
+    // STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-BEGIN: private-process-local-v1
+    impl Stage5ePaperCallbackResultEscrow {
+        fn borrow_for_settlement_preflight(
+            &self,
+            seal: &callback_settlement::Stage5ePaperSettlementPreflightSeal,
+        ) -> callback_settlement::Stage5ePaperSettlementPreflight<'_> {
+            callback_settlement::Stage5ePaperSettlementPreflight::from_escrow(self, seal)
+        }
+
+        fn consume_for_settlement(
+            self,
+            seal: &callback_settlement::Stage5ePaperSettlementConsumeSeal,
+        ) -> callback_settlement::Stage5ePaperSettlementPayload {
+            callback_settlement::Stage5ePaperSettlementPayload::from_escrow(self, seal)
+        }
+    }
+
+    pub(crate) mod callback_settlement {
+        use super::{
+            DateTime, Digest, PrivateStage5ePaperCallbackOutcome,
+            Stage5eAuthorizedCallbackAuditLineage, Stage5ePaperCallbackOutcome,
+            Stage5ePaperCallbackResultEscrow, Utc,
+        };
+        use sha2::Sha256;
+
+        pub(crate) struct Stage5ePaperSettlementPreflightSeal(());
+        pub(crate) struct Stage5ePaperSettlementConsumeSeal(());
+        pub(crate) struct Stage5ePaperSettlementSuccessSeal(());
+        pub(crate) struct Stage5ePaperSettlementTerminalSeal(());
+        struct Stage5eB3fAuditCommitmentSeal(());
+
+        pub(super) struct Stage5ePaperSettlementPreflight<'a> {
+            escrow: &'a Stage5ePaperCallbackResultEscrow,
+        }
+
+        impl<'a> Stage5ePaperSettlementPreflight<'a> {
+            pub(super) fn from_escrow(
+                escrow: &'a Stage5ePaperCallbackResultEscrow,
+                _seal: &Stage5ePaperSettlementPreflightSeal,
+            ) -> Self {
+                Self { escrow }
+            }
+        }
+
+        pub(super) struct Stage5ePaperSettlementPayload {
+            mutated_strategy: crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+            recovery_receipt: crate::stage5c_paper_host::Stage5cPendingRecoveryReceipt,
+            audit_lineage: Stage5eAuthorizedCallbackAuditLineage,
+            pre_callback_attribution_snapshot:
+                crate::stage5c_paper_host::Stage5ePreCallbackAttributionSnapshot,
+            retained_bar_metadata: crate::stage5c_paper_host::Stage5eAcceptedBarSettlementMetadata,
+            callback_invoked_at: DateTime<Utc>,
+            callback_authority_id: [u8; 32],
+            callback_outcome: Stage5ePaperCallbackOutcome,
+        }
+
+        impl Stage5ePaperSettlementPayload {
+            pub(super) fn from_escrow(
+                escrow: Stage5ePaperCallbackResultEscrow,
+                _seal: &Stage5ePaperSettlementConsumeSeal,
+            ) -> Self {
+                let Stage5ePaperCallbackResultEscrow {
+                    mutated_strategy,
+                    recovery_receipt,
+                    audit_lineage,
+                    attribution_snapshot,
+                    retained_bar_metadata,
+                    callback_invoked_at,
+                    callback_authority_id,
+                    callback_outcome,
+                } = escrow;
+                Self {
+                    mutated_strategy,
+                    recovery_receipt,
+                    audit_lineage,
+                    pre_callback_attribution_snapshot: attribution_snapshot,
+                    retained_bar_metadata,
+                    callback_invoked_at,
+                    callback_authority_id,
+                    callback_outcome,
+                }
+            }
+        }
+
+        enum Stage5ePaperSettlementPreflightDecision {
+            ProceedOk,
+            Terminal(Stage5ePaperSettlementTerminalReason),
+        }
+
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub(crate) enum Stage5ePaperSettlementTerminalReason {
+            CallbackValidationError,
+            IntentCapacityExceeded,
+            IdentityMismatch,
+            ChronologyMismatch,
+            PaperModeMismatch,
+            Stage5cIntentValidationFailed,
+            Stage5cPendingRequestMismatch,
+        }
+
+        enum Stage5ePaperSettlementTerminalOwnership {
+            PreflightOk {
+                _mutated_strategy: crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+                _recovery_receipt: crate::stage5c_paper_host::Stage5cPendingRecoveryReceipt,
+                _audit_lineage: Stage5eAuthorizedCallbackAuditLineage,
+                _pre_callback_attribution_snapshot:
+                    crate::stage5c_paper_host::Stage5ePreCallbackAttributionSnapshot,
+                _retained_bar_metadata:
+                    crate::stage5c_paper_host::Stage5eAcceptedBarSettlementMetadata,
+                _callback_invoked_at: DateTime<Utc>,
+                _callback_authority_id: [u8; 32],
+                _callback_outcome: Stage5ePaperCallbackOutcome,
+            },
+            CallbackValidationError {
+                _mutated_strategy: crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+                _recovery_receipt: crate::stage5c_paper_host::Stage5cPendingRecoveryReceipt,
+                _audit_lineage: Stage5eAuthorizedCallbackAuditLineage,
+                _pre_callback_attribution_snapshot:
+                    crate::stage5c_paper_host::Stage5ePreCallbackAttributionSnapshot,
+                _retained_bar_metadata:
+                    crate::stage5c_paper_host::Stage5eAcceptedBarSettlementMetadata,
+                _callback_invoked_at: DateTime<Utc>,
+                _callback_authority_id: [u8; 32],
+                _callback_error: crate::HybridRuntimeCallbackValidationError,
+            },
+            Stage5c {
+                _mutated_strategy: crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+                _recovery_receipt: crate::stage5c_paper_host::Stage5cPendingRecoveryReceipt,
+                _audit_lineage: Stage5eAuthorizedCallbackAuditLineage,
+                _pre_callback_attribution_snapshot:
+                    crate::stage5c_paper_host::Stage5ePreCallbackAttributionSnapshot,
+                _retained_bar_metadata:
+                    crate::stage5c_paper_host::Stage5eAcceptedBarSettlementMetadata,
+                _callback_invoked_at: DateTime<Utc>,
+                _callback_authority_id: [u8; 32],
+                _exact_stage5c_error: crate::stage5c_paper_host::Stage5cIntentSettlementError,
+            },
+        }
+
+        pub(crate) struct Stage5ePaperSettlementTerminalReceipt {
+            reason: Stage5ePaperSettlementTerminalReason,
+            _ownership: Stage5ePaperSettlementTerminalOwnership,
+            original_intent_count: usize,
+            _audit_commitment: [u8; 32],
+        }
+
+        pub(crate) struct Stage5eValidatedPaperSettlementReceipt {
+            _settlement_success: crate::stage5c_paper_host::Stage5eStage5cSettlementSuccess,
+            _audit_lineage: Stage5eAuthorizedCallbackAuditLineage,
+            _callback_invoked_at: DateTime<Utc>,
+            _callback_authority_id: [u8; 32],
+            settlement_identity: [u8; 32],
+        }
+
+        #[allow(clippy::result_large_err)]
+        pub(crate) fn validate_and_settle_stage5e_paper_callback_escrow(
+            escrow: Stage5ePaperCallbackResultEscrow,
+        ) -> Result<Stage5eValidatedPaperSettlementReceipt, Stage5ePaperSettlementTerminalReceipt>
+        {
+            let preflight_seal = Stage5ePaperSettlementPreflightSeal(());
+            let decision = {
+                let preflight = escrow.borrow_for_settlement_preflight(&preflight_seal);
+                validate_preflight(preflight, &preflight_seal)
+            };
+            let consume_capability = Stage5ePaperSettlementConsumeSeal(());
+            let payload = escrow.consume_for_settlement(&consume_capability);
+            let audit_commitment = construct_stage5e_b3f_audit_commitment(
+                &payload.audit_lineage,
+                &Stage5eB3fAuditCommitmentSeal(()),
+            );
+            if let Stage5ePaperSettlementPreflightDecision::Terminal(reason) = decision {
+                return Err(construct_preflight_terminal_receipt(
+                    payload,
+                    reason,
+                    audit_commitment,
+                ));
+            }
+            let Stage5ePaperSettlementPayload {
+                mutated_strategy,
+                recovery_receipt,
+                audit_lineage,
+                pre_callback_attribution_snapshot,
+                retained_bar_metadata,
+                callback_invoked_at,
+                callback_authority_id,
+                callback_outcome,
+            } = payload;
+            let exact_intent_vector = match callback_outcome.inner {
+                PrivateStage5ePaperCallbackOutcome::Ok(intents) => intents,
+                PrivateStage5ePaperCallbackOutcome::ValidationError(error) => {
+                    return Err(Stage5ePaperSettlementTerminalReceipt {
+                        reason: Stage5ePaperSettlementTerminalReason::CallbackValidationError,
+                        _ownership:
+                            Stage5ePaperSettlementTerminalOwnership::CallbackValidationError {
+                                _mutated_strategy: mutated_strategy,
+                                _recovery_receipt: recovery_receipt,
+                                _audit_lineage: audit_lineage,
+                                _pre_callback_attribution_snapshot:
+                                    pre_callback_attribution_snapshot,
+                                _retained_bar_metadata: retained_bar_metadata,
+                                _callback_invoked_at: callback_invoked_at,
+                                _callback_authority_id: callback_authority_id,
+                                _callback_error: error,
+                            },
+                        original_intent_count: 0,
+                        _audit_commitment: audit_commitment,
+                    });
+                }
+            };
+            let material_seal =
+                crate::stage5c_paper_host::issue_stage5c_b3f_settlement_material_seal(
+                    &consume_capability,
+                );
+            let material = crate::stage5c_paper_host::construct_stage5e_stage5c_settlement_material(
+                mutated_strategy,
+                recovery_receipt,
+                pre_callback_attribution_snapshot,
+                retained_bar_metadata,
+                exact_intent_vector,
+                material_seal,
+            );
+            let settlement_seal =
+                crate::stage5c_paper_host::issue_stage5c_b3f_settlement_seal(&consume_capability);
+            match crate::stage5c_paper_host::settle_stage5e_callback_escrow_material(
+                material,
+                settlement_seal,
+            ) {
+                Ok(success) => {
+                    let accepted_semantic_bar_identity =
+                        audit_lineage._accepted_semantic_bar_identity;
+                    Ok(success.construct_stage5e_success_receipt(
+                        audit_lineage,
+                        callback_invoked_at,
+                        callback_authority_id,
+                        accepted_semantic_bar_identity,
+                        audit_commitment,
+                        Stage5ePaperSettlementSuccessSeal(()),
+                    ))
+                }
+                Err(terminal) => Err(terminal.construct_stage5e_terminal_receipt(
+                    audit_lineage,
+                    callback_invoked_at,
+                    callback_authority_id,
+                    audit_commitment,
+                    Stage5ePaperSettlementTerminalSeal(()),
+                )),
+            }
+        }
+
+        fn validate_preflight(
+            preflight: Stage5ePaperSettlementPreflight<'_>,
+            seal: &Stage5ePaperSettlementPreflightSeal,
+        ) -> Stage5ePaperSettlementPreflightDecision {
+            let escrow = preflight.escrow;
+            let expected =
+                crate::stage5c_paper_host::construct_stage5e_b3f_stage5c_expected_preflight_binding(
+                    &escrow.audit_lineage._schedule_identity_fingerprint,
+                    &escrow.audit_lineage._sequence_identity_fingerprint,
+                    &escrow.audit_lineage._event_key_fingerprint,
+                    &escrow.audit_lineage._b3b_event_key_fingerprint,
+                    &escrow.audit_lineage._full_instrument_id,
+                    &escrow.audit_lineage._owned_instrument,
+                    &escrow.audit_lineage._accepted_semantic_bar_identity,
+                    &escrow.audit_lineage._owned_bar_identity,
+                    seal,
+                );
+            if let Err(mismatch) =
+                crate::stage5c_paper_host::validate_stage5e_b3f_stage5c_preflight_binding(
+                    &escrow.recovery_receipt,
+                    &escrow.attribution_snapshot,
+                    &escrow.retained_bar_metadata,
+                    &expected,
+                    seal,
+                )
+            {
+                return Stage5ePaperSettlementPreflightDecision::Terminal(
+                    map_stage5c_preflight_mismatch_exact(mismatch, seal),
+                );
+            }
+            if !stage5e_chronology_matches(&escrow.audit_lineage, escrow.callback_invoked_at) {
+                return Stage5ePaperSettlementPreflightDecision::Terminal(
+                    Stage5ePaperSettlementTerminalReason::ChronologyMismatch,
+                );
+            }
+            if !stage5e_authority_identity_matches(escrow) {
+                return Stage5ePaperSettlementPreflightDecision::Terminal(
+                    Stage5ePaperSettlementTerminalReason::IdentityMismatch,
+                );
+            }
+            match &escrow.callback_outcome.inner {
+                PrivateStage5ePaperCallbackOutcome::ValidationError(_) => {
+                    Stage5ePaperSettlementPreflightDecision::Terminal(
+                        Stage5ePaperSettlementTerminalReason::CallbackValidationError,
+                    )
+                }
+                PrivateStage5ePaperCallbackOutcome::Ok(intents)
+                    if intents.len() > u8::MAX as usize =>
+                {
+                    Stage5ePaperSettlementPreflightDecision::Terminal(
+                        Stage5ePaperSettlementTerminalReason::IntentCapacityExceeded,
+                    )
+                }
+                PrivateStage5ePaperCallbackOutcome::Ok(_) => {
+                    Stage5ePaperSettlementPreflightDecision::ProceedOk
+                }
+            }
+        }
+
+        fn stage5e_authority_identity_matches(escrow: &Stage5ePaperCallbackResultEscrow) -> bool {
+            let audit = &escrow.audit_lineage;
+            let nonzero = [
+                audit._schedule_identity_fingerprint,
+                audit._owned_sequence_identity,
+                audit._event_key_fingerprint,
+                audit._continuation_binding_id,
+                audit._callback_authority_id,
+                audit._accepted_semantic_bar_identity,
+                audit._b3b_event_key_fingerprint,
+                audit._b3c_continuation_binding_id,
+                audit._sequence_identity_fingerprint,
+                audit._owned_bar_identity,
+            ]
+            .iter()
+            .all(|value| *value != [0; 32]);
+            nonzero
+                && escrow.callback_authority_id == audit._callback_authority_id
+                && audit._event_key_fingerprint == audit._b3b_event_key_fingerprint
+                && audit._continuation_binding_id == audit._b3c_continuation_binding_id
+                && audit._owned_sequence_identity == audit._sequence_identity_fingerprint
+                && audit._full_instrument_id == audit._owned_instrument
+                && audit._accepted_semantic_bar_identity == audit._owned_bar_identity
+        }
+
+        fn stage5e_chronology_matches(
+            audit: &Stage5eAuthorizedCallbackAuditLineage,
+            callback_invoked_at: DateTime<Utc>,
+        ) -> bool {
+            audit._sequence_observed_at <= audit._sequence_expires_at
+                && audit._b3b_effective_observed_at <= audit._b3b_effective_expires_at
+                && audit._b3c_effective_observed_at <= audit._bound_at
+                && audit._bound_at <= audit._b3c_effective_expires_at
+                && audit._effective_observed_at <= audit._issued_at
+                && audit._issued_at <= callback_invoked_at
+                && callback_invoked_at <= audit._authority_expires_at
+        }
+
+        fn map_stage5c_preflight_mismatch_exact(
+            mismatch: crate::stage5c_paper_host::Stage5eStage5cPreflightMismatch,
+            _seal: &Stage5ePaperSettlementPreflightSeal,
+        ) -> Stage5ePaperSettlementTerminalReason {
+            match mismatch {
+                crate::stage5c_paper_host::Stage5eStage5cPreflightMismatch::StrategyId => {
+                    Stage5ePaperSettlementTerminalReason::IdentityMismatch
+                }
+                crate::stage5c_paper_host::Stage5eStage5cPreflightMismatch::AccountId => {
+                    Stage5ePaperSettlementTerminalReason::IdentityMismatch
+                }
+                crate::stage5c_paper_host::Stage5eStage5cPreflightMismatch::FullInstrumentId => {
+                    Stage5ePaperSettlementTerminalReason::IdentityMismatch
+                }
+                crate::stage5c_paper_host::Stage5eStage5cPreflightMismatch::SemanticBarIdentity => {
+                    Stage5ePaperSettlementTerminalReason::IdentityMismatch
+                }
+                crate::stage5c_paper_host::Stage5eStage5cPreflightMismatch::AcceptedBarClose => {
+                    Stage5ePaperSettlementTerminalReason::IdentityMismatch
+                }
+                crate::stage5c_paper_host::Stage5eStage5cPreflightMismatch::AuditEventKey => {
+                    Stage5ePaperSettlementTerminalReason::IdentityMismatch
+                }
+                crate::stage5c_paper_host::Stage5eStage5cPreflightMismatch::PaperMode => {
+                    Stage5ePaperSettlementTerminalReason::PaperModeMismatch
+                }
+                crate::stage5c_paper_host::Stage5eStage5cPreflightMismatch::AcceptedBarOrigin => {
+                    Stage5ePaperSettlementTerminalReason::PaperModeMismatch
+                }
+                crate::stage5c_paper_host::Stage5eStage5cPreflightMismatch::ExecutionEligibility => {
+                    Stage5ePaperSettlementTerminalReason::PaperModeMismatch
+                }
+            }
+        }
+
+        fn construct_preflight_terminal_receipt(
+            payload: Stage5ePaperSettlementPayload,
+            reason: Stage5ePaperSettlementTerminalReason,
+            audit_commitment: [u8; 32],
+        ) -> Stage5ePaperSettlementTerminalReceipt {
+            let Stage5ePaperSettlementPayload {
+                mutated_strategy,
+                recovery_receipt,
+                audit_lineage,
+                pre_callback_attribution_snapshot,
+                retained_bar_metadata,
+                callback_invoked_at,
+                callback_authority_id,
+                callback_outcome,
+            } = payload;
+            match callback_outcome.inner {
+                PrivateStage5ePaperCallbackOutcome::Ok(intents) => {
+                    let original_intent_count = intents.len();
+                    Stage5ePaperSettlementTerminalReceipt {
+                        reason,
+                        _ownership: Stage5ePaperSettlementTerminalOwnership::PreflightOk {
+                            _mutated_strategy: mutated_strategy,
+                            _recovery_receipt: recovery_receipt,
+                            _audit_lineage: audit_lineage,
+                            _pre_callback_attribution_snapshot: pre_callback_attribution_snapshot,
+                            _retained_bar_metadata: retained_bar_metadata,
+                            _callback_invoked_at: callback_invoked_at,
+                            _callback_authority_id: callback_authority_id,
+                            _callback_outcome: Stage5ePaperCallbackOutcome {
+                                inner: PrivateStage5ePaperCallbackOutcome::Ok(intents),
+                            },
+                        },
+                        original_intent_count,
+                        _audit_commitment: audit_commitment,
+                    }
+                }
+                PrivateStage5ePaperCallbackOutcome::ValidationError(error) => {
+                    Stage5ePaperSettlementTerminalReceipt {
+                        reason: Stage5ePaperSettlementTerminalReason::CallbackValidationError,
+                        _ownership:
+                            Stage5ePaperSettlementTerminalOwnership::CallbackValidationError {
+                                _mutated_strategy: mutated_strategy,
+                                _recovery_receipt: recovery_receipt,
+                                _audit_lineage: audit_lineage,
+                                _pre_callback_attribution_snapshot:
+                                    pre_callback_attribution_snapshot,
+                                _retained_bar_metadata: retained_bar_metadata,
+                                _callback_invoked_at: callback_invoked_at,
+                                _callback_authority_id: callback_authority_id,
+                                _callback_error: error,
+                            },
+                        original_intent_count: 0,
+                        _audit_commitment: audit_commitment,
+                    }
+                }
+            }
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        pub(crate) fn construct_stage5e_paper_settlement_terminal_receipt(
+            mutated_strategy: crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+            recovery_receipt: crate::stage5c_paper_host::Stage5cPendingRecoveryReceipt,
+            pre_callback_attribution_snapshot:
+                crate::stage5c_paper_host::Stage5ePreCallbackAttributionSnapshot,
+            retained_bar_metadata: crate::stage5c_paper_host::Stage5eAcceptedBarSettlementMetadata,
+            audit_lineage: Stage5eAuthorizedCallbackAuditLineage,
+            callback_invoked_at: DateTime<Utc>,
+            callback_authority_id: [u8; 32],
+            reason: Stage5ePaperSettlementTerminalReason,
+            exact_stage5c_error: crate::stage5c_paper_host::Stage5cIntentSettlementError,
+            original_intent_count: usize,
+            audit_commitment: [u8; 32],
+            _seal: Stage5ePaperSettlementTerminalSeal,
+        ) -> Stage5ePaperSettlementTerminalReceipt {
+            Stage5ePaperSettlementTerminalReceipt {
+                reason,
+                _ownership: Stage5ePaperSettlementTerminalOwnership::Stage5c {
+                    _mutated_strategy: mutated_strategy,
+                    _recovery_receipt: recovery_receipt,
+                    _audit_lineage: audit_lineage,
+                    _pre_callback_attribution_snapshot: pre_callback_attribution_snapshot,
+                    _retained_bar_metadata: retained_bar_metadata,
+                    _callback_invoked_at: callback_invoked_at,
+                    _callback_authority_id: callback_authority_id,
+                    _exact_stage5c_error: exact_stage5c_error,
+                },
+                original_intent_count,
+                _audit_commitment: audit_commitment,
+            }
+        }
+
+        pub(crate) fn construct_stage5e_validated_paper_settlement_receipt(
+            settlement_success: crate::stage5c_paper_host::Stage5eStage5cSettlementSuccess,
+            audit_lineage: Stage5eAuthorizedCallbackAuditLineage,
+            callback_invoked_at: DateTime<Utc>,
+            callback_authority_id: [u8; 32],
+            settlement_identity: [u8; 32],
+            _seal: Stage5ePaperSettlementSuccessSeal,
+        ) -> Stage5eValidatedPaperSettlementReceipt {
+            Stage5eValidatedPaperSettlementReceipt {
+                _settlement_success: settlement_success,
+                _audit_lineage: audit_lineage,
+                _callback_invoked_at: callback_invoked_at,
+                _callback_authority_id: callback_authority_id,
+                settlement_identity,
+            }
+        }
+
+        pub(crate) fn map_stage5c_settlement_error_exact(
+            error: crate::stage5c_paper_host::Stage5cIntentSettlementError,
+            _seal: &Stage5ePaperSettlementTerminalSeal,
+        ) -> Stage5ePaperSettlementTerminalReason {
+            match error {
+                crate::stage5c_paper_host::Stage5cIntentSettlementError::TooManyIntents => {
+                    Stage5ePaperSettlementTerminalReason::IntentCapacityExceeded
+                }
+                crate::stage5c_paper_host::Stage5cIntentSettlementError::MissingIntentClass => {
+                    Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed
+                }
+                crate::stage5c_paper_host::Stage5cIntentSettlementError::InstrumentNamespaceMismatch => {
+                    Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed
+                }
+                crate::stage5c_paper_host::Stage5cIntentSettlementError::InvalidQuantity => {
+                    Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed
+                }
+                crate::stage5c_paper_host::Stage5cIntentSettlementError::InvalidPrice => {
+                    Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed
+                }
+                crate::stage5c_paper_host::Stage5cIntentSettlementError::PriceNotTickAligned => {
+                    Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed
+                }
+                crate::stage5c_paper_host::Stage5cIntentSettlementError::InvalidStopEnd => {
+                    Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed
+                }
+                crate::stage5c_paper_host::Stage5cIntentSettlementError::ReplayIntentNotExecutable => {
+                    Stage5ePaperSettlementTerminalReason::PaperModeMismatch
+                }
+                crate::stage5c_paper_host::Stage5cIntentSettlementError::MissingPendingRequest => {
+                    Stage5ePaperSettlementTerminalReason::Stage5cPendingRequestMismatch
+                }
+                crate::stage5c_paper_host::Stage5cIntentSettlementError::RequestIdMismatch => {
+                    Stage5ePaperSettlementTerminalReason::Stage5cPendingRequestMismatch
+                }
+                crate::stage5c_paper_host::Stage5cIntentSettlementError::DuplicateRequestId => {
+                    Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed
+                }
+                crate::stage5c_paper_host::Stage5cIntentSettlementError::UnsupportedIntentAction => {
+                    Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed
+                }
+            }
+        }
+
+        fn construct_stage5e_b3f_audit_commitment(
+            lineage: &Stage5eAuthorizedCallbackAuditLineage,
+            _seal: &Stage5eB3fAuditCommitmentSeal,
+        ) -> [u8; 32] {
+            let mut encoder = Stage5eB3fCanonicalEncoder::new(b"stage5e-b3f-audit-commitment-v1\0");
+            encoder.digest(&lineage._schedule_identity_fingerprint);
+            encoder.schedule_classification(lineage._sequence_classification);
+            encoder.optional_digest(lineage._optional_boundary_fingerprint.as_ref());
+            encoder.digest(&lineage._owned_sequence_identity);
+            encoder.datetime(lineage._sequence_observed_at);
+            encoder.datetime(lineage._sequence_expires_at);
+            encoder.digest(&lineage._event_key_fingerprint);
+            encoder.datetime(lineage._b3b_effective_observed_at);
+            encoder.datetime(lineage._b3b_effective_expires_at);
+            encoder.digest(&lineage._continuation_binding_id);
+            encoder.datetime(lineage._bound_at);
+            encoder.datetime(lineage._b3c_effective_observed_at);
+            encoder.datetime(lineage._b3c_effective_expires_at);
+            encoder.digest(&lineage._callback_authority_id);
+            encoder.datetime(lineage._issued_at);
+            encoder.datetime(lineage._effective_observed_at);
+            encoder.datetime(lineage._authority_expires_at);
+            encoder.instrument(&lineage._full_instrument_id);
+            encoder.digest(&lineage._accepted_semantic_bar_identity);
+            encoder.digest(&lineage._b3b_event_key_fingerprint);
+            encoder.digest(&lineage._b3c_continuation_binding_id);
+            encoder.digest(&lineage._sequence_identity_fingerprint);
+            encoder.instrument(&lineage._owned_instrument);
+            encoder.digest(&lineage._owned_bar_identity);
+            encoder.finish()
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        pub(crate) fn construct_stage5e_b3f_settlement_identity(
+            callback_authority_id: [u8; 32],
+            callback_invoked_at: DateTime<Utc>,
+            accepted_semantic_bar_identity: [u8; 32],
+            strategy_id: &str,
+            account_id: &broker_core::BrokerAccountId,
+            full_instrument_id: &broker_core::InstrumentId,
+            accepted_bar_close_timestamp: i64,
+            batch_state_fingerprint: &str,
+            ordered_strategy_request_ids: &[broker_core::StrategyRequestId],
+            intent_count_u8: u8,
+            audit_commitment: [u8; 32],
+            _seal: &Stage5ePaperSettlementSuccessSeal,
+        ) -> [u8; 32] {
+            let mut encoder =
+                Stage5eB3fCanonicalEncoder::new(b"stage5e-b3f-settlement-identity-v1\0");
+            encoder.digest(&callback_authority_id);
+            encoder.datetime(callback_invoked_at);
+            encoder.digest(&accepted_semantic_bar_identity);
+            encoder.string(strategy_id);
+            encoder.string(account_id.as_str());
+            encoder.instrument(full_instrument_id);
+            encoder.i64(accepted_bar_close_timestamp);
+            encoder.string(batch_state_fingerprint);
+            encoder.request_ids(ordered_strategy_request_ids);
+            encoder.u8(intent_count_u8);
+            encoder.digest(&audit_commitment);
+            encoder.finish()
+        }
+
+        struct Stage5eB3fCanonicalEncoder {
+            hasher: Sha256,
+        }
+
+        impl Stage5eB3fCanonicalEncoder {
+            fn new(domain: &[u8]) -> Self {
+                let mut hasher = Sha256::new();
+                hasher.update(domain);
+                Self { hasher }
+            }
+
+            fn bytes(&mut self, value: &[u8]) {
+                self.hasher.update(value);
+            }
+
+            fn u8(&mut self, value: u8) {
+                self.bytes(&[value]);
+            }
+
+            fn i64(&mut self, value: i64) {
+                self.bytes(&value.to_be_bytes());
+            }
+
+            fn datetime(&mut self, value: DateTime<Utc>) {
+                self.i64(value.timestamp());
+                self.bytes(&value.timestamp_subsec_nanos().to_be_bytes());
+            }
+
+            fn digest(&mut self, value: &[u8; 32]) {
+                self.bytes(value);
+            }
+
+            fn string(&mut self, value: &str) {
+                let bytes = value.as_bytes();
+                self.bytes(
+                    &u32::try_from(bytes.len())
+                        .expect("canonical B3F strings fit u32")
+                        .to_be_bytes(),
+                );
+                self.bytes(bytes);
+            }
+
+            fn optional_string(&mut self, value: Option<&str>) {
+                match value {
+                    Some(value) => {
+                        self.u8(1);
+                        self.string(value);
+                    }
+                    None => self.u8(0),
+                }
+            }
+
+            fn optional_digest(&mut self, value: Option<&[u8; 32]>) {
+                match value {
+                    Some(value) => {
+                        self.u8(1);
+                        self.digest(value);
+                    }
+                    None => self.u8(0),
+                }
+            }
+
+            fn instrument(&mut self, instrument: &broker_core::InstrumentId) {
+                self.string(&instrument.symbol);
+                self.optional_string(instrument.venue_symbol.as_deref());
+                match &instrument.exchange {
+                    broker_core::Exchange::Moex => self.u8(1),
+                    broker_core::Exchange::Other(value) => {
+                        self.u8(0x7f);
+                        self.string(value);
+                    }
+                }
+                match &instrument.market {
+                    broker_core::Market::Futures => self.u8(1),
+                    broker_core::Market::Options => self.u8(2),
+                    broker_core::Market::Stocks => self.u8(3),
+                    broker_core::Market::Currency => self.u8(4),
+                    broker_core::Market::Funds => self.u8(5),
+                    broker_core::Market::Other(value) => {
+                        self.u8(0x7f);
+                        self.string(value);
+                    }
+                }
+            }
+
+            fn schedule_classification(
+                &mut self,
+                classification: crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleSequenceClassification,
+            ) {
+                match classification {
+                    crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleSequenceClassification::Contiguous => {
+                        self.u8(1);
+                    }
+                    crate::stage5e_no_io_lifecycle::schedule_window_evidence::Stage5eScheduleSequenceClassification::ApprovedNonTradableBoundary(fingerprint) => {
+                        self.u8(2);
+                        self.digest(&fingerprint);
+                    }
+                }
+            }
+
+            fn request_ids(&mut self, request_ids: &[broker_core::StrategyRequestId]) {
+                self.bytes(
+                    &u32::try_from(request_ids.len())
+                        .expect("canonical B3F request-id vector fits u32")
+                        .to_be_bytes(),
+                );
+                for request_id in request_ids {
+                    self.bytes(request_id.as_uuid().as_bytes());
+                }
+            }
+
+            fn finish(self) -> [u8; 32] {
+                self.hasher.finalize().into()
+            }
+        }
+
+        #[cfg(test)]
+        impl Stage5ePaperSettlementTerminalReceipt {
+            pub(crate) fn test_reason(&self) -> Stage5ePaperSettlementTerminalReason {
+                self.reason
+            }
+
+            pub(crate) fn test_original_intent_count(&self) -> usize {
+                self.original_intent_count
+            }
+
+            pub(crate) fn test_ownership_variant(&self) -> &'static str {
+                match self._ownership {
+                    Stage5ePaperSettlementTerminalOwnership::PreflightOk { .. } => "preflight_ok",
+                    Stage5ePaperSettlementTerminalOwnership::CallbackValidationError { .. } => {
+                        "callback_validation_error"
+                    }
+                    Stage5ePaperSettlementTerminalOwnership::Stage5c { .. } => "stage5c",
+                }
+            }
+        }
+
+        #[cfg(test)]
+        impl Stage5eValidatedPaperSettlementReceipt {
+            pub(crate) fn test_settlement_identity(&self) -> [u8; 32] {
+                self.settlement_identity
+            }
+
+            pub(crate) fn test_identity_proof_shape(
+                &self,
+            ) -> (Vec<broker_core::StrategyRequestId>, usize, usize, bool) {
+                self._settlement_success.test_identity_proof_shape()
+            }
+        }
+
+        #[cfg(test)]
+        mod tests {
+            use super::*;
+            use chrono::TimeZone;
+
+            fn instrument() -> broker_core::InstrumentId {
+                broker_core::InstrumentId {
+                    symbol: "IMOEXF".to_string(),
+                    venue_symbol: Some("IMOEXF@RTSX".to_string()),
+                    exchange: broker_core::Exchange::Moex,
+                    market: broker_core::Market::Futures,
+                }
+            }
+
+            #[test]
+            fn b3f_preflight_mismatch_mapper_is_exact_for_all_nine_variants() {
+                use crate::stage5c_paper_host::Stage5eStage5cPreflightMismatch as Mismatch;
+                let seal = Stage5ePaperSettlementPreflightSeal(());
+                for mismatch in [
+                    Mismatch::StrategyId,
+                    Mismatch::AccountId,
+                    Mismatch::FullInstrumentId,
+                    Mismatch::SemanticBarIdentity,
+                    Mismatch::AcceptedBarClose,
+                    Mismatch::AuditEventKey,
+                ] {
+                    assert_eq!(
+                        map_stage5c_preflight_mismatch_exact(mismatch, &seal),
+                        Stage5ePaperSettlementTerminalReason::IdentityMismatch
+                    );
+                }
+                for mismatch in [
+                    Mismatch::PaperMode,
+                    Mismatch::AcceptedBarOrigin,
+                    Mismatch::ExecutionEligibility,
+                ] {
+                    assert_eq!(
+                        map_stage5c_preflight_mismatch_exact(mismatch, &seal),
+                        Stage5ePaperSettlementTerminalReason::PaperModeMismatch
+                    );
+                }
+            }
+
+            #[test]
+            fn b3f_stage5c_error_mapper_is_exact_for_all_twelve_variants() {
+                use crate::stage5c_paper_host::Stage5cIntentSettlementError as Error;
+                let seal = Stage5ePaperSettlementTerminalSeal(());
+                let cases = [
+                    (
+                        Error::TooManyIntents,
+                        Stage5ePaperSettlementTerminalReason::IntentCapacityExceeded,
+                    ),
+                    (
+                        Error::MissingIntentClass,
+                        Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed,
+                    ),
+                    (
+                        Error::InstrumentNamespaceMismatch,
+                        Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed,
+                    ),
+                    (
+                        Error::InvalidQuantity,
+                        Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed,
+                    ),
+                    (
+                        Error::InvalidPrice,
+                        Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed,
+                    ),
+                    (
+                        Error::PriceNotTickAligned,
+                        Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed,
+                    ),
+                    (
+                        Error::InvalidStopEnd,
+                        Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed,
+                    ),
+                    (
+                        Error::ReplayIntentNotExecutable,
+                        Stage5ePaperSettlementTerminalReason::PaperModeMismatch,
+                    ),
+                    (
+                        Error::MissingPendingRequest,
+                        Stage5ePaperSettlementTerminalReason::Stage5cPendingRequestMismatch,
+                    ),
+                    (
+                        Error::RequestIdMismatch,
+                        Stage5ePaperSettlementTerminalReason::Stage5cPendingRequestMismatch,
+                    ),
+                    (
+                        Error::DuplicateRequestId,
+                        Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed,
+                    ),
+                    (
+                        Error::UnsupportedIntentAction,
+                        Stage5ePaperSettlementTerminalReason::Stage5cIntentValidationFailed,
+                    ),
+                ];
+                for (error, expected) in cases {
+                    assert_eq!(map_stage5c_settlement_error_exact(error, &seal), expected);
+                }
+            }
+
+            #[test]
+            fn b3f_event_key_validator_rejects_every_frozen_source_drift() {
+                let seal = Stage5ePaperSettlementPreflightSeal(());
+                let schedule = [1; 32];
+                let sequence = [2; 32];
+                let bar_close = 1_790_000_000;
+                let instrument = instrument();
+                let event =
+                    crate::stage5e_no_io_lifecycle::schedule_window_evidence::
+                        b3b_event_key_fingerprint(
+                            schedule,
+                            &instrument,
+                            bar_close,
+                            sequence,
+                        );
+                assert!(crate::stage5e_no_io_lifecycle::schedule_window_evidence::
+                    validate_stage5e_b3f_b3b_event_key_binding(
+                        &schedule,
+                        &instrument,
+                        bar_close,
+                        &sequence,
+                        &event,
+                        &event,
+                        &seal,
+                    )
+                    .is_ok());
+
+                let mut changed_schedule = schedule;
+                changed_schedule[0] ^= 1;
+                let mut changed_sequence = sequence;
+                changed_sequence[0] ^= 1;
+                let mut changed_instrument = instrument.clone();
+                changed_instrument.venue_symbol = Some("IMOEXF@OTHER".to_string());
+                let mut changed_event = event;
+                changed_event[0] ^= 1;
+                let cases = [
+                    (
+                        changed_schedule,
+                        instrument.clone(),
+                        bar_close,
+                        sequence,
+                        event,
+                        event,
+                    ),
+                    (
+                        schedule,
+                        changed_instrument,
+                        bar_close,
+                        sequence,
+                        event,
+                        event,
+                    ),
+                    (
+                        schedule,
+                        instrument.clone(),
+                        bar_close + 1,
+                        sequence,
+                        event,
+                        event,
+                    ),
+                    (
+                        schedule,
+                        instrument.clone(),
+                        bar_close,
+                        changed_sequence,
+                        event,
+                        event,
+                    ),
+                    (
+                        schedule,
+                        instrument.clone(),
+                        bar_close,
+                        sequence,
+                        changed_event,
+                        event,
+                    ),
+                    (
+                        schedule,
+                        instrument,
+                        bar_close,
+                        sequence,
+                        event,
+                        changed_event,
+                    ),
+                ];
+                for (schedule, instrument, close, sequence, event, b3b_event) in cases {
+                    assert!(crate::stage5e_no_io_lifecycle::schedule_window_evidence::
+                        validate_stage5e_b3f_b3b_event_key_binding(
+                            &schedule,
+                            &instrument,
+                            close,
+                            &sequence,
+                            &event,
+                            &b3b_event,
+                            &seal,
+                        )
+                        .is_err());
+                }
+            }
+
+            #[test]
+            fn b3f_settlement_identity_preserves_request_order_and_chronology() {
+                let seal = Stage5ePaperSettlementSuccessSeal(());
+                let now = Utc
+                    .with_ymd_and_hms(2026, 7, 28, 10, 20, 0)
+                    .single()
+                    .unwrap();
+                let first = broker_core::StrategyRequestId::new(uuid::Uuid::from_u128(1));
+                let second = broker_core::StrategyRequestId::new(uuid::Uuid::from_u128(2));
+                let base = construct_stage5e_b3f_settlement_identity(
+                    [1; 32],
+                    now,
+                    [2; 32],
+                    "hybrid_imoexf",
+                    &broker_core::BrokerAccountId::new("ACC_TEST_0001"),
+                    &instrument(),
+                    now.timestamp(),
+                    "state",
+                    &[first, second],
+                    2,
+                    [3; 32],
+                    &seal,
+                );
+                let reordered = construct_stage5e_b3f_settlement_identity(
+                    [1; 32],
+                    now,
+                    [2; 32],
+                    "hybrid_imoexf",
+                    &broker_core::BrokerAccountId::new("ACC_TEST_0001"),
+                    &instrument(),
+                    now.timestamp(),
+                    "state",
+                    &[second, first],
+                    2,
+                    [3; 32],
+                    &seal,
+                );
+                assert_ne!(base, reordered);
+                assert_ne!(base, [0; 32]);
+            }
+        }
+    }
+    // STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-END: private-process-local-v1
     // STAGE5E-B3E-CALLBACK-IMPLEMENTATION-END: private-authority-v1
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -665,6 +665,39 @@ def main() -> int:
 
         return apply
 
+    def mutate_stage5e_b3f_inventory_and_rehash_checker(mutator):
+        def apply(root, _manifest, _marker):
+            inventory_path = (
+                root
+                / "docs/stage-5/stage5e-b3f-callback-settlement-escrow-design-inventory.json"
+            )
+            payload = json.loads(inventory_path.read_text())
+            mutator(payload)
+            inventory_path.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n"
+            )
+            checker_path = (
+                root
+                / "scripts/stage5e_b3f_callback_settlement_escrow_design_check.py"
+            )
+            checker = checker_path.read_text()
+            replacement = (
+                'EXPECTED_INVENTORY_SHA256 = (\\n'
+                f'    "{canonical_sha256(payload)}"\\n'
+                ")"
+            )
+            checker, count = re.subn(
+                r'EXPECTED_INVENTORY_SHA256 = \(\n    "[0-9a-f]+"\n\)',
+                replacement,
+                checker,
+                count=1,
+            )
+            if count != 1:
+                raise AssertionError("B3F checker inventory hash pin not found")
+            checker_path.write_text(checker)
+
+        return apply
+
     def mutate_stage5e_b3f_plan_for_checker(mutator):
         def apply(root, _manifest, _marker):
             path = root / "docs/stage-5/5e-b3f-callback-settlement-escrow-design.md"
@@ -2663,7 +2696,7 @@ def main() -> int:
         Case("stage5e-b3f-intent-getter-opened", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["success_receipt_contract"].__setitem__("intent_getter_allowed", True)), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-durable-persistence-opened", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["closed_surfaces"].__setitem__("durable_persistence", True)), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-plan-side-effect-ban-removed", "design plan drift", mutate_stage5e_b3f_plan_for_checker(lambda t: t.replace("FINAM I/O", "broker I/O", 1)), "5E-b3f-callback-settlement-escrow-design", True),
-        Case("stage5e-b3f-protected-b3e-source-mutated", "protected B3E implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("Stage5ePaperCallbackResultEscrow", "Stage5ePaperCallbackResultEscrowMutated", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-protected-b3e-source-mutated", "protected B3F implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda t: t.replace("Stage5ePaperCallbackResultEscrow", "Stage5ePaperCallbackResultEscrowMutated", 1)), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-r1-terminal-decision-not-consumed", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["transition_contract"].__setitem__("consume_after_every_decision", False)), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-r1-terminal-decision-removed", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["transition_contract"]["preflight_decisions"].remove("Terminal")), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-r1-preflight-terminal-keeps-escrow", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["preflight_contract"].__setitem__("terminal_decision_still_consumes_escrow", False)), "5E-b3f-callback-settlement-escrow-design", True),
@@ -2762,6 +2795,26 @@ def main() -> int:
         Case("stage5e-b3f-r4-event-key-mismatch-payload-opened", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["b3b_event_key_validation_authority_contract"].__setitem__("failure_visibility", "pub_crate_public_fields")), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-r4-expected-binding-constructor-signature-weakened", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_preflight_bridge_contract"].__setitem__("expected_binding_constructor_signature", "raw_tuple->binding")), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-r4-preflight-mismatch-mapper-unsealed", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_preflight_mismatch_contract"].__setitem__("mapper_signature", "Stage5eStage5cPreflightMismatch->Stage5ePaperSettlementTerminalReason")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-rehash-event-key-input-removed", "B3B authority exact input vector drift", mutate_stage5e_b3f_inventory_and_rehash_checker(lambda p: p["b3b_event_key_validation_authority_contract"]["inputs"].pop(0)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-rehash-event-key-seal-removed", "B3B authority exact input vector drift", mutate_stage5e_b3f_inventory_and_rehash_checker(lambda p: p["b3b_event_key_validation_authority_contract"]["inputs"].pop()), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-rehash-event-key-visibility-opened", "B3B authority visibility drift", mutate_stage5e_b3f_inventory_and_rehash_checker(lambda p: p["b3b_event_key_validation_authority_contract"].__setitem__("visibility", "pub")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-rehash-event-key-success-type-changed", "B3B authority success type drift", mutate_stage5e_b3f_inventory_and_rehash_checker(lambda p: p["b3b_event_key_validation_authority_contract"].__setitem__("success", "ReusableEventKeyProof")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-rehash-event-key-failure-type-changed", "B3B authority failure type drift", mutate_stage5e_b3f_inventory_and_rehash_checker(lambda p: p["b3b_event_key_validation_authority_contract"].__setitem__("failure", "RawEventKeyMismatch")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-rehash-mismatch-owner-moved", "preflight mismatch owner drift", mutate_stage5e_b3f_inventory_and_rehash_checker(lambda p: p["stage5c_preflight_mismatch_contract"].__setitem__("owner", "callback_settlement")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-rehash-mismatch-trait-opened", "preflight mismatch forbidden-trait contract drift", mutate_stage5e_b3f_inventory_and_rehash_checker(lambda p: p["stage5c_preflight_mismatch_contract"]["forbidden_traits"].remove("Into")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-rehash-mismatch-second-inspector", "preflight mismatch sole-inspector drift", mutate_stage5e_b3f_inventory_and_rehash_checker(lambda p: p["stage5c_preflight_mismatch_contract"].__setitem__("sole_inspector", "inspect_or_convert_mismatch")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-rehash-mismatch-conversion-opened", "preflight mismatch conversion opened", mutate_stage5e_b3f_inventory_and_rehash_checker(lambda p: p["stage5c_preflight_mismatch_contract"].__setitem__("generic_conversion_allowed", True)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-stage5c-marker-removed", "protected B3F implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5c_paper_host.rs", lambda s: s.replace("// STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-BEGIN: stage5c-private-bridge-v1", "// removed-stage5c-marker", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-stage5e-marker-removed", "protected B3F implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("// STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-BEGIN: private-process-local-v1", "// removed-stage5e-marker", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-consume-capability-clone-opened", "protected B3F implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("pub(crate) struct Stage5ePaperSettlementConsumeSeal(());", "#[derive(Clone)]\\n        pub(crate) struct Stage5ePaperSettlementConsumeSeal(());", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-transition-renamed", "protected B3F implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("validate_and_settle_stage5e_paper_callback_escrow", "validate_and_settle_stage5e_paper_callback_escrow_alt", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-early-vector-drop-removed", "protected B3F implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5c_paper_host.rs", lambda s: s.replace("drop(exact_intent_vector);", "let _recoverable_intents = exact_intent_vector;", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-preflight-mapper-renamed", "protected B3F implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("fn map_stage5c_preflight_mismatch_exact(", "fn map_stage5c_preflight_mismatch_lossy(", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-error-mapper-renamed", "protected B3F implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("fn map_stage5c_settlement_error_exact(", "fn map_stage5c_settlement_error_lossy(", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-settlement-domain-drift", "protected B3F implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("stage5e-b3f-settlement-identity-v1", "stage5e-b3f-settlement-identity-v2", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-event-key-test-removed", "protected B3F implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("b3f_event_key_validator_rejects_every_frozen_source_drift", "removed_event_key_drift_test", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-parity-test-removed", "protected B3F implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5c_paper_host.rs", lambda s: s.replace("b3f_owning_core_matches_legacy_public_zero_intent_settlement", "removed_owning_core_parity_test", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-implementation-forbidden-redis-surface", "protected B3F implementation source changed", mutate_stage5e_b3f_source_for_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("// STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-END: private-process-local-v1", "const _FORBIDDEN_REDIS: &str = \\\"redis::Client\\\";\\n    // STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-END: private-process-local-v1", 1)), "5E-b3f-callback-settlement-escrow-design", True),
     ]
     relation_matrix = json.loads(
         (

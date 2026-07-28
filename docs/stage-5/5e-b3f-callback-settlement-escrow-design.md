@@ -2,24 +2,24 @@
 
 ## Status and baseline
 
-This is the B3F-r4 governance-only cross-module privacy closure based on the
-rejected B3F-r3 design:
+This is the B3F private process-local Rust implementation review candidate,
+based on the accepted B3F-r4 governance baseline:
 
 ```text
-a5ccea08bc64a66e768340f7121e9b94a09ff884
+148377f71b4afe6ce20f4e42433f58c812fb4917
 ```
 
 The accepted B3E implementation baseline remains
-`d04e02903a0a1984f66eecfcc0f412501b97d37c`. No Rust settlement
-implementation is added here. The accepted B3E callback boundary remains the
-only producer of `Stage5ePaperCallbackResultEscrow`. B3F-r4 preserves every
-r3 correction and closes reverse sibling privacy, canonical B3B event-key
-authority access, and exact preflight-mismatch representation before
-implementation.
+`d04e02903a0a1984f66eecfcc0f412501b97d37c`. The accepted B3E callback
+boundary remains the only producer of `Stage5ePaperCallbackResultEscrow`.
+The implementation adds only the frozen callback-settlement seam, the shared
+Stage 5C owning settlement core, implementation tests, and fail-closed
+enforcement. Redis, FINAM, transport, dispatch, runtime-live, broker
+execution, persistence and crash/restart recovery remain closed.
 
 ## Purpose
 
-The next implementation may validate and settle one opaque callback escrow
+The implementation validates and settles one opaque callback escrow
 into the already accepted Stage 5C paper-intent lifecycle. It must not create
 a second intent validator, request-ID algorithm, attribution algorithm, or
 paper batch representation.
@@ -961,9 +961,37 @@ one callback authority
 Crash/restart persistence, durable idempotency, and recovery of an in-flight
 escrow are explicitly deferred to a later separately reviewed stage.
 
+## Implementation evidence
+
+The implementation is bounded by:
+
+```text
+STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-BEGIN/END
+```
+
+in both Stage 5C and Stage 5E owners. The executable acceptance matrix covers:
+
+- canonical zero-intent and source-produced one-intent settlement;
+- exact 255/256 capacity behavior;
+- all nine preflight mismatch mappings;
+- all twelve Stage 5C settlement-error mappings;
+- canonical event-key drift across schedule, instrument, close, sequence and
+  both audit event-key fields;
+- callback validation terminal ownership;
+- all three terminal ownership variants;
+- ordered request IDs, exact count, one-entry canonical history, state
+  fingerprint and non-zero settlement identity;
+- parity between the legacy public Stage 5C entrypoint and the shared owning
+  core.
+
+The enforcement checker pins both implementation source hashes, exact symbol
+cardinality, sealed signatures, exhaustive mappings, tests, canonical domains
+and closed-surface scans. Rehash-aware negative cases exercise the semantic
+r4 fields independently of the top-level inventory digest.
+
 ## Closed surfaces
 
-This design does not implement settlement and does not authorize:
+This implementation does not authorize:
 
 ```text
 intent extraction or sink
@@ -981,5 +1009,6 @@ schedule provider attachment
 venue-calendar inference
 ```
 
-The next implementation stage requires a separate review and must add only
-the private process-local settlement seam described above.
+The private process-local settlement seam itself remains non-dispatchable and
+non-persistent. Any future consumer of either receipt requires a separate
+review.

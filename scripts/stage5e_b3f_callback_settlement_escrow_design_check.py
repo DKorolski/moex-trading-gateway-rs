@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -18,12 +19,12 @@ INVENTORY = (
 )
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3f-callback-settlement-escrow-design"
-BASELINE_REF = "a5ccea08bc64a66e768340f7121e9b94a09ff884"
+BASELINE_REF = "148377f71b4afe6ce20f4e42433f58c812fb4917"
 EXPECTED_PLAN_SHA256 = (
-    "eb2d74b095568ac86b982607081070ea6ff8e49eb50d61d0e75d7878dfc0de27"
+    "5d8ba933345c6ce38922ed737355cfbbffe2c054ac50d988728faa31d437b36a"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "efc6a832838aaced62f4c2a17c0a4809bd1901d346c744280adbe195cb4097f3"
+    "f88bb093e1aa5e157fcf6e46d2d5c799339c4c4819254940354fb2f3be0e9683"
 )
 EXPECTED_PROTECTED_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -33,11 +34,23 @@ EXPECTED_PROTECTED_SOURCE_SHA256 = {
         "75e3e30deff70fd58f740361395bb82c32981bd6107831dfb21ff037591c6b7d"
     ),
 }
+EXPECTED_IMPLEMENTATION_SOURCE_SHA256 = {
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
+        "43010956489191f1b32209addf7eb263d85af58ae61fd562d4214d8380111b06"
+    ),
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": (
+        "4d99e21c1fe0048aa6029f143f5056b52cc2e669ec01f95f6cd26e53d4791688"
+    ),
+}
 EXPECTED_ALLOWED_CHANGED_PATHS = [
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
     "docs/stage-5/5e-b3f-callback-settlement-escrow-design.md",
+    "docs/stage-5/stage-5d-additive-freeze-manifest.json",
     "docs/stage-5/stage5e-b3f-callback-settlement-escrow-design-inventory.json",
+    "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_provenance_negative_harness.py",
-    "scripts/handoff_safety_check.py",
+    "scripts/stage5d_additive_freeze_check.py",
     "scripts/stage5e_b3f_callback_settlement_escrow_design_check.py",
 ]
 EXPECTED_STAGE5C_ERROR_MAPPING = {
@@ -94,6 +107,113 @@ def git_changed_paths() -> list[str]:
     return sorted(line for line in tracked.stdout.splitlines() if line)
 
 
+def accepted_git_blob_sha256(relative: str) -> str:
+    completed = subprocess.run(
+        ["git", "show", f"{BASELINE_REF}:{relative}"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    )
+    return hashlib.sha256(completed.stdout).hexdigest()
+
+
+def marked_region(source: str, label: str, marker_id: str) -> str:
+    begin = f"// {label}-BEGIN: {marker_id}"
+    end = f"// {label}-END: {marker_id}"
+    require_exact(source.count(begin), 1, f"{label} begin marker drift")
+    require_exact(source.count(end), 1, f"{label} end marker drift")
+    start = source.index(begin) + len(begin)
+    finish = source.index(end, start)
+    region = source[start:finish]
+    if not region.strip():
+        fail(f"{label} implementation region is empty")
+    return region
+
+
+def validate_implementation_source() -> None:
+    stage5c = (
+        ROOT / "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    ).read_text()
+    stage5e = (
+        ROOT / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
+    ).read_text()
+    stage5c_region = marked_region(
+        stage5c,
+        "STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION",
+        "stage5c-private-bridge-v1",
+    )
+    stage5e_region = marked_region(
+        stage5e,
+        "STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION",
+        "private-process-local-v1",
+    )
+    combined = stage5c_region + stage5e_region
+    for forbidden in (
+        "redis::",
+        "reqwest",
+        "finam",
+        ".send(",
+        "tokio::spawn",
+        "std::fs",
+        "runtime_live",
+        "broker_execution",
+    ):
+        if forbidden.lower() in combined.lower():
+            fail(f"forbidden implementation surface opened: {forbidden}")
+    for symbol in (
+        "validate_and_settle_stage5e_paper_callback_escrow",
+        "validate_stage5e_b3f_stage5c_preflight_binding",
+        "construct_stage5e_b3f_stage5c_expected_preflight_binding",
+        "settle_stage5e_callback_escrow_material",
+        "settle_stage5c_semantic_result_owning_core",
+        "map_stage5c_preflight_mismatch_exact",
+        "map_stage5c_settlement_error_exact",
+        "construct_stage5e_b3f_settlement_identity",
+    ):
+        if symbol not in combined:
+            fail(f"required B3F implementation symbol missing: {symbol}")
+    mismatch_match = re.search(
+        r"pub\(crate\) enum Stage5eStage5cPreflightMismatch\s*\{(?P<body>.*?)\n\}",
+        stage5c_region,
+        re.S,
+    )
+    if mismatch_match is None:
+        fail("Stage 5C mismatch enum missing")
+    mismatch_prefix = stage5c_region[: mismatch_match.start()]
+    if mismatch_prefix.rstrip().endswith("]"):
+        fail("Stage 5C mismatch enum gained an attribute or derive")
+    for forbidden_trait in (
+        "Clone",
+        "Copy",
+        "Serialize",
+        "Deserialize",
+        "Display",
+        "From",
+        "Into",
+    ):
+        if re.search(
+            rf"impl(?:<[^>]+>)?\s+{forbidden_trait}\s+for\s+"
+            r"Stage5eStage5cPreflightMismatch",
+            combined,
+        ):
+            fail(f"Stage 5C mismatch gained forbidden trait: {forbidden_trait}")
+    if "drop(exact_intent_vector);" not in stage5c_region:
+        fail("early-attribution intent vector is no longer irreversibly disposed")
+    for test_name in (
+        "b3f_owning_core_matches_legacy_public_zero_intent_settlement",
+        "b3f_canonical_zero_intent_escrow_settles_once_with_one_entry_history",
+        "b3f_source_produced_intent_preserves_ordered_request_ids_and_exact_count",
+        "b3f_callback_validation_error_consumes_escrow_into_terminal_receipt",
+        "b3f_intent_capacity_boundary_is_exact_at_255_and_256",
+        "b3f_preflight_mismatch_mapper_is_exact_for_all_nine_variants",
+        "b3f_stage5c_error_mapper_is_exact_for_all_twelve_variants",
+        "b3f_event_key_validator_rejects_every_frozen_source_drift",
+        "b3f_settlement_identity_preserves_request_order_and_chronology",
+    ):
+        if test_name not in stage5c + stage5e:
+            fail(f"required B3F acceptance test missing: {test_name}")
+
+
 def main() -> int:
     try:
         inventory = json.loads(INVENTORY.read_text())
@@ -115,13 +235,13 @@ def main() -> int:
     require_exact(inventory.get("stage"), STAGE, "stage identity drift")
     require_exact(
         inventory.get("status"),
-        "design_r4_cross_module_privacy_closure_pending_review",
-        "design status drift",
+        "private_process_local_implementation_pending_review",
+        "implementation status drift",
     )
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        487,
+        507,
         "provenance case count drift",
     )
     require_exact(
@@ -135,17 +255,30 @@ def main() -> int:
         "design changed-path set drift",
     )
 
-    for relative, expected in EXPECTED_PROTECTED_SOURCE_SHA256.items():
-        require_exact(
-            sha256(ROOT / relative),
-            expected,
-            f"protected B3E implementation source changed: {relative}",
-        )
+    if (ROOT / ".git").exists():
+        for relative, expected in EXPECTED_PROTECTED_SOURCE_SHA256.items():
+            require_exact(
+                accepted_git_blob_sha256(relative),
+                expected,
+                f"accepted B3E predecessor source drift: {relative}",
+            )
     require_exact(
         inventory.get("protected_b3e_source_sha256"),
         EXPECTED_PROTECTED_SOURCE_SHA256,
         "protected B3E source inventory drift",
     )
+    for relative, expected in EXPECTED_IMPLEMENTATION_SOURCE_SHA256.items():
+        require_exact(
+            sha256(ROOT / relative),
+            expected,
+            f"protected B3F implementation source changed: {relative}",
+        )
+    require_exact(
+        inventory.get("implementation_source_sha256"),
+        EXPECTED_IMPLEMENTATION_SOURCE_SHA256,
+        "protected B3F implementation source inventory drift",
+    )
+    validate_implementation_source()
     require_exact(
         inventory["module_visibility_contract"],
         {
@@ -165,8 +298,8 @@ def main() -> int:
     )
     require_exact(
         transition["implementation_status"],
-        "design_only_not_implemented",
-        "settlement implementation opened",
+        "implemented_private_process_local_pending_review",
+        "settlement implementation status drift",
     )
     require_exact(
         transition["borrowed_preflight_before_consume"],
@@ -183,6 +316,11 @@ def main() -> int:
         transition["consume_after_every_decision"],
         True,
         "terminal preflight ownership conflict reintroduced",
+    )
+    require_exact(
+        transition["settlement_implementation_allowed_in_this_stage"],
+        True,
+        "accepted private settlement implementation was closed",
     )
     escrow_bridge = inventory["escrow_bridge_contract"]
     require_exact(
@@ -501,6 +639,34 @@ def main() -> int:
         "B3B authority caller drift",
     )
     require_exact(
+        event_key["inputs"],
+        [
+            "&audit_schedule_identity_fingerprint",
+            "&audit_full_instrument_id",
+            "retained_bar_close_i64",
+            "&audit_sequence_identity_fingerprint",
+            "&audit_event_key_fingerprint",
+            "&audit_b3b_event_key_fingerprint",
+            "&Stage5ePaperSettlementPreflightSeal",
+        ],
+        "B3B authority exact input vector drift",
+    )
+    require_exact(
+        event_key["visibility"],
+        "pub_crate_capability_gated",
+        "B3B authority visibility drift",
+    )
+    require_exact(
+        event_key["success"],
+        "Stage5eB3fEventKeyValidatedProof",
+        "B3B authority success type drift",
+    )
+    require_exact(
+        event_key["failure"],
+        "Stage5eB3fEventKeyMismatch",
+        "B3B authority failure type drift",
+    )
+    require_exact(
         event_key["canonical_delegate"],
         "schedule_window_evidence::b3b_event_key_fingerprint",
         "canonical B3B encoder delegation drift",
@@ -533,6 +699,11 @@ def main() -> int:
 
     mismatch = inventory["stage5c_preflight_mismatch_contract"]
     require_exact(
+        mismatch["owner"],
+        "strategy_runtime_core::stage5c_paper_host",
+        "preflight mismatch owner drift",
+    )
+    require_exact(
         mismatch["representation"],
         "pub_crate_closed_payload_free_enum",
         "preflight mismatch representation drift",
@@ -551,6 +722,16 @@ def main() -> int:
             "ExecutionEligibility",
         ],
         "preflight mismatch variant drift",
+    )
+    require_exact(
+        mismatch["forbidden_traits"],
+        ["Clone", "Copy", "Serialize", "Deserialize", "Display", "From", "Into"],
+        "preflight mismatch forbidden-trait contract drift",
+    )
+    require_exact(
+        mismatch["sole_inspector"],
+        "map_stage5c_preflight_mismatch_exact",
+        "preflight mismatch sole-inspector drift",
     )
     require_exact(mismatch["mapper_definition_count"], 1, "preflight mismatch mapper definition drift")
     require_exact(mismatch["mapper_call_site_count"], 1, "preflight mismatch mapper call-site drift")
@@ -935,6 +1116,7 @@ def main() -> int:
         "actual_callback_invocation",
         "strategy_state_mutation",
         "in_memory_intent_construction",
+        "escrow_validation_or_settlement",
     }
     if any(closed[name] is not True for name in opened_private):
         fail("accepted B3E private surface regressed")

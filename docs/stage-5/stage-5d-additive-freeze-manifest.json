@@ -61,8 +61,8 @@
     },
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
       "closure_sha256": "c846d0b22cec5fe4482b080e705e066709c9b35df9d611a3ad6afdbc96f0f857",
-      "current_sha256": "d7458cc5acb0004c9a82eb42675ca7a3672f7c584cd686a1ddaa0b72d8035e41",
-      "stripped_without_additive_regions_sha256": "bcc2c4d6ff08d06c49f9716495ce177fc968a8dcd71f6b2c38bcb8d5b4cb0914",
+      "current_sha256": "43010956489191f1b32209addf7eb263d85af58ae61fd562d4214d8380111b06",
+      "stripped_without_additive_regions_sha256": "ed2408a39fcf06b1adef702b08ffeb6d62744ff65454c501a8c1134751e09a93",
       "additive_regions": [
         "type-state-transitions",
         "stage5e-b3c-semantic-identity-fields",
@@ -76,9 +76,11 @@
   "stage5c_private_layout_extensions": [
     {
       "path": "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
-      "reason_id": "stage5d-b2b-a-persisted-load-provenance-v1",
+      "reason_id": "stage5e-b3f-canonical-owning-core-private-extension-v1",
       "public_api_unchanged": true,
-      "stripped_without_additive_regions_sha256": "bcc2c4d6ff08d06c49f9716495ce177fc968a8dcd71f6b2c38bcb8d5b4cb0914"
+      "stripped_without_additive_regions_sha256": "ed2408a39fcf06b1adef702b08ffeb6d62744ff65454c501a8c1134751e09a93",
+      "pre_b3f_reason_id": "stage5d-b2b-a-persisted-load-provenance-v1",
+      "pre_b3f_stripped_without_additive_regions_sha256": "bcc2c4d6ff08d06c49f9716495ce177fc968a8dcd71f6b2c38bcb8d5b4cb0914"
     }
   ],
   "controlled_source_semantic_extensions": [

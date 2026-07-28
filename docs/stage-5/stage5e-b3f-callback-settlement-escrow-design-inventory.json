@@ -1,15 +1,16 @@
 {
   "schema_version": 1,
   "stage": "5E-b3f-callback-settlement-escrow-design",
-  "status": "design_r4_cross_module_privacy_closure_pending_review",
-  "baseline_ref": "a5ccea08bc64a66e768340f7121e9b94a09ff884",
+  "status": "private_process_local_implementation_pending_review",
+  "baseline_ref": "148377f71b4afe6ce20f4e42433f58c812fb4917",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
   "accepted_b3e_implementation_ref": "d04e02903a0a1984f66eecfcc0f412501b97d37c",
   "conditionally_accepted_b3f_design_ref": "56f0b9c3b4b31e27ce7d85eac7e3981aae9f7837",
   "conditionally_accepted_b3f_r1_ref": "88204fc858a95a33ee1de2de01f297155594b101",
   "rejected_b3f_r2_ref": "ee23d6b4231c3c1483bcfacdb9189392183e2963",
   "rejected_b3f_r3_ref": "a5ccea08bc64a66e768340f7121e9b94a09ff884",
-  "expected_provenance_case_count": 487,
+  "accepted_b3f_r4_ref": "148377f71b4afe6ce20f4e42433f58c812fb4917",
+  "expected_provenance_case_count": 507,
   "module_visibility_contract": {
     "callback_settlement_module": "pub_crate_child_module_named_opaque_surface_only",
     "schedule_window_evidence_module": "pub_crate_existing_module",
@@ -19,7 +20,7 @@
   "transition_contract": {
     "function": "validate_and_settle_stage5e_paper_callback_escrow",
     "owner": "strategy_runtime_core::stage5e_no_io_lifecycle::callback_authority::callback_settlement",
-    "implementation_status": "design_only_not_implemented",
+    "implementation_status": "implemented_private_process_local_pending_review",
     "only_input": "Stage5ePaperCallbackResultEscrow",
     "success": "Stage5eValidatedPaperSettlementReceipt",
     "blocked": "Stage5ePaperSettlementTerminalReceipt",
@@ -31,7 +32,7 @@
     ],
     "consume_after_every_decision": true,
     "consume_count": 1,
-    "settlement_implementation_allowed_in_this_stage": false
+    "settlement_implementation_allowed_in_this_stage": true
   },
   "seal_contract": {
     "preflight_seal": "Stage5ePaperSettlementPreflightSeal",
@@ -796,18 +797,26 @@
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "d7458cc5acb0004c9a82eb42675ca7a3672f7c584cd686a1ddaa0b72d8035e41",
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "75e3e30deff70fd58f740361395bb82c32981bd6107831dfb21ff037591c6b7d"
   },
+  "implementation_source_sha256": {
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs": "43010956489191f1b32209addf7eb263d85af58ae61fd562d4214d8380111b06",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "4d99e21c1fe0048aa6029f143f5056b52cc2e669ec01f95f6cd26e53d4791688"
+  },
   "allowed_changed_paths": [
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
     "docs/stage-5/5e-b3f-callback-settlement-escrow-design.md",
+    "docs/stage-5/stage-5d-additive-freeze-manifest.json",
     "docs/stage-5/stage5e-b3f-callback-settlement-escrow-design-inventory.json",
+    "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_provenance_negative_harness.py",
-    "scripts/handoff_safety_check.py",
+    "scripts/stage5d_additive_freeze_check.py",
     "scripts/stage5e_b3f_callback_settlement_escrow_design_check.py"
   ],
   "closed_surfaces": {
     "actual_callback_invocation": true,
     "strategy_state_mutation": true,
     "in_memory_intent_construction": true,
-    "escrow_validation_or_settlement": false,
+    "escrow_validation_or_settlement": true,
     "intent_extraction_or_sink": false,
     "executable_intents": false,
     "redis": false,
