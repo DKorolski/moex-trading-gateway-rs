@@ -18,12 +18,12 @@ INVENTORY = (
 )
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3f-callback-settlement-escrow-design"
-BASELINE_REF = "ee23d6b4231c3c1483bcfacdb9189392183e2963"
+BASELINE_REF = "a5ccea08bc64a66e768340f7121e9b94a09ff884"
 EXPECTED_PLAN_SHA256 = (
-    "3ef4e2a74591d8df043f3a8ed04f635273aa35bcc6f03b400c27f0a973b2f9b2"
+    "eb2d74b095568ac86b982607081070ea6ff8e49eb50d61d0e75d7878dfc0de27"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "3ac04ef999f947f7d9218a1ab7c6052a41bb81bce561ca64201d3d11675b7661"
+    "efc6a832838aaced62f4c2a17c0a4809bd1901d346c744280adbe195cb4097f3"
 )
 EXPECTED_PROTECTED_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -115,13 +115,13 @@ def main() -> int:
     require_exact(inventory.get("stage"), STAGE, "stage identity drift")
     require_exact(
         inventory.get("status"),
-        "design_r3_cross_contract_closure_pending_review",
+        "design_r4_cross_module_privacy_closure_pending_review",
         "design status drift",
     )
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        450,
+        487,
         "provenance case count drift",
     )
     require_exact(
@@ -145,6 +145,16 @@ def main() -> int:
         inventory.get("protected_b3e_source_sha256"),
         EXPECTED_PROTECTED_SOURCE_SHA256,
         "protected B3E source inventory drift",
+    )
+    require_exact(
+        inventory["module_visibility_contract"],
+        {
+            "callback_settlement_module": "pub_crate_child_module_named_opaque_surface_only",
+            "schedule_window_evidence_module": "pub_crate_existing_module",
+            "public_outside_crate_surface_allowed": False,
+            "unlisted_cross_module_reexports_allowed": False,
+        },
+        "cross-module path visibility drift",
     )
 
     transition = inventory["transition_contract"]
@@ -287,7 +297,7 @@ def main() -> int:
             "&Stage5cPendingRecoveryReceipt",
             "&Stage5ePreCallbackAttributionSnapshot",
             "&Stage5eAcceptedBarSettlementMetadata",
-            "&Stage5eB3fStage5cExpectedPreflightBinding",
+            "&Stage5eB3fStage5cExpectedPreflightBinding<'_>",
             "&Stage5ePaperSettlementPreflightSeal",
         ],
         "Stage 5C preflight input topology drift",
@@ -296,6 +306,36 @@ def main() -> int:
         stage5c_preflight["expected_binding_constructor"],
         "construct_stage5e_b3f_stage5c_expected_preflight_binding",
         "expected-binding constructor drift",
+    )
+    require_exact(
+        stage5c_preflight["expected_binding_owner"],
+        "strategy_runtime_core::stage5c_paper_host",
+        "expected-binding reverse-sibling privacy drift",
+    )
+    require_exact(
+        stage5c_preflight["expected_binding_constructor_owner"],
+        "strategy_runtime_core::stage5c_paper_host",
+        "expected-binding constructor owner drift",
+    )
+    require_exact(
+        stage5c_preflight["expected_binding_constructor_signature"],
+        "eight_lifetime_bound_immutable_audit_field_borrows,&Stage5ePaperSettlementPreflightSeal->Stage5eB3fStage5cExpectedPreflightBinding<'a>",
+        "expected-binding constructor signature drift",
+    )
+    require_exact(
+        stage5c_preflight["expected_binding_visibility"],
+        "pub_crate_opaque_stage5c_private_fields",
+        "expected-binding field visibility drift",
+    )
+    require_exact(
+        stage5c_preflight["expected_binding_lifetime_bound"],
+        True,
+        "expected-binding lifetime drift",
+    )
+    require_exact(
+        stage5c_preflight["expected_binding_constructor_input_mode"],
+        "immutable_borrow_field_for_field_from_stage5e_call_site",
+        "expected-binding constructor direction drift",
     )
     for key in (
         "intent_extraction_allowed",
@@ -415,6 +455,127 @@ def main() -> int:
         stage5c_preflight["expected_binding_field_source"],
         "field_for_field_from_Stage5eAuthorizedCallbackAuditLineage",
         "expected-binding field source drift",
+    )
+    require_exact(
+        stage5c_preflight["expected_binding_constructor_inputs"],
+        [
+            "audit_schedule_identity_fingerprint",
+            "audit_sequence_identity_fingerprint",
+            "audit_event_key_fingerprint",
+            "audit_b3b_event_key_fingerprint",
+            "audit_full_instrument_id",
+            "audit_owned_instrument",
+            "audit_accepted_semantic_bar_identity",
+            "audit_owned_bar_identity",
+            "Stage5ePaperSettlementPreflightSeal",
+        ],
+        "expected-binding constructor input vector drift",
+    )
+    require_exact(
+        stage5c_preflight["expected_binding_fields_inspected_only_by_stage5c_owner"],
+        True,
+        "expected-binding private field inspector drift",
+    )
+    require_exact(
+        stage5c_preflight["expected_binding_borrows_end_before_escrow_consume"],
+        True,
+        "expected-binding borrow lifetime escaped consume boundary",
+    )
+
+    event_key = inventory["b3b_event_key_validation_authority_contract"]
+    require_exact(
+        event_key["function"],
+        "validate_stage5e_b3f_b3b_event_key_binding",
+        "B3B validation authority drift",
+    )
+    require_exact(
+        event_key["owner"],
+        "strategy_runtime_core::stage5e_no_io_lifecycle::schedule_window_evidence",
+        "B3B validation authority owner drift",
+    )
+    require_exact(event_key["definition_count"], 1, "B3B authority definition drift")
+    require_exact(event_key["call_site_count"], 1, "B3B authority call-site drift")
+    require_exact(
+        event_key["sole_caller"],
+        "validate_stage5e_b3f_stage5c_preflight_binding",
+        "B3B authority caller drift",
+    )
+    require_exact(
+        event_key["canonical_delegate"],
+        "schedule_window_evidence::b3b_event_key_fingerprint",
+        "canonical B3B encoder delegation drift",
+    )
+    require_exact(event_key["canonical_delegate_call_count"], 1, "canonical B3B delegate count drift")
+    for key in (
+        "second_encoder_allowed",
+        "second_domain_string_allowed",
+        "raw_audit_lineage_getters_allowed",
+        "mutable_inputs_allowed",
+        "proof_reusable_authority",
+    ):
+        require_exact(event_key[key], False, f"B3B authority surface opened: {key}")
+    require_exact(event_key["proof_fields"], [], "B3B proof gained reusable material")
+    require_exact(
+        event_key["success_visibility"],
+        "pub_crate_opaque_payload_free",
+        "B3B proof visibility drift",
+    )
+    require_exact(
+        event_key["failure_visibility"],
+        "pub_crate_opaque_payload_free",
+        "B3B mismatch visibility drift",
+    )
+    require_exact(
+        event_key["mismatch_maps_to"],
+        "Stage5eStage5cPreflightMismatch::AuditEventKey",
+        "B3B mismatch mapping drift",
+    )
+
+    mismatch = inventory["stage5c_preflight_mismatch_contract"]
+    require_exact(
+        mismatch["representation"],
+        "pub_crate_closed_payload_free_enum",
+        "preflight mismatch representation drift",
+    )
+    require_exact(
+        mismatch["variants"],
+        [
+            "StrategyId",
+            "AccountId",
+            "FullInstrumentId",
+            "SemanticBarIdentity",
+            "AcceptedBarClose",
+            "AuditEventKey",
+            "PaperMode",
+            "AcceptedBarOrigin",
+            "ExecutionEligibility",
+        ],
+        "preflight mismatch variant drift",
+    )
+    require_exact(mismatch["mapper_definition_count"], 1, "preflight mismatch mapper definition drift")
+    require_exact(mismatch["mapper_call_site_count"], 1, "preflight mismatch mapper call-site drift")
+    require_exact(
+        mismatch["mapper_signature"],
+        "Stage5eStage5cPreflightMismatch,&Stage5ePaperSettlementPreflightSeal->Stage5ePaperSettlementTerminalReason",
+        "preflight mismatch mapper signature drift",
+    )
+    require_exact(mismatch["mapper_implementation"], "exhaustive_9_arm_match", "preflight mismatch mapper drift")
+    require_exact(mismatch["wildcard_arm_allowed"], False, "preflight mismatch wildcard opened")
+    require_exact(mismatch["generic_conversion_allowed"], False, "preflight mismatch conversion opened")
+    require_exact(
+        mismatch["mapping"],
+        {
+            "StrategyId": "IdentityMismatch",
+            "AccountId": "IdentityMismatch",
+            "FullInstrumentId": "IdentityMismatch",
+            "SemanticBarIdentity": "IdentityMismatch",
+            "AcceptedBarClose": "IdentityMismatch",
+            "AuditEventKey": "IdentityMismatch",
+            "PaperMode": "PaperModeMismatch",
+            "AcceptedBarOrigin": "PaperModeMismatch",
+            "ExecutionEligibility": "PaperModeMismatch",
+        },
+        "preflight mismatch mapping drift",
     )
 
     require_exact(
@@ -634,6 +795,31 @@ def main() -> int:
         named["stage5c_preflight_bridge"]["name"],
         "validate_stage5e_b3f_stage5c_preflight_binding",
         "named Stage 5C preflight bridge drift",
+    )
+    require_exact(
+        named["stage5c_expected_binding_builder"]["owner"],
+        "strategy_runtime_core::stage5c_paper_host",
+        "named expected-binding builder owner drift",
+    )
+    require_exact(
+        named["b3b_event_key_validation_authority"]["name"],
+        "validate_stage5e_b3f_b3b_event_key_binding",
+        "named B3B event-key authority drift",
+    )
+    require_exact(
+        named["stage5c_preflight_mismatch_mapper"]["name"],
+        "map_stage5c_preflight_mismatch_exact",
+        "named preflight mismatch mapper drift",
+    )
+    require_exact(
+        named["stage5c_preflight_mismatch_mapper"]["implementation"],
+        "exhaustive_9_arm_match",
+        "named preflight mismatch mapper implementation drift",
+    )
+    require_exact(
+        named["stage5c_preflight_mismatch_mapper"]["wildcard_arm_allowed"],
+        False,
+        "named preflight mismatch wildcard opened",
     )
     require_exact(
         named["stage5c_error_mapper"]["implementation"],

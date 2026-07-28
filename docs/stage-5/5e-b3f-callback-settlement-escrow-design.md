@@ -2,20 +2,20 @@
 
 ## Status and baseline
 
-This is the B3F-r3 governance-only cross-contract correction based on the
-rejected B3F-r2 design:
+This is the B3F-r4 governance-only cross-module privacy closure based on the
+rejected B3F-r3 design:
 
 ```text
-ee23d6b4231c3c1483bcfacdb9189392183e2963
+a5ccea08bc64a66e768340f7121e9b94a09ff884
 ```
 
 The accepted B3E implementation baseline remains
 `d04e02903a0a1984f66eecfcc0f412501b97d37c`. No Rust settlement
 implementation is added here. The accepted B3E callback boundary remains the
-only producer of `Stage5ePaperCallbackResultEscrow`. B3F-r3 corrects the
-linear-capability liveness, private Stage 5C preflight access, source-relation
-matrix, canonical settlement path, terminal vector disposition, intent-count
-binding, and terminal-reason producer topology before implementation.
+only producer of `Stage5ePaperCallbackResultEscrow`. B3F-r4 preserves every
+r3 correction and closes reverse sibling privacy, canonical B3B event-key
+authority access, and exact preflight-mismatch representation before
+implementation.
 
 ## Purpose
 
@@ -132,7 +132,7 @@ validate_stage5e_b3f_stage5c_preflight_binding(
     recovery_receipt: &Stage5cPendingRecoveryReceipt,
     attribution_snapshot: &Stage5ePreCallbackAttributionSnapshot,
     retained_bar_metadata: &Stage5eAcceptedBarSettlementMetadata,
-    expected_binding: &Stage5eB3fStage5cExpectedPreflightBinding,
+    expected_binding: &Stage5eB3fStage5cExpectedPreflightBinding<'_>,
     seal: &Stage5ePaperSettlementPreflightSeal
 ) -> Result<
     Stage5eStage5cPreflightValidatedProof,
@@ -142,16 +142,98 @@ validate_stage5e_b3f_stage5c_preflight_binding(
 
 The bridge has one definition and one call site. It takes immutable borrows,
 does not extract intents, and does not mutate strategy, recovery, snapshot, or
-metadata. Its proof and mismatch are opaque, non-decomposable, non-cloneable,
-and non-serializable.
+metadata. Its success proof is opaque and non-decomposable.
 
 The expected binding is constructed exactly once by
 `construct_stage5e_b3f_stage5c_expected_preflight_binding` under the preflight
-seal. It is `pub(crate)` opaque with private fields and carries field-for-field
-only: audit schedule identity, sequence identity, both event-key fingerprints,
-full and owned instrument IDs, and accepted and owned bar identities. There
-are no production raw getters, tuple exports, generic parts, scalar overloads,
+seal. Both the type and constructor are owned by `stage5c_paper_host`, so the
+validator may inspect the type's private fields under normal Rust privacy.
+The Stage 5E call site, which may inspect its own audit lineage, passes
+immutable field-for-field borrows for audit schedule identity, sequence
+identity, both event-key fingerprints, full and owned instrument IDs, and
+accepted and owned bar identities. The returned
+`Stage5eB3fStage5cExpectedPreflightBinding<'a>` is lifetime-bound,
+`pub(crate)` opaque, and has Stage 5C-private fields.
+
+The exact constructor shape is:
+
+```text
+construct_stage5e_b3f_stage5c_expected_preflight_binding<'a>(
+    schedule_identity: &'a [u8; 32],
+    sequence_identity: &'a [u8; 32],
+    event_key: &'a [u8; 32],
+    b3b_event_key: &'a [u8; 32],
+    full_instrument: &'a InstrumentId,
+    owned_instrument: &'a InstrumentId,
+    accepted_bar_identity: &'a [u8; 32],
+    owned_bar_identity: &'a [u8; 32],
+    seal: &Stage5ePaperSettlementPreflightSeal
+) -> Stage5eB3fStage5cExpectedPreflightBinding<'a>
+```
+
+All carrier borrows end before escrow consumption. There are no production raw
+getters, tuple exports, generic parts, scalar overloads, visitor/trait escape,
 or reuse/generalization of the existing `#[cfg(test)]` inspection helpers.
+
+## Canonical B3B event-key validation authority
+
+The Stage 5C preflight validator requests event-key validation exactly once
+through:
+
+```text
+validate_stage5e_b3f_b3b_event_key_binding(
+    schedule_identity: &[u8; 32],
+    full_instrument: &InstrumentId,
+    retained_bar_close: i64,
+    sequence_identity: &[u8; 32],
+    expected_event_key: &[u8; 32],
+    expected_b3b_event_key: &[u8; 32],
+    seal: &Stage5ePaperSettlementPreflightSeal
+) -> Result<
+    Stage5eB3fEventKeyValidatedProof,
+    Stage5eB3fEventKeyMismatch
+>
+```
+
+The helper is owned by
+`stage5e_no_io_lifecycle::schedule_window_evidence`, is `pub(crate)` only for
+this capability-gated call, and has one definition and one call site. It
+delegates exactly once to the existing canonical
+`b3b_event_key_fingerprint`; Stage 5C defines no event-key encoder, domain
+string, or equivalent algorithm. Inputs are immutable. The proof has no
+fields and no reusable authority. Failure becomes exactly
+`Stage5eStage5cPreflightMismatch::AuditEventKey`.
+
+## Exact Stage 5C preflight mismatch
+
+`Stage5eStage5cPreflightMismatch` is a Stage 5C-owned, `pub(crate)`, closed
+payload-free enum with exactly:
+
+```text
+StrategyId
+AccountId
+FullInstrumentId
+SemanticBarIdentity
+AcceptedBarClose
+AuditEventKey
+PaperMode
+AcceptedBarOrigin
+ExecutionEligibility
+```
+
+It carries no source data and implements no `Clone`, `Copy`, serde, `Display`,
+`From`, or `Into`. Its only inspector is the Stage 5E-owned
+`map_stage5c_preflight_mismatch_exact`, with one definition and one call site.
+The mapper uses an exhaustive nine-arm match without `_`: the first six
+variants map to `IdentityMismatch`, and the final three map to
+`PaperModeMismatch`.
+
+```text
+map_stage5c_preflight_mismatch_exact(
+    mismatch: Stage5eStage5cPreflightMismatch,
+    seal: &Stage5ePaperSettlementPreflightSeal
+) -> Stage5ePaperSettlementTerminalReason
+```
 
 The Stage 5C proof is then combined with the Stage 5E-owned audit-authority,
 fingerprint, and chronology checks. All preflight borrows end before escrow
@@ -292,10 +374,12 @@ strategy_runtime_core::stage5e_no_io_lifecycle::
     callback_authority::callback_settlement
 ```
 
-`callback_settlement` is a private child module of the B3E escrow owner. It
-owns both settlement seals, both receipt types, the preflight decision, and
-the top-level transition. The B3E parent remains owner of the escrow and
-callback outcome.
+`callback_settlement` is a `pub(crate)` child module of the B3E escrow owner
+solely so the named Stage 5C and schedule-evidence sibling bridges can name its
+opaque capability and receipt types. It has no public-outside-crate surface,
+no unlisted re-exports, and no public fields. It owns both settlement seals,
+both receipt types, the preflight decision, and the top-level transition. The
+B3E parent remains owner of the escrow and callback outcome.
 
 The only permitted escrow bridges are:
 
@@ -819,16 +903,19 @@ attribution snapshot, bar metadata, chronology, authority ID, or count. The
 private tag and fields cannot be inspected outside the receipt owner. No
 variant is retryable or convertible to success.
 
-## R3 realizable cross-module order
+## R4 realizable cross-module order
 
 The implementation order is frozen exactly:
 
 ```text
 1. issue one preflight seal
 2. borrow the escrow preflight
-3. construct one opaque Stage 5E expected-binding carrier
-4. invoke the sole Stage 5C borrowed preflight validator
-5. combine its proof with Stage 5E audit/authority/chronology checks
+3. call the sole Stage 5C constructor with exact immutable audit-field borrows
+   to obtain one lifetime-bound Stage 5C-owned expected-binding carrier
+4. invoke the sole Stage 5C borrowed preflight validator; it requests the sole
+   canonical Stage 5E B3B event-key validation once
+5. map any closed Stage 5C mismatch through the sole exhaustive nine-arm
+   mapper, or combine success proof with Stage 5E authority/chronology checks
 6. obtain ProceedOk or Terminal and end every preflight borrow
 7. issue one stack-local consume capability
 8. consume escrow by borrowing the capability
@@ -853,7 +940,10 @@ The checker rejects a by-value consume seal, pre-issued downstream seals,
 second issuers, early settlement-seal issuance, capability storage or
 reconstruction, raw Stage 5C getters, a flat Cartesian identity claim,
 non-canonical settlement/history, caller-supplied count, recoverable
-early-error vectors, and terminal reasons without exact producers.
+early-error vectors, terminal reasons without exact producers, reverse-sibling
+private-field access, expected-binding owner drift, duplicate event-key
+authority, a Stage 5C event-key encoder/domain, mismatch variant drift, and a
+wildcard or generic mismatch mapper.
 
 ## Exactly-once boundary
 
