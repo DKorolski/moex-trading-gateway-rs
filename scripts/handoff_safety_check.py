@@ -370,7 +370,7 @@ def check_archive(path: Path) -> None:
                 expected_stage5e_a_freeze_ref = None
             elif current_review_stage == "5E-b3f-callback-settlement-escrow-design":
                 expected_stage5e_baseline_ref = (
-                    "88204fc858a95a33ee1de2de01f297155594b101"
+                    "ee23d6b4231c3c1483bcfacdb9189392183e2963"
                 )
                 expected_stage5e_a_freeze_ref = None
             else:

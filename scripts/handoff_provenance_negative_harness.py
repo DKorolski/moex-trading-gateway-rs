@@ -2706,7 +2706,56 @@ def main() -> int:
         Case("stage5e-b3f-r2-terminal-audit-lineage-dropped", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["terminal_ownership_matrix"]["stage5c_error_terminal"]["fields"].remove("audit_lineage")), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-r2-stage5c-exact-error-dropped", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["terminal_ownership_matrix"]["stage5c_error_terminal"]["fields"].remove("exact_stage5c_error_some")), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-r2-stage5c-terminal-keeps-consumed-outcome", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["terminal_ownership_matrix"]["stage5c_error_terminal"]["fields"].__setitem__(8, "callback_outcome_reconstructed")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-consume-seal-moved-by-value", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["escrow_bridge_contract"].__setitem__("consume_signature", "self,Stage5ePaperSettlementConsumeSeal->Stage5ePaperSettlementPayload")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-consume-capability-stored-in-payload", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["escrow_bridge_contract"].__setitem__("consume_capability_stored_in_payload", True)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-consume-capability-stored-in-receipt", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["escrow_bridge_contract"].__setitem__("consume_capability_stored_in_receipt", True)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-second-material-seal-issued", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["consume_capability_liveness_contract"].__setitem__("material_seal_issuance_count", 2)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-second-settlement-seal-issued", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["consume_capability_liveness_contract"].__setitem__("settlement_seal_issuance_count", 2)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-material-seal-issued-before-ok", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["consume_capability_liveness_contract"].__setitem__("issuance_before_ProceedOk_classification_allowed", True)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-settlement-seal-issued-early", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["consume_capability_liveness_contract"].__setitem__("settlement_seal_early_issuance_allowed", True)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-capability-reconstruction-compile-fail-removed", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["consume_capability_liveness_contract"]["compile_fail_cases"].remove("consume_capability_clone_or_reconstruction")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-second-stage5c-preflight-bridge", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_preflight_bridge_contract"].__setitem__("call_site_count", 2)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-stage5c-preflight-raw-getter-opened", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_preflight_bridge_contract"].__setitem__("production_raw_getters_allowed", True)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-stage5c-preflight-tuple-export-opened", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_preflight_bridge_contract"].__setitem__("production_tuple_exports_allowed", True)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-stage5c-preflight-mutation-opened", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_preflight_bridge_contract"].__setitem__("ownership_mutation_allowed", True)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-stage5c-test-helper-reused", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_preflight_bridge_contract"].__setitem__("test_helper_reuse_allowed", True)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-canonical-settlement-replaced", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_bridge_contract"].__setitem__("canonical_owning_core", "settle_stage5e_ad_hoc")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-canonical-history-empty", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_bridge_contract"].__setitem__("canonical_initial_history_length", 0)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-canonical-history-builder-replaced", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_bridge_contract"].__setitem__("canonical_history_builder", "stage5e_batch_summary")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-early-attribution-vector-returned", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_bridge_contract"].__setitem__("intent_vector_after_attribution_error", "returned_for_retry")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-caller-supplied-count-reintroduced", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_material_construction_contract"].__setitem__("caller_supplied_intent_count_allowed", True)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-dead-attribution-reason-reintroduced", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["terminal_receipt_contract"]["reasons"].append("Stage5cAttributionMismatch")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-terminal-reason-producer-removed", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["terminal_reason_producers"].pop("ChronologyMismatch")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-second-named-settlement-seal-issuer", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["named_authority_functions"]["stage5c_settlement_seal_issuer"].__setitem__("call_site_count", 2)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-second-expected-binding-builder", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_preflight_bridge_contract"].__setitem__("expected_binding_constructor_call_site_count", 2)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-next-bar-parity-removed", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_bridge_contract"].__setitem__("next_bar_continuation_parity_required", False)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-preflight-seal-visibility-opened", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["seal_contract"]["cross_module_visibility"].__setitem__("Stage5ePaperSettlementPreflightSeal", "pub_fields")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-expected-binding-field-removed", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_preflight_bridge_contract"]["expected_binding_fields"].remove("audit_b3b_event_key_fingerprint")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-expected-binding-source-generalized", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_preflight_bridge_contract"].__setitem__("expected_binding_field_source", "generic_scalar_getters")), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-legacy-canonical-delegation-removed", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_bridge_contract"].__setitem__("existing_public_entrypoint_delegates_to_owning_core", False)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r3-owning-core-call-site-dropped", "design inventory drift", mutate_stage5e_b3f_inventory_for_checker(lambda p: p["stage5c_bridge_contract"].__setitem__("canonical_owning_core_call_site_count", 1)), "5E-b3f-callback-settlement-escrow-design", True),
     ]
+    relation_matrix = json.loads(
+        (
+            ROOT
+            / "docs/stage-5/stage5e-b3f-callback-settlement-escrow-design-inventory.json"
+        ).read_text()
+    )["identity_contract"]["field_source_relation_matrix"]
+    for relation_index, relation in enumerate(relation_matrix):
+        for source_index, source in enumerate(relation["sources"]):
+            cases.append(
+                Case(
+                    f"stage5e-b3f-r3-relation-{relation_index}-source-{source_index}-removed",
+                    "design inventory drift",
+                    mutate_stage5e_b3f_inventory_for_checker(
+                        lambda p, ri=relation_index, si=source_index: p[
+                            "identity_contract"
+                        ]["field_source_relation_matrix"][ri]["sources"].pop(si)
+                    ),
+                    "5E-b3f-callback-settlement-escrow-design",
+                    True,
+                )
+            )
     if args.case_start < 0 or args.case_start > len(cases):
         print("handoff-provenance-negative-harness: invalid --case-start", file=sys.stderr)
         return 2
