@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
   "stage": "5E-b3f-callback-settlement-escrow-design",
-  "status": "design_r1_governance_closure_pending_review",
-  "baseline_ref": "56f0b9c3b4b31e27ce7d85eac7e3981aae9f7837",
+  "status": "design_r2_cross_module_closure_pending_review",
+  "baseline_ref": "88204fc858a95a33ee1de2de01f297155594b101",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
   "accepted_b3e_implementation_ref": "d04e02903a0a1984f66eecfcc0f412501b97d37c",
   "conditionally_accepted_b3f_design_ref": "56f0b9c3b4b31e27ce7d85eac7e3981aae9f7837",
-  "expected_provenance_case_count": 370,
+  "conditionally_accepted_b3f_r1_ref": "88204fc858a95a33ee1de2de01f297155594b101",
+  "expected_provenance_case_count": 388,
   "transition_contract": {
     "function": "validate_and_settle_stage5e_paper_callback_escrow",
     "owner": "strategy_runtime_core::stage5e_no_io_lifecycle::callback_authority::callback_settlement",
@@ -160,6 +161,92 @@
     ],
     "intent_vector_after_builder_error": "intentionally_consumed_not_recoverable"
   },
+  "stage5c_material_construction_contract": {
+    "seal": "Stage5cB3fSettlementMaterialSeal",
+    "seal_owner": "strategy_runtime_core::stage5c_paper_host",
+    "seal_issuer": "issue_stage5c_b3f_settlement_material_seal",
+    "seal_issuer_signature": "&Stage5ePaperSettlementConsumeSeal->Stage5cB3fSettlementMaterialSeal",
+    "seal_issuer_visibility": "pub_crate_capability_gated",
+    "seal_issuer_definition_count": 1,
+    "seal_issuer_call_site_count": 1,
+    "material": "Stage5eStage5cSettlementMaterial",
+    "material_owner": "strategy_runtime_core::stage5c_paper_host",
+    "material_visibility": "pub_crate_opaque_private_fields",
+    "constructor": "construct_stage5e_stage5c_settlement_material",
+    "constructor_visibility": "pub_crate_capability_gated",
+    "constructor_capability": "Stage5cB3fSettlementMaterialSeal",
+    "constructor_definition_count": 1,
+    "constructor_call_site_count": 1,
+    "fields": [
+      "mutated_strategy",
+      "recovery_receipt",
+      "pre_callback_attribution_snapshot",
+      "retained_bar_metadata",
+      "exact_intent_vector",
+      "original_intent_count"
+    ],
+    "consumer": "settle_stage5e_callback_escrow_material",
+    "consumer_count": 1,
+    "forbidden_surfaces": [
+      "public_fields",
+      "raw_constructor",
+      "generic_parts",
+      "tuple_conversion",
+      "scalar_overload",
+      "alternate_material",
+      "Clone",
+      "Copy",
+      "Serialize",
+      "Deserialize"
+    ]
+  },
+  "stage5c_success_return_contract": {
+    "success_type": "Stage5eStage5cSettlementSuccess",
+    "owner": "strategy_runtime_core::stage5c_paper_host",
+    "owns": "private_canonical_Stage5cSettledPaperStrategy",
+    "proof_type": "Stage5eStage5cSettlementSuccessProof",
+    "proof_ownership": "borrowed_non_decomposable",
+    "proof_seal": "Stage5cB3fSuccessProofSeal",
+    "proof_seal_owner": "strategy_runtime_core::stage5c_paper_host",
+    "proof_method": "Stage5eStage5cSettlementSuccess::borrow_identity_proof",
+    "proof_method_definition_count": 1,
+    "proof_method_call_site_count": 1,
+    "proof_fields": [
+      "strategy_id",
+      "account_id",
+      "full_instrument_id",
+      "accepted_bar_close_timestamp",
+      "batch_state_fingerprint",
+      "ordered_strategy_request_ids",
+      "intent_count_u8"
+    ],
+    "transfer_method": "Stage5eStage5cSettlementSuccess::construct_stage5e_success_receipt",
+    "transfer_method_definition_count": 1,
+    "transfer_method_call_site_count": 1,
+    "proof_borrow_before_settled_move": true,
+    "settled_move_count": 1,
+    "raw_getters_allowed": false,
+    "generic_parts_allowed": false
+  },
+  "stage5c_terminal_return_contract": {
+    "terminal_type": "Stage5eStage5cSettlementTerminalMaterial",
+    "owner": "strategy_runtime_core::stage5c_paper_host",
+    "fields": [
+      "mutated_strategy",
+      "recovery_receipt",
+      "pre_callback_attribution_snapshot",
+      "retained_bar_metadata",
+      "exact_stage5c_intent_settlement_error",
+      "original_intent_count"
+    ],
+    "transfer_method": "Stage5eStage5cSettlementTerminalMaterial::construct_stage5e_terminal_receipt",
+    "transfer_method_definition_count": 1,
+    "transfer_method_call_site_count": 1,
+    "mapper_call_count": 1,
+    "raw_getters_allowed": false,
+    "generic_parts_allowed": false,
+    "second_consumer_allowed": false
+  },
   "stage5c_error_mapping": {
     "TooManyIntents": "IntentCapacityExceeded",
     "MissingIntentClass": "Stage5cIntentValidationFailed",
@@ -264,6 +351,37 @@
     "callback_authority_alias_allowed": false,
     "constant_allowed": false
   },
+  "named_authority_functions": {
+    "stage5c_material_seal_issuer": {
+      "name": "issue_stage5c_b3f_settlement_material_seal",
+      "owner": "strategy_runtime_core::stage5c_paper_host",
+      "definition_count": 1,
+      "call_site_count": 1
+    },
+    "audit_commitment_builder": {
+      "name": "construct_stage5e_b3f_audit_commitment",
+      "owner": "callback_authority::callback_settlement",
+      "seal": "Stage5eB3fAuditCommitmentSeal",
+      "definition_count": 1,
+      "call_site_count": 1
+    },
+    "settlement_identity_builder": {
+      "name": "construct_stage5e_b3f_settlement_identity",
+      "owner": "callback_authority::callback_settlement",
+      "definition_count": 1,
+      "call_site_count": 1,
+      "called_while_success_proof_borrowed": true
+    },
+    "stage5c_error_mapper": {
+      "name": "map_stage5c_settlement_error_exact",
+      "owner": "callback_authority::callback_settlement",
+      "definition_count": 1,
+      "call_site_count": 1,
+      "implementation": "exhaustive_12_arm_match",
+      "wildcard_arm_allowed": false,
+      "generic_conversion_allowed": false
+    }
+  },
   "success_receipt_contract": {
     "type": "Stage5eValidatedPaperSettlementReceipt",
     "owner": "callback_authority::callback_settlement",
@@ -342,6 +460,61 @@
       "sink_conversion"
     ],
     "future_consumer": "deferred_separate_review"
+  },
+  "terminal_ownership_matrix": {
+    "preflight_ok_terminal": {
+      "fields": [
+        "reason",
+        "mutated_strategy",
+        "recovery_receipt",
+        "audit_lineage",
+        "pre_callback_attribution_snapshot",
+        "retained_bar_metadata",
+        "callback_invoked_at",
+        "callback_authority_id",
+        "opaque_exact_ok_callback_outcome_with_intent_vector",
+        "original_intent_count",
+        "audit_commitment",
+        "stage5c_error_none"
+      ],
+      "retryable": false
+    },
+    "callback_validation_error_terminal": {
+      "fields": [
+        "reason_CallbackValidationError",
+        "mutated_strategy",
+        "recovery_receipt",
+        "audit_lineage",
+        "pre_callback_attribution_snapshot",
+        "retained_bar_metadata",
+        "callback_invoked_at",
+        "callback_authority_id",
+        "opaque_exact_callback_validation_error",
+        "original_intent_count_zero",
+        "audit_commitment",
+        "stage5c_error_none"
+      ],
+      "retryable": false
+    },
+    "stage5c_error_terminal": {
+      "fields": [
+        "mapped_reason",
+        "mutated_strategy",
+        "recovery_receipt",
+        "audit_lineage",
+        "pre_callback_attribution_snapshot",
+        "retained_bar_metadata",
+        "callback_invoked_at",
+        "callback_authority_id",
+        "callback_outcome_none_after_consumed_vector",
+        "original_intent_count",
+        "audit_commitment",
+        "exact_stage5c_error_some"
+      ],
+      "retryable": false
+    },
+    "private_tagged_representation": true,
+    "variant_inspection_outside_owner_allowed": false
   },
   "exactly_once_contract": {
     "scope": "process_local_only",

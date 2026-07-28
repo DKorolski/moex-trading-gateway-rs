@@ -18,12 +18,12 @@ INVENTORY = (
 )
 ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3f-callback-settlement-escrow-design"
-BASELINE_REF = "56f0b9c3b4b31e27ce7d85eac7e3981aae9f7837"
+BASELINE_REF = "88204fc858a95a33ee1de2de01f297155594b101"
 EXPECTED_PLAN_SHA256 = (
-    "0000309e2f5fe405fbec7c31c0b9016384112a1857ff2a5a724d6218581b6efa"
+    "7737efe86176875fed87f99259d8499c003c0fc1a8b19c09ad16de12d1f72570"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "decf2af9b8f8101d342f740287570c812f903ad184007aeae7139a03c44435db"
+    "3e5d37c08bfffa64dfceab333cdd2bba8751d6a22c1b1591a2eae809137fe752"
 )
 EXPECTED_PROTECTED_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -115,13 +115,13 @@ def main() -> int:
     require_exact(inventory.get("stage"), STAGE, "stage identity drift")
     require_exact(
         inventory.get("status"),
-        "design_r1_governance_closure_pending_review",
+        "design_r2_cross_module_closure_pending_review",
         "design status drift",
     )
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        370,
+        388,
         "provenance case count drift",
     )
     require_exact(
@@ -231,6 +231,65 @@ def main() -> int:
         False,
         "parallel Stage 5E intent oracle opened",
     )
+    material = inventory["stage5c_material_construction_contract"]
+    require_exact(
+        material["seal_issuer"],
+        "issue_stage5c_b3f_settlement_material_seal",
+        "Stage 5C material seal issuer drift",
+    )
+    require_exact(
+        material["constructor"],
+        "construct_stage5e_stage5c_settlement_material",
+        "Stage 5C material constructor drift",
+    )
+    require_exact(material["constructor_definition_count"], 1, "material constructor count drift")
+    require_exact(material["constructor_call_site_count"], 1, "material call-site drift")
+    require_exact(
+        material["fields"],
+        [
+            "mutated_strategy",
+            "recovery_receipt",
+            "pre_callback_attribution_snapshot",
+            "retained_bar_metadata",
+            "exact_intent_vector",
+            "original_intent_count",
+        ],
+        "Stage 5C material field schema drift",
+    )
+    success_return = inventory["stage5c_success_return_contract"]
+    require_exact(
+        success_return["proof_fields"],
+        [
+            "strategy_id",
+            "account_id",
+            "full_instrument_id",
+            "accepted_bar_close_timestamp",
+            "batch_state_fingerprint",
+            "ordered_strategy_request_ids",
+            "intent_count_u8",
+        ],
+        "Stage 5C success proof schema drift",
+    )
+    require_exact(
+        success_return["proof_borrow_before_settled_move"],
+        True,
+        "success proof ordering drift",
+    )
+    require_exact(success_return["settled_move_count"], 1, "settled strategy move drift")
+    terminal_return = inventory["stage5c_terminal_return_contract"]
+    require_exact(
+        terminal_return["fields"],
+        [
+            "mutated_strategy",
+            "recovery_receipt",
+            "pre_callback_attribution_snapshot",
+            "retained_bar_metadata",
+            "exact_stage5c_intent_settlement_error",
+            "original_intent_count",
+        ],
+        "Stage 5C terminal return schema drift",
+    )
+    require_exact(terminal_return["mapper_call_count"], 1, "terminal mapper call-count drift")
     require_exact(
         inventory["escrow_bridge_contract"]["payload_consumer_count"],
         1,
@@ -293,6 +352,50 @@ def main() -> int:
         "SHA-256",
         "canonical identity hash drift",
     )
+    named = inventory["named_authority_functions"]
+    require_exact(
+        named["stage5c_error_mapper"]["implementation"],
+        "exhaustive_12_arm_match",
+        "named error mapper implementation drift",
+    )
+    require_exact(
+        named["stage5c_error_mapper"]["wildcard_arm_allowed"],
+        False,
+        "named error mapper wildcard opened",
+    )
+    for authority in named.values():
+        require_exact(authority["definition_count"], 1, "named authority definition-count drift")
+        require_exact(authority["call_site_count"], 1, "named authority call-site drift")
+    terminal_matrix = inventory["terminal_ownership_matrix"]
+    required_common = {
+        "mutated_strategy",
+        "recovery_receipt",
+        "audit_lineage",
+        "pre_callback_attribution_snapshot",
+        "retained_bar_metadata",
+        "callback_invoked_at",
+        "callback_authority_id",
+        "audit_commitment",
+    }
+    for path_name in (
+        "preflight_ok_terminal",
+        "callback_validation_error_terminal",
+        "stage5c_error_terminal",
+    ):
+        path = terminal_matrix[path_name]
+        if not required_common.issubset(set(path["fields"])):
+            fail(f"{path_name} retained ownership drift")
+        require_exact(path["retryable"], False, f"{path_name} retry opened")
+    if "opaque_exact_ok_callback_outcome_with_intent_vector" not in terminal_matrix[
+        "preflight_ok_terminal"
+    ]["fields"]:
+        fail("preflight Ok callback outcome dropped")
+    if "opaque_exact_callback_validation_error" not in terminal_matrix[
+        "callback_validation_error_terminal"
+    ]["fields"]:
+        fail("callback ValidationError ownership dropped")
+    if "exact_stage5c_error_some" not in terminal_matrix["stage5c_error_terminal"]["fields"]:
+        fail("exact Stage 5C terminal error dropped")
     for contract_name in ("success_receipt_contract", "terminal_receipt_contract"):
         contract = inventory[contract_name]
         require_exact(contract["constructor_count"], 1, f"{contract_name} constructor drift")
