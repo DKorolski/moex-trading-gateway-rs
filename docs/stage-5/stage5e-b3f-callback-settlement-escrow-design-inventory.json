@@ -2,7 +2,7 @@
   "schema_version": 1,
   "stage": "5E-b3f-callback-settlement-escrow-design",
   "status": "private_process_local_implementation_pending_review",
-  "baseline_ref": "148377f71b4afe6ce20f4e42433f58c812fb4917",
+  "baseline_ref": "a5ccea08bc64a66e768340f7121e9b94a09ff884",
   "source_stage5d_aggregate_closure_r2_ref": "9ebbfd29d0346be5149dac746225866f0c8d0257",
   "accepted_b3e_implementation_ref": "d04e02903a0a1984f66eecfcc0f412501b97d37c",
   "conditionally_accepted_b3f_design_ref": "56f0b9c3b4b31e27ce7d85eac7e3981aae9f7837",
@@ -809,6 +809,7 @@
     "docs/stage-5/stage5e-b3f-callback-settlement-escrow-design-inventory.json",
     "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_provenance_negative_harness.py",
+    "scripts/handoff_safety_check.py",
     "scripts/stage5d_additive_freeze_check.py",
     "scripts/stage5e_b3f_callback_settlement_escrow_design_check.py"
   ],
