@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 from pathlib import Path
 
@@ -25,14 +26,28 @@ def excluded_name(name: str, *, directory: bool) -> bool:
 
 
 def assert_no_included_symlinks(source: Path) -> None:
-    for path in source.rglob("*"):
-        relative = path.relative_to(source)
-        if any(part in EXCLUDED_DIRECTORIES for part in relative.parts):
-            continue
-        if excluded_name(path.name, directory=path.is_dir()):
-            continue
-        if path.is_symlink():
-            raise SystemExit(f"review baseline refuses included symlink: {relative}")
+    """Reject included symlinks without recursively walking excluded trees."""
+    for directory, directory_names, file_names in os.walk(source, followlinks=False):
+        directory_path = Path(directory)
+        retained_directories: list[str] = []
+        for name in directory_names:
+            path = directory_path / name
+            if excluded_name(name, directory=True):
+                continue
+            if path.is_symlink():
+                raise SystemExit(
+                    f"review baseline refuses included symlink: {path.relative_to(source)}"
+                )
+            retained_directories.append(name)
+        directory_names[:] = retained_directories
+        for name in file_names:
+            path = directory_path / name
+            if excluded_name(name, directory=False):
+                continue
+            if path.is_symlink():
+                raise SystemExit(
+                    f"review baseline refuses included symlink: {path.relative_to(source)}"
+                )
 
 
 def copy_review_baseline(source: Path, destination: Path) -> None:

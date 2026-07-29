@@ -1190,3 +1190,8 @@ facade.
 This remains enforcement-only hardening. No Redis, FINAM, transport, dispatch,
 broker execution, persistence, runtime-live or other external surface is
 opened.
+
+The shared review-baseline copier now prunes excluded trees before symlink
+inspection. This is packaging-only: it prevents local build artifacts such as
+`target/` from changing the cost or contents of an independent negative run;
+the exclusion and included-symlink policy are unchanged.

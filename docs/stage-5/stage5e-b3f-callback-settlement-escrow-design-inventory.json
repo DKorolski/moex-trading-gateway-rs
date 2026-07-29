@@ -926,6 +926,7 @@
     "docs/stage-5/5e-b3f-callback-settlement-escrow-design.md",
     "docs/stage-5/stage-5d-additive-freeze-manifest.json",
     "docs/stage-5/stage5e-b3f-callback-settlement-escrow-design-inventory.json",
+    "scripts/copy_review_baseline.py",
     "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",

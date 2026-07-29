@@ -21,10 +21,10 @@ ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3f-callback-settlement-escrow-design"
 BASELINE_REF = "a5ccea08bc64a66e768340f7121e9b94a09ff884"
 EXPECTED_PLAN_SHA256 = (
-    "c8125758f87008c7549b0f2f6a9f5d03af8f3df70ba2269104c737739aac8845"
+    "5e783dd1b7681ff36870dcd8d9a33b119d0de30a2301feda744581d60883143a"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "249d19226e4907ecd5a92d2f57538a8aa3d85e578ce0b8f27955b9b45ac03bcd"
+    "d866fcf72969f4acff3da90cb1201e168ac38dc9d0eef0c120b6ba68bba6cf5d"
 )
 EXPECTED_PROTECTED_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -52,6 +52,7 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "docs/stage-5/5e-b3f-callback-settlement-escrow-design.md",
     "docs/stage-5/stage-5d-additive-freeze-manifest.json",
     "docs/stage-5/stage5e-b3f-callback-settlement-escrow-design-inventory.json",
+    "scripts/copy_review_baseline.py",
     "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_provenance_negative_harness.py",
     "scripts/handoff_safety_check.py",
