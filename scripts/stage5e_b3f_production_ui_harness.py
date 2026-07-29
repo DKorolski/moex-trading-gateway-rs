@@ -25,6 +25,10 @@ class Case:
     injected_source: str
     expected_code: str
 
+    @property
+    def probe_marker(self) -> str:
+        return f"B3F_UI_PROBE_{self.name}"
+
 
 CASES = (
     Case(
@@ -111,6 +115,32 @@ CASES = (
 """,
         "E0505",
     ),
+    Case(
+        "actual_consume_seal_from_unit",
+        CALLBACK_PRIVATE_MARKER,
+        """
+
+        fn b3f_ui_actual_consume_seal_from_unit() {
+            // B3F_UI_PROBE_actual_consume_seal_from_unit
+            let _forged =
+                <Stage5ePaperSettlementConsumeSeal as From<()>>::from(());
+        }
+""",
+        "E0277",
+    ),
+    Case(
+        "actual_consume_seal_default",
+        CALLBACK_PRIVATE_MARKER,
+        """
+
+        fn b3f_ui_actual_consume_seal_default() {
+            // B3F_UI_PROBE_actual_consume_seal_default
+            let _forged =
+                <Stage5ePaperSettlementConsumeSeal as Default>::default();
+        }
+""",
+        "E0277",
+    ),
 )
 
 
@@ -153,8 +183,11 @@ def cargo_check(root: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def diagnostic_codes(stdout: str) -> set[str]:
+def probe_diagnostics(
+    stdout: str, source_path: Path, first_line: int, last_line: int
+) -> tuple[set[str], list[str]]:
     codes: set[str] = set()
+    unexpected: list[str] = []
     for line in stdout.splitlines():
         try:
             item = json.loads(line)
@@ -162,10 +195,26 @@ def diagnostic_codes(stdout: str) -> set[str]:
             continue
         if item.get("reason") != "compiler-message":
             continue
-        code = item.get("message", {}).get("code")
-        if isinstance(code, dict) and isinstance(code.get("code"), str):
-            codes.add(code["code"])
-    return codes
+        message = item.get("message", {})
+        if message.get("level") != "error":
+            continue
+        code = message.get("code")
+        code_value = code.get("code") if isinstance(code, dict) else None
+        primary_spans = [
+            span
+            for span in message.get("spans", [])
+            if span.get("is_primary") is True
+        ]
+        in_probe = any(
+            Path(span.get("file_name", "")).name == source_path.name
+            and first_line <= int(span.get("line_start", -1)) <= last_line
+            for span in primary_spans
+        )
+        if in_probe and isinstance(code_value, str):
+            codes.add(code_value)
+        else:
+            unexpected.append(str(code_value or "uncoded"))
+    return codes, unexpected
 
 
 def main() -> int:
@@ -194,17 +243,29 @@ def main() -> int:
                 case.injected_source + case.anchor,
                 1,
             )
+            first_line = (
+                mutated[: mutated.index(case.injected_source)].count("\n") + 1
+            )
+            last_line = first_line + case.injected_source.count("\n")
             source_path.write_text(mutated)
             result = cargo_check(checkout)
-            codes = diagnostic_codes(result.stdout)
-            if result.returncode == 0 or case.expected_code not in codes:
+            codes, unexpected = probe_diagnostics(
+                result.stdout, source_path, first_line, last_line
+            )
+            if (
+                result.returncode == 0
+                or codes != {case.expected_code}
+                or unexpected
+            ):
                 raise SystemExit(
                     "stage5e-b3f-production-ui: FAIL: "
-                    f"{case.name} expected={case.expected_code} observed={sorted(codes)}"
+                    f"{case.name} expected={case.expected_code} "
+                    f"probe_observed={sorted(codes)} unexpected={unexpected}"
                 )
             print(
                 "PASS "
-                f"{case.name} expected={case.expected_code} observed={sorted(codes)}"
+                f"{case.name} expected={case.expected_code} "
+                f"probe_observed={sorted(codes)} primary_span=bound"
             )
             source_path.write_text(baseline)
 

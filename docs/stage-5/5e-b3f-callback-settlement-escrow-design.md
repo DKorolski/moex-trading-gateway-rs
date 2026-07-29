@@ -1057,3 +1057,26 @@ storage/access fails even when source and inventory hashes are rebound.
 
 This is enforcement-only hardening. It does not add Redis, FINAM, transport,
 dispatch, broker execution, persistence, runtime-live, or any external I/O.
+
+## B3F-r7 alias, trait and diagnostic-provenance closure
+
+The structural gate tokenizes the protected Rust modules after removing
+comments and literals. It rejects every production alias to settlement seals,
+the settlement payload or accepted-bar metadata; every inherent or trait impl
+for a settlement seal; every payload impl except the sole canonical inherent
+impl; and every metadata impl except the sole test-only inherent impl. The
+payload field/type vector is exact.
+
+All token windows around accepted-bar close, accepted-bar metadata, the
+consume seal and settlement payload are pinned. This includes sensitive tokens
+inside macro bodies, so aliases, conversion traits, free or trait extraction
+bridges and macro-generated bridges cannot be admitted by renaming them.
+
+The production UI matrix has eight cases. In addition to the six r6 ownership
+cases, it proves that neither `From<()>` nor `Default` can construct the
+consume seal. Every expected rustc diagnostic must have its primary span
+inside the injected probe in the actual production source file; unrelated
+errors, even with the same code, fail the gate.
+
+The r7 correction changes enforcement only. Production settlement behavior
+and every external I/O/live surface remain unchanged and closed.

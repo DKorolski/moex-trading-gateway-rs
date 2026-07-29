@@ -21,10 +21,10 @@ ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3f-callback-settlement-escrow-design"
 BASELINE_REF = "a5ccea08bc64a66e768340f7121e9b94a09ff884"
 EXPECTED_PLAN_SHA256 = (
-    "a726bc85e11ec95543a88ba40dc93a81afbbbd313d86b951c61c0f760a54e959"
+    "ecf14e6fe60477d94d0116bf7f89e0049a6275c7b50ab16624cca0ead8aa3117"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "70fa865c130c79faeebd60963908be40ee940506af58de7443a46276c11c3e8d"
+    "4dda8997f0245104db4abc4c96fb066444bc0ef95a1e0ee928ea93338f0c54ce"
 )
 EXPECTED_PROTECTED_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -74,6 +74,9 @@ EXPECTED_STAGE5C_ERROR_MAPPING = {
     "DuplicateRequestId": "Stage5cIntentValidationFailed",
     "UnsupportedIntentAction": "Stage5cIntentValidationFailed",
 }
+RUST_RAW_STRING_RE = re.compile(r'(?:br|r)(?P<hashes>#{0,255})"')
+RUST_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+RUST_NUMBER_RE = re.compile(r"[0-9][0-9A-Za-z_]*")
 EXPECTED_STAGE5C_B3F_FUNCTIONS = {
     "validate_stage5e_b3f_retained_close_chronology",
     "validate_stage5e_b3f_stage5c_preflight_binding",
@@ -90,6 +93,50 @@ EXPECTED_METADATA_FUNCTIONS = {
     "validate_stage5e_b3f_retained_close_chronology",
     "validate_stage5e_b3f_stage5c_preflight_binding",
     "construct_stage5e_stage5c_settlement_material",
+}
+SETTLEMENT_SEALS = {
+    "Stage5ePaperSettlementPreflightSeal",
+    "Stage5ePaperSettlementConsumeSeal",
+    "Stage5ePaperSettlementSuccessSeal",
+    "Stage5ePaperSettlementTerminalSeal",
+}
+EXPECTED_SENSITIVE_TOKEN_WINDOWS_SHA256 = {
+    "stage5c:Stage5ePaperSettlementPreflightSeal": (
+        "27500e736fe869d9b65a50aea40321dafa462f28f3d9fb4f261be0921fa0fad3"
+    ),
+    "stage5c:Stage5ePaperSettlementConsumeSeal": (
+        "cb10b2fde66ece99aae75326c8270b806de81c3792032595aaf07b31004a45f7"
+    ),
+    "stage5c:Stage5ePaperSettlementSuccessSeal": (
+        "92ae5636cb55d1538b31f299fd30ae66e2ca2f31cbab94f229d97545108218a8"
+    ),
+    "stage5c:Stage5ePaperSettlementTerminalSeal": (
+        "89afe8634b68a0473ce88edb61ef4220d41538b1bb7944f16194fc604189df0b"
+    ),
+    "stage5c:Stage5eAcceptedBarSettlementMetadata": (
+        "e5377384c28fc814a4340b155fd4a16562e30a3c5ff55d8a4bf790f18e51ddc0"
+    ),
+    "stage5c:accepted_bar_close_ts": (
+        "db5f178876b512f3a9f5c832600895f479f2ba03d90b3d5c80f688284e5a402d"
+    ),
+    "stage5e:Stage5eAcceptedBarSettlementMetadata": (
+        "e15d104026cbb730c820d6b83ee40ea65029746a4f98e241b901ff098b27a452"
+    ),
+    "stage5e:Stage5ePaperSettlementConsumeSeal": (
+        "41f6364e15c95a8a1b28ab2f143833e843c13672abb36bb715729bde162f4c85"
+    ),
+    "stage5e:Stage5ePaperSettlementPreflightSeal": (
+        "a61f7ee9d715744296e6c351cd6d7543c9a9b8ccf0bec4730e60b26601a998bd"
+    ),
+    "stage5e:Stage5ePaperSettlementSuccessSeal": (
+        "ee275db01e422f9d3e4138cb6a8f3c696810df44725a6489c4338bef9602d8aa"
+    ),
+    "stage5e:Stage5ePaperSettlementTerminalSeal": (
+        "41cd495ba86609b8f2db51cf19f49445dc2d6804a683aa81d27d0f5a78401055"
+    ),
+    "stage5e:Stage5ePaperSettlementPayload": (
+        "2ba8b8877f0821da839ee8bae80677c17dca0498b3770d55327d85121ba3d8de"
+    ),
 }
 
 
@@ -119,6 +166,245 @@ def require_exact(actual: object, expected: object, message: str) -> None:
 def require_source_fragment(source: str, fragment: str, message: str) -> None:
     if fragment not in source:
         fail(message)
+
+
+def rust_tokens(source: str) -> list[str]:
+    """Return identifiers and punctuation after removing Rust comments/literals."""
+    tokens: list[str] = []
+    index = 0
+    length = len(source)
+    while index < length:
+        if source.startswith("//", index):
+            newline = source.find("\n", index + 2)
+            index = length if newline < 0 else newline + 1
+            continue
+        if source.startswith("/*", index):
+            depth = 1
+            index += 2
+            while index < length and depth:
+                if source.startswith("/*", index):
+                    depth += 1
+                    index += 2
+                elif source.startswith("*/", index):
+                    depth -= 1
+                    index += 2
+                else:
+                    index += 1
+            continue
+        raw_match = RUST_RAW_STRING_RE.match(source, index)
+        if raw_match:
+            terminator = '"' + raw_match.group("hashes")
+            index = raw_match.end()
+            finish = source.find(terminator, index)
+            index = length if finish < 0 else finish + len(terminator)
+            continue
+        if source[index] == '"':
+            index += 1
+            while index < length:
+                if source[index] == "\\":
+                    index += 2
+                elif source[index] == '"':
+                    index += 1
+                    break
+                else:
+                    index += 1
+            continue
+        identifier = RUST_IDENTIFIER_RE.match(source, index)
+        if identifier:
+            tokens.append(identifier.group(0))
+            index = identifier.end()
+            continue
+        number = RUST_NUMBER_RE.match(source, index)
+        if number:
+            tokens.append(number.group(0))
+            index = number.end()
+            continue
+        pair = source[index : index + 2]
+        if pair in {"::", "->", "=>", "==", "!=", "<=", ">=", "&&", "||"}:
+            tokens.append(pair)
+            index += 2
+            continue
+        if not source[index].isspace():
+            tokens.append(source[index])
+        index += 1
+    return tokens
+
+
+def token_windows_sha256(tokens: list[str], needle: str, radius: int = 8) -> str:
+    windows = [
+        tokens[max(0, index - radius) : index + radius + 1]
+        for index, token in enumerate(tokens)
+        if token == needle
+    ]
+    return canonical_sha256(windows)
+
+
+def balanced_item_body(tokens: list[str], item_prefix: list[str]) -> list[str]:
+    for index in range(len(tokens) - len(item_prefix)):
+        if tokens[index : index + len(item_prefix)] != item_prefix:
+            continue
+        brace = index + len(item_prefix)
+        if brace >= len(tokens) or tokens[brace] != "{":
+            continue
+        depth = 1
+        cursor = brace + 1
+        while cursor < len(tokens) and depth:
+            depth += tokens[cursor] == "{"
+            depth -= tokens[cursor] == "}"
+            cursor += 1
+        if depth != 0:
+            fail(f"unbalanced tokenized item: {' '.join(item_prefix)}")
+        return tokens[brace + 1 : cursor - 1]
+    fail(f"tokenized item missing: {' '.join(item_prefix)}")
+    raise AssertionError("unreachable")
+
+
+def impl_headers(tokens: list[str], protected: set[str]) -> list[list[str]]:
+    headers: list[list[str]] = []
+    for index, token in enumerate(tokens):
+        if token != "impl":
+            continue
+        cursor = index + 1
+        angle_depth = 0
+        header = ["impl"]
+        while cursor < len(tokens):
+            current = tokens[cursor]
+            if current == "{" and angle_depth == 0:
+                break
+            angle_depth += current == "<"
+            angle_depth -= current == ">"
+            header.append(current)
+            cursor += 1
+        if protected.intersection(header):
+            headers.append(header)
+    return headers
+
+
+def validate_tokenized_production_structure(stage5c: str, stage5e: str) -> None:
+    stage5c_tokens = rust_tokens(stage5c)
+    stage5e_tokens = rust_tokens(stage5e)
+    protected_alias_targets = SETTLEMENT_SEALS | {
+        "Stage5eAcceptedBarSettlementMetadata",
+        "Stage5ePaperSettlementPayload",
+    }
+    for label, tokens in (("Stage 5C", stage5c_tokens), ("Stage 5E", stage5e_tokens)):
+        for index, token in enumerate(tokens):
+            if token != "type":
+                continue
+            alias_statement = tokens[index : index + 24]
+            if "=" in alias_statement and protected_alias_targets.intersection(
+                alias_statement[alias_statement.index("=") + 1 :]
+            ):
+                fail(f"{label} protected-type alias opened")
+
+    seal_impls = impl_headers(stage5c_tokens + stage5e_tokens, SETTLEMENT_SEALS)
+    require_exact(seal_impls, [], "settlement seal impl surface opened")
+    payload_impls = impl_headers(stage5e_tokens, {"Stage5ePaperSettlementPayload"})
+    require_exact(
+        payload_impls,
+        [["impl", "Stage5ePaperSettlementPayload"]],
+        "settlement payload impl surface drift",
+    )
+    metadata_impls = impl_headers(
+        stage5c_tokens, {"Stage5eAcceptedBarSettlementMetadata"}
+    )
+    require_exact(
+        metadata_impls,
+        [["impl", "Stage5eAcceptedBarSettlementMetadata"]],
+        "retained metadata impl surface drift",
+    )
+
+    payload_body = balanced_item_body(
+        stage5e_tokens,
+        ["struct", "Stage5ePaperSettlementPayload"],
+    )
+    expected_payload_body = [
+        "mutated_strategy", ":", "crate", "::", "hybrid_intraday_runtime", "::",
+        "HybridIntradayRuntimeStrategy", ",",
+        "recovery_receipt", ":", "crate", "::", "stage5c_paper_host", "::",
+        "Stage5cPendingRecoveryReceipt", ",",
+        "audit_lineage", ":", "Stage5eAuthorizedCallbackAuditLineage", ",",
+        "pre_callback_attribution_snapshot", ":", "crate", "::",
+        "stage5c_paper_host", "::", "Stage5ePreCallbackAttributionSnapshot", ",",
+        "retained_bar_metadata", ":", "crate", "::", "stage5c_paper_host", "::",
+        "Stage5eAcceptedBarSettlementMetadata", ",",
+        "callback_invoked_at", ":", "DateTime", "<", "Utc", ">", ",",
+        "callback_authority_id", ":", "[", "u8", ";", "32", "]", ",",
+        "callback_outcome", ":", "Stage5ePaperCallbackOutcome", ",",
+    ]
+    require_exact(
+        payload_body,
+        expected_payload_body,
+        "settlement payload exact field-type vector drift",
+    )
+
+    actual_fingerprints = {
+        **{
+            f"stage5c:{seal}": token_windows_sha256(stage5c_tokens, seal)
+            for seal in SETTLEMENT_SEALS
+        },
+        **{
+            f"stage5e:{seal}": token_windows_sha256(stage5e_tokens, seal)
+            for seal in SETTLEMENT_SEALS
+        },
+        "stage5c:Stage5eAcceptedBarSettlementMetadata": token_windows_sha256(
+            stage5c_tokens, "Stage5eAcceptedBarSettlementMetadata"
+        ),
+        "stage5c:accepted_bar_close_ts": token_windows_sha256(
+            stage5c_tokens, "accepted_bar_close_ts"
+        ),
+        "stage5e:Stage5eAcceptedBarSettlementMetadata": token_windows_sha256(
+            stage5e_tokens, "Stage5eAcceptedBarSettlementMetadata"
+        ),
+        "stage5e:Stage5ePaperSettlementPayload": token_windows_sha256(
+            stage5e_tokens, "Stage5ePaperSettlementPayload"
+        ),
+    }
+    require_exact(
+        actual_fingerprints,
+        EXPECTED_SENSITIVE_TOKEN_WINDOWS_SHA256,
+        "B3F sensitive token occurrence allowlist drift",
+    )
+
+
+def validate_production_ui_harness() -> None:
+    source = (ROOT / "scripts/stage5e_b3f_production_ui_harness.py").read_text()
+    expected_cases = {
+        "actual_consume_seal_clone": "E0599",
+        "actual_consume_seal_copy": "E0382",
+        "actual_sibling_seal_reconstruction": "E0603",
+        "actual_payload_capability_escape": "E0609",
+        "actual_escrow_second_consume": "E0382",
+        "actual_preflight_borrow_across_escrow_move": "E0505",
+        "actual_consume_seal_from_unit": "E0277",
+        "actual_consume_seal_default": "E0277",
+    }
+    observed_cases = dict(
+        re.findall(
+            r'Case\(\s*"([^"]+)",.*?\n\s*"(E[0-9]{4})",\s*\)',
+            source,
+            re.S,
+        )
+    )
+    require_exact(
+        observed_cases,
+        expected_cases,
+        "production UI case matrix drift",
+    )
+    for fragment in (
+        'message.get("level") != "error"',
+        'span.get("is_primary") is True',
+        'Path(span.get("file_name", "")).name == source_path.name',
+        "first_line <= int(span.get(\"line_start\", -1)) <= last_line",
+        "codes != {case.expected_code}",
+        "or unexpected",
+        "primary_span=bound",
+    ):
+        require_source_fragment(
+            source,
+            fragment,
+            f"production UI diagnostic provenance drift: {fragment}",
+        )
 
 
 def git_changed_paths() -> list[str]:
@@ -167,6 +453,7 @@ def validate_implementation_source() -> None:
     stage5e = (
         ROOT / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
     ).read_text()
+    validate_tokenized_production_structure(stage5c, stage5e)
     stage5c_region = marked_region(
         stage5c,
         "STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION",
@@ -456,7 +743,7 @@ def main() -> int:
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        527,
+        533,
         "provenance case count drift",
     )
     ui_contract = inventory.get("production_ui_harness_contract")
@@ -478,6 +765,8 @@ def main() -> int:
                 "actual_payload_capability_escape": "E0609",
                 "actual_escrow_second_consume": "E0382",
                 "actual_preflight_borrow_across_escrow_move": "E0505",
+                "actual_consume_seal_from_unit": "E0277",
+                "actual_consume_seal_default": "E0277",
             },
         },
         "production UI harness contract drift",
@@ -497,10 +786,29 @@ def main() -> int:
         "opaque metadata structural allowlist contract drift",
     )
     require_exact(
+        inventory.get("tokenized_structural_enforcement_contract"),
+        {
+            "comments_and_literals_excluded": True,
+            "protected_type_aliases_allowed": False,
+            "settlement_seal_impl_count": 0,
+            "payload_impl_headers": ["impl Stage5ePaperSettlementPayload"],
+            "metadata_impl_headers": [
+                "cfg_test impl Stage5eAcceptedBarSettlementMetadata"
+            ],
+            "payload_field_type_vector_exact": True,
+            "sensitive_occurrence_windows_pinned": True,
+            "macro_body_sensitive_tokens_in_scope": True,
+            "ui_primary_span_binding_required": True,
+            "ui_unexpected_primary_errors_allowed": False,
+        },
+        "tokenized structural enforcement contract drift",
+    )
+    require_exact(
         inventory.get("allowed_changed_paths"),
         EXPECTED_ALLOWED_CHANGED_PATHS,
         "allowed changed paths drift",
     )
+    validate_production_ui_harness()
     require_exact(
         git_changed_paths(),
         EXPECTED_ALLOWED_CHANGED_PATHS,

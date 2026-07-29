@@ -10,10 +10,10 @@
   "rejected_b3f_r2_ref": "ee23d6b4231c3c1483bcfacdb9189392183e2963",
   "rejected_b3f_r3_ref": "a5ccea08bc64a66e768340f7121e9b94a09ff884",
   "accepted_b3f_r4_ref": "148377f71b4afe6ce20f4e42433f58c812fb4917",
-  "expected_provenance_case_count": 527,
+  "expected_provenance_case_count": 533,
   "production_ui_harness_contract": {
     "path": "scripts/stage5e_b3f_production_ui_harness.py",
-    "sha256": "45c4b3bfb144c0ee88b735bb3cc916225d73d83cbf191cd954334a29b052c701",
+    "sha256": "8a43aed8bfed494ac224f415e7ebc0fcd0773394aa17374539da58a0d22d637d",
     "normal_runtime_surface": false,
     "baseline_must_compile": true,
     "temporary_source_tree": true,
@@ -24,7 +24,9 @@
       "actual_sibling_seal_reconstruction": "E0603",
       "actual_payload_capability_escape": "E0609",
       "actual_escrow_second_consume": "E0382",
-      "actual_preflight_borrow_across_escrow_move": "E0505"
+      "actual_preflight_borrow_across_escrow_move": "E0505",
+      "actual_consume_seal_from_unit": "E0277",
+      "actual_consume_seal_default": "E0277"
     }
   },
   "opaque_metadata_structural_allowlist_contract": {
@@ -51,6 +53,22 @@
     "raw_scalar_getters_allowed": false,
     "free_scalar_or_tuple_bridges_allowed": false,
     "payload_capability_storage_or_access_allowed": false
+  },
+  "tokenized_structural_enforcement_contract": {
+    "comments_and_literals_excluded": true,
+    "protected_type_aliases_allowed": false,
+    "settlement_seal_impl_count": 0,
+    "payload_impl_headers": [
+      "impl Stage5ePaperSettlementPayload"
+    ],
+    "metadata_impl_headers": [
+      "cfg_test impl Stage5eAcceptedBarSettlementMetadata"
+    ],
+    "payload_field_type_vector_exact": true,
+    "sensitive_occurrence_windows_pinned": true,
+    "macro_body_sensitive_tokens_in_scope": true,
+    "ui_primary_span_binding_required": true,
+    "ui_unexpected_primary_errors_allowed": false
   },
   "module_visibility_contract": {
     "callback_settlement_module": "pub_crate_child_module_named_opaque_surface_only",
