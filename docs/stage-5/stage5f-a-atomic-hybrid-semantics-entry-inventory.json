@@ -16,6 +16,11 @@
     "production_ui_case_count": 8,
     "accepted_descriptor_stage": "5E-b3f-callback-settlement-escrow-design"
   },
+  "ci_snapshot_authority": {
+    "ci_workflow_sha256": "0974ea9dae63c583682102e1d95792bc3c481f9eef33c5394ba0bffb0a277d4c",
+    "b3f_snapshot_provenance_wrapper_sha256": "f922a4f777fbb37e049ccb640f713b7ff7557cf4f86e8855823d7db328731e29",
+    "negative_case_count": 11
+  },
   "target_contract": {
     "instrument_symbol": "IMOEXF",
     "strategy_profile": "imoexf_primary_riskgate_high180_lb120",

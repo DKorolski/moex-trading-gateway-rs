@@ -18,8 +18,8 @@ INVENTORY = (
 ACTIVE = ROOT / "docs/stage-5/stage5f-active-descriptor.json"
 STAGE = "5F-a-atomic-hybrid-semantics-entry"
 BASELINE_REF = "e14654f7129aa61011931306140a3bfefe2fcfbc"
-EXPECTED_PLAN_SHA256 = "93e41eb281fcae12978ffea9dc1d97a0a5516544c6b9080a37135a94f2cc3a2d"
-EXPECTED_INVENTORY_SHA256 = "871a8781d36f278d1dec35842e3b7d245f21dc4e3d86e54b2ac5d25285343809"
+EXPECTED_PLAN_SHA256 = "6552ba2e76272d043877ad1e3b4021ab4df40f622fe92d2c30d5807892d49db2"
+EXPECTED_INVENTORY_SHA256 = "2879b26187b60c335c83c82603195a71d9b34fdf54ced8ccd32c130611c001ae"
 
 EXPECTED_B3F_CLOSURE = {
     "source_ref": BASELINE_REF,
@@ -33,6 +33,11 @@ EXPECTED_B3F_CLOSURE = {
     "provenance_negative_case_count": 580,
     "production_ui_case_count": 8,
     "accepted_descriptor_stage": "5E-b3f-callback-settlement-escrow-design",
+}
+EXPECTED_CI_SNAPSHOT_AUTHORITY = {
+    "ci_workflow_sha256": "0974ea9dae63c583682102e1d95792bc3c481f9eef33c5394ba0bffb0a277d4c",
+    "b3f_snapshot_provenance_wrapper_sha256": "f922a4f777fbb37e049ccb640f713b7ff7557cf4f86e8855823d7db328731e29",
+    "negative_case_count": 11,
 }
 EXPECTED_B3F_FILE_SHA256 = {
     "docs/stage-5/stage5e-active-descriptor.json": (
@@ -234,6 +239,7 @@ def validate_inventory(inventory: dict[str, object]) -> None:
         "allowed_changed_paths",
         "atomic_transition_contract",
         "baseline_ref",
+        "ci_snapshot_authority",
         "closed_surfaces",
         "expected_stage5f_negative_case_count",
         "required_atomic_scenarios",
@@ -253,6 +259,11 @@ def validate_inventory(inventory: dict[str, object]) -> None:
         "Stage 5F status drift",
     )
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "Stage 5F baseline drift")
+    require_exact(
+        inventory.get("ci_snapshot_authority"),
+        EXPECTED_CI_SNAPSHOT_AUTHORITY,
+        "Stage 5F CI snapshot authority drift",
+    )
     require_exact(
         inventory.get("target_contract"),
         EXPECTED_TARGET_CONTRACT,

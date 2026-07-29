@@ -28,7 +28,9 @@ be accepted as one atomic state machine rather than as partial sleeve parity.
 The Stage 5F gate re-runs the accepted B3F checks from the accepted source
 snapshot before checking its own contract; CI and handoff packaging use the
 same fail-closed detached-snapshot runner for the inherited 580-case B3F
-provenance matrix. Redis, FINAM, transport, dispatch, runtime-live and real
+provenance matrix. Its CI workflow and provenance wrapper are SHA-256 frozen as
+Stage 5F-a authority; the handoff verifier rejects altered execution policy or
+wrapper body. Redis, FINAM, transport, dispatch, runtime-live and real
 execution remain closed.
 
 This repository is not enabled for continuous live trading.

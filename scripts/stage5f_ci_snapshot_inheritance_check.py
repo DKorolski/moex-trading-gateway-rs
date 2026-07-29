@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from pathlib import Path
 
@@ -12,6 +13,11 @@ CI = ROOT / ".github/workflows/ci.yml"
 WRAPPER = ROOT / "scripts/stage5f_b3f_snapshot_provenance_gate.sh"
 ACCEPTED_B3F_REF = "e14654f7129aa61011931306140a3bfefe2fcfbc"
 EXPECTED_PASS_CASES = 580
+# Stage 5F-a-r2 seals both executable authority surfaces as reviewed files.
+# Later Stage 5F work inherits this accepted snapshot instead of editing either
+# the workflow or the B3F provenance wrapper in place.
+EXPECTED_CI_WORKFLOW_SHA256 = "0974ea9dae63c583682102e1d95792bc3c481f9eef33c5394ba0bffb0a277d4c"
+EXPECTED_WRAPPER_SHA256 = "f922a4f777fbb37e049ccb640f713b7ff7557cf4f86e8855823d7db328731e29"
 
 REQUIRED_CI_FRAGMENTS = (
     "uses: actions/checkout@v4\n        with:\n"
@@ -52,10 +58,18 @@ def fail(message: str) -> None:
     raise RuntimeError(message)
 
 
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def main() -> int:
     try:
         ci = CI.read_text()
         wrapper = WRAPPER.read_text()
+        if sha256(CI) != EXPECTED_CI_WORKFLOW_SHA256:
+            fail("Stage 5F CI authority digest drift")
+        if sha256(WRAPPER) != EXPECTED_WRAPPER_SHA256:
+            fail("Stage 5F wrapper authority digest drift")
         for fragment in FORBIDDEN_CI_FRAGMENTS:
             if fragment in ci:
                 fail("legacy Stage 5E gate runs on Stage5F head")

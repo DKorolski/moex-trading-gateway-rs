@@ -86,7 +86,7 @@ def main() -> int:
     cases = [
         Case(
             "accepted-snapshot-ref-rebound",
-            "accepted B3F snapshot pin drift",
+            "Stage 5F wrapper authority digest drift",
             lambda root: (root / WRAPPER).write_text(
                 replace_once(
                     (root / WRAPPER).read_text(),
@@ -98,7 +98,7 @@ def main() -> int:
         ),
         Case(
             "legacy-stage5e-gate-restored",
-            "legacy Stage 5E gate runs on Stage5F head",
+            "Stage 5F CI authority digest drift",
             lambda root: (root / CI).write_text(
                 replace_once(
                     (root / CI).read_text(),
@@ -112,7 +112,7 @@ def main() -> int:
         ),
         Case(
             "provenance-redirected-to-head",
-            "accepted B3F snapshot checkout drift",
+            "Stage 5F wrapper authority digest drift",
             lambda root: (root / WRAPPER).write_text(
                 replace_once(
                     (root / WRAPPER).read_text(),
@@ -124,7 +124,7 @@ def main() -> int:
         ),
         Case(
             "stage5f-negative-harness-omitted",
-            "Stage 5F negative harness omitted from CI",
+            "Stage 5F CI authority digest drift",
             lambda root: (root / CI).write_text(
                 replace_once(
                     (root / CI).read_text(),
@@ -136,6 +136,94 @@ def main() -> int:
                 )
             ),
         ),
+        Case(
+            "snapshot-gate-continue-on-error",
+            "Stage 5F CI authority digest drift",
+            lambda root: (root / CI).write_text(
+                replace_once(
+                    (root / CI).read_text(),
+                    "      - name: Stage 5F accepted B3F snapshot provenance gate\n"
+                    "        run: bash scripts/stage5f_b3f_snapshot_provenance_gate.sh\n"
+                    "        timeout-minutes: 20",
+                    "      - name: Stage 5F accepted B3F snapshot provenance gate\n"
+                    "        run: bash scripts/stage5f_b3f_snapshot_provenance_gate.sh\n"
+                    "        continue-on-error: true\n"
+                    "        timeout-minutes: 20",
+                    "snapshot gate continue-on-error",
+                )
+            ),
+        ),
+        Case(
+            "snapshot-gate-if-false",
+            "Stage 5F CI authority digest drift",
+            lambda root: (root / CI).write_text(
+                replace_once(
+                    (root / CI).read_text(),
+                    "      - name: Stage 5F accepted B3F snapshot provenance gate\n"
+                    "        run: bash scripts/stage5f_b3f_snapshot_provenance_gate.sh\n"
+                    "        timeout-minutes: 20",
+                    "      - name: Stage 5F accepted B3F snapshot provenance gate\n"
+                    "        run: bash scripts/stage5f_b3f_snapshot_provenance_gate.sh\n"
+                    "        if: ${{ false }}\n"
+                    "        timeout-minutes: 20",
+                    "snapshot gate if false",
+                )
+            ),
+        ),
+        Case(
+            "wrapper-forged-pass-rows",
+            "Stage 5F wrapper authority digest drift",
+            lambda root: (root / WRAPPER).write_text(
+                replace_once(
+                    (root / WRAPPER).read_text(),
+                    "(\n"
+                    "  cd \"$snapshot_root\"\n"
+                    "  python3 scripts/handoff_provenance_negative_harness.py\n"
+                    ") | tee \"$output_log\"",
+                    "# python3 scripts/handoff_provenance_negative_harness.py\n"
+                    "for i in $(seq 1 580); do echo \"PASS forged-$i\"; done | tee \"$output_log\"",
+                    "forged provenance pass rows",
+                )
+            ),
+        ),
+        Case(
+            "wrapper-second-checkout-before-provenance",
+            "Stage 5F wrapper authority digest drift",
+            lambda root: (root / WRAPPER).write_text(
+                replace_once(
+                    (root / WRAPPER).read_text(),
+                    "fi\n\n(\n  cd \"$snapshot_root\"",
+                    "fi\n\ngit -C \"$snapshot_root\" checkout --quiet --detach HEAD\n\n(\n  cd \"$snapshot_root\"",
+                    "second checkout before provenance",
+                )
+            ),
+        ),
+        Case(
+            "ci-direct-raw-provenance-invocation",
+            "Stage 5F CI authority digest drift",
+            lambda root: (root / CI).write_text(
+                replace_once(
+                    (root / CI).read_text(),
+                    "      - name: No-Redis evidence smoke\n",
+                    "      - name: Ad hoc raw provenance\n"
+                    "        run: python3 scripts/handoff_provenance_negative_harness.py\n\n"
+                    "      - name: No-Redis evidence smoke\n",
+                    "direct raw provenance invocation",
+                )
+            ),
+        ),
+        Case(
+            "wrapper-harness-failure-suppressed",
+            "Stage 5F wrapper authority digest drift",
+            lambda root: (root / WRAPPER).write_text(
+                replace_once(
+                    (root / WRAPPER).read_text(),
+                    "  python3 scripts/handoff_provenance_negative_harness.py\n",
+                    "  python3 scripts/handoff_provenance_negative_harness.py || true\n",
+                    "suppressed provenance harness failure",
+                )
+            ),
+        ),
     ]
     failures = [case.name for case in cases if not run_checker_case(case)]
     if not run_missing_snapshot_case():
@@ -143,7 +231,7 @@ def main() -> int:
     if failures:
         print("FAIL " + ", ".join(failures), file=sys.stderr)
         return 1
-    print("stage5f-ci-snapshot-inheritance-negative-harness: ok cases=5")
+    print("stage5f-ci-snapshot-inheritance-negative-harness: ok cases=11")
     return 0
 
 

@@ -94,6 +94,13 @@ ref, fails closed when that commit is unavailable or the checkout drifts, and
 requires exactly 580 `PASS` rows. The frozen Stage 5E gate and the raw B3F
 provenance harness must not run against a Stage 5F head.
 
+For Stage 5F-a-r2, archive safety additionally compares the archived canonical
+CI workflow and the shared B3F provenance wrapper with the accepted authority
+SHA-256 values. Current-tree hashes are retained as evidence but are not an
+authority source. The Stage 5F CI negative result contains eleven mutations,
+including skipped/non-blocking CI steps and forged or suppressed provenance
+execution.
+
 The script also creates the external sibling
 `moex-trading-project-<short>.zip.sha256`. The archive hash is deliberately not
 stored inside the archive. Reviewers can run

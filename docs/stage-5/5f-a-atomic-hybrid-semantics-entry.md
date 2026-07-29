@@ -20,6 +20,14 @@ exactly `e14654f7129aa61011931306140a3bfefe2fcfbc`, or when the harness does
 not report exactly 580 `PASS` cases. The legacy Stage 5E gate must never run on
 a Stage 5F head.
 
+Stage 5F-a-r2 seals the complete reviewed CI workflow and the complete B3F
+snapshot-provenance wrapper with independent SHA-256 authorities. The entry
+checker and handoff safety compare the archived files to those accepted values;
+they do not merely record hashes produced by the current tree. The CI negative
+matrix proves that `continue-on-error`, `if: false`, a direct raw provenance
+call, a forged PASS producer, a second checkout and suppressed harness failure
+all fail before a handoff can be accepted.
+
 This is a governance and atomic-contract entry slice. It adds no Rust runtime
 behavior, does not attach an intent sink, and does not alter the accepted B3F
 source files.
