@@ -1149,3 +1149,44 @@ macro-generated issuers.
 This remains enforcement-only hardening. Production Rust behavior and all
 Redis, FINAM, transport, dispatch, broker execution, durable persistence and
 runtime-live surfaces remain unchanged and closed.
+
+## B3F-r10 semantic capability and constructor closure
+
+The protected-region parser now treats only affirmative `#[cfg(test)]`,
+`#[cfg(doctest)]`, and their exact `any(test, doctest)` forms as test-only.
+Every other `cfg` expression, including `cfg(not(test))`, `cfg_attr`, feature
+or target gating, is rejected in a protected item. A production-only issuer
+therefore cannot disappear from the production contract merely because its
+attribute contains the word `test`.
+
+The B3F control is no longer limited to rebindable item-header digests. The
+actual capability-bearing free functions and all associated methods in each
+protected implementation have exact, unhashed signature vectors. Those
+vectors bind visibility, generics, receiver, parameters and return type for
+the escrow borrow/consume methods, payload/preflight constructors, Stage 5C
+preflight and settlement bridges, receipt constructors, and the supporting
+canonical encoder. They cannot be rewritten by the provenance harness's
+full-rebind helper.
+
+Seal construction is parsed as a bounded transition-body AST contract. Each
+of the four seals has exactly one direct tuple constructor expression in
+`validate_and_settle_stage5e_paper_callback_escrow`; preflight and consume are
+exact local bindings, while success and terminal are direct receipt-constructor
+arguments. Closures, local functions, loops, async blocks, macros, constructor
+function-item coercion and raw-memory construction are rejected in that
+transition. The B3F checker additionally scans every Rust source file in
+`strategy-runtime-core` for an `unsafe` token. This preserves the accepted
+Stage 5D frozen crate root while still making raw-memory construction a
+fail-closed enforcement violation.
+
+Nine r10 full-rebind mutations cover a production-only `cfg(not(test))`
+issuer, removal of the actual consume capability, an unrestricted Stage 5C
+issuer, function-item/closure/local-function construction, an associated raw
+preflight bridge, unsafe seal construction, and an unsafe token anywhere in
+the frozen runtime core. Their required failure is the
+semantic checker rather than a stale source fingerprint or unchanged doctest
+facade.
+
+This remains enforcement-only hardening. No Redis, FINAM, transport, dispatch,
+broker execution, persistence, runtime-live or other external surface is
+opened.

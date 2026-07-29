@@ -21,10 +21,10 @@ ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3f-callback-settlement-escrow-design"
 BASELINE_REF = "a5ccea08bc64a66e768340f7121e9b94a09ff884"
 EXPECTED_PLAN_SHA256 = (
-    "6187b009f537ea68f694be92dd1c5cede4d647a1ddef549c9239867f06bbc45f"
+    "c8125758f87008c7549b0f2f6a9f5d03af8f3df70ba2269104c737739aac8845"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "2b358ccfb730172f07bc281da23a967f6dc1379007a1a6ca124eb3ea132696a6"
+    "249d19226e4907ecd5a92d2f57538a8aa3d85e578ce0b8f27955b9b45ac03bcd"
 )
 EXPECTED_PROTECTED_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -154,6 +154,61 @@ EXPECTED_STAGE5C_REGION_PRODUCTION_SIGNATURES = {
     "impl:impl Stage5eStage5cSettlementSuccess": "7b80b92aa3693dcdd3d3d1f8edc1c060f2de9a6deafe8c2a9a474bb34420ca2a",
     "impl:impl Stage5eStage5cSettlementTerminalMaterial": "3657a97a30b119568c5f9abda29848e7b8367a44f7198e2fb2ce8b2b8cd6f96c",
     "fn:settle_stage5e_callback_escrow_material": "c0e56272729a58c4b8c0b534a1474f00d340ce7a7fd9c023e4a5ef934594f8a2",
+}
+# These are semantic contracts, not snapshot fingerprints.  In particular, the
+# full-rebind provenance helper is deliberately unable to rewrite them.
+EXPECTED_STAGE5E_CRITICAL_FUNCTION_SIGNATURES = {
+    "validate_preflight": "fn validate_preflight ( preflight : Stage5ePaperSettlementPreflight < ' _ > , seal : & Stage5ePaperSettlementPreflightSeal , ) -> Stage5ePaperSettlementPreflightDecision",
+    "construct_stage5c_expected_preflight_binding": "fn construct_stage5c_expected_preflight_binding < ' a > ( escrow : & ' a Stage5ePaperCallbackResultEscrow , seal : & Stage5ePaperSettlementPreflightSeal , ) -> crate :: stage5c_paper_host :: Stage5eB3fStage5cExpectedPreflightBinding < ' a >",
+    "stage5e_authority_identity_matches": "fn stage5e_authority_identity_matches ( escrow : & Stage5ePaperCallbackResultEscrow ) -> bool",
+    "stage5e_audit_chronology_matches": "fn stage5e_audit_chronology_matches ( audit : & Stage5eAuthorizedCallbackAuditLineage , callback_invoked_at : DateTime < Utc > , ) -> bool",
+    "map_stage5c_preflight_mismatch_exact": "fn map_stage5c_preflight_mismatch_exact ( mismatch : crate :: stage5c_paper_host :: Stage5eStage5cPreflightMismatch , _seal : & Stage5ePaperSettlementPreflightSeal , ) -> Stage5ePaperSettlementTerminalReason",
+}
+EXPECTED_STAGE5C_CRITICAL_FUNCTION_SIGNATURES = {
+    "validate_stage5e_b3f_retained_close_chronology": "pub ( crate ) fn validate_stage5e_b3f_retained_close_chronology ( retained_bar_metadata : & Stage5eAcceptedBarSettlementMetadata , authority_issued_at : DateTime < Utc > , callback_invoked_at : DateTime < Utc > , _seal : & crate :: stage5e_no_io_lifecycle :: callback_authority :: callback_settlement :: Stage5ePaperSettlementPreflightSeal , ) -> Result < Stage5eStage5cRetainedCloseChronologyProof , Stage5eStage5cRetainedCloseChronologyMismatch >",
+    "validate_stage5e_b3f_stage5c_preflight_binding": "pub ( crate ) fn validate_stage5e_b3f_stage5c_preflight_binding ( recovery_receipt : & Stage5cPendingRecoveryReceipt , attribution_snapshot : & Stage5ePreCallbackAttributionSnapshot , retained_bar_metadata : & Stage5eAcceptedBarSettlementMetadata , expected : & Stage5eB3fStage5cExpectedPreflightBinding < ' _ > , seal : & crate :: stage5e_no_io_lifecycle :: callback_authority :: callback_settlement :: Stage5ePaperSettlementPreflightSeal , ) -> Result < Stage5eStage5cPreflightValidatedProof , Stage5eStage5cPreflightMismatch >",
+    "issue_stage5c_b3f_settlement_material_seal": "pub ( crate ) fn issue_stage5c_b3f_settlement_material_seal ( _consume_capability : & crate :: stage5e_no_io_lifecycle :: callback_authority :: callback_settlement :: Stage5ePaperSettlementConsumeSeal , ) -> Stage5cB3fSettlementMaterialSeal",
+    "issue_stage5c_b3f_settlement_seal": "pub ( crate ) fn issue_stage5c_b3f_settlement_seal ( _consume_capability : & crate :: stage5e_no_io_lifecycle :: callback_authority :: callback_settlement :: Stage5ePaperSettlementConsumeSeal , ) -> Stage5cB3fSettlementSeal",
+    "construct_stage5e_stage5c_settlement_material": "pub ( crate ) fn construct_stage5e_stage5c_settlement_material ( mutated_strategy : HybridIntradayRuntimeStrategy , recovery_receipt : Stage5cPendingRecoveryReceipt , pre_callback_attribution_snapshot : Stage5ePreCallbackAttributionSnapshot , retained_bar_metadata : Stage5eAcceptedBarSettlementMetadata , exact_intent_vector : Vec < crate :: BrokerNeutralHybridIntent > , _seal : Stage5cB3fSettlementMaterialSeal , ) -> Stage5eStage5cSettlementMaterial",
+    "settle_stage5e_callback_escrow_material": "pub ( crate ) fn settle_stage5e_callback_escrow_material ( material : Stage5eStage5cSettlementMaterial , _seal : Stage5cB3fSettlementSeal , ) -> Result < Stage5eStage5cSettlementSuccess , Stage5eStage5cSettlementTerminalMaterial >",
+}
+EXPECTED_STAGE5E_OUTER_IMPL_ASSOCIATED_SIGNATURES = {
+    "impl Stage5ePaperCallbackResultEscrow": [
+        "fn borrow_for_settlement_preflight ( & self , seal : & callback_settlement :: Stage5ePaperSettlementPreflightSeal , ) -> callback_settlement :: Stage5ePaperSettlementPreflight < ' _ >",
+        "fn consume_for_settlement ( self , seal : & callback_settlement :: Stage5ePaperSettlementConsumeSeal , ) -> callback_settlement :: Stage5ePaperSettlementPayload",
+    ],
+}
+EXPECTED_STAGE5E_CALLBACK_IMPL_ASSOCIATED_SIGNATURES = {
+    "impl < ' a > Stage5ePaperSettlementPreflight < ' a >": [
+        "pub ( super ) fn from_escrow ( escrow : & ' a Stage5ePaperCallbackResultEscrow , _seal : & Stage5ePaperSettlementPreflightSeal , ) -> Self",
+    ],
+    "impl Stage5ePaperSettlementPayload": [
+        "pub ( super ) fn from_escrow ( escrow : Stage5ePaperCallbackResultEscrow , _seal : & Stage5ePaperSettlementConsumeSeal , ) -> Self",
+    ],
+    "impl Stage5eB3fCanonicalEncoder": [
+        "fn new ( domain : & [ u8 ] ) -> Self",
+        "fn bytes ( & mut self , value : & [ u8 ] )",
+        "fn u8 ( & mut self , value : u8 )",
+        "fn i64 ( & mut self , value : i64 )",
+        "fn datetime ( & mut self , value : DateTime < Utc > )",
+        "fn digest ( & mut self , value : & [ u8 ; 32 ] )",
+        "fn string ( & mut self , value : & str )",
+        "fn optional_string ( & mut self , value : Option < & str > )",
+        "fn optional_digest ( & mut self , value : Option < & [ u8 ; 32 ] > )",
+        "fn instrument ( & mut self , instrument : & broker_core :: InstrumentId )",
+        "fn schedule_classification ( & mut self , classification : crate :: stage5e_no_io_lifecycle :: schedule_window_evidence :: Stage5eScheduleSequenceClassification , )",
+        "fn request_ids ( & mut self , request_ids : & [ broker_core :: StrategyRequestId ] )",
+        "fn finish ( self ) -> [ u8 ; 32 ]",
+    ],
+}
+EXPECTED_STAGE5C_IMPL_ASSOCIATED_SIGNATURES = {
+    "impl Stage5eStage5cSettlementSuccess": [
+        "fn borrow_identity_proof ( & self , _seal : & Stage5cB3fSuccessProofSeal , ) -> Stage5eStage5cSettlementSuccessProof < ' _ >",
+        "pub ( crate ) fn construct_stage5e_success_receipt ( self , audit_lineage : crate :: stage5e_no_io_lifecycle :: callback_authority :: Stage5eAuthorizedCallbackAuditLineage , callback_invoked_at : DateTime < Utc > , callback_authority_id : [ u8 ; 32 ] , accepted_semantic_bar_identity : [ u8 ; 32 ] , audit_commitment : [ u8 ; 32 ] , success_seal : crate :: stage5e_no_io_lifecycle :: callback_authority :: callback_settlement :: Stage5ePaperSettlementSuccessSeal , ) -> crate :: stage5e_no_io_lifecycle :: callback_authority :: callback_settlement :: Stage5eValidatedPaperSettlementReceipt",
+    ],
+    "impl Stage5eStage5cSettlementTerminalMaterial": [
+        "pub ( crate ) fn construct_stage5e_terminal_receipt ( self , audit_lineage : crate :: stage5e_no_io_lifecycle :: callback_authority :: Stage5eAuthorizedCallbackAuditLineage , callback_invoked_at : DateTime < Utc > , callback_authority_id : [ u8 ; 32 ] , audit_commitment : [ u8 ; 32 ] , terminal_seal : crate :: stage5e_no_io_lifecycle :: callback_authority :: callback_settlement :: Stage5ePaperSettlementTerminalSeal , ) -> crate :: stage5e_no_io_lifecycle :: callback_authority :: callback_settlement :: Stage5ePaperSettlementTerminalReceipt",
+    ],
 }
 EXPECTED_SENSITIVE_TOKEN_WINDOWS_SHA256 = {
     "stage5c:Stage5ePaperSettlementPreflightSeal": (
@@ -385,11 +440,60 @@ def item_attributes(tokens: list[str], start: int) -> tuple[list[list[str]], int
 
 
 def item_is_test_only(attributes: list[list[str]]) -> bool:
-    return any(
-        "cfg" in attribute
-        and ("test" in attribute or "doctest" in attribute)
-        for attribute in attributes
-    )
+    """Return true only for an affirmative, unconditional test-only cfg.
+
+    This deliberately does not try to infer that a token mentioning ``test``
+    is safe.  In particular, ``cfg(not(test))`` is a production-only item.
+    """
+    positive_test_cfgs = {
+        ("#", "[", "cfg", "(", "test", ")", "]"),
+        ("#", "[", "cfg", "(", "doctest", ")", "]"),
+        ("#", "[", "cfg", "(", "any", "(", "test", ",", "doctest", ")", ")", "]"),
+        ("#", "[", "cfg", "(", "any", "(", "doctest", ",", "test", ")", ")", "]"),
+    }
+    return any(tuple(attribute) in positive_test_cfgs for attribute in attributes)
+
+
+def validate_cfg_attributes(items: list[dict[str, object]], label: str) -> None:
+    """Fail closed for cfg expressions in the protected source regions."""
+    for item in items:
+        attributes = item["attributes"]
+        for attribute in attributes:
+            if "cfg" not in attribute and "cfg_attr" not in attribute:
+                continue
+            if tuple(attribute) not in {
+                ("#", "[", "cfg", "(", "test", ")", "]"),
+                ("#", "[", "cfg", "(", "doctest", ")", "]"),
+                (
+                    "#",
+                    "[",
+                    "cfg",
+                    "(",
+                    "any",
+                    "(",
+                    "test",
+                    ",",
+                    "doctest",
+                    ")",
+                    ")",
+                    "]",
+                ),
+                (
+                    "#",
+                    "[",
+                    "cfg",
+                    "(",
+                    "any",
+                    "(",
+                    "doctest",
+                    ",",
+                    "test",
+                    ")",
+                    ")",
+                    "]",
+                ),
+            }:
+                fail(f"{label} ambiguous or production cfg attribute opened")
 
 
 def top_level_items(tokens: list[str]) -> list[dict[str, object]]:
@@ -555,6 +659,147 @@ def production_signature_contract(
     return contract
 
 
+def impl_associated_items(item: dict[str, object], label: str) -> list[dict[str, object]]:
+    """Parse the direct associated-item AST of one inherent/trait impl.
+
+    ``top_level_items`` is deliberately reused only over the balanced body of
+    this impl, so a local function/closure in a method cannot be mistaken for
+    an associated item.
+    """
+    if item["kind"] != "impl":
+        fail(f"{label} expected impl item")
+    tokens = item["tokens"]
+    signature = item["signature"]
+    body_start = len(signature)
+    if body_start >= len(tokens) or tokens[body_start] != "{":
+        fail(f"{label} malformed impl AST")
+    if matching_delimiter(tokens, body_start) != len(tokens) - 1:
+        fail(f"{label} trailing tokens after impl AST")
+    return top_level_items(tokens[body_start + 1 : -1])
+
+
+def impl_associated_signature_contract(
+    items: list[dict[str, object]], label: str
+) -> dict[str, list[str]]:
+    """Return exact associated-function signatures for every protected impl."""
+    contract: dict[str, list[str]] = {}
+    for item in items:
+        if item["kind"] != "impl" or item["test_only"]:
+            continue
+        identity = " ".join(item["signature"])
+        if identity in contract:
+            fail(f"{label} duplicate protected impl identity: {identity}")
+        associated = impl_associated_items(item, label)
+        validate_cfg_attributes(associated, f"{label} impl {identity}")
+        signatures: list[str] = []
+        for member in associated:
+            if member["test_only"]:
+                continue
+            if member["kind"] != "fn":
+                fail(f"{label} protected impl associated non-function opened: {identity}")
+            signatures.append(" ".join(member["signature"]))
+        contract[identity] = signatures
+    return contract
+
+
+def function_signature_contract(
+    items: list[dict[str, object]], label: str
+) -> dict[str, str]:
+    """Return exact, unhashed signatures for direct free functions."""
+    contract: dict[str, str] = {}
+    for item in items:
+        if item["test_only"] or item["kind"] != "fn":
+            continue
+        name = item["name"]
+        if name in contract:
+            fail(f"{label} duplicate free-function identity: {name}")
+        contract[name] = " ".join(item["signature"])
+    return contract
+
+
+def require_critical_function_signatures(
+    actual: dict[str, str], expected: dict[str, str], label: str
+) -> None:
+    for name, expected_signature in expected.items():
+        require_exact(
+            actual.get(name),
+            expected_signature,
+            f"{label} critical function capability signature drift: {name}",
+        )
+
+
+def contains_tokens(tokens: list[str], expected: list[str]) -> bool:
+    return any(
+        tokens[index : index + len(expected)] == expected
+        for index in range(len(tokens) - len(expected) + 1)
+    )
+
+
+def validate_settlement_constructor_ast(
+    transition: dict[str, object]
+) -> None:
+    """Validate the only four seal constructions in their owning transition.
+
+    This is intentionally control-flow sensitive: a seal constructor cannot be
+    put behind a closure/local function/loop/macro and cannot be coerced into a
+    function item. The runtime-core no-unsafe source scan is defense in depth.
+    """
+    body = transition["tokens"][len(transition["signature"]) + 1 : -1]
+    forbidden_control = {
+        "unsafe",
+        "transmute",
+        "zeroed",
+        "MaybeUninit",
+        "union",
+        "macro_rules",
+        "fn",
+        "for",
+        "while",
+        "loop",
+        "async",
+        "||",
+        "|",
+    }
+    opened = sorted(forbidden_control.intersection(body))
+    if opened:
+        fail(f"Stage 5E settlement constructor control-flow surface opened: {opened[0]}")
+
+    expected_local_bindings = {
+        "Stage5ePaperSettlementPreflightSeal": "preflight_seal",
+        "Stage5ePaperSettlementConsumeSeal": "consume_capability",
+    }
+    for seal in SETTLEMENT_SEALS:
+        occurrences = [index for index, token in enumerate(body) if token == seal]
+        if len(occurrences) != 1:
+            fail(f"Stage 5E settlement seal construction cardinality drift: {seal}")
+        index = occurrences[0]
+        if body[index + 1 : index + 5] != ["(", "(", ")", ")"]:
+            fail(f"Stage 5E settlement seal constructor is not direct: {seal}")
+        if seal in expected_local_bindings:
+            binding = expected_local_bindings[seal]
+            expected = ["let", binding, "=", seal, "(", "(", ")", ")", ";"]
+            if not contains_tokens(body, expected):
+                fail(f"Stage 5E settlement seal AST role drift: {seal}")
+        else:
+            # The success and terminal seals are linear arguments to their
+            # respective Stage 5C receipt constructors, never local values.
+            expected_receiver = (
+                "construct_stage5e_success_receipt"
+                if seal == "Stage5ePaperSettlementSuccessSeal"
+                else "construct_stage5e_terminal_receipt"
+            )
+            if expected_receiver not in body or body[index - 2 : index] != ["audit_commitment", ","]:
+                fail(f"Stage 5E settlement seal AST argument role drift: {seal}")
+
+
+def validate_runtime_core_no_unsafe() -> None:
+    """Keep raw-memory construction unavailable without widening a frozen API."""
+    runtime_root = ROOT / "crates/strategy-runtime-core/src"
+    for path in sorted(runtime_root.rglob("*.rs")):
+        if "unsafe" in rust_tokens(path.read_text()):
+            fail(f"strategy-runtime-core unsafe token opened: {path.relative_to(ROOT)}")
+
+
 def validate_production_macro_surface(
     items: list[dict[str, object]], label: str, allowed_invocations: set[str]
 ) -> None:
@@ -621,11 +866,15 @@ def validate_protected_production_items(
 ) -> None:
     stage5c_items = top_level_items(rust_tokens(stage5c_region))
     stage5e_region_tokens = rust_tokens(stage5e_region)
+    stage5e_outer_items = top_level_items(stage5e_region_tokens)
     callback_tokens = balanced_item_body(
         stage5e_region_tokens,
         ["pub", "(", "crate", ")", "mod", "callback_settlement"],
     )
     stage5e_items = top_level_items(callback_tokens)
+    validate_cfg_attributes(stage5c_items, "Stage 5C B3F region")
+    validate_cfg_attributes(stage5e_outer_items, "Stage 5E B3F outer region")
+    validate_cfg_attributes(stage5e_items, "Stage 5E callback_settlement")
     require_exact(
         production_signature_contract(stage5c_items, "Stage 5C B3F region"),
         EXPECTED_STAGE5C_REGION_PRODUCTION_SIGNATURES,
@@ -642,6 +891,47 @@ def validate_protected_production_items(
     validate_production_macro_surface(
         stage5e_items, "Stage 5E callback_settlement", set()
     )
+    require_exact(
+        impl_associated_signature_contract(
+            stage5e_outer_items, "Stage 5E B3F outer region"
+        ),
+        EXPECTED_STAGE5E_OUTER_IMPL_ASSOCIATED_SIGNATURES,
+        "Stage 5E outer impl semantic signature vector drift",
+    )
+    require_exact(
+        impl_associated_signature_contract(
+            stage5e_items, "Stage 5E callback_settlement"
+        ),
+        EXPECTED_STAGE5E_CALLBACK_IMPL_ASSOCIATED_SIGNATURES,
+        "Stage 5E callback_settlement impl semantic signature vector drift",
+    )
+    require_exact(
+        impl_associated_signature_contract(stage5c_items, "Stage 5C B3F region"),
+        EXPECTED_STAGE5C_IMPL_ASSOCIATED_SIGNATURES,
+        "Stage 5C B3F impl semantic signature vector drift",
+    )
+    require_critical_function_signatures(
+        function_signature_contract(stage5e_items, "Stage 5E callback_settlement"),
+        EXPECTED_STAGE5E_CRITICAL_FUNCTION_SIGNATURES,
+        "Stage 5E callback_settlement",
+    )
+    require_critical_function_signatures(
+        function_signature_contract(stage5c_items, "Stage 5C B3F region"),
+        EXPECTED_STAGE5C_CRITICAL_FUNCTION_SIGNATURES,
+        "Stage 5C B3F region",
+    )
+    transition = next(
+        (
+            item
+            for item in stage5e_items
+            if item["kind"] == "fn"
+            and item["name"] == "validate_and_settle_stage5e_paper_callback_escrow"
+        ),
+        None,
+    )
+    if transition is None:
+        fail("Stage 5E settlement transition AST missing")
+    validate_settlement_constructor_ast(transition)
     validate_settlement_constructor_owners(stage5e_items)
 
 
@@ -894,6 +1184,7 @@ def validate_implementation_source() -> None:
         "private-process-local-v1",
     )
     validate_protected_production_items(stage5c_region, stage5e_region)
+    validate_runtime_core_no_unsafe()
     combined = stage5c_region + stage5e_region
     for forbidden in (
         "redis::",
@@ -1173,7 +1464,7 @@ def main() -> int:
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        555,
+        564,
         "provenance case count drift",
     )
     ui_contract = inventory.get("production_ui_harness_contract")
@@ -1228,6 +1519,12 @@ def main() -> int:
             "stage5e_callback_production_item_signature_count": 30,
             "stage5c_region_production_item_signature_count": 21,
             "exact_constructor_owner_vector_all_settlement_seals": True,
+            "positive_test_cfg_only": True,
+            "ambiguous_or_production_cfg_in_protected_regions_allowed": False,
+            "critical_capability_signatures_exact_and_unhashed": True,
+            "protected_impl_associated_item_vectors_exact_and_unhashed": True,
+            "seal_constructor_ast_role_and_control_flow_exact": True,
+            "unsafe_runtime_core_tokens_forbidden": True,
             "production_macro_definitions_allowed": False,
             "unlisted_item_producing_macro_invocations_allowed": False,
             "payload_impl_headers": ["impl Stage5ePaperSettlementPayload"],

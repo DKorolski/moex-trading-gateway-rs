@@ -10,7 +10,7 @@
   "rejected_b3f_r2_ref": "ee23d6b4231c3c1483bcfacdb9189392183e2963",
   "rejected_b3f_r3_ref": "a5ccea08bc64a66e768340f7121e9b94a09ff884",
   "accepted_b3f_r4_ref": "148377f71b4afe6ce20f4e42433f58c812fb4917",
-  "expected_provenance_case_count": 555,
+  "expected_provenance_case_count": 564,
   "production_ui_harness_contract": {
     "path": "scripts/stage5e_b3f_production_ui_harness.py",
     "sha256": "8a43aed8bfed494ac224f415e7ebc0fcd0773394aa17374539da58a0d22d637d",
@@ -65,6 +65,12 @@
     "stage5e_callback_production_item_signature_count": 30,
     "stage5c_region_production_item_signature_count": 21,
     "exact_constructor_owner_vector_all_settlement_seals": true,
+    "positive_test_cfg_only": true,
+    "ambiguous_or_production_cfg_in_protected_regions_allowed": false,
+    "critical_capability_signatures_exact_and_unhashed": true,
+    "protected_impl_associated_item_vectors_exact_and_unhashed": true,
+    "seal_constructor_ast_role_and_control_flow_exact": true,
+    "unsafe_runtime_core_tokens_forbidden": true,
     "production_macro_definitions_allowed": false,
     "unlisted_item_producing_macro_invocations_allowed": false,
     "payload_impl_headers": [
