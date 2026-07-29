@@ -17,15 +17,17 @@ Stage 5 is active: the real IMOEXF `HybridIntradayRuntime` semantics are being
 migrated from the frozen ALOR source. The BO/MR/high180/riskgate kernel and the
 integrated broker-neutral runtime wrapper are present. Stage 5C's deterministic
 paper/no-send host is accepted and frozen; Stage 5D is accepted as the
-source-exact persistence, restart and recovery-semantics foundation. Stage 5E-a
-is now a design/inventory-only review candidate for lifecycle/event-time
-attachment: it freezes the required chain from validated broker truth through
-restore, warmup, recovery and the first eligible callback. Stage 5E-a1/a2 hardens
-the governance around that package: Stage 5E provenance hashes, fresh gate
-evidence, exact gate input hashes, design-only allowlist and typed watermark
-domains are checked by handoff safety. Stage 5E-a3 additionally binds the full
-source archive through an archive-verifiable source-tree manifest. Redis,
-FINAM, transport, dispatch, runtime-live and real execution remain closed.
+source-exact persistence, restart and recovery-semantics foundation.
+
+Stage 5E-B3F is closed at `e14654f`: its private paper callback/settlement
+boundary, 580-case provenance contract and eight compile-fail UI cases are
+immutable accepted evidence. Stage 5F-a is the active entry contract. It pins
+that B3F closure, defines one existing Hybrid callback route for IMOEXF
+canonical-final M10 paper input, and requires BO/MR/high180/riskgate behavior to
+be accepted as one atomic state machine rather than as partial sleeve parity.
+The Stage 5F gate re-runs the accepted B3F checks from the accepted source
+snapshot before checking its own contract. Redis, FINAM, transport, dispatch,
+runtime-live and real execution remain closed.
 
 This repository is not enabled for continuous live trading.
 
@@ -87,6 +89,9 @@ python3 scripts/stage5d_additive_freeze_negative_harness.py
 bash scripts/stage5d_b2bc_review_gate.sh
 # Stage 5E-a no-live/no-send lifecycle/event-time gate:
 bash scripts/stage5e_lifecycle_event_time_gate.sh
+# Stage 5F-a inherited atomic-Hybrid paper-only entry gate:
+bash scripts/stage5f_atomic_hybrid_semantics_gate.sh
+python3 scripts/stage5f_atomic_hybrid_semantics_negative_harness.py
 # Focused final Stage 5D restart-closure check:
 cargo test -p strategy-runtime-core stage5d_final -- --nocapture
 ```

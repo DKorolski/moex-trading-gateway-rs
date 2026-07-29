@@ -36,8 +36,8 @@ handoff-manifest.json
   source_commit/source_ref/archive_name
   created_at_utc
   Stage 5C/Stage 5D checker and Stage 5D manifest SHA-256 values
-  current_review_stage and optional Stage 5E checker/inventory SHA-256 values
-  optional Stage 5E plan and fresh gate-result SHA-256 values
+  current_review_stage and exactly one active stage-specific provenance set
+  (Stage 5E or Stage 5F checker/inventory/plan/gate SHA-256 values)
   source_tree_manifest_sha256
   required_gate_names
 ```
@@ -61,6 +61,34 @@ the exact archive file set to tracked source members plus generated handoff
 artifacts, checks each tracked member SHA-256, and reconstructs the Git tree hash
 from archive bytes and tracked file modes.
 
+## Stage 5F inherited-closure handoffs
+
+Stage 5F uses a distinct active descriptor. The accepted Stage 5E-B3F descriptor
+is deliberately retained as an immutable closure descriptor: moving it would
+make its exact accepted review scope disappear. A Stage 5F archive therefore
+contains instead:
+
+```text
+handoff-stage5f-gate-result.json
+handoff-stage5f-gate-stdout.txt
+handoff-stage5f-gate-stderr.txt
+handoff-stage5f-negative-result.json
+handoff-stage5f-negative-stdout.txt
+handoff-stage5f-negative-stderr.txt
+handoff-source-tree-manifest.json
+```
+
+The Stage 5F gate first creates an ephemeral `git archive` snapshot of accepted
+ref `e14654f7129aa61011931306140a3bfefe2fcfbc` and runs the immutable B3F
+checker plus its production UI harness there. It then checks the Stage 5F
+descriptor, IMOEXF canonical-final-M10 paper-only contract, full atomic
+BO/MR/riskgate scenario matrix and all closed later-stage surfaces. Archive
+safety binds the B3F source pins, both Stage 5F gate logs and the isolated
+Stage 5F negative harness to the tracked source-tree manifest. The builder also
+runs the B3F 580-case provenance harness from a local detached clone at that
+accepted ref, because its source-manifest tests require a normal `.git`
+directory rather than a worktree `.git` pointer.
+
 The script also creates the external sibling
 `moex-trading-project-<short>.zip.sha256`. The archive hash is deliberately not
 stored inside the archive. Reviewers can run
@@ -81,3 +109,11 @@ For Stage 5E handoffs the builder reads the explicit active-descriptor registry
 and selects exactly one registered descriptor. The selected inventory supplies
 the plan, checker, baseline ref and exact changed-path set recorded in the gate
 result. Unknown, missing or mixed descriptors are rejected by archive safety.
+
+# Stage 5F descriptor selection
+
+For Stage 5F handoffs the builder selects exactly one registered Stage 5F
+descriptor. It does not mutate the accepted Stage 5E-B3F descriptor. The Stage
+5F inventory supplies the current plan, checker, baseline ref and exact
+changed-path set, while its accepted-B3F closure block supplies the immutable
+predecessor pins checked by both the gate and archive safety.

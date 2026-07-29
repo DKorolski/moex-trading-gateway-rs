@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-07-23.
+Status date: 2026-07-29.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -250,13 +250,23 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   persisted final-receipt equality, source-produced pending finalizations,
   exact summary goldens and Stage 5C warmup continuation. Aggregate Stage 5D
   closure r2 is accepted as the no-I/O persistence/restart/recovery-semantics
-  foundation. Stage 5E-a is a design/inventory-only review candidate for the
-  lifecycle/event-time attachment contract. Stage 5E-a1/a2 hardens the
-  governance boundary by validating Stage 5E handoff hashes, fresh gate
-  evidence, exact gate input hashes, design-only diff allowlist, exact inventory
-  schema, typed watermark domains and an archive-verifiable full source-tree
-  manifest. Redis, FINAM, broker transport, dispatch, runtime-live and real
-  execution remain closed.
+  foundation. Stage 5E-B3F is accepted and closed at
+  `e14654f7129aa61011931306140a3bfefe2fcfbc`: the one private callback and
+  settlement route is protected by the accepted B3F checker, immutable source
+  pins, two complete semantic-region digests, the 580-case provenance harness
+  and the eight-case production UI contract. Its descriptor remains a closure
+  descriptor and is not repointed by later work.
+- Stage 5F-a is active as the inherited atomic-Hybrid entry contract. It has a
+  separate descriptor and gate that first runs the accepted B3F checker and UI
+  harness from the exact accepted source snapshot, then admits only the existing
+  IMOEXF `canonical_final_m10` paper route through the broker-neutral Hybrid
+  runtime, high180/riskgate, the single Hybrid orchestrator, ordered semantic
+  intents and B3F settlement. Full BO/MR/riskgate/arbitration parity is one
+  state-machine acceptance matrix; no BO-only or MR-only slice can claim
+  success. ACK/order/position/timer/restart feedback remains Stage 5G and
+  same-input ALOR differential replay remains Stage 5H. Redis, FINAM, broker
+  transport, dispatch, persistence opening, runtime-live and real execution
+  remain closed.
 - FINAM REST read-only/auth/client DTO and mapper foundation.
 - FINAM WebSocket market-data shadow path for `BARS`/`QUOTES`.
 - Closed-bar finalizer and FINAM M1-to-canonical-M10 paper runtime path.
