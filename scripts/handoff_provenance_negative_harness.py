@@ -839,6 +839,55 @@ def main() -> int:
                     )
                 checker = checker.replace(old_value, new_value, 1)
 
+            stage5c_source = (
+                root
+                / "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+            ).read_text()
+            stage5e_source = (
+                root
+                / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
+            ).read_text()
+            stage5c_region = module.marked_region(
+                stage5c_source,
+                "STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION",
+                "stage5c-private-bridge-v1",
+            )
+            stage5e_region = module.marked_region(
+                stage5e_source,
+                "STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION",
+                "private-process-local-v1",
+            )
+            stage5e_callback_tokens = module.balanced_item_body(
+                module.rust_tokens(stage5e_region),
+                ["pub", "(", "crate", ")", "mod", "callback_settlement"],
+            )
+            actual_signature_contracts = (
+                (
+                    module.EXPECTED_STAGE5C_REGION_PRODUCTION_SIGNATURES,
+                    module.production_signature_contract(
+                        module.top_level_items(module.rust_tokens(stage5c_region)),
+                        "Stage 5C B3F region",
+                    ),
+                ),
+                (
+                    module.EXPECTED_STAGE5E_CALLBACK_PRODUCTION_SIGNATURES,
+                    module.production_signature_contract(
+                        module.top_level_items(stage5e_callback_tokens),
+                        "Stage 5E callback_settlement",
+                    ),
+                ),
+            )
+            for expected, actual in actual_signature_contracts:
+                for key, old_value in expected.items():
+                    new_value = actual.get(key)
+                    if new_value is None or new_value == old_value:
+                        continue
+                    if checker.count(old_value) != 1:
+                        raise AssertionError(
+                            f"B3F item-signature pin not unique: {key}"
+                        )
+                    checker = checker.replace(old_value, new_value, 1)
+
             inventory_path.write_text(
                 json.dumps(payload, indent=2, sort_keys=True) + "\n"
             )
@@ -3023,7 +3072,7 @@ def main() -> int:
         Case("stage5e-b3f-r7-rehash-consume-seal-default", "settlement seal impl surface opened", mutate_stage5e_b3f_source_and_rehash_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("pub(crate) struct Stage5ePaperSettlementConsumeSeal(());", "pub(crate) struct Stage5ePaperSettlementConsumeSeal(());\n        impl Default for Stage5ePaperSettlementConsumeSeal {\n            fn default() -> Self { Self(()) }\n        }", 1)), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-r7-rehash-aliased-payload-capability-trait", "Stage 5E protected-type alias opened", mutate_stage5e_b3f_source_and_rehash_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("pub(super) struct Stage5ePaperSettlementPayload {", "type ConsumeCapabilityAlias = Stage5ePaperSettlementConsumeSeal;\n        pub(super) struct Stage5ePaperSettlementPayload {\n            _consume_capability: ConsumeCapabilityAlias,", 1).replace("enum Stage5ePaperSettlementPreflightDecision", "trait PayloadCapabilityAccess { fn capability(&self) -> &Stage5ePaperSettlementConsumeSeal; }\n        impl PayloadCapabilityAccess for Stage5ePaperSettlementPayload {\n            fn capability(&self) -> &Stage5ePaperSettlementConsumeSeal { &self._consume_capability }\n        }\n        enum Stage5ePaperSettlementPreflightDecision", 1)), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-r7-rehash-aliased-metadata-free-bridge", "Stage 5C protected-type alias opened", mutate_stage5e_b3f_source_and_rehash_checker("crates/strategy-runtime-core/src/stage5c_paper_host.rs", lambda s: s.replace("#[cfg(test)]\nimpl Stage5eAcceptedBarSettlementMetadata", "type BarMeta = Stage5eAcceptedBarSettlementMetadata;\nfn export_retained_close_via_alias(metadata: &BarMeta) -> i64 {\n    metadata.accepted_bar_close_ts\n}\n\n#[cfg(test)]\nimpl Stage5eAcceptedBarSettlementMetadata", 1)), "5E-b3f-callback-settlement-escrow-design", True),
-        Case("stage5e-b3f-r7-rehash-macro-generated-metadata-bridge", "B3F sensitive token occurrence allowlist drift", mutate_stage5e_b3f_source_and_rehash_checker("crates/strategy-runtime-core/src/stage5c_paper_host.rs", lambda s: s.replace("#[cfg(test)]\nimpl Stage5eAcceptedBarSettlementMetadata", "macro_rules! export_retained_close {\n    () => { fn leaked(metadata: &Stage5eAcceptedBarSettlementMetadata) -> i64 { metadata.accepted_bar_close_ts } };\n}\nexport_retained_close!();\n\n#[cfg(test)]\nimpl Stage5eAcceptedBarSettlementMetadata", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r7-rehash-macro-generated-metadata-bridge", "Stage 5C protected macro expansion surface opened", mutate_stage5e_b3f_source_and_rehash_checker("crates/strategy-runtime-core/src/stage5c_paper_host.rs", lambda s: s.replace("#[cfg(test)]\nimpl Stage5eAcceptedBarSettlementMetadata", "macro_rules! export_retained_close {\n    () => { fn leaked(metadata: &Stage5eAcceptedBarSettlementMetadata) -> i64 { metadata.accepted_bar_close_ts } };\n}\nexport_retained_close!();\n\n#[cfg(test)]\nimpl Stage5eAcceptedBarSettlementMetadata", 1)), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-r7-rehash-ui-unrelated-same-code-accepted", "production UI diagnostic provenance drift", mutate_stage5e_b3f_ui_harness_and_rehash_checker(lambda s: s.replace("codes != {case.expected_code}\n                or unexpected", "case.expected_code not in codes\n                or False", 1)), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-r8-full-rebind-use-alias-metadata-bridge", "Stage 5C protected use alias opened", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5c_paper_host.rs", lambda s: s.replace("#[cfg(test)]\nimpl Stage5eAcceptedBarSettlementMetadata", "use self::Stage5eAcceptedBarSettlementMetadata as BarMeta;\nfn export_retained_close_via_use_alias(metadata: &BarMeta) -> i64 {\n    metadata.accepted_bar_close_ts\n}\n\n#[cfg(test)]\nimpl Stage5eAcceptedBarSettlementMetadata", 1)), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-r8-full-rebind-use-alias-seal-from", "Stage 5E protected use alias opened", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("pub(crate) struct Stage5ePaperSettlementConsumeSeal(());", "pub(crate) struct Stage5ePaperSettlementConsumeSeal(());\n        use self::Stage5ePaperSettlementConsumeSeal as ConsumeSealAlias;\n        impl From<u8> for ConsumeSealAlias {\n            fn from(_: u8) -> Self { Self(()) }\n        }", 1)), "5E-b3f-callback-settlement-escrow-design", True),
@@ -3036,6 +3085,17 @@ def main() -> int:
         Case("stage5e-b3f-r8-full-rebind-terminal-copy", "Stage 5E settlement seal attribute surface opened: Stage5ePaperSettlementTerminalSeal", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("pub(crate) struct Stage5ePaperSettlementTerminalSeal(());", "#[derive(Clone, Copy)]\n        pub(crate) struct Stage5ePaperSettlementTerminalSeal(());", 1)), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-r8-full-rebind-terminal-default", "settlement seal impl surface opened", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("pub(crate) struct Stage5ePaperSettlementTerminalSeal(());", "pub(crate) struct Stage5ePaperSettlementTerminalSeal(());\n        impl Default for Stage5ePaperSettlementTerminalSeal { fn default() -> Self { Self(()) } }", 1)), "5E-b3f-callback-settlement-escrow-design", True),
         Case("stage5e-b3f-r8-full-rebind-terminal-from", "settlement seal impl surface opened", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("pub(crate) struct Stage5ePaperSettlementTerminalSeal(());", "pub(crate) struct Stage5ePaperSettlementTerminalSeal(());\n        impl From<u8> for Stage5ePaperSettlementTerminalSeal { fn from(_: u8) -> Self { Self(()) } }", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r9-full-rebind-unrestricted-preflight-issuer", "Stage 5E callback_settlement exact production item/signature vector drift", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("        #[allow(clippy::result_large_err)]\n        pub(crate) fn validate_and_settle_stage5e_paper_callback_escrow(", "        pub(crate) fn issue_preflight_seal_unrestricted() -> Stage5ePaperSettlementPreflightSeal { Stage5ePaperSettlementPreflightSeal(()) }\n\n        #[allow(clippy::result_large_err)]\n        pub(crate) fn validate_and_settle_stage5e_paper_callback_escrow(", 1).replace("let preflight_seal = Stage5ePaperSettlementPreflightSeal(());", "let preflight_seal = issue_preflight_seal_unrestricted();", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r9-full-rebind-unrestricted-success-issuer", "Stage 5E callback_settlement exact production item/signature vector drift", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("        #[allow(clippy::result_large_err)]\n        pub(crate) fn validate_and_settle_stage5e_paper_callback_escrow(", "        pub(crate) fn issue_success_seal_unrestricted() -> Stage5ePaperSettlementSuccessSeal { Stage5ePaperSettlementSuccessSeal(()) }\n\n        #[allow(clippy::result_large_err)]\n        pub(crate) fn validate_and_settle_stage5e_paper_callback_escrow(", 1).replace("Stage5ePaperSettlementSuccessSeal(()),", "issue_success_seal_unrestricted(),", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r9-full-rebind-unrestricted-terminal-issuer", "Stage 5E callback_settlement exact production item/signature vector drift", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("        #[allow(clippy::result_large_err)]\n        pub(crate) fn validate_and_settle_stage5e_paper_callback_escrow(", "        pub(crate) fn issue_terminal_seal_unrestricted() -> Stage5ePaperSettlementTerminalSeal { Stage5ePaperSettlementTerminalSeal(()) }\n\n        #[allow(clippy::result_large_err)]\n        pub(crate) fn validate_and_settle_stage5e_paper_callback_escrow(", 1).replace("Stage5ePaperSettlementTerminalSeal(()),", "issue_terminal_seal_unrestricted(),", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r9-full-rebind-const-seal-capability", "Stage 5E callback_settlement exact production item/signature vector drift", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("        #[allow(clippy::result_large_err)]", "        pub(crate) const FORGED_PREFLIGHT: Stage5ePaperSettlementPreflightSeal = Stage5ePaperSettlementPreflightSeal(());\n\n        #[allow(clippy::result_large_err)]", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r9-full-rebind-long-seal-alias-from", "Stage 5E protected-type alias opened", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("pub(crate) struct Stage5ePaperSettlementConsumeSeal(());", "pub(crate) struct Stage5ePaperSettlementConsumeSeal(());\n        #[allow(unused_parens)]\n        type ConsumeAlias = ((((((((((((((((((((((((((((((Stage5ePaperSettlementConsumeSeal))))))))))))))))))))))))))))));\n        impl From<u8> for ConsumeAlias { fn from(_: u8) -> Self { Self(()) } }", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r9-full-rebind-long-metadata-alias-scalar", "Stage 5C protected-type alias opened", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5c_paper_host.rs", lambda s: s.replace("// STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-BEGIN: stage5c-private-bridge-v1", "#[allow(unused_parens)]\ntype BarMeta = ((((((((((((((((((((((((((((((Stage5eAcceptedBarSettlementMetadata))))))))))))))))))))))))))))));\nfn leak_close(metadata: &BarMeta) -> i64 { metadata.accepted_bar_close_ts }\n\n// STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-BEGIN: stage5c-private-bridge-v1", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r9-full-rebind-parameterless-seal-macro", "Stage 5E protected macro expansion surface opened", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("        #[allow(clippy::result_large_err)]", "        macro_rules! forge_success { () => { pub(crate) fn macro_issue_success() -> Stage5ePaperSettlementSuccessSeal { Stage5ePaperSettlementSuccessSeal(()) } }; }\n        forge_success!();\n\n        #[allow(clippy::result_large_err)]", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r9-full-rebind-parameterless-metadata-macro", "Stage 5C protected macro expansion surface opened", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5c_paper_host.rs", lambda s: s.replace("// STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-BEGIN: stage5c-private-bridge-v1", "macro_rules! leak_metadata { () => { fn macro_leak(metadata: &Stage5eAcceptedBarSettlementMetadata) -> i64 { metadata.accepted_bar_close_ts } }; }\nleak_metadata!();\n\n// STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION-BEGIN: stage5c-private-bridge-v1", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r9-full-rebind-alias-chain-impl-self", "Stage 5E protected-type alias opened", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("pub(crate) struct Stage5ePaperSettlementConsumeSeal(());", "pub(crate) struct Stage5ePaperSettlementConsumeSeal(());\n        type ConsumeAliasOne = Stage5ePaperSettlementConsumeSeal;\n        type ConsumeAliasTwo = ConsumeAliasOne;\n        impl From<u8> for ConsumeAliasTwo { fn from(_: u8) -> Self { Self(()) } }", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r9-full-rebind-alias-chain-return-type", "Stage 5E protected-type alias opened", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("pub(crate) struct Stage5ePaperSettlementSuccessSeal(());", "pub(crate) struct Stage5ePaperSettlementSuccessSeal(());\n        type SuccessAliasOne = Stage5ePaperSettlementSuccessSeal;\n        type SuccessAliasTwo = SuccessAliasOne;\n        pub(crate) fn alias_issue_success() -> SuccessAliasTwo { Stage5ePaperSettlementSuccessSeal(()) }", 1)), "5E-b3f-callback-settlement-escrow-design", True),
+        Case("stage5e-b3f-r9-full-rebind-payload-alias-bridge-input", "Stage 5E protected-type alias opened", mutate_stage5e_b3f_source_and_full_rebind_checker("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", lambda s: s.replace("pub(super) struct Stage5ePaperSettlementPayload {", "type PayloadAlias = Stage5ePaperSettlementPayload;\n        fn inspect_payload_alias(_payload: &PayloadAlias) {}\n\n        pub(super) struct Stage5ePaperSettlementPayload {", 1)), "5E-b3f-callback-settlement-escrow-design", True),
     ]
     relation_matrix = json.loads(
         (

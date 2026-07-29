@@ -1108,3 +1108,44 @@ than stale hashes.
 This is enforcement-only hardening. Production Rust behavior and all Redis,
 FINAM, transport, dispatch, broker-execution, persistence and runtime-live
 surfaces remain unchanged and closed.
+
+## B3F-r9 item, constructor and transitive-alias closure
+
+The protected Rust regions are parsed into balanced structural items after
+comments and literals are removed. Attributes, visibility, item kind, item
+identity, signature, body boundary and `cfg(test)`/`cfg(doctest)` ownership
+are separated deterministically. This keeps the checker independently
+executable without requiring a Rust toolchain while enforcing an AST-shaped
+item contract rather than bounded source windows.
+
+The `callback_settlement` module has an exact 30-item production
+identity/signature vector. The Stage 5C bridge region has an exact 21-item
+production identity/signature vector. Additional functions, consts, statics,
+impls, fields, aliases, macro definitions or top-level macro invocations
+cannot enter either production surface. Test and doctest items remain
+separately classified and do not count as production issuers.
+
+Every type alias is read through its complete balanced semicolon-terminated
+item. Alias dependencies are resolved transitively. Any alias chain reaching
+a settlement seal, accepted-bar metadata or settlement payload is rejected
+before impl, function-return, parameter or field use can hide the protected
+type.
+
+All four settlement seal constructor expressions have an exact owner vector:
+one production expression each, all owned by
+`validate_and_settle_stage5e_paper_callback_escrow`. Production const/static
+storage and seal-bearing unlisted structs or enums are rejected. Macro
+definitions are forbidden in both protected production regions; Stage 5E has
+no production macro invocations, while Stage 5C permits only its frozen
+`debug_assert_eq!` expression use.
+
+Eleven r9 adversarial cases fully rebind implementation hashes, all sensitive
+token-window fingerprints, both production item/signature vectors and the
+canonical inventory hash. They cover unrestricted preflight/success/terminal
+issuers, a const capability, long and transitive aliases, alias-mediated impl
+and return surfaces, payload/metadata bridges, and parameterless
+macro-generated issuers.
+
+This remains enforcement-only hardening. Production Rust behavior and all
+Redis, FINAM, transport, dispatch, broker execution, durable persistence and
+runtime-live surfaces remain unchanged and closed.

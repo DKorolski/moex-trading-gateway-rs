@@ -21,10 +21,10 @@ ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3f-callback-settlement-escrow-design"
 BASELINE_REF = "a5ccea08bc64a66e768340f7121e9b94a09ff884"
 EXPECTED_PLAN_SHA256 = (
-    "4a2be56824cc0bc8f4e13c6d1d423f18ff22316472316bd876c46a79b0066115"
+    "6187b009f537ea68f694be92dd1c5cede4d647a1ddef549c9239867f06bbc45f"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "b7273e108bc73624c7f205ed088aee848bf4fc335cdd71993f3a4c0d50604e21"
+    "2b358ccfb730172f07bc281da23a967f6dc1379007a1a6ca124eb3ea132696a6"
 )
 EXPECTED_PROTECTED_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -99,6 +99,61 @@ SETTLEMENT_SEALS = {
     "Stage5ePaperSettlementConsumeSeal",
     "Stage5ePaperSettlementSuccessSeal",
     "Stage5ePaperSettlementTerminalSeal",
+}
+EXPECTED_STAGE5E_CALLBACK_PRODUCTION_SIGNATURES = {
+    "use:super :: { DateTime , Digest , PrivateStage5ePaperCallbackOutcome , Stage5eAuthorizedCallbackAuditLineage , Stage5ePaperCallbackOutcome , Stage5ePaperCallbackResultEscrow , Utc , }": "8553dc037c811e5990e9bb238d9f894ceac9596843d310a24378eeed56eb53cf",
+    "use:sha2 :: Sha256": "ea56b83343ac6ec041cb8bdee6d5d31ffdab2127e859b6ed8e2ef4faae34a268",
+    "struct:Stage5ePaperSettlementPreflightSeal": "d8191f157b81f2801c21459cb0da6904a0bf23e74bf679d0653f562dfa9834f5",
+    "struct:Stage5ePaperSettlementConsumeSeal": "f0fe9e5be02987a12d5086e0f64b01f5f65355ff73e39e6557f6e8200309079a",
+    "struct:Stage5ePaperSettlementSuccessSeal": "fa426c1944af0d666a3d859eff4af1d6f9c5bf2d3f04ff634ff4eadd2caebad8",
+    "struct:Stage5ePaperSettlementTerminalSeal": "b6c901fa529f7c249b9674d49737b1f339b4809a370bfc0cbe1f042d3935d303",
+    "struct:Stage5eB3fAuditCommitmentSeal": "268347067c10271517849bd4b899b205c8ab2f111133edac22cc7cce718cd325",
+    "struct:Stage5ePaperSettlementPreflight": "6440c3caa4ba29821dcc79cf161eb50aba1625a22f7865b21f49d7592afa3e6d",
+    "impl:impl < ' a > Stage5ePaperSettlementPreflight < ' a >": "9d5e6a5320057730b50f809a19717d60e3fac4346e10ea0ca12d52a153a0e329",
+    "struct:Stage5ePaperSettlementPayload": "c2533383b09c8a1065563796aacbe3ae9fca50ff98bf6e59e51aea23fc71ae15",
+    "impl:impl Stage5ePaperSettlementPayload": "245f47e91f0c7827cbbc0c252ec57b02e57ed9726ff45582747a818a46176401",
+    "enum:Stage5ePaperSettlementPreflightDecision": "c3e73cc1a35f94a7eeda8412a59dbe142d18337e53d728bfe796ed3a94b3f07d",
+    "enum:Stage5ePaperSettlementTerminalReason": "fa88cabe46f353200d4f6ec0bdd98e3d460b4d135975e057cbc2d56a42f68415",
+    "enum:Stage5ePaperSettlementTerminalOwnership": "0eac4d90bea5f86f252785545d9aa6f3c4058702fa292bc99d866b0350c9dccb",
+    "struct:Stage5ePaperSettlementTerminalReceipt": "65f39364e0835be80c351dd6d9480d6fa7a2c3cbfdc3bbfeccaff78e9c7664cd",
+    "struct:Stage5eValidatedPaperSettlementReceipt": "24cb76153f18905d68b1bfa9dbbe0700faf04cab5ce6da4d14cce6e69ee65df7",
+    "fn:validate_and_settle_stage5e_paper_callback_escrow": "6dce9b0a6d0016a2c8689e96ae53d88d967e3985a456a2044abe0d5cadafb4ba",
+    "fn:validate_preflight": "2a6fcd86a0ad57afdfa5c593291f39fe47250dd8e685877f65c56c2b0463f666",
+    "fn:construct_stage5c_expected_preflight_binding": "56c00cba0c272a5bbf2dbbc1795f07859e46e30ffcb2cf5646999640f518c041",
+    "fn:stage5e_authority_identity_matches": "a70ab32080b3b80dbd3c8a2b7eab936c7c13d3d97bce11472c189c9954bab1b2",
+    "fn:stage5e_audit_chronology_matches": "449012f962f95f544051237a198a00e9053da95cb027e922e721f00b62b4280a",
+    "fn:map_stage5c_preflight_mismatch_exact": "4288bfe456544836eb19dcc479f75385d33fd56048983d04c7c3459d24debab1",
+    "fn:construct_preflight_terminal_receipt": "4593ce9f90576414b60453d64a44f05d7ded55ce0b400c6408bd3dfc532228fd",
+    "fn:construct_stage5e_paper_settlement_terminal_receipt": "97d899dd701c0b3bbc2fddbf04e78fcc86574d71a2651c6f08c5b844826670da",
+    "fn:construct_stage5e_validated_paper_settlement_receipt": "66938653086e0802eb093b1d3a385c2dfce8082448ad19e8875560e4432b72dd",
+    "fn:map_stage5c_settlement_error_exact": "1bedc413ab695d896dc522f0fcdba6e12c19b2c310ea86652c27166d5dadfe25",
+    "fn:construct_stage5e_b3f_audit_commitment": "16288ab5fc17c2d4a93d4a850f7c8ee05e10a013b852a98de6665c05808e1ca0",
+    "fn:construct_stage5e_b3f_settlement_identity": "133c4504e772f9953bd913d90f53a3bb7382492dc4e44260d664a3c935396999",
+    "struct:Stage5eB3fCanonicalEncoder": "c31b03874a6ee0d84dc8c683baf0b387e21ee3d705ba6136c7621e5f13e6b198",
+    "impl:impl Stage5eB3fCanonicalEncoder": "79901ec7f133d560c4b87eb10cd692ca928ac61f4509076f01dfdf6c7836275a",
+}
+EXPECTED_STAGE5C_REGION_PRODUCTION_SIGNATURES = {
+    "struct:Stage5eB3fStage5cExpectedPreflightBinding": "a5656ce39a3cebb43c969903954849b972d257939c4a7bd22121274c66879929",
+    "fn:construct_stage5e_b3f_stage5c_expected_preflight_binding": "66af6b506a207f51cc39a9843c51011efb60cb6013ce0a3d56fdf7c4dd6c01e5",
+    "enum:Stage5eStage5cPreflightMismatch": "be0bfad9e479d762431ec951e2c080d9aa76a7ca082f5d1a21e7569d0decb5e7",
+    "struct:Stage5eStage5cPreflightValidatedProof": "f6f6c004ce6e255204958730a88dd3e06dd1845162f3028b5807f8528b5ba712",
+    "struct:Stage5eStage5cRetainedCloseChronologyProof": "e7d53ba56f0a99a5c5372d8372e61ab0f41401b6fbaf2b6d2eeed485fc2aa940",
+    "struct:Stage5eStage5cRetainedCloseChronologyMismatch": "35704f907f07ea9d86eb06c79815044fefd97d50b79db98b0d07a80dc0375b21",
+    "fn:validate_stage5e_b3f_retained_close_chronology": "fe0b98144cf1ef5c20fa40bda3d481d79323e6849eec9a5da5a5c81654fdcb24",
+    "fn:validate_stage5e_b3f_stage5c_preflight_binding": "9098eaa56cad17627b07d141bff050422410e842ca0e87ed6ca333931882696f",
+    "struct:Stage5cB3fSettlementMaterialSeal": "6cade0e51c91b18732060128184a2687fed8b263211426450d367c2c46f0dd12",
+    "struct:Stage5cB3fSettlementSeal": "3bde00039766d09227cea3254064d09eab3a6da7aad91024a93e90a1f62215ba",
+    "struct:Stage5cB3fSuccessProofSeal": "06d6686fa8e2bc8b7be110478e2394d55eb4cce4063ade5f41123deb2de566d3",
+    "fn:issue_stage5c_b3f_settlement_material_seal": "bfcaaa1a68aa0e59691025101d4837ad43b5b91673bab0ae3e10651a94f4ed05",
+    "fn:issue_stage5c_b3f_settlement_seal": "d4020ac603259d1cb8403dc915dc68c0f572a7b65ce938c2cf3ac826f90b84fe",
+    "struct:Stage5eStage5cSettlementMaterial": "c59f448aac71a486977924e0414d96beebfc26eff087400fb696ef77efa857cf",
+    "fn:construct_stage5e_stage5c_settlement_material": "3a432b587c02f93a7b215c8b43d42d7d278d6439a98896f995bd05e95e7d28df",
+    "struct:Stage5eStage5cSettlementSuccess": "5d0e9f84c1adc70c989f5de2489c423138525d8a3ae84984b89854704be0d883",
+    "struct:Stage5eStage5cSettlementSuccessProof": "2db0ce6687181d21d3e27171334f6d41952c7aad4e00a4c4c2707b90f8fb6693",
+    "struct:Stage5eStage5cSettlementTerminalMaterial": "a146589866fb90472fb527425b35440a848d569c0295f444e5f5c882fdf6b106",
+    "impl:impl Stage5eStage5cSettlementSuccess": "7b80b92aa3693dcdd3d3d1f8edc1c060f2de9a6deafe8c2a9a474bb34420ca2a",
+    "impl:impl Stage5eStage5cSettlementTerminalMaterial": "3657a97a30b119568c5f9abda29848e7b8367a44f7198e2fb2ce8b2b8cd6f96c",
+    "fn:settle_stage5e_callback_escrow_material": "c0e56272729a58c4b8c0b534a1474f00d340ce7a7fd9c023e4a5ef934594f8a2",
 }
 EXPECTED_SENSITIVE_TOKEN_WINDOWS_SHA256 = {
     "stage5c:Stage5ePaperSettlementPreflightSeal": (
@@ -296,6 +351,300 @@ def bounded_statement(tokens: list[str], start: int) -> list[str]:
     return tokens[start:]
 
 
+def matching_delimiter(tokens: list[str], start: int) -> int:
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    opening = tokens[start]
+    if opening not in pairs:
+        fail(f"delimiter expected, got: {opening}")
+    stack = [pairs[opening]]
+    for cursor in range(start + 1, len(tokens)):
+        token = tokens[cursor]
+        if token in pairs:
+            stack.append(pairs[token])
+        elif token in {")", "]", "}"}:
+            if not stack or token != stack.pop():
+                fail("unbalanced tokenized delimiter")
+            if not stack:
+                return cursor
+    fail("unterminated tokenized delimiter")
+    raise AssertionError("unreachable")
+
+
+def item_attributes(tokens: list[str], start: int) -> tuple[list[list[str]], int]:
+    attributes: list[list[str]] = []
+    cursor = start
+    while (
+        cursor + 1 < len(tokens)
+        and tokens[cursor] == "#"
+        and tokens[cursor + 1] == "["
+    ):
+        finish = matching_delimiter(tokens, cursor + 1)
+        attributes.append(tokens[cursor : finish + 1])
+        cursor = finish + 1
+    return attributes, cursor
+
+
+def item_is_test_only(attributes: list[list[str]]) -> bool:
+    return any(
+        "cfg" in attribute
+        and ("test" in attribute or "doctest" in attribute)
+        for attribute in attributes
+    )
+
+
+def top_level_items(tokens: list[str]) -> list[dict[str, object]]:
+    """Parse a bounded Rust module/region into structural top-level items."""
+    items: list[dict[str, object]] = []
+    cursor = 0
+    brace_items = {"fn", "impl", "enum", "mod"}
+    semicolon_items = {"use", "type", "const", "static"}
+    while cursor < len(tokens):
+        attributes, item_start = item_attributes(tokens, cursor)
+        if item_start >= len(tokens):
+            break
+        scan = item_start
+        if tokens[scan] == "pub":
+            scan += 1
+            if scan < len(tokens) and tokens[scan] == "(":
+                scan = matching_delimiter(tokens, scan) + 1
+        if scan >= len(tokens):
+            fail("truncated tokenized top-level item")
+
+        keyword = tokens[scan]
+        if keyword == "const" and scan + 1 < len(tokens) and tokens[scan + 1] == "fn":
+            keyword = "fn"
+            keyword_index = scan + 1
+        else:
+            keyword_index = scan
+
+        if keyword == "macro_rules":
+            if (
+                keyword_index + 3 >= len(tokens)
+                or tokens[keyword_index + 1] != "!"
+                or tokens[keyword_index + 3] != "{"
+            ):
+                fail("malformed macro_rules item")
+            name = tokens[keyword_index + 2]
+            body_start = keyword_index + 3
+            item_end = matching_delimiter(tokens, body_start) + 1
+            kind = "macro_rules"
+            signature = tokens[item_start:body_start]
+        elif (
+            keyword_index + 2 < len(tokens)
+            and tokens[keyword_index + 1] == "!"
+            and tokens[keyword_index + 2] in {"(", "[", "{"}
+        ):
+            name = keyword
+            body_start = keyword_index + 2
+            item_end = matching_delimiter(tokens, body_start) + 1
+            if item_end < len(tokens) and tokens[item_end] == ";":
+                item_end += 1
+            kind = "macro_invocation"
+            signature = tokens[item_start:body_start]
+        elif keyword == "struct":
+            if keyword_index + 1 >= len(tokens):
+                fail("truncated struct item")
+            name = tokens[keyword_index + 1]
+            probe = keyword_index + 2
+            while probe < len(tokens) and tokens[probe] not in {"{", ";"}:
+                if tokens[probe] in {"(", "["}:
+                    probe = matching_delimiter(tokens, probe) + 1
+                else:
+                    probe += 1
+            if probe >= len(tokens):
+                fail(f"unterminated struct item: {name}")
+            if tokens[probe] == "{":
+                item_end = matching_delimiter(tokens, probe) + 1
+                signature = tokens[item_start:probe]
+            else:
+                item_end = probe + 1
+                signature = tokens[item_start:item_end]
+            kind = "struct"
+        elif keyword in brace_items:
+            name = (
+                tokens[keyword_index + 1]
+                if keyword != "impl"
+                else " ".join(tokens[keyword_index:])
+            )
+            probe = keyword_index + 1
+            paren_depth = 0
+            bracket_depth = 0
+            while probe < len(tokens):
+                token = tokens[probe]
+                paren_depth += token == "("
+                paren_depth -= token == ")"
+                bracket_depth += token == "["
+                bracket_depth -= token == "]"
+                if token == "{" and paren_depth == 0 and bracket_depth == 0:
+                    break
+                probe += 1
+            if probe >= len(tokens):
+                fail(f"unterminated braced item: {keyword}")
+            item_end = matching_delimiter(tokens, probe) + 1
+            signature = tokens[item_start:probe]
+            if keyword == "impl":
+                name = " ".join(tokens[keyword_index:probe])
+            kind = keyword
+        elif keyword in semicolon_items:
+            statement = bounded_statement(tokens, item_start)
+            item_end = item_start + len(statement)
+            if item_end >= len(tokens) or tokens[item_end] != ";":
+                fail(f"unterminated semicolon item: {keyword}")
+            item_end += 1
+            name = (
+                tokens[keyword_index + 1]
+                if keyword != "use"
+                else " ".join(statement[keyword_index - item_start + 1 :])
+            )
+            kind = keyword
+            signature = statement
+        else:
+            fail(f"unrecognized tokenized top-level item: {keyword}")
+
+        items.append(
+            {
+                "kind": kind,
+                "name": name,
+                "attributes": attributes,
+                "test_only": item_is_test_only(attributes),
+                "signature": signature,
+                "tokens": tokens[cursor:item_end],
+            }
+        )
+        cursor = item_end
+    return items
+
+
+def resolve_protected_aliases(
+    tokens: list[str], protected: set[str], label: str
+) -> None:
+    aliases: dict[str, set[str]] = {}
+    for index, token in enumerate(tokens):
+        if token != "type":
+            continue
+        statement = bounded_statement(tokens, index)
+        if len(statement) < 4 or "=" not in statement:
+            continue
+        alias_name = statement[1]
+        aliases[alias_name] = set(statement[statement.index("=") + 1 :])
+
+    resolved = set(protected)
+    changed = True
+    while changed:
+        changed = False
+        for alias_name, targets in aliases.items():
+            if alias_name not in resolved and resolved.intersection(targets):
+                resolved.add(alias_name)
+                changed = True
+    opened = sorted(set(aliases).intersection(resolved))
+    if opened:
+        fail(f"{label} protected-type alias opened: {opened[0]}")
+
+
+def production_signature_contract(
+    items: list[dict[str, object]], label: str
+) -> dict[str, str]:
+    contract: dict[str, str] = {}
+    for item in items:
+        if item["test_only"]:
+            continue
+        identity = f"{item['kind']}:{item['name']}"
+        if identity in contract:
+            fail(f"{label} duplicate production item identity: {identity}")
+        contract[identity] = canonical_sha256(item["signature"])
+    return contract
+
+
+def validate_production_macro_surface(
+    items: list[dict[str, object]], label: str, allowed_invocations: set[str]
+) -> None:
+    for item in items:
+        if item["test_only"]:
+            continue
+        tokens = item["tokens"]
+        if item["kind"] in {"macro_rules", "macro_invocation"}:
+            fail(f"{label} production item macro surface opened")
+        for index in range(len(tokens) - 2):
+            if tokens[index] == "macro_rules" and tokens[index + 1] == "!":
+                fail(f"{label} production macro definition opened")
+            if (
+                tokens[index + 1] == "!"
+                and tokens[index + 2] in {"(", "[", "{"}
+                and tokens[index] not in allowed_invocations
+            ):
+                fail(
+                    f"{label} unlisted production macro invocation opened: "
+                    f"{tokens[index]}"
+                )
+
+
+def validate_settlement_constructor_owners(
+    items: list[dict[str, object]]
+) -> None:
+    actual: dict[str, list[str]] = {seal: [] for seal in SETTLEMENT_SEALS}
+    constructor_suffix = ["(", "(", ")", ")"]
+    for item in items:
+        if item["test_only"]:
+            continue
+        identity = f"{item['kind']}:{item['name']}"
+        tokens = item["tokens"]
+        for seal in SETTLEMENT_SEALS:
+            for index, token in enumerate(tokens):
+                if (
+                    token == seal
+                    and tokens[index + 1 : index + 5] == constructor_suffix
+                    and (index == 0 or tokens[index - 1] != "struct")
+                ):
+                    actual[seal].append(identity)
+        if (
+            any(token in {"const", "static"} for token in tokens)
+            and SETTLEMENT_SEALS.intersection(tokens)
+        ):
+            fail(f"Stage 5E const/static settlement capability opened: {identity}")
+        if (
+            item["kind"] in {"struct", "enum"}
+            and item["name"] not in SETTLEMENT_SEALS
+            and SETTLEMENT_SEALS.intersection(tokens)
+        ):
+            fail(f"Stage 5E settlement capability storage opened: {identity}")
+
+    expected_owner = ["fn:validate_and_settle_stage5e_paper_callback_escrow"]
+    require_exact(
+        actual,
+        {seal: expected_owner for seal in SETTLEMENT_SEALS},
+        "Stage 5E exact settlement constructor owner vector drift",
+    )
+
+
+def validate_protected_production_items(
+    stage5c_region: str, stage5e_region: str
+) -> None:
+    stage5c_items = top_level_items(rust_tokens(stage5c_region))
+    stage5e_region_tokens = rust_tokens(stage5e_region)
+    callback_tokens = balanced_item_body(
+        stage5e_region_tokens,
+        ["pub", "(", "crate", ")", "mod", "callback_settlement"],
+    )
+    stage5e_items = top_level_items(callback_tokens)
+    require_exact(
+        production_signature_contract(stage5c_items, "Stage 5C B3F region"),
+        EXPECTED_STAGE5C_REGION_PRODUCTION_SIGNATURES,
+        "Stage 5C B3F exact production item/signature vector drift",
+    )
+    require_exact(
+        production_signature_contract(stage5e_items, "Stage 5E callback_settlement"),
+        EXPECTED_STAGE5E_CALLBACK_PRODUCTION_SIGNATURES,
+        "Stage 5E callback_settlement exact production item/signature vector drift",
+    )
+    validate_production_macro_surface(
+        stage5c_items, "Stage 5C B3F region", {"debug_assert_eq"}
+    )
+    validate_production_macro_surface(
+        stage5e_items, "Stage 5E callback_settlement", set()
+    )
+    validate_settlement_constructor_owners(stage5e_items)
+
+
 def validate_protected_use_aliases(tokens: list[str], label: str) -> None:
     protected = SETTLEMENT_SEALS | {
         "Stage5eAcceptedBarSettlementMetadata",
@@ -317,17 +666,25 @@ def validate_protected_macro_surfaces(tokens: list[str], label: str) -> None:
     }
     pairs = {"(": ")", "[": "]", "{": "}"}
     for index in range(len(tokens) - 2):
-        if tokens[index + 1] != "!" or tokens[index + 2] not in pairs:
+        if tokens[index + 1] != "!":
             continue
-        opening = tokens[index + 2]
+        if tokens[index] == "macro_rules":
+            if index + 3 >= len(tokens) or tokens[index + 3] not in pairs:
+                fail(f"{label} malformed macro definition")
+            opening_index = index + 3
+        elif tokens[index + 2] in pairs:
+            opening_index = index + 2
+        else:
+            continue
+        opening = tokens[opening_index]
         closing = pairs[opening]
         depth = 1
-        cursor = index + 3
+        cursor = opening_index + 1
         while cursor < len(tokens) and depth:
             depth += tokens[cursor] == opening
             depth -= tokens[cursor] == closing
             cursor += 1
-        body = tokens[index + 3 : cursor - 1]
+        body = tokens[opening_index + 1 : cursor - 1]
         if sensitive.intersection(body):
             fail(f"{label} protected macro expansion surface opened")
 
@@ -367,14 +724,7 @@ def validate_tokenized_production_structure(stage5c: str, stage5e: str) -> None:
         validate_protected_use_aliases(tokens, label)
         validate_protected_macro_surfaces(tokens, label)
         validate_seal_declarations(tokens, label)
-        for index, token in enumerate(tokens):
-            if token != "type":
-                continue
-            alias_statement = tokens[index : index + 24]
-            if "=" in alias_statement and protected_alias_targets.intersection(
-                alias_statement[alias_statement.index("=") + 1 :]
-            ):
-                fail(f"{label} protected-type alias opened")
+        resolve_protected_aliases(tokens, protected_alias_targets, label)
 
     seal_impls = impl_headers(stage5c_tokens + stage5e_tokens, SETTLEMENT_SEALS)
     require_exact(seal_impls, [], "settlement seal impl surface opened")
@@ -543,6 +893,7 @@ def validate_implementation_source() -> None:
         "STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION",
         "private-process-local-v1",
     )
+    validate_protected_production_items(stage5c_region, stage5e_region)
     combined = stage5c_region + stage5e_region
     for forbidden in (
         "redis::",
@@ -822,7 +1173,7 @@ def main() -> int:
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        544,
+        555,
         "provenance case count drift",
     )
     ui_contract = inventory.get("production_ui_harness_contract")
@@ -868,11 +1219,17 @@ def main() -> int:
         inventory.get("tokenized_structural_enforcement_contract"),
         {
             "comments_and_literals_excluded": True,
+            "balanced_transitive_type_alias_resolution_required": True,
             "protected_type_aliases_allowed": False,
             "protected_use_aliases_allowed": False,
             "protected_macro_definitions_or_invocations_allowed": False,
             "settlement_seal_impl_count": 0,
             "exact_attribute_vector_all_settlement_seals": True,
+            "stage5e_callback_production_item_signature_count": 30,
+            "stage5c_region_production_item_signature_count": 21,
+            "exact_constructor_owner_vector_all_settlement_seals": True,
+            "production_macro_definitions_allowed": False,
+            "unlisted_item_producing_macro_invocations_allowed": False,
             "payload_impl_headers": ["impl Stage5ePaperSettlementPayload"],
             "metadata_impl_headers": [
                 "cfg_test impl Stage5eAcceptedBarSettlementMetadata"
