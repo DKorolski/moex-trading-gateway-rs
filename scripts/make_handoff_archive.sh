@@ -37,17 +37,16 @@ stage5d_negative_stderr_log="$repo_root/handoff-stage5d-negative-stderr.txt"
 stage5f_negative_result="$repo_root/handoff-stage5f-negative-result.json"
 stage5f_negative_stdout_log="$repo_root/handoff-stage5f-negative-stdout.txt"
 stage5f_negative_stderr_log="$repo_root/handoff-stage5f-negative-stderr.txt"
+stage5f_ci_negative_result="$repo_root/handoff-stage5f-ci-negative-result.json"
+stage5f_ci_negative_stdout_log="$repo_root/handoff-stage5f-ci-negative-stdout.txt"
+stage5f_ci_negative_stderr_log="$repo_root/handoff-stage5f-ci-negative-stderr.txt"
 forbidden_negative_result="$repo_root/handoff-forbidden-negative-result.json"
 forbidden_negative_stdout_log="$repo_root/handoff-forbidden-negative-stdout.txt"
 forbidden_negative_stderr_log="$repo_root/handoff-forbidden-negative-stderr.txt"
 completed=0
-provenance_snapshot_clone=""
 
 cleanup() {
   local status=$?
-  if [[ -n "$provenance_snapshot_clone" ]]; then
-    rm -rf "$provenance_snapshot_clone"
-  fi
   rm -f "$commit_marker" "$handoff_manifest" "$stage5e_gate_result" "$stage5f_gate_result" \
     "$source_tree_manifest" "$stage5e_gate_stdout_log" "$stage5e_gate_stderr_log" \
     "$stage5f_gate_stdout_log" "$stage5f_gate_stderr_log" "$cargo_gate_result" \
@@ -56,6 +55,8 @@ cleanup() {
     "$stage5d_negative_result" "$stage5d_negative_stdout_log" \
     "$stage5d_negative_stderr_log" "$stage5f_negative_result" \
     "$stage5f_negative_stdout_log" "$stage5f_negative_stderr_log" \
+    "$stage5f_ci_negative_result" "$stage5f_ci_negative_stdout_log" \
+    "$stage5f_ci_negative_stderr_log" \
     "$forbidden_negative_result" \
     "$forbidden_negative_stdout_log" "$forbidden_negative_stderr_log"
   if [[ "$completed" -ne 1 ]]; then
@@ -148,6 +149,7 @@ stage5f_active_descriptor_sha256=""
 stage5f_descriptor_registry_sha256=""
 stage5f_gate_result_sha256=""
 stage5f_negative_result_sha256=""
+stage5f_ci_negative_result_sha256=""
 stage5f_design_scope_sha256=""
 source_tree_manifest_sha256=""
 current_review_stage="$review_stage"
@@ -210,6 +212,9 @@ PY
   stage5f_b3f_plan_sha256="$(shasum -a 256 "$repo_root/docs/stage-5/5e-b3f-callback-settlement-escrow-design.md" | awk '{print $1}')"
   stage5f_b3f_ui_harness_sha256="$(shasum -a 256 "$repo_root/scripts/stage5e_b3f_production_ui_harness.py" | awk '{print $1}')"
   stage5f_b3f_provenance_harness_sha256="$(shasum -a 256 "$repo_root/scripts/handoff_provenance_negative_harness.py" | awk '{print $1}')"
+  stage5f_b3f_snapshot_wrapper_sha256="$(shasum -a 256 "$repo_root/scripts/stage5f_b3f_snapshot_provenance_gate.sh" | awk '{print $1}')"
+  stage5f_ci_snapshot_checker_sha256="$(shasum -a 256 "$repo_root/scripts/stage5f_ci_snapshot_inheritance_check.py" | awk '{print $1}')"
+  stage5f_ci_snapshot_negative_harness_sha256="$(shasum -a 256 "$repo_root/scripts/stage5f_ci_snapshot_inheritance_negative_harness.py" | awk '{print $1}')"
 
   stage5f_gate_stdout="$(mktemp "$archive_dir/stage5f-gate-stdout.XXXXXX")"
   stage5f_gate_stderr="$(mktemp "$archive_dir/stage5f-gate-stderr.XXXXXX")"
@@ -248,6 +253,9 @@ PY
   B3F_PLAN_SHA256="$stage5f_b3f_plan_sha256" \
   B3F_UI_HARNESS_SHA256="$stage5f_b3f_ui_harness_sha256" \
   B3F_PROVENANCE_HARNESS_SHA256="$stage5f_b3f_provenance_harness_sha256" \
+  B3F_SNAPSHOT_WRAPPER_SHA256="$stage5f_b3f_snapshot_wrapper_sha256" \
+  STAGE5F_CI_SNAPSHOT_CHECKER_SHA256="$stage5f_ci_snapshot_checker_sha256" \
+  STAGE5F_CI_SNAPSHOT_NEGATIVE_HARNESS_SHA256="$stage5f_ci_snapshot_negative_harness_sha256" \
   STAGE5F_ACTIVE_DESCRIPTOR_SHA256="$stage5f_active_descriptor_sha256" \
   STAGE5F_CHECKER_SHA256="$stage5f_checker_sha256" \
   STAGE5F_DESCRIPTOR_REGISTRY_SHA256="$stage5f_descriptor_registry_sha256" \
@@ -288,6 +296,9 @@ result = {
         "stage5e_b3f_plan": os.environ["B3F_PLAN_SHA256"],
         "stage5e_b3f_production_ui_harness": os.environ["B3F_UI_HARNESS_SHA256"],
         "stage5e_b3f_provenance_negative_harness": os.environ["B3F_PROVENANCE_HARNESS_SHA256"],
+        "stage5f_b3f_snapshot_provenance_gate": os.environ["B3F_SNAPSHOT_WRAPPER_SHA256"],
+        "stage5f_ci_snapshot_inheritance_check": os.environ["STAGE5F_CI_SNAPSHOT_CHECKER_SHA256"],
+        "stage5f_ci_snapshot_inheritance_negative_harness": os.environ["STAGE5F_CI_SNAPSHOT_NEGATIVE_HARNESS_SHA256"],
         "stage5f_active_descriptor": os.environ["STAGE5F_ACTIVE_DESCRIPTOR_SHA256"],
         "stage5f_checker": os.environ["STAGE5F_CHECKER_SHA256"],
         "stage5f_descriptor_registry": os.environ["STAGE5F_DESCRIPTOR_REGISTRY_SHA256"],
@@ -443,23 +454,17 @@ fi
 provenance_negative_started_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 provenance_tested_source_ref="$source_ref"
 if [[ "$stage5f_enabled" -eq 1 ]]; then
-  # The 580-case harness is part of the accepted B3F closure and intentionally
-  # rejects a newer Stage 5F diff. Execute its exact source from the immutable
-  # accepted snapshot rather than weakening the B3F checker or its harness.
+  # The 580-case B3F harness is intentionally evaluated only through the
+  # shared immutable-snapshot wrapper. CI uses this exact same runner.
   provenance_tested_source_ref="$stage5f_baseline_ref"
-  provenance_snapshot_clone="$(mktemp -d "${TMPDIR:-/tmp}/stage5f-b3f-provenance.XXXXXX")"
-  git clone --quiet --shared --no-checkout "$repo_root" "$provenance_snapshot_clone"
-  git -C "$provenance_snapshot_clone" checkout --quiet --detach "$provenance_tested_source_ref"
   set +e
   (
     set -euo pipefail
-    cd "$provenance_snapshot_clone"
-    python3 scripts/handoff_provenance_negative_harness.py
+    cd "$repo_root"
+    bash scripts/stage5f_b3f_snapshot_provenance_gate.sh
   ) >"$provenance_negative_stdout_log" 2>"$provenance_negative_stderr_log"
   provenance_negative_exit_code="$?"
   set -e
-  rm -rf "$provenance_snapshot_clone"
-  provenance_snapshot_clone=""
 else
   set +e
   (
@@ -508,6 +513,7 @@ result = {
 }
 if os.environ["STAGE5F_ENABLED"] == "1":
     result["tested_source_ref"] = os.environ["PROVENANCE_TESTED_SOURCE_REF"]
+    result["command"] = ["bash", "scripts/stage5f_b3f_snapshot_provenance_gate.sh"]
 Path(sys.argv[1]).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
 PY
 
@@ -611,6 +617,56 @@ Path(sys.argv[1]).write_text(json.dumps({
     "stderr_sha256": os.environ["NEGATIVE_STDERR_SHA256"],
 }, indent=2, sort_keys=True) + "\n")
 PY
+
+  stage5f_ci_negative_started_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  set +e
+  (
+    set -euo pipefail
+    cd "$repo_root"
+    python3 scripts/stage5f_ci_snapshot_inheritance_negative_harness.py
+  ) >"$stage5f_ci_negative_stdout_log" 2>"$stage5f_ci_negative_stderr_log"
+  stage5f_ci_negative_exit_code="$?"
+  set -e
+  stage5f_ci_negative_finished_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  if [[ "$stage5f_ci_negative_exit_code" -ne 0 ]]; then
+    cat "$stage5f_ci_negative_stdout_log"
+    cat "$stage5f_ci_negative_stderr_log" >&2
+    echo "Stage 5F CI snapshot negative gate failed before packaging." >&2
+    exit "$stage5f_ci_negative_exit_code"
+  fi
+  stage5f_ci_negative_passed_cases="$(grep -c '^PASS ' "$stage5f_ci_negative_stdout_log" || true)"
+  if [[ "$stage5f_ci_negative_passed_cases" -ne 5 ]]; then
+    echo "Stage 5F CI snapshot negative gate case-count mismatch: $stage5f_ci_negative_passed_cases" >&2
+    exit 1
+  fi
+  SOURCE_REF="$source_ref" \
+  NEGATIVE_STARTED_AT_UTC="$stage5f_ci_negative_started_at_utc" \
+  NEGATIVE_FINISHED_AT_UTC="$stage5f_ci_negative_finished_at_utc" \
+  NEGATIVE_EXIT_CODE="$stage5f_ci_negative_exit_code" \
+  NEGATIVE_PASSED_CASES="$stage5f_ci_negative_passed_cases" \
+  NEGATIVE_STDOUT_SHA256="$(shasum -a 256 "$stage5f_ci_negative_stdout_log" | awk '{print $1}')" \
+  NEGATIVE_STDERR_SHA256="$(shasum -a 256 "$stage5f_ci_negative_stderr_log" | awk '{print $1}')" \
+  python3 - "$stage5f_ci_negative_result" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+Path(sys.argv[1]).write_text(json.dumps({
+    "schema_version": 1,
+    "gate_id": "stage5f_ci_snapshot_inheritance_negative",
+    "command": ["python3", "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py"],
+    "source_ref": os.environ["SOURCE_REF"],
+    "started_at_utc": os.environ["NEGATIVE_STARTED_AT_UTC"],
+    "finished_at_utc": os.environ["NEGATIVE_FINISHED_AT_UTC"],
+    "exit_code": int(os.environ["NEGATIVE_EXIT_CODE"]),
+    "passed_cases": int(os.environ["NEGATIVE_PASSED_CASES"]),
+    "stdout_member": "handoff-stage5f-ci-negative-stdout.txt",
+    "stderr_member": "handoff-stage5f-ci-negative-stderr.txt",
+    "stdout_sha256": os.environ["NEGATIVE_STDOUT_SHA256"],
+    "stderr_sha256": os.environ["NEGATIVE_STDERR_SHA256"],
+}, indent=2, sort_keys=True) + "\n")
+PY
 fi
 
 forbidden_negative_started_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -664,7 +720,7 @@ Path(sys.argv[1]).write_text(json.dumps({
 PY
 
 if [[ "$stage5f_enabled" -eq 1 ]]; then
-  stage_generated_members_json='["handoff-commit.txt","handoff-cargo-gate-result.json","handoff-cargo-gate-stderr.txt","handoff-cargo-gate-stdout.txt","handoff-forbidden-negative-result.json","handoff-forbidden-negative-stderr.txt","handoff-forbidden-negative-stdout.txt","handoff-manifest.json","handoff-provenance-negative-result.json","handoff-provenance-negative-stderr.txt","handoff-provenance-negative-stdout.txt","handoff-stage5d-negative-result.json","handoff-stage5d-negative-stderr.txt","handoff-stage5d-negative-stdout.txt","handoff-stage5f-gate-result.json","handoff-stage5f-gate-stderr.txt","handoff-stage5f-gate-stdout.txt","handoff-stage5f-negative-result.json","handoff-stage5f-negative-stderr.txt","handoff-stage5f-negative-stdout.txt","handoff-source-tree-manifest.json"]'
+  stage_generated_members_json='["handoff-commit.txt","handoff-cargo-gate-result.json","handoff-cargo-gate-stderr.txt","handoff-cargo-gate-stdout.txt","handoff-forbidden-negative-result.json","handoff-forbidden-negative-stderr.txt","handoff-forbidden-negative-stdout.txt","handoff-manifest.json","handoff-provenance-negative-result.json","handoff-provenance-negative-stderr.txt","handoff-provenance-negative-stdout.txt","handoff-stage5d-negative-result.json","handoff-stage5d-negative-stderr.txt","handoff-stage5d-negative-stdout.txt","handoff-stage5f-ci-negative-result.json","handoff-stage5f-ci-negative-stderr.txt","handoff-stage5f-ci-negative-stdout.txt","handoff-stage5f-gate-result.json","handoff-stage5f-gate-stderr.txt","handoff-stage5f-gate-stdout.txt","handoff-stage5f-negative-result.json","handoff-stage5f-negative-stderr.txt","handoff-stage5f-negative-stdout.txt","handoff-source-tree-manifest.json"]'
 else
   stage_generated_members_json='["handoff-commit.txt","handoff-cargo-gate-result.json","handoff-cargo-gate-stderr.txt","handoff-cargo-gate-stdout.txt","handoff-forbidden-negative-result.json","handoff-forbidden-negative-stderr.txt","handoff-forbidden-negative-stdout.txt","handoff-manifest.json","handoff-provenance-negative-result.json","handoff-provenance-negative-stderr.txt","handoff-provenance-negative-stdout.txt","handoff-stage5d-negative-result.json","handoff-stage5d-negative-stderr.txt","handoff-stage5d-negative-stdout.txt","handoff-stage5e-gate-result.json","handoff-stage5e-gate-stderr.txt","handoff-stage5e-gate-stdout.txt","handoff-source-tree-manifest.json"]'
 fi
@@ -839,6 +895,28 @@ path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 PY
   stage5f_negative_result_sha256="$(shasum -a 256 "$stage5f_negative_result" | awk '{print $1}')"
 fi
+if [[ -f "$stage5f_ci_negative_result" ]]; then
+  SOURCE_TREE_MANIFEST_SHA256="$source_tree_manifest_sha256" \
+  SOURCE_TREE_MEMBER_COUNT="$(python3 - "$source_tree_manifest" <<'PY'
+import json
+import sys
+print(len(json.loads(open(sys.argv[1]).read())["members"]))
+PY
+)" \
+  python3 - "$stage5f_ci_negative_result" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["source_tree_manifest_sha256"] = os.environ["SOURCE_TREE_MANIFEST_SHA256"]
+payload["source_tree_member_count"] = int(os.environ["SOURCE_TREE_MEMBER_COUNT"])
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+  stage5f_ci_negative_result_sha256="$(shasum -a 256 "$stage5f_ci_negative_result" | awk '{print $1}')"
+fi
 provenance_negative_result_sha256="$(shasum -a 256 "$provenance_negative_result" | awk '{print $1}')"
 stage5d_negative_result_sha256="$(shasum -a 256 "$stage5d_negative_result" | awk '{print $1}')"
 forbidden_negative_result_sha256="$(shasum -a 256 "$forbidden_negative_result" | awk '{print $1}')"
@@ -865,6 +943,7 @@ STAGE5F_ACTIVE_DESCRIPTOR_SHA256="$stage5f_active_descriptor_sha256" \
 STAGE5F_DESCRIPTOR_REGISTRY_SHA256="$stage5f_descriptor_registry_sha256" \
 STAGE5F_GATE_RESULT_SHA256="$stage5f_gate_result_sha256" \
 STAGE5F_NEGATIVE_RESULT_SHA256="$stage5f_negative_result_sha256" \
+STAGE5F_CI_NEGATIVE_RESULT_SHA256="$stage5f_ci_negative_result_sha256" \
 STAGE5F_DESIGN_SCOPE_SHA256="$stage5f_design_scope_sha256" \
 SOURCE_TREE_MANIFEST_SHA256="$source_tree_manifest_sha256" \
 CARGO_GATE_RESULT_SHA256="$(shasum -a 256 "$cargo_gate_result" | awk '{print $1}')" \
@@ -905,11 +984,13 @@ if os.environ["STAGE5F_ENABLED"] == "1":
         "stage5f_descriptor_registry_sha256": os.environ["STAGE5F_DESCRIPTOR_REGISTRY_SHA256"],
         "stage5f_gate_result_sha256": os.environ["STAGE5F_GATE_RESULT_SHA256"],
         "stage5f_negative_result_sha256": os.environ["STAGE5F_NEGATIVE_RESULT_SHA256"],
+        "stage5f_ci_negative_result_sha256": os.environ["STAGE5F_CI_NEGATIVE_RESULT_SHA256"],
         "stage5f_design_scope_sha256": os.environ["STAGE5F_DESIGN_SCOPE_SHA256"],
         "required_gate_names": [
             "stage5f_atomic_hybrid_semantics",
             "stage5f_atomic_hybrid_semantics_negative",
-            "stage5e_b3f_snapshot_inheritance",
+            "stage5f_ci_snapshot_inheritance_negative",
+            "stage5f_b3f_snapshot_provenance",
             "stage5c_api_freeze",
             "stage5d_additive_freeze",
             "forbidden_surface",

@@ -26,8 +26,10 @@ that B3F closure, defines one existing Hybrid callback route for IMOEXF
 canonical-final M10 paper input, and requires BO/MR/high180/riskgate behavior to
 be accepted as one atomic state machine rather than as partial sleeve parity.
 The Stage 5F gate re-runs the accepted B3F checks from the accepted source
-snapshot before checking its own contract. Redis, FINAM, transport, dispatch,
-runtime-live and real execution remain closed.
+snapshot before checking its own contract; CI and handoff packaging use the
+same fail-closed detached-snapshot runner for the inherited 580-case B3F
+provenance matrix. Redis, FINAM, transport, dispatch, runtime-live and real
+execution remain closed.
 
 This repository is not enabled for continuous live trading.
 
@@ -92,6 +94,8 @@ bash scripts/stage5e_lifecycle_event_time_gate.sh
 # Stage 5F-a inherited atomic-Hybrid paper-only entry gate:
 bash scripts/stage5f_atomic_hybrid_semantics_gate.sh
 python3 scripts/stage5f_atomic_hybrid_semantics_negative_harness.py
+python3 scripts/stage5f_ci_snapshot_inheritance_negative_harness.py
+bash scripts/stage5f_b3f_snapshot_provenance_gate.sh
 # Focused final Stage 5D restart-closure check:
 cargo test -p strategy-runtime-core stage5d_final -- --nocapture
 ```

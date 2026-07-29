@@ -146,6 +146,9 @@ STAGE5F_GENERATED_MEMBERS = {
     "handoff-stage5d-negative-result.json",
     "handoff-stage5d-negative-stderr.txt",
     "handoff-stage5d-negative-stdout.txt",
+    "handoff-stage5f-ci-negative-result.json",
+    "handoff-stage5f-ci-negative-stderr.txt",
+    "handoff-stage5f-ci-negative-stdout.txt",
     "handoff-stage5f-gate-result.json",
     "handoff-stage5f-gate-stderr.txt",
     "handoff-stage5f-gate-stdout.txt",
@@ -205,6 +208,61 @@ def check_stage5f_negative_result(
         "stage5f_negative_result_sha256"
     ):
         raise SystemExit("handoff safety: Stage 5F negative result hash mismatch")
+    return result
+
+
+def check_stage5f_ci_negative_result(
+    archive: zipfile.ZipFile, manifest: dict[str, object]
+) -> dict[str, object]:
+    result_name = "handoff-stage5f-ci-negative-result.json"
+    stdout_name = "handoff-stage5f-ci-negative-stdout.txt"
+    stderr_name = "handoff-stage5f-ci-negative-stderr.txt"
+    result = json.loads(archive.read(result_name))
+    expected_keys = {
+        "command",
+        "exit_code",
+        "finished_at_utc",
+        "gate_id",
+        "passed_cases",
+        "schema_version",
+        "source_ref",
+        "source_tree_manifest_sha256",
+        "source_tree_member_count",
+        "started_at_utc",
+        "stderr_member",
+        "stderr_sha256",
+        "stdout_member",
+        "stdout_sha256",
+    }
+    if not isinstance(result, dict) or set(result) != expected_keys:
+        raise SystemExit("handoff safety: Stage 5F CI negative result key set drift")
+    if (
+        result.get("schema_version") != 1
+        or result.get("gate_id") != "stage5f_ci_snapshot_inheritance_negative"
+        or result.get("command")
+        != ["python3", "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py"]
+        or result.get("exit_code") != 0
+        or result.get("passed_cases") != 5
+    ):
+        raise SystemExit("handoff safety: Stage 5F CI negative gate did not pass")
+    parse_utc_timestamp(result.get("started_at_utc"), "Stage 5F CI negative started_at_utc")
+    parse_utc_timestamp(result.get("finished_at_utc"), "Stage 5F CI negative finished_at_utc")
+    if result.get("stdout_member") != stdout_name or result.get("stderr_member") != stderr_name:
+        raise SystemExit("handoff safety: Stage 5F CI negative log member mismatch")
+    for field, member in [("stdout_sha256", stdout_name), ("stderr_sha256", stderr_name)]:
+        require_hex64(result.get(field), f"Stage 5F CI negative {field}")
+        if hashlib.sha256(archive.read(member)).hexdigest() != result[field]:
+            raise SystemExit(f"handoff safety: Stage 5F CI negative {field} mismatch")
+    if archive.read(stdout_name).count(b"PASS ") != 5:
+        raise SystemExit("handoff safety: Stage 5F CI negative passed case count mismatch")
+    require_hex64(
+        manifest.get("stage5f_ci_negative_result_sha256"),
+        "stage5f_ci_negative_result_sha256",
+    )
+    if hashlib.sha256(archive.read(result_name)).hexdigest() != manifest.get(
+        "stage5f_ci_negative_result_sha256"
+    ):
+        raise SystemExit("handoff safety: Stage 5F CI negative result hash mismatch")
     return result
 
 
@@ -341,6 +399,7 @@ def check_stage5f_archive(
         "stage5d_negative_result_sha256",
         "stage5f_active_descriptor_sha256",
         "stage5f_checker_sha256",
+        "stage5f_ci_negative_result_sha256",
         "stage5f_descriptor_registry_sha256",
         "stage5f_design_scope_sha256",
         "stage5f_gate_result_sha256",
@@ -353,7 +412,8 @@ def check_stage5f_archive(
     if manifest.get("required_gate_names") != [
         "stage5f_atomic_hybrid_semantics",
         "stage5f_atomic_hybrid_semantics_negative",
-        "stage5e_b3f_snapshot_inheritance",
+        "stage5f_ci_snapshot_inheritance_negative",
+        "stage5f_b3f_snapshot_provenance",
         "stage5c_api_freeze",
         "stage5d_additive_freeze",
         "forbidden_surface",
@@ -380,6 +440,9 @@ def check_stage5f_archive(
     negative_result_name = "handoff-stage5f-negative-result.json"
     negative_stdout_name = "handoff-stage5f-negative-stdout.txt"
     negative_stderr_name = "handoff-stage5f-negative-stderr.txt"
+    ci_negative_result_name = "handoff-stage5f-ci-negative-result.json"
+    ci_negative_stdout_name = "handoff-stage5f-ci-negative-stdout.txt"
+    ci_negative_stderr_name = "handoff-stage5f-ci-negative-stderr.txt"
     source_tree_manifest_name = "handoff-source-tree-manifest.json"
     required_members = {
         active_descriptor_name,
@@ -392,12 +455,19 @@ def check_stage5f_archive(
         "scripts/stage5e_b3f_production_ui_harness.py",
         "scripts/stage5f_atomic_hybrid_semantics_gate.sh",
         "scripts/stage5f_atomic_hybrid_semantics_negative_harness.py",
+        "scripts/stage5f_b3f_snapshot_provenance_gate.sh",
+        "scripts/stage5f_ci_snapshot_inheritance_check.py",
+        "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py",
+        ".github/workflows/ci.yml",
         gate_result_name,
         gate_stdout_name,
         gate_stderr_name,
         negative_result_name,
         negative_stdout_name,
         negative_stderr_name,
+        ci_negative_result_name,
+        ci_negative_stdout_name,
+        ci_negative_stderr_name,
         source_tree_manifest_name,
     }
     missing = sorted(required_members - set(names))
@@ -424,6 +494,7 @@ def check_stage5f_archive(
         ("stage5f_plan_sha256", plan_name),
         ("stage5f_gate_result_sha256", gate_result_name),
         ("stage5f_negative_result_sha256", negative_result_name),
+        ("stage5f_ci_negative_result_sha256", ci_negative_result_name),
         ("source_tree_manifest_sha256", source_tree_manifest_name),
     ]:
         expected = manifest.get(field)
@@ -476,6 +547,7 @@ def check_stage5f_archive(
     ):
         raise SystemExit("handoff safety: Stage 5F closed-surface drift")
     expected_allowed_paths = [
+        ".github/workflows/ci.yml",
         "README.md",
         "docs/current-status.md",
         "docs/handoff.md",
@@ -487,6 +559,9 @@ def check_stage5f_archive(
         "scripts/stage5f_atomic_hybrid_semantics_entry_check.py",
         "scripts/stage5f_atomic_hybrid_semantics_gate.sh",
         "scripts/stage5f_atomic_hybrid_semantics_negative_harness.py",
+        "scripts/stage5f_b3f_snapshot_provenance_gate.sh",
+        "scripts/stage5f_ci_snapshot_inheritance_check.py",
+        "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py",
         "scripts/stage5f_descriptor.py",
     ]
     if inventory.get("allowed_changed_paths") != expected_allowed_paths:
@@ -548,6 +623,9 @@ def check_stage5f_archive(
         "stage5e_b3f_plan": "docs/stage-5/5e-b3f-callback-settlement-escrow-design.md",
         "stage5e_b3f_production_ui_harness": "scripts/stage5e_b3f_production_ui_harness.py",
         "stage5e_b3f_provenance_negative_harness": "scripts/handoff_provenance_negative_harness.py",
+        "stage5f_b3f_snapshot_provenance_gate": "scripts/stage5f_b3f_snapshot_provenance_gate.sh",
+        "stage5f_ci_snapshot_inheritance_check": "scripts/stage5f_ci_snapshot_inheritance_check.py",
+        "stage5f_ci_snapshot_inheritance_negative_harness": "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py",
         "stage5f_active_descriptor": active_descriptor_name,
         "stage5f_checker": checker_name,
         "stage5f_descriptor_registry": descriptor_registry_name,
@@ -609,7 +687,12 @@ def check_stage5f_archive(
     if changed_paths != expected_allowed_paths:
         raise SystemExit("handoff safety: Stage 5F changed-path set mismatch")
     stage5f_negative = check_stage5f_negative_result(archive, manifest)
-    all_negative_results = {**heavy_negative_results, "stage5f": stage5f_negative}
+    stage5f_ci_negative = check_stage5f_ci_negative_result(archive, manifest)
+    all_negative_results = {
+        **heavy_negative_results,
+        "stage5f": stage5f_negative,
+        "stage5f_ci": stage5f_ci_negative,
+    }
     check_stage5f_source_tree_binding(
         archive,
         manifest,
@@ -729,7 +812,10 @@ def check_archive(path: Path) -> None:
             raise SystemExit("handoff safety: provenance-negative result key set drift")
         if provenance_result.get("schema_version") != 1 or provenance_result.get("gate_id") != "handoff_provenance_negative":
             raise SystemExit("handoff safety: provenance-negative result identity mismatch")
-        if provenance_result.get("command") != ["python3", "scripts/handoff_provenance_negative_harness.py"]:
+        expected_provenance_command = ["python3", "scripts/handoff_provenance_negative_harness.py"]
+        if stage5f_provenance_snapshot:
+            expected_provenance_command = ["bash", "scripts/stage5f_b3f_snapshot_provenance_gate.sh"]
+        if provenance_result.get("command") != expected_provenance_command:
             raise SystemExit("handoff safety: provenance-negative command mismatch")
         if (
             provenance_result.get("exit_code") != 0

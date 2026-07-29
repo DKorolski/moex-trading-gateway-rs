@@ -12,6 +12,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Stage 5F runs the accepted B3F provenance harness from the exact
+          # immutable predecessor, not from the newer Stage 5F checkout.
+          fetch-depth: 0
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -30,11 +34,19 @@ jobs:
         run: python3 scripts/stage5d_additive_freeze_negative_harness.py
         timeout-minutes: 5
 
-      - name: Stage 5E lifecycle event-time gate
-        run: bash scripts/stage5e_lifecycle_event_time_gate.sh
+      - name: Stage 5F atomic Hybrid semantics gate
+        run: bash scripts/stage5f_atomic_hybrid_semantics_gate.sh
 
-      - name: Handoff provenance negative harness
-        run: python3 scripts/handoff_provenance_negative_harness.py
+      - name: Stage 5F atomic Hybrid negative harness
+        run: python3 scripts/stage5f_atomic_hybrid_semantics_negative_harness.py
+        timeout-minutes: 5
+
+      - name: Stage 5F CI snapshot-inheritance negative harness
+        run: python3 scripts/stage5f_ci_snapshot_inheritance_negative_harness.py
+        timeout-minutes: 5
+
+      - name: Stage 5F accepted B3F snapshot provenance gate
+        run: bash scripts/stage5f_b3f_snapshot_provenance_gate.sh
         timeout-minutes: 20
 
       - name: No-Redis evidence smoke

@@ -82,6 +82,7 @@
   },
   "expected_stage5f_negative_case_count": 13,
   "allowed_changed_paths": [
+    ".github/workflows/ci.yml",
     "README.md",
     "docs/current-status.md",
     "docs/handoff.md",
@@ -93,6 +94,9 @@
     "scripts/stage5f_atomic_hybrid_semantics_entry_check.py",
     "scripts/stage5f_atomic_hybrid_semantics_gate.sh",
     "scripts/stage5f_atomic_hybrid_semantics_negative_harness.py",
+    "scripts/stage5f_b3f_snapshot_provenance_gate.sh",
+    "scripts/stage5f_ci_snapshot_inheritance_check.py",
+    "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py",
     "scripts/stage5f_descriptor.py"
   ]
 }

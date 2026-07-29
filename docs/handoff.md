@@ -75,6 +75,9 @@ handoff-stage5f-gate-stderr.txt
 handoff-stage5f-negative-result.json
 handoff-stage5f-negative-stdout.txt
 handoff-stage5f-negative-stderr.txt
+handoff-stage5f-ci-negative-result.json
+handoff-stage5f-ci-negative-stdout.txt
+handoff-stage5f-ci-negative-stderr.txt
 handoff-source-tree-manifest.json
 ```
 
@@ -84,10 +87,12 @@ checker plus its production UI harness there. It then checks the Stage 5F
 descriptor, IMOEXF canonical-final-M10 paper-only contract, full atomic
 BO/MR/riskgate scenario matrix and all closed later-stage surfaces. Archive
 safety binds the B3F source pins, both Stage 5F gate logs and the isolated
-Stage 5F negative harness to the tracked source-tree manifest. The builder also
-runs the B3F 580-case provenance harness from a local detached clone at that
-accepted ref, because its source-manifest tests require a normal `.git`
-directory rather than a worktree `.git` pointer.
+Stage 5F negative harnesses to the tracked source-tree manifest. The builder
+and canonical CI both use `stage5f_b3f_snapshot_provenance_gate.sh` for the
+B3F 580-case provenance harness. It creates a detached clone at the accepted
+ref, fails closed when that commit is unavailable or the checkout drifts, and
+requires exactly 580 `PASS` rows. The frozen Stage 5E gate and the raw B3F
+provenance harness must not run against a Stage 5F head.
 
 The script also creates the external sibling
 `moex-trading-project-<short>.zip.sha256`. The archive hash is deliberately not

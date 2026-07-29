@@ -18,8 +18,8 @@ INVENTORY = (
 ACTIVE = ROOT / "docs/stage-5/stage5f-active-descriptor.json"
 STAGE = "5F-a-atomic-hybrid-semantics-entry"
 BASELINE_REF = "e14654f7129aa61011931306140a3bfefe2fcfbc"
-EXPECTED_PLAN_SHA256 = "3acf877d9f7099b241c6fc878d33ff6375970168991d3213492e4853e4a828ea"
-EXPECTED_INVENTORY_SHA256 = "29812553599831b7e91c6d73b244467e9f2a3e5dada1a747395a673bdbeee0cc"
+EXPECTED_PLAN_SHA256 = "93e41eb281fcae12978ffea9dc1d97a0a5516544c6b9080a37135a94f2cc3a2d"
+EXPECTED_INVENTORY_SHA256 = "871a8781d36f278d1dec35842e3b7d245f21dc4e3d86e54b2ac5d25285343809"
 
 EXPECTED_B3F_CLOSURE = {
     "source_ref": BASELINE_REF,
@@ -125,6 +125,7 @@ EXPECTED_STAGE_BOUNDARIES = {
     "stage5j_stage5_closure_allowed": False,
 }
 EXPECTED_ALLOWED_CHANGED_PATHS = [
+    ".github/workflows/ci.yml",
     "README.md",
     "docs/current-status.md",
     "docs/handoff.md",
@@ -136,6 +137,9 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "scripts/stage5f_atomic_hybrid_semantics_entry_check.py",
     "scripts/stage5f_atomic_hybrid_semantics_gate.sh",
     "scripts/stage5f_atomic_hybrid_semantics_negative_harness.py",
+    "scripts/stage5f_b3f_snapshot_provenance_gate.sh",
+    "scripts/stage5f_ci_snapshot_inheritance_check.py",
+    "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py",
     "scripts/stage5f_descriptor.py",
 ]
 REQUIRED_PLAN_FRAGMENTS = [

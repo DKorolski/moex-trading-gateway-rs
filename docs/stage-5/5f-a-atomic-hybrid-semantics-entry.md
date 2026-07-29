@@ -11,6 +11,15 @@ the exact B3F review scope. Stage 5F has its own descriptor and gate; that gate
 executes the accepted B3F checker and production UI harness from the exact
 accepted snapshot before it accepts Stage 5F-a.
 
+The canonical CI path follows the same inheritance model. It fetches the
+accepted predecessor, runs the Stage 5F gate and both Stage 5F negative
+harnesses on the current tree, then invokes the 580-case B3F provenance
+harness only through the shared detached-snapshot wrapper. The wrapper is
+fail-closed when the accepted commit is unavailable, when its checkout is not
+exactly `e14654f7129aa61011931306140a3bfefe2fcfbc`, or when the harness does
+not report exactly 580 `PASS` cases. The legacy Stage 5E gate must never run on
+a Stage 5F head.
+
 This is a governance and atomic-contract entry slice. It adds no Rust runtime
 behavior, does not attach an intent sink, and does not alter the accepted B3F
 source files.

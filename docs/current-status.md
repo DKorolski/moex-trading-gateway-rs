@@ -258,7 +258,10 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   descriptor and is not repointed by later work.
 - Stage 5F-a is active as the inherited atomic-Hybrid entry contract. It has a
   separate descriptor and gate that first runs the accepted B3F checker and UI
-  harness from the exact accepted source snapshot, then admits only the existing
+  harness from the exact accepted source snapshot. Canonical CI fetches that
+  immutable predecessor and uses the same detached-snapshot wrapper as handoff
+  packaging for the inherited 580-case provenance matrix; it never applies the
+  frozen Stage 5E gate to a Stage 5F head. It then admits only the existing
   IMOEXF `canonical_final_m10` paper route through the broker-neutral Hybrid
   runtime, high180/riskgate, the single Hybrid orchestrator, ordered semantic
   intents and B3F settlement. Full BO/MR/riskgate/arbitration parity is one
