@@ -21,10 +21,10 @@ ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3f-callback-settlement-escrow-design"
 BASELINE_REF = "a5ccea08bc64a66e768340f7121e9b94a09ff884"
 EXPECTED_PLAN_SHA256 = (
-    "5e783dd1b7681ff36870dcd8d9a33b119d0de30a2301feda744581d60883143a"
+    "e4c1fe965b2c21ed8765179a5ea05b809c4722fcecfb1daa6e581eb5cfeb5ede"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "d866fcf72969f4acff3da90cb1201e168ac38dc9d0eef0c120b6ba68bba6cf5d"
+    "b371e07ad660e9325cf998b7e6769e417a56e88728e29ca0bf650fc3dda86da1"
 )
 EXPECTED_PROTECTED_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -157,13 +157,27 @@ EXPECTED_STAGE5C_REGION_PRODUCTION_SIGNATURES = {
     "fn:settle_stage5e_callback_escrow_material": "c0e56272729a58c4b8c0b534a1474f00d340ce7a7fd9c023e4a5ef934594f8a2",
 }
 # These are semantic contracts, not snapshot fingerprints.  In particular, the
-# full-rebind provenance helper is deliberately unable to rewrite them.
+# full-rebind provenance helper is deliberately unable to rewrite them.  The
+# Stage 5E vector covers every production free function in callback_settlement:
+# no receipt, mapper, identity, or transition boundary can fall back to a
+# rebindable item-header digest.
 EXPECTED_STAGE5E_CRITICAL_FUNCTION_SIGNATURES = {
+    "validate_and_settle_stage5e_paper_callback_escrow": "pub ( crate ) fn validate_and_settle_stage5e_paper_callback_escrow ( escrow : Stage5ePaperCallbackResultEscrow , ) -> Result < Stage5eValidatedPaperSettlementReceipt , Stage5ePaperSettlementTerminalReceipt >",
     "validate_preflight": "fn validate_preflight ( preflight : Stage5ePaperSettlementPreflight < ' _ > , seal : & Stage5ePaperSettlementPreflightSeal , ) -> Stage5ePaperSettlementPreflightDecision",
     "construct_stage5c_expected_preflight_binding": "fn construct_stage5c_expected_preflight_binding < ' a > ( escrow : & ' a Stage5ePaperCallbackResultEscrow , seal : & Stage5ePaperSettlementPreflightSeal , ) -> crate :: stage5c_paper_host :: Stage5eB3fStage5cExpectedPreflightBinding < ' a >",
     "stage5e_authority_identity_matches": "fn stage5e_authority_identity_matches ( escrow : & Stage5ePaperCallbackResultEscrow ) -> bool",
     "stage5e_audit_chronology_matches": "fn stage5e_audit_chronology_matches ( audit : & Stage5eAuthorizedCallbackAuditLineage , callback_invoked_at : DateTime < Utc > , ) -> bool",
     "map_stage5c_preflight_mismatch_exact": "fn map_stage5c_preflight_mismatch_exact ( mismatch : crate :: stage5c_paper_host :: Stage5eStage5cPreflightMismatch , _seal : & Stage5ePaperSettlementPreflightSeal , ) -> Stage5ePaperSettlementTerminalReason",
+    "construct_preflight_terminal_receipt": "fn construct_preflight_terminal_receipt ( payload : Stage5ePaperSettlementPayload , reason : Stage5ePaperSettlementTerminalReason , audit_commitment : [ u8 ; 32 ] , ) -> Stage5ePaperSettlementTerminalReceipt",
+    "construct_stage5e_paper_settlement_terminal_receipt": "pub ( crate ) fn construct_stage5e_paper_settlement_terminal_receipt ( mutated_strategy : crate :: hybrid_intraday_runtime :: HybridIntradayRuntimeStrategy , recovery_receipt : crate :: stage5c_paper_host :: Stage5cPendingRecoveryReceipt , pre_callback_attribution_snapshot : crate :: stage5c_paper_host :: Stage5ePreCallbackAttributionSnapshot , retained_bar_metadata : crate :: stage5c_paper_host :: Stage5eAcceptedBarSettlementMetadata , audit_lineage : Stage5eAuthorizedCallbackAuditLineage , callback_invoked_at : DateTime < Utc > , callback_authority_id : [ u8 ; 32 ] , reason : Stage5ePaperSettlementTerminalReason , exact_stage5c_error : crate :: stage5c_paper_host :: Stage5cIntentSettlementError , original_intent_count : usize , audit_commitment : [ u8 ; 32 ] , _seal : Stage5ePaperSettlementTerminalSeal , ) -> Stage5ePaperSettlementTerminalReceipt",
+    "construct_stage5e_validated_paper_settlement_receipt": "pub ( crate ) fn construct_stage5e_validated_paper_settlement_receipt ( settlement_success : crate :: stage5c_paper_host :: Stage5eStage5cSettlementSuccess , audit_lineage : Stage5eAuthorizedCallbackAuditLineage , callback_invoked_at : DateTime < Utc > , callback_authority_id : [ u8 ; 32 ] , settlement_identity : [ u8 ; 32 ] , _seal : Stage5ePaperSettlementSuccessSeal , ) -> Stage5eValidatedPaperSettlementReceipt",
+    "map_stage5c_settlement_error_exact": "pub ( crate ) fn map_stage5c_settlement_error_exact ( error : crate :: stage5c_paper_host :: Stage5cIntentSettlementError , _seal : & Stage5ePaperSettlementTerminalSeal , ) -> Stage5ePaperSettlementTerminalReason",
+    "construct_stage5e_b3f_audit_commitment": "fn construct_stage5e_b3f_audit_commitment ( lineage : & Stage5eAuthorizedCallbackAuditLineage , _seal : & Stage5eB3fAuditCommitmentSeal , ) -> [ u8 ; 32 ]",
+    "construct_stage5e_b3f_settlement_identity": "pub ( crate ) fn construct_stage5e_b3f_settlement_identity ( callback_authority_id : [ u8 ; 32 ] , callback_invoked_at : DateTime < Utc > , accepted_semantic_bar_identity : [ u8 ; 32 ] , strategy_id : & str , account_id : & broker_core :: BrokerAccountId , full_instrument_id : & broker_core :: InstrumentId , accepted_bar_close_timestamp : i64 , batch_state_fingerprint : & str , ordered_strategy_request_ids : & [ broker_core :: StrategyRequestId ] , intent_count_u8 : u8 , audit_commitment : [ u8 ; 32 ] , _seal : & Stage5ePaperSettlementSuccessSeal , ) -> [ u8 ; 32 ]",
+}
+EXPECTED_STAGE5E_OUTER_ITEM_SIGNATURES = {
+    "impl:impl Stage5ePaperCallbackResultEscrow": "impl Stage5ePaperCallbackResultEscrow",
+    "mod:callback_settlement": "pub ( crate ) mod callback_settlement",
 }
 EXPECTED_STAGE5C_CRITICAL_FUNCTION_SIGNATURES = {
     "validate_stage5e_b3f_retained_close_chronology": "pub ( crate ) fn validate_stage5e_b3f_retained_close_chronology ( retained_bar_metadata : & Stage5eAcceptedBarSettlementMetadata , authority_issued_at : DateTime < Utc > , callback_invoked_at : DateTime < Utc > , _seal : & crate :: stage5e_no_io_lifecycle :: callback_authority :: callback_settlement :: Stage5ePaperSettlementPreflightSeal , ) -> Result < Stage5eStage5cRetainedCloseChronologyProof , Stage5eStage5cRetainedCloseChronologyMismatch >",
@@ -646,6 +660,20 @@ def resolve_protected_aliases(
         fail(f"{label} protected-type alias opened: {opened[0]}")
 
 
+def item_signature_contract(
+    items: list[dict[str, object]], label: str, *, include_test_only: bool
+) -> dict[str, str]:
+    contract: dict[str, str] = {}
+    for item in items:
+        if item["test_only"] and not include_test_only:
+            continue
+        identity = f"{item['kind']}:{item['name']}"
+        if identity in contract:
+            fail(f"{label} duplicate item identity: {identity}")
+        contract[identity] = " ".join(item["signature"])
+    return contract
+
+
 def production_signature_contract(
     items: list[dict[str, object]], label: str
 ) -> dict[str, str]:
@@ -876,6 +904,15 @@ def validate_protected_production_items(
     validate_cfg_attributes(stage5c_items, "Stage 5C B3F region")
     validate_cfg_attributes(stage5e_outer_items, "Stage 5E B3F outer region")
     validate_cfg_attributes(stage5e_items, "Stage 5E callback_settlement")
+    require_exact(
+        item_signature_contract(
+            stage5e_outer_items,
+            "Stage 5E B3F outer region",
+            include_test_only=True,
+        ),
+        EXPECTED_STAGE5E_OUTER_ITEM_SIGNATURES,
+        "Stage 5E B3F outer exact item/signature vector drift",
+    )
     require_exact(
         production_signature_contract(stage5c_items, "Stage 5C B3F region"),
         EXPECTED_STAGE5C_REGION_PRODUCTION_SIGNATURES,
@@ -1465,7 +1502,7 @@ def main() -> int:
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        564,
+        573,
         "provenance case count drift",
     )
     ui_contract = inventory.get("production_ui_harness_contract")
@@ -1518,12 +1555,17 @@ def main() -> int:
             "settlement_seal_impl_count": 0,
             "exact_attribute_vector_all_settlement_seals": True,
             "stage5e_callback_production_item_signature_count": 30,
+            "stage5e_callback_free_function_signature_count": 12,
+            "stage5e_outer_item_signature_count": 2,
             "stage5c_region_production_item_signature_count": 21,
+            "stage5e_outer_region_all_items_exact": True,
             "exact_constructor_owner_vector_all_settlement_seals": True,
             "positive_test_cfg_only": True,
             "ambiguous_or_production_cfg_in_protected_regions_allowed": False,
             "critical_capability_signatures_exact_and_unhashed": True,
+            "all_stage5e_callback_free_function_signatures_exact_and_unhashed": True,
             "protected_impl_associated_item_vectors_exact_and_unhashed": True,
+            "transition_signature_exact_and_unhashed": True,
             "seal_constructor_ast_role_and_control_flow_exact": True,
             "unsafe_runtime_core_tokens_forbidden": True,
             "production_macro_definitions_allowed": False,
@@ -1593,6 +1635,16 @@ def main() -> int:
         transition["only_input"],
         "Stage5ePaperCallbackResultEscrow",
         "settlement sole-input drift",
+    )
+    require_exact(
+        transition["exact_signature_unhashed"],
+        True,
+        "settlement exact-signature contract drift",
+    )
+    require_exact(
+        transition["caller_controlled_mode_or_policy_inputs_allowed"],
+        False,
+        "settlement caller-controlled input policy drift",
     )
     require_exact(
         transition["implementation_status"],

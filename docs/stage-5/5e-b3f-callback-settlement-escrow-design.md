@@ -1195,3 +1195,33 @@ The shared review-baseline copier now prunes excluded trees before symlink
 inspection. This is packaging-only: it prevents local build artifacts such as
 `target/` from changing the cost or contents of an independent negative run;
 the exclusion and included-symlink policy are unchanged.
+
+## B3F-r11 exact outer surface and sole-input closure
+
+The complete outer marked B3F region is an exact, unhashed two-item vector:
+the escrow's inherent implementation and the named `callback_settlement`
+module. No other item — including a test helper, nested module, free function,
+type, constant, static, macro definition, or macro invocation — may be added
+there. The associated-method vector remains a second independent check on the
+only admitted outer implementation.
+
+The settlement transition is an exact, unhashed `pub(crate)` function
+signature with exactly one input, `Stage5ePaperCallbackResultEscrow`, and the
+canonical success/terminal result. Caller-controlled booleans, policies,
+callbacks, capabilities, or other alternate decision inputs are rejected even
+when source snapshots and hash-based item vectors are deliberately rebound.
+
+Every twelve production free functions in `callback_settlement` now has an
+exact, unhashed signature contract. This includes the transition, both raw
+receipt constructors, both terminal mappers, the audit and settlement identity
+constructors, and all preflight helpers. Snapshot hashes remain evidence of the
+submitted source, not the sole authority for capability-bearing signatures.
+
+Nine r11 full-rebind negative mutations cover four unlisted outer surfaces,
+a second transition control input, and removal of success/terminal seals from
+the raw receipt/mapping/identity boundaries. Each must fail on a semantic
+contract before any stale source fingerprint can decide the result.
+
+This is enforcement-only hardening. Production Rust behavior and all Redis,
+FINAM, transport, dispatch, broker execution, durable persistence and
+runtime-live surfaces remain unchanged and closed.
