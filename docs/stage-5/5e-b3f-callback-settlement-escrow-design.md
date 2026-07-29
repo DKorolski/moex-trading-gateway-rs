@@ -1211,7 +1211,7 @@ canonical success/terminal result. Caller-controlled booleans, policies,
 callbacks, capabilities, or other alternate decision inputs are rejected even
 when source snapshots and hash-based item vectors are deliberately rebound.
 
-Every twelve production free functions in `callback_settlement` now has an
+All twelve production free functions in `callback_settlement` now have an
 exact, unhashed signature contract. This includes the transition, both raw
 receipt constructors, both terminal mappers, the audit and settlement identity
 constructors, and all preflight helpers. Snapshot hashes remain evidence of the
@@ -1225,3 +1225,29 @@ contract before any stale source fingerprint can decide the result.
 This is enforcement-only hardening. Production Rust behavior and all Redis,
 FINAM, transport, dispatch, broker execution, durable persistence and
 runtime-live surfaces remain unchanged and closed.
+
+## B3F-r12 complete semantic-body authority freeze
+
+The Stage 5E private-process-local region and the Stage 5C private-bridge
+region each have a separate, non-rebindable SHA-256 digest over canonical JSON
+of normalized Rust tokens. The semantic tokenizer excludes comments and
+insignificant whitespace but retains literal values, branches, calls, field
+accesses, return paths and complete item bodies. Therefore a special-case
+authority, strategy, account, chronology, callback-result or settlement branch
+cannot be hidden by the normal source-hash/item-header full-rebind procedure.
+
+The two digest values are hard-coded checker authority and intentionally
+outside the provenance helper's rebind scope. After the established structural
+guards pass, they are evaluated before a full-rebound source/inventory evidence
+set can result in acceptance. Existing exact item, signature, associated-method,
+alias, constructor and `unsafe` controls remain in force as independent layers.
+
+Seven r12 full-rebind mutations cover an early Stage 5E `ProceedOk`, an early
+Stage 5C validated proof, special-case identity and chronology acceptance, a
+weakened callback-validation decision, a modified settlement terminal branch,
+and an audit-domain literal change. Each must fail on the relevant
+non-rebindable semantic-region digest.
+
+This completes B3F body-authority hardening without changing production Rust
+behavior or opening Redis, FINAM, transport, dispatch, broker execution,
+persistence or runtime-live surfaces.

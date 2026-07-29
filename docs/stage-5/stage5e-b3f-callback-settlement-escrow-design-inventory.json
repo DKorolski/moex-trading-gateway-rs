@@ -10,7 +10,7 @@
   "rejected_b3f_r2_ref": "ee23d6b4231c3c1483bcfacdb9189392183e2963",
   "rejected_b3f_r3_ref": "a5ccea08bc64a66e768340f7121e9b94a09ff884",
   "accepted_b3f_r4_ref": "148377f71b4afe6ce20f4e42433f58c812fb4917",
-  "expected_provenance_case_count": 573,
+  "expected_provenance_case_count": 580,
   "production_ui_harness_contract": {
     "path": "scripts/stage5e_b3f_production_ui_harness.py",
     "sha256": "8a43aed8bfed494ac224f415e7ebc0fcd0773394aa17374539da58a0d22d637d",
@@ -75,6 +75,9 @@
     "protected_impl_associated_item_vectors_exact_and_unhashed": true,
     "transition_signature_exact_and_unhashed": true,
     "seal_constructor_ast_role_and_control_flow_exact": true,
+    "complete_marked_b3f_region_semantic_token_digests_exact_and_unhashed": true,
+    "semantic_region_token_digest_includes_literals": true,
+    "semantic_region_digest_rebindable": false,
     "unsafe_runtime_core_tokens_forbidden": true,
     "production_macro_definitions_allowed": false,
     "unlisted_item_producing_macro_invocations_allowed": false,
@@ -115,6 +118,17 @@
     "consume_after_every_decision": true,
     "consume_count": 1,
     "settlement_implementation_allowed_in_this_stage": true
+  },
+  "semantic_region_digest_contract": {
+    "algorithm": "sha256(canonical_json(normalized_rust_tokens_with_literals))",
+    "scope": [
+      "stage5c_private_bridge_complete_marked_region",
+      "stage5e_private_process_local_complete_marked_region"
+    ],
+    "comments_and_insignificant_whitespace_excluded": true,
+    "production_literals_included": true,
+    "hard_coded_checker_authority": true,
+    "full_rebind_mutator_may_update": false
   },
   "seal_contract": {
     "preflight_seal": "Stage5ePaperSettlementPreflightSeal",

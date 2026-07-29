@@ -21,10 +21,16 @@ ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3f-callback-settlement-escrow-design"
 BASELINE_REF = "a5ccea08bc64a66e768340f7121e9b94a09ff884"
 EXPECTED_PLAN_SHA256 = (
-    "e4c1fe965b2c21ed8765179a5ea05b809c4722fcecfb1daa6e581eb5cfeb5ede"
+    "91f2bf5a63da1d6d1626c8469e6a1bcbe0b5a6c99986d03963630ab5a62c3a3a"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "b371e07ad660e9325cf998b7e6769e417a56e88728e29ca0bf650fc3dda86da1"
+    "38c3aaf49a1eaeaf3ebfe70ae425b13abb0c2e4f9fe10199fa03ddba5b3c2a19"
+)
+EXPECTED_STAGE5C_REGION_SEMANTIC_TOKEN_SHA256 = (
+    "c1b4643260249676d4917ba17300866b2a3a05a9ee75e7c4dc99ff120f028d0f"
+)
+EXPECTED_STAGE5E_REGION_SEMANTIC_TOKEN_SHA256 = (
+    "ed0733e2843b144524ed364708b6554e7744c93823953b24ea83af1d3ca6c1d3"
 )
 EXPECTED_PROTECTED_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -334,6 +340,97 @@ def rust_tokens(source: str) -> list[str]:
                 else:
                     index += 1
             continue
+        identifier = RUST_IDENTIFIER_RE.match(source, index)
+        if identifier:
+            tokens.append(identifier.group(0))
+            index = identifier.end()
+            continue
+        number = RUST_NUMBER_RE.match(source, index)
+        if number:
+            tokens.append(number.group(0))
+            index = number.end()
+            continue
+        pair = source[index : index + 2]
+        if pair in {"::", "->", "=>", "==", "!=", "<=", ">=", "&&", "||"}:
+            tokens.append(pair)
+            index += 2
+            continue
+        if not source[index].isspace():
+            tokens.append(source[index])
+        index += 1
+    return tokens
+
+
+def semantic_rust_tokens(source: str) -> list[str]:
+    """Tokenize Rust while retaining literal values for semantic region pins.
+
+    The structural parser intentionally removes literals.  A body-authority
+    digest must not: changing a selected account, strategy, authority, domain,
+    or other literal is itself a semantic change.  Comments and insignificant
+    whitespace remain excluded.
+    """
+    tokens: list[str] = []
+    index = 0
+    length = len(source)
+
+    def quoted_end(quote_index: int) -> int:
+        cursor = quote_index + 1
+        while cursor < length:
+            if source[cursor] == "\\":
+                cursor += 2
+            elif source[cursor] == '"':
+                return cursor + 1
+            else:
+                cursor += 1
+        return length
+
+    while index < length:
+        if source.startswith("//", index):
+            newline = source.find("\n", index + 2)
+            index = length if newline < 0 else newline + 1
+            continue
+        if source.startswith("/*", index):
+            depth = 1
+            index += 2
+            while index < length and depth:
+                if source.startswith("/*", index):
+                    depth += 1
+                    index += 2
+                elif source.startswith("*/", index):
+                    depth -= 1
+                    index += 2
+                else:
+                    index += 1
+            continue
+        raw_match = RUST_RAW_STRING_RE.match(source, index)
+        if raw_match:
+            terminator = '"' + raw_match.group("hashes")
+            finish = source.find(terminator, raw_match.end())
+            end = length if finish < 0 else finish + len(terminator)
+            tokens.append("literal:" + source[index:end])
+            index = end
+            continue
+        if source.startswith('b"', index):
+            end = quoted_end(index + 1)
+            tokens.append("literal:" + source[index:end])
+            index = end
+            continue
+        if source[index] == '"':
+            end = quoted_end(index)
+            tokens.append("literal:" + source[index:end])
+            index = end
+            continue
+        if source[index] == "'":
+            cursor = index + 1
+            if cursor < length and source[cursor] == "\\":
+                cursor += 2
+            else:
+                cursor += 1
+            if cursor < length and source[cursor] == "'":
+                end = cursor + 1
+                tokens.append("literal:" + source[index:end])
+                index = end
+                continue
         identifier = RUST_IDENTIFIER_RE.match(source, index)
         if identifier:
             tokens.append(identifier.group(0))
@@ -1202,6 +1299,36 @@ def marked_region(source: str, label: str, marker_id: str) -> str:
     return region
 
 
+def validate_nonrebindable_region_semantic_digests() -> None:
+    """Freeze complete B3F bodies after structural checks and before acceptance."""
+    stage5c = (
+        ROOT / "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
+    ).read_text()
+    stage5e = (
+        ROOT / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
+    ).read_text()
+    stage5c_region = marked_region(
+        stage5c,
+        "STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION",
+        "stage5c-private-bridge-v1",
+    )
+    stage5e_region = marked_region(
+        stage5e,
+        "STAGE5E-B3F-SETTLEMENT-IMPLEMENTATION",
+        "private-process-local-v1",
+    )
+    require_exact(
+        canonical_sha256(semantic_rust_tokens(stage5c_region)),
+        EXPECTED_STAGE5C_REGION_SEMANTIC_TOKEN_SHA256,
+        "Stage 5C B3F production-region semantic token digest drift",
+    )
+    require_exact(
+        canonical_sha256(semantic_rust_tokens(stage5e_region)),
+        EXPECTED_STAGE5E_REGION_SEMANTIC_TOKEN_SHA256,
+        "Stage 5E B3F production-region semantic token digest drift",
+    )
+
+
 def validate_implementation_source() -> None:
     lib = (ROOT / "crates/strategy-runtime-core/src/lib.rs").read_text()
     stage5c = (
@@ -1502,7 +1629,7 @@ def main() -> int:
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        573,
+        580,
         "provenance case count drift",
     )
     ui_contract = inventory.get("production_ui_harness_contract")
@@ -1567,6 +1694,9 @@ def main() -> int:
             "protected_impl_associated_item_vectors_exact_and_unhashed": True,
             "transition_signature_exact_and_unhashed": True,
             "seal_constructor_ast_role_and_control_flow_exact": True,
+            "complete_marked_b3f_region_semantic_token_digests_exact_and_unhashed": True,
+            "semantic_region_token_digest_includes_literals": True,
+            "semantic_region_digest_rebindable": False,
             "unsafe_runtime_core_tokens_forbidden": True,
             "production_macro_definitions_allowed": False,
             "unlisted_item_producing_macro_invocations_allowed": False,
@@ -1582,6 +1712,21 @@ def main() -> int:
             "ui_unexpected_primary_errors_allowed": False,
         },
         "tokenized structural enforcement contract drift",
+    )
+    require_exact(
+        inventory.get("semantic_region_digest_contract"),
+        {
+            "algorithm": "sha256(canonical_json(normalized_rust_tokens_with_literals))",
+            "scope": [
+                "stage5c_private_bridge_complete_marked_region",
+                "stage5e_private_process_local_complete_marked_region",
+            ],
+            "comments_and_insignificant_whitespace_excluded": True,
+            "production_literals_included": True,
+            "hard_coded_checker_authority": True,
+            "full_rebind_mutator_may_update": False,
+        },
+        "semantic region digest contract drift",
     )
     require_exact(
         inventory.get("allowed_changed_paths"),
@@ -1619,6 +1764,10 @@ def main() -> int:
         "protected B3F implementation source inventory drift",
     )
     validate_implementation_source()
+    # Preserve the established structural-negative diagnostics first. A full
+    # provenance rebind can refresh source/inventory fingerprints, but cannot
+    # refresh this semantic authority for an otherwise valid B3F body.
+    validate_nonrebindable_region_semantic_digests()
     require_exact(
         inventory["module_visibility_contract"],
         {
