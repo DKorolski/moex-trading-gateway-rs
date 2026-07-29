@@ -10,7 +10,7 @@
   "rejected_b3f_r2_ref": "ee23d6b4231c3c1483bcfacdb9189392183e2963",
   "rejected_b3f_r3_ref": "a5ccea08bc64a66e768340f7121e9b94a09ff884",
   "accepted_b3f_r4_ref": "148377f71b4afe6ce20f4e42433f58c812fb4917",
-  "expected_provenance_case_count": 533,
+  "expected_provenance_case_count": 544,
   "production_ui_harness_contract": {
     "path": "scripts/stage5e_b3f_production_ui_harness.py",
     "sha256": "8a43aed8bfed494ac224f415e7ebc0fcd0773394aa17374539da58a0d22d637d",
@@ -57,7 +57,10 @@
   "tokenized_structural_enforcement_contract": {
     "comments_and_literals_excluded": true,
     "protected_type_aliases_allowed": false,
+    "protected_use_aliases_allowed": false,
+    "protected_macro_definitions_or_invocations_allowed": false,
     "settlement_seal_impl_count": 0,
+    "exact_attribute_vector_all_settlement_seals": true,
     "payload_impl_headers": [
       "impl Stage5ePaperSettlementPayload"
     ],
@@ -66,6 +69,7 @@
     ],
     "payload_field_type_vector_exact": true,
     "sensitive_occurrence_windows_pinned": true,
+    "full_rebind_sensitive_fingerprints_required": true,
     "macro_body_sensitive_tokens_in_scope": true,
     "ui_primary_span_binding_required": true,
     "ui_unexpected_primary_errors_allowed": false

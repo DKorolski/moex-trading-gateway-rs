@@ -21,10 +21,10 @@ ACTIVE = ROOT / "docs/stage-5/stage5e-active-descriptor.json"
 STAGE = "5E-b3f-callback-settlement-escrow-design"
 BASELINE_REF = "a5ccea08bc64a66e768340f7121e9b94a09ff884"
 EXPECTED_PLAN_SHA256 = (
-    "ecf14e6fe60477d94d0116bf7f89e0049a6275c7b50ab16624cca0ead8aa3117"
+    "4a2be56824cc0bc8f4e13c6d1d423f18ff22316472316bd876c46a79b0066115"
 )
 EXPECTED_INVENTORY_SHA256 = (
-    "4dda8997f0245104db4abc4c96fb066444bc0ef95a1e0ee928ea93338f0c54ce"
+    "b7273e108bc73624c7f205ed088aee848bf4fc335cdd71993f3a4c0d50604e21"
 )
 EXPECTED_PROTECTED_SOURCE_SHA256 = {
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs": (
@@ -280,6 +280,82 @@ def impl_headers(tokens: list[str], protected: set[str]) -> list[list[str]]:
     return headers
 
 
+def bounded_statement(tokens: list[str], start: int) -> list[str]:
+    cursor = start
+    depths = {"(": 0, "[": 0, "{": 0}
+    closing = {")": "(", "]": "[", "}": "{"}
+    while cursor < len(tokens):
+        token = tokens[cursor]
+        if token in depths:
+            depths[token] += 1
+        elif token in closing:
+            depths[closing[token]] -= 1
+        elif token == ";" and all(depth == 0 for depth in depths.values()):
+            return tokens[start:cursor]
+        cursor += 1
+    return tokens[start:]
+
+
+def validate_protected_use_aliases(tokens: list[str], label: str) -> None:
+    protected = SETTLEMENT_SEALS | {
+        "Stage5eAcceptedBarSettlementMetadata",
+        "Stage5ePaperSettlementPayload",
+    }
+    for index, token in enumerate(tokens):
+        if token != "use":
+            continue
+        statement = bounded_statement(tokens, index)
+        if "as" in statement and protected.intersection(statement):
+            fail(f"{label} protected use alias opened")
+
+
+def validate_protected_macro_surfaces(tokens: list[str], label: str) -> None:
+    sensitive = SETTLEMENT_SEALS | {
+        "Stage5eAcceptedBarSettlementMetadata",
+        "Stage5ePaperSettlementPayload",
+        "accepted_bar_close_ts",
+    }
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    for index in range(len(tokens) - 2):
+        if tokens[index + 1] != "!" or tokens[index + 2] not in pairs:
+            continue
+        opening = tokens[index + 2]
+        closing = pairs[opening]
+        depth = 1
+        cursor = index + 3
+        while cursor < len(tokens) and depth:
+            depth += tokens[cursor] == opening
+            depth -= tokens[cursor] == closing
+            cursor += 1
+        body = tokens[index + 3 : cursor - 1]
+        if sensitive.intersection(body):
+            fail(f"{label} protected macro expansion surface opened")
+
+
+def validate_seal_declarations(tokens: list[str], label: str) -> None:
+    expected = ["pub", "(", "crate", ")", "struct"]
+    suffix = ["(", "(", ")", ")", ";"]
+    for seal in SETTLEMENT_SEALS:
+        starts = [
+            index
+            for index in range(len(tokens) - len(expected) - len(suffix) - 1)
+            if tokens[index : index + len(expected)] == expected
+            and tokens[index + len(expected)] == seal
+            and tokens[
+                index + len(expected) + 1 :
+                index + len(expected) + 1 + len(suffix)
+            ]
+            == suffix
+        ]
+        require_exact(
+            len(starts),
+            1 if label == "Stage 5E" else 0,
+            f"{label} exact settlement seal declaration drift: {seal}",
+        )
+        if starts and starts[0] > 0 and tokens[starts[0] - 1] == "]":
+            fail(f"{label} settlement seal attribute surface opened: {seal}")
+
+
 def validate_tokenized_production_structure(stage5c: str, stage5e: str) -> None:
     stage5c_tokens = rust_tokens(stage5c)
     stage5e_tokens = rust_tokens(stage5e)
@@ -288,6 +364,9 @@ def validate_tokenized_production_structure(stage5c: str, stage5e: str) -> None:
         "Stage5ePaperSettlementPayload",
     }
     for label, tokens in (("Stage 5C", stage5c_tokens), ("Stage 5E", stage5e_tokens)):
+        validate_protected_use_aliases(tokens, label)
+        validate_protected_macro_surfaces(tokens, label)
+        validate_seal_declarations(tokens, label)
         for index, token in enumerate(tokens):
             if token != "type":
                 continue
@@ -743,7 +822,7 @@ def main() -> int:
     require_exact(inventory.get("baseline_ref"), BASELINE_REF, "baseline drift")
     require_exact(
         inventory.get("expected_provenance_case_count"),
-        533,
+        544,
         "provenance case count drift",
     )
     ui_contract = inventory.get("production_ui_harness_contract")
@@ -790,13 +869,17 @@ def main() -> int:
         {
             "comments_and_literals_excluded": True,
             "protected_type_aliases_allowed": False,
+            "protected_use_aliases_allowed": False,
+            "protected_macro_definitions_or_invocations_allowed": False,
             "settlement_seal_impl_count": 0,
+            "exact_attribute_vector_all_settlement_seals": True,
             "payload_impl_headers": ["impl Stage5ePaperSettlementPayload"],
             "metadata_impl_headers": [
                 "cfg_test impl Stage5eAcceptedBarSettlementMetadata"
             ],
             "payload_field_type_vector_exact": True,
             "sensitive_occurrence_windows_pinned": True,
+            "full_rebind_sensitive_fingerprints_required": True,
             "macro_body_sensitive_tokens_in_scope": True,
             "ui_primary_span_binding_required": True,
             "ui_unexpected_primary_errors_allowed": False,

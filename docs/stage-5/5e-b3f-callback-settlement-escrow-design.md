@@ -1080,3 +1080,31 @@ errors, even with the same code, fail the gate.
 
 The r7 correction changes enforcement only. Production settlement behavior
 and every external I/O/live surface remain unchanged and closed.
+
+## B3F-r8 use-alias, macro and seal-declaration closure
+
+The tokenized structural gate rejects protected `use ... as ...` imports and
+reexports, including grouped and nested use trees. Settlement seals,
+accepted-bar metadata and the settlement payload therefore cannot acquire a
+second usable name through a Rust use declaration.
+
+Protected types and retained-close authority are forbidden in macro
+definitions and invocations. This closes parameterized macro paths that could
+otherwise generate a metadata bridge, seal conversion or seal
+implementation after the static source fingerprints were rebound.
+
+All four settlement seals have an exact attribute-free tuple declaration.
+No seal may acquire `Clone`, `Copy`, `Default`, `From`, a derive, or another
+attribute-based construction or duplication path. Existing direct impl-header
+enforcement remains mandatory.
+
+The r8 negative matrix performs a full semantic rebind: it updates the
+implementation-source hash, inventory binding, checker source pin and every
+sensitive token-window fingerprint before running each mutation. Eleven new
+cases prove that use aliases, parameterized macros and forbidden traits for
+preflight, success and terminal seals are rejected by structural rules rather
+than stale hashes.
+
+This is enforcement-only hardening. Production Rust behavior and all Redis,
+FINAM, transport, dispatch, broker-execution, persistence and runtime-live
+surfaces remain unchanged and closed.
