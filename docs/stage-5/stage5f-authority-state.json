@@ -1,7 +1,7 @@
 {
-  "authority_generation": 2,
-  "previous_base_sha": "9a0f02dd36f3e08e4afb603870ca74a15b75e12c",
-  "previous_state_sha256": "4be750b9453e77c021b09b92edfb24fb180280440bd2baf1d5ceb336ea94b5fc",
+  "authority_generation": 3,
+  "previous_base_sha": "22c6d262987a6af6ca5f3e55567c800dcbb7bd65",
+  "previous_state_sha256": "abfa7d66f0f4902feb80d51fbb53251a67ac7a9a462d8052d314a95e98b3cbaf",
   "schema_version": 1,
-  "stage": "5F-a-r8-bootstrap-repair-authority"
+  "stage": "5F-a-r8a-stage5d-freeze-rebind-authority"
 }

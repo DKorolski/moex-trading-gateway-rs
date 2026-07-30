@@ -278,12 +278,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   admits only Stage 5F governance/docs/fixture paths, never Rust or operational
   surfaces. The first hosted activation exposed an undeclared `rg` dependency
   in the forbidden-surface scanner; the negative harness failed safely rather
-  than accepting seven undetected scanner mutations. Stage 5F-a-r8 is therefore
-  prepared as a review-gated generation-2 authority repair: it changes no
-  workflow or scanner, and admits exactly one bounded r9 portable-scanner
-  successor only from the exact schema-1, generation-2 r8 authority state;
-  schema and generation values are exact JSON integers (never `true` or a
-  float), that successor is generation 3 and cannot be replayed. GitHub
+  than accepting seven undetected scanner mutations. Stage 5F-a-r8 is merged
+  as the generation-2 authority repair. Its R8a review candidate is a
+  governance-only generation-3 amendment: it changes no workflow, scanner or
+  Stage 5D freeze artifact, and retargets the one bounded R9 portable-scanner
+  successor to the exact schema-1, generation-3 R8a state. R9 will be
+  generation 4 and may rebind only the paired Stage 5D freeze
+  manifest/checker needed to make the worker/harness portable; schema and
+  generation values are exact JSON integers (never `true` or a float), and the
+  capability cannot be replayed. GitHub
   activation still requires an independent approval after the latest update,
   strict up-to-date branch and no direct/admin bypass. It then
   admits only the existing

@@ -90,15 +90,20 @@ negative harness correctly failed instead of accepting the PR: seven mutation
 cases that depend on the six text scans were not detected. This is an
 activation blocker, not a runtime or broker behavior change.
 
-Stage 5F-a-r8 is a dedicated generation-2 authority rotation for that blocked
-activation. It does **not** change `ci.yml`, the scanner, Rust, Redis, FINAM,
-dispatch, persistence or live behavior. It authorizes exactly one successor,
-`5F-a-r9-portable-forbidden-scanner`, through the protected-base contract.
-That successor must change the executable scanner while preserving mode
-`100755`; it may update only the scanner's two negative-harness files and the
-listed Stage 5F governance/documentation bindings. It cannot change any
-workflow, Cargo/Rust or operational path. The full scope and acceptance record
-are in [5f-a-r8-bootstrap-repair-authority.md](5f-a-r8-bootstrap-repair-authority.md).
+Stage 5F-a-r8 is the accepted generation-2 authority rotation for that blocked
+activation. It did **not** change `ci.yml`, the scanner, Rust, Redis, FINAM,
+dispatch, persistence or live behavior. R8a is the required generation-3
+governance-only amendment: it rebases the one named R9 capability after
+discovering that the Stage 5D freeze binds the portable worker/harness files.
+R8a changes neither the scanner nor the freeze artifacts themselves.
+
+The resulting successor, `5F-a-r9-portable-forbidden-scanner`, must change the
+executable scanner while preserving mode `100755`; it may update only the
+scanner's two negative-harness files, the paired Stage 5D freeze manifest and
+checker, and the listed Stage 5F governance/documentation bindings. It cannot
+change any workflow, Cargo/Rust or operational path. The full scope and
+acceptance record are in
+[5f-a-r8-bootstrap-repair-authority.md](5f-a-r8-bootstrap-repair-authority.md).
 
 The r9 implementation will remove the implicit `rg` dependency through the
 already-required Python 3.11+ scanner path and will preserve fail-closed

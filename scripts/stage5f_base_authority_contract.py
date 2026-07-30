@@ -52,18 +52,18 @@ ENTRY_CHECKER = "scripts/stage5f_atomic_hybrid_semantics_entry_check.py"
 HANDOFF_CHECKER = "scripts/handoff_safety_check.py"
 ALLOWED_GIT_MODES = {"100644", "100755"}
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
+R8A_STAGE5D_FREEZE_REBIND_AUTHORITY_STAGE = "5F-a-r8a-stage5d-freeze-rebind-authority"
 PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE = "5F-a-r9-portable-forbidden-scanner"
-PORTABLE_FORBIDDEN_SCANNER_REPAIR_PREDECESSOR_GENERATION = 2
-PORTABLE_FORBIDDEN_SCANNER_REPAIR_PREDECESSOR_STAGE = (
-    "5F-a-r8-bootstrap-repair-authority"
-)
-PORTABLE_FORBIDDEN_SCANNER_REPAIR_SUCCESSOR_GENERATION = 3
+PORTABLE_FORBIDDEN_SCANNER_REPAIR_PREDECESSOR_GENERATION = 3
+PORTABLE_FORBIDDEN_SCANNER_REPAIR_PREDECESSOR_STAGE = R8A_STAGE5D_FREEZE_REBIND_AUTHORITY_STAGE
+PORTABLE_FORBIDDEN_SCANNER_REPAIR_SUCCESSOR_GENERATION = 4
 PORTABLE_FORBIDDEN_SCANNER_REPAIR_PATHS = frozenset(
     {
         "docs/current-status.md",
         "docs/handoff.md",
         "docs/stage-5/5f-a-atomic-hybrid-semantics-entry.md",
         "docs/stage-5/5f-a-r8-bootstrap-repair-authority.md",
+        "docs/stage-5/stage-5d-additive-freeze-manifest.json",
         "docs/stage-5/stage5f-a-atomic-hybrid-semantics-entry-inventory.json",
         "docs/stage-5/stage5f-authority-rotation-protocol.md",
         "docs/stage-5/stage5f-authority-rotation.json",
@@ -74,6 +74,7 @@ PORTABLE_FORBIDDEN_SCANNER_REPAIR_PATHS = frozenset(
         "scripts/handoff_safety_check.py",
         "scripts/stage5f_atomic_hybrid_semantics_entry_check.py",
         "scripts/stage5f_base_authority_negative_harness.py",
+        "scripts/stage5d_additive_freeze_check.py",
     }
 )
 PORTABLE_FORBIDDEN_SCANNER_PATH = "scripts/forbidden_surface_scan.sh"
@@ -350,7 +351,7 @@ def validate_portable_forbidden_scanner_repair_predecessor(
     candidate_state: dict[str, object],
     manifest: dict[str, object],
 ) -> None:
-    """Accept the scanner exception exactly once, from the reviewed r8 state."""
+    """Accept the scanner exception exactly once, from the reviewed r8a state."""
     if (
         require_json_int(
             base_state.get("schema_version"),

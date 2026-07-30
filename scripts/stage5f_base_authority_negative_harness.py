@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 R3_AUTHORITY_REF = "8ce0acd60c7cb5cc5d25a27f6553077240658b57"
 BASE_SHA = "a" * 40
 WORKFLOW = ROOT / ".github/workflows/stage5f-base-authority.yml"
+ASSERTIONS_EXECUTED = 0
 
 
 def git_output(*args: str, cwd: Path = ROOT) -> str:
@@ -119,20 +120,24 @@ def run_base_contract(authority: Path, base: Path, candidate: Path) -> subproces
 
 
 def assert_accepted(authority: Path, base: Path, candidate: Path, sentinel: Path, case: str) -> None:
+    global ASSERTIONS_EXECUTED
     completed = run_base_contract(authority, base, candidate)
     if completed.returncode != 0:
         raise RuntimeError(f"{case}: unexpected rejection: {completed.stderr.strip()}")
     if sentinel.exists():
         raise RuntimeError(f"{case}: candidate-owned code executed")
+    ASSERTIONS_EXECUTED += 1
     print(f"PASS {case}")
 
 
 def assert_rejected(authority: Path, base: Path, candidate: Path, sentinel: Path, case: str) -> None:
+    global ASSERTIONS_EXECUTED
     completed = run_base_contract(authority, base, candidate)
     if completed.returncode == 0:
         raise RuntimeError(f"{case}: candidate was accepted")
     if sentinel.exists():
         raise RuntimeError(f"{case}: candidate-owned code executed")
+    ASSERTIONS_EXECUTED += 1
     print(f"PASS {case}")
 
 
@@ -201,7 +206,9 @@ def build_valid_rotation(
     *,
     next_stage: str = "5F-b-fixture-input-redacted-fingerprint-schema",
     mutate_scanner: bool = False,
+    mutate_stage5d_freeze_rebind_paths: bool = False,
     add_out_of_scope_readme_change: bool = False,
+    add_out_of_scope_stage5d_change: bool = False,
 ) -> None:
     del authority
     contract = __import__("stage5f_base_authority_contract")
@@ -215,6 +222,16 @@ def build_valid_rotation(
         if add_out_of_scope_readme_change:
             readme = candidate / "README.md"
             readme.write_text(readme.read_text() + "\n<!-- staged scanner scope drift -->\n")
+        if mutate_stage5d_freeze_rebind_paths:
+            for relative in (
+                "docs/stage-5/stage-5d-additive-freeze-manifest.json",
+                "scripts/stage5d_additive_freeze_check.py",
+            ):
+                path = candidate / relative
+                path.write_text(path.read_text() + "\n# staged r9 freeze rebind\n")
+        if add_out_of_scope_stage5d_change:
+            path = candidate / "scripts/stage5d_additive_freeze_negative_harness.py"
+            path.write_text(path.read_text() + "\n# staged r9 scope drift\n")
     else:
         descriptor = candidate / "scripts/stage5f_descriptor.py"
         descriptor.write_text(descriptor.read_text() + "\n# staged authority generation successor\n")
@@ -363,6 +380,8 @@ def current_staged_tree() -> str:
 
 
 def main() -> int:
+    global ASSERTIONS_EXECUTED
+    ASSERTIONS_EXECUTED = 0
     try:
         validate_workflow_contract()
         contract = __import__("stage5f_base_authority_contract")
@@ -412,6 +431,23 @@ def main() -> int:
                 candidate,
                 sentinel,
                 "portable-forbidden-scanner-repair-rotation",
+            )
+
+            candidate, sentinel = fresh_candidate(base, root)
+            build_valid_rotation(
+                authority,
+                base,
+                candidate,
+                next_stage=contract.PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE,
+                mutate_scanner=True,
+                mutate_stage5d_freeze_rebind_paths=True,
+            )
+            assert_accepted(
+                authority,
+                base,
+                candidate,
+                sentinel,
+                "portable-forbidden-scanner-repair-allows-exact-stage5d-freeze-rebind",
             )
 
             r9_base, sentinel = fresh_candidate(base, root)
@@ -718,6 +754,23 @@ def main() -> int:
             )
 
             candidate, sentinel = fresh_candidate(base, root)
+            build_valid_rotation(
+                authority,
+                base,
+                candidate,
+                next_stage=contract.PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE,
+                mutate_scanner=True,
+                add_out_of_scope_stage5d_change=True,
+            )
+            assert_rejected(
+                authority,
+                base,
+                candidate,
+                sentinel,
+                "portable-forbidden-scanner-repair-rejects-other-stage5d-freeze-path",
+            )
+
+            candidate, sentinel = fresh_candidate(base, root)
             build_valid_rotation(authority, base, candidate)
             manifest_path = candidate / contract.ROTATION_MANIFEST
             manifest = json.loads(manifest_path.read_text())
@@ -765,8 +818,15 @@ def main() -> int:
     except (OSError, RuntimeError, subprocess.CalledProcessError, tarfile.TarError) as exc:
         print(f"stage5f-base-authority-negative: FAIL: {exc}", file=sys.stderr)
         return 1
-    expected_cases = 64
-    print(f"stage5f-base-authority-negative: ok cases={expected_cases}")
+    expected_cases = 69
+    if ASSERTIONS_EXECUTED != expected_cases:
+        print(
+            "stage5f-base-authority-negative: FAIL: assertion inventory drift "
+            f"executed={ASSERTIONS_EXECUTED} expected={expected_cases}",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"stage5f-base-authority-negative: ok cases={ASSERTIONS_EXECUTED}")
     return 0
 
 
