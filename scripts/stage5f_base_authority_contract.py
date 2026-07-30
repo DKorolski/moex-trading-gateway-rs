@@ -53,6 +53,11 @@ HANDOFF_CHECKER = "scripts/handoff_safety_check.py"
 ALLOWED_GIT_MODES = {"100644", "100755"}
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE = "5F-a-r9-portable-forbidden-scanner"
+PORTABLE_FORBIDDEN_SCANNER_REPAIR_PREDECESSOR_GENERATION = 2
+PORTABLE_FORBIDDEN_SCANNER_REPAIR_PREDECESSOR_STAGE = (
+    "5F-a-r8-bootstrap-repair-authority"
+)
+PORTABLE_FORBIDDEN_SCANNER_REPAIR_SUCCESSOR_GENERATION = 3
 PORTABLE_FORBIDDEN_SCANNER_REPAIR_PATHS = frozenset(
     {
         "docs/current-status.md",
@@ -333,6 +338,43 @@ def is_rotation_path_allowed(relative: str, next_stage: str) -> bool:
     ))
 
 
+def validate_portable_forbidden_scanner_repair_predecessor(
+    base_state: dict[str, object],
+    candidate_state: dict[str, object],
+    manifest: dict[str, object],
+) -> None:
+    """Accept the scanner exception exactly once, from the reviewed r8 state."""
+    if base_state.get("schema_version") != 1:
+        fail("portable forbidden-scanner repair base schema mismatch")
+    if (
+        base_state.get("authority_generation")
+        != PORTABLE_FORBIDDEN_SCANNER_REPAIR_PREDECESSOR_GENERATION
+    ):
+        fail("portable forbidden-scanner repair predecessor generation mismatch")
+    if (
+        base_state.get("stage")
+        != PORTABLE_FORBIDDEN_SCANNER_REPAIR_PREDECESSOR_STAGE
+    ):
+        fail("portable forbidden-scanner repair predecessor stage mismatch")
+    if (
+        manifest.get("previous_generation")
+        != PORTABLE_FORBIDDEN_SCANNER_REPAIR_PREDECESSOR_GENERATION
+    ):
+        fail("portable forbidden-scanner repair manifest predecessor mismatch")
+    if (
+        manifest.get("next_generation")
+        != PORTABLE_FORBIDDEN_SCANNER_REPAIR_SUCCESSOR_GENERATION
+    ):
+        fail("portable forbidden-scanner repair manifest successor mismatch")
+    if candidate_state.get("stage") != PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE:
+        fail("portable forbidden-scanner repair candidate stage mismatch")
+    if (
+        candidate_state.get("authority_generation")
+        != PORTABLE_FORBIDDEN_SCANNER_REPAIR_SUCCESSOR_GENERATION
+    ):
+        fail("portable forbidden-scanner repair candidate generation mismatch")
+
+
 def validate_rotation(
     authority: Path,
     authority_entries: dict[str, GitEntry],
@@ -392,6 +434,13 @@ def validate_rotation(
     }
     if candidate_state != expected_state:
         fail("candidate authority state is not an exact one-generation transition")
+
+    if manifest["next_stage"] == PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE:
+        validate_portable_forbidden_scanner_repair_predecessor(
+            base_state,
+            candidate_state,
+            manifest,
+        )
 
     deleted = set(base_entries) - set(candidate_entries)
     if deleted:

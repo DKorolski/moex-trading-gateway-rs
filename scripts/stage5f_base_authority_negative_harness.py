@@ -286,6 +286,17 @@ def refresh_rotation_bindings(base: Path, candidate: Path) -> None:
     commit_worktree(candidate, "refresh rotation bindings")
 
 
+def rewrite_authority_state(root: Path, **updates: object) -> None:
+    contract = __import__("stage5f_base_authority_contract")
+    state_path = root / contract.AUTHORITY_STATE
+    state = json.loads(state_path.read_text())
+    if not isinstance(state, dict):
+        raise RuntimeError("authority state is not an object")
+    state.update(updates)
+    state_path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+    commit_worktree(root, "rewrite authority state")
+
+
 def add_gitlink(candidate: Path, relative: str) -> None:
     # Git accepts the opaque target as a submodule object id. The contract must
     # reject mode 160000 before it has any chance to dereference this value.
@@ -390,6 +401,105 @@ def main() -> int:
                 candidate,
                 sentinel,
                 "portable-forbidden-scanner-repair-rotation",
+            )
+
+            r9_base, sentinel = fresh_candidate(base, root)
+            build_valid_rotation(
+                authority,
+                base,
+                r9_base,
+                next_stage=contract.PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE,
+                mutate_scanner=True,
+            )
+            assert_accepted(
+                authority,
+                base,
+                r9_base,
+                sentinel,
+                "portable-forbidden-scanner-repair-first-r9",
+            )
+            candidate, sentinel = fresh_candidate(r9_base, root)
+            build_valid_rotation(
+                authority,
+                r9_base,
+                candidate,
+                next_stage=contract.PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE,
+                mutate_scanner=True,
+            )
+            assert_rejected(
+                authority,
+                r9_base,
+                candidate,
+                sentinel,
+                "portable-forbidden-scanner-repair-replay-from-generation-three",
+            )
+
+            later_base, sentinel = fresh_candidate(base, root)
+            build_valid_rotation(authority, base, later_base)
+            assert_accepted(
+                authority,
+                base,
+                later_base,
+                sentinel,
+                "portable-forbidden-scanner-repair-valid-later-generation-base",
+            )
+            candidate, sentinel = fresh_candidate(later_base, root)
+            build_valid_rotation(
+                authority,
+                later_base,
+                candidate,
+                next_stage=contract.PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE,
+                mutate_scanner=True,
+            )
+            assert_rejected(
+                authority,
+                later_base,
+                candidate,
+                sentinel,
+                "portable-forbidden-scanner-repair-rejects-arbitrary-later-generation",
+            )
+
+            wrong_stage_base, sentinel = fresh_candidate(base, root)
+            rewrite_authority_state(
+                wrong_stage_base,
+                stage="5F-a-unrelated-generation-two-authority",
+            )
+            candidate, sentinel = fresh_candidate(wrong_stage_base, root)
+            build_valid_rotation(
+                authority,
+                wrong_stage_base,
+                candidate,
+                next_stage=contract.PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE,
+                mutate_scanner=True,
+            )
+            assert_rejected(
+                authority,
+                wrong_stage_base,
+                candidate,
+                sentinel,
+                "portable-forbidden-scanner-repair-rejects-wrong-generation-two-stage",
+            )
+
+            rollback_base, sentinel = fresh_candidate(base, root)
+            build_valid_rotation(authority, base, rollback_base)
+            rewrite_authority_state(
+                rollback_base,
+                stage=contract.PORTABLE_FORBIDDEN_SCANNER_REPAIR_PREDECESSOR_STAGE,
+            )
+            candidate, sentinel = fresh_candidate(rollback_base, root)
+            build_valid_rotation(
+                authority,
+                rollback_base,
+                candidate,
+                next_stage=contract.PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE,
+                mutate_scanner=True,
+            )
+            assert_rejected(
+                authority,
+                rollback_base,
+                candidate,
+                sentinel,
+                "portable-forbidden-scanner-repair-rejects-rolled-back-stage-spoof",
             )
 
             candidate, sentinel = fresh_candidate(base, root)
@@ -501,7 +611,7 @@ def main() -> int:
     except (OSError, RuntimeError, subprocess.CalledProcessError, tarfile.TarError) as exc:
         print(f"stage5f-base-authority-negative: FAIL: {exc}", file=sys.stderr)
         return 1
-    expected_cases = 53
+    expected_cases = 57
     print(f"stage5f-base-authority-negative: ok cases={expected_cases}")
     return 0
 

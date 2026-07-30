@@ -94,7 +94,10 @@ two-generation sequence below.
 Generation 2, `5F-a-r8-bootstrap-repair-authority`, changes only the
 protected-base contract and its governance evidence. It does not modify the
 scanner or a workflow. Its successor contract then admits exactly generation
-3, `5F-a-r9-portable-forbidden-scanner`, and only these changed source paths:
+3, `5F-a-r9-portable-forbidden-scanner`, only when the protected base has
+schema version 1, authority generation 2 and the exact r8 stage name. The
+candidate must declare the matching `previous_generation = 2`,
+`next_generation = 3` and r9 stage. It may then alter only these source paths:
 
 ```text
 docs/current-status.md
@@ -117,5 +120,7 @@ The r9 candidate must change `scripts/forbidden_surface_scan.sh` as executable
 mode `100755`; omitting that change, changing its mode, adding an arbitrary
 path, or using this special stage to change a workflow is rejected by the
 generation-2 contract. Generic rotations cannot change any of the three
-forbidden-surface scanner/harness files. The exception is consumed by r9 and
-does not create a general scanner-maintenance route.
+forbidden-surface scanner/harness files. Replaying r9 from generation 3 or a
+later generation, invoking it from a different generation-2 stage, or spoofing
+the r8 stage name on a later state is rejected. The exception is therefore
+consumed by r9 and does not create a general scanner-maintenance route.

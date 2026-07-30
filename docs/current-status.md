@@ -281,7 +281,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   than accepting seven undetected scanner mutations. Stage 5F-a-r8 is therefore
   prepared as a review-gated generation-2 authority repair: it changes no
   workflow or scanner, and admits exactly one bounded r9 portable-scanner
-  successor. GitHub
+  successor only from the exact schema-1, generation-2 r8 authority state;
+  that successor is generation 3 and cannot be replayed. GitHub
   activation still requires an independent approval after the latest update,
   strict up-to-date branch and no direct/admin bypass. It then
   admits only the existing

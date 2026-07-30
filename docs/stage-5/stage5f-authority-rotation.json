@@ -42,11 +42,11 @@
     },
     "scripts/stage5f_base_authority_contract.py": {
       "git_mode": "100644",
-      "sha256": "2a31935d47eac641d5a7df84f0ed8ecc661dea95c3922216efbb66b3cb828d2c"
+      "sha256": "47e56c76d0ecce79a15a8e9ae4e03e9176544500c2c3c3730931d6e42181484b"
     },
     "scripts/stage5f_base_authority_negative_harness.py": {
       "git_mode": "100644",
-      "sha256": "d22889db719cb7b531777c238ec4017e32e1dfe5fd7ca3d47291a8868269508a"
+      "sha256": "d65c0dd54578fbc08228193f1f4fe8eb3d0dfc5d35549fa5ed643cc1f1f3133b"
     },
     "scripts/stage5f_ci_snapshot_inheritance_check.py": {
       "git_mode": "100755",
@@ -65,11 +65,11 @@
   "changed_paths": {
     "docs/current-status.md": {
       "git_mode": "100644",
-      "sha256": "b59c715fa2540a203ff84c5a27905cd4a29abbb8da9e00c0cecbe5b5f44126d5"
+      "sha256": "16e7fda26cb0035824e7b42b03ae75e5aa0b515c5b8c5de92014acd493b1476a"
     },
     "docs/handoff.md": {
       "git_mode": "100644",
-      "sha256": "a5416c3a70ca71e0b38915e1a5faaf16c47696b0b03f2fa9cfb742a66d821bb9"
+      "sha256": "f5c1ca53527b348208c286b42aed001da5d5c4ece703640ec11609ebf9198ee0"
     },
     "docs/stage-5/5f-a-atomic-hybrid-semantics-entry.md": {
       "git_mode": "100644",
@@ -77,7 +77,7 @@
     },
     "docs/stage-5/5f-a-r8-bootstrap-repair-authority.md": {
       "git_mode": "100644",
-      "sha256": "4e3f27547e64699b7ebc2ffc0d5d16a280d63493f606933be34c0dc9f216f5d0"
+      "sha256": "083a5e764e6c5ab33988acb404275e9503848359dc6e6fc1f985c5b575d16254"
     },
     "docs/stage-5/stage5f-a-atomic-hybrid-semantics-entry-inventory.json": {
       "git_mode": "100644",
@@ -85,7 +85,7 @@
     },
     "docs/stage-5/stage5f-authority-rotation-protocol.md": {
       "git_mode": "100644",
-      "sha256": "4e9d601c86893d7ab54d7511fcc356cf498bd76f542d9a1cb03403a1d4298985"
+      "sha256": "e2337608ab1d341e858af20d1aa54251241a4277fca91d8142e3da7828e8eb63"
     },
     "docs/stage-5/stage5f-authority-state.json": {
       "git_mode": "100644",
@@ -101,11 +101,11 @@
     },
     "scripts/stage5f_base_authority_contract.py": {
       "git_mode": "100644",
-      "sha256": "2a31935d47eac641d5a7df84f0ed8ecc661dea95c3922216efbb66b3cb828d2c"
+      "sha256": "47e56c76d0ecce79a15a8e9ae4e03e9176544500c2c3c3730931d6e42181484b"
     },
     "scripts/stage5f_base_authority_negative_harness.py": {
       "git_mode": "100644",
-      "sha256": "d22889db719cb7b531777c238ec4017e32e1dfe5fd7ca3d47291a8868269508a"
+      "sha256": "d65c0dd54578fbc08228193f1f4fe8eb3d0dfc5d35549fa5ed643cc1f1f3133b"
     }
   },
   "kind": "stage5f-authority-rotation",

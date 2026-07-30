@@ -52,11 +52,25 @@ negative-harness files, and the necessary Stage 5F governance/documentation
 bindings. It cannot alter either GitHub Actions workflow, Cargo/Rust or an
 operational surface.
 
+The capability is accepted only from the exact reviewed predecessor: base
+`schema_version = 1`, `authority_generation = 2` and
+`stage = 5F-a-r8-bootstrap-repair-authority`. Its manifest must advance from
+generation 2 to 3 and its candidate state must be the r9 stage. A repeated r9
+stage from generation 3 or later, a different generation-2 stage, or a later
+state that merely reuses the r8 stage name is rejected before the special
+allowlist is considered.
+
 The intended r9 implementation removes the implicit ripgrep dependency by
 using the already-required Python 3.11+ path for the six text scans and by
 making the worker's infrastructure detection portable. It must retain the
 current negative markers and demonstrate the scanner works with no `rg` in
 `PATH` before GitHub CI is treated as repaired.
+
+The contract's negative matrix proves the one-shot property with a valid first
+r9 transition and rejects: r9 replay from generation 3, invocation from an
+arbitrary later generation, a different generation-2 base stage, a rolled-back
+r8 stage-name spoof, missing scanner change, mode drift, scope creep and a
+scanner change through a generic rotation.
 
 ## Required acceptance sequence
 
