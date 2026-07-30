@@ -83,3 +83,39 @@ after the latest push, an up-to-date branch and no direct/force/admin bypass.
 After merge, a disposable clean PR and an adversarial authority-drift PR must
 show the new authority accepts the first and rejects the second before the next
 Stage 5F implementation slice starts.
+
+## Bounded activation-repair sequence: r8 → r9
+
+The first external activation exposed a platform dependency in the existing
+forbidden-surface scanner: the hosted runner did not provide `rg`. This is not
+an authorization to alter canonical CI. The only permitted recovery is the
+two-generation sequence below.
+
+Generation 2, `5F-a-r8-bootstrap-repair-authority`, changes only the
+protected-base contract and its governance evidence. It does not modify the
+scanner or a workflow. Its successor contract then admits exactly generation
+3, `5F-a-r9-portable-forbidden-scanner`, and only these changed source paths:
+
+```text
+docs/current-status.md
+docs/handoff.md
+docs/stage-5/5f-a-atomic-hybrid-semantics-entry.md
+docs/stage-5/5f-a-r8-bootstrap-repair-authority.md
+docs/stage-5/stage5f-a-atomic-hybrid-semantics-entry-inventory.json
+docs/stage-5/stage5f-authority-rotation-protocol.md
+docs/stage-5/stage5f-authority-rotation.json
+docs/stage-5/stage5f-authority-state.json
+scripts/forbidden_surface_negative_case_worker.sh
+scripts/forbidden_surface_negative_harness.py
+scripts/forbidden_surface_scan.sh
+scripts/handoff_safety_check.py
+scripts/stage5f_atomic_hybrid_semantics_entry_check.py
+scripts/stage5f_base_authority_negative_harness.py
+```
+
+The r9 candidate must change `scripts/forbidden_surface_scan.sh` as executable
+mode `100755`; omitting that change, changing its mode, adding an arbitrary
+path, or using this special stage to change a workflow is rejected by the
+generation-2 contract. Generic rotations cannot change any of the three
+forbidden-surface scanner/harness files. The exception is consumed by r9 and
+does not create a general scanner-maintenance route.

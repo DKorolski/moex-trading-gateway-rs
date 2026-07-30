@@ -81,6 +81,30 @@ after the latest PR update, strict up-to-date branch and no direct push,
 force-push, deletion or administrator bypass. No CODEOWNERS review is claimed
 until an independent repository maintainer is explicitly added.
 
+## Bootstrap repair authority
+
+During the first real activation PR, the hosted GitHub runner had no `rg`
+binary. The pre-existing forbidden-surface scanner invoked `rg` inside shell
+conditionals, so Bash did not terminate at those missing-command calls. The
+negative harness correctly failed instead of accepting the PR: seven mutation
+cases that depend on the six text scans were not detected. This is an
+activation blocker, not a runtime or broker behavior change.
+
+Stage 5F-a-r8 is a dedicated generation-2 authority rotation for that blocked
+activation. It does **not** change `ci.yml`, the scanner, Rust, Redis, FINAM,
+dispatch, persistence or live behavior. It authorizes exactly one successor,
+`5F-a-r9-portable-forbidden-scanner`, through the protected-base contract.
+That successor must change the executable scanner while preserving mode
+`100755`; it may update only the scanner's two negative-harness files and the
+listed Stage 5F governance/documentation bindings. It cannot change any
+workflow, Cargo/Rust or operational path. The full scope and acceptance record
+are in [5f-a-r8-bootstrap-repair-authority.md](5f-a-r8-bootstrap-repair-authority.md).
+
+The r9 implementation will remove the implicit `rg` dependency through the
+already-required Python 3.11+ scanner path and will preserve fail-closed
+negative coverage. A clean CI result after r9, followed by the clean and
+adversarial PR activation checks, remains mandatory before Stage 5F-b.
+
 The CI negative matrix proves that `continue-on-error`, `if: false`, a direct
 raw provenance call, a forged PASS producer, a second checkout, suppressed
 harness failure, an Actions-only wrapper replacement, a Stage 5F-negative

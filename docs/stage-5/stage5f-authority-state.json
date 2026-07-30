@@ -1,7 +1,7 @@
 {
-  "authority_generation": 1,
-  "previous_base_sha": null,
-  "previous_state_sha256": null,
+  "authority_generation": 2,
+  "previous_base_sha": "9a0f02dd36f3e08e4afb603870ca74a15b75e12c",
+  "previous_state_sha256": "4be750b9453e77c021b09b92edfb24fb180280440bd2baf1d5ceb336ea94b5fc",
   "schema_version": 1,
-  "stage": "5F-a-atomic-hybrid-semantics-entry"
+  "stage": "5F-a-r8-bootstrap-repair-authority"
 }

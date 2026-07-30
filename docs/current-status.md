@@ -276,7 +276,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `.github/workflows/**`, and permits only the exact base-authority workflow in
   a reviewed rotation while canonical `ci.yml` remains immutable. Rotation
   admits only Stage 5F governance/docs/fixture paths, never Rust or operational
-  surfaces. GitHub
+  surfaces. The first hosted activation exposed an undeclared `rg` dependency
+  in the forbidden-surface scanner; the negative harness failed safely rather
+  than accepting seven undetected scanner mutations. Stage 5F-a-r8 is therefore
+  prepared as a review-gated generation-2 authority repair: it changes no
+  workflow or scanner, and admits exactly one bounded r9 portable-scanner
+  successor. GitHub
   activation still requires an independent approval after the latest update,
   strict up-to-date branch and no direct/admin bypass. It then
   admits only the existing

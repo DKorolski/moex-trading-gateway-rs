@@ -52,6 +52,26 @@ ENTRY_CHECKER = "scripts/stage5f_atomic_hybrid_semantics_entry_check.py"
 HANDOFF_CHECKER = "scripts/handoff_safety_check.py"
 ALLOWED_GIT_MODES = {"100644", "100755"}
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
+PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE = "5F-a-r9-portable-forbidden-scanner"
+PORTABLE_FORBIDDEN_SCANNER_REPAIR_PATHS = frozenset(
+    {
+        "docs/current-status.md",
+        "docs/handoff.md",
+        "docs/stage-5/5f-a-atomic-hybrid-semantics-entry.md",
+        "docs/stage-5/5f-a-r8-bootstrap-repair-authority.md",
+        "docs/stage-5/stage5f-a-atomic-hybrid-semantics-entry-inventory.json",
+        "docs/stage-5/stage5f-authority-rotation-protocol.md",
+        "docs/stage-5/stage5f-authority-rotation.json",
+        "docs/stage-5/stage5f-authority-state.json",
+        "scripts/forbidden_surface_negative_case_worker.sh",
+        "scripts/forbidden_surface_negative_harness.py",
+        "scripts/forbidden_surface_scan.sh",
+        "scripts/handoff_safety_check.py",
+        "scripts/stage5f_atomic_hybrid_semantics_entry_check.py",
+        "scripts/stage5f_base_authority_negative_harness.py",
+    }
+)
+PORTABLE_FORBIDDEN_SCANNER_PATH = "scripts/forbidden_surface_scan.sh"
 SHA_LINE = re.compile(
     r'verify_sha256 "([0-9a-f]{64})" '
     r'"scripts/stage5f_atomic_hybrid_semantics_gate\.sh"'
@@ -296,7 +316,9 @@ def changed_entries(
     }
 
 
-def is_rotation_path_allowed(relative: str) -> bool:
+def is_rotation_path_allowed(relative: str, next_stage: str) -> bool:
+    if next_stage == PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE:
+        return relative in PORTABLE_FORBIDDEN_SCANNER_REPAIR_PATHS
     if relative.startswith(WORKFLOW_PREFIX):
         return relative == AUTHORITY_WORKFLOW
     if relative in AUTHORITY_FILES or relative == ROTATION_MANIFEST:
@@ -383,8 +405,18 @@ def validate_rotation(
         fail("authority rotation changed-path binding map mismatch")
     if not changes or ROTATION_MANIFEST not in changes or AUTHORITY_STATE not in changes:
         fail("authority rotation lacks mandatory manifest/state transition")
-    if any(not is_rotation_path_allowed(relative) for relative in changes):
+    if any(
+        not is_rotation_path_allowed(relative, manifest["next_stage"])
+        for relative in changes
+    ):
         fail("authority rotation contains an out-of-scope path")
+
+    if manifest["next_stage"] == PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE:
+        scanner_entry = changes.get(PORTABLE_FORBIDDEN_SCANNER_PATH)
+        if scanner_entry is None:
+            fail("portable forbidden-scanner repair does not change the scanner")
+        if scanner_entry.get("git_mode") != "100755":
+            fail("portable forbidden-scanner repair changes scanner mode")
 
     declared_authority = manifest.get("authority_files")
     if not isinstance(declared_authority, dict) or set(declared_authority) != set(AUTHORITY_FILES):
