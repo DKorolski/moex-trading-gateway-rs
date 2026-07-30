@@ -60,6 +60,12 @@ stage from generation 3 or later, a different generation-2 stage, or a later
 state that merely reuses the r8 stage name is rejected before the special
 allowlist is considered.
 
+Before any of those comparisons, the contract requires exact JSON integer
+types for the base, candidate and manifest schema/generation fields. In
+particular, `true`, `1.0` and `3.0` are rejected rather than treated as Python
+numeric aliases for `1` or `3`. A malformed float generation is also rejected
+as a future rotation base, so it cannot create a governance deadlock.
+
 The intended r9 implementation removes the implicit ripgrep dependency by
 using the already-required Python 3.11+ path for the six text scans and by
 making the worker's infrastructure detection portable. It must retain the
@@ -69,8 +75,9 @@ current negative markers and demonstrate the scanner works with no `rg` in
 The contract's negative matrix proves the one-shot property with a valid first
 r9 transition and rejects: r9 replay from generation 3, invocation from an
 arbitrary later generation, a different generation-2 base stage, a rolled-back
-r8 stage-name spoof, missing scanner change, mode drift, scope creep and a
-scanner change through a generic rotation.
+r8 stage-name spoof, numeric type smuggling in the candidate or manifest, a
+float state used as a later base, missing scanner change, mode drift, scope
+creep and a scanner change through a generic rotation.
 
 ## Required acceptance sequence
 

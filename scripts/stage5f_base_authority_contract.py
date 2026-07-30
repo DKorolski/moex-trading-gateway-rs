@@ -101,6 +101,13 @@ def fail(message: str) -> None:
     raise ContractFailure(message)
 
 
+def require_json_int(value: object, label: str) -> int:
+    """Require an exact JSON integer, excluding Python's bool and float aliases."""
+    if type(value) is not int:
+        fail(f"{label} must be a JSON integer")
+    return value
+
+
 def git(root: Path, *args: str) -> bytes:
     try:
         return subprocess.run(
@@ -344,10 +351,19 @@ def validate_portable_forbidden_scanner_repair_predecessor(
     manifest: dict[str, object],
 ) -> None:
     """Accept the scanner exception exactly once, from the reviewed r8 state."""
-    if base_state.get("schema_version") != 1:
+    if (
+        require_json_int(
+            base_state.get("schema_version"),
+            "portable forbidden-scanner repair base schema_version",
+        )
+        != 1
+    ):
         fail("portable forbidden-scanner repair base schema mismatch")
     if (
-        base_state.get("authority_generation")
+        require_json_int(
+            base_state.get("authority_generation"),
+            "portable forbidden-scanner repair base authority_generation",
+        )
         != PORTABLE_FORBIDDEN_SCANNER_REPAIR_PREDECESSOR_GENERATION
     ):
         fail("portable forbidden-scanner repair predecessor generation mismatch")
@@ -357,19 +373,28 @@ def validate_portable_forbidden_scanner_repair_predecessor(
     ):
         fail("portable forbidden-scanner repair predecessor stage mismatch")
     if (
-        manifest.get("previous_generation")
+        require_json_int(
+            manifest.get("previous_generation"),
+            "portable forbidden-scanner repair manifest previous_generation",
+        )
         != PORTABLE_FORBIDDEN_SCANNER_REPAIR_PREDECESSOR_GENERATION
     ):
         fail("portable forbidden-scanner repair manifest predecessor mismatch")
     if (
-        manifest.get("next_generation")
+        require_json_int(
+            manifest.get("next_generation"),
+            "portable forbidden-scanner repair manifest next_generation",
+        )
         != PORTABLE_FORBIDDEN_SCANNER_REPAIR_SUCCESSOR_GENERATION
     ):
         fail("portable forbidden-scanner repair manifest successor mismatch")
     if candidate_state.get("stage") != PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE:
         fail("portable forbidden-scanner repair candidate stage mismatch")
     if (
-        candidate_state.get("authority_generation")
+        require_json_int(
+            candidate_state.get("authority_generation"),
+            "portable forbidden-scanner repair candidate authority_generation",
+        )
         != PORTABLE_FORBIDDEN_SCANNER_REPAIR_SUCCESSOR_GENERATION
     ):
         fail("portable forbidden-scanner repair candidate generation mismatch")
@@ -399,7 +424,14 @@ def validate_rotation(
     }
     if set(manifest) != required_keys:
         fail("authority rotation manifest key set drift")
-    if manifest.get("schema_version") != 1 or manifest.get("kind") != "stage5f-authority-rotation":
+    manifest_schema_version = require_json_int(
+        manifest.get("schema_version"),
+        "authority rotation manifest schema_version",
+    )
+    if (
+        manifest_schema_version != 1
+        or manifest.get("kind") != "stage5f-authority-rotation"
+    ):
         fail("authority rotation manifest identity drift")
     if manifest.get("previous_base_sha") != base_sha:
         fail("authority rotation manifest base SHA mismatch")
@@ -414,14 +446,31 @@ def validate_rotation(
         "previous_state_sha256",
         "schema_version",
         "stage",
-    } or base_state.get("schema_version") != 1:
+    }:
         fail("base authority state schema drift")
-    previous_generation = base_state.get("authority_generation")
-    if not isinstance(previous_generation, int) or previous_generation < 1:
+    base_schema_version = require_json_int(
+        base_state.get("schema_version"),
+        "base authority state schema_version",
+    )
+    if base_schema_version != 1:
+        fail("base authority state schema drift")
+    previous_generation = require_json_int(
+        base_state.get("authority_generation"),
+        "base authority generation",
+    )
+    if previous_generation < 1:
         fail("base authority generation is invalid")
-    if manifest.get("previous_generation") != previous_generation:
+    manifest_previous_generation = require_json_int(
+        manifest.get("previous_generation"),
+        "authority rotation manifest previous_generation",
+    )
+    if manifest_previous_generation != previous_generation:
         fail("authority rotation previous generation mismatch")
-    if manifest.get("next_generation") != previous_generation + 1:
+    manifest_next_generation = require_json_int(
+        manifest.get("next_generation"),
+        "authority rotation manifest next_generation",
+    )
+    if manifest_next_generation != previous_generation + 1:
         fail("authority rotation next generation mismatch")
     if manifest.get("previous_state_sha256") != require_entry(base_entries, AUTHORITY_STATE).sha256:
         fail("authority rotation previous state digest mismatch")
@@ -432,6 +481,19 @@ def validate_rotation(
         "schema_version": 1,
         "stage": manifest["next_stage"],
     }
+    candidate_schema_version = require_json_int(
+        candidate_state.get("schema_version"),
+        "candidate authority state schema_version",
+    )
+    candidate_generation = require_json_int(
+        candidate_state.get("authority_generation"),
+        "candidate authority generation",
+    )
+    if (
+        candidate_schema_version != expected_state["schema_version"]
+        or candidate_generation != expected_state["authority_generation"]
+    ):
+        fail("candidate authority state is not an exact one-generation transition")
     if candidate_state != expected_state:
         fail("candidate authority state is not an exact one-generation transition")
 

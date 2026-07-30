@@ -136,7 +136,9 @@ generation-2 contract requires that the executable scanner itself changes,
 rejects mode drift and rejects every path outside the documented r9 allowlist.
 It also accepts that exception only from the exact schema-1 generation-2
 `5F-a-r8-bootstrap-repair-authority` base state into generation 3, so the r9
-stage name cannot replay the authority later.
+stage name cannot replay the authority later. All authority schema and
+generation fields are validated as exact JSON integers before comparison, so
+Python `bool` and float values cannot create an accepted dead-end state.
 The r8 archive is review evidence for authority scope only; its canonical CI
 Rust failure remains expected until r9 restores scanner portability.
 

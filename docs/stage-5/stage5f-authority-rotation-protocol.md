@@ -54,6 +54,12 @@ base SHA and state digest. `authority_files` must provide the exact candidate
 Git-mode and content binding of every authority file, including files whose
 bytes remain unchanged.
 
+`schema_version`, `authority_generation`, `previous_generation` and
+`next_generation` are exact JSON integer fields. The protected-base contract
+checks their type before arithmetic or equality comparison: `true`, `1.0` and
+`3.0` are invalid. This prevents an apparently accepted rotation from leaving a
+non-integer state that later rotations cannot consume.
+
 The following values must be equal, not merely present:
 
 ```text
