@@ -99,6 +99,8 @@ bash scripts/stage5f_atomic_hybrid_semantics_gate.sh
 python3 scripts/stage5f_atomic_hybrid_semantics_negative_harness.py
 python3 scripts/stage5f_ci_snapshot_inheritance_negative_harness.py
 python3 scripts/stage5f_ci_snapshot_inheritance_check.py --execute-verified-provenance
+# Protected-base authority and future in-band rotation matrix:
+python3 scripts/stage5f_base_authority_negative_harness.py
 # Focused final Stage 5D restart-closure check:
 cargo test -p strategy-runtime-core stage5d_final -- --nocapture
 ```

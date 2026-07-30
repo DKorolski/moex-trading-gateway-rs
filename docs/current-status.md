@@ -264,13 +264,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   frozen Stage 5E gate to a Stage 5F head. Stage 5F-a-r3 executes the verified
   wrapper before any Stage 5F repository-owned harness and freezes the workflow,
   wrapper, gate, verifier and both negative harnesses as one accepted authority
-  set. Stage 5F-a-r5 adds a protected-base, read-only `pull_request_target`
-  authority workflow: unchanged R3 execution files must equal accepted
-  `8ce0acd`, while R4-owned enforcement files must equal the protected PR base.
-  It treats PR content only as data, admits a clean next PR and rejects
-  coordinated rebinding before a candidate executable can run. Its
-  sixteen current-tree negative mutations include Actions-only wrapper replacement,
-  forged harness output and wrapper mutation before verified execution. It then
+  set. Stage 5F-a-r6 restores the R3 gate bytes, so canonical CI, inventory,
+  entry checker, handoff checker and the actual gate carry one exact digest.
+  Its protected-base, read-only `pull_request_target` authority workflow treats
+  PR content only as data. Ordinary PRs preserve the R3 and protected-base
+  roots; a dedicated, versioned rotation manifest can advance them only when
+  the old base contract binds the exact base SHA, state generation, complete
+  candidate hashes and a coherent gate digest. Rotation admits only Stage 5F
+  governance/docs/fixture paths, never Rust or operational surfaces. GitHub
+  activation still requires an independent approval after the latest update,
+  strict up-to-date branch and no direct/admin bypass. It then
   admits only the existing
   IMOEXF `canonical_final_m10` paper route through the broker-neutral Hybrid
   runtime, high180/riskgate, the single Hybrid orchestrator, ordered semantic

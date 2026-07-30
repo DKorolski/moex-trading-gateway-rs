@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -18,8 +19,8 @@ INVENTORY = (
 ACTIVE = ROOT / "docs/stage-5/stage5f-active-descriptor.json"
 STAGE = "5F-a-atomic-hybrid-semantics-entry"
 BASELINE_REF = "e14654f7129aa61011931306140a3bfefe2fcfbc"
-EXPECTED_PLAN_SHA256 = "6236ca903f9de46a853abc1e75e9ce57c6975d03b3217e02d0e3297c06f8b614"
-EXPECTED_INVENTORY_SHA256 = "ea25953390ee41dda9fe896dfe44819e487f7b5871789d6c1cca597d67196c39"
+EXPECTED_PLAN_SHA256 = "6e56b09fa7d5f02578038b6c4d97efaf9feeda75fc26df472c27aaf58a2d305b"
+EXPECTED_INVENTORY_SHA256 = "2ee0346a59a2902eef132ece24d66c5d50c6a7ba1442bbc83d8111c47b1412f8"
 
 EXPECTED_B3F_CLOSURE = {
     "source_ref": BASELINE_REF,
@@ -37,7 +38,7 @@ EXPECTED_B3F_CLOSURE = {
 EXPECTED_CI_SNAPSHOT_AUTHORITY = {
     "ci_workflow_sha256": "6133fb3900a9f11323df444c38760f6b71fdece927bfe2fb2cb411b5172d02f3",
     "b3f_snapshot_provenance_wrapper_sha256": "f922a4f777fbb37e049ccb640f713b7ff7557cf4f86e8855823d7db328731e29",
-    "stage5f_atomic_hybrid_semantics_gate_sha256": "245153f7cf8bd95ca92a4cf0fc22160d7db63c98697f7fe2e2e8cd3da7972e92",
+    "stage5f_atomic_hybrid_semantics_gate_sha256": "b3fdcfb4bf000f36de333b61cf542da1ca0452ed7638c3f68195bf8fa8d264b8",
     "stage5f_ci_snapshot_inheritance_check_sha256": "50dd173044c4c4d1eee330b08a27e7c8e044fe75148bc7816f8448e43fff082a",
     "stage5f_atomic_hybrid_semantics_negative_harness_sha256": "1a8cf90caf9b1500f01eee0fe31108e22592a4b14eceb025b53296c2f098bef4",
     "stage5f_ci_snapshot_inheritance_negative_harness_sha256": "66fec06da991f5778db4b79c733d159ed3a11c97a626ec7064e2c918d605944a",
@@ -150,17 +151,24 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "docs/stage-5/5f-a-atomic-hybrid-semantics-entry.md",
     "docs/stage-5/stage5f-a-atomic-hybrid-semantics-entry-inventory.json",
     "docs/stage-5/stage5f-active-descriptor.json",
+    "docs/stage-5/stage5f-authority-rotation-protocol.md",
+    "docs/stage-5/stage5f-authority-state.json",
     "scripts/handoff_safety_check.py",
     "scripts/make_handoff_archive.sh",
     "scripts/stage5f_atomic_hybrid_semantics_entry_check.py",
     "scripts/stage5f_atomic_hybrid_semantics_gate.sh",
     "scripts/stage5f_atomic_hybrid_semantics_negative_harness.py",
     "scripts/stage5f_b3f_snapshot_provenance_gate.sh",
+    "scripts/stage5f_base_authority_contract.py",
     "scripts/stage5f_base_authority_negative_harness.py",
     "scripts/stage5f_ci_snapshot_inheritance_check.py",
     "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py",
     "scripts/stage5f_descriptor.py",
 ]
+CI_GATE_DIGEST = re.compile(
+    r'verify_sha256 "([0-9a-f]{64})" '
+    r'"scripts/stage5f_atomic_hybrid_semantics_gate\.sh"'
+)
 REQUIRED_PLAN_FRAGMENTS = [
     "The Stage 5E descriptor remains an immutable closure descriptor for B3F.",
     "There is no alternate direct Stage 5C callback route, second orchestrator,",
@@ -284,6 +292,17 @@ def validate_inventory(inventory: dict[str, object]) -> None:
             EXPECTED_CI_SNAPSHOT_AUTHORITY[field],
             f"Stage 5F CI execution authority drift: {relative}",
         )
+    ci_digests = CI_GATE_DIGEST.findall((ROOT / ".github/workflows/ci.yml").read_text())
+    require_exact(
+        ci_digests,
+        [EXPECTED_CI_SNAPSHOT_AUTHORITY["stage5f_atomic_hybrid_semantics_gate_sha256"]],
+        "canonical CI Stage 5F gate digest drift",
+    )
+    require_exact(
+        inventory["ci_snapshot_authority"]["stage5f_atomic_hybrid_semantics_gate_sha256"],
+        sha256(ROOT / "scripts/stage5f_atomic_hybrid_semantics_gate.sh"),
+        "Stage 5F gate digest split",
+    )
     require_exact(
         inventory.get("target_contract"),
         EXPECTED_TARGET_CONTRACT,

@@ -29,26 +29,48 @@ pins the workflow, wrapper, Stage 5F gate, CI verifier and both Stage 5F
 negative harnesses. Those current-tree digests remain useful handoff evidence,
 but are not an immutable authority root.
 
-Stage 5F-a-r5 adds the external authority boundary required for later pull
-requests. `Stage 5F Base Authority` runs only as a protected-base
+Stage 5F-a-r6 closes the bootstrap consistency gap before the external
+authority boundary is activated. The canonical Stage 5F gate is restored
+byte-for-byte to the accepted R3 digest, so the immutable canonical CI,
+inventory, entry checker, handoff checker and actual gate name one coherent
+digest. The base-authority matrix is deliberately outside that frozen gate: it
+is a separate protected-base control rather than an unpinned mutation of the
+canonical execution path.
+
+`Stage 5F Base Authority` runs only as a protected-base
 `pull_request_target` workflow with read-only permissions. It checks out the
 exact accepted `8ce0acd60c7cb5cc5d25a27f6553077240658b57` snapshot, executes
 the existing checker/verifier and the detached B3F provenance harness only from
 that snapshot, and treats the pull-request head only as byte data.
 
-The authority boundary has two explicit roots. The seven R3 files that are
-unchanged in R4/R5 must match `8ce0acd` byte-for-byte. R4-owned enforcement
-files — the external workflow, inventory, handoff checker, current Stage 5F
-entry checker/gate and its authority negative harness — must match the
-protected PR base byte-for-byte. This admits a clean PR branched from the
-accepted R5 base while rejecting any later rebind of either authority set. A
-34-case harness proves the clean next-PR positive, the coordinated five-root
-R3 rebind, each R4 base-authority drift, and symlink/gitlink substitutions for
-every protected path without executing candidate code. Branch protection must
-require this status check, an ordinary independent pull-request approval, an
-up-to-date branch and no direct-push or bypass path for the authority scope.
-No CODEOWNERS review is claimed until an independent repository maintainer is
-explicitly added.
+The authority boundary has two explicit roots. The seven R3 files must match
+`8ce0acd` byte-for-byte for an ordinary PR. The protected-base set contains the
+external workflow, inventory, authority state, handoff and entry checkers, gate
+and both base-authority scripts. It must match the PR base byte-for-byte for an
+ordinary PR. This admits a clean successor while rejecting a rebind of either
+authority set, including symlink and directory/gitlink substitutions, without
+executing candidate code.
+
+The only in-band exception is a versioned
+`docs/stage-5/stage5f-authority-rotation.json` submitted in a dedicated PR.
+The old base workflow executes its own `stage5f_base_authority_contract.py`,
+not the candidate version. It accepts a rotation only when its manifest binds:
+
+- the exact protected PR base SHA and prior authority-state digest;
+- exactly one increment of `authority_generation` and the named next 5F stage;
+- an exact hash for every next authority file;
+- the complete changed-path/digest map (the manifest is intentionally excluded
+  from its self-hash map);
+- one coherent canonical CI / inventory / entry-checker / handoff-checker /
+  actual-gate digest; and
+- only Stage 5F governance, documentation and fixture paths — never Rust,
+  transport, runtime or live-trading paths.
+
+The rotation manifest is reviewable data; it cannot execute candidate code.
+The required GitHub branch rule must still require an independent approval
+after the latest PR update, strict up-to-date branch and no direct push,
+force-push, deletion or administrator bypass. No CODEOWNERS review is claimed
+until an independent repository maintainer is explicitly added.
 
 The CI negative matrix proves that `continue-on-error`, `if: false`, a direct
 raw provenance call, a forged PASS producer, a second checkout, suppressed
@@ -158,8 +180,9 @@ ACK/order/position/timer feedback
 ## Stage 5F delivery order
 
 1. **5F-a** — this inherited entry contract and gate.
-2. **5F-b** — fixture/input and redacted fingerprint schema for the complete
-   atomic matrix.
+2. **5F-b** — use the reviewed authority-rotation protocol to introduce the
+   fixture/input and redacted fingerprint schema for the complete atomic
+   matrix.
 3. **5F-c** — controlled invocation of the sole existing route in paper mode.
 4. **5F-d** — complete BO/MR/riskgate/arbitration atomic matrix and negative
    invariants.
