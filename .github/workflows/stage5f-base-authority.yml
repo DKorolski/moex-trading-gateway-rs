@@ -1,0 +1,93 @@
+name: Stage 5F Base Authority
+
+on:
+  pull_request_target:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+# The workflow is evaluated from the protected base branch. It deliberately
+# receives no write token and never executes a file from the pull-request head.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  base-authority:
+    name: base-authority
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout accepted Stage 5F-a authority snapshot
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: "8ce0acd60c7cb5cc5d25a27f6553077240658b57"
+          path: authority
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout protected PR base as data
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: "${{ github.event.pull_request.base.sha }}"
+          path: base
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout pull-request head as data
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: "${{ github.event.pull_request.head.sha }}"
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Reject candidate authority rebinding before execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          compare_file() {
+            local trusted_root="$1"
+            local relative="$2"
+            test -f "$trusted_root/$relative"
+            test -f "candidate/$relative"
+            test ! -L "$trusted_root/$relative"
+            test ! -L "candidate/$relative"
+            if ! cmp --silent -- "$trusted_root/$relative" "candidate/$relative"; then
+              echo "Stage 5F external authority drift: $relative" >&2
+              exit 1
+            fi
+          }
+
+          while IFS= read -r relative; do
+            compare_file authority "$relative"
+          done <<'R3_AUTHORITY'
+          .github/workflows/ci.yml
+          docs/stage-5/stage5f-a-atomic-hybrid-semantics-entry-inventory.json
+          scripts/handoff_safety_check.py
+          scripts/make_handoff_archive.sh
+          scripts/stage5f_atomic_hybrid_semantics_entry_check.py
+          scripts/stage5f_atomic_hybrid_semantics_gate.sh
+          scripts/stage5f_atomic_hybrid_semantics_negative_harness.py
+          scripts/stage5f_b3f_snapshot_provenance_gate.sh
+          scripts/stage5f_ci_snapshot_inheritance_check.py
+          scripts/stage5f_ci_snapshot_inheritance_negative_harness.py
+          scripts/stage5f_descriptor.py
+          R3_AUTHORITY
+
+          while IFS= read -r relative; do
+            compare_file base "$relative"
+          done <<'BASE_AUTHORITY'
+          .github/CODEOWNERS
+          .github/workflows/stage5f-base-authority.yml
+          BASE_AUTHORITY
+
+      - name: Execute only accepted R3 verifier and B3F provenance
+        working-directory: authority
+        run: |
+          set -euo pipefail
+          python3 scripts/stage5f_atomic_hybrid_semantics_entry_check.py
+          python3 scripts/stage5f_ci_snapshot_inheritance_check.py --execute-verified-provenance

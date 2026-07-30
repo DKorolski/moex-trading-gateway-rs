@@ -24,11 +24,24 @@ Stage 5F-a-r3 seals the canonical CI execution order as well as the inherited
 B3F provenance bytes. Its first Stage 5F CI action verifies the exact
 snapshot-verifier authority and that verifier immediately checks and executes
 the exact detached-snapshot wrapper. No repository-owned executable runs
-between wrapper verification and use. The reviewed execution-authority set
-also pins the workflow, wrapper, Stage 5F gate, CI verifier and both Stage 5F
-negative harnesses. The entry checker and handoff safety compare those values
-with reviewer-pinned SHA-256 authorities; they do not merely record hashes
-produced by the current tree.
+between wrapper verification and use. The reviewed execution-authority set also
+pins the workflow, wrapper, Stage 5F gate, CI verifier and both Stage 5F
+negative harnesses. Those current-tree digests remain useful handoff evidence,
+but are not an immutable authority root.
+
+Stage 5F-a-r4 therefore adds the external authority boundary required for later
+pull requests. `Stage 5F Base Authority` runs only as a protected-base
+`pull_request_target` workflow with read-only permissions. It checks out the
+exact accepted `8ce0acd60c7cb5cc5d25a27f6553077240658b57` snapshot, executes
+the existing checker/verifier and the detached B3F provenance harness only from
+that snapshot, and treats the pull-request head only as byte data. Before any
+accepted authority executable runs, it rejects a byte or symlink difference in
+the frozen R3 authority set; it also compares the workflow and CODEOWNERS file
+with the protected pull-request base. The workflow never runs a candidate
+script. Branch protection must require this status check and a CODEOWNERS review
+for its authority scope. A two-case harness reproduces the coordinated
+workflow/verifier/entry-checker/inventory/handoff rebinding shape and proves it
+is rejected without executing candidate code.
 
 The CI negative matrix proves that `continue-on-error`, `if: false`, a direct
 raw provenance call, a forged PASS producer, a second checkout, suppressed
