@@ -264,10 +264,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   frozen Stage 5E gate to a Stage 5F head. Stage 5F-a-r3 executes the verified
   wrapper before any Stage 5F repository-owned harness and freezes the workflow,
   wrapper, gate, verifier and both negative harnesses as one accepted authority
-  set. Stage 5F-a-r4 adds a protected-base, read-only `pull_request_target`
-  authority workflow: it executes the R3 checker/verifier only from accepted
-  `8ce0acd`, treats PR content only as data, and rejects coordinated rebinding
-  of the frozen authority bytes before a candidate executable can run. Its
+  set. Stage 5F-a-r5 adds a protected-base, read-only `pull_request_target`
+  authority workflow: unchanged R3 execution files must equal accepted
+  `8ce0acd`, while R4-owned enforcement files must equal the protected PR base.
+  It treats PR content only as data, admits a clean next PR and rejects
+  coordinated rebinding before a candidate executable can run. Its
   sixteen current-tree negative mutations include Actions-only wrapper replacement,
   forged harness output and wrapper mutation before verified execution. It then
   admits only the existing

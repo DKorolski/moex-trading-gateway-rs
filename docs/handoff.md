@@ -104,14 +104,18 @@ check immediately before it creates the source-tree manifest; archive safety
 then repeats it from archive bytes. The Stage 5F CI negative result contains
 sixteen mutations, including skipped/non-blocking CI steps, Actions-only
 wrapper replacement, forged harness output and wrapper mutation before verified
-execution. Stage 5F-a-r4 adds a separate, base-controlled `Stage 5F Base
+execution. Stage 5F-a-r5 adds a separate, base-controlled `Stage 5F Base
 Authority` workflow for future pull requests. It checks out the accepted R3 ref
 `8ce0acd60c7cb5cc5d25a27f6553077240658b57` and executes its checker/verifier
 only from that directory; the PR head is checked out only for byte comparisons.
-The workflow rejects changed or symlinked R3 authority files and changes to its
-own workflow/CODEOWNERS before any candidate executable can run. This external
-check, plus required CODEOWNERS review, must be enabled in GitHub branch
-protection after the bootstrap commit has been accepted.
+The unchanged R3 authority subset is compared with that accepted snapshot,
+while R4-owned authority files are compared with the protected PR base. The
+workflow rejects changed, symlinked or gitlink-shaped protected files before any
+candidate executable can run. This external check, a required independent PR
+approval, up-to-date branch enforcement and no direct-push/bypass path must be
+enabled in GitHub branch protection after the corrected bootstrap commit has
+been accepted. The project does not claim a CODEOWNERS review until an
+independent repository maintainer is explicitly added.
 
 The script also creates the external sibling
 `moex-trading-project-<short>.zip.sha256`. The archive hash is deliberately not

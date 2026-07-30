@@ -29,19 +29,26 @@ pins the workflow, wrapper, Stage 5F gate, CI verifier and both Stage 5F
 negative harnesses. Those current-tree digests remain useful handoff evidence,
 but are not an immutable authority root.
 
-Stage 5F-a-r4 therefore adds the external authority boundary required for later
-pull requests. `Stage 5F Base Authority` runs only as a protected-base
+Stage 5F-a-r5 adds the external authority boundary required for later pull
+requests. `Stage 5F Base Authority` runs only as a protected-base
 `pull_request_target` workflow with read-only permissions. It checks out the
 exact accepted `8ce0acd60c7cb5cc5d25a27f6553077240658b57` snapshot, executes
 the existing checker/verifier and the detached B3F provenance harness only from
-that snapshot, and treats the pull-request head only as byte data. Before any
-accepted authority executable runs, it rejects a byte or symlink difference in
-the frozen R3 authority set; it also compares the workflow and CODEOWNERS file
-with the protected pull-request base. The workflow never runs a candidate
-script. Branch protection must require this status check and a CODEOWNERS review
-for its authority scope. A two-case harness reproduces the coordinated
-workflow/verifier/entry-checker/inventory/handoff rebinding shape and proves it
-is rejected without executing candidate code.
+that snapshot, and treats the pull-request head only as byte data.
+
+The authority boundary has two explicit roots. The seven R3 files that are
+unchanged in R4/R5 must match `8ce0acd` byte-for-byte. R4-owned enforcement
+files — the external workflow, inventory, handoff checker, current Stage 5F
+entry checker/gate and its authority negative harness — must match the
+protected PR base byte-for-byte. This admits a clean PR branched from the
+accepted R5 base while rejecting any later rebind of either authority set. A
+34-case harness proves the clean next-PR positive, the coordinated five-root
+R3 rebind, each R4 base-authority drift, and symlink/gitlink substitutions for
+every protected path without executing candidate code. Branch protection must
+require this status check, an ordinary independent pull-request approval, an
+up-to-date branch and no direct-push or bypass path for the authority scope.
+No CODEOWNERS review is claimed until an independent repository maintainer is
+explicitly added.
 
 The CI negative matrix proves that `continue-on-error`, `if: false`, a direct
 raw provenance call, a forged PASS producer, a second checkout, suppressed

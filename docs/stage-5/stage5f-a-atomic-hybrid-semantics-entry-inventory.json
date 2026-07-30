@@ -91,7 +91,6 @@
   },
   "expected_stage5f_negative_case_count": 13,
   "allowed_changed_paths": [
-    ".github/CODEOWNERS",
     ".github/workflows/ci.yml",
     ".github/workflows/stage5f-base-authority.yml",
     "README.md",

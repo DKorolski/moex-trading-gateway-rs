@@ -66,11 +66,7 @@ jobs:
             compare_file authority "$relative"
           done <<'R3_AUTHORITY'
           .github/workflows/ci.yml
-          docs/stage-5/stage5f-a-atomic-hybrid-semantics-entry-inventory.json
-          scripts/handoff_safety_check.py
           scripts/make_handoff_archive.sh
-          scripts/stage5f_atomic_hybrid_semantics_entry_check.py
-          scripts/stage5f_atomic_hybrid_semantics_gate.sh
           scripts/stage5f_atomic_hybrid_semantics_negative_harness.py
           scripts/stage5f_b3f_snapshot_provenance_gate.sh
           scripts/stage5f_ci_snapshot_inheritance_check.py
@@ -81,8 +77,12 @@ jobs:
           while IFS= read -r relative; do
             compare_file base "$relative"
           done <<'BASE_AUTHORITY'
-          .github/CODEOWNERS
           .github/workflows/stage5f-base-authority.yml
+          docs/stage-5/stage5f-a-atomic-hybrid-semantics-entry-inventory.json
+          scripts/handoff_safety_check.py
+          scripts/stage5f_atomic_hybrid_semantics_entry_check.py
+          scripts/stage5f_atomic_hybrid_semantics_gate.sh
+          scripts/stage5f_base_authority_negative_harness.py
           BASE_AUTHORITY
 
       - name: Execute only accepted R3 verifier and B3F provenance

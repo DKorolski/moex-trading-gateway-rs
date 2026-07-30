@@ -607,7 +607,6 @@ def check_stage5f_archive(
     ):
         raise SystemExit("handoff safety: Stage 5F closed-surface drift")
     expected_allowed_paths = [
-        ".github/CODEOWNERS",
         ".github/workflows/ci.yml",
         ".github/workflows/stage5f-base-authority.yml",
         "README.md",

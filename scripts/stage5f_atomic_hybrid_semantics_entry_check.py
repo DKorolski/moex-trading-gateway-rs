@@ -18,8 +18,8 @@ INVENTORY = (
 ACTIVE = ROOT / "docs/stage-5/stage5f-active-descriptor.json"
 STAGE = "5F-a-atomic-hybrid-semantics-entry"
 BASELINE_REF = "e14654f7129aa61011931306140a3bfefe2fcfbc"
-EXPECTED_PLAN_SHA256 = "01037e48341202415134b52406af55c1b20b090c55592f15b3ba1c420e15f0f3"
-EXPECTED_INVENTORY_SHA256 = "37e9a86864f24586f3eed35ec1cc3593adfa828a0d2a1c52ac6cff0fd2d1d4b3"
+EXPECTED_PLAN_SHA256 = "6236ca903f9de46a853abc1e75e9ce57c6975d03b3217e02d0e3297c06f8b614"
+EXPECTED_INVENTORY_SHA256 = "ea25953390ee41dda9fe896dfe44819e487f7b5871789d6c1cca597d67196c39"
 
 EXPECTED_B3F_CLOSURE = {
     "source_ref": BASELINE_REF,
@@ -142,7 +142,6 @@ EXPECTED_STAGE_BOUNDARIES = {
     "stage5j_stage5_closure_allowed": False,
 }
 EXPECTED_ALLOWED_CHANGED_PATHS = [
-    ".github/CODEOWNERS",
     ".github/workflows/ci.yml",
     ".github/workflows/stage5f-base-authority.yml",
     "README.md",
