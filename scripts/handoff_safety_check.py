@@ -132,9 +132,29 @@ STAGE5F_B3F_CLOSURE = {
     "accepted_descriptor_stage": "5E-b3f-callback-settlement-escrow-design",
 }
 STAGE5F_CI_SNAPSHOT_AUTHORITY = {
-    "ci_workflow_sha256": "0974ea9dae63c583682102e1d95792bc3c481f9eef33c5394ba0bffb0a277d4c",
+    "ci_workflow_sha256": "6133fb3900a9f11323df444c38760f6b71fdece927bfe2fb2cb411b5172d02f3",
     "b3f_snapshot_provenance_wrapper_sha256": "f922a4f777fbb37e049ccb640f713b7ff7557cf4f86e8855823d7db328731e29",
-    "negative_case_count": 11,
+    "stage5f_atomic_hybrid_semantics_gate_sha256": "b3fdcfb4bf000f36de333b61cf542da1ca0452ed7638c3f68195bf8fa8d264b8",
+    "stage5f_ci_snapshot_inheritance_check_sha256": "50dd173044c4c4d1eee330b08a27e7c8e044fe75148bc7816f8448e43fff082a",
+    "stage5f_atomic_hybrid_semantics_negative_harness_sha256": "1a8cf90caf9b1500f01eee0fe31108e22592a4b14eceb025b53296c2f098bef4",
+    "stage5f_ci_snapshot_inheritance_negative_harness_sha256": "66fec06da991f5778db4b79c733d159ed3a11c97a626ec7064e2c918d605944a",
+    "negative_case_count": 16,
+}
+STAGE5F_CI_EXECUTION_AUTHORITY_MEMBERS = {
+    "ci_workflow_sha256": ".github/workflows/ci.yml",
+    "b3f_snapshot_provenance_wrapper_sha256": "scripts/stage5f_b3f_snapshot_provenance_gate.sh",
+    "stage5f_atomic_hybrid_semantics_gate_sha256": "scripts/stage5f_atomic_hybrid_semantics_gate.sh",
+    "stage5f_ci_snapshot_inheritance_check_sha256": "scripts/stage5f_ci_snapshot_inheritance_check.py",
+    "stage5f_atomic_hybrid_semantics_negative_harness_sha256": "scripts/stage5f_atomic_hybrid_semantics_negative_harness.py",
+    "stage5f_ci_snapshot_inheritance_negative_harness_sha256": "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py",
+}
+STAGE5F_CI_EXECUTION_AUTHORITY_MANIFEST_FIELDS = {
+    "ci_workflow_sha256": "stage5f_ci_workflow_sha256",
+    "b3f_snapshot_provenance_wrapper_sha256": "stage5f_b3f_snapshot_provenance_wrapper_sha256",
+    "stage5f_atomic_hybrid_semantics_gate_sha256": "stage5f_atomic_hybrid_semantics_gate_sha256",
+    "stage5f_ci_snapshot_inheritance_check_sha256": "stage5f_ci_snapshot_inheritance_check_sha256",
+    "stage5f_atomic_hybrid_semantics_negative_harness_sha256": "stage5f_atomic_hybrid_semantics_negative_harness_sha256",
+    "stage5f_ci_snapshot_inheritance_negative_harness_sha256": "stage5f_ci_snapshot_inheritance_negative_harness_sha256",
 }
 STAGE5F_GENERATED_MEMBERS = {
     "handoff-commit.txt",
@@ -247,7 +267,7 @@ def check_stage5f_ci_negative_result(
         or result.get("command")
         != ["python3", "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py"]
         or result.get("exit_code") != 0
-        or result.get("passed_cases") != 11
+        or result.get("passed_cases") != 16
     ):
         raise SystemExit("handoff safety: Stage 5F CI negative gate did not pass")
     parse_utc_timestamp(result.get("started_at_utc"), "Stage 5F CI negative started_at_utc")
@@ -258,7 +278,7 @@ def check_stage5f_ci_negative_result(
         require_hex64(result.get(field), f"Stage 5F CI negative {field}")
         if hashlib.sha256(archive.read(member)).hexdigest() != result[field]:
             raise SystemExit(f"handoff safety: Stage 5F CI negative {field} mismatch")
-    if archive.read(stdout_name).count(b"PASS ") != 11:
+    if archive.read(stdout_name).count(b"PASS ") != 16:
         raise SystemExit("handoff safety: Stage 5F CI negative passed case count mismatch")
     require_hex64(
         manifest.get("stage5f_ci_negative_result_sha256"),
@@ -403,9 +423,13 @@ def check_stage5f_archive(
         "stage5d_manifest_sha256",
         "stage5d_negative_result_sha256",
         "stage5f_active_descriptor_sha256",
+        "stage5f_atomic_hybrid_semantics_gate_sha256",
+        "stage5f_atomic_hybrid_semantics_negative_harness_sha256",
         "stage5f_b3f_snapshot_provenance_wrapper_sha256",
         "stage5f_checker_sha256",
         "stage5f_ci_negative_result_sha256",
+        "stage5f_ci_snapshot_inheritance_check_sha256",
+        "stage5f_ci_snapshot_inheritance_negative_harness_sha256",
         "stage5f_ci_workflow_sha256",
         "stage5f_descriptor_registry_sha256",
         "stage5f_design_scope_sha256",
@@ -501,6 +525,22 @@ def check_stage5f_archive(
         ("stage5f_plan_sha256", plan_name),
         ("stage5f_ci_workflow_sha256", ".github/workflows/ci.yml"),
         (
+            "stage5f_atomic_hybrid_semantics_gate_sha256",
+            "scripts/stage5f_atomic_hybrid_semantics_gate.sh",
+        ),
+        (
+            "stage5f_ci_snapshot_inheritance_check_sha256",
+            "scripts/stage5f_ci_snapshot_inheritance_check.py",
+        ),
+        (
+            "stage5f_atomic_hybrid_semantics_negative_harness_sha256",
+            "scripts/stage5f_atomic_hybrid_semantics_negative_harness.py",
+        ),
+        (
+            "stage5f_ci_snapshot_inheritance_negative_harness_sha256",
+            "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py",
+        ),
+        (
             "stage5f_b3f_snapshot_provenance_wrapper_sha256",
             "scripts/stage5f_b3f_snapshot_provenance_gate.sh",
         ),
@@ -513,14 +553,12 @@ def check_stage5f_archive(
         require_hex64(expected, field)
         if hashlib.sha256(archive.read(member)).hexdigest() != expected:
             raise SystemExit(f"handoff safety: {field} mismatch")
-    if manifest.get("stage5f_ci_workflow_sha256") != STAGE5F_CI_SNAPSHOT_AUTHORITY[
-        "ci_workflow_sha256"
-    ]:
-        raise SystemExit("handoff safety: Stage 5F CI authority digest drift")
-    if manifest.get("stage5f_b3f_snapshot_provenance_wrapper_sha256") != (
-        STAGE5F_CI_SNAPSHOT_AUTHORITY["b3f_snapshot_provenance_wrapper_sha256"]
-    ):
-        raise SystemExit("handoff safety: Stage 5F wrapper authority digest drift")
+    for field, member in STAGE5F_CI_EXECUTION_AUTHORITY_MEMBERS.items():
+        expected = STAGE5F_CI_SNAPSHOT_AUTHORITY[field]
+        if manifest.get(STAGE5F_CI_EXECUTION_AUTHORITY_MANIFEST_FIELDS[field]) != expected:
+            raise SystemExit(f"handoff safety: Stage 5F execution authority drift: {member}")
+        if hashlib.sha256(archive.read(member)).hexdigest() != expected:
+            raise SystemExit(f"handoff safety: Stage 5F archive authority drift: {member}")
     inventory = json.loads(archive.read(inventory_name))
     expected_inventory_keys = {
         "accepted_stage5e_b3f_closure",
@@ -646,6 +684,8 @@ def check_stage5f_archive(
         "stage5e_b3f_production_ui_harness": "scripts/stage5e_b3f_production_ui_harness.py",
         "stage5e_b3f_provenance_negative_harness": "scripts/handoff_provenance_negative_harness.py",
         "stage5f_b3f_snapshot_provenance_gate": "scripts/stage5f_b3f_snapshot_provenance_gate.sh",
+        "stage5f_atomic_hybrid_semantics_gate": "scripts/stage5f_atomic_hybrid_semantics_gate.sh",
+        "stage5f_atomic_hybrid_semantics_negative_harness": "scripts/stage5f_atomic_hybrid_semantics_negative_harness.py",
         "stage5f_ci_workflow": ".github/workflows/ci.yml",
         "stage5f_ci_snapshot_inheritance_check": "scripts/stage5f_ci_snapshot_inheritance_check.py",
         "stage5f_ci_snapshot_inheritance_negative_harness": "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py",
@@ -673,14 +713,17 @@ def check_stage5f_archive(
     for key, expected in expected_b3f_input_hashes.items():
         if input_sha256.get(key) != expected:
             raise SystemExit(f"handoff safety: accepted B3F input pin drift: {key}")
-    if input_sha256.get("stage5f_ci_workflow") != STAGE5F_CI_SNAPSHOT_AUTHORITY[
-        "ci_workflow_sha256"
-    ]:
-        raise SystemExit("handoff safety: Stage 5F CI gate input authority drift")
-    if input_sha256.get("stage5f_b3f_snapshot_provenance_gate") != (
-        STAGE5F_CI_SNAPSHOT_AUTHORITY["b3f_snapshot_provenance_wrapper_sha256"]
-    ):
-        raise SystemExit("handoff safety: Stage 5F wrapper gate input authority drift")
+    input_authority_fields = {
+        "stage5f_ci_workflow": "ci_workflow_sha256",
+        "stage5f_b3f_snapshot_provenance_gate": "b3f_snapshot_provenance_wrapper_sha256",
+        "stage5f_atomic_hybrid_semantics_gate": "stage5f_atomic_hybrid_semantics_gate_sha256",
+        "stage5f_ci_snapshot_inheritance_check": "stage5f_ci_snapshot_inheritance_check_sha256",
+        "stage5f_atomic_hybrid_semantics_negative_harness": "stage5f_atomic_hybrid_semantics_negative_harness_sha256",
+        "stage5f_ci_snapshot_inheritance_negative_harness": "stage5f_ci_snapshot_inheritance_negative_harness_sha256",
+    }
+    for key, authority_field in input_authority_fields.items():
+        if input_sha256.get(key) != STAGE5F_CI_SNAPSHOT_AUTHORITY[authority_field]:
+            raise SystemExit(f"handoff safety: Stage 5F gate input authority drift: {key}")
     for member, expected in [
         ("crates/strategy-runtime-core/src/stage5c_paper_host.rs", STAGE5F_B3F_CLOSURE["stage5c_source_sha256"]),
         ("crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs", STAGE5F_B3F_CLOSURE["stage5e_source_sha256"]),
@@ -735,6 +778,22 @@ def check_stage5f_archive(
     return gate_result
 
 
+def check_stage5f_source_execution_authority(root: Path) -> None:
+    inventory_path = root / "docs/stage-5/stage5f-a-atomic-hybrid-semantics-entry-inventory.json"
+    if not inventory_path.exists():
+        return
+    try:
+        inventory = json.loads(inventory_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"handoff safety: malformed Stage 5F inventory: {exc}") from exc
+    if inventory.get("ci_snapshot_authority") != STAGE5F_CI_SNAPSHOT_AUTHORITY:
+        raise SystemExit("handoff safety: Stage 5F source authority inventory drift")
+    for field, relative in STAGE5F_CI_EXECUTION_AUTHORITY_MEMBERS.items():
+        path = root / relative
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != STAGE5F_CI_SNAPSHOT_AUTHORITY[field]:
+            raise SystemExit(f"handoff safety: Stage 5F source execution authority drift: {relative}")
+
+
 def check_source_tree(root: Path) -> None:
     for path in root.rglob("*"):
         relative = PurePosixPath(path.relative_to(root).as_posix())
@@ -744,6 +803,7 @@ def check_source_tree(root: Path) -> None:
             raise SystemExit(f"handoff safety: included symlink in source tree: {relative}")
         if path.is_file():
             check_payload(str(relative), path.read_bytes())
+    check_stage5f_source_execution_authority(root)
     print("handoff-source-safety: ok")
 
 

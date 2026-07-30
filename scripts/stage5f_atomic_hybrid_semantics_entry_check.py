@@ -18,8 +18,8 @@ INVENTORY = (
 ACTIVE = ROOT / "docs/stage-5/stage5f-active-descriptor.json"
 STAGE = "5F-a-atomic-hybrid-semantics-entry"
 BASELINE_REF = "e14654f7129aa61011931306140a3bfefe2fcfbc"
-EXPECTED_PLAN_SHA256 = "6552ba2e76272d043877ad1e3b4021ab4df40f622fe92d2c30d5807892d49db2"
-EXPECTED_INVENTORY_SHA256 = "2879b26187b60c335c83c82603195a71d9b34fdf54ced8ccd32c130611c001ae"
+EXPECTED_PLAN_SHA256 = "367c5fccdc798e5569d6bb6f88a7b5d15f70f5788b970e4414b0f51c0b193d5a"
+EXPECTED_INVENTORY_SHA256 = "4a5f0048506582561f822812d85a5ca7953c831b57992f1d807de8bd6e5b54bd"
 
 EXPECTED_B3F_CLOSURE = {
     "source_ref": BASELINE_REF,
@@ -35,9 +35,21 @@ EXPECTED_B3F_CLOSURE = {
     "accepted_descriptor_stage": "5E-b3f-callback-settlement-escrow-design",
 }
 EXPECTED_CI_SNAPSHOT_AUTHORITY = {
-    "ci_workflow_sha256": "0974ea9dae63c583682102e1d95792bc3c481f9eef33c5394ba0bffb0a277d4c",
+    "ci_workflow_sha256": "6133fb3900a9f11323df444c38760f6b71fdece927bfe2fb2cb411b5172d02f3",
     "b3f_snapshot_provenance_wrapper_sha256": "f922a4f777fbb37e049ccb640f713b7ff7557cf4f86e8855823d7db328731e29",
-    "negative_case_count": 11,
+    "stage5f_atomic_hybrid_semantics_gate_sha256": "b3fdcfb4bf000f36de333b61cf542da1ca0452ed7638c3f68195bf8fa8d264b8",
+    "stage5f_ci_snapshot_inheritance_check_sha256": "50dd173044c4c4d1eee330b08a27e7c8e044fe75148bc7816f8448e43fff082a",
+    "stage5f_atomic_hybrid_semantics_negative_harness_sha256": "1a8cf90caf9b1500f01eee0fe31108e22592a4b14eceb025b53296c2f098bef4",
+    "stage5f_ci_snapshot_inheritance_negative_harness_sha256": "66fec06da991f5778db4b79c733d159ed3a11c97a626ec7064e2c918d605944a",
+    "negative_case_count": 16,
+}
+CI_EXECUTION_AUTHORITY_FILES = {
+    "ci_workflow_sha256": ".github/workflows/ci.yml",
+    "b3f_snapshot_provenance_wrapper_sha256": "scripts/stage5f_b3f_snapshot_provenance_gate.sh",
+    "stage5f_atomic_hybrid_semantics_gate_sha256": "scripts/stage5f_atomic_hybrid_semantics_gate.sh",
+    "stage5f_ci_snapshot_inheritance_check_sha256": "scripts/stage5f_ci_snapshot_inheritance_check.py",
+    "stage5f_atomic_hybrid_semantics_negative_harness_sha256": "scripts/stage5f_atomic_hybrid_semantics_negative_harness.py",
+    "stage5f_ci_snapshot_inheritance_negative_harness_sha256": "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py",
 }
 EXPECTED_B3F_FILE_SHA256 = {
     "docs/stage-5/stage5e-active-descriptor.json": (
@@ -264,6 +276,12 @@ def validate_inventory(inventory: dict[str, object]) -> None:
         EXPECTED_CI_SNAPSHOT_AUTHORITY,
         "Stage 5F CI snapshot authority drift",
     )
+    for field, relative in CI_EXECUTION_AUTHORITY_FILES.items():
+        require_exact(
+            sha256(ROOT / relative),
+            EXPECTED_CI_SNAPSHOT_AUTHORITY[field],
+            f"Stage 5F CI execution authority drift: {relative}",
+        )
     require_exact(
         inventory.get("target_contract"),
         EXPECTED_TARGET_CONTRACT,

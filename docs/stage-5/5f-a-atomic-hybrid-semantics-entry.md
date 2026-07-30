@@ -20,13 +20,24 @@ exactly `e14654f7129aa61011931306140a3bfefe2fcfbc`, or when the harness does
 not report exactly 580 `PASS` cases. The legacy Stage 5E gate must never run on
 a Stage 5F head.
 
-Stage 5F-a-r2 seals the complete reviewed CI workflow and the complete B3F
-snapshot-provenance wrapper with independent SHA-256 authorities. The entry
-checker and handoff safety compare the archived files to those accepted values;
-they do not merely record hashes produced by the current tree. The CI negative
-matrix proves that `continue-on-error`, `if: false`, a direct raw provenance
-call, a forged PASS producer, a second checkout and suppressed harness failure
-all fail before a handoff can be accepted.
+Stage 5F-a-r3 seals the canonical CI execution order as well as the inherited
+B3F provenance bytes. Its first Stage 5F CI action verifies the exact
+snapshot-verifier authority and that verifier immediately checks and executes
+the exact detached-snapshot wrapper. No repository-owned executable runs
+between wrapper verification and use. The reviewed execution-authority set
+also pins the workflow, wrapper, Stage 5F gate, CI verifier and both Stage 5F
+negative harnesses. The entry checker and handoff safety compare those values
+with reviewer-pinned SHA-256 authorities; they do not merely record hashes
+produced by the current tree.
+
+The CI negative matrix proves that `continue-on-error`, `if: false`, a direct
+raw provenance call, a forged PASS producer, a second checkout, suppressed
+harness failure, an Actions-only wrapper replacement, a Stage 5F-negative
+wrapper replacement, a forged negative case count and a wrapper mutation
+before verified execution all fail before a handoff can be accepted. The
+handoff builder rechecks the complete execution-authority set immediately
+before its source-tree manifest is created, and archive safety rechecks the
+same set from archived bytes.
 
 This is a governance and atomic-contract entry slice. It adds no Rust runtime
 behavior, does not attach an intent sink, and does not alter the accepted B3F

@@ -28,10 +28,11 @@ be accepted as one atomic state machine rather than as partial sleeve parity.
 The Stage 5F gate re-runs the accepted B3F checks from the accepted source
 snapshot before checking its own contract; CI and handoff packaging use the
 same fail-closed detached-snapshot runner for the inherited 580-case B3F
-provenance matrix. Its CI workflow and provenance wrapper are SHA-256 frozen as
-Stage 5F-a authority; the handoff verifier rejects altered execution policy or
-wrapper body. Redis, FINAM, transport, dispatch, runtime-live and real
-execution remain closed.
+provenance matrix. CI executes that verified runner before any Stage 5F
+repository-owned harness, and freezes the workflow, runner, gate, verifier and
+negative harnesses as one SHA-256 authority set. The handoff verifier rechecks
+that set before manifest creation and from archive bytes. Redis, FINAM,
+transport, dispatch, runtime-live and real execution remain closed.
 
 This repository is not enabled for continuous live trading.
 
@@ -97,7 +98,7 @@ bash scripts/stage5e_lifecycle_event_time_gate.sh
 bash scripts/stage5f_atomic_hybrid_semantics_gate.sh
 python3 scripts/stage5f_atomic_hybrid_semantics_negative_harness.py
 python3 scripts/stage5f_ci_snapshot_inheritance_negative_harness.py
-bash scripts/stage5f_b3f_snapshot_provenance_gate.sh
+python3 scripts/stage5f_ci_snapshot_inheritance_check.py --execute-verified-provenance
 # Focused final Stage 5D restart-closure check:
 cargo test -p strategy-runtime-core stage5d_final -- --nocapture
 ```

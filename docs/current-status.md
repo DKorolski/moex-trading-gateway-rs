@@ -261,10 +261,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   harness from the exact accepted source snapshot. Canonical CI fetches that
   immutable predecessor and uses the same detached-snapshot wrapper as handoff
   packaging for the inherited 580-case provenance matrix; it never applies the
-  frozen Stage 5E gate to a Stage 5F head. Stage 5F-a-r2 freezes both the
-  effective CI workflow and wrapper body as accepted authorities, with eleven
-  negative mutations for skipped, non-blocking or forged provenance paths. It
-  then admits only the existing
+  frozen Stage 5E gate to a Stage 5F head. Stage 5F-a-r3 executes the verified
+  wrapper before any Stage 5F repository-owned harness and freezes the workflow,
+  wrapper, gate, verifier and both negative harnesses as one accepted authority
+  set. Its sixteen negative mutations include Actions-only wrapper replacement,
+  forged harness output and wrapper mutation before verified execution. It then
+  admits only the existing
   IMOEXF `canonical_final_m10` paper route through the broker-neutral Hybrid
   runtime, high180/riskgate, the single Hybrid orchestrator, ordered semantic
   intents and B3F settlement. Full BO/MR/riskgate/arbitration parity is one

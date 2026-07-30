@@ -152,6 +152,10 @@ stage5f_negative_result_sha256=""
 stage5f_ci_negative_result_sha256=""
 stage5f_ci_workflow_sha256=""
 stage5f_b3f_snapshot_provenance_wrapper_sha256=""
+stage5f_atomic_hybrid_semantics_gate_sha256=""
+stage5f_ci_snapshot_inheritance_check_sha256=""
+stage5f_atomic_hybrid_semantics_negative_harness_sha256=""
+stage5f_ci_snapshot_inheritance_negative_harness_sha256=""
 stage5f_design_scope_sha256=""
 source_tree_manifest_sha256=""
 current_review_stage="$review_stage"
@@ -219,6 +223,10 @@ PY
   stage5f_ci_workflow_sha256="$(shasum -a 256 "$repo_root/.github/workflows/ci.yml" | awk '{print $1}')"
   stage5f_ci_snapshot_checker_sha256="$(shasum -a 256 "$repo_root/scripts/stage5f_ci_snapshot_inheritance_check.py" | awk '{print $1}')"
   stage5f_ci_snapshot_negative_harness_sha256="$(shasum -a 256 "$repo_root/scripts/stage5f_ci_snapshot_inheritance_negative_harness.py" | awk '{print $1}')"
+  stage5f_atomic_hybrid_semantics_gate_sha256="$(shasum -a 256 "$repo_root/scripts/stage5f_atomic_hybrid_semantics_gate.sh" | awk '{print $1}')"
+  stage5f_ci_snapshot_inheritance_check_sha256="$stage5f_ci_snapshot_checker_sha256"
+  stage5f_atomic_hybrid_semantics_negative_harness_sha256="$(shasum -a 256 "$repo_root/scripts/stage5f_atomic_hybrid_semantics_negative_harness.py" | awk '{print $1}')"
+  stage5f_ci_snapshot_inheritance_negative_harness_sha256="$stage5f_ci_snapshot_negative_harness_sha256"
 
   stage5f_gate_stdout="$(mktemp "$archive_dir/stage5f-gate-stdout.XXXXXX")"
   stage5f_gate_stderr="$(mktemp "$archive_dir/stage5f-gate-stderr.XXXXXX")"
@@ -258,9 +266,11 @@ PY
   B3F_UI_HARNESS_SHA256="$stage5f_b3f_ui_harness_sha256" \
   B3F_PROVENANCE_HARNESS_SHA256="$stage5f_b3f_provenance_harness_sha256" \
   B3F_SNAPSHOT_WRAPPER_SHA256="$stage5f_b3f_snapshot_wrapper_sha256" \
+  STAGE5F_ATOMIC_GATE_SHA256="$stage5f_atomic_hybrid_semantics_gate_sha256" \
   STAGE5F_CI_WORKFLOW_SHA256="$stage5f_ci_workflow_sha256" \
   STAGE5F_CI_SNAPSHOT_CHECKER_SHA256="$stage5f_ci_snapshot_checker_sha256" \
   STAGE5F_CI_SNAPSHOT_NEGATIVE_HARNESS_SHA256="$stage5f_ci_snapshot_negative_harness_sha256" \
+  STAGE5F_ATOMIC_NEGATIVE_HARNESS_SHA256="$stage5f_atomic_hybrid_semantics_negative_harness_sha256" \
   STAGE5F_ACTIVE_DESCRIPTOR_SHA256="$stage5f_active_descriptor_sha256" \
   STAGE5F_CHECKER_SHA256="$stage5f_checker_sha256" \
   STAGE5F_DESCRIPTOR_REGISTRY_SHA256="$stage5f_descriptor_registry_sha256" \
@@ -302,6 +312,8 @@ result = {
         "stage5e_b3f_production_ui_harness": os.environ["B3F_UI_HARNESS_SHA256"],
         "stage5e_b3f_provenance_negative_harness": os.environ["B3F_PROVENANCE_HARNESS_SHA256"],
         "stage5f_b3f_snapshot_provenance_gate": os.environ["B3F_SNAPSHOT_WRAPPER_SHA256"],
+        "stage5f_atomic_hybrid_semantics_gate": os.environ["STAGE5F_ATOMIC_GATE_SHA256"],
+        "stage5f_atomic_hybrid_semantics_negative_harness": os.environ["STAGE5F_ATOMIC_NEGATIVE_HARNESS_SHA256"],
         "stage5f_ci_workflow": os.environ["STAGE5F_CI_WORKFLOW_SHA256"],
         "stage5f_ci_snapshot_inheritance_check": os.environ["STAGE5F_CI_SNAPSHOT_CHECKER_SHA256"],
         "stage5f_ci_snapshot_inheritance_negative_harness": os.environ["STAGE5F_CI_SNAPSHOT_NEGATIVE_HARNESS_SHA256"],
@@ -641,7 +653,7 @@ PY
     exit "$stage5f_ci_negative_exit_code"
   fi
   stage5f_ci_negative_passed_cases="$(grep -c '^PASS ' "$stage5f_ci_negative_stdout_log" || true)"
-  if [[ "$stage5f_ci_negative_passed_cases" -ne 11 ]]; then
+  if [[ "$stage5f_ci_negative_passed_cases" -ne 16 ]]; then
     echo "Stage 5F CI snapshot negative gate case-count mismatch: $stage5f_ci_negative_passed_cases" >&2
     exit 1
   fi
@@ -726,6 +738,17 @@ Path(sys.argv[1]).write_text(json.dumps({
 PY
 
 if [[ "$stage5f_enabled" -eq 1 ]]; then
+  # Recheck every reviewer-pinned Stage 5F CI executable after all local
+  # harnesses have run and immediately before the source-tree manifest is
+  # calculated. This prevents a successful earlier check from being reused
+  # after a later tool has changed the packaging tree.
+  python3 "$repo_root/scripts/handoff_safety_check.py" --source-tree "$repo_root"
+  stage5f_ci_workflow_sha256="$(shasum -a 256 "$repo_root/.github/workflows/ci.yml" | awk '{print $1}')"
+  stage5f_b3f_snapshot_provenance_wrapper_sha256="$(shasum -a 256 "$repo_root/scripts/stage5f_b3f_snapshot_provenance_gate.sh" | awk '{print $1}')"
+  stage5f_atomic_hybrid_semantics_gate_sha256="$(shasum -a 256 "$repo_root/scripts/stage5f_atomic_hybrid_semantics_gate.sh" | awk '{print $1}')"
+  stage5f_ci_snapshot_inheritance_check_sha256="$(shasum -a 256 "$repo_root/scripts/stage5f_ci_snapshot_inheritance_check.py" | awk '{print $1}')"
+  stage5f_atomic_hybrid_semantics_negative_harness_sha256="$(shasum -a 256 "$repo_root/scripts/stage5f_atomic_hybrid_semantics_negative_harness.py" | awk '{print $1}')"
+  stage5f_ci_snapshot_inheritance_negative_harness_sha256="$(shasum -a 256 "$repo_root/scripts/stage5f_ci_snapshot_inheritance_negative_harness.py" | awk '{print $1}')"
   stage_generated_members_json='["handoff-commit.txt","handoff-cargo-gate-result.json","handoff-cargo-gate-stderr.txt","handoff-cargo-gate-stdout.txt","handoff-forbidden-negative-result.json","handoff-forbidden-negative-stderr.txt","handoff-forbidden-negative-stdout.txt","handoff-manifest.json","handoff-provenance-negative-result.json","handoff-provenance-negative-stderr.txt","handoff-provenance-negative-stdout.txt","handoff-stage5d-negative-result.json","handoff-stage5d-negative-stderr.txt","handoff-stage5d-negative-stdout.txt","handoff-stage5f-ci-negative-result.json","handoff-stage5f-ci-negative-stderr.txt","handoff-stage5f-ci-negative-stdout.txt","handoff-stage5f-gate-result.json","handoff-stage5f-gate-stderr.txt","handoff-stage5f-gate-stdout.txt","handoff-stage5f-negative-result.json","handoff-stage5f-negative-stderr.txt","handoff-stage5f-negative-stdout.txt","handoff-source-tree-manifest.json"]'
 else
   stage_generated_members_json='["handoff-commit.txt","handoff-cargo-gate-result.json","handoff-cargo-gate-stderr.txt","handoff-cargo-gate-stdout.txt","handoff-forbidden-negative-result.json","handoff-forbidden-negative-stderr.txt","handoff-forbidden-negative-stdout.txt","handoff-manifest.json","handoff-provenance-negative-result.json","handoff-provenance-negative-stderr.txt","handoff-provenance-negative-stdout.txt","handoff-stage5d-negative-result.json","handoff-stage5d-negative-stderr.txt","handoff-stage5d-negative-stdout.txt","handoff-stage5e-gate-result.json","handoff-stage5e-gate-stderr.txt","handoff-stage5e-gate-stdout.txt","handoff-source-tree-manifest.json"]'
@@ -952,6 +975,10 @@ STAGE5F_NEGATIVE_RESULT_SHA256="$stage5f_negative_result_sha256" \
 STAGE5F_CI_NEGATIVE_RESULT_SHA256="$stage5f_ci_negative_result_sha256" \
 STAGE5F_CI_WORKFLOW_SHA256="$stage5f_ci_workflow_sha256" \
 STAGE5F_B3F_SNAPSHOT_PROVENANCE_WRAPPER_SHA256="$stage5f_b3f_snapshot_provenance_wrapper_sha256" \
+STAGE5F_ATOMIC_HYBRID_SEMANTICS_GATE_SHA256="$stage5f_atomic_hybrid_semantics_gate_sha256" \
+STAGE5F_CI_SNAPSHOT_INHERITANCE_CHECK_SHA256="$stage5f_ci_snapshot_inheritance_check_sha256" \
+STAGE5F_ATOMIC_HYBRID_SEMANTICS_NEGATIVE_HARNESS_SHA256="$stage5f_atomic_hybrid_semantics_negative_harness_sha256" \
+STAGE5F_CI_SNAPSHOT_INHERITANCE_NEGATIVE_HARNESS_SHA256="$stage5f_ci_snapshot_inheritance_negative_harness_sha256" \
 STAGE5F_DESIGN_SCOPE_SHA256="$stage5f_design_scope_sha256" \
 SOURCE_TREE_MANIFEST_SHA256="$source_tree_manifest_sha256" \
 CARGO_GATE_RESULT_SHA256="$(shasum -a 256 "$cargo_gate_result" | awk '{print $1}')" \
@@ -995,6 +1022,10 @@ if os.environ["STAGE5F_ENABLED"] == "1":
         "stage5f_ci_negative_result_sha256": os.environ["STAGE5F_CI_NEGATIVE_RESULT_SHA256"],
         "stage5f_ci_workflow_sha256": os.environ["STAGE5F_CI_WORKFLOW_SHA256"],
         "stage5f_b3f_snapshot_provenance_wrapper_sha256": os.environ["STAGE5F_B3F_SNAPSHOT_PROVENANCE_WRAPPER_SHA256"],
+        "stage5f_atomic_hybrid_semantics_gate_sha256": os.environ["STAGE5F_ATOMIC_HYBRID_SEMANTICS_GATE_SHA256"],
+        "stage5f_ci_snapshot_inheritance_check_sha256": os.environ["STAGE5F_CI_SNAPSHOT_INHERITANCE_CHECK_SHA256"],
+        "stage5f_atomic_hybrid_semantics_negative_harness_sha256": os.environ["STAGE5F_ATOMIC_HYBRID_SEMANTICS_NEGATIVE_HARNESS_SHA256"],
+        "stage5f_ci_snapshot_inheritance_negative_harness_sha256": os.environ["STAGE5F_CI_SNAPSHOT_INHERITANCE_NEGATIVE_HARNESS_SHA256"],
         "stage5f_design_scope_sha256": os.environ["STAGE5F_DESIGN_SCOPE_SHA256"],
         "required_gate_names": [
             "stage5f_atomic_hybrid_semantics",

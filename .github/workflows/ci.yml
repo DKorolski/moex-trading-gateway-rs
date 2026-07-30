@@ -34,6 +34,23 @@ jobs:
         run: python3 scripts/stage5d_additive_freeze_negative_harness.py
         timeout-minutes: 5
 
+      - name: Stage 5F execution authority and accepted B3F snapshot provenance
+        run: |
+          set -euo pipefail
+          verify_sha256() {
+            local expected="$1"
+            local path="$2"
+            local actual
+            actual="$(sha256sum "$path" | awk '{print $1}')"
+            test "$actual" = "$expected"
+          }
+          verify_sha256 "b3fdcfb4bf000f36de333b61cf542da1ca0452ed7638c3f68195bf8fa8d264b8" "scripts/stage5f_atomic_hybrid_semantics_gate.sh"
+          verify_sha256 "50dd173044c4c4d1eee330b08a27e7c8e044fe75148bc7816f8448e43fff082a" "scripts/stage5f_ci_snapshot_inheritance_check.py"
+          verify_sha256 "1a8cf90caf9b1500f01eee0fe31108e22592a4b14eceb025b53296c2f098bef4" "scripts/stage5f_atomic_hybrid_semantics_negative_harness.py"
+          verify_sha256 "66fec06da991f5778db4b79c733d159ed3a11c97a626ec7064e2c918d605944a" "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py"
+          python3 scripts/stage5f_ci_snapshot_inheritance_check.py --execute-verified-provenance
+        timeout-minutes: 20
+
       - name: Stage 5F atomic Hybrid semantics gate
         run: bash scripts/stage5f_atomic_hybrid_semantics_gate.sh
 
@@ -44,10 +61,6 @@ jobs:
       - name: Stage 5F CI snapshot-inheritance negative harness
         run: python3 scripts/stage5f_ci_snapshot_inheritance_negative_harness.py
         timeout-minutes: 5
-
-      - name: Stage 5F accepted B3F snapshot provenance gate
-        run: bash scripts/stage5f_b3f_snapshot_provenance_gate.sh
-        timeout-minutes: 20
 
       - name: No-Redis evidence smoke
         run: bash scripts/test_m4_3x_evidence_no_redis.sh
