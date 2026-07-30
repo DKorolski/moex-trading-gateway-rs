@@ -270,8 +270,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   PR content only as data. Ordinary PRs preserve the R3 and protected-base
   roots; a dedicated, versioned rotation manifest can advance them only when
   the old base contract binds the exact base SHA, state generation, complete
-  candidate hashes and a coherent gate digest. Rotation admits only Stage 5F
-  governance/docs/fixture paths, never Rust or operational surfaces. GitHub
+  candidate `{git_mode, sha256}` bindings and a coherent gate digest. R7 reads
+  the committed Git tree, rejects gitlinks/non-blobs/unsupported modes and
+  mode-only authority drift, blocks all ordinary PR changes under
+  `.github/workflows/**`, and permits only the exact base-authority workflow in
+  a reviewed rotation while canonical `ci.yml` remains immutable. Rotation
+  admits only Stage 5F governance/docs/fixture paths, never Rust or operational
+  surfaces. GitHub
   activation still requires an independent approval after the latest update,
   strict up-to-date branch and no direct/admin bypass. It then
   admits only the existing

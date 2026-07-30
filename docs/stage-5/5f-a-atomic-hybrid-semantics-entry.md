@@ -51,6 +51,15 @@ ordinary PR. This admits a clean successor while rejecting a rebind of either
 authority set, including symlink and directory/gitlink substitutions, without
 executing candidate code.
 
+Stage 5F-a-r7 reads the committed Git tree rather than a checkout-shaped file
+walk. Each protected or rotation-bound source entry is therefore an exact
+`{git_mode, sha256}` binding. Gitlinks and every non-blob or unsupported mode
+are rejected before any candidate data is parsed, and a content-identical
+`100644` → `100755` change is authority drift. Ordinary PRs may not change any
+`.github/workflows/**` path. A reviewed rotation keeps canonical `ci.yml`
+immutable and may evolve only the exact base-authority workflow, so it cannot
+create a second `base-authority` required-check namespace.
+
 The only in-band exception is a versioned
 `docs/stage-5/stage5f-authority-rotation.json` submitted in a dedicated PR.
 The old base workflow executes its own `stage5f_base_authority_contract.py`,
@@ -58,8 +67,8 @@ not the candidate version. It accepts a rotation only when its manifest binds:
 
 - the exact protected PR base SHA and prior authority-state digest;
 - exactly one increment of `authority_generation` and the named next 5F stage;
-- an exact hash for every next authority file;
-- the complete changed-path/digest map (the manifest is intentionally excluded
+- an exact `{git_mode, sha256}` binding for every next authority file;
+- the complete changed-path/binding map (the manifest is intentionally excluded
   from its self-hash map);
 - one coherent canonical CI / inventory / entry-checker / handoff-checker /
   actual-gate digest; and

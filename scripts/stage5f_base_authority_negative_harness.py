@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Exercise the protected-base Stage 5F authority protocol without head code.
+"""Exercise Stage 5F authority checks against real temporary Git trees.
 
-Every validation is performed by a copy of the contract from the staged base.
-The candidate tree is never imported or executed.  Besides ordinary rebinding
-attacks, the matrix proves that a reviewer-visible, hash-bound next generation
-can rotate the authority in-band for Stage 5F-b.
+The production job reads only Git entries in the protected base/candidate
+checkouts. This harness therefore commits each synthetic candidate before it
+is inspected, including artificial mode-160000 gitlinks that an ordinary
+checkout represents as empty directories.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -25,10 +26,31 @@ BASE_SHA = "a" * 40
 WORKFLOW = ROOT / ".github/workflows/stage5f-base-authority.yml"
 
 
-def git_output(*args: str) -> str:
+def git_output(*args: str, cwd: Path = ROOT) -> str:
     return subprocess.run(
-        ["git", *args], cwd=ROOT, check=True, capture_output=True, text=True
+        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
     ).stdout.strip()
+
+
+def git_run(*args: str, cwd: Path) -> None:
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+def commit_worktree(repo: Path, message: str) -> None:
+    git_run("add", "-A", cwd=repo)
+    if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo).returncode == 0:
+        return
+    git_run(
+        "-c",
+        "user.name=stage5f-authority-test",
+        "-c",
+        "user.email=stage5f-authority-test@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        message,
+        cwd=repo,
+    )
 
 
 def export_ref(ref: str, destination: Path) -> Path:
@@ -54,6 +76,19 @@ def export_ref(ref: str, destination: Path) -> Path:
             ):
                 raise RuntimeError(f"unsafe authority snapshot member: {member.name}")
             tar.extract(member, target)
+    git_run("init", "--quiet", cwd=target)
+    git_run("add", "-A", cwd=target)
+    git_run(
+        "-c",
+        "user.name=stage5f-authority-test",
+        "-c",
+        "user.email=stage5f-authority-test@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "authority snapshot",
+        cwd=target,
+    )
     return target
 
 
@@ -114,6 +149,7 @@ def mutate_coordinated_rebind(candidate: Path, sentinel: Path) -> None:
     for relative, suffix in mutations.items():
         path = candidate / relative
         path.write_text(path.read_text() + suffix)
+    commit_worktree(candidate, "coordinated rebind")
 
 
 def mutate_symlink(candidate: Path, relative: str) -> None:
@@ -122,36 +158,40 @@ def mutate_symlink(candidate: Path, relative: str) -> None:
     target.write_text("not authority bytes\n")
     path.unlink()
     path.symlink_to(target)
+    commit_worktree(candidate, "symlink substitution")
 
 
-def mutate_gitlink_shape(candidate: Path, relative: str) -> None:
+def mutate_directory_shape(candidate: Path, relative: str) -> None:
     path = candidate / relative
     path.unlink()
     path.mkdir()
+    commit_worktree(candidate, "directory substitution")
 
 
-def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def file_binding(path: Path) -> dict[str, str]:
+    mode = "100755" if path.stat().st_mode & 0o111 else "100644"
+    return {"git_mode": mode, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
-def tree_hashes(root: Path) -> dict[str, str]:
-    result: dict[str, str] = {}
+def worktree_bindings(root: Path) -> dict[str, dict[str, str]]:
+    result: dict[str, dict[str, str]] = {}
     for path in root.rglob("*"):
         relative = path.relative_to(root)
         if relative.parts and relative.parts[0] == ".git":
             continue
         if path.is_file() and not path.is_symlink():
-            result[relative.as_posix()] = sha256(path)
+            result[relative.as_posix()] = file_binding(path)
     return result
 
 
 def build_valid_rotation(authority: Path, base: Path, candidate: Path) -> None:
-    # A harmless descriptor change proves that an R3-rooted authority file can
-    # advance only through the old base contract.  It remains data here.
+    del authority
+    contract = __import__("stage5f_base_authority_contract")
     descriptor = candidate / "scripts/stage5f_descriptor.py"
     descriptor.write_text(descriptor.read_text() + "\n# staged authority generation two\n")
-    state_path = candidate / "docs/stage-5/stage5f-authority-state.json"
-    previous_state_sha = sha256(base / "docs/stage-5/stage5f-authority-state.json")
+    base_entries = contract.git_tree_entries(base)
+    previous_state_sha = base_entries[contract.AUTHORITY_STATE].sha256
+    state_path = candidate / contract.AUTHORITY_STATE
     state_path.write_text(
         json.dumps(
             {
@@ -166,21 +206,20 @@ def build_valid_rotation(authority: Path, base: Path, candidate: Path) -> None:
         )
         + "\n"
     )
-    contract = __import__("stage5f_base_authority_contract")
-    candidate_hashes = tree_hashes(candidate)
-    base_hashes = tree_hashes(base)
+    candidate_bindings = worktree_bindings(candidate)
+    base_bindings = {
+        relative: entry.binding() for relative, entry in base_entries.items()
+    }
     changed = {
-        relative: digest
-        for relative, digest in candidate_hashes.items()
-        if base_hashes.get(relative) != digest
+        relative: binding
+        for relative, binding in candidate_bindings.items()
+        if base_bindings.get(relative) != binding
     }
     manifest = {
         "authority_files": {
-            relative: candidate_hashes[relative] for relative in contract.AUTHORITY_FILES
+            relative: candidate_bindings[relative] for relative in contract.AUTHORITY_FILES
         },
-        "canonical_ci_gate_sha256": candidate_hashes[
-            "scripts/stage5f_atomic_hybrid_semantics_gate.sh"
-        ],
+        "canonical_ci_gate_sha256": candidate_bindings[contract.GATE]["sha256"],
         "changed_paths": changed,
         "kind": "stage5f-authority-rotation",
         "next_generation": 2,
@@ -193,23 +232,53 @@ def build_valid_rotation(authority: Path, base: Path, candidate: Path) -> None:
     (candidate / contract.ROTATION_MANIFEST).write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     )
+    commit_worktree(candidate, "valid rotation")
 
 
-def refresh_rotation_hashes(base: Path, candidate: Path) -> None:
+def refresh_rotation_bindings(base: Path, candidate: Path) -> None:
     contract = __import__("stage5f_base_authority_contract")
     manifest_path = candidate / contract.ROTATION_MANIFEST
     manifest = json.loads(manifest_path.read_text())
-    candidate_hashes = tree_hashes(candidate)
-    base_hashes = tree_hashes(base)
+    candidate_bindings = worktree_bindings(candidate)
+    base_entries = contract.git_tree_entries(base)
+    base_bindings = {
+        relative: entry.binding() for relative, entry in base_entries.items()
+    }
     manifest["authority_files"] = {
-        relative: candidate_hashes[relative] for relative in contract.AUTHORITY_FILES
+        relative: candidate_bindings[relative] for relative in contract.AUTHORITY_FILES
     }
     manifest["changed_paths"] = {
-        relative: digest
-        for relative, digest in candidate_hashes.items()
-        if relative != contract.ROTATION_MANIFEST and base_hashes.get(relative) != digest
+        relative: binding
+        for relative, binding in candidate_bindings.items()
+        if relative != contract.ROTATION_MANIFEST and base_bindings.get(relative) != binding
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    commit_worktree(candidate, "refresh rotation bindings")
+
+
+def add_gitlink(candidate: Path, relative: str) -> None:
+    # Git accepts the opaque target as a submodule object id. The contract must
+    # reject mode 160000 before it has any chance to dereference this value.
+    path = candidate / relative
+    path.mkdir(parents=True, exist_ok=True)
+    git_run(
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        f"160000,{('1' * 40)},{relative}",
+        cwd=candidate,
+    )
+    git_run(
+        "-c",
+        "user.name=stage5f-authority-test",
+        "-c",
+        "user.email=stage5f-authority-test@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "hidden gitlink",
+        cwd=candidate,
+    )
 
 
 def validate_workflow_contract() -> None:
@@ -259,9 +328,9 @@ def main() -> int:
 
             for relative in contract.BASE_AUTHORITY_FILES:
                 candidate, sentinel = fresh_candidate(base, root)
-                (candidate / relative).write_text(
-                    (candidate / relative).read_text() + "# base-authority-drift\n"
-                )
+                path = candidate / relative
+                path.write_text(path.read_text() + "# base-authority-drift\n")
+                commit_worktree(candidate, "base authority drift")
                 assert_rejected(authority, base, candidate, sentinel, f"base-drift-{relative}")
 
             for relative in contract.AUTHORITY_FILES:
@@ -270,8 +339,8 @@ def main() -> int:
                 assert_rejected(authority, base, candidate, sentinel, f"symlink-{relative}")
 
                 candidate, sentinel = fresh_candidate(base, root)
-                mutate_gitlink_shape(candidate, relative)
-                assert_rejected(authority, base, candidate, sentinel, f"gitlink-{relative}")
+                mutate_directory_shape(candidate, relative)
+                assert_rejected(authority, base, candidate, sentinel, f"directory-shape-{relative}")
 
             candidate, sentinel = fresh_candidate(base, root)
             build_valid_rotation(authority, base, candidate)
@@ -283,25 +352,49 @@ def main() -> int:
             manifest = json.loads(manifest_path.read_text())
             manifest["canonical_ci_gate_sha256"] = "0" * 64
             manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+            commit_worktree(candidate, "conflicting digest")
             assert_rejected(authority, base, candidate, sentinel, "rotation-conflicting-gate-authority")
 
             candidate, sentinel = fresh_candidate(base, root)
             build_valid_rotation(authority, base, candidate)
-            inventory_path = candidate / "docs/stage-5/stage5f-a-atomic-hybrid-semantics-entry-inventory.json"
+            inventory_path = candidate / contract.INVENTORY
             inventory = json.loads(inventory_path.read_text())
             inventory["ci_snapshot_authority"]["stage5f_atomic_hybrid_semantics_gate_sha256"] = "0" * 64
             inventory_path.write_text(json.dumps(inventory, indent=2, sort_keys=False) + "\n")
-            refresh_rotation_hashes(base, candidate)
+            refresh_rotation_bindings(base, candidate)
             assert_rejected(authority, base, candidate, sentinel, "rotation-one-sided-inventory-gate-digest")
 
             candidate, sentinel = fresh_candidate(base, root)
             build_valid_rotation(authority, base, candidate)
             (candidate / "crates/forbidden-stage5f-rotation.rs").write_text("// forbidden\n")
+            refresh_rotation_bindings(base, candidate)
             assert_rejected(authority, base, candidate, sentinel, "rotation-out-of-scope-runtime-path")
+
+            candidate, sentinel = fresh_candidate(base, root)
+            build_valid_rotation(authority, base, candidate)
+            add_gitlink(candidate, "crates/stage5f-hidden-gitlink")
+            assert_rejected(authority, base, candidate, sentinel, "rotation-hidden-crates-gitlink")
+
+            candidate, sentinel = fresh_candidate(base, root)
+            build_valid_rotation(authority, base, candidate)
+            add_gitlink(candidate, "docs/stage-5/stage5f-hidden-gitlink")
+            assert_rejected(authority, base, candidate, sentinel, "rotation-hidden-allowed-prefix-gitlink")
+
+            candidate, sentinel = fresh_candidate(base, root)
+            contract_path = candidate / "scripts/stage5f_base_authority_contract.py"
+            contract_path.chmod(contract_path.stat().st_mode | 0o111)
+            commit_worktree(candidate, "authority executable mode drift")
+            assert_rejected(authority, base, candidate, sentinel, "authority-mode-100644-to-100755")
+
+            candidate, sentinel = fresh_candidate(base, root)
+            duplicate = candidate / ".github/workflows/duplicate-base-authority.yml"
+            duplicate.write_text("name: Stage 5F Base Authority\n")
+            commit_worktree(candidate, "duplicate workflow namespace")
+            assert_rejected(authority, base, candidate, sentinel, "ordinary-duplicate-workflow-namespace")
     except (OSError, RuntimeError, subprocess.CalledProcessError, tarfile.TarError) as exc:
         print(f"stage5f-base-authority-negative: FAIL: {exc}", file=sys.stderr)
         return 1
-    expected_cases = 1 + 1 + len(contract.BASE_AUTHORITY_FILES) + 2 * len(contract.AUTHORITY_FILES) + 4
+    expected_cases = 48
     print(f"stage5f-base-authority-negative: ok cases={expected_cases}")
     return 0
 

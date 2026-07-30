@@ -19,11 +19,17 @@ The PR adds or replaces
 ```json
 {
   "authority_files": {
-    "<each current authority path>": "<candidate SHA-256>"
+    "<each current authority path>": {
+      "git_mode": "100644",
+      "sha256": "<candidate SHA-256>"
+    }
   },
   "canonical_ci_gate_sha256": "<candidate SHA-256>",
   "changed_paths": {
-    "<every changed source path except this manifest>": "<candidate SHA-256>"
+    "<every changed source path except this manifest>": {
+      "git_mode": "100644",
+      "sha256": "<candidate SHA-256>"
+    }
   },
   "kind": "stage5f-authority-rotation",
   "next_generation": 2,
@@ -37,13 +43,16 @@ The PR adds or replaces
 
 `changed_paths` intentionally excludes the manifest itself: placing its own
 digest in that map would create an unverifiable self-hash cycle. The contract
-calculates every other source-tree change and requires an exact match. It
-rejects deletion and all special files.
+calculates every other source-tree change from the committed Git tree and
+requires an exact `{git_mode, sha256}` binding. It rejects deletion, gitlinks,
+symlinks and every non-blob or unsupported mode; `100644` and `100755` are the
+only permitted Git modes.
 
 The candidate `stage5f-authority-state.json` must be the exact successor of
 the base state: one generation higher, the same `next_stage`, and the supplied
 base SHA and state digest. `authority_files` must provide the exact candidate
-digest of every authority file, including files whose bytes remain unchanged.
+Git-mode and content binding of every authority file, including files whose
+bytes remain unchanged.
 
 The following values must be equal, not merely present:
 
@@ -61,7 +70,11 @@ actual gate SHA-256
 The manifest may bind only the existing authority files, Stage 5F scripts,
 Stage 5F docs and fixtures, `README.md`, `docs/current-status.md` and
 `docs/handoff.md`. It cannot bind a `crates/`, broker, transport or operational
-path.
+path. The canonical `ci.yml` is immutable even in a rotation. A rotation may
+change only the exact base-authority workflow
+`.github/workflows/stage5f-base-authority.yml`; an ordinary PR may not alter
+any `.github/workflows/**` path. This prevents a second workflow from
+manufacturing an ambiguous `base-authority` required-check namespace.
 
 The contract establishes technical eligibility; it does not replace human
 authorization. Before merging a rotation PR, GitHub protection must require a

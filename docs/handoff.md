@@ -114,10 +114,15 @@ only from that directory; the PR head is checked out only for byte comparisons.
 The unchanged R3 and protected-base authority subsets are rejected before any
 candidate executable can run. A dedicated PR may instead carry the versioned
 authority-rotation manifest. The old base contract validates its exact base
-SHA, one-generation state transition, all changed-path and authority hashes,
+SHA, one-generation state transition, all changed-path and authority bindings,
 and the five-way canonical gate-digest equality; it rejects any Rust,
 transport, runtime or live-surface path. The manifest is data, not executable
-authority. This external check, a required independent PR approval after the
+authority. R7 derives the bindings from committed Git trees, not checkout
+paths: each authority and changed-path value binds both `git_mode` and SHA-256;
+gitlinks, non-blobs and unsupported modes fail closed. Ordinary PRs cannot
+change any `.github/workflows/**` file. A rotation leaves canonical `ci.yml`
+immutable and may alter only the exact base-authority workflow, preventing a
+duplicate required-check namespace. This external check, a required independent PR approval after the
 latest push, up-to-date branch enforcement and no direct-push/admin-bypass path
 must be enabled in GitHub branch protection after acceptance. The project does
 not claim a CODEOWNERS review until an independent repository maintainer is
