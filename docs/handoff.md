@@ -128,6 +128,20 @@ must be enabled in GitHub branch protection after acceptance. The project does
 not claim a CODEOWNERS review until an independent repository maintainer is
 explicitly added.
 
+The r8 activation-repair rotation is an explicit exception to neither CI
+immutability nor the closed operational boundary. It records the hosted runner's
+missing-`rg` failure and grants one exact r9 successor permission to make the
+forbidden-surface scanner and its two test harness files portable. The resulting
+generation-2 contract requires that the executable scanner itself changes,
+rejects mode drift and rejects every path outside the documented r9 allowlist.
+It also accepts that exception only from the exact schema-1 generation-2
+`5F-a-r8-bootstrap-repair-authority` base state into generation 3, so the r9
+stage name cannot replay the authority later. All authority schema and
+generation fields are validated as exact JSON integers before comparison, so
+Python `bool` and float values cannot create an accepted dead-end state.
+The r8 archive is review evidence for authority scope only; its canonical CI
+Rust failure remains expected until r9 restores scanner portability.
+
 The script also creates the external sibling
 `moex-trading-project-<short>.zip.sha256`. The archive hash is deliberately not
 stored inside the archive. Reviewers can run

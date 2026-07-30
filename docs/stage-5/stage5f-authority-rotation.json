@@ -1,0 +1,118 @@
+{
+  "authority_files": {
+    ".github/workflows/ci.yml": {
+      "git_mode": "100644",
+      "sha256": "6133fb3900a9f11323df444c38760f6b71fdece927bfe2fb2cb411b5172d02f3"
+    },
+    ".github/workflows/stage5f-base-authority.yml": {
+      "git_mode": "100644",
+      "sha256": "5be341d0448c7734727ee20caa22040d0a64cce3aa8770902fbcb88ba8976f35"
+    },
+    "docs/stage-5/stage5f-a-atomic-hybrid-semantics-entry-inventory.json": {
+      "git_mode": "100644",
+      "sha256": "d3aacdd94f88b953ce39c6d808081b5ac7a9cb17c4342c19107db6ad0e328012"
+    },
+    "docs/stage-5/stage5f-authority-state.json": {
+      "git_mode": "100644",
+      "sha256": "abfa7d66f0f4902feb80d51fbb53251a67ac7a9a462d8052d314a95e98b3cbaf"
+    },
+    "scripts/handoff_safety_check.py": {
+      "git_mode": "100755",
+      "sha256": "7238deb02b5dc5923e732a9a106d759f7788575a373d3171f62010b8db08170b"
+    },
+    "scripts/make_handoff_archive.sh": {
+      "git_mode": "100755",
+      "sha256": "100d9757dca0a291d06dd69d3b7edde701a9059150b920a7ceebbe539e99066f"
+    },
+    "scripts/stage5f_atomic_hybrid_semantics_entry_check.py": {
+      "git_mode": "100644",
+      "sha256": "e622c1de14b8b1e60760deb0a8c33eb53c4cea7f32a9957c731a345757aac7b9"
+    },
+    "scripts/stage5f_atomic_hybrid_semantics_gate.sh": {
+      "git_mode": "100644",
+      "sha256": "b3fdcfb4bf000f36de333b61cf542da1ca0452ed7638c3f68195bf8fa8d264b8"
+    },
+    "scripts/stage5f_atomic_hybrid_semantics_negative_harness.py": {
+      "git_mode": "100644",
+      "sha256": "1a8cf90caf9b1500f01eee0fe31108e22592a4b14eceb025b53296c2f098bef4"
+    },
+    "scripts/stage5f_b3f_snapshot_provenance_gate.sh": {
+      "git_mode": "100755",
+      "sha256": "f922a4f777fbb37e049ccb640f713b7ff7557cf4f86e8855823d7db328731e29"
+    },
+    "scripts/stage5f_base_authority_contract.py": {
+      "git_mode": "100644",
+      "sha256": "558ded6d74f1367f00550aa310827cdbf1453a0ade45ef0b8f06ae3ca9bdf3ef"
+    },
+    "scripts/stage5f_base_authority_negative_harness.py": {
+      "git_mode": "100644",
+      "sha256": "d5fe87e40882706345b038eae03e36b31f6a874d98959461581b14b44f69c7a1"
+    },
+    "scripts/stage5f_ci_snapshot_inheritance_check.py": {
+      "git_mode": "100755",
+      "sha256": "50dd173044c4c4d1eee330b08a27e7c8e044fe75148bc7816f8448e43fff082a"
+    },
+    "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py": {
+      "git_mode": "100755",
+      "sha256": "66fec06da991f5778db4b79c733d159ed3a11c97a626ec7064e2c918d605944a"
+    },
+    "scripts/stage5f_descriptor.py": {
+      "git_mode": "100644",
+      "sha256": "190ec2c8082e8959d0eb50229b54659668ac63cd0439944f03c45808f3c7785d"
+    }
+  },
+  "canonical_ci_gate_sha256": "b3fdcfb4bf000f36de333b61cf542da1ca0452ed7638c3f68195bf8fa8d264b8",
+  "changed_paths": {
+    "docs/current-status.md": {
+      "git_mode": "100644",
+      "sha256": "d91ff7314d2f3f96a9a0e7f3f299ec9e82c0101f55d2edb6500902d69cb772a6"
+    },
+    "docs/handoff.md": {
+      "git_mode": "100644",
+      "sha256": "6f1d9691e4040b7f3261348113375c814f864fcdcc5922e96828bdef8cd042b1"
+    },
+    "docs/stage-5/5f-a-atomic-hybrid-semantics-entry.md": {
+      "git_mode": "100644",
+      "sha256": "3ba4d6db51482d0276e5cb168377df250378e50acf2c2b57ffca6619fc42fd9c"
+    },
+    "docs/stage-5/5f-a-r8-bootstrap-repair-authority.md": {
+      "git_mode": "100644",
+      "sha256": "309c460fdc437aed17ebffa389c6d82e99b96c1a28e5ddc167af018f37d6a975"
+    },
+    "docs/stage-5/stage5f-a-atomic-hybrid-semantics-entry-inventory.json": {
+      "git_mode": "100644",
+      "sha256": "d3aacdd94f88b953ce39c6d808081b5ac7a9cb17c4342c19107db6ad0e328012"
+    },
+    "docs/stage-5/stage5f-authority-rotation-protocol.md": {
+      "git_mode": "100644",
+      "sha256": "8c1756f4505051fa305402fbfaba867f1ce28b97c8fbd36398b66a7e217047f1"
+    },
+    "docs/stage-5/stage5f-authority-state.json": {
+      "git_mode": "100644",
+      "sha256": "abfa7d66f0f4902feb80d51fbb53251a67ac7a9a462d8052d314a95e98b3cbaf"
+    },
+    "scripts/handoff_safety_check.py": {
+      "git_mode": "100755",
+      "sha256": "7238deb02b5dc5923e732a9a106d759f7788575a373d3171f62010b8db08170b"
+    },
+    "scripts/stage5f_atomic_hybrid_semantics_entry_check.py": {
+      "git_mode": "100644",
+      "sha256": "e622c1de14b8b1e60760deb0a8c33eb53c4cea7f32a9957c731a345757aac7b9"
+    },
+    "scripts/stage5f_base_authority_contract.py": {
+      "git_mode": "100644",
+      "sha256": "558ded6d74f1367f00550aa310827cdbf1453a0ade45ef0b8f06ae3ca9bdf3ef"
+    },
+    "scripts/stage5f_base_authority_negative_harness.py": {
+      "git_mode": "100644",
+      "sha256": "d5fe87e40882706345b038eae03e36b31f6a874d98959461581b14b44f69c7a1"
+    }
+  },
+  "kind": "stage5f-authority-rotation",
+  "next_generation": 2,
+  "next_stage": "5F-a-r8-bootstrap-repair-authority",
+  "previous_base_sha": "9a0f02dd36f3e08e4afb603870ca74a15b75e12c",
+  "previous_generation": 1,
+  "previous_state_sha256": "4be750b9453e77c021b09b92edfb24fb180280440bd2baf1d5ceb336ea94b5fc",
+  "schema_version": 1
+}

@@ -54,6 +54,12 @@ base SHA and state digest. `authority_files` must provide the exact candidate
 Git-mode and content binding of every authority file, including files whose
 bytes remain unchanged.
 
+`schema_version`, `authority_generation`, `previous_generation` and
+`next_generation` are exact JSON integer fields. The protected-base contract
+checks their type before arithmetic or equality comparison: `true`, `1.0` and
+`3.0` are invalid. This prevents an apparently accepted rotation from leaving a
+non-integer state that later rotations cannot consume.
+
 The following values must be equal, not merely present:
 
 ```text
@@ -83,3 +89,44 @@ after the latest push, an up-to-date branch and no direct/force/admin bypass.
 After merge, a disposable clean PR and an adversarial authority-drift PR must
 show the new authority accepts the first and rejects the second before the next
 Stage 5F implementation slice starts.
+
+## Bounded activation-repair sequence: r8 → r9
+
+The first external activation exposed a platform dependency in the existing
+forbidden-surface scanner: the hosted runner did not provide `rg`. This is not
+an authorization to alter canonical CI. The only permitted recovery is the
+two-generation sequence below.
+
+Generation 2, `5F-a-r8-bootstrap-repair-authority`, changes only the
+protected-base contract and its governance evidence. It does not modify the
+scanner or a workflow. Its successor contract then admits exactly generation
+3, `5F-a-r9-portable-forbidden-scanner`, only when the protected base has
+schema version 1, authority generation 2 and the exact r8 stage name. The
+candidate must declare the matching `previous_generation = 2`,
+`next_generation = 3` and r9 stage. It may then alter only these source paths:
+
+```text
+docs/current-status.md
+docs/handoff.md
+docs/stage-5/5f-a-atomic-hybrid-semantics-entry.md
+docs/stage-5/5f-a-r8-bootstrap-repair-authority.md
+docs/stage-5/stage5f-a-atomic-hybrid-semantics-entry-inventory.json
+docs/stage-5/stage5f-authority-rotation-protocol.md
+docs/stage-5/stage5f-authority-rotation.json
+docs/stage-5/stage5f-authority-state.json
+scripts/forbidden_surface_negative_case_worker.sh
+scripts/forbidden_surface_negative_harness.py
+scripts/forbidden_surface_scan.sh
+scripts/handoff_safety_check.py
+scripts/stage5f_atomic_hybrid_semantics_entry_check.py
+scripts/stage5f_base_authority_negative_harness.py
+```
+
+The r9 candidate must change `scripts/forbidden_surface_scan.sh` as executable
+mode `100755`; omitting that change, changing its mode, adding an arbitrary
+path, or using this special stage to change a workflow is rejected by the
+generation-2 contract. Generic rotations cannot change any of the three
+forbidden-surface scanner/harness files. Replaying r9 from generation 3 or a
+later generation, invoking it from a different generation-2 stage, or spoofing
+the r8 stage name on a later state is rejected. The exception is therefore
+consumed by r9 and does not create a general scanner-maintenance route.
