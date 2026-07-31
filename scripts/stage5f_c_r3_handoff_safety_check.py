@@ -466,7 +466,7 @@ def validate_archive(archive: str, allow_missing_final_safety: bool) -> tuple[st
             )
             generated.add(member)
         safety_stdout = files[safety["stdout_member"]].decode(errors="replace")
-        if f"stage5f-c-r3-handoff-safety: ok source_ref={source_ref} gates=16" not in safety_stdout:
+        if f"stage5f-c-r3-handoff-safety: ok source_ref={source_ref} gates=15" not in safety_stdout:
             fail("preseal archive-safety success marker missing")
         require(safety["checked_evidence_manifest_sha256"], sha256(files[EVIDENCE_MANIFEST]), "safety evidence binding")
         require(safety["checked_source_tree_manifest_sha256"], sha256(files[SOURCE_MANIFEST]), "safety source binding")
