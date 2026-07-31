@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-07-29.
+Status date: 2026-07-31.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -286,8 +286,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   the paired Stage 5D freeze manifest/checker. Its full 87-case negative
   harness passes with `rg` absent from `PATH`. Schema and generation values are
   exact JSON integers (never `true` or a float), and the capability cannot be
-  replayed after the generation-4 state. No workflow, Cargo/Rust or operational
-  surface changes. GitHub
+  replayed after the generation-4 state. R9 itself changed no workflow,
+  Cargo/Rust or operational surface. A bounded R9a CI-preparation patch then
+  primes only the exact B3F snapshot's locked Cargo dependencies before the
+  unchanged offline UI harness runs on a clean hosted runner; it adds no
+  runtime, broker, transport or order path. GitHub
   activation still requires an independent approval after the latest update,
   strict up-to-date branch and no direct/admin bypass. It then
   admits only the existing
