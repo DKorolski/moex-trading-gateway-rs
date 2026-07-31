@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "stage": "5F-c-controlled-paper-invocation",
+  "status": "candidate_input_correction_pending_review",
+  "base_scenario_catalog": {
+    "path": "tests/fixtures/stage5/stage5f/v1/scenarios/atomic-hybrid-scenarios.json",
+    "sha256": "e83f10b58ba6c72efbf95d561edc9f7de84ce8e092129f6a9b449d2683e84184"
+  },
+  "corrections": [
+    {
+      "row_id": "F02",
+      "reason": "production BO wait_hours=3.0 blocks the B1 10:10 MSK bar; move the same market shape to the first source-valid post-wait M10 close",
+      "overrides": {
+        "bar": {
+          "close_time_utc": "2026-01-06T09:10:00Z"
+        },
+        "clock": {
+          "event_ts_utc": "2026-01-06T09:10:00Z",
+          "callback_ts_utc": "2026-01-06T09:10:01Z",
+          "lifecycle_ts_utc": "2026-01-06T09:10:02Z"
+        },
+        "state_seed": {}
+      }
+    },
+    {
+      "row_id": "F04",
+      "reason": "production BO stop2 with prev_day_range=4.0 is 98.6, so B1 close=99.5 cannot produce the declared long exit; B1 cycle id is 10 bytes but not production-valid ASCII hex",
+      "overrides": {
+        "bar": {
+          "low": "98.0",
+          "close": "98.5"
+        },
+        "clock": {},
+        "state_seed": {
+          "active_cycle_id": "b000000001"
+        }
+      }
+    }
+  ],
+  "invariants": {
+    "strategy_parameters_changed": false,
+    "production_source_changed": false,
+    "expected_output_guessed": false,
+    "base_fixture_rewritten": false,
+    "review_required_before_golden_freeze": true
+  }
+}

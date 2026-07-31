@@ -7543,7 +7543,12 @@ impl BrokerNeutralHybridStrategy for HybridIntradayRuntimeStrategy {
             v: input.payload.volume,
             origin,
         };
-        Ok(Strategy::on_bar(self, &context, &bar))
+        // STAGE5F-TEST-OBSERVATION-CALL-BEGIN
+        let intents = Strategy::on_bar(self, &context, &bar);
+        #[cfg(test)]
+        crate::stage5f_atomic_hybrid_semantics::observe_exact_on_bar_result(&intents);
+        // STAGE5F-TEST-OBSERVATION-CALL-END
+        Ok(intents)
     }
 
     fn on_broker_ack(

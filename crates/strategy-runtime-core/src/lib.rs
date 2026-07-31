@@ -111,6 +111,10 @@ mod stage5d_persistence;
 #[allow(dead_code)] // Stage 5E-b1 is deliberately private until a later reviewed consumer.
 mod stage5e_no_io_lifecycle;
 // STAGE5D-ADDITIVE-BRIDGE-END: lib-stage5d-module
+// STAGE5F-TEST-OBSERVATION-MODULE-BEGIN
+#[cfg(test)]
+mod stage5f_atomic_hybrid_semantics;
+// STAGE5F-TEST-OBSERVATION-MODULE-END
 
 pub use hybrid_intraday_runtime::{
     BrokerNeutralHybridCallbackResult, BrokerNeutralHybridStrategy, HybridIntradayProfile,

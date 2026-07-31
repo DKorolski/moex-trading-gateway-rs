@@ -1685,6 +1685,81 @@ pub(crate) fn stage5e_test_sequence_inputs(
     )
 }
 
+// STAGE5F-TEST-OWNERSHIP-FACTORY-BEGIN
+/// Test-only ownership factory for Stage 5F source characterization.
+///
+/// The strategy and bar remain inside the existing linear Stage 5C wrappers;
+/// this does not add a production constructor or a callback bypass.
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn stage5f_test_sequence_inputs_from_owned_strategy(
+    strategy: HybridIntradayRuntimeStrategy,
+    strategy_id: String,
+    account_id: BrokerAccountId,
+    target: InstrumentId,
+    tick_size: f64,
+    position_qty: rust_decimal::Decimal,
+    lifecycle_now: DateTime<Utc>,
+    predecessor_close_ts: i64,
+    bar: broker_core::HybridRuntimeBarEvent,
+) -> (
+    Stage5cPendingRecoveredPaperStrategy,
+    Stage5cAcceptedSemanticBar,
+) {
+    assert_eq!(bar.instrument, target, "Stage 5F target/bar identity drift");
+    assert_eq!(bar.origin, broker_core::HybridRuntimeBarOrigin::Live);
+    assert!(bar.is_final);
+    assert_eq!(bar.timeframe_sec, 600);
+    assert_eq!(bar.close_time_utc - predecessor_close_ts, 600);
+
+    let admission = Stage5cPaperHostAdmission::stage5d_test_new(
+        strategy_id,
+        account_id,
+        target,
+        tick_size,
+        position_qty,
+        lifecycle_now,
+    );
+    let recovery_receipt = Stage5cPendingRecoveryReceipt {
+        warmup_receipt: Stage5cHistoryWarmupReceipt {
+            restore_receipt: Stage5cRuntimeStateRestoreReceipt {
+                bootstrap_receipt: Stage5cBootstrapNotificationReceipt {
+                    admission,
+                    notified_ts: lifecycle_now,
+                },
+                restored_ts: lifecycle_now,
+                known_order_ids: Vec::new(),
+                pending_requests: Vec::new(),
+            },
+            started_ts: lifecycle_now,
+            processed_bars: 1,
+            input_bars: 1,
+            source_mode: broker_core::Stage3StrategyBarSourceMode::FinamDerivedM1ToM10,
+            last_history_ts: predecessor_close_ts,
+        },
+        recovered_ts: lifecycle_now,
+        replayed_events: 0,
+        duplicate_events: 0,
+    };
+    let provenance = broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete();
+    let stage3_provenance_identity = stage5e_b3c_stage3_provenance_identity(&provenance);
+    let semantic_bar_identity = stage5e_b3c_semantic_bar_identity(&bar, stage3_provenance_identity);
+    (
+        Stage5cPendingRecoveredPaperStrategy {
+            strategy,
+            receipt: recovery_receipt,
+        },
+        Stage5cAcceptedSemanticBar {
+            bar,
+            tick_size,
+            origin: broker_core::HybridRuntimeBarOrigin::Live,
+            stage3_provenance_identity,
+            semantic_bar_identity,
+        },
+    )
+}
+// STAGE5F-TEST-OWNERSHIP-FACTORY-END
+
 #[cfg(test)]
 pub(crate) fn stage5e_test_pending_recovered_state_fingerprint(
     recovered: &Stage5cPendingRecoveredPaperStrategy,

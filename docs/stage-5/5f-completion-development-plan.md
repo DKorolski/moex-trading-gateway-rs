@@ -39,6 +39,10 @@ The governance split and contract corrections are normative in
    - one observer consume;
    - one B3F settlement attempt;
    - accepted and typed terminal dispositions.
+   - candidate implementation complete; seven rows pass;
+   - independent review is required before 5F-d;
+   - three explicit review decisions are recorded in
+     `5f-c-controlled-paper-invocation.md`.
 5. **5F-d complete atomic matrix**
    - BO and MR entry/exit behavior;
    - arbitration and owner/cycle invariants;
