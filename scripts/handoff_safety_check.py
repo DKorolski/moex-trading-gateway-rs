@@ -132,13 +132,13 @@ STAGE5F_B3F_CLOSURE = {
     "accepted_descriptor_stage": "5E-b3f-callback-settlement-escrow-design",
 }
 STAGE5F_CI_SNAPSHOT_AUTHORITY = {
-    "ci_workflow_sha256": "6133fb3900a9f11323df444c38760f6b71fdece927bfe2fb2cb411b5172d02f3",
+    "ci_workflow_sha256": "b6ac51b4a5e014205e984939f53f46fd3fc02fe70a81135979a9cd9655eb2a14",
     "b3f_snapshot_provenance_wrapper_sha256": "f922a4f777fbb37e049ccb640f713b7ff7557cf4f86e8855823d7db328731e29",
     "stage5f_atomic_hybrid_semantics_gate_sha256": "b3fdcfb4bf000f36de333b61cf542da1ca0452ed7638c3f68195bf8fa8d264b8",
-    "stage5f_ci_snapshot_inheritance_check_sha256": "50dd173044c4c4d1eee330b08a27e7c8e044fe75148bc7816f8448e43fff082a",
+    "stage5f_ci_snapshot_inheritance_check_sha256": "a6544804357a31120b29c0bfebb2e85457e4976b2849a0642d03704038358315",
     "stage5f_atomic_hybrid_semantics_negative_harness_sha256": "1a8cf90caf9b1500f01eee0fe31108e22592a4b14eceb025b53296c2f098bef4",
-    "stage5f_ci_snapshot_inheritance_negative_harness_sha256": "66fec06da991f5778db4b79c733d159ed3a11c97a626ec7064e2c918d605944a",
-    "negative_case_count": 16,
+    "stage5f_ci_snapshot_inheritance_negative_harness_sha256": "3fc47139563f3b1a4949879f354aca9e01b08ae90c16e01455430146742f0b06",
+    "negative_case_count": 17,
 }
 STAGE5F_CI_EXECUTION_AUTHORITY_MEMBERS = {
     "ci_workflow_sha256": ".github/workflows/ci.yml",
@@ -267,7 +267,7 @@ def check_stage5f_ci_negative_result(
         or result.get("command")
         != ["python3", "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py"]
         or result.get("exit_code") != 0
-        or result.get("passed_cases") != 16
+        or result.get("passed_cases") != 17
     ):
         raise SystemExit("handoff safety: Stage 5F CI negative gate did not pass")
     parse_utc_timestamp(result.get("started_at_utc"), "Stage 5F CI negative started_at_utc")
@@ -278,7 +278,7 @@ def check_stage5f_ci_negative_result(
         require_hex64(result.get(field), f"Stage 5F CI negative {field}")
         if hashlib.sha256(archive.read(member)).hexdigest() != result[field]:
             raise SystemExit(f"handoff safety: Stage 5F CI negative {field} mismatch")
-    if archive.read(stdout_name).count(b"PASS ") != 16:
+    if archive.read(stdout_name).count(b"PASS ") != 17:
         raise SystemExit("handoff safety: Stage 5F CI negative passed case count mismatch")
     require_hex64(
         manifest.get("stage5f_ci_negative_result_sha256"),

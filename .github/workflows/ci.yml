@@ -45,11 +45,26 @@ jobs:
             test "$actual" = "$expected"
           }
           verify_sha256 "b3fdcfb4bf000f36de333b61cf542da1ca0452ed7638c3f68195bf8fa8d264b8" "scripts/stage5f_atomic_hybrid_semantics_gate.sh"
-          verify_sha256 "50dd173044c4c4d1eee330b08a27e7c8e044fe75148bc7816f8448e43fff082a" "scripts/stage5f_ci_snapshot_inheritance_check.py"
+          verify_sha256 "a6544804357a31120b29c0bfebb2e85457e4976b2849a0642d03704038358315" "scripts/stage5f_ci_snapshot_inheritance_check.py"
           verify_sha256 "1a8cf90caf9b1500f01eee0fe31108e22592a4b14eceb025b53296c2f098bef4" "scripts/stage5f_atomic_hybrid_semantics_negative_harness.py"
-          verify_sha256 "66fec06da991f5778db4b79c733d159ed3a11c97a626ec7064e2c918d605944a" "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py"
+          verify_sha256 "3fc47139563f3b1a4949879f354aca9e01b08ae90c16e01455430146742f0b06" "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py"
           python3 scripts/stage5f_ci_snapshot_inheritance_check.py --execute-verified-provenance
         timeout-minutes: 20
+
+      # Fetch only the dependency graph locked by the accepted B3F snapshot.
+      - name: Prime immutable B3F dependency cache
+        run: |
+          set -euo pipefail
+          accepted_b3f_ref="e14654f7129aa61011931306140a3bfefe2fcfbc"
+          snapshot_root="$(mktemp -d "${TMPDIR:-/tmp}/stage5f-b3f-dependency-prefetch.XXXXXX")"
+          trap 'rm -rf "$snapshot_root"' EXIT
+          git cat-file -e "${accepted_b3f_ref}^{commit}"
+          git archive "$accepted_b3f_ref" | tar -x -C "$snapshot_root"
+          (
+            cd "$snapshot_root"
+            CARGO_NET_OFFLINE=false cargo fetch --locked
+          )
+        timeout-minutes: 10
 
       - name: Stage 5F atomic Hybrid semantics gate
         run: bash scripts/stage5f_atomic_hybrid_semantics_gate.sh

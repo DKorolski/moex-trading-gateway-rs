@@ -102,7 +102,8 @@ accepted authority SHA-256 values. Current-tree hashes are retained as evidence
 but are not an authority source. The builder repeats this complete authority
 check immediately before it creates the source-tree manifest; archive safety
 then repeats it from archive bytes. The Stage 5F CI negative result contains
-sixteen mutations, including skipped/non-blocking CI steps, Actions-only
+seventeen mutations, including skipped/non-blocking CI steps, removal of the
+clean-runner locked-dependency prefetch, Actions-only
 wrapper replacement, forged harness output and wrapper mutation before verified
 execution. Stage 5F-a-r6 restores the immutable R3 gate digest and requires
 the canonical CI line, inventory, entry checker, handoff checker and actual
@@ -137,9 +138,13 @@ two test harness files portable and to atomically rebind only the paired Stage
 5D freeze manifest/checker. The R9 candidate consumes that capability at
 generation 4: its executable scanner changes without mode drift, the full
 87-case negative harness passes with `rg` absent from `PATH`, and every changed
-path remains in the documented R9 allowlist. Canonical CI remains byte-for-byte
-unchanged and must still pass before activation is claimed. The exception is
-accepted only from the exact schema-1 generation-3
+path remains in the documented R9 allowlist. R9 itself leaves canonical CI
+byte-for-byte unchanged. A subsequent bounded R9a CI-preparation repair
+prefetches the locked dependency graph only from an ephemeral archive of the
+exact accepted B3F ref before the unchanged offline UI harness starts. It does
+not compile a runtime, alter the accepted B3F bytes or open a
+broker/transport/execution path. The exception is accepted only from the exact
+schema-1 generation-3
 `5F-a-r8a-stage5d-freeze-rebind-authority` base state into generation 4, so the
 R9 stage name cannot replay the authority later. All authority schema and
 generation fields are validated as exact JSON integers before comparison, so

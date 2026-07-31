@@ -653,7 +653,7 @@ PY
     exit "$stage5f_ci_negative_exit_code"
   fi
   stage5f_ci_negative_passed_cases="$(grep -c '^PASS ' "$stage5f_ci_negative_stdout_log" || true)"
-  if [[ "$stage5f_ci_negative_passed_cases" -ne 16 ]]; then
+  if [[ "$stage5f_ci_negative_passed_cases" -ne 17 ]]; then
     echo "Stage 5F CI snapshot negative gate case-count mismatch: $stage5f_ci_negative_passed_cases" >&2
     exit 1
   fi

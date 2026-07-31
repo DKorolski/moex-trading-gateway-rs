@@ -103,9 +103,18 @@ text scans with the already-required Python 3.11+ path, keeps the scanner mode
 at `100755`, and makes the negative worker's infrastructure-error detection
 portable. The paired Stage 5D freeze manifest/checker are rebound atomically.
 The full 87-case negative harness has passed with `rg` absent from `PATH`.
-The change is limited to the reviewed R9 allowlist: no workflow, Cargo/Rust or
+R9 itself is limited to the reviewed R9 allowlist: no workflow, Cargo/Rust or
 operational path changes. The exact scope and one-shot authority record remain
 in [5f-a-r8-bootstrap-repair-authority.md](5f-a-r8-bootstrap-repair-authority.md).
+
+A separate bounded R9a CI-preparation repair closes a clean-runner failure in
+the inherited B3F production UI harness. That harness correctly uses offline
+Cargo resolution, but a fresh hosted runner has no cached B3F dependencies.
+Canonical CI therefore runs `cargo fetch --locked` only from an ephemeral
+archive of the exact accepted B3F ref, after B3F provenance verification and
+before the unchanged Stage 5F gate. The gate and UI harness remain offline for
+the compile-fail matrix. The prefetch does not compile code, alter the accepted
+snapshot, touch a runtime/broker/transport surface, or open live execution.
 
 Canonical CI must still pass after this generation-4 transition, followed by a
 clean and adversarial authority-drift PR activation check, before Stage 5F-b.
