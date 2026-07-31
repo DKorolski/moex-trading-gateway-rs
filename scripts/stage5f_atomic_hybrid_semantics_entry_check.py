@@ -19,8 +19,8 @@ INVENTORY = (
 ACTIVE = ROOT / "docs/stage-5/stage5f-active-descriptor.json"
 STAGE = "5F-a-atomic-hybrid-semantics-entry"
 BASELINE_REF = "e14654f7129aa61011931306140a3bfefe2fcfbc"
-EXPECTED_PLAN_SHA256 = "954df3e4ffb7b0ce714c839e79ce9fda88ef266852b986d77dc7eac9dae6f04e"
-EXPECTED_INVENTORY_SHA256 = "c598b0b7b3cc0e6a1baf607fd8f9646a810cbcf266346c2e3a41e25746932dd7"
+EXPECTED_PLAN_SHA256 = "8acbf53b468cc9257f81e30148349415b2352c29757f6c025c7c06b84c08cbb4"
+EXPECTED_INVENTORY_SHA256 = "a3f8844862190060689d9e6012c62f72f5c857a4ee3fe0c67f6285e15ae45f01"
 
 EXPECTED_B3F_CLOSURE = {
     "source_ref": BASELINE_REF,
@@ -150,13 +150,17 @@ EXPECTED_ALLOWED_CHANGED_PATHS = [
     "docs/handoff.md",
     "docs/stage-5/5f-a-atomic-hybrid-semantics-entry.md",
     "docs/stage-5/5f-a-r8-bootstrap-repair-authority.md",
+    "docs/stage-5/stage-5d-additive-freeze-manifest.json",
     "docs/stage-5/stage5f-a-atomic-hybrid-semantics-entry-inventory.json",
     "docs/stage-5/stage5f-active-descriptor.json",
     "docs/stage-5/stage5f-authority-rotation-protocol.md",
     "docs/stage-5/stage5f-authority-rotation.json",
     "docs/stage-5/stage5f-authority-state.json",
+    "scripts/forbidden_surface_negative_case_worker.sh",
+    "scripts/forbidden_surface_scan.sh",
     "scripts/handoff_safety_check.py",
     "scripts/make_handoff_archive.sh",
+    "scripts/stage5d_additive_freeze_check.py",
     "scripts/stage5f_atomic_hybrid_semantics_entry_check.py",
     "scripts/stage5f_atomic_hybrid_semantics_gate.sh",
     "scripts/stage5f_atomic_hybrid_semantics_negative_harness.py",

@@ -279,14 +279,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   surfaces. The first hosted activation exposed an undeclared `rg` dependency
   in the forbidden-surface scanner; the negative harness failed safely rather
   than accepting seven undetected scanner mutations. Stage 5F-a-r8 is merged
-  as the generation-2 authority repair. Its R8a review candidate is a
-  governance-only generation-3 amendment: it changes no workflow, scanner or
-  Stage 5D freeze artifact, and retargets the one bounded R9 portable-scanner
-  successor to the exact schema-1, generation-3 R8a state. R9 will be
-  generation 4 and may rebind only the paired Stage 5D freeze
-  manifest/checker needed to make the worker/harness portable; schema and
-  generation values are exact JSON integers (never `true` or a float), and the
-  capability cannot be replayed. GitHub
+  as the generation-2 authority repair and R8a is merged as its governance-only
+  generation-3 amendment. The present R9 generation-4 candidate replaces the
+  scanner's six `rg` searches with the already-required Python 3.11+ path and
+  makes the worker's infrastructure check portable; it atomically rebinds only
+  the paired Stage 5D freeze manifest/checker. Its full 87-case negative
+  harness passes with `rg` absent from `PATH`. Schema and generation values are
+  exact JSON integers (never `true` or a float), and the capability cannot be
+  replayed after the generation-4 state. No workflow, Cargo/Rust or operational
+  surface changes. GitHub
   activation still requires an independent approval after the latest update,
   strict up-to-date branch and no direct/admin bypass. It then
   admits only the existing
