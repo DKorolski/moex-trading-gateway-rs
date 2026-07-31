@@ -1,0 +1,83 @@
+{
+  "schema_version": 2,
+  "stage": "5F-c-R1-review-closure",
+  "status": "review_required_before_5f_d",
+  "lineage": {
+    "accepted_b1_source_ref": "86b43c448fb65a3c54b6118d04d3f40e08e74ad7",
+    "accepted_b3f_source_ref": "e14654f7129aa61011931306140a3bfefe2fcfbc",
+    "rejected_predecessor_ref": "11826285d05638b6b0e29c64a3435870091dac38",
+    "v1_evidence_immutable": true
+  },
+  "target": {
+    "account_id": "ACC_TEST_0001",
+    "instrument_symbol": "IMOEXF",
+    "profile": "imoexf_primary_riskgate_high180_lb120",
+    "timeframe_sec": 600,
+    "paper_only": true
+  },
+  "sole_route": {
+    "callback_invocation_site_count": 1,
+    "source_on_bar_expression_count": 1,
+    "observer_call_site_count": 1,
+    "observer_consume_count_per_scenario": 1,
+    "b3f_settlement_site_count": 1,
+    "alternate_orchestrator_allowed": false,
+    "direct_callback_allowed": false
+  },
+  "minimum_matrix": {
+    "required_row_count": 7,
+    "candidate_row_count": 7,
+    "row_ids": [
+      "F01",
+      "F02",
+      "F04",
+      "F24",
+      "F31",
+      "F32",
+      "F33"
+    ]
+  },
+  "evidence": {
+    "candidate_results_path": "docs/stage-5/stage5f-c-r1-candidate-results.json",
+    "candidate_results_array_sha256": "e02643a004e9b325a276a1a65e41eda45347e8bb6efe0b0269e838099d909c81",
+    "schema_owner_inventory_path": "docs/stage-5/stage5f-c-r1-schema-owner-inventory.json",
+    "scenario_catalog_path": "tests/fixtures/stage5/stage5f/v2/scenarios/atomic-hybrid-scenarios.json",
+    "state_catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
+    "riskgate_catalog_path": "tests/fixtures/stage5/stage5f/v2/riskgate/imoexf-high180-riskgate-seeds.json",
+    "target_config_path": "tests/fixtures/stage5/stage5f/v2/config/imoexf-target-config.json",
+    "candidate_is_golden": false
+  },
+  "test_boundary": {
+    "cfg_test_only": true,
+    "crate_private": true,
+    "production_source_outside_marked_regions_equals_b1": true,
+    "raw_intents_retained": false,
+    "observer_serializable": false,
+    "observer_debuggable": false,
+    "state_seed_count": 14,
+    "representative_full_chain_count": 4,
+    "candidate_row_count": 7,
+    "stage5f_rust_test_count": 17,
+    "negative_case_count": 51
+  },
+  "review_decisions": [
+    "exact_cfg_test_seam_manifest_enforced",
+    "canonical_v2_replaces_rejected_overlay",
+    "representative_actual_stage4_stage5d_chain_required_and_present"
+  ],
+  "closed_surfaces": {
+    "redis": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "dispatch": false,
+    "broker_execution": false,
+    "runtime_live": false,
+    "feedback_lifecycle": false,
+    "protective_orders": false,
+    "stage5f_d": false
+  },
+  "next_stage": {
+    "stage": "5F-d-complete-atomic-hybrid-matrix",
+    "allowed_before_independent_review": false
+  }
+}

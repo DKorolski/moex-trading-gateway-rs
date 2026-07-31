@@ -7547,8 +7547,8 @@ impl BrokerNeutralHybridStrategy for HybridIntradayRuntimeStrategy {
         let intents = Strategy::on_bar(self, &context, &bar);
         #[cfg(test)]
         crate::stage5f_atomic_hybrid_semantics::observe_exact_on_bar_result(&intents);
-        // STAGE5F-TEST-OBSERVATION-CALL-END
         Ok(intents)
+        // STAGE5F-TEST-OBSERVATION-CALL-END
     }
 
     fn on_broker_ack(

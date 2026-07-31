@@ -1,0 +1,198 @@
+{
+  "schema_version": 1,
+  "stage": "5F-c-R1",
+  "status": "canonical_v2_non_golden",
+  "files": [
+    {
+      "path": "tests/fixtures/stage5/stage5f/v2/scenarios/atomic-hybrid-scenarios.json",
+      "owner": "stage5f_scenario_catalog_v2",
+      "top_level_keys": [
+        "characterization_policy",
+        "clock_ownership",
+        "fixture_kind",
+        "records",
+        "schema_version",
+        "source_v1",
+        "status",
+        "target_config"
+      ],
+      "owned_nested_keys": {
+        "bar": [
+          "close",
+          "close_time_utc",
+          "high",
+          "is_final",
+          "low",
+          "open",
+          "origin",
+          "timeframe_sec",
+          "volume"
+        ],
+        "clock": [
+          "callback_ts_utc",
+          "event_ts_utc",
+          "lifecycle_ts_utc"
+        ],
+        "record": [
+          "bar",
+          "case_id",
+          "clock",
+          "expected",
+          "group_id",
+          "owning_test",
+          "pre_state",
+          "riskgate",
+          "row_id",
+          "scenario_id",
+          "schema_version",
+          "target"
+        ]
+      }
+    },
+    {
+      "path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
+      "owner": "stage5f_typed_runtime_state_materializer",
+      "top_level_keys": [
+        "fixture_kind",
+        "schema_version",
+        "seed_defaults",
+        "seeds",
+        "source_v1",
+        "target"
+      ],
+      "owned_nested_keys": {
+        "seed": [
+          "active_cycle",
+          "current_owner",
+          "current_side",
+          "deferred_entry",
+          "deferred_exit",
+          "last_processed_bar_ts_utc",
+          "orchestrator_state",
+          "overnight_exit_armed_date",
+          "pending_entry",
+          "pending_exit",
+          "position_qty",
+          "seed_id",
+          "state_class",
+          "was_long_today",
+          "was_short_today"
+        ],
+        "seed_defaults": [
+          "current_day_close",
+          "current_day_high",
+          "current_day_low",
+          "day_before_close",
+          "entry_ready",
+          "last_bar_close",
+          "last_day_local",
+          "next_cycle_seq",
+          "prev_day_close",
+          "prev_day_range",
+          "prev_day_return",
+          "private_state",
+          "riskgate_semantic_state",
+          "safe_mode_close_only",
+          "today_start_local"
+        ]
+      }
+    },
+    {
+      "path": "tests/fixtures/stage5/stage5f/v2/riskgate/imoexf-high180-riskgate-seeds.json",
+      "owner": "stage5d_authoritative_riskgate_bridge",
+      "top_level_keys": [
+        "fixture_kind",
+        "schema_version",
+        "seeds",
+        "source_v1",
+        "target"
+      ],
+      "owned_nested_keys": {
+        "seed": [
+          "authority_state",
+          "enforced_for_entry",
+          "expected_pre_callback_disposition",
+          "last_finalized_session_date",
+          "ledger_rows_count",
+          "mr_enabled_current_session",
+          "mr_enabled_next_session",
+          "mr_gate_policy",
+          "risk_gate_mode",
+          "rolling_sum_lb120",
+          "seed_id"
+        ]
+      }
+    },
+    {
+      "path": "tests/fixtures/stage5/stage5f/v2/config/imoexf-target-config.json",
+      "owner": "stage5f_target_config_v1",
+      "top_level_keys": [
+        "breakout",
+        "classic_mr",
+        "closed_surfaces",
+        "expected_stage5d_config_fingerprint",
+        "fixture_kind",
+        "live_order_style",
+        "marketable_limit_offset_ticks",
+        "max_repair_retries",
+        "model_session_end_time",
+        "model_session_start_time",
+        "mr_gate_policy",
+        "mr_variant",
+        "orchestrator",
+        "partial_entry_fill_timeout_ms",
+        "pending_timeout_sec",
+        "profile",
+        "qty",
+        "repair_backoff_base_sec",
+        "repair_backoff_max_sec",
+        "repair_deadline_sec",
+        "risk_gate_ledger_key",
+        "risk_gate_mode",
+        "risk_gate_seed_file",
+        "schema_version",
+        "session_close_hour",
+        "session_close_minute",
+        "sl_escalate_timeout_sec",
+        "source_evidence",
+        "status",
+        "stop_end_buffer_sec",
+        "symbol",
+        "tick_size",
+        "timezone_offset_hours",
+        "weekends_off"
+      ],
+      "owned_nested_keys": {
+        "breakout": [
+          "big_move_threshold",
+          "exclude_weekends",
+          "k",
+          "min_range",
+          "min_range_mode",
+          "stop1_range",
+          "stop2_range",
+          "wait_hours"
+        ],
+        "classic_mr": [
+          "exit_offset_minutes",
+          "k_long",
+          "k_short",
+          "max_range_long",
+          "max_range_short",
+          "min_range_long",
+          "min_range_short",
+          "session_end_time",
+          "stop_k_long",
+          "stop_k_short",
+          "take_k_long",
+          "take_k_short",
+          "tick_size"
+        ],
+        "orchestrator": [
+          "breakout_eod_mode",
+          "breakout_overnight_exit_time"
+        ]
+      }
+    }
+  ]
+}

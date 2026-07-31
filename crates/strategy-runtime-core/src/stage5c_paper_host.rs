@@ -1686,77 +1686,168 @@ pub(crate) fn stage5e_test_sequence_inputs(
 }
 
 // STAGE5F-TEST-OWNERSHIP-FACTORY-BEGIN
-/// Test-only ownership factory for Stage 5F source characterization.
-///
-/// The strategy and bar remain inside the existing linear Stage 5C wrappers;
-/// this does not add a production constructor or a callback bypass.
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn stage5f_test_sequence_inputs_from_owned_strategy(
-    strategy: HybridIntradayRuntimeStrategy,
-    strategy_id: String,
-    account_id: BrokerAccountId,
-    target: InstrumentId,
-    tick_size: f64,
-    position_qty: rust_decimal::Decimal,
-    lifecycle_now: DateTime<Utc>,
-    predecessor_close_ts: i64,
-    bar: broker_core::HybridRuntimeBarEvent,
-) -> (
-    Stage5cPendingRecoveredPaperStrategy,
-    Stage5cAcceptedSemanticBar,
-) {
-    assert_eq!(bar.instrument, target, "Stage 5F target/bar identity drift");
-    assert_eq!(bar.origin, broker_core::HybridRuntimeBarOrigin::Live);
-    assert!(bar.is_final);
-    assert_eq!(bar.timeframe_sec, 600);
-    assert_eq!(bar.close_time_utc - predecessor_close_ts, 600);
+pub(crate) mod stage5f_test_seams {
+    use super::*;
 
-    let admission = Stage5cPaperHostAdmission::stage5d_test_new(
-        strategy_id,
-        account_id,
-        target,
-        tick_size,
-        position_qty,
-        lifecycle_now,
-    );
-    let recovery_receipt = Stage5cPendingRecoveryReceipt {
-        warmup_receipt: Stage5cHistoryWarmupReceipt {
-            restore_receipt: Stage5cRuntimeStateRestoreReceipt {
-                bootstrap_receipt: Stage5cBootstrapNotificationReceipt {
-                    admission,
-                    notified_ts: lifecycle_now,
-                },
-                restored_ts: lifecycle_now,
-                known_order_ids: Vec::new(),
-                pending_requests: Vec::new(),
-            },
-            started_ts: lifecycle_now,
-            processed_bars: 1,
-            input_bars: 1,
-            source_mode: broker_core::Stage3StrategyBarSourceMode::FinamDerivedM1ToM10,
-            last_history_ts: predecessor_close_ts,
-        },
-        recovered_ts: lifecycle_now,
-        replayed_events: 0,
-        duplicate_events: 0,
-    };
-    let provenance = broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete();
-    let stage3_provenance_identity = stage5e_b3c_stage3_provenance_identity(&provenance);
-    let semantic_bar_identity = stage5e_b3c_semantic_bar_identity(&bar, stage3_provenance_identity);
-    (
-        Stage5cPendingRecoveredPaperStrategy {
-            strategy,
-            receipt: recovery_receipt,
-        },
-        Stage5cAcceptedSemanticBar {
-            bar,
+    /// Carries a fixture-owned strategy into the existing linear Stage 5C
+    /// wrappers without adding a production constructor or callback bypass.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn sequence_inputs_from_owned_strategy(
+        strategy: HybridIntradayRuntimeStrategy,
+        strategy_id: String,
+        account_id: BrokerAccountId,
+        target: InstrumentId,
+        tick_size: f64,
+        position_qty: rust_decimal::Decimal,
+        lifecycle_now: DateTime<Utc>,
+        predecessor_close_ts: i64,
+        bar: broker_core::HybridRuntimeBarEvent,
+    ) -> (
+        Stage5cPendingRecoveredPaperStrategy,
+        Stage5cAcceptedSemanticBar,
+    ) {
+        assert_eq!(bar.instrument, target, "Stage 5F target/bar identity drift");
+        assert_eq!(bar.origin, broker_core::HybridRuntimeBarOrigin::Live);
+        assert!(bar.is_final);
+        assert_eq!(bar.timeframe_sec, 600);
+        assert_eq!(bar.close_time_utc - predecessor_close_ts, 600);
+
+        let admission = Stage5cPaperHostAdmission::stage5d_test_new(
+            strategy_id,
+            account_id,
+            target,
             tick_size,
-            origin: broker_core::HybridRuntimeBarOrigin::Live,
-            stage3_provenance_identity,
-            semantic_bar_identity,
-        },
-    )
+            position_qty,
+            lifecycle_now,
+        );
+        let recovery_receipt = Stage5cPendingRecoveryReceipt {
+            warmup_receipt: Stage5cHistoryWarmupReceipt {
+                restore_receipt: Stage5cRuntimeStateRestoreReceipt {
+                    bootstrap_receipt: Stage5cBootstrapNotificationReceipt {
+                        admission,
+                        notified_ts: lifecycle_now,
+                    },
+                    restored_ts: lifecycle_now,
+                    known_order_ids: Vec::new(),
+                    pending_requests: Vec::new(),
+                },
+                started_ts: lifecycle_now,
+                processed_bars: 1,
+                input_bars: 1,
+                source_mode: broker_core::Stage3StrategyBarSourceMode::FinamDerivedM1ToM10,
+                last_history_ts: predecessor_close_ts,
+            },
+            recovered_ts: lifecycle_now,
+            replayed_events: 0,
+            duplicate_events: 0,
+        };
+        let provenance =
+            broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete();
+        let stage3_provenance_identity = stage5e_b3c_stage3_provenance_identity(&provenance);
+        let semantic_bar_identity =
+            stage5e_b3c_semantic_bar_identity(&bar, stage3_provenance_identity);
+        (
+            Stage5cPendingRecoveredPaperStrategy {
+                strategy,
+                receipt: recovery_receipt,
+            },
+            Stage5cAcceptedSemanticBar {
+                bar,
+                tick_size,
+                origin: broker_core::HybridRuntimeBarOrigin::Live,
+                stage3_provenance_identity,
+                semantic_bar_identity,
+            },
+        )
+    }
+
+    /// Continues an actual Stage 5D-restored capability through the production
+    /// Stage 5C history, pending-recovery and semantic-bar validators. The
+    /// recovery evidence is an explicit empty paper claim; no Redis is opened.
+    pub(crate) fn sequence_inputs_from_restored_strategy(
+        restored: Stage5cRuntimeStateRestoredPaperStrategy,
+        lifecycle_now: DateTime<Utc>,
+        bar: broker_core::HybridRuntimeBarEvent,
+    ) -> (
+        Stage5cPendingRecoveredPaperStrategy,
+        Stage5cAcceptedSemanticBar,
+    ) {
+        assert_eq!(bar.origin, broker_core::HybridRuntimeBarOrigin::Live);
+        assert!(bar.is_final);
+        assert_eq!(bar.timeframe_sec, 600);
+        let mut predecessor = bar.clone();
+        predecessor.origin = broker_core::HybridRuntimeBarOrigin::History;
+        predecessor.close_time_utc -= 600;
+        predecessor.open = bar.open;
+        predecessor.high = bar.open.max(bar.close);
+        predecessor.low = bar.open.min(bar.close);
+        predecessor.close = bar.open;
+        predecessor.volume = 1.0;
+        let provenance =
+            broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete();
+        let history = accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+            bars: vec![predecessor],
+            provenance: provenance.clone(),
+        })
+        .expect("Stage 5F representative history must validate");
+        let warmed = warmup_stage5c_history_at(restored, history, lifecycle_now)
+            .expect("Stage 5F representative history must warm the restored strategy");
+
+        let admission = &warmed
+            .receipt()
+            .restore_receipt()
+            .bootstrap_receipt()
+            .admission;
+        let strategy_id = admission.strategy_id().to_string();
+        let account_id = admission.account_id().clone();
+        let target_instrument = admission.target_instrument().clone();
+        let snapshot_received_ts = admission.bootstrap_snapshot().received_ts;
+        let consumer_group = format!("paper-runtime:{account_id}:{strategy_id}");
+        let streams = [
+            Stage5cPendingStreamKind::Ack,
+            Stage5cPendingStreamKind::Order,
+            Stage5cPendingStreamKind::StopOrder,
+            Stage5cPendingStreamKind::Position,
+        ]
+        .into_iter()
+        .map(|stream_kind| Stage5cPendingStreamClaimBoundary {
+            stream_name: canonical_pending_stream_name(stream_kind, &account_id),
+            stream_kind,
+            consumer_group: consumer_group.clone(),
+            terminal_claim_cursor: "0-0".to_string(),
+            snapshot_boundary_entry_id: "0-0".to_string(),
+            claimed_count: 0,
+        })
+        .collect();
+        let claim_proof = prove_stage5c_pending_recovery_claim(
+            &warmed,
+            Stage5cPendingRecoveryClaimProofInput {
+                strategy_id,
+                account_id,
+                target_instrument,
+                snapshot_received_ts,
+                completed_ts: lifecycle_now,
+                streams,
+            },
+        )
+        .expect("Stage 5F representative empty pending claim must validate");
+        let evidence =
+            accept_stage5c_pending_recovery_evidence(Stage5cPendingRecoveryEvidenceInput {
+                events: Vec::new(),
+                claim_proof,
+            })
+            .expect("Stage 5F representative empty pending evidence must validate");
+        let recovered = recover_stage5c_pending_streams_at(warmed, evidence, lifecycle_now)
+            .expect("Stage 5F representative pending recovery must complete");
+        let accepted = accept_stage5c_semantic_bar(Stage5cSemanticBarInput {
+            bar,
+            provenance,
+            tick_size: 0.5,
+        })
+        .expect("Stage 5F representative semantic bar must validate");
+        (recovered, accepted)
+    }
 }
 // STAGE5F-TEST-OWNERSHIP-FACTORY-END
 

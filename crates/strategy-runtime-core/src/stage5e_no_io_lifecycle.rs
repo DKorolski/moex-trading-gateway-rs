@@ -891,18 +891,21 @@ pub(crate) mod schedule_window_evidence {
         }
 
         // STAGE5F-TEST-CALLBACK-VALIDATION-SEAM-BEGIN
-        /// Applies the established B3E callback-validation mutation only after
-        /// the schedule/sequence evidence has been accepted. This keeps the
-        /// Stage 5F negative scenario on the intended callback-settlement path.
         #[cfg(test)]
-        pub(crate) fn stage5f_test_force_callback_validation_error(
-            receipt: &mut Stage5eBoundSessionCalendarSequenceForObservedLiveBar,
-        ) {
-            receipt
-                .b3b
-                .payload
-                .accepted_semantic_bar
-                .stage5e_test_force_callback_validation_error();
+        pub(crate) mod stage5f_test_seams {
+            use super::*;
+
+            /// Applies the established B3E callback-validation mutation only
+            /// after the schedule/sequence evidence has been accepted.
+            pub(crate) fn force_callback_validation_error(
+                receipt: &mut Stage5eBoundSessionCalendarSequenceForObservedLiveBar,
+            ) {
+                receipt
+                    .b3b
+                    .payload
+                    .accepted_semantic_bar
+                    .stage5e_test_force_callback_validation_error();
+            }
         }
         // STAGE5F-TEST-CALLBACK-VALIDATION-SEAM-END
 
@@ -2032,93 +2035,96 @@ pub(crate) mod schedule_window_evidence {
     }
 
     // STAGE5F-TEST-B3C-FACTORY-BEGIN
-    /// Narrow test-only factory that carries arbitrary fixture-owned Stage 5C
-    /// inputs through the existing schedule, B3B and B3C ownership transitions.
-    /// It returns only the opaque B3C capability used by the production
-    /// callback-authority issuer.
     #[cfg(test)]
-    pub(crate) fn stage5f_test_b3c_from_sequence_inputs(
-        recovered: crate::stage5c_paper_host::Stage5cPendingRecoveredPaperStrategy,
-        accepted: crate::stage5c_paper_host::Stage5cAcceptedSemanticBar,
-        target: broker_core::InstrumentId,
-        bar_close_ts: i64,
-        lifecycle_now: DateTime<Utc>,
-    ) -> b3c_evidence::Stage5eBoundSessionCalendarSequenceForObservedLiveBar {
-        let broker_symbol = target
-            .venue_symbol
-            .clone()
-            .expect("Stage 5F target requires canonical venue symbol");
-        let venue_mic = broker_symbol
-            .rsplit_once('@')
-            .map(|(_, value)| value.to_string())
-            .expect("Stage 5F venue symbol requires MIC suffix");
-        let mut snapshot = NormalizedInstrumentScheduleSnapshot {
-            instrument: target.clone(),
-            broker_symbol,
-            venue_mic: venue_mic.clone(),
-            board: venue_mic,
-            trading_day: TradingDay(lifecycle_now.date_naive()),
-            sessions: vec![NormalizedScheduleSession {
-                session_type: NormalizedSessionType::TradableOpen,
-                start: MarketBarCloseTime(bar_close_ts - 3_600),
-                end: MarketBarCloseTime(bar_close_ts + 3_600),
-            }],
-            source: ScheduleSourceIdentity::BrokerReported,
-            source_contract_version: "stage5f-fixture-v1".to_string(),
-            source_observed_at: LifecycleInstant(lifecycle_now),
-            source_expires_at: LifecycleInstant(lifecycle_now + chrono::Duration::seconds(10)),
-            raw_response_sha256: [0x5f; 32],
-            normalized_payload_sha256: [0; 32],
-            instrument_registry_version: "stage5f-fixture-registry-v1".to_string(),
-        };
-        snapshot.normalized_payload_sha256 = normalized_snapshot_payload_fingerprint(&snapshot);
-        let validated = validate_normalized_schedule_snapshot(
-            NormalizedScheduleAvailability::Available(Box::new(snapshot)),
-            LifecycleInstant(lifecycle_now),
-        )
-        .expect("Stage 5F normalized schedule fixture must validate");
-        let registry = SealedInstrumentRegistryBridgeInput {
-            instrument: validated.snapshot.instrument.clone(),
-            broker_symbol: validated.snapshot.broker_symbol.clone(),
-            venue_mic: validated.snapshot.venue_mic.clone(),
-            board: validated.snapshot.board.clone(),
-            registry_version: validated.snapshot.instrument_registry_version.clone(),
-        };
-        let accepted_registry = accept_instrument_registry_evidence(&validated, registry)
-            .expect("Stage 5F registry fixture must bind");
-        let stage4 = AcceptedStage4ScheduleEvidence {
-            instrument: target,
-            session_state: broker_core::BrokerMarketSessionState::Open,
-            observed_at: LifecycleInstant(lifecycle_now),
-            expires_at: LifecycleInstant(lifecycle_now + chrono::Duration::seconds(10)),
-            identity: ScheduleFingerprint([0x4f; 32]),
-        };
-        let window = map_trusted_schedule_window_internal(
-            validated,
-            accepted_registry,
-            stage4,
-            MarketBarCloseTime(bar_close_ts),
-            LifecycleInstant(lifecycle_now),
-        )
-        .expect("Stage 5F schedule window must map");
-        let projection = issue_schedule_projection_bridge(window);
-        let observed =
-            crate::stage5c_paper_host::stage5e_test_observe_live_bar_with_sequence_evidence_at(
-                recovered,
-                accepted,
-                projection,
-                lifecycle_now,
+    pub(crate) mod stage5f_test_seams {
+        use super::*;
+
+        /// Carries fixture-owned Stage 5C inputs through the existing
+        /// schedule, B3B and B3C ownership transitions.
+        pub(crate) fn b3c_from_sequence_inputs(
+            recovered: crate::stage5c_paper_host::Stage5cPendingRecoveredPaperStrategy,
+            accepted: crate::stage5c_paper_host::Stage5cAcceptedSemanticBar,
+            target: broker_core::InstrumentId,
+            bar_close_ts: i64,
+            lifecycle_now: DateTime<Utc>,
+        ) -> b3c_evidence::Stage5eBoundSessionCalendarSequenceForObservedLiveBar {
+            let broker_symbol = target
+                .venue_symbol
+                .clone()
+                .expect("Stage 5F target requires canonical venue symbol");
+            let venue_mic = broker_symbol
+                .rsplit_once('@')
+                .map(|(_, value)| value.to_string())
+                .expect("Stage 5F venue symbol requires MIC suffix");
+            let mut snapshot = NormalizedInstrumentScheduleSnapshot {
+                instrument: target.clone(),
+                broker_symbol,
+                venue_mic: venue_mic.clone(),
+                board: venue_mic,
+                trading_day: TradingDay(lifecycle_now.date_naive()),
+                sessions: vec![NormalizedScheduleSession {
+                    session_type: NormalizedSessionType::TradableOpen,
+                    start: MarketBarCloseTime(bar_close_ts - 3_600),
+                    end: MarketBarCloseTime(bar_close_ts + 3_600),
+                }],
+                source: ScheduleSourceIdentity::BrokerReported,
+                source_contract_version: "stage5f-fixture-v1".to_string(),
+                source_observed_at: LifecycleInstant(lifecycle_now),
+                source_expires_at: LifecycleInstant(lifecycle_now + chrono::Duration::seconds(10)),
+                raw_response_sha256: [0x5f; 32],
+                normalized_payload_sha256: [0; 32],
+                instrument_registry_version: "stage5f-fixture-registry-v1".to_string(),
+            };
+            snapshot.normalized_payload_sha256 = normalized_snapshot_payload_fingerprint(&snapshot);
+            let validated = validate_normalized_schedule_snapshot(
+                NormalizedScheduleAvailability::Available(Box::new(snapshot)),
+                LifecycleInstant(lifecycle_now),
             )
-            .unwrap_or_else(|blocked| {
-                panic!(
-                    "Stage 5F live bar sequence must be observed: {:?}",
-                    blocked.reason()
+            .expect("Stage 5F normalized schedule fixture must validate");
+            let registry = SealedInstrumentRegistryBridgeInput {
+                instrument: validated.snapshot.instrument.clone(),
+                broker_symbol: validated.snapshot.broker_symbol.clone(),
+                venue_mic: validated.snapshot.venue_mic.clone(),
+                board: validated.snapshot.board.clone(),
+                registry_version: validated.snapshot.instrument_registry_version.clone(),
+            };
+            let accepted_registry = accept_instrument_registry_evidence(&validated, registry)
+                .expect("Stage 5F registry fixture must bind");
+            let stage4 = AcceptedStage4ScheduleEvidence {
+                instrument: target,
+                session_state: broker_core::BrokerMarketSessionState::Open,
+                observed_at: LifecycleInstant(lifecycle_now),
+                expires_at: LifecycleInstant(lifecycle_now + chrono::Duration::seconds(10)),
+                identity: ScheduleFingerprint([0x4f; 32]),
+            };
+            let window = map_trusted_schedule_window_internal(
+                validated,
+                accepted_registry,
+                stage4,
+                MarketBarCloseTime(bar_close_ts),
+                LifecycleInstant(lifecycle_now),
+            )
+            .expect("Stage 5F schedule window must map");
+            let projection = issue_schedule_projection_bridge(window);
+            let observed =
+                crate::stage5c_paper_host::stage5e_test_observe_live_bar_with_sequence_evidence_at(
+                    recovered,
+                    accepted,
+                    projection,
+                    lifecycle_now,
                 )
-            });
-        let b3b = bind_schedule_window_sequence_to_observed_live_bar_at(observed, lifecycle_now)
-            .unwrap_or_else(|_| panic!("Stage 5F sequence must bind to B3B"));
-        b3c_evidence::bind_session_calendar_sequence_from_b3b_at(b3b, lifecycle_now)
-            .unwrap_or_else(|_| panic!("Stage 5F B3B must bind to B3C"))
+                .unwrap_or_else(|blocked| {
+                    panic!(
+                        "Stage 5F live bar sequence must be observed: {:?}",
+                        blocked.reason()
+                    )
+                });
+            let b3b =
+                bind_schedule_window_sequence_to_observed_live_bar_at(observed, lifecycle_now)
+                    .unwrap_or_else(|_| panic!("Stage 5F sequence must bind to B3B"));
+            b3c_evidence::bind_session_calendar_sequence_from_b3b_at(b3b, lifecycle_now)
+                .unwrap_or_else(|_| panic!("Stage 5F B3B must bind to B3C"))
+        }
     }
     // STAGE5F-TEST-B3C-FACTORY-END
 

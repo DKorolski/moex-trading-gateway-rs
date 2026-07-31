@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "fixture_kind": "stage5f-target-config-v1",
+  "status": "canonical_r1_non_golden",
+  "source_evidence": [
+    {
+      "path": "docs/stage-5/5a-semantic-inventory-and-evidence-schema.md",
+      "sha256": "2dc1a871253302fb9bccf02bd520e8ee76486927accb68e5ea959dd09ec1d85d"
+    },
+    {
+      "path": "tests/fixtures/stage5/imoexf_high180_profile_binding.json",
+      "sha256": "ec6daea39f19f3162da5e8d77abb0f03a3f4f5ea2e2876c1d1e189401580ec5d"
+    },
+    {
+      "path": "config/imoexf-hybrid-high180-profile.redacted.toml",
+      "sha256": "15e31d7a285f1c8c80e9168a9098e37e56bbd60ab3ab3264592d23605708dfe4"
+    }
+  ],
+  "symbol": "IMOEXF",
+  "profile": "imoexf_primary_riskgate_high180_lb120",
+  "mr_variant": "high180",
+  "mr_gate_policy": "shadow_pnl_lb120_positive",
+  "risk_gate_mode": "normal_append",
+  "risk_gate_seed_file": null,
+  "risk_gate_ledger_key": null,
+  "model_session_start_time": "09:00:00",
+  "model_session_end_time": "23:49:59",
+  "qty": "3.0",
+  "live_order_style": "market",
+  "tick_size": "0.5",
+  "marketable_limit_offset_ticks": 0,
+  "timezone_offset_hours": 3,
+  "session_close_hour": 23,
+  "session_close_minute": 49,
+  "weekends_off": true,
+  "stop_end_buffer_sec": 60,
+  "repair_deadline_sec": 180,
+  "sl_escalate_timeout_sec": 30,
+  "max_repair_retries": 3,
+  "repair_backoff_base_sec": 5,
+  "repair_backoff_max_sec": 60,
+  "pending_timeout_sec": 60,
+  "partial_entry_fill_timeout_ms": 3000,
+  "classic_mr": {
+    "min_range_long": "0.013",
+    "max_range_long": "0.035",
+    "k_long": "0.032",
+    "take_k_long": "0.11",
+    "stop_k_long": "0.44",
+    "min_range_short": "0.010",
+    "max_range_short": "0.045",
+    "k_short": "0.055",
+    "take_k_short": "0.16",
+    "stop_k_short": "0.43",
+    "tick_size": "0.5",
+    "session_end_time": "11:59:00",
+    "exit_offset_minutes": 10
+  },
+  "breakout": {
+    "k": "0.53",
+    "stop1_range": "0.51",
+    "stop2_range": "0.35",
+    "big_move_threshold": "0.025",
+    "min_range": "1.01",
+    "min_range_mode": "absolute",
+    "exclude_weekends": true,
+    "wait_hours": "3.0"
+  },
+  "orchestrator": {
+    "breakout_eod_mode": "same_day",
+    "breakout_overnight_exit_time": "09:30:00"
+  },
+  "expected_stage5d_config_fingerprint": "stage5d_cfg_sha256:56141846cb180b8a224a1db7e1f5188c99c28f0fab88a27ebe65fbcb9d7cf626",
+  "closed_surfaces": {
+    "redis": false,
+    "finam": false,
+    "transport": false,
+    "dispatch": false,
+    "runtime_live": false,
+    "broker_execution": false
+  }
+}

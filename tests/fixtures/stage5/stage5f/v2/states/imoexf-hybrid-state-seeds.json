@@ -1,0 +1,380 @@
+{
+  "schema_version": 2,
+  "fixture_kind": "stage5f-hybrid-state-seed-catalog-v2",
+  "source_v1": {
+    "path": "tests/fixtures/stage5/stage5f/v1/states/imoexf-hybrid-state-seeds.json",
+    "sha256": "bb732fcebc0da78d3acdc88a3ceeb3db11a6a5a0719a92aeb91bcdcaf11729b4",
+    "status": "rejected_development_evidence_immutable"
+  },
+  "target": {
+    "strategy_id": "hybrid_imoexf",
+    "account_id": "ACC_TEST_0001",
+    "instrument": {
+      "symbol": "IMOEXF",
+      "venue_symbol": "IMOEXF@RTSX",
+      "exchange": "Moex",
+      "market": "Futures"
+    },
+    "profile": "imoexf_primary_riskgate_high180_lb120"
+  },
+  "seed_defaults": {
+    "entry_ready": true,
+    "safe_mode_close_only": false,
+    "last_day_local": "2026-01-06",
+    "prev_day_close": "100.0",
+    "prev_day_range": "4.0",
+    "day_before_close": "99.5",
+    "current_day_high": "102.0",
+    "current_day_low": "99.5",
+    "current_day_close": "100.0",
+    "today_start_local": "2026-01-06T09:00:00",
+    "last_bar_close": "100.0",
+    "next_cycle_seq": 8,
+    "prev_day_return": "0.0",
+    "riskgate_semantic_state": {
+      "mr_enabled_current_session": true,
+      "rolling_sum_lb120": "158.60000000000008",
+      "last_finalized_session_date": "2026-01-05",
+      "ledger_rows_count": 221,
+      "current_shadow_session_date": "2026-01-06",
+      "current_shadow_pnl_points": "0.0",
+      "current_shadow_trade_count": 0
+    },
+    "private_state": {
+      "cleanup_stop_retry_attempts": 0,
+      "expected_working_order_ids": [],
+      "expected_working_stop_order_ids": [],
+      "runtime_pending_finalizations": []
+    }
+  },
+  "seeds": [
+    {
+      "seed_id": "flat_ready",
+      "state_class": "flat",
+      "position_qty": "0.0",
+      "current_owner": null,
+      "current_side": null,
+      "orchestrator_state": "flat",
+      "last_processed_bar_ts_utc": "2026-01-06T06:00:00Z",
+      "pending_entry": null,
+      "pending_exit": null,
+      "deferred_entry": null,
+      "deferred_exit": null,
+      "was_long_today": false,
+      "was_short_today": false,
+      "overnight_exit_armed_date": null,
+      "active_cycle": null
+    },
+    {
+      "seed_id": "bo_long_open",
+      "state_class": "open_position",
+      "position_qty": "3.0",
+      "current_owner": "intraday_breakout",
+      "current_side": "long",
+      "orchestrator_state": "open",
+      "last_processed_bar_ts_utc": "2026-01-06T08:50:00Z",
+      "pending_entry": null,
+      "pending_exit": null,
+      "deferred_entry": null,
+      "deferred_exit": null,
+      "was_long_today": true,
+      "was_short_today": false,
+      "overnight_exit_armed_date": null,
+      "active_cycle": {
+        "created_ts_utc": "2026-01-06T08:40:00Z",
+        "sequence": 1,
+        "value": "695cca6001"
+      }
+    },
+    {
+      "seed_id": "bo_short_open",
+      "state_class": "open_position",
+      "position_qty": "-3.0",
+      "current_owner": "intraday_breakout",
+      "current_side": "short",
+      "orchestrator_state": "open",
+      "last_processed_bar_ts_utc": "2026-01-06T08:50:00Z",
+      "pending_entry": null,
+      "pending_exit": null,
+      "deferred_entry": null,
+      "deferred_exit": null,
+      "was_long_today": false,
+      "was_short_today": true,
+      "overnight_exit_armed_date": null,
+      "active_cycle": {
+        "created_ts_utc": "2026-01-06T08:40:00Z",
+        "sequence": 2,
+        "value": "695cca6002"
+      }
+    },
+    {
+      "seed_id": "bo_long_carried",
+      "state_class": "open_position",
+      "position_qty": "3.0",
+      "current_owner": "intraday_breakout",
+      "current_side": "long",
+      "orchestrator_state": "open",
+      "last_processed_bar_ts_utc": "2026-01-06T20:40:00Z",
+      "pending_entry": null,
+      "pending_exit": null,
+      "deferred_entry": null,
+      "deferred_exit": null,
+      "was_long_today": true,
+      "was_short_today": false,
+      "overnight_exit_armed_date": "2026-01-06",
+      "active_cycle": {
+        "created_ts_utc": "2026-01-06T08:40:00Z",
+        "sequence": 3,
+        "value": "695cca6003"
+      }
+    },
+    {
+      "seed_id": "mr_long_open",
+      "state_class": "open_position",
+      "position_qty": "3.0",
+      "current_owner": "mean_reversion",
+      "current_side": "long",
+      "orchestrator_state": "open",
+      "last_processed_bar_ts_utc": "2026-01-06T06:10:00Z",
+      "pending_entry": null,
+      "pending_exit": null,
+      "deferred_entry": null,
+      "deferred_exit": null,
+      "was_long_today": true,
+      "was_short_today": false,
+      "overnight_exit_armed_date": null,
+      "active_cycle": {
+        "created_ts_utc": "2026-01-06T06:00:00Z",
+        "sequence": 1,
+        "value": "695ca4e001"
+      }
+    },
+    {
+      "seed_id": "mr_short_open",
+      "state_class": "open_position",
+      "position_qty": "-3.0",
+      "current_owner": "mean_reversion",
+      "current_side": "short",
+      "orchestrator_state": "open",
+      "last_processed_bar_ts_utc": "2026-01-06T06:10:00Z",
+      "pending_entry": null,
+      "pending_exit": null,
+      "deferred_entry": null,
+      "deferred_exit": null,
+      "was_long_today": false,
+      "was_short_today": true,
+      "overnight_exit_armed_date": null,
+      "active_cycle": {
+        "created_ts_utc": "2026-01-06T06:00:00Z",
+        "sequence": 2,
+        "value": "695ca4e002"
+      }
+    },
+    {
+      "seed_id": "bo_owner_active",
+      "state_class": "open_position",
+      "position_qty": "3.0",
+      "current_owner": "intraday_breakout",
+      "current_side": "long",
+      "orchestrator_state": "open",
+      "last_processed_bar_ts_utc": "2026-01-06T06:10:00Z",
+      "pending_entry": null,
+      "pending_exit": null,
+      "deferred_entry": null,
+      "deferred_exit": null,
+      "was_long_today": true,
+      "was_short_today": false,
+      "overnight_exit_armed_date": null,
+      "active_cycle": {
+        "created_ts_utc": "2026-01-06T06:00:00Z",
+        "sequence": 4,
+        "value": "695ca4e004"
+      }
+    },
+    {
+      "seed_id": "mr_owner_active",
+      "state_class": "open_position",
+      "position_qty": "3.0",
+      "current_owner": "mean_reversion",
+      "current_side": "long",
+      "orchestrator_state": "open",
+      "last_processed_bar_ts_utc": "2026-01-06T06:10:00Z",
+      "pending_entry": null,
+      "pending_exit": null,
+      "deferred_entry": null,
+      "deferred_exit": null,
+      "was_long_today": true,
+      "was_short_today": false,
+      "overnight_exit_armed_date": null,
+      "active_cycle": {
+        "created_ts_utc": "2026-01-06T06:00:00Z",
+        "sequence": 3,
+        "value": "695ca4e003"
+      }
+    },
+    {
+      "seed_id": "duplicate_bar_flat",
+      "state_class": "flat",
+      "position_qty": "0.0",
+      "current_owner": null,
+      "current_side": null,
+      "orchestrator_state": "flat",
+      "last_processed_bar_ts_utc": "2026-01-06T06:20:00Z",
+      "pending_entry": null,
+      "pending_exit": null,
+      "deferred_entry": null,
+      "deferred_exit": null,
+      "was_long_today": false,
+      "was_short_today": false,
+      "overnight_exit_armed_date": null,
+      "active_cycle": null
+    },
+    {
+      "seed_id": "post_cleanup_flat",
+      "state_class": "flat_after_terminal_cleanup",
+      "position_qty": "0.0",
+      "current_owner": null,
+      "current_side": null,
+      "orchestrator_state": "flat",
+      "last_processed_bar_ts_utc": "2026-01-06T06:20:00Z",
+      "pending_entry": null,
+      "pending_exit": null,
+      "deferred_entry": null,
+      "deferred_exit": null,
+      "was_long_today": true,
+      "was_short_today": false,
+      "overnight_exit_armed_date": null,
+      "active_cycle": null
+    },
+  {
+    "seed_id": "pending_entry",
+    "state_class": "pending_entry",
+    "position_qty": "0.0",
+    "current_owner": null,
+    "current_side": null,
+      "orchestrator_state": "pending",
+      "last_processed_bar_ts_utc": "2026-01-06T06:10:00Z",
+      "pending_entry": {
+        "request_id": "11111111-1111-4111-8111-111111111111",
+        "owner": "mean_reversion",
+        "side": "long",
+        "created_ts_utc": "2026-01-06T06:10:01Z",
+        "cycle": {
+          "created_ts_utc": "2026-01-06T06:10:01Z",
+          "sequence": 4,
+          "value": "695ca73904"
+        },
+        "reason": "morning_mean_reversion_long",
+        "entry_style": "bracket",
+        "target_qty": "3",
+        "stop_price": "91.5",
+        "take_price": "100.5"
+      },
+      "pending_exit": null,
+      "deferred_entry": null,
+      "deferred_exit": null,
+      "was_long_today": false,
+      "was_short_today": false,
+      "overnight_exit_armed_date": null,
+      "active_cycle": {
+        "created_ts_utc": "2026-01-06T06:10:01Z",
+        "sequence": 4,
+        "value": "695ca73904"
+      }
+    },
+    {
+      "seed_id": "pending_exit",
+      "state_class": "pending_exit",
+      "position_qty": "3.0",
+      "current_owner": "mean_reversion",
+      "current_side": "long",
+      "orchestrator_state": "open",
+      "last_processed_bar_ts_utc": "2026-01-06T09:00:00Z",
+      "pending_entry": null,
+      "pending_exit": {
+        "request_id": "22222222-2222-4222-8222-222222222222",
+        "owner": "mean_reversion",
+        "side": "long",
+        "created_ts_utc": "2026-01-06T09:00:01Z",
+        "cycle": {
+          "created_ts_utc": "2026-01-06T06:00:00Z",
+          "sequence": 5,
+          "value": "695ca4e005"
+        },
+        "reason": "mean_rev_time_cutoff"
+      },
+      "deferred_entry": null,
+      "deferred_exit": null,
+      "was_long_today": true,
+      "was_short_today": false,
+      "overnight_exit_armed_date": null,
+      "active_cycle": {
+        "created_ts_utc": "2026-01-06T06:00:00Z",
+        "sequence": 5,
+        "value": "695ca4e005"
+      }
+    },
+    {
+      "seed_id": "deferred_entry",
+      "state_class": "deferred_entry",
+      "position_qty": "0.0",
+      "current_owner": null,
+      "current_side": null,
+      "orchestrator_state": "flat",
+      "last_processed_bar_ts_utc": "2026-01-06T06:10:00Z",
+      "pending_entry": null,
+      "pending_exit": null,
+      "deferred_entry": {
+        "original_request_id": "33333333-3333-4333-8333-333333333333",
+        "owner": "mean_reversion",
+        "side": "long",
+        "entry_style": "bracket",
+        "reason": "morning_mean_reversion_long",
+        "stop_price": "91.5",
+        "take_price": "100.5",
+        "deferred_ts_utc": "2026-01-06T06:10:01Z",
+        "cycle": {
+          "created_ts_utc": "2026-01-06T06:10:01Z",
+          "sequence": 6,
+          "value": "695ca73906"
+        }
+      },
+      "deferred_exit": null,
+      "was_long_today": false,
+      "was_short_today": false,
+      "overnight_exit_armed_date": null,
+      "active_cycle": null
+    },
+    {
+      "seed_id": "deferred_exit",
+      "state_class": "deferred_exit",
+      "position_qty": "3.0",
+      "current_owner": "mean_reversion",
+      "current_side": "long",
+      "orchestrator_state": "open",
+      "last_processed_bar_ts_utc": "2026-01-06T09:00:00Z",
+      "pending_entry": null,
+      "pending_exit": null,
+      "deferred_entry": null,
+      "deferred_exit": {
+        "original_request_id": "44444444-4444-4444-8444-444444444444",
+        "owner": "mean_reversion",
+        "reason": "mean_rev_time_cutoff",
+        "deferred_ts_utc": "2026-01-06T09:00:01Z",
+        "cycle": {
+          "created_ts_utc": "2026-01-06T06:00:00Z",
+          "sequence": 7,
+          "value": "695ca4e007"
+        }
+      },
+      "was_long_today": true,
+      "was_short_today": false,
+      "overnight_exit_armed_date": null,
+      "active_cycle": {
+        "created_ts_utc": "2026-01-06T06:00:00Z",
+        "sequence": 7,
+        "value": "695ca4e007"
+      }
+    }
+  ]
+}

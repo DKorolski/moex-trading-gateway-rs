@@ -5779,6 +5779,387 @@ pub(crate) fn stage5d_apply_next_riskgate_recovery_action(
     })
 }
 
+// STAGE5F-TEST-FULL-RESTART-ORACLE-BEGIN
+#[cfg(test)]
+pub(crate) mod stage5f_test_seams {
+    use super::*;
+    use chrono::{Datelike, Weekday};
+    use rust_decimal::Decimal;
+
+    use crate::runtime_compat::{RuntimeStateRestored, Strategy, StrategyState};
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum Stage5fRepresentativeRiskgateMode {
+        Valid,
+        MissingAuthority,
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    pub(crate) struct Stage5fFullRestartProjection {
+        pub(crate) account_id: BrokerAccountId,
+        pub(crate) instrument_id: InstrumentId,
+        pub(crate) profile_binding: String,
+        pub(crate) canonical_config_fingerprint: String,
+        pub(crate) source_state: Value,
+        pub(crate) source_private: Stage5dRuntimePrivateExtension,
+        pub(crate) semantic_payload_fingerprint: String,
+        pub(crate) recovery_index_fingerprint: String,
+        pub(crate) known_order_ids: Vec<BrokerOrderId>,
+        pub(crate) pending_requests: Vec<StrategyRequestId>,
+        pub(crate) riskgate_identity: Stage5dRiskGateIdentity,
+        pub(crate) riskgate_generation: String,
+        pub(crate) riskgate_ledger_tail_hash: String,
+        pub(crate) riskgate_recovery_frontier: Option<String>,
+        pub(crate) lifecycle_watermarks: Stage5dLifecycleWatermarks,
+    }
+
+    pub(crate) struct Stage5fFullRestartReady {
+        pub(crate) restored: crate::stage5c_paper_host::Stage5cRuntimeStateRestoredPaperStrategy,
+        pub(crate) projection: Stage5fFullRestartProjection,
+    }
+
+    pub(crate) enum Stage5fFullRestartOutcome {
+        Ready(Box<Stage5fFullRestartReady>),
+        Blocked {
+            reason: Stage5dRiskGateInjectionBlockReason,
+            projection: Box<Stage5fFullRestartProjection>,
+        },
+    }
+
+    fn source_record_to_stage5d(
+        record: &crate::hybrid_intraday::RiskGateLedgerRecord,
+    ) -> Stage5dRiskGateLedgerRecord {
+        let decimal = |value| {
+            crate::hybrid_intraday::format_riskgate_authority_decimal(value)
+                .expect("Stage 5F riskgate decimal must be source-canonical")
+        };
+        Stage5dRiskGateLedgerRecord {
+            session_date: record.row.session_date.format("%Y-%m-%d").to_string(),
+            shadow_pnl_points: decimal(record.row.shadow_pnl_points),
+            shadow_trade_count: record.row.shadow_trade_count,
+            rolling_sum_before_session: decimal(record.row.rolling_sum_before_session),
+            mr_enabled_for_session: record.row.mr_enabled_for_session,
+            source: match record.row.source {
+                crate::hybrid_intraday::RiskGateRowSource::Seed => Stage5dRiskGateRowSource::Seed,
+                crate::hybrid_intraday::RiskGateRowSource::Runtime => {
+                    Stage5dRiskGateRowSource::Runtime
+                }
+            },
+            status: match record.row.status {
+                crate::hybrid_intraday::RiskGateRowStatus::Complete => {
+                    Stage5dRiskGateRowStatus::Complete
+                }
+                crate::hybrid_intraday::RiskGateRowStatus::Incomplete => {
+                    Stage5dRiskGateRowStatus::Incomplete
+                }
+            },
+            rolling_sum_lb120: decimal(record.rolling_sum_lb120),
+            mr_enabled_next_session: record.mr_enabled_next_session,
+            finalized_at_utc: record.finalized_at_utc,
+        }
+    }
+
+    fn canonical_riskgate_evidence(
+        strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        strategy_id: &str,
+        persisted_at: DateTime<Utc>,
+    ) -> Stage5dRiskGateLedgerEvidence {
+        let semantic: Stage5dSemanticStrategyStateV1 = serde_json::from_value(
+            serde_json::to_value(Strategy::state(strategy))
+                .expect("Stage 5F source riskgate state serializes"),
+        )
+        .expect("Stage 5F source riskgate state is semantically valid");
+        let Stage5dSemanticStrategyStateV1::HybridIntradayRuntime(semantic_state) = semantic;
+        let source_identity = strategy.stage5d_expected_riskgate_identity(strategy_id.to_string());
+        let identity = Stage5dRiskGateIdentity {
+            strategy_id: source_identity.strategy_id.clone(),
+            profile_id: source_identity.profile_id.clone(),
+            mr_variant: source_identity.mr_variant.clone(),
+            timeframe: source_identity.timeframe.clone(),
+            session_policy: source_identity.session_policy.clone(),
+            model_version: source_identity.model_version.clone(),
+        };
+
+        let mut dates = Vec::with_capacity(221);
+        let mut date = NaiveDate::from_ymd_opt(2026, 1, 5).expect("Stage 5F terminal date");
+        while dates.len() < 221 {
+            if !matches!(date.weekday(), Weekday::Sat | Weekday::Sun) {
+                dates.push(date);
+            }
+            date -= chrono::Duration::days(1);
+        }
+        dates.reverse();
+        let mut rows = Vec::with_capacity(dates.len());
+        for (index, session_date) in dates.into_iter().enumerate() {
+            let pnl = if index == 220 {
+                158.60000000000008
+            } else {
+                0.0
+            };
+            let mut row = crate::hybrid_intraday::build_runtime_session_row(
+                &rows,
+                session_date,
+                pnl,
+                usize::from(pnl != 0.0) as u32,
+            )
+            .expect("Stage 5F source riskgate row");
+            row.source = crate::hybrid_intraday::RiskGateRowSource::Seed;
+            rows.push(row);
+        }
+        let records = crate::hybrid_intraday::build_ledger_records_from_rows(
+            &rows,
+            &source_identity,
+            persisted_at.timestamp(),
+        )
+        .expect("Stage 5F source riskgate records");
+        let mut evidence = Stage5dRiskGateLedgerEvidence {
+            schema_version: STAGE5D_RISKGATE_SCHEMA_VERSION,
+            identity,
+            ledger_tail_hash: String::new(),
+            ledger_records: records.iter().map(source_record_to_stage5d).collect(),
+            seed_loaded: true,
+            current_shadow_session_date: semantic_state.risk_gate_shadow_session_date,
+            current_shadow_pnl_points: stage5d_source_format_riskgate_decimal(
+                semantic_state.risk_gate_shadow_pnl_points,
+            ),
+            current_generation: crate::hybrid_intraday::RISK_GATE_STATE_GENERATION.to_string(),
+        };
+        evidence.ledger_tail_hash = stage5d_compute_riskgate_ledger_tail_hash(&evidence)
+            .expect("Stage 5F source riskgate tail hash");
+        evidence
+    }
+
+    fn persistence_from_evidence(
+        evidence: &Stage5dRiskGateLedgerEvidence,
+    ) -> Stage5dRiskGatePersistence {
+        let source_records = stage5d_source_riskgate_records_from_evidence(evidence)
+            .expect("Stage 5F evidence converts to source records");
+        let current_shadow_session_date = evidence
+            .current_shadow_session_date
+            .as_deref()
+            .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+            .transpose()
+            .expect("Stage 5F evidence current-shadow session parses");
+        let current_shadow_pnl_points =
+            parse_finite_decimal_string(&evidence.current_shadow_pnl_points)
+                .expect("Stage 5F evidence current-shadow PnL parses");
+        let materialized = crate::hybrid_intraday::rebuild_materialized_state_from_ledger_records(
+            &source_records,
+            current_shadow_session_date,
+            current_shadow_pnl_points,
+            evidence.seed_loaded,
+        )
+        .expect("Stage 5F riskgate projection rebuilds");
+        Stage5dRiskGatePersistence {
+            schema_version: STAGE5D_RISKGATE_SCHEMA_VERSION,
+            identity: evidence.identity.clone(),
+            materialized_state: stage5d_stage_materialized_from_source(&materialized),
+            ledger_tail_hash: evidence.ledger_tail_hash.clone(),
+            durable_finalization_outbox: Vec::new(),
+        }
+    }
+
+    fn admission_for(
+        envelope: &Stage5dPersistenceEnvelope,
+        position_qty: f64,
+    ) -> crate::stage5c_paper_host::Stage5cPaperHostAdmission {
+        let quantity = Decimal::from_f64_retain(position_qty)
+            .expect("Stage 5F position quantity must be finite");
+        let admission = crate::stage5c_paper_host::Stage5cPaperHostAdmission::stage5d_test_new(
+            envelope.binding.strategy_id.clone(),
+            envelope.binding.account_id.clone(),
+            envelope.binding.instrument_id.to_instrument_id(),
+            0.5,
+            quantity,
+            envelope.persisted_at_ts_utc,
+        );
+        if quantity == Decimal::ZERO {
+            return admission;
+        }
+        admission.stage5d_test_with_target_open_positions(vec![
+            broker_core::BrokerPositionSnapshot {
+                account_id: envelope.binding.account_id.clone(),
+                instrument: envelope.binding.instrument_id.to_instrument_id(),
+                qty: quantity,
+                avg_price: Some(Decimal::new(222_750, 2)),
+                unrealized_pnl: None,
+                source_ts: Some(envelope.persisted_at_ts_utc),
+                received_ts: envelope.persisted_at_ts_utc,
+            },
+        ])
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn run_full_restart_oracle(
+        source: crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        mut fresh: crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        strategy_id: String,
+        account_id: BrokerAccountId,
+        instrument_id: InstrumentId,
+        persisted_at: DateTime<Utc>,
+        mode: Stage5fRepresentativeRiskgateMode,
+    ) -> Stage5fFullRestartOutcome {
+        let source_state = serde_json::to_value(Strategy::state(&source))
+            .expect("Stage 5F source state serializes");
+        let source_private = source
+            .stage5d_export_runtime_private_extension()
+            .expect("Stage 5F source private state exports");
+        let evidence = canonical_riskgate_evidence(&source, &strategy_id, persisted_at);
+        stage5d_validate_riskgate_ledger_evidence(evidence.clone()).unwrap_or_else(|reason| {
+            panic!("Stage 5F source riskgate evidence must validate: {reason:?}")
+        });
+        let riskgate = persistence_from_evidence(&evidence);
+        let input = Stage5dCanonicalEnvelopeExportInput {
+            snapshot_id: format!("stage5f-r1-{strategy_id}-{}", persisted_at.timestamp()),
+            snapshot_revision: 1,
+            previous_revision: None,
+            write_generation: 1,
+            persisted_at_ts_utc: persisted_at,
+            strategy_id,
+            account_id,
+            instrument_id,
+            source_commit_or_build_id: STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID.to_string(),
+            lifecycle_watermarks: Stage5dLifecycleWatermarks {
+                persisted_event_watermark: Some(format!("stage5f-r1:{}", persisted_at.timestamp())),
+                last_semantic_bar_ts: source_private.last_processed_bar_ts,
+                last_broker_event_ts: Some(persisted_at - chrono::Duration::seconds(1)),
+            },
+            riskgate,
+        };
+        let (package, report) =
+            stage5d_export_canonical_restart_package_from_runtime(&source, input, evidence)
+                .expect("Stage 5F canonical restart export must succeed");
+        assert!(!report.redis_opened);
+        assert!(!report.finam_opened);
+        assert!(!report.dispatch_opened);
+        assert!(!report.runtime_live_opened);
+        let package_json = package
+            .to_json_strict()
+            .expect("Stage 5F canonical restart package serializes");
+        let decoded = Stage5dCanonicalRestartPackage::from_json_str_strict(&package_json)
+            .expect("Stage 5F canonical restart package decodes strictly");
+        let strict_envelope = decoded.envelope;
+        let validated_evidence = decoded.validated_evidence;
+        assert_eq!(
+            strict_envelope.strategy_state.strategy_state_json,
+            source_state
+        );
+        assert_eq!(strict_envelope.runtime_private_extension, source_private);
+
+        let restored_state: StrategyState =
+            serde_json::from_value(strict_envelope.strategy_state.strategy_state_json.clone())
+                .expect("Stage 5F semantic state strictly decodes into runtime state");
+        Strategy::set_state(&mut fresh, restored_state);
+        let position_qty = strict_envelope.strategy_state.strategy_state_json
+            ["HybridIntradayRuntime"]["last_position_qty"]
+            .as_f64()
+            .expect("Stage 5F source position quantity");
+        let admission = admission_for(&strict_envelope, position_qty);
+        let restored_indexes = RuntimeStateRestored {
+            known_order_ids: strict_envelope.recovery_indexes.known_order_ids.clone(),
+            pending_requests: strict_envelope.recovery_indexes.pending_requests.clone(),
+        };
+        let load_origin = crate::stage5c_paper_host::Stage5cRuntimeStateLoadOrigin::Persisted {
+            semantic_payload_fingerprint: report.semantic_payload_fingerprint.clone(),
+            persisted_ts: strict_envelope.persisted_at_ts_utc,
+            recovery_index_fingerprint: report.recovery_index_fingerprint.clone(),
+        };
+        let loaded = crate::stage5c_paper_host::Stage5cRuntimeStateLoadedPaperStrategy::stage5d_test_loaded_from_parts(
+            fresh,
+            admission,
+            restored_indexes,
+            load_origin,
+        );
+        let validated = strict_envelope
+            .clone()
+            .validate_restore_contract_schema_only()
+            .expect("Stage 5F strict envelope remains valid");
+        let bound = stage5d_bind_runtime_state_loaded(loaded, validated)
+            .unwrap_or_else(|_| panic!("Stage 5F strict envelope must bind"));
+        let applied = stage5d_apply_runtime_private_extension(bound)
+            .unwrap_or_else(|_| panic!("Stage 5F private extension must apply"));
+        assert_eq!(
+            serde_json::to_value(Strategy::state(applied.loaded.stage5d_strategy()))
+                .expect("Stage 5F applied state serializes"),
+            source_state
+        );
+        assert_eq!(
+            applied
+                .loaded
+                .stage5d_strategy()
+                .stage5d_export_runtime_private_extension()
+                .expect("Stage 5F applied private state exports"),
+            source_private
+        );
+
+        let projection = Stage5fFullRestartProjection {
+            account_id: strict_envelope.binding.account_id.clone(),
+            instrument_id: strict_envelope.binding.instrument_id.to_instrument_id(),
+            profile_binding: strict_envelope.binding.profile_binding.clone(),
+            canonical_config_fingerprint: strict_envelope.canonical_config_fingerprint.clone(),
+            source_state,
+            source_private,
+            semantic_payload_fingerprint: report.semantic_payload_fingerprint,
+            recovery_index_fingerprint: report.recovery_index_fingerprint,
+            known_order_ids: strict_envelope.recovery_indexes.known_order_ids.clone(),
+            pending_requests: strict_envelope.recovery_indexes.pending_requests.clone(),
+            riskgate_identity: strict_envelope.riskgate.identity.clone(),
+            riskgate_generation: strict_envelope
+                .riskgate
+                .materialized_state
+                .current_generation
+                .clone(),
+            riskgate_ledger_tail_hash: strict_envelope.riskgate.ledger_tail_hash.clone(),
+            riskgate_recovery_frontier: None,
+            lifecycle_watermarks: strict_envelope.lifecycle_watermarks.clone(),
+        };
+        let bootstrapped =
+            stage5d_notify_broker_truth_bootstrap_at(applied, strict_envelope.persisted_at_ts_utc)
+                .unwrap_or_else(|_| panic!("Stage 5F broker-truth bootstrap must succeed"));
+
+        if matches!(mode, Stage5fRepresentativeRiskgateMode::MissingAuthority) {
+            let mut missing = validated_evidence.evidence.clone();
+            missing.schema_version = 0;
+            let reason = stage5d_validate_riskgate_ledger_evidence(missing)
+                .err()
+                .expect("Stage 5F missing authority must return a typed blocker");
+            drop(bootstrapped);
+            return Stage5fFullRestartOutcome::Blocked {
+                reason,
+                projection: Box::new(projection),
+            };
+        }
+
+        let injected = stage5d_inject_authoritative_riskgate(bootstrapped, validated_evidence)
+            .unwrap_or_else(|blocked| {
+                panic!(
+                    "Stage 5F authoritative riskgate injection blocked: {:?}",
+                    blocked.reason()
+                )
+            });
+        let mut projection = projection;
+        projection.riskgate_recovery_frontier =
+            Some(injected.recovery_plan_fingerprint().to_string());
+        let restored = stage5d_notify_runtime_state_restored_at(injected, persisted_at)
+            .unwrap_or_else(|outcome| {
+                let reason = match outcome {
+                    Stage5dRuntimeStateRestoreOutcome::Blocked(blocked) => {
+                        format!("blocked:{:?}", blocked.reason())
+                    }
+                    Stage5dRuntimeStateRestoreOutcome::Terminal(terminal) => {
+                        format!("terminal:{:?}", terminal.reason())
+                    }
+                };
+                panic!("Stage 5F runtime-state-restored transition must succeed: {reason}")
+            });
+        Stage5fFullRestartOutcome::Ready(Box::new(Stage5fFullRestartReady {
+            restored,
+            projection,
+        }))
+    }
+}
+// STAGE5F-TEST-FULL-RESTART-ORACLE-END
+
 #[cfg(test)]
 mod tests {
     use super::*;

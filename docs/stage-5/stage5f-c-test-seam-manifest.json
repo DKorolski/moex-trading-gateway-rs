@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "stage": "5F-c-R1-test-seam-boundary",
+  "status": "review_closure_candidate",
+  "development_predecessor": "11826285d05638b6b0e29c64a3435870091dac38",
+  "normalized_source_base": "86b43c448fb65a3c54b6118d04d3f40e08e74ad7",
+  "regions": [
+    {
+      "label": "observer module",
+      "path": "crates/strategy-runtime-core/src/lib.rs",
+      "git_mode": "100644",
+      "begin": "STAGE5F-TEST-OBSERVATION-MODULE-BEGIN",
+      "end": "STAGE5F-TEST-OBSERVATION-MODULE-END",
+      "region_sha256": "a4201f2e741df60187eff06dd249a39a0d4c18ed6ef1fa7d2b3653caab4e514e",
+      "normalized_source_sha256": "4a248db1a97799604bcfcb094abd1b22abebc98aec67882c829e1fa5a884e7ae"
+    },
+    {
+      "label": "observer call",
+      "path": "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs",
+      "git_mode": "100644",
+      "begin": "STAGE5F-TEST-OBSERVATION-CALL-BEGIN",
+      "end": "STAGE5F-TEST-OBSERVATION-CALL-END",
+      "region_sha256": "0b39bfe30a0b713e784df9751146547bf528084124dc089a885023e4a34ea3f6",
+      "normalized_source_sha256": "7f5e3ad070c1bbc3ddca1e642d59b3f4cf75b9bb0d1651068df363323f1cd427"
+    },
+    {
+      "label": "Stage 5C ownership factory",
+      "path": "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+      "git_mode": "100644",
+      "begin": "STAGE5F-TEST-OWNERSHIP-FACTORY-BEGIN",
+      "end": "STAGE5F-TEST-OWNERSHIP-FACTORY-END",
+      "region_sha256": "bce460970420c0eadcf7580f107f96859dd52a11138c81fe7f9dc2a91f1d3de6",
+      "normalized_source_sha256": "0fce95557b2e7673d7e7e74a5b4d65dd3ec28360fab3674c20e3e6de6be02ff3"
+    },
+    {
+      "label": "Stage 5D full restart oracle",
+      "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+      "git_mode": "100644",
+      "begin": "STAGE5F-TEST-FULL-RESTART-ORACLE-BEGIN",
+      "end": "STAGE5F-TEST-FULL-RESTART-ORACLE-END",
+      "region_sha256": "b8681197e56e5dc88b74b9ddce5547dde639ebba550c27a9f491891c2273f145",
+      "normalized_source_sha256": "02bbfb225f33a8f60bab860817f01d340bdf91076d3cbcd59114386c8ac12f4d"
+    },
+    {
+      "label": "callback-validation seam",
+      "path": "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
+      "git_mode": "100644",
+      "begin": "STAGE5F-TEST-CALLBACK-VALIDATION-SEAM-BEGIN",
+      "end": "STAGE5F-TEST-CALLBACK-VALIDATION-SEAM-END",
+      "region_sha256": "9357d9b17646a80ebd13c20df6bc3d7b1626eb440230cf818a8cbd5dcd1ae81e",
+      "normalized_source_sha256": "34ed25d3ee188d3f0c52d4b655c6105349e9761b7bd3a5af934e52cab14fb2d6"
+    },
+    {
+      "label": "B3C factory",
+      "path": "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
+      "git_mode": "100644",
+      "begin": "STAGE5F-TEST-B3C-FACTORY-BEGIN",
+      "end": "STAGE5F-TEST-B3C-FACTORY-END",
+      "region_sha256": "3ebd8b83ebeab201c500cc54a0e2386cb11714ecb36980ae6f0eb5ee63bb3e92",
+      "normalized_source_sha256": "34ed25d3ee188d3f0c52d4b655c6105349e9761b7bd3a5af934e52cab14fb2d6"
+    }
+  ],
+  "closed_surfaces": {
+    "redis": false,
+    "finam": false,
+    "transport": false,
+    "dispatch": false,
+    "runtime_live": false,
+    "broker_execution": false
+  }
+}

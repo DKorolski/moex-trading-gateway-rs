@@ -29,20 +29,29 @@ def load_checker(case_index: int):
 
 def copy_contract(module: Any, root: Path) -> None:
     files = [
+        module.V1_SCENARIOS,
+        module.V1_STATES,
+        module.V1_RISKGATE,
+        module.V1_CORRECTIONS,
+        module.V1_CANDIDATE,
         module.SCENARIOS,
         module.STATES,
         module.RISKGATE,
-        module.CORRECTIONS,
+        module.TARGET_CONFIG,
         module.CANDIDATE,
+        module.SCHEMA_OWNER_INVENTORY,
         module.HARNESS,
         module.LIB,
         module.CALLBACK,
         module.STAGE5C,
+        module.STAGE5D,
         module.STAGE5E,
         module.INHERITED_B1_GATE,
         module.FUNCTIONAL_GATE,
         module.REPORT,
         module.INVENTORY,
+        module.TEST_SEAM_MANIFEST,
+        module.NEGATIVE_HARNESS,
     ]
     for relative in files:
         target = root / relative
@@ -77,13 +86,33 @@ def rebind_results(module: Any, root: Path, payload: dict[str, Any]) -> None:
     write_json(root, module.CANDIDATE, payload)
 
 
-def rebind_correction(module: Any, root: Path, payload: dict[str, Any]) -> None:
-    write_json(root, module.CORRECTIONS, payload)
-    digest = hashlib.sha256((root / module.CORRECTIONS).read_bytes()).hexdigest()
-    module.INPUT_HASHES[module.CORRECTIONS] = digest
+def rebind_scenarios(module: Any, root: Path, payload: dict[str, Any]) -> None:
+    write_json(root, module.SCENARIOS, payload)
+    digest = hashlib.sha256((root / module.SCENARIOS).read_bytes()).hexdigest()
+    module.INPUT_HASHES[module.SCENARIOS] = digest
     candidate = read_json(root, module.CANDIDATE)
-    candidate["inputs"]["source_validity_corrections_sha256"] = digest
+    candidate["inputs"]["scenario_catalog_sha256"] = digest
     write_json(root, module.CANDIDATE, candidate)
+
+
+def rebind_states(module: Any, root: Path, payload: dict[str, Any]) -> None:
+    write_json(root, module.STATES, payload)
+    digest = hashlib.sha256((root / module.STATES).read_bytes()).hexdigest()
+    module.INPUT_HASHES[module.STATES] = digest
+    scenarios = read_json(root, module.SCENARIOS)
+    for row in scenarios["records"]:
+        row["pre_state"]["catalog_sha256"] = digest
+    rebind_scenarios(module, root, scenarios)
+    candidate = read_json(root, module.CANDIDATE)
+    candidate["inputs"]["state_catalog_sha256"] = digest
+    write_json(root, module.CANDIDATE, candidate)
+
+
+def rebind_test_seam_manifest(module: Any, root: Path, payload: dict[str, Any]) -> None:
+    write_json(root, module.TEST_SEAM_MANIFEST, payload)
+    module.TEST_SEAM_MANIFEST_SHA256 = hashlib.sha256(
+        (root / module.TEST_SEAM_MANIFEST).read_bytes()
+    ).hexdigest()
 
 
 Mutation = Callable[[Any, Path], None]
@@ -121,15 +150,93 @@ CASES: list[tuple[str, Mutation]] = [
     ),
     (
         "stage5c-factory-not-cfg-test",
-        lambda m, r: replace(r, m.STAGE5C, "#[cfg(test)]\n#[allow(clippy::too_many_arguments)]\npub(crate) fn stage5f_test_sequence", "#[allow(clippy::too_many_arguments)]\npub(crate) fn stage5f_test_sequence"),
+        lambda m, r: replace(r, m.STAGE5C, "#[cfg(test)]\npub(crate) mod stage5f_test_seams {", "pub(crate) mod stage5f_test_seams {"),
     ),
     (
         "b3c-factory-not-cfg-test",
-        lambda m, r: replace(r, m.STAGE5E, "    #[cfg(test)]\n    pub(crate) fn stage5f_test_b3c", "    pub(crate) fn stage5f_test_b3c"),
+        lambda m, r: replace(r, m.STAGE5E, "// STAGE5F-TEST-B3C-FACTORY-BEGIN\n    #[cfg(test)]\n    pub(crate) mod stage5f_test_seams {", "// STAGE5F-TEST-B3C-FACTORY-BEGIN\n    pub(crate) mod stage5f_test_seams {"),
     ),
     (
         "callback-validation-seam-not-cfg-test",
-        lambda m, r: replace(r, m.STAGE5E, "        #[cfg(test)]\n        pub(crate) fn stage5f_test_force_callback", "        pub(crate) fn stage5f_test_force_callback"),
+        lambda m, r: replace(r, m.STAGE5E, "// STAGE5F-TEST-CALLBACK-VALIDATION-SEAM-BEGIN\n        #[cfg(test)]\n        pub(crate) mod stage5f_test_seams {", "// STAGE5F-TEST-CALLBACK-VALIDATION-SEAM-BEGIN\n        pub(crate) mod stage5f_test_seams {"),
+    ),
+    (
+        "stage5d-full-restart-oracle-not-cfg-test",
+        lambda m, r: replace(
+            r,
+            m.STAGE5D,
+            "// STAGE5F-TEST-FULL-RESTART-ORACLE-BEGIN\n#[cfg(test)]\npub(crate) mod stage5f_test_seams {",
+            "// STAGE5F-TEST-FULL-RESTART-ORACLE-BEGIN\npub(crate) mod stage5f_test_seams {",
+        ),
+    ),
+    (
+        "stage5d-full-restart-extra-item",
+        lambda m, r: replace(
+            r,
+            m.STAGE5D,
+            "}\n// STAGE5F-TEST-FULL-RESTART-ORACLE-END",
+            "}\nfn stage5f_production_escape() {}\n// STAGE5F-TEST-FULL-RESTART-ORACLE-END",
+        ),
+    ),
+    (
+        "review-bypass-lib-unguarded-module",
+        lambda m, r: replace(r, m.LIB, "mod stage5f_atomic_hybrid_semantics;", "mod stage5f_atomic_hybrid_semantics;\nmod stage5f_production_escape;"),
+    ),
+    (
+        "review-bypass-callback-unguarded-statement",
+        lambda m, r: replace(r, m.CALLBACK, "        crate::stage5f_atomic_hybrid_semantics::observe_exact_on_bar_result(&intents);", "        crate::stage5f_atomic_hybrid_semantics::observe_exact_on_bar_result(&intents);\n        let _production_escape = intents.len();"),
+    ),
+    (
+        "review-bypass-stage5c-unguarded-function",
+        lambda m, r: replace(r, m.STAGE5C, "}\n// STAGE5F-TEST-OWNERSHIP-FACTORY-END", "}\nfn stage5f_production_escape() {}\n// STAGE5F-TEST-OWNERSHIP-FACTORY-END"),
+    ),
+    (
+        "review-bypass-stage5e-unguarded-function",
+        lambda m, r: replace(r, m.STAGE5E, "    }\n    // STAGE5F-TEST-B3C-FACTORY-END", "    }\n    fn stage5f_production_escape() {}\n    // STAGE5F-TEST-B3C-FACTORY-END"),
+    ),
+    (
+        "stage5c-cfg-attr-instead-of-direct-cfg",
+        lambda m, r: replace(r, m.STAGE5C, "#[cfg(test)]\npub(crate) mod stage5f_test_seams {", "#[cfg_attr(test, allow(dead_code))]\npub(crate) mod stage5f_test_seams {"),
+    ),
+    (
+        "observer-macro-item-injection",
+        lambda m, r: replace(r, m.LIB, "mod stage5f_atomic_hybrid_semantics;", "macro_rules! stage5f_escape { () => {}; }\nmod stage5f_atomic_hybrid_semantics;"),
+    ),
+    (
+        "stage5c-second-module-item",
+        lambda m, r: replace(r, m.STAGE5C, "}\n// STAGE5F-TEST-OWNERSHIP-FACTORY-END", "}\n#[cfg(test)]\nmod stage5f_second_item {}\n// STAGE5F-TEST-OWNERSHIP-FACTORY-END"),
+    ),
+    (
+        "stage5c-seam-visibility-widened",
+        lambda m, r: replace(r, m.STAGE5C, "pub(crate) mod stage5f_test_seams {", "pub mod stage5f_test_seams {"),
+    ),
+    (
+        "test-seam-manifest-region-hash-rebound",
+        lambda m, r: (lambda p: (
+            p["regions"][0].__setitem__("region_sha256", "0" * 64),
+            rebind_test_seam_manifest(m, r, p),
+        ))(read_json(r, m.TEST_SEAM_MANIFEST)),
+    ),
+    (
+        "test-seam-manifest-normalized-hash-rebound",
+        lambda m, r: (lambda p: (
+            p["regions"][1].__setitem__("normalized_source_sha256", "1" * 64),
+            rebind_test_seam_manifest(m, r, p),
+        ))(read_json(r, m.TEST_SEAM_MANIFEST)),
+    ),
+    (
+        "test-seam-manifest-mode-rebound",
+        lambda m, r: (lambda p: (
+            p["regions"][2].__setitem__("git_mode", "100755"),
+            rebind_test_seam_manifest(m, r, p),
+        ))(read_json(r, m.TEST_SEAM_MANIFEST)),
+    ),
+    (
+        "test-seam-manifest-extra-region-rebound",
+        lambda m, r: (lambda p: (
+            p["regions"].append(dict(p["regions"][0])),
+            rebind_test_seam_manifest(m, r, p),
+        ))(read_json(r, m.TEST_SEAM_MANIFEST)),
     ),
     (
         "observer-scope-clone",
@@ -204,16 +311,25 @@ CASES: list[tuple[str, Mutation]] = [
         lambda m, r: (lambda p: (p["closed_surfaces"].__setitem__("redis", True), write_json(r, m.CANDIDATE, p)))(read_json(r, m.CANDIDATE)),
     ),
     (
-        "correction-extra-row",
-        lambda m, r: (lambda p: (p["corrections"].append(dict(p["corrections"][0], row_id="F03")), rebind_correction(m, r, p)))(read_json(r, m.CORRECTIONS)),
+        "v2-cycle-production-identity-forged",
+        lambda m, r: (lambda p: (
+            p["seeds"][1]["active_cycle"].__setitem__("value", "0000000000"),
+            rebind_states(m, r, p),
+        ))(read_json(r, m.STATES)),
     ),
     (
-        "f02-correction-reverted",
-        lambda m, r: (lambda p: (p["corrections"][0]["overrides"]["bar"].__setitem__("close_time_utc", "2026-01-06T07:10:00Z"), rebind_correction(m, r, p)))(read_json(r, m.CORRECTIONS)),
+        "v2-clock-order-swapped",
+        lambda m, r: (lambda p: (
+            p["records"][0]["clock"].__setitem__("lifecycle_ts_utc", p["records"][0]["clock"]["callback_ts_utc"]),
+            rebind_scenarios(m, r, p),
+        ))(read_json(r, m.SCENARIOS)),
     ),
     (
-        "f04-cycle-correction-reverted",
-        lambda m, r: (lambda p: (p["corrections"][1]["overrides"]["state_seed"].__setitem__("active_cycle_id", "bo00000001"), rebind_correction(m, r, p)))(read_json(r, m.CORRECTIONS)),
+        "v2-correction-overlay-dependency",
+        lambda m, r: (lambda p: (
+            p["characterization_policy"].__setitem__("current_status", m.V1_CORRECTIONS),
+            rebind_scenarios(m, r, p),
+        ))(read_json(r, m.SCENARIOS)),
     ),
     (
         "inherited-scanner-anchor-rebound-to-head",
@@ -260,12 +376,12 @@ CASES: list[tuple[str, Mutation]] = [
         lambda m, r: (lambda p: (p["next_stage"].__setitem__("allowed_before_independent_review", True), write_json(r, m.INVENTORY, p)))(read_json(r, m.INVENTORY)),
     ),
     (
-        "compositional-proof-caveat-removed",
+        "stage5f-d-report-hold-removed",
         lambda m, r: replace(
             r,
             m.REPORT,
-            "It is a compositional proof, not a claim that",
-            "It is asserted without qualification that",
+            "Stage 5F-d remains closed until independent R1 acceptance.",
+            "Stage 5F-d may proceed without independent R1 acceptance.",
         ),
     ),
 ]
