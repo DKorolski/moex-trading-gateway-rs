@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FORBIDDEN_SURFACE_SCANNER_CONTRACT="stage5d-b2bc1-r4-v1"
+FORBIDDEN_SURFACE_SCANNER_CONTRACT="stage5f-a-r9-portable-forbidden-scanner-v1"
 
 workspace_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$workspace_root"
@@ -27,41 +27,103 @@ report_failure() {
 
 approved_order_transport="crates/finam-gateway/src/m3d2_real_order_transport.rs"
 
-if rg -n --glob 'crates/**/*.rs' '\.delete\(' crates | grep -v "^${approved_order_transport}:" >/tmp/moex_forbidden_delete.$$; then
-  cat /tmp/moex_forbidden_delete.$$ >&2
-  report_failure "real HTTP DELETE surface is forbidden outside the reviewed M3d-2c transport"
-fi
-rm -f /tmp/moex_forbidden_delete.$$
+portable_rust_source_scan() {
+  local pattern="$1"
+  local target="$2"
+  local excluded_path="${3:-}"
+  "$python_with_tomllib" - "$pattern" "$target" "$excluded_path" <<'PY'
+import re
+import sys
+from pathlib import Path
 
-if rg -n --glob 'crates/**/*.rs' 'Method::DELETE' crates >/tmp/moex_forbidden_method_delete.$$; then
-  cat /tmp/moex_forbidden_method_delete.$$ >&2
-  report_failure "Method::DELETE surface is forbidden"
-fi
-rm -f /tmp/moex_forbidden_method_delete.$$
+pattern, raw_target, excluded_path = sys.argv[1:]
+workspace_root = Path.cwd().resolve()
+target = Path(raw_target).resolve()
 
-if rg -n --glob 'crates/**/*.rs' 'Method::POST' crates >/tmp/moex_forbidden_method_post.$$; then
-  cat /tmp/moex_forbidden_method_post.$$ >&2
-  report_failure "Method::POST is not allowed in gateway/order surfaces"
-fi
-rm -f /tmp/moex_forbidden_method_post.$$
+try:
+    expression = re.compile(pattern)
+except re.error as error:
+    print(f"forbidden-surface-scan: invalid portable Rust pattern: {error}", file=sys.stderr)
+    raise SystemExit(2)
 
-if rg -n '"/v1/accounts/[^"]*/orders' crates/broker-finam/src/lib.rs >/tmp/moex_forbidden_order_route_literal.$$; then
-  cat /tmp/moex_forbidden_order_route_literal.$$ >&2
-  report_failure "literal FINAM order route bypass is forbidden before explicit endpoint review"
-fi
-rm -f /tmp/moex_forbidden_order_route_literal.$$
+if target.is_file():
+    paths = [target]
+elif target.is_dir():
+    paths = sorted(path for path in target.rglob("*.rs") if path.is_file())
+else:
+    print(f"forbidden-surface-scan: portable Rust target is missing: {target}", file=sys.stderr)
+    raise SystemExit(2)
 
-if rg -n --glob 'crates/**/*.rs' 'OrderEndpointHttp(Client|Transport|Adapter|Backend)' crates >/tmp/moex_forbidden_order_http_abstraction.$$; then
-  cat /tmp/moex_forbidden_order_http_abstraction.$$ >&2
-  report_failure "non-reqwest order endpoint HTTP abstraction is forbidden before explicit endpoint review"
-fi
-rm -f /tmp/moex_forbidden_order_http_abstraction.$$
+matched = False
+for path in paths:
+    try:
+        relative = path.relative_to(workspace_root).as_posix()
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError, ValueError) as error:
+        print(f"forbidden-surface-scan: cannot read Rust source {path}: {error}", file=sys.stderr)
+        raise SystemExit(2)
+    if relative == excluded_path:
+        continue
+    for line_number, line in enumerate(lines, start=1):
+        if expression.search(line):
+            print(f"{relative}:{line_number}:{line}")
+            matched = True
 
-if rg -n --glob 'crates/**/*.rs' 'EndpointGateApproved[[:space:]]*\{[[:space:]]*_private:[[:space:]]*\(\)' crates >/tmp/moex_forbidden_endpoint_gate_literal.$$; then
-  cat /tmp/moex_forbidden_endpoint_gate_literal.$$ >&2
-  report_failure "direct EndpointGateApproved literal construction is forbidden outside reviewed constructors"
-fi
-rm -f /tmp/moex_forbidden_endpoint_gate_literal.$$
+raise SystemExit(0 if matched else 1)
+PY
+}
+
+check_portable_rust_pattern() {
+  local pattern="$1"
+  local target="$2"
+  local excluded_path="$3"
+  local message="$4"
+  local output
+  local status
+  output="$(mktemp "${TMPDIR:-/tmp}/moex-portable-rust-scan.XXXXXX")"
+  if portable_rust_source_scan "$pattern" "$target" "$excluded_path" >"$output"; then
+    cat "$output" >&2
+    report_failure "$message"
+  else
+    status=$?
+    if [[ "$status" -ne 1 ]]; then
+      cat "$output" >&2
+      report_failure "portable Rust source scan failed for $target"
+    fi
+  fi
+  rm -f "$output"
+}
+
+check_portable_rust_pattern \
+  '\.delete\(' \
+  crates \
+  "$approved_order_transport" \
+  "real HTTP DELETE surface is forbidden outside the reviewed M3d-2c transport"
+check_portable_rust_pattern \
+  'Method::DELETE' \
+  crates \
+  '' \
+  "Method::DELETE surface is forbidden"
+check_portable_rust_pattern \
+  'Method::POST' \
+  crates \
+  '' \
+  "Method::POST is not allowed in gateway/order surfaces"
+check_portable_rust_pattern \
+  '"/v1/accounts/[^"]*/orders' \
+  crates/broker-finam/src/lib.rs \
+  '' \
+  "literal FINAM order route bypass is forbidden before explicit endpoint review"
+check_portable_rust_pattern \
+  'OrderEndpointHttp(Client|Transport|Adapter|Backend)' \
+  crates \
+  '' \
+  "non-reqwest order endpoint HTTP abstraction is forbidden before explicit endpoint review"
+check_portable_rust_pattern \
+  'EndpointGateApproved\s*\{\s*_private:\s*\(\)' \
+  crates \
+  '' \
+  "direct EndpointGateApproved literal construction is forbidden outside reviewed constructors"
 
 "$python_with_tomllib" - <<'PY'
 import hashlib
@@ -1543,7 +1605,7 @@ expected_stage5_profile_artifacts = {
         "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323"
     ),
     Path("docs/stage-5/stage-5d-additive-freeze-manifest.json"): (
-        "b6bd20387b39d1601222040702fb01ecc1fede47d85e8ccdbd889ffb7d8bd063"
+        "3c0025155cb50032b753096af9c759dc0363c3ca9a65d67be480317991413fbf"
     ),
     Path("docs/stage-5/5d-b2a-versioned-persistence-envelope-api-schema.md"): (
         "9f6cc0f7a07c08f5fc67e6ef7904ced2c20b7f6a995204e288d6952792e034a6"
@@ -1552,7 +1614,7 @@ expected_stage5_profile_artifacts = {
         "2ed629e4e7a157f03b25e55f7b294713855d84a5a9cef3b284d58baa60bc257d"
     ),
     Path("scripts/stage5d_additive_freeze_check.py"): (
-        "5e2fbfbc5d60f65b0aaf730fb058442c605524084b829ed4f087d46195c4b30f"
+        "66c1bcfd532504eb82c3c16b36f578fc2a9f396521d1e3b8b15ef04ca7d8d78a"
     ),
     Path("scripts/stage5d_additive_freeze_negative_harness.py"): (
         "5a16677a546c8206343f28f4b7edc2a7df49a91338b7dcc2992a5bc7c8f22725"

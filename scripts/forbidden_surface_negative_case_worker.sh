@@ -140,7 +140,9 @@ check_scanner_result() {
     echo "positive control unexpectedly failed: $case_name" >&2
     exit 1
   fi
-  if rg -n 'Traceback|No such file or directory|command not found|Python 3\.11\+ with stdlib tomllib is required|worker timed out' "$scan_log" >/dev/null; then
+  # This path is intentionally POSIX-portable: hosted CI validates the scanner
+  # and its negative worker with ripgrep absent from PATH.
+  if grep -E -n 'Traceback|No such file or directory|command not found|Python 3\.11\+ with stdlib tomllib is required|worker timed out' "$scan_log" >/dev/null; then
     cat "$scan_log" >&2
     echo "infrastructure failure is not valid case evidence: $case_name" >&2
     exit 1
@@ -781,7 +783,7 @@ run_replacement_case \
 run_replacement_case \
   "forbidden-scanner-contract-drift" \
   "$tmp_root/scripts/forbidden_surface_scan.sh" \
-  'FORBIDDEN_SURFACE_SCANNER_CONTRACT="stage5d-b2bc1-r4-v1"' \
+  'FORBIDDEN_SURFACE_SCANNER_CONTRACT="stage5f-a-r9-portable-forbidden-scanner-v1"' \
   'FORBIDDEN_SURFACE_SCANNER_CONTRACT="unreviewed"'
 
 if [[ "$case_executed" -ne 1 ]]; then

@@ -138,3 +138,10 @@ artifacts. Replaying R9 from generation 4 or a later generation, invoking it
 from a different generation-3 stage, or spoofing the R8a stage name on a later
 state is rejected. The exception is therefore consumed by R9 and does not
 create a general scanner-maintenance route.
+
+R9 replaces the six scanner text searches with a Python 3.11+ implementation
+and uses a portable worker-side infrastructure-error search. Before the
+candidate is sent to hosted CI, the full 87-case negative harness must pass
+with `rg` absent from `PATH`. That evidence confirms the repair condition while
+leaving canonical CI byte-for-byte unchanged. Hosted `rust` and `redis-smoke`,
+then the clean and adversarial PR checks, remain the activation gate.
