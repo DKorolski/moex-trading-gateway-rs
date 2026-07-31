@@ -43,13 +43,13 @@ TEST_SEAM_MANIFEST = "docs/stage-5/stage5f-c-test-seam-manifest.json"
 NEGATIVE_HARNESS = "scripts/stage5f_controlled_characterization_negative_harness.py"
 REPORT_SHA256 = "fd442ae417ac9d825ef6be5861c52431faa3f977ca37610c46cfd16ff5efe248"
 INVENTORY_SHA256 = "5e5e8232ec4ac1cf2a63d84d956e79e595862c24abc1d0d7506b58d58869e38a"
-SCHEMA_OWNER_INVENTORY_SHA256 = "ff759b60c4d9415b4534d8764983c25c1bb2e8c873f2901971bc86f604a79623"
+SCHEMA_OWNER_INVENTORY_SHA256 = "bb5fb56abe4da863956d4f84490191f8578504201200ed9aae34c2e029095998"
 TEST_SEAM_MANIFEST_SHA256 = "fae564929196c47ecfa1a97fdd4d9652d5abbbd43a7e81d8714610425c4b8a85"
 NEGATIVE_HARNESS_SHA256 = "9d0b732ca1e09518bdfb7a46cd64d8b83524d8d6ddd75f4bcec172cd1805d07f"
 
 INPUT_HASHES = {
-    SCENARIOS: "84fdcd50999e94a6b30eefd461d282f341aa2a42acd128973abb19cf3e1ef778",
-    STATES: "23c577adc122293bd884bcc7d16bb822e96e9f33e074b86b9f164e0b4060b0b6",
+    SCENARIOS: "251dbbdb363a2e6e09fd9ab08df3df5473ca2d298e2bbdbfc0fe58d806efa744",
+    STATES: "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
     RISKGATE: "dd3ea7894df922984896ee20ebd114412d1675e666683c958fe98eb724a22584",
     TARGET_CONFIG: "3c46aa4bdfb5a6ac3350d0f3b52ad5050abc472c653bacda512dffebfeb07e41",
 }
@@ -235,8 +235,12 @@ def validate_schema_owner_inventory(
         "schema-owner inventory",
     )
     exact_int(inventory["schema_version"], 1, "schema-owner schema_version")
-    require(inventory["stage"], "5F-c-R1", "schema-owner stage")
-    require(inventory["status"], "canonical_v2_non_golden", "schema-owner status")
+    require(inventory["stage"], "5F-c-R2", "schema-owner stage")
+    require(
+        inventory["status"],
+        "canonical_v2_reachability_corrected_non_golden",
+        "schema-owner status",
+    )
     files = inventory["files"]
     if not isinstance(files, list):
         fail("schema-owner files must be an array")
@@ -247,6 +251,7 @@ def validate_schema_owner_inventory(
             "top_level_keys": sorted(scenarios),
             "owned_nested_keys": {
                 "bar": sorted(scenarios["records"][0]["bar"]),
+                "broker_truth": sorted(scenarios["records"][0]["broker_truth"]),
                 "clock": sorted(scenarios["records"][0]["clock"]),
                 "record": sorted(scenarios["records"][0]),
             },
@@ -308,7 +313,7 @@ def validate_v2_fixtures(root: Path) -> None:
         "stage5f-atomic-hybrid-scenario-catalog-v2",
         "scenario fixture kind",
     )
-    require(scenarios["status"], "canonical_r1_non_golden", "scenario status")
+    require(scenarios["status"], "canonical_r2_non_golden", "scenario status")
     require(
         scenarios["source_v1"],
         {
@@ -512,6 +517,19 @@ def validate_v2_fixtures(root: Path) -> None:
         require(row["pre_state"]["catalog_sha256"], INPUT_HASHES[STATES], f"{row_id} state hash")
         require(row["riskgate"]["catalog_path"], RISKGATE, f"{row_id} riskgate path")
         require(row["riskgate"]["catalog_sha256"], INPUT_HASHES[RISKGATE], f"{row_id} riskgate hash")
+        broker_truth = exact_keys(
+            row["broker_truth"],
+            {"working_order_ids"},
+            f"{row_id} broker truth",
+        )
+        working_order_ids = broker_truth["working_order_ids"]
+        if not isinstance(working_order_ids, list) or any(
+            not isinstance(order_id, str) or not order_id.strip()
+            for order_id in working_order_ids
+        ):
+            fail(f"{row_id} working order evidence must be non-empty strings")
+        if len(working_order_ids) != len(set(working_order_ids)):
+            fail(f"{row_id} working order evidence must be unique")
     f02 = records[1]
     require(f02["bar"]["close_time_utc"], "2026-01-06T09:10:00Z", "F02 post-wait close")
     f04 = records[3]

@@ -432,6 +432,12 @@ struct Stage5fScenarioClockV2 {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct Stage5fScenarioBrokerTruthV2 {
+    working_order_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Stage5fCatalogReferenceV2 {
     catalog_path: String,
     catalog_sha256: String,
@@ -461,6 +467,7 @@ struct Stage5fScenarioRecordV2 {
     group_id: String,
     case_id: String,
     target: Stage5fScenarioTarget,
+    broker_truth: Stage5fScenarioBrokerTruthV2,
     bar: Stage5fScenarioBarV2,
     clock: Stage5fScenarioClockV2,
     pre_state: Stage5fCatalogReferenceV2,
@@ -929,7 +936,7 @@ fn load_scenario(row_id: &str) -> Stage5fScenarioInput {
         scenarios.fixture_kind,
         "stage5f-atomic-hybrid-scenario-catalog-v2"
     );
-    assert_eq!(scenarios.status, "canonical_r1_non_golden");
+    assert_eq!(scenarios.status, "canonical_r2_non_golden");
     validate_v1_binding(
         &scenarios.source_v1,
         "tests/fixtures/stage5/stage5f/v1/scenarios/atomic-hybrid-scenarios.json",
@@ -998,6 +1005,20 @@ fn load_scenario(row_id: &str) -> Stage5fScenarioInput {
     assert_eq!(raw.schema_version, 2);
     assert!(!raw.group_id.is_empty() && !raw.case_id.is_empty());
     assert_eq!(raw.owning_test, raw.scenario_id);
+    assert!(raw
+        .broker_truth
+        .working_order_ids
+        .iter()
+        .all(|order_id| !order_id.trim().is_empty()));
+    let unique_working_order_ids = raw
+        .broker_truth
+        .working_order_ids
+        .iter()
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        unique_working_order_ids.len(),
+        raw.broker_truth.working_order_ids.len()
+    );
     assert_eq!(raw.target.strategy_id, "hybrid_imoexf");
     assert_eq!(raw.target.account_id, "ACC_TEST_0001");
     assert_eq!(raw.target.profile, "imoexf_primary_riskgate_high180_lb120");

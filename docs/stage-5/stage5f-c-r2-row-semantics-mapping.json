@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "stage": "5F-c-R2-source-reachability-closure",
+  "status": "corrected_non_golden",
+  "predecessor_ref": "824fcff3adfcda15b5442f00004f604a58e10236",
+  "rows": [
+    {
+      "row_id": "F03",
+      "old_case_id": "bo_short_entry",
+      "new_case_id": "bo_short_entry",
+      "correction": "bar_moved_after_bo_wait_boundary",
+      "owner_stage": "Stage5FBarCallback"
+    },
+    {
+      "row_id": "F05",
+      "old_case_id": "bo_short_normal_exit",
+      "new_case_id": "bo_short_stop2_exit",
+      "correction": "close_moved_strictly_above_short_stop2_threshold",
+      "owner_stage": "Stage5FBarCallback"
+    },
+    {
+      "row_id": "F12",
+      "old_case_id": "mr_long_target_exit",
+      "new_case_id": "mr_long_target_reached_no_bar_exit",
+      "correction": "bar_route_proves_no_new_exit_intent_protective_completion_deferred",
+      "owner_stage": "Stage5FInvariantStage5GCompletion"
+    },
+    {
+      "row_id": "F13",
+      "old_case_id": "mr_short_target_exit",
+      "new_case_id": "mr_short_target_reached_no_bar_exit",
+      "correction": "bar_route_proves_no_new_exit_intent_protective_completion_deferred",
+      "owner_stage": "Stage5FInvariantStage5GCompletion"
+    },
+    {
+      "row_id": "F14",
+      "old_case_id": "mr_long_stop_exit",
+      "new_case_id": "mr_long_stop_reached_no_bar_exit",
+      "correction": "bar_route_proves_no_new_exit_intent_protective_completion_deferred",
+      "owner_stage": "Stage5FInvariantStage5GCompletion"
+    },
+    {
+      "row_id": "F15",
+      "old_case_id": "mr_short_stop_exit",
+      "new_case_id": "mr_short_stop_reached_no_bar_exit",
+      "correction": "bar_route_proves_no_new_exit_intent_protective_completion_deferred",
+      "owner_stage": "Stage5FInvariantStage5GCompletion"
+    },
+    {
+      "row_id": "F16",
+      "old_case_id": "simultaneous_bo_mr_frozen_priority_winner",
+      "new_case_id": "active_profile_bo_mr_windows_do_not_overlap",
+      "correction": "impossible_active_profile_runtime_row_replaced_by_source_formula_invariant",
+      "owner_stage": "Stage5FStructuralInvariant"
+    },
+    {
+      "row_id": "F17",
+      "old_case_id": "bo_selected_when_mr_ineligible",
+      "new_case_id": "bo_selected_when_mr_ineligible",
+      "correction": "bar_moved_after_bo_wait_and_high180_entry_end",
+      "owner_stage": "Stage5FBarCallback"
+    },
+    {
+      "row_id": "F19",
+      "old_case_id": "mr_owner_suppresses_bo",
+      "new_case_id": "mr_owner_suppresses_bo",
+      "correction": "source_valid_bo_candidate_and_recent_open_mr_cycle",
+      "owner_stage": "Stage5FBarCallback"
+    },
+    {
+      "row_id": "F26",
+      "old_case_id": "pending_entry_no_new_entry_or_fake_feedback",
+      "new_case_id": "pending_entry_no_new_entry_or_fake_feedback",
+      "correction": "stale_pending_retained_by_source_valid_working_order_evidence",
+      "owner_stage": "Stage5FBarCallback"
+    }
+  ],
+  "closed_decisions": {
+    "production_formula_changed": false,
+    "alternate_callback_added": false,
+    "stage5f_d_open": false,
+    "stage5g_feedback_implemented": false
+  }
+}

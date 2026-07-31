@@ -198,7 +198,7 @@
       "current_owner": "mean_reversion",
       "current_side": "long",
       "orchestrator_state": "open",
-      "last_processed_bar_ts_utc": "2026-01-06T06:10:00Z",
+      "last_processed_bar_ts_utc": "2026-01-06T08:40:00Z",
       "pending_entry": null,
       "pending_exit": null,
       "deferred_entry": null,
@@ -207,9 +207,9 @@
       "was_short_today": false,
       "overnight_exit_armed_date": null,
       "active_cycle": {
-        "created_ts_utc": "2026-01-06T06:00:00Z",
+        "created_ts_utc": "2026-01-06T08:30:00Z",
         "sequence": 3,
-        "value": "695ca4e003"
+        "value": "695cc80803"
       }
     },
     {

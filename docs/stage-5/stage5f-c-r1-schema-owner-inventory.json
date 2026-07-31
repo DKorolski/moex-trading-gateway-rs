@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "stage": "5F-c-R1",
-  "status": "canonical_v2_non_golden",
+  "stage": "5F-c-R2",
+  "status": "canonical_v2_reachability_corrected_non_golden",
   "files": [
     {
       "path": "tests/fixtures/stage5/stage5f/v2/scenarios/atomic-hybrid-scenarios.json",
@@ -33,8 +33,12 @@
           "event_ts_utc",
           "lifecycle_ts_utc"
         ],
+        "broker_truth": [
+          "working_order_ids"
+        ],
         "record": [
           "bar",
+          "broker_truth",
           "case_id",
           "clock",
           "expected",

@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "stage": "5F-c-R2-source-reachability-closure",
+  "status": "review_required_before_5f_d",
+  "predecessor_ref": "824fcff3adfcda15b5442f00004f604a58e10236",
+  "target": {
+    "strategy_id": "hybrid_imoexf",
+    "profile": "imoexf_primary_riskgate_high180_lb120",
+    "timeframe_sec": 600,
+    "paper_only": true
+  },
+  "source_bindings": {
+    "crates/strategy-runtime-core/src/hybrid_intraday/intraday_breakout.rs": "a3b125f282f201b66dfa8d2685f22aa94048856a5145d537b76dc8934a5f9ae5",
+    "crates/strategy-runtime-core/src/hybrid_intraday/high180.rs": "e1f39a3afdf9745682682da0083f97ac0fa5361f979525d5ea383d6a6aa64456",
+    "crates/strategy-runtime-core/src/hybrid_intraday/orchestrator.rs": "1e784411d348fcf090887f7f50062b0cbd34494912288100c1ca1d851d8d5bd9",
+    "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": "aa514c2479a2720a585ce0c386ab91674e125582e013912fba49fe529f8bdd2d"
+  },
+  "fixture_bindings": {
+    "tests/fixtures/stage5/stage5f/v2/config/imoexf-target-config.json": "3c46aa4bdfb5a6ac3350d0f3b52ad5050abc472c653bacda512dffebfeb07e41",
+    "tests/fixtures/stage5/stage5f/v2/scenarios/atomic-hybrid-scenarios.json": "251dbbdb363a2e6e09fd9ab08df3df5473ca2d298e2bbdbfc0fe58d806efa744",
+    "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+    "docs/stage-5/stage5f-b0-source-reachability-inventory.json": "bccc33173459419eb69ded05fe1a60ad3bb3efcc494347813fca595ab1dbc08e",
+    "docs/stage-5/stage5f-c-r1-schema-owner-inventory.json": "bb5fb56abe4da863956d4f84490191f8578504201200ed9aae34c2e029095998",
+    "docs/stage-5/stage5f-c-r1-candidate-results.json": "696c047d059b9e0bfc941682850edd749f6bd9bb1db0d1a79a384a4197aa928b"
+  },
+  "classification_summary": {
+    "row_count": 34,
+    "source_callback_accepted": 22,
+    "source_callback_no_bar_exit_invariant": 4,
+    "source_profile_structural_invariant": 1,
+    "source_chain_blocked_before_callback": 3,
+    "test_negative_terminal_after_callback": 4,
+    "protective_completion_deferred_to_stage5g": 4
+  },
+  "corrected_rows": [
+    "F03",
+    "F05",
+    "F12",
+    "F13",
+    "F14",
+    "F15",
+    "F16",
+    "F17",
+    "F19",
+    "F26"
+  ],
+  "inherited_seven_row_candidate": {
+    "row_ids": [
+      "F01",
+      "F02",
+      "F04",
+      "F24",
+      "F31",
+      "F32",
+      "F33"
+    ],
+    "results_array_sha256": "e02643a004e9b325a276a1a65e41eda45347e8bb6efe0b0269e838099d909c81",
+    "status": "candidate_source_characterized_not_golden",
+    "semantic_outputs_changed": false
+  },
+  "closed_surfaces": {
+    "redis": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "dispatch": false,
+    "broker_execution": false,
+    "runtime_live": false,
+    "feedback_lifecycle": false,
+    "protective_orders": false,
+    "stage5f_d": false,
+    "stage5g": false,
+    "stage5h": false
+  },
+  "next_stage": {
+    "stage": "5F-d-complete-atomic-hybrid-matrix",
+    "allowed_before_independent_review": false
+  }
+}
