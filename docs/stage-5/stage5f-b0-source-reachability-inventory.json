@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "5F-b0-source-reachability-fingerprint-audit",
-  "status": "r2_source_reachability_corrected_non_golden",
+  "status": "r3_runtime_consumed_reachability_non_golden",
   "development_base": "824fcff3adfcda15b5442f00004f604a58e10236",
   "accepted_b3f_source_ref": "e14654f7129aa61011931306140a3bfefe2fcfbc",
   "design_inputs": {
@@ -80,10 +80,10 @@
     {"row_id":"F09","group_id":"G07_MR_SHORT","case_id":"mr_high180_short_entry","matrix_disposition":"accepted","reachability":"source_callback_accepted","evidence_kind":"golden_source_scenario","source_anchor":"high180_entry_signal"},
     {"row_id":"F10","group_id":"G08_MR_TIME","case_id":"mr_long_max_hold_exit","matrix_disposition":"accepted","reachability":"source_callback_accepted","evidence_kind":"golden_source_scenario","source_anchor":"high180_exit_reason"},
     {"row_id":"F11","group_id":"G08_MR_TIME","case_id":"mr_short_max_hold_exit","matrix_disposition":"accepted","reachability":"source_callback_accepted","evidence_kind":"golden_source_scenario","source_anchor":"high180_exit_reason"},
-    {"row_id":"F12","group_id":"G09_MR_TARGET","case_id":"mr_long_target_reached_no_bar_exit","matrix_disposition":"accepted_no_bar_exit","reachability":"source_callback_no_bar_exit_invariant","evidence_kind":"source_owner_boundary_invariant","source_anchor":"HybridIntradayRuntimeStrategy::high180_exit_reason + Stage5G protective feedback"},
-    {"row_id":"F13","group_id":"G09_MR_TARGET","case_id":"mr_short_target_reached_no_bar_exit","matrix_disposition":"accepted_no_bar_exit","reachability":"source_callback_no_bar_exit_invariant","evidence_kind":"source_owner_boundary_invariant","source_anchor":"HybridIntradayRuntimeStrategy::high180_exit_reason + Stage5G protective feedback"},
-    {"row_id":"F14","group_id":"G10_MR_STOP","case_id":"mr_long_stop_reached_no_bar_exit","matrix_disposition":"accepted_no_bar_exit","reachability":"source_callback_no_bar_exit_invariant","evidence_kind":"source_owner_boundary_invariant","source_anchor":"HybridIntradayRuntimeStrategy::high180_exit_reason + Stage5G protective feedback"},
-    {"row_id":"F15","group_id":"G10_MR_STOP","case_id":"mr_short_stop_reached_no_bar_exit","matrix_disposition":"accepted_no_bar_exit","reachability":"source_callback_no_bar_exit_invariant","evidence_kind":"source_owner_boundary_invariant","source_anchor":"HybridIntradayRuntimeStrategy::high180_exit_reason + Stage5G protective feedback"},
+    {"row_id":"F12","group_id":"G09_MR_TARGET","case_id":"mr_long_favorable_extreme_no_bar_exit","matrix_disposition":"accepted_no_bar_exit","reachability":"source_callback_no_bar_exit_invariant","evidence_kind":"source_owner_boundary_invariant","source_anchor":"HybridIntradayRuntimeStrategy::high180_exit_reason + Stage5G protective feedback"},
+    {"row_id":"F13","group_id":"G09_MR_TARGET","case_id":"mr_short_favorable_extreme_no_bar_exit","matrix_disposition":"accepted_no_bar_exit","reachability":"source_callback_no_bar_exit_invariant","evidence_kind":"source_owner_boundary_invariant","source_anchor":"HybridIntradayRuntimeStrategy::high180_exit_reason + Stage5G protective feedback"},
+    {"row_id":"F14","group_id":"G10_MR_STOP","case_id":"mr_long_adverse_extreme_no_bar_exit","matrix_disposition":"accepted_no_bar_exit","reachability":"source_callback_no_bar_exit_invariant","evidence_kind":"source_owner_boundary_invariant","source_anchor":"HybridIntradayRuntimeStrategy::high180_exit_reason + Stage5G protective feedback"},
+    {"row_id":"F15","group_id":"G10_MR_STOP","case_id":"mr_short_adverse_extreme_no_bar_exit","matrix_disposition":"accepted_no_bar_exit","reachability":"source_callback_no_bar_exit_invariant","evidence_kind":"source_owner_boundary_invariant","source_anchor":"HybridIntradayRuntimeStrategy::high180_exit_reason + Stage5G protective feedback"},
     {"row_id":"F16","group_id":"G11_ARBITRATION","case_id":"active_profile_bo_mr_windows_do_not_overlap","matrix_disposition":"structural_invariant","reachability":"source_profile_structural_invariant","evidence_kind":"source_formula_proof","source_anchor":"BO wait_hours=3.0 versus High180 entry_end_time=11:59:59"},
     {"row_id":"F17","group_id":"G11_ARBITRATION","case_id":"bo_selected_when_mr_ineligible","matrix_disposition":"accepted","reachability":"source_callback_accepted","evidence_kind":"golden_source_scenario","source_anchor":"HybridOrchestrator::on_bar_with_mr_override"},
     {"row_id":"F18","group_id":"G12_OWNER_CYCLE","case_id":"bo_owner_suppresses_mr","matrix_disposition":"accepted","reachability":"source_callback_accepted","evidence_kind":"golden_source_scenario","source_anchor":"HybridOrchestrator::on_bar_with_mr_override"},

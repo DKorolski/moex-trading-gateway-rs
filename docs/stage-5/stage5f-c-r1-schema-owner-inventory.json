@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "stage": "5F-c-R2",
-  "status": "canonical_v2_reachability_corrected_non_golden",
+  "stage": "5F-c-R3",
+  "status": "canonical_v2_runtime_consumed_reachability_non_golden",
   "files": [
     {
       "path": "tests/fixtures/stage5/stage5f/v2/scenarios/atomic-hybrid-scenarios.json",
@@ -34,7 +34,23 @@
           "lifecycle_ts_utc"
         ],
         "broker_truth": [
-          "working_order_ids"
+          "active_orders"
+        ],
+        "active_order": [
+          "account_id",
+          "broker_order_id",
+          "client_order_id",
+          "existing",
+          "filled_qty",
+          "instrument",
+          "limit_price",
+          "order_type",
+          "ownership_comment",
+          "qty",
+          "received_ts_utc",
+          "side",
+          "source_ts_utc",
+          "status"
         ],
         "record": [
           "bar",

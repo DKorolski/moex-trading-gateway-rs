@@ -38,7 +38,7 @@
       "git_mode": "100644",
       "begin": "STAGE5F-TEST-FULL-RESTART-ORACLE-BEGIN",
       "end": "STAGE5F-TEST-FULL-RESTART-ORACLE-END",
-      "region_sha256": "b8681197e56e5dc88b74b9ddce5547dde639ebba550c27a9f491891c2273f145",
+      "region_sha256": "b7b51dacffb8db7373801da82a6f1d5f771472e5332accc586cce34b9599dcc9",
       "normalized_source_sha256": "02bbfb225f33a8f60bab860817f01d340bdf91076d3cbcd59114386c8ac12f4d"
     },
     {
@@ -57,6 +57,15 @@
       "begin": "STAGE5F-TEST-B3C-FACTORY-BEGIN",
       "end": "STAGE5F-TEST-B3C-FACTORY-END",
       "region_sha256": "3ebd8b83ebeab201c500cc54a0e2386cb11714ecb36980ae6f0eb5ee63bb3e92",
+      "normalized_source_sha256": "34ed25d3ee188d3f0c52d4b655c6105349e9761b7bd3a5af934e52cab14fb2d6"
+    },
+    {
+      "label": "post-callback inspection seam",
+      "path": "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
+      "git_mode": "100644",
+      "begin": "STAGE5F-TEST-POST-CALLBACK-INSPECTION-BEGIN",
+      "end": "STAGE5F-TEST-POST-CALLBACK-INSPECTION-END",
+      "region_sha256": "160046de4350baf7d00a4da532bdce1a02b5f9b37148cced997e2cd11f5c42b0",
       "normalized_source_sha256": "34ed25d3ee188d3f0c52d4b655c6105349e9761b7bd3a5af934e52cab14fb2d6"
     }
   ],

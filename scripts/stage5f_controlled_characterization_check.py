@@ -43,13 +43,13 @@ TEST_SEAM_MANIFEST = "docs/stage-5/stage5f-c-test-seam-manifest.json"
 NEGATIVE_HARNESS = "scripts/stage5f_controlled_characterization_negative_harness.py"
 REPORT_SHA256 = "fd442ae417ac9d825ef6be5861c52431faa3f977ca37610c46cfd16ff5efe248"
 INVENTORY_SHA256 = "5e5e8232ec4ac1cf2a63d84d956e79e595862c24abc1d0d7506b58d58869e38a"
-SCHEMA_OWNER_INVENTORY_SHA256 = "bb5fb56abe4da863956d4f84490191f8578504201200ed9aae34c2e029095998"
-TEST_SEAM_MANIFEST_SHA256 = "fae564929196c47ecfa1a97fdd4d9652d5abbbd43a7e81d8714610425c4b8a85"
+SCHEMA_OWNER_INVENTORY_SHA256 = "3c18d5711bdedde27d0ea3cc11e1d642cebca3426882f01cc14755349a225f6c"
+TEST_SEAM_MANIFEST_SHA256 = "1ac7b8d0548567ad87773830bbbdc91eeea7c5969c867180461eb3c166dd0b3a"
 NEGATIVE_HARNESS_SHA256 = "9d0b732ca1e09518bdfb7a46cd64d8b83524d8d6ddd75f4bcec172cd1805d07f"
 
 INPUT_HASHES = {
-    SCENARIOS: "251dbbdb363a2e6e09fd9ab08df3df5473ca2d298e2bbdbfc0fe58d806efa744",
-    STATES: "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+    SCENARIOS: "a9cfe51f3393b2f0d45881029e251455d727bf233fde9751fd3f2278e793e55e",
+    STATES: "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
     RISKGATE: "dd3ea7894df922984896ee20ebd114412d1675e666683c958fe98eb724a22584",
     TARGET_CONFIG: "3c46aa4bdfb5a6ac3350d0f3b52ad5050abc472c653bacda512dffebfeb07e41",
 }
@@ -66,9 +66,10 @@ EXPECTED_TEST_REGION_SHA256 = {
     "observer module": "a4201f2e741df60187eff06dd249a39a0d4c18ed6ef1fa7d2b3653caab4e514e",
     "observer call": "0b39bfe30a0b713e784df9751146547bf528084124dc089a885023e4a34ea3f6",
     "Stage 5C ownership factory": "bce460970420c0eadcf7580f107f96859dd52a11138c81fe7f9dc2a91f1d3de6",
-    "Stage 5D full restart oracle": "b8681197e56e5dc88b74b9ddce5547dde639ebba550c27a9f491891c2273f145",
+    "Stage 5D full restart oracle": "b7b51dacffb8db7373801da82a6f1d5f771472e5332accc586cce34b9599dcc9",
     "callback-validation seam": "9357d9b17646a80ebd13c20df6bc3d7b1626eb440230cf818a8cbd5dcd1ae81e",
     "B3C factory": "3ebd8b83ebeab201c500cc54a0e2386cb11714ecb36980ae6f0eb5ee63bb3e92",
+    "post-callback inspection seam": "160046de4350baf7d00a4da532bdce1a02b5f9b37148cced997e2cd11f5c42b0",
 }
 EXPECTED_NORMALIZED_SOURCE_SHA256 = {
     "observer module": "4a248db1a97799604bcfcb094abd1b22abebc98aec67882c829e1fa5a884e7ae",
@@ -77,6 +78,7 @@ EXPECTED_NORMALIZED_SOURCE_SHA256 = {
     "Stage 5D full restart oracle": "02bbfb225f33a8f60bab860817f01d340bdf91076d3cbcd59114386c8ac12f4d",
     "callback-validation seam": "34ed25d3ee188d3f0c52d4b655c6105349e9761b7bd3a5af934e52cab14fb2d6",
     "B3C factory": "34ed25d3ee188d3f0c52d4b655c6105349e9761b7bd3a5af934e52cab14fb2d6",
+    "post-callback inspection seam": "34ed25d3ee188d3f0c52d4b655c6105349e9761b7bd3a5af934e52cab14fb2d6",
 }
 EXPECTED_REGION_PATH_MARKERS = {
     "observer module": (LIB, "STAGE5F-TEST-OBSERVATION-MODULE-BEGIN", "STAGE5F-TEST-OBSERVATION-MODULE-END"),
@@ -85,6 +87,7 @@ EXPECTED_REGION_PATH_MARKERS = {
     "Stage 5D full restart oracle": (STAGE5D, "STAGE5F-TEST-FULL-RESTART-ORACLE-BEGIN", "STAGE5F-TEST-FULL-RESTART-ORACLE-END"),
     "callback-validation seam": (STAGE5E, "STAGE5F-TEST-CALLBACK-VALIDATION-SEAM-BEGIN", "STAGE5F-TEST-CALLBACK-VALIDATION-SEAM-END"),
     "B3C factory": (STAGE5E, "STAGE5F-TEST-B3C-FACTORY-BEGIN", "STAGE5F-TEST-B3C-FACTORY-END"),
+    "post-callback inspection seam": (STAGE5E, "STAGE5F-TEST-POST-CALLBACK-INSPECTION-BEGIN", "STAGE5F-TEST-POST-CALLBACK-INSPECTION-END"),
 }
 
 
@@ -235,10 +238,10 @@ def validate_schema_owner_inventory(
         "schema-owner inventory",
     )
     exact_int(inventory["schema_version"], 1, "schema-owner schema_version")
-    require(inventory["stage"], "5F-c-R2", "schema-owner stage")
+    require(inventory["stage"], "5F-c-R3", "schema-owner stage")
     require(
         inventory["status"],
-        "canonical_v2_reachability_corrected_non_golden",
+        "canonical_v2_runtime_consumed_reachability_non_golden",
         "schema-owner status",
     )
     files = inventory["files"]
@@ -250,6 +253,11 @@ def validate_schema_owner_inventory(
             "owner": "stage5f_scenario_catalog_v2",
             "top_level_keys": sorted(scenarios),
             "owned_nested_keys": {
+                "active_order": sorted(
+                    next(
+                        record for record in scenarios["records"] if record["row_id"] == "F26"
+                    )["broker_truth"]["active_orders"][0]
+                ),
                 "bar": sorted(scenarios["records"][0]["bar"]),
                 "broker_truth": sorted(scenarios["records"][0]["broker_truth"]),
                 "clock": sorted(scenarios["records"][0]["clock"]),
@@ -313,7 +321,7 @@ def validate_v2_fixtures(root: Path) -> None:
         "stage5f-atomic-hybrid-scenario-catalog-v2",
         "scenario fixture kind",
     )
-    require(scenarios["status"], "canonical_r2_non_golden", "scenario status")
+    require(scenarios["status"], "canonical_r3_non_golden", "scenario status")
     require(
         scenarios["source_v1"],
         {
@@ -519,11 +527,18 @@ def validate_v2_fixtures(root: Path) -> None:
         require(row["riskgate"]["catalog_sha256"], INPUT_HASHES[RISKGATE], f"{row_id} riskgate hash")
         broker_truth = exact_keys(
             row["broker_truth"],
-            {"working_order_ids"},
+            {"active_orders"},
             f"{row_id} broker truth",
         )
-        working_order_ids = broker_truth["working_order_ids"]
-        if not isinstance(working_order_ids, list) or any(
+        active_orders = broker_truth["active_orders"]
+        if not isinstance(active_orders, list):
+            fail(f"{row_id} active-order evidence must be an array")
+        working_order_ids = [
+            order.get("broker_order_id")
+            for order in active_orders
+            if isinstance(order, dict)
+        ]
+        if len(working_order_ids) != len(active_orders) or any(
             not isinstance(order_id, str) or not order_id.strip()
             for order_id in working_order_ids
         ):
@@ -909,13 +924,9 @@ def normalized_source_sha256(root: Path, label: str) -> str:
     else:
         normalized = strip_region(text, begin, end)
         if relative == STAGE5E:
-            other_label = (
-                "B3C factory"
-                if label == "callback-validation seam"
-                else "callback-validation seam"
-            )
-            _, other_begin, other_end = EXPECTED_REGION_PATH_MARKERS[other_label]
-            normalized = strip_region(normalized, other_begin, other_end)
+            for other_label, (other_relative, other_begin, other_end) in EXPECTED_REGION_PATH_MARKERS.items():
+                if other_relative == STAGE5E and other_label != label:
+                    normalized = strip_region(normalized, other_begin, other_end)
     return sha256_bytes(normalized.encode())
 
 
@@ -1118,13 +1129,23 @@ def validate_source_boundary(root: Path, check_lineage: bool) -> None:
     stage5d_stripped = strip_region(stage5d, "STAGE5F-TEST-FULL-RESTART-ORACLE-BEGIN", "STAGE5F-TEST-FULL-RESTART-ORACLE-END")
     stage5e_stripped = strip_region(stage5e, "STAGE5F-TEST-CALLBACK-VALIDATION-SEAM-BEGIN", "STAGE5F-TEST-CALLBACK-VALIDATION-SEAM-END")
     stage5e_stripped = strip_region(stage5e_stripped, "STAGE5F-TEST-B3C-FACTORY-BEGIN", "STAGE5F-TEST-B3C-FACTORY-END")
+    stage5e_stripped = strip_region(
+        stage5e_stripped,
+        "STAGE5F-TEST-POST-CALLBACK-INSPECTION-BEGIN",
+        "STAGE5F-TEST-POST-CALLBACK-INSPECTION-END",
+    )
     if "stage5f_atomic_hybrid_semantics" in lib_stripped or "observe_exact_on_bar_result" in callback_stripped:
         fail("observer dependency escaped its cfg(test) marker region")
     if "stage5f_test_seams" in stage5c_stripped or "sequence_inputs_from_owned_strategy" in stage5c_stripped:
         fail("Stage 5F ownership factory escaped its marker region")
     if "stage5f_test_seams" in stage5d_stripped or "run_full_restart_oracle" in stage5d_stripped:
         fail("Stage 5F full-restart oracle escaped its marker region")
-    if "stage5f_test_seams" in stage5e_stripped or "b3c_from_sequence_inputs" in stage5e_stripped:
+    if (
+        "stage5f_test_seams" in stage5e_stripped
+        or "b3c_from_sequence_inputs" in stage5e_stripped
+        or "test_strategy_state_value" in stage5e_stripped
+        or "test_runtime_private_extension" in stage5e_stripped
+    ):
         fail("Stage 5F B3C seam escaped its marker region")
 
     if check_lineage:

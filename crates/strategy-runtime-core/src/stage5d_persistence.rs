@@ -5962,6 +5962,7 @@ pub(crate) mod stage5f_test_seams {
     fn admission_for(
         envelope: &Stage5dPersistenceEnvelope,
         position_qty: f64,
+        target_active_orders: Vec<broker_core::BrokerOrderSnapshot>,
     ) -> crate::stage5c_paper_host::Stage5cPaperHostAdmission {
         let quantity = Decimal::from_f64_retain(position_qty)
             .expect("Stage 5F position quantity must be finite");
@@ -5972,7 +5973,8 @@ pub(crate) mod stage5f_test_seams {
             0.5,
             quantity,
             envelope.persisted_at_ts_utc,
-        );
+        )
+        .stage5d_test_with_target_active_orders(target_active_orders);
         if quantity == Decimal::ZERO {
             return admission;
         }
@@ -5998,6 +6000,7 @@ pub(crate) mod stage5f_test_seams {
         instrument_id: InstrumentId,
         persisted_at: DateTime<Utc>,
         mode: Stage5fRepresentativeRiskgateMode,
+        target_active_orders: Vec<broker_core::BrokerOrderSnapshot>,
     ) -> Stage5fFullRestartOutcome {
         let source_state = serde_json::to_value(Strategy::state(&source))
             .expect("Stage 5F source state serializes");
@@ -6054,7 +6057,25 @@ pub(crate) mod stage5f_test_seams {
             ["HybridIntradayRuntime"]["last_position_qty"]
             .as_f64()
             .expect("Stage 5F source position quantity");
-        let admission = admission_for(&strict_envelope, position_qty);
+        let expected_active_order_ids = source_private
+            .expected_working_sets
+            .expected_working_order_ids
+            .clone();
+        let broker_truth_order_ids = target_active_orders
+            .iter()
+            .map(|order| {
+                order
+                    .broker_order_id
+                    .clone()
+                    .expect("Stage 5F target active order has broker id")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(broker_truth_order_ids, expected_active_order_ids);
+        assert_eq!(
+            strict_envelope.recovery_indexes.known_order_ids,
+            expected_active_order_ids
+        );
+        let admission = admission_for(&strict_envelope, position_qty, target_active_orders);
         let restored_indexes = RuntimeStateRestored {
             known_order_ids: strict_envelope.recovery_indexes.known_order_ids.clone(),
             pending_requests: strict_envelope.recovery_indexes.pending_requests.clone(),

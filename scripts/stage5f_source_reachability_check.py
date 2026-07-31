@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed Stage 5F-c R2 source-reachability checker."""
+"""Fail-closed Stage 5F-c R3 runtime-consumed reachability checker."""
 
 from __future__ import annotations
 
@@ -15,15 +15,15 @@ from typing import Any
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
-STAGE = "5F-c-R2-source-reachability-closure"
-PREDECESSOR = "824fcff3adfcda15b5442f00004f604a58e10236"
+STAGE = "5F-c-R3-runtime-consumed-reachability-closure"
+PREDECESSOR = "a1ae44e872348f3a942674e1472268d0eb1bfd84"
 SCENARIOS = "tests/fixtures/stage5/stage5f/v2/scenarios/atomic-hybrid-scenarios.json"
 STATES = "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json"
 CONFIG = "tests/fixtures/stage5/stage5f/v2/config/imoexf-target-config.json"
 B0_INVENTORY = "docs/stage-5/stage5f-b0-source-reachability-inventory.json"
-R2_INVENTORY = "docs/stage-5/stage5f-c-r2-source-reachability-inventory.json"
-MAPPING = "docs/stage-5/stage5f-c-r2-row-semantics-mapping.json"
-REPORT = "docs/stage-5/5f-c-r2-source-reachability-closure.md"
+R3_INVENTORY = "docs/stage-5/stage5f-c-r3-runtime-consumed-reachability-inventory.json"
+MAPPING = "docs/stage-5/stage5f-c-r3-row-semantics-mapping.json"
+REPORT = "docs/stage-5/5f-c-r3-runtime-consumed-reachability-closure.md"
 CANDIDATE = "docs/stage-5/stage5f-c-r1-candidate-results.json"
 NEGATIVE_HARNESS = "scripts/stage5f_source_reachability_negative_harness.py"
 
@@ -32,22 +32,26 @@ EXPECTED_SOURCE_BINDINGS = {
     "crates/strategy-runtime-core/src/hybrid_intraday/high180.rs": "e1f39a3afdf9745682682da0083f97ac0fa5361f979525d5ea383d6a6aa64456",
     "crates/strategy-runtime-core/src/hybrid_intraday/orchestrator.rs": "1e784411d348fcf090887f7f50062b0cbd34494912288100c1ca1d851d8d5bd9",
     "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": "aa514c2479a2720a585ce0c386ab91674e125582e013912fba49fe529f8bdd2d",
+    "crates/strategy-runtime-core/src/stage5d_persistence.rs": "f790a907d6730e26e731a78ef89c58f993b39acde6ce934602e2fe603d90f083",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "a2dad58a52b6fed8f3593861a4cc398dcea6355ddc1b3782296395f29c0416e3",
+    "crates/strategy-runtime-core/src/stage5f_atomic_hybrid_semantics.rs": "649bf7f10e92b57c7b15709f86829e64b1fd746241ae29578d685deedb7ef593",
 }
 EXPECTED_FIXTURE_BINDINGS = {
     CONFIG: "3c46aa4bdfb5a6ac3350d0f3b52ad5050abc472c653bacda512dffebfeb07e41",
-    SCENARIOS: "251dbbdb363a2e6e09fd9ab08df3df5473ca2d298e2bbdbfc0fe58d806efa744",
-    STATES: "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
-    B0_INVENTORY: "bccc33173459419eb69ded05fe1a60ad3bb3efcc494347813fca595ab1dbc08e",
-    "docs/stage-5/stage5f-c-r1-schema-owner-inventory.json": "bb5fb56abe4da863956d4f84490191f8578504201200ed9aae34c2e029095998",
-    CANDIDATE: "696c047d059b9e0bfc941682850edd749f6bd9bb1db0d1a79a384a4197aa928b",
+    SCENARIOS: "a9cfe51f3393b2f0d45881029e251455d727bf233fde9751fd3f2278e793e55e",
+    STATES: "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
+    B0_INVENTORY: "fe9a8f7fd82f1a938c0632710ffb01122ba51f9ba1748020c5f970753083522c",
+    "docs/stage-5/stage5f-c-r1-schema-owner-inventory.json": "3c18d5711bdedde27d0ea3cc11e1d642cebca3426882f01cc14755349a225f6c",
+    CANDIDATE: "c4b4da6a399ae83aa55d45e42c75750a4f3ffca3248b06be7033bc9e4195b954",
 }
 EXPECTED_DOCUMENT_HASHES = {
-    R2_INVENTORY: "d3e6bed07fc0c1cdcb3551d9a2637eddd47f6502bc6ca5d9214f36d79abd228a",
-    MAPPING: "9a75aafc064f5f56c874432fdc18911316d218652afdadd2080febf1026efe0f",
-    REPORT: "84b3e86170c0dfb9782fd3968d56b94029ccde0396eff4584a7c6f44993f365a",
-    NEGATIVE_HARNESS: "2ac5ea2b58e397da9429d55d25505e5b7fd2856b121625ebaf469528af5fe40d",
+    R3_INVENTORY: "7c248ccd62083f3c7d0badfec1774500996723f6b4a2e2c947ccc290db3b66cd",
+    MAPPING: "b1ae5c94a5c76ef8e9a71e6370f61aabbbc13ebf01297035ca8f99fd7eda2f51",
+    REPORT: "00a73a9d0bf2db022af5525bfeab0c331e3bbc465bd046e319cd6c10b3960df4",
+    NEGATIVE_HARNESS: "dc7a50f47bf22bbd11381ce5913bb2aa6107ac5d95bc7d13f49d695f7bb503ba",
 }
 CORRECTED_ROWS = ["F03", "F05", "F12", "F13", "F14", "F15", "F16", "F17", "F19", "F26"]
+R3_ROWS = ["F12", "F13", "F14", "F15", "F19", "F26"]
 SEVEN_ROWS = ["F01", "F02", "F04", "F24", "F31", "F32", "F33"]
 CLASSIFICATION = {
     "row_count": 34,
@@ -61,10 +65,10 @@ CLASSIFICATION = {
 EXPECTED_CASES = {
     "F03": "bo_short_entry",
     "F05": "bo_short_stop2_exit",
-    "F12": "mr_long_target_reached_no_bar_exit",
-    "F13": "mr_short_target_reached_no_bar_exit",
-    "F14": "mr_long_stop_reached_no_bar_exit",
-    "F15": "mr_short_stop_reached_no_bar_exit",
+    "F12": "mr_long_favorable_extreme_no_bar_exit",
+    "F13": "mr_short_favorable_extreme_no_bar_exit",
+    "F14": "mr_long_adverse_extreme_no_bar_exit",
+    "F15": "mr_short_adverse_extreme_no_bar_exit",
     "F16": "active_profile_bo_mr_windows_do_not_overlap",
     "F17": "bo_selected_when_mr_ineligible",
     "F19": "mr_owner_suppresses_bo",
@@ -180,6 +184,9 @@ def validate_source_bindings(root: Path, check_hashes: bool) -> None:
     high180 = (root / "crates/strategy-runtime-core/src/hybrid_intraday/high180.rs").read_text()
     orchestrator = (root / "crates/strategy-runtime-core/src/hybrid_intraday/orchestrator.rs").read_text()
     runtime = (root / "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs").read_text()
+    stage5d = (root / "crates/strategy-runtime-core/src/stage5d_persistence.rs").read_text()
+    stage5e = (root / "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs").read_text()
+    stage5f = (root / "crates/strategy-runtime-core/src/stage5f_atomic_hybrid_semantics.rs").read_text()
     for snippet in (
         "delta_h >= self.config.wait_hours",
         "if close > stop2_level",
@@ -221,13 +228,44 @@ def validate_source_bindings(root: Path, check_hashes: bool) -> None:
         or "now_ts.saturating_sub(created) > timeout" not in gc_region
     ):
         fail("pending GC source rule drift")
+    for snippet in (
+        "stage5f_f19_mr_owner_suppresses_paired_source_valid_bo_candidate",
+        "let control = characterize_input(control_input, Stage5fMutation::None);",
+        "assert_eq!(control.ordered_intent_vector.len(), 1);",
+        "assert_eq!(control_input.bar, owner_input.bar);",
+        "assert!(owner.ordered_intent_vector.is_empty());",
+        "stage5f_f26_working_order_reaches_runtime_and_retains_stale_pending",
+        ".broker_truth_active_orders",
+        "broker_truth_active_orders,\n    }",
+        "expected_working_order_ids: input",
+        ".stage5d_apply_runtime_private_extension(&private)",
+        "F26 callback must retain the broker-truth working order",
+        "F26 callback must retain the exact pending request",
+        "F26 callback must preserve the active cycle",
+        "assert!(result.ordered_intent_vector.is_empty());",
+    ):
+        if snippet not in stage5f:
+            fail(f"Stage 5F runtime-consumption proof missing: {snippet}")
+    for snippet in (
+        ".stage5d_test_with_target_active_orders(target_active_orders)",
+        "assert_eq!(broker_truth_order_ids, expected_active_order_ids);",
+        "strict_envelope.recovery_indexes.known_order_ids",
+    ):
+        if snippet not in stage5d:
+            fail(f"Stage 5D active-order chain proof missing: {snippet}")
+    for snippet in (
+        "pub(crate) fn test_runtime_private_extension",
+        "pub(crate) fn test_strategy_state_value",
+    ):
+        if snippet not in stage5e:
+            fail(f"Stage 5E post-callback proof missing: {snippet}")
 
 
 def validate_documents(root: Path, check_hashes: bool) -> None:
     if check_hashes:
         for relative, expected in EXPECTED_DOCUMENT_HASHES.items():
             require(sha256_file(root, relative), expected, f"document binding {relative}")
-    inventory = read_json(root, R2_INVENTORY)
+    inventory = read_json(root, R3_INVENTORY)
     exact_keys(
         inventory,
         {
@@ -244,18 +282,18 @@ def validate_documents(root: Path, check_hashes: bool) -> None:
             "status",
             "target",
         },
-        "R2 inventory",
+        "R3 inventory",
     )
-    require(inventory["schema_version"], 1, "R2 inventory schema")
-    require(inventory["stage"], STAGE, "R2 inventory stage")
-    require(inventory["status"], "review_required_before_5f_d", "R2 status")
-    require(inventory["predecessor_ref"], PREDECESSOR, "R2 predecessor")
-    require(inventory["source_bindings"], EXPECTED_SOURCE_BINDINGS, "R2 source bindings")
-    require(inventory["fixture_bindings"], EXPECTED_FIXTURE_BINDINGS, "R2 fixture bindings")
-    require(inventory["classification_summary"], CLASSIFICATION, "R2 classification")
-    require(inventory["corrected_rows"], CORRECTED_ROWS, "R2 corrected row order")
+    require(inventory["schema_version"], 1, "R3 inventory schema")
+    require(inventory["stage"], STAGE, "R3 inventory stage")
+    require(inventory["status"], "review_required_before_5f_d", "R3 status")
+    require(inventory["predecessor_ref"], PREDECESSOR, "R3 predecessor")
+    require(inventory["source_bindings"], EXPECTED_SOURCE_BINDINGS, "R3 source bindings")
+    require(inventory["fixture_bindings"], EXPECTED_FIXTURE_BINDINGS, "R3 fixture bindings")
+    require(inventory["classification_summary"], CLASSIFICATION, "R3 classification")
+    require(inventory["corrected_rows"], R3_ROWS, "R3 corrected row order")
     if any(value is not False for value in inventory["closed_surfaces"].values()):
-        fail("R2 inventory opened a closed surface")
+        fail("R3 inventory opened a closed surface")
     require(inventory["next_stage"]["allowed_before_independent_review"], False, "5F-d hold")
     inherited = inventory["inherited_seven_row_candidate"]
     require(inherited["row_ids"], SEVEN_ROWS, "seven-row inheritance")
@@ -270,7 +308,7 @@ def validate_documents(root: Path, check_hashes: bool) -> None:
     )
     require(mapping["stage"], STAGE, "mapping stage")
     require(mapping["predecessor_ref"], PREDECESSOR, "mapping predecessor")
-    require([row.get("row_id") for row in mapping["rows"]], CORRECTED_ROWS, "mapping row order")
+    require([row.get("row_id") for row in mapping["rows"]], R3_ROWS, "mapping row order")
     for row in mapping["rows"]:
         exact_keys(
             row,
@@ -287,7 +325,7 @@ def validate_documents(root: Path, check_hashes: bool) -> None:
         fail("row mapping opened a forbidden decision")
 
     b0 = read_json(root, B0_INVENTORY)
-    require(b0["status"], "r2_source_reachability_corrected_non_golden", "B0 status")
+    require(b0["status"], "r3_runtime_consumed_reachability_non_golden", "B0 status")
     require(b0["classification_summary"], CLASSIFICATION | {"official_group_count": 16}, "B0 classification")
     b0_rows = {row["row_id"]: row for row in b0["rows"]}
     for row_id, case_id in EXPECTED_CASES.items():
@@ -306,7 +344,7 @@ def validate_reachability(root: Path) -> None:
     scenarios = read_json(root, SCENARIOS)
     states = read_json(root, STATES)
     config = read_json(root, CONFIG)
-    require(scenarios["status"], "canonical_r2_non_golden", "scenario revision")
+    require(scenarios["status"], "canonical_r3_non_golden", "scenario revision")
     records = scenarios["records"]
     if not isinstance(records, list) or len(records) != 34:
         fail("scenario catalog must contain 34 rows")
@@ -343,10 +381,43 @@ def validate_reachability(root: Path) -> None:
             {"bar", "broker_truth", "case_id", "clock", "expected", "group_id", "owning_test", "pre_state", "riskgate", "row_id", "scenario_id", "schema_version", "target"},
             f"{row['row_id']} scenario",
         )
-        truth = exact_keys(row["broker_truth"], {"working_order_ids"}, f"{row['row_id']} broker truth")
-        ids = truth["working_order_ids"]
-        if not isinstance(ids, list) or len(ids) != len(set(ids)) or any(not isinstance(value, str) or not value for value in ids):
-            fail(f"{row['row_id']} working-order evidence invalid")
+        truth = exact_keys(row["broker_truth"], {"active_orders"}, f"{row['row_id']} broker truth")
+        orders = truth["active_orders"]
+        if not isinstance(orders, list):
+            fail(f"{row['row_id']} active-order evidence must be an array")
+        order_ids = []
+        for order in orders:
+            exact_keys(
+                order,
+                {
+                    "account_id", "broker_order_id", "client_order_id", "existing",
+                    "filled_qty", "instrument", "limit_price", "order_type",
+                    "ownership_comment", "qty", "received_ts_utc", "side",
+                    "source_ts_utc", "status",
+                },
+                f"{row['row_id']} active order",
+            )
+            require(order["account_id"], row["target"]["account_id"], f"{row['row_id']} order account")
+            require(order["instrument"], row["target"]["instrument"], f"{row['row_id']} order instrument")
+            require((order["status"], order["side"], order["order_type"], order["existing"]), ("working", "buy", "limit", True), f"{row['row_id']} active order semantics")
+            if not isinstance(order["broker_order_id"], str) or not order["broker_order_id"]:
+                fail(f"{row['row_id']} broker order id invalid")
+            if not isinstance(order["client_order_id"], str) or not 1 <= len(order["client_order_id"]) <= 20:
+                fail(f"{row['row_id']} client order id invalid")
+            if not isinstance(order["ownership_comment"], str) or not order["ownership_comment"].startswith("HYB|sid=hybrid_imoexf|"):
+                fail(f"{row['row_id']} ownership attribution invalid")
+            qty = decimal(order["qty"], f"{row['row_id']} order qty")
+            filled = decimal(order["filled_qty"], f"{row['row_id']} filled qty")
+            if not qty > 0 or not Decimal(0) <= filled < qty:
+                fail(f"{row['row_id']} active order quantities invalid")
+            decimal(order["limit_price"], f"{row['row_id']} limit price")
+            source_ts = parse_utc(order["source_ts_utc"], f"{row['row_id']} order source ts")
+            received_ts = parse_utc(order["received_ts_utc"], f"{row['row_id']} order received ts")
+            if source_ts > received_ts:
+                fail(f"{row['row_id']} order chronology invalid")
+            order_ids.append(order["broker_order_id"])
+        if len(order_ids) != len(set(order_ids)):
+            fail(f"{row['row_id']} duplicate active broker order id")
         event = parse_utc(row["bar"]["close_time_utc"], f"{row['row_id']} bar")
         if event.minute % 10 != 0 or event.second != 0 or event.microsecond != 0:
             fail(f"{row['row_id']} is not aligned to the 10-minute bar grid")
@@ -371,8 +442,8 @@ def validate_reachability(root: Path) -> None:
 
     f19 = rows["F19"]
     f19_close = decimal(f19["bar"]["close"], "F19 close")
-    if not (f19_close > long_level or f19_close < short_level):
-        fail("F19 has no source-valid BO candidate")
+    if not f19_close > long_level:
+        fail("F19 paired control does not cross the strict BO long threshold")
     f19_seed = seeds[f19["pre_state"]["seed_id"]]
     require((f19_seed["current_owner"], f19_seed["orchestrator_state"]), ("mean_reversion", "open"), "F19 owner state")
     if decimal(f19_seed["position_qty"], "F19 position") == 0:
@@ -381,6 +452,17 @@ def validate_reachability(root: Path) -> None:
     cycle_age = parse_utc(f19["bar"]["close_time_utc"], "F19 bar") - cycle_created
     if not timedelta(0) < cycle_age < max_hold:
         fail("F19 MR cycle is not recent enough to isolate owner suppression")
+    require((f19_seed["was_long_today"], f19_seed["was_short_today"]), (False, False), "F19 paired control side history")
+    min_range = decimal(config["breakout"]["min_range"], "BO min range")
+    if prev_range < min_range:
+        fail("F19 paired control is blocked by the BO minimum-range filter")
+    prev_return = decimal(states["seed_defaults"]["prev_day_return"], "previous-day return")
+    big_move = decimal(config["breakout"]["big_move_threshold"], "BO big-move threshold")
+    if prev_return < -big_move:
+        fail("F19 paired BO long control is blocked by big-move eligibility")
+    f19_local = local_bar("F19")
+    if config["breakout"]["exclude_weekends"] is not True or f19_local.weekday() >= 5:
+        fail("F19 paired control is not weekday/session eligible")
 
     no_bar_cases = {
         "F12": ("mean_reversion", "long", "favorable"),
@@ -412,7 +494,9 @@ def validate_reachability(root: Path) -> None:
         fail("F26 pending entry is absent")
     pending_age = parse_utc(f26["bar"]["close_time_utc"], "F26 bar") - parse_utc(pending["created_ts_utc"], "F26 pending")
     timeout = timedelta(seconds=config["pending_timeout_sec"])
-    working_orders = f26["broker_truth"]["working_order_ids"]
+    working_orders = [
+        order["broker_order_id"] for order in f26["broker_truth"]["active_orders"]
+    ]
     if pending_age > timeout and not working_orders:
         fail("F26 stale pending would be garbage-collected without working-order evidence")
     require(working_orders, ["ORDER_F26_WORKING"], "F26 synthetic working-order evidence")

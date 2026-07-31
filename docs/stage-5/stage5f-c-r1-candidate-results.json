@@ -4,9 +4,9 @@
   "status": "candidate_source_characterized_not_golden",
   "inputs": {
     "scenario_catalog_path": "tests/fixtures/stage5/stage5f/v2/scenarios/atomic-hybrid-scenarios.json",
-    "scenario_catalog_sha256": "251dbbdb363a2e6e09fd9ab08df3df5473ca2d298e2bbdbfc0fe58d806efa744",
+    "scenario_catalog_sha256": "a9cfe51f3393b2f0d45881029e251455d727bf233fde9751fd3f2278e793e55e",
     "state_catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-    "state_catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+    "state_catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
     "riskgate_catalog_path": "tests/fixtures/stage5/stage5f/v2/riskgate/imoexf-high180-riskgate-seeds.json",
     "riskgate_catalog_sha256": "dd3ea7894df922984896ee20ebd114412d1675e666683c958fe98eb724a22584",
     "target_config_path": "tests/fixtures/stage5/stage5f/v2/config/imoexf-target-config.json",

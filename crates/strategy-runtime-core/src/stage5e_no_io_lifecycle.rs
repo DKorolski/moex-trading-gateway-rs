@@ -5403,6 +5403,23 @@ pub(crate) mod callback_authority {
             )
         }
 
+        // STAGE5F-TEST-POST-CALLBACK-INSPECTION-BEGIN
+        pub(crate) fn test_strategy_state_value(&self) -> serde_json::Value {
+            serde_json::to_value(crate::runtime_compat::Strategy::state(
+                &self.mutated_strategy,
+            ))
+            .expect("Stage 5F callback strategy state must serialize")
+        }
+
+        pub(crate) fn test_runtime_private_extension(
+            &self,
+        ) -> crate::stage5d_persistence::Stage5dRuntimePrivateExtension {
+            self.mutated_strategy
+                .stage5d_export_runtime_private_extension()
+                .expect("Stage 5F callback private extension must export")
+        }
+        // STAGE5F-TEST-POST-CALLBACK-INSPECTION-END
+
         pub(crate) fn test_retained_ownership(&self) -> (DateTime<Utc>, [u8; 32], [u8; 32]) {
             (
                 self.recovery_receipt.recovered_ts(),

@@ -203,7 +203,7 @@
       "pending_exit": null,
       "deferred_entry": null,
       "deferred_exit": null,
-      "was_long_today": true,
+      "was_long_today": false,
       "was_short_today": false,
       "overnight_exit_armed_date": null,
       "active_cycle": {

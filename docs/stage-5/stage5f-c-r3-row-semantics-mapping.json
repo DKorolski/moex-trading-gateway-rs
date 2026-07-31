@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "stage": "5F-c-R3-runtime-consumed-reachability-closure",
+  "status": "review_required_before_5f_d",
+  "predecessor_ref": "a1ae44e872348f3a942674e1472268d0eb1bfd84",
+  "rows": [
+    {
+      "row_id": "F12",
+      "old_case_id": "mr_long_target_reached_no_bar_exit",
+      "new_case_id": "mr_long_favorable_extreme_no_bar_exit",
+      "owner_stage": "Stage5FInvariantStage5GCompletion",
+      "correction": "The bar proves a favorable extreme and no bar-owned exit; it does not claim an unmaterialized target level."
+    },
+    {
+      "row_id": "F13",
+      "old_case_id": "mr_short_target_reached_no_bar_exit",
+      "new_case_id": "mr_short_favorable_extreme_no_bar_exit",
+      "owner_stage": "Stage5FInvariantStage5GCompletion",
+      "correction": "The bar proves a favorable extreme and no bar-owned exit; it does not claim an unmaterialized target level."
+    },
+    {
+      "row_id": "F14",
+      "old_case_id": "mr_long_stop_reached_no_bar_exit",
+      "new_case_id": "mr_long_adverse_extreme_no_bar_exit",
+      "owner_stage": "Stage5FInvariantStage5GCompletion",
+      "correction": "The bar proves an adverse extreme and no bar-owned exit; it does not claim an unmaterialized stop level."
+    },
+    {
+      "row_id": "F15",
+      "old_case_id": "mr_short_stop_reached_no_bar_exit",
+      "new_case_id": "mr_short_adverse_extreme_no_bar_exit",
+      "owner_stage": "Stage5FInvariantStage5GCompletion",
+      "correction": "The bar proves an adverse extreme and no bar-owned exit; it does not claim an unmaterialized stop level."
+    },
+    {
+      "row_id": "F19",
+      "old_case_id": "mr_owner_suppresses_bo",
+      "new_case_id": "mr_owner_suppresses_bo",
+      "owner_stage": "Stage5FBarCallback",
+      "correction": "A paired flat control proves one source-valid BO long candidate while the otherwise identical MR-owned state emits none."
+    },
+    {
+      "row_id": "F26",
+      "old_case_id": "pending_entry_no_new_entry_or_fake_feedback",
+      "new_case_id": "pending_entry_no_new_entry_or_fake_feedback",
+      "owner_stage": "Stage5FBarCallback",
+      "correction": "Canonical active-order broker truth is consumed through runtime private state, restart indexes and admission bootstrap before the callback."
+    }
+  ],
+  "closed_decisions": {
+    "stage5f_d": false,
+    "stage5g_protective_completion": false,
+    "redis": false,
+    "finam_transport": false,
+    "dispatch": false,
+    "runtime_live": false
+  }
+}

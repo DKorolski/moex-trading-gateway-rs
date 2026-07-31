@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "fixture_kind": "stage5f-atomic-hybrid-scenario-catalog-v2",
-  "status": "canonical_r2_non_golden",
+  "status": "canonical_r3_non_golden",
   "source_v1": {
     "path": "tests/fixtures/stage5/stage5f/v1/scenarios/atomic-hybrid-scenarios.json",
     "sha256": "e83f10b58ba6c72efbf95d561edc9f7de84ce8e092129f6a9b449d2683e84184",
@@ -43,7 +43,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -63,7 +63,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {
@@ -103,7 +103,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -123,7 +123,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {
@@ -163,7 +163,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -183,7 +183,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {
@@ -223,7 +223,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -243,7 +243,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "bo_long_open"
       },
       "riskgate": {
@@ -283,7 +283,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -303,7 +303,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "bo_short_open"
       },
       "riskgate": {
@@ -343,7 +343,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -363,7 +363,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "bo_long_open"
       },
       "riskgate": {
@@ -403,7 +403,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -423,7 +423,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "bo_long_carried"
       },
       "riskgate": {
@@ -463,7 +463,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -483,7 +483,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {
@@ -523,7 +523,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -543,7 +543,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {
@@ -583,7 +583,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -603,7 +603,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "mr_long_open"
       },
       "riskgate": {
@@ -643,7 +643,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -663,7 +663,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "mr_short_open"
       },
       "riskgate": {
@@ -686,10 +686,10 @@
     },
     {
       "schema_version": 2,
-      "scenario_id": "stage5f_f12_mr_long_target_reached_no_bar_exit",
+      "scenario_id": "stage5f_f12_mr_long_favorable_extreme_no_bar_exit",
       "row_id": "F12",
       "group_id": "G09_MR_TARGET",
-      "case_id": "mr_long_target_reached_no_bar_exit",
+      "case_id": "mr_long_favorable_extreme_no_bar_exit",
       "target": {
         "strategy_id": "hybrid_imoexf",
         "account_id": "ACC_TEST_0001",
@@ -703,7 +703,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -723,7 +723,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "mr_long_open"
       },
       "riskgate": {
@@ -742,14 +742,14 @@
         "ordered_intent_vector_sha256": null,
         "b3f_outcome": "pending_success_identity"
       },
-      "owning_test": "stage5f_f12_mr_long_target_reached_no_bar_exit"
+      "owning_test": "stage5f_f12_mr_long_favorable_extreme_no_bar_exit"
     },
     {
       "schema_version": 2,
-      "scenario_id": "stage5f_f13_mr_short_target_reached_no_bar_exit",
+      "scenario_id": "stage5f_f13_mr_short_favorable_extreme_no_bar_exit",
       "row_id": "F13",
       "group_id": "G09_MR_TARGET",
-      "case_id": "mr_short_target_reached_no_bar_exit",
+      "case_id": "mr_short_favorable_extreme_no_bar_exit",
       "target": {
         "strategy_id": "hybrid_imoexf",
         "account_id": "ACC_TEST_0001",
@@ -763,7 +763,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -783,7 +783,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "mr_short_open"
       },
       "riskgate": {
@@ -802,14 +802,14 @@
         "ordered_intent_vector_sha256": null,
         "b3f_outcome": "pending_success_identity"
       },
-      "owning_test": "stage5f_f13_mr_short_target_reached_no_bar_exit"
+      "owning_test": "stage5f_f13_mr_short_favorable_extreme_no_bar_exit"
     },
     {
       "schema_version": 2,
-      "scenario_id": "stage5f_f14_mr_long_stop_reached_no_bar_exit",
+      "scenario_id": "stage5f_f14_mr_long_adverse_extreme_no_bar_exit",
       "row_id": "F14",
       "group_id": "G10_MR_STOP",
-      "case_id": "mr_long_stop_reached_no_bar_exit",
+      "case_id": "mr_long_adverse_extreme_no_bar_exit",
       "target": {
         "strategy_id": "hybrid_imoexf",
         "account_id": "ACC_TEST_0001",
@@ -823,7 +823,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -843,7 +843,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "mr_long_open"
       },
       "riskgate": {
@@ -862,14 +862,14 @@
         "ordered_intent_vector_sha256": null,
         "b3f_outcome": "pending_success_identity"
       },
-      "owning_test": "stage5f_f14_mr_long_stop_reached_no_bar_exit"
+      "owning_test": "stage5f_f14_mr_long_adverse_extreme_no_bar_exit"
     },
     {
       "schema_version": 2,
-      "scenario_id": "stage5f_f15_mr_short_stop_reached_no_bar_exit",
+      "scenario_id": "stage5f_f15_mr_short_adverse_extreme_no_bar_exit",
       "row_id": "F15",
       "group_id": "G10_MR_STOP",
-      "case_id": "mr_short_stop_reached_no_bar_exit",
+      "case_id": "mr_short_adverse_extreme_no_bar_exit",
       "target": {
         "strategy_id": "hybrid_imoexf",
         "account_id": "ACC_TEST_0001",
@@ -883,7 +883,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -903,7 +903,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "mr_short_open"
       },
       "riskgate": {
@@ -922,7 +922,7 @@
         "ordered_intent_vector_sha256": null,
         "b3f_outcome": "pending_success_identity"
       },
-      "owning_test": "stage5f_f15_mr_short_stop_reached_no_bar_exit"
+      "owning_test": "stage5f_f15_mr_short_adverse_extreme_no_bar_exit"
     },
     {
       "schema_version": 2,
@@ -943,7 +943,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -963,7 +963,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {
@@ -1003,7 +1003,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1023,7 +1023,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {
@@ -1063,7 +1063,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1083,7 +1083,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "bo_owner_active"
       },
       "riskgate": {
@@ -1123,7 +1123,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1143,7 +1143,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "mr_owner_active"
       },
       "riskgate": {
@@ -1183,7 +1183,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1203,7 +1203,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {
@@ -1243,7 +1243,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1263,7 +1263,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "duplicate_bar_flat"
       },
       "riskgate": {
@@ -1303,7 +1303,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1323,7 +1323,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "post_cleanup_flat"
       },
       "riskgate": {
@@ -1363,7 +1363,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1383,7 +1383,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {
@@ -1423,7 +1423,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1443,7 +1443,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {
@@ -1483,7 +1483,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1503,7 +1503,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {
@@ -1543,8 +1543,28 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": [
-          "ORDER_F26_WORKING"
+        "active_orders": [
+          {
+            "account_id": "ACC_TEST_0001",
+            "instrument": {
+              "symbol": "IMOEXF",
+              "venue_symbol": "IMOEXF@RTSX",
+              "exchange": "Moex",
+              "market": "Futures"
+            },
+            "broker_order_id": "ORDER_F26_WORKING",
+            "client_order_id": "F26WORKING1",
+            "status": "working",
+            "side": "buy",
+            "order_type": "limit",
+            "qty": "3.0",
+            "filled_qty": "0.0",
+            "limit_price": "99.0",
+            "existing": true,
+            "source_ts_utc": "2026-01-06T06:19:58Z",
+            "received_ts_utc": "2026-01-06T06:19:59Z",
+            "ownership_comment": "HYB|sid=hybrid_imoexf|c=695caba103|o=MR|r=ENTRY"
+          }
         ]
       },
       "bar": {
@@ -1565,7 +1585,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "pending_entry"
       },
       "riskgate": {
@@ -1605,7 +1625,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1625,7 +1645,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "pending_exit"
       },
       "riskgate": {
@@ -1665,7 +1685,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1685,7 +1705,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "deferred_entry"
       },
       "riskgate": {
@@ -1725,7 +1745,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1745,7 +1765,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "deferred_exit"
       },
       "riskgate": {
@@ -1785,7 +1805,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1805,7 +1825,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {
@@ -1845,7 +1865,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1865,7 +1885,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {
@@ -1905,7 +1925,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1925,7 +1945,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {
@@ -1965,7 +1985,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -1985,7 +2005,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {
@@ -2025,7 +2045,7 @@
         "paper_only": true
       },
       "broker_truth": {
-        "working_order_ids": []
+        "active_orders": []
       },
       "bar": {
         "origin": "Live",
@@ -2045,7 +2065,7 @@
       },
       "pre_state": {
         "catalog_path": "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json",
-        "catalog_sha256": "4bc6aa42b0a411aab489ada3618930fc63d87c00f1a290e8efd8f61ce8d56213",
+        "catalog_sha256": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
         "seed_id": "flat_ready"
       },
       "riskgate": {

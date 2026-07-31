@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "stage": "5F-c-R3-runtime-consumed-reachability-closure",
+  "status": "review_required_before_5f_d",
+  "predecessor_ref": "a1ae44e872348f3a942674e1472268d0eb1bfd84",
+  "target": {
+    "strategy_id": "hybrid_imoexf",
+    "account_id": "ACC_TEST_0001",
+    "symbol": "IMOEXF",
+    "paper_only": true
+  },
+  "source_bindings": {
+    "crates/strategy-runtime-core/src/hybrid_intraday/intraday_breakout.rs": "a3b125f282f201b66dfa8d2685f22aa94048856a5145d537b76dc8934a5f9ae5",
+    "crates/strategy-runtime-core/src/hybrid_intraday/high180.rs": "e1f39a3afdf9745682682da0083f97ac0fa5361f979525d5ea383d6a6aa64456",
+    "crates/strategy-runtime-core/src/hybrid_intraday/orchestrator.rs": "1e784411d348fcf090887f7f50062b0cbd34494912288100c1ca1d851d8d5bd9",
+    "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": "aa514c2479a2720a585ce0c386ab91674e125582e013912fba49fe529f8bdd2d",
+    "crates/strategy-runtime-core/src/stage5d_persistence.rs": "f790a907d6730e26e731a78ef89c58f993b39acde6ce934602e2fe603d90f083",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "a2dad58a52b6fed8f3593861a4cc398dcea6355ddc1b3782296395f29c0416e3",
+    "crates/strategy-runtime-core/src/stage5f_atomic_hybrid_semantics.rs": "649bf7f10e92b57c7b15709f86829e64b1fd746241ae29578d685deedb7ef593"
+  },
+  "fixture_bindings": {
+    "tests/fixtures/stage5/stage5f/v2/config/imoexf-target-config.json": "3c46aa4bdfb5a6ac3350d0f3b52ad5050abc472c653bacda512dffebfeb07e41",
+    "tests/fixtures/stage5/stage5f/v2/scenarios/atomic-hybrid-scenarios.json": "a9cfe51f3393b2f0d45881029e251455d727bf233fde9751fd3f2278e793e55e",
+    "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
+    "docs/stage-5/stage5f-b0-source-reachability-inventory.json": "fe9a8f7fd82f1a938c0632710ffb01122ba51f9ba1748020c5f970753083522c",
+    "docs/stage-5/stage5f-c-r1-schema-owner-inventory.json": "3c18d5711bdedde27d0ea3cc11e1d642cebca3426882f01cc14755349a225f6c",
+    "docs/stage-5/stage5f-c-r1-candidate-results.json": "c4b4da6a399ae83aa55d45e42c75750a4f3ffca3248b06be7033bc9e4195b954"
+  },
+  "classification_summary": {
+    "row_count": 34,
+    "source_callback_accepted": 22,
+    "source_callback_no_bar_exit_invariant": 4,
+    "source_profile_structural_invariant": 1,
+    "source_chain_blocked_before_callback": 3,
+    "test_negative_terminal_after_callback": 4,
+    "protective_completion_deferred_to_stage5g": 4
+  },
+  "corrected_rows": [
+    "F12",
+    "F13",
+    "F14",
+    "F15",
+    "F19",
+    "F26"
+  ],
+  "inherited_seven_row_candidate": {
+    "row_ids": ["F01", "F02", "F04", "F24", "F31", "F32", "F33"],
+    "results_array_sha256": "e02643a004e9b325a276a1a65e41eda45347e8bb6efe0b0269e838099d909c81",
+    "semantic_outputs_changed": false
+  },
+  "closed_surfaces": {
+    "redis": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "dispatch": false,
+    "broker_execution": false,
+    "runtime_live": false,
+    "feedback_lifecycle": false,
+    "protective_orders": false,
+    "stage5f_d": false
+  },
+  "next_stage": {
+    "name": "Stage 5F-d",
+    "allowed_before_independent_review": false
+  }
+}

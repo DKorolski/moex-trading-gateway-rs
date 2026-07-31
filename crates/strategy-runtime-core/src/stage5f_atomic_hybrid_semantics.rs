@@ -8,7 +8,10 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use broker_core::{BrokerAccountId, Exchange, InstrumentId, Market, StrategyRequestId};
+use broker_core::{
+    BrokerAccountId, BrokerOrderId, ClientOrderId, Exchange, InstrumentId, Market,
+    StrategyRequestId,
+};
 use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -204,7 +207,7 @@ struct Stage5fFixtureSourceV1 {
     status: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Stage5fInstrumentFixture {
     symbol: String,
@@ -430,10 +433,29 @@ struct Stage5fScenarioClockV2 {
     lifecycle_ts_utc: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Stage5fScenarioActiveOrderV2 {
+    account_id: String,
+    instrument: Stage5fInstrumentFixture,
+    broker_order_id: String,
+    client_order_id: String,
+    status: String,
+    side: String,
+    order_type: String,
+    qty: String,
+    filled_qty: String,
+    limit_price: String,
+    existing: bool,
+    source_ts_utc: String,
+    received_ts_utc: String,
+    ownership_comment: String,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Stage5fScenarioBrokerTruthV2 {
-    working_order_ids: Vec<String>,
+    active_orders: Vec<Stage5fScenarioActiveOrderV2>,
 }
 
 #[derive(Deserialize)]
@@ -703,6 +725,7 @@ impl Stage5fTargetConfigV1 {
     }
 }
 
+#[derive(Clone)]
 struct Stage5fScenarioInput {
     state_defaults: Stage5fStateDefaultsV2,
     state_seed: Stage5fStateSeedV2,
@@ -717,6 +740,7 @@ struct Stage5fScenarioInput {
     account_id: BrokerAccountId,
     target: InstrumentId,
     position_qty: f64,
+    broker_truth_active_orders: Vec<broker_core::BrokerOrderSnapshot>,
 }
 
 fn fixture_root() -> PathBuf {
@@ -936,7 +960,7 @@ fn load_scenario(row_id: &str) -> Stage5fScenarioInput {
         scenarios.fixture_kind,
         "stage5f-atomic-hybrid-scenario-catalog-v2"
     );
-    assert_eq!(scenarios.status, "canonical_r2_non_golden");
+    assert_eq!(scenarios.status, "canonical_r3_non_golden");
     validate_v1_binding(
         &scenarios.source_v1,
         "tests/fixtures/stage5/stage5f/v1/scenarios/atomic-hybrid-scenarios.json",
@@ -1005,20 +1029,6 @@ fn load_scenario(row_id: &str) -> Stage5fScenarioInput {
     assert_eq!(raw.schema_version, 2);
     assert!(!raw.group_id.is_empty() && !raw.case_id.is_empty());
     assert_eq!(raw.owning_test, raw.scenario_id);
-    assert!(raw
-        .broker_truth
-        .working_order_ids
-        .iter()
-        .all(|order_id| !order_id.trim().is_empty()));
-    let unique_working_order_ids = raw
-        .broker_truth
-        .working_order_ids
-        .iter()
-        .collect::<std::collections::HashSet<_>>();
-    assert_eq!(
-        unique_working_order_ids.len(),
-        raw.broker_truth.working_order_ids.len()
-    );
     assert_eq!(raw.target.strategy_id, "hybrid_imoexf");
     assert_eq!(raw.target.account_id, "ACC_TEST_0001");
     assert_eq!(raw.target.profile, "imoexf_primary_riskgate_high180_lb120");
@@ -1077,6 +1087,65 @@ fn load_scenario(row_id: &str) -> Stage5fScenarioInput {
         exchange: Exchange::Moex,
         market: Market::Futures,
     };
+    let broker_truth_active_orders = raw
+        .broker_truth
+        .active_orders
+        .into_iter()
+        .map(|order| {
+            assert_eq!(order.account_id, raw.target.account_id);
+            validate_instrument_fixture(&order.instrument);
+            assert_eq!(order.instrument.symbol, target.symbol);
+            assert_eq!(
+                order.instrument.venue_symbol,
+                target.venue_symbol.as_deref().unwrap()
+            );
+            assert_eq!(order.status, "working");
+            assert_eq!(order.side, "buy");
+            assert_eq!(order.order_type, "limit");
+            assert!(order.existing);
+            assert!(order
+                .ownership_comment
+                .starts_with("HYB|sid=hybrid_imoexf|"));
+            let qty = Decimal::from_str(&order.qty).expect("active-order qty decimal");
+            let filled_qty =
+                Decimal::from_str(&order.filled_qty).expect("active-order filled qty decimal");
+            let limit_price =
+                Decimal::from_str(&order.limit_price).expect("active-order limit decimal");
+            assert!(qty > Decimal::ZERO);
+            assert!(filled_qty >= Decimal::ZERO && filled_qty < qty);
+            let status = broker_core::OrderStatus::Working;
+            broker_core::BrokerOrderSnapshot {
+                account_id: BrokerAccountId::new(order.account_id),
+                broker_order_id: Some(BrokerOrderId::new(order.broker_order_id)),
+                client_order_id: Some(
+                    ClientOrderId::new(order.client_order_id).expect("active-order client id"),
+                ),
+                instrument: target.clone(),
+                side: broker_core::OrderSide::Buy,
+                order_type: broker_core::OrderType::Limit,
+                time_in_force: None,
+                status: status.clone(),
+                lifecycle: broker_core::BrokerOrderSnapshot::lifecycle_for(&status),
+                qty,
+                filled_qty,
+                remaining_qty: Some(qty - filled_qty),
+                limit_price: Some(limit_price),
+                broker_asset_id: Some("ASSET_IMOEXF_TEST".to_string()),
+                board: Some("RTSX".to_string()),
+                expiration_date: None,
+                source_ts: Some(parse_utc(&order.source_ts_utc)),
+                received_ts: parse_utc(&order.received_ts_utc),
+            }
+        })
+        .collect::<Vec<_>>();
+    let unique_working_order_ids = broker_truth_active_orders
+        .iter()
+        .map(|order| order.broker_order_id.as_ref().expect("active order id"))
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        unique_working_order_ids.len(),
+        broker_truth_active_orders.len()
+    );
     let bar = broker_core::HybridRuntimeBarEvent {
         instrument: target.clone(),
         close_time_utc: parse_utc(&raw.bar.close_time_utc).timestamp(),
@@ -1106,6 +1175,7 @@ fn load_scenario(row_id: &str) -> Stage5fScenarioInput {
         account_id: BrokerAccountId::new(raw.target.account_id),
         target,
         position_qty,
+        broker_truth_active_orders,
     }
 }
 
@@ -1332,7 +1402,16 @@ fn materialize_strategy(input: &Stage5fScenarioInput) -> HybridIntradayRuntimeSt
             cleanup_stop_retry_attempts: defaults.private_state.cleanup_stop_retry_attempts,
         }),
         expected_working_sets: crate::stage5d_persistence::Stage5dExpectedWorkingSets {
-            expected_working_order_ids: Vec::new(),
+            expected_working_order_ids: input
+                .broker_truth_active_orders
+                .iter()
+                .map(|order| {
+                    order
+                        .broker_order_id
+                        .clone()
+                        .expect("fixture active order has broker id")
+                })
+                .collect(),
             expected_working_stop_order_ids: Vec::new(),
         },
         last_processed_bar_ts: Some(parse_utc(&seed.last_processed_bar_ts_utc)),
@@ -1520,6 +1599,8 @@ struct Stage5fCallbackBoundaryResult {
     callback_count: usize,
     observed: Option<Stage5fObservedIntentVector>,
     accepted_post_state_fingerprint: String,
+    accepted_post_state: Value,
+    accepted_post_private: crate::stage5d_persistence::Stage5dRuntimePrivateExtension,
     settlement: Stage5fSettlementOutcome,
 }
 
@@ -1545,6 +1626,8 @@ fn invoke_and_settle_stage5f_callback(
     assert_eq!(callback_count, 1, "{row_id}: exact callback cardinality");
     let observed = scope.consume_once();
     let accepted_post_state_fingerprint = escrow.test_strategy_state_fingerprint();
+    let accepted_post_state = escrow.test_strategy_state_value();
+    let accepted_post_private = escrow.test_runtime_private_extension();
     if matches!(mutation, Stage5fMutation::B3fChronology) {
         escrow.test_set_callback_before_retained_close();
     }
@@ -1564,14 +1647,23 @@ fn invoke_and_settle_stage5f_callback(
         callback_count,
         observed,
         accepted_post_state_fingerprint,
+        accepted_post_state,
+        accepted_post_private,
         settlement,
     }
 }
 
 fn characterize(row_id: &str, mutation: Stage5fMutation) -> Stage5fCandidateResult {
+    characterize_input(load_scenario(row_id), mutation)
+}
+
+fn characterize_input(
+    input: Stage5fScenarioInput,
+    mutation: Stage5fMutation,
+) -> Stage5fCandidateResult {
     use crate::stage5e_no_io_lifecycle::callback_authority::issue_stage5e_callback_authority_at;
 
-    let input = load_scenario(row_id);
+    let row_id = input.row_id.clone();
     let mut strategy = materialize_strategy(&input);
     let pre_state_fingerprint = stage5f_state_fingerprint(&strategy);
     if let Stage5fRiskgatePreparation::Blocked(reason) = prepare_riskgate(&mut strategy, &input) {
@@ -1628,7 +1720,42 @@ fn characterize(row_id: &str, mutation: Stage5fMutation) -> Stage5fCandidateResu
         "{row_id}: state changed before callback"
     );
     let boundary =
-        invoke_and_settle_stage5f_callback(row_id, authority, input.callback_at, mutation);
+        invoke_and_settle_stage5f_callback(&row_id, authority, input.callback_at, mutation);
+    if row_id == "F26" {
+        let expected_request_id = input
+            .state_seed
+            .pending_entry
+            .as_ref()
+            .map(|pending| request_id(&pending.request_id));
+        assert_eq!(
+            boundary
+                .accepted_post_private
+                .pending_entry
+                .as_ref()
+                .and_then(|pending| pending.request_id),
+            expected_request_id,
+            "F26 callback must retain the exact pending request"
+        );
+        assert_eq!(
+            boundary
+                .accepted_post_private
+                .expected_working_sets
+                .expected_working_order_ids,
+            vec![BrokerOrderId::new("ORDER_F26_WORKING")],
+            "F26 callback must retain the broker-truth working order"
+        );
+        let post_state = &boundary.accepted_post_state["HybridIntradayRuntime"];
+        assert_eq!(
+            post_state["pending_entry_request_id"],
+            input.state_seed.pending_entry.as_ref().unwrap().request_id,
+            "F26 callback must preserve the public pending request"
+        );
+        assert_eq!(
+            post_state["active_cycle_id"],
+            input.state_seed.active_cycle.as_ref().unwrap().value,
+            "F26 callback must preserve the active cycle"
+        );
+    }
     let callback_count = boundary.callback_count;
     let observed = boundary.observed;
     let observer_count = usize::from(observed.is_some());
@@ -2031,6 +2158,7 @@ fn run_stage5f_full_restart_representative(
         input.target.clone(),
         persisted_at,
         mode,
+        input.broker_truth_active_orders.clone(),
     );
     let projection = match &outcome {
         crate::stage5d_persistence::stage5f_test_seams::Stage5fFullRestartOutcome::Ready(ready) => {
@@ -2066,7 +2194,14 @@ fn run_stage5f_full_restart_representative(
         )
         .expect("Stage 5F recovery-index fingerprint")
     );
-    assert!(projection.known_order_ids.is_empty());
+    assert_eq!(
+        projection.known_order_ids,
+        input
+            .broker_truth_active_orders
+            .iter()
+            .map(|order| order.broker_order_id.clone().expect("fixture broker id"))
+            .collect::<Vec<_>>()
+    );
     assert_eq!(
         projection.pending_requests,
         projection
@@ -2192,6 +2327,18 @@ fn stage5f_v2_full_restart_pending_equivalence() {
     };
     assert_eq!(ready.projection.pending_requests.len(), 1);
     assert!(ready.projection.source_private.pending_entry.is_some());
+    assert_eq!(
+        ready.projection.known_order_ids,
+        vec![BrokerOrderId::new("ORDER_F26_WORKING")]
+    );
+    assert_eq!(
+        ready
+            .projection
+            .source_private
+            .expected_working_sets
+            .expected_working_order_ids,
+        vec![BrokerOrderId::new("ORDER_F26_WORKING")]
+    );
     settle_stage5f_full_restart_representative("F26", ready);
 }
 
@@ -2236,6 +2383,75 @@ fn stage5f_f04_bo_long_normal_exit() {
     assert_candidate(&result, "accepted", "settled", Some("exit"));
     assert_eq!(result.ordered_intent_vector[0]["owner"], "BO");
     assert_eq!(result.ordered_intent_vector[0]["side"], "sell");
+}
+
+#[test]
+fn stage5f_f19_mr_owner_suppresses_paired_source_valid_bo_candidate() {
+    let owner_input = load_scenario("F19");
+    assert!(!owner_input.state_seed.was_long_today);
+    assert!(!owner_input.state_seed.was_short_today);
+
+    let mut control_input = owner_input.clone();
+    control_input.state_seed.seed_id = "f19_flat_control".to_string();
+    control_input.state_seed.state_class = Stage5fStateClass::Flat;
+    control_input.state_seed.position_qty = "0.0".to_string();
+    control_input.state_seed.current_owner = None;
+    control_input.state_seed.current_side = None;
+    control_input.state_seed.orchestrator_state = Stage5fOrchestratorState::Flat;
+    control_input.state_seed.active_cycle = None;
+    control_input.position_qty = 0.0;
+
+    assert_eq!(control_input.bar, owner_input.bar);
+    assert_eq!(control_input.event_at, owner_input.event_at);
+    assert_eq!(control_input.lifecycle_at, owner_input.lifecycle_at);
+    assert_eq!(control_input.callback_at, owner_input.callback_at);
+    assert_eq!(control_input.state_defaults, owner_input.state_defaults);
+    assert_eq!(control_input.riskgate_seed, owner_input.riskgate_seed);
+    assert_eq!(
+        control_input.broker_truth_active_orders,
+        owner_input.broker_truth_active_orders
+    );
+
+    let control = characterize_input(control_input, Stage5fMutation::None);
+    let owner = characterize_input(owner_input, Stage5fMutation::None);
+    assert_candidate(&control, "accepted", "settled", Some("entry"));
+    assert_eq!(control.ordered_intent_vector.len(), 1);
+    assert_eq!(control.ordered_intent_vector[0]["owner"], "BO");
+    assert_eq!(control.ordered_intent_vector[0]["side"], "buy");
+    assert_candidate(&owner, "accepted", "settled", None);
+    assert!(owner.ordered_intent_vector.is_empty());
+}
+
+#[test]
+fn stage5f_f26_working_order_reaches_runtime_and_retains_stale_pending() {
+    let input = load_scenario("F26");
+    let pending = input
+        .state_seed
+        .pending_entry
+        .as_ref()
+        .expect("F26 pending entry");
+    assert!(
+        input.bar.close_time_utc - parse_utc(&pending.created_ts_utc).timestamp()
+            > i64::try_from(stage5f_config().pending_timeout_sec)
+                .expect("pending timeout fits i64")
+    );
+    assert_eq!(input.broker_truth_active_orders.len(), 1);
+    assert_eq!(
+        input.broker_truth_active_orders[0].broker_order_id,
+        Some(BrokerOrderId::new("ORDER_F26_WORKING"))
+    );
+    let source = materialize_strategy(&input);
+    let private = source
+        .stage5d_export_runtime_private_extension()
+        .expect("F26 source private extension");
+    assert_eq!(
+        private.expected_working_sets.expected_working_order_ids,
+        vec![BrokerOrderId::new("ORDER_F26_WORKING")]
+    );
+
+    let result = characterize_input(input, Stage5fMutation::None);
+    assert_candidate(&result, "accepted", "settled", None);
+    assert!(result.ordered_intent_vector.is_empty());
 }
 
 #[test]

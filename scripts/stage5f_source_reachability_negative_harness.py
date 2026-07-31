@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Negative mutations for the Stage 5F-c R2 reachability contract."""
+"""Negative mutations for the Stage 5F-c R3 reachability contract."""
 
 from __future__ import annotations
 
+import argparse
 import json
 import shutil
 import subprocess
@@ -17,12 +18,15 @@ CHECKER = "scripts/stage5f_source_reachability_check.py"
 SCENARIOS = "tests/fixtures/stage5/stage5f/v2/scenarios/atomic-hybrid-scenarios.json"
 STATES = "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json"
 B0 = "docs/stage-5/stage5f-b0-source-reachability-inventory.json"
-MAPPING = "docs/stage-5/stage5f-c-r2-row-semantics-mapping.json"
-R2_INVENTORY = "docs/stage-5/stage5f-c-r2-source-reachability-inventory.json"
+MAPPING = "docs/stage-5/stage5f-c-r3-row-semantics-mapping.json"
+R3_INVENTORY = "docs/stage-5/stage5f-c-r3-runtime-consumed-reachability-inventory.json"
 CANDIDATE = "docs/stage-5/stage5f-c-r1-candidate-results.json"
 BREAKOUT = "crates/strategy-runtime-core/src/hybrid_intraday/intraday_breakout.rs"
 HIGH180 = "crates/strategy-runtime-core/src/hybrid_intraday/high180.rs"
 RUNTIME = "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs"
+STAGE5D = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+STAGE5E = "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs"
+STAGE5F = "crates/strategy-runtime-core/src/stage5f_atomic_hybrid_semantics.rs"
 
 
 def read_json(root: Path, relative: str) -> dict:
@@ -135,12 +139,90 @@ CASES: list[tuple[str, Callable[[Path], None], bool]] = [
         True,
     ),
     ("f19-no-bo-candidate", lambda root: mutate_scenario(root, "F19", lambda value: value["bar"].__setitem__("close", "100.0")), True),
-    ("f26-working-order-removed", lambda root: mutate_scenario(root, "F26", lambda value: value["broker_truth"].__setitem__("working_order_ids", [])), True),
-    ("f26-empty-working-order-id", lambda root: mutate_scenario(root, "F26", lambda value: value["broker_truth"].__setitem__("working_order_ids", [""])), True),
+    (
+        "f19-was-long-today-blocks-control",
+        lambda root: mutate_json(root, STATES, lambda value: next(seed for seed in value["seeds"] if seed["seed_id"] == "mr_owner_active").__setitem__("was_long_today", True)),
+        True,
+    ),
+    (
+        "f19-was-short-today-history-drift",
+        lambda root: mutate_json(root, STATES, lambda value: next(seed for seed in value["seeds"] if seed["seed_id"] == "mr_owner_active").__setitem__("was_short_today", True)),
+        True,
+    ),
+    (
+        "f19-big-move-blocks-selected-side",
+        lambda root: mutate_json(root, STATES, lambda value: value["seed_defaults"].__setitem__("prev_day_return", "-0.03")),
+        True,
+    ),
+    (
+        "f19-min-range-blocks-control",
+        lambda root: mutate_json(root, STATES, lambda value: value["seed_defaults"].__setitem__("prev_day_range", "1.0")),
+        True,
+    ),
+    (
+        "f19-owner-row-emits-bo-intent-proof-removed",
+        lambda root: replace_text(root, STAGE5F, "assert!(owner.ordered_intent_vector.is_empty());", "assert_eq!(owner.ordered_intent_vector.len(), 1);"),
+        True,
+    ),
+    (
+        "f19-control-and-owner-market-input-drift",
+        lambda root: replace_text(root, STAGE5F, "assert_eq!(control_input.bar, owner_input.bar);", "assert_ne!(control_input.bar.close, owner_input.bar.close);"),
+        True,
+    ),
+    ("f26-working-order-removed", lambda root: mutate_scenario(root, "F26", lambda value: value["broker_truth"].__setitem__("active_orders", [])), True),
+    (
+        "f26-fixture-order-parsed-but-not-carried-to-input",
+        lambda root: replace_text(root, STAGE5F, "broker_truth_active_orders,\n    }", "broker_truth_active_orders: Vec::new(),\n    }"),
+        True,
+    ),
+    (
+        "f26-private-extension-not-applied-to-runtime",
+        lambda root: replace_text(root, STAGE5F, ".stage5d_apply_runtime_private_extension(&private)", ".stage5d_validate_runtime_private_extension(&private)"),
+        True,
+    ),
+    (
+        "f26-post-callback-state-seam-removed",
+        lambda root: replace_text(root, STAGE5E, "pub(crate) fn test_strategy_state_value", "fn removed_test_strategy_state_value"),
+        True,
+    ),
+    (
+        "f26-post-callback-private-seam-removed",
+        lambda root: replace_text(root, STAGE5E, "pub(crate) fn test_runtime_private_extension", "fn removed_test_runtime_private_extension"),
+        True,
+    ),
+    (
+        "f26-positive-runtime-chain-test-removed",
+        lambda root: replace_text(root, STAGE5F, "fn stage5f_f26_working_order_reaches_runtime_and_retains_stale_pending", "fn removed_stage5f_f26_runtime_chain_test"),
+        True,
+    ),
+    ("f26-empty-working-order-id", lambda root: mutate_scenario(root, "F26", lambda value: value["broker_truth"]["active_orders"][0].__setitem__("broker_order_id", "")), True),
+    ("f26-broker-truth-id-mismatch", lambda root: mutate_scenario(root, "F26", lambda value: value["broker_truth"]["active_orders"][0].__setitem__("broker_order_id", "ORDER_F26_OTHER")), True),
+    ("f26-broker-truth-wrong-instrument", lambda root: mutate_scenario(root, "F26", lambda value: value["broker_truth"]["active_orders"][0]["instrument"].__setitem__("symbol", "RI")), True),
+    ("f26-broker-truth-not-working", lambda root: mutate_scenario(root, "F26", lambda value: value["broker_truth"]["active_orders"][0].__setitem__("status", "filled")), True),
+    (
+        "f26-input-order-not-applied-to-private-extension",
+        lambda root: replace_text(root, STAGE5F, "expected_working_order_ids: input", "expected_working_order_ids: Vec::new(); // input"),
+        True,
+    ),
+    (
+        "f26-recovery-known-order-binding-removed",
+        lambda root: replace_text(root, STAGE5D, "assert_eq!(broker_truth_order_ids, expected_active_order_ids);", "assert!(broker_truth_order_ids.is_empty());"),
+        True,
+    ),
+    (
+        "f26-post-callback-pending-proof-removed",
+        lambda root: replace_text(root, STAGE5F, "F26 callback must retain the exact pending request", "F26 pending proof removed"),
+        True,
+    ),
+    (
+        "f26-post-callback-working-id-proof-removed",
+        lambda root: replace_text(root, STAGE5F, "F26 callback must retain the broker-truth working order", "F26 working proof removed"),
+        True,
+    ),
     (
         "f26-timeout-plus-one-without-working-order",
         lambda root: (
-            mutate_scenario(root, "F26", lambda value: value["broker_truth"].__setitem__("working_order_ids", [])),
+            mutate_scenario(root, "F26", lambda value: value["broker_truth"].__setitem__("active_orders", [])),
             mutate_json(
                 root,
                 STATES,
@@ -211,7 +293,7 @@ CASES: list[tuple[str, Callable[[Path], None], bool]] = [
     ),
     (
         "stage5f-d-opened-before-review",
-        lambda root: mutate_json(root, R2_INVENTORY, lambda value: value["closed_surfaces"].__setitem__("stage5f_d", True)),
+        lambda root: mutate_json(root, R3_INVENTORY, lambda value: value["closed_surfaces"].__setitem__("stage5f_d", True)),
         True,
     ),
     (
@@ -226,10 +308,49 @@ CASES: list[tuple[str, Callable[[Path], None], bool]] = [
     ),
 ]
 
+R2_CASE_LABELS = (
+    "f03-before-bo-wait",
+    "f17-before-bo-wait",
+    "f03-at-nonstrict-short-threshold",
+    "f05-at-nonstrict-stop2-threshold",
+    "f05-reason-reverted-to-generic-exit",
+    "f12-price-completion-returned-to-bar-route",
+    "f14-stop-completion-returned-to-bar-route",
+    "f16-impossible-simultaneous-runtime-row-restored",
+    "f16-b0-classified-as-callback",
+    "f19-before-bo-wait",
+    "f19-stale-mr-cycle",
+    "f19-no-bo-candidate",
+    "f26-working-order-removed",
+    "f26-empty-working-order-id",
+    "f26-timeout-plus-one-without-working-order",
+    "stage5g-owned-row-returned-to-stage5f",
+    "classification-count-drift",
+    "bo-wait-comparator-made-strict",
+    "high180-entry-window-extended",
+    "high180-price-exit-injected-into-bar-owner",
+    "pending-working-order-guard-removed",
+    "bar-off-ten-minute-grid",
+    "broker-truth-schema-widened",
+    "corrected-row-mapping-removed",
+    "stage5f-d-opened-before-review",
+    "seven-row-candidate-promoted-to-golden",
+    "source-hash-drift-normal-mode",
+)
+
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--r2-compat", action="store_true")
+    args = parser.parse_args()
+    selected = CASES
+    if args.r2_compat:
+        by_label = {label: case for label, *case in CASES}
+        if len(by_label) != len(CASES) or len(R2_CASE_LABELS) != 27:
+            raise RuntimeError("negative-case label inventory drift")
+        selected = [(label, *by_label[label]) for label in R2_CASE_LABELS]
     failures = 0
-    for label, mutate, isolated in CASES:
+    for label, mutate, isolated in selected:
         with tempfile.TemporaryDirectory(prefix="stage5f-r2-negative-") as temp:
             working = Path(temp) / "repo"
             copy_root(working)
@@ -246,7 +367,7 @@ def main() -> int:
     if failures:
         print(f"stage5f-source-reachability-negative-harness: FAIL failures={failures}", file=sys.stderr)
         return 1
-    print(f"stage5f-source-reachability-negative-harness: ok cases={len(CASES)}")
+    print(f"stage5f-source-reachability-negative-harness: ok cases={len(selected)}")
     return 0
 
 
