@@ -1,11 +1,10 @@
-# Stage 5F-a-r8/r8a/r9 — bootstrap repair authority
+# Stage 5F-a-r8 — bootstrap repair authority
 
 ## Status
 
-R8 is merged as the generation-2 authority state. R8a is merged as the
-governance-only generation-3 amendment. This generation-4 candidate consumes
-their one named successor capability to repair the portable scanner boundary;
-it does not claim Stage 5F external activation or open Stage 5F-b.
+R8 is merged as the generation-2 authority state. R8a is the next
+review-required, governance-only generation-3 authority amendment; it does
+not claim Stage 5F external activation or open Stage 5F-b.
 
 ## Observed activation failure
 
@@ -75,12 +74,11 @@ particular, `true`, `1.0` and `4.0` are rejected rather than treated as Python
 numeric aliases for `1` or `4`. A malformed float generation is also rejected
 as a future rotation base, so it cannot create a governance deadlock.
 
-The R9 implementation removes the implicit ripgrep dependency by using the
-already-required Python 3.11+ path for the six text scans and by making the
-worker's infrastructure detection portable. It retains the current negative
-markers. The complete 87-case negative harness passed with `rg` absent from
-`PATH`; that demonstrates the local hosted-runner equivalence without opening
-CI, Rust or an operational surface.
+The intended r9 implementation removes the implicit ripgrep dependency by
+using the already-required Python 3.11+ path for the six text scans and by
+making the worker's infrastructure detection portable. It must retain the
+current negative markers and demonstrate the scanner works with no `rg` in
+`PATH` before GitHub CI is treated as repaired.
 
 The contract's negative matrix proves the one-shot property with a valid first
 R9 transition, accepts only the two paired Stage 5D freeze-rebind paths, and
@@ -88,17 +86,15 @@ rejects: R9 replay from generation 4, invocation from an arbitrary later
 generation, a different generation-3 base stage, a rolled-back R8a stage-name
 spoof, numeric type smuggling in the candidate or manifest, a float state used
 as a later base, missing scanner change, mode drift, scope creep, another Stage
-5D freeze path, and a scanner change through a generic rotation. After this
-transition the state is generation 4, so the exception is no longer callable.
+5D freeze path, and a scanner change through a generic rotation.
 
 ## Required acceptance sequence
 
-1. R8a was independently reviewed and merged through the protected-base
-   authority check; canonical `rust` remained expected-red because R8a did not
+1. Independently review and merge R8a through the protected-base authority
+   check; canonical `rust` remains expected-red until R9 because R8a does not
    change the scanner.
-2. R9 must be accepted by its protected-base check and pass canonical `rust`
-   and `redis-smoke`; the local 87-case no-`rg` result is evidence, not a
-   substitute for that hosted result.
+2. Review and merge R9 only if its protected-base check accepts the exact
+   bounded scope and its canonical `rust` and `redis-smoke` checks pass.
 3. Configure/verify the no-bypass rule for `main`: PR, independent approval,
    strict up-to-date branch, `base-authority`, `rust` and `redis-smoke`.
 4. Run a clean disposable PR and adversarial authority-drift PR. Only then may

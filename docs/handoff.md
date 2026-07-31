@@ -102,8 +102,7 @@ accepted authority SHA-256 values. Current-tree hashes are retained as evidence
 but are not an authority source. The builder repeats this complete authority
 check immediately before it creates the source-tree manifest; archive safety
 then repeats it from archive bytes. The Stage 5F CI negative result contains
-seventeen mutations, including skipped/non-blocking CI steps, removal of the
-clean-runner locked-dependency prefetch, Actions-only
+sixteen mutations, including skipped/non-blocking CI steps, Actions-only
 wrapper replacement, forged harness output and wrapper mutation before verified
 execution. Stage 5F-a-r6 restores the immutable R3 gate digest and requires
 the canonical CI line, inventory, entry checker, handoff checker and actual
@@ -129,26 +128,22 @@ must be enabled in GitHub branch protection after acceptance. The project does
 not claim a CODEOWNERS review until an independent repository maintainer is
 explicitly added.
 
-The r8 activation-repair rotation is an exception to neither CI immutability
-nor the closed operational boundary. It records the hosted runner's missing-
-`rg` failure. R8a is the generation-3 governance-only amendment after
-discovering that Stage 5D freezes the portable worker/harness hashes: it
-authorizes one exact R9 successor to make the forbidden-surface scanner and its
-two test harness files portable and to atomically rebind only the paired Stage
-5D freeze manifest/checker. The R9 candidate consumes that capability at
-generation 4: its executable scanner changes without mode drift, the full
-87-case negative harness passes with `rg` absent from `PATH`, and every changed
-path remains in the documented R9 allowlist. R9 itself leaves canonical CI
-byte-for-byte unchanged. A subsequent bounded R9a CI-preparation repair
-prefetches the locked dependency graph only from an ephemeral archive of the
-exact accepted B3F ref before the unchanged offline UI harness starts. It does
-not compile a runtime, alter the accepted B3F bytes or open a
-broker/transport/execution path. The exception is accepted only from the exact
-schema-1 generation-3
+The r8 activation-repair rotation is an explicit exception to neither CI
+immutability nor the closed operational boundary. It records the hosted runner's
+missing-`rg` failure. R8a is the necessary generation-3 governance-only
+amendment after discovering that Stage 5D freezes the portable worker/harness
+hashes: it authorizes one exact R9 successor to make the forbidden-surface
+scanner and its two test harness files portable and to atomically rebind only
+the paired Stage 5D freeze manifest/checker. The resulting R9 contract requires
+that the executable scanner itself changes, rejects mode drift and rejects every
+path outside the documented R9 allowlist. It accepts that exception only from
+the exact schema-1 generation-3
 `5F-a-r8a-stage5d-freeze-rebind-authority` base state into generation 4, so the
 R9 stage name cannot replay the authority later. All authority schema and
 generation fields are validated as exact JSON integers before comparison, so
-Python `bool` and float values cannot create an accepted dead-end state.
+Python `bool` and float values cannot create an accepted dead-end state. R8a is
+review evidence for authority scope only; canonical CI remains expected-red
+until R9 restores scanner portability.
 
 The script also creates the external sibling
 `moex-trading-project-<short>.zip.sha256`. The archive hash is deliberately not

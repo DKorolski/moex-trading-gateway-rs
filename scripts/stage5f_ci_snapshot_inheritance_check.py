@@ -27,19 +27,6 @@ REQUIRED_CI_FRAGMENTS = (
     "- name: Stage 5F execution authority and accepted B3F snapshot provenance\n"
     "        run: |",
     "python3 scripts/stage5f_ci_snapshot_inheritance_check.py --execute-verified-provenance",
-    "- name: Prime immutable B3F dependency cache\n"
-    "        run: |\n"
-    "          set -euo pipefail\n"
-    f'          accepted_b3f_ref="{ACCEPTED_B3F_REF}"\n'
-    "          snapshot_root=\"$(mktemp -d \"${TMPDIR:-/tmp}/stage5f-b3f-dependency-prefetch.XXXXXX\")\"\n"
-    "          trap 'rm -rf \"$snapshot_root\"' EXIT\n"
-    "          git cat-file -e \"${accepted_b3f_ref}^{commit}\"\n"
-    "          git archive \"$accepted_b3f_ref\" | tar -x -C \"$snapshot_root\"\n"
-    "          (\n"
-    "            cd \"$snapshot_root\"\n"
-    "            CARGO_NET_OFFLINE=false cargo fetch --locked\n"
-    "          )\n"
-    "        timeout-minutes: 10",
     "- name: Stage 5F atomic Hybrid semantics gate\n"
     "        run: bash scripts/stage5f_atomic_hybrid_semantics_gate.sh",
     "- name: Stage 5F atomic Hybrid negative harness\n"

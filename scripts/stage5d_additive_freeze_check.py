@@ -59,8 +59,8 @@ EXPECTED_FORBIDDEN_NEGATIVE_HARNESS_CONTRACT = {
     "coordinator_path": "scripts/forbidden_surface_negative_harness.py",
     "coordinator_sha256": "04053bd8c44d41dd229ec806ed5b4083260c33efefecd67a8f18555a653fd245",
     "worker_path": "scripts/forbidden_surface_negative_case_worker.sh",
-    "worker_sha256": "e7d5a6bb74d5d5b11ac78bf6006b4d48e74701605d5b3b807c762472baa3c7ee",
-    "scanner_contract": "stage5f-a-r9-portable-forbidden-scanner-v1",
+    "worker_sha256": "c3d33055a4991f14b72da866285cc51f1c99644d2a05a87601e3c12d45a1b852",
+    "scanner_contract": "stage5d-b2bc1-r4-v1",
     "declared_cases": 87,
     "negative_cases": 86,
     "positive_controls": 1,
@@ -3039,7 +3039,6 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
             "CI_HEADROOM_SECONDS",
         )
         required_worker_tokens = (
-            "grep -E -n",
             'grep -F -- "$expected_marker"',
             "infrastructure failure is not valid case evidence",
             "selected case did not execute exactly once",
@@ -3055,10 +3054,6 @@ def validate(root: Path, manifest_path: Path) -> list[str]:
         if worker_source.count("|success'") != forbidden_contract["positive_controls"]:
             failures.append("forbidden negative harness worker positive inventory mismatch")
         scanner_source = (root / FORBIDDEN_SCANNER_REL).read_text(errors="replace")
-        if "portable_rust_source_scan" not in scanner_source or re.search(
-            r"\brg\b", scanner_source
-        ):
-            failures.append("forbidden scanner portable implementation contract mismatch")
         scanner_marker = (
             'FORBIDDEN_SURFACE_SCANNER_CONTRACT="'
             f'{forbidden_contract["scanner_contract"]}"'

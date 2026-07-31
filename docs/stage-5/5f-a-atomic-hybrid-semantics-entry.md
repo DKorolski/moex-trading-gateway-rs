@@ -92,34 +92,23 @@ activation blocker, not a runtime or broker behavior change.
 
 Stage 5F-a-r8 is the accepted generation-2 authority rotation for that blocked
 activation. It did **not** change `ci.yml`, the scanner, Rust, Redis, FINAM,
-dispatch, persistence or live behavior. R8a is the accepted generation-3
-governance-only amendment: it rebased the one named R9 capability after
+dispatch, persistence or live behavior. R8a is the required generation-3
+governance-only amendment: it rebases the one named R9 capability after
 discovering that the Stage 5D freeze binds the portable worker/harness files.
-R8a changed neither the scanner nor the freeze artifacts themselves.
+R8a changes neither the scanner nor the freeze artifacts themselves.
 
-This candidate consumes that capability as generation 4,
-`5F-a-r9-portable-forbidden-scanner`. It replaces the six `rg`-backed Rust
-text scans with the already-required Python 3.11+ path, keeps the scanner mode
-at `100755`, and makes the negative worker's infrastructure-error detection
-portable. The paired Stage 5D freeze manifest/checker are rebound atomically.
-The full 87-case negative harness has passed with `rg` absent from `PATH`.
-R9 itself is limited to the reviewed R9 allowlist: no workflow, Cargo/Rust or
-operational path changes. The exact scope and one-shot authority record remain
-in [5f-a-r8-bootstrap-repair-authority.md](5f-a-r8-bootstrap-repair-authority.md).
+The resulting successor, `5F-a-r9-portable-forbidden-scanner`, must change the
+executable scanner while preserving mode `100755`; it may update only the
+scanner's two negative-harness files, the paired Stage 5D freeze manifest and
+checker, and the listed Stage 5F governance/documentation bindings. It cannot
+change any workflow, Cargo/Rust or operational path. The full scope and
+acceptance record are in
+[5f-a-r8-bootstrap-repair-authority.md](5f-a-r8-bootstrap-repair-authority.md).
 
-A separate bounded R9a CI-preparation repair closes a clean-runner failure in
-the inherited B3F production UI harness. That harness correctly uses offline
-Cargo resolution, but a fresh hosted runner has no cached B3F dependencies.
-Canonical CI therefore runs `cargo fetch --locked` only from an ephemeral
-archive of the exact accepted B3F ref, after B3F provenance verification and
-before the unchanged Stage 5F gate. The gate and UI harness remain offline for
-the compile-fail matrix. The prefetch does not compile code, alter the accepted
-snapshot, touch a runtime/broker/transport surface, or open live execution.
-
-Canonical CI must still pass after this generation-4 transition, followed by a
-clean and adversarial authority-drift PR activation check, before Stage 5F-b.
-R9 consumes the special scanner-maintenance capability; later rotations return
-to the normal protected-base rules.
+The r9 implementation will remove the implicit `rg` dependency through the
+already-required Python 3.11+ scanner path and will preserve fail-closed
+negative coverage. A clean CI result after r9, followed by the clean and
+adversarial PR activation checks, remains mandatory before Stage 5F-b.
 
 The CI negative matrix proves that `continue-on-error`, `if: false`, a direct
 raw provenance call, a forged PASS producer, a second checkout, suppressed

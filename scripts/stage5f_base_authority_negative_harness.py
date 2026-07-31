@@ -22,7 +22,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 R3_AUTHORITY_REF = "8ce0acd60c7cb5cc5d25a27f6553077240658b57"
-R8A_PREDECESSOR_REF = "6490c5989d833cbb4a55976f5ed0ee3d0c59979d"
 BASE_SHA = "a" * 40
 WORKFLOW = ROOT / ".github/workflows/stage5f-base-authority.yml"
 ASSERTIONS_EXECUTED = 0
@@ -389,8 +388,7 @@ def main() -> int:
         with tempfile.TemporaryDirectory(prefix="stage5f-base-authority-") as directory:
             root = Path(directory)
             authority = export_ref(R3_AUTHORITY_REF, root)
-            current_base = export_ref(current_staged_tree(), root)
-            base = current_base
+            base = export_ref(current_staged_tree(), root)
 
             candidate, sentinel = fresh_candidate(base, root)
             assert_accepted(authority, base, candidate, sentinel, "clean-next-pr-from-current-base")
@@ -418,12 +416,6 @@ def main() -> int:
             candidate, sentinel = fresh_candidate(base, root)
             build_valid_rotation(authority, base, candidate)
             assert_accepted(authority, base, candidate, sentinel, "reviewable-in-band-authority-rotation")
-
-            # R9 is already the current staged state. Exercise its one-shot
-            # admission logic against the exact reviewed R8a predecessor, not
-            # against the generation-4 state which must reject it.
-            r9_predecessor = export_ref(R8A_PREDECESSOR_REF, root)
-            base = r9_predecessor
 
             candidate, sentinel = fresh_candidate(base, root)
             build_valid_rotation(
@@ -734,7 +726,6 @@ def main() -> int:
                 "portable-forbidden-scanner-repair-requires-scanner-change",
             )
 
-            base = current_base
             candidate, sentinel = fresh_candidate(base, root)
             build_valid_rotation(authority, base, candidate, mutate_scanner=True)
             assert_rejected(
@@ -745,23 +736,6 @@ def main() -> int:
                 "generic-rotation-cannot-change-forbidden-scanner",
             )
 
-            candidate, sentinel = fresh_candidate(base, root)
-            build_valid_rotation(
-                authority,
-                base,
-                candidate,
-                next_stage=contract.PORTABLE_FORBIDDEN_SCANNER_REPAIR_STAGE,
-                mutate_scanner=True,
-            )
-            assert_rejected(
-                authority,
-                base,
-                candidate,
-                sentinel,
-                "portable-forbidden-scanner-repair-closed-after-generation-four",
-            )
-
-            base = r9_predecessor
             candidate, sentinel = fresh_candidate(base, root)
             build_valid_rotation(
                 authority,
@@ -796,7 +770,6 @@ def main() -> int:
                 "portable-forbidden-scanner-repair-rejects-other-stage5d-freeze-path",
             )
 
-            base = current_base
             candidate, sentinel = fresh_candidate(base, root)
             build_valid_rotation(authority, base, candidate)
             manifest_path = candidate / contract.ROTATION_MANIFEST
@@ -845,7 +818,7 @@ def main() -> int:
     except (OSError, RuntimeError, subprocess.CalledProcessError, tarfile.TarError) as exc:
         print(f"stage5f-base-authority-negative: FAIL: {exc}", file=sys.stderr)
         return 1
-    expected_cases = 70
+    expected_cases = 69
     if ASSERTIONS_EXECUTED != expected_cases:
         print(
             "stage5f-base-authority-negative: FAIL: assertion inventory drift "

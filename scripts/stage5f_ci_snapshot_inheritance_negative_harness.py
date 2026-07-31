@@ -202,30 +202,6 @@ def main() -> int:
             ),
         ),
         Case(
-            "clean-runner-prefetch-removed",
-            "Stage 5F CI snapshot inheritance contract drift",
-            lambda root: (root / CI).write_text(
-                replace_once(
-                    (root / CI).read_text(),
-                    "      - name: Prime immutable B3F dependency cache\n"
-                    "        run: |\n"
-                    "          set -euo pipefail\n"
-                    "          accepted_b3f_ref=\"e14654f7129aa61011931306140a3bfefe2fcfbc\"\n"
-                    "          snapshot_root=\"$(mktemp -d \"${TMPDIR:-/tmp}/stage5f-b3f-dependency-prefetch.XXXXXX\")\"\n"
-                    "          trap 'rm -rf \"$snapshot_root\"' EXIT\n"
-                    "          git cat-file -e \"${accepted_b3f_ref}^{commit}\"\n"
-                    "          git archive \"$accepted_b3f_ref\" | tar -x -C \"$snapshot_root\"\n"
-                    "          (\n"
-                    "            cd \"$snapshot_root\"\n"
-                    "            CARGO_NET_OFFLINE=false cargo fetch --locked\n"
-                    "          )\n"
-                    "        timeout-minutes: 10\n\n",
-                    "",
-                    "clean-runner dependency prefetch",
-                )
-            ),
-        ),
-        Case(
             "snapshot-gate-continue-on-error",
             "Stage 5F CI execution authority drift: .github/workflows/ci.yml",
             lambda root: (root / CI).write_text(
@@ -382,7 +358,7 @@ def main() -> int:
     if failures:
         print("FAIL " + ", ".join(failures), file=sys.stderr)
         return 1
-    print("stage5f-ci-snapshot-inheritance-negative-harness: ok cases=17")
+    print("stage5f-ci-snapshot-inheritance-negative-harness: ok cases=16")
     return 0
 
 
