@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "stage": "5F-b1-fixture-input-fingerprint-contract",
+  "status": "contract_complete_outputs_pending_source_characterization",
+  "source_reachability_commit": "d71af08804c9fc44c4f056cfa24396386d9ed94d",
+  "source_reachability_inventory_sha256": "8ae660e28015caf015ecd9a7474073fb0f3b3ceb991e7ceeb1cc2840a4d9d7ea",
+  "design_inputs": {
+    "completion_spec_sha256": "4205f948b795a9d4369283e8565f68cb56b509f2e79bf05549de2f3a8b6dc6c1",
+    "acceptance_matrix_sha256": "979e85d5a64352b1158622688d0322ff17349d8ce4ac5c2c4d5d4373912df59b"
+  },
+  "fixture_catalogs": {
+    "scenarios": {
+      "path": "tests/fixtures/stage5/stage5f/v1/scenarios/atomic-hybrid-scenarios.json",
+      "sha256": "e83f10b58ba6c72efbf95d561edc9f7de84ce8e092129f6a9b449d2683e84184",
+      "record_count": 34
+    },
+    "states": {
+      "path": "tests/fixtures/stage5/stage5f/v1/states/imoexf-hybrid-state-seeds.json",
+      "sha256": "bb732fcebc0da78d3acdc88a3ceeb3db11a6a5a0719a92aeb91bcdcaf11729b4",
+      "record_count": 14
+    },
+    "riskgate": {
+      "path": "tests/fixtures/stage5/stage5f/v1/riskgate/imoexf-high180-riskgate-seeds.json",
+      "sha256": "20e95ace0c1d92746c2198083d6b73fd0e78e1e58bc0b9b4bbcebf696fb5a1fc",
+      "record_count": 4
+    },
+    "observation_design": {
+      "path": "docs/stage-5/stage5f-controlled-observation-extension.json",
+      "sha256": "0c9fa2ba5c509c57e3fa239b582d1f9a7938677a2bd9a23207acaaf32ec724ff",
+      "record_count": 3
+    }
+  },
+  "characterization_state_machine": [
+    "pending_source_characterization",
+    "candidate_source_characterized",
+    "frozen_golden"
+  ],
+  "current_characterization_state": "pending_source_characterization",
+  "current_outputs_are_acceptance_evidence": false,
+  "row_bindings": [
+    {"row_id":"F01","scenario_id":"stage5f_f01_no_signal_zero_intent","disposition":"accepted","owning_test":"stage5f_f01_no_signal_zero_intent"},
+    {"row_id":"F02","scenario_id":"stage5f_f02_bo_long_entry","disposition":"accepted","owning_test":"stage5f_f02_bo_long_entry"},
+    {"row_id":"F03","scenario_id":"stage5f_f03_bo_short_entry","disposition":"accepted","owning_test":"stage5f_f03_bo_short_entry"},
+    {"row_id":"F04","scenario_id":"stage5f_f04_bo_long_normal_exit","disposition":"accepted","owning_test":"stage5f_f04_bo_long_normal_exit"},
+    {"row_id":"F05","scenario_id":"stage5f_f05_bo_short_normal_exit","disposition":"accepted","owning_test":"stage5f_f05_bo_short_normal_exit"},
+    {"row_id":"F06","scenario_id":"stage5f_f06_bo_same_day_eod_exit","disposition":"accepted","owning_test":"stage5f_f06_bo_same_day_eod_exit"},
+    {"row_id":"F07","scenario_id":"stage5f_f07_bo_carried_next_day_rescue_exit","disposition":"accepted","owning_test":"stage5f_f07_bo_carried_next_day_rescue_exit"},
+    {"row_id":"F08","scenario_id":"stage5f_f08_mr_high180_long_entry","disposition":"accepted","owning_test":"stage5f_f08_mr_high180_long_entry"},
+    {"row_id":"F09","scenario_id":"stage5f_f09_mr_high180_short_entry","disposition":"accepted","owning_test":"stage5f_f09_mr_high180_short_entry"},
+    {"row_id":"F10","scenario_id":"stage5f_f10_mr_long_max_hold_exit","disposition":"accepted","owning_test":"stage5f_f10_mr_long_max_hold_exit"},
+    {"row_id":"F11","scenario_id":"stage5f_f11_mr_short_max_hold_exit","disposition":"accepted","owning_test":"stage5f_f11_mr_short_max_hold_exit"},
+    {"row_id":"F12","scenario_id":"stage5f_f12_mr_long_target_exit","disposition":"accepted","owning_test":"stage5f_f12_mr_long_target_exit"},
+    {"row_id":"F13","scenario_id":"stage5f_f13_mr_short_target_exit","disposition":"accepted","owning_test":"stage5f_f13_mr_short_target_exit"},
+    {"row_id":"F14","scenario_id":"stage5f_f14_mr_long_stop_exit","disposition":"accepted","owning_test":"stage5f_f14_mr_long_stop_exit"},
+    {"row_id":"F15","scenario_id":"stage5f_f15_mr_short_stop_exit","disposition":"accepted","owning_test":"stage5f_f15_mr_short_stop_exit"},
+    {"row_id":"F16","scenario_id":"stage5f_f16_simultaneous_bo_mr_frozen_priority_winner","disposition":"accepted","owning_test":"stage5f_f16_simultaneous_bo_mr_frozen_priority_winner"},
+    {"row_id":"F17","scenario_id":"stage5f_f17_bo_selected_when_mr_ineligible","disposition":"accepted","owning_test":"stage5f_f17_bo_selected_when_mr_ineligible"},
+    {"row_id":"F18","scenario_id":"stage5f_f18_bo_owner_suppresses_mr","disposition":"accepted","owning_test":"stage5f_f18_bo_owner_suppresses_mr"},
+    {"row_id":"F19","scenario_id":"stage5f_f19_mr_owner_suppresses_bo","disposition":"accepted","owning_test":"stage5f_f19_mr_owner_suppresses_bo"},
+    {"row_id":"F20","scenario_id":"stage5f_f20_one_owner_one_cycle_single_entry","disposition":"accepted","owning_test":"stage5f_f20_one_owner_one_cycle_single_entry"},
+    {"row_id":"F21","scenario_id":"stage5f_f21_duplicate_same_bar_no_second_cycle","disposition":"accepted","owning_test":"stage5f_f21_duplicate_same_bar_no_second_cycle"},
+    {"row_id":"F22","scenario_id":"stage5f_f22_next_cycle_only_after_terminal_flat_cleanup","disposition":"accepted","owning_test":"stage5f_f22_next_cycle_only_after_terminal_flat_cleanup"},
+    {"row_id":"F23","scenario_id":"stage5f_f23_riskgate_normal_append_shadow_advances_not_enforced","disposition":"accepted","owning_test":"stage5f_f23_riskgate_normal_append_shadow_advances_not_enforced"},
+    {"row_id":"F24","scenario_id":"stage5f_f24_riskgate_missing_authority_blocks_before_callback","disposition":"blocked_before_callback","owning_test":"stage5f_f24_riskgate_missing_authority_blocks_before_callback"},
+    {"row_id":"F25","scenario_id":"stage5f_f25_riskgate_inconsistent_authority_blocks_before_callback","disposition":"blocked_before_callback","owning_test":"stage5f_f25_riskgate_inconsistent_authority_blocks_before_callback"},
+    {"row_id":"F26","scenario_id":"stage5f_f26_pending_entry_no_new_entry_or_fake_feedback","disposition":"accepted","owning_test":"stage5f_f26_pending_entry_no_new_entry_or_fake_feedback"},
+    {"row_id":"F27","scenario_id":"stage5f_f27_pending_exit_no_overlap","disposition":"accepted","owning_test":"stage5f_f27_pending_exit_no_overlap"},
+    {"row_id":"F28","scenario_id":"stage5f_f28_deferred_entry_semantics_preserved","disposition":"accepted","owning_test":"stage5f_f28_deferred_entry_semantics_preserved"},
+    {"row_id":"F29","scenario_id":"stage5f_f29_deferred_exit_semantics_preserved","disposition":"accepted","owning_test":"stage5f_f29_deferred_exit_semantics_preserved"},
+    {"row_id":"F30","scenario_id":"stage5f_f30_authority_or_materialization_terminal_before_callback","disposition":"blocked_before_callback","owning_test":"stage5f_f30_authority_or_materialization_terminal_before_callback"},
+    {"row_id":"F31","scenario_id":"stage5f_f31_callback_validation_terminal","disposition":"terminal_after_callback","owning_test":"stage5f_f31_callback_validation_terminal"},
+    {"row_id":"F32","scenario_id":"stage5f_f32_b3f_identity_or_chronology_preflight_terminal","disposition":"terminal_after_callback","owning_test":"stage5f_f32_b3f_identity_or_chronology_preflight_terminal"},
+    {"row_id":"F33","scenario_id":"stage5f_f33_stage5c_intent_validation_terminal","disposition":"terminal_after_callback","owning_test":"stage5f_f33_stage5c_intent_validation_terminal"},
+    {"row_id":"F34","scenario_id":"stage5f_f34_stage5c_pending_request_mismatch_terminal","disposition":"terminal_after_callback","owning_test":"stage5f_f34_stage5c_pending_request_mismatch_terminal"}
+  ],
+  "ordered_intent_projection": {
+    "schema_version": 1,
+    "hash_domain": "moex.stage5f.ordered-intent-vector.v1",
+    "sort_allowed": false,
+    "floating_point_encoding": "f64_to_bits_16_lowercase_hex",
+    "non_finite_allowed": false,
+    "negative_zero_allowed": false,
+    "raw_sensitive_identifiers_allowed": false
+  },
+  "closed_surfaces": {
+    "callback_invoked_in_stage5f_b": false,
+    "observer_implemented": false,
+    "redis_consumption": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "dispatch": false,
+    "broker_send": false,
+    "runtime_live": false,
+    "stage5g_feedback": false
+  }
+}

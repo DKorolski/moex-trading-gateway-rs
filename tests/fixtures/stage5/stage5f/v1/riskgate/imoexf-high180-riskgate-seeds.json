@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "fixture_kind": "stage5f-riskgate-seed-catalog",
+  "identity": {
+    "strategy_id": "hybrid_imoexf",
+    "profile_id": "imoexf_primary_high180_lb120",
+    "mr_variant": "high180",
+    "timeframe": "10m",
+    "session_policy": "moex_forts_main_evening",
+    "model_version": "stage5f-v1"
+  },
+  "seeds": [
+    {
+      "seed_id": "valid_normal_append",
+      "authority_state": "complete",
+      "risk_gate_mode": "normal_append",
+      "mr_gate_policy": "shadow_pnl_lb120_positive",
+      "enforced_for_entry": false,
+      "mr_enabled_current_session": true,
+      "mr_enabled_next_session": true,
+      "rolling_sum_lb120": "158.60000000000008",
+      "last_finalized_session_date": "2026-01-05",
+      "ledger_rows_count": 221,
+      "expected_pre_callback_disposition": "ready"
+    },
+    {
+      "seed_id": "missing_authority",
+      "authority_state": "missing",
+      "risk_gate_mode": "normal_append",
+      "mr_gate_policy": "shadow_pnl_lb120_positive",
+      "enforced_for_entry": false,
+      "mr_enabled_current_session": null,
+      "mr_enabled_next_session": null,
+      "rolling_sum_lb120": null,
+      "last_finalized_session_date": null,
+      "ledger_rows_count": 0,
+      "expected_pre_callback_disposition": "blocked_missing_authority"
+    },
+    {
+      "seed_id": "inconsistent_authority",
+      "authority_state": "inconsistent",
+      "risk_gate_mode": "normal_append",
+      "mr_gate_policy": "shadow_pnl_lb120_positive",
+      "enforced_for_entry": false,
+      "mr_enabled_current_session": true,
+      "mr_enabled_next_session": false,
+      "rolling_sum_lb120": "158.60000000000008",
+      "last_finalized_session_date": "2026-01-05",
+      "ledger_rows_count": 221,
+      "expected_pre_callback_disposition": "blocked_inconsistent_authority"
+    },
+    {
+      "seed_id": "materialization_terminal",
+      "authority_state": "materialization_integrity_mismatch",
+      "risk_gate_mode": "normal_append",
+      "mr_gate_policy": "shadow_pnl_lb120_positive",
+      "enforced_for_entry": false,
+      "mr_enabled_current_session": true,
+      "mr_enabled_next_session": true,
+      "rolling_sum_lb120": "158.60000000000008",
+      "last_finalized_session_date": "2026-01-05",
+      "ledger_rows_count": 221,
+      "expected_pre_callback_disposition": "terminal_materialization_integrity_mismatch"
+    }
+  ]
+}

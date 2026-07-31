@@ -50,6 +50,24 @@ The governance split and contract corrections are normative in
    - local project gates and clean handoff package;
    - independent aggregate review.
 
+## Development gates
+
+The accepted `stage5f_atomic_hybrid_semantics_gate.sh` is historical authority
+for the recovered Stage 5F-a tree. It is not widened to accept later functional
+paths. Later heads inherit that proof from the immutable snapshot and use:
+
+```bash
+# Fast local development gate
+bash scripts/stage5f_functional_development_gate.sh
+
+# Review/handoff gate including the detached B3F 580-case provenance matrix
+STAGE5F_FULL_INHERITED_GATE=1 \
+  bash scripts/stage5f_functional_development_gate.sh
+```
+
+This split keeps routine iteration economical while retaining the full
+inherited proof before a review package is declared ready.
+
 ## Sole route
 
 ```text
@@ -74,4 +92,3 @@ accepted as evidence.
 - ACK/order/trade/position/timer/restart feedback;
 - stop/SLTP/bracket implementation;
 - strategy parameter or riskgate-enforcement changes.
-

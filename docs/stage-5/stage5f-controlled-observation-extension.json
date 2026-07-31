@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "stage": "5F-b-controlled-observation-design",
+  "status": "design_only_not_implemented",
+  "approved_regions": [
+    {
+      "path": "crates/strategy-runtime-core/src/lib.rs",
+      "git_mode": "100644",
+      "purpose": "cfg-test private module declaration",
+      "marker_begin": "STAGE5F-TEST-OBSERVATION-MODULE-BEGIN",
+      "marker_end": "STAGE5F-TEST-OBSERVATION-MODULE-END"
+    },
+    {
+      "path": "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs",
+      "git_mode": "100644",
+      "purpose": "mutually exclusive cfg-test observation around exact on_bar expression",
+      "function": "BrokerNeutralHybridStrategy::on_broker_bar",
+      "observed_expression": "Strategy::on_bar(self, &context, &bar)",
+      "marker_begin": "STAGE5F-TEST-OBSERVATION-CALL-BEGIN",
+      "marker_end": "STAGE5F-TEST-OBSERVATION-CALL-END"
+    },
+    {
+      "path": "crates/strategy-runtime-core/src/stage5f_atomic_hybrid_semantics.rs",
+      "git_mode": "100644",
+      "purpose": "private fixture loader, scoped observer, projection and owning tests",
+      "new_file": true
+    }
+  ],
+  "invariants": {
+    "cfg_test_only": true,
+    "crate_private": true,
+    "single_callback": true,
+    "single_observer_consume": true,
+    "returned_vector_unchanged": true,
+    "observer_controls_runtime_flow": false,
+    "observer_survives_scenario": false,
+    "raw_sensitive_fields_exported": false,
+    "frozen_stage5c_source_changed": false,
+    "frozen_b3f_source_changed": false
+  },
+  "forbidden_traits": [
+    "Clone",
+    "Copy",
+    "Serialize",
+    "Deserialize",
+    "Debug",
+    "Display",
+    "Default"
+  ]
+}
