@@ -44,9 +44,16 @@ forbidden_negative_result="$repo_root/handoff-forbidden-negative-result.json"
 forbidden_negative_stdout_log="$repo_root/handoff-forbidden-negative-stdout.txt"
 forbidden_negative_stderr_log="$repo_root/handoff-forbidden-negative-stderr.txt"
 completed=0
+cleanup_owner_bashpid="$BASHPID"
 
 cleanup() {
   local status=$?
+  # Bash runs EXIT traps for the parenthesized gate subprocesses below as well.
+  # Only the owner shell may remove handoff evidence; otherwise a successful
+  # child gate deletes its captured stdout before the parent can attest it.
+  if [[ "$BASHPID" != "$cleanup_owner_bashpid" ]]; then
+    return "$status"
+  fi
   rm -f "$commit_marker" "$handoff_manifest" "$stage5e_gate_result" "$stage5f_gate_result" \
     "$source_tree_manifest" "$stage5e_gate_stdout_log" "$stage5e_gate_stderr_log" \
     "$stage5f_gate_stdout_log" "$stage5f_gate_stderr_log" "$cargo_gate_result" \
