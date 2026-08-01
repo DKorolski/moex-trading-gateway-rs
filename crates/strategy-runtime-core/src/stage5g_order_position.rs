@@ -80,6 +80,8 @@ pub enum Stage5gOrderPositionError {
     ClientOrderIdMismatch,
     OrderSideMismatch,
     OrderTypeMismatch,
+    SourceOrderMismatch,
+    AttributionMismatch,
     OrderLifecycleMismatch,
     UnknownOrderStatus,
     InvalidOrderQuantity,
@@ -98,7 +100,10 @@ pub enum Stage5gOrderPositionError {
     PositionSideMismatch,
     PositionOverfill,
     PositionIncomplete,
+    PositionQuantityRegression,
+    TargetMarketOrderNonExecution,
     RejectedOrderHasFill,
+    SequenceMappingOverflow,
     NumericConversionFailed,
     Stage5cPreCallbackBlocked,
     Stage5cRemainingLifecycle,
@@ -561,10 +566,20 @@ fn validate_snapshot_chronology(
     if last_broker_truth_received_ts.is_some_and(|last| snapshot_ts < last) {
         return Err(Stage5gOrderPositionError::BrokerTruthTimeRegression);
     }
-    for order in evidence.broker_truth.orders.iter().filter(|order| {
-        order.account_id == evidence.broker_truth.account_id
-            && instrument_identity_matches(&order.instrument, instrument)
-    }) {
+    let target_order_id = slot.broker_order_id.as_ref();
+    let target_client_order_id = &slot.ack.expected_client_order_id;
+    let correlated_orders: Vec<_> = evidence
+        .broker_truth
+        .orders
+        .iter()
+        .filter(|order| {
+            order.account_id == evidence.broker_truth.account_id
+                && instrument_identity_matches(&order.instrument, instrument)
+                && (order.broker_order_id.as_ref() == target_order_id
+                    || order.client_order_id.as_ref() == Some(target_client_order_id))
+        })
+        .collect();
+    for order in &correlated_orders {
         validate_component_time(order.source_ts, order.received_ts, snapshot_ts)?;
         if order
             .source_ts
@@ -575,15 +590,28 @@ fn validate_snapshot_chronology(
         {
             return Err(Stage5gOrderPositionError::OrderTimeRegression);
         }
-        if order.source_ts.is_some() {
-            slot.last_order_source_ts = order.source_ts;
-        }
-        slot.last_order_received_ts = Some(order.received_ts);
     }
-    for position in evidence.broker_truth.positions.iter().filter(|position| {
-        position.account_id == evidence.broker_truth.account_id
-            && instrument_identity_matches(&position.instrument, instrument)
-    }) {
+    slot.last_order_source_ts = correlated_orders
+        .iter()
+        .filter_map(|order| order.source_ts)
+        .max()
+        .or(slot.last_order_source_ts);
+    slot.last_order_received_ts = correlated_orders
+        .iter()
+        .map(|order| order.received_ts)
+        .max()
+        .or(slot.last_order_received_ts);
+
+    let target_positions: Vec<_> = evidence
+        .broker_truth
+        .positions
+        .iter()
+        .filter(|position| {
+            position.account_id == evidence.broker_truth.account_id
+                && instrument_identity_matches(&position.instrument, instrument)
+        })
+        .collect();
+    for position in &target_positions {
         validate_component_time(position.source_ts, position.received_ts, snapshot_ts)?;
         if position.source_ts.is_some_and(|source| {
             slot.last_position_source_ts
@@ -594,20 +622,35 @@ fn validate_snapshot_chronology(
         {
             return Err(Stage5gOrderPositionError::PositionTimeRegression);
         }
-        if position.source_ts.is_some() {
-            slot.last_position_source_ts = position.source_ts;
-        }
-        slot.last_position_received_ts = Some(position.received_ts);
     }
-    for trade in evidence.broker_truth.trades.iter().filter(|trade| {
-        trade.account_id == evidence.broker_truth.account_id
-            && instrument_identity_matches(&trade.instrument, instrument)
-    }) {
+    slot.last_position_source_ts = target_positions
+        .iter()
+        .filter_map(|position| position.source_ts)
+        .max()
+        .or(slot.last_position_source_ts);
+    slot.last_position_received_ts = target_positions
+        .iter()
+        .map(|position| position.received_ts)
+        .max()
+        .or(slot.last_position_received_ts);
+
+    let correlated_trades: Vec<_> = evidence
+        .broker_truth
+        .trades
+        .iter()
+        .filter(|trade| {
+            trade.account_id == evidence.broker_truth.account_id
+                && instrument_identity_matches(&trade.instrument, instrument)
+                && (trade.broker_order_id.as_ref() == target_order_id
+                    || trade.client_order_id.as_ref() == Some(target_client_order_id))
+        })
+        .collect();
+    for trade in &correlated_trades {
         validate_component_time(Some(trade.source_ts), trade.received_ts, snapshot_ts)?;
         if slot
             .trades
             .iter()
-            .any(|known| known.broker_trade_id == trade.broker_trade_id && known == trade)
+            .any(|known| known.broker_trade_id == trade.broker_trade_id && known == *trade)
         {
             continue;
         }
@@ -620,9 +663,17 @@ fn validate_snapshot_chronology(
         {
             return Err(Stage5gOrderPositionError::TradeTimeRegression);
         }
-        slot.last_trade_source_ts = Some(trade.source_ts);
-        slot.last_trade_received_ts = Some(trade.received_ts);
     }
+    slot.last_trade_source_ts = correlated_trades
+        .iter()
+        .map(|trade| trade.source_ts)
+        .max()
+        .or(slot.last_trade_source_ts);
+    slot.last_trade_received_ts = correlated_trades
+        .iter()
+        .map(|trade| trade.received_ts)
+        .max()
+        .or(slot.last_trade_received_ts);
     Ok(())
 }
 
@@ -641,6 +692,18 @@ fn validate_component_time(
 }
 
 fn apply_to_slot(
+    account_id: &broker_core::BrokerAccountId,
+    instrument: &InstrumentId,
+    slot: &mut Stage5gOrderPositionSlot,
+    evidence: &Stage5gOrderPositionEvidence,
+) -> Result<(), Stage5gOrderPositionError> {
+    let mut candidate = slot.clone();
+    apply_to_slot_candidate(account_id, instrument, &mut candidate, evidence)?;
+    *slot = candidate;
+    Ok(())
+}
+
+fn apply_to_slot_candidate(
     account_id: &broker_core::BrokerAccountId,
     instrument: &InstrumentId,
     slot: &mut Stage5gOrderPositionSlot,
@@ -671,7 +734,38 @@ fn apply_to_slot(
             let position = select_target_position(account_id, instrument, &evidence.broker_truth)?;
             let terminal = validate_source_position(slot, &position, None)?;
             slot.position = Some((evidence.total_sequence, position));
-            slot.terminal = terminal;
+            if let Some(order) = select_optional_target_order(slot, &evidence.broker_truth)? {
+                validate_order(account_id, instrument, slot, &order)?;
+                validate_source_order_attribution(slot, evidence.order_attribution.as_ref())?;
+                validate_trades(slot, &order, &evidence.broker_truth.trades)?;
+                slot.order_events.push(CanonicalOrderEvent {
+                    total_sequence: evidence.total_sequence,
+                    order: order.clone(),
+                    attribution: evidence.order_attribution.clone(),
+                });
+                match order.status {
+                    OrderStatus::New | OrderStatus::Working | OrderStatus::PartiallyFilled => {
+                        slot.terminal = false;
+                    }
+                    OrderStatus::Filled => {
+                        if !terminal {
+                            return Err(Stage5gOrderPositionError::PositionIncomplete);
+                        }
+                        slot.terminal = true;
+                    }
+                    OrderStatus::Unknown(_) => {
+                        return Err(Stage5gOrderPositionError::UnknownOrderStatus);
+                    }
+                    OrderStatus::Rejected | OrderStatus::Canceled | OrderStatus::Expired => {
+                        return Err(Stage5gOrderPositionError::TargetMarketOrderNonExecution);
+                    }
+                }
+            } else {
+                // Position-only Market evidence is permitted only when the
+                // broker snapshot has no target order row. Exact source-relative
+                // position progress remains authoritative in this mode.
+                slot.terminal = terminal;
+            }
         }
         Stage5gMockIntentAction::Place {
             place_kind: Stage5gMockPlaceKind::Limit,
@@ -679,12 +773,18 @@ fn apply_to_slot(
         | Stage5gMockIntentAction::Cancel { .. } => {
             let order = select_target_order(slot, &evidence.broker_truth)?;
             validate_order(account_id, instrument, slot, &order)?;
+            validate_source_order_attribution(slot, evidence.order_attribution.as_ref())?;
             validate_trades(slot, &order, &evidence.broker_truth.trades)?;
             let status = order.status.clone();
             slot.order_events.push(CanonicalOrderEvent {
                 total_sequence: evidence.total_sequence,
                 order: order.clone(),
                 attribution: evidence.order_attribution.clone(),
+            });
+            slot.order_events.sort_by(|left, right| {
+                left.total_sequence
+                    .cmp(&right.total_sequence)
+                    .then_with(|| left.order.received_ts.cmp(&right.order.received_ts))
             });
             match status {
                 OrderStatus::New | OrderStatus::Working | OrderStatus::PartiallyFilled => {}
@@ -742,6 +842,26 @@ fn select_target_order(
     }
 }
 
+fn select_optional_target_order(
+    slot: &Stage5gOrderPositionSlot,
+    truth: &BrokerTruthSnapshot,
+) -> Result<Option<BrokerOrderSnapshot>, Stage5gOrderPositionError> {
+    let matches: Vec<_> = truth
+        .orders
+        .iter()
+        .filter(|order| {
+            order.broker_order_id.as_ref() == slot.broker_order_id.as_ref()
+                || order.client_order_id.as_ref() == Some(&slot.ack.expected_client_order_id)
+        })
+        .cloned()
+        .collect();
+    match matches.len() {
+        0 => Ok(None),
+        1 => Ok(matches.into_iter().next()),
+        _ => Err(Stage5gOrderPositionError::AmbiguousTargetOrder),
+    }
+}
+
 fn select_target_position(
     account_id: &broker_core::BrokerAccountId,
     instrument: &InstrumentId,
@@ -791,6 +911,11 @@ fn validate_order(
     }
     match slot.ack.action {
         Stage5gMockIntentAction::Place {
+            place_kind: Stage5gMockPlaceKind::Market,
+        } if order.order_type != OrderType::Market => {
+            return Err(Stage5gOrderPositionError::OrderTypeMismatch);
+        }
+        Stage5gMockIntentAction::Place {
             place_kind: Stage5gMockPlaceKind::Limit,
         } if order.order_type != OrderType::Limit => {
             return Err(Stage5gOrderPositionError::OrderTypeMismatch);
@@ -799,6 +924,19 @@ fn validate_order(
             ref target_order_id,
         } if order.broker_order_id.as_ref() != Some(target_order_id) => {
             return Err(Stage5gOrderPositionError::BrokerOrderIdMismatch);
+        }
+        _ => {}
+    }
+    match order.order_type {
+        OrderType::Market if order.limit_price.is_some() => {
+            return Err(Stage5gOrderPositionError::SourceOrderMismatch);
+        }
+        OrderType::Limit
+            if order
+                .limit_price
+                .map_or(true, |price| price <= Decimal::ZERO) =>
+        {
+            return Err(Stage5gOrderPositionError::SourceOrderMismatch);
         }
         _ => {}
     }
@@ -818,6 +956,14 @@ fn validate_order(
     {
         return Err(Stage5gOrderPositionError::InvalidOrderQuantity);
     }
+    let source_qty = slot
+        .source
+        .target_qty
+        .and_then(Decimal::from_f64_retain)
+        .ok_or(Stage5gOrderPositionError::SourceOrderMismatch)?;
+    if order.qty != source_qty || order.filled_qty > source_qty {
+        return Err(Stage5gOrderPositionError::SourceOrderMismatch);
+    }
     if let Some(previous) = slot.order_events.last().map(|event| &event.order) {
         if previous.lifecycle == BrokerOrderLifecycle::Terminal && previous.status != order.status {
             return Err(Stage5gOrderPositionError::OrderTerminalRegression);
@@ -825,6 +971,16 @@ fn validate_order(
         if order.filled_qty < previous.filled_qty {
             return Err(Stage5gOrderPositionError::FilledQuantityRegression);
         }
+    }
+    Ok(())
+}
+
+fn validate_source_order_attribution(
+    slot: &Stage5gOrderPositionSlot,
+    actual: Option<&HybridRuntimeAttribution>,
+) -> Result<(), Stage5gOrderPositionError> {
+    if actual != slot.source.expected_attribution.as_ref() {
+        return Err(Stage5gOrderPositionError::AttributionMismatch);
     }
     Ok(())
 }
@@ -879,6 +1035,13 @@ fn validate_trades(
         }
     }
     slot.trades.extend(correlated);
+    slot.trades.sort_by(|left, right| {
+        left.source_ts.cmp(&right.source_ts).then_with(|| {
+            left.broker_trade_id
+                .as_str()
+                .cmp(right.broker_trade_id.as_str())
+        })
+    });
     let trade_qty: Decimal = slot.trades.iter().map(|trade| trade.qty).sum();
     if order.filled_qty > Decimal::ZERO && trade_qty != order.filled_qty {
         return Err(Stage5gOrderPositionError::TradeQuantityMismatch);
@@ -918,9 +1081,25 @@ fn validate_source_position(
             {
                 return Err(Stage5gOrderPositionError::PositionOverfill);
             }
+            let previous = slot
+                .position
+                .as_ref()
+                .and_then(|(_, position)| position.qty.to_f64())
+                .unwrap_or(slot.source.pre_position_qty);
+            if qty.abs() + f64::EPSILON < previous.abs() {
+                return Err(Stage5gOrderPositionError::PositionQuantityRegression);
+            }
             Ok((qty.abs() - target).abs() <= f64::EPSILON)
         }
         crate::BrokerNeutralHybridIntentClass::Exit => {
+            let previous = slot
+                .position
+                .as_ref()
+                .and_then(|(_, position)| position.qty.to_f64())
+                .unwrap_or(slot.source.pre_position_qty);
+            if previous.abs() <= f64::EPSILON && qty.abs() > f64::EPSILON {
+                return Err(Stage5gOrderPositionError::PositionQuantityRegression);
+            }
             if qty.abs() <= f64::EPSILON {
                 return Ok(true);
             }
@@ -930,6 +1109,9 @@ fn validate_source_position(
                 || qty.abs() > pre.abs() + f64::EPSILON
             {
                 return Err(Stage5gOrderPositionError::PositionSideMismatch);
+            }
+            if qty.abs() > previous.abs() + f64::EPSILON {
+                return Err(Stage5gOrderPositionError::PositionQuantityRegression);
             }
             Ok(false)
         }
@@ -1016,9 +1198,17 @@ fn converge_through_stage5c(
 ) -> Result<Stage5gOrderPositionTransition, Stage5gOrderPositionFailure> {
     let mut records = Vec::new();
     for slot in &session.state.slots {
-        for event in &slot.order_events {
+        for event in slot
+            .order_events
+            .iter()
+            .filter(|_| !matches!(slot.source.base_action, Stage5gSourceBaseAction::Market))
+        {
+            let total_sequence = event
+                .total_sequence
+                .checked_mul(2)
+                .ok_or_else(sequence_mapping_terminal)?;
             records.push(Stage5cPaperBrokerEventRecord {
-                total_sequence: event.total_sequence.saturating_mul(2),
+                total_sequence,
                 request_id: slot.ack.request_id,
                 payload: Stage5cPaperBrokerEventPayload::Order(order_event(
                     event,
@@ -1027,8 +1217,12 @@ fn converge_through_stage5c(
             });
         }
         if let Some((sequence, position)) = &slot.position {
+            let total_sequence = sequence
+                .checked_mul(2)
+                .and_then(|value| value.checked_add(1))
+                .ok_or_else(sequence_mapping_terminal)?;
             records.push(Stage5cPaperBrokerEventRecord {
-                total_sequence: sequence.saturating_mul(2).saturating_add(1),
+                total_sequence,
                 request_id: slot.ack.request_id,
                 payload: Stage5cPaperBrokerEventPayload::Position(position_event(position)?),
             });
@@ -1135,6 +1329,13 @@ fn numeric_terminal() -> Stage5gOrderPositionFailure {
     })
 }
 
+fn sequence_mapping_terminal() -> Stage5gOrderPositionFailure {
+    Stage5gOrderPositionFailure::Terminal(Stage5gOrderPositionTerminal {
+        reason: Stage5gOrderPositionError::SequenceMappingOverflow,
+        stage5c_reason: Stage5cPaperBrokerLifecycleError::DuplicateSequence,
+    })
+}
+
 fn parse_side(side: &str) -> Option<OrderSide> {
     match side.to_ascii_lowercase().as_str() {
         "buy" => Some(OrderSide::Buy),
@@ -1184,12 +1385,32 @@ fn evidence_identity(evidence: &Stage5gOrderPositionEvidence) -> String {
 }
 
 fn evidence_fingerprint(evidence: &Stage5gOrderPositionEvidence) -> String {
+    let mut truth = evidence.broker_truth.clone();
+    truth.orders.sort_by(|left, right| {
+        left.broker_order_id
+            .as_ref()
+            .map(|value| value.as_str())
+            .cmp(&right.broker_order_id.as_ref().map(|value| value.as_str()))
+            .then_with(|| left.received_ts.cmp(&right.received_ts))
+    });
+    truth.trades.sort_by(|left, right| {
+        left.broker_trade_id
+            .as_str()
+            .cmp(right.broker_trade_id.as_str())
+            .then_with(|| left.received_ts.cmp(&right.received_ts))
+    });
+    truth.positions.sort_by(|left, right| {
+        left.instrument
+            .symbol
+            .cmp(&right.instrument.symbol)
+            .then_with(|| left.received_ts.cmp(&right.received_ts))
+    });
     let mut hasher = Sha256::new();
     hasher.update(b"moex.stage5g.order-position-evidence.v1\0");
     hasher.update(
         serde_json::to_vec(&(
             evidence.request_id,
-            &evidence.broker_truth,
+            &truth,
             evidence
                 .order_attribution
                 .as_ref()
@@ -1575,6 +1796,34 @@ mod tests {
             source_ts: ts(second),
             received_ts: ts(second),
         }
+    }
+
+    fn market_order(status: OrderStatus, filled_qty: Decimal, second: i64) -> BrokerOrderSnapshot {
+        let mut order = order(status, filled_qty, second);
+        let market = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        order.broker_order_id = market.broker_order_id;
+        order.client_order_id = Some(market.ack.expected_client_order_id);
+        order.order_type = OrderType::Market;
+        order.limit_price = None;
+        order
+    }
+
+    fn market_trade(id: &str, qty: Decimal, second: i64) -> BrokerTradeSnapshot {
+        let mut trade = trade(id, qty, second);
+        let market = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        trade.broker_order_id = market.broker_order_id;
+        trade.client_order_id = Some(market.ack.expected_client_order_id);
+        trade
     }
 
     fn position(qty: Decimal, second: i64) -> BrokerPositionSnapshot {
@@ -1993,6 +2242,323 @@ mod tests {
         )
         .unwrap();
         assert!(slot.terminal);
+    }
+
+    #[test]
+    fn r2b_market_entry_position_progress_is_monotonic() {
+        let mut slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        apply_to_slot(
+            &BrokerAccountId::new("ACC_TEST_0001"),
+            &target(),
+            &mut slot,
+            &evidence(
+                2,
+                truth(vec![], vec![], vec![position(Decimal::new(7, 1), 2)], 2),
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            apply_to_slot(
+                &BrokerAccountId::new("ACC_TEST_0001"),
+                &target(),
+                &mut slot,
+                &evidence(
+                    3,
+                    truth(vec![], vec![], vec![position(Decimal::new(5, 1), 3)], 3),
+                ),
+            ),
+            Err(Stage5gOrderPositionError::PositionQuantityRegression)
+        );
+        apply_to_slot(
+            &BrokerAccountId::new("ACC_TEST_0001"),
+            &target(),
+            &mut slot,
+            &evidence(4, truth(vec![], vec![], vec![position(Decimal::ONE, 4)], 4)),
+        )
+        .unwrap();
+        assert!(slot.terminal);
+    }
+
+    #[test]
+    fn r2b_market_exit_position_progress_is_monotonic_until_flat() {
+        let mut slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Exit,
+            crate::BrokerNeutralOrderSide::Sell,
+            1.0,
+            1.0,
+        );
+        apply_to_slot(
+            &BrokerAccountId::new("ACC_TEST_0001"),
+            &target(),
+            &mut slot,
+            &evidence(
+                2,
+                truth(vec![], vec![], vec![position(Decimal::new(4, 1), 2)], 2),
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            apply_to_slot(
+                &BrokerAccountId::new("ACC_TEST_0001"),
+                &target(),
+                &mut slot,
+                &evidence(
+                    3,
+                    truth(vec![], vec![], vec![position(Decimal::new(6, 1), 3)], 3),
+                ),
+            ),
+            Err(Stage5gOrderPositionError::PositionQuantityRegression)
+        );
+        apply_to_slot(
+            &BrokerAccountId::new("ACC_TEST_0001"),
+            &target(),
+            &mut slot,
+            &evidence(
+                4,
+                truth(vec![], vec![], vec![position(Decimal::ZERO, 4)], 4),
+            ),
+        )
+        .unwrap();
+        assert!(slot.terminal);
+    }
+
+    #[test]
+    fn r2b_target_market_order_status_is_authoritative_when_present() {
+        let account = BrokerAccountId::new("ACC_TEST_0001");
+        let exact = position(Decimal::ONE, 2);
+
+        let mut working_slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        apply_to_slot(
+            &account,
+            &target(),
+            &mut working_slot,
+            &evidence(
+                2,
+                truth(
+                    vec![market_order(OrderStatus::Working, Decimal::ZERO, 2)],
+                    vec![],
+                    vec![exact.clone()],
+                    2,
+                ),
+            ),
+        )
+        .unwrap();
+        assert!(
+            !working_slot.terminal,
+            "position cannot mask a working order"
+        );
+
+        let mut unknown_slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        assert_eq!(
+            apply_to_slot(
+                &account,
+                &target(),
+                &mut unknown_slot,
+                &evidence(
+                    2,
+                    truth(
+                        vec![market_order(
+                            OrderStatus::Unknown("broker_new".to_string()),
+                            Decimal::ZERO,
+                            2,
+                        )],
+                        vec![],
+                        vec![exact.clone()],
+                        2,
+                    ),
+                ),
+            ),
+            Err(Stage5gOrderPositionError::UnknownOrderStatus)
+        );
+
+        let mut rejected_slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        assert_eq!(
+            apply_to_slot(
+                &account,
+                &target(),
+                &mut rejected_slot,
+                &evidence(
+                    2,
+                    truth(
+                        vec![market_order(OrderStatus::Rejected, Decimal::ZERO, 2)],
+                        vec![],
+                        vec![exact.clone()],
+                        2,
+                    ),
+                ),
+            ),
+            Err(Stage5gOrderPositionError::TargetMarketOrderNonExecution)
+        );
+
+        let mut filled_slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        apply_to_slot(
+            &account,
+            &target(),
+            &mut filled_slot,
+            &evidence(
+                2,
+                truth(
+                    vec![market_order(OrderStatus::Filled, Decimal::ONE, 2)],
+                    vec![market_trade("MARKET_TRADE_1", Decimal::ONE, 2)],
+                    vec![exact],
+                    2,
+                ),
+            ),
+        )
+        .unwrap();
+        assert!(filled_slot.terminal);
+    }
+
+    #[test]
+    fn r2b_source_authentication_blocks_before_retention() {
+        let mut slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        let before = lifecycle_state_fingerprint(
+            &Stage5gOrderPositionState {
+                strategy_id: "hybrid_imoexf".to_string(),
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                instrument: target(),
+                slots: vec![slot.clone()],
+                evidence_identities: vec![],
+                last_total_sequence: None,
+                last_broker_truth_received_ts: None,
+                duplicate_evidence_count: 0,
+            },
+            0,
+        );
+        let mut mismatched = market_order(OrderStatus::Working, Decimal::ZERO, 2);
+        mismatched.qty = Decimal::new(2, 0);
+        mismatched.remaining_qty = Some(Decimal::new(2, 0));
+        assert_eq!(
+            apply_to_slot(
+                &BrokerAccountId::new("ACC_TEST_0001"),
+                &target(),
+                &mut slot,
+                &evidence(
+                    2,
+                    truth(
+                        vec![mismatched],
+                        vec![],
+                        vec![position(Decimal::new(4, 1), 2)],
+                        2,
+                    ),
+                ),
+            ),
+            Err(Stage5gOrderPositionError::SourceOrderMismatch)
+        );
+        let after = lifecycle_state_fingerprint(
+            &Stage5gOrderPositionState {
+                strategy_id: "hybrid_imoexf".to_string(),
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                instrument: target(),
+                slots: vec![slot],
+                evidence_identities: vec![],
+                last_total_sequence: None,
+                last_broker_truth_received_ts: None,
+                duplicate_evidence_count: 0,
+            },
+            0,
+        );
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn r2b_chronology_and_evidence_are_vector_order_independent() {
+        let mut first = market_trade("MARKET_TRADE_1", Decimal::new(4, 1), 2);
+        let mut second = market_trade("MARKET_TRADE_2", Decimal::new(6, 1), 3);
+        first.received_ts = ts(3);
+        second.received_ts = ts(3);
+        let left = evidence(
+            2,
+            truth(vec![], vec![first.clone(), second.clone()], vec![], 3),
+        );
+        let right = evidence(2, truth(vec![], vec![second, first], vec![], 3));
+        let mut left_slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        let mut right_slot = left_slot.clone();
+        validate_snapshot_chronology(None, &target(), &mut left_slot, &left).unwrap();
+        validate_snapshot_chronology(None, &target(), &mut right_slot, &right).unwrap();
+        assert_eq!(
+            left_slot.last_trade_source_ts,
+            right_slot.last_trade_source_ts
+        );
+        assert_eq!(
+            left_slot.last_trade_received_ts,
+            right_slot.last_trade_received_ts
+        );
+        assert_eq!(evidence_fingerprint(&left), evidence_fingerprint(&right));
+    }
+
+    #[test]
+    fn r2b_only_exact_correlated_trade_advances_slot_watermark() {
+        let mut slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        let mut unrelated = market_trade("UNRELATED_TRADE", Decimal::ONE, 9);
+        unrelated.broker_order_id = Some(BrokerOrderId::new("ORDER_UNRELATED"));
+        unrelated.client_order_id = Some(ClientOrderId::new("CLIENT_UNRELATED").unwrap());
+        validate_snapshot_chronology(
+            None,
+            &target(),
+            &mut slot,
+            &evidence(2, truth(vec![], vec![unrelated], vec![], 9)),
+        )
+        .unwrap();
+        assert_eq!(slot.last_trade_source_ts, None);
+        assert_eq!(slot.last_trade_received_ts, None);
+
+        validate_snapshot_chronology(
+            Some(ts(9)),
+            &target(),
+            &mut slot,
+            &evidence(
+                3,
+                truth(
+                    vec![],
+                    vec![market_trade("MARKET_TRADE_1", Decimal::ONE, 10)],
+                    vec![],
+                    10,
+                ),
+            ),
+        )
+        .unwrap();
+        assert_eq!(slot.last_trade_source_ts, Some(ts(10)));
     }
 
     #[test]

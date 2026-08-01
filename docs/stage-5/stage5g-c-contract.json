@@ -1,9 +1,11 @@
 {
   "schema_version": 2,
-  "stage": "5G-c-r1-order-trade-position-convergence",
-  "status": "r2a_authority_recovery_review_candidate",
-  "r1_semantics_status": "rejected_pending_r2b",
-  "r2b_authorized": false,
+  "stage": "5G-c-r2b-semantic-hardening",
+  "status": "r2b_implementation_review_candidate",
+  "r1_semantics_status": "superseded_by_r2b",
+  "r2a_authority_status": "accepted",
+  "r2a_authority_commit": "c6ae2bdaea2575dd41e6da00acad5c231f3c7572",
+  "r2b_authorized": true,
   "remediation_base": "dba5362444ec279391eed92ff28ebb4ceb729c09",
   "accepted_functional_predecessor": "92f57c7831d8a15fb2e37668d3b07f1ccea03af7",
   "source_authority": {
@@ -16,6 +18,12 @@
     "market_entry_requires_exact_source_target": true,
     "market_exit_requires_flat": true,
     "partial_market_position_remains_awaiting": true,
+    "market_position_progress_is_monotonic": true,
+    "target_market_order_state_is_authoritative_when_present": true,
+    "position_cannot_mask_nonterminal_market_order": true,
+    "preterminal_source_authentication_is_transactional": true,
+    "correlated_watermarks_ignore_unrelated_rows": true,
+    "broker_truth_vector_order_is_semantically_irrelevant": true,
     "terminal_candidate_commits_after_stage5c_preflight": true,
     "pre_callback_block_restores_pre_candidate_state": true,
     "remaining_stage5c_expectations_fail_closed": true,
@@ -27,12 +35,17 @@
     "stage5c_j_callsite_count": 1
   },
   "production_witnesses": [
-    "stage5gc_r1_public_market_entry_exact_position_converges",
-    "stage5gc_r1_public_market_entry_partial_then_exact_converges",
-    "stage5gc_r1_public_stage5f_f04_market_exit_flat_converges",
-    "stage5gc_r1_public_rejected_exit_preserves_existing_position",
-    "stage5gc_r1_public_stage5c_preflight_block_restores_retryable_session"
+    "stage5gc_r2b_public_market_entry_exact_position_converges",
+    "stage5gc_r2b_public_market_entry_partial_then_exact_converges",
+    "stage5gc_r2b_public_stage5f_f04_market_exit_flat_converges",
+    "stage5gc_r2b_public_rejected_exit_preserves_existing_position",
+    "stage5gc_r2b_public_stage5c_preflight_block_restores_retryable_session"
   ],
+  "authority_limited_deferrals": {
+    "exact_source_limit_price": "not_present_in_accepted_stage5c_projection",
+    "replace_fields": "not_present_in_accepted_stage5c_projection",
+    "policy": "requires_separate_authority_review_before_projection_expansion"
+  },
   "closed_surfaces": {
     "stage5g_d": false,
     "redis_live_consumer": false,

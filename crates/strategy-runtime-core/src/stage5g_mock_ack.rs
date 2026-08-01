@@ -1746,6 +1746,7 @@ mod tests {
             mr_config: MeanReversionConfig::default(),
             breakout_config: IntradayBreakoutConfig {
                 exclude_weekends: false,
+                wait_hours: 0.0,
                 ..IntradayBreakoutConfig::default()
             },
             orchestrator_config: HybridOrchestratorConfig::default(),
@@ -1798,6 +1799,21 @@ mod tests {
             low: 2599.0,
             close: 2601.0,
             volume: 1.0,
+            origin: broker_core::HybridRuntimeBarOrigin::Live,
+            is_final: true,
+            timeframe_sec: 600,
+        }
+    }
+
+    fn production_breakout_entry_bar(bar_close_ts: i64) -> broker_core::HybridRuntimeBarEvent {
+        broker_core::HybridRuntimeBarEvent {
+            instrument: target(),
+            close_time_utc: bar_close_ts,
+            open: 2719.0,
+            high: 2721.0,
+            low: 2719.0,
+            close: 2720.0,
+            volume: 10.0,
             origin: broker_core::HybridRuntimeBarOrigin::Live,
             is_final: true,
             timeframe_sec: 600,
@@ -1946,7 +1962,7 @@ mod tests {
     fn production_fixture(bar_close_ts: i64) -> ProductionFixture {
         let mut strategy = production_integration_strategy(bar_close_ts);
         warm_production_strategy(&mut strategy, bar_close_ts);
-        let bar = production_signal_bar(bar_close_ts);
+        let bar = production_breakout_entry_bar(bar_close_ts);
         let lifecycle_now = Utc.timestamp_opt(bar_close_ts - 30, 0).single().unwrap();
         let (recovered, accepted) =
             crate::stage5c_paper_host::stage5f_test_seams::sequence_inputs_from_owned_strategy(
@@ -2403,8 +2419,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "R2-a restores authority only; rejected R1 semantics resume after independent acceptance"]
-    fn stage5gc_r1_public_market_entry_exact_position_converges() {
+    fn stage5gc_r2b_public_market_entry_exact_position_converges() {
         let fixture = production_fixture(production_bar_close_ts());
         let request_id = fixture.request_id;
         let target_qty = Decimal::from_f64_retain(fixture.source_target_qty).unwrap();
@@ -2443,8 +2458,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "R2-a restores authority only; rejected R1 semantics resume after independent acceptance"]
-    fn stage5gc_r1_public_market_entry_partial_then_exact_converges() {
+    fn stage5gc_r2b_public_market_entry_partial_then_exact_converges() {
         let fixture = production_fixture(production_bar_close_ts());
         let request_id = fixture.request_id;
         let target_qty = Decimal::from_f64_retain(fixture.source_target_qty).unwrap();
@@ -2501,8 +2515,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "R2-a restores authority only; rejected R1 semantics resume after independent acceptance"]
-    fn stage5gc_r1_public_stage5f_f04_market_exit_flat_converges() {
+    fn stage5gc_r2b_public_stage5f_f04_market_exit_flat_converges() {
         let fixture = production_exit_fixture(production_bar_close_ts());
         let request_id = fixture.request_id;
         let ack = production_event(
@@ -2535,8 +2548,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "R2-a restores authority only; rejected R1 semantics resume after independent acceptance"]
-    fn stage5gc_r1_public_rejected_exit_preserves_existing_position() {
+    fn stage5gc_r2b_public_rejected_exit_preserves_existing_position() {
         let fixture = production_exit_fixture(production_bar_close_ts());
         let request_id = fixture.request_id;
         let ack = production_event(
@@ -2570,8 +2582,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "R2-a restores authority only; rejected R1 semantics resume after independent acceptance"]
-    fn stage5gc_r1_public_stage5c_preflight_block_restores_retryable_session() {
+    fn stage5gc_r2b_public_stage5c_preflight_block_restores_retryable_session() {
         let fixture = production_fixture(production_bar_close_ts());
         let request_id = fixture.request_id;
         let target_qty = Decimal::from_f64_retain(fixture.source_target_qty).unwrap();

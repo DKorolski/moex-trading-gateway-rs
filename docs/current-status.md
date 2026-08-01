@@ -66,6 +66,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   accepted and their five public witnesses are explicitly deferred until R2-b.
   R2-b requires a separate independent ACCEPTED verdict for R2-a. Stage 5G-d,
   Redis, FINAM transport, runtime-live and real orders remain closed.
+- Stage 5G-c R2-a was independently accepted at
+  `c6ae2bdaea2575dd41e6da00acad5c231f3c7572`. R2-b is now an implementation
+  review candidate pinned to that exact detached authority snapshot. It adds
+  monotonic Market entry/exit position progression, explicit target Market
+  order-state policy, transactional pre-terminal source authentication,
+  exact-correlation watermarks, vector-order-independent broker evidence and
+  five non-ignored source-reachable production witnesses. Exact source limit
+  price and Replace fields are not present in the accepted Stage 5C projection;
+  extending that projection remains blocked pending a separate authority
+  review. Stage 5G-d and all live surfaces remain closed.
 - Stable macro-roadmap Stage 5 remains active while Stage 5G is incomplete.
   Stage 6 durable command-chain work is not opened by the Stage 5F acceptance.
 - Real FINAM `POST`/`DELETE`, Redis live command consumption, runtime-live,
