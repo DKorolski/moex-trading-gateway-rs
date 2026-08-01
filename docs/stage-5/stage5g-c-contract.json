@@ -1,9 +1,11 @@
 {
   "schema_version": 2,
   "stage": "5G-c-r1-order-trade-position-convergence",
-  "status": "remediation_review_candidate",
-  "accepted_predecessor": "dba5362444ec279391eed92ff28ebb4ceb729c09",
-  "inherited_accepted_stage5g_b_r3": "92f57c7831d8a15fb2e37668d3b07f1ccea03af7",
+  "status": "r2a_authority_recovery_review_candidate",
+  "r1_semantics_status": "rejected_pending_r2b",
+  "r2b_authorized": false,
+  "remediation_base": "dba5362444ec279391eed92ff28ebb4ceb729c09",
+  "accepted_functional_predecessor": "92f57c7831d8a15fb2e37668d3b07f1ccea03af7",
   "source_authority": {
     "projection_owner": "Stage5cPaperIntentBatch source records",
     "broker_truth_owner": "broker-core/operational_snapshot.rs",

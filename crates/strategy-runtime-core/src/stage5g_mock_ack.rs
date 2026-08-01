@@ -1501,6 +1501,33 @@ mod tests {
         state: Stage5gMockAckState,
     }
 
+    #[cfg(test)]
+    mod source_fixture {
+        use super::*;
+
+        pub(super) fn seed_breakout_long(strategy: &mut HybridIntradayRuntimeStrategy) {
+            let mut state = Strategy::state(strategy).clone();
+            match &mut state {
+                crate::runtime_compat::StrategyState::HybridIntradayRuntime {
+                    active_cycle_id,
+                    last_position_qty,
+                    current_owner,
+                    current_side,
+                    ..
+                } => {
+                    *active_cycle_id = Some("stage5g01".to_string());
+                    *last_position_qty = 1.0;
+                    *current_owner = Some(crate::hybrid_intraday::Owner::IntradayBreakout);
+                    *current_side = Some(crate::hybrid_intraday::Side::Long);
+                }
+                crate::runtime_compat::StrategyState::Idle => {
+                    panic!("Stage 5G fixture requires hybrid runtime state")
+                }
+            }
+            Strategy::set_state(strategy, state);
+        }
+    }
+
     struct TestResolved {
         state: Stage5gMockAckState,
         pre_callback_lifecycle_fingerprint_sha256: String,
@@ -1974,18 +2001,34 @@ mod tests {
         }
     }
 
-    fn production_fixture_from_stage5f_row(row_id: &str) -> ProductionFixture {
-        let settled =
-            crate::stage5f_atomic_hybrid_semantics::stage5g_source_settled_fixture(row_id);
+    fn production_exit_fixture(bar_close_ts: i64) -> ProductionFixture {
+        let mut strategy = production_integration_strategy(bar_close_ts);
+        warm_production_strategy(&mut strategy, bar_close_ts);
+        source_fixture::seed_breakout_long(&mut strategy);
+        let bar = production_signal_bar(bar_close_ts);
+        let lifecycle_now = Utc.timestamp_opt(bar_close_ts - 30, 0).single().unwrap();
+        let (recovered, accepted) =
+            crate::stage5c_paper_host::stage5f_test_seams::sequence_inputs_from_owned_strategy(
+                strategy,
+                "hybrid_imoexf".to_string(),
+                BrokerAccountId::new("ACC_TEST_0001"),
+                target(),
+                0.5,
+                Decimal::ONE,
+                lifecycle_now,
+                bar_close_ts - 600,
+                bar,
+            );
+        let semantic = crate::apply_stage5c_semantic_bar(recovered, accepted)
+            .expect("production Stage 5C exit semantic bar");
+        let settled = crate::settle_stage5c_semantic_result(semantic)
+            .expect("production Stage 5C settled Market Exit batch");
         let request_id = settled.intent_batch().request_ids()[0];
-        let bar_close_ts = settled.intent_batch().bar_close_ts();
         let source = settled.stage5g_source_intent_projections();
-        let side = source[0]
-            .side
-            .unwrap_or_else(|| panic!("{row_id}: Market source must have a side"));
+        let side = source[0].side.expect("Market Exit source must have a side");
         let source_target_qty = source[0]
             .target_qty
-            .unwrap_or_else(|| panic!("{row_id}: Market source must have a target quantity"));
+            .expect("Market Exit source must have a target quantity");
         let source_pre_position_qty = source[0].pre_position_qty;
         let action = Stage5gMockIntentAction::Place {
             place_kind: Stage5gMockPlaceKind::Market,
@@ -2003,7 +2046,7 @@ mod tests {
                 lifecycle_expires_at_ts_utc: bar_close_ts + 300,
             },
         )
-        .unwrap_or_else(|_| panic!("{row_id}: Stage 5G-b attachment must pass"));
+        .expect("Stage 5G-b Market Exit attachment must pass");
         ProductionFixture {
             session,
             request_id,
@@ -2360,8 +2403,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "R2-a restores authority only; rejected R1 semantics resume after independent acceptance"]
     fn stage5gc_r1_public_market_entry_exact_position_converges() {
-        let fixture = production_fixture_from_stage5f_row("F02");
+        let fixture = production_fixture(production_bar_close_ts());
         let request_id = fixture.request_id;
         let target_qty = Decimal::from_f64_retain(fixture.source_target_qty).unwrap();
         let signed_target = match fixture.side {
@@ -2399,8 +2443,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "R2-a restores authority only; rejected R1 semantics resume after independent acceptance"]
     fn stage5gc_r1_public_market_entry_partial_then_exact_converges() {
-        let fixture = production_fixture_from_stage5f_row("F02");
+        let fixture = production_fixture(production_bar_close_ts());
         let request_id = fixture.request_id;
         let target_qty = Decimal::from_f64_retain(fixture.source_target_qty).unwrap();
         let partial = match fixture.side {
@@ -2456,8 +2501,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "R2-a restores authority only; rejected R1 semantics resume after independent acceptance"]
     fn stage5gc_r1_public_stage5f_f04_market_exit_flat_converges() {
-        let fixture = production_fixture_from_stage5f_row("F04");
+        let fixture = production_exit_fixture(production_bar_close_ts());
         let request_id = fixture.request_id;
         let ack = production_event(
             &fixture,
@@ -2489,8 +2535,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "R2-a restores authority only; rejected R1 semantics resume after independent acceptance"]
     fn stage5gc_r1_public_rejected_exit_preserves_existing_position() {
-        let fixture = production_fixture_from_stage5f_row("F04");
+        let fixture = production_exit_fixture(production_bar_close_ts());
         let request_id = fixture.request_id;
         let ack = production_event(
             &fixture,
@@ -2523,8 +2570,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "R2-a restores authority only; rejected R1 semantics resume after independent acceptance"]
     fn stage5gc_r1_public_stage5c_preflight_block_restores_retryable_session() {
-        let fixture = production_fixture_from_stage5f_row("F02");
+        let fixture = production_fixture(production_bar_close_ts());
         let request_id = fixture.request_id;
         let target_qty = Decimal::from_f64_retain(fixture.source_target_qty).unwrap();
         let signed_target = match fixture.side {

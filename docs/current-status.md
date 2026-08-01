@@ -57,15 +57,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   active/partial evidence callback-free, and delegates only terminal-complete
   vectors through the existing Stage 5C-j callback boundary. Stage 5G-d remains
   blocked pending independent acceptance of 5G-c.
-- Independent review rejected the initial Stage 5G-c candidate at
-  `dba5362444ec279391eed92ff28ebb4ceb729c09` and authorized exactly one R1
-  successor. Stage 5G-c R1 is now a remediation review candidate: source-owned
-  intent projection, exact Market Entry/Exit semantics, transactional Stage
-  5C-j retry, terminal partial-fill reconciliation, exact trade identity,
-  broker-event chronology and continuation-complete fingerprint v2 are
-  implemented with public F02/F04 production witnesses. Stage 5G-d, Redis,
-  FINAM transport, runtime-live and real orders remain closed until independent
-  R1 acceptance.
+- Independent review rejected Stage 5G-c R1 at
+  `16591e819c571aa2ccb8e4b0d087d28c84090415`. The only authorized successor is
+  Stage 5G-c R2-a authority recovery. R2-a restores the exact frozen Stage 5F
+  semantic route, confines the required Stage 5C source projection to
+  digest-pinned crate-private read-only regions, and keeps the accepted Stage
+  5G-a inventory immutable. The rejected R1 convergence semantics are not
+  accepted and their five public witnesses are explicitly deferred until R2-b.
+  R2-b requires a separate independent ACCEPTED verdict for R2-a. Stage 5G-d,
+  Redis, FINAM transport, runtime-live and real orders remain closed.
 - Stable macro-roadmap Stage 5 remains active while Stage 5G is incomplete.
   Stage 6 durable command-chain work is not opened by the Stage 5F acceptance.
 - Real FINAM `POST`/`DELETE`, Redis live command consumption, runtime-live,

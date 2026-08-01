@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "stage": "5G-c-R2-a-authority-recovery",
+  "status": "independent_review_candidate",
+  "remediation_base": "dba5362444ec279391eed92ff28ebb4ceb729c09",
+  "rejected_r1_base": "16591e819c571aa2ccb8e4b0d087d28c84090415",
+  "accepted_functional_predecessor": "92f57c7831d8a15fb2e37668d3b07f1ccea03af7",
+  "accepted_stage5g_a_inventory": {
+    "path": "docs/stage-5/stage5g-lifecycle-entry-inventory.json",
+    "sha256": "d9a2e3e9cb7a0aae5f26a68be784ef7b0f1ce7bfbc017eaee29b991d2ad91539"
+  },
+  "stage5f_frozen_authority": {
+    "path": "crates/strategy-runtime-core/src/stage5f_atomic_hybrid_semantics.rs",
+    "sha256": "cf8fe7900a2f1f84d3928c0d911db69415f19ee640c26dea47227759e375c508"
+  },
+  "stage5c_extension": {
+    "path": "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+    "accepted_baseline_sha256": "93c0b48e1b564ef1763354579885bea3cd5b448133afccbc611584184bb13f2d",
+    "current_sha256": "636dd27ac64b1d9dc448fc065497d7d59c09fc8735891953e5b0432879b60193",
+    "stripped_sha256": "93c0b48e1b564ef1763354579885bea3cd5b448133afccbc611584184bb13f2d",
+    "public_api_unchanged": true,
+    "production_accessor_count": 1,
+    "new_callback_callsite_count": 0,
+    "regions": [
+      {"name": "source-projection-types", "sha256": "b01a3731afa1da385628425f5d58c9529277f3605c1f996ebe4a184eb322135f"},
+      {"name": "settled-test-read-only-accessor", "sha256": "e1e1241691e4460bdd01e455b82959e04f245a745fc14d3f6439c3f110b5081f"},
+      {"name": "resolved-read-only-accessor", "sha256": "a8d24dc238f3d396ba48b114d413472fb0245930415ff17080a29f75ad525c19"},
+      {"name": "source-projection-function", "sha256": "c127ac7928a5f0f6f87a438061ab5840f10b826d241d77f4f7ff261133ef7126"}
+    ]
+  },
+  "declarations": {
+    "read_only_projection_only": true,
+    "semantic_mutation_added": false,
+    "callback_added": false,
+    "state_mutation_added": false,
+    "io_added": false,
+    "dispatch_added": false,
+    "new_runtime_path_added": false,
+    "r1_semantics_accepted": false,
+    "r2b_authorized": false
+  },
+  "closed_surfaces": {
+    "stage5g_d": false,
+    "redis_live_consumer": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "protective_completion": false,
+    "deployment": false
+  }
+}

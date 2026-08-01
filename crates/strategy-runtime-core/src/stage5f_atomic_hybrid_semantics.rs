@@ -1670,45 +1670,6 @@ fn characterize(row_id: &str, mutation: Stage5fMutation) -> Stage5fCandidateResu
     characterize_input(load_scenario(row_id), mutation)
 }
 
-pub(crate) fn stage5g_source_settled_fixture(row_id: &str) -> crate::Stage5cSettledPaperStrategy {
-    let input = load_scenario(row_id);
-    let mut strategy = materialize_strategy(&input);
-    assert!(
-        matches!(
-            prepare_riskgate(&mut strategy, &input),
-            Stage5fRiskgatePreparation::Ready
-        ),
-        "{row_id}: Stage 5G source fixture must pass riskgate preparation"
-    );
-    let position_qty =
-        Decimal::from_str(&input.state_seed.position_qty).expect("position quantity decimal");
-    let predecessor_close_ts = input.bar.close_time_utc - 600;
-    let lifecycle_now = DateTime::<Utc>::from_timestamp(input.bar.close_time_utc - 30, 0)
-        .expect("fixture lifecycle timestamp");
-    let callback_at = DateTime::<Utc>::from_timestamp(input.bar.close_time_utc + 1, 0)
-        .expect("fixture callback timestamp");
-    let (recovered, accepted) =
-        crate::stage5c_paper_host::stage5f_test_seams::sequence_inputs_from_owned_strategy(
-            strategy,
-            input.strategy_id,
-            input.account_id,
-            input.target,
-            0.5,
-            position_qty,
-            lifecycle_now,
-            predecessor_close_ts,
-            input.bar,
-        );
-    let semantic = crate::stage5c_paper_host::stage5f_test_seams::apply_semantic_bar_at(
-        recovered,
-        accepted,
-        callback_at,
-    )
-    .unwrap_or_else(|reason| panic!("{row_id}: Stage 5C semantic bar must pass: {reason:?}"));
-    crate::settle_stage5c_semantic_result(semantic)
-        .unwrap_or_else(|_| panic!("{row_id}: Stage 5C settlement must pass"))
-}
-
 fn characterize_input(
     input: Stage5fScenarioInput,
     mutation: Stage5fMutation,

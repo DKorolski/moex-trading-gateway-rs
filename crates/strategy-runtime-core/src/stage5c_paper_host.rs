@@ -1762,14 +1762,6 @@ pub(crate) mod stage5f_test_seams {
         )
     }
 
-    pub(crate) fn apply_semantic_bar_at(
-        recovered: Stage5cPendingRecoveredPaperStrategy,
-        accepted: Stage5cAcceptedSemanticBar,
-        now: DateTime<Utc>,
-    ) -> Result<Stage5cSemanticBarResult, Stage5cSemanticBarError> {
-        apply_stage5c_semantic_bar_at(recovered, accepted, now)
-    }
-
     /// Continues an actual Stage 5D-restored capability through the production
     /// Stage 5C history, pending-recovery and semantic-bar validators. The
     /// recovery evidence is an explicit empty paper claim; no Redis is opened.
@@ -2890,6 +2882,7 @@ struct Stage5cPaperIntentRecord {
     expected_attribution: Option<broker_core::HybridRuntimeAttribution>,
 }
 
+// STAGE5G-C-SOURCE-PROJECTION-BEGIN: source-projection-types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Stage5gSourceBaseAction {
     Market,
@@ -2910,6 +2903,7 @@ pub(crate) struct Stage5gSourceIntentProjection {
     pub pre_position_qty: f64,
     pub expected_attribution: Option<broker_core::HybridRuntimeAttribution>,
 }
+// STAGE5G-C-SOURCE-PROJECTION-END: source-projection-types
 
 #[derive(Default)]
 struct Stage5cCleanupAttributionLedger {
@@ -3013,10 +3007,12 @@ impl Stage5cSettledPaperStrategy {
     pub fn timer_path_enabled(&self) -> bool {
         false
     }
+    // STAGE5G-C-SOURCE-PROJECTION-BEGIN: settled-test-read-only-accessor
     #[cfg(test)]
     pub(crate) fn stage5g_source_intent_projections(&self) -> Vec<Stage5gSourceIntentProjection> {
         stage5g_source_intent_projections(&self.strategy, &self.batch)
     }
+    // STAGE5G-C-SOURCE-PROJECTION-END: settled-test-read-only-accessor
     #[cfg(test)]
     fn strategy(&self) -> &HybridIntradayRuntimeStrategy {
         &self.strategy
@@ -3445,15 +3441,18 @@ impl Stage5cResolvedPaperIntentBatchStrategy {
     pub fn post_lifecycle_state_fingerprint(&self) -> String {
         stage5c_state_fingerprint(Strategy::state(&self.strategy))
     }
+    // STAGE5G-C-SOURCE-PROJECTION-BEGIN: resolved-read-only-accessor
     pub(crate) fn stage5g_source_intent_projections(&self) -> Vec<Stage5gSourceIntentProjection> {
         stage5g_source_intent_projections(&self.strategy, &self.resolved_batch)
     }
+    // STAGE5G-C-SOURCE-PROJECTION-END: resolved-read-only-accessor
     #[cfg(test)]
     fn strategy(&self) -> &HybridIntradayRuntimeStrategy {
         &self.strategy
     }
 }
 
+// STAGE5G-C-SOURCE-PROJECTION-BEGIN: source-projection-function
 fn stage5g_source_intent_projections(
     strategy: &HybridIntradayRuntimeStrategy,
     batch: &Stage5cPaperIntentBatch,
@@ -3501,6 +3500,7 @@ fn stage5g_source_intent_projections(
         })
         .collect()
 }
+// STAGE5G-C-SOURCE-PROJECTION-END: source-projection-function
 
 pub struct Stage5cBrokerLifecycleResolvedPaperStrategy {
     strategy: HybridIntradayRuntimeStrategy,
