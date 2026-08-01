@@ -137,6 +137,7 @@ mod stage5e_no_io_lifecycle;
 mod stage5f_atomic_hybrid_semantics;
 // STAGE5F-TEST-OBSERVATION-MODULE-END
 mod stage5g_mock_ack;
+mod stage5g_order_position;
 
 pub use hybrid_intraday_runtime::{
     BrokerNeutralHybridCallbackResult, BrokerNeutralHybridStrategy, HybridIntradayProfile,
@@ -249,6 +250,14 @@ pub use stage5g_mock_ack::{
     Stage5gMockAckTransition, Stage5gMockIntentAction, Stage5gMockIntentBinding,
     Stage5gMockPlaceKind, Stage5gResolvedMockAckPaperStrategy, Stage5gResolvedMockAckReplayBlocked,
     STAGE5G_MOCK_ACK_SCHEMA_VERSION,
+};
+pub use stage5g_order_position::{
+    apply_stage5g_order_position_evidence, attach_stage5g_order_position_session,
+    Stage5gConvergedPaperStrategy, Stage5gOrderPositionAdmissionBlocked,
+    Stage5gOrderPositionAdmissionError, Stage5gOrderPositionBlocked, Stage5gOrderPositionError,
+    Stage5gOrderPositionEvidence, Stage5gOrderPositionFailure, Stage5gOrderPositionSession,
+    Stage5gOrderPositionSummary, Stage5gOrderPositionTerminal, Stage5gOrderPositionTransition,
+    STAGE5G_ORDER_POSITION_SCHEMA_VERSION,
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5d-exports
 pub use stage5d_persistence::{

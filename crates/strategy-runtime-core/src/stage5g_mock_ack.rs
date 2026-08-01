@@ -159,6 +159,15 @@ pub struct Stage5gResolvedMockAckPaperStrategy {
     transition_fingerprint_sha256: String,
 }
 
+/// Crate-private ownership token used only by the next accepted Stage 5G
+/// lifecycle slice. It keeps the accepted ACK state linear while allowing
+/// Stage 5G-c to delegate the terminal broker-event vector to Stage 5C-j.
+pub(crate) struct Stage5gResolvedMockAckContext {
+    state: Stage5gMockAckState,
+    pre_callback_lifecycle_fingerprint_sha256: String,
+    transition_fingerprint_sha256: String,
+}
+
 pub enum Stage5gMockAckTransition {
     Awaiting(Stage5gMockAckSession),
     Resolved(Stage5gResolvedMockAckPaperStrategy),
@@ -407,14 +416,6 @@ fn stage5g_build_mock_ack_state(
         }
         if binding.intent_class != intent_classes[index] {
             return Err(Stage5gMockAckAdmissionError::BindingIntentClassMismatch);
-        }
-        if !matches!(
-            &binding.action,
-            Stage5gMockIntentAction::Place {
-                place_kind: Stage5gMockPlaceKind::Market
-            }
-        ) {
-            return Err(Stage5gMockAckAdmissionError::NotYetSourceAuthenticated);
         }
         if !stage5g_action_matches_class(&binding.action, binding.intent_class) {
             return Err(Stage5gMockAckAdmissionError::BindingActionClassMismatch);
@@ -673,6 +674,10 @@ impl Stage5gMockAckSession {
 }
 
 impl Stage5gResolvedMockAckPaperStrategy {
+    pub fn lifecycle_summary(&self) -> Stage5gMockAckSessionSummary {
+        stage5g_state_summary(&self.state)
+    }
+
     pub fn batch_summary(&self) -> &Stage5cPaperIntentBatchSummary {
         &self.state.batch_summary
     }
@@ -711,6 +716,36 @@ impl Stage5gResolvedMockAckPaperStrategy {
 
     pub fn broker_truth_changed(&self) -> bool {
         false
+    }
+
+    pub(crate) fn into_stage5g_c_parts(
+        self,
+    ) -> (
+        Stage5cResolvedPaperIntentBatchStrategy,
+        Stage5gResolvedMockAckContext,
+    ) {
+        (
+            self.resolved,
+            Stage5gResolvedMockAckContext {
+                state: self.state,
+                pre_callback_lifecycle_fingerprint_sha256: self
+                    .pre_callback_lifecycle_fingerprint_sha256,
+                transition_fingerprint_sha256: self.transition_fingerprint_sha256,
+            },
+        )
+    }
+
+    pub(crate) fn from_stage5g_c_parts(
+        resolved: Stage5cResolvedPaperIntentBatchStrategy,
+        context: Stage5gResolvedMockAckContext,
+    ) -> Self {
+        Self {
+            resolved,
+            state: context.state,
+            pre_callback_lifecycle_fingerprint_sha256: context
+                .pre_callback_lifecycle_fingerprint_sha256,
+            transition_fingerprint_sha256: context.transition_fingerprint_sha256,
+        }
     }
 }
 
@@ -1631,6 +1666,16 @@ mod tests {
     }
 
     fn production_integration_strategy(bar_close_ts: i64) -> HybridIntradayRuntimeStrategy {
+        production_integration_strategy_with_style(
+            bar_close_ts,
+            MarketBuyAndCloseLiveOrderStyle::Market,
+        )
+    }
+
+    fn production_integration_strategy_with_style(
+        bar_close_ts: i64,
+        live_order_style: MarketBuyAndCloseLiveOrderStyle,
+    ) -> HybridIntradayRuntimeStrategy {
         let utc_bar_close = Utc
             .timestamp_opt(bar_close_ts, 0)
             .single()
@@ -1648,7 +1693,7 @@ mod tests {
             model_session_start_time: Some((local_bar_close - Duration::minutes(10)).time()),
             model_session_end_time: Some((local_bar_close + Duration::hours(1)).time()),
             qty: 1.0,
-            live_order_style: MarketBuyAndCloseLiveOrderStyle::Market,
+            live_order_style,
             tick_size: 0.5,
             marketable_limit_offset_ticks: 0,
             timezone_offset_hours,
@@ -1670,6 +1715,58 @@ mod tests {
             },
             orchestrator_config: HybridOrchestratorConfig::default(),
         })
+    }
+
+    fn warm_production_strategy(strategy: &mut HybridIntradayRuntimeStrategy, bar_close_ts: i64) {
+        for (close_time_utc, high, low) in [
+            (bar_close_ts - 86_400 - 600, 2630.0, 2570.0),
+            (bar_close_ts - 86_400, 2620.0, 2580.0),
+        ] {
+            assert!(Strategy::on_bar(
+                strategy,
+                &StrategyCtx {
+                    strategy_id: "hybrid_imoexf".to_string(),
+                    portfolio: "ACC_TEST_0001".to_string(),
+                    exchange: "MOEX".to_string(),
+                    symbol: "IMOEXF".to_string(),
+                    tick_size: 0.5,
+                    trade_mode: TradeMode::Paper,
+                    paper_execution_mode: PaperExecutionMode::LiveOnly,
+                    allow_live_orders: false,
+                    gateway_phase: GatewayPhase::LiveReady,
+                    position_qty: Some(0.0),
+                    event_ts_utc: close_time_utc,
+                    now_ts_utc: close_time_utc,
+                    last_bar_ts: Some(close_time_utc),
+                },
+                &BarEvent {
+                    symbol: "IMOEXF".to_string(),
+                    close_time_utc,
+                    o: 2600.0,
+                    h: high,
+                    l: low,
+                    close: 2600.0,
+                    v: 1.0,
+                    origin: DataOrigin::Replay,
+                },
+            )
+            .is_empty());
+        }
+    }
+
+    fn production_signal_bar(bar_close_ts: i64) -> broker_core::HybridRuntimeBarEvent {
+        broker_core::HybridRuntimeBarEvent {
+            instrument: target(),
+            close_time_utc: bar_close_ts,
+            open: 2601.0,
+            high: 2602.0,
+            low: 2599.0,
+            close: 2601.0,
+            volume: 1.0,
+            origin: broker_core::HybridRuntimeBarOrigin::Live,
+            is_final: true,
+            timeframe_sec: 600,
+        }
     }
 
     fn accepted_stage5f_market_projection(
@@ -1813,52 +1910,8 @@ mod tests {
 
     fn production_fixture(bar_close_ts: i64) -> ProductionFixture {
         let mut strategy = production_integration_strategy(bar_close_ts);
-        for (close_time_utc, high, low) in [
-            (bar_close_ts - 86_400 - 600, 2630.0, 2570.0),
-            (bar_close_ts - 86_400, 2620.0, 2580.0),
-        ] {
-            assert!(Strategy::on_bar(
-                &mut strategy,
-                &StrategyCtx {
-                    strategy_id: "hybrid_imoexf".to_string(),
-                    portfolio: "ACC_TEST_0001".to_string(),
-                    exchange: "MOEX".to_string(),
-                    symbol: "IMOEXF".to_string(),
-                    tick_size: 0.5,
-                    trade_mode: TradeMode::Paper,
-                    paper_execution_mode: PaperExecutionMode::LiveOnly,
-                    allow_live_orders: false,
-                    gateway_phase: GatewayPhase::LiveReady,
-                    position_qty: Some(0.0),
-                    event_ts_utc: close_time_utc,
-                    now_ts_utc: close_time_utc,
-                    last_bar_ts: Some(close_time_utc),
-                },
-                &BarEvent {
-                    symbol: "IMOEXF".to_string(),
-                    close_time_utc,
-                    o: 2600.0,
-                    h: high,
-                    l: low,
-                    close: 2600.0,
-                    v: 1.0,
-                    origin: DataOrigin::Replay,
-                },
-            )
-            .is_empty());
-        }
-        let bar = broker_core::HybridRuntimeBarEvent {
-            instrument: target(),
-            close_time_utc: bar_close_ts,
-            open: 2601.0,
-            high: 2602.0,
-            low: 2599.0,
-            close: 2601.0,
-            volume: 1.0,
-            origin: broker_core::HybridRuntimeBarOrigin::Live,
-            is_final: true,
-            timeframe_sec: 600,
-        };
+        warm_production_strategy(&mut strategy, bar_close_ts);
+        let bar = production_signal_bar(bar_close_ts);
         let lifecycle_now = Utc.timestamp_opt(bar_close_ts - 30, 0).single().unwrap();
         let (recovered, accepted) =
             crate::stage5c_paper_host::stage5f_test_seams::sequence_inputs_from_owned_strategy(
@@ -2175,6 +2228,54 @@ mod tests {
             Some("FINAM_PRODUCTION_ACCEPTED_0001")
         );
         assert!(!resolved.broker_truth_changed());
+    }
+
+    #[test]
+    fn stage5gc_public_terminal_ack_converges_without_broker_callback() {
+        let fixture = production_fixture(production_bar_close_ts());
+        let received_ts = Utc
+            .timestamp_opt(fixture.bar_close_ts + 2, 0)
+            .single()
+            .unwrap();
+        let ack = production_event(
+            &fixture,
+            1,
+            CommandAckStatus::Rejected,
+            None,
+            Some(CommandAckReasonCode::BrokerRejected),
+        );
+        let request_id = fixture.request_id;
+        let resolved = apply_stage5g_mock_ack(fixture.session, ack)
+            .expect("terminal ACK")
+            .into_resolved()
+            .expect("one terminal ACK resolves");
+        let session =
+            crate::attach_stage5g_order_position_session(resolved).expect("Stage 5G-c attachment");
+        let transition = crate::apply_stage5g_order_position_evidence(
+            session,
+            crate::Stage5gOrderPositionEvidence {
+                total_sequence: 2,
+                request_id,
+                broker_truth: broker_core::BrokerTruthSnapshot {
+                    account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                    orders: Vec::new(),
+                    positions: Vec::new(),
+                    cash: None,
+                    trades: Vec::new(),
+                    instruments: Vec::new(),
+                    received_ts,
+                },
+                order_attribution: None,
+            },
+        )
+        .expect("terminal ACK requires no broker callback");
+        let converged = transition.into_converged().expect("terminal convergence");
+        assert_eq!(converged.summary().stage5c_callback_count, 0);
+        assert_eq!(converged.summary().order_transition_count, 0);
+        assert_eq!(converged.summary().position_confirmation_count, 0);
+        assert!(!converged.redis_command_stream_attached());
+        assert!(!converged.broker_transport_attached());
+        assert!(!converged.broker_execution_attached());
     }
 
     #[test]
@@ -3038,7 +3139,7 @@ mod tests {
     }
 
     #[test]
-    fn cancel_binding_is_exact_and_carries_no_side_but_is_not_source_authenticated() {
+    fn limit_and_cancel_cannot_spoof_a_market_source_request_identity() {
         for action in [
             Stage5gMockIntentAction::Place {
                 place_kind: Stage5gMockPlaceKind::Limit,
@@ -3062,13 +3163,14 @@ mod tests {
             ) {
                 Err(reason) => reason,
                 Ok(_) => {
-                    panic!("Limit/Cancel must remain blocked without trusted Stage 5C projection")
+                    panic!("Limit/Cancel must not reuse a Market source request identity")
                 }
             };
-            assert_eq!(
+            assert!(matches!(
                 blocked,
-                Stage5gMockAckAdmissionError::NotYetSourceAuthenticated
-            );
+                Stage5gMockAckAdmissionError::BindingRequestIdentityMismatch
+                    | Stage5gMockAckAdmissionError::BindingActionClassMismatch
+            ));
         }
     }
 

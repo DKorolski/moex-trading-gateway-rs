@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "stage": "5G-c-order-trade-position-convergence",
+  "status": "implementation_review_candidate",
+  "accepted_predecessor": "92f57c7831d8a15fb2e37668d3b07f1ccea03af7",
+  "authority": {
+    "broker_truth_owner": "broker-core/operational_snapshot.rs",
+    "callback_owner": "Stage 5C-j",
+    "stage5g_scope": "event_admission_ordering_correlation_and_paper_reconciliation",
+    "stage5c_source_sha256": "93c0b48e1b564ef1763354579885bea3cd5b448133afccbc611584184bb13f2d",
+    "broker_core_snapshot_source_sha256": "53e78a922b1c1a7948485f3016acdbcd64c3766618274a3b039233fc67d541ca",
+    "stage5c_api_freeze_sha256": "f8c555d11de1271f5041b4d3abf880ac7a406d6fb23f5e4d38ca25468a974323"
+  },
+  "semantics": {
+    "canonical_snapshots_only": true,
+    "active_and_partial_accumulate_without_callback": true,
+    "terminal_complete_vector_calls_stage5c_j_once": true,
+    "target_instrument_truth_is_lifecycle_truth": true,
+    "account_wide_orders_are_safety_guard": true,
+    "trade_identity_and_quantity_are_exact": true,
+    "duplicate_exact_is_idempotent": true,
+    "conflicting_duplicate_fails_closed": true,
+    "broker_order_id_is_exact_string": true
+  },
+  "scenario_case_ids": [
+    "GOP01_WORKING_ORDER_REMAINS_ACTIVE",
+    "GOP02_PARTIAL_FILL_ADVANCES_MONOTONICALLY",
+    "GOP03_PARTIAL_FILL_REGRESSION_BLOCKS",
+    "GOP04_FILLED_REQUIRES_TARGET_POSITION_CONFIRMATION",
+    "GOP05_CANCELED_TERMINATES_WITHOUT_POSITION_CHANGE",
+    "GOP06_REJECTED_TERMINATES_WITHOUT_POSITION_CHANGE",
+    "GOP07_EXPIRED_TERMINATES_WITHOUT_POSITION_CHANGE",
+    "GOP08_UNKNOWN_ORDER_STATUS_BLOCKS",
+    "GOP09_IDENTICAL_EVENT_REPLAY_IS_IDEMPOTENT",
+    "GOP10_CONFLICTING_DUPLICATE_EVENT_BLOCKS",
+    "GOP11_NON_TARGET_EVENT_CANNOT_SETTLE_TARGET",
+    "GOP12_ACCOUNT_WIDE_ACTIVE_ORDER_IS_SAFETY_GUARD",
+    "GOP13_TARGET_POSITION_SIDE_MISMATCH_BLOCKS",
+    "GOP14_TARGET_POSITION_OVERFILL_BLOCKS",
+    "GOP15_CORRELATED_TRADE_SUPPORTS_FILL_TRUTH",
+    "GOP16_TRADE_IDENTITY_OR_QUANTITY_MISMATCH_BLOCKS"
+  ],
+  "closed_surfaces": {
+    "redis_live_consumer": false,
+    "redis_consumer_groups": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "protective_completion": false,
+    "stage5g_d": false,
+    "stage6": false,
+    "main_merge": false,
+    "deployment": false
+  },
+  "next_transition": {
+    "independent_review_required": true,
+    "stage5g_d_open": false,
+    "main_merge_authorized": false,
+    "deployment_authorized": false
+  }
+}

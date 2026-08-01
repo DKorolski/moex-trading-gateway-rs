@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "stage": "5G-b-r3-duplicate-transition-identity",
+  "status": "accepted",
+  "source": {
+    "branch": "stage5g-lifecycle",
+    "full_commit_sha": "92f57c7831d8a15fb2e37668d3b07f1ccea03af7",
+    "archive_name": "moex-trading-project-92f57c7.zip",
+    "archive_sha256": "e0d153c3496cdc8db26149c218cca992c8df2cb1f37d962da26d383810235c0a"
+  },
+  "independent_review": {
+    "package_name": "STAGE5G_B_R3_92F57C7_REVIEW_PACKAGE_2026-08-01.zip",
+    "package_sha256": "74130c709d45f46b7d363e7ee38b502ad1fbdb2cda16d991207521da19bb8924",
+    "review_sha256": "3bfe62649770db504bdf88a0722637211d32d45cfccc8082d6bb0f24d1a86a06",
+    "result_sha256": "0a307f4ee14f63274b29b7846b661234d5485ca78fc50d1d046d0999f5d084ea",
+    "review_date": "2026-08-01",
+    "verdict": "ACCEPTED",
+    "p0_count": 0,
+    "p1_count": 0,
+    "authorized_successor": "5G-c-order-trade-position-convergence"
+  },
+  "governance": {
+    "stage5g_b_closed": true,
+    "stage5g_c_open": true,
+    "main_merge_authorized": false,
+    "deployment_authorized": false
+  },
+  "closed_surfaces": {
+    "redis_live_consumer": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage6": false
+  }
+}
