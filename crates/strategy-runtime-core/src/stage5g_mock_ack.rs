@@ -22,7 +22,7 @@ use crate::stage5c_paper_host::{
 };
 use crate::{BrokerNeutralHybridIntentClass, BrokerNeutralOrderSide};
 
-pub const STAGE5G_MOCK_ACK_SCHEMA_VERSION: u16 = 2;
+pub const STAGE5G_MOCK_ACK_SCHEMA_VERSION: u16 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -101,6 +101,7 @@ pub struct Stage5gMockAckSessionSummary {
     pub origin_bar_close_ts: i64,
     pub lifecycle_expires_at_ts_utc: i64,
     pub last_total_sequence: Option<u64>,
+    pub last_ack_received_ts_utc: Option<String>,
     pub duplicate_status_count: usize,
     pub resolved_count: usize,
     pub slot_count: usize,
@@ -134,6 +135,7 @@ struct Stage5gMockAckState {
     slots: Vec<Stage5gMockAckSlot>,
     lifecycle_expires_at_ts_utc: i64,
     last_total_sequence: Option<u64>,
+    last_ack_received_ts_utc: Option<chrono::DateTime<chrono::Utc>>,
     duplicate_status_count: usize,
 }
 
@@ -230,8 +232,11 @@ pub enum Stage5gMockAckError {
     SideMismatch,
     ClientOrderIdMismatch,
     BrokerOrderIdConflict,
+    MissingBrokerOrderIdAfterObservedIdentity,
     AckReasonIncoherent,
     NoSendProofContradictsBrokerIdentity,
+    NoSendProofContradictsPriorLifecycleEvidence,
+    NonMonotonicAckTime,
     AckTimestampBeforeIntent,
     AckAfterLifecycleExpiry,
     DuplicateAck,
@@ -445,6 +450,7 @@ fn stage5g_build_mock_ack_state(
         slots,
         lifecycle_expires_at_ts_utc: input.lifecycle_expires_at_ts_utc,
         last_total_sequence: None,
+        last_ack_received_ts_utc: None,
         duplicate_status_count: 0,
     })
 }
@@ -494,8 +500,10 @@ fn stage5g_apply_mock_ack_state(
         Err(reason) => return Err(block(reason, state)),
     };
 
-    if stage5g_no_send_proof_contradicts_broker_identity(&state.slots[slot_index], &event.ack) {
+    if let Some(reason) = stage5g_no_send_proof_contradiction(&state.slots[slot_index], &event.ack)
+    {
         state.last_total_sequence = Some(event.total_sequence);
+        state.last_ack_received_ts_utc = Some(event.ack.received_ts);
         let slot = &mut state.slots[slot_index];
         if let Some(broker_order_id) = &event.ack.broker_order_id {
             slot.observed_broker_order_id = Some(broker_order_id.clone());
@@ -505,8 +513,18 @@ fn stage5g_apply_mock_ack_state(
         // do not pair the contradictory ACK with a stale prior decision.
         slot.latest_decision = None;
         slot.state = Stage5gMockAckSlotState::ManualInterventionRequired;
+        return Err(block(reason, state));
+    }
+
+    if stage5g_terminal_ack_loses_observed_broker_identity(&state.slots[slot_index], &event.ack) {
+        state.last_total_sequence = Some(event.total_sequence);
+        state.last_ack_received_ts_utc = Some(event.ack.received_ts);
+        let slot = &mut state.slots[slot_index];
+        slot.latest_ack = Some(event.ack);
+        slot.latest_decision = None;
+        slot.state = Stage5gMockAckSlotState::ManualInterventionRequired;
         return Err(block(
-            Stage5gMockAckError::NoSendProofContradictsBrokerIdentity,
+            Stage5gMockAckError::MissingBrokerOrderIdAfterObservedIdentity,
             state,
         ));
     }
@@ -517,6 +535,7 @@ fn stage5g_apply_mock_ack_state(
     };
 
     state.last_total_sequence = Some(event.total_sequence);
+    state.last_ack_received_ts_utc = Some(event.ack.received_ts);
     let slot = &mut state.slots[slot_index];
     if let Some(broker_order_id) = &event.ack.broker_order_id {
         slot.observed_broker_order_id = Some(broker_order_id.clone());
@@ -590,6 +609,13 @@ fn stage5g_apply_duplicate_to_resolved_state(
     if event.total_sequence <= state.last_total_sequence.unwrap_or(0) {
         return Err(block(Stage5gMockAckError::NonMonotonicSequence, state));
     }
+    if state
+        .last_ack_received_ts_utc
+        .as_ref()
+        .is_some_and(|last| event.ack.received_ts < *last)
+    {
+        return Err(block(Stage5gMockAckError::NonMonotonicAckTime, state));
+    }
     let Some(slot_index) = state
         .slots
         .iter()
@@ -615,6 +641,7 @@ fn stage5g_apply_duplicate_to_resolved_state(
         ));
     }
     state.last_total_sequence = Some(event.total_sequence);
+    state.last_ack_received_ts_utc = Some(event.ack.received_ts);
     state.duplicate_status_count += 1;
     Ok(state)
 }
@@ -777,6 +804,13 @@ fn stage5g_preflight_event(
     {
         return Err(Stage5gMockAckError::NonMonotonicSequence);
     }
+    if state
+        .last_ack_received_ts_utc
+        .as_ref()
+        .is_some_and(|last| event.ack.received_ts < *last)
+    {
+        return Err(Stage5gMockAckError::NonMonotonicAckTime);
+    }
     let Some(slot_index) = state
         .slots
         .iter()
@@ -878,12 +912,46 @@ fn stage5g_duplicate_matches_prior(slot: &Stage5gMockAckSlot, ack: &CommandAck) 
         }
 }
 
-fn stage5g_no_send_proof_contradicts_broker_identity(
+fn stage5g_no_send_proof_contradiction(
+    slot: &Stage5gMockAckSlot,
+    ack: &CommandAck,
+) -> Option<Stage5gMockAckError> {
+    if ack.status != CommandAckStatus::Expired {
+        return None;
+    }
+    if slot.observed_broker_order_id.is_some() || ack.broker_order_id.is_some() {
+        return Some(Stage5gMockAckError::NoSendProofContradictsBrokerIdentity);
+    }
+    let exact_proof =
+        ack.reason.as_ref().map(|reason| reason.code) == Some(CommandAckReasonCode::ExpiredCommand);
+    if !exact_proof {
+        return None;
+    }
+    let direct_waiting =
+        slot.state == Stage5gMockAckSlotState::Waiting && slot.latest_ack.is_none();
+    let prior_unproved_expiry = slot.state == Stage5gMockAckSlotState::NoSendProofRequired
+        && slot.latest_ack.as_ref().is_some_and(|prior| {
+            prior.status == CommandAckStatus::Expired
+                && prior.reason.is_none()
+                && prior.broker_order_id.is_none()
+        });
+    if direct_waiting || prior_unproved_expiry {
+        None
+    } else {
+        Some(Stage5gMockAckError::NoSendProofContradictsPriorLifecycleEvidence)
+    }
+}
+
+fn stage5g_terminal_ack_loses_observed_broker_identity(
     slot: &Stage5gMockAckSlot,
     ack: &CommandAck,
 ) -> bool {
-    ack.status == CommandAckStatus::Expired
-        && (slot.observed_broker_order_id.is_some() || ack.broker_order_id.is_some())
+    slot.observed_broker_order_id.is_some()
+        && ack.broker_order_id.is_none()
+        && matches!(
+            ack.status,
+            CommandAckStatus::Accepted | CommandAckStatus::Recovered | CommandAckStatus::Rejected
+        )
 }
 
 fn stage5g_ack_reason_is_coherent(ack: &CommandAck) -> bool {
@@ -1122,6 +1190,10 @@ fn stage5g_state_summary(state: &Stage5gMockAckState) -> Stage5gMockAckSessionSu
         origin_bar_close_ts: state.batch_summary.origin_bar_close_ts,
         lifecycle_expires_at_ts_utc: state.lifecycle_expires_at_ts_utc,
         last_total_sequence: state.last_total_sequence,
+        last_ack_received_ts_utc: state
+            .last_ack_received_ts_utc
+            .as_ref()
+            .map(stage5g_ack_timestamp),
         duplicate_status_count: state.duplicate_status_count,
         resolved_count: state
             .slots
@@ -1189,6 +1261,10 @@ fn stage5g_state_summary_without_fingerprint(
         origin_bar_close_ts: state.batch_summary.origin_bar_close_ts,
         lifecycle_expires_at_ts_utc: state.lifecycle_expires_at_ts_utc,
         last_total_sequence: state.last_total_sequence,
+        last_ack_received_ts_utc: state
+            .last_ack_received_ts_utc
+            .as_ref()
+            .map(stage5g_ack_timestamp),
         duplicate_status_count: state.duplicate_status_count,
         resolved_count: state
             .slots
@@ -1207,7 +1283,7 @@ fn stage5g_state_summary_without_fingerprint(
 
 fn stage5g_summary_fingerprint<T: Serialize>(value: &T) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"moex.stage5g.mock-ack-lifecycle.v2\0");
+    hasher.update(b"moex.stage5g.mock-ack-lifecycle.v3\0");
     hasher.update(serde_json::to_vec(value).expect("Stage 5G summary serializes"));
     stage5g_sha256_hex(hasher.finalize())
 }
@@ -1337,7 +1413,8 @@ fn stage5g_block(
 mod tests {
     use broker_core::command::{CommandAckReason, CommandAckReasonCode};
     use broker_core::{Exchange, Market};
-    use chrono::{Duration, NaiveDate, NaiveTime, TimeZone, Utc};
+    use chrono::{Duration, NaiveDate, NaiveTime, TimeZone, Timelike, Utc};
+    use rust_decimal::Decimal;
     use uuid::Uuid;
 
     use super::*;
@@ -1364,6 +1441,14 @@ mod tests {
         action: Stage5gMockIntentAction,
         account_id: BrokerAccountId,
         instrument: InstrumentId,
+        bar_close_ts: i64,
+    }
+
+    struct ProductionFixture {
+        session: Stage5gMockAckSession,
+        request_id: StrategyRequestId,
+        side: BrokerNeutralOrderSide,
+        action: Stage5gMockIntentAction,
         bar_close_ts: i64,
     }
 
@@ -1543,6 +1628,48 @@ mod tests {
         strategy
     }
 
+    fn production_integration_strategy(bar_close_ts: i64) -> HybridIntradayRuntimeStrategy {
+        let utc_bar_close = Utc
+            .timestamp_opt(bar_close_ts, 0)
+            .single()
+            .expect("production bar close");
+        let timezone_offset_hours = 9 - i32::try_from(utc_bar_close.hour()).unwrap();
+        let local_bar_close = utc_bar_close + Duration::hours(i64::from(timezone_offset_hours));
+        HybridIntradayRuntimeStrategy::new(HybridIntradayRuntimeConfig {
+            symbol: "IMOEXF".to_string(),
+            profile: HybridIntradayProfile::BaselineRuntimeHybrid,
+            mr_variant: MeanReversionVariant::Author41BoundaryShort,
+            mr_gate_policy: MrGatePolicy::Disabled,
+            risk_gate_mode: RiskGateMode::Disabled,
+            risk_gate_seed_file: None,
+            risk_gate_ledger_key: None,
+            model_session_start_time: Some((local_bar_close - Duration::minutes(10)).time()),
+            model_session_end_time: Some((local_bar_close + Duration::hours(1)).time()),
+            qty: 1.0,
+            live_order_style: MarketBuyAndCloseLiveOrderStyle::Market,
+            tick_size: 0.5,
+            marketable_limit_offset_ticks: 0,
+            timezone_offset_hours,
+            session_close_hour: 23,
+            session_close_minute: 49,
+            weekends_off: false,
+            stop_end_buffer_sec: 60,
+            repair_deadline_sec: 180,
+            sl_escalate_timeout_sec: 30,
+            max_repair_retries: 3,
+            repair_backoff_base_sec: 5,
+            repair_backoff_max_sec: 60,
+            pending_timeout_sec: 30,
+            partial_entry_fill_timeout_ms: 3_000,
+            mr_config: MeanReversionConfig::default(),
+            breakout_config: IntradayBreakoutConfig {
+                exclude_weekends: false,
+                ..IntradayBreakoutConfig::default()
+            },
+            orchestrator_config: HybridOrchestratorConfig::default(),
+        })
+    }
+
     fn accepted_stage5f_market_projection(
         bar_close_ts: i64,
     ) -> (
@@ -1680,6 +1807,143 @@ mod tests {
             source_timestamps: vec![(request_id, bar_close_ts)],
         };
         (projection, binding, side)
+    }
+
+    fn production_fixture(bar_close_ts: i64) -> ProductionFixture {
+        let mut strategy = production_integration_strategy(bar_close_ts);
+        for (close_time_utc, high, low) in [
+            (bar_close_ts - 86_400 - 600, 2630.0, 2570.0),
+            (bar_close_ts - 86_400, 2620.0, 2580.0),
+        ] {
+            assert!(Strategy::on_bar(
+                &mut strategy,
+                &StrategyCtx {
+                    strategy_id: "hybrid_imoexf".to_string(),
+                    portfolio: "ACC_TEST_0001".to_string(),
+                    exchange: "MOEX".to_string(),
+                    symbol: "IMOEXF".to_string(),
+                    tick_size: 0.5,
+                    trade_mode: TradeMode::Paper,
+                    paper_execution_mode: PaperExecutionMode::LiveOnly,
+                    allow_live_orders: false,
+                    gateway_phase: GatewayPhase::LiveReady,
+                    position_qty: Some(0.0),
+                    event_ts_utc: close_time_utc,
+                    now_ts_utc: close_time_utc,
+                    last_bar_ts: Some(close_time_utc),
+                },
+                &BarEvent {
+                    symbol: "IMOEXF".to_string(),
+                    close_time_utc,
+                    o: 2600.0,
+                    h: high,
+                    l: low,
+                    close: 2600.0,
+                    v: 1.0,
+                    origin: DataOrigin::Replay,
+                },
+            )
+            .is_empty());
+        }
+        let bar = broker_core::HybridRuntimeBarEvent {
+            instrument: target(),
+            close_time_utc: bar_close_ts,
+            open: 2601.0,
+            high: 2602.0,
+            low: 2599.0,
+            close: 2601.0,
+            volume: 1.0,
+            origin: broker_core::HybridRuntimeBarOrigin::Live,
+            is_final: true,
+            timeframe_sec: 600,
+        };
+        let lifecycle_now = Utc.timestamp_opt(bar_close_ts - 30, 0).single().unwrap();
+        let (recovered, accepted) =
+            crate::stage5c_paper_host::stage5f_test_seams::sequence_inputs_from_owned_strategy(
+                strategy,
+                "hybrid_imoexf".to_string(),
+                BrokerAccountId::new("ACC_TEST_0001"),
+                target(),
+                0.5,
+                Decimal::ZERO,
+                lifecycle_now,
+                bar_close_ts - 600,
+                bar,
+            );
+        let semantic = crate::apply_stage5c_semantic_bar(recovered, accepted)
+            .expect("production Stage 5C semantic bar");
+        let settled = crate::settle_stage5c_semantic_result(semantic)
+            .expect("production Stage 5C settled Market batch");
+        let request_id = settled.intent_batch().request_ids()[0];
+        let buy = crate::deterministic_request_id(
+            "hybrid_imoexf",
+            "ACC_TEST_0001",
+            "IMOEXF",
+            "market",
+            bar_close_ts,
+            3,
+        );
+        let side = if request_id == buy {
+            BrokerNeutralOrderSide::Buy
+        } else {
+            BrokerNeutralOrderSide::Sell
+        };
+        let action = Stage5gMockIntentAction::Place {
+            place_kind: Stage5gMockPlaceKind::Market,
+        };
+        let binding = Stage5gMockIntentBinding {
+            request_id,
+            intent_class: settled.intent_batch().intent_classes()[0],
+            action: action.clone(),
+            side: Some(side),
+        };
+        let session = attach_stage5g_mock_ack_session(
+            settled,
+            Stage5gMockAckSessionInput {
+                intent_bindings: vec![binding],
+                lifecycle_expires_at_ts_utc: bar_close_ts + 300,
+            },
+        )
+        .expect("public Stage 5G production attachment");
+        ProductionFixture {
+            session,
+            request_id,
+            side,
+            action,
+            bar_close_ts,
+        }
+    }
+
+    fn production_bar_close_ts() -> i64 {
+        Utc::now().timestamp() - 10
+    }
+
+    fn production_event(
+        fixture: &ProductionFixture,
+        sequence: u64,
+        status: CommandAckStatus,
+        broker_order_id: Option<&str>,
+        reason: Option<CommandAckReasonCode>,
+    ) -> Stage5gMockAckEvent {
+        Stage5gMockAckEvent {
+            total_sequence: sequence,
+            intent_request_id: fixture.request_id,
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            instrument: target(),
+            action: fixture.action.clone(),
+            side: Some(fixture.side),
+            ack: CommandAck {
+                request_id: fixture.request_id,
+                client_order_id: Some(ClientOrderId::from_strategy_request(fixture.request_id)),
+                broker_order_id: broker_order_id.map(BrokerOrderId::new),
+                status,
+                reason: reason.map(CommandAckReason::new),
+                received_ts: Utc
+                    .timestamp_opt(fixture.bar_close_ts + i64::try_from(sequence).unwrap(), 0)
+                    .single()
+                    .unwrap(),
+            },
+        }
     }
 
     fn make_fixture() -> Fixture {
@@ -1843,6 +2107,133 @@ mod tests {
             Err(blocked) => *blocked,
             Ok(_) => panic!("expected resolved ACK replay block"),
         }
+    }
+
+    #[test]
+    fn production_public_attach_apply_accepted_resolves_stage5c_once() {
+        let fixture = production_fixture(production_bar_close_ts());
+        let ack = production_event(
+            &fixture,
+            1,
+            CommandAckStatus::Accepted,
+            Some("FINAM_PRODUCTION_ACCEPTED_0001"),
+            None,
+        );
+        let resolved = apply_stage5g_mock_ack(fixture.session, ack)
+            .unwrap()
+            .into_resolved()
+            .unwrap();
+        assert_eq!(resolved.ack_outcomes().len(), 1);
+        assert_eq!(
+            resolved.ack_outcomes()[0]
+                .broker_order_id
+                .as_ref()
+                .map(BrokerOrderId::as_str),
+            Some("FINAM_PRODUCTION_ACCEPTED_0001")
+        );
+        assert!(!resolved.broker_truth_changed());
+    }
+
+    #[test]
+    fn production_public_submitted_then_recovered_resolves_stage5c_once() {
+        let fixture = production_fixture(production_bar_close_ts());
+        let submitted = production_event(&fixture, 1, CommandAckStatus::Submitted, None, None);
+        let pending = apply_stage5g_mock_ack(fixture.session, submitted)
+            .unwrap()
+            .into_awaiting()
+            .unwrap();
+        let fixture = ProductionFixture {
+            session: pending,
+            ..fixture
+        };
+        let recovered = production_event(
+            &fixture,
+            2,
+            CommandAckStatus::Recovered,
+            Some("FINAM_PRODUCTION_RECOVERED_0001"),
+            Some(CommandAckReasonCode::RecoveredByBrokerTruth),
+        );
+        let resolved = apply_stage5g_mock_ack(fixture.session, recovered)
+            .unwrap()
+            .into_resolved()
+            .unwrap();
+        assert_eq!(resolved.ack_outcomes().len(), 1);
+    }
+
+    #[test]
+    fn production_public_pre_callback_block_retains_linear_session() {
+        let fixture = production_fixture(production_bar_close_ts());
+        let mut wrong = production_event(
+            &fixture,
+            1,
+            CommandAckStatus::Accepted,
+            Some("FINAM_PRODUCTION_BLOCKED_0001"),
+            None,
+        );
+        wrong.account_id = BrokerAccountId::new("ACC_TEST_WRONG");
+        let failure = match apply_stage5g_mock_ack(fixture.session, wrong) {
+            Err(failure) => failure,
+            Ok(_) => panic!("wrong account must block before Stage 5C"),
+        };
+        let blocked = failure
+            .into_blocked()
+            .expect("pre-callback block retains session");
+        assert_eq!(blocked.reason(), Stage5gMockAckError::AccountMismatch);
+        assert_eq!(blocked.session().summary().resolved_count, 0);
+        let _retained = blocked.into_session();
+    }
+
+    #[test]
+    fn production_public_contradiction_blocks_and_duplicate_is_idempotent() {
+        let fixture = production_fixture(production_bar_close_ts());
+        let submitted = production_event(&fixture, 1, CommandAckStatus::Submitted, None, None);
+        let pending = apply_stage5g_mock_ack(fixture.session, submitted)
+            .unwrap()
+            .into_awaiting()
+            .unwrap();
+        let fixture = ProductionFixture {
+            session: pending,
+            ..fixture
+        };
+        let proof = production_event(
+            &fixture,
+            2,
+            CommandAckStatus::Expired,
+            None,
+            Some(CommandAckReasonCode::ExpiredCommand),
+        );
+        let failure = match apply_stage5g_mock_ack(fixture.session, proof) {
+            Err(failure) => failure,
+            Ok(_) => panic!("contradictory no-send proof must block"),
+        };
+        let blocked = failure.into_blocked().unwrap();
+        assert_eq!(
+            blocked.reason(),
+            Stage5gMockAckError::NoSendProofContradictsPriorLifecycleEvidence
+        );
+
+        let fixture = production_fixture(production_bar_close_ts());
+        let accepted = production_event(
+            &fixture,
+            1,
+            CommandAckStatus::Accepted,
+            Some("FINAM_PRODUCTION_DUPLICATE_0001"),
+            None,
+        );
+        let duplicate = production_event(
+            &fixture,
+            2,
+            CommandAckStatus::Duplicate,
+            Some("FINAM_PRODUCTION_DUPLICATE_0001"),
+            Some(CommandAckReasonCode::DuplicateCommand),
+        );
+        let resolved = apply_stage5g_mock_ack(fixture.session, accepted)
+            .unwrap()
+            .into_resolved()
+            .unwrap();
+        let resolved = apply_stage5g_duplicate_after_resolution(resolved, duplicate).unwrap();
+        assert_eq!(resolved.ack_outcomes().len(), 1);
+        assert_eq!(resolved.duplicate_status_count(), 1);
     }
 
     #[test]
@@ -2065,6 +2456,42 @@ mod tests {
     }
 
     #[test]
+    fn resolved_duplicate_rejects_reversed_ack_time() {
+        let fixture = make_fixture();
+        let mut accepted = event(
+            &fixture,
+            1,
+            CommandAckStatus::Accepted,
+            Some("FINAM_DUP_TIME_0001"),
+            None,
+        );
+        accepted.ack.received_ts = Utc
+            .timestamp_opt(fixture.bar_close_ts + 10, 0)
+            .single()
+            .unwrap();
+        let mut duplicate = event(
+            &fixture,
+            2,
+            CommandAckStatus::Duplicate,
+            Some("FINAM_DUP_TIME_0001"),
+            Some(CommandAckReasonCode::DuplicateCommand),
+        );
+        duplicate.ack.received_ts = Utc
+            .timestamp_opt(fixture.bar_close_ts + 9, 0)
+            .single()
+            .unwrap();
+        let resolved = apply_test_mock_ack(fixture.session, accepted)
+            .unwrap()
+            .into_resolved()
+            .unwrap();
+        assert_eq!(
+            expect_replay_blocked(apply_test_duplicate_after_resolution(resolved, duplicate))
+                .reason(),
+            Stage5gMockAckError::NonMonotonicAckTime
+        );
+    }
+
+    #[test]
     fn gack08_expired_requires_exact_no_send_proof() {
         let fixture = make_fixture();
         let expired_without_proof = event(&fixture, 1, CommandAckStatus::Expired, None, None);
@@ -2171,6 +2598,154 @@ mod tests {
         assert_eq!(
             expect_blocked(apply_test_mock_ack(fixture.session, proof_with_identity,)).reason(),
             Stage5gMockAckError::NoSendProofContradictsBrokerIdentity
+        );
+    }
+
+    #[test]
+    fn no_send_proof_requires_clean_waiting_or_unproved_expiry_provenance() {
+        for (status, reason) in [
+            (CommandAckStatus::Submitted, None),
+            (CommandAckStatus::Accepted, None),
+            (
+                CommandAckStatus::Recovered,
+                Some(CommandAckReasonCode::RecoveredByBrokerTruth),
+            ),
+            (
+                CommandAckStatus::Timeout,
+                Some(CommandAckReasonCode::TimeoutUnknownPending),
+            ),
+            (
+                CommandAckStatus::UnknownPending,
+                Some(CommandAckReasonCode::ReconciliationRequired),
+            ),
+            (
+                CommandAckStatus::Error,
+                Some(CommandAckReasonCode::ManualInterventionRequired),
+            ),
+        ] {
+            let fixture = make_fixture();
+            let prior = event(&fixture, 1, status, None, reason);
+            let pending = apply_test_mock_ack(fixture.session, prior)
+                .expect("prior lifecycle evidence is retained")
+                .into_awaiting()
+                .expect("prior lifecycle must remain pending");
+            let fixture = Fixture {
+                session: pending,
+                ..fixture
+            };
+            let proof = event(
+                &fixture,
+                2,
+                CommandAckStatus::Expired,
+                None,
+                Some(CommandAckReasonCode::ExpiredCommand),
+            );
+            let blocked = expect_blocked(apply_test_mock_ack(fixture.session, proof));
+            assert_eq!(
+                blocked.reason(),
+                Stage5gMockAckError::NoSendProofContradictsPriorLifecycleEvidence
+            );
+            assert_eq!(
+                blocked.session().summary().slots[0].state,
+                Stage5gMockAckSlotState::ManualInterventionRequired
+            );
+        }
+    }
+
+    #[test]
+    fn observed_broker_identity_cannot_be_lost_by_terminal_ack() {
+        for terminal in [
+            CommandAckStatus::Accepted,
+            CommandAckStatus::Recovered,
+            CommandAckStatus::Rejected,
+        ] {
+            let fixture = make_fixture();
+            let observed = event(
+                &fixture,
+                1,
+                CommandAckStatus::Timeout,
+                Some("FINAM_CONTINUITY_A_0001"),
+                Some(CommandAckReasonCode::TimeoutUnknownPending),
+            );
+            let pending = apply_test_mock_ack(fixture.session, observed)
+                .unwrap()
+                .into_awaiting()
+                .unwrap();
+            let fixture = Fixture {
+                session: pending,
+                ..fixture
+            };
+            let reason = match terminal {
+                CommandAckStatus::Recovered => Some(CommandAckReasonCode::RecoveredByBrokerTruth),
+                CommandAckStatus::Rejected => Some(CommandAckReasonCode::BrokerRejected),
+                _ => None,
+            };
+            let missing = event(&fixture, 2, terminal, None, reason);
+            let blocked = expect_blocked(apply_test_mock_ack(fixture.session, missing));
+            assert_eq!(
+                blocked.reason(),
+                Stage5gMockAckError::MissingBrokerOrderIdAfterObservedIdentity
+            );
+            assert!(blocked.session().summary().slots[0]
+                .broker_order_id_domain_sha256
+                .is_some());
+        }
+    }
+
+    #[test]
+    fn ack_time_watermark_is_non_decreasing_and_fingerprinted() {
+        let fixture = make_fixture();
+        let mut first = event(&fixture, 1, CommandAckStatus::Timeout, None, None);
+        first.ack.received_ts = Utc
+            .timestamp_opt(fixture.bar_close_ts + 10, 0)
+            .single()
+            .unwrap();
+        let pending = apply_test_mock_ack(fixture.session, first)
+            .unwrap()
+            .into_awaiting()
+            .unwrap();
+        let before = pending.lifecycle_fingerprint_sha256();
+        let fixture = Fixture {
+            session: pending,
+            ..fixture
+        };
+        let mut reversed = event(&fixture, 2, CommandAckStatus::UnknownPending, None, None);
+        reversed.ack.received_ts = Utc
+            .timestamp_opt(fixture.bar_close_ts + 9, 0)
+            .single()
+            .unwrap();
+        assert_eq!(
+            expect_blocked(apply_test_mock_ack(fixture.session, reversed)).reason(),
+            Stage5gMockAckError::NonMonotonicAckTime
+        );
+
+        let fixture = make_fixture();
+        let mut first = event(&fixture, 1, CommandAckStatus::Timeout, None, None);
+        first.ack.received_ts = Utc
+            .timestamp_opt(fixture.bar_close_ts + 10, 0)
+            .single()
+            .unwrap();
+        let pending = apply_test_mock_ack(fixture.session, first)
+            .unwrap()
+            .into_awaiting()
+            .unwrap();
+        let fixture = Fixture {
+            session: pending,
+            ..fixture
+        };
+        let mut equal = event(&fixture, 2, CommandAckStatus::UnknownPending, None, None);
+        equal.ack.received_ts = Utc
+            .timestamp_opt(fixture.bar_close_ts + 10, 0)
+            .single()
+            .unwrap();
+        let equal = apply_test_mock_ack(fixture.session, equal)
+            .unwrap()
+            .into_awaiting()
+            .unwrap();
+        assert_ne!(before, equal.lifecycle_fingerprint_sha256());
+        assert_eq!(
+            equal.summary().last_ack_received_ts_utc.as_deref(),
+            Some("2026-01-06T06:10:10.000000000Z")
         );
     }
 
@@ -2417,7 +2992,7 @@ mod tests {
     }
 
     #[test]
-    fn lifecycle_fingerprint_v2_binds_exact_redacted_ack_identity() {
+    fn lifecycle_fingerprint_v3_binds_exact_redacted_ack_identity() {
         let left = resolve_single_ack(
             CommandAckStatus::Accepted,
             Some("FINAM_SAME_LEN_A_0001"),
@@ -2448,7 +3023,7 @@ mod tests {
     }
 
     #[test]
-    fn lifecycle_fingerprint_v2_binds_reason_timestamp_and_sequence() {
+    fn lifecycle_fingerprint_v3_binds_reason_timestamp_and_sequence() {
         let broker_rejected = resolve_single_ack(
             CommandAckStatus::Rejected,
             None,
@@ -2545,7 +3120,7 @@ mod tests {
         );
         assert_eq!(
             resolved.transition_fingerprint_sha256(),
-            "f03a86a0f9f9e6c64b2a3c6bdabb4a3af86eac5674e75859ad8e13f4cf491308"
+            "65791481f16d6d343bbfe4be50133e1a4e4330fa9f056095685c6d5d0a449039"
         );
     }
 }

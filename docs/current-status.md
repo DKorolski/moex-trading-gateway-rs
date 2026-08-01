@@ -36,6 +36,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   Market intents, and uses one deterministic state machine in debug/release
   evidence and in the linear Stage 5C production wrapper. Public Limit/Cancel
   admission remains `NotYetSourceAuthenticated`; no Stage 5G-c surface opens.
+- Stage 5G-b R2 is an implementation review candidate on immutable predecessor
+  `00d158978904c177828ff2a330b1f3c1bfb4bb10`. It makes exact no-send proof
+  dependent on prior lifecycle provenance, preserves observed broker-order ID
+  continuity, adds a non-decreasing ACK-time watermark to fingerprint schema
+  v3, and exercises the public Stage 5G wrappers against a real linear Stage 5C
+  settled capability. Stage 5G-a and R1 remain pinned by detached snapshot
+  gates. Stage 5G-c remains blocked pending independent R2 acceptance.
 - Stable macro-roadmap Stage 5 remains active while Stage 5G is incomplete.
   Stage 6 durable command-chain work is not opened by the Stage 5F acceptance.
 - Real FINAM `POST`/`DELETE`, Redis live command consumption, runtime-live,

@@ -1,0 +1,59 @@
+{
+  "schema_version": 3,
+  "stage": "5G-b-r2-transition-history-coherence",
+  "status": "implementation_review_candidate",
+  "immutable_predecessor": "00d158978904c177828ff2a330b1f3c1bfb4bb10",
+  "accepted_stage5g_a_ref": "011fd4b7baaa41fffdad7d3c28e463b7977f5989",
+  "fingerprint": {
+    "schema_version": 3,
+    "domain": "moex.stage5g.mock-ack-lifecycle.v3\\0",
+    "last_ack_received_ts_utc_bound": true,
+    "ack_time_policy": "non_decreasing_for_strictly_increasing_sequence"
+  },
+  "no_send_proof": {
+    "direct_waiting_exact_expired_command_allowed": true,
+    "unproved_expiry_then_exact_proof_allowed": true,
+    "submitted_accepted_recovered_manual_resolved_blocked": true,
+    "timeout_unknown_error_blocked": true,
+    "prior_broker_identity_blocked": true,
+    "contradiction_retains_session": true,
+    "contradiction_consumes_sequence_and_time": true,
+    "stage5c_callback_on_contradiction": false
+  },
+  "broker_identity": {
+    "terminal_missing_id_after_observation_blocked": true,
+    "conflicting_id_blocked": true,
+    "exact_recovered_id_allowed": true,
+    "block_retains_observed_id": true
+  },
+  "production_integration": {
+    "public_attach_exercised": true,
+    "public_apply_exercised": true,
+    "public_duplicate_replay_exercised": true,
+    "single_stage5c_resolver_callsite": true,
+    "frozen_stage5c_modified": false,
+    "controlled_wall_clock_excluded_from_golden": true
+  },
+  "inherited_gates": {
+    "stage5g_a_detached_snapshot": true,
+    "stage5g_b_r1_detached_snapshot": true,
+    "forbidden_no_rg_87_of_87": true
+  },
+  "closed_surfaces": {
+    "redis_live_consumer": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "order_trade_position_lifecycle": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage5g_c": false,
+    "stage6": false
+  },
+  "next_transition": {
+    "independent_review_required": true,
+    "stage5g_c_open": false,
+    "main_merge_authorized": false,
+    "deployment_authorized": false
+  }
+}
