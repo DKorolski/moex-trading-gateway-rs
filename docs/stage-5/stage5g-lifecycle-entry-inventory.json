@@ -1,0 +1,285 @@
+{
+  "schema_version": 1,
+  "stage": "5G-a-lifecycle-entry",
+  "status": "design_review_candidate",
+  "predecessor": {
+    "accepted_stage5f_source_ref": "fb8245e2f91cfc1678548a1228e8558d9adc2181",
+    "stage5f_closure_commit": "cac83da38725aeadd6d029a3078157c2ab7fa004",
+    "stage5f_closure_descriptor": "docs/stage-5/stage5f-closure-descriptor.json",
+    "stage5f_closure_descriptor_sha256": "5b93866a92f6ed946bd31e3defe47b1f89c00697c41f60a3b8cdb2831a75a613",
+    "accepted_handoff_archive": "moex-trading-project-fb8245e.zip",
+    "accepted_handoff_sha256": "23b320a9ff829eebc5cb064138f5f848146229da75c87738c30c11f517d02ad7",
+    "verdict": "ACCEPTED"
+  },
+  "target": {
+    "strategy_id": "hybrid_imoexf",
+    "account_id": "ACC_TEST_0001",
+    "symbol": "IMOEXF",
+    "venue_symbol": "IMOEXF@RTSX",
+    "timeframe_sec": 600,
+    "trade_mode": "paper",
+    "mock_feedback_only": true
+  },
+  "governance": {
+    "branch": "stage5g-lifecycle",
+    "main_untouched": true,
+    "direct_branch_push_is_release_authority": false,
+    "implementation_requires_stage5g_a_acceptance": true,
+    "main_merge_requires_separate_governance_decision": true,
+    "deployment_authorized": false
+  },
+  "reuse_authorities": [
+    {
+      "id": "STAGE5F_CLOSURE",
+      "path": "docs/stage-5/stage5f-closure-descriptor.json",
+      "sha256": "5b93866a92f6ed946bd31e3defe47b1f89c00697c41f60a3b8cdb2831a75a613",
+      "role": "accepted_semantic_predecessor",
+      "mutability": "frozen"
+    },
+    {
+      "id": "STAGE5F_FINAL_INVENTORY",
+      "path": "docs/stage-5/stage5f-final-scenario-inventory.json",
+      "sha256": "92330d1b54ff8a88ae437f6c43d894c35a0ea58f93195ded4edb63e2f5723136",
+      "role": "accepted_semantic_matrix_contract",
+      "mutability": "frozen"
+    },
+    {
+      "id": "STAGE5F_GOLDEN",
+      "path": "docs/stage-5/stage5f-d-golden-results.json",
+      "sha256": "aed7e21d7a524fd3dfd2bc6c2b128b379ff812b91556f0021fc70ba3cbf33a3d",
+      "role": "accepted_semantic_golden",
+      "mutability": "frozen"
+    },
+    {
+      "id": "BROKER_COMMAND_ACK",
+      "path": "crates/broker-core/src/command.rs",
+      "sha256": "a1d39d7585bda16df4c2e22486874d7658f7bd2a0aaf8cbb7aa909c0fbeb4e6b",
+      "role": "broker_neutral_ack_identity_contract",
+      "mutability": "frozen_for_5g_entry"
+    },
+    {
+      "id": "RUNTIME_ACK_POLICY",
+      "path": "crates/broker-core/src/runtime_state.rs",
+      "sha256": "09bb0f6fd343e28a1032dcc9ffcba81731bf31e34d753ae914633ffd5451141a",
+      "role": "pending_and_ack_policy",
+      "mutability": "frozen_for_5g_entry"
+    },
+    {
+      "id": "BROKER_OPERATIONAL_TRUTH",
+      "path": "crates/broker-core/src/operational_snapshot.rs",
+      "sha256": "53e78a922b1c1a7948485f3016acdbcd64c3766618274a3b039233fc67d541ca",
+      "role": "order_trade_position_truth",
+      "mutability": "frozen_for_5g_entry"
+    },
+    {
+      "id": "STAGE5C_PAPER_HOST",
+      "path": "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+      "sha256": "93c0b48e1b564ef1763354579885bea3cd5b448133afccbc611584184bb13f2d",
+      "role": "sole_feedback_callback_and_timer_type_state",
+      "mutability": "frozen"
+    },
+    {
+      "id": "STAGE5D_PERSISTENCE",
+      "path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+      "sha256": "f790a907d6730e26e731a78ef89c58f993b39acde6ce934602e2fe603d90f083",
+      "role": "canonical_restart_authority",
+      "mutability": "frozen"
+    },
+    {
+      "id": "STAGE5F_SEMANTIC_ROUTE",
+      "path": "crates/strategy-runtime-core/src/stage5f_atomic_hybrid_semantics.rs",
+      "sha256": "cf8fe7900a2f1f84d3928c0d911db69415f19ee640c26dea47227759e375c508",
+      "role": "accepted_ordered_semantic_intent_route",
+      "mutability": "frozen"
+    }
+  ],
+  "ownership_rules": [
+    "stage5f_owns_semantic_intent_generation",
+    "stage5c_owns_feedback_callbacks_and_type_state",
+    "stage5d_owns_canonical_restart_package",
+    "broker_core_owns_ack_identity_and_broker_truth",
+    "stage5g_owns_only_mock_event_admission_ordering_correlation_and_reconciliation",
+    "broker_truth_wins_over_persisted_working_set_hints",
+    "strategy_request_id_is_required_to_clear_pending",
+    "broker_order_id_remains_exact_string",
+    "pre_callback_validation_is_atomic",
+    "post_callback_failure_is_terminal",
+    "callback_generated_intents_reenter_same_lifecycle"
+  ],
+  "sub_stages": [
+    {
+      "id": "5G-a",
+      "name": "entry_contract_and_authority_inventory",
+      "status": "design_review_candidate",
+      "rust_changes_allowed_before_5g_a_acceptance": false
+    },
+    {
+      "id": "5G-b",
+      "name": "mock_ack_attachment",
+      "status": "blocked_pending_5g_a_acceptance",
+      "rust_changes_allowed_before_5g_a_acceptance": false
+    },
+    {
+      "id": "5G-c",
+      "name": "order_trade_position_convergence",
+      "status": "blocked_pending_5g_b_acceptance",
+      "rust_changes_allowed_before_5g_a_acceptance": false
+    },
+    {
+      "id": "5G-d",
+      "name": "timer_and_continuation_arbitration",
+      "status": "blocked_pending_5g_c_acceptance",
+      "rust_changes_allowed_before_5g_a_acceptance": false
+    },
+    {
+      "id": "5G-e",
+      "name": "deterministic_restart_and_reconciliation",
+      "status": "blocked_pending_5g_d_acceptance",
+      "rust_changes_allowed_before_5g_a_acceptance": false
+    },
+    {
+      "id": "5G-f",
+      "name": "paper_protective_completion",
+      "status": "blocked_pending_5g_e_acceptance",
+      "rust_changes_allowed_before_5g_a_acceptance": false
+    },
+    {
+      "id": "5G-g",
+      "name": "lifecycle_matrix_and_fingerprint_freeze",
+      "status": "blocked_pending_5g_f_acceptance",
+      "rust_changes_allowed_before_5g_a_acceptance": false
+    },
+    {
+      "id": "5G-h",
+      "name": "aggregate_acceptance_and_closure",
+      "status": "blocked_pending_5g_g_acceptance",
+      "rust_changes_allowed_before_5g_a_acceptance": false
+    }
+  ],
+  "scenario_families": [
+    {
+      "id": "ACK",
+      "owner_stage": "5G-b",
+      "case_ids": [
+        "GACK01_PLACE_ACCEPTED_EXACT_IDS",
+        "GACK02_SUBMITTED_MISSING_BROKER_ID_KEEPS_PENDING",
+        "GACK03_RECOVERED_EXACT_BROKER_ID",
+        "GACK04_REJECTED_EXACT_REQUEST_CLEARS_PENDING",
+        "GACK05_TIMEOUT_KEEPS_PENDING",
+        "GACK06_UNKNOWN_PENDING_KEEPS_PENDING",
+        "GACK07_DUPLICATE_REQUIRES_PRIOR_OUTCOME",
+        "GACK08_EXPIRED_REQUIRES_EXACT_NO_SEND_PROOF",
+        "GACK09_REQUEST_OR_CLIENT_ID_MISMATCH_BLOCKS",
+        "GACK10_BROKER_ORDER_ID_CONFLICT_BLOCKS"
+      ]
+    },
+    {
+      "id": "ORDER_POSITION",
+      "owner_stage": "5G-c",
+      "case_ids": [
+        "GOP01_WORKING_ORDER_REMAINS_ACTIVE",
+        "GOP02_PARTIAL_FILL_ADVANCES_MONOTONICALLY",
+        "GOP03_PARTIAL_FILL_REGRESSION_BLOCKS",
+        "GOP04_FILLED_REQUIRES_TARGET_POSITION_CONFIRMATION",
+        "GOP05_CANCELED_TERMINATES_WITHOUT_POSITION_CHANGE",
+        "GOP06_REJECTED_TERMINATES_WITHOUT_POSITION_CHANGE",
+        "GOP07_EXPIRED_TERMINATES_WITHOUT_POSITION_CHANGE",
+        "GOP08_UNKNOWN_ORDER_STATUS_BLOCKS",
+        "GOP09_IDENTICAL_EVENT_REPLAY_IS_IDEMPOTENT",
+        "GOP10_CONFLICTING_DUPLICATE_EVENT_BLOCKS",
+        "GOP11_NON_TARGET_EVENT_CANNOT_SETTLE_TARGET",
+        "GOP12_ACCOUNT_WIDE_ACTIVE_ORDER_IS_SAFETY_GUARD",
+        "GOP13_TARGET_POSITION_SIDE_MISMATCH_BLOCKS",
+        "GOP14_TARGET_POSITION_OVERFILL_BLOCKS",
+        "GOP15_CORRELATED_TRADE_SUPPORTS_FILL_TRUTH",
+        "GOP16_TRADE_IDENTITY_OR_QUANTITY_MISMATCH_BLOCKS"
+      ]
+    },
+    {
+      "id": "TIMER",
+      "owner_stage": "5G-d",
+      "case_ids": [
+        "GTMR01_MONOTONIC_ZERO_INTENT_TIMER_CONTINUES",
+        "GTMR02_EQUAL_OR_REVERSED_TIMER_BLOCKS",
+        "GTMR03_TIMER_INTENT_REENTERS_ACK_LIFECYCLE",
+        "GTMR04_TIMER_CLEANUP_PRESERVES_ATTRIBUTION",
+        "GTMR05_CHECKPOINT_IS_SINGLE_CONSUME",
+        "GTMR06_BAR_TIMER_RACE_HAS_ONE_DETERMINISTIC_WINNER",
+        "GTMR07_GENERATED_BATCH_BLOCKS_UNRELATED_CONTINUATION",
+        "GTMR08_NO_AUTONOMOUS_LOOP_OR_CLOCK_READ"
+      ]
+    },
+    {
+      "id": "RESTART",
+      "owner_stage": "5G-e",
+      "case_ids": [
+        "GRST01_RESTART_BEFORE_ACK",
+        "GRST02_RESTART_AFTER_ACK_BEFORE_ORDER",
+        "GRST03_RESTART_WITH_WORKING_ORDER",
+        "GRST04_RESTART_AFTER_PARTIAL_FILL",
+        "GRST05_RESTART_FILLED_BEFORE_POSITION",
+        "GRST06_RESTART_AFTER_TERMINAL_POSITION_APPLIED",
+        "GRST07_RESTART_AT_TIMER_CHECKPOINT",
+        "GRST08_RESTART_WITH_GENERATED_INTENT_ESCROW",
+        "GRST09_EXACT_REPLAY_IS_IDEMPOTENT",
+        "GRST10_CONFLICTING_REPLAY_BLOCKS",
+        "GRST11_FRESH_BROKER_TRUTH_OVERRIDES_STALE_HINT",
+        "GRST12_MISSING_OR_AMBIGUOUS_TRUTH_REQUIRES_RECONCILIATION"
+      ]
+    },
+    {
+      "id": "PROTECTIVE",
+      "owner_stage": "5G-f",
+      "case_ids": [
+        "GPRT01_F12_MR_LONG_TARGET_COMPLETES_FLAT",
+        "GPRT02_F13_MR_SHORT_TARGET_COMPLETES_FLAT",
+        "GPRT03_F14_MR_LONG_STOP_COMPLETES_FLAT",
+        "GPRT04_F15_MR_SHORT_STOP_COMPLETES_FLAT",
+        "GPRT05_WRONG_OWNER_OR_CYCLE_BLOCKS",
+        "GPRT06_WRONG_INSTRUMENT_OR_ORDER_ID_BLOCKS",
+        "GPRT07_TRIGGER_WITHOUT_FLAT_POSITION_BLOCKS",
+        "GPRT08_NON_EXECUTION_TERMINAL_CANNOT_INVENT_EXIT"
+      ]
+    }
+  ],
+  "scenario_case_count": 54,
+  "required_entry_gates": [
+    "stage5g_entry_plan_check",
+    "stage5g_entry_plan_negative_harness",
+    "cargo_fmt",
+    "workspace_tests",
+    "workspace_doctests",
+    "workspace_clippy",
+    "stage5f_forbidden_no_rg_snapshot_gate",
+    "stage5g_entry_handoff_safety"
+  ],
+  "review_checkpoints": [
+    "5G-a-entry-design",
+    "5G-c-ack-order-position-convergence",
+    "5G-f-restart-protective-convergence",
+    "5G-h-aggregate-closure"
+  ],
+  "closed_surfaces": {
+    "real_finam_post": false,
+    "real_finam_delete": false,
+    "finam_transport": false,
+    "redis_live_consumer": false,
+    "redis_consumer_groups": false,
+    "broker_dispatch": false,
+    "broker_execution": false,
+    "runtime_live": false,
+    "live_ready": false,
+    "unattended_execution": false,
+    "real_orders": false,
+    "native_stop_sltp_bracket": false,
+    "stage6_durable_command_chain": false,
+    "stage7_runtime_command_consumer": false,
+    "stage8_real_execution": false
+  },
+  "next_transition": {
+    "after_independent_acceptance": "5G-b-mock-ack-attachment",
+    "before_independent_acceptance": "design_only",
+    "stage5h_open": false,
+    "stage6_open": false
+  }
+}
