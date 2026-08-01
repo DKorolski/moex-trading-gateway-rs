@@ -97,10 +97,13 @@ GATES: list[tuple[str, list[str]]] = [
     ),
     ("inherited-b3f-ui", ["bash", "scripts/stage5f_b3f_snapshot_ui_gate.sh"]),
     ("stage5c-freeze", ["python3", "scripts/stage5c_api_freeze_check.py"]),
-    ("stage5d-freeze", ["python3", "scripts/stage5d_additive_freeze_check.py"]),
+    (
+        "stage5d-freeze",
+        ["bash", "scripts/stage5f_stage5d_snapshot_gate.sh", "check"],
+    ),
     (
         "stage5d-negative",
-        ["python3", "scripts/stage5d_additive_freeze_negative_harness.py"],
+        ["bash", "scripts/stage5f_stage5d_snapshot_gate.sh", "negative"],
     ),
     ("forbidden-no-rg", ["bash", "scripts/stage5f_forbidden_no_rg_gate.sh"]),
     ("redis-smoke", ["bash", "scripts/stage5f_e_redis_regression_gate.sh"]),
@@ -281,6 +284,7 @@ def validate_gate_evidence(
         "inherited-b1": "stage5f-inherited-b1-snapshot-gate: ok",
         "inherited-b3f": "stage5f-b3f-snapshot-provenance-gate: ok",
         "inherited-b3f-ui": "stage5f-b3f-snapshot-ui-gate: ok",
+        "stage5d-freeze": "stage5f-stage5d-snapshot-gate: ok mode=check source_ref=9ebbfd29d0346be5149dac746225866f0c8d0257",
         "stage5d-negative": "stage5d-negative-harness: ok",
         "forbidden-no-rg": "stage5f-forbidden-no-rg-gate: ok source_ref=86b43c448fb65a3c54b6118d04d3f40e08e74ad7 rg_absent=true cases=87",
         "redis-smoke": "stage5f-e-redis-regression-gate: ok isolated=true",

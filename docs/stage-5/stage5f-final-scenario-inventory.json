@@ -146,6 +146,7 @@
     "scripts/stage5f_e_handoff_safety_check.py",
     "scripts/stage5f_e_redis_regression_gate.sh",
     "scripts/stage5f_e_reproducibility.py",
-    "scripts/stage5f_forbidden_no_rg_gate.sh"
+    "scripts/stage5f_forbidden_no_rg_gate.sh",
+    "scripts/stage5f_stage5d_snapshot_gate.sh"
   ]
 }

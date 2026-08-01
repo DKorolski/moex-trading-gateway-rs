@@ -44,7 +44,8 @@ source tree:
 - debug, release and default-parallel focused runs pass;
 - inherited B1, R3 and B3F authority gates pass from their immutable snapshots;
 - B3F detached provenance remains 580/580 and the production UI remains 8/8;
-- Stage 5D negative coverage remains at least the accepted 303 cases;
+- the Stage 5D checker and its 303-case negative matrix pass from the accepted
+  aggregate-closure ref `9ebbfd29d0346be5149dac746225866f0c8d0257`;
 - the portable forbidden-surface negative matrix remains 87/87 with `rg`
   absent from `PATH`;
 - workspace fmt, tests, doctests and clippy pass;
@@ -59,6 +60,12 @@ immutable accepted B1 snapshot. The portable 87-case negative harness is also
 executed with `rg` absent. Current-tree Stage 5F-d and Stage 5F-e checkers then
 own the later additive surfaces. This is the already accepted authority split,
 not a waiver and not a weakening of the scanner.
+
+The same historical-freeze rule applies to Stage 5D: its checker owns the
+accepted aggregate-closure tree, while the later Stage 5E/5F additive files are
+owned by their own gates. Running the Stage 5D checker against a Stage 5F head
+would be a category error, so both its positive proof and 303 mutations execute
+from the immutable accepted Stage 5D ref.
 
 ## Generated closure artifacts
 

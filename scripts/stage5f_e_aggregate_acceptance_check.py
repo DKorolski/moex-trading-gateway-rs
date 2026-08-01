@@ -20,8 +20,8 @@ INVENTORY = "docs/stage-5/stage5f-final-scenario-inventory.json"
 D_INVENTORY = "docs/stage-5/stage5f-d-scenario-inventory.json"
 D_GOLDEN = "docs/stage-5/stage5f-d-golden-results.json"
 D_CHECKER = "scripts/stage5f_d_atomic_matrix_check.py"
-EXPECTED_PLAN_SHA256 = "523bf8a7fe38fc5ad43ee793bfc31a9f20c10eb13640ae37c3cc59a21bc66f56"
-EXPECTED_INVENTORY_SHA256 = "387e781c2b045df7ca3d84ace2bc5da4e0e463fb78972c12a7c8e08d28b53d0c"
+EXPECTED_PLAN_SHA256 = "7a73127488fcec1155114fe194ad0da07f7c8b5dd368dd7943ed0697895af15b"
+EXPECTED_INVENTORY_SHA256 = "92330d1b54ff8a88ae437f6c43d894c35a0ea58f93195ded4edb63e2f5723136"
 EXPECTED_ACCEPTED_D = {
     "source_ref": ACCEPTED_D,
     "archive_name": "moex-trading-project-1a41b53.zip",
@@ -116,6 +116,7 @@ EXPECTED_ALLOWED_CHANGES = [
     "scripts/stage5f_e_redis_regression_gate.sh",
     "scripts/stage5f_e_reproducibility.py",
     "scripts/stage5f_forbidden_no_rg_gate.sh",
+    "scripts/stage5f_stage5d_snapshot_gate.sh",
 ]
 EXPECTED_RESULTS_ARRAY_SHA256 = (
     "e85f15912e3dd97e2a41a3d2617bc9b560769aa964e158b0129bb0d2c89e0f17"
