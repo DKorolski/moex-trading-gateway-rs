@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "record_kind": "immutable_stage_closure_descriptor",
+  "stage": "5F",
+  "status": "accepted_and_closed",
+  "acceptance_date": "2026-08-01",
+  "accepted_source": {
+    "branch": "stage5f-functional",
+    "source_ref": "fb8245e2f91cfc1678548a1228e8558d9adc2181",
+    "source_commit_short": "fb8245e",
+    "archive_name": "moex-trading-project-fb8245e.zip",
+    "archive_sha256": "23b320a9ff829eebc5cb064138f5f848146229da75c87738c30c11f517d02ad7",
+    "archive_member_count": 788,
+    "archive_unique_member_count": 788,
+    "archive_duplicate_entries": 0,
+    "archive_path_traversal_entries": 0,
+    "archive_absolute_paths": 0,
+    "archive_symlinks": 0,
+    "archive_special_files": 0,
+    "handoff_safety_check": "PASS",
+    "preseal_exit_code": 0
+  },
+  "accepted_predecessor": {
+    "stage": "5F-d",
+    "source_ref": "1a41b530419d39ddc84fff81a9dfdde6ede878ce",
+    "archive_name": "moex-trading-project-1a41b53.zip",
+    "archive_sha256": "18d7944264ade10ea2f0860b861a7176ba98fe5d82c9beaf1cbcd22b72e5b2b3",
+    "review_record_sha256": "3ffeb72698a472f7857b2b430ead81560c886fb77f6a4d3a64e501253b271eec",
+    "verdict": "ACCEPTED"
+  },
+  "evidence_bindings": {
+    "acceptance_report_path": "docs/stage-5/5f-e-acceptance-report.md",
+    "acceptance_report_sha256": "7a73127488fcec1155114fe194ad0da07f7c8b5dd368dd7943ed0697895af15b",
+    "final_scenario_inventory_path": "docs/stage-5/stage5f-final-scenario-inventory.json",
+    "final_scenario_inventory_sha256": "92330d1b54ff8a88ae437f6c43d894c35a0ea58f93195ded4edb63e2f5723136",
+    "acceptance_result_sha256": "b703a0bb8f8325605a85b3b996156cee4bcd66a21aedff6c5891265eb6b0a9eb",
+    "fingerprint_reproducibility_result_sha256": "433a37974e71e0db59d9e2455c91273c63543828e8cbf26cdf5b68db073e9122",
+    "negative_result_sha256": "c1046f3194402a1d7cd8a5144977d30cea0c558cb6d6a22d340d4bfb53f6e359",
+    "golden_results_sha256": "aed7e21d7a524fd3dfd2bc6c2b128b379ff812b91556f0021fc70ba3cbf33a3d",
+    "fingerprint_vector_sha256": "ecafd844f5f2aa5f82fd25c4f76398037ce38b9787029e08b7758e55043f40bd",
+    "semantic_evidence_sha256": "c2cb7ccff176bcdb4caeffb3d1ba45384adaf5148e6d3bec4cfef5fe1a508255",
+    "results_array_sha256": "e85f15912e3dd97e2a41a3d2617bc9b560769aa964e158b0129bb0d2c89e0f17",
+    "reproducibility_run_count": 3,
+    "all_reproducibility_runs_passed": true,
+    "all_fingerprints_identical": true,
+    "all_semantic_evidence_identical": true
+  },
+  "negative_matrices": [
+    {
+      "label": "stage5f_e_aggregate",
+      "passed": 15,
+      "required": 15,
+      "gate_result_sha256": "a3076b77ee26b56584da0d4a7884990ce64afbe02ac5d4b798b2b5323d6ca2fb"
+    },
+    {
+      "label": "stage5f_d_atomic",
+      "passed": 40,
+      "required": 40,
+      "gate_result_sha256": "0cb78e781099c980ac65af04ad0fac3f3aa26c913302417629cb8d1a3ae8a1ba"
+    },
+    {
+      "label": "stage5d_additive_freeze",
+      "passed": 303,
+      "required": 303,
+      "gate_result_sha256": "4e2bdb54e5330eae3b8d8f132f4b736256e8750c65bd45436bdd86a5759b92c6"
+    },
+    {
+      "label": "forbidden_surface_no_rg",
+      "passed": 87,
+      "required": 87,
+      "gate_result_sha256": "2c2fd070b279b2db1c0574a9f89fc5d4e4fc0f5d974c2da81e6200c5224a9c7e"
+    },
+    {
+      "label": "b3f_detached_provenance",
+      "passed": 580,
+      "required": 580,
+      "gate_result_sha256": "8812a66cbba7300839283fb85f5987558f006af731bb3f12f6aedbca96561862"
+    },
+    {
+      "label": "b3f_production_ui",
+      "passed": 8,
+      "required": 8,
+      "gate_result_sha256": "097ad88b9c6b74109fc0f5db3882c68ca2b1252157959bb38a885e335d67a20c"
+    }
+  ],
+  "stage5f_closed_surfaces": {
+    "redis_command_consumption": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "dispatch": false,
+    "broker_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "ack_order_trade_position_timer_restart_feedback": false,
+    "protective_order_lifecycle": false,
+    "stage5g_authorized_inside_stage5f_source": false
+  },
+  "transition": {
+    "stable_macro_roadmap_stage": 5,
+    "macro_stage_status": "active",
+    "next_functional_stage": "5G",
+    "stage5g_predecessor_ref": "fb8245e2f91cfc1678548a1228e8558d9adc2181",
+    "stage5g_review_status": "unlocked_for_paper_mock_design_and_implementation",
+    "allowed": [
+      "paper_lifecycle",
+      "mock_ack",
+      "mock_order_events",
+      "mock_position_events",
+      "deterministic_timer_simulation",
+      "deterministic_restart_simulation",
+      "lifecycle_reconciliation_design"
+    ],
+    "forbidden": [
+      "real_finam_post",
+      "real_finam_delete",
+      "redis_live_consumer",
+      "runtime_live",
+      "unattended_execution",
+      "real_orders",
+      "stop_sltp_bracket_live"
+    ],
+    "naming_note": "Stage 5F is accepted and closed. Stable macro-roadmap Stage 5 remains active because Stage 5G is its next reviewed functional slice."
+  }
+}

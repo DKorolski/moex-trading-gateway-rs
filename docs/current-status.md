@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-07-31.
+Status date: 2026-08-01.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -9,6 +9,19 @@ runtime-live.
 The stable macro-roadmap is fixed in [roadmap.md](roadmap.md). Review may split
 an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
+
+## Current transition
+
+- Stage 5F-e aggregate acceptance was independently accepted at
+  `fb8245e2f91cfc1678548a1228e8558d9adc2181`; Stage 5F is formally closed.
+- The immutable closure facts are recorded in
+  [stage5f-closure-descriptor.json](stage-5/stage5f-closure-descriptor.json).
+- Stage 5G is the next allowed functional slice, limited to paper/mock
+  ACK, order, position, timer, restart and lifecycle-reconciliation work.
+- Stable macro-roadmap Stage 5 remains active while Stage 5G is incomplete.
+  Stage 6 durable command-chain work is not opened by the Stage 5F acceptance.
+- Real FINAM `POST`/`DELETE`, Redis live command consumption, runtime-live,
+  unattended execution and real orders remain forbidden.
 
 ## What exists
 
@@ -256,7 +269,9 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   pins, two complete semantic-region digests, the 580-case provenance harness
   and the eight-case production UI contract. Its descriptor remains a closure
   descriptor and is not repointed by later work.
-- Stage 5F-a is active as the inherited atomic-Hybrid entry contract. It has a
+- Stage 5F is accepted and closed at
+  `fb8245e2f91cfc1678548a1228e8558d9adc2181`. Its lineage began with the
+  inherited Stage 5F-a atomic-Hybrid entry contract, which has a
   separate descriptor and gate that first runs the accepted B3F checker and UI
   harness from the exact accepted source snapshot. Canonical CI fetches that
   immutable predecessor and uses the same detached-snapshot wrapper as handoff
