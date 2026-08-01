@@ -7,11 +7,10 @@ python_bin="${PYTHON:-python3}"
 cd "$repo_root"
 
 bash scripts/stage5f_inherited_b1_snapshot_gate.sh
+bash scripts/stage5f_r3_snapshot_gate.sh
 if [[ -f docs/stage-5/stage5f-c-candidate-results.json ]]; then
-  "$python_bin" scripts/stage5f_controlled_characterization_check.py
-  "$python_bin" scripts/stage5f_controlled_characterization_negative_harness.py
-  "$python_bin" scripts/stage5f_source_reachability_check.py
-  "$python_bin" scripts/stage5f_source_reachability_negative_harness.py
+  "$python_bin" scripts/stage5f_d_atomic_matrix_check.py
+  "$python_bin" scripts/stage5f_d_atomic_matrix_negative_harness.py
   cargo test -p strategy-runtime-core stage5f_
 else
   "$python_bin" scripts/stage5f_b0_source_reachability_check.py

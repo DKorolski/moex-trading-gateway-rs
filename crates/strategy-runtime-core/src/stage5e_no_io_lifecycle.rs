@@ -5418,6 +5418,24 @@ pub(crate) mod callback_authority {
                 .stage5d_export_runtime_private_extension()
                 .expect("Stage 5F callback private extension must export")
         }
+
+        pub(crate) fn test_clear_public_pending_entry_request(&mut self) {
+            use crate::runtime_compat::{Strategy, StrategyState};
+
+            let mut state = Strategy::state(&self.mutated_strategy).clone();
+            let StrategyState::HybridIntradayRuntime {
+                pending_entry_request_id,
+                ..
+            } = &mut state
+            else {
+                panic!("Stage 5F pending-mismatch test requires hybrid runtime state");
+            };
+            assert!(
+                pending_entry_request_id.take().is_some(),
+                "Stage 5F pending-mismatch test requires a source pending request"
+            );
+            Strategy::set_state(&mut self.mutated_strategy, state);
+        }
         // STAGE5F-TEST-POST-CALLBACK-INSPECTION-END
 
         pub(crate) fn test_retained_ownership(&self) -> (DateTime<Utc>, [u8; 32], [u8; 32]) {

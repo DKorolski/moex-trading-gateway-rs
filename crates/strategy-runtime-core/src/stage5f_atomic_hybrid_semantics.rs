@@ -752,6 +752,10 @@ fn candidate_results_path() -> PathBuf {
         .join("../../docs/stage-5/stage5f-c-r1-candidate-results.json")
 }
 
+fn stage5f_d_golden_results_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/stage-5/stage5f-d-golden-results.json")
+}
+
 fn load_json(path: &Path) -> Value {
     let bytes = std::fs::read(path)
         .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
@@ -1584,6 +1588,7 @@ enum Stage5fMutation {
     CallbackValidation,
     B3fChronology,
     Stage5cDuplicateIntent,
+    Stage5cPendingRequestMismatch,
 }
 
 enum Stage5fSettlementOutcome {
@@ -1638,6 +1643,14 @@ fn invoke_and_settle_stage5f_callback(
             "negative row needs one source intent"
         );
         escrow.test_repeat_first_ok_intent(2);
+    }
+    if matches!(mutation, Stage5fMutation::Stage5cPendingRequestMismatch) {
+        assert_eq!(
+            escrow.test_intent_count(),
+            1,
+            "pending-mismatch row needs one source intent"
+        );
+        escrow.test_clear_public_pending_entry_request();
     }
     let settlement = match validate_and_settle_stage5e_paper_callback_escrow(escrow) {
         Ok(receipt) => Stage5fSettlementOutcome::Settled(receipt),
@@ -2364,6 +2377,7 @@ fn stage5f_v2_full_restart_missing_riskgate_is_typed_blocker() {
 
 #[test]
 fn stage5f_f01_no_signal_zero_intent() {
+    assert_stage5f_d_golden_row("F01");
     let result = characterize("F01", Stage5fMutation::None);
     assert_candidate(&result, "accepted", "settled", None);
     assert!(result.ordered_intent_vector.is_empty());
@@ -2371,6 +2385,7 @@ fn stage5f_f01_no_signal_zero_intent() {
 
 #[test]
 fn stage5f_f02_bo_long_entry() {
+    assert_stage5f_d_golden_row("F02");
     let result = characterize("F02", Stage5fMutation::None);
     assert_candidate(&result, "accepted", "settled", Some("entry"));
     assert_eq!(result.ordered_intent_vector[0]["owner"], "BO");
@@ -2379,6 +2394,7 @@ fn stage5f_f02_bo_long_entry() {
 
 #[test]
 fn stage5f_f04_bo_long_normal_exit() {
+    assert_stage5f_d_golden_row("F04");
     let result = characterize("F04", Stage5fMutation::None);
     assert_candidate(&result, "accepted", "settled", Some("exit"));
     assert_eq!(result.ordered_intent_vector[0]["owner"], "BO");
@@ -2456,6 +2472,7 @@ fn stage5f_f26_working_order_reaches_runtime_and_retains_stale_pending() {
 
 #[test]
 fn stage5f_f24_riskgate_missing_authority_blocks_before_callback() {
+    assert_stage5f_d_golden_row("F24");
     let result = characterize("F24", Stage5fMutation::None);
     assert_candidate(
         &result,
@@ -2467,6 +2484,7 @@ fn stage5f_f24_riskgate_missing_authority_blocks_before_callback() {
 
 #[test]
 fn stage5f_f31_callback_validation_terminal() {
+    assert_stage5f_d_golden_row("F31");
     let result = characterize("F31", Stage5fMutation::CallbackValidation);
     assert_candidate(
         &result,
@@ -2479,6 +2497,7 @@ fn stage5f_f31_callback_validation_terminal() {
 
 #[test]
 fn stage5f_f32_b3f_identity_or_chronology_preflight_terminal() {
+    assert_stage5f_d_golden_row("F32");
     let result = characterize("F32", Stage5fMutation::B3fChronology);
     assert_candidate(
         &result,
@@ -2491,6 +2510,7 @@ fn stage5f_f32_b3f_identity_or_chronology_preflight_terminal() {
 
 #[test]
 fn stage5f_f33_stage5c_intent_validation_terminal() {
+    assert_stage5f_d_golden_row("F33");
     let result = characterize("F33", Stage5fMutation::Stage5cDuplicateIntent);
     assert_candidate(
         &result,
@@ -2528,6 +2548,159 @@ fn stage5f_candidate_results() -> Vec<Stage5fCandidateResult> {
         characterize("F33", Stage5fMutation::Stage5cDuplicateIntent),
     ]
 }
+
+fn stage5f_d_mutation(row_id: &str) -> Stage5fMutation {
+    match row_id {
+        "F31" => Stage5fMutation::CallbackValidation,
+        "F32" => Stage5fMutation::B3fChronology,
+        "F33" => Stage5fMutation::Stage5cDuplicateIntent,
+        "F34" => Stage5fMutation::Stage5cPendingRequestMismatch,
+        _ => Stage5fMutation::None,
+    }
+}
+
+fn stage5f_f16_structural_result() -> Stage5fCandidateResult {
+    let input = load_scenario("F16");
+    let strategy = materialize_strategy(&input);
+    let config = stage5f_config();
+    let model_start = config
+        .model_session_start_time
+        .expect("Stage 5F target has model start");
+    let breakout_earliest = model_start
+        + chrono::Duration::milliseconds(
+            (config.breakout_config.wait_hours * 3_600_000.0).round() as i64
+        );
+    let high180_entry_end = NaiveTime::from_hms_opt(11, 59, 59).unwrap();
+    assert!(
+        breakout_earliest > high180_entry_end,
+        "active profile BO and high180 entry windows must be disjoint"
+    );
+    Stage5fCandidateResult {
+        schema_version: 2,
+        row_id: input.row_id,
+        scenario_id: input.scenario_id,
+        disposition: "structural_invariant",
+        callback_count: 0,
+        observer_count: 0,
+        settlement_attempt_count: 0,
+        pre_state_fingerprint: stage5f_state_fingerprint(&strategy),
+        accepted_post_state_fingerprint: None,
+        ordered_intent_vector: Vec::new(),
+        ordered_intent_vector_sha256: None,
+        b3f_outcome: "active_profile_bo_high180_windows_disjoint".to_string(),
+        settlement_identity_sha256: None,
+    }
+}
+
+fn stage5f_d_results() -> Vec<Stage5fCandidateResult> {
+    (1..=34)
+        .map(|ordinal| {
+            let row_id = format!("F{ordinal:02}");
+            stage5f_d_result(&row_id)
+        })
+        .collect()
+}
+
+fn stage5f_d_result(row_id: &str) -> Stage5fCandidateResult {
+    if row_id == "F16" {
+        stage5f_f16_structural_result()
+    } else {
+        characterize(row_id, stage5f_d_mutation(row_id))
+    }
+}
+
+fn assert_stage5f_d_golden_row(row_id: &str) {
+    let actual =
+        serde_json::to_value(stage5f_d_result(row_id)).expect("Stage 5F-d row result serializes");
+    let golden = load_json(&stage5f_d_golden_results_path());
+    let expected = golden["results"]
+        .as_array()
+        .expect("Stage 5F-d golden results array")
+        .iter()
+        .find(|row| row["row_id"] == row_id)
+        .unwrap_or_else(|| panic!("Stage 5F-d golden row {row_id} is missing"));
+    assert_eq!(actual, *expected, "Stage 5F-d golden row {row_id} drifted");
+}
+
+#[test]
+fn stage5f_d_full_matrix_matches_frozen_golden() {
+    let results = stage5f_d_results();
+    assert_eq!(results.len(), 34);
+    let frozen_golden = load_json(&stage5f_d_golden_results_path());
+    assert_eq!(
+        serde_json::to_value(&results).expect("Stage 5F-d results serialize"),
+        frozen_golden["results"],
+        "Stage 5F-d source output drifted from the frozen golden matrix"
+    );
+}
+
+#[test]
+fn stage5f_d_full_matrix_repeat_is_byte_identical() {
+    let first =
+        serde_json::to_vec_pretty(&stage5f_d_results()).expect("first Stage 5F-d run serializes");
+    let second =
+        serde_json::to_vec_pretty(&stage5f_d_results()).expect("second Stage 5F-d run serializes");
+    assert_eq!(first, second, "Stage 5F-d runs must be byte-identical");
+}
+
+macro_rules! stage5f_d_exact_row_tests {
+    ($(($test_name:ident, $row_id:literal)),+ $(,)?) => {
+        $(
+            #[test]
+            fn $test_name() {
+                assert_stage5f_d_golden_row($row_id);
+            }
+        )+
+    };
+}
+
+stage5f_d_exact_row_tests!(
+    (stage5f_f03_bo_short_entry, "F03"),
+    (stage5f_f05_bo_short_stop2_exit, "F05"),
+    (stage5f_f06_bo_same_day_eod_exit, "F06"),
+    (stage5f_f07_bo_carried_next_day_rescue_exit, "F07"),
+    (stage5f_f08_mr_high180_long_entry, "F08"),
+    (stage5f_f09_mr_high180_short_entry, "F09"),
+    (stage5f_f10_mr_long_max_hold_exit, "F10"),
+    (stage5f_f11_mr_short_max_hold_exit, "F11"),
+    (stage5f_f12_mr_long_favorable_extreme_no_bar_exit, "F12"),
+    (stage5f_f13_mr_short_favorable_extreme_no_bar_exit, "F13"),
+    (stage5f_f14_mr_long_adverse_extreme_no_bar_exit, "F14"),
+    (stage5f_f15_mr_short_adverse_extreme_no_bar_exit, "F15"),
+    (
+        stage5f_f16_active_profile_bo_mr_windows_do_not_overlap,
+        "F16"
+    ),
+    (stage5f_f17_bo_selected_when_mr_ineligible, "F17"),
+    (stage5f_f18_bo_owner_suppresses_mr, "F18"),
+    (stage5f_f19_mr_owner_suppresses_bo, "F19"),
+    (stage5f_f20_one_owner_one_cycle_single_entry, "F20"),
+    (stage5f_f21_duplicate_same_bar_no_second_cycle, "F21"),
+    (
+        stage5f_f22_next_cycle_only_after_terminal_flat_cleanup,
+        "F22"
+    ),
+    (
+        stage5f_f23_riskgate_normal_append_shadow_advances_not_enforced,
+        "F23"
+    ),
+    (
+        stage5f_f25_riskgate_inconsistent_authority_blocks_before_callback,
+        "F25"
+    ),
+    (
+        stage5f_f26_pending_entry_no_new_entry_or_fake_feedback,
+        "F26"
+    ),
+    (stage5f_f27_pending_exit_no_overlap, "F27"),
+    (stage5f_f28_deferred_entry_semantics_preserved, "F28"),
+    (stage5f_f29_deferred_exit_semantics_preserved, "F29"),
+    (
+        stage5f_f30_authority_or_materialization_terminal_before_callback,
+        "F30"
+    ),
+    (stage5f_f34_stage5c_pending_request_mismatch_terminal, "F34"),
+);
 
 #[test]
 fn stage5f_v2_candidate_repeat_is_byte_identical() {
