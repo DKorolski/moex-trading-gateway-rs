@@ -18,6 +18,7 @@ import stage5g_b_r1_handoff_safety_check as safety
 
 ROOT = Path(__file__).resolve().parents[1]
 HANDOFF_DIR = ROOT / "reports/handoff"
+CONTRACT_PATH = "docs/stage-5/stage5g-b-r1-contract.json"
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -231,7 +232,7 @@ def main() -> int:
             )
 
         contract = json.loads(
-            (ROOT / "docs/stage-5/stage5g-b-r1-contract.json").read_text(encoding="utf-8")
+            (ROOT / CONTRACT_PATH).read_text(encoding="utf-8")
         )
         write_json(
             temp / safety.EVIDENCE_MANIFEST,

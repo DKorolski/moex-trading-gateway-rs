@@ -12,6 +12,7 @@ import make_stage5g_b_r1_handoff_archive as inherited
 import stage5g_c_handoff_safety_check as stage5g_c
 
 inherited.safety = stage5g_c.inherited
+inherited.CONTRACT_PATH = "docs/stage-5/stage5g-c-contract.json"
 _run = inherited.subprocess.run
 
 

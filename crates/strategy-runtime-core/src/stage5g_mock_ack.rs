@@ -674,6 +674,12 @@ impl Stage5gMockAckSession {
 }
 
 impl Stage5gResolvedMockAckPaperStrategy {
+    pub(crate) fn source_intent_projections(
+        &self,
+    ) -> Vec<crate::stage5c_paper_host::Stage5gSourceIntentProjection> {
+        self.resolved.stage5g_source_intent_projections()
+    }
+
     pub fn lifecycle_summary(&self) -> Stage5gMockAckSessionSummary {
         stage5g_state_summary(&self.state)
     }
@@ -1487,6 +1493,8 @@ mod tests {
         side: BrokerNeutralOrderSide,
         action: Stage5gMockIntentAction,
         bar_close_ts: i64,
+        source_target_qty: f64,
+        source_pre_position_qty: f64,
     }
 
     struct TestSession {
@@ -1930,19 +1938,14 @@ mod tests {
         let settled = crate::settle_stage5c_semantic_result(semantic)
             .expect("production Stage 5C settled Market batch");
         let request_id = settled.intent_batch().request_ids()[0];
-        let buy = crate::deterministic_request_id(
-            "hybrid_imoexf",
-            "ACC_TEST_0001",
-            "IMOEXF",
-            "market",
-            bar_close_ts,
-            3,
-        );
-        let side = if request_id == buy {
-            BrokerNeutralOrderSide::Buy
-        } else {
-            BrokerNeutralOrderSide::Sell
-        };
+        let source = settled.stage5g_source_intent_projections();
+        let side = source[0]
+            .side
+            .expect("production Market source has an exact side");
+        let source_target_qty = source[0]
+            .target_qty
+            .expect("production Market source has an exact target quantity");
+        let source_pre_position_qty = source[0].pre_position_qty;
         let action = Stage5gMockIntentAction::Place {
             place_kind: Stage5gMockPlaceKind::Market,
         };
@@ -1966,6 +1969,84 @@ mod tests {
             side,
             action,
             bar_close_ts,
+            source_target_qty,
+            source_pre_position_qty,
+        }
+    }
+
+    fn production_fixture_from_stage5f_row(row_id: &str) -> ProductionFixture {
+        let settled =
+            crate::stage5f_atomic_hybrid_semantics::stage5g_source_settled_fixture(row_id);
+        let request_id = settled.intent_batch().request_ids()[0];
+        let bar_close_ts = settled.intent_batch().bar_close_ts();
+        let source = settled.stage5g_source_intent_projections();
+        let side = source[0]
+            .side
+            .unwrap_or_else(|| panic!("{row_id}: Market source must have a side"));
+        let source_target_qty = source[0]
+            .target_qty
+            .unwrap_or_else(|| panic!("{row_id}: Market source must have a target quantity"));
+        let source_pre_position_qty = source[0].pre_position_qty;
+        let action = Stage5gMockIntentAction::Place {
+            place_kind: Stage5gMockPlaceKind::Market,
+        };
+        let binding = Stage5gMockIntentBinding {
+            request_id,
+            intent_class: settled.intent_batch().intent_classes()[0],
+            action: action.clone(),
+            side: Some(side),
+        };
+        let session = attach_stage5g_mock_ack_session(
+            settled,
+            Stage5gMockAckSessionInput {
+                intent_bindings: vec![binding],
+                lifecycle_expires_at_ts_utc: bar_close_ts + 300,
+            },
+        )
+        .unwrap_or_else(|_| panic!("{row_id}: Stage 5G-b attachment must pass"));
+        ProductionFixture {
+            session,
+            request_id,
+            side,
+            action,
+            bar_close_ts,
+            source_target_qty,
+            source_pre_position_qty,
+        }
+    }
+
+    fn production_position(
+        fixture: &ProductionFixture,
+        qty: Decimal,
+        received_offset_seconds: i64,
+    ) -> broker_core::BrokerPositionSnapshot {
+        let received_ts = Utc
+            .timestamp_opt(fixture.bar_close_ts + received_offset_seconds, 0)
+            .single()
+            .unwrap();
+        broker_core::BrokerPositionSnapshot {
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            instrument: target(),
+            qty,
+            avg_price: Some(Decimal::new(2_210, 0)),
+            unrealized_pnl: None,
+            source_ts: Some(received_ts),
+            received_ts,
+        }
+    }
+
+    fn production_truth(
+        positions: Vec<broker_core::BrokerPositionSnapshot>,
+        received_ts: chrono::DateTime<Utc>,
+    ) -> broker_core::BrokerTruthSnapshot {
+        broker_core::BrokerTruthSnapshot {
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            orders: Vec::new(),
+            positions,
+            cash: None,
+            trades: Vec::new(),
+            instruments: Vec::new(),
+            received_ts,
         }
     }
 
@@ -2276,6 +2357,236 @@ mod tests {
         assert!(!converged.redis_command_stream_attached());
         assert!(!converged.broker_transport_attached());
         assert!(!converged.broker_execution_attached());
+    }
+
+    #[test]
+    fn stage5gc_r1_public_market_entry_exact_position_converges() {
+        let fixture = production_fixture_from_stage5f_row("F02");
+        let request_id = fixture.request_id;
+        let target_qty = Decimal::from_f64_retain(fixture.source_target_qty).unwrap();
+        let signed_target = match fixture.side {
+            BrokerNeutralOrderSide::Buy => target_qty,
+            BrokerNeutralOrderSide::Sell => -target_qty,
+        };
+        let ack = production_event(
+            &fixture,
+            1,
+            CommandAckStatus::Accepted,
+            Some("FINAM_PRODUCTION_R1_ENTRY_EXACT"),
+            None,
+        );
+        let position = production_position(&fixture, signed_target, 2);
+        let resolved = apply_stage5g_mock_ack(fixture.session, ack)
+            .unwrap()
+            .into_resolved()
+            .unwrap();
+        let session = crate::attach_stage5g_order_position_session(resolved).unwrap();
+        let truth_ts = position.received_ts;
+        let converged = crate::apply_stage5g_order_position_evidence(
+            session,
+            crate::Stage5gOrderPositionEvidence {
+                total_sequence: 2,
+                request_id,
+                broker_truth: production_truth(vec![position], truth_ts),
+                order_attribution: None,
+            },
+        )
+        .unwrap()
+        .into_converged()
+        .expect("exact source target position must converge");
+        assert_eq!(converged.summary().stage5c_callback_count, 1);
+        assert_eq!(converged.summary().position_confirmation_count, 1);
+    }
+
+    #[test]
+    fn stage5gc_r1_public_market_entry_partial_then_exact_converges() {
+        let fixture = production_fixture_from_stage5f_row("F02");
+        let request_id = fixture.request_id;
+        let target_qty = Decimal::from_f64_retain(fixture.source_target_qty).unwrap();
+        let partial = match fixture.side {
+            BrokerNeutralOrderSide::Buy => target_qty / Decimal::new(2, 0),
+            BrokerNeutralOrderSide::Sell => -target_qty / Decimal::new(2, 0),
+        };
+        let exact = match fixture.side {
+            BrokerNeutralOrderSide::Buy => target_qty,
+            BrokerNeutralOrderSide::Sell => -target_qty,
+        };
+        let ack = production_event(
+            &fixture,
+            1,
+            CommandAckStatus::Accepted,
+            Some("FINAM_PRODUCTION_R1_ENTRY_PARTIAL"),
+            None,
+        );
+        let partial_position = production_position(&fixture, partial, 2);
+        let exact_position = production_position(&fixture, exact, 3);
+        let resolved = apply_stage5g_mock_ack(fixture.session, ack)
+            .unwrap()
+            .into_resolved()
+            .unwrap();
+        let session = crate::attach_stage5g_order_position_session(resolved).unwrap();
+        let partial_ts = partial_position.received_ts;
+        let awaiting = crate::apply_stage5g_order_position_evidence(
+            session,
+            crate::Stage5gOrderPositionEvidence {
+                total_sequence: 2,
+                request_id,
+                broker_truth: production_truth(vec![partial_position], partial_ts),
+                order_attribution: None,
+            },
+        )
+        .unwrap()
+        .into_awaiting()
+        .expect("partial source target position must remain awaiting");
+        let exact_ts = exact_position.received_ts;
+        let converged = crate::apply_stage5g_order_position_evidence(
+            awaiting,
+            crate::Stage5gOrderPositionEvidence {
+                total_sequence: 3,
+                request_id,
+                broker_truth: production_truth(vec![exact_position], exact_ts),
+                order_attribution: None,
+            },
+        )
+        .unwrap()
+        .into_converged()
+        .expect("later exact source target position must converge");
+        assert_eq!(converged.summary().stage5c_callback_count, 1);
+        assert_eq!(converged.summary().position_confirmation_count, 1);
+    }
+
+    #[test]
+    fn stage5gc_r1_public_stage5f_f04_market_exit_flat_converges() {
+        let fixture = production_fixture_from_stage5f_row("F04");
+        let request_id = fixture.request_id;
+        let ack = production_event(
+            &fixture,
+            1,
+            CommandAckStatus::Accepted,
+            Some("FINAM_PRODUCTION_R1_EXIT_FLAT"),
+            None,
+        );
+        let position = production_position(&fixture, Decimal::ZERO, 2);
+        let resolved = apply_stage5g_mock_ack(fixture.session, ack)
+            .unwrap()
+            .into_resolved()
+            .unwrap();
+        let session = crate::attach_stage5g_order_position_session(resolved).unwrap();
+        let truth_ts = position.received_ts;
+        let converged = crate::apply_stage5g_order_position_evidence(
+            session,
+            crate::Stage5gOrderPositionEvidence {
+                total_sequence: 2,
+                request_id,
+                broker_truth: production_truth(vec![position], truth_ts),
+                order_attribution: None,
+            },
+        )
+        .unwrap()
+        .into_converged()
+        .expect("source-reachable Market Exit must converge only at flat");
+        assert_eq!(converged.summary().stage5c_callback_count, 1);
+    }
+
+    #[test]
+    fn stage5gc_r1_public_rejected_exit_preserves_existing_position() {
+        let fixture = production_fixture_from_stage5f_row("F04");
+        let request_id = fixture.request_id;
+        let ack = production_event(
+            &fixture,
+            1,
+            CommandAckStatus::Rejected,
+            None,
+            Some(CommandAckReasonCode::BrokerRejected),
+        );
+        let existing_qty = Decimal::from_f64_retain(fixture.source_pre_position_qty).unwrap();
+        let existing = production_position(&fixture, existing_qty, 2);
+        let resolved = apply_stage5g_mock_ack(fixture.session, ack)
+            .unwrap()
+            .into_resolved()
+            .unwrap();
+        let session = crate::attach_stage5g_order_position_session(resolved).unwrap();
+        let truth_ts = existing.received_ts;
+        let converged = crate::apply_stage5g_order_position_evidence(
+            session,
+            crate::Stage5gOrderPositionEvidence {
+                total_sequence: 2,
+                request_id,
+                broker_truth: production_truth(vec![existing], truth_ts),
+                order_attribution: None,
+            },
+        )
+        .unwrap()
+        .into_converged()
+        .expect("rejected exit must retain the source pre-position");
+        assert_eq!(converged.summary().stage5c_callback_count, 0);
+    }
+
+    #[test]
+    fn stage5gc_r1_public_stage5c_preflight_block_restores_retryable_session() {
+        let fixture = production_fixture_from_stage5f_row("F02");
+        let request_id = fixture.request_id;
+        let target_qty = Decimal::from_f64_retain(fixture.source_target_qty).unwrap();
+        let signed_target = match fixture.side {
+            BrokerNeutralOrderSide::Buy => target_qty,
+            BrokerNeutralOrderSide::Sell => -target_qty,
+        };
+        let ack = production_event(
+            &fixture,
+            1,
+            CommandAckStatus::Accepted,
+            Some("FINAM_PRODUCTION_R1_PREFLIGHT_RETRY"),
+            None,
+        );
+        let mut stale_source_position = production_position(&fixture, signed_target, 2);
+        stale_source_position.source_ts = Utc.timestamp_opt(fixture.bar_close_ts, 0).single();
+        let stale_received_ts = stale_source_position.received_ts;
+        let corrected_position = production_position(&fixture, signed_target, 2);
+        let corrected_received_ts = corrected_position.received_ts;
+        let resolved = apply_stage5g_mock_ack(fixture.session, ack)
+            .unwrap()
+            .into_resolved()
+            .unwrap();
+        let session = crate::attach_stage5g_order_position_session(resolved).unwrap();
+        let initial_fingerprint = session.summary().lifecycle_fingerprint_sha256;
+        let failure = match crate::apply_stage5g_order_position_evidence(
+            session,
+            crate::Stage5gOrderPositionEvidence {
+                total_sequence: 2,
+                request_id,
+                broker_truth: production_truth(vec![stale_source_position], stale_received_ts),
+                order_attribution: None,
+            },
+        ) {
+            Err(failure) => failure,
+            Ok(_) => panic!("Stage 5C must reject broker source time before ACK"),
+        };
+        assert_eq!(
+            failure.reason(),
+            crate::Stage5gOrderPositionError::Stage5cPreCallbackBlocked
+        );
+        let blocked = failure
+            .into_blocked()
+            .expect("pre-callback failure remains retryable");
+        assert_eq!(blocked.session().summary().last_total_sequence, None);
+        assert_eq!(
+            blocked.session().summary().lifecycle_fingerprint_sha256,
+            initial_fingerprint,
+            "failed terminal candidate must not mutate continuation state"
+        );
+        let converged = crate::apply_stage5g_order_position_evidence(
+            blocked.into_session(),
+            crate::Stage5gOrderPositionEvidence {
+                total_sequence: 2,
+                request_id,
+                broker_truth: production_truth(vec![corrected_position], corrected_received_ts),
+                order_attribution: None,
+            },
+        )
+        .unwrap()
+        .into_converged()
+        .expect("corrected source timestamp must converge exactly once");
+        assert_eq!(converged.summary().stage5c_callback_count, 1);
     }
 
     #[test]

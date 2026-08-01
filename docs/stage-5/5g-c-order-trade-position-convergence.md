@@ -1,5 +1,43 @@
 # Stage 5G-c — order/trade/position convergence
 
+## R1 remediation boundary
+
+Stage 5G-c R1 is the single successor of rejected review candidate
+`dba5362444ec279391eed92ff28ebb4ceb729c09`. It does not open Stage 5G-d.
+
+The lifecycle coordinator now consumes a crate-private projection derived only
+from accepted Stage 5C source records: request identity, typed intent class,
+typed base action, side, source target quantity, pre-position quantity and
+expected attribution. These fields are not caller supplied.
+
+Market Entry converges only at the exact signed source target. A partial target
+remains awaiting. Market Exit converges only at flat; an opposite-sign position
+is a blocker. Rejected Exit accepts the unchanged source pre-position and does
+not require a fabricated account-wide absence.
+
+Terminal candidate state is transactional. The candidate crosses the single
+Stage 5C-j callsite before it is committed. A pre-callback Stage 5C block
+reconstructs the linear ACK-resolved capability with the pre-candidate state,
+so corrected evidence can retry. Success with remaining Stage 5C lifecycle
+expectations fails closed.
+
+Canceled or expired orders with a positive fill require exact correlated
+trades and an exact intent-relative target position. Rejected orders carrying
+a fill block. Every populated trade identity must match, quantity must be
+strictly positive, and changed replay under the same BrokerTradeId conflicts.
+
+Fingerprint schema v2 binds the complete continuation state, including source
+projection, exact domain-hashed IDs, ordered orders, trades, target position,
+terminal flags, replay ledger, sequence/duplicate counters, and all broker
+event-time watermarks. Broker truth and component chronology are non-decreasing
+and fail closed.
+
+Production witnesses use accepted Stage 5F fixtures F02 and F04 through the
+public Stage 5G-b ACK wrapper, canonical BrokerTruthSnapshot and Stage 5C-j.
+The matrix covers exact Entry, partial-to-exact Entry, Exit-to-flat, rejected
+Exit with an existing position, and corrected retry after a Stage 5C preflight
+block.
+
 Status: implementation review candidate. Date: 2026-08-01.
 
 Accepted predecessor:

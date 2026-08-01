@@ -1762,6 +1762,14 @@ pub(crate) mod stage5f_test_seams {
         )
     }
 
+    pub(crate) fn apply_semantic_bar_at(
+        recovered: Stage5cPendingRecoveredPaperStrategy,
+        accepted: Stage5cAcceptedSemanticBar,
+        now: DateTime<Utc>,
+    ) -> Result<Stage5cSemanticBarResult, Stage5cSemanticBarError> {
+        apply_stage5c_semantic_bar_at(recovered, accepted, now)
+    }
+
     /// Continues an actual Stage 5D-restored capability through the production
     /// Stage 5C history, pending-recovery and semantic-bar validators. The
     /// recovery evidence is an explicit empty paper claim; no Redis is opened.
@@ -2882,6 +2890,27 @@ struct Stage5cPaperIntentRecord {
     expected_attribution: Option<broker_core::HybridRuntimeAttribution>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5gSourceBaseAction {
+    Market,
+    Place,
+    Cancel,
+    Replace,
+    CreateStopLimit,
+    DeleteStopLimit,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Stage5gSourceIntentProjection {
+    pub request_id: StrategyRequestId,
+    pub intent_class: crate::BrokerNeutralHybridIntentClass,
+    pub base_action: Stage5gSourceBaseAction,
+    pub side: Option<crate::BrokerNeutralOrderSide>,
+    pub target_qty: Option<f64>,
+    pub pre_position_qty: f64,
+    pub expected_attribution: Option<broker_core::HybridRuntimeAttribution>,
+}
+
 #[derive(Default)]
 struct Stage5cCleanupAttributionLedger {
     broker_orders: HashMap<BrokerOrderId, broker_core::HybridRuntimeAttribution>,
@@ -2983,6 +3012,10 @@ impl Stage5cSettledPaperStrategy {
     }
     pub fn timer_path_enabled(&self) -> bool {
         false
+    }
+    #[cfg(test)]
+    pub(crate) fn stage5g_source_intent_projections(&self) -> Vec<Stage5gSourceIntentProjection> {
+        stage5g_source_intent_projections(&self.strategy, &self.batch)
     }
     #[cfg(test)]
     fn strategy(&self) -> &HybridIntradayRuntimeStrategy {
@@ -3412,10 +3445,61 @@ impl Stage5cResolvedPaperIntentBatchStrategy {
     pub fn post_lifecycle_state_fingerprint(&self) -> String {
         stage5c_state_fingerprint(Strategy::state(&self.strategy))
     }
+    pub(crate) fn stage5g_source_intent_projections(&self) -> Vec<Stage5gSourceIntentProjection> {
+        stage5g_source_intent_projections(&self.strategy, &self.resolved_batch)
+    }
     #[cfg(test)]
     fn strategy(&self) -> &HybridIntradayRuntimeStrategy {
         &self.strategy
     }
+}
+
+fn stage5g_source_intent_projections(
+    strategy: &HybridIntradayRuntimeStrategy,
+    batch: &Stage5cPaperIntentBatch,
+) -> Vec<Stage5gSourceIntentProjection> {
+    let pre_position_qty = stage5cj_position_qty(Strategy::state(strategy));
+    batch
+        .records
+        .iter()
+        .map(|record| {
+            let (base_action, side, target_qty) = match record.intent.base_intent() {
+                crate::BrokerNeutralHybridIntent::Market { side, qty, .. } => {
+                    (Stage5gSourceBaseAction::Market, Some(*side), Some(*qty))
+                }
+                crate::BrokerNeutralHybridIntent::Place { side, qty, .. } => {
+                    (Stage5gSourceBaseAction::Place, Some(*side), Some(*qty))
+                }
+                crate::BrokerNeutralHybridIntent::Cancel { .. } => {
+                    (Stage5gSourceBaseAction::Cancel, None, None)
+                }
+                crate::BrokerNeutralHybridIntent::Replace { new_qty, .. } => {
+                    (Stage5gSourceBaseAction::Replace, None, Some(*new_qty))
+                }
+                crate::BrokerNeutralHybridIntent::CreateStopLimit { side, qty, .. } => (
+                    Stage5gSourceBaseAction::CreateStopLimit,
+                    Some(*side),
+                    Some(*qty),
+                ),
+                crate::BrokerNeutralHybridIntent::DeleteStopLimit { side, .. } => {
+                    (Stage5gSourceBaseAction::DeleteStopLimit, *side, None)
+                }
+                crate::BrokerNeutralHybridIntent::Classified { .. }
+                | crate::BrokerNeutralHybridIntent::Routed { .. } => {
+                    unreachable!("base_intent unwraps wrappers")
+                }
+            };
+            Stage5gSourceIntentProjection {
+                request_id: record.request_id,
+                intent_class: record.intent_class,
+                base_action,
+                side,
+                target_qty,
+                pre_position_qty,
+                expected_attribution: record.expected_attribution.clone(),
+            }
+        })
+        .collect()
 }
 
 pub struct Stage5cBrokerLifecycleResolvedPaperStrategy {
