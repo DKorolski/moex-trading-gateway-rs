@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "stage": "5F-e-aggregate-acceptance",
+  "status": "aggregate_review_candidate",
+  "accepted_stage5f_d": {
+    "source_ref": "1a41b530419d39ddc84fff81a9dfdde6ede878ce",
+    "archive_name": "moex-trading-project-1a41b53.zip",
+    "archive_sha256": "18d7944264ade10ea2f0860b861a7176ba98fe5d82c9beaf1cbcd22b72e5b2b3",
+    "review_record_sha256": "3ffeb72698a472f7857b2b430ead81560c886fb77f6a4d3a64e501253b271eec",
+    "verdict": "ACCEPTED"
+  },
+  "target": {
+    "strategy_id": "hybrid_imoexf",
+    "account_id": "ACC_TEST_0001",
+    "symbol": "IMOEXF",
+    "timeframe_sec": 600,
+    "paper_only": true
+  },
+  "matrix": {
+    "row_count": 34,
+    "group_count": 16,
+    "row_ids": [
+      "F01", "F02", "F03", "F04", "F05", "F06", "F07", "F08", "F09",
+      "F10", "F11", "F12", "F13", "F14", "F15", "F16", "F17", "F18",
+      "F19", "F20", "F21", "F22", "F23", "F24", "F25", "F26", "F27",
+      "F28", "F29", "F30", "F31", "F32", "F33", "F34"
+    ],
+    "group_ids": [
+      "G01_NO_SIGNAL",
+      "G02_BO_LONG",
+      "G03_BO_SHORT",
+      "G04_BO_EXIT",
+      "G05_BO_EOD",
+      "G06_MR_LONG",
+      "G07_MR_SHORT",
+      "G08_MR_TIME",
+      "G09_MR_TARGET",
+      "G10_MR_STOP",
+      "G11_ARBITRATION",
+      "G12_OWNER_CYCLE",
+      "G13_RISKGATE_NORMAL",
+      "G14_RISKGATE_BLOCK",
+      "G15_PENDING_DEFERRED",
+      "G16_TERMINAL"
+    ],
+    "slice_counts": {
+      "5F-d1": 15,
+      "5F-d2": 7,
+      "5F-d3": 12
+    },
+    "dispositions": {
+      "accepted": 26,
+      "structural_invariant": 1,
+      "blocked_before_callback": 3,
+      "terminal_after_callback": 4
+    },
+    "results_array_sha256": "e85f15912e3dd97e2a41a3d2617bc9b560769aa964e158b0129bb0d2c89e0f17"
+  },
+  "authority_freeze": {
+    "documents": {
+      "docs/stage-5/5f-d-complete-atomic-hybrid-matrix.md": "c5bb002de4d9e9dfc845b6455da8667ecf6f9a3dd2af958b72331ac07dae012b",
+      "docs/stage-5/stage5f-d-golden-results.json": "aed7e21d7a524fd3dfd2bc6c2b128b379ff812b91556f0021fc70ba3cbf33a3d",
+      "docs/stage-5/stage5f-d-scenario-inventory.json": "dc376364a2c37a9e4b1ac0dafa670b8b4f72b95ee0f3f538af539a12a214f8fc"
+    },
+    "fixtures": {
+      "tests/fixtures/stage5/stage5f/v2/scenarios/atomic-hybrid-scenarios.json": "a9cfe51f3393b2f0d45881029e251455d727bf233fde9751fd3f2278e793e55e",
+      "tests/fixtures/stage5/stage5f/v2/states/imoexf-hybrid-state-seeds.json": "93d45c1c003a23ddd0384250a555e694f8d87c7645853bad83598a9df8061901",
+      "tests/fixtures/stage5/stage5f/v2/riskgate/imoexf-high180-riskgate-seeds.json": "dd3ea7894df922984896ee20ebd114412d1675e666683c958fe98eb724a22584",
+      "tests/fixtures/stage5/stage5f/v2/config/imoexf-target-config.json": "3c46aa4bdfb5a6ac3350d0f3b52ad5050abc472c653bacda512dffebfeb07e41"
+    },
+    "source_bindings": {
+      "crates/strategy-runtime-core/src/hybrid_intraday/intraday_breakout.rs": "a3b125f282f201b66dfa8d2685f22aa94048856a5145d537b76dc8934a5f9ae5",
+      "crates/strategy-runtime-core/src/hybrid_intraday/high180.rs": "e1f39a3afdf9745682682da0083f97ac0fa5361f979525d5ea383d6a6aa64456",
+      "crates/strategy-runtime-core/src/hybrid_intraday/orchestrator.rs": "1e784411d348fcf090887f7f50062b0cbd34494912288100c1ca1d851d8d5bd9",
+      "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": "aa514c2479a2720a585ce0c386ab91674e125582e013912fba49fe529f8bdd2d",
+      "crates/strategy-runtime-core/src/stage5d_persistence.rs": "f790a907d6730e26e731a78ef89c58f993b39acde6ce934602e2fe603d90f083",
+      "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": "87e9f9145a7ead7513c6297da9e5cd45cb5c67ce272a43988b7b1a1729b9d21b",
+      "crates/strategy-runtime-core/src/stage5f_atomic_hybrid_semantics.rs": "cf8fe7900a2f1f84d3928c0d911db69415f19ee640c26dea47227759e375c508"
+    },
+    "gate_bindings": {
+      "scripts/stage5f_d_atomic_matrix_check.py": "b8ae3354a5244ed7e29407f6dc8d076e701149ce48b93f68810c8db469add298",
+      "scripts/stage5f_d_atomic_matrix_negative_harness.py": "262dc90e96b280133ff357f27a24240f0227072bbfe2c357e719961896550036",
+      "scripts/stage5f_functional_development_gate.sh": "32224daa74487d4946dc02b3b45e984a7a1542dead63c91e04ff150c719a4db7",
+      "scripts/stage5f_r3_snapshot_gate.sh": "d20976e3a24c22bfa3dc41ff351c0dc8fc8830a943646bca51f461f01907e481",
+      "scripts/stage5f_inherited_b1_snapshot_gate.sh": "a34a9323238125d0e51e08cd82587064c69bb9867060458fddc4183cf649ac5d",
+      "scripts/stage5f_b3f_snapshot_provenance_gate.sh": "f922a4f777fbb37e049ccb640f713b7ff7557cf4f86e8855823d7db328731e29",
+      "scripts/stage5d_additive_freeze_check.py": "66c1bcfd532504eb82c3c16b36f578fc2a9f396521d1e3b8b15ef04ca7d8d78a",
+      "scripts/stage5d_additive_freeze_negative_harness.py": "5a16677a546c8206343f28f4b7edc2a7df49a91338b7dcc2992a5bc7c8f22725",
+      "scripts/forbidden_surface_scan.sh": "d40ba8cbe2eb200848a1d1ee0c94cfec26fbcac38d1dbcd223d44b97be628dfd",
+      "scripts/forbidden_surface_negative_harness.py": "04053bd8c44d41dd229ec806ed5b4083260c33efefecd67a8f18555a653fd245",
+      "scripts/forbidden_surface_negative_case_worker.sh": "e7d5a6bb74d5d5b11ac78bf6006b4d48e74701605d5b3b807c762472baa3c7ee",
+      "Cargo.lock": "ff535d0490a848e43631906ee8abd8633630d162714299f7628c0e5fe8a0b36b"
+    }
+  },
+  "closure_contract": {
+    "minimum_reproducibility_runs": 3,
+    "required_reports": [
+      "reports/stage5f/stage5f-acceptance-result.json",
+      "reports/stage5f/stage5f-fingerprint-reproducibility.json",
+      "reports/stage5f/stage5f-negative-result.json"
+    ],
+    "required_gate_labels": [
+      "aggregate-checker",
+      "aggregate-negative",
+      "fmt",
+      "workspace-tests",
+      "doctests",
+      "clippy",
+      "matrix-checker",
+      "matrix-negative",
+      "matrix-debug",
+      "matrix-release",
+      "matrix-default-parallel",
+      "matrix-reproducibility",
+      "r3-snapshot",
+      "inherited-b1",
+      "inherited-b3f",
+      "inherited-b3f-ui",
+      "stage5c-freeze",
+      "stage5d-freeze",
+      "stage5d-negative",
+      "forbidden-no-rg",
+      "redis-smoke",
+      "functional"
+    ],
+    "closed_surfaces": {
+      "redis_command_consumption": false,
+      "finam_transport": false,
+      "http_post_delete": false,
+      "dispatch": false,
+      "broker_execution": false,
+      "runtime_live": false,
+      "real_orders": false,
+      "ack_order_trade_position_timer_restart_feedback": false,
+      "protective_order_lifecycle": false,
+      "stage5g_authorized": false
+    }
+  },
+  "allowed_changes_since_accepted_stage5f_d": [
+    "docs/stage-5/5f-e-acceptance-report.md",
+    "docs/stage-5/stage5f-final-scenario-inventory.json",
+    "scripts/make_stage5f_e_handoff_archive.py",
+    "scripts/stage5f_b3f_snapshot_ui_gate.sh",
+    "scripts/stage5f_e_aggregate_acceptance_check.py",
+    "scripts/stage5f_e_aggregate_acceptance_negative_harness.py",
+    "scripts/stage5f_e_handoff_safety_check.py",
+    "scripts/stage5f_e_redis_regression_gate.sh",
+    "scripts/stage5f_e_reproducibility.py",
+    "scripts/stage5f_forbidden_no_rg_gate.sh"
+  ]
+}
