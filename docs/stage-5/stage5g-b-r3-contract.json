@@ -1,0 +1,53 @@
+{
+  "schema_version": 4,
+  "stage": "5G-b-r3-duplicate-transition-identity",
+  "status": "implementation_review_candidate",
+  "immutable_predecessor": "d03f6e5e88fb853290457d6d6dac08f21c2cf28b",
+  "accepted_stage5g_a_ref": "011fd4b7baaa41fffdad7d3c28e463b7977f5989",
+  "fingerprint": {
+    "schema_version": 4,
+    "domain": "moex.stage5g.mock-ack-lifecycle.v4\\0",
+    "current_lifecycle_fingerprint_sha256_bound": true,
+    "duplicate_sequence_bound": true,
+    "duplicate_count_bound": true,
+    "duplicate_receive_time_bound_transitively": true,
+    "golden_stage5f_market_transition_sha256": "9e009c1c4e00809b94c3af7291f6aa4411dd67c65bd6a2bd1b5108d85256bf38"
+  },
+  "duplicate_replay": {
+    "successful_replay_updates_time_watermark": true,
+    "different_receive_times_produce_different_transition_fingerprints": true,
+    "continuation_semantics_witnessed": true,
+    "production_public_wrapper_witnessed": true,
+    "stage5c_callback_repeated": false
+  },
+  "inheritance": {
+    "stage5g_b_r2_ref": "d03f6e5e88fb853290457d6d6dac08f21c2cf28b",
+    "stage5g_b_r2_detached_snapshot": true,
+    "stage5g_b_r1_detached_snapshot": true,
+    "stage5g_a_detached_snapshot": true
+  },
+  "origin": {
+    "branch": "stage5g-lifecycle",
+    "handoff_requires_origin_equal_head": true
+  },
+  "closed_surfaces": {
+    "redis_live_consumer": false,
+    "redis_consumer_groups": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "order_trade_position_lifecycle": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage5g_c": false,
+    "stage6": false,
+    "main_merge": false,
+    "deployment": false
+  },
+  "next_transition": {
+    "independent_review_required": true,
+    "stage5g_c_open": false,
+    "main_merge_authorized": false,
+    "deployment_authorized": false
+  }
+}

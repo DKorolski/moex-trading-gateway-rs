@@ -22,7 +22,7 @@ use crate::stage5c_paper_host::{
 };
 use crate::{BrokerNeutralHybridIntentClass, BrokerNeutralOrderSide};
 
-pub const STAGE5G_MOCK_ACK_SCHEMA_VERSION: u16 = 3;
+pub const STAGE5G_MOCK_ACK_SCHEMA_VERSION: u16 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1283,7 +1283,7 @@ fn stage5g_state_summary_without_fingerprint(
 
 fn stage5g_summary_fingerprint<T: Serialize>(value: &T) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"moex.stage5g.mock-ack-lifecycle.v3\0");
+    hasher.update(b"moex.stage5g.mock-ack-lifecycle.v4\0");
     hasher.update(serde_json::to_vec(value).expect("Stage 5G summary serializes"));
     stage5g_sha256_hex(hasher.finalize())
 }
@@ -1305,6 +1305,7 @@ fn stage5g_transition_fingerprint(
     struct Projection<'a> {
         batch: &'a Stage5cPaperIntentBatchSummary,
         pre_callback_lifecycle_fingerprint_sha256: &'a str,
+        current_lifecycle_fingerprint_sha256: String,
         post_lifecycle_state_fingerprint: String,
         ordered_canonical_ack_projection: Vec<Stage5gCanonicalAckFingerprintProjection>,
         last_total_sequence: u64,
@@ -1314,6 +1315,7 @@ fn stage5g_transition_fingerprint(
     stage5g_summary_fingerprint(&Projection {
         batch: &state.batch_summary,
         pre_callback_lifecycle_fingerprint_sha256,
+        current_lifecycle_fingerprint_sha256: stage5g_state_fingerprint(state),
         post_lifecycle_state_fingerprint: post_lifecycle_state_fingerprint.to_string(),
         ordered_canonical_ack_projection: state
             .slots
@@ -2004,6 +2006,47 @@ mod tests {
         }
     }
 
+    fn resolve_test_duplicate_at(
+        received_offset_seconds: i64,
+    ) -> (TestResolved, Stage5gMockAckEvent) {
+        let fixture = make_fixture();
+        let accepted = event(
+            &fixture,
+            1,
+            CommandAckStatus::Accepted,
+            Some("FINAM_DUP_CONTINUATION_0001"),
+            None,
+        );
+        let mut duplicate = event(
+            &fixture,
+            2,
+            CommandAckStatus::Duplicate,
+            Some("FINAM_DUP_CONTINUATION_0001"),
+            Some(CommandAckReasonCode::DuplicateCommand),
+        );
+        duplicate.ack.received_ts = Utc
+            .timestamp_opt(fixture.bar_close_ts + received_offset_seconds, 0)
+            .single()
+            .unwrap();
+        let mut continuation = event(
+            &fixture,
+            3,
+            CommandAckStatus::Duplicate,
+            Some("FINAM_DUP_CONTINUATION_0001"),
+            Some(CommandAckReasonCode::DuplicateCommand),
+        );
+        continuation.ack.received_ts = Utc
+            .timestamp_opt(fixture.bar_close_ts + 25, 0)
+            .single()
+            .unwrap();
+        let resolved = apply_test_mock_ack(fixture.session, accepted)
+            .unwrap()
+            .into_resolved()
+            .unwrap();
+        let resolved = apply_test_duplicate_after_resolution(resolved, duplicate).unwrap();
+        (resolved, continuation)
+    }
+
     fn resolve_single_ack(
         status: CommandAckStatus,
         broker_order_id: Option<&str>,
@@ -2234,6 +2277,54 @@ mod tests {
         let resolved = apply_stage5g_duplicate_after_resolution(resolved, duplicate).unwrap();
         assert_eq!(resolved.ack_outcomes().len(), 1);
         assert_eq!(resolved.duplicate_status_count(), 1);
+    }
+
+    #[test]
+    fn production_public_duplicate_time_changes_transition_fingerprint_without_callback_replay() {
+        let bar_close_ts = production_bar_close_ts();
+        let resolve_with_duplicate_at = |received_offset_seconds: i64| {
+            let fixture = production_fixture(bar_close_ts);
+            let accepted = production_event(
+                &fixture,
+                1,
+                CommandAckStatus::Accepted,
+                Some("FINAM_PRODUCTION_FP_DUPLICATE_0001"),
+                None,
+            );
+            let mut duplicate = production_event(
+                &fixture,
+                2,
+                CommandAckStatus::Duplicate,
+                Some("FINAM_PRODUCTION_FP_DUPLICATE_0001"),
+                Some(CommandAckReasonCode::DuplicateCommand),
+            );
+            duplicate.ack.received_ts = Utc
+                .timestamp_opt(bar_close_ts + received_offset_seconds, 0)
+                .single()
+                .unwrap();
+            let resolved = apply_stage5g_mock_ack(fixture.session, accepted)
+                .unwrap()
+                .into_resolved()
+                .unwrap();
+            let post_stage5c_fingerprint = resolved.post_lifecycle_state_fingerprint();
+            let resolved = apply_stage5g_duplicate_after_resolution(resolved, duplicate).unwrap();
+            assert_eq!(resolved.ack_outcomes().len(), 1);
+            assert_eq!(resolved.duplicate_status_count(), 1);
+            assert_eq!(
+                resolved.post_lifecycle_state_fingerprint(),
+                post_stage5c_fingerprint,
+                "duplicate replay must not invoke Stage 5C again"
+            );
+            resolved
+        };
+
+        let earlier = resolve_with_duplicate_at(20);
+        let later = resolve_with_duplicate_at(30);
+        assert_ne!(
+            earlier.transition_fingerprint_sha256(),
+            later.transition_fingerprint_sha256(),
+            "duplicate ACK receive time is continuation-relevant transition identity"
+        );
     }
 
     #[test]
@@ -2487,6 +2578,33 @@ mod tests {
         assert_eq!(
             expect_replay_blocked(apply_test_duplicate_after_resolution(resolved, duplicate))
                 .reason(),
+            Stage5gMockAckError::NonMonotonicAckTime
+        );
+    }
+
+    #[test]
+    fn duplicate_timestamp_changes_transition_fingerprint() {
+        let (earlier, _) = resolve_test_duplicate_at(20);
+        let (later, _) = resolve_test_duplicate_at(30);
+        assert_ne!(
+            earlier.transition_fingerprint_sha256(),
+            later.transition_fingerprint_sha256()
+        );
+    }
+
+    #[test]
+    fn duplicate_timestamp_changes_continuation_semantics() {
+        let (earlier, continuation_after_earlier) = resolve_test_duplicate_at(20);
+        let (later, continuation_after_later) = resolve_test_duplicate_at(30);
+        let continued = apply_test_duplicate_after_resolution(earlier, continuation_after_earlier)
+            .expect("T+25 is valid after the T+20 watermark");
+        assert_eq!(continued.duplicate_status_count(), 2);
+        assert_eq!(
+            expect_replay_blocked(apply_test_duplicate_after_resolution(
+                later,
+                continuation_after_later,
+            ))
+            .reason(),
             Stage5gMockAckError::NonMonotonicAckTime
         );
     }
@@ -2992,7 +3110,7 @@ mod tests {
     }
 
     #[test]
-    fn lifecycle_fingerprint_v3_binds_exact_redacted_ack_identity() {
+    fn lifecycle_fingerprint_v4_binds_exact_redacted_ack_identity() {
         let left = resolve_single_ack(
             CommandAckStatus::Accepted,
             Some("FINAM_SAME_LEN_A_0001"),
@@ -3023,7 +3141,7 @@ mod tests {
     }
 
     #[test]
-    fn lifecycle_fingerprint_v3_binds_reason_timestamp_and_sequence() {
+    fn lifecycle_fingerprint_v4_binds_reason_timestamp_and_sequence() {
         let broker_rejected = resolve_single_ack(
             CommandAckStatus::Rejected,
             None,
@@ -3120,7 +3238,7 @@ mod tests {
         );
         assert_eq!(
             resolved.transition_fingerprint_sha256(),
-            "65791481f16d6d343bbfe4be50133e1a4e4330fa9f056095685c6d5d0a449039"
+            "9e009c1c4e00809b94c3af7291f6aa4411dd67c65bd6a2bd1b5108d85256bf38"
         );
     }
 }

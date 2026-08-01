@@ -43,6 +43,14 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   v3, and exercises the public Stage 5G wrappers against a real linear Stage 5C
   settled capability. Stage 5G-a and R1 remain pinned by detached snapshot
   gates. Stage 5G-c remains blocked pending independent R2 acceptance.
+- Stage 5G-b R3 is an implementation review candidate on immutable predecessor
+  `d03f6e5e88fb853290457d6d6dac08f21c2cf28b`. It binds the full current
+  lifecycle fingerprint into transition schema v4, so post-resolution
+  duplicate ACK sequence/count/time watermark cannot collide. Pure and public
+  production-wrapper witnesses distinguish `T+20` and `T+30` duplicate
+  histories and their `T+25` continuation behavior without repeating Stage 5C.
+  R3 handoff additionally requires `origin/stage5g-lifecycle == HEAD`.
+  Stage 5G-c remains blocked pending independent R3 acceptance.
 - Stable macro-roadmap Stage 5 remains active while Stage 5G is incomplete.
   Stage 6 durable command-chain work is not opened by the Stage 5F acceptance.
 - Real FINAM `POST`/`DELETE`, Redis live command consumption, runtime-live,
