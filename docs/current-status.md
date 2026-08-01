@@ -29,6 +29,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   expiry, unsupported duplicate and error outcomes remain retained without a
   runtime callback. Stage 5G-c remains blocked pending independent acceptance
   of this implementation.
+- Stage 5G-b R1 is an implementation review candidate on immutable base
+  `b6f4194769ce0f6c00a82361eba57dc3ed07e55c`. It binds the exact redacted ACK
+  projection into fingerprint schema v2, makes contradictory no-send evidence
+  fail closed, requires exact duplicate identity, admits only source-authenticated
+  Market intents, and uses one deterministic state machine in debug/release
+  evidence and in the linear Stage 5C production wrapper. Public Limit/Cancel
+  admission remains `NotYetSourceAuthenticated`; no Stage 5G-c surface opens.
 - Stable macro-roadmap Stage 5 remains active while Stage 5G is incomplete.
   Stage 6 durable command-chain work is not opened by the Stage 5F acceptance.
 - Real FINAM `POST`/`DELETE`, Redis live command consumption, runtime-live,

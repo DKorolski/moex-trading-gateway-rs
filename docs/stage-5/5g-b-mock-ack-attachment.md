@@ -134,3 +134,14 @@ The exposed capability reports all of these attachments as `false`.
 The next handoff is Stage 5G-b implementation review. Stage 5G-c remains blocked
 until this implementation is accepted. No merge to `main`, deployment
 or Stage 6 transition is implied.
+
+## R1 review-closure status
+
+The base implementation review required a narrow Stage 5G-b R1 repair. The
+authoritative R1 contract is
+[`stage5g-b-r1-contract.json`](stage5g-b-r1-contract.json), with design evidence
+in [`5g-b-r1-lifecycle-evidence-hardening.md`](5g-b-r1-lifecycle-evidence-hardening.md).
+R1 upgrades lifecycle fingerprints to bind the exact redacted ACK projection,
+retains contradictory no-send evidence for manual intervention, requires exact
+duplicate identity, and limits source-authenticated admission to Market.
+Stage 5G-c remains blocked until independent R1 acceptance.

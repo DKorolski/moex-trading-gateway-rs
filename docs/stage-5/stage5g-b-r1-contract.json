@@ -1,0 +1,118 @@
+{
+  "schema_version": 2,
+  "stage": "5G-b-r1-lifecycle-evidence-hardening",
+  "status": "implementation_review_candidate",
+  "base": {
+    "full_commit_sha": "b6f4194769ce0f6c00a82361eba57dc3ed07e55c",
+    "archive_name": "moex-trading-project-b6f4194.zip",
+    "archive_sha256": "9ae1960fa1e30a84f02f40750d76c2d33dc0bbbb41c724d12a0bd8523fcfc868",
+    "review_verdict": "REJECTED_R1_REQUIRED"
+  },
+  "remediation_authority": {
+    "review_package_name": "TODAY_STAGE5F_R3_TO_STAGE5G_B_REVIEW_PACKAGE_2026-08-01.zip",
+    "review_package_sha256": "4d31b8f59d77b2f006694e182e7465ad027ce1d59d5b88006457fa8ac3bd9cf4",
+    "engineering_review_sha256": "7d02039b5f205687a759e3b266a31a93a5e7d804914f0df8938d220ef82f294b",
+    "remediation_task_sha256": "4d19b687e0452ba4c8b866b1ee1ab40661f9c06986a13bb0df96cbfbb44b884f",
+    "adversarial_evidence_sha256": "04245baac0a1c49748ffb4b71522145795a38d1103b788ed884c05f3eb359aac",
+    "review_result_sha256": "1119ef6ff5740cb0bad3376048c4e44172247e7e3403b5359dc3485b12b0f2b9"
+  },
+  "stage5g_a_authority": {
+    "descriptor": "docs/stage-5/stage5g-a-acceptance-descriptor.json",
+    "descriptor_sha256": "5cc7a3a02ed3dc553824f5e75df54f911b484fd890a9a09f884844b5806af9b1",
+    "exact_ref": "011fd4b7baaa41fffdad7d3c28e463b7977f5989",
+    "snapshot_gate": "scripts/stage5g_a_snapshot_gate.sh",
+    "entry_cases": 54,
+    "negative_cases": 30
+  },
+  "fingerprint_schema": {
+    "version": 2,
+    "lifecycle_domain": "moex.stage5g.mock-ack-lifecycle.v2\\0",
+    "broker_order_id_domain": "moex.stage5g.broker-order-id.v1\\0",
+    "raw_broker_order_id_exported": false,
+    "required_slot_fields": [
+      "request_id",
+      "expected_client_order_id",
+      "intent_class",
+      "action",
+      "side",
+      "source_event_ts_utc",
+      "state",
+      "latest_status",
+      "latest_reason_code",
+      "latest_received_ts_utc",
+      "canonical_total_sequence",
+      "pending_disposition",
+      "status_policy",
+      "broker_order_id_domain_sha256"
+    ],
+    "transition_binds_ordered_canonical_ack_projection": true,
+    "golden_stage5f_market_evidence_sha256": "f03a86a0f9f9e6c64b2a3c6bdabb4a3af86eac5674e75859ad8e13f4cf491308"
+  },
+  "no_send_rule": {
+    "proof_status": "expired",
+    "proof_reason": "expired_command",
+    "accepted_only_if_no_broker_id_ever_observed": true,
+    "accepted_only_if_current_broker_id_absent": true,
+    "contradiction_error": "NoSendProofContradictsBrokerIdentity",
+    "contradiction_state": "ManualInterventionRequired",
+    "session_retained": true,
+    "stage5c_callback_on_contradiction": false
+  },
+  "duplicate_rule": {
+    "exact_request_id": true,
+    "exact_client_order_id": true,
+    "exact_broker_order_id_continuity": true,
+    "required_reason": "DuplicateCommand",
+    "monotonic_total_sequence": true,
+    "missing_id_after_prior_id_allowed": false
+  },
+  "source_authority": {
+    "admitted_actions": [
+      "market"
+    ],
+    "limit_public_admission": "NotYetSourceAuthenticated",
+    "cancel_public_admission": "NotYetSourceAuthenticated",
+    "trusted_stage5c_action_projection_added": false
+  },
+  "deterministic_fixture": {
+    "bar_close_ts_utc": 1767679800,
+    "accepted_config_fingerprint": "stage5d_cfg_sha256:56141846cb180b8a224a1db7e1f5188c99c28f0fab88a27ebe65fbcb9d7cf626",
+    "wall_clock_read_in_stage5g_focused_tests": false,
+    "debug_release_golden_equal": true,
+    "pure_state_machine_invokes_stage5c_callback": false,
+    "production_wrapper_retains_linear_stage5c_ownership": true
+  },
+  "required_gates": [
+    "stage5g_a_snapshot_gate",
+    "stage5g_b_base_checker",
+    "stage5g_b_base_negative_15_of_15",
+    "stage5g_b_r1_checker",
+    "stage5g_b_r1_negative_matrix",
+    "focused_debug_20",
+    "focused_release_20",
+    "cargo_fmt",
+    "workspace_tests",
+    "workspace_doctests",
+    "workspace_clippy",
+    "forbidden_no_rg_87_of_87",
+    "self_attesting_archive_verifier"
+  ],
+  "closed_surfaces": {
+    "redis_live_consumer": false,
+    "redis_consumer_groups": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "order_trade_position_events": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage5g_c": false,
+    "stage6": false
+  },
+  "next_transition": {
+    "independent_review_required": true,
+    "stage5g_c_open": false,
+    "main_merge_authorized": false,
+    "deployment_authorized": false
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "stage": "5G-a-lifecycle-entry",
+  "status": "accepted_design",
+  "source": {
+    "branch": "stage5g-lifecycle",
+    "full_commit_sha": "011fd4b7baaa41fffdad7d3c28e463b7977f5989",
+    "archive_name": "moex-trading-project-011fd4b.zip",
+    "archive_sha256": "d9d07de7b25c7c5d7ed923d890b82883a05f1ea40681b6c3a1c7877e617e8946"
+  },
+  "independent_review": {
+    "artifact_name": "stage5g-a-independent-review-transcript-2026-08-01.txt",
+    "artifact_sha256": "8651eeb5613da0e3683acf0933983527cea0cd183be72cbaebe1daba37d3cc00",
+    "review_date": "2026-08-01",
+    "verdict": "ACCEPTED_DESIGN",
+    "authorized_successor": "5G-b-mock-ack-attachment"
+  },
+  "detached_snapshot_gate": {
+    "script": "scripts/stage5g_a_snapshot_gate.sh",
+    "exact_ref": "011fd4b7baaa41fffdad7d3c28e463b7977f5989",
+    "entry_case_count": 54,
+    "negative_case_count": 30,
+    "entry_checker_expected": "PASS",
+    "negative_harness_expected": "PASS_30_OF_30"
+  },
+  "governance": {
+    "stage5g_b_r1_allowed": true,
+    "stage5g_c_open": false,
+    "main_merge_authorized": false,
+    "deployment_authorized": false
+  },
+  "closed_surfaces": {
+    "redis_live_consumer": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "order_trade_position_events": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage5g_c": false,
+    "stage6": false
+  }
+}
