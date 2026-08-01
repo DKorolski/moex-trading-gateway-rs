@@ -8869,13 +8869,13 @@ fn stage5cj_broker_lifecycle_context(
     }
 }
 
-// STAGE5G-C-R2CA-AUTHORITY-BEGIN: market-terminal-no-callback-v1
-/// Canonical broker evidence accepted by the narrow Stage 5C authority for an
-/// ACK-accepted MARKET intent that subsequently terminates without a full fill.
+// STAGE5G-C-R2CA-R1-AUTHORITY-BEGIN: market-terminal-state-coherence-v1
+/// Canonical broker evidence for an ACK-accepted or ACK-confirmed MARKET intent
+/// that later reaches a broker terminal status.
 ///
-/// This capability is crate-private, consumed by value, and intentionally has
-/// no serde representation.  It does not authorize transport or a strategy
-/// callback.
+/// This input is crate-private and non-serializable. Validation consumes it and
+/// issues an opaque single-use capability; it cannot itself mint timer-ready
+/// lifecycle state.
 #[allow(dead_code)]
 pub(crate) struct Stage5cMarketTerminalOrderEvidence {
     pub(crate) request_id: StrategyRequestId,
@@ -8884,55 +8884,217 @@ pub(crate) struct Stage5cMarketTerminalOrderEvidence {
 }
 
 #[allow(dead_code)]
-struct Stage5cValidatedMarketTerminalOrder {
+struct Stage5cValidatedMarketTerminalFacts {
+    request_id: StrategyRequestId,
+    ack_status: broker_core::HybridRuntimeAckStatus,
+    account_id: BrokerAccountId,
+    broker_order_id: BrokerOrderId,
+    client_order_id: broker_core::ClientOrderId,
+    instrument: broker_core::InstrumentId,
+    side: crate::BrokerNeutralOrderSide,
+    attribution: broker_core::HybridRuntimeAttribution,
+    order_status: broker_core::OrderStatus,
+    order_qty: rust_decimal::Decimal,
+    filled_qty: rust_decimal::Decimal,
+    target_position_qty: rust_decimal::Decimal,
+    target_avg_price: rust_decimal::Decimal,
+    intent_class: crate::BrokerNeutralHybridIntentClass,
+    lifecycle_event_ts_utc: i64,
     lifecycle_watermark_ts_utc: i64,
     broker_event_count: usize,
+    evidence_fingerprint: String,
+    correlated_trades: Vec<broker_core::BrokerTradeSnapshot>,
+    target_positions: Vec<broker_core::BrokerPositionSnapshot>,
 }
 
-/// Resolves a bounded no-callback terminal MARKET path.
-///
-/// The source strategy is moved forward unchanged only after the ACK, terminal
-/// order, correlated trades, aggregate target position and attribution agree.
-/// A validation failure returns the original linear capability for a safe
-/// reconciliation retry.
+/// Validation-only authority. It owns the original retry capability and exact
+/// canonical facts, but deliberately exposes no timer/continuation interface.
 #[allow(dead_code)]
-pub(crate) fn resolve_stage5c_market_terminal_order_without_callback(
+pub(crate) struct Stage5cValidatedMarketTerminalOutcome {
+    resolved: Stage5cResolvedPaperIntentBatchStrategy,
+    facts: Stage5cValidatedMarketTerminalFacts,
+}
+
+#[allow(dead_code)]
+impl Stage5cValidatedMarketTerminalOutcome {
+    #[cfg(test)]
+    fn evidence_fingerprint(&self) -> &str {
+        &self.facts.evidence_fingerprint
+    }
+}
+
+/// Validates all broker truth before any strategy mutation. On failure, the
+/// exact original resolved capability is returned for corrected reconciliation.
+#[allow(dead_code)]
+pub(crate) fn validate_stage5c_market_terminal_outcome(
     resolved: Stage5cResolvedPaperIntentBatchStrategy,
     evidence: Stage5cMarketTerminalOrderEvidence,
-) -> Result<Stage5cBrokerLifecycleResolvedPaperStrategy, Stage5cPaperBrokerLifecycleFailure> {
-    let validated = match stage5c_validate_market_terminal_order(&resolved, &evidence) {
-        Ok(validated) => validated,
+) -> Result<Stage5cValidatedMarketTerminalOutcome, Stage5cPaperBrokerLifecycleFailure> {
+    let facts = match stage5c_validate_market_terminal_order(&resolved, &evidence) {
+        Ok(facts) => facts,
         Err(reason) => return Err(stage5cj_block(reason, resolved)),
     };
+    Ok(Stage5cValidatedMarketTerminalOutcome { resolved, facts })
+}
 
+/// Applies a validated MARKET terminal outcome through the mature runtime ACK
+/// and position transitions. Zero-fill outcomes clear stale pending state;
+/// positive fills update exact broker position and retain generated recovery
+/// intents in the existing Stage 5C escrow.
+#[allow(dead_code)]
+pub(crate) fn settle_stage5c_validated_market_terminal_outcome(
+    validated: Stage5cValidatedMarketTerminalOutcome,
+) -> Result<Stage5cBrokerLifecycleSettlement, Stage5cPaperBrokerLifecycleFailure> {
+    let Stage5cValidatedMarketTerminalOutcome { resolved, facts } = validated;
     let Stage5cResolvedPaperIntentBatchStrategy {
-        strategy,
+        mut strategy,
         recovery_receipt,
         resolved_batch,
         ack_outcomes,
-        settled_batch_history,
+        mut settled_batch_history,
     } = resolved;
-    let resolved_batch_summary = stage5ch_batch_summary(&resolved_batch);
+    let admission = &recovery_receipt
+        .warmup_receipt()
+        .restore_receipt()
+        .bootstrap_receipt()
+        .admission;
+    let cleanup_ledger =
+        stage5cj_cleanup_attribution_ledger(Strategy::state(&strategy), admission.strategy_id());
+    let position_qty =
+        facts
+            .target_position_qty
+            .to_f64()
+            .ok_or(Stage5cPaperBrokerLifecycleFailure::Terminal(
+                Stage5cPaperBrokerLifecycleError::IntentFieldMismatch,
+            ))?;
+    let avg_price =
+        facts
+            .target_avg_price
+            .to_f64()
+            .ok_or(Stage5cPaperBrokerLifecycleFailure::Terminal(
+                Stage5cPaperBrokerLifecycleError::IntentFieldMismatch,
+            ))?;
+    let is_positive_fill = facts.filled_qty > rust_decimal::Decimal::ZERO;
+    let is_full_fill = is_positive_fill && facts.filled_qty == facts.order_qty;
+    let mut generated_intents = Vec::new();
 
-    Ok(Stage5cBrokerLifecycleResolvedPaperStrategy {
+    if is_full_fill {
+        generated_intents.extend(stage5c_apply_market_terminal_position(
+            &mut strategy,
+            admission,
+            &resolved_batch,
+            position_qty,
+            avg_price,
+            facts.lifecycle_event_ts_utc,
+            true,
+        )?);
+    }
+
+    let terminal_ack = stage5c_market_terminal_runtime_ack(&facts);
+    let terminal_ack_intents =
+        crate::BrokerNeutralHybridStrategy::on_broker_ack(&mut strategy, terminal_ack).map_err(
+            |_| {
+                Stage5cPaperBrokerLifecycleFailure::Terminal(
+                    Stage5cPaperBrokerLifecycleError::CallbackValidationFailed,
+                )
+            },
+        )?;
+    if !terminal_ack_intents.is_empty() {
+        return Err(Stage5cPaperBrokerLifecycleFailure::Terminal(
+            Stage5cPaperBrokerLifecycleError::CallbackGeneratedIntentTerminal,
+        ));
+    }
+
+    if is_positive_fill && !is_full_fill {
+        generated_intents.extend(stage5c_apply_market_terminal_position(
+            &mut strategy,
+            admission,
+            &resolved_batch,
+            position_qty,
+            avg_price,
+            facts.lifecycle_event_ts_utc,
+            false,
+        )?);
+        if generated_intents.is_empty() {
+            return Err(Stage5cPaperBrokerLifecycleFailure::Terminal(
+                Stage5cPaperBrokerLifecycleError::CallbackGeneratedIntentTerminal,
+            ));
+        }
+    }
+
+    if !stage5c_market_terminal_state_is_coherent(
+        Strategy::state(&strategy),
+        facts.request_id,
+        facts.intent_class,
+        position_qty,
+    ) {
+        return Err(Stage5cPaperBrokerLifecycleFailure::Terminal(
+            Stage5cPaperBrokerLifecycleError::CallbackValidationFailed,
+        ));
+    }
+
+    let mut generated_intent_batch = None;
+    if !generated_intents.is_empty() {
+        let expected_attribution_by_request =
+            stage5cj_expected_generated_attribution_by_request_from_ledger(
+                admission,
+                facts.lifecycle_event_ts_utc,
+                &generated_intents,
+                &cleanup_ledger,
+            )
+            .map_err(|_| {
+                Stage5cPaperBrokerLifecycleFailure::Terminal(
+                    Stage5cPaperBrokerLifecycleError::CallbackGeneratedIntentTerminal,
+                )
+            })?;
+        let mut callback_batch = stage5c_build_paper_intent_batch(
+            &strategy,
+            admission,
+            facts.lifecycle_event_ts_utc,
+            broker_core::HybridRuntimeBarOrigin::Live,
+            generated_intents,
+            &expected_attribution_by_request,
+        )
+        .map_err(|_| {
+            Stage5cPaperBrokerLifecycleFailure::Terminal(
+                Stage5cPaperBrokerLifecycleError::CallbackGeneratedIntentTerminal,
+            )
+        })?;
+        stage5cj_verify_generated_batch_final_pending_consistency(
+            Strategy::state(&strategy),
+            &callback_batch,
+        )
+        .map_err(|_| {
+            Stage5cPaperBrokerLifecycleFailure::Terminal(
+                Stage5cPaperBrokerLifecycleError::CallbackGeneratedIntentTerminal,
+            )
+        })?;
+        callback_batch.state_fingerprint = stage5c_state_fingerprint(Strategy::state(&strategy));
+        settled_batch_history.push(stage5ch_batch_summary(&callback_batch));
+        generated_intent_batch = Some(callback_batch);
+    }
+
+    let resolved_batch_summary = stage5ch_batch_summary(&resolved_batch);
+    let resolved = Stage5cBrokerLifecycleResolvedPaperStrategy {
         strategy,
         recovery_receipt,
         resolved_batch,
         resolved_batch_summary,
         ack_outcomes,
-        broker_event_count: validated.broker_event_count,
+        broker_event_count: facts.broker_event_count,
         remaining_lifecycle_expectations: Vec::new(),
-        lifecycle_watermark_ts_utc: validated.lifecycle_watermark_ts_utc,
-        generated_intent_batch: None,
+        lifecycle_watermark_ts_utc: facts.lifecycle_watermark_ts_utc,
+        generated_intent_batch,
         settled_batch_history,
-    })
+    };
+    Ok(settle_stage5c_broker_lifecycle_result(resolved))
 }
 
 #[allow(dead_code)]
 fn stage5c_validate_market_terminal_order(
     resolved: &Stage5cResolvedPaperIntentBatchStrategy,
     evidence: &Stage5cMarketTerminalOrderEvidence,
-) -> Result<Stage5cValidatedMarketTerminalOrder, Stage5cPaperBrokerLifecycleError> {
+) -> Result<Stage5cValidatedMarketTerminalFacts, Stage5cPaperBrokerLifecycleError> {
     if resolved.resolved_batch.records.len() != 1 || resolved.ack_outcomes.len() != 1 {
         return Err(Stage5cPaperBrokerLifecycleError::IntentFieldMismatch);
     }
@@ -8940,7 +9102,11 @@ fn stage5c_validate_market_terminal_order(
     let ack = &resolved.ack_outcomes[0];
     if record.request_id != evidence.request_id
         || ack.request_id != evidence.request_id
-        || ack.status != broker_core::HybridRuntimeAckStatus::Accepted
+        || !matches!(
+            ack.status,
+            broker_core::HybridRuntimeAckStatus::Accepted
+                | broker_core::HybridRuntimeAckStatus::Confirmed
+        )
     {
         return Err(Stage5cPaperBrokerLifecycleError::OrderRequestIdMismatch);
     }
@@ -8958,7 +9124,11 @@ fn stage5c_validate_market_terminal_order(
         }
         _ => return Err(Stage5cPaperBrokerLifecycleError::IntentFieldMismatch),
     };
-    if evidence.attribution.as_ref() != record.expected_attribution.as_ref() {
+    let expected_attribution = record
+        .expected_attribution
+        .as_ref()
+        .ok_or(Stage5cPaperBrokerLifecycleError::AttributionMissing)?;
+    if evidence.attribution.as_ref() != Some(expected_attribution) {
         return Err(Stage5cPaperBrokerLifecycleError::AttributionRoleMismatch);
     }
 
@@ -8970,6 +9140,9 @@ fn stage5c_validate_market_terminal_order(
         .admission;
     if evidence.truth.account_id != *admission.account_id() {
         return Err(Stage5cPaperBrokerLifecycleError::InstrumentMismatch);
+    }
+    if evidence.truth.received_ts.timestamp() < ack.processed_ts_utc {
+        return Err(Stage5cPaperBrokerLifecycleError::EventTimestampBeforeAck);
     }
     let target = admission.target_instrument();
     let matching_orders: Vec<_> = evidence
@@ -8994,8 +9167,13 @@ fn stage5c_validate_market_terminal_order(
         || order.qty
             != rust_decimal::Decimal::from_f64_retain(expected_qty)
                 .ok_or(Stage5cPaperBrokerLifecycleError::IntentFieldMismatch)?
+        || order.filled_qty < rust_decimal::Decimal::ZERO
+        || order.remaining_qty != Some(order.qty - order.filled_qty)
         || order.lifecycle != broker_core::BrokerOrderLifecycle::Terminal
         || order.source_ts.map(|ts| ts.timestamp()).unwrap_or_default() < ack.processed_ts_utc
+        || order
+            .source_ts
+            .is_some_and(|source_ts| source_ts > order.received_ts)
         || order.received_ts > evidence.truth.received_ts
     {
         return Err(Stage5cPaperBrokerLifecycleError::IntentFieldMismatch);
@@ -9010,6 +9188,7 @@ fn stage5c_validate_market_terminal_order(
     }
 
     let mut trade_ids = HashSet::new();
+    let mut correlated_trades = Vec::new();
     let mut correlated_trade_qty = rust_decimal::Decimal::ZERO;
     let mut correlated_trade_count = 0usize;
     for trade in evidence.truth.trades.iter().filter(|trade| {
@@ -9026,12 +9205,14 @@ fn stage5c_validate_market_terminal_order(
             || !stage5c_order_side_matches(trade.side, expected_side)
             || trade.qty <= rust_decimal::Decimal::ZERO
             || trade.source_ts.timestamp() < ack.processed_ts_utc
+            || trade.source_ts > trade.received_ts
             || trade.received_ts > evidence.truth.received_ts
         {
             return Err(Stage5cPaperBrokerLifecycleError::IntentFieldMismatch);
         }
         correlated_trade_qty += trade.qty;
         correlated_trade_count += 1;
+        correlated_trades.push(trade.clone());
     }
     if correlated_trade_qty != order.filled_qty || order.filled_qty > order.qty {
         return Err(Stage5cPaperBrokerLifecycleError::PositionOverfill);
@@ -9043,17 +9224,38 @@ fn stage5c_validate_market_terminal_order(
     }
 
     let mut target_position_qty = rust_decimal::Decimal::ZERO;
+    let mut target_position_value = rust_decimal::Decimal::ZERO;
+    let mut target_position_weight = rust_decimal::Decimal::ZERO;
+    let mut target_positions = Vec::new();
     for position in
         evidence.truth.positions.iter().filter(|position| {
             broker_core::instrument_identity_matches(&position.instrument, target)
         })
     {
+        let position_source_ts = position
+            .source_ts
+            .ok_or(Stage5cPaperBrokerLifecycleError::EventTimestampBeforeAck)?;
         if position.account_id != *admission.account_id()
+            || position_source_ts > position.received_ts
             || position.received_ts > evidence.truth.received_ts
         {
             return Err(Stage5cPaperBrokerLifecycleError::InstrumentMismatch);
         }
+        if order.filled_qty > rust_decimal::Decimal::ZERO
+            && (position_source_ts.timestamp() < ack.processed_ts_utc
+                || position.received_ts.timestamp() < ack.processed_ts_utc)
+        {
+            return Err(Stage5cPaperBrokerLifecycleError::EventTimestampBeforeAck);
+        }
         target_position_qty += position.qty;
+        if position.qty != rust_decimal::Decimal::ZERO {
+            let avg_price = position
+                .avg_price
+                .ok_or(Stage5cPaperBrokerLifecycleError::IntentFieldMismatch)?;
+            target_position_value += avg_price * position.qty.abs();
+            target_position_weight += position.qty.abs();
+        }
+        target_positions.push(position.clone());
     }
     let pre_position_qty = rust_decimal::Decimal::from_f64_retain(stage5cj_position_qty(
         Strategy::state(&resolved.strategy),
@@ -9067,9 +9269,76 @@ fn stage5c_validate_market_terminal_order(
         return Err(Stage5cPaperBrokerLifecycleError::PositionSideMismatch);
     }
 
-    Ok(Stage5cValidatedMarketTerminalOrder {
+    correlated_trades.sort_by(|left, right| {
+        left.broker_trade_id
+            .as_str()
+            .cmp(right.broker_trade_id.as_str())
+    });
+    target_positions.sort_by(|left, right| {
+        left.instrument
+            .symbol
+            .cmp(&right.instrument.symbol)
+            .then_with(|| left.qty.cmp(&right.qty))
+    });
+    let target_avg_price = if target_position_weight > rust_decimal::Decimal::ZERO {
+        target_position_value / target_position_weight
+    } else if correlated_trade_qty > rust_decimal::Decimal::ZERO {
+        correlated_trades
+            .iter()
+            .map(|trade| trade.price * trade.qty)
+            .sum::<rust_decimal::Decimal>()
+            / correlated_trade_qty
+    } else {
+        rust_decimal::Decimal::ZERO
+    };
+    let order_source_ts = order
+        .source_ts
+        .ok_or(Stage5cPaperBrokerLifecycleError::EventTimestampBeforeAck)?;
+    let lifecycle_event_ts_utc = correlated_trades
+        .iter()
+        .map(|trade| trade.source_ts.timestamp())
+        .chain(
+            target_positions
+                .iter()
+                .filter_map(|position| position.source_ts.map(|value| value.timestamp())),
+        )
+        .fold(order_source_ts.timestamp(), i64::max);
+    let evidence_fingerprint = stage5c_market_terminal_evidence_fingerprint(
+        evidence.request_id,
+        ack.status,
+        broker_order_id,
+        &expected_client_order_id,
+        order,
+        record.intent_class,
+        expected_attribution,
+        target_position_qty,
+        lifecycle_event_ts_utc,
+        evidence.truth.received_ts.timestamp(),
+        &correlated_trades,
+        &target_positions,
+    );
+
+    Ok(Stage5cValidatedMarketTerminalFacts {
+        request_id: evidence.request_id,
+        ack_status: ack.status,
+        account_id: admission.account_id().clone(),
+        broker_order_id: broker_order_id.clone(),
+        client_order_id: expected_client_order_id,
+        instrument: target.clone(),
+        side: expected_side,
+        attribution: expected_attribution.clone(),
+        order_status: order.status.clone(),
+        order_qty: order.qty,
+        filled_qty: order.filled_qty,
+        target_position_qty,
+        target_avg_price,
+        intent_class: record.intent_class,
+        lifecycle_event_ts_utc,
         lifecycle_watermark_ts_utc: evidence.truth.received_ts.timestamp(),
-        broker_event_count: 1 + correlated_trade_count + evidence.truth.positions.len(),
+        broker_event_count: 1 + correlated_trade_count + target_positions.len(),
+        evidence_fingerprint,
+        correlated_trades,
+        target_positions,
     })
 }
 
@@ -9089,7 +9358,188 @@ fn stage5c_order_side_matches(
         )
     )
 }
-// STAGE5G-C-R2CA-AUTHORITY-END: market-terminal-no-callback-v1
+
+#[allow(dead_code)]
+fn stage5c_market_terminal_runtime_ack(
+    facts: &Stage5cValidatedMarketTerminalFacts,
+) -> broker_core::HybridRuntimeCommandAck {
+    let status = match facts.order_status {
+        broker_core::OrderStatus::Rejected => broker_core::HybridRuntimeAckStatus::Rejected,
+        broker_core::OrderStatus::Canceled | broker_core::OrderStatus::Expired => {
+            broker_core::HybridRuntimeAckStatus::Expired
+        }
+        _ => broker_core::HybridRuntimeAckStatus::Error,
+    };
+    broker_core::HybridRuntimeCommandAck {
+        request_id: facts.request_id,
+        status,
+        broker_order_id: Some(facts.broker_order_id.clone()),
+        error_code: Some(broker_core::HybridRuntimeAckErrorCode::Other(format!(
+            "market_terminal_{:?}",
+            facts.order_status
+        ))),
+        error_message: Some("broker MARKET order reached terminal status".to_string()),
+        processed_ts_utc: facts.lifecycle_event_ts_utc,
+    }
+}
+
+#[allow(dead_code)]
+fn stage5c_apply_market_terminal_position(
+    strategy: &mut HybridIntradayRuntimeStrategy,
+    admission: &Stage5cPaperHostAdmission,
+    batch: &Stage5cPaperIntentBatch,
+    qty: f64,
+    avg_price: f64,
+    source_ts_utc: i64,
+    existing: bool,
+) -> Result<Vec<crate::BrokerNeutralHybridIntent>, Stage5cPaperBrokerLifecycleFailure> {
+    let context =
+        stage5cj_broker_lifecycle_context(strategy, admission, batch.bar_close_ts(), source_ts_utc);
+    crate::BrokerNeutralHybridStrategy::on_broker_position(
+        strategy,
+        broker_core::HybridRuntimeCallbackInput {
+            context,
+            payload: broker_core::HybridRuntimePositionEvent {
+                instrument: admission.target_instrument().clone(),
+                qty,
+                existing,
+                avg_price,
+                source_ts_utc,
+            },
+        },
+    )
+    .map_err(|_| {
+        Stage5cPaperBrokerLifecycleFailure::Terminal(
+            Stage5cPaperBrokerLifecycleError::CallbackValidationFailed,
+        )
+    })
+}
+
+#[allow(dead_code)]
+fn stage5c_market_terminal_state_is_coherent(
+    state: &StrategyState,
+    original_request_id: StrategyRequestId,
+    intent_class: crate::BrokerNeutralHybridIntentClass,
+    expected_position_qty: f64,
+) -> bool {
+    let StrategyState::HybridIntradayRuntime {
+        last_position_qty,
+        pending_entry_owner,
+        pending_entry_request_id,
+        pending_exit_request_id,
+        ..
+    } = state
+    else {
+        return false;
+    };
+    if !stage5cj_f64_eq(*last_position_qty, expected_position_qty)
+        || *pending_entry_request_id == Some(original_request_id)
+        || *pending_exit_request_id == Some(original_request_id)
+    {
+        return false;
+    }
+    match intent_class {
+        crate::BrokerNeutralHybridIntentClass::Entry => pending_entry_owner.is_none(),
+        crate::BrokerNeutralHybridIntentClass::Exit => true,
+        crate::BrokerNeutralHybridIntentClass::ProtectiveRepair
+        | crate::BrokerNeutralHybridIntentClass::CancelCleanup => false,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage5c_market_terminal_evidence_fingerprint(
+    request_id: StrategyRequestId,
+    ack_status: broker_core::HybridRuntimeAckStatus,
+    broker_order_id: &BrokerOrderId,
+    client_order_id: &broker_core::ClientOrderId,
+    order: &broker_core::BrokerOrderSnapshot,
+    intent_class: crate::BrokerNeutralHybridIntentClass,
+    attribution: &broker_core::HybridRuntimeAttribution,
+    target_position_qty: rust_decimal::Decimal,
+    event_ts_utc: i64,
+    received_ts_utc: i64,
+    trades: &[broker_core::BrokerTradeSnapshot],
+    positions: &[broker_core::BrokerPositionSnapshot],
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(request_id.to_string());
+    hasher.update(format!("{ack_status:?}|{intent_class:?}"));
+    hasher.update(order.account_id.as_str());
+    hasher.update(broker_order_id.as_str());
+    hasher.update(client_order_id.as_str());
+    hasher.update(&order.instrument.symbol);
+    hasher.update(order.instrument.venue_symbol.as_deref().unwrap_or_default());
+    hasher.update(format!(
+        "{:?}|{:?}|{:?}",
+        order.instrument.exchange, order.instrument.market, order.side
+    ));
+    hasher.update(format!("{:?}|{:?}", order.order_type, order.status));
+    hasher.update(order.qty.to_string());
+    hasher.update(order.filled_qty.to_string());
+    hasher.update(
+        order
+            .remaining_qty
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+    );
+    hasher.update(
+        order
+            .source_ts
+            .map(|value| value.timestamp())
+            .unwrap_or_default()
+            .to_be_bytes(),
+    );
+    hasher.update(order.received_ts.timestamp().to_be_bytes());
+    hasher.update(attribution.internal_comment());
+    hasher.update(target_position_qty.to_string());
+    hasher.update(event_ts_utc.to_be_bytes());
+    hasher.update(received_ts_utc.to_be_bytes());
+    for trade in trades {
+        hasher.update(trade.account_id.as_str());
+        hasher.update(trade.broker_trade_id.as_str());
+        hasher.update(
+            trade
+                .broker_order_id
+                .as_ref()
+                .map(BrokerOrderId::as_str)
+                .unwrap_or_default(),
+        );
+        hasher.update(
+            trade
+                .client_order_id
+                .as_ref()
+                .map(broker_core::ClientOrderId::as_str)
+                .unwrap_or_default(),
+        );
+        hasher.update(&trade.instrument.symbol);
+        hasher.update(format!("{:?}", trade.side));
+        hasher.update(trade.qty.to_string());
+        hasher.update(trade.price.to_string());
+        hasher.update(trade.source_ts.timestamp().to_be_bytes());
+        hasher.update(trade.received_ts.timestamp().to_be_bytes());
+    }
+    for position in positions {
+        hasher.update(position.account_id.as_str());
+        hasher.update(&position.instrument.symbol);
+        hasher.update(position.qty.to_string());
+        hasher.update(
+            position
+                .avg_price
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+        );
+        hasher.update(
+            position
+                .source_ts
+                .map(|value| value.timestamp())
+                .unwrap_or_default()
+                .to_be_bytes(),
+        );
+        hasher.update(position.received_ts.timestamp().to_be_bytes());
+    }
+    format!("{:x}", hasher.finalize())
+}
+// STAGE5G-C-R2CA-R1-AUTHORITY-END: market-terminal-state-coherence-v1
 
 fn stage5cg_source_request_id(
     strategy_id: &str,
@@ -15250,21 +15700,42 @@ mod bootstrap_notification_tests {
         );
     }
 
-    // STAGE5G-C-R2CA-AUTHORITY-TESTS-BEGIN: market-terminal-no-callback-v1
-    fn stage5g_r2ca_resolved_market() -> (
+    // STAGE5G-C-R2CA-R1-AUTHORITY-TESTS-BEGIN: market-terminal-state-coherence-v1
+    fn stage5g_r2ca_resolved_market(
+        intent_class: crate::BrokerNeutralHybridIntentClass,
+        ack_status: broker_core::HybridRuntimeAckStatus,
+    ) -> (
         Stage5cResolvedPaperIntentBatchStrategy,
         StrategyRequestId,
         broker_core::HybridRuntimeAttribution,
     ) {
-        let (settled, request_id, _) = stage5ci_entry_settled();
+        let (settled, request_id, _) = match intent_class {
+            crate::BrokerNeutralHybridIntentClass::Entry => stage5ci_entry_settled(),
+            crate::BrokerNeutralHybridIntentClass::Exit => stage5ci_exit_settled(),
+            _ => panic!("R2-c-a authority is Entry/Exit MARKET only"),
+        };
         let mut resolved = resolve_stage5c_paper_intent_lifecycle(
             settled,
             Stage5cPaperIntentLifecycleInput {
-                ack_records: vec![stage5ci_ack_record(1, request_id)],
+                ack_records: vec![Stage5cPaperAckRecord {
+                    total_sequence: 1,
+                    ack: stage5ci_ack_with(
+                        request_id,
+                        ack_status,
+                        Utc.with_ymd_and_hms(2026, 7, 13, 9, 10, 1)
+                            .single()
+                            .unwrap()
+                            .timestamp(),
+                    ),
+                }],
             },
         )
         .unwrap();
-        let attribution = stage5cj_attribution("ENTRY");
+        let attribution = stage5cj_attribution(match intent_class {
+            crate::BrokerNeutralHybridIntentClass::Entry => "ENTRY",
+            crate::BrokerNeutralHybridIntentClass::Exit => "EXIT",
+            _ => unreachable!(),
+        });
         resolved.resolved_batch.records[0].expected_attribution = Some(attribution.clone());
         (resolved, request_id, attribution)
     }
@@ -15274,6 +15745,7 @@ mod bootstrap_notification_tests {
         status: broker_core::OrderStatus,
         filled_qty: Decimal,
         position_qty: Decimal,
+        side: broker_core::OrderSide,
     ) -> broker_core::BrokerTruthSnapshot {
         let received_ts = Utc
             .with_ymd_and_hms(2026, 7, 13, 9, 10, 3)
@@ -15287,7 +15759,7 @@ mod bootstrap_notification_tests {
             broker_order_id: Some(broker_order_id.clone()),
             client_order_id: Some(client_order_id.clone()),
             instrument: target(),
-            side: broker_core::OrderSide::Buy,
+            side,
             order_type: broker_core::OrderType::Market,
             time_in_force: None,
             status: status.clone(),
@@ -15311,7 +15783,7 @@ mod bootstrap_notification_tests {
                 broker_order_id: Some(broker_order_id),
                 client_order_id: Some(client_order_id),
                 instrument: target(),
-                side: broker_core::OrderSide::Buy,
+                side,
                 qty: filled_qty,
                 price: Decimal::new(222_750, 2),
                 gross_amount: None,
@@ -15353,70 +15825,224 @@ mod bootstrap_notification_tests {
         status: broker_core::OrderStatus,
         filled_qty: Decimal,
         position_qty: Decimal,
+        side: broker_core::OrderSide,
     ) -> Stage5cMarketTerminalOrderEvidence {
         Stage5cMarketTerminalOrderEvidence {
             request_id,
-            truth: stage5g_r2ca_truth(request_id, status, filled_qty, position_qty),
+            truth: stage5g_r2ca_truth(request_id, status, filled_qty, position_qty, side),
             attribution: Some(attribution),
         }
     }
 
-    #[test]
-    fn stage5g_r2ca_accepts_zero_fill_terminal_statuses_without_callback() {
-        for status in [
-            broker_core::OrderStatus::Rejected,
-            broker_core::OrderStatus::Canceled,
-            broker_core::OrderStatus::Expired,
-        ] {
-            let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market();
-            let fingerprint_before = resolved.post_lifecycle_state_fingerprint();
-            let output = resolve_stage5c_market_terminal_order_without_callback(
-                resolved,
-                stage5g_r2ca_evidence(
-                    request_id,
-                    attribution,
-                    status,
-                    Decimal::ZERO,
-                    Decimal::ZERO,
-                ),
-            )
-            .unwrap();
-            assert!(output.remaining_lifecycle_expectations().is_empty());
-            assert_eq!(output.generated_intent_count(), 0);
-            assert_eq!(
-                stage5c_state_fingerprint(Strategy::state(&output.strategy)),
-                fingerprint_before
-            );
+    fn stage5g_r2ca_validate_and_settle(
+        resolved: Stage5cResolvedPaperIntentBatchStrategy,
+        evidence: Stage5cMarketTerminalOrderEvidence,
+    ) -> Stage5cBrokerLifecycleSettlement {
+        let validated = validate_stage5c_market_terminal_outcome(resolved, evidence).unwrap();
+        assert!(!validated.evidence_fingerprint().is_empty());
+        settle_stage5c_validated_market_terminal_outcome(validated).unwrap()
+    }
+
+    fn stage5g_r2ca_ready_for_timer(
+        settlement: Stage5cBrokerLifecycleSettlement,
+    ) -> Stage5cBrokerLifecycleResolvedPaperStrategy {
+        match settlement.inner {
+            Stage5cBrokerLifecycleSettlementKind::ReadyForTimer(resolved) => resolved,
+            Stage5cBrokerLifecycleSettlementKind::GeneratedIntentBatch(_)
+            | Stage5cBrokerLifecycleSettlementKind::UnresolvedBrokerLifecycle(_) => {
+                panic!("expected timer-ready terminal outcome")
+            }
+        }
+    }
+
+    fn stage5g_r2ca_generated_intent_batch(
+        settlement: Stage5cBrokerLifecycleSettlement,
+    ) -> Stage5cSettledPaperStrategy {
+        match settlement.inner {
+            Stage5cBrokerLifecycleSettlementKind::GeneratedIntentBatch(settled) => settled,
+            Stage5cBrokerLifecycleSettlementKind::ReadyForTimer(_)
+            | Stage5cBrokerLifecycleSettlementKind::UnresolvedBrokerLifecycle(_) => {
+                panic!("expected generated-intent settlement")
+            }
+        }
+    }
+
+    fn stage5g_r2ca_validation_failure(
+        resolved: Stage5cResolvedPaperIntentBatchStrategy,
+        evidence: Stage5cMarketTerminalOrderEvidence,
+    ) -> Stage5cPaperBrokerLifecycleFailure {
+        match validate_stage5c_market_terminal_outcome(resolved, evidence) {
+            Ok(_) => panic!("terminal evidence unexpectedly validated"),
+            Err(failure) => failure,
         }
     }
 
     #[test]
-    fn stage5g_r2ca_accepts_exact_partial_cancel_truth_without_callback() {
-        for status in [
-            broker_core::OrderStatus::Canceled,
-            broker_core::OrderStatus::Expired,
+    fn stage5g_r2ca_zero_fill_entry_resolves_pending_for_accepted_and_confirmed_ack() {
+        for (ack_status, status) in [
+            (
+                broker_core::HybridRuntimeAckStatus::Accepted,
+                broker_core::OrderStatus::Rejected,
+            ),
+            (
+                broker_core::HybridRuntimeAckStatus::Confirmed,
+                broker_core::OrderStatus::Canceled,
+            ),
+            (
+                broker_core::HybridRuntimeAckStatus::Accepted,
+                broker_core::OrderStatus::Expired,
+            ),
         ] {
-            let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market();
-            let output = resolve_stage5c_market_terminal_order_without_callback(
+            let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market(
+                crate::BrokerNeutralHybridIntentClass::Entry,
+                ack_status,
+            );
+            let output = stage5g_r2ca_ready_for_timer(stage5g_r2ca_validate_and_settle(
+                resolved,
+                stage5g_r2ca_evidence(
+                    request_id,
+                    attribution,
+                    status,
+                    Decimal::ZERO,
+                    Decimal::ZERO,
+                    broker_core::OrderSide::Buy,
+                ),
+            ));
+            assert!(output.remaining_lifecycle_expectations().is_empty());
+            assert_eq!(output.generated_intent_count(), 0);
+            let StrategyState::HybridIntradayRuntime {
+                last_position_qty,
+                pending_entry_owner,
+                pending_entry_request_id,
+                active_cycle_id,
+                safe_mode_close_only,
+                ..
+            } = Strategy::state(&output.strategy)
+            else {
+                panic!("expected hybrid state")
+            };
+            assert_eq!(*last_position_qty, 0.0);
+            assert!(pending_entry_owner.is_none());
+            assert!(pending_entry_request_id.is_none());
+            assert!(active_cycle_id.is_none());
+            assert!(*safe_mode_close_only);
+            let timer = resolve_stage5c_paper_timer(
+                output,
+                Stage5cPaperTimerInput {
+                    now_ts_utc_ms: Utc
+                        .with_ymd_and_hms(2026, 7, 13, 9, 10, 4)
+                        .single()
+                        .unwrap()
+                        .timestamp_millis(),
+                },
+            )
+            .expect("zero-fill entry has no stale lifecycle state");
+            assert_eq!(timer.generated_intent_count(), 0);
+        }
+    }
+
+    #[test]
+    fn stage5g_r2ca_zero_fill_exit_keeps_position_and_clears_original_pending() {
+        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market(
+            crate::BrokerNeutralHybridIntentClass::Exit,
+            broker_core::HybridRuntimeAckStatus::Accepted,
+        );
+        let output = stage5g_r2ca_ready_for_timer(stage5g_r2ca_validate_and_settle(
+            resolved,
+            stage5g_r2ca_evidence(
+                request_id,
+                attribution,
+                broker_core::OrderStatus::Expired,
+                Decimal::ZERO,
+                Decimal::ONE,
+                broker_core::OrderSide::Sell,
+            ),
+        ));
+        let StrategyState::HybridIntradayRuntime {
+            last_position_qty,
+            pending_exit_request_id,
+            ..
+        } = Strategy::state(&output.strategy)
+        else {
+            panic!("expected hybrid state")
+        };
+        assert_eq!(*last_position_qty, 1.0);
+        assert!(pending_exit_request_id.is_none());
+        assert_eq!(output.generated_intent_count(), 0);
+        let timer = resolve_stage5c_paper_timer(
+            output,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: Utc
+                    .with_ymd_and_hms(2026, 7, 13, 9, 10, 4)
+                    .single()
+                    .unwrap()
+                    .timestamp_millis(),
+            },
+        )
+        .expect("zero-fill exit has no stale lifecycle state");
+        assert_eq!(timer.generated_intent_count(), 0);
+    }
+
+    #[test]
+    fn stage5g_r2ca_partial_entry_and_exit_update_position_and_retain_recovery_intent() {
+        for (intent_class, status, position_qty, side) in [
+            (
+                crate::BrokerNeutralHybridIntentClass::Entry,
+                broker_core::OrderStatus::Canceled,
+                Decimal::new(4, 1),
+                broker_core::OrderSide::Buy,
+            ),
+            (
+                crate::BrokerNeutralHybridIntentClass::Exit,
+                broker_core::OrderStatus::Expired,
+                Decimal::new(6, 1),
+                broker_core::OrderSide::Sell,
+            ),
+        ] {
+            let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market(
+                intent_class,
+                broker_core::HybridRuntimeAckStatus::Accepted,
+            );
+            let output = stage5g_r2ca_generated_intent_batch(stage5g_r2ca_validate_and_settle(
                 resolved,
                 stage5g_r2ca_evidence(
                     request_id,
                     attribution,
                     status,
                     Decimal::new(4, 1),
-                    Decimal::new(4, 1),
+                    position_qty,
+                    side,
                 ),
-            )
-            .unwrap();
-            assert_eq!(output.generated_intent_count(), 0);
-            assert!(output.remaining_lifecycle_expectations().is_empty());
+            ));
+            let StrategyState::HybridIntradayRuntime {
+                last_position_qty,
+                pending_entry_request_id,
+                pending_exit_request_id,
+                safe_mode_close_only,
+                ..
+            } = Strategy::state(&output.strategy)
+            else {
+                panic!("expected hybrid state")
+            };
+            assert!(stage5cj_f64_eq(
+                *last_position_qty,
+                position_qty.to_f64().unwrap()
+            ));
+            assert_ne!(*pending_entry_request_id, Some(request_id));
+            assert_ne!(*pending_exit_request_id, Some(request_id));
+            assert!(pending_exit_request_id.is_some());
+            assert!(*safe_mode_close_only);
+            assert!(output.intent_batch().intent_count() > 0);
         }
     }
 
     #[test]
     fn stage5g_r2ca_blocks_rejected_positive_fill_and_preserves_retry_capability() {
-        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market();
-        let failure = resolve_stage5c_market_terminal_order_without_callback(
+        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            broker_core::HybridRuntimeAckStatus::Accepted,
+        );
+        let failure = stage5g_r2ca_validation_failure(
             resolved,
             stage5g_r2ca_evidence(
                 request_id,
@@ -15424,9 +16050,9 @@ mod bootstrap_notification_tests {
                 broker_core::OrderStatus::Rejected,
                 Decimal::new(4, 1),
                 Decimal::new(4, 1),
+                broker_core::OrderSide::Buy,
             ),
-        )
-        .unwrap_err();
+        );
         assert_eq!(
             failure.reason(),
             Stage5cPaperBrokerLifecycleError::IntentFieldMismatch
@@ -15436,72 +16062,207 @@ mod bootstrap_notification_tests {
 
     #[test]
     fn stage5g_r2ca_blocks_wrong_side_quantity_and_attribution() {
-        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market();
+        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            broker_core::HybridRuntimeAckStatus::Accepted,
+        );
         let mut evidence = stage5g_r2ca_evidence(
             request_id,
             attribution,
             broker_core::OrderStatus::Canceled,
             Decimal::ZERO,
             Decimal::ZERO,
+            broker_core::OrderSide::Buy,
         );
         evidence.truth.orders[0].side = broker_core::OrderSide::Sell;
-        assert!(
-            resolve_stage5c_market_terminal_order_without_callback(resolved, evidence).is_err()
+        assert_eq!(
+            stage5g_r2ca_validation_failure(resolved, evidence).reason(),
+            Stage5cPaperBrokerLifecycleError::IntentFieldMismatch
         );
 
-        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market();
+        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            broker_core::HybridRuntimeAckStatus::Accepted,
+        );
         let mut evidence = stage5g_r2ca_evidence(
             request_id,
             attribution,
             broker_core::OrderStatus::Canceled,
             Decimal::ZERO,
             Decimal::ZERO,
+            broker_core::OrderSide::Buy,
         );
         evidence.truth.orders[0].qty = Decimal::new(2, 0);
-        assert!(
-            resolve_stage5c_market_terminal_order_without_callback(resolved, evidence).is_err()
+        assert_eq!(
+            stage5g_r2ca_validation_failure(resolved, evidence).reason(),
+            Stage5cPaperBrokerLifecycleError::IntentFieldMismatch
         );
 
-        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market();
+        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            broker_core::HybridRuntimeAckStatus::Accepted,
+        );
         let mut evidence = stage5g_r2ca_evidence(
             request_id,
             attribution,
             broker_core::OrderStatus::Canceled,
             Decimal::ZERO,
             Decimal::ZERO,
+            broker_core::OrderSide::Buy,
         );
         evidence.attribution = None;
-        assert!(
-            resolve_stage5c_market_terminal_order_without_callback(resolved, evidence).is_err()
+        assert_eq!(
+            stage5g_r2ca_validation_failure(resolved, evidence).reason(),
+            Stage5cPaperBrokerLifecycleError::AttributionRoleMismatch
         );
     }
 
     #[test]
     fn stage5g_r2ca_blocks_partial_without_position_and_duplicate_terminal_order() {
-        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market();
+        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            broker_core::HybridRuntimeAckStatus::Accepted,
+        );
         let evidence = stage5g_r2ca_evidence(
             request_id,
             attribution,
             broker_core::OrderStatus::Canceled,
             Decimal::new(4, 1),
             Decimal::ZERO,
+            broker_core::OrderSide::Buy,
         );
-        assert!(
-            resolve_stage5c_market_terminal_order_without_callback(resolved, evidence).is_err()
+        assert_eq!(
+            stage5g_r2ca_validation_failure(resolved, evidence).reason(),
+            Stage5cPaperBrokerLifecycleError::PositionSideMismatch
         );
 
-        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market();
+        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            broker_core::HybridRuntimeAckStatus::Accepted,
+        );
         let mut evidence = stage5g_r2ca_evidence(
             request_id,
             attribution,
             broker_core::OrderStatus::Expired,
             Decimal::ZERO,
             Decimal::ZERO,
+            broker_core::OrderSide::Buy,
         );
         evidence.truth.orders.push(evidence.truth.orders[0].clone());
-        assert!(
-            resolve_stage5c_market_terminal_order_without_callback(resolved, evidence).is_err()
+        assert_eq!(
+            stage5g_r2ca_validation_failure(resolved, evidence).reason(),
+            Stage5cPaperBrokerLifecycleError::BrokerOrderIdMismatch
         );
     }
-    // STAGE5G-C-R2CA-AUTHORITY-TESTS-END: market-terminal-no-callback-v1
+
+    #[test]
+    fn stage5g_r2ca_validation_failure_preserves_exact_retry_capability() {
+        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            broker_core::HybridRuntimeAckStatus::Confirmed,
+        );
+        let mut stale = stage5g_r2ca_evidence(
+            request_id,
+            attribution.clone(),
+            broker_core::OrderStatus::Canceled,
+            Decimal::ZERO,
+            Decimal::ZERO,
+            broker_core::OrderSide::Buy,
+        );
+        stale.truth.received_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+            .single()
+            .unwrap();
+        let blocked = stage5g_r2ca_validation_failure(resolved, stale)
+            .into_blocked()
+            .expect("validation failure must preserve resolved capability");
+        assert_eq!(
+            blocked.reason(),
+            Stage5cPaperBrokerLifecycleError::EventTimestampBeforeAck
+        );
+
+        let corrected = stage5g_r2ca_evidence(
+            request_id,
+            attribution,
+            broker_core::OrderStatus::Canceled,
+            Decimal::ZERO,
+            Decimal::ZERO,
+            broker_core::OrderSide::Buy,
+        );
+        let output = stage5g_r2ca_ready_for_timer(stage5g_r2ca_validate_and_settle(
+            blocked.into_resolved(),
+            corrected,
+        ));
+        let StrategyState::HybridIntradayRuntime {
+            pending_entry_request_id,
+            last_position_qty,
+            ..
+        } = Strategy::state(&output.strategy)
+        else {
+            panic!("expected hybrid state")
+        };
+        assert!(pending_entry_request_id.is_none());
+        assert_eq!(*last_position_qty, 0.0);
+    }
+
+    #[test]
+    fn stage5g_r2ca_rejects_non_monotonic_order_trade_and_position_chronology() {
+        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            broker_core::HybridRuntimeAckStatus::Accepted,
+        );
+        let mut bad_order = stage5g_r2ca_evidence(
+            request_id,
+            attribution,
+            broker_core::OrderStatus::Canceled,
+            Decimal::ZERO,
+            Decimal::ZERO,
+            broker_core::OrderSide::Buy,
+        );
+        bad_order.truth.orders[0].source_ts =
+            Some(bad_order.truth.orders[0].received_ts + chrono::Duration::seconds(1));
+        assert_eq!(
+            stage5g_r2ca_validation_failure(resolved, bad_order).reason(),
+            Stage5cPaperBrokerLifecycleError::IntentFieldMismatch
+        );
+
+        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            broker_core::HybridRuntimeAckStatus::Accepted,
+        );
+        let mut bad_trade = stage5g_r2ca_evidence(
+            request_id,
+            attribution,
+            broker_core::OrderStatus::Canceled,
+            Decimal::new(4, 1),
+            Decimal::new(4, 1),
+            broker_core::OrderSide::Buy,
+        );
+        bad_trade.truth.trades[0].source_ts =
+            bad_trade.truth.trades[0].received_ts + chrono::Duration::seconds(1);
+        assert_eq!(
+            stage5g_r2ca_validation_failure(resolved, bad_trade).reason(),
+            Stage5cPaperBrokerLifecycleError::IntentFieldMismatch
+        );
+
+        let (resolved, request_id, attribution) = stage5g_r2ca_resolved_market(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            broker_core::HybridRuntimeAckStatus::Accepted,
+        );
+        let mut bad_position = stage5g_r2ca_evidence(
+            request_id,
+            attribution,
+            broker_core::OrderStatus::Expired,
+            Decimal::new(4, 1),
+            Decimal::new(4, 1),
+            broker_core::OrderSide::Buy,
+        );
+        bad_position.truth.positions[0].source_ts =
+            Some(bad_position.truth.positions[0].received_ts + chrono::Duration::seconds(1));
+        assert_eq!(
+            stage5g_r2ca_validation_failure(resolved, bad_position).reason(),
+            Stage5cPaperBrokerLifecycleError::InstrumentMismatch
+        );
+    }
+    // STAGE5G-C-R2CA-R1-AUTHORITY-TESTS-END: market-terminal-state-coherence-v1
 }

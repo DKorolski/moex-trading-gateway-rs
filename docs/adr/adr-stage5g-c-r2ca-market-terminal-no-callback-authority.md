@@ -1,7 +1,15 @@
 # ADR: Stage 5G-c R2-c-a MARKET terminal no-callback authority
 
-Status: review candidate  
+Status: rejected as submitted; superseded by
+`adr-stage5g-c-r2ca-r1-market-terminal-state-coherence.md`
+
 Base: `e6e761519d43be2c2f08632c6559f7b4bb0ea533`
+
+This document is retained as the immutable design record for commit
+`581f4f6021dd781e7a5db9177be05feb7d94b12a`. Independent review found that its
+no-callback completion returned a false timer-ready type-state while leaving
+terminal MARKET pending/position state unresolved. It is not current
+operational authority.
 
 ## Context
 
@@ -43,4 +51,3 @@ authority only after independent acceptance of this commit.
 Redis, FINAM transport, HTTP POST/DELETE, broker dispatch/execution,
 runtime-live, real orders, Stage 5G-d, Stage 6, main merge and deployment remain
 closed.
-

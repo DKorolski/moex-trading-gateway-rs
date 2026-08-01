@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "stage": "5G-c-R2-c-a-R1-market-terminal-state-coherence",
+  "status": "review_candidate",
+  "base_commit": "581f4f6021dd781e7a5db9177be05feb7d94b12a",
+  "accepted_stage5g_c_r2a": "c6ae2bdaea2575dd41e6da00acad5c231f3c7572",
+  "predecessor_stage5c_sha256": "2315b70ba14432da56b777057506e69e425295a9c1b221e08438cc9e16af3d77",
+  "predecessor_regions": {
+    "market-terminal-no-callback-v1": "1d98411788ec1e0b331a7377fc8efdc6074afcaac107c99ea30c8aba4e351202",
+    "market-terminal-no-callback-tests-v1": "e7c7ad7cadc8e8f93c1e07acdab0cf2d4558a42da519190a9447afeba01a0606"
+  },
+  "stage5c_r2a_stripped_sha256": "636dd27ac64b1d9dc448fc065497d7d59c09fc8735891953e5b0432879b60193",
+  "stage5c_current_sha256": "4670090bb6046d9c70310ef07dfee2eafaa87f7873627db9de240ee5ab568d40",
+  "regions": {
+    "market-terminal-state-coherence-v1": "63c09f197264f144c21fa650e53912b6fe9086a0cc7ceb115cc1cb2b754b709b",
+    "market-terminal-state-coherence-tests-v1": "2776814114e51cd377c94abed761db09eef1c692818fe890ea8911fafcdaaccf"
+  },
+  "decision": "validation_capability_then_alor_compatible_runtime_transition",
+  "normalized_public_api_unchanged": true,
+  "validation_before_mutation": true,
+  "single_consume_type_state": true,
+  "retry_capability_preserved_on_validation_failure": true,
+  "accepted_and_confirmed_ack_supported": true,
+  "zero_fill_pending_state_terminalized": true,
+  "partial_fill_exact_position_applied": true,
+  "partial_fill_recovery_intents_escrowed": true,
+  "timer_blocked_while_generated_intents_pending": true,
+  "stage5g_b_source_mapping_sha256": "a3aa1a64ebc763750b52530925c03b4573a30627c05211491a0ae51f64da7b67",
+  "broker_core_ack_mapping_sha256": "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d",
+  "stage5f_sha256": "cf8fe7900a2f1f84d3928c0d911db69415f19ee640c26dea47227759e375c508",
+  "closed_surfaces": {
+    "stage5g_c_r2cb": false,
+    "stage5g_d": false,
+    "redis_live_consumer_groups": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage6": false,
+    "main_merge": false,
+    "deployment": false
+  }
+}

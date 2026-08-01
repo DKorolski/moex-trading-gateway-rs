@@ -76,6 +76,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   price and Replace fields are not present in the accepted Stage 5C projection;
   extending that projection remains blocked pending a separate authority
   review. Stage 5G-d and all live surfaces remain closed.
+- Stage 5G-c R2-c-a at
+  `581f4f6021dd781e7a5db9177be05feb7d94b12a` was rejected as submitted: its
+  exact terminal MARKET evidence validator was retained as useful work, but
+  the no-callback completion left stale pending/position state while returning
+  a false timer-ready type-state. The only active successor is R2-c-a R1.
+- Stage 5G-c R2-c-a R1 is a review candidate on that exact predecessor. It
+  separates validation from mutation with one opaque linear capability and
+  then reuses the ALOR-compatible Hybrid ACK/position transitions. Zero-fill
+  outcomes terminalize the original pending request; partial fills apply exact
+  broker position and retain the runtime-generated residual exit in the
+  existing intent escrow. Accepted and Confirmed ACK paths, corrected retry,
+  component chronology and timer blocking are covered without opening R2-c-b.
 - Stable macro-roadmap Stage 5 remains active while Stage 5G is incomplete.
   Stage 6 durable command-chain work is not opened by the Stage 5F acceptance.
 - Real FINAM `POST`/`DELETE`, Redis live command consumption, runtime-live,

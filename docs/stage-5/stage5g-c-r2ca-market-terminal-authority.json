@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
   "stage": "5G-c-R2-c-a-market-terminal-authority",
-  "status": "review_candidate",
+  "status": "rejected_as_submitted",
+  "superseded_by": "docs/stage-5/stage5g-c-r2ca-r1-market-terminal-state-coherence.json",
   "base_commit": "e6e761519d43be2c2f08632c6559f7b4bb0ea533",
   "accepted_stage5g_b_r3": "92f57c7831d8a15fb2e37668d3b07f1ccea03af7",
   "accepted_stage5g_c_r2a": "c6ae2bd",
