@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "stage": "5G-b-mock-ack-attachment",
+  "status": "implementation_review_candidate",
+  "accepted_predecessors": {
+    "stage5f_source_ref": "fb8245e2f91cfc1678548a1228e8558d9adc2181",
+    "stage5f_closure_ref": "cac83da38725aeadd6d029a3078157c2ab7fa004",
+    "stage5g_a_design_ref": "011fd4b7baaa41fffdad7d3c28e463b7977f5989",
+    "stage5g_a_verdict": "ACCEPTED"
+  },
+  "authority": {
+    "semantic_intents": "accepted_stage5f_and_stage5c_settled_capability",
+    "ack_identity_and_status": "broker_core_command_ack",
+    "pending_disposition": "broker_core_runtime_pending_request_identity",
+    "runtime_callback": "stage5c_i_resolve_stage5c_paper_intent_lifecycle",
+    "stage5g_ownership": "mock_event_admission_ordering_correlation_only"
+  },
+  "required_case_ids": [
+    "GACK01_PLACE_ACCEPTED_EXACT_IDS",
+    "GACK02_SUBMITTED_MISSING_BROKER_ID_KEEPS_PENDING",
+    "GACK03_RECOVERED_EXACT_BROKER_ID",
+    "GACK04_REJECTED_EXACT_REQUEST_CLEARS_PENDING",
+    "GACK05_TIMEOUT_KEEPS_PENDING",
+    "GACK06_UNKNOWN_PENDING_KEEPS_PENDING",
+    "GACK07_DUPLICATE_REQUIRES_PRIOR_OUTCOME",
+    "GACK08_EXPIRED_REQUIRES_EXACT_NO_SEND_PROOF",
+    "GACK09_REQUEST_OR_CLIENT_ID_MISMATCH_BLOCKS",
+    "GACK10_BROKER_ORDER_ID_CONFLICT_BLOCKS"
+  ],
+  "review_negative_cases": [
+    "ACK_BEFORE_INTENT_OWNERSHIP_COMPILE_FAIL",
+    "DUPLICATE_ACK_BLOCKS",
+    "TERMINAL_ACK_TWICE_BLOCKS",
+    "WRONG_ACCOUNT_OR_INSTRUMENT_BLOCKS",
+    "WRONG_SIDE_OR_ACTION_BLOCKS",
+    "ACK_AFTER_LIFECYCLE_EXPIRY_BLOCKS",
+    "REQUEST_OR_CLIENT_ID_MISMATCH_BLOCKS",
+    "ACK_CANNOT_CHANGE_BROKER_TRUTH_WITHOUT_ORDER_EVENT"
+  ],
+  "implementation": {
+    "module": "crates/strategy-runtime-core/src/stage5g_mock_ack.rs",
+    "public_export_root": "crates/strategy-runtime-core/src/lib.rs",
+    "contract_doc": "docs/stage-5/5g-b-mock-ack-attachment.md",
+    "single_stage5c_i_callsite": true,
+    "broker_core_policy_delegated": true,
+    "synthetic_broker_order_id_created": false,
+    "broker_truth_changed_by_ack": false
+  },
+  "closed_surfaces": {
+    "real_finam_post": false,
+    "real_finam_delete": false,
+    "finam_transport": false,
+    "redis_live_consumer": false,
+    "redis_consumer_groups": false,
+    "broker_dispatch": false,
+    "broker_execution": false,
+    "runtime_live": false,
+    "live_ready": false,
+    "unattended_execution": false,
+    "real_orders": false,
+    "order_trade_position_events": false,
+    "native_stop_sltp_bracket": false,
+    "stage6_durable_command_chain": false
+  },
+  "next_transition": {
+    "stage5g_b_review_required": true,
+    "after_acceptance": "5G-c-order-trade-position-convergence",
+    "stage5g_c_open": false,
+    "stage6_open": false,
+    "main_merge_authorized": false,
+    "deployment_authorized": false
+  }
+}

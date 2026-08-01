@@ -18,10 +18,17 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   [stage5f-closure-descriptor.json](stage-5/stage5f-closure-descriptor.json).
 - Stage 5G is the next allowed functional slice, limited to paper/mock
   ACK, order, position, timer, restart and lifecycle-reconciliation work.
-- Stage 5G-a is now a design-only review candidate on `stage5g-lifecycle`.
-  Its plan inventories the existing Stage 5C/5D and Broker Core authorities,
-  freezes a 54-case lifecycle matrix, and permits no Rust implementation until
-  independent entry review accepts the package.
+- Stage 5G-a is independently accepted at
+  `011fd4b7baaa41fffdad7d3c28e463b7977f5989` on `stage5g-lifecycle`.
+  Its accepted plan inventories the existing Stage 5C/5D and Broker Core
+  authorities and freezes a 54-case lifecycle matrix.
+- Stage 5G-b is an implementation review candidate. It adds one linear,
+  paper-only mock ACK session, delegates pending-state policy to Broker Core,
+  and invokes only the existing Stage 5C-i ACK facade after a complete
+  callback-safe vector. Timeout, unknown-pending, missing broker ID, unproved
+  expiry, unsupported duplicate and error outcomes remain retained without a
+  runtime callback. Stage 5G-c remains blocked pending independent acceptance
+  of this implementation.
 - Stable macro-roadmap Stage 5 remains active while Stage 5G is incomplete.
   Stage 6 durable command-chain work is not opened by the Stage 5F acceptance.
 - Real FINAM `POST`/`DELETE`, Redis live command consumption, runtime-live,

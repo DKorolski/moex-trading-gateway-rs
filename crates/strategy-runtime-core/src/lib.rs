@@ -46,6 +46,27 @@
 //! let settled = settlement.into_settled();
 //! let _ = advance_stage5c_controlled_next_bar(settled, accepted);
 //! ```
+//!
+//! Stage 5G-b ACK feedback cannot be attached before ownership of the opaque
+//! settled-intent capability has been established:
+//!
+//! ```compile_fail
+//! use strategy_runtime_core::{
+//!     attach_stage5g_mock_ack_session, Stage5cPaperIntentBatchSummary,
+//!     Stage5gMockAckSessionInput,
+//! };
+//!
+//! let summary: Stage5cPaperIntentBatchSummary = unreachable!();
+//! let input: Stage5gMockAckSessionInput = unreachable!();
+//! let _ = attach_stage5g_mock_ack_session(summary, input);
+//! ```
+//!
+//! The linear Stage 5G-b session itself cannot be forged:
+//!
+//! ```compile_fail
+//! use strategy_runtime_core::Stage5gMockAckSession;
+//! let _forged = Stage5gMockAckSession {};
+//! ```
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5e-b3f-doctest-docs
 //!
 //! The following B3F witnesses use a doctest-only facade whose wrappers contain
@@ -115,6 +136,7 @@ mod stage5e_no_io_lifecycle;
 #[cfg(test)]
 mod stage5f_atomic_hybrid_semantics;
 // STAGE5F-TEST-OBSERVATION-MODULE-END
+mod stage5g_mock_ack;
 
 pub use hybrid_intraday_runtime::{
     BrokerNeutralHybridCallbackResult, BrokerNeutralHybridStrategy, HybridIntradayProfile,
@@ -217,6 +239,16 @@ pub use stage5c_paper_host::{
     Stage5cTimerContinuationFailure, Stage5cTimerResolvedPaperStrategy, Stage5cTimerSettlement,
     Stage5cWarmedPaperStrategy, STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION,
     STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION,
+};
+pub use stage5g_mock_ack::{
+    apply_stage5g_duplicate_after_resolution, apply_stage5g_mock_ack,
+    attach_stage5g_mock_ack_session, Stage5gMockAckAdmissionBlocked, Stage5gMockAckAdmissionError,
+    Stage5gMockAckBlocked, Stage5gMockAckError, Stage5gMockAckEvent, Stage5gMockAckFailure,
+    Stage5gMockAckSession, Stage5gMockAckSessionInput, Stage5gMockAckSessionSummary,
+    Stage5gMockAckSlotState, Stage5gMockAckSlotSummary, Stage5gMockAckTerminal,
+    Stage5gMockAckTransition, Stage5gMockIntentAction, Stage5gMockIntentBinding,
+    Stage5gMockPlaceKind, Stage5gResolvedMockAckPaperStrategy, Stage5gResolvedMockAckReplayBlocked,
+    STAGE5G_MOCK_ACK_SCHEMA_VERSION,
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5d-exports
 pub use stage5d_persistence::{
