@@ -34,8 +34,9 @@ use crate::stage5g_mock_ack::{
     Stage5gResolvedMockAckPaperStrategy,
 };
 
-pub const STAGE5G_ORDER_POSITION_SCHEMA_VERSION: u16 = 3;
-const STAGE5G_EVIDENCE_FINGERPRINT_SCHEMA_VERSION: u16 = 2;
+pub const STAGE5G_ORDER_POSITION_SCHEMA_VERSION: u16 = 4;
+const STAGE5G_EVIDENCE_FINGERPRINT_SCHEMA_VERSION: u16 = 3;
+const STAGE5G_BROKER_TRUTH_PACKAGE_IDENTITY_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stage5gOrderPositionEvidence {
@@ -177,6 +178,7 @@ struct Stage5gOrderPositionState {
     slots: Vec<Stage5gOrderPositionSlot>,
     evidence_identities: Vec<EvidenceIdentity>,
     last_total_sequence: Option<u64>,
+    last_broker_truth_received_at: Option<DateTime<Utc>>,
     last_broker_truth_received_ms: Option<i64>,
     duplicate_evidence_count: usize,
 }
@@ -450,6 +452,7 @@ pub fn attach_stage5g_order_position_session(
             slots,
             evidence_identities: Vec::new(),
             last_total_sequence: None,
+            last_broker_truth_received_at: None,
             last_broker_truth_received_ms: None,
             duplicate_evidence_count: 0,
         },
@@ -642,7 +645,7 @@ pub fn apply_stage5g_order_position_evidence(
     let pre_candidate_state = session.state.clone();
     let mut next_slot = session.state.slots[slot_index].clone();
     if let Err(reason) = validate_snapshot_chronology(
-        session.state.last_broker_truth_received_ms,
+        session.state.last_broker_truth_received_at,
         &session.state.instrument,
         &mut next_slot,
         &evidence,
@@ -669,6 +672,7 @@ pub fn apply_stage5g_order_position_evidence(
     // STAGE5G-C-R2CB-R2-COMMITTED-TRADE-WATERMARK-END
     session.state.slots[slot_index] = next_slot;
     session.state.last_total_sequence = Some(evidence.total_sequence);
+    session.state.last_broker_truth_received_at = Some(evidence.broker_truth.received_ts);
     session.state.last_broker_truth_received_ms =
         Some(evidence.broker_truth.received_ts.timestamp_millis());
     session.state.evidence_identities.push(EvidenceIdentity {
@@ -701,14 +705,13 @@ fn classify_evidence_replay(
 }
 
 fn validate_snapshot_chronology(
-    last_broker_truth_received_ms: Option<i64>,
+    last_broker_truth_received_at: Option<DateTime<Utc>>,
     instrument: &InstrumentId,
     slot: &mut Stage5gOrderPositionSlot,
     evidence: &Stage5gOrderPositionEvidence,
 ) -> Result<(), Stage5gOrderPositionError> {
     let snapshot_ts = evidence.broker_truth.received_ts;
-    let snapshot_ms = snapshot_ts.timestamp_millis();
-    if last_broker_truth_received_ms.is_some_and(|last| snapshot_ms < last) {
+    if last_broker_truth_received_at.is_some_and(|last| snapshot_ts < last) {
         return Err(Stage5gOrderPositionError::BrokerTruthTimeRegression);
     }
     let target_order_id = slot.broker_order_id.as_ref();
@@ -1835,14 +1838,32 @@ fn order_status_name(status: &OrderStatus) -> String {
     .to_string()
 }
 
-fn evidence_identity(evidence: &Stage5gOrderPositionEvidence) -> String {
+// STAGE5G-C-REPLAY-PACKAGE-IDENTITY-BEGIN
+fn broker_truth_received_at_discriminator(received_at: DateTime<Utc>) -> String {
     format!(
-        "moex.stage5g.order-position-evidence-identity.v2:{}:{}:{}",
-        evidence.request_id,
-        evidence.broker_truth.account_id,
-        evidence.broker_truth.received_ts.timestamp_millis()
+        "moex.broker-truth.package.v{}:{}:{:09}",
+        STAGE5G_BROKER_TRUTH_PACKAGE_IDENTITY_SCHEMA_VERSION,
+        received_at.timestamp(),
+        received_at.timestamp_subsec_nanos(),
     )
 }
+
+fn broker_truth_package_discriminator(truth: &BrokerTruthSnapshot) -> String {
+    // The full-precision receipt belongs to snapshot assembly authority. It is
+    // stable across restart and distinguishes packages within one millisecond
+    // without using a strategy-controlled lifecycle sequence or payload hash.
+    broker_truth_received_at_discriminator(truth.received_ts)
+}
+
+fn evidence_identity(evidence: &Stage5gOrderPositionEvidence) -> String {
+    format!(
+        "moex.stage5g.order-position-evidence-identity.v3:{}:{}:{}",
+        evidence.request_id,
+        evidence.broker_truth.account_id,
+        broker_truth_package_discriminator(&evidence.broker_truth),
+    )
+}
+// STAGE5G-C-REPLAY-PACKAGE-IDENTITY-END
 
 fn evidence_fingerprint(evidence: &Stage5gOrderPositionEvidence) -> String {
     let mut truth = evidence.broker_truth.clone();
@@ -1855,17 +1876,18 @@ fn evidence_fingerprint(evidence: &Stage5gOrderPositionEvidence) -> String {
     }
     let projection = serde_json::json!({
         "schema_version": STAGE5G_EVIDENCE_FINGERPRINT_SCHEMA_VERSION,
-        "domain": "moex.stage5g.order-position-evidence.v2",
+        "domain": "moex.stage5g.order-position-evidence.v3",
         "request_id": evidence.request_id,
         "broker_truth": truth,
         "receipt_watermark_ms": evidence.broker_truth.received_ts.timestamp_millis(),
+        "package_discriminator": broker_truth_package_discriminator(&evidence.broker_truth),
         "attribution": evidence
             .order_attribution
             .as_ref()
             .map(HybridRuntimeAttribution::internal_comment),
     });
     let mut hasher = Sha256::new();
-    hasher.update(b"moex.stage5g.order-position-evidence.v2\0");
+    hasher.update(b"moex.stage5g.order-position-evidence.v3\0");
     hasher
         .update(serde_json::to_vec(&projection).expect("canonical Stage 5G-c evidence serializes"));
     format!("{:x}", hasher.finalize())
@@ -2012,13 +2034,16 @@ fn lifecycle_state_fingerprint(state: &Stage5gOrderPositionState, callback_count
         "slots": slots,
         "evidence_replay_ledger": state.evidence_identities.iter().map(|item| (&item.identity, &item.fingerprint)).collect::<Vec<_>>(),
         "last_total_sequence": state.last_total_sequence,
+        "last_broker_truth_package_discriminator": state
+            .last_broker_truth_received_at
+            .map(broker_truth_received_at_discriminator),
         "last_broker_truth_received_ms": state.last_broker_truth_received_ms,
         "duplicate_evidence_count": state.duplicate_evidence_count,
         "stage5c_callback_count": callback_count,
     });
     let mut hasher = Sha256::new();
-    hasher.update(b"moex.stage5g.order-position-lifecycle.v3\0");
-    hasher.update(serde_json::to_vec(&projection).expect("Stage 5G-c v3 state serializes"));
+    hasher.update(b"moex.stage5g.order-position-lifecycle.v4\0");
+    hasher.update(serde_json::to_vec(&projection).expect("Stage 5G-c v4 state serializes"));
     format!("{:x}", hasher.finalize())
 }
 
@@ -2259,6 +2284,7 @@ mod tests {
                 fingerprint: evidence_fingerprint(event),
             }],
             last_total_sequence: Some(event.total_sequence),
+            last_broker_truth_received_at: Some(event.broker_truth.received_ts),
             last_broker_truth_received_ms: Some(event.broker_truth.received_ts.timestamp_millis()),
             duplicate_evidence_count: 0,
         }
@@ -3237,6 +3263,7 @@ mod tests {
                 slots: vec![slot.clone()],
                 evidence_identities: vec![],
                 last_total_sequence: None,
+                last_broker_truth_received_at: None,
                 last_broker_truth_received_ms: None,
                 duplicate_evidence_count: 0,
             },
@@ -3270,6 +3297,7 @@ mod tests {
                 slots: vec![slot],
                 evidence_identities: vec![],
                 last_total_sequence: None,
+                last_broker_truth_received_at: None,
                 last_broker_truth_received_ms: None,
                 duplicate_evidence_count: 0,
             },
@@ -3331,7 +3359,7 @@ mod tests {
         assert_eq!(slot.last_trade_received_ts, None);
 
         validate_snapshot_chronology(
-            Some(ts(9).timestamp_millis()),
+            Some(ts(9)),
             &target(),
             &mut slot,
             &evidence(
@@ -3463,22 +3491,12 @@ mod tests {
         future_order.received_ts = ts(3);
         let event = evidence(2, truth(vec![future_order], vec![], vec![], 2));
         assert_eq!(
-            validate_snapshot_chronology(
-                Some(ts(1).timestamp_millis()),
-                &target(),
-                &mut chronology_slot,
-                &event,
-            ),
+            validate_snapshot_chronology(Some(ts(1)), &target(), &mut chronology_slot, &event,),
             Err(Stage5gOrderPositionError::ComponentTimeAfterSnapshot)
         );
         let event = evidence(3, truth(vec![], vec![], vec![], 1));
         assert_eq!(
-            validate_snapshot_chronology(
-                Some(ts(2).timestamp_millis()),
-                &target(),
-                &mut chronology_slot,
-                &event,
-            ),
+            validate_snapshot_chronology(Some(ts(2)), &target(), &mut chronology_slot, &event,),
             Err(Stage5gOrderPositionError::BrokerTruthTimeRegression)
         );
 
@@ -3497,12 +3515,7 @@ mod tests {
         regressed_order.source_ts = Some(ts(1));
         let regressed = evidence(5, truth(vec![regressed_order], vec![], vec![], 3));
         assert_eq!(
-            validate_snapshot_chronology(
-                Some(ts(2).timestamp_millis()),
-                &target(),
-                &mut order_slot,
-                &regressed,
-            ),
+            validate_snapshot_chronology(Some(ts(2)), &target(), &mut order_slot, &regressed,),
             Err(Stage5gOrderPositionError::OrderTimeRegression)
         );
 
@@ -3513,12 +3526,7 @@ mod tests {
         regressed_position.source_ts = Some(ts(1));
         let regressed = evidence(7, truth(vec![], vec![], vec![regressed_position], 3));
         assert_eq!(
-            validate_snapshot_chronology(
-                Some(ts(2).timestamp_millis()),
-                &target(),
-                &mut position_slot,
-                &regressed,
-            ),
+            validate_snapshot_chronology(Some(ts(2)), &target(), &mut position_slot, &regressed,),
             Err(Stage5gOrderPositionError::PositionTimeRegression)
         );
     }
@@ -3684,6 +3692,7 @@ mod tests {
                 slots: vec![slot.clone()],
                 evidence_identities: vec![],
                 last_total_sequence: Some(2),
+                last_broker_truth_received_at: Some(ts(2)),
                 last_broker_truth_received_ms: Some(ts(2).timestamp_millis()),
                 duplicate_evidence_count: 0,
             },
@@ -3702,8 +3711,7 @@ mod tests {
                 3,
             ),
         );
-        validate_snapshot_chronology(Some(ts(2).timestamp_millis()), &target(), &mut slot, &poll2)
-            .unwrap();
+        validate_snapshot_chronology(Some(ts(2)), &target(), &mut slot, &poll2).unwrap();
         apply_to_slot(&account, &target(), &mut slot, &poll2).unwrap();
         refresh_trade_watermarks_from_committed_ledger(&mut slot);
         assert_eq!(slot.trades.len(), 2);
@@ -3716,6 +3724,7 @@ mod tests {
                 slots: vec![slot.clone()],
                 evidence_identities: vec![],
                 last_total_sequence: Some(3),
+                last_broker_truth_received_at: Some(ts(3)),
                 last_broker_truth_received_ms: Some(ts(3).timestamp_millis()),
                 duplicate_evidence_count: 0,
             },
@@ -3740,8 +3749,7 @@ mod tests {
                 4,
             ),
         );
-        validate_snapshot_chronology(Some(ts(3).timestamp_millis()), &target(), &mut slot, &poll3)
-            .unwrap();
+        validate_snapshot_chronology(Some(ts(3)), &target(), &mut slot, &poll3).unwrap();
         apply_to_slot(&account, &target(), &mut slot, &poll3).unwrap();
         refresh_trade_watermarks_from_committed_ledger(&mut slot);
         assert!(slot.terminal);
@@ -3791,13 +3799,7 @@ mod tests {
                 3,
             ),
         );
-        validate_snapshot_chronology(
-            Some(ts(2).timestamp_millis()),
-            &target(),
-            &mut slot,
-            &second,
-        )
-        .unwrap();
+        validate_snapshot_chronology(Some(ts(2)), &target(), &mut slot, &second).unwrap();
         apply_to_slot(&account, &target(), &mut slot, &second).unwrap();
         refresh_trade_watermarks_from_committed_ledger(&mut slot);
 
@@ -3820,13 +3822,7 @@ mod tests {
                 4,
             ),
         );
-        validate_snapshot_chronology(
-            Some(ts(3).timestamp_millis()),
-            &target(),
-            &mut slot,
-            &stable,
-        )
-        .unwrap();
+        validate_snapshot_chronology(Some(ts(3)), &target(), &mut slot, &stable).unwrap();
         apply_to_slot(&account, &target(), &mut slot, &stable).unwrap();
         refresh_trade_watermarks_from_committed_ledger(&mut slot);
         assert_eq!(slot.trades.len(), 2);
@@ -3836,7 +3832,7 @@ mod tests {
         earlier_a.received_ts = ts(3);
         assert_eq!(
             validate_snapshot_chronology(
-                Some(ts(4).timestamp_millis()),
+                Some(ts(4)),
                 &target(),
                 &mut slot.clone(),
                 &evidence(5, truth(vec![], vec![earlier_a], vec![], 5)),
@@ -3849,7 +3845,7 @@ mod tests {
         conflicting_a.price += Decimal::new(5, 1);
         assert_eq!(
             validate_snapshot_chronology(
-                Some(ts(4).timestamp_millis()),
+                Some(ts(4)),
                 &target(),
                 &mut slot.clone(),
                 &evidence(6, truth(vec![], vec![conflicting_a], vec![], 5)),
@@ -3861,7 +3857,7 @@ mod tests {
         unseen_late.received_ts = ts(5);
         assert_eq!(
             validate_snapshot_chronology(
-                Some(ts(4).timestamp_millis()),
+                Some(ts(4)),
                 &target(),
                 &mut slot,
                 &evidence(7, truth(vec![], vec![unseen_late], vec![], 5)),
@@ -4318,5 +4314,219 @@ mod tests {
         assert_ne!(evidence_identity(&left), evidence_identity(&right));
         assert_ne!(evidence_fingerprint(&left), evidence_fingerprint(&right));
     }
+
+    // STAGE5G-C-REPLAY-PACKAGE-IDENTITY-WITNESSES-BEGIN
+    #[test]
+    fn replay_package_exact_replay_and_restart_identity_are_stable() {
+        let original = evidence(
+            2,
+            truth(
+                vec![order(OrderStatus::Working, Decimal::ZERO, 2)],
+                vec![],
+                vec![],
+                2,
+            ),
+        );
+        let state = state_with_evidence(&original);
+        let restarted_state = state.clone();
+        assert_eq!(
+            classify_evidence_replay(
+                &restarted_state,
+                &evidence_identity(&original),
+                &evidence_fingerprint(&original),
+            ),
+            Ok(true)
+        );
+        assert_eq!(
+            broker_truth_package_discriminator(&original.broker_truth),
+            broker_truth_package_discriminator(&original.broker_truth.clone())
+        );
+    }
+
+    #[test]
+    fn replay_package_same_source_identity_with_changed_payload_fails_closed() {
+        let original = evidence(
+            2,
+            truth(
+                vec![order(OrderStatus::Working, Decimal::ZERO, 2)],
+                vec![],
+                vec![],
+                2,
+            ),
+        );
+        let state = state_with_evidence(&original);
+        let mut changed = original.clone();
+        changed.broker_truth.orders[0].status = OrderStatus::PartiallyFilled;
+        changed.broker_truth.orders[0].filled_qty = Decimal::new(4, 1);
+        assert_eq!(evidence_identity(&original), evidence_identity(&changed));
+        assert_ne!(
+            evidence_fingerprint(&original),
+            evidence_fingerprint(&changed)
+        );
+        assert_eq!(
+            classify_evidence_replay(
+                &state,
+                &evidence_identity(&changed),
+                &evidence_fingerprint(&changed),
+            ),
+            Err(Stage5gOrderPositionError::ConflictingDuplicateEvidence)
+        );
+    }
+
+    #[test]
+    fn replay_package_two_distinct_same_millisecond_packages_are_both_accepted() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/expected/stage5g_r2cb_three_poll_broker_truth.json"
+        ))
+        .unwrap();
+        let polls = golden["polls"].as_array().unwrap();
+        let (mut session, request_id, client_order_id, attribution, time_shift) =
+            r2cb_public_runtime_session();
+        let mut first = r2cb_golden_truth(&polls[0], &client_order_id, time_shift);
+        let whole_second = first.received_ts.timestamp();
+        let first_receipt = Utc
+            .timestamp_opt(whole_second, 123_000_100)
+            .single()
+            .unwrap();
+        let second_receipt = Utc
+            .timestamp_opt(whole_second, 123_000_900)
+            .single()
+            .unwrap();
+        assert_eq!(
+            first_receipt.timestamp_millis(),
+            second_receipt.timestamp_millis()
+        );
+        first.received_ts = first_receipt;
+        first.orders[0].source_ts = Some(first_receipt - Duration::nanoseconds(200));
+        first.orders[0].received_ts = first_receipt;
+        first.positions.iter_mut().for_each(|position| {
+            position.source_ts = Some(first_receipt - Duration::nanoseconds(300));
+            position.received_ts = first_receipt;
+        });
+        first.trades[0].source_ts = first_receipt - Duration::nanoseconds(100);
+        first.trades[0].received_ts = first_receipt;
+        let first_identity = evidence_identity(&Stage5gOrderPositionEvidence {
+            total_sequence: 2,
+            request_id,
+            broker_truth: first.clone(),
+            order_attribution: attribution.clone(),
+        });
+        session = apply_stage5g_order_position_evidence(
+            session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 2,
+                request_id,
+                broker_truth: first.clone(),
+                order_attribution: attribution.clone(),
+            },
+        )
+        .unwrap()
+        .into_awaiting()
+        .unwrap();
+
+        session = apply_stage5g_order_position_evidence(
+            session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 3,
+                request_id,
+                broker_truth: first,
+                order_attribution: attribution.clone(),
+            },
+        )
+        .expect("exact package replay is idempotent")
+        .into_awaiting()
+        .unwrap();
+        assert_eq!(session.summary().duplicate_evidence_count, 1);
+        assert_eq!(session.summary().correlated_trade_count, 1);
+
+        let mut second = r2cb_golden_truth(&polls[1], &client_order_id, time_shift);
+        second.received_ts = second_receipt;
+        second.orders[0].source_ts = Some(second_receipt - Duration::nanoseconds(50));
+        second.orders[0].received_ts = second_receipt;
+        second.positions.iter_mut().for_each(|position| {
+            position.source_ts = Some(second_receipt - Duration::nanoseconds(300));
+            position.received_ts = second_receipt;
+        });
+        second.trades[0].source_ts = first_receipt - Duration::nanoseconds(100);
+        second.trades[0].received_ts = second_receipt;
+        second.trades[1].source_ts = second_receipt - Duration::nanoseconds(100);
+        second.trades[1].received_ts = second_receipt;
+        assert!(second.orders.iter().all(|order| {
+            order.received_ts <= second.received_ts
+                && order
+                    .source_ts
+                    .is_none_or(|source| source <= order.received_ts)
+        }));
+        assert!(second.positions.iter().all(|position| {
+            position.received_ts <= second.received_ts
+                && position
+                    .source_ts
+                    .is_none_or(|source| source <= position.received_ts)
+        }));
+        assert!(second.trades.iter().all(|trade| {
+            trade.received_ts <= second.received_ts && trade.source_ts <= trade.received_ts
+        }));
+        let second_identity = evidence_identity(&Stage5gOrderPositionEvidence {
+            total_sequence: 4,
+            request_id,
+            broker_truth: second.clone(),
+            order_attribution: attribution.clone(),
+        });
+        assert_ne!(first_identity, second_identity);
+        session = apply_stage5g_order_position_evidence(
+            session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 4,
+                request_id,
+                broker_truth: second.clone(),
+                order_attribution: attribution.clone(),
+            },
+        )
+        .expect("second legitimate package in the same millisecond is accepted")
+        .into_awaiting()
+        .unwrap();
+        assert_eq!(session.summary().correlated_trade_count, 2);
+
+        let before_reverse = session.summary().lifecycle_fingerprint_sha256;
+        let reversed_receipt = Utc
+            .timestamp_opt(whole_second, 123_000_500)
+            .single()
+            .unwrap();
+        second.received_ts = reversed_receipt;
+        second.orders[0].received_ts = reversed_receipt;
+        second.positions[0].received_ts = reversed_receipt;
+        second
+            .trades
+            .iter_mut()
+            .for_each(|trade| trade.received_ts = reversed_receipt);
+        let blocked = match apply_stage5g_order_position_evidence(
+            session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 5,
+                request_id,
+                broker_truth: second,
+                order_attribution: attribution,
+            },
+        ) {
+            Err(failure) => failure.into_blocked().unwrap(),
+            Ok(_) => panic!("reversed full-precision package order must block"),
+        };
+        assert_eq!(
+            blocked.reason(),
+            Stage5gOrderPositionError::BrokerTruthTimeRegression
+        );
+        assert_eq!(
+            blocked.session().summary().lifecycle_fingerprint_sha256,
+            before_reverse
+        );
+    }
+
+    #[test]
+    fn replay_package_missing_source_receipt_is_structurally_rejected() {
+        let mut encoded = serde_json::to_value(truth(vec![], vec![], vec![], 2)).unwrap();
+        encoded.as_object_mut().unwrap().remove("received_ts");
+        assert!(serde_json::from_value::<BrokerTruthSnapshot>(encoded).is_err());
+    }
+    // STAGE5G-C-REPLAY-PACKAGE-IDENTITY-WITNESSES-END
     // STAGE5G-C-R2CB-PARITY-TESTS-END: broker-truth-finam-parity-v1
 }

@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "stage": "5G-c-replay-package-identity-gate",
+  "status": "review_candidate",
+  "base_commit": "470d898104b06fbf725f532554ba7a0fbde7e5c3",
+  "required_parent_relation": "exactly_one_successor",
+  "identity_contract": {
+    "schema": "moex.broker-truth.package.v1",
+    "source_authority": "BrokerTruthSnapshot.received_ts",
+    "precision": "unix_seconds_plus_nanoseconds",
+    "strategy_total_sequence_is_authority": false,
+    "payload_fingerprint_is_identity": false,
+    "exact_replay": "idempotent",
+    "changed_payload_same_identity": "conflicting_duplicate_evidence",
+    "distinct_same_millisecond_packages": "accepted_when_full_precision_receipts_differ",
+    "exact_receipt_collision_changed_payload": "fail_closed_ambiguous",
+    "missing_receipt": "structurally_rejected_by_required_broker_truth_field",
+    "reverse_package_order": "broker_truth_time_regression",
+    "restart_identity": "exact_full_precision_receipt_preserved"
+  },
+  "schema_versions": {
+    "order_position_lifecycle": 4,
+    "evidence_fingerprint": 3,
+    "package_identity": 1
+  },
+  "accepted_r3_entry_points": [
+    "validate_stage5c_market_terminal_outcome_r3",
+    "settle_stage5c_validated_market_terminal_outcome_r3"
+  ],
+  "required_witnesses": [
+    "replay_package_exact_replay_and_restart_identity_are_stable",
+    "replay_package_same_source_identity_with_changed_payload_fails_closed",
+    "replay_package_two_distinct_same_millisecond_packages_are_both_accepted",
+    "replay_package_missing_source_receipt_is_structurally_rejected",
+    "r2cb_public_runtime_three_poll_golden_converges_through_stage5c"
+  ],
+  "closed_surfaces": {
+    "stage5g_d": false,
+    "redis_live_consumer_groups": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage6": false,
+    "main_merge": false,
+    "deployment": false
+  }
+}
