@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "stage": "5G-d R1-b",
+  "status": "implementation_review_candidate",
+  "accepted_authority": "d0494537d7c1739a16350b2d28f71b304165c812",
+  "bar_entrypoint": "advance_stage5c_timer_settlement_next_bar_transactional_at_checkpoint",
+  "bar_evaluation_time_policy": "accepted_bar_checkpoint",
+  "raw_settled_bypass": false,
+  "checkpoint_rule": "max(previous_continuation, exact_broker_receipt_ms, accepted_event_checkpoint)",
+  "restore_requires_semantic_coherence": true,
+  "negative_case_count": 21,
+  "closed_surfaces": {
+    "stage5g_e": false,
+    "stage5g_f": false,
+    "redis_live_consumer_groups": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage6": false,
+    "main_merge": false,
+    "deployment": false
+  }
+}

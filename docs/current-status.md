@@ -106,6 +106,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   post-start receipt, true stale receipt, delayed post-grace receipt, fresh
   snapshot retry, deterministic replay and inherited full-fill/rollback.
   R2-c-b and all live surfaces remain closed.
+- Stage 5G-c and its exact replay-package identity are independently accepted
+  and closed at `d7561e6f36d01aea3d0dd67892800fbb6ac0a716`.
+- Stage 5G-d R1-a R1 transactional bar authority is independently accepted at
+  `d0494537d7c1739a16350b2d28f71b304165c812`. Stage 5G-d R1-b is now an
+  implementation review candidate: it composes that unchanged authority with
+  replay-owning timer/bar wrappers, removes raw settled-state bypasses,
+  preserves exact continuation state through ACK/BrokerTruth convergence and
+  rejects semantically incomplete restore checkpoints even when their checksum
+  is recomputed. Stage 5G-d as a whole is not closed until R1-b acceptance.
 - Stable macro-roadmap Stage 5 remains active while Stage 5G is incomplete.
   Stage 6 durable command-chain work is not opened by the Stage 5F acceptance.
 - Real FINAM `POST`/`DELETE`, Redis live command consumption, runtime-live,

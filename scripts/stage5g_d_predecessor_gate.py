@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the accepted replay-identity gates against detached d7561e6 sources."""
+"""Run the accepted R1-a R1 authority gates against detached d049453 sources."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = "d7561e6f36d01aea3d0dd67892800fbb6ac0a716"
+BASE = "d0494537d7c1739a16350b2d28f71b304165c812"
 
 
 def main() -> int:
@@ -28,8 +28,8 @@ def main() -> int:
             # accepted tree, not from an external input.
             bundle.extractall(source)
         commands = (
-            ["python3", "scripts/stage5g_c_replay_identity_authority_check.py"],
-            ["python3", "scripts/stage5g_c_replay_identity_negative_harness.py"],
+            ["python3", "scripts/stage5g_d_r1a_r1_authority_check.py"],
+            ["python3", "scripts/stage5g_d_r1a_r1_negative_harness.py"],
         )
         for command in commands:
             subprocess.run(command, cwd=source, check=True)

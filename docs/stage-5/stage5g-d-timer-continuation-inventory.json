@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "stage": "5G-d",
-  "status": "review_candidate",
-  "accepted_predecessor": "d7561e6f36d01aea3d0dd67892800fbb6ac0a716",
+  "status": "r1b_review_candidate",
+  "accepted_predecessor": "d0494537d7c1739a16350b2d28f71b304165c812",
   "authority": {
     "timer_callback": "Stage 5C-k",
     "timer_settlement": "Stage 5C-l",
-    "continuation_arbitration": "Stage 5C-m",
+    "continuation_arbitration": "Stage 5C-m plus accepted d049453 transactional bar authority",
     "bounded_loop": "Stage 5C-n",
     "market_terminal": "accepted R3 entry points only",
     "package_identity": "moex.broker-truth.package.v1"
@@ -34,7 +34,8 @@
       "attach_stage5g_timer_generated_mock_ack",
       "apply_stage5g_timer_mock_ack",
       "attach_stage5g_timer_order_position_session",
-      "stage5cl_nonzero_timer_batch_must_reenter_ack_lifecycle"
+      "stage5cl_nonzero_timer_batch_must_reenter_ack_lifecycle",
+      "stage5gd_timer_generated_cleanup_roundtrips_through_ack_truth_and_next_session"
     ],
     "GTMR04_TIMER_CLEANUP_PRESERVES_ATTRIBUTION": [
       "stage5ck_partial_entry_cleanup_uses_pending_entry_attribution"
@@ -46,7 +47,8 @@
     "GTMR06_BAR_TIMER_RACE_HAS_ONE_DETERMINISTIC_WINNER": [
       "continue_stage5g_timer_with_bar",
       "continue_stage5g_timer_with_timer",
-      "stage5cm_ready_checkpoint_can_continue_to_timer_or_bar_once"
+      "stage5cm_ready_checkpoint_can_continue_to_timer_or_bar_once",
+      "stage5gd_bar_preflight_failure_returns_exact_incoming_checkpoint"
     ],
     "GTMR07_GENERATED_BATCH_BLOCKS_UNRELATED_CONTINUATION": [
       "Stage5gTimerGeneratedIntentEscrow",
@@ -63,7 +65,12 @@
       "exact_redelivery_uses_new_local_sequence_but_same_package_identity",
       "changed_payload_under_same_package_identity_fails_closed",
       "two_packages_in_one_millisecond_keep_distinct_exact_identity",
-      "checkpoint_roundtrip_preserves_exact_nanos_and_replay_ledger"
+      "checkpoint_roundtrip_preserves_exact_nanos_and_replay_ledger",
+      "stage5gd_bar_generated_intent_roundtrips_through_ack_truth_and_next_timer",
+      "stage5gd_timer_generated_cleanup_roundtrips_through_ack_truth_and_next_session",
+      "stage5gd_zero_intent_bar_retains_replay_owning_wrapper",
+      "semantically_incomplete_checkpoints_fail_even_with_recomputed_hash",
+      "replay_ledger_and_continuation_semantics_are_fail_closed"
     ]
   },
   "checkpoint_fields": [

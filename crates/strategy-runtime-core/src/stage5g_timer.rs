@@ -11,11 +11,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::stage5c_paper_host::{
-    advance_stage5c_paper_loop_once, advance_stage5c_timer_settlement_next_bar,
+    advance_stage5c_paper_loop_once,
+    advance_stage5c_timer_settlement_next_bar_transactional_at_checkpoint,
     advance_stage5c_timer_settlement_timer, settle_stage5c_timer_result,
-    Stage5cAcceptedSemanticBar, Stage5cPaperLoopError, Stage5cPaperLoopEvent,
-    Stage5cPaperLoopState, Stage5cPaperTimerInput, Stage5cSettledPaperStrategy,
-    Stage5cTimerContinuationError, Stage5cTimerSettlement,
+    stage5gd_accepted_bar_checkpoint_ts_utc_ms, Stage5cAcceptedSemanticBar, Stage5cPaperLoopError,
+    Stage5cPaperLoopEvent, Stage5cPaperLoopState, Stage5cPaperTimerInput,
+    Stage5cSettledPaperStrategy, Stage5cTimerContinuationError, Stage5cTimerSettlement,
 };
 use crate::stage5g_mock_ack::{
     apply_stage5g_mock_ack, attach_stage5g_mock_ack_session, Stage5gMockAckAdmissionBlocked,
@@ -62,15 +63,26 @@ pub struct Stage5gTimerCheckpointEnvelope {
 pub enum Stage5gTimerCheckpointError {
     UnsupportedSchema,
     FingerprintMismatch,
+    MissingPackageDiscriminator,
+    MissingExactBrokerTruthReceipt,
+    MissingMillisecondWatermark,
     PackageDiscriminatorMismatch,
     MillisecondWatermarkMismatch,
     MissingReplayLedger,
+    InvalidReplayLedgerEntry,
+    DuplicateReplayIdentity,
+    CurrentPackageMissingFromReplayLedger,
+    MissingTotalSequence,
+    MissingContinuationCheckpoint,
+    ContinuationBeforeBrokerTruth,
+    DuplicateCounterIncoherent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Stage5gTimerError {
     NonMonotonicCheckpoint,
+    ContinuationBeforeInnerSettlement,
     Stage5c(Stage5cPaperLoopError),
     UnexpectedStage5cState,
 }
@@ -139,6 +151,11 @@ pub struct Stage5gBarContinuationPaperStrategy {
     summary: Stage5gOrderPositionSummary,
     replay: Stage5gReplayCheckpoint,
     checkpoint_ts_utc_ms: i64,
+}
+
+pub enum Stage5gBarContinuationTransition {
+    ZeroIntent(Stage5gBarContinuationPaperStrategy),
+    GeneratedIntent(Stage5gTimerGeneratedIntentEscrow),
 }
 
 pub enum Stage5gTimerTransition {
@@ -266,7 +283,10 @@ fn timer_session(
     summary: Stage5gOrderPositionSummary,
     replay: Stage5gReplayCheckpoint,
 ) -> Stage5gTimerSession {
-    let last_continuation_checkpoint_ts_utc_ms = replay.last_broker_truth_received_ms;
+    let last_continuation_checkpoint_ts_utc_ms = max_optional_checkpoint(
+        replay.last_continuation_checkpoint_ts_utc_ms,
+        replay.last_broker_truth_received_ms,
+    );
     Stage5gTimerSession {
         stage5c_state,
         summary,
@@ -290,7 +310,7 @@ pub fn apply_stage5g_timer_checkpoint(
         stage5c_state,
         summary,
         replay,
-        ..
+        last_continuation_checkpoint_ts_utc_ms,
     } = session;
     match advance_stage5c_paper_loop_once(stage5c_state, Stage5cPaperLoopEvent::Timer(input)) {
         Ok(Stage5cPaperLoopState::TimerResolved(timer)) => timer_transition(
@@ -313,20 +333,17 @@ pub fn apply_stage5g_timer_checkpoint(
         Err(failure) => {
             let reason = Stage5gTimerError::Stage5c(failure.reason());
             match failure.into_preserved_state() {
-                Some(stage5c_state) => {
-                    let checkpoint_ts_utc_ms = replay.last_broker_truth_received_ms;
-                    Err(Stage5gTimerFailure::Blocked(Box::new(
-                        Stage5gTimerBlocked {
-                            reason,
-                            session: Stage5gTimerSession {
-                                stage5c_state,
-                                summary,
-                                replay,
-                                last_continuation_checkpoint_ts_utc_ms: checkpoint_ts_utc_ms,
-                            },
+                Some(stage5c_state) => Err(Stage5gTimerFailure::Blocked(Box::new(
+                    Stage5gTimerBlocked {
+                        reason,
+                        session: Stage5gTimerSession {
+                            stage5c_state,
+                            summary,
+                            replay,
+                            last_continuation_checkpoint_ts_utc_ms,
                         },
-                    )))
-                }
+                    },
+                ))),
                 None => Err(Stage5gTimerFailure::Terminal(reason)),
             }
         }
@@ -390,14 +407,52 @@ pub fn continue_stage5g_timer_with_bar(
         replay,
         checkpoint_ts_utc_ms,
     } = ready;
-    match advance_stage5c_timer_settlement_next_bar(settlement, accepted) {
+    if settlement
+        .checkpoint_ts_utc_ms()
+        .is_some_and(|inner| checkpoint_ts_utc_ms < inner)
+    {
+        return Err(Stage5gTimerFailure::Blocked(Box::new(
+            Stage5gTimerBlocked {
+                reason: Stage5gTimerError::ContinuationBeforeInnerSettlement,
+                session: Stage5gTimerSession {
+                    stage5c_state: Stage5cPaperLoopState::TimerSettlement(Box::new(settlement)),
+                    summary,
+                    replay,
+                    last_continuation_checkpoint_ts_utc_ms: Some(checkpoint_ts_utc_ms),
+                },
+            },
+        )));
+    }
+    let bar_checkpoint_ts_utc_ms = match stage5gd_accepted_bar_checkpoint_ts_utc_ms(&accepted) {
+        Ok(checkpoint) => checkpoint,
+        Err(reason) => {
+            return Err(Stage5gTimerFailure::Blocked(Box::new(
+                Stage5gTimerBlocked {
+                    reason: Stage5gTimerError::Stage5c(Stage5cPaperLoopError::TimerContinuation(
+                        reason,
+                    )),
+                    session: Stage5gTimerSession {
+                        stage5c_state: Stage5cPaperLoopState::TimerSettlement(Box::new(settlement)),
+                        summary,
+                        replay,
+                        last_continuation_checkpoint_ts_utc_ms: Some(checkpoint_ts_utc_ms),
+                    },
+                },
+            )));
+        }
+    };
+    match advance_stage5c_timer_settlement_next_bar_transactional_at_checkpoint(
+        settlement,
+        accepted,
+        bar_checkpoint_ts_utc_ms,
+        checkpoint_ts_utc_ms,
+    ) {
         Ok(settled) => {
-            let next_checkpoint = settled.intent_batch().bar_close_ts().saturating_mul(1_000);
-            if next_checkpoint <= checkpoint_ts_utc_ms {
-                return Err(Stage5gTimerFailure::Terminal(
-                    Stage5gTimerError::NonMonotonicCheckpoint,
-                ));
-            }
+            let next_checkpoint = max_required_checkpoint(
+                checkpoint_ts_utc_ms,
+                replay.last_broker_truth_received_ms,
+                bar_checkpoint_ts_utc_ms,
+            );
             Ok(Stage5gBarContinuationPaperStrategy {
                 settled,
                 summary,
@@ -427,6 +482,42 @@ pub fn continue_stage5g_timer_with_bar(
             }
         }
     }
+}
+
+/// Classifies an accepted Stage 5G-d bar result without exposing the raw
+/// Stage 5C settled capability. Zero-intent bars retain their replay-owning
+/// wrapper; generated intents enter the same escrow used by timer output.
+pub fn settle_stage5g_bar_continuation(
+    continuation: Stage5gBarContinuationPaperStrategy,
+) -> Stage5gBarContinuationTransition {
+    if continuation.settled.intent_batch().intent_count() == 0 {
+        Stage5gBarContinuationTransition::ZeroIntent(continuation)
+    } else {
+        let Stage5gBarContinuationPaperStrategy {
+            settled,
+            summary,
+            replay,
+            checkpoint_ts_utc_ms,
+        } = continuation;
+        Stage5gBarContinuationTransition::GeneratedIntent(Stage5gTimerGeneratedIntentEscrow {
+            settled,
+            summary,
+            replay,
+            checkpoint_ts_utc_ms,
+        })
+    }
+}
+
+fn max_optional_checkpoint(left: Option<i64>, right: Option<i64>) -> Option<i64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    }
+}
+
+fn max_required_checkpoint(previous: i64, broker: Option<i64>, event: i64) -> i64 {
+    previous.max(broker.unwrap_or(i64::MIN)).max(event)
 }
 
 fn timer_transition(
@@ -545,10 +636,11 @@ impl Stage5gTimerGeneratedIntentEscrow {
     pub fn summary(&self) -> &Stage5gOrderPositionSummary {
         &self.summary
     }
-    /// The only exit from the escrow is the already accepted Stage 5G-b ACK
-    /// attachment input. No transport or broker DTO is exposed.
-    pub fn into_stage5g_b_settled(self) -> Stage5cSettledPaperStrategy {
-        self.settled
+    #[cfg(test)]
+    pub(crate) fn source_intent_projections(
+        &self,
+    ) -> Vec<crate::stage5c_paper_host::Stage5gSourceIntentProjection> {
+        self.settled.stage5g_source_intent_projections()
     }
     pub fn intent_sink_attached(&self) -> bool {
         false
@@ -640,7 +732,16 @@ pub fn apply_stage5g_timer_mock_ack(
 pub fn attach_stage5g_timer_order_position_session(
     resolved: Stage5gTimerResolvedMockAckPaperStrategy,
 ) -> Result<Stage5gOrderPositionSession, Box<Stage5gOrderPositionAdmissionBlocked>> {
-    let Stage5gTimerResolvedMockAckPaperStrategy { inner, replay, .. } = resolved;
+    let Stage5gTimerResolvedMockAckPaperStrategy {
+        inner,
+        mut replay,
+        checkpoint_ts_utc_ms,
+        ..
+    } = resolved;
+    replay.last_continuation_checkpoint_ts_utc_ms = max_optional_checkpoint(
+        replay.last_continuation_checkpoint_ts_utc_ms,
+        Some(checkpoint_ts_utc_ms),
+    );
     attach_stage5g_order_position_session_with_replay(inner, Some(replay))
 }
 
@@ -694,9 +795,6 @@ impl Stage5gBarContinuationPaperStrategy {
     pub fn intent_count(&self) -> usize {
         self.settled.intent_batch().intent_count()
     }
-    pub fn into_settled(self) -> Stage5cSettledPaperStrategy {
-        self.settled
-    }
     pub fn summary(&self) -> &Stage5gOrderPositionSummary {
         &self.summary
     }
@@ -715,22 +813,66 @@ pub fn validate_stage5g_timer_checkpoint(
     if payload.evidence_replay_ledger.is_empty() {
         return Err(Stage5gTimerCheckpointError::MissingReplayLedger);
     }
-    let expected_discriminator = payload.last_broker_truth_received_at.map(|received_at| {
-        format!(
-            "moex.broker-truth.package.v1:{}:{:09}",
-            received_at.timestamp(),
-            received_at.timestamp_subsec_nanos()
-        )
-    });
-    if payload.package_discriminator != expected_discriminator {
+    let package_discriminator = payload
+        .package_discriminator
+        .as_deref()
+        .ok_or(Stage5gTimerCheckpointError::MissingPackageDiscriminator)?;
+    let received_at = payload
+        .last_broker_truth_received_at
+        .ok_or(Stage5gTimerCheckpointError::MissingExactBrokerTruthReceipt)?;
+    let received_ms = payload
+        .last_broker_truth_received_ms
+        .ok_or(Stage5gTimerCheckpointError::MissingMillisecondWatermark)?;
+    let expected_discriminator = format!(
+        "moex.broker-truth.package.v1:{}:{:09}",
+        received_at.timestamp(),
+        received_at.timestamp_subsec_nanos()
+    );
+    if package_discriminator != expected_discriminator {
         return Err(Stage5gTimerCheckpointError::PackageDiscriminatorMismatch);
     }
-    if payload.last_broker_truth_received_ms
-        != payload
-            .last_broker_truth_received_at
-            .map(|received_at| received_at.timestamp_millis())
-    {
+    if received_ms != received_at.timestamp_millis() {
         return Err(Stage5gTimerCheckpointError::MillisecondWatermarkMismatch);
+    }
+    let mut identities = std::collections::HashSet::new();
+    for entry in &payload.evidence_replay_ledger {
+        if entry.identity.is_empty()
+            || entry.fingerprint_sha256.len() != 64
+            || !entry
+                .fingerprint_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        {
+            return Err(Stage5gTimerCheckpointError::InvalidReplayLedgerEntry);
+        }
+        if !identities.insert(entry.identity.as_str()) {
+            return Err(Stage5gTimerCheckpointError::DuplicateReplayIdentity);
+        }
+    }
+    if !payload
+        .evidence_replay_ledger
+        .iter()
+        .any(|entry| entry.identity.ends_with(package_discriminator))
+    {
+        return Err(Stage5gTimerCheckpointError::CurrentPackageMissingFromReplayLedger);
+    }
+    let last_total_sequence = payload
+        .last_total_sequence
+        .ok_or(Stage5gTimerCheckpointError::MissingTotalSequence)?;
+    let continuation_checkpoint = payload
+        .last_continuation_checkpoint_ts_utc_ms
+        .ok_or(Stage5gTimerCheckpointError::MissingContinuationCheckpoint)?;
+    if continuation_checkpoint < received_ms {
+        return Err(Stage5gTimerCheckpointError::ContinuationBeforeBrokerTruth);
+    }
+    let minimum_sequence = payload
+        .evidence_replay_ledger
+        .len()
+        .checked_add(payload.duplicate_evidence_count)
+        .and_then(|count| u64::try_from(count).ok())
+        .ok_or(Stage5gTimerCheckpointError::DuplicateCounterIncoherent)?;
+    if last_total_sequence < minimum_sequence {
+        return Err(Stage5gTimerCheckpointError::DuplicateCounterIncoherent);
     }
     Ok(())
 }
@@ -783,6 +925,10 @@ pub fn classify_stage5g_post_checkpoint_evidence(
     replay.last_broker_truth_received_at = Some(evidence.broker_truth.received_ts);
     replay.last_broker_truth_received_ms =
         Some(evidence.broker_truth.received_ts.timestamp_millis());
+    replay.last_continuation_checkpoint_ts_utc_ms = max_optional_checkpoint(
+        replay.last_continuation_checkpoint_ts_utc_ms,
+        replay.last_broker_truth_received_ms,
+    );
     replay.package_discriminator = Some(format!(
         "moex.broker-truth.package.v1:{}:{:09}",
         evidence.broker_truth.received_ts.timestamp(),
@@ -801,6 +947,13 @@ fn checkpoint_envelope(
     replay: &Stage5gReplayCheckpoint,
     last_continuation_checkpoint_ts_utc_ms: Option<i64>,
 ) -> Stage5gTimerCheckpointEnvelope {
+    let last_continuation_checkpoint_ts_utc_ms = max_optional_checkpoint(
+        max_optional_checkpoint(
+            replay.last_continuation_checkpoint_ts_utc_ms,
+            last_continuation_checkpoint_ts_utc_ms,
+        ),
+        replay.last_broker_truth_received_ms,
+    );
     let payload = Stage5gTimerCheckpointPayload {
         schema_version: STAGE5G_TIMER_CHECKPOINT_SCHEMA_VERSION,
         package_discriminator: replay.package_discriminator.clone(),
@@ -841,6 +994,7 @@ fn replay_from_payload(payload: &Stage5gTimerCheckpointPayload) -> Stage5gReplay
         last_broker_truth_received_ms: payload.last_broker_truth_received_ms,
         duplicate_evidence_count: payload.duplicate_evidence_count,
         last_total_sequence: payload.last_total_sequence,
+        last_continuation_checkpoint_ts_utc_ms: payload.last_continuation_checkpoint_ts_utc_ms,
     }
 }
 
@@ -915,9 +1069,16 @@ mod tests {
                 ),
                 duplicate_evidence_count: 0,
                 last_total_sequence: Some(event.total_sequence),
+                last_continuation_checkpoint_ts_utc_ms: Some(
+                    event.broker_truth.received_ts.timestamp_millis() + 10_000,
+                ),
             },
             Some(event.broker_truth.received_ts.timestamp_millis() + 10_000),
         )
+    }
+
+    fn rehash(envelope: &mut Stage5gTimerCheckpointEnvelope) {
+        envelope.payload_sha256 = envelope.payload.payload_fingerprint();
     }
 
     #[test]
@@ -1049,6 +1210,107 @@ mod tests {
         assert_eq!(
             validate_stage5g_timer_checkpoint(&omitted),
             Err(Stage5gTimerCheckpointError::MissingReplayLedger)
+        );
+    }
+
+    #[test]
+    fn semantically_incomplete_checkpoints_fail_even_with_recomputed_hash() {
+        let event = evidence(7, 125_875_321);
+
+        let mut missing_discriminator = checkpoint_for(&event);
+        missing_discriminator.payload.package_discriminator = None;
+        rehash(&mut missing_discriminator);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&missing_discriminator),
+            Err(Stage5gTimerCheckpointError::MissingPackageDiscriminator)
+        );
+
+        let mut missing_receipt = checkpoint_for(&event);
+        missing_receipt.payload.last_broker_truth_received_at = None;
+        rehash(&mut missing_receipt);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&missing_receipt),
+            Err(Stage5gTimerCheckpointError::MissingExactBrokerTruthReceipt)
+        );
+
+        let mut missing_ms = checkpoint_for(&event);
+        missing_ms.payload.last_broker_truth_received_ms = None;
+        rehash(&mut missing_ms);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&missing_ms),
+            Err(Stage5gTimerCheckpointError::MissingMillisecondWatermark)
+        );
+
+        let mut missing_sequence = checkpoint_for(&event);
+        missing_sequence.payload.last_total_sequence = None;
+        rehash(&mut missing_sequence);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&missing_sequence),
+            Err(Stage5gTimerCheckpointError::MissingTotalSequence)
+        );
+
+        let mut missing_continuation = checkpoint_for(&event);
+        missing_continuation
+            .payload
+            .last_continuation_checkpoint_ts_utc_ms = None;
+        rehash(&mut missing_continuation);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&missing_continuation),
+            Err(Stage5gTimerCheckpointError::MissingContinuationCheckpoint)
+        );
+    }
+
+    #[test]
+    fn replay_ledger_and_continuation_semantics_are_fail_closed() {
+        let event = evidence(7, 125_875_321);
+
+        let mut below_broker_truth = checkpoint_for(&event);
+        below_broker_truth
+            .payload
+            .last_continuation_checkpoint_ts_utc_ms =
+            Some(event.broker_truth.received_ts.timestamp_millis() - 1);
+        rehash(&mut below_broker_truth);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&below_broker_truth),
+            Err(Stage5gTimerCheckpointError::ContinuationBeforeBrokerTruth)
+        );
+
+        let mut duplicate = checkpoint_for(&event);
+        duplicate
+            .payload
+            .evidence_replay_ledger
+            .push(duplicate.payload.evidence_replay_ledger[0].clone());
+        rehash(&mut duplicate);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&duplicate),
+            Err(Stage5gTimerCheckpointError::DuplicateReplayIdentity)
+        );
+
+        let mut invalid_fingerprint = checkpoint_for(&event);
+        invalid_fingerprint.payload.evidence_replay_ledger[0].fingerprint_sha256 =
+            "not-a-sha256".to_string();
+        rehash(&mut invalid_fingerprint);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&invalid_fingerprint),
+            Err(Stage5gTimerCheckpointError::InvalidReplayLedgerEntry)
+        );
+
+        let mut missing_current_package = checkpoint_for(&event);
+        missing_current_package.payload.evidence_replay_ledger[0].identity =
+            "moex.stage5g.order-position-evidence-identity.v3:request:account:other".to_string();
+        rehash(&mut missing_current_package);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&missing_current_package),
+            Err(Stage5gTimerCheckpointError::CurrentPackageMissingFromReplayLedger)
+        );
+
+        let mut incoherent_duplicates = checkpoint_for(&event);
+        incoherent_duplicates.payload.duplicate_evidence_count = 8;
+        incoherent_duplicates.payload.last_total_sequence = Some(7);
+        rehash(&mut incoherent_duplicates);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&incoherent_duplicates),
+            Err(Stage5gTimerCheckpointError::DuplicateCounterIncoherent)
         );
     }
 

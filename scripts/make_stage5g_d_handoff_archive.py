@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the push-bound self-attesting Stage 5G-d archive."""
+"""Build the push-bound self-attesting Stage 5G-d R1-b archive."""
 
 from __future__ import annotations
 

@@ -182,6 +182,7 @@ pub(crate) struct Stage5gReplayCheckpoint {
     pub(crate) last_broker_truth_received_ms: Option<i64>,
     pub(crate) duplicate_evidence_count: usize,
     pub(crate) last_total_sequence: Option<u64>,
+    pub(crate) last_continuation_checkpoint_ts_utc_ms: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -195,6 +196,7 @@ struct Stage5gOrderPositionState {
     last_broker_truth_received_at: Option<DateTime<Utc>>,
     last_broker_truth_received_ms: Option<i64>,
     duplicate_evidence_count: usize,
+    last_continuation_checkpoint_ts_utc_ms: Option<i64>,
 }
 
 /// Linear paper-only capability. It intentionally implements none of Clone,
@@ -474,6 +476,7 @@ pub(crate) fn attach_stage5g_order_position_session_with_replay(
         last_broker_truth_received_ms: None,
         duplicate_evidence_count: 0,
         last_total_sequence: None,
+        last_continuation_checkpoint_ts_utc_ms: None,
     });
     Ok(Stage5gOrderPositionSession {
         ack_resolved,
@@ -487,6 +490,8 @@ pub(crate) fn attach_stage5g_order_position_session_with_replay(
             last_broker_truth_received_at: inherited_replay.last_broker_truth_received_at,
             last_broker_truth_received_ms: inherited_replay.last_broker_truth_received_ms,
             duplicate_evidence_count: inherited_replay.duplicate_evidence_count,
+            last_continuation_checkpoint_ts_utc_ms: inherited_replay
+                .last_continuation_checkpoint_ts_utc_ms,
         },
     })
 }
@@ -707,6 +712,13 @@ pub fn apply_stage5g_order_position_evidence(
     session.state.last_broker_truth_received_at = Some(evidence.broker_truth.received_ts);
     session.state.last_broker_truth_received_ms =
         Some(evidence.broker_truth.received_ts.timestamp_millis());
+    session.state.last_continuation_checkpoint_ts_utc_ms = Some(
+        session
+            .state
+            .last_continuation_checkpoint_ts_utc_ms
+            .unwrap_or(i64::MIN)
+            .max(evidence.broker_truth.received_ts.timestamp_millis()),
+    );
     session.state.evidence_identities.push(EvidenceIdentity {
         identity,
         fingerprint,
@@ -1943,6 +1955,7 @@ fn replay_checkpoint(state: &Stage5gOrderPositionState) -> Stage5gReplayCheckpoi
         last_broker_truth_received_ms: state.last_broker_truth_received_ms,
         duplicate_evidence_count: state.duplicate_evidence_count,
         last_total_sequence: state.last_total_sequence,
+        last_continuation_checkpoint_ts_utc_ms: state.last_continuation_checkpoint_ts_utc_ms,
     }
 }
 
@@ -2091,6 +2104,7 @@ fn lifecycle_state_fingerprint(state: &Stage5gOrderPositionState, callback_count
             .last_broker_truth_received_at
             .map(broker_truth_received_at_discriminator),
         "last_broker_truth_received_ms": state.last_broker_truth_received_ms,
+        "last_continuation_checkpoint_ts_utc_ms": state.last_continuation_checkpoint_ts_utc_ms,
         "duplicate_evidence_count": state.duplicate_evidence_count,
         "stage5c_callback_count": callback_count,
     });
@@ -2243,7 +2257,7 @@ mod tests {
     use super::*;
     use crate::hybrid_intraday::{
         BreakoutEodMode, HybridOrchestratorConfig, IntradayBreakoutConfig, MeanReversionConfig,
-        MinRangeMode,
+        MinRangeMode, Owner, Side,
     };
     use crate::hybrid_intraday_runtime::{
         HybridIntradayProfile, HybridIntradayRuntimeConfig, HybridIntradayRuntimeStrategy,
@@ -2253,6 +2267,7 @@ mod tests {
         BarEvent, DataOrigin, GatewayPhase, MarketBuyAndCloseLiveOrderStyle, PaperExecutionMode,
         Strategy, StrategyCtx, TradeMode,
     };
+    use crate::state::StrategyState;
 
     fn target() -> InstrumentId {
         InstrumentId {
@@ -2358,6 +2373,9 @@ mod tests {
             last_broker_truth_received_at: Some(event.broker_truth.received_ts),
             last_broker_truth_received_ms: Some(event.broker_truth.received_ts.timestamp_millis()),
             duplicate_evidence_count: 0,
+            last_continuation_checkpoint_ts_utc_ms: Some(
+                event.broker_truth.received_ts.timestamp_millis(),
+            ),
         }
     }
 
@@ -2527,7 +2545,7 @@ mod tests {
         Option<HybridRuntimeAttribution>,
         Duration,
     ) {
-        let bar_close_ts = Utc::now().timestamp() - 10;
+        let bar_close_ts = Utc::now().timestamp().div_euclid(600) * 600 - 600;
         let fixture_poll1_whole_second = 1_785_661_800;
         let golden_time_shift = Duration::seconds(bar_close_ts + 10 - fixture_poll1_whole_second);
         let mut strategy = r2cb_public_runtime_strategy(bar_close_ts);
@@ -2779,6 +2797,364 @@ mod tests {
         unreachable!("three-poll timer fixture has a terminal poll")
     }
 
+    fn stage5gd_bracket_seeded_exit_settled() -> (crate::Stage5cSettledPaperStrategy, i64) {
+        let bar_close_ts = Utc::now().timestamp().div_euclid(600) * 600 - 600;
+        let mut strategy = r2cb_public_runtime_strategy(bar_close_ts);
+        for (close_time_utc, high, low) in [
+            (bar_close_ts - 86_400 - 600, 2630.0, 2570.0),
+            (bar_close_ts - 86_400, 2620.0, 2580.0),
+        ] {
+            assert!(Strategy::on_bar(
+                &mut strategy,
+                &StrategyCtx {
+                    strategy_id: "hybrid_imoexf".to_string(),
+                    portfolio: "ACC_TEST_0001".to_string(),
+                    exchange: "MOEX".to_string(),
+                    symbol: "IMOEXF".to_string(),
+                    tick_size: 0.5,
+                    trade_mode: TradeMode::Paper,
+                    paper_execution_mode: PaperExecutionMode::LiveOnly,
+                    allow_live_orders: false,
+                    gateway_phase: GatewayPhase::LiveReady,
+                    position_qty: Some(0.0),
+                    event_ts_utc: close_time_utc,
+                    now_ts_utc: close_time_utc,
+                    last_bar_ts: Some(close_time_utc),
+                },
+                &BarEvent {
+                    symbol: "IMOEXF".to_string(),
+                    close_time_utc,
+                    o: 2600.0,
+                    h: high,
+                    l: low,
+                    close: 2600.0,
+                    v: 1.0,
+                    origin: DataOrigin::Replay,
+                },
+            )
+            .is_empty());
+        }
+        let mut state = Strategy::state(&strategy).clone();
+        let StrategyState::HybridIntradayRuntime {
+            active_cycle_id,
+            last_position_qty,
+            current_owner,
+            current_side,
+            ..
+        } = &mut state
+        else {
+            panic!("bracket timer fixture requires hybrid runtime state")
+        };
+        *active_cycle_id = Some("abc1230001".to_string());
+        *last_position_qty = 1.0;
+        *current_owner = Some(Owner::IntradayBreakout);
+        *current_side = Some(Side::Long);
+        Strategy::set_state(&mut strategy, state);
+        let mut extension = strategy
+            .stage5d_export_runtime_private_extension()
+            .expect("export source-owned bracket timer");
+        extension.bracket_reconciliation_timer = Some(
+            crate::stage5d_persistence::Stage5dBracketReconciliationTimer {
+                bracket_terminal_reconcile_started_ms: (bar_close_ts + 2) * 1_000,
+            },
+        );
+        strategy
+            .stage5d_apply_runtime_private_extension(&extension)
+            .expect("apply source-owned bracket timer");
+        let signal = broker_core::HybridRuntimeBarEvent {
+            instrument: target(),
+            close_time_utc: bar_close_ts,
+            open: 2601.0,
+            high: 2602.0,
+            low: 2599.0,
+            close: 2601.0,
+            volume: 1.0,
+            origin: broker_core::HybridRuntimeBarOrigin::Live,
+            is_final: true,
+            timeframe_sec: 600,
+        };
+        let lifecycle_now = Utc.timestamp_opt(bar_close_ts - 30, 0).single().unwrap();
+        let (recovered, accepted) =
+            crate::stage5c_paper_host::stage5f_test_seams::sequence_inputs_from_owned_strategy(
+                strategy,
+                "hybrid_imoexf".to_string(),
+                BrokerAccountId::new("ACC_TEST_0001"),
+                target(),
+                0.5,
+                Decimal::ONE,
+                lifecycle_now,
+                bar_close_ts - 600,
+                signal,
+            );
+        let semantic = crate::apply_stage5c_semantic_bar(recovered, accepted)
+            .expect("source-reachable bracket Exit semantic callback");
+        (
+            crate::settle_stage5c_semantic_result(semantic)
+                .expect("source-reachable bracket Exit intent settlement"),
+            bar_close_ts,
+        )
+    }
+
+    struct GeneratedLifecycleFixture {
+        session: Stage5gOrderPositionSession,
+        projection: crate::stage5c_paper_host::Stage5gSourceIntentProjection,
+        request_id: StrategyRequestId,
+        client_order_id: ClientOrderId,
+        broker_order_id: BrokerOrderId,
+        side: crate::BrokerNeutralOrderSide,
+        ack_received: DateTime<Utc>,
+    }
+
+    fn settled_exit_to_order_position(
+        settled: crate::Stage5cSettledPaperStrategy,
+        checkpoint_ts_utc_ms: i64,
+        broker_order_id: &str,
+    ) -> GeneratedLifecycleFixture {
+        let projections = settled.stage5g_source_intent_projections();
+        assert_eq!(projections.len(), 1);
+        let projection = projections[0].clone();
+        assert_eq!(projection.base_action, Stage5gSourceBaseAction::Market);
+        assert_eq!(
+            projection.intent_class,
+            crate::BrokerNeutralHybridIntentClass::Exit
+        );
+        let side = projection.side.expect("source Exit side");
+        let action = Stage5gMockIntentAction::Place {
+            place_kind: Stage5gMockPlaceKind::Market,
+        };
+        let request_id = projection.request_id;
+        let client_order_id = ClientOrderId::from_strategy_request(request_id);
+        let broker_order_id = BrokerOrderId::new(broker_order_id);
+        let ack_received = Utc
+            .timestamp_millis_opt(checkpoint_ts_utc_ms + 1_000)
+            .single()
+            .unwrap();
+        let ack_session = crate::attach_stage5g_mock_ack_session(
+            settled,
+            crate::Stage5gMockAckSessionInput {
+                intent_bindings: vec![crate::Stage5gMockIntentBinding {
+                    request_id,
+                    intent_class: projection.intent_class,
+                    action: action.clone(),
+                    side: Some(side),
+                }],
+                lifecycle_expires_at_ts_utc: ack_received.timestamp() + 300,
+            },
+        )
+        .expect("source Exit ACK admission");
+        let resolved = crate::apply_stage5g_mock_ack(
+            ack_session,
+            crate::Stage5gMockAckEvent {
+                total_sequence: 1,
+                intent_request_id: request_id,
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                instrument: target(),
+                action,
+                side: Some(side),
+                ack: CommandAck {
+                    request_id,
+                    client_order_id: Some(client_order_id.clone()),
+                    broker_order_id: Some(broker_order_id.clone()),
+                    status: CommandAckStatus::Accepted,
+                    reason: None,
+                    received_ts: ack_received,
+                },
+            },
+        )
+        .expect("source Exit ACK")
+        .into_resolved()
+        .expect("single source Exit resolves on one ACK");
+        let session = crate::attach_stage5g_order_position_session(resolved)
+            .expect("source Exit enters Stage 5G-c");
+        GeneratedLifecycleFixture {
+            session,
+            projection,
+            request_id,
+            client_order_id,
+            broker_order_id,
+            side,
+            ack_received,
+        }
+    }
+
+    fn generated_escrow_to_order_position(
+        escrow: crate::Stage5gTimerGeneratedIntentEscrow,
+        checkpoint_ts_utc_ms: i64,
+        broker_order_id: &str,
+    ) -> GeneratedLifecycleFixture {
+        let projections = escrow.source_intent_projections();
+        assert_eq!(projections.len(), 1);
+        let projection = projections[0].clone();
+        assert_eq!(projection.base_action, Stage5gSourceBaseAction::Market);
+        assert_eq!(
+            projection.intent_class,
+            crate::BrokerNeutralHybridIntentClass::Exit
+        );
+        let side = projection.side.expect("generated Exit side");
+        let action = Stage5gMockIntentAction::Place {
+            place_kind: Stage5gMockPlaceKind::Market,
+        };
+        let request_id = projection.request_id;
+        let client_order_id = ClientOrderId::from_strategy_request(request_id);
+        let broker_order_id = BrokerOrderId::new(broker_order_id);
+        let ack_received = Utc
+            .timestamp_millis_opt(checkpoint_ts_utc_ms + 1_000)
+            .single()
+            .unwrap();
+        let ack_session = match crate::attach_stage5g_timer_generated_mock_ack(
+            escrow,
+            crate::Stage5gMockAckSessionInput {
+                intent_bindings: vec![crate::Stage5gMockIntentBinding {
+                    request_id,
+                    intent_class: projection.intent_class,
+                    action: action.clone(),
+                    side: Some(side),
+                }],
+                lifecycle_expires_at_ts_utc: ack_received.timestamp() + 300,
+            },
+        ) {
+            Ok(session) => session,
+            Err(blocked) => panic!("generated ACK admission blocked: {:?}", blocked.reason()),
+        };
+        let resolved = match match crate::apply_stage5g_timer_mock_ack(
+            ack_session,
+            crate::Stage5gMockAckEvent {
+                total_sequence: 1,
+                intent_request_id: request_id,
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                instrument: target(),
+                action,
+                side: Some(side),
+                ack: CommandAck {
+                    request_id,
+                    client_order_id: Some(client_order_id.clone()),
+                    broker_order_id: Some(broker_order_id.clone()),
+                    status: CommandAckStatus::Accepted,
+                    reason: None,
+                    received_ts: ack_received,
+                },
+            },
+        ) {
+            Ok(transition) => transition,
+            Err(crate::Stage5gTimerMockAckFailure::Blocked(blocked)) => {
+                panic!("generated mock ACK blocked: {:?}", blocked.reason())
+            }
+            Err(crate::Stage5gTimerMockAckFailure::Terminal(failure)) => {
+                panic!("generated mock ACK terminal: {:?}", failure.reason())
+            }
+        } {
+            crate::Stage5gTimerMockAckTransition::Resolved(resolved) => resolved,
+            crate::Stage5gTimerMockAckTransition::Awaiting(_) => {
+                panic!("single generated intent resolves on one ACK")
+            }
+        };
+        let session = crate::attach_stage5g_timer_order_position_session(resolved)
+            .expect("generated checkpoint enters Stage 5G-c");
+        GeneratedLifecycleFixture {
+            session,
+            projection,
+            request_id,
+            client_order_id,
+            broker_order_id,
+            side,
+            ack_received,
+        }
+    }
+
+    fn generated_exit_truth(
+        fixture: &GeneratedLifecycleFixture,
+        received: DateTime<Utc>,
+        status: OrderStatus,
+        order_qty: Decimal,
+        filled_qty: Decimal,
+        position_qty: Decimal,
+        trade_id: &str,
+    ) -> BrokerTruthSnapshot {
+        let side = match fixture.side {
+            crate::BrokerNeutralOrderSide::Buy => OrderSide::Buy,
+            crate::BrokerNeutralOrderSide::Sell => OrderSide::Sell,
+        };
+        BrokerTruthSnapshot {
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            orders: vec![BrokerOrderSnapshot {
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                broker_order_id: Some(fixture.broker_order_id.clone()),
+                client_order_id: Some(fixture.client_order_id.clone()),
+                instrument: target(),
+                side,
+                order_type: OrderType::Market,
+                time_in_force: Some(TimeInForce::Day),
+                lifecycle: BrokerOrderSnapshot::lifecycle_for(&status),
+                status,
+                qty: order_qty,
+                filled_qty,
+                remaining_qty: Some(order_qty - filled_qty),
+                limit_price: None,
+                broker_asset_id: None,
+                board: None,
+                expiration_date: None,
+                source_ts: Some(fixture.ack_received),
+                received_ts: received,
+            }],
+            positions: vec![BrokerPositionSnapshot {
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                instrument: target(),
+                qty: position_qty,
+                avg_price: (position_qty != Decimal::ZERO).then_some(Decimal::new(2_720, 0)),
+                unrealized_pnl: Some(Decimal::ZERO),
+                source_ts: Some(fixture.ack_received),
+                received_ts: received,
+            }],
+            cash: None,
+            trades: vec![BrokerTradeSnapshot {
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                broker_trade_id: BrokerTradeId::new(trade_id),
+                broker_order_id: Some(fixture.broker_order_id.clone()),
+                client_order_id: Some(fixture.client_order_id.clone()),
+                instrument: target(),
+                side,
+                qty: filled_qty,
+                price: Decimal::new(2_720, 0),
+                gross_amount: None,
+                commission: None,
+                broker_asset_id: None,
+                board: None,
+                expiration_date: None,
+                source_ts: fixture.ack_received,
+                received_ts: received,
+            }],
+            instruments: Vec::new(),
+            received_ts: received,
+        }
+    }
+
+    fn accepted_stage5gd_bar(
+        close_time_utc: i64,
+        instrument: InstrumentId,
+        tick_size: f64,
+        low: f64,
+        close: f64,
+    ) -> crate::Stage5cAcceptedSemanticBar {
+        crate::accept_stage5c_semantic_bar(crate::Stage5cSemanticBarInput {
+            bar: broker_core::HybridRuntimeBarEvent {
+                instrument,
+                close_time_utc,
+                open: 2_720.0,
+                high: 2_721.0,
+                low,
+                close,
+                volume: 10.0,
+                origin: broker_core::HybridRuntimeBarOrigin::Live,
+                is_final: true,
+                timeframe_sec: 600,
+            },
+            provenance: broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(
+            ),
+            tick_size,
+        })
+        .expect("canonical Stage 5G-d test bar")
+    }
+
     #[test]
     fn stage5gd_public_convergence_timer_is_linear_and_monotonic() {
         let converged = r2cb_public_converged_for_timer();
@@ -2873,6 +3249,105 @@ mod tests {
     }
 
     #[test]
+    fn stage5gd_zero_intent_bar_retains_replay_owning_wrapper() {
+        let converged = r2cb_public_converged_for_timer();
+        let exact_receipt = converged
+            .replay_checkpoint
+            .last_broker_truth_received_at
+            .unwrap();
+        let initial_ledger = converged.replay_checkpoint.evidence_identities.clone();
+        let broker_ms = exact_receipt.timestamp_millis();
+        let ready = match crate::apply_stage5g_timer_checkpoint(
+            crate::attach_stage5g_timer_session(converged),
+            crate::Stage5cPaperTimerInput {
+                now_ts_utc_ms: broker_ms + 1,
+            },
+        )
+        .unwrap()
+        {
+            crate::Stage5gTimerTransition::Ready(ready) => ready,
+            crate::Stage5gTimerTransition::GeneratedIntent(_) => panic!("unexpected timer intent"),
+        };
+        let next_close = exact_receipt.timestamp() - 10 + 600;
+        let continuation = crate::continue_stage5g_timer_with_bar(
+            ready,
+            accepted_stage5gd_bar(next_close, target(), 0.5, 2_719.0, 2_720.0),
+        )
+        .expect("mild next bar is accepted transactionally");
+        assert_eq!(continuation.intent_count(), 0);
+        let retained = match crate::settle_stage5g_bar_continuation(continuation) {
+            crate::Stage5gBarContinuationTransition::ZeroIntent(retained) => retained,
+            crate::Stage5gBarContinuationTransition::GeneratedIntent(_) => {
+                panic!("mild next bar must stay zero-intent")
+            }
+        };
+        let checkpoint = retained.checkpoint();
+        assert_eq!(
+            checkpoint.payload.last_continuation_checkpoint_ts_utc_ms,
+            Some(next_close * 1_000)
+        );
+        assert_eq!(
+            checkpoint.payload.evidence_replay_ledger.len(),
+            initial_ledger.len()
+        );
+        for previous in initial_ledger {
+            assert!(checkpoint
+                .payload
+                .evidence_replay_ledger
+                .iter()
+                .any(|entry| entry.identity == previous.identity
+                    && entry.fingerprint_sha256 == previous.fingerprint));
+        }
+        crate::validate_stage5g_timer_checkpoint(&checkpoint).unwrap();
+    }
+
+    #[test]
+    fn stage5gd_bar_preflight_failure_returns_exact_incoming_checkpoint() {
+        let converged = r2cb_public_converged_for_timer();
+        let exact_receipt = converged
+            .replay_checkpoint
+            .last_broker_truth_received_at
+            .unwrap();
+        let broker_ms = exact_receipt.timestamp_millis();
+        let ready = match crate::apply_stage5g_timer_checkpoint(
+            crate::attach_stage5g_timer_session(converged),
+            crate::Stage5cPaperTimerInput {
+                now_ts_utc_ms: broker_ms + 1,
+            },
+        )
+        .unwrap()
+        {
+            crate::Stage5gTimerTransition::Ready(ready) => ready,
+            crate::Stage5gTimerTransition::GeneratedIntent(_) => panic!("unexpected timer intent"),
+        };
+        let expected = ready.checkpoint();
+        let next_close = exact_receipt.timestamp() - 10 + 600;
+        let failure = match crate::continue_stage5g_timer_with_bar(
+            ready,
+            accepted_stage5gd_bar(next_close, target(), 1.0, 2_719.0, 2_720.0),
+        ) {
+            Ok(_) => panic!("wrong tick size unexpectedly accepted"),
+            Err(failure) => failure,
+        };
+        assert_eq!(
+            failure.reason(),
+            crate::Stage5gTimerError::Stage5c(crate::Stage5cPaperLoopError::TimerContinuation(
+                crate::Stage5cTimerContinuationError::NextBar(
+                    crate::Stage5cNextBarLoopError::Semantic(
+                        crate::Stage5cSemanticBarError::TickSizeMismatch,
+                    ),
+                ),
+            ))
+        );
+        let preserved = failure
+            .into_blocked()
+            .expect("bar preflight failure is retryable")
+            .into_session()
+            .checkpoint();
+        assert_eq!(preserved, expected);
+    }
+
+    #[test]
     fn stage5gd_r3_market_terminal_continues_only_through_timer_boundary() {
         let golden: serde_json::Value = serde_json::from_str(include_str!(
             "../../../fixtures/expected/stage5g_r2cb_three_poll_broker_truth.json"
@@ -2919,6 +3394,435 @@ mod tests {
                 assert!(!escrow.broker_execution_attached());
             }
         }
+    }
+
+    #[test]
+    fn stage5gd_bar_generated_intent_roundtrips_through_ack_truth_and_next_timer() {
+        let converged = r2cb_public_converged_for_timer();
+        let initial_checkpoint = converged.replay_checkpoint.clone();
+        let broker_watermark_ms = initial_checkpoint
+            .last_broker_truth_received_ms
+            .expect("initial exact broker watermark");
+        let initial_ledger = initial_checkpoint.evidence_identities.clone();
+        let initial_callback_count = converged.summary().stage5c_callback_count;
+
+        let ready = match crate::apply_stage5g_timer_checkpoint(
+            crate::attach_stage5g_timer_session(converged),
+            crate::Stage5cPaperTimerInput {
+                now_ts_utc_ms: broker_watermark_ms + 1,
+            },
+        )
+        .expect("first post-convergence timer is source reachable")
+        {
+            crate::Stage5gTimerTransition::Ready(ready) => ready,
+            crate::Stage5gTimerTransition::GeneratedIntent(_) => {
+                panic!("first post-convergence timer must remain zero-intent")
+            }
+        };
+        let initial_bar_close_ts = initial_checkpoint
+            .last_broker_truth_received_at
+            .expect("initial exact receipt")
+            .timestamp()
+            - 10;
+        let generated_bar_close_ts = initial_bar_close_ts + 600;
+        let accepted = crate::accept_stage5c_semantic_bar(crate::Stage5cSemanticBarInput {
+            bar: broker_core::HybridRuntimeBarEvent {
+                instrument: target(),
+                close_time_utc: generated_bar_close_ts,
+                open: 2_720.0,
+                high: 2_721.0,
+                low: 2_000.0,
+                close: 2_000.0,
+                volume: 10.0,
+                origin: broker_core::HybridRuntimeBarOrigin::Live,
+                is_final: true,
+                timeframe_sec: 600,
+            },
+            provenance: broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(
+            ),
+            tick_size: 0.5,
+        })
+        .expect("next exact M10 bar is accepted");
+        let generated_checkpoint_ms = generated_bar_close_ts * 1_000;
+        let continuation = crate::continue_stage5g_timer_with_bar(ready, accepted)
+            .expect("transactional Stage 5G-d bar transition");
+        let escrow = match crate::settle_stage5g_bar_continuation(continuation) {
+            crate::Stage5gBarContinuationTransition::GeneratedIntent(escrow) => escrow,
+            crate::Stage5gBarContinuationTransition::ZeroIntent(_) => {
+                panic!("large adverse M10 bar must generate the BO Exit")
+            }
+        };
+        assert!(escrow.intent_count() >= 1);
+        assert_eq!(
+            escrow
+                .checkpoint()
+                .payload
+                .last_continuation_checkpoint_ts_utc_ms,
+            Some(generated_checkpoint_ms)
+        );
+        let projections = escrow.source_intent_projections();
+        assert_eq!(projections.len(), 1);
+        let projection = projections[0].clone();
+        assert_eq!(projection.base_action, Stage5gSourceBaseAction::Market);
+        assert_eq!(
+            projection.intent_class,
+            crate::BrokerNeutralHybridIntentClass::Exit
+        );
+        let side = projection.side.expect("timer Exit side");
+        let action = Stage5gMockIntentAction::Place {
+            place_kind: Stage5gMockPlaceKind::Market,
+        };
+        let request_id = projection.request_id;
+        let client_order_id = ClientOrderId::from_strategy_request(request_id);
+        let ack_received = Utc
+            .timestamp_millis_opt(generated_checkpoint_ms + 1_000)
+            .single()
+            .unwrap();
+        let ack_session = match crate::attach_stage5g_timer_generated_mock_ack(
+            escrow,
+            crate::Stage5gMockAckSessionInput {
+                intent_bindings: vec![crate::Stage5gMockIntentBinding {
+                    request_id,
+                    intent_class: projection.intent_class,
+                    action: action.clone(),
+                    side: Some(side),
+                }],
+                lifecycle_expires_at_ts_utc: ack_received.timestamp() + 300,
+            },
+        ) {
+            Ok(session) => session,
+            Err(blocked) => panic!("timer ACK admission blocked: {:?}", blocked.reason()),
+        };
+        let resolved = match match crate::apply_stage5g_timer_mock_ack(
+            ack_session,
+            crate::Stage5gMockAckEvent {
+                total_sequence: 1,
+                intent_request_id: request_id,
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                instrument: target(),
+                action: action.clone(),
+                side: Some(side),
+                ack: CommandAck {
+                    request_id,
+                    client_order_id: Some(client_order_id.clone()),
+                    broker_order_id: Some(BrokerOrderId::new("FINAM-TIMER-EXIT-1")),
+                    status: CommandAckStatus::Accepted,
+                    reason: None,
+                    received_ts: ack_received,
+                },
+            },
+        ) {
+            Ok(transition) => transition,
+            Err(crate::Stage5gTimerMockAckFailure::Blocked(blocked)) => {
+                panic!("timer-generated mock ACK blocked: {:?}", blocked.reason())
+            }
+            Err(crate::Stage5gTimerMockAckFailure::Terminal(failure)) => {
+                panic!("timer-generated mock ACK terminal: {:?}", failure.reason())
+            }
+        } {
+            crate::Stage5gTimerMockAckTransition::Resolved(resolved) => resolved,
+            crate::Stage5gTimerMockAckTransition::Awaiting(_) => {
+                panic!("single timer intent must resolve on one canonical ACK")
+            }
+        };
+        let mut order_position = crate::attach_stage5g_timer_order_position_session(resolved)
+            .expect("timer checkpoint enters Stage 5G-c without raw settled escape");
+        let truth_received = Utc
+            .timestamp_millis_opt(generated_checkpoint_ms + 2_000)
+            .single()
+            .unwrap();
+        let broker_order_id = BrokerOrderId::new("FINAM-TIMER-EXIT-1");
+        let truth = BrokerTruthSnapshot {
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            orders: vec![BrokerOrderSnapshot {
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                broker_order_id: Some(broker_order_id.clone()),
+                client_order_id: Some(client_order_id.clone()),
+                instrument: target(),
+                side: match side {
+                    crate::BrokerNeutralOrderSide::Buy => OrderSide::Buy,
+                    crate::BrokerNeutralOrderSide::Sell => OrderSide::Sell,
+                },
+                order_type: OrderType::Market,
+                time_in_force: Some(TimeInForce::Day),
+                lifecycle: BrokerOrderLifecycle::Terminal,
+                status: OrderStatus::Filled,
+                qty: Decimal::ONE,
+                filled_qty: Decimal::ONE,
+                remaining_qty: Some(Decimal::ZERO),
+                limit_price: None,
+                broker_asset_id: None,
+                board: None,
+                expiration_date: None,
+                source_ts: Some(ack_received),
+                received_ts: truth_received,
+            }],
+            positions: vec![BrokerPositionSnapshot {
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                instrument: target(),
+                qty: Decimal::ZERO,
+                avg_price: None,
+                unrealized_pnl: Some(Decimal::ZERO),
+                source_ts: Some(ack_received),
+                received_ts: truth_received,
+            }],
+            cash: None,
+            trades: vec![BrokerTradeSnapshot {
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                broker_trade_id: BrokerTradeId::new("FINAM-TIMER-EXIT-TRADE-1"),
+                broker_order_id: Some(broker_order_id),
+                client_order_id: Some(client_order_id),
+                instrument: target(),
+                side: match side {
+                    crate::BrokerNeutralOrderSide::Buy => OrderSide::Buy,
+                    crate::BrokerNeutralOrderSide::Sell => OrderSide::Sell,
+                },
+                qty: Decimal::ONE,
+                price: Decimal::new(2_720, 0),
+                gross_amount: None,
+                commission: None,
+                broker_asset_id: None,
+                board: None,
+                expiration_date: None,
+                source_ts: ack_received,
+                received_ts: truth_received,
+            }],
+            instruments: Vec::new(),
+            received_ts: truth_received,
+        };
+        let next_converged = match crate::apply_stage5g_order_position_evidence(
+            order_position,
+            Stage5gOrderPositionEvidence {
+                total_sequence: initial_checkpoint.last_total_sequence.unwrap() + 1,
+                request_id,
+                broker_truth: truth,
+                order_attribution: projection.expected_attribution,
+            },
+        )
+        .expect("timer Exit broker truth converges")
+        {
+            Stage5gOrderPositionTransition::Converged(converged) => converged,
+            Stage5gOrderPositionTransition::Awaiting(session) => {
+                order_position = session;
+                panic!(
+                    "terminal timer Exit must converge, summary={:?}",
+                    order_position.summary()
+                )
+            }
+            Stage5gOrderPositionTransition::MarketTerminalConverged(_) => {
+                panic!("filled timer Exit is not a market-terminal exception")
+            }
+        };
+        assert_eq!(
+            next_converged.summary().stage5c_callback_count,
+            initial_callback_count,
+            "each one-package lifecycle invokes exactly one callback without duplication"
+        );
+        let next_session = crate::attach_stage5g_timer_session(next_converged);
+        let next_checkpoint = next_session.checkpoint();
+        assert_eq!(
+            next_checkpoint
+                .payload
+                .last_continuation_checkpoint_ts_utc_ms,
+            Some(truth_received.timestamp_millis())
+        );
+        assert_eq!(
+            next_checkpoint.payload.evidence_replay_ledger.len(),
+            initial_ledger.len() + 1
+        );
+        for previous in initial_ledger {
+            assert!(next_checkpoint
+                .payload
+                .evidence_replay_ledger
+                .iter()
+                .any(|entry| entry.identity == previous.identity
+                    && entry.fingerprint_sha256 == previous.fingerprint));
+        }
+        assert_eq!(
+            next_checkpoint.payload.package_discriminator,
+            Some(format!(
+                "moex.broker-truth.package.v1:{}:{:09}",
+                truth_received.timestamp(),
+                truth_received.timestamp_subsec_nanos()
+            ))
+        );
+        crate::validate_stage5g_timer_checkpoint(&next_checkpoint)
+            .expect("next Stage 5G-d checkpoint is semantically restorable");
+    }
+
+    #[test]
+    fn stage5gd_timer_generated_cleanup_roundtrips_through_ack_truth_and_next_session() {
+        let initial_ledger_len = 0;
+        let (settled, bar_close_ts) = stage5gd_bracket_seeded_exit_settled();
+        let bar_checkpoint_ms = bar_close_ts * 1_000;
+        let partial =
+            settled_exit_to_order_position(settled, bar_checkpoint_ms, "FINAM-BAR-PARTIAL-EXIT-1");
+        let working_received = Utc
+            .timestamp_millis_opt(bar_checkpoint_ms + 2_500)
+            .single()
+            .unwrap();
+        let partial_received = Utc
+            .timestamp_millis_opt(bar_checkpoint_ms + 3_000)
+            .single()
+            .unwrap();
+        let working_truth = generated_exit_truth(
+            &partial,
+            working_received,
+            OrderStatus::PartiallyFilled,
+            Decimal::ONE,
+            Decimal::new(4, 1),
+            Decimal::new(6, 1),
+            "FINAM-BAR-PARTIAL-TRADE-1",
+        );
+        let partial_truth = generated_exit_truth(
+            &partial,
+            partial_received,
+            OrderStatus::Canceled,
+            Decimal::ONE,
+            Decimal::new(4, 1),
+            Decimal::new(6, 1),
+            "FINAM-BAR-PARTIAL-TRADE-1",
+        );
+        let partial_request_id = partial.request_id;
+        let partial_attribution = partial.projection.expected_attribution.clone();
+        let partial_session = match crate::apply_stage5g_order_position_evidence(
+            partial.session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 1,
+                request_id: partial_request_id,
+                broker_truth: working_truth,
+                order_attribution: partial_attribution.clone(),
+            },
+        )
+        .expect("working partial Exit remains awaiting")
+        {
+            Stage5gOrderPositionTransition::Awaiting(session) => session,
+            Stage5gOrderPositionTransition::Converged(_)
+            | Stage5gOrderPositionTransition::MarketTerminalConverged(_) => {
+                panic!("working partial Exit cannot converge")
+            }
+        };
+        let partial_terminal = match crate::apply_stage5g_order_position_evidence(
+            partial_session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 2,
+                request_id: partial_request_id,
+                broker_truth: partial_truth,
+                order_attribution: partial_attribution,
+            },
+        )
+        .expect("partial Exit terminal evidence is accepted")
+        {
+            Stage5gOrderPositionTransition::MarketTerminalConverged(terminal) => terminal,
+            Stage5gOrderPositionTransition::Converged(_) => {
+                panic!("partial terminal Exit must retain timer reconciliation")
+            }
+            Stage5gOrderPositionTransition::Awaiting(_) => {
+                panic!("canceled partial Exit is terminal")
+            }
+        };
+        let partial_checkpoint = partial_terminal.replay_checkpoint.clone();
+        assert_eq!(
+            partial_checkpoint.last_continuation_checkpoint_ts_utc_ms,
+            Some(partial_received.timestamp_millis())
+        );
+        let timer_ready = match crate::apply_stage5g_timer_checkpoint(
+            crate::attach_stage5g_market_terminal_timer_session(partial_terminal),
+            crate::Stage5cPaperTimerInput {
+                now_ts_utc_ms: partial_received.timestamp_millis() + 1,
+            },
+        ) {
+            Ok(crate::Stage5gTimerTransition::Ready(ready)) => ready,
+            Ok(crate::Stage5gTimerTransition::GeneratedIntent(_)) => {
+                panic!("cleanup must not fire inside reconciliation grace")
+            }
+            Err(failure) => {
+                panic!(
+                    "inside-grace partial Exit must become timer-ready: {:?}",
+                    failure.reason()
+                )
+            }
+        };
+        let cleanup_checkpoint_ms = partial_received.timestamp_millis() + 4_000;
+        let cleanup_escrow = match crate::continue_stage5g_timer_with_timer(
+            timer_ready,
+            crate::Stage5cPaperTimerInput {
+                now_ts_utc_ms: cleanup_checkpoint_ms,
+            },
+        )
+        .expect("explicit post-grace timer generates residual Exit")
+        {
+            crate::Stage5gTimerTransition::GeneratedIntent(escrow) => escrow,
+            crate::Stage5gTimerTransition::Ready(_) => {
+                panic!("post-grace timer must generate residual cleanup")
+            }
+        };
+        assert_eq!(
+            cleanup_escrow
+                .checkpoint()
+                .payload
+                .last_continuation_checkpoint_ts_utc_ms,
+            Some(cleanup_checkpoint_ms)
+        );
+        let cleanup = generated_escrow_to_order_position(
+            cleanup_escrow,
+            cleanup_checkpoint_ms,
+            "FINAM-TIMER-CLEANUP-EXIT-2",
+        );
+        assert_eq!(cleanup.projection.target_qty, Some(0.6));
+        let cleanup_qty = Decimal::from_f64_retain(
+            cleanup
+                .projection
+                .target_qty
+                .expect("timer cleanup source quantity"),
+        )
+        .expect("finite timer cleanup quantity");
+        let cleanup_received = Utc
+            .timestamp_millis_opt(cleanup_checkpoint_ms + 2_000)
+            .single()
+            .unwrap();
+        let cleanup_truth = generated_exit_truth(
+            &cleanup,
+            cleanup_received,
+            OrderStatus::Filled,
+            cleanup_qty,
+            cleanup_qty,
+            Decimal::ZERO,
+            "FINAM-TIMER-CLEANUP-TRADE-2",
+        );
+        let final_converged = match crate::apply_stage5g_order_position_evidence(
+            cleanup.session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 3,
+                request_id: cleanup.request_id,
+                broker_truth: cleanup_truth,
+                order_attribution: cleanup.projection.expected_attribution,
+            },
+        )
+        .expect("timer cleanup broker truth converges flat")
+        {
+            Stage5gOrderPositionTransition::Converged(converged) => converged,
+            Stage5gOrderPositionTransition::Awaiting(_) => {
+                panic!("filled residual cleanup must converge")
+            }
+            Stage5gOrderPositionTransition::MarketTerminalConverged(_) => {
+                panic!("filled residual cleanup is not exceptional")
+            }
+        };
+        let final_checkpoint = crate::attach_stage5g_timer_session(final_converged).checkpoint();
+        assert_eq!(
+            final_checkpoint
+                .payload
+                .last_continuation_checkpoint_ts_utc_ms,
+            Some(cleanup_received.timestamp_millis())
+        );
+        assert_eq!(
+            final_checkpoint.payload.evidence_replay_ledger.len(),
+            initial_ledger_len + 3
+        );
+        assert_eq!(final_checkpoint.payload.last_total_sequence, Some(3));
+        crate::validate_stage5g_timer_checkpoint(&final_checkpoint)
+            .expect("full bar/timer/ACK/truth route restores exactly");
     }
 
     #[test]
@@ -3510,6 +4414,7 @@ mod tests {
                 last_broker_truth_received_at: None,
                 last_broker_truth_received_ms: None,
                 duplicate_evidence_count: 0,
+                last_continuation_checkpoint_ts_utc_ms: None,
             },
             0,
         );
@@ -3544,6 +4449,7 @@ mod tests {
                 last_broker_truth_received_at: None,
                 last_broker_truth_received_ms: None,
                 duplicate_evidence_count: 0,
+                last_continuation_checkpoint_ts_utc_ms: None,
             },
             0,
         );
@@ -3939,6 +4845,7 @@ mod tests {
                 last_broker_truth_received_at: Some(ts(2)),
                 last_broker_truth_received_ms: Some(ts(2).timestamp_millis()),
                 duplicate_evidence_count: 0,
+                last_continuation_checkpoint_ts_utc_ms: Some(ts(2).timestamp_millis()),
             },
             0,
         );
@@ -3971,6 +4878,7 @@ mod tests {
                 last_broker_truth_received_at: Some(ts(3)),
                 last_broker_truth_received_ms: Some(ts(3).timestamp_millis()),
                 duplicate_evidence_count: 0,
+                last_continuation_checkpoint_ts_utc_ms: Some(ts(3).timestamp_millis()),
             },
             0,
         );
