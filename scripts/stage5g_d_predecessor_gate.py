@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the accepted R1-b R2 predecessor and its authority chain detached."""
+"""Run the R1-b R3 predecessor and its accepted authority chain detached."""
 
 from __future__ import annotations
 
@@ -9,7 +9,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = "e7b133daa73026c0b7d1b82be368013ff9328667"
+BASE = "5fcc538a9bed574cdd9df268a9bb1368c608e11e"
+R3_PREDECESSOR = "e7b133daa73026c0b7d1b82be368013ff9328667"
 R2_BASE = "e6d2d94d709ff2f6b589a565e255dbb0049d2705"
 R1_BASE = "7724b4472d603b3c2ef7c3ff22aa371aa64d8592"
 AUTHORITY = "d0494537d7c1739a16350b2d28f71b304165c812"
@@ -30,6 +31,7 @@ def main() -> int:
     if resolved != BASE:
         raise SystemExit("stage5g-d-predecessor-gate: FAIL: accepted predecessor missing")
     for label, commit in (
+        ("R3 predecessor", R3_PREDECESSOR),
         ("R2 base", R2_BASE),
         ("R1 base", R1_BASE),
         ("Stage 5C authority", AUTHORITY),
@@ -49,6 +51,10 @@ def main() -> int:
         )
         for command in commands:
             subprocess.run(command, cwd=source, check=True)
+        r3_predecessor = temp / "r3-predecessor"
+        extract_commit(R3_PREDECESSOR, r3_predecessor)
+        for command in commands:
+            subprocess.run(command, cwd=r3_predecessor, check=True)
         r2_base = temp / "r2-base"
         extract_commit(R2_BASE, r2_base)
         for command in commands:

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "stage": "5G-d",
-  "status": "r1b_r3_review_candidate",
-  "accepted_predecessor": "e7b133daa73026c0b7d1b82be368013ff9328667",
+  "status": "r1b_r4_review_candidate",
+  "accepted_predecessor": "5fcc538a9bed574cdd9df268a9bb1368c608e11e",
   "authority": {
     "timer_callback": "Stage 5C-k",
     "timer_settlement": "Stage 5C-l",
@@ -78,6 +78,12 @@
       "replay_identity_grammar_requires_canonical_uuid_and_colon_free_account",
       "stage5gd_active_path_stores_single_authority_canonical_fingerprint",
       "stage5gd_active_path_rejects_conflicting_trade_identity_before_replay_append",
+      "stage5gd_r4_exact_duplicate_merge_is_order_independent_and_keeps_max_receipt",
+      "stage5gd_r4_optional_venue_permutations_fail_closed_without_first_row_authority",
+      "stage5gd_r4_same_venue_conflicting_instrument_fields_fail_closed",
+      "stage5gd_r4_committed_trade_ledger_uses_exact_instrument_projection",
+      "stage5gd_r4_active_restart_exact_duplicate_reversal_is_exact_replay",
+      "stage5gd_r4_new_package_instrument_conflicts_preserve_checkpoint",
       "replay_ledger_and_continuation_semantics_are_fail_closed"
     ]
   },

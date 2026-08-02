@@ -1,14 +1,16 @@
-# Stage 5G-d R1-b R3 — canonical post-checkpoint evidence parity
+# Stage 5G-d R1-b R4 — deterministic exact immutable-trade canonicalization
 
 Status: implementation review candidate.
 
-Accepted predecessor: `e7b133daa73026c0b7d1b82be368013ff9328667`.
+Accepted predecessor: `5fcc538a9bed574cdd9df268a9bb1368c608e11e`.
 
 ## Scope
 
-R1-b R3 preserves the accepted R2 chronology/latest-ledger hardening and makes
-active Stage 5G-c plus post-checkpoint Stage 5G-d consume one crate-private,
-pure canonical evidence authority. It does not change Stage 5C callback
+R1-b R4 preserves the accepted R2 chronology/latest-ledger hardening and R3
+single-authority evidence ownership. It makes immutable trade canonicalization
+exact, deterministic and independent of duplicate-row order. Active Stage 5G-c
+plus post-checkpoint Stage 5G-d still consume one crate-private, pure canonical
+evidence authority. It does not change Stage 5C callback
 authority or open Stage 5G-e/f, Redis, FINAM, transport, runtime-live or real
 orders.
 
@@ -80,6 +82,28 @@ hyphenated UUID text, a nonempty colon-free account ID, and the exact
 full-precision version-1 package discriminator. Changing this representation
 requires a new identity schema version.
 
+### Exact immutable trade policy
+
+`Stage5gCanonicalImmutableTradePayloadV1` is the single versioned projection
+used by snapshot canonicalization and committed trade-ledger conflict checks.
+It excludes only the observation receipt `received_ts`; it binds account,
+trade/order/client IDs, exact structural `InstrumentId`, side, quantity, price,
+gross amount, commission, asset/board/expiration fields and source timestamp.
+The broad broker-neutral instrument-correlation helper is not an immutable
+payload equality rule.
+
+Rows with one exact `BrokerTradeId` and one exact immutable projection collapse
+to the complete row carrying the maximum observation receipt. Because every
+other field is equal, this representative is independent of input order. Any
+projection difference—including `venue_symbol Some` versus `None`, or equal
+venue symbols hiding different symbol/exchange/market fields—fails closed as
+`TradeIdentityConflict` before active state or restart replay-ledger mutation.
+
+`ExactReplay` may expose its committed checkpoint immediately. A `NewPackage`
+checkpoint remains only a candidate: a future Stage 5G-e type-state must first
+consume and successfully apply the exact owned canonical evidence through the
+active Stage 5G-c transition. R4 does not open that integration surface.
+
 ## Executable witnesses
 
 - `stage5gd_bar_generated_intent_roundtrips_through_ack_truth_and_next_timer`;
@@ -95,7 +119,13 @@ requires a new identity schema version.
 - `new_post_checkpoint_package_owns_one_deduplicated_canonical_candidate`;
 - `stage5gd_active_path_stores_single_authority_canonical_fingerprint`;
 - `stage5gd_active_path_rejects_conflicting_trade_identity_before_replay_append`;
-- `replay_identity_grammar_requires_canonical_uuid_and_colon_free_account`.
+- `replay_identity_grammar_requires_canonical_uuid_and_colon_free_account`;
+- `stage5gd_r4_exact_duplicate_merge_is_order_independent_and_keeps_max_receipt`;
+- `stage5gd_r4_optional_venue_permutations_fail_closed_without_first_row_authority`;
+- `stage5gd_r4_same_venue_conflicting_instrument_fields_fail_closed`;
+- `stage5gd_r4_committed_trade_ledger_uses_exact_instrument_projection`;
+- `stage5gd_r4_active_restart_exact_duplicate_reversal_is_exact_replay`;
+- `stage5gd_r4_new_package_instrument_conflicts_preserve_checkpoint`.
 
 The timer-generated witness is source-reachable through a partial Exit with an
 authoritative bracket-reconciliation timer. An explicit post-grace timer emits

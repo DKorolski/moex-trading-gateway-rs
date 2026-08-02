@@ -108,15 +108,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   R2-c-b and all live surfaces remain closed.
 - Stage 5G-c and its exact replay-package identity are independently accepted
   and closed at `d7561e6f36d01aea3d0dd67892800fbb6ac0a716`.
-- Stage 5G-d R1-b R2 at `e7b133daa73026c0b7d1b82be368013ff9328667`
-  was independently reviewed: its chronology and latest-ledger work was
-  accepted, while active/restart fingerprint canonicalization diverged. The
-  current R3 successor routes both paths through one owned canonical evidence
-  authority, retains the canonical candidate for a new package, and pins the
-  version-3 identity grammar. The accepted Stage 5C callback authority remains
-  unchanged and byte-pinned to
-  `d0494537d7c1739a16350b2d28f71b304165c812`. Stage 5G-d remains open pending
-  independent R3 acceptance.
+- Stage 5G-d R1-b R3 at `5fcc538a9bed574cdd9df268a9bb1368c608e11e`
+  was rejected on one remaining immutable-trade canonicalization gap while its
+  single active/restart authority, owned canonical candidate, identity grammar
+  and inherited R2 chronology were accepted. The current R4 successor replaces
+  broad instrument correlation in immutable trade equality with one versioned
+  exact projection shared by snapshot and committed-ledger merge. Exact
+  duplicates retain the complete maximum-receipt row; optional-venue drift and
+  same-venue contradictory instrument fields fail closed before state or replay
+  mutation. The accepted Stage 5C callback authority remains unchanged and
+  byte-pinned to `d0494537d7c1739a16350b2d28f71b304165c812`.
+  Stage 5G-d remains open pending independent R4 acceptance; Stage 5G-e/f remain
+  closed.
 - Stable macro-roadmap Stage 5 remains active while Stage 5G is incomplete.
   Stage 6 durable command-chain work is not opened by the Stage 5F acceptance.
 - Real FINAM `POST`/`DELETE`, Redis live command consumption, runtime-live,

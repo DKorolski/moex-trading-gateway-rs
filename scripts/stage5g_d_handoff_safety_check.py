@@ -14,7 +14,7 @@ import stage5g_c_r2ca_r1_handoff_safety_check as base
 
 STAGE = "5G-d"
 BRANCH = "stage5g-lifecycle"
-BASE_REF = "e7b133daa73026c0b7d1b82be368013ff9328667"
+BASE_REF = "5fcc538a9bed574cdd9df268a9bb1368c608e11e"
 SOURCE_MANIFEST = "stage5g-d-source-tree-manifest.json"
 EVIDENCE_MANIFEST = "stage5g-d-evidence-manifest.json"
 COMMIT_OBJECT = "stage5g-d-commit-object.txt"
@@ -84,7 +84,7 @@ def configure_base() -> None:
 def validate_gate_marker(label: str, stdout: str) -> None:
     markers = {
         "stage5g-d-check": "stage5g-d-check: PASS",
-        "stage5g-d-negative": "stage5g-d-negative-harness: PASS 52/52",
+        "stage5g-d-negative": "stage5g-d-negative-harness: PASS 60/60",
         "detached-predecessor": "stage5g-d-predecessor-gate: PASS",
         "stage5c-api-freeze": "stage5c-api-freeze-check: ok",
         "forbidden-no-rg": "stage5f-forbidden-no-rg-gate: ok",

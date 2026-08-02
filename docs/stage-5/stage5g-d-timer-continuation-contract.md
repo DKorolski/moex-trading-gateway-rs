@@ -1,7 +1,7 @@
 # Stage 5G-d — deterministic timer and continuation arbitration
 
-Status: R1-b R3 review candidate.
-Accepted predecessor: `e7b133daa73026c0b7d1b82be368013ff9328667`.
+Status: R1-b R4 review candidate.
+Accepted predecessor: `5fcc538a9bed574cdd9df268a9bb1368c608e11e`.
 Accepted Stage 5C callback authority: `d0494537d7c1739a16350b2d28f71b304165c812`.
 
 ## Decision
@@ -72,9 +72,23 @@ fingerprint. Exact duplicate trade IDs collapse by immutable payload while the
 newest observation receipt is retained; conflicting immutable payloads fail
 before ledger mutation. Other vector-shaped broker truth is canonically sorted.
 
+Immutable trade equality is defined by the versioned
+`Stage5gCanonicalImmutableTradePayloadV1` projection. It binds the exact
+structural `InstrumentId` and every broker/economic/source field except the
+observation-only `received_ts`. Duplicate merge retains the complete row with
+the maximum receipt, so neither vector order nor the first row can select a
+different canonical representation. The same projection and merge authority
+protect both raw snapshot deduplication and the committed trade ledger.
+
 `NewPackage` retains the canonical evidence candidate in its result ownership;
 `ExactReplay` does not create a candidate. This is a type-level boundary for a
 future Stage 5G-e consumer, not an authorization to open Stage 5G-e.
+
+The checkpoint returned for `ExactReplay` is committed immediately. For
+`NewPackage`, the returned checkpoint is a candidate only; it must not be
+persisted until the exact owned canonical candidate has successfully completed
+the active Stage 5G-c transition. Stage 5G-e must enforce that distinction with
+type-state before it is opened.
 
 Version-3 replay identities require canonical UUID text and a nonempty,
 colon-free account ID. The package suffix remains the exact nanosecond

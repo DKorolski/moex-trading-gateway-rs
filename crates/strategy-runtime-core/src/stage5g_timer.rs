@@ -1437,6 +1437,64 @@ mod tests {
     }
 
     #[test]
+    fn stage5gd_r4_active_restart_exact_duplicate_reversal_is_exact_replay() {
+        let first = trade(
+            "TRADE_R4_EXACT_REPLAY",
+            Decimal::new(2_210, 0),
+            70_000_000,
+            80_000_000,
+        );
+        let mut refreshed = first.clone();
+        refreshed.received_ts = received(90_000_000);
+        let active = evidence_with_trades(7, 100_000_000, vec![first.clone(), refreshed.clone()]);
+        let active_reversed =
+            evidence_with_trades(7, 100_000_000, vec![refreshed.clone(), first.clone()]);
+        let active_checkpoint = checkpoint_for(&active);
+        assert_eq!(active_checkpoint, checkpoint_for(&active_reversed));
+        assert_eq!(
+            evidence_fingerprint(&active),
+            evidence_fingerprint(&active_reversed)
+        );
+
+        let restart = evidence_with_trades(8, 100_000_000, vec![refreshed, first]);
+        let replay =
+            classify_stage5g_post_checkpoint_evidence(&active_checkpoint, restart).unwrap();
+        assert_eq!(
+            replay.disposition(),
+            Stage5gCheckpointReplayDisposition::ExactReplay
+        );
+        assert!(!replay.owns_canonical_new_package_candidate());
+    }
+
+    #[test]
+    fn stage5gd_r4_new_package_instrument_conflicts_preserve_checkpoint() {
+        let base = evidence(7, 100_000_000);
+        let checkpoint = checkpoint_for(&base);
+        let original_checkpoint = checkpoint.clone();
+        let with_venue = trade(
+            "TRADE_R4_VENUE_OPTION",
+            Decimal::new(2_210, 0),
+            150_000_000,
+            160_000_000,
+        );
+        let mut without_venue = with_venue.clone();
+        without_venue.instrument.venue_symbol = None;
+        without_venue.received_ts = received(180_000_000);
+
+        for rows in [
+            vec![with_venue.clone(), without_venue.clone()],
+            vec![without_venue.clone(), with_venue.clone()],
+        ] {
+            let candidate = evidence_with_trades(8, 200_000_000, rows);
+            assert_eq!(
+                classify_stage5g_post_checkpoint_evidence(&checkpoint, candidate).unwrap_err(),
+                Stage5gCheckpointReplayError::TradeIdentityConflict
+            );
+            assert_eq!(checkpoint, original_checkpoint);
+        }
+    }
+
+    #[test]
     fn post_checkpoint_known_payload_change_and_trade_identity_conflict_fail_closed() {
         let original = evidence_with_trades(
             7,

@@ -10,10 +10,10 @@ use std::collections::BTreeMap;
 
 use broker_core::command::CommandAckStatus;
 use broker_core::{
-    instrument_identity_matches, BrokerOrderId, BrokerOrderLifecycle, BrokerOrderSnapshot,
-    BrokerPositionSnapshot, BrokerTradeSnapshot, BrokerTruthSnapshot, HybridRuntimeAttribution,
-    HybridRuntimeOrderEvent, HybridRuntimePositionEvent, InstrumentId, OrderSide, OrderStatus,
-    OrderType, StrategyRequestId,
+    instrument_identity_matches, BrokerAccountId, BrokerOrderId, BrokerOrderLifecycle,
+    BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeId, BrokerTradeSnapshot,
+    BrokerTruthSnapshot, ClientOrderId, HybridRuntimeAttribution, HybridRuntimeOrderEvent,
+    HybridRuntimePositionEvent, InstrumentId, OrderSide, OrderStatus, OrderType, StrategyRequestId,
 };
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::ToPrimitive;
@@ -37,6 +37,8 @@ use crate::stage5g_mock_ack::{
 pub const STAGE5G_ORDER_POSITION_SCHEMA_VERSION: u16 = 4;
 const STAGE5G_EVIDENCE_FINGERPRINT_SCHEMA_VERSION: u16 = 3;
 const STAGE5G_BROKER_TRUTH_PACKAGE_IDENTITY_SCHEMA_VERSION: u16 = 1;
+const STAGE5G_IMMUTABLE_TRADE_PAYLOAD_SCHEMA_VERSION: u16 = 1;
+const STAGE5G_IMMUTABLE_TRADE_PAYLOAD_DOMAIN: &str = "moex.stage5g.immutable-trade-payload.v1";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stage5gOrderPositionEvidence {
@@ -53,6 +55,36 @@ pub struct Stage5gOrderPositionEvidence {
 pub(crate) enum Stage5gEvidenceCanonicalizationError {
     TradeIdentityConflict,
     EvidenceIdentityGrammarViolation,
+}
+
+/// Versioned exact immutable projection for one broker trade. The only
+/// deliberately omitted field is `received_ts`, which is an observation
+/// receipt rather than broker-native trade identity. In particular,
+/// `InstrumentId` is bound structurally; broad correlation helpers are not an
+/// immutable-payload equality policy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct Stage5gCanonicalImmutableTradePayloadV1 {
+    schema_version: u16,
+    domain: &'static str,
+    account_id: BrokerAccountId,
+    broker_trade_id: BrokerTradeId,
+    broker_order_id: Option<BrokerOrderId>,
+    client_order_id: Option<ClientOrderId>,
+    instrument: InstrumentId,
+    side: OrderSide,
+    qty: Decimal,
+    price: Decimal,
+    gross_amount: Option<Decimal>,
+    commission: Option<Decimal>,
+    broker_asset_id: Option<String>,
+    board: Option<String>,
+    expiration_date: Option<chrono::NaiveDate>,
+    source_ts: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage5gImmutableTradeMergeError {
+    IdentityConflict,
 }
 
 /// Source-owned canonical evidence. Construction is restricted to the single
@@ -594,12 +626,11 @@ fn canonicalize_broker_truth_snapshot(
     for trade in truth.trades.drain(..) {
         let key = trade.broker_trade_id.as_str().to_string();
         match trades_by_id.get_mut(&key) {
-            Some(existing) if immutable_trade_payload_matches(existing, &trade) => {
-                if trade.received_ts > existing.received_ts {
-                    existing.received_ts = trade.received_ts;
-                }
-            }
-            Some(_) => return Err(Stage5gEvidenceCanonicalizationError::TradeIdentityConflict),
+            Some(existing) => merge_canonical_trade_observation_v1(existing, trade).map_err(
+                |Stage5gImmutableTradeMergeError::IdentityConflict| {
+                    Stage5gEvidenceCanonicalizationError::TradeIdentityConflict
+                },
+            )?,
             None => {
                 trades_by_id.insert(key, trade);
             }
@@ -621,24 +652,51 @@ fn canonical_json_sort<T: Serialize>(values: &mut [T]) {
     });
 }
 
+fn canonical_immutable_trade_payload_v1(
+    trade: &BrokerTradeSnapshot,
+) -> Stage5gCanonicalImmutableTradePayloadV1 {
+    Stage5gCanonicalImmutableTradePayloadV1 {
+        schema_version: STAGE5G_IMMUTABLE_TRADE_PAYLOAD_SCHEMA_VERSION,
+        domain: STAGE5G_IMMUTABLE_TRADE_PAYLOAD_DOMAIN,
+        account_id: trade.account_id.clone(),
+        broker_trade_id: trade.broker_trade_id.clone(),
+        broker_order_id: trade.broker_order_id.clone(),
+        client_order_id: trade.client_order_id.clone(),
+        instrument: trade.instrument.clone(),
+        side: trade.side,
+        qty: trade.qty,
+        price: trade.price,
+        gross_amount: trade.gross_amount,
+        commission: trade.commission,
+        broker_asset_id: trade.broker_asset_id.clone(),
+        board: trade.board.clone(),
+        expiration_date: trade.expiration_date,
+        source_ts: trade.source_ts,
+    }
+}
+
 fn immutable_trade_payload_matches(
     left: &BrokerTradeSnapshot,
     right: &BrokerTradeSnapshot,
 ) -> bool {
-    left.account_id == right.account_id
-        && left.broker_trade_id == right.broker_trade_id
-        && left.broker_order_id == right.broker_order_id
-        && left.client_order_id == right.client_order_id
-        && instrument_identity_matches(&left.instrument, &right.instrument)
-        && left.side == right.side
-        && left.qty == right.qty
-        && left.price == right.price
-        && left.gross_amount == right.gross_amount
-        && left.commission == right.commission
-        && left.broker_asset_id == right.broker_asset_id
-        && left.board == right.board
-        && left.expiration_date == right.expiration_date
-        && left.source_ts == right.source_ts
+    canonical_immutable_trade_payload_v1(left) == canonical_immutable_trade_payload_v1(right)
+}
+
+/// Exact duplicates retain the complete row with the greatest observation
+/// receipt. Since all other fields are bound by the immutable projection,
+/// choosing this representative is commutative and independent of vector
+/// order. Equal receipts imply structurally equal complete rows.
+fn merge_canonical_trade_observation_v1(
+    existing: &mut BrokerTradeSnapshot,
+    incoming: BrokerTradeSnapshot,
+) -> Result<(), Stage5gImmutableTradeMergeError> {
+    if !immutable_trade_payload_matches(existing, &incoming) {
+        return Err(Stage5gImmutableTradeMergeError::IdentityConflict);
+    }
+    if incoming.received_ts > existing.received_ts {
+        *existing = incoming;
+    }
+    Ok(())
 }
 
 pub fn apply_stage5g_order_position_evidence(
@@ -1487,14 +1545,10 @@ fn validate_trades(
         }
         let key = trade.broker_trade_id.as_str().to_string();
         match incoming_by_id.get_mut(&key) {
-            Some(previous) if immutable_trade_payload_matches(previous, trade) => {
-                if trade.received_ts > previous.received_ts {
-                    previous.received_ts = trade.received_ts;
-                }
-            }
-            Some(_) => {
-                return Err(Stage5gOrderPositionError::TradeIdentityConflict);
-            }
+            Some(previous) => merge_canonical_trade_observation_v1(previous, trade.clone())
+                .map_err(|Stage5gImmutableTradeMergeError::IdentityConflict| {
+                    Stage5gOrderPositionError::TradeIdentityConflict
+                })?,
             None => {
                 incoming_by_id.insert(key, trade.clone());
             }
@@ -1506,12 +1560,11 @@ fn validate_trades(
             .iter_mut()
             .find(|previous| previous.broker_trade_id == incoming.broker_trade_id)
         {
-            if !immutable_trade_payload_matches(previous, &incoming) {
-                return Err(Stage5gOrderPositionError::TradeIdentityConflict);
-            }
-            if incoming.received_ts > previous.received_ts {
-                previous.received_ts = incoming.received_ts;
-            }
+            merge_canonical_trade_observation_v1(previous, incoming).map_err(
+                |Stage5gImmutableTradeMergeError::IdentityConflict| {
+                    Stage5gOrderPositionError::TradeIdentityConflict
+                },
+            )?;
         } else {
             slot.trades.push(incoming);
         }
@@ -5508,6 +5561,112 @@ mod tests {
             ),
             Err(Stage5gOrderPositionError::TradeIdentityConflict)
         );
+    }
+
+    #[test]
+    fn stage5gd_r4_exact_duplicate_merge_is_order_independent_and_keeps_max_receipt() {
+        let first = trade("FINAM_R4_EXACT", Decimal::ONE, 2);
+        let mut refreshed = first.clone();
+        refreshed.received_ts = ts(3);
+        let mut canonical_rows = Vec::new();
+        let mut fingerprints = Vec::new();
+
+        for rows in [
+            vec![first.clone(), refreshed.clone()],
+            vec![refreshed.clone(), first.clone()],
+        ] {
+            let raw = evidence(2, truth(vec![], rows, vec![], 3));
+            let canonical = canonicalize_stage5g_order_position_evidence(raw).unwrap();
+            assert_eq!(canonical.evidence().broker_truth.trades.len(), 1);
+            assert_eq!(
+                canonical.evidence().broker_truth.trades[0].received_ts,
+                ts(3)
+            );
+            canonical_rows.push(canonical.evidence().broker_truth.trades[0].clone());
+            fingerprints.push(canonical.fingerprint().to_string());
+        }
+
+        assert_eq!(canonical_rows[0], canonical_rows[1]);
+        assert_eq!(fingerprints[0], fingerprints[1]);
+    }
+
+    #[test]
+    fn stage5gd_r4_optional_venue_permutations_fail_closed_without_first_row_authority() {
+        let with_venue = trade("FINAM_R4_VENUE_OPTION", Decimal::ONE, 2);
+        let mut without_venue = with_venue.clone();
+        without_venue.instrument.venue_symbol = None;
+        without_venue.received_ts = ts(3);
+
+        for rows in [
+            vec![with_venue.clone(), without_venue.clone()],
+            vec![without_venue.clone(), with_venue.clone()],
+        ] {
+            let raw = evidence(2, truth(vec![], rows, vec![], 3));
+            assert_eq!(
+                canonicalize_stage5g_order_position_evidence(raw).unwrap_err(),
+                Stage5gEvidenceCanonicalizationError::TradeIdentityConflict
+            );
+        }
+    }
+
+    #[test]
+    fn stage5gd_r4_same_venue_conflicting_instrument_fields_fail_closed() {
+        let canonical = trade("FINAM_R4_VENUE_CONFLICT", Decimal::ONE, 2);
+        let mut contradictory = canonical.clone();
+        contradictory.instrument.symbol = "CONTRADICTORY".to_string();
+        contradictory.instrument.exchange = Exchange::Other("CONTRADICTORY".to_string());
+        contradictory.instrument.market = Market::Stocks;
+        contradictory.received_ts = ts(3);
+        assert_eq!(
+            canonical.instrument.venue_symbol,
+            contradictory.instrument.venue_symbol
+        );
+
+        for rows in [
+            vec![canonical.clone(), contradictory.clone()],
+            vec![contradictory.clone(), canonical.clone()],
+        ] {
+            let raw = evidence(2, truth(vec![], rows, vec![], 3));
+            assert_eq!(
+                canonicalize_stage5g_order_position_evidence(raw).unwrap_err(),
+                Stage5gEvidenceCanonicalizationError::TradeIdentityConflict
+            );
+        }
+    }
+
+    #[test]
+    fn stage5gd_r4_committed_trade_ledger_uses_exact_instrument_projection() {
+        let qty = Decimal::new(4, 1);
+        let filled = market_order(OrderStatus::PartiallyFilled, qty, 2);
+        let committed = market_trade("FINAM_R4_COMMITTED", qty, 2);
+        let mut slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        validate_trades(&mut slot, &filled, std::slice::from_ref(&committed)).unwrap();
+        let committed_ledger = slot.trades.clone();
+
+        let mut missing_venue = committed.clone();
+        missing_venue.instrument.venue_symbol = None;
+        missing_venue.received_ts = ts(3);
+        assert_eq!(
+            validate_trades(&mut slot, &filled, &[missing_venue]),
+            Err(Stage5gOrderPositionError::TradeIdentityConflict)
+        );
+        assert_eq!(slot.trades, committed_ledger);
+
+        let mut contradictory = committed;
+        contradictory.instrument.symbol = "CONTRADICTORY".to_string();
+        contradictory.instrument.exchange = Exchange::Other("CONTRADICTORY".to_string());
+        contradictory.instrument.market = Market::Stocks;
+        contradictory.received_ts = ts(3);
+        assert_eq!(
+            validate_trades(&mut slot, &filled, &[contradictory]),
+            Err(Stage5gOrderPositionError::TradeIdentityConflict)
+        );
+        assert_eq!(slot.trades, committed_ledger);
     }
 
     #[test]

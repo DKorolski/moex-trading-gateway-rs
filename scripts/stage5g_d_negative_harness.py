@@ -87,6 +87,19 @@ def main() -> int:
         "        return Err(Stage5gCheckpointReplayError::BrokerTruthBeforeContinuationCheckpoint);\n"
         "    }\n"
     )
+    restart_canonicalization = (
+        "    let canonical_evidence =\n"
+        "        canonicalize_stage5g_order_position_evidence(evidence).map_err(|reason| match reason {\n"
+        "            Stage5gEvidenceCanonicalizationError::TradeIdentityConflict => {\n"
+        "                Stage5gCheckpointReplayError::TradeIdentityConflict\n"
+        "            }\n"
+        "            Stage5gEvidenceCanonicalizationError::EvidenceIdentityGrammarViolation => {\n"
+        "                Stage5gCheckpointReplayError::EvidenceIdentityGrammarViolation\n"
+        "            }\n"
+        "        })?;\n"
+        "    let identity = canonical_evidence.identity().to_string();\n"
+        "    let fingerprint = canonical_evidence.fingerprint().to_string();\n"
+    )
     cases = [
         ("drop-exact-nanos", lambda r: mutate_all(r, timer, "timestamp_subsec_nanos", "timestamp_subsec_millis")),
         ("omit-replay-ledger", lambda r: mutate_all(r, timer, "evidence_replay_ledger", "removed_replay_ledger")),
@@ -132,10 +145,18 @@ def main() -> int:
         ("remove-exact-duplicate-restart-witness", lambda r: mutate_text(r, timer, "fn post_checkpoint_duplicate_trade_redelivery_matches_active_canonical_fingerprint()", "fn removed_duplicate_trade_redelivery_witness()")),
         ("remove-conflicting-trade-restart-witness", lambda r: mutate_text(r, timer, "fn post_checkpoint_known_payload_change_and_trade_identity_conflict_fail_closed()", "fn removed_trade_identity_conflict_witness()")),
         ("count-canonical-trade-twice", lambda r: mutate_text(r, order, "truth.trades = trades_by_id.into_values().collect();", "truth.trades = trades_by_id.into_values().flat_map(|trade| [trade.clone(), trade]).collect();")),
-        ("allow-conflicting-trade-identity", lambda r: mutate_text(r, order, "Some(_) => return Err(Stage5gEvidenceCanonicalizationError::TradeIdentityConflict),", "Some(_) => {}")),
+        ("allow-conflicting-trade-identity", lambda r: mutate_text(r, order, "if !immutable_trade_payload_matches(existing, &incoming)", "if false && !immutable_trade_payload_matches(existing, &incoming)")),
         ("remove-canonical-candidate-witness", lambda r: mutate_text(r, timer, "fn new_post_checkpoint_package_owns_one_deduplicated_canonical_candidate()", "fn removed_canonical_candidate_witness()")),
         ("remove-active-canonical-fingerprint-witness", lambda r: mutate_text(r, order, "fn stage5gd_active_path_stores_single_authority_canonical_fingerprint()", "fn removed_active_canonical_fingerprint_witness()")),
         ("remove-canonical-identity-grammar-witness", lambda r: mutate_text(r, timer, "fn replay_identity_grammar_requires_canonical_uuid_and_colon_free_account()", "fn removed_identity_grammar_witness()")),
+        ("replace-exact-trade-projection-with-broad-instrument-identity", lambda r: mutate_text(r, order, "canonical_immutable_trade_payload_v1(left) == canonical_immutable_trade_payload_v1(right)", "instrument_identity_matches(&left.instrument, &right.instrument)")),
+        ("remove-instrument-from-immutable-trade-projection", lambda r: mutate_text(r, order, "instrument: trade.instrument.clone(),", "instrument: InstrumentId { venue_symbol: None, ..trade.instrument.clone() },")),
+        ("restore-first-row-trade-representative", lambda r: mutate_text(r, order, "*existing = incoming;", "existing.received_ts = incoming.received_ts;")),
+        ("remove-max-observation-receipt-policy", lambda r: mutate_text(r, order, "incoming.received_ts > existing.received_ts", "incoming.received_ts < existing.received_ts")),
+        ("remove-optional-venue-permutation-witness", lambda r: mutate_text(r, order, "fn stage5gd_r4_optional_venue_permutations_fail_closed_without_first_row_authority()", "fn removed_optional_venue_permutation_witness()")),
+        ("remove-same-venue-conflicting-fields-witness", lambda r: mutate_text(r, order, "fn stage5gd_r4_same_venue_conflicting_instrument_fields_fail_closed()", "fn removed_same_venue_conflicting_fields_witness()")),
+        ("remove-r4-active-restart-parity-witness", lambda r: mutate_text(r, timer, "fn stage5gd_r4_active_restart_exact_duplicate_reversal_is_exact_replay()", "fn removed_r4_active_restart_parity_witness()")),
+        ("move-r4-conflict-after-replay-ledger-append", lambda r: move_after(r, timer, restart_canonicalization, "    replay.evidence_identities.push(EvidenceIdentity {\n        identity: identity.clone(),\n        fingerprint,\n    });\n")),
         ("sequence-in-package-identity", lambda r: mutate_text(r, order, "evidence.request_id,", "evidence.total_sequence,\n        evidence.request_id,")),
         ("open-stage5g-e", lambda r: mutate_text(r, inventory, '"stage5g_e": false', '"stage5g_e": true')),
         ("open-stage5g-f", lambda r: mutate_text(r, inventory, '"stage5g_f": false', '"stage5g_f": true')),

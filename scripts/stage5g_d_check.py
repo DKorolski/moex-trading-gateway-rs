@@ -9,7 +9,7 @@ import re
 import subprocess
 from pathlib import Path
 
-BASE = "e7b133daa73026c0b7d1b82be368013ff9328667"
+BASE = "5fcc538a9bed574cdd9df268a9bb1368c608e11e"
 STAGE5C_AUTHORITY = "d0494537d7c1739a16350b2d28f71b304165c812"
 
 
@@ -129,8 +129,17 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "stage5gd_zero_intent_bar_rearms_timer_and_later_bar_without_callback_loss",
         "stage5gd_active_path_stores_single_authority_canonical_fingerprint",
         "stage5gd_active_path_rejects_conflicting_trade_identity_before_replay_append",
+        "stage5gd_r4_exact_duplicate_merge_is_order_independent_and_keeps_max_receipt",
+        "stage5gd_r4_optional_venue_permutations_fail_closed_without_first_row_authority",
+        "stage5gd_r4_same_venue_conflicting_instrument_fields_fail_closed",
+        "stage5gd_r4_committed_trade_ledger_uses_exact_instrument_projection",
         "pub(crate) struct Stage5gCanonicalOrderPositionEvidence",
         "pub(crate) enum Stage5gEvidenceCanonicalizationError",
+        "Stage5gCanonicalImmutableTradePayloadV1",
+        "STAGE5G_IMMUTABLE_TRADE_PAYLOAD_SCHEMA_VERSION",
+        "STAGE5G_IMMUTABLE_TRADE_PAYLOAD_DOMAIN",
+        "canonical_immutable_trade_payload_v1",
+        "merge_canonical_trade_observation_v1",
     ):
         require(token in order, f"required chronology/liveness witness missing: {token}")
     for token in (
@@ -140,6 +149,8 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "post_checkpoint_known_payload_change_and_trade_identity_conflict_fail_closed",
         "new_post_checkpoint_package_owns_one_deduplicated_canonical_candidate",
         "replay_identity_grammar_requires_canonical_uuid_and_colon_free_account",
+        "stage5gd_r4_active_restart_exact_duplicate_reversal_is_exact_replay",
+        "stage5gd_r4_new_package_instrument_conflicts_preserve_checkpoint",
     ):
         require(token in timer, f"required restart/ledger witness missing: {token}")
     require(
@@ -222,8 +233,8 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "BrokerTruth canonicalizer escaped the single evidence authority",
     )
     for token in (
-        "Some(existing) if immutable_trade_payload_matches(existing, &trade)",
-        "Some(_) => return Err(Stage5gEvidenceCanonicalizationError::TradeIdentityConflict)",
+        "Some(existing) => merge_canonical_trade_observation_v1(existing, trade)",
+        "Stage5gEvidenceCanonicalizationError::TradeIdentityConflict",
         "truth.trades = trades_by_id.into_values().collect()",
         "canonical_json_sort(&mut truth.orders)",
         "canonical_json_sort(&mut truth.positions)",
@@ -231,6 +242,63 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "canonical_json_sort(&mut cash.cash)",
     ):
         require(token in order, f"canonical BrokerTruth policy drift: {token}")
+
+    projection_start = order.index("fn canonical_immutable_trade_payload_v1(")
+    projection_end = order.index("fn immutable_trade_payload_matches(", projection_start)
+    projection = order[projection_start:projection_end]
+    for token in (
+        "schema_version: STAGE5G_IMMUTABLE_TRADE_PAYLOAD_SCHEMA_VERSION",
+        "domain: STAGE5G_IMMUTABLE_TRADE_PAYLOAD_DOMAIN",
+        "account_id: trade.account_id.clone()",
+        "broker_trade_id: trade.broker_trade_id.clone()",
+        "broker_order_id: trade.broker_order_id.clone()",
+        "client_order_id: trade.client_order_id.clone()",
+        "instrument: trade.instrument.clone()",
+        "side: trade.side",
+        "qty: trade.qty",
+        "price: trade.price",
+        "gross_amount: trade.gross_amount",
+        "commission: trade.commission",
+        "broker_asset_id: trade.broker_asset_id.clone()",
+        "board: trade.board.clone()",
+        "expiration_date: trade.expiration_date",
+        "source_ts: trade.source_ts",
+    ):
+        require(token in projection, f"immutable trade projection field drift: {token}")
+    require(
+        "instrument_identity_matches" not in projection,
+        "broad instrument correlation entered immutable trade projection",
+    )
+    matches_start = order.index("fn immutable_trade_payload_matches(")
+    matches_end = order.index("fn merge_canonical_trade_observation_v1(", matches_start)
+    matches = order[matches_start:matches_end]
+    require(
+        "canonical_immutable_trade_payload_v1(left)"
+        " == canonical_immutable_trade_payload_v1(right)" in matches,
+        "immutable trade equality escaped the versioned exact projection",
+    )
+    require(
+        "instrument_identity_matches" not in matches,
+        "broad instrument identity helper controls immutable trade equality",
+    )
+    merge_start = matches_end
+    merge_end = order.index("pub fn apply_stage5g_order_position_evidence(", merge_start)
+    merge = order[merge_start:merge_end]
+    merge_conflict = merge.index("if !immutable_trade_payload_matches(existing, &incoming)")
+    merge_max = merge.index("if incoming.received_ts > existing.received_ts")
+    merge_replace = merge.index("*existing = incoming")
+    require(
+        merge_conflict < merge_max < merge_replace,
+        "deterministic immutable trade merge order drift",
+    )
+    require(
+        order.count("canonical_immutable_trade_payload_v1(") == 3,
+        "immutable trade projection must have one definition and one exact pair comparison",
+    )
+    require(
+        order.count("merge_canonical_trade_observation_v1(") == 4,
+        "snapshot and committed ledgers must share one deterministic trade merge authority",
+    )
 
     active_start = order.index("pub fn apply_stage5g_order_position_evidence(")
     active_end = order.index("fn classify_evidence_replay(", active_start)
@@ -295,20 +363,20 @@ def validate(root: Path, *, check_git: bool = True) -> None:
     require("fingerprint" not in identity_body, "payload fingerprint entered package identity")
 
     require(inventory["stage"] == "5G-d", "inventory stage drift")
-    require(inventory["status"] == "r1b_r3_review_candidate", "inventory status drift")
+    require(inventory["status"] == "r1b_r4_review_candidate", "inventory status drift")
     require(inventory["accepted_predecessor"] == BASE, "inventory predecessor drift")
     require(len(inventory["scenario_family"]) == 8, "timer scenario inventory must remain 8/8")
     require(len(inventory["checkpoint_fields"]) == 8, "checkpoint field inventory drift")
     for surface, opened in inventory["closed_surfaces"].items():
         require(opened is False, f"closed surface opened: {surface}")
 
-    require(descriptor["stage"] == "5G-d R1-b R3", "descriptor stage drift")
+    require(descriptor["stage"] == "5G-d R1-b R4", "descriptor stage drift")
     require(
         descriptor["status"] == "implementation_review_candidate",
         "descriptor status drift",
     )
     require(descriptor["accepted_predecessor"] == BASE, "descriptor predecessor drift")
-    require(descriptor["negative_case_count"] == 52, "descriptor negative count drift")
+    require(descriptor["negative_case_count"] == 60, "descriptor negative count drift")
     for flag in (
         "restart_new_package_causal_guard",
         "historical_exact_replay_allowed",
@@ -317,6 +385,9 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "active_restart_fingerprint_parity",
         "canonical_new_package_candidate_owned",
         "canonical_identity_grammar_enforced",
+        "exact_immutable_trade_projection",
+        "deterministic_trade_representative",
+        "new_package_checkpoint_apply_required",
     ):
         require(descriptor[flag] is True, f"descriptor R2 property missing: {flag}")
     for surface, opened in descriptor["closed_surfaces"].items():
