@@ -96,6 +96,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   test clock also removes inherited weekend dependence from three Stage 5E
   parity fixtures without changing production time authority. R2-c-b remains
   closed.
+- Independent review rejected R2-c-a R2 at
+  `3d995af48e88588909e11505fdefc826ff8f66ce` as submitted because its grace
+  decision mixed a local millisecond timer with broker source seconds. The only
+  active successor is R2-c-a R3. R3 preserves the exact R2 transaction boundary
+  but captures `BrokerTruth.received_ts.timestamp_millis()` before validation,
+  so timer origin and decision watermark share the local receipt-clock domain
+  and exact precision. Six source-reachable witnesses cover same-second
+  post-start receipt, true stale receipt, delayed post-grace receipt, fresh
+  snapshot retry, deterministic replay and inherited full-fill/rollback.
+  R2-c-b and all live surfaces remain closed.
 - Stable macro-roadmap Stage 5 remains active while Stage 5G is incomplete.
   Stage 6 durable command-chain work is not opened by the Stage 5F acceptance.
 - Real FINAM `POST`/`DELETE`, Redis live command consumption, runtime-live,

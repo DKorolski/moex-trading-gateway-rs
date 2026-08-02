@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "stage": "5G-c-R2-c-a-R3-exact-receipt-clock-bracket-authority",
+  "status": "review_candidate",
+  "base_commit": "3d995af48e88588909e11505fdefc826ff8f66ce",
+  "predecessor_review_verdict": "rejected_as_submitted",
+  "predecessor_stage5c_sha256": "541b3dfffc838bd939790210c0a63e988a1c1d4a66f69bba52914a494b4cc3ea",
+  "predecessor_runtime_sha256": "fda7593117c41797d2a98e534937b53ead18451e6a3c89c5196eace0207959f3",
+  "stage5c_current_sha256": "ca357ea9e2dd39910d119e1033e00eef7698cf459255a95825591cd1c86984e7",
+  "runtime_current_sha256": "fda7593117c41797d2a98e534937b53ead18451e6a3c89c5196eace0207959f3",
+  "regions": {
+    "exact-receipt-clock-bracket-authority-v1": "2d1d530690bfc821c908ce092fec294c3b6a5243cb80cd6ad400e1c3aa57e12e",
+    "exact-receipt-clock-bracket-authority-tests-v1": "66da05b4c9074b5919add656b23ebd7925cd6f882554df05dc552d5ec28f679d"
+  },
+  "clock_domain": {
+    "bracket_timer_origin": "local_runtime_receipt_clock_milliseconds",
+    "terminal_decision": "broker_truth_package_receipt_clock_milliseconds",
+    "component_source_timestamps": "economic_identity_and_chronology_only",
+    "exact_receipt_expression": "evidence.truth.received_ts.timestamp_millis()",
+    "second_level_derivation_forbidden": true
+  },
+  "chronology": {
+    "ack_processed_lte_truth_receipt": true,
+    "component_source_lte_component_receipt_lte_truth_receipt": true,
+    "partial_exit_truth_receipt_gte_bracket_start": true,
+    "ack_seconds_to_milliseconds_checked": true
+  },
+  "behavior": {
+    "receipt_before_timer": "typed_retryable_block_preserving_original_capability",
+    "receipt_inside_grace": "ready_for_timer_with_timer_preserved",
+    "receipt_at_or_after_grace": "generated_recovery_exit_escrow"
+  },
+  "focused_source_path_tests": 6,
+  "same_second_subsecond_witness": true,
+  "delayed_receipt_witness": true,
+  "fresh_snapshot_retry_witness": true,
+  "full_fill_and_rollback_inherited": true,
+  "normalized_public_api_unchanged": true,
+  "closed_surfaces": {
+    "stage5g_c_r2cb": false,
+    "stage5g_d": false,
+    "redis_live_consumer_groups": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage6": false,
+    "main_merge": false,
+    "deployment": false
+  }
+}
