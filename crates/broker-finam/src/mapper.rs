@@ -2484,34 +2484,127 @@ mod tests {
             .expect("FINAM full snapshot maps")
         };
 
-        let partial = map_snapshot("partial", "partial_received_ts");
-        let filled = map_snapshot("filled", "filled_received_ts");
+        let poll1 = map_snapshot("poll1", "poll1_received_ts");
+        let poll2 = map_snapshot("poll2", "poll2_received_ts");
+        let poll3 = map_snapshot("poll3", "poll3_received_ts");
 
-        assert_eq!(partial.orders[0].status, OrderStatus::PartiallyFilled);
-        assert_eq!(partial.orders[0].filled_qty, Decimal::new(4, 1));
-        assert_eq!(partial.positions.len(), 2);
+        assert_eq!(poll1.orders[0].status, OrderStatus::PartiallyFilled);
+        assert_eq!(poll1.orders[0].filled_qty, Decimal::new(2, 1));
+        assert_eq!(poll1.positions.len(), 1);
+        assert_eq!(poll2.orders[0].status, OrderStatus::PartiallyFilled);
+        assert_eq!(poll2.orders[0].filled_qty, Decimal::new(4, 1));
+        assert_eq!(poll2.positions.len(), 2);
         assert_eq!(
-            partial.positions.iter().map(|row| row.qty).sum::<Decimal>(),
+            poll2.positions.iter().map(|row| row.qty).sum::<Decimal>(),
             Decimal::new(4, 1)
         );
-        assert_eq!(filled.orders[0].status, OrderStatus::Filled);
-        assert_eq!(filled.orders[0].filled_qty, Decimal::ONE);
-        assert_eq!(filled.positions[0].qty, Decimal::ONE);
-        assert_eq!(partial.trades.len(), 1);
-        assert_eq!(filled.trades.len(), 2);
+        assert_eq!(poll3.orders[0].status, OrderStatus::Filled);
+        assert_eq!(poll3.orders[0].filled_qty, Decimal::ONE);
+        assert_eq!(poll3.positions[0].qty, Decimal::ONE);
+        assert_eq!(poll1.trades.len(), 1);
+        assert_eq!(poll2.trades.len(), 2);
+        assert_eq!(poll3.trades.len(), 3);
         assert_eq!(
-            partial.trades[0].broker_trade_id,
-            filled.trades[0].broker_trade_id
+            poll1.trades[0].broker_trade_id,
+            poll2.trades[0].broker_trade_id
         );
-        assert_eq!(partial.trades[0].source_ts, filled.trades[0].source_ts);
-        assert_eq!(partial.trades[0].qty, filled.trades[0].qty);
-        assert_ne!(partial.trades[0].received_ts, filled.trades[0].received_ts);
         assert_eq!(
-            filled.trades.iter().map(|trade| trade.qty).sum::<Decimal>(),
+            poll2.trades[0].broker_trade_id,
+            poll3.trades[0].broker_trade_id
+        );
+        assert_eq!(
+            poll2.trades[1].broker_trade_id,
+            poll3.trades[1].broker_trade_id
+        );
+        assert_eq!(poll1.trades[0].source_ts, poll3.trades[0].source_ts);
+        assert_eq!(poll1.trades[0].qty, poll3.trades[0].qty);
+        assert_ne!(poll1.trades[0].received_ts, poll2.trades[0].received_ts);
+        assert_ne!(poll2.trades[0].received_ts, poll3.trades[0].received_ts);
+        assert_eq!(
+            poll3.trades.iter().map(|trade| trade.qty).sum::<Decimal>(),
             Decimal::ONE
         );
-        assert_eq!(partial.received_ts.timestamp_millis(), 1_785_661_800_125);
-        assert_eq!(filled.received_ts.timestamp_millis(), 1_785_661_800_875);
+        assert_eq!(poll1.received_ts.timestamp_millis(), 1_785_661_800_125);
+        assert_eq!(poll2.received_ts.timestamp_millis(), 1_785_661_800_500);
+        assert_eq!(poll3.received_ts.timestamp_millis(), 1_785_661_800_875);
+
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/expected/stage5g_r2cb_three_poll_broker_truth.json"
+        ))
+        .expect("connector-neutral three-poll golden fixture JSON");
+        for (mapped, expected) in [poll1, poll2, poll3]
+            .iter()
+            .zip(golden["polls"].as_array().expect("golden poll array"))
+        {
+            assert_eq!(
+                mapped.received_ts,
+                parse_timestamp(
+                    "stage5g_r2cb_golden.received_ts",
+                    expected["received_ts"].as_str().expect("golden receipt"),
+                )
+                .expect("golden receipt parses")
+            );
+            assert_eq!(
+                mapped.orders[0].filled_qty,
+                parse_decimal(
+                    "stage5g_r2cb_golden.filled_qty",
+                    expected["filled_qty"].as_str().expect("golden filled qty"),
+                )
+                .expect("golden filled quantity parses")
+            );
+            assert_eq!(
+                mapped.orders[0].source_ts,
+                Some(
+                    parse_timestamp(
+                        "stage5g_r2cb_golden.order_source_ts",
+                        expected["order_source_ts"]
+                            .as_str()
+                            .expect("golden order source"),
+                    )
+                    .expect("golden order source parses")
+                )
+            );
+            assert_eq!(
+                mapped
+                    .positions
+                    .iter()
+                    .map(|row| row.qty)
+                    .collect::<Vec<_>>(),
+                expected["position_rows"]
+                    .as_array()
+                    .expect("golden position rows")
+                    .iter()
+                    .map(|qty| {
+                        parse_decimal(
+                            "stage5g_r2cb_golden.position_qty",
+                            qty.as_str().expect("golden position quantity"),
+                        )
+                        .expect("golden position quantity parses")
+                    })
+                    .collect::<Vec<_>>()
+            );
+            let expected_trades = expected["trades"].as_array().expect("golden trades");
+            assert_eq!(mapped.trades.len(), expected_trades.len());
+            for (trade, expected_trade) in mapped.trades.iter().zip(expected_trades) {
+                assert_eq!(
+                    trade.broker_trade_id.as_str(),
+                    expected_trade["broker_trade_id"]
+                        .as_str()
+                        .expect("golden trade id")
+                );
+                assert_eq!(
+                    trade.source_ts,
+                    parse_timestamp(
+                        "stage5g_r2cb_golden.trade_source_ts",
+                        expected_trade["source_ts"]
+                            .as_str()
+                            .expect("golden trade source"),
+                    )
+                    .expect("golden trade source parses")
+                );
+                assert_eq!(trade.received_ts, mapped.received_ts);
+            }
+        }
     }
     // STAGE5G-C-R2CB-FINAM-FIXTURE-END: executable-full-snapshot-sequence-v1
 

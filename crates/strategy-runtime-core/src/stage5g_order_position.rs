@@ -755,13 +755,27 @@ fn validate_snapshot_chronology(
         .collect();
     for trade in &correlated_trades {
         validate_component_time(Some(trade.source_ts), trade.received_ts, snapshot_ts)?;
-        if slot
+        // STAGE5G-C-R2CB-R1-KNOWN-TRADE-CHRONOLOGY-BEGIN
+        if let Some(known) = slot
             .trades
             .iter()
-            .any(|known| known.broker_trade_id == trade.broker_trade_id && known == *trade)
+            .find(|known| known.broker_trade_id == trade.broker_trade_id)
         {
+            // A FINAM full snapshot repeats historical trades with the fresh
+            // package observation receipt. Known immutable history is checked
+            // against its own committed observation, not against the newest
+            // source timestamp of a different trade.
+            if !immutable_trade_payload_matches(known, trade) {
+                return Err(Stage5gOrderPositionError::TradeIdentityConflict);
+            }
+            if trade.received_ts < known.received_ts {
+                return Err(Stage5gOrderPositionError::TradeTimeRegression);
+            }
             continue;
         }
+        // STAGE5G-C-R2CB-R1-KNOWN-TRADE-CHRONOLOGY-END
+        // A previously unseen late trade remains fail closed. Admitting an
+        // older source identity needs a separately reviewed reorder policy.
         if slot
             .last_trade_source_ts
             .is_some_and(|last| trade.source_ts < last)
@@ -2043,12 +2057,25 @@ impl Stage5gMarketTerminalConvergedPaperStrategy {
 
 #[cfg(test)]
 mod tests {
+    use broker_core::command::CommandAck;
     use broker_core::{
         BrokerAccountId, BrokerOrderId, BrokerTradeId, ClientOrderId, Exchange, Market, TimeInForce,
     };
-    use chrono::{TimeZone, Utc};
+    use chrono::{Duration, NaiveTime, TimeZone, Timelike, Utc};
 
     use super::*;
+    use crate::hybrid_intraday::{
+        BreakoutEodMode, HybridOrchestratorConfig, IntradayBreakoutConfig, MeanReversionConfig,
+        MinRangeMode,
+    };
+    use crate::hybrid_intraday_runtime::{
+        HybridIntradayProfile, HybridIntradayRuntimeConfig, HybridIntradayRuntimeStrategy,
+        MeanReversionVariant, MrGatePolicy, RiskGateMode,
+    };
+    use crate::runtime_compat::{
+        BarEvent, DataOrigin, GatewayPhase, MarketBuyAndCloseLiveOrderStyle, PaperExecutionMode,
+        Strategy, StrategyCtx, TradeMode,
+    };
 
     fn target() -> InstrumentId {
         InstrumentId {
@@ -2263,6 +2290,271 @@ mod tests {
             request_id: slot().ack.request_id,
             broker_truth: truth,
             order_attribution: None,
+        }
+    }
+
+    fn r2cb_public_runtime_strategy(bar_close_ts: i64) -> HybridIntradayRuntimeStrategy {
+        let utc_bar_close = Utc.timestamp_opt(bar_close_ts, 0).single().unwrap();
+        let timezone_offset_hours = 9 - i32::try_from(utc_bar_close.hour()).unwrap();
+        let local_bar_close = utc_bar_close + Duration::hours(i64::from(timezone_offset_hours));
+        HybridIntradayRuntimeStrategy::new(HybridIntradayRuntimeConfig {
+            symbol: "IMOEXF".to_string(),
+            profile: HybridIntradayProfile::BaselineRuntimeHybrid,
+            mr_variant: MeanReversionVariant::Author41BoundaryShort,
+            mr_gate_policy: MrGatePolicy::Disabled,
+            risk_gate_mode: RiskGateMode::Disabled,
+            risk_gate_seed_file: None,
+            risk_gate_ledger_key: None,
+            model_session_start_time: Some((local_bar_close - Duration::minutes(10)).time()),
+            model_session_end_time: Some((local_bar_close + Duration::hours(1)).time()),
+            qty: 1.0,
+            live_order_style: MarketBuyAndCloseLiveOrderStyle::Market,
+            tick_size: 0.5,
+            marketable_limit_offset_ticks: 0,
+            timezone_offset_hours,
+            session_close_hour: 23,
+            session_close_minute: 49,
+            weekends_off: false,
+            stop_end_buffer_sec: 60,
+            repair_deadline_sec: 180,
+            sl_escalate_timeout_sec: 30,
+            max_repair_retries: 3,
+            repair_backoff_base_sec: 5,
+            repair_backoff_max_sec: 60,
+            pending_timeout_sec: 30,
+            partial_entry_fill_timeout_ms: 3_000,
+            mr_config: MeanReversionConfig::default(),
+            breakout_config: IntradayBreakoutConfig {
+                k: 0.53,
+                stop1_range: 0.51,
+                stop2_range: 0.35,
+                big_move_threshold: 0.025,
+                min_range: 1.01,
+                min_range_mode: MinRangeMode::Absolute,
+                exclude_weekends: false,
+                wait_hours: 0.0,
+            },
+            orchestrator_config: HybridOrchestratorConfig {
+                breakout_eod_mode: BreakoutEodMode::SameDay,
+                breakout_overnight_exit_time: NaiveTime::from_hms_opt(9, 30, 0)
+                    .expect("accepted overnight exit time"),
+            },
+        })
+    }
+
+    fn r2cb_public_runtime_session() -> (
+        Stage5gOrderPositionSession,
+        StrategyRequestId,
+        ClientOrderId,
+        Option<HybridRuntimeAttribution>,
+    ) {
+        let bar_close_ts = 1_785_661_790;
+        let mut strategy = r2cb_public_runtime_strategy(bar_close_ts);
+        for (close_time_utc, high, low) in [
+            (bar_close_ts - 86_400 - 600, 2630.0, 2570.0),
+            (bar_close_ts - 86_400, 2620.0, 2580.0),
+        ] {
+            assert!(Strategy::on_bar(
+                &mut strategy,
+                &StrategyCtx {
+                    strategy_id: "hybrid_imoexf".to_string(),
+                    portfolio: "ACC_TEST_0001".to_string(),
+                    exchange: "MOEX".to_string(),
+                    symbol: "IMOEXF".to_string(),
+                    tick_size: 0.5,
+                    trade_mode: TradeMode::Paper,
+                    paper_execution_mode: PaperExecutionMode::LiveOnly,
+                    allow_live_orders: false,
+                    gateway_phase: GatewayPhase::LiveReady,
+                    position_qty: Some(0.0),
+                    event_ts_utc: close_time_utc,
+                    now_ts_utc: close_time_utc,
+                    last_bar_ts: Some(close_time_utc),
+                },
+                &BarEvent {
+                    symbol: "IMOEXF".to_string(),
+                    close_time_utc,
+                    o: 2600.0,
+                    h: high,
+                    l: low,
+                    close: 2600.0,
+                    v: 1.0,
+                    origin: DataOrigin::Replay,
+                },
+            )
+            .is_empty());
+        }
+        let signal = broker_core::HybridRuntimeBarEvent {
+            instrument: target(),
+            close_time_utc: bar_close_ts,
+            open: 2719.0,
+            high: 2721.0,
+            low: 2719.0,
+            close: 2720.0,
+            volume: 10.0,
+            origin: broker_core::HybridRuntimeBarOrigin::Live,
+            is_final: true,
+            timeframe_sec: 600,
+        };
+        let lifecycle_now = Utc.timestamp_opt(bar_close_ts - 30, 0).single().unwrap();
+        let (recovered, accepted) =
+            crate::stage5c_paper_host::stage5f_test_seams::sequence_inputs_from_owned_strategy(
+                strategy,
+                "hybrid_imoexf".to_string(),
+                BrokerAccountId::new("ACC_TEST_0001"),
+                target(),
+                0.5,
+                Decimal::ZERO,
+                lifecycle_now,
+                bar_close_ts - 600,
+                signal,
+            );
+        let semantic = crate::apply_stage5c_semantic_bar(recovered, accepted)
+            .expect("accepted Stage 5F semantic Market intent");
+        let settled = crate::settle_stage5c_semantic_result(semantic)
+            .expect("accepted Stage 5F Market intent settlement");
+        let request_id = settled.intent_batch().request_ids()[0];
+        let source = settled.stage5g_source_intent_projections();
+        assert_eq!(source.len(), 1);
+        assert_eq!(source[0].base_action, Stage5gSourceBaseAction::Market);
+        let side = source[0].side.expect("Market source side");
+        let binding = crate::Stage5gMockIntentBinding {
+            request_id,
+            intent_class: settled.intent_batch().intent_classes()[0],
+            action: Stage5gMockIntentAction::Place {
+                place_kind: Stage5gMockPlaceKind::Market,
+            },
+            side: Some(side),
+        };
+        let ack_session = crate::attach_stage5g_mock_ack_session(
+            settled,
+            crate::Stage5gMockAckSessionInput {
+                intent_bindings: vec![binding],
+                lifecycle_expires_at_ts_utc: bar_close_ts + 300,
+            },
+        )
+        .expect("public Stage 5G-b ACK attachment");
+        let client_order_id = ClientOrderId::from_strategy_request(request_id);
+        let resolved = crate::apply_stage5g_mock_ack(
+            ack_session,
+            crate::Stage5gMockAckEvent {
+                total_sequence: 1,
+                intent_request_id: request_id,
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                instrument: target(),
+                action: Stage5gMockIntentAction::Place {
+                    place_kind: Stage5gMockPlaceKind::Market,
+                },
+                side: Some(side),
+                ack: CommandAck {
+                    request_id,
+                    client_order_id: Some(client_order_id.clone()),
+                    broker_order_id: Some(BrokerOrderId::new("FINAM-R2CB-ORDER-1")),
+                    status: CommandAckStatus::Accepted,
+                    reason: None,
+                    received_ts: Utc.timestamp_opt(bar_close_ts + 1, 0).single().unwrap(),
+                },
+            },
+        )
+        .expect("public accepted Stage 5G-b ACK")
+        .into_resolved()
+        .expect("accepted ACK resolves one-slot lifecycle");
+        let expected_attribution = resolved.source_intent_projections()[0]
+            .expected_attribution
+            .clone();
+        let session = attach_stage5g_order_position_session(resolved)
+            .expect("public Stage 5G-c broker-truth attachment");
+        (session, request_id, client_order_id, expected_attribution)
+    }
+
+    fn r2cb_golden_truth(
+        poll: &serde_json::Value,
+        client_order_id: &ClientOrderId,
+    ) -> BrokerTruthSnapshot {
+        let parse_ts = |field: &str| {
+            chrono::DateTime::parse_from_rfc3339(
+                poll[field].as_str().expect("golden timestamp string"),
+            )
+            .expect("golden timestamp parses")
+            .with_timezone(&Utc)
+        };
+        let received_ts = parse_ts("received_ts");
+        let status = match poll["order_status"].as_str().unwrap() {
+            "partially_filled" => OrderStatus::PartiallyFilled,
+            "filled" => OrderStatus::Filled,
+            other => panic!("unsupported golden order status: {other}"),
+        };
+        let filled_qty = poll["filled_qty"]
+            .as_str()
+            .unwrap()
+            .parse::<Decimal>()
+            .unwrap();
+        let order = BrokerOrderSnapshot {
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            broker_order_id: Some(BrokerOrderId::new("FINAM-R2CB-ORDER-1")),
+            client_order_id: Some(client_order_id.clone()),
+            instrument: target(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Market,
+            time_in_force: Some(TimeInForce::Day),
+            lifecycle: BrokerOrderSnapshot::lifecycle_for(&status),
+            status,
+            qty: Decimal::ONE,
+            filled_qty,
+            remaining_qty: Some(Decimal::ONE - filled_qty),
+            limit_price: None,
+            broker_asset_id: None,
+            board: None,
+            expiration_date: None,
+            source_ts: Some(parse_ts("order_source_ts")),
+            received_ts,
+        };
+        let positions = poll["position_rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|qty| BrokerPositionSnapshot {
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                instrument: target(),
+                qty: qty.as_str().unwrap().parse::<Decimal>().unwrap(),
+                avg_price: Some(Decimal::new(2_210, 0)),
+                unrealized_pnl: Some(Decimal::ZERO),
+                source_ts: None,
+                received_ts,
+            })
+            .collect();
+        let trades = poll["trades"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| BrokerTradeSnapshot {
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                broker_trade_id: BrokerTradeId::new(row["broker_trade_id"].as_str().unwrap()),
+                broker_order_id: Some(BrokerOrderId::new("FINAM-R2CB-ORDER-1")),
+                client_order_id: Some(client_order_id.clone()),
+                instrument: target(),
+                side: OrderSide::Buy,
+                qty: row["qty"].as_str().unwrap().parse::<Decimal>().unwrap(),
+                price: row["price"].as_str().unwrap().parse::<Decimal>().unwrap(),
+                gross_amount: None,
+                commission: None,
+                broker_asset_id: None,
+                board: None,
+                expiration_date: None,
+                source_ts: chrono::DateTime::parse_from_rfc3339(row["source_ts"].as_str().unwrap())
+                    .unwrap()
+                    .with_timezone(&Utc),
+                received_ts,
+            })
+            .collect();
+        BrokerTruthSnapshot {
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            orders: vec![order],
+            positions,
+            cash: None,
+            trades,
+            instruments: vec![],
+            received_ts,
         }
     }
 
@@ -3209,8 +3501,64 @@ mod tests {
     }
 
     // STAGE5G-C-R2CB-PARITY-TESTS-BEGIN: broker-truth-finam-parity-v1
+    // STAGE5G-C-R2CB-R1-THREE-POLL-RUNTIME-WITNESS-BEGIN
     #[test]
-    fn r2cb_finam_full_snapshot_replay_refreshes_trade_receipt_without_conflict() {
+    fn r2cb_public_runtime_three_poll_golden_converges_through_stage5c() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/expected/stage5g_r2cb_three_poll_broker_truth.json"
+        ))
+        .expect("connector-neutral three-poll golden JSON");
+        let polls = golden["polls"].as_array().expect("three golden polls");
+        assert_eq!(polls.len(), 3);
+        let (mut session, request_id, client_order_id, expected_attribution) =
+            r2cb_public_runtime_session();
+        let mut fingerprints = Vec::new();
+
+        for (index, poll) in polls.iter().take(2).enumerate() {
+            let transition = apply_stage5g_order_position_evidence(
+                session,
+                Stage5gOrderPositionEvidence {
+                    total_sequence: u64::try_from(index + 2).unwrap(),
+                    request_id,
+                    broker_truth: r2cb_golden_truth(poll, &client_order_id),
+                    order_attribution: expected_attribution.clone(),
+                },
+            )
+            .expect("partial FINAM full-snapshot poll remains accepted");
+            session = transition
+                .into_awaiting()
+                .expect("partial poll must not invoke the Stage 5C callback");
+            let summary = session.summary();
+            assert_eq!(summary.stage5c_callback_count, 0);
+            assert_eq!(summary.correlated_trade_count, index + 1);
+            fingerprints.push(summary.lifecycle_fingerprint_sha256);
+        }
+        assert_ne!(fingerprints[0], fingerprints[1]);
+
+        let converged = apply_stage5g_order_position_evidence(
+            session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 4,
+                request_id,
+                broker_truth: r2cb_golden_truth(&polls[2], &client_order_id),
+                order_attribution: expected_attribution,
+            },
+        )
+        .expect("filled FINAM full-snapshot poll converges")
+        .into_converged()
+        .expect("filled Market order converges through the Stage 5C lifecycle");
+        assert_eq!(converged.summary().stage5c_callback_count, 1);
+        assert_eq!(converged.summary().terminal_request_count, 1);
+        assert_eq!(converged.summary().correlated_trade_count, 3);
+        assert_eq!(converged.summary().position_confirmation_count, 1);
+        assert!(!converged.intent_sink_attached());
+        assert!(!converged.redis_command_stream_attached());
+        assert!(!converged.broker_transport_attached());
+        assert!(!converged.broker_execution_attached());
+    }
+
+    #[test]
+    fn r2cb_three_poll_full_snapshot_replay_refreshes_history_without_regression() {
         let account = BrokerAccountId::new("ACC_TEST_0001");
         let mut slot = market_slot(
             crate::BrokerNeutralHybridIntentClass::Entry,
@@ -3218,37 +3566,207 @@ mod tests {
             1.0,
             0.0,
         );
-        let partial_qty = Decimal::new(4, 1);
-        let partial = evidence(
+        let poll1_qty = Decimal::new(2, 1);
+        let poll1 = evidence(
             2,
             truth(
-                vec![market_order(OrderStatus::PartiallyFilled, partial_qty, 2)],
-                vec![market_trade("FINAM_TRADE_A", partial_qty, 2)],
-                vec![position(partial_qty, 2)],
+                vec![market_order(OrderStatus::PartiallyFilled, poll1_qty, 2)],
+                vec![market_trade("FINAM_TRADE_A", poll1_qty, 2)],
+                vec![position(poll1_qty, 2)],
                 2,
             ),
         );
-        apply_to_slot(&account, &target(), &mut slot, &partial).unwrap();
+        validate_snapshot_chronology(None, &target(), &mut slot, &poll1).unwrap();
+        apply_to_slot(&account, &target(), &mut slot, &poll1).unwrap();
+        let poll1_fingerprint = lifecycle_state_fingerprint(
+            &Stage5gOrderPositionState {
+                strategy_id: "hybrid_imoexf".to_string(),
+                account_id: account.clone(),
+                instrument: target(),
+                slots: vec![slot.clone()],
+                evidence_identities: vec![],
+                last_total_sequence: Some(2),
+                last_broker_truth_received_ms: Some(ts(2).timestamp_millis()),
+                duplicate_evidence_count: 0,
+            },
+            0,
+        );
 
-        let mut repeated = market_trade("FINAM_TRADE_A", partial_qty, 2);
-        repeated.received_ts = ts(3);
-        let filled = evidence(
+        let poll2_qty = Decimal::new(4, 1);
+        let mut repeated_a = market_trade("FINAM_TRADE_A", poll1_qty, 2);
+        repeated_a.received_ts = ts(3);
+        let poll2 = evidence(
             3,
             truth(
-                vec![market_order(OrderStatus::Filled, Decimal::ONE, 3)],
-                vec![
-                    repeated,
-                    market_trade("FINAM_TRADE_B", Decimal::new(6, 1), 3),
-                ],
-                vec![position(Decimal::ONE, 3)],
+                vec![market_order(OrderStatus::PartiallyFilled, poll2_qty, 3)],
+                vec![repeated_a, market_trade("FINAM_TRADE_B", poll1_qty, 3)],
+                vec![position(poll2_qty, 3)],
                 3,
             ),
         );
-        apply_to_slot(&account, &target(), &mut slot, &filled).unwrap();
-        assert!(slot.terminal);
+        validate_snapshot_chronology(Some(ts(2).timestamp_millis()), &target(), &mut slot, &poll2)
+            .unwrap();
+        apply_to_slot(&account, &target(), &mut slot, &poll2).unwrap();
         assert_eq!(slot.trades.len(), 2);
         assert_eq!(slot.trades[0].received_ts, ts(3));
+        let poll2_fingerprint = lifecycle_state_fingerprint(
+            &Stage5gOrderPositionState {
+                strategy_id: "hybrid_imoexf".to_string(),
+                account_id: account.clone(),
+                instrument: target(),
+                slots: vec![slot.clone()],
+                evidence_identities: vec![],
+                last_total_sequence: Some(3),
+                last_broker_truth_received_ms: Some(ts(3).timestamp_millis()),
+                duplicate_evidence_count: 0,
+            },
+            0,
+        );
+        assert_ne!(poll1_fingerprint, poll2_fingerprint);
+
+        let mut repeated_a = market_trade("FINAM_TRADE_A", poll1_qty, 2);
+        repeated_a.received_ts = ts(4);
+        let mut repeated_b = market_trade("FINAM_TRADE_B", poll1_qty, 3);
+        repeated_b.received_ts = ts(4);
+        let poll3 = evidence(
+            4,
+            truth(
+                vec![market_order(OrderStatus::Filled, Decimal::ONE, 4)],
+                vec![
+                    repeated_a,
+                    repeated_b,
+                    market_trade("FINAM_TRADE_C", Decimal::new(6, 1), 4),
+                ],
+                vec![position(Decimal::ONE, 4)],
+                4,
+            ),
+        );
+        validate_snapshot_chronology(Some(ts(3).timestamp_millis()), &target(), &mut slot, &poll3)
+            .unwrap();
+        apply_to_slot(&account, &target(), &mut slot, &poll3).unwrap();
+        assert!(slot.terminal);
+        assert_eq!(slot.trades.len(), 3);
+        assert!(slot.trades.iter().all(|trade| trade.received_ts == ts(4)));
+        assert_eq!(
+            slot.trades.iter().map(|trade| trade.qty).sum::<Decimal>(),
+            Decimal::ONE
+        );
     }
+
+    #[test]
+    fn r2cb_known_trade_refresh_and_unseen_late_trade_have_distinct_chronology() {
+        let account = BrokerAccountId::new("ACC_TEST_0001");
+        let mut slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        let qty = Decimal::new(2, 1);
+        let first = evidence(
+            2,
+            truth(
+                vec![market_order(OrderStatus::PartiallyFilled, qty, 2)],
+                vec![market_trade("FINAM_TRADE_A", qty, 2)],
+                vec![position(qty, 2)],
+                2,
+            ),
+        );
+        validate_snapshot_chronology(None, &target(), &mut slot, &first).unwrap();
+        apply_to_slot(&account, &target(), &mut slot, &first).unwrap();
+
+        let mut known_a = market_trade("FINAM_TRADE_A", qty, 2);
+        known_a.received_ts = ts(3);
+        let second = evidence(
+            3,
+            truth(
+                vec![market_order(
+                    OrderStatus::PartiallyFilled,
+                    Decimal::new(4, 1),
+                    3,
+                )],
+                vec![known_a, market_trade("FINAM_TRADE_B", qty, 3)],
+                vec![position(Decimal::new(4, 1), 3)],
+                3,
+            ),
+        );
+        validate_snapshot_chronology(
+            Some(ts(2).timestamp_millis()),
+            &target(),
+            &mut slot,
+            &second,
+        )
+        .unwrap();
+        apply_to_slot(&account, &target(), &mut slot, &second).unwrap();
+
+        let mut refreshed_a = market_trade("FINAM_TRADE_A", qty, 2);
+        refreshed_a.received_ts = ts(4);
+        let stable = evidence(
+            4,
+            truth(
+                vec![market_order(
+                    OrderStatus::PartiallyFilled,
+                    Decimal::new(4, 1),
+                    4,
+                )],
+                vec![refreshed_a.clone(), {
+                    let mut trade = market_trade("FINAM_TRADE_B", qty, 3);
+                    trade.received_ts = ts(4);
+                    trade
+                }],
+                vec![position(Decimal::new(4, 1), 4)],
+                4,
+            ),
+        );
+        validate_snapshot_chronology(
+            Some(ts(3).timestamp_millis()),
+            &target(),
+            &mut slot,
+            &stable,
+        )
+        .unwrap();
+        apply_to_slot(&account, &target(), &mut slot, &stable).unwrap();
+        assert_eq!(slot.trades.len(), 2);
+        assert!(slot.trades.iter().all(|trade| trade.received_ts == ts(4)));
+
+        let mut earlier_a = refreshed_a.clone();
+        earlier_a.received_ts = ts(3);
+        assert_eq!(
+            validate_snapshot_chronology(
+                Some(ts(4).timestamp_millis()),
+                &target(),
+                &mut slot.clone(),
+                &evidence(5, truth(vec![], vec![earlier_a], vec![], 5)),
+            ),
+            Err(Stage5gOrderPositionError::TradeTimeRegression)
+        );
+
+        let mut conflicting_a = refreshed_a;
+        conflicting_a.received_ts = ts(5);
+        conflicting_a.price += Decimal::new(5, 1);
+        assert_eq!(
+            validate_snapshot_chronology(
+                Some(ts(4).timestamp_millis()),
+                &target(),
+                &mut slot.clone(),
+                &evidence(6, truth(vec![], vec![conflicting_a], vec![], 5)),
+            ),
+            Err(Stage5gOrderPositionError::TradeIdentityConflict)
+        );
+
+        let mut unseen_late = market_trade("FINAM_TRADE_LATE", qty, 1);
+        unseen_late.received_ts = ts(5);
+        assert_eq!(
+            validate_snapshot_chronology(
+                Some(ts(4).timestamp_millis()),
+                &target(),
+                &mut slot,
+                &evidence(7, truth(vec![], vec![unseen_late], vec![], 5)),
+            ),
+            Err(Stage5gOrderPositionError::TradeTimeRegression)
+        );
+    }
+    // STAGE5G-C-R2CB-R1-THREE-POLL-RUNTIME-WITNESS-END
 
     #[test]
     fn r2cb_same_snapshot_trade_id_is_deduplicated_or_conflicts() {

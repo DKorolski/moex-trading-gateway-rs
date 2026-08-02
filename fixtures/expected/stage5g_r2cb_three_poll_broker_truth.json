@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "fixture_kind": "connector_neutral_stage5g_r2cb_three_poll_broker_truth",
+  "account_id": "ACC_TEST_0001",
+  "symbol": "IMOEXF",
+  "venue_symbol": "IMOEXF@RTSX",
+  "broker_order_id": "FINAM-R2CB-ORDER-1",
+  "polls": [
+    {
+      "received_ts": "2026-08-02T09:10:00.125Z",
+      "order_status": "partially_filled",
+      "order_source_ts": "2026-08-02T09:10:00.050Z",
+      "filled_qty": "0.2",
+      "position_rows": ["0.2"],
+      "trades": [
+        {
+          "broker_trade_id": "FINAM-R2CB-TRADE-A",
+          "source_ts": "2026-08-02T09:10:00.100Z",
+          "qty": "0.2",
+          "price": "2210"
+        }
+      ]
+    },
+    {
+      "received_ts": "2026-08-02T09:10:00.500Z",
+      "order_status": "partially_filled",
+      "order_source_ts": "2026-08-02T09:10:00.450Z",
+      "filled_qty": "0.4",
+      "position_rows": ["0.1", "0.3"],
+      "trades": [
+        {
+          "broker_trade_id": "FINAM-R2CB-TRADE-A",
+          "source_ts": "2026-08-02T09:10:00.100Z",
+          "qty": "0.2",
+          "price": "2210"
+        },
+        {
+          "broker_trade_id": "FINAM-R2CB-TRADE-B",
+          "source_ts": "2026-08-02T09:10:00.400Z",
+          "qty": "0.2",
+          "price": "2211"
+        }
+      ]
+    },
+    {
+      "received_ts": "2026-08-02T09:10:00.875Z",
+      "order_status": "filled",
+      "order_source_ts": "2026-08-02T09:10:00.800Z",
+      "filled_qty": "1",
+      "position_rows": ["1"],
+      "trades": [
+        {
+          "broker_trade_id": "FINAM-R2CB-TRADE-A",
+          "source_ts": "2026-08-02T09:10:00.100Z",
+          "qty": "0.2",
+          "price": "2210"
+        },
+        {
+          "broker_trade_id": "FINAM-R2CB-TRADE-B",
+          "source_ts": "2026-08-02T09:10:00.400Z",
+          "qty": "0.2",
+          "price": "2211"
+        },
+        {
+          "broker_trade_id": "FINAM-R2CB-TRADE-C",
+          "source_ts": "2026-08-02T09:10:00.700Z",
+          "qty": "0.6",
+          "price": "2211"
+        }
+      ]
+    }
+  ]
+}

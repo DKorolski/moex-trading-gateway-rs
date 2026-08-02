@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "stage": "5G-c-R2-c-b-R1-historical-trade-replay-chronology",
+  "status": "review_candidate",
+  "base_commit": "049f39e8e50b32bc9d334cb09f8e6502988304c5",
+  "required_parent_relation": "exactly_one_successor",
+  "accepted_r3_entry_points": [
+    "validate_stage5c_market_terminal_outcome_r3",
+    "settle_stage5c_validated_market_terminal_outcome_r3"
+  ],
+  "chronology_contract": {
+    "known_trade_classified_before_global_watermark": true,
+    "known_trade_requires_immutable_payload_match": true,
+    "known_trade_source_timestamp_exact": true,
+    "known_trade_received_timestamp_monotonic": true,
+    "known_trade_bypasses_global_source_watermark": true,
+    "known_trade_quantity_counted_once": true,
+    "new_trade_uses_global_source_and_receipt_watermarks": true,
+    "unseen_late_trade_policy": "fail_closed_trade_time_regression"
+  },
+  "evidence": {
+    "native_finam_three_poll_fixture": "fixtures/finam/stage5g_r2cb_full_snapshot_sequence.json",
+    "connector_neutral_three_poll_golden": "fixtures/expected/stage5g_r2cb_three_poll_broker_truth.json",
+    "public_runtime_witness": "r2cb_public_runtime_three_poll_golden_converges_through_stage5c",
+    "focused_test_filter": "stage5g_order_position",
+    "finam_mapper_test_filter": "stage5g_r2cb_finam_full_snapshot_fixture",
+    "package_receipt_clock": "BrokerTruthSnapshot.received_ts.timestamp_millis()"
+  },
+  "replay_identity_carry_forward": {
+    "current_key": "request/account/receipt_millisecond",
+    "current_ingestion": "bounded_rest_full_snapshot_polling",
+    "live_stream_uniqueness_assumed": false,
+    "required_before_stage5g_d_or_stream_reuse": "bind_connector_package_sequence_or_canonical_fingerprint"
+  },
+  "closed_surfaces": {
+    "stage5g_d": false,
+    "redis_live_consumer_groups": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage6": false,
+    "main_merge": false,
+    "deployment": false
+  }
+}
